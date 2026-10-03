@@ -26,7 +26,7 @@ const DEFS: Record<string, FakeDef> = {
   "board.slack": {
     key: "board.slack",
     type: "object",
-    scopes: ["team"],
+    scopes: ["team", "org"],
     merge: "deep",
     description: "Slack posting",
     schema: { type: "object", required: ["webhookUrl"], properties: { webhookUrl: { type: "string" }, emoji: { type: "string" } } },
@@ -87,11 +87,15 @@ const RT = {
   },
   validateValue: (_def: FakeDef, value: unknown) =>
     value === "invalid" ? { ok: false, reason: "value is invalid" } : { ok: true },
-  validateWrite: (_def: FakeDef, value: unknown) =>
-    value === "invalid" ? { ok: false, reason: "value is invalid", issues: [{ path: [], message: "value is invalid" }] } : { ok: true },
+  validateWrite: (_def: FakeDef, value: unknown, opts?: { team?: string }) => {
+    if (opts?.team === "bad/name") throw new Error('rt: "bad/name" is not a team name');
+    return value === "invalid" ? { ok: false, reason: "value is invalid", issues: [{ path: [], message: "value is invalid" }] } : { ok: true };
+  },
   listUnregisteredSettings: () => [{ key: "board.rtRepos", scope: "machine", file: "/home/user/local/settings.local.jsonc" }],
   repoSectionsFor: (key: string) => (key === "rt.roles" ? [{ identity: "gitlab.example.com/acme/app", scopes: ["team"] }] : []),
   listStoreRepoIdentities: () => ["gitlab.example.com/acme/app"],
+  listOrgs: () => [],
+  activeTeam: () => ({ org: null, team: null, reason: "no-org", username: null, listedOn: [] }),
   setSetting: (...args: unknown[]) => {
     setCalls.push(args);
     if (args[0] === "board.title" && args[1] === "explode") throw new Error("rt: store refused the write");
@@ -146,15 +150,53 @@ describe("settingsHandler routing", () => {
     expect(body.defs.map((d) => d.key).sort()).toEqual(["board.members", "board.rtRepos", "board.slack", "board.title"]);
   });
 
-  test("defs names the machine's one team, and null with none or several", async () => {
-    const one = await handle(get("/api/settings/defs"), { rt: { listTeams: () => ["acme"] } });
-    expect(((await one!.json()) as { team: string | null }).team).toBe("acme");
+  test("defs names the org and the active team, and nulls with no org", async () => {
+    const active = { org: "acme", team: "widgets", reason: "first-team" as const, username: "dev1", listedOn: ["widgets"] };
+    const one = await handle(get("/api/settings/defs"), { rt: { listOrgs: () => ["acme"], activeTeam: () => active } });
+    const body = (await one!.json()) as Record<string, unknown>;
+    expect(body.org).toBe("acme");
+    expect(body.activeTeam).toBe("widgets");
+    expect("team" in body).toBe(false);
 
-    const none = await handle(get("/api/settings/defs"), { rt: { listTeams: () => [] } });
-    expect(((await none!.json()) as { team: string | null }).team).toBeNull();
+    const none = await handle(get("/api/settings/defs"), {
+      rt: { listOrgs: () => [], activeTeam: () => ({ org: null, team: null, reason: "no-org" as const, username: null, listedOn: [] }) },
+    });
+    expect(await none!.json()).toMatchObject({ org: null, activeTeam: null });
+  });
 
-    const two = await handle(get("/api/settings/defs"), { rt: { listTeams: () => ["acme", "globex"] } });
-    expect(((await two!.json()) as { team: string | null }).team).toBeNull();
+  test("an add key's effective value is every live layer's list, weakest first, without duplicates", () => {
+    const def = { key: "claude.plugins", type: "array", scopes: ["user", "team", "org"], merge: "add", description: "" } as never;
+    const rows = [
+      { scope: "default", file: null, present: false },
+      { scope: "org", file: "/o", present: true, value: ["a@acme", "b@acme"] },
+      { scope: "team", file: "/t", present: true, value: ["b@acme", "c@acme"] },
+      { scope: "user", file: "/u", present: true, value: ["d@x"] },
+    ] as never;
+    expect(effectiveFromRows(def, rows)).toEqual({ scope: "user", file: "/u", value: ["a@acme", "b@acme", "c@acme", "d@x"] });
+  });
+
+  test("an add key still adds up the valid layers when its strongest layer is invalid", () => {
+    const def = { key: "claude.plugins", type: "array", scopes: ["user", "team", "org"], merge: "add", description: "" } as never;
+    const rows = [
+      { scope: "default", file: null, present: false },
+      { scope: "org", file: "/o", present: true, value: ["a@acme"] },
+      { scope: "team", file: "/t", present: true, value: ["b@acme"] },
+      { scope: "user", file: "/u", present: true, value: "nope", invalid: "expected array, got string" },
+    ] as never;
+    expect(effectiveFromRows(def, rows)).toEqual({ scope: "user", file: "/u", invalid: "expected array, got string", value: ["a@acme", "b@acme"] });
+  });
+
+  test("a set naming a bad team answers 400 with the error instead of throwing", async () => {
+    const res = await handle(post("/api/settings/set", { key: "board.slack", scope: "team", team: "bad/name", value: { webhookUrl: "https://hooks.example.com/x" } }), { allowComposite: true });
+    expect(res!.status).toBe(400);
+    expect(await res!.json()).toEqual({ error: 'rt: "bad/name" is not a team name' });
+    expect(setCalls).toHaveLength(0);
+  });
+
+  test("a set at org scope reaches setSetting with the org scope and no team", async () => {
+    const res = await handle(post("/api/settings/set", { key: "board.slack", scope: "org", value: { webhookUrl: "https://hooks.example.com/x" } }), { allowComposite: true });
+    expect(res!.status).toBe(200);
+    expect(setCalls.at(-1)).toEqual(["board.slack", { webhookUrl: "https://hooks.example.com/x" }, "org", {}]);
   });
 
   test("a custom basePath relocates every route", async () => {

@@ -31,7 +31,7 @@ import { deriveRepoIdentity, serializeIdentity } from "../../lib/settings/identi
 import type { DaemonResponse } from "../../lib/daemon-client.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { teamSettingsPath } from "../../lib/rt-paths.ts";
+import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 
 // mock.module mutates the live "../../lib/daemon-client.ts" namespace object
 // IN PLACE, so `realDaemonClient.daemonQuery` itself becomes the mock the
@@ -579,7 +579,7 @@ describe("worktree CLI identity plumbing", () => {
     execSync("git remote add origin git@git.example.com:sample-team/approve-human.git", { cwd: repoPath });
     process.chdir(repoPath);
     getRepoIdentity();
-    const store = teamSettingsPath("sample-team");
+    const store = sharedStorePath("sample-team");
     mkdirSync(dirname(store), { recursive: true });
     writeFileSync(store, JSON.stringify({ repos: { "git.example.com/sample-team/approve-human": { "rt.worktrees": { onDeck: 1, ready: [{ run: "make setup" }] } } } }));
     const wire = serializeIdentity(await deriveRepoIdentity(repoPath));

@@ -215,7 +215,7 @@ describe("setupApply — exit-code table", () => {
     const deps = baseApplyDeps();
     deps.probes = { ...deps.probes, readDir: () => { throw new UserActionableError("team-discovery-failed", "readDir boom"); } };
 
-    // createApplyContext's discoverTeams() calls p.readDir — this proves a
+    // createApplyContext's discoverOrgs() calls p.readDir... this proves a
     // UserActionableError thrown from inside context creation is caught by
     // setupApply's own try/catch (not left to propagate uncaught, which
     // would abandon the stream with no terminal event and no exit code).
@@ -521,7 +521,7 @@ describe("setupIntent", () => {
   test("rt setup intent solo refuses with team-exists when a team clone is on disk, and writes nothing", async () => {
     const deps = baseIntentDeps({
       probes: fakeProbes({
-        files: { "/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc": "{}" },
+        files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
         dirs: { "/fake-home/.mattstack/teams": ["acme"] },
       }),
     });

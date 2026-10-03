@@ -1,11 +1,11 @@
 import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
-import { discoverTeams } from "../setup/team-settings.ts";
+import { discoverOrgs } from "../setup/team-settings.ts";
 
 export const ONE_TEAM_RULE = "mattstack supports one team per machine today";
 
 function otherTeamZones(p: Probes, slug: string): string[] {
-  return discoverTeams(p)
+  return discoverOrgs(p)
     .filter((team) => team !== slug)
     .sort();
 }

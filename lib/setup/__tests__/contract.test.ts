@@ -8,7 +8,7 @@ import {
   row,
   type Group,
   type Row,
-  type TeamRef,
+  type OrgRef,
 } from "../contract.ts";
 
 function makeRow(overrides: Partial<Row> & Pick<Row, "id" | "required" | "status">): Row {
@@ -22,7 +22,7 @@ function makeRow(overrides: Partial<Row> & Pick<Row, "id" | "required" | "status
 }
 
 describe("finalizePlan", () => {
-  const team: TeamRef = { slug: "acme", name: "Acme", mode: "join" };
+  const team: OrgRef = { slug: "acme", name: "Acme", mode: "join" };
 
   test("mixed required/optional rows yields canInstall:false and the required-missing id", () => {
     const groups: Group[] = [

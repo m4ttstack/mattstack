@@ -48,6 +48,13 @@ export interface TeamLocalRecord {
    * personal recipients file.
    */
   agePublicKey?: string;
+  /**
+   * This member's username on the org's forge, recorded at join, at create
+   * and by setup. The resolver reads it to pick the active team and the write
+   * guard reads it for the member's role, so it has to be on disk: neither
+   * may spawn a forge CLI.
+   */
+  forgeUsername?: string;
 }
 
 const RECORD_MODE = 0o600;
@@ -70,6 +77,7 @@ export function readTeamLocal(p: Pick<Probes, "readFile" | "home">, slug: string
       joinedByRt: parsed.joinedByRt === true,
       rtMayManageMembership: parsed.rtMayManageMembership === true,
       ...(typeof parsed.agePublicKey === "string" && parsed.agePublicKey.startsWith("age1") ? { agePublicKey: parsed.agePublicKey } : {}),
+      ...(typeof parsed.forgeUsername === "string" && parsed.forgeUsername.trim() !== "" ? { forgeUsername: parsed.forgeUsername.trim() } : {}),
     };
   } catch {
     return { ...EMPTY };
@@ -92,6 +100,15 @@ export function writeTeamLocal(
 export function assertNotJoined(p: Pick<Probes, "readFile" | "home">, slug: string): void {
   if (!readTeamLocal(p, slug).joinedByRt) return;
   throw new UserActionableError("team-pull-only", `This Mac joined the ${slug} team by invite, so its copy is pull-only.`, {}, { why: "Ask the team's owner to make this change." });
+}
+
+/** A roster write lands in the org this Mac reads settings from, so a verb named for any other org would read one store and write another. */
+export function assertCurrentOrg(slug: string, current: string | null, verb: string): void {
+  if (current === slug) return;
+  if (current === null) {
+    throw new UserActionableError("org-not-on-this-mac", `This Mac has no clone of the ${slug} org, so its roster can't change here.`, {}, { next: "rt team join" });
+  }
+  throw new UserActionableError("org-not-current", `This Mac reads settings from the ${current} org, not ${slug}, so the ${slug} roster can't change here.`, {}, { next: `rt ${verb} --team ${current}` });
 }
 
 /** Merges one field without clobbering the rest — callers set `createdByRt` and the operator sets the permission, at different times. */

@@ -13,6 +13,7 @@ import type { MigrationStep } from "../registry-machinery.ts";
 import { renameProperty } from "../migrations/helpers.ts";
 import { planStoreMigrations } from "../migrate-stores.ts";
 import { withMigration } from "./with-migration.ts";
+import { seedOrg, sharedStorePath } from "../../../test/org-fixture.ts";
 
 const IDENTITY = "gitlab.example.com/acme/app";
 const TEAM = "acme";
@@ -75,14 +76,14 @@ describe("planStoreMigrations", () => {
     });
   });
 
-  test("lists older names beside current ones, with the team name and repo", () => {
+  test("lists older names beside current ones, with the team folder's name and repo", () => {
     withMigration("rt.roles", ROLES_BUMP, () => {
-      write(teamSettingsPath(TEAM), { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } }, "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
+      seedOrg({ org: TEAM, teams: { widgets: { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } }, "rt.roles@2": { web: { devHook: "./dev.sh" } } } } } } });
       expect(planStoreMigrations().older).toEqual([{
         key: "rt.roles",
         scope: "team",
-        team: TEAM,
-        file: teamSettingsPath(TEAM),
+        team: "widgets",
+        file: teamSettingsPath(TEAM, "widgets"),
         repo: IDENTITY,
         storeName: "rt.roles",
         storedVersion: 1,

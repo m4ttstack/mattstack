@@ -21,6 +21,7 @@ import { PanelToolbar } from './PanelToolbar';
 import { schemaFields } from './testSchemas';
 import {
   prefetchKeyExplain,
+  SettingsOrgContext,
   SettingsRepoContext,
   SettingsTeamContext,
 } from './useConsoleSettings';
@@ -86,6 +87,7 @@ function renderPanel(
     s?: PanelStore;
     tab?: PanelTab;
     team?: string;
+    org?: string;
     repo?: string;
     value?: ReactNode;
     fix?: string | null;
@@ -102,18 +104,20 @@ function renderPanel(
     repo: string | null = opts.repo ?? null
   ) => (
     <QueryClientProvider client={client}>
-      <SettingsTeamContext.Provider value={opts.team ?? null}>
-        <SettingsRepoContext.Provider value={repo}>
-          <KeyPanel
-            def={d}
-            store={s}
-            tab={opts.tab ?? 'where'}
-            onTab={onTab}
-            value={opts.value ?? <div>value tab</div>}
-            fix={fix}
-          />
-        </SettingsRepoContext.Provider>
-      </SettingsTeamContext.Provider>
+      <SettingsOrgContext.Provider value={opts.org ?? null}>
+        <SettingsTeamContext.Provider value={opts.team ?? null}>
+          <SettingsRepoContext.Provider value={repo}>
+            <KeyPanel
+              def={d}
+              store={s}
+              tab={opts.tab ?? 'where'}
+              onTab={onTab}
+              value={opts.value ?? <div>value tab</div>}
+              fix={fix}
+            />
+          </SettingsRepoContext.Provider>
+        </SettingsTeamContext.Provider>
+      </SettingsOrgContext.Provider>
     </QueryClientProvider>
   );
   const { rerender, unmount } = renderWithProviders(panel(opts.fix));
@@ -265,6 +269,48 @@ describe('KeyPanel', () => {
     );
   });
 
+  it('an add list marks every layer that adds items merged, with its own caption', async () => {
+    renderPanel(
+      def('claude.plugins', {
+        type: 'array',
+        scopes: ['user', 'team', 'org'],
+        merge: 'add',
+        effective: {
+          scope: 'team',
+          file: '/stores/team.jsonc',
+          value: ['acme-tools@acme', 'widgets@acme'],
+        },
+      }),
+      [
+        { scope: 'default', file: null, present: false },
+        {
+          scope: 'org',
+          file: '/stores/org.jsonc',
+          present: true,
+          value: ['acme-tools@acme'],
+        },
+        {
+          scope: 'team',
+          file: '/stores/team.jsonc',
+          present: true,
+          value: ['widgets@acme'],
+        },
+        { scope: 'user', file: '/stores/user.jsonc', present: false },
+      ],
+      { team: 'widgets', org: 'acme' }
+    );
+    expect(
+      await screen.findByText('Every layer adds its items.')
+    ).toBeInTheDocument();
+    expect(
+      within(await screen.findByTestId('layer-org')).getByText('merged')
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('layer-team')).getByText('merged')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('in effect')).toBeNull();
+  });
+
   it('captions a deep-merge key before its layers load', () => {
     explainGet.mockReturnValue(new Promise(() => {}));
     renderWithProviders(
@@ -367,7 +413,7 @@ describe('KeyPanel', () => {
         LAYERS[2]!,
         LAYERS[3]!,
       ],
-      { team: 'acme' }
+      { team: 'widgets', org: 'acme' }
     );
     const team = await screen.findByTestId('layer-team');
     await userEvent.hover(
@@ -376,7 +422,7 @@ describe('KeyPanel', () => {
       })
     );
     expect(
-      await screen.findByText('Remove from team (acme)')
+      await screen.findByText('Remove from team (widgets)')
     ).toBeInTheDocument();
     await userEvent.click(
       within(screen.getByTestId('layer-user')).getByRole('button', {
@@ -384,7 +430,54 @@ describe('KeyPanel', () => {
       })
     );
     expect(
-      await screen.findByRole('menuitem', { name: 'Move to team (acme)' })
+      await screen.findByRole('menuitem', { name: 'Move to team (widgets)' })
+    ).toBeInTheDocument();
+  });
+
+  it('names the org and the team as separate layers', async () => {
+    renderPanel(
+      def('board.agent.model', {
+        scopes: ['org', 'team', 'user', 'machine'],
+      }),
+      [
+        LAYERS[0]!,
+        { scope: 'org', file: '/stores/org.jsonc', present: false },
+        {
+          scope: 'team',
+          file: '/stores/team.jsonc',
+          present: true,
+          value: 'm-team',
+        },
+        LAYERS[2]!,
+        LAYERS[3]!,
+      ],
+      { team: 'widgets', org: 'acme' }
+    );
+    const org = await screen.findByTestId('layer-org');
+    expect(within(org).getByText('org (acme)')).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('layer-team')).getByText('team (widgets)')
+    ).toBeInTheDocument();
+    await userEvent.hover(
+      within(org).getByRole('button', { name: 'set board.agent.model at org' })
+    );
+    expect(await screen.findByText('Set at org (acme)')).toBeInTheDocument();
+    const team = screen.getByTestId('layer-team');
+    await userEvent.hover(
+      within(team).getByRole('button', {
+        name: 'remove board.agent.model from team',
+      })
+    );
+    expect(
+      await screen.findByText('Remove from team (widgets)')
+    ).toBeInTheDocument();
+    await userEvent.click(
+      within(screen.getByTestId('layer-user')).getByRole('button', {
+        name: 'move board.agent.model from user',
+      })
+    );
+    expect(
+      await screen.findByRole('menuitem', { name: 'Move to org (acme)' })
     ).toBeInTheDocument();
   });
 
@@ -607,7 +700,7 @@ describe('KeyPanel', () => {
       expect(value).toHaveTextContent(/^2 fields$/);
       expect(value.closest(`.${classes.line}`)).not.toBeNull();
       expect(within(storefront).getByText('user')).toBeInTheDocument();
-      expect(within(storefront).queryByText('user · repo')).toBeNull();
+      expect(within(storefront).queryByText('· repo')).toBeNull();
       expect(within(storefront).queryByTestId('json-block')).toBeNull();
       expect(within(storefront).queryByRole('link')).toBeNull();
       expect(within(storefront).queryAllByRole('button')).toHaveLength(0);
@@ -616,7 +709,7 @@ describe('KeyPanel', () => {
         await within(billing).findByTestId('layer-value-team.repo')
       ).toHaveTextContent(/^1 field$/);
       expect(within(billing).getByText('team')).toBeInTheDocument();
-      expect(within(billing).queryByText('team · repo')).toBeNull();
+      expect(within(billing).queryByText('· repo')).toBeNull();
     });
 
     it('a warmed repo section draws its line on the first render', async () => {

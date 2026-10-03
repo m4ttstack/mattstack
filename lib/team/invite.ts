@@ -11,9 +11,9 @@
  */
 
 import { createRealAgeKeySeam } from "../home/age-key.ts";
-import { teamSettingsPath } from "../rt-paths.ts";
+import { orgSettingsPath } from "../rt-paths.ts";
 import { createRealSecretsExecSeam, readSecret } from "../secrets/store.ts";
-import { readStore } from "../settings/stores.ts";
+import { currentOrg, readStore } from "../settings/stores.ts";
 import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 import { UserActionableError } from "../errors.ts";
 import type { InvitePointer } from "../setup/intent.ts";
@@ -23,7 +23,7 @@ import { getSetting } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
 import { forgeLogin, grantRead, membershipSteps, type ForgeAccess } from "./forge.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
-import { readTeamLocal } from "./team-local.ts";
+import { assertCurrentOrg, readTeamLocal } from "./team-local.ts";
 import { encodeCode, generateId, generateKey, seal } from "./invite-crypto.ts";
 import { readInviteRecords, upsertInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
@@ -110,9 +110,11 @@ export interface MintInviteOpts {
 
 export interface MintInviteSeams {
   read: SettingsReader;
-  /** The ONE team's own store, unmixed with the resolver's multi-team overlay — `addToRoster` must read-modify-write the team it is about to push a value into, not the union of every locally-cloned team's roster. */
+  /** The org store's own top-level keys, unmerged with the active team's: `addToRoster` read-modify-writes the org layer. */
   readTeamStore: (slug: string) => Record<string, unknown>;
   writeSetting: typeof setSetting;
+  /** The org this Mac reads settings from, which is where an org write lands. */
+  currentOrg: () => string | null;
   grantRead: typeof grantRead;
   /** Local, per-machine team record — carries the membership permission. Seamed so a test can grant it without writing to a real home. */
   readTeamLocal: typeof readTeamLocal;
@@ -137,7 +139,7 @@ function defaultRead(): SettingsReader {
 }
 
 function defaultReadTeamStore(slug: string): Record<string, unknown> {
-  return readStore(teamSettingsPath(slug)).global;
+  return readStore(orgSettingsPath(slug)).global;
 }
 
 function defaultWarn(message: string, shown?: ShownWarning): void {
@@ -149,6 +151,7 @@ export function realMintInviteSeams(): MintInviteSeams {
     read: defaultRead(),
     readTeamStore: defaultReadTeamStore,
     writeSetting: setSetting,
+    currentOrg,
     grantRead,
     readTeamLocal,
     forgeLogin,
@@ -169,7 +172,7 @@ function addToRoster(seams: MintInviteSeams, slug: string, handle: string): void
   for (const key of ["board.members", "mattstack.roster"] as const) {
     const existing = Array.isArray(store[key]) ? (store[key] as BoardMember[]) : [];
     if (existing.some((m) => m.username === handle)) continue;
-    seams.writeSetting(key, [...existing, { username: handle }], "team", { team: slug });
+    seams.writeSetting(key, [...existing, { username: handle }], "org");
   }
 }
 
@@ -221,6 +224,7 @@ async function resolveForgeAccess(
 
 export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInviteOpts, seams: MintInviteSeams = realMintInviteSeams()): Promise<InviteResult> {
   assertValidHandle(opts.handle);
+  assertCurrentOrg(opts.slug, seams.currentOrg(), `team invite ${opts.handle}`);
 
   const snapshot = readTeamSnapshot(p, opts.slug, { read: seams.read, warn: seams.warn });
   if (!snapshot.remote) {

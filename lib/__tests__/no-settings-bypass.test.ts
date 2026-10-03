@@ -26,14 +26,16 @@ const IDENTIFIER_RULES = new Map<string, Rule>(Object.entries({
   storeSections: "per-rung reader",
   mergedValueWith: "per-rung reader",
   currentMergedValue: "per-rung reader",
+  getOrgSetting: "per-rung reader",
   readStore: "raw store reader",
   readStores: "raw store reader",
   userSettingsPath: "store path helper",
   teamSettingsPath: "store path helper",
+  orgSettingsPath: "store path helper",
   machineSettingsPath: "store path helper",
 } satisfies Record<string, Rule>));
 
-const STORE_FILE_TEXT = [/settings\.(?:user|team|local)\.jsonc/, /settings\.\$\{/];
+const STORE_FILE_TEXT = [/settings\.(?:user|team|org|local)\.jsonc/, /settings\.\$\{/];
 
 const SCAN_ROOTS = ["commands", "lib", "scripts", "cli.ts", "apps", "packages", "extensions", "plugins"];
 const SKIP_DIRS = new Set(["node_modules", "dist", "dist-bin", "build", ".turbo", ".next", "fixtures", "test", "tests", "__tests__"]);
@@ -45,25 +47,29 @@ interface Allowed {
   reason: string;
 }
 
-const ROSTER_READ = "reads one team's own roster; getSetting merges every team store and has no per-team read";
+const ROSTER_READ = "reads the named org's own roster; getSetting reads only this Mac's view and has no per-org read";
 
 const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
   "per-rung reader": {
+    "apps/boxscore/scripts/import-legacy-settings.ts": { count: 2, reason: "the integrations write starts from the org store's own value, never the merged view" },
+    "commands/setup.ts": { count: 4, reason: "the Slack connect write starts from the org store's own integrations, never the merged view" },
     "commands/settings-keys.ts": { count: 2, reason: "`rt settings explain` prints every rung" },
     "commands/worktree-hook.ts": { count: 2, reason: "claudeHook is read from the machine rung only" },
+    "lib/variations.ts": { count: 2, reason: "saveVariation starts from the org store's own map, never the merged view" },
     "lib/worktree/config.ts": { count: 3, reason: "declared-presence check and ready-ladder owner need per-rung presence" },
     "lib/worktree/ready-approval.ts": { count: 2, reason: "approval is trusted only from user.repo/machine.repo rungs, never a team rung" },
     "packages/settings-kit/src/server.ts": { count: 15, reason: "the console's scope-chain editor shows every rung and every repo section" },
-    "packages/rt-client/src/index.ts": { count: 6, reason: "rt-client's public entry re-exports the resolver" },
+    "packages/rt-client/src/index.ts": { count: 7, reason: "rt-client's public entry re-exports the resolver" },
+    "lib/skills/init.ts": { count: 2, reason: "reads each org clone's team folders through the InitFs seam; getSetting reads only this Mac's org from HOME" },
   },
   "store file": {
     "commands/home.ts": { count: 1, reason: "existence probe listing adoptable machine profiles" },
-    "lib/command-tree-def.ts": { count: 6, reason: "help hints naming where --scope writes" },
+    "lib/command-tree-def.ts": { count: 4, reason: "help hints naming where --scope writes" },
     "lib/home/init-exec.ts": { count: 1, reason: "assertNotRealStoreInTest guard before home init seeds the user store" },
-    "lib/team/create.ts": { count: 2, reason: "scaffolds a new team's store and guards it with assertNotRealStoreInTest" },
-    "lib/team/join.ts": { count: 1, reason: "assertNotRealStoreInTest guard before join seeds the team store" },
-    "lib/setup/team-settings.ts": { count: 1, reason: "existence probe discovering cloned teams through the Probes seam" },
-    "lib/skills/init.ts": { count: 1, reason: "reads each team zone's own forge host; getSetting merges every team store and has no per-team read" },
+    "lib/team/create.ts": { count: 3, reason: "scaffolds the new org store and its first team folder store, and guards the org store with assertNotRealStoreInTest" },
+    "lib/team/join.ts": { count: 1, reason: "assertNotRealStoreInTest guard before join seeds the org store" },
+    "lib/setup/team-settings.ts": { count: 1, reason: "existence probe discovering org clones through the Probes seam" },
+    "lib/skills/init.ts": { count: 4, reason: "reads each org clone's team folders through the InitFs seam; getSetting reads only this Mac's org from HOME" },
   },
   "raw store reader": {
     "commands/team.ts": { count: 2, reason: ROSTER_READ },
@@ -72,11 +78,11 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "packages/rt-client/src/index.ts": { count: 1, reason: "rt-client's public entry re-exports the resolver" },
   },
   "store path helper": {
-    "commands/team.ts": { count: 2, reason: "names the one team store its roster read targets" },
-    "lib/team/invite.ts": { count: 2, reason: "names the one team store its roster read targets" },
-    "lib/team/members.ts": { count: 2, reason: "names the one team store its roster read targets" },
-    "lib/endpoint/shim.ts": { count: 6, reason: "mtime staleness probe over the store files intercept rules came from" },
-    "lib/repo-reidentify.ts": { count: 8, reason: "renames a repo's section in every store file" },
+    "commands/team.ts": { count: 2, reason: "names the org store its roster read targets" },
+    "lib/team/invite.ts": { count: 2, reason: "names the org store its roster read targets" },
+    "lib/team/members.ts": { count: 2, reason: "names the org store its roster read targets" },
+    "lib/endpoint/shim.ts": { count: 4, reason: "mtime staleness probe over the store files intercept rules came from" },
+    "lib/repo-reidentify.ts": { count: 6, reason: "renames a repo's section in every store file" },
     "lib/repo-tracking.ts": { count: 3, reason: "refuses to move a tracking grant over an unparseable machine store" },
   },
 };

@@ -15,11 +15,12 @@ import { dirname, join } from "path";
 import { settingsMigrate } from "../settings-keys.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { teamSettingsPath, userSettingsPath } from "../../packages/rt-client/src/settings/paths.ts";
+import { orgSettingsPath, userSettingsPath } from "../../packages/rt-client/src/settings/paths.ts";
 import { valueHash } from "../../packages/rt-client/src/settings/migrate.ts";
 import { getDef } from "../../packages/rt-client/src/settings/registry-machinery.ts";
 import { renameProperty } from "../../packages/rt-client/src/settings/migrations/helpers.ts";
 import { withMigrationAsync } from "../../packages/rt-client/src/settings/__tests__/with-migration.ts";
+import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 
 const IDENTITY = "gitlab.example.com/acme/app";
 const TEAM = "acme";
@@ -136,9 +137,9 @@ describe("rt settings migrate", () => {
 
   test("--write reaches the team store", async () => {
     await withMigrationAsync("rt.roles", ROLES_BUMP, async () => {
-      write(teamSettingsPath(TEAM), { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } } } } });
+      write(sharedStorePath(TEAM), { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } } } } });
       await settingsMigrate(["--write"], noPrompt);
-      expect((read(teamSettingsPath(TEAM)).repos as Record<string, Record<string, unknown>>)[IDENTITY]!["rt.roles@2"]).toEqual({ web: { devHook: "./dev.sh" } });
+      expect((read(sharedStorePath(TEAM)).repos as Record<string, Record<string, unknown>>)[IDENTITY]!["rt.roles@2"]).toEqual({ web: { devHook: "./dev.sh" } });
     });
   });
 
@@ -169,15 +170,15 @@ describe("rt settings migrate", () => {
     });
   });
 
-  test("--prune leaves the team store alone without --team, and prunes it with --team", async () => {
+  test("--prune leaves the org store alone without --team, and prunes it with --team", async () => {
     await withMigrationAsync("rt.roles", ROLES_BUMP, async () => {
-      write(teamSettingsPath(TEAM), { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } }, "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
+      write(orgSettingsPath(TEAM), { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } }, "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
       await settingsMigrate(["--prune", "--yes"], noPrompt);
-      expect((read(teamSettingsPath(TEAM)).repos as Record<string, Record<string, unknown>>)[IDENTITY]!["rt.roles"]).toBeDefined();
+      expect((read(orgSettingsPath(TEAM)).repos as Record<string, Record<string, unknown>>)[IDENTITY]!["rt.roles"]).toBeDefined();
       expect(process.exitCode).toBe(1);
       process.exitCode = 0;
       await settingsMigrate(["--prune", "--team", "--yes"], noPrompt);
-      expect(read(teamSettingsPath(TEAM))).toEqual({ repos: { [IDENTITY]: { "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
+      expect(read(orgSettingsPath(TEAM))).toEqual({ repos: { [IDENTITY]: { "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
       expect(process.exitCode).toBe(0);
     });
   });
@@ -280,17 +281,17 @@ describe("rt settings migrate", () => {
 
   test("--prune refuses a diverged older name inside a repo section exactly as the global section, and --force clears it there too", async () => {
     await withMigrationAsync("rt.roles", ROLES_BUMP, async () => {
-      write(teamSettingsPath(TEAM), {
+      write(sharedStorePath(TEAM), {
         repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./other.sh" } }, "rt.roles@2": { web: { devHook: "./dev.sh" } } } },
       });
       await settingsMigrate(["--prune", "--team", "--yes"], noPrompt);
-      const before = read(teamSettingsPath(TEAM));
+      const before = read(sharedStorePath(TEAM));
       expect((before.repos as Record<string, unknown>)[IDENTITY]).toMatchObject({ "rt.roles": { web: { hook: "./other.sh" } } });
       expect(process.exitCode).toBe(1);
       process.exitCode = 0;
 
       await settingsMigrate(["--prune", "--team", "--yes", "--force", "rt.roles"], noPrompt);
-      const after = read(teamSettingsPath(TEAM));
+      const after = read(sharedStorePath(TEAM));
       expect(after).toEqual({ repos: { [IDENTITY]: { "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
       expect(process.exitCode).toBe(0);
     });

@@ -15,22 +15,22 @@ import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import * as out from "../lib/ui/out.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
-import { readIntent, teamRefFromIntent } from "../lib/setup/intent.ts";
+import { readIntent, orgRefFromIntent } from "../lib/setup/intent.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { readPackRequirements, type PackRequirements } from "../lib/setup/requirements.ts";
 import { BREW_FORMULAE, VENDOR_INSTALLERS, claudeConfigDirs, installTool, setupTool } from "../lib/setup/tools-install.ts";
 import { bundledToolExec } from "../lib/deps/resolve.ts";
 import { DEFAULT_EXPOSED } from "../lib/deps/links.ts";
-import { listTeams } from "../lib/settings/stores.ts";
+import { listOrgs } from "../lib/settings/stores.ts";
 import { fastBrowserMarketplaceSource } from "../lib/setup/steps/plugins.ts";
 
 function tool(args: string[]): string | undefined {
   return args.find((a) => !a.startsWith("--"));
 }
 
-/** Mirrors composePlan's own team resolution (readIntent → teamRefFromIntent) so a team-declared brew formula/vendor URL is found the same way the plan row that offered this Install action found it. No joined team is not an error: plenty of tools (herdr, claude, apple-clt) need no reqs at all. */
+/** Mirrors composePlan's own team resolution (readIntent → orgRefFromIntent) so a team-declared brew formula/vendor URL is found the same way the plan row that offered this Install action found it. No joined team is not an error: plenty of tools (herdr, claude, apple-clt) need no reqs at all. */
 function resolveTeamReqs(p: Probes): PackRequirements[] {
-  const ref = teamRefFromIntent(readIntent(p), listTeams());
+  const ref = orgRefFromIntent(readIntent(p), listOrgs());
   return ref.slug ? readPackRequirements(p, ref.slug) : [];
 }
 

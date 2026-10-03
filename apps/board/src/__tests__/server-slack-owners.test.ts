@@ -19,10 +19,17 @@ import { dbPathForRoot, openStateDb } from '../state/index.ts';
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-slack-owners-'));
 const HOST = 'https://gitlab.example.com';
 
-const teamDir = join(fakeHome, '.mattstack', 'teams', 'testteam', 'mattstack');
+const teamDir = join(
+  fakeHome,
+  '.mattstack',
+  'teams',
+  'testteam',
+  'mattstack',
+  'org'
+);
 mkdirSync(teamDir, { recursive: true });
 writeFileSync(
-  join(teamDir, 'settings.team.jsonc'),
+  join(teamDir, 'settings.org.jsonc'),
   JSON.stringify({
     'board.gitlabHost': HOST,
     'board.projects': ['g/p', 'g/q'],

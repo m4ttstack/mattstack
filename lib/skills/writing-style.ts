@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { getSetting, type Resolved } from "../settings/resolve.ts";
+import { getSetting, isSharedScope, type Resolved } from "../settings/resolve.ts";
 
 export const WRITING_STYLE_KEY = "skills.writingStyle";
 export const FALLBACK_WRITING_STYLE = "mattstack:writing-style-conversational";
@@ -85,7 +85,7 @@ export function resolveWritingStyle(opts: { home?: string; read?: (key: string) 
   const configured = read(WRITING_STYLE_KEY);
   if (typeof configured.value === "string" && isValidSkillId(configured.value)) {
     const scope = configured.provenance.at(-1)?.scope;
-    return { skill: configured.value, source: scope === "team" ? "team" : "user" };
+    return { skill: configured.value, source: scope !== undefined && isSharedScope(scope) ? "team" : "user" };
   }
 
   const path = preferencesPath(home);

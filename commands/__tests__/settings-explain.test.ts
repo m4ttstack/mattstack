@@ -37,7 +37,7 @@ describe("rt settings explain", () => {
     const payload = JSON.parse(cap.stdout());
     expect(payload.ok).toBe(true);
     expect(payload.key).toBe("rt.worktrees");
-    expect(payload.rows.map((r: { scope: string }) => r.scope)).toEqual(["default", "team", "user", "machine"]);
+    expect(payload.rows.map((r: { scope: string }) => r.scope)).toEqual(["default", "org", "team", "user", "machine"]);
     expect(payload.rows[0]).toMatchObject({ scope: "default", present: true, value: { onDeck: 0 } });
   });
 

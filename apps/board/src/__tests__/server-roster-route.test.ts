@@ -15,9 +15,16 @@ import { afterAll, expect, test } from 'bun:test';
 // would silently fall back to "all".
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-roster-route-'));
 
-const teamDir = join(fakeHome, '.mattstack', 'teams', 'testteam', 'mattstack');
+const teamDir = join(
+  fakeHome,
+  '.mattstack',
+  'teams',
+  'testteam',
+  'mattstack',
+  'org'
+);
 mkdirSync(teamDir, { recursive: true });
-const storePath = join(teamDir, 'settings.team.jsonc');
+const storePath = join(teamDir, 'settings.org.jsonc');
 writeFileSync(
   storePath,
   JSON.stringify({

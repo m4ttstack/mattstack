@@ -179,11 +179,12 @@ async function seedOwnHandle(ctx: ApplyContext, written: string[]): Promise<void
 /** The team's packs in name order, each flagged when it is a base (a base claims no repo, so a board never launches with it). */
 function teamPacks(ctx: ApplyContext): { name: string; base: boolean }[] {
   if (!ctx.team.slug) return [];
-  const packs = join(ctx.p.home, ".mattstack", "teams", ctx.team.slug, "mattstack", "packs");
-  return ctx.p.readDir(packs)
-    .filter((name) => isPackDir(ctx.p, join(packs, name)))
-    .sort()
-    .map((name) => ({ name, base: isBasePack(ctx.p, join(packs, name)) }));
+  const teams = join(ctx.p.home, ".mattstack", "teams", ctx.team.slug, "mattstack", "teams");
+  return ctx.p.readDir(teams)
+    .flatMap((team) => ctx.p.readDir(join(teams, team, "packs")).map((name) => ({ name, dir: join(teams, team, "packs", name) })))
+    .filter((pack) => isPackDir(ctx.p, pack.dir))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((pack) => ({ name: pack.name, base: isBasePack(ctx.p, pack.dir) }));
 }
 
 /** Writes board.defaultPack only while no store has written it, so a pack the member chose is never replaced. The pack `rt setup` installs first (the first non-base by name) is the one a fresh board should launch with. */

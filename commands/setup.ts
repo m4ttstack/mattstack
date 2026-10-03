@@ -21,8 +21,8 @@ import { createRealAgeKeySeam } from "../lib/home/age-key.ts";
 import { promptSecret } from "../lib/prompt-secret.ts";
 import { NoAgeKeyError, createRealSecretsExecSeam, personalStoreReady, writeSecret, type SecretsSeams } from "../lib/secrets/store.ts";
 import { NoTeamRecipientsError, createRealTeamSecretsSeams, readTeamSecret, writeTeamSecret } from "../lib/secrets/team-store.ts";
-import { listTeams } from "../lib/settings/stores.ts";
-import { getSetting } from "../lib/settings/resolve.ts";
+import { listOrgs } from "../lib/settings/stores.ts";
+import { getOrgSetting, getSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import * as out from "../lib/ui/out.ts";
 import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
@@ -40,7 +40,7 @@ import { UserActionableError } from "../lib/errors.ts";
 import { realWaiverStore, unwaiveRow, waiveRow, type WaiverChange, type WaiverStore } from "../lib/setup/finish-gate.ts";
 import { isValidHostname } from "../lib/setup/host-validate.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";
-import { clearIntent, readIntent, teamRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
+import { clearIntent, readIntent, orgRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
 import { readTeamLocal } from "../lib/team/team-local.ts";
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
@@ -54,7 +54,7 @@ import { STEPS } from "../lib/setup/steps/index.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
 import { markSetupFinished } from "../lib/setup/state.ts";
-import { discoverTeams, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
+import { discoverOrgs, readTeamSnapshot, readUserIntegrationOverrides, type TeamIntegrations, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
 import type { Plan } from "../lib/setup/contract.ts";
 import { createRelayClient, type RelayClient } from "../lib/team/relay-client.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
@@ -116,7 +116,7 @@ async function runPlan(args: string[], deps: SetupDeps, mode: "plan" | "status")
       secrets: deps.secrets,
       ci: process.env.CI === "true",
       mode,
-      teams: listTeams(),
+      orgs: listOrgs(),
       teamOverride: flagValue(args, "--team"),
     });
   } catch (err) {
@@ -247,7 +247,7 @@ const HARD_PRECONDITION_COPY: Record<string, { why: string; next?: string }> = {
 async function gateHardPreconditions(args: string[], deps: ApplyDeps): Promise<void> {
   if (args.includes("--force")) return;
   const plan = await (deps.planForGate?.() ??
-    composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", teams: listTeams() }));
+    composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", orgs: listOrgs() }));
   const hard = plan.requiredMissing.filter((id) => HARD_PRECONDITION_IDS.has(id));
   if (hard.length === 0) return;
   // A hard id with no copy entry still names itself, so the person is never told nothing.
@@ -327,7 +327,7 @@ function stampUpdateWhenNothingPends(deps: ApplyDeps, json: boolean): void {
 async function finishIfClear(deps: ApplyDeps, json: boolean): Promise<void> {
   try {
     const plan = await (deps.planForFinish?.() ??
-      composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", teams: listTeams() }));
+      composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", orgs: listOrgs() }));
     if (plan.finishBlockedBy.length === 0) markSetupFinished(deps.probes);
   } catch (err) {
     warnLine(json, "Setup was left unfinished because the finish check failed", err instanceof Error ? err.message : String(err));
@@ -466,7 +466,7 @@ export async function setupInteractive(args: string[], _ctx: CommandContext = {}
 
   if (!deps.isTTY() || json) return setupStatus(args, _ctx, setupDeps);
 
-  const plan = await composePlan({ p: deps.probes, secrets: setupDeps.secrets, ci: process.env.CI === "true", mode: "plan", teams: listTeams() });
+  const plan = await composePlan({ p: deps.probes, secrets: setupDeps.secrets, ci: process.env.CI === "true", mode: "plan", orgs: listOrgs() });
   out.print(...planBlocks(plan, "plan"));
 
   if (!plan.canInstall && !args.includes("--force")) {
@@ -525,7 +525,7 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
       return;
     }
     if (sub === "solo") {
-      const teams = discoverTeams(deps.probes);
+      const teams = discoverOrgs(deps.probes);
       if (teams.length > 0) {
         const folders = teams.map((slug) => `~/.mattstack/teams/${slug}`).join(" and ");
         throw new UserActionableError(
@@ -899,6 +899,8 @@ export interface ConnectDeps extends SetupDeps {
   writer: SecretWriter;
   teamSecrets: TeamSecrets;
   writeSetting: typeof setSetting;
+  /** The org store's own value for a key, unmerged; what an org write starts from. */
+  readOrgSetting?: typeof getOrgSetting;
   /** Opens one OAuth callback listener on `port`, checks the callback's `state` against `expectedState`, and resolves with the `code` query param. Rejects (never hangs past its own timeout) on a state mismatch, a missing code, or a listen failure. */
   listen: (port: number, expectedState: string) => Promise<string>;
   /** Unguessable per-request token (CSRF-style) — never `Math.random`; the OAuth `state` param is the one consumer today. */
@@ -980,6 +982,7 @@ export function realConnectDeps(): ConnectDeps {
     writer: realSecretWriter(),
     teamSecrets: realTeamSecrets(probes),
     writeSetting: setSetting,
+    readOrgSetting: getOrgSetting,
     listen: realOAuthListen,
     randomState: () => randomBytes(16).toString("hex"),
   };
@@ -990,10 +993,10 @@ const EMPTY_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdent
 /** A connect that took its token from gh reports this, and the scope shortfall reads it back to offer a gh refresh. */
 const GH_SOURCE_DETAIL = "Signed in through the gh CLI";
 
-/** Mirrors composePlan's own team resolution (readIntent → teamRefFromIntent → readTeamSnapshot → forge enrichment) without the `--team` override these single-integration verbs don't take. */
+/** Mirrors composePlan's own team resolution (readIntent → orgRefFromIntent → readTeamSnapshot → forge enrichment) without the `--team` override these single-integration verbs don't take. */
 function realResolveTeamSnapshot(p: Probes): TeamSnapshot {
   const intent = readIntent(p);
-  const ref = teamRefFromIntent(intent, listTeams());
+  const ref = orgRefFromIntent(intent, listOrgs());
   const snapshot = ref.slug ? readTeamSnapshot(p, ref.slug) : EMPTY_SNAPSHOT;
   return enrichSnapshotForge(snapshot, intent);
 }
@@ -1545,14 +1548,14 @@ export async function setupSlackCreateApp(args: string[], _ctx: CommandContext =
     }
 
     // Deep-merge by hand: setSetting REPLACES the key's whole value, it does not merge (the registry's
-    // `merge: "deep"` is a read-side overlay across scopes, not a write-side behavior) — writing `{slack:{...}}`
-    // bare would silently drop the team's forge/linear config out from under every other verb
-    // that reads it (ctxFor, snapshotFor).
+    // `merge: "deep"` is a read-side overlay across scopes, not a write-side behavior), so writing `{slack:{...}}`
+    // bare would drop the org's forge/linear config. The base is the org store's own value, never the
+    // merged snapshot, which would copy the active team's overrides into the org layer.
+    const orgIntegrations = (deps.readOrgSetting ?? getOrgSetting)<TeamIntegrations>("mattstack.integrations") ?? {};
     deps.writeSetting(
       "mattstack.integrations",
-      { ...snapshot.integrations, slack: { ...snapshot.integrations.slack, appId: data.app_id, clientId: data.credentials.client_id, callbackPort } },
-      "team",
-      { team: snapshot.slug },
+      { ...orgIntegrations, slack: { ...orgIntegrations.slack, appId: data.app_id, clientId: data.credentials.client_id, callbackPort } },
+      "org",
     );
 
     printIntegrationResult(deps, json, {

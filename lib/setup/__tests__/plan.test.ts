@@ -6,12 +6,12 @@ import { setSetting } from "../../settings/write.ts";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { teamSettingsPath } from "../../rt-paths.ts";
 import { UserActionableError } from "../../errors.ts";
 import { writeIntent, type SetupIntent } from "../intent.ts";
 import type { SecretPresence } from "../validators/accounts.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 function fakeSecrets(stored: Record<string, string> = {}): SecretPresence {
   return {
@@ -87,7 +87,7 @@ function restoreIntent(): SetupIntent {
 describe("composePlan", () => {
   test("no intent, no teams -> 4 groups in contract order, team.mode none, perm.fda ready", async () => {
     const p = fakeProbes({ exec: readyExec, tray: grantedTray });
-    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: [] });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: [] });
 
     expect(plan.contract).toBe(1);
     expect(plan.groups.map((g) => g.id)).toEqual(["mac", "accounts", "access", "tools"]);
@@ -104,7 +104,7 @@ describe("composePlan", () => {
       // Default fakeProbes tray already answers status 0 (unreachable) when not overridden.
       daemon: async (cmd) => (cmd === "tcc:check" ? { ok: true, data: { blocked: [], accessible: ["a", "b"], totalRepos: 2 } } : null),
     });
-    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: [] });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: [] });
 
     const mac = plan.groups.find((g) => g.id === "mac")!;
     const fda = mac.rows.find((r) => r.id === "perm.fda")!;
@@ -116,7 +116,7 @@ describe("composePlan", () => {
     const p = fakeProbes({ exec: readyExec, tray: grantedTray });
     writeIntent(p, createIntent());
 
-    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: [] });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
 
     expect(plan.team).toEqual({ slug: "acme", name: "Acme", mode: "create" });
     const accounts = plan.groups.find((g) => g.id === "accounts")!;
@@ -127,7 +127,7 @@ describe("composePlan", () => {
     const p = fakeProbes({ exec: readyExec, tray: grantedTray });
     writeIntent(p, joinIntent());
 
-    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: [] });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
 
     const accounts = plan.groups.find((g) => g.id === "accounts")!;
     expect(accounts.rows.some((r) => r.id === "account.github")).toBe(true);
@@ -138,14 +138,14 @@ describe("composePlan", () => {
     const home = mkdtempSync(join(tmpdir(), "rt-plan-switchboard-"));
     process.env.HOME = home;
     try {
-      const teamPath = teamSettingsPath("acme");
+      const teamPath = sharedStorePath("acme");
       mkdirSync(dirname(teamPath), { recursive: true });
       writeFileSync(teamPath, `// team store\n${JSON.stringify({ "mattstack.integrations": { switchboard: { url: "https://sw.example.com" } } })}\n`);
 
       const p = fakeProbes({ exec: readyExec, tray: grantedTray });
       writeIntent(p, joinIntent());
 
-      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: ["acme"] });
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: ["acme"] });
       const ids = plan.groups.flatMap((g) => g.rows.map((r) => r.id));
       expect(ids).not.toContain("account.switchboard");
       expect(ids).not.toContain("access.switchboard");
@@ -160,7 +160,7 @@ describe("composePlan", () => {
     const soloExec: ExecScript = (argv) => (argv[0] === "uname" ? ok("arm64") : readyExec(argv));
     const p = fakeProbes({ exec: soloExec, tray: grantedTray, dirs: { "/Applications/mattstack.app": [] } });
     writeIntent(p, { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "solo" });
-    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: [] });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
     expect(plan.team).toEqual({ slug: "", name: "", mode: "none" });
     expect(plan.groups.find((g) => g.id === "access")!.rows).toEqual([]);
     const accounts = plan.groups.find((g) => g.id === "accounts")!.rows;
@@ -182,7 +182,7 @@ describe("composePlan", () => {
         files: isJoin ? { "/fake-home/.mattstack/teams/acme/.claude-plugin/marketplace.json": "not json" } : {},
       });
       writeIntent(p, intent);
-      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: [] });
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
       expect(plan.groups.find((g) => g.id === "access")!.rows.length).toBeGreaterThan(0);
       const tools = plan.groups.find((g) => g.id === "tools")!.rows;
       expect(tools.find((r) => r.id === "tool.fast-browser")!.required).toBe(true);
@@ -197,11 +197,11 @@ describe("composePlan", () => {
     const p = fakeProbes({ exec: readyExec, tray: grantedTray });
 
     await expect(
-      composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: ["acme"], teamOverride: "ghost" }),
+      composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"], teamOverride: "ghost" }),
     ).rejects.toThrow(UserActionableError);
 
     await expect(
-      composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: ["acme"], teamOverride: "ghost" }),
+      composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"], teamOverride: "ghost" }),
     ).rejects.toThrow(/ghost/);
   });
 
@@ -210,7 +210,7 @@ describe("composePlan", () => {
     const intent: SetupIntent = { v: 1, at: "x", mode: "restore", restore: { homeRepo: "r" } };
     writeIntent(p, intent);
 
-    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: ["acme"], teamOverride: "acme" });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"], teamOverride: "acme" });
     expect(plan.team).toEqual({ slug: "acme", name: "acme", mode: "none" });
   });
 
@@ -223,7 +223,7 @@ describe("composePlan", () => {
       tray: grantedTray,
     });
 
-    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: [] });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: [] });
 
     const mac = plan.groups.find((g) => g.id === "mac")!;
     expect(mac.rows).toHaveLength(1);
@@ -243,7 +243,7 @@ describe("composePlan", () => {
 describe("composePlan — install-satisfied flip", () => {
   test("plan mode: perm.login-items and tool.daemon read required:false with an optionalNote", async () => {
     const p = fakeProbes({ exec: readyExec, tray: grantedTray });
-    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: [] });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
 
     const mac = plan.groups.find((g) => g.id === "mac")!;
     const loginItems = mac.rows.find((r) => r.id === "perm.login-items")!;
@@ -258,7 +258,7 @@ describe("composePlan — install-satisfied flip", () => {
 
   test("status mode: perm.login-items and tool.daemon read required:true with no optionalNote", async () => {
     const p = fakeProbes({ exec: readyExec, tray: grantedTray });
-    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: [] });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: [] });
 
     const mac = plan.groups.find((g) => g.id === "mac")!;
     const loginItems = mac.rows.find((r) => r.id === "perm.login-items")!;
@@ -273,12 +273,12 @@ describe("composePlan — install-satisfied flip", () => {
 
   test("tool.plugins flips required across plan and status mode", async () => {
     const p = fakeProbes({ exec: readyExec, tray: grantedTray });
-    const planned = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: [] });
+    const planned = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
     const plannedRow = planned.groups.find((g) => g.id === "tools")!.rows.find((r) => r.id === "tool.plugins")!;
     expect(plannedRow.required).toBe(false);
     expect(plannedRow.optionalNote).not.toBeNull();
 
-    const status = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: [] });
+    const status = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: [] });
     const statusRow = status.groups.find((g) => g.id === "tools")!.rows.find((r) => r.id === "tool.plugins")!;
     expect(statusRow.required).toBe(true);
     expect(statusRow.optionalNote).toBeNull();
@@ -295,7 +295,7 @@ describe("composePlan — install-satisfied flip", () => {
     p.mkdirp("/Applications/Google Chrome.app");
     // A discovered team keeps this machine non-solo, which is what makes the extension row finish-gated here.
     for (const mode of ["plan", "status"] as const) {
-      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode, teams: ["acme"] });
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode, orgs: ["acme"] });
       const r = plan.groups.find((g) => g.id === "tools")!.rows.find((r) => r.id === "tool.fast-browser-extension")!;
       expect(r.status).toBe("needs-you");
       expect(r.required).toBe(mode === "status");
@@ -384,7 +384,7 @@ describe("finish gate", () => {
   test("composePlan's envelope carries finishBlockedBy in both modes", async () => {
     const p = fakeProbes({ exec: readyExec, tray: grantedTray });
     for (const mode of ["plan", "status"] as const) {
-      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode, teams: [] });
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode, orgs: [] });
       expect(Array.isArray(plan.finishBlockedBy)).toBe(true);
     }
   });
@@ -417,7 +417,7 @@ describe("finish gate", () => {
       setSetting("setup.waived", ["tool.fast-browser-extension"], "machine");
       const p = fakeProbes({ exec: readyExec, tray: grantedTray });
       // A discovered team keeps this machine non-solo, which is what makes the extension row finish-gated (and so waivable) here.
-      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: ["acme"] });
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"] });
       const r = plan.groups.find((g) => g.id === "tools")!.rows.find((r) => r.id === "tool.fast-browser-extension")!;
       expect(r.optionalNote).toBe(WAIVED_NOTE);
       // skills.writing-style is finish-gated but not waivable, so it still blocks Finish.
@@ -438,13 +438,13 @@ describe("finish gate", () => {
 
       setSetting("setup.waived", [], "machine");
       // A discovered team keeps this machine non-solo, which is what makes the extension row finish-gated (and so waivable) here.
-      const injectedWaived = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: ["acme"], waived: ["tool.fast-browser-extension"] });
+      const injectedWaived = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"], waived: ["tool.fast-browser-extension"] });
       expect(extension(injectedWaived).waived).toBe(true);
 
       setSetting("setup.waived", ["tool.fast-browser-extension"], "machine");
-      const injectedNone = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: ["acme"], waived: [] });
+      const injectedNone = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"], waived: [] });
       expect(extension(injectedNone).waived).toBeFalsy();
-      const fromStore = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: ["acme"] });
+      const fromStore = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", orgs: ["acme"] });
       expect(extension(fromStore).waived).toBe(true);
     } finally {
       process.env.HOME = prevHome;

@@ -942,7 +942,7 @@ export function saveRosterMembers(
       owner.key === 'mattstack.roster'
         ? next.map(({ hidden: _hidden, ...rest }) => rest)
         : next;
-    write(owner.key, value, 'team');
+    write(owner.key, value, owner.key === 'mattstack.roster' ? 'org' : 'team');
   } else {
     let raw: string;
     try {

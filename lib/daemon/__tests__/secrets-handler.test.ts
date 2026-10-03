@@ -7,9 +7,9 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { createSecretsHandlers, loadBoardSecrets, type BoardSecretsData, type ReadSecretFn } from "../handlers/secrets.ts";
-import { teamSettingsPath } from "../../rt-paths.ts";
 import { setSetting } from "../../settings/write.ts";
 import { loadRepoTracking } from "../../repo-tracking.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 const fakeCtx = { log: { info: () => {}, debug: () => {} } } as any;
 
@@ -100,7 +100,7 @@ describe("secrets:forge-token default tracking reader is machine-only", () => {
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-secrets-tracking-")));
     process.env.HOME = home;
-    const teamPath = teamSettingsPath("acme");
+    const teamPath = sharedStorePath("acme");
     mkdirSync(dirname(teamPath), { recursive: true });
     writeFileSync(teamPath, "// team store\n{}\n");
   });
@@ -113,7 +113,7 @@ describe("secrets:forge-token default tracking reader is machine-only", () => {
   test("a repo declared ONLY via team intent is refused, even though the merged view would allow it", async () => {
     setSetting("mattstack.tracking", {
       repos: { "gitlab.com/acme/foo": { caches: ["branches"] } },
-    }, "team", { team: "acme" });
+    }, "org");
     const identityMap = { "gitlab.com/acme/foo": "remote:foo" };
 
     // Positive control: the merged view really would consider "remote:foo" tracked.

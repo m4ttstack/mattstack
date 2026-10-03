@@ -8,17 +8,17 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { machineSettingsPath, teamSettingsPath, userSettingsPath } from "../paths.ts";
+import { machineSettingsPath, userSettingsPath } from "../paths.ts";
 import { getDef } from "../registry-machinery.ts";
 import { setSettingsWarnSink } from "../resolve.ts";
 import { validateWrite } from "../validate-write.ts";
 import { withSchema } from "./with-schema.ts";
 import { suspendRepoOnly } from "./without-repo-only.ts";
+import { seedOrg, sharedStorePath } from "../../../test/org-fixture.ts";
 
 const IDENTITY = "gitlab.com/acme/acme-dev";
 const IDENTITY2 = "gitlab.com/acme/acme-other";
 const TEAM = "acme";
-const OTHER_TEAM = "acme-two";
 
 const SNAPSHOT = { type: "object", properties: { enabled: { type: "boolean" }, debounceSec: { type: "number" } }, required: ["enabled", "debounceSec"] };
 const ROLES = { type: "object", properties: { a: { type: "string" }, b: { type: "number" } }, required: ["a"] };
@@ -51,7 +51,7 @@ describe("settings/validate-write", () => {
   }
 
   const writeUser = (obj: unknown) => write(userSettingsPath(), obj);
-  const writeTeam = (name: string, obj: unknown) => write(teamSettingsPath(name), obj);
+  const writeTeam = (name: string, obj: unknown) => write(sharedStorePath(name), obj);
 
   test("type check still comes first", () => {
     const r = validateWrite(getDef("rt.homeSnapshot")!, "nope", { scope: "machine" });
@@ -174,16 +174,19 @@ describe("settings/validate-write", () => {
     });
   });
 
-  test("a named team write patches only that team's store, not every local team", () => {
+  test("a named team write is judged in that team's view, not the active team's", () => {
     withSchema("rt.roles", ROLES, () => {
       const def = getDef("rt.roles")!;
-      writeTeam(TEAM, {});
-      writeTeam(OTHER_TEAM, { "rt.roles": { a: "x" } });
-      // TEAM's own layer lacks "a"; OTHER_TEAM's real store already supplies
-      // it. If the write clobbered every local team store (rather than only
-      // the named one) OTHER_TEAM's "a" would be erased and this merge would
-      // wrongly fail.
-      expect(validateWrite(def, { b: 1 }, { scope: "team", team: TEAM })).toEqual({ ok: true });
+      seedOrg({
+        org: TEAM,
+        username: "dev1",
+        roster: [{ username: "dev1", teams: ["widgets", "gadgets"] }],
+        teams: { widgets: { "rt.roles": { a: "x" } }, gadgets: { "rt.roles": { b: 2 } } },
+      });
+      // gadgets' merge already lacks "a", so a write there is not what breaks it.
+      // Compared against the active team's (passing) merge instead, it would be refused.
+      expect(validateWrite(def, { b: 1 }, { scope: "team", team: "gadgets" })).toEqual({ ok: true });
+      expect(validateWrite(def, { b: 1 }, { scope: "team" }).ok).toBe(false);
     });
   });
 

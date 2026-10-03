@@ -1530,7 +1530,7 @@ describe("one team per machine", () => {
   function zone(slug: string): { dirs: Record<string, string[]>; files: Record<string, string> } {
     return {
       dirs: { [TEAMS_DIR]: [slug] },
-      files: { [pathJoin(TEAMS_DIR, slug, "mattstack", "settings.team.jsonc")]: "{}" },
+      files: { [pathJoin(TEAMS_DIR, slug, "mattstack", "org", "settings.org.jsonc")]: "{}" },
     };
   }
 

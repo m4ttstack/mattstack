@@ -1,12 +1,14 @@
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { rowSummary } from './CompositeControls';
 import { SettingRow } from './SettingRow';
 import { schemaFields } from './testSchemas';
+import { resetExplainCache } from './useConsoleSettings';
 
 vi.mock('@mattstack/app-kit/lazy', () => ({
   CodeMirror: ({
@@ -1123,5 +1125,149 @@ describe('a deep composite editor whose explain read fails', () => {
     await openRow('gitq.forges');
     expect(await screen.findByText('explain failed: 500')).toBeInTheDocument();
     expect(screen.queryByLabelText('new host')).toBeNull();
+  });
+});
+
+describe('add keys', () => {
+  const PLUGINS = def('claude.plugins', {
+    scopes: ['user', 'team', 'org'],
+    merge: 'add',
+    effective: {
+      scope: 'user',
+      file: '/u',
+      value: ['acme-tools@acme', 'mine@x'],
+    },
+  });
+  const ROWS = [
+    { scope: 'default', file: null, present: false },
+    { scope: 'org', file: '/o', present: true, value: ['acme-tools@acme'] },
+    { scope: 'team', file: '/t', present: false },
+    { scope: 'user', file: '/u', present: true, value: ['mine@x'] },
+  ];
+
+  function stubRows(rows: unknown[] = ROWS) {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ def: null, rows }),
+    }));
+  }
+
+  beforeEach(() => resetExplainCache());
+
+  it('a long add list saves only the target layer’s own items, never the org’s', async () => {
+    const org = 'acme-tools-plugin@acme';
+    const mine = 'my-own-plugin@example';
+    stubRows([
+      { scope: 'default', file: null, present: false },
+      { scope: 'org', file: '/o', present: true, value: [org] },
+      { scope: 'team', file: '/t', present: false },
+      { scope: 'user', file: '/u', present: true, value: [mine] },
+    ]);
+    const s = store();
+    renderWithProviders(
+      <QueryClientProvider client={new QueryClient()}>
+        <SettingRow
+          def={def('claude.plugins', {
+            scopes: ['user', 'team', 'org'],
+            merge: 'add',
+            effective: { scope: 'user', file: '/u', value: [org, mine] },
+          })}
+          store={s}
+          subhead={null}
+          query=""
+        />
+      </QueryClientProvider>
+    );
+    await openRow('claude.plugins');
+    await userEvent.click(screen.getByRole('radio', { name: 'Value' }));
+    const add = await screen.findByLabelText('add to claude.plugins');
+    await waitFor(() => expect(add).toBeEnabled());
+    expect(screen.getByText(org)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: `remove ${org}` })).toBeNull();
+    expect(
+      screen.getByRole('button', { name: `remove ${mine}` })
+    ).toBeInTheDocument();
+    await userEvent.type(add, 'next-plugin@example{enter}');
+    await waitFor(() =>
+      expect(s.set).toHaveBeenCalledWith('claude.plugins', 'user', [
+        mine,
+        'next-plugin@example',
+      ])
+    );
+    expect((s.set.mock.calls as unknown[][])[0]![2]).not.toContain(org);
+  });
+
+  it('an inline add list says why it cannot be edited when its layers fail to load', async () => {
+    vi.stubGlobal('fetch', async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: 'explain failed: 500' }),
+    }));
+    renderWithProviders(
+      <SettingRow def={PLUGINS} store={store()} subhead={null} query="" />
+    );
+    expect(await screen.findByText('explain failed: 500')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'add to claude.plugins' })
+    ).toBeDisabled();
+  });
+
+  it('an edit at the user layer saves only that layer’s own items, never the org’s', async () => {
+    stubRows();
+    const s = store();
+    renderWithProviders(
+      <SettingRow def={PLUGINS} store={s} subhead={null} query="" />
+    );
+    const add = screen.getByRole('button', { name: 'add to claude.plugins' });
+    await waitFor(() => expect(add).toBeEnabled());
+    expect(screen.getByText('acme-tools@acme')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'remove mine@x' })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'remove acme-tools@acme' })
+    ).toBeNull();
+    await userEvent.click(add);
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'claude.plugins' }),
+      'new@x{enter}'
+    );
+    await waitFor(() =>
+      expect(s.set).toHaveBeenCalledWith('claude.plugins', 'user', [
+        'mine@x',
+        'new@x',
+      ])
+    );
+    const saved = (s.set.mock.calls as unknown[][])[0]![2];
+    expect(saved).not.toContain('acme-tools@acme');
+  });
+
+  it('removing the layer’s own item leaves the inherited one out of the write', async () => {
+    stubRows();
+    const s = store();
+    renderWithProviders(
+      <SettingRow def={PLUGINS} store={s} subhead={null} query="" />
+    );
+    const remove = await screen.findByRole('button', { name: 'remove mine@x' });
+    await waitFor(() => expect(remove).toBeEnabled());
+    await userEvent.click(remove);
+    await waitFor(() =>
+      expect(s.set).toHaveBeenCalledWith('claude.plugins', 'user', [])
+    );
+  });
+
+  it('the JSON draft starts from the target layer’s own list', async () => {
+    stubRows();
+    renderWithProviders(
+      <QueryClientProvider client={new QueryClient()}>
+        <SettingRow def={PLUGINS} store={store()} subhead={null} query="" />
+      </QueryClientProvider>
+    );
+    await openRow('claude.plugins');
+    await userEvent.click(screen.getByRole('radio', { name: 'Value' }));
+    await userEvent.click(await screen.findByRole('radio', { name: 'JSON' }));
+    const json = await screen.findByRole('textbox', { name: 'JSON' });
+    expect(JSON.parse((json as HTMLTextAreaElement).value)).toEqual(['mine@x']);
   });
 });

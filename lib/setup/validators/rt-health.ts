@@ -27,7 +27,7 @@ import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { hasCommits, hasRemote, isGitRepo, originPushState } from "../home-git.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { execWithTimeout, type Probes } from "../probes.ts";
-import { discoverTeams } from "../team-settings.ts";
+import { discoverOrgs } from "../team-settings.ts";
 import { ONE_TEAM_RULE } from "../../team/one-team.ts";
 import { named } from "./tools.ts";
 
@@ -663,7 +663,7 @@ export async function rtHealthRows(
   // The settings read resolves the ambient HOME, and `buildGroup` turns a
   // throw here into one group-error row that replaces every row below, so it
   // stays behind the only condition that needs it.
-  const slugs = discoverTeams(p);
+  const slugs = discoverOrgs(p);
   const oneTeam = oneTeamRow(slugs);
   let teamSync: Row | null = null;
   if (slugs.length > 0) {

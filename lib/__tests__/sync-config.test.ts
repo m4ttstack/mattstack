@@ -2,15 +2,15 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { teamSettingsPath } from "../rt-paths.ts";
 import { setSetting } from "../settings/write.ts";
 import { loadSyncConfig } from "../sync-config.ts";
+import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 
 const IDENTITY = "gitlab.com/acme/test-repo";
 
-/** setSetting(..., "team", ...) refuses without a local team store (write.ts's team-selection rule). */
+/** setSetting(..., "org", ...) refuses without an org store. */
 function seedTeam(): void {
-  const path = teamSettingsPath("acme");
+  const path = sharedStorePath("acme");
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, "// team store\n{}\n");
 }
@@ -38,11 +38,11 @@ describe("loadSyncConfig over the settings resolver", () => {
     expect(loadSyncConfig(null)).toEqual({ autoResolve: [] });
   });
 
-  test("a store-seeded value at team.repo scope resolves through the loader", () => {
+  test("a store-seeded value at org.repo scope resolves through the loader", () => {
     setSetting(
       "rt.sync",
       { autoResolve: [{ glob: "gen.txt", strategy: "theirs", postResolve: ["pnpm install"] }] },
-      "team",
+      "org",
       { repoIdentity: IDENTITY },
     );
 
@@ -52,7 +52,7 @@ describe("loadSyncConfig over the settings resolver", () => {
   });
 
   test("a wrong-shaped resolved value degrades to defaults", () => {
-    writeFileSync(teamSettingsPath("acme"), JSON.stringify({ repos: { [IDENTITY]: { "rt.sync": { autoResolve: "not-an-array" } } } }));
+    writeFileSync(sharedStorePath("acme"), JSON.stringify({ repos: { [IDENTITY]: { "rt.sync": { autoResolve: "not-an-array" } } } }));
 
     expect(loadSyncConfig(IDENTITY)).toEqual({ autoResolve: [] });
   });
@@ -61,7 +61,7 @@ describe("loadSyncConfig over the settings resolver", () => {
     setSetting(
       "rt.sync",
       { autoResolve: [{ glob: "${repoRoot}/gen.txt", strategy: "theirs" }] },
-      "team",
+      "org",
       { repoIdentity: IDENTITY },
     );
 

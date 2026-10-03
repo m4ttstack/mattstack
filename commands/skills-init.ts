@@ -1,8 +1,8 @@
 /**
  * rt skills init [--repo <path>] [--zone <slug>] [--json]
  *
- * Scaffolds a zero-fill team pack named after its zone's namespace (roster
- * `work` only, every domain slot unbound), declares the repo in the zone,
+ * Scaffolds a zero-fill team pack named after its team folder (roster
+ * `work` only, every domain slot unbound), adds the repo to the team's claim,
  * materializes, compiles, checks, and installs the pack plugin on this
  * machine. Never commits; never writes into an existing pack directory.
  */
@@ -19,6 +19,7 @@ import { failureFor, logFailureDetail, UserActionableError, userErrorPayload } f
 import { createRealProbes } from "../lib/setup/probes.ts";
 import { materializeSkills, packVerdict, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { createTeam } from "../lib/team/create.ts";
+import { setSetting } from "../lib/settings/write.ts";
 import { initPack, POLICY_REFUSALS, type InitDeps, type InitOutcome, type InitRemedy } from "../lib/skills/init.ts";
 import { loadStepSource, resolvePluginRoots } from "../lib/skills/sources.ts";
 import { textInput } from "../lib/ui/prompts.ts";
@@ -157,8 +158,9 @@ function realDeps(opts: { json: boolean }): InitDeps {
     }),
     createZone: async (name, remote) => {
       const r = await createTeam(p, { name, remote, others: false });
-      return { slug: r.slug, dir: r.dir };
+      return { slug: r.slug, team: r.team, dir: r.dir };
     },
+    declareClaim: (zone, projects) => setSetting("board.projects", projects, "team", { team: zone.team }),
     engineDescription: (engine) => {
       try {
         return loadStepSource(engine, resolvePluginRoots()).description;

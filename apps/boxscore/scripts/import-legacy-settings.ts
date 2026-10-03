@@ -9,6 +9,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  getOrgSetting,
   getSetting,
   rtCommand,
   setSetting,
@@ -154,7 +155,7 @@ async function main(): Promise<void> {
     {
       key: 'mattstack.roster',
       value: mergeRoster(board, settingsJson.users),
-      scope: 'team',
+      scope: 'org',
     },
     {
       key: 'boxscore.projects',
@@ -186,7 +187,7 @@ async function main(): Promise<void> {
   ];
 
   const currentIntegrations =
-    getSetting<Integrations | undefined>('mattstack.integrations').value ?? {};
+    getOrgSetting<Integrations>('mattstack.integrations') ?? {};
   const { merged: mergedIntegrations, changed: integrationsChanged } =
     mergeIntegrations(currentIntegrations, {
       host: gitlabBaseUrl,
@@ -196,7 +197,7 @@ async function main(): Promise<void> {
     writes.push({
       key: 'mattstack.integrations',
       value: mergedIntegrations,
-      scope: 'team',
+      scope: 'org',
     });
   }
 
@@ -219,7 +220,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    '[import-legacy-settings] team-scope writes landed in the local acme-web team repo working copy. ' +
+    '[import-legacy-settings] org and team writes landed in the local org clone. ' +
       'Commit and push there for the rest of the team to pick them up.'
   );
   console.log(

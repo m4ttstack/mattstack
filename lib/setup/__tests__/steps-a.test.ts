@@ -6,7 +6,7 @@ import { dirname, join } from "path";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { HELPERS_DIR, RT_BUNDLE_PATH, __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
 import { DAEMON_SOCK_PATH } from "../../daemon-config.ts";
-import { logsDir, rtDir, teamSettingsPath } from "../../rt-paths.ts";
+import { logsDir, rtDir } from "../../rt-paths.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import { closeStateDb, getKvValue, setKvValue } from "../../state/index.ts";
@@ -38,6 +38,7 @@ import { pathLinkStep } from "../steps/path.ts";
 import { settingsSeedStep } from "../steps/settings.ts";
 import { CLONE_STALL_ARGS, reposCloneStep, rtCredentialHelper } from "../steps/repos.ts";
 import { interceptsInstallStep } from "../steps/index.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 // ─── shared fakes ────────────────────────────────────────────────────────────
 
@@ -594,7 +595,7 @@ describe("team.join after the join itself finished", () => {
 
   /** A machine an earlier join left behind, with the stamp an older rt wrote on its local record. */
   function joinedCtx(): ApplyContext {
-    const files = { [`${TEAMS}/beta/mattstack/settings.team.jsonc`]: "{}" };
+    const files = { [`${TEAMS}/beta/mattstack/org/settings.org.jsonc`]: "{}" };
     const p = fakeProbes({ home: "/fake-home", files, dirs: { [TEAMS]: ["beta"] } });
     p.writeFile("/fake-home/.mattstack/rt/teams/beta.json", JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, peeringPending: true }));
     return makeCtx(p, { team: { slug: "beta", name: "beta", mode: "none" } }).ctx;
@@ -1395,9 +1396,9 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     execSync("git init -q", { cwd: repoDir });
     execSync("git remote add origin git@x:acme/r-steps-a.git", { cwd: repoDir });
 
-    mkdirSync(dirname(teamSettingsPath("acme")), { recursive: true });
+    mkdirSync(dirname(sharedStorePath("acme")), { recursive: true });
     writeFileSync(
-      teamSettingsPath("acme"),
+      sharedStorePath("acme"),
       JSON.stringify({ repos: { "x/acme/r-steps-a": { "rt.intercepts": [{ command: "fakecmd-steps-a", matches: [{ cwdGlob: ".", role: "x" }] }] } } }),
     );
     mkdirSync(rtDir(), { recursive: true });
@@ -1416,9 +1417,9 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const repoDir = mkdtempSync(join(home, "late-clone-"));
     execSync("git init -q", { cwd: repoDir });
     execSync("git remote add origin git@x:acme/r-late.git", { cwd: repoDir });
-    mkdirSync(dirname(teamSettingsPath("acme")), { recursive: true });
+    mkdirSync(dirname(sharedStorePath("acme")), { recursive: true });
     writeFileSync(
-      teamSettingsPath("acme"),
+      sharedStorePath("acme"),
       JSON.stringify({ repos: { "x/acme/r-late": { "rt.intercepts": [{ command: "fakecmd-late", matches: [{ cwdGlob: ".", role: "x" }] }] } } }),
     );
     let reachable = false;

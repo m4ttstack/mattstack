@@ -1,10 +1,18 @@
 import { Badge, Box, Text, Tooltip } from '@mattstack/app-kit/core';
 import { useHasOverflowX } from '@mattstack/app-kit/hooks';
 
-import { useSettingsTeam } from './useConsoleSettings';
-import { layerLabel, rungBase, type LayerScope, type StoreScope } from './view';
+import { useSettingsOrg, useSettingsTeam } from './useConsoleSettings';
+import {
+  isRung,
+  layerLabel,
+  rungBase,
+  scopeLabel,
+  type LayerScope,
+  type StoreScope,
+} from './view';
 
 export const SCOPE_COLOR: Record<StoreScope, string> = {
+  org: 'gold',
   team: 'purple',
   user: 'cyan',
   machine: 'accent',
@@ -28,21 +36,16 @@ export function ScopeDot({ scope }: { scope: BadgeBase }) {
   );
 }
 
-/** `bare` leaves the team's name off, for a fixed-width column a long slug
-    would truncate. A label that still does not fit ends in an ellipsis and
-    shows whole in a tooltip. */
-export function ScopeBadge({
-  scope,
-  bare = false,
-}: {
-  scope: LayerScope | 'default';
-  bare?: boolean;
-}) {
+/** A label that does not fit its column ends in an ellipsis and shows whole
+    in a tooltip. Only the store's name shortens: a repo rung's `· repo`
+    always shows, so a cut-off rung never reads as its global layer. */
+export function ScopeBadge({ scope }: { scope: LayerScope | 'default' }) {
   const base: BadgeBase = scope === 'default' ? 'default' : rungBase(scope)!;
-  const named = useSettingsTeam();
-  const team = bare ? null : named;
+  const team = useSettingsTeam();
+  const org = useSettingsOrg();
   const hue = base === 'default' ? null : SCOPE_COLOR[base];
-  const label = scope === 'default' ? 'default' : layerLabel(scope, team);
+  const label = scope === 'default' ? 'default' : layerLabel(scope, team, org);
+  const name = base === 'default' ? 'default' : scopeLabel(base, team, org);
   const { ref, hasOverflow } = useHasOverflowX<HTMLParagraphElement>();
   return (
     <Tooltip label={label} disabled={!hasOverflow}>
@@ -63,9 +66,16 @@ export function ScopeBadge({
         }}
         styles={{ section: { marginInlineEnd: 4 } }}
       >
-        <Text ref={ref} span inherit truncate display="block">
-          {label}
-        </Text>
+        <Box component="span" style={{ display: 'flex', minWidth: 0 }}>
+          <Text ref={ref} span inherit truncate display="block">
+            {name}
+          </Text>
+          {isRung(scope) && (
+            <Text span inherit style={{ flex: 'none', whiteSpace: 'pre' }}>
+              {' · repo'}
+            </Text>
+          )}
+        </Box>
       </Badge>
     </Tooltip>
   );

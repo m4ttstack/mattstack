@@ -3,7 +3,7 @@ import { execSync } from "child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { machineSettingsPath, rtDir, teamSettingsPath, userSettingsPath } from "../../rt-paths.ts";
+import { machineSettingsPath, rtDir, userSettingsPath } from "../../rt-paths.ts";
 import { closeStateDb, getStateDb, setKvValue } from "../../state/index.ts";
 import {
   buildInterceptRules,
@@ -19,6 +19,7 @@ import {
   writeInterceptRules,
   type InterceptRule,
 } from "../shim.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 function writeStore(file: string, obj: unknown): void {
   mkdirSync(dirname(file), { recursive: true });
@@ -27,7 +28,7 @@ function writeStore(file: string, obj: unknown): void {
 
 /** Seeds `rt.intercepts` for `identity` in the team store — the store-only path every rule now goes through. */
 function writeRepoIntercepts(identity: string, intercepts: unknown): void {
-  writeStore(teamSettingsPath("acme"), { repos: { [identity]: { "rt.intercepts": intercepts } } });
+  writeStore(sharedStorePath("acme"), { repos: { [identity]: { "rt.intercepts": intercepts } } });
 }
 
 function writeRepoIndex(index: Record<string, string>): void {
@@ -415,7 +416,7 @@ describe("staleIntercepts", () => {
     writeCache("r");
     writeAt(userSettingsPath(), "{}", OLDER);
     writeAt(machineSettingsPath(), "{}", OLDER);
-    writeAt(teamSettingsPath("acme"), "{}", OLDER);
+    writeAt(sharedStorePath("acme"), "{}", OLDER);
     expect(staleIntercepts()).toEqual({ stale: false });
   });
 
@@ -429,7 +430,7 @@ describe("staleIntercepts", () => {
 
   test("a team store newer than the cache is stale", () => {
     writeCache("r");
-    writeAt(teamSettingsPath("acme"), "{}", NEWER);
+    writeAt(sharedStorePath("acme"), "{}", NEWER);
     expect(staleIntercepts().stale).toBe(true);
   });
 
