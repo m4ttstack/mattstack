@@ -66,7 +66,7 @@ describe("readZones", () => {
     expect(zones.map((z) => z.slug)).toEqual(["acme/gadgets", "acme/widgets"]);
     expect(zones[1]).toEqual({
       slug: "acme/widgets", org: "acme", team: "widgets", orgDir: ORG_ROOT("acme"), dir: `${ORG_ROOT("acme")}/mattstack/teams/widgets`,
-      host: null, projects: [], marketplace: "acme-market", hasPack: false,
+      host: null, projects: [], marketplace: "acme-market", hasPack: false, packCompiled: false,
     });
     expect(readZones(fs, HOME)).toEqual(zones);
   });
@@ -105,6 +105,16 @@ describe("readZones", () => {
     expect(byTeam).toEqual({ widgets: true, gadgets: false });
   });
 
+  test("packCompiled is true only once a verb or stage has compiled", () => {
+    const fs = memFs(orgFiles("acme", {}, { widgets: {}, gadgets: {} }, {
+      [`${ORG_ROOT("acme")}/mattstack/teams/widgets/packs/widgets/pack/skills.jsonc`]: `{}`,
+      [`${ORG_ROOT("acme")}/mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc`]: `{}`,
+      [`${ORG_ROOT("acme")}/mattstack/teams/gadgets/packs/gadgets/skills/work/SKILL.md`]: `x`,
+    }));
+    const byTeam = Object.fromEntries(readZones(fs, HOME).map((z) => [z.team, z.packCompiled]));
+    expect(byTeam).toEqual({ widgets: false, gadgets: true });
+  });
+
   test("a base pack under packs/<team> does not occupy the team's pack slot", () => {
     const fs = memFs(orgFiles("acme", {}, { widgets: {} }, {
       [`${ORG_ROOT("acme")}/mattstack/teams/widgets/packs/widgets/pack/skills.jsonc`]: `{ "base": true }`,
@@ -141,7 +151,7 @@ describe("readZones", () => {
 describe("chooseZone", () => {
   const repo = { host: "gitlab.com", path: "acme/api", slug: "gitlab.com-acme-api" };
   const z = (team: string, host: string | null, projects: string[] = [], hasPack = false): ZoneInfo =>
-    ({ slug: `acme/${team}`, org: "acme", team, orgDir: "/z", dir: `/z/mattstack/teams/${team}`, host, projects, marketplace: "acme", hasPack });
+    ({ slug: `acme/${team}`, org: "acme", team, orgDir: "/z", dir: `/z/mattstack/teams/${team}`, host, projects, marketplace: "acme", hasPack, packCompiled: hasPack });
   const none = { org: null, team: null, active: null };
   test("a zone already declaring the repo wins, pack or not", () => {
     const r = chooseZone([z("a", "gitlab.com"), z("b", "gitlab.com", ["acme/api"], true)], repo, none);
@@ -507,10 +517,42 @@ describe("initPack", () => {
     }
   });
 
+  test("a bad team name is written plainly in the refusal", async () => {
+    const { deps } = world();
+    const out = await initPack({ repoDir: REPO, zone: null, team: "Widgets" }, deps);
+    if (out.ok || !out.refused) throw new Error("expected a refusal");
+    expect(out.detail).toBe("Widgets is not a team name. A team name is lowercase letters, digits and hyphens, starting with a letter");
+  });
+
+  test("--zone naming no org on this Mac says so, and lists the orgs that are here", async () => {
+    const { deps, calls } = world();
+    const out = await initPack({ repoDir: REPO, zone: "other", team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", detail: "There is no org called other on this Mac. Orgs here: acme" });
+    expect(calls.registered).toEqual([]);
+  });
+
+  test("an org clone with no team folders refuses plainly with the add-a-team remedy, even on a TTY", async () => {
+    const files = { [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }` };
+    const { deps } = world({ noOrg: true, files, isTTY: true });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", detail: "The acme org has no team folders yet, so there is no team to hold a pack", next: "rt team add <team>" });
+  });
+
+  test("an uncompiled skeleton nobody claims is free: with no team and no active team it is carried on", async () => {
+    const pack = `${TEAM_DIR("acme")}/packs/acme`;
+    const { deps, calls } = world({
+      files: orgFiles("acme", GITLAB, { acme: {} }, { [`${pack}/pack/skills.jsonc`]: `{}`, [`${pack}/pack/stubs.jsonc`]: `{ "kept": true }` }),
+      activeTeam: () => null,
+    });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out.ok).toBe(true);
+    expect(calls.claims).toEqual([["acme/acme", ["acme/api"]]]);
+  });
+
   test("a team and an org with no host or forge refuse, naming the setting that fixes it", async () => {
     const { deps, calls, fs } = world({ files: orgFiles("acme", {}, { acme: {} }), gitRemote: async () => ({ kind: "ok", url: "git@gitlab.example.com:acme/api.git" }) });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
-    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-no-host", next: "rt settings set board.gitlabHost gitlab.example.com --scope team" });
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-no-host", next: `rt settings set board.gitlabHost '"gitlab.example.com"' --scope team --team acme` });
     if (out.ok || !out.refused) return;
     expect(out.detail).toBe("The acme team has no forge host set, so rt cannot tell which host this repo is on");
     expect(calls.claims).toEqual([]);

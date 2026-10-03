@@ -21,7 +21,7 @@ import { createRealProbes } from "../lib/setup/probes.ts";
 import { materializeSkills, packVerdict, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { createTeam } from "../lib/team/create.ts";
 import { setSetting } from "../lib/settings/write.ts";
-import { initPack, POLICY_REFUSALS, type InitDeps, type InitOutcome, type InitRemedy } from "../lib/skills/init.ts";
+import { initPack, NEEDS_YOU_REFUSALS, POLICY_REFUSALS, type InitDeps, type InitOutcome, type InitRemedy } from "../lib/skills/init.ts";
 import { loadStepSource, resolvePluginRoots } from "../lib/skills/sources.ts";
 import { textInput } from "../lib/ui/prompts.ts";
 import * as ui from "../lib/ui/out.ts";
@@ -64,7 +64,7 @@ export function initOutcomeBlocks(o: Extract<InitOutcome, { ok: true }>): Block[
 }
 
 export function initRefusalBlocks(o: Extract<InitOutcome, { ok: false; refused: true }>): Block[] {
-  return [ui.line("refused", o.detail), ...(o.why ? [ui.callout("why", o.why)] : []), ...(o.next ? [ui.callout("next", ui.cmd(o.next))] : [])];
+  return [ui.line(NEEDS_YOU_REFUSALS.has(o.code) ? "needs-you" : "refused", o.detail), ...(o.why ? [ui.callout("why", o.why)] : []), ...(o.next ? [ui.callout("next", ui.cmd(o.next))] : [])];
 }
 
 function remedyCell(r: InitRemedy): Array<string | Segment> {
@@ -262,7 +262,7 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
     ui.print(...initOutcomeBlocks(out));
   } else if (out.code === "claude-missing") {
     ui.note(...claudeMissingBlocks());
-  } else if (out.refused && POLICY_REFUSALS.has(out.code)) {
+  } else if (out.refused && (POLICY_REFUSALS.has(out.code) || NEEDS_YOU_REFUSALS.has(out.code))) {
     ui.note(...initRefusalBlocks(out));
   } else {
     ui.fail(initFailure(out), ...initFailureAfter(out));
