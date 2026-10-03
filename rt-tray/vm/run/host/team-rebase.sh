@@ -156,10 +156,10 @@ OUTCOME=$(printf '%s' "${PULL_JSON:-}" | jq -r '.outcome // empty' 2>/dev/null) 
 AHEAD=$(git -C "$TEAM" rev-list --count origin/main..HEAD 2>/dev/null) || AHEAD=""
 git -C "$TEAM" log --oneline origin/main..HEAD 2>/dev/null | sed 's/^/  ahead: /' || true
 git -C "$TEAM" show HEAD --stat --format='  %h %s' 2>/dev/null | head -5 || true
-# -U0: both edits live in mattstack/settings.team.jsonc, so a default diff's
+# -U0: both edits live under mattstack/teams, so a default diff's
 # context lines would report the owner's board.title as touched by the
 # joiner's own commit.
-TOUCHED=$(git -C "$TEAM" show HEAD -U0 --format= -- mattstack/settings.team.jsonc 2>/dev/null | grep -c '^[+-].*board\.title') || TOUCHED=0
+TOUCHED=$(git -C "$TEAM" show HEAD -U0 --format= -- mattstack/teams 2>/dev/null | grep -c '^[+-].*board\.title') || TOUCHED=0
 TITLE_NOW=$("$RT" settings get board.title --json 2>/dev/null | tail -1 | jq -r '.value // empty' 2>/dev/null) || TITLE_NOW=""
 
 if [ "$OUTCOME" = "rebased" ] && [ "${AHEAD:-}" = "1" ] && [ "${TOUCHED:-0}" -eq 0 ] && [ "$TITLE_NOW" = "$OWNER_TITLE" ]; then

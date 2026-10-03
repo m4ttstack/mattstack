@@ -72,6 +72,7 @@ describe("teamCreate", () => {
     expect(body).toEqual({
       contract: 1,
       slug: "acme",
+      team: "acme",
       name: "Acme",
       remote: "https://github.com/acme/mattstack-team-acme.git",
       dir: ZONE_DIR,
