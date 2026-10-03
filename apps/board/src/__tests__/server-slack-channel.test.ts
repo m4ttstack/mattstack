@@ -31,7 +31,7 @@ writeFileSync(
   JSON.stringify({
     'board.gitlabHost': 'https://gitlab.example.com',
     'board.projects': ['g/p'],
-    'board.members': [{ username: 'alice' }],
+    'mattstack.roster': [{ username: 'alice' }],
   })
 );
 

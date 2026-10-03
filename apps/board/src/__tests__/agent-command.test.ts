@@ -1,16 +1,26 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import type { getSetting } from '@mattstack/rt-client';
 import {
   composeAgentCommand,
   loadAgentSettings,
   loadConfigFrom,
+  teamView,
 } from '../config.ts';
 
 type GetSettingFn = typeof getSetting;
+
+const realView = { ...teamView };
+beforeEach(() => {
+  teamView.pack = () => null;
+  teamView.team = () => null;
+});
+afterEach(() => {
+  Object.assign(teamView, realView);
+});
 
 function fakeResolve(values: Record<string, unknown>): GetSettingFn {
   return (<T>(key: string) => ({

@@ -41,7 +41,7 @@ export interface TabLaunch {
 
 /** A review launch for board tab `tab`: the tab's `reviewSkill` when it
     names one, else the pack's `board:review` binding; the pack is the tab's,
-    else `board.defaultPack`, either way. */
+    else the active team's pack, either way. */
 export function reviewLaunchForTab(
   cfg: BoardConfig,
   mrUrl: string,

@@ -5,7 +5,7 @@ import { afterAll, expect, test } from 'bun:test';
 
 // Boots the real server against a fake $HOME whose team store owns
 // mattstack.roster, then drives POST /roster. Proves the route's three
-// actions land in the suite key (not board.members) and that a rename
+// actions land in the suite key and that a rename
 // survives the write, without touching the real ~/.mattstack or the real
 // apps/board checkout's config.json.
 //
@@ -98,9 +98,6 @@ test('add with a name writes mattstack.roster', async () => {
   const res = await roster({ action: 'add', username: 'cy', name: 'Cy Park' });
   expect(res.status).toBe(200);
   expect(stored()).toContainEqual({ username: 'cy', name: 'Cy Park' });
-  expect(
-    JSON.parse(readFileSync(storePath, 'utf8'))['board.members']
-  ).toBeUndefined();
 });
 
 test('rename sets a name on an existing member', async () => {

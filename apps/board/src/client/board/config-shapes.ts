@@ -63,7 +63,6 @@ export type CompositeShape =
 const BOARD_EDITORS: Record<string, CompositeShape> = {
   'board.tabs': { kind: 'tabs' },
   'board.turn': { kind: 'turn' },
-  'board.members': { kind: 'roster' },
   'board.hiddenMembers': { kind: 'roster' },
 };
 

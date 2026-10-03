@@ -80,7 +80,7 @@ describe('shapeOf', () => {
       },
     });
     expect(shapeOf(REGISTRY.get('board.tabs')!)).toEqual({ kind: 'tabs' });
-    expect(shapeOf(REGISTRY.get('board.members')!)).toEqual({
+    expect(shapeOf(REGISTRY.get('board.hiddenMembers')!)).toEqual({
       kind: 'roster',
     });
   });
@@ -119,7 +119,9 @@ describe('rowKind', () => {
 
   test('roster keys summarize regardless of writability', () => {
     expect(
-      rowKind(def({ key: 'board.members', type: 'array', writable: false }))
+      rowKind(
+        def({ key: 'board.hiddenMembers', type: 'array', writable: false })
+      )
     ).toBe('roster');
     expect(rowKind(def({ key: 'board.hiddenMembers', type: 'array' }))).toBe(
       'roster'

@@ -9,7 +9,7 @@ import type { RowStatus, Verb, VerbKind } from './row-status.ts';
 type Lane = 'review' | 'respond' | 'doctor';
 
 const NO_PACK_TIP =
-  'No pack selected. Launched the generic skill. Set a pack on the tab or board.defaultPack.';
+  'No pack selected. Launched the generic skill. Set a pack on the tab, or join a team that has one.';
 
 /** How long an armed merge waits for its second click. */
 export const MERGE_ARM_MS = 4000;
