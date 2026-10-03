@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { dirname, join } from "path";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
+import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 
 const tmpHome = mkdtempSync(join(tmpdir(), "rt-doppler-sync-"));
 process.env.HOME = tmpHome;
@@ -20,9 +20,7 @@ function seedTemplate(entries: unknown[]): void {
 
 /** setSetting(..., "org", ...) refuses without an org store. */
 function seedTeam(): void {
-  const path = sharedStorePath("acme");
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, "// team store\n{}\n");
+  seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
 }
 
 afterEach(() => {

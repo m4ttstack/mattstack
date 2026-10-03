@@ -15,7 +15,7 @@ import {
   STATUS_FAILED_BLOCKER,
   type DisposeDeps,
 } from "../dispose.ts";
-import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
+import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 
 const GIT_ID = "-c user.email=t@t -c user.name=t";
 
@@ -54,9 +54,7 @@ const IDENTITY = "test/acme";
  */
 function seedIdentity(originUrl: string): void {
   setSetting("rt.repoIdentityOverrides", { [originUrl]: IDENTITY }, "machine");
-  const teamPath = sharedStorePath("acme");
-  mkdirSync(dirname(teamPath), { recursive: true });
-  writeFileSync(teamPath, "// team store\n{}\n");
+  seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
 }
 
 /** Add a worktree on a fresh branch cut from `base`, and return its (canonical) path. */

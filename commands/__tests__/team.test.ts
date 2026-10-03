@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, test, expect, spyOn } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import * as ui from "../../lib/ui/out.ts";
@@ -9,6 +9,7 @@ import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
 import type { Probes } from "../../lib/setup/probes.ts";
+import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { joinLink, joinLinkBase, pasteBlock } from "../../lib/team/invite.ts";
 import { readTeamLocal, writeTeamLocal, type TeamLocalRecord } from "../../lib/team/team-local.ts";
 
@@ -245,8 +246,7 @@ describe("teamInvite", () => {
     process.env.HOME = home;
 
     teamDir = join(home, ".mattstack", "teams", "acme");
-    mkdirSync(join(teamDir, "mattstack", "org"), { recursive: true });
-    writeFileSync(join(teamDir, "mattstack", "org", "settings.org.jsonc"), `${JSON.stringify({ "board.title": "Acme Team" }, null, 2)}\n`);
+    seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} }, settings: { "board.title": "Acme Team" } });
     mkdirSync(join(teamDir, ".git"), { recursive: true });
   });
 
