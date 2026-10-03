@@ -65,6 +65,7 @@ import {
   loadInclude,
   loadStepSource,
   orgBasePackRoots,
+  orgOfPackDir,
   parseStageQualifiedName,
   readManifestBindings,
   readManifestPipelines,
@@ -589,9 +590,16 @@ async function resolve(flags: Flags): Promise<Resolved> {
   if (self && fullRoster.length > 0) pluginRoots.byName[self.name] = { dir: packDir, version: self.version };
   const invocable = fullRoster.length === 0 ? new Set<string>() : invocableRoster(pluginRoots);
   // After the invocable roster: a base pack is never installed, so nothing in it is invocable.
-  if (fullRoster.length > 0) {
-    for (const baseRoot of orgBasePackRoots(mattstackRoot)) {
+  const packOrg = fullRoster.length > 0 ? orgOfPackDir(mattstackRoot, packDir) : null;
+  if (packOrg) {
+    for (const baseRoot of orgBasePackRoots(mattstackRoot, packOrg)) {
       if (baseRoot.name === self?.name) continue;
+      if (pluginRoots.byName[baseRoot.name]) {
+        throw new SkillsUsageError(`org base pack ${baseRoot.name} has the same name as an installed plugin`, {
+          title: "An org base pack has the same name as an installed plugin",
+          details: `Rename the base pack folder ${baseRoot.dir} so its fills do not replace ${baseRoot.name}'s.`,
+        });
+      }
       pluginRoots.byName[baseRoot.name] = { dir: baseRoot.dir, version: baseRoot.version };
       (pluginRoots.folderOnly ??= new Set()).add(baseRoot.name);
     }

@@ -49,10 +49,12 @@ function claimingPacksIn(fs: MaterializeFs, zone: ZoneInfo): ClaimingPack[] {
 
 /** The org base pack a team pack extends, read from the org folder of the same clone. It is never installed. */
 function baseLayer(deps: MaterializeDeps, zone: ZoneInfo, pack: string, name: string): Layer | { error: string } {
+  const packsDir = join(zone.orgDir, "mattstack", "org", "packs");
   if (!TEAM_NAME_RE.test(name)) {
-    return { error: `${pack} extends "${name}", which is not a base pack name; name the folder under the org's packs, for example "extends": "${zone.org}-base"` };
+    const example = deps.fs.readDir(packsDir).sort().find((n) => TEAM_NAME_RE.test(n) && deps.fs.exists(join(packsDir, n, "pack", "skills.jsonc"))) ?? "<base folder name>";
+    return { error: `${pack} extends "${name}", which is not a base pack name; name the folder under the org's packs, for example "extends": "${example}"` };
   }
-  const dir = join(zone.orgDir, "mattstack", "org", "packs", name);
+  const dir = join(packsDir, name);
   const fragmentPath = join(dir, "pack", "skills.jsonc");
   const fragment = readFragment(deps.fs, fragmentPath);
   if (!fragment) return { error: `${pack} extends ${name}, but the org has no base pack there (looked in ${dir})` };

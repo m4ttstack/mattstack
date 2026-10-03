@@ -214,17 +214,42 @@ function listDirs(dir: string): string[] {
   }
 }
 
-/** Every org clone's base packs under `<mattstackRoot>/teams/<org>/mattstack/org/packs/`. */
-export function orgBasePackRoots(mattstackRoot: string): { name: string; dir: string; version: string }[] {
+function readJsoncObject(path: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(stripJsonc(readFileSync(path, "utf8")));
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The org slug of a pack folder that sits inside an org clone under `<mattstackRoot>/teams/`, or null for a pack anywhere else. */
+export function orgOfPackDir(mattstackRoot: string, packDir: string): string | null {
+  let teamsRoot: string;
+  let dir: string;
+  try {
+    teamsRoot = realpathSync(join(mattstackRoot, "teams"));
+    dir = realpathSync(packDir);
+  } catch {
+    return null;
+  }
+  const rel = relative(teamsRoot, dir);
+  if (rel === "" || rel.startsWith("..")) return null;
+  const [org, marker] = rel.split(sep);
+  return org && marker === "mattstack" ? org : null;
+}
+
+/** One org clone's base packs under `<mattstackRoot>/teams/<org>/mattstack/org/packs/`: the folders materialize would admit as a base. */
+export function orgBasePackRoots(mattstackRoot: string, org: string): { name: string; dir: string; version: string }[] {
   const out: { name: string; dir: string; version: string }[] = [];
-  for (const org of listDirs(join(mattstackRoot, "teams"))) {
-    const packs = join(mattstackRoot, "teams", org, "mattstack", "org", "packs");
-    for (const name of listDirs(packs)) {
-      if (!TEAM_NAME_RE.test(name)) continue;
-      const dir = join(packs, name);
-      if (!existsSync(join(dir, "pack", "skills.jsonc"))) continue;
-      out.push({ name, dir: realpathSync(dir), version: "org" });
-    }
+  const clone = join(mattstackRoot, "teams", org);
+  if (readJsoncObject(join(clone, "mattstack", "mattstack.jsonc"))?.role !== "org") return out;
+  const packs = join(clone, "mattstack", "org", "packs");
+  for (const name of listDirs(packs)) {
+    if (!TEAM_NAME_RE.test(name)) continue;
+    const dir = join(packs, name);
+    if (readJsoncObject(join(dir, "pack", "skills.jsonc"))?.base !== true) continue;
+    out.push({ name, dir: realpathSync(dir), version: "org" });
   }
   return out;
 }
