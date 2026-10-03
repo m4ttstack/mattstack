@@ -1,7 +1,15 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 
 import {
   getDef,
@@ -19,6 +27,7 @@ import {
   saveMemberHidden,
   saveRosterMembers,
   saveTabs,
+  teamView,
   type TabConfig,
 } from '../config.ts';
 
@@ -36,6 +45,15 @@ beforeAll(() => {
 afterAll(() => {
   process.env.HOME = origHome;
   rmSync(home, { recursive: true, force: true });
+});
+
+const realView = { ...teamView };
+beforeEach(() => {
+  teamView.pack = () => null;
+  teamView.team = () => null;
+});
+afterEach(() => {
+  Object.assign(teamView, realView);
 });
 
 /** A resolve stand-in returning `values[key]` (or undefined for an absent
@@ -215,39 +233,23 @@ describe('loadConfigFrom: per-key store-wins fallback', () => {
     expect(cfg.gateGraceMinutes).toBe(120);
   });
 
-  test('mattstack.roster wins over board.members', () => {
+  test("mattstack.roster wins over config.json's members", () => {
     const p = tmpConfig();
     const cfg = loadConfigFrom(
       p,
       fakeResolve({
         'mattstack.roster': [{ username: 'suite', name: 'Suite Wide' }],
-        'board.members': [{ username: 'legacy' }],
       })
     );
     expect(cfg.members).toEqual([{ username: 'suite', name: 'Suite Wide' }]);
   });
 
-  test('board.members still wins over config.json when mattstack.roster is unset', () => {
-    const p = tmpConfig();
-    const cfg = loadConfigFrom(
-      p,
-      fakeResolve({ 'board.members': [{ username: 'legacy' }] })
-    );
-    expect(cfg.members).toEqual([{ username: 'legacy' }]);
-  });
-
   test('an empty mattstack.roster is still ownership, not absence', () => {
-    // [] is a value: it must not fall through to board.members. parseConfig
-    // refuses an empty roster, so this proves ownership by the throw.
+    // [] is a value: it must not fall through to config.json's members.
+    // parseConfig refuses an empty roster, so this proves ownership by the throw.
     const p = tmpConfig();
     expect(() =>
-      loadConfigFrom(
-        p,
-        fakeResolve({
-          'mattstack.roster': [],
-          'board.members': [{ username: 'legacy' }],
-        })
-      )
+      loadConfigFrom(p, fakeResolve({ 'mattstack.roster': [] }))
     ).toThrow(/missing required field "members"/);
   });
 
@@ -305,13 +307,77 @@ describe('loadConfigFrom: store values get the same normalization/validation the
     expect(cfg.switchboard.url).toBe(switchboardUrl());
   });
 
-  test('board.defaultPack reads from the store', () => {
-    const p = tmpConfig();
+  const twoTeams = [
+    { username: 'dev1', teams: ['widgets'] },
+    { username: 'dev3', teams: ['gadgets'] },
+  ];
+
+  test('the team pack comes from the active team, never from a setting, and survives the store round trip', () => {
+    teamView.pack = () => 'widgets';
     const cfg = loadConfigFrom(
-      p,
-      fakeResolve({ 'board.defaultPack': 'widgets' })
+      tmpConfig(),
+      fakeResolve({ 'board.title': 'Acme', 'board.defaultPack': 'gadgets' })
     );
-    expect(cfg.defaultPack).toBe('widgets');
+    expect(cfg.title).toBe('Acme');
+    expect(cfg.teamPack).toBe('widgets');
+  });
+
+  test("the roster is the active team's members", () => {
+    teamView.team = () => 'widgets';
+    const cfg = loadConfigFrom(
+      tmpConfig(),
+      fakeResolve({ 'mattstack.roster': twoTeams })
+    );
+    expect(cfg.members.map(m => m.username)).toEqual(['dev1']);
+  });
+
+  test('a Mac on no team, and a team nobody is listed on, see the whole roster instead of failing to load', () => {
+    const everyone = loadConfigFrom(
+      tmpConfig(),
+      fakeResolve({ 'mattstack.roster': twoTeams })
+    );
+    expect(everyone.members.map(m => m.username)).toEqual(['dev1', 'dev3']);
+    teamView.team = () => 'sprockets';
+    const empty = loadConfigFrom(
+      tmpConfig(),
+      fakeResolve({ 'mattstack.roster': twoTeams })
+    );
+    expect(empty.members.map(m => m.username)).toEqual(['dev1', 'dev3']);
+  });
+
+  test('a save from the everyone view replaces the roster as edited and puts nobody on a team', () => {
+    teamView.team = () => 'sprockets';
+    const calls: Array<{ key: string; value: unknown; scope: string }> = [];
+    saveRosterMembers(
+      twoTeams,
+      tmpConfig(),
+      fakeResolve({ 'mattstack.roster': twoTeams }),
+      fakeWrite(calls)
+    );
+    expect(calls[0]!.value).toEqual(twoTeams);
+  });
+
+  test("saving from one team's view writes the org roster, keeps the other team's members, and reloads", () => {
+    teamView.team = () => 'widgets';
+    const calls: Array<{ key: string; value: unknown; scope: string }> = [];
+    const cfg = saveRosterMembers(
+      [{ username: 'dev1' }, { username: 'dev4' }],
+      tmpConfig(),
+      fakeResolve({ 'mattstack.roster': twoTeams }),
+      fakeWrite(calls)
+    );
+    expect(calls).toEqual([
+      {
+        key: 'mattstack.roster',
+        value: [
+          { username: 'dev1', teams: ['widgets'] },
+          { username: 'dev3', teams: ['gadgets'] },
+          { username: 'dev4', teams: ['widgets'] },
+        ],
+        scope: 'org',
+      },
+    ]);
+    expect(cfg.members.map(m => m.username)).toEqual(['dev1']);
   });
 
   test('a bad store defaultMember (not "all" or a known member) is rejected the same way a bad file one is', () => {
@@ -324,7 +390,10 @@ describe('loadConfigFrom: store values get the same normalization/validation the
   test('a store member with no username is rejected the same way a bad file one is', () => {
     const p = tmpConfig();
     expect(() =>
-      loadConfigFrom(p, fakeResolve({ 'board.members': [{ name: 'No User' }] }))
+      loadConfigFrom(
+        p,
+        fakeResolve({ 'mattstack.roster': [{ name: 'No User' }] })
+      )
     ).toThrow(/username/);
   });
 
@@ -342,7 +411,7 @@ describe('loadConfigFrom: store values get the same normalization/validation the
 });
 
 describe('loadConfigFrom: members roster + hiddenMembers overlay', () => {
-  test("unowned board.members and board.hiddenMembers: hidden comes from config.json's inline flags", () => {
+  test("unowned roster and board.hiddenMembers: hidden comes from config.json's inline flags", () => {
     const p = tmpConfig({
       ...base,
       members: [{ username: 'alice', hidden: true }, { username: 'bob' }],
@@ -369,12 +438,12 @@ describe('loadConfigFrom: members roster + hiddenMembers overlay', () => {
     ]);
   });
 
-  test('owned board.members (team roster) with owned board.hiddenMembers (user overlay) compose', () => {
+  test('owned mattstack.roster (org roster) with owned board.hiddenMembers (user overlay) compose', () => {
     const p = tmpConfig();
     const cfg = loadConfigFrom(
       p,
       fakeResolve({
-        'board.members': [
+        'mattstack.roster': [
           { username: 'carol', name: 'Carol' },
           { username: 'dave' },
         ],
@@ -387,12 +456,12 @@ describe('loadConfigFrom: members roster + hiddenMembers overlay', () => {
     ]);
   });
 
-  test("owned board.members with unowned board.hiddenMembers falls back to the store roster's own inline hidden flags", () => {
+  test("owned mattstack.roster with unowned board.hiddenMembers falls back to the store roster's own inline hidden flags", () => {
     const p = tmpConfig();
     const cfg = loadConfigFrom(
       p,
       fakeResolve({
-        'board.members': [
+        'mattstack.roster': [
           { username: 'carol', hidden: true },
           { username: 'dave' },
         ],
@@ -416,7 +485,7 @@ describe('loadConfigFrom: config.json-optional boot once the team store owns the
       fakeResolve({
         'board.gitlabHost': 'https://gitlab.example.com',
         'board.projects': ['team/repo'],
-        'board.members': [{ username: 'carol' }],
+        'mattstack.roster': [{ username: 'carol' }],
       })
     );
     expect(cfg.gitlabHost).toBe('https://gitlab.example.com');
@@ -477,26 +546,6 @@ describe('saveRosterMembers: latch-gated writer', () => {
     expect(JSON.parse(readFileSync(p, 'utf8')).members).toEqual(next);
   });
 
-  test('owned: writes board.members (team), config.json untouched', () => {
-    const p = tmpConfig({ ...base, members: [{ username: 'alice' }] });
-    const before = readFileSync(p, 'utf8');
-    const calls: Array<{ key: string; value: unknown; scope: string }> = [];
-    const next = [{ username: 'alice' }, { username: 'bob' }];
-    saveRosterMembers(
-      next,
-      p,
-      fakeResolve({ 'board.members': [{ username: 'alice' }] }),
-      fakeWrite(calls)
-    );
-    expect(calls).toEqual([
-      { key: 'board.members', value: next, scope: 'team' },
-    ]);
-    expect(readFileSync(p, 'utf8')).toBe(before);
-    expect(
-      loadConfigFrom(p, fakeResolve({ 'board.members': next })).members
-    ).toEqual(next);
-  });
-
   test('removal round-trips through the same writer', () => {
     const p = tmpConfig({
       ...base,
@@ -507,25 +556,24 @@ describe('saveRosterMembers: latch-gated writer', () => {
     saveRosterMembers(
       [{ username: 'alice' }],
       p,
-      fakeResolve({ 'board.members': stored }),
+      fakeResolve({ 'mattstack.roster': stored }),
       fakeWrite(calls)
     );
     expect(calls[0]!.value).toEqual([{ username: 'alice' }]);
   });
 
-  test('owned by mattstack.roster: writes that key, not board.members', () => {
+  test('owned by mattstack.roster: writes it at org, config.json untouched', () => {
     const p = tmpConfig({ ...base, members: [{ username: 'alice' }] });
+    const before = readFileSync(p, 'utf8');
     const calls: Array<{ key: string; value: unknown; scope: string }> = [];
     const next = [{ username: 'alice' }, { username: 'bob', name: 'Bob Ng' }];
     saveRosterMembers(
       next,
       p,
-      fakeResolve({
-        'mattstack.roster': [{ username: 'alice' }],
-        'board.members': [{ username: 'legacy' }],
-      }),
+      fakeResolve({ 'mattstack.roster': [{ username: 'alice' }] }),
       fakeWrite(calls)
     );
+    expect(readFileSync(p, 'utf8')).toBe(before);
     expect(calls).toEqual([
       { key: 'mattstack.roster', value: next, scope: 'org' },
     ]);
@@ -544,46 +592,6 @@ describe('saveRosterMembers: latch-gated writer', () => {
       { username: 'alice' },
       { username: 'bob', name: 'Bob' },
     ]);
-  });
-
-  test('a write to board.members keeps hidden: that key still carries it', () => {
-    const p = tmpConfig({ ...base, members: [{ username: 'alice' }] });
-    const calls: Array<{ key: string; value: unknown; scope: string }> = [];
-    const next = [{ username: 'alice' }, { username: 'bob', hidden: true }];
-    saveRosterMembers(
-      next,
-      p,
-      fakeResolve({ 'board.members': [{ username: 'alice' }] }),
-      fakeWrite(calls)
-    );
-    expect(calls[0]!.value).toEqual(next);
-  });
-});
-
-describe('saveMemberHidden: latch-gated writer', () => {
-  test("unowned: writes config.json's inline hidden flag, store untouched", () => {
-    const p = tmpConfig({
-      ...base,
-      members: [{ username: 'alice' }, { username: 'bob' }],
-    });
-    const calls: Array<{ key: string; value: unknown; scope: string }> = [];
-    const cfg = saveMemberHidden(
-      'bob',
-      true,
-      p,
-      fakeResolve({}),
-      fakeWrite(calls)
-    );
-    expect(calls).toEqual([]);
-    expect(cfg.members).toEqual([
-      { username: 'alice' },
-      { username: 'bob', hidden: true },
-    ]);
-    const onDisk = JSON.parse(readFileSync(p, 'utf8'));
-    expect(
-      onDisk.members.find((m: { username: string }) => m.username === 'bob')
-        .hidden
-    ).toBe(true);
   });
 
   test('owned: writes board.hiddenMembers (user), config.json untouched', () => {
@@ -673,7 +681,7 @@ describe('saveMemberHidden: config.json-free still succeeds', () => {
   const teamOwned = {
     'board.gitlabHost': 'https://gitlab.example.com',
     'board.projects': ['team/repo'],
-    'board.members': [
+    'mattstack.roster': [
       { username: 'carol', hidden: true },
       { username: 'dave' },
     ],
@@ -913,7 +921,7 @@ describe('saveTabs: latch-gated writer', () => {
     const owned = {
       'board.gitlabHost': 'https://gitlab.example.com',
       'board.projects': ['team/repo'],
-      'board.members': [{ username: 'carol' }],
+      'mattstack.roster': [{ username: 'carol' }],
     };
     saveTabs([team, codeowners], missing, fakeResolve(owned), fakeWrite(calls));
     expect(calls).toEqual([

@@ -1,4 +1,4 @@
-import { getSetting } from '@mattstack/rt-client';
+import { activeTeamRoster, getSetting } from '@mattstack/rt-client';
 import type { RangePreset } from '../../shared/types.js';
 
 /** Politeness cap on concurrent GitLab requests; a code constant since the fold. */
@@ -49,6 +49,20 @@ export function __setSettingReader(r: SettingReader | null): void {
   reader = r;
 }
 
+let rosterReader: (() => RosterEntry[]) | null = null;
+
+/** Test seam, like __setSettingReader. */
+export function __setRosterReader(r: (() => RosterEntry[]) | null): void {
+  rosterReader = r;
+}
+
+function teamRoster(): RosterEntry[] {
+  if (rosterReader) return rosterReader();
+  if (process.env.VITEST)
+    throw new Error('tests must inject a roster reader (__setRosterReader)');
+  return activeTeamRoster() as RosterEntry[];
+}
+
 function read<T>(key: string): T | undefined {
   if (reader) return reader<T>(key);
   if (process.env.VITEST)
@@ -68,7 +82,7 @@ function baseUrlFrom(host: string | undefined): string {
 
 /** Every read resolves the stores fresh; nothing here caches across calls (spec 5.3). */
 export function readSettings(): BoxscoreSettings {
-  const roster = read<RosterEntry[]>('mattstack.roster') ?? [];
+  const roster = teamRoster();
   const hiddenMembers = read<string[]>('boxscore.hiddenMembers') ?? [];
   const hidden = new Set(hiddenMembers);
   const integrations = read<Integrations>('mattstack.integrations') ?? {};
