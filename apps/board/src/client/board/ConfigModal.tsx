@@ -999,6 +999,8 @@ function TabsControl({
 /** Control-specific caveats the registry description cannot know, shown in
     the same info tip as the description. */
 const ROW_HINTS: Record<string, string> = {
+  'board.hiddenMembers':
+    "The list is your team's members in the org roster; adding or dropping someone here changes the org roster.",
   'board.tabs':
     'A new section\'s MRs land once rt has backfilled it; the tab shows "syncing" until then. A section must match a CODEOWNERS header exactly; the field suggests the headers rt has seen.',
 };
@@ -1078,6 +1080,7 @@ function SettingRow({
 
   let control;
   let keyname: string = def.key;
+  let badge = def.secret ? 'secret' : scopeLabel(row.scope);
   if (kind === 'tabs' && !malformed) {
     const channel = getLeaf(
       store.defs.find(d => d.key === 'board.slack')?.effective.value,
@@ -1098,6 +1101,7 @@ function SettingRow({
     );
   } else if (kind === 'roster') {
     keyname = 'mattstack.roster';
+    badge = scopeLabel('org');
     const hidden = store.defs.find(d => d.key === 'board.hiddenMembers')
       ?.effective.value;
     const self = store.defs.find(d => d.key === 'board.defaultMember')
@@ -1175,9 +1179,7 @@ function SettingRow({
       <span onClick={stop} onKeyDown={stop} className="tui-config-tip">
         <InfoTip text={help} about={def.key} />
       </span>
-      <span className="tui-config-badge">
-        {def.secret ? 'secret' : scopeLabel(row.scope)}
-      </span>
+      <span className="tui-config-badge">{badge}</span>
       {set && kind !== 'roster' && kind !== 'tabs' && (
         <button
           className="tui-config-clear"
