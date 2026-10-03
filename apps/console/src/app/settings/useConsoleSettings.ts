@@ -36,6 +36,7 @@ export interface ConsoleStore {
   defs: SettingDefWire[];
   unregistered: Unregistered[];
   team: string | null;
+  org: string | null;
   loading: boolean;
   error: string | null;
   refresh: () => void;
@@ -65,11 +66,18 @@ export function useSettingsRepo(): string | null {
   return useContext(SettingsRepoContext);
 }
 
-/** The machine's one team, as the defs response names it, or null. */
+/** The team this Mac reads settings as, or null. */
 export const SettingsTeamContext = createContext<string | null>(null);
 
 export function useSettingsTeam(): string | null {
   return useContext(SettingsTeamContext);
+}
+
+/** The machine's org, as the defs response names it, or null. */
+export const SettingsOrgContext = createContext<string | null>(null);
+
+export function useSettingsOrg(): string | null {
+  return useContext(SettingsOrgContext);
 }
 
 async function getJson<T>(url: string): Promise<T> {
@@ -117,6 +125,7 @@ export function useConsoleSettings(
   const [defs, setDefs] = useState<SettingDefWire[]>([]);
   const [unregistered, setUnregistered] = useState<Unregistered[]>([]);
   const [team, setTeam] = useState<string | null>(null);
+  const [org, setOrg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
@@ -134,14 +143,16 @@ export function useConsoleSettings(
     getJson<{
       defs: SettingDefWire[];
       unregistered?: Unregistered[];
-      team?: string | null;
+      org?: string | null;
+      activeTeam?: string | null;
     }>(`${BASE}/defs${query({ prefix, repo })}`)
       .then(body => {
         if (!alive) return;
         setDefs(body.defs.map(withDescription));
         loadedFor.current = repo;
         setUnregistered(body.unregistered ?? []);
-        setTeam(typeof body.team === 'string' ? body.team : null);
+        setTeam(typeof body.activeTeam === 'string' ? body.activeTeam : null);
+        setOrg(typeof body.org === 'string' ? body.org : null);
         setError(null);
       })
       .catch((err: Error) => {
@@ -234,6 +245,7 @@ export function useConsoleSettings(
       defs,
       unregistered,
       team,
+      org,
       loading,
       error,
       refresh,
@@ -242,7 +254,19 @@ export function useConsoleSettings(
       move,
       prune,
     }),
-    [defs, unregistered, team, loading, error, refresh, set, unset, move, prune]
+    [
+      defs,
+      unregistered,
+      team,
+      org,
+      loading,
+      error,
+      refresh,
+      set,
+      unset,
+      move,
+      prune,
+    ]
   );
 }
 

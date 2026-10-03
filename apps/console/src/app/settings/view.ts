@@ -16,7 +16,7 @@ import {
 import { editorKind } from './formShape';
 import { groupOf, GROUPS, type Group } from './groups';
 
-export type StoreScope = 'team' | 'user' | 'machine';
+export type StoreScope = 'org' | 'team' | 'user' | 'machine';
 export type ScopeFilter = 'any' | StoreScope;
 
 export interface ViewFilter {
@@ -48,7 +48,7 @@ export function needsFixing(def: SettingDefWire): boolean {
 }
 
 export const SUBHEAD_THRESHOLD = 12;
-const SUB_ORDER: StoreScope[] = ['team', 'user', 'machine'];
+const SUB_ORDER: StoreScope[] = ['org', 'team', 'user', 'machine'];
 
 export interface Subsection {
   scope: StoreScope | null;
@@ -63,15 +63,20 @@ export interface Section {
 }
 
 export function isStoreScope(s: string | null | undefined): s is StoreScope {
-  return s === 'team' || s === 'user' || s === 'machine';
+  return s === 'org' || s === 'team' || s === 'user' || s === 'machine';
 }
 
-export type RungScope = 'team.repo' | 'user.repo' | 'machine.repo';
+export type RungScope = 'org.repo' | 'team.repo' | 'user.repo' | 'machine.repo';
 /** A store layer, or a store's section for the picked repo. */
 export type LayerScope = StoreScope | RungScope;
 
 export function isRung(s: string | null | undefined): s is RungScope {
-  return s === 'team.repo' || s === 'user.repo' || s === 'machine.repo';
+  return (
+    s === 'org.repo' ||
+    s === 'team.repo' ||
+    s === 'user.repo' ||
+    s === 'machine.repo'
+  );
 }
 
 /** The store a layer lives in: `team.repo` is the team store's repo
@@ -91,16 +96,22 @@ export function rungOf(scope: StoreScope, repo: string | null): LayerScope {
     name. */
 export function layerLabel(
   scope: LayerScope,
-  team: string | null = null
+  team: string | null = null,
+  org: string | null = null
 ): string {
-  const base = scopeLabel(rungBase(scope)!, team);
+  const base = scopeLabel(rungBase(scope)!, team, org);
   return isRung(scope) ? `${base} · repo` : base;
 }
 
-/** A store's name, with the machine's team named on the team store so a
-    team edit says where it goes. */
-export function scopeLabel(scope: StoreScope, team: string | null): string {
-  return scope === 'team' && team ? `team (${team})` : scope;
+/** A shared store's name carries whose it is, so an edit says where it goes. */
+export function scopeLabel(
+  scope: StoreScope,
+  team: string | null,
+  org: string | null = null
+): string {
+  if (scope === 'org' && org) return `org (${org})`;
+  if (scope === 'team' && team) return `team (${team})`;
+  return scope;
 }
 
 /** A repo identity's display label: everything after the host, the same
@@ -136,9 +147,10 @@ export function writeTarget(
 
 export function targetLabel(
   t: WriteTarget,
-  team: string | null = null
+  team: string | null = null,
+  org: string | null = null
 ): string {
-  const scope = scopeLabel(t.scope, team);
+  const scope = scopeLabel(t.scope, team, org);
   return t.repo ? `${scope} · ${repoLabel(t.repo)}` : scope;
 }
 
@@ -206,6 +218,19 @@ function rowRank(d: SettingDefWire): number {
 /** Every group with at least one registered key, in GROUPS order, with
     unknown first segments after them. Empty-after-filter sections are kept
     so the index can show zeros. */
+const isShared = (s: string | null | undefined): s is 'org' | 'team' =>
+  s === 'org' || s === 'team';
+
+/** A key sits under its first scope, except that a key the org and a team
+    both hold sits under whichever of the two serves its value. */
+function subheadOf(def: SettingDefWire): string | undefined {
+  const first = def.scopes[0];
+  const served = rungBase(def.effective.scope);
+  if (isShared(first) && isShared(served) && def.scopes.includes(served))
+    return served;
+  return first;
+}
+
 export function buildSections(
   all: SettingDefWire[],
   f: ViewFilter,
@@ -232,7 +257,7 @@ export function buildSections(
         defs.length > SUBHEAD_THRESHOLD
           ? SUB_ORDER.map(scope => ({
               scope,
-              defs: shown.filter(d => d.scopes[0] === scope),
+              defs: shown.filter(d => subheadOf(d) === scope),
             })).filter(s => s.defs.length > 0)
           : [{ scope: null, defs: shown }];
       return { group, total: defs.length, shown: shown.length, subsections };
