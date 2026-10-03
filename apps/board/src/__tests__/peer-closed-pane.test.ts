@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 
 import type { SwitchboardClient } from '../peer/client.ts';
 import {
+  clearClosedPeerReviews,
   CLOSED_REPORTED_NS,
   closedPaneReports,
   pruneClosedPaneMarkers,
@@ -384,6 +385,304 @@ describe('sweepClosedPeerReviews', () => {
       };
       await sweepClosedPeerReviews(r.io, r.db);
       expect(readOutbox(r.db)).toEqual([]);
+    }
+  });
+});
+
+describe('clearClosedPeerReviews', () => {
+  function clearRuntime() {
+    const r = runtime();
+    const settled: string[] = [];
+    const reportErrors: unknown[] = [];
+    const responds: Array<[string, string | undefined]> = [];
+    const io = {
+      ...r.io,
+      clearExecutor: async () => ({ ok: true }),
+      settleReview: (url: string) => {
+        settled.push(url);
+        r.setReviews(
+          new Map(
+            [...r.io.readReviews()].map(([key, lane]) => [
+              key,
+              key === url ? { ...lane, status: 'error' } : lane,
+            ])
+          )
+        );
+      },
+      settleResponds: (agent: string, session: string | undefined) => {
+        responds.push([agent, session]);
+      },
+      onReportError: (err: unknown) => {
+        reportErrors.push(err);
+      },
+    };
+    return { ...r, io, settled, reportErrors, responds };
+  }
+
+  test('clear before the first sweep reports queued and reviewing runs once', async () => {
+    for (const status of ['queued', 'reviewing']) {
+      const r = clearRuntime();
+      r.setReviews(
+        new Map([
+          [URL_A, { iid: 4821, status, agentId: 'ag-1', runStartedAt: 500 }],
+        ])
+      );
+      expect(await clearClosedPeerReviews('ag-1', r.io, r.db)).toEqual({
+        ok: true,
+      });
+      await clearClosedPeerReviews('ag-1', r.io, r.db);
+      await sweepClosedPeerReviews(r.io, r.db);
+      expect(readOutbox(r.db)).toHaveLength(1);
+      expect(readOutbox(r.db)[0]?.envelope).toMatchObject({
+        to: 'kim',
+        type: 'review-state',
+        payload: {
+          mrUrl: URL_A,
+          iid: 4821,
+          status: 'error',
+          reason: 'pane closed',
+          nudgeId: 'ask-1',
+        },
+      });
+      expect(listKvValues(CLOSED_REPORTED_NS, r.db).get(URL_A)).toBe(500);
+      expect(r.settled).toEqual([URL_A]);
+      expect(r.io.readReviews().get(URL_A)?.status).toBe('error');
+    }
+  });
+
+  test('clear during a pending sweep retains exactly one pane-closed report', async () => {
+    const r = clearRuntime();
+    const pending = deferred<Awaited<ReturnType<typeof r.io.fetchExecutors>>>();
+    const sweep = sweepClosedPeerReviews(
+      { ...r.io, fetchExecutors: () => pending.promise },
+      r.db
+    );
+    await clearClosedPeerReviews('ag-1', r.io, r.db);
+    pending.resolve([gone('ag-1')]);
+    await sweep;
+    expect(readOutbox(r.db)).toHaveLength(1);
+    expect(listKvValues(CLOSED_REPORTED_NS, r.db).get(URL_A)).toBe(500);
+  });
+
+  test('own, unknown and finished lanes send nothing; own and unknown lanes still clear', async () => {
+    const r = clearRuntime();
+    r.setReviews(
+      new Map([
+        [
+          URL_A,
+          { iid: 4821, status: 'done', agentId: 'ag-1', runStartedAt: 500 },
+        ],
+        [
+          URL_B,
+          { iid: 9, status: 'reviewing', agentId: 'ag-1', runStartedAt: 500 },
+        ],
+        [
+          'unknown',
+          { iid: 10, status: 'queued', agentId: 'ag-1', runStartedAt: 500 },
+        ],
+      ])
+    );
+    await clearClosedPeerReviews('ag-1', r.io, r.db);
+    expect(readOutbox(r.db)).toEqual([]);
+    expect(r.settled).toEqual([URL_B, 'unknown']);
+    expect(r.io.readReviews().get(URL_A)?.status).toBe('done');
+  });
+
+  test('failed clear leaves lanes and the outbox untouched', async () => {
+    const r = clearRuntime();
+    const result = await clearClosedPeerReviews(
+      'ag-1',
+      {
+        ...r.io,
+        clearExecutor: async () => ({ ok: false, error: 'daemon refused' }),
+      },
+      r.db
+    );
+    expect(result).toEqual({ ok: false, error: 'daemon refused' });
+    expect(readOutbox(r.db)).toEqual([]);
+    expect(listKvValues(CLOSED_REPORTED_NS, r.db).size).toBe(0);
+    expect(r.settled).toEqual([]);
+    expect(r.io.readReviews().get(URL_A)?.status).toBe('reviewing');
+  });
+
+  test('a replacement run while the daemon clear is pending stays untouched', async () => {
+    const r = clearRuntime();
+    const pending = deferred<{ ok: boolean }>();
+    const clearing = clearClosedPeerReviews(
+      'ag-1',
+      { ...r.io, clearExecutor: () => pending.promise },
+      r.db
+    );
+    r.setReviews(
+      new Map([
+        [
+          URL_A,
+          { iid: 4821, status: 'queued', agentId: 'ag-1', runStartedAt: 900 },
+        ],
+      ])
+    );
+    pending.resolve({ ok: true });
+    await clearing;
+    expect(readOutbox(r.db)).toEqual([]);
+    expect(r.settled).toEqual([]);
+  });
+
+  test('no peer still clears locally without author reads or reporting', async () => {
+    const r = clearRuntime();
+    r.setPeer(undefined);
+    await clearClosedPeerReviews(
+      'ag-1',
+      {
+        ...r.io,
+        fetchAuthors: async () => {
+          throw new Error('must not fetch');
+        },
+      },
+      r.db
+    );
+    expect(r.settled).toEqual([URL_A]);
+    expect(readOutbox(r.db)).toEqual([]);
+  });
+
+  test('losing the writer or changing member/client during author reads suppresses the report', async () => {
+    for (const next of [undefined, 'all', 'kim', 'client']) {
+      const r = clearRuntime();
+      const pending = deferred<Awaited<ReturnType<typeof r.io.fetchAuthors>>>();
+      const entered = deferred<void>();
+      const clearing = clearClosedPeerReviews(
+        'ag-1',
+        {
+          ...r.io,
+          fetchAuthors: () => {
+            entered.resolve();
+            return pending.promise;
+          },
+        },
+        r.db
+      );
+      await entered.promise;
+      const original = r.io.current()!;
+      r.setPeer(
+        next
+          ? {
+              self: next === 'client' ? 'pat' : next,
+              client:
+                next === 'client' ? { ...original.client } : original.client,
+            }
+          : undefined
+      );
+      pending.resolve(new Map([[URL_A, 'kim']]));
+      await clearing;
+      expect(readOutbox(r.db)).toEqual([]);
+      expect(r.settled).toEqual([URL_A]);
+    }
+  });
+
+  test('a sweep followed by clear reports the same run only once', async () => {
+    const r = clearRuntime();
+    await sweepClosedPeerReviews(r.io, r.db);
+    await clearClosedPeerReviews('ag-1', r.io, r.db);
+    expect(readOutbox(r.db)).toHaveLength(1);
+    expect(r.kicks()).toBe(1);
+    expect(r.settled).toEqual([URL_A]);
+  });
+
+  test.each(['authors', 'outbox'])(
+    '%s failure preserves successful local review/respond settlement and logs the error',
+    async failure => {
+      const r = clearRuntime();
+      if (failure === 'outbox')
+        r.db.run(
+          "CREATE TRIGGER reject_clear_outbox BEFORE INSERT ON outbox BEGIN SELECT RAISE(ABORT, 'outbox rejected'); END"
+        );
+      const result = await clearClosedPeerReviews(
+        'ag-1',
+        {
+          ...r.io,
+          fetchAuthors:
+            failure === 'authors'
+              ? async () => {
+                  throw new Error('authors unavailable');
+                }
+              : r.io.fetchAuthors,
+        },
+        r.db
+      );
+      expect(result).toEqual({ ok: true });
+      expect(r.settled).toEqual([URL_A]);
+      expect(r.io.readReviews().get(URL_A)?.status).toBe('error');
+      expect(r.responds).toEqual([['ag-1', '']]);
+      expect(readOutbox(r.db)).toEqual([]);
+      expect(listKvValues(CLOSED_REPORTED_NS, r.db).size).toBe(0);
+      expect(r.kicks()).toBe(0);
+      expect(r.reportErrors.map(err => (err as Error).message)).toEqual([
+        failure === 'authors' ? 'authors unavailable' : 'outbox rejected',
+      ]);
+    }
+  );
+
+  test('a failed author lookup still revalidates a replacement run before local settlement', async () => {
+    const r = clearRuntime();
+    const entered = deferred<void>();
+    let reject!: (err: Error) => void;
+    const pending = new Promise<ReadonlyMap<string, string>>((_, fail) => {
+      reject = fail;
+    });
+    const clearing = clearClosedPeerReviews(
+      'ag-1',
+      {
+        ...r.io,
+        fetchAuthors: () => {
+          entered.resolve();
+          return pending;
+        },
+      },
+      r.db
+    );
+    await entered.promise;
+    r.setReviews(
+      new Map([
+        [
+          URL_A,
+          { iid: 4821, status: 'queued', agentId: 'ag-1', runStartedAt: 900 },
+        ],
+      ])
+    );
+    reject(new Error('authors unavailable'));
+    expect(await clearing).toEqual({ ok: true });
+    expect(r.settled).toEqual([]);
+    expect(readOutbox(r.db)).toEqual([]);
+    expect(r.reportErrors.map(err => (err as Error).message)).toEqual([
+      'authors unavailable',
+    ]);
+  });
+
+  test('completion or replacement during author lookup is neither reported nor cleared', async () => {
+    for (const next of [
+      { iid: 4821, status: 'done', agentId: 'ag-1', runStartedAt: 500 },
+      { iid: 4821, status: 'queued', agentId: 'ag-1', runStartedAt: 900 },
+      { iid: 4821, status: 'queued', agentId: 'ag-2', runStartedAt: 500 },
+    ]) {
+      const r = clearRuntime();
+      const pending = deferred<Awaited<ReturnType<typeof r.io.fetchAuthors>>>();
+      const entered = deferred<void>();
+      const clearing = clearClosedPeerReviews(
+        'ag-1',
+        {
+          ...r.io,
+          fetchAuthors: () => {
+            entered.resolve();
+            return pending.promise;
+          },
+        },
+        r.db
+      );
+      await entered.promise;
+      r.setReviews(new Map([[URL_A, next]]));
+      pending.resolve(new Map([[URL_A, 'kim']]));
+      await clearing;
+      expect(readOutbox(r.db)).toEqual([]);
+      expect(r.settled).toEqual([]);
     }
   });
 });

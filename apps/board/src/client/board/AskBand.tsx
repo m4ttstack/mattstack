@@ -17,7 +17,7 @@ const ACTION: Record<AskAction, string> = {
 };
 
 const FOOTER =
-  'Dismiss clears it now; otherwise it clears itself in 24h. Retry drops the old ask and sends a fresh one.';
+  'Dismiss clears it now. Retry drops the old ask and sends a fresh one.';
 
 /** The trail: what the row knows of the ask's life, oldest first, in the
     kit's anchored menu surface (it clamps to the viewport and closes on

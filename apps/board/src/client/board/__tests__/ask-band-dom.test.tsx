@@ -224,6 +224,9 @@ test('a quiet ask renders no update with retry, dismiss and its history trail', 
     [...trail.querySelectorAll('.tui-ask-trail-name')].map(s => s.textContent)
   ).toEqual(['Requested', 'Started', 'No update']);
   expect(trail.textContent).toContain("Grace's agent has been quiet for 30m");
+  expect(trail.querySelector('.tui-ask-trail-foot')?.textContent).toBe(
+    'Dismiss clears it now. Retry drops the old ask and sends a fresh one.'
+  );
   expect(
     [...trail.querySelectorAll('.tui-ask-trail-step')]
       .at(-1)

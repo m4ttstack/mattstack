@@ -94,17 +94,73 @@ export function closedPaneReports(input: {
 /** Lane state and writer identity must still be current after awaited reads.
     A replacement run needs its own executor snapshot, even on the same pane.
     A report and its dedupe marker must commit together. */
-export async function sweepClosedPeerReviews(
-  io: {
-    current: () => { self: string; client: SwitchboardClient } | undefined;
-    readReviews: () => Map<string, ClosedPaneLane>;
-    fetchExecutors: () => Promise<
-      ReadonlyArray<{ agentId: string; sessionId: string; state: string }>
-    >;
-    fetchAuthors: () => Promise<ReadonlyMap<string, string>>;
-    readNudges: () => readonly NudgeState[];
-    kickOutbox: (client: SwitchboardClient) => void;
+interface ClosedPaneIO {
+  current: () => { self: string; client: SwitchboardClient } | undefined;
+  readReviews: () => Map<string, ClosedPaneLane>;
+  fetchExecutors: () => Promise<
+    ReadonlyArray<{ agentId: string; sessionId: string; state: string }>
+  >;
+  fetchAuthors: () => Promise<ReadonlyMap<string, string>>;
+  readNudges: () => readonly NudgeState[];
+  kickOutbox: (client: SwitchboardClient) => void;
+}
+
+export async function clearClosedPeerReviews(
+  agentId: string,
+  io: ClosedPaneIO & {
+    clearExecutor: () => Promise<{ ok: boolean; error?: string }>;
+    settleReview: (mrUrl: string) => void;
+    onReportError: (err: unknown) => void;
+    settleResponds: (agentId: string, sessionId: string | undefined) => void;
   },
+  db?: Database
+): Promise<{ ok: boolean; error?: string }> {
+  const beforeClear = io.readReviews();
+  const peer = io.current();
+  const result = await io.clearExecutor();
+  if (!result.ok) return result;
+  const executors = await io.fetchExecutors();
+  const sessionId = executors.find(e => e.agentId === agentId)?.sessionId;
+  const initialReviews = currentRuns(beforeClear, io.readReviews());
+  const settle = lanesClearedByExecutor(
+    agentId,
+    sessionId,
+    initialReviews,
+    new Map()
+  );
+  const captured = new Map(
+    settle.reviews.map(url => [url, initialReviews.get(url)!])
+  );
+  if (peer && peer.self !== 'all' && captured.size) {
+    try {
+      const authors = await io.fetchAuthors();
+      const current = io.current();
+      const reviews = currentRuns(captured, io.readReviews());
+      if (
+        current &&
+        current.client === peer.client &&
+        current.self === peer.self
+      )
+        persistClosedPaneReports(
+          io,
+          current,
+          reviews,
+          [{ agentId, sessionId: sessionId ?? '', state: 'gone' }],
+          authors,
+          db
+        );
+    } catch (err) {
+      io.onReportError(err);
+    }
+  }
+  for (const url of currentRuns(captured, io.readReviews()).keys())
+    io.settleReview(url);
+  io.settleResponds(agentId, sessionId);
+  return result;
+}
+
+export async function sweepClosedPeerReviews(
+  io: ClosedPaneIO,
   db?: Database
 ): Promise<void> {
   const peer = io.current();
@@ -123,17 +179,38 @@ export async function sweepClosedPeerReviews(
   const current = io.current();
   if (!current || current.client !== peer.client || current.self !== peer.self)
     return;
-  const reviews = new Map(
-    [...io.readReviews()].filter(([url, lane]) => {
+  const reviews = currentRuns(initialReviews, io.readReviews());
+  persistClosedPaneReports(io, current, reviews, executors, authors, db);
+}
+
+/** Only the same in-flight run may be settled or reported after an await. */
+function currentRuns(
+  initialReviews: Map<string, ClosedPaneLane>,
+  reviews: Map<string, ClosedPaneLane>
+): Map<string, ClosedPaneLane> {
+  return new Map(
+    [...reviews].filter(([url, lane]) => {
       const initial = initialReviews.get(url);
       return (
         initial &&
+        (lane.status === 'queued' || lane.status === 'reviewing') &&
         initial.runStartedAt === lane.runStartedAt &&
         initial.agentId === lane.agentId &&
         initial.sessionId === lane.sessionId
       );
     })
   );
+}
+
+/** The envelope and run marker must commit together before delivery. */
+function persistClosedPaneReports(
+  io: ClosedPaneIO,
+  current: { self: string; client: SwitchboardClient },
+  reviews: Map<string, ClosedPaneLane>,
+  executors: Awaited<ReturnType<ClosedPaneIO['fetchExecutors']>>,
+  authors: ReadonlyMap<string, string>,
+  db?: Database
+): void {
   const stateDb = db ?? getStateDb();
   const reports = closedPaneReports({
     reviews,
