@@ -73,6 +73,7 @@ export function materializeEnvelope(
         {
           result: p.status === 'done' ? 'done' : 'failed',
           ...(p.status === 'done' && p.outcome ? { outcome: p.outcome } : {}),
+          ...(p.status === 'error' && p.reason ? { reason: p.reason } : {}),
           at: now,
         },
         p.updatedAt,

@@ -35,6 +35,8 @@ export type ActionGlyph =
     }
   | { kind: 'flag'; name: 'conflicts' | 'auto-merge' | 'draft' }
   | { kind: 'out' }
+  | { kind: 'cloud' }
+  | { kind: 'agent' }
   | { kind: 'slack' }
   | { kind: 'emoji'; glyph: string };
 
@@ -124,6 +126,7 @@ const DISMISS: ActionGlyph = { kind: 'menu', name: 'dismiss' };
 const COPY: ActionGlyph = { kind: 'menu', name: 'copy' };
 const NOTE: ActionGlyph = { kind: 'menu', name: 'note' };
 const DRAFT: ActionGlyph = { kind: 'flag', name: 'draft' };
+const CLOUD: ActionGlyph = { kind: 'cloud' };
 const SLACK: ActionGlyph = { kind: 'slack' };
 const GITLAB_GLYPH: Record<MrAction, ActionGlyph> = {
   merge: { kind: 'flag', name: 'conflicts' },
@@ -157,12 +160,16 @@ const block = (
   reason: string | null | false | undefined
 ): Partial<RowAction> => (reason ? { blocked: reason } : {});
 
+/** Block reasons that only say there is nothing yet to act on; the session
+    rows carrying them are left out rather than shown disabled. */
+const ABSENT = new Set(['no session', 'no report yet', 'nothing to dismiss']);
+
 /** Every action this MR offers, in menu order, each in one section. A row
     is omitted for who is looking (local board, own MR, seat, Slack on, an
-    opted-in repo) and in three state cases only: call doctor on a healthy
-    MR, rebase locally on a current one, and another author's response
-    report or respond/doctor line while there is nothing to show. Every
-    other state blocks the row with a reason instead of removing it. */
+    opted-in repo) and in these state cases: call doctor on a healthy MR,
+    rebase locally on a current one, and a session row (resume, view report,
+    dismiss) with nothing to act on. Every other state blocks
+    the row with a reason instead of removing it. */
 export function rowActions(
   mrx: BoardMRWithReview,
   env: ActionEnv
@@ -360,28 +367,13 @@ export function rowActions(
           { kind: 'ask', ask: 're-review', reviewer: peer.reviewer }
         )
       );
-    if (!peers.length)
-      sessions.push(
-        item(
-          'sessions',
-          'nudge-none',
-          "ask a reviewer's agent to re-review",
-          PEOPLE,
-          { kind: 'ask', ask: 're-review' },
-          {
-            blocked: askOutstanding(mrx)
-              ? 'ask already sent'
-              : 'no peer review',
-          }
-        )
-      );
     const askTargets = firstReviewTargets(mrx, env.roster, env.peers);
-    sessions.push(
+    (askTargets.length ? agent : sessions).push(
       item(
-        'sessions',
+        askTargets.length ? 'agent' : 'sessions',
         'request-review',
         'request review from…',
-        PEOPLE,
+        CLOUD,
         { kind: 'ask', ask: 'review' },
         askTargets.length
           ? {
@@ -628,7 +620,14 @@ export function rowActions(
     );
   }
 
-  return [...top, ...agent, ...sessions, ...gitlab, ...slack, ...more];
+  return [
+    ...top,
+    ...agent,
+    ...sessions.filter(a => !a.blocked || !ABSENT.has(a.blocked.trim())),
+    ...gitlab,
+    ...slack,
+    ...more,
+  ];
 }
 
 /** Launches past this many ask for a second click. */

@@ -96,6 +96,27 @@ describe('buildAskDraft', () => {
 });
 
 describe('payload parsers', () => {
+  test('review-state carries an optional string reason', () => {
+    expect(
+      parseReviewStatePayload({
+        mrUrl: 'u',
+        iid: 1,
+        status: 'error',
+        updatedAt: 5,
+        reason: 'pane closed',
+      })?.reason
+    ).toBe('pane closed');
+    expect(
+      parseReviewStatePayload({
+        mrUrl: 'u',
+        iid: 1,
+        status: 'error',
+        updatedAt: 5,
+        reason: 7,
+      })
+    ).toBeNull();
+  });
+
   test('review-state requires mrUrl, iid, status, updatedAt', () => {
     expect(
       parseReviewStatePayload({
