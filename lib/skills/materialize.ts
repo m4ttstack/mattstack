@@ -32,7 +32,7 @@ function readFragment(fs: MaterializeFs, path: string): Fragment | null {
 type ClaimingPack = { name: string; own: Fragment | { error: string } };
 
 function claimingPacksIn(fs: MaterializeFs, zone: ZoneInfo): ClaimingPack[] {
-  const packsDir = join(zone.dir, "mattstack", "packs");
+  const packsDir = join(zone.dir, "packs");
   const out: ClaimingPack[] = [];
   for (const name of fs.readDir(packsDir).sort()) {
     if (!isPackDir(fs, join(packsDir, name))) continue;
@@ -150,7 +150,7 @@ export function materializeRepo(deps: MaterializeDeps, remote: string | null): M
   for (const { zone, claiming } of claims) {
     const names = claiming.map((c) => c.name);
     if (names.length > 1) {
-      const detail = `zone "${zone.slug}" holds ${names.length} packs (${names.join(", ")}) that all claim ${repo}; a zone binds one pack per repo, so mark a shared base pack "base": true, or move the others to a zone that declares no projects`;
+      const detail = `team "${zone.team}" holds ${names.length} packs (${names.join(", ")}) that all claim ${repo}; a team folder binds one pack per repo, so keep one and move the shared fills to the org base pack`;
       for (const pack of names) packs.push({ pack, zone: zone.slug, ok: false, detail });
       continue;
     }

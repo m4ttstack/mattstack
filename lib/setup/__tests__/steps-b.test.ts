@@ -892,7 +892,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       const p = fakeProbes({ home, ...materializeWorld(home, { fragment: "{ nope" }) });
       const { ctx, logs } = makeCtx(p);
-      const fragment = `${home}/.mattstack/teams/acme/mattstack/packs/widgets/pack/skills.jsonc`;
+      const fragment = `${home}/.mattstack/teams/acme/mattstack/teams/widgets/packs/widgets/pack/skills.jsonc`;
       expect(await skillsMaterializeStep.run(ctx)).toEqual({
         state: "done",
         detail: `Materialized 0 pack files; failed: widgets (${repoName}): fragment is not valid JSONC: ${fragment}`,
@@ -956,7 +956,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
         home,
         ...world,
         dirs: { ...world.dirs, [packs]: ["gadgets"] },
-        files: { ...world.files, [`${packs}/gadgets/skills.jsonc`]: "// zone: acme\n{}" },
+        files: { ...world.files, [`${packs}/gadgets/skills.jsonc`]: "// zone: acme/widgets\n{}" },
       });
       return { p, packs, repoName: basename(repoDir) };
     }
@@ -965,7 +965,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { p, packs } = staleGadgetsProbes();
       expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Materialized 1 pack file. Set aside 1 stale bindings file" });
       expect(p.readFile(`${packs}/gadgets/skills.jsonc`)).toBeNull();
-      expect(p.readFile(`${packs}/gadgets/skills.jsonc.stale`)).toBe("// zone: acme\n{}");
+      expect(p.readFile(`${packs}/gadgets/skills.jsonc.stale`)).toBe("// zone: acme/widgets\n{}");
     });
 
     test("a stale file that cannot be set aside is a warning in the tally, never a lost row", async () => {
@@ -979,7 +979,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
         state: "done",
         detail: `Materialized 1 pack file; warning: ${repoName}: could not set aside ${packs}/gadgets/skills.jsonc: EACCES: permission denied`,
       });
-      expect(p.readFile(`${packs}/gadgets/skills.jsonc`)).toBe("// zone: acme\n{}");
+      expect(p.readFile(`${packs}/gadgets/skills.jsonc`)).toBe("// zone: acme/widgets\n{}");
     });
 
     describe("seeds board.defaultPack", () => {
@@ -1238,11 +1238,12 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(logs.some((l) => l.line.includes("forge login unavailable"))).toBe(true);
     });
 
-    /** A team zone at ~/.mattstack/teams/acme whose mattstack/packs holds each named pack with its pack/skills.jsonc, plus plugin dirs that carry only a plugin.json. */
+    /** The acme org clone with one team folder, `acme`, whose packs/ holds each named pack with its pack/skills.jsonc, plus plugin dirs that carry only a plugin.json. */
     function teamPackProbes(packs: string[], pluginsOnly: string[] = [], bases: string[] = []) {
-      const packsDir = join(home, ".mattstack", "teams", "acme", "mattstack", "packs");
+      const teamsDir = join(home, ".mattstack", "teams", "acme", "mattstack", "teams");
+      const packsDir = join(teamsDir, "acme", "packs");
       const files: Record<string, string> = {};
-      const dirs: Record<string, string[]> = { [packsDir]: [...packs, ...pluginsOnly, ...bases] };
+      const dirs: Record<string, string[]> = { [teamsDir]: ["acme"], [packsDir]: [...packs, ...pluginsOnly, ...bases] };
       for (const pack of packs) files[join(packsDir, pack, "pack", "skills.jsonc")] = "{}";
       for (const base of bases) files[join(packsDir, base, "pack", "skills.jsonc")] = JSON.stringify({ base: true });
       for (const plugin of pluginsOnly) files[join(packsDir, plugin, ".claude-plugin", "plugin.json")] = JSON.stringify({ name: plugin });
