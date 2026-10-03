@@ -116,11 +116,11 @@ describe("setupPackFlow", () => {
 
   test("the pack's own failed materialize outcome is the detail, not a missing-file note", async () => {
     registerRepo(home);
-    const p = fakeProbes({ home, ...materializeWorld(home, { siblingFragment: JSON.stringify({ extends: "acme-base@acme" }) }) });
+    const p = fakeProbes({ home, ...materializeWorld(home, { siblingFragment: JSON.stringify({ extends: "acme-base" }) }) });
     const reqs: PackRequirements[] = [{ pack: "gadgets", tools: [], integrations: [], workType: "feature" }];
     expect(await setupPackFlow(makeCtx(p, { reqs }))).toEqual({
       ok: false,
-      detail: "gadgets extends acme-base@acme, which is not installed; add it to the team's claude.plugins",
+      detail: `gadgets extends acme-base, but the org has no base pack there (looked in ${home}/.mattstack/teams/acme/mattstack/org/packs/acme-base)`,
     });
   });
 
@@ -128,7 +128,7 @@ describe("setupPackFlow", () => {
     registerRepo(home);
     const p = fakeProbes({
       home,
-      ...materializeWorld(home, { fragment: fragment({}, { feature: ["stage-plan"] }), siblingFragment: JSON.stringify({ extends: "acme-base@acme" }) }),
+      ...materializeWorld(home, { fragment: fragment({}, { feature: ["stage-plan"] }), siblingFragment: JSON.stringify({ extends: "acme-base" }) }),
     });
     expect(await setupPackFlow(makeCtx(p, { reqs: widgets() }))).toEqual({ ok: true, detail: `1 stage resolved for feature work` });
   });

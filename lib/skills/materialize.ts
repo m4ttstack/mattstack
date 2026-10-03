@@ -1,5 +1,5 @@
 import { dirname, join } from "path";
-import { findInstalledPluginDir, PLUGIN_REF_RE } from "./installed-plugins.ts";
+import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { isPackDir, parseRemote, readZonesFrom, zoneTeamConfigReads, type InitFs, type RepoRef, type ZoneInfo } from "./init.ts";
 import { FragmentError, mergeLayers, parseFragment, readManifestZone, renderManifest, type Fragment, type Layer } from "./manifest-merge.ts";
 import { legacyManifestPath, packManifestPath } from "./manifest-paths.ts";
@@ -18,9 +18,7 @@ export type MaterializeRepoOutcome =
 export type MaterializeDeps = {
   fs: MaterializeFs;
   mattstackRoot: string;
-  claudeHome: string;
   enginePackDir: string;
-  installedPluginDir?: (ref: string) => string | null;
 };
 
 function readFragment(fs: MaterializeFs, path: string): Fragment | null {
@@ -49,16 +47,18 @@ function claimingPacksIn(fs: MaterializeFs, zone: ZoneInfo): ClaimingPack[] {
   return out;
 }
 
-function baseLayer(deps: MaterializeDeps, pack: string, ref: string): Layer | { error: string } {
-  if (!PLUGIN_REF_RE.test(ref)) return { error: `${pack} extends "${ref}", which is not a <plugin>@<marketplace> reference` };
-  const lookup = deps.installedPluginDir ?? ((r: string) => findInstalledPluginDir(deps.fs, deps.claudeHome, r));
-  const dir = lookup(ref);
-  if (!dir) return { error: `${pack} extends ${ref}, which is not installed; add it to the team's claude.plugins` };
+/** The org base pack a team pack extends, read from the org folder of the same clone. It is never installed. */
+function baseLayer(deps: MaterializeDeps, zone: ZoneInfo, pack: string, name: string): Layer | { error: string } {
+  if (!TEAM_NAME_RE.test(name)) {
+    return { error: `${pack} extends "${name}", which is not a base pack name; name the folder under the org's packs, for example "extends": "${zone.org}-base"` };
+  }
+  const dir = join(zone.orgDir, "mattstack", "org", "packs", name);
   const fragmentPath = join(dir, "pack", "skills.jsonc");
   const fragment = readFragment(deps.fs, fragmentPath);
-  if (!fragment) return { error: `${pack} extends ${ref}, but ${fragmentPath} is missing` };
-  if (fragment.extends) return { error: `${pack} extends ${ref}, which extends ${fragment.extends}; a base pack cannot extend another` };
-  return { label: `base:${ref.split("@")[0]}`, fragment };
+  if (!fragment) return { error: `${pack} extends ${name}, but the org has no base pack there (looked in ${dir})` };
+  if (fragment.base !== true) return { error: `${pack} extends ${name}, but ${fragmentPath} is not marked "base": true` };
+  if (fragment.extends) return { error: `${pack} extends ${name}, which extends ${fragment.extends}; a base pack cannot extend another` };
+  return { label: `base:${name}`, fragment };
 }
 
 function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, own: Fragment, repo: string, slug: string, defaults: Layer | null, override: Layer | null): PackOutcome {
@@ -66,7 +66,7 @@ function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, ow
     const layers: Layer[] = [];
     if (defaults) layers.push(defaults);
     if (own.extends !== undefined) {
-      const base = baseLayer(deps, pack, own.extends);
+      const base = baseLayer(deps, zone, pack, own.extends);
       if ("error" in base) return { pack, zone: zone.slug, ok: false, detail: base.error };
       layers.push(base);
     }
