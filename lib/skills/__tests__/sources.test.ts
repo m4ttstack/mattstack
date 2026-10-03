@@ -9,6 +9,7 @@ import {
   loadAttachment,
   loadInclude,
   loadStepSource,
+  orgBasePackRoots,
   parseStageQualifiedName,
   readManifestBindings,
   readManifestPipelines,
@@ -613,5 +614,46 @@ describe("installedVersionFor", () => {
     writeFileSync(join(install, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.0.0" }));
     const roots = buildPluginRoots([{ id: "acme@beacon", installPath: install }]);
     expect(roots.list).toEqual([{ id: "acme@beacon", installPath: install }]);
+  });
+});
+
+describe("org base pack roots", () => {
+  function makeRoot(): { root: string; base: string } {
+    const root = mkdtempSync(join(tmpdir(), "rt-sources-org-"));
+    const base = join(root, "teams", "acme", "mattstack", "org", "packs", "acme-base");
+    mkdirSync(join(base, "pack"), { recursive: true });
+    writeFileSync(join(base, "pack", "skills.jsonc"), `{ "base": true }`);
+    mkdirSync(join(base, "attachments", "ci-forge"), { recursive: true });
+    writeFileSync(join(base, "attachments", "ci-forge", "SKILL.md"), "---\nname: ci-forge\nmetadata:\n  provides: forge\n---\nUse the forge.\n");
+    return { root, base };
+  }
+
+  test("each org base pack is a root named after its folder", () => {
+    const { root, base } = makeRoot();
+    expect(orgBasePackRoots(root)).toEqual([{ name: "acme-base", dir: realpathSync(base), version: "org" }]);
+    expect(orgBasePackRoots(join(root, "nope"))).toEqual([]);
+  });
+
+  test("a folder that is not a valid pack name is not a root", () => {
+    const { root } = makeRoot();
+    const odd = join(root, "teams", "acme", "mattstack", "org", "packs", "Bad_Name");
+    mkdirSync(join(odd, "pack"), { recursive: true });
+    writeFileSync(join(odd, "pack", "skills.jsonc"), `{ "base": true }`);
+    expect(orgBasePackRoots(root).map((r) => r.name)).toEqual(["acme-base"]);
+  });
+
+  test("a fill under a base pack's attachments loads from the org folder", () => {
+    const { base } = makeRoot();
+    const roots: PluginRoots = { byName: { "acme-base": { dir: base, version: "org" } }, list: [], folderOnly: new Set(["acme-base"]) };
+    const fill = loadAttachment("acme-base:ci-forge", "forge", roots);
+    expect(fill).toMatchObject({ plugin: "acme-base", version: "org", registered: false, provides: "forge" });
+  });
+
+  test("a fill under a base pack's skills is refused: nothing installs the base, so it could never be invoked", () => {
+    const { base } = makeRoot();
+    mkdirSync(join(base, "skills", "watch"), { recursive: true });
+    writeFileSync(join(base, "skills", "watch", "SKILL.md"), "---\nname: watch\nmetadata:\n  provides: forge\n---\nbody\n");
+    const roots: PluginRoots = { byName: { "acme-base": { dir: base, version: "org" } }, list: [], folderOnly: new Set(["acme-base"]) };
+    expect(() => loadAttachment("acme-base:watch", "forge", roots)).toThrow(/move it under attachments\//);
   });
 });
