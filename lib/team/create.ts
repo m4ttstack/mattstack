@@ -10,7 +10,6 @@
  */
 
 import { dirname, join } from "path";
-import { parseRemoteUrl } from "../enrich.ts";
 import { type AgeKeySeam, createRealAgeKeySeam, ensureAgeKey, renderSopsYamlFor } from "../home/age-key.ts";
 import { TEAM_PATH_REGEX } from "../secrets/team-store.ts";
 import { forgeArgv } from "./forge.ts";
@@ -22,6 +21,7 @@ import { gitUsable } from "../setup/home-git.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
 import { forgeFromRemote, parseOriginUrl, stripUserinfo } from "../setup/team-settings.ts";
 import { withoutUrls } from "./redact.ts";
+import { TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
 import { assertNotRealStoreInTest } from "../../packages/rt-client/src/test-isolation.ts";
 import { slugify } from "./slug.ts";
 
@@ -34,6 +34,7 @@ export interface CreateTeamOpts {
 
 export interface CreateTeamResult {
   slug: string;
+  team: string;
   name: string;
   remote: string;
   dir: string;
@@ -46,43 +47,34 @@ export interface CreateTeamResult {
 
 /** The scaffold's own marker: present only once the initial commit has actually happened, so a partially-built dir (mkdirp/git-init done, nothing committed yet) is never mistaken for a finished zone. */
 const SCAFFOLD_MARKER = join("mattstack", "mattstack.jsonc");
-const SETTINGS_HEADER = "// mattstack team settings — created by `rt team create`. JSONC: comments and trailing commas are fine.\n";
+const ORG_SETTINGS_HEADER = "// mattstack org settings, shared by every team. Created by `rt team create`. JSONC: comments and trailing commas are fine.\n";
+const TEAM_SETTINGS_HEADER = "// mattstack team settings. Created by `rt team create`. JSONC: comments and trailing commas are fine.\n";
 
-/** The remote's path prefix (`owner/repo`, `group/subgroup/repo`) — its first segment is the repo's owner/namespace. Null on an unparseable remote. */
-function ownerFromRemote(remote: string): string | null {
-  const parsed = parseRemoteUrl(remote);
-  const owner = parsed?.projectPath.split("/")[0];
-  return owner && owner.length > 0 ? owner : null;
+/** The first team is named after the org unless that is not a folder name a team may have. */
+export function defaultTeamName(orgSlug: string): string {
+  return TEAM_NAME_RE.test(orgSlug) ? orgSlug : `team-${orgSlug}`;
 }
 
 /**
- * The scaffold's five tracked files, keyed by path relative to the team zone
- * root. `recipients` seeds `.sops.yaml` at creation so a fresh team never
- * passes through a zero-recipient state — see `createTeam`, which always
- * supplies the creator's own age key here.
+ * The scaffold's tracked files, keyed by path relative to the clone root.
+ * `recipients` seeds `.sops.yaml` at creation so a fresh org never passes
+ * through a zero-recipient state.
  *
- * `board.projects`/`board.members` are deliberately NOT written: the
- * resolver's board.* keys carry no registry default because a *present*
- * value (even `[]`) flips their store-ownership latch and wins over an
- * existing `config.json` on the creator's own machine — an empty array here
- * would brick a working mr-board install. Only keys with real content
- * (`board.gitlabHost`, `board.title`) are seeded.
+ * `board.projects` is deliberately not written: a present value claims repos
+ * for the team's pack and flips the board's store-ownership latch.
  */
-export function scaffoldFiles(slug: string, name: string, remote: string, recipients: string[] = []): Record<string, string> {
+export function scaffoldFiles(slug: string, name: string, remote: string, recipients: string[] = [], team: string = defaultTeamName(slug)): Record<string, string> {
   const forge = forgeFromRemote(remote);
-  const owner = ownerFromRemote(remote) ?? slug;
 
-  const mattstackJsonc = { role: "team", namespace: slug, org: owner };
-
-  const settings: Record<string, unknown> = { "mattstack.integrations": { forge } };
-  if (forge?.provider === "gitlab") settings["board.gitlabHost"] = forge.host;
-  settings["board.title"] = name;
-
+  const orgSettings: Record<string, unknown> = { "mattstack.integrations": { forge } };
+  if (forge?.provider === "gitlab") orgSettings["board.gitlabHost"] = forge.host;
+  const teamSettings = { "board.title": name };
   const marketplace = { name: slug, owner: { name }, plugins: [] };
 
   return {
-    [SCAFFOLD_MARKER]: `${JSON.stringify(mattstackJsonc, null, 2)}\n`,
-    "mattstack/settings.team.jsonc": `${SETTINGS_HEADER}${JSON.stringify(settings, null, 2)}\n`,
+    [SCAFFOLD_MARKER]: `${JSON.stringify({ role: "org", org: slug }, null, 2)}\n`,
+    "mattstack/org/settings.org.jsonc": `${ORG_SETTINGS_HEADER}${JSON.stringify(orgSettings, null, 2)}\n`,
+    [`mattstack/teams/${team}/settings.team.jsonc`]: `${TEAM_SETTINGS_HEADER}${JSON.stringify(teamSettings, null, 2)}\n`,
     ".claude-plugin/marketplace.json": `${JSON.stringify(marketplace, null, 2)}\n`,
     ".sops.yaml": renderSopsYamlFor(TEAM_PATH_REGEX, recipients),
     ".gitignore": "mattstack/secrets/*.tmp\n.DS_Store\n",
@@ -170,8 +162,9 @@ async function resolveRemote(p: Probes, slug: string, opts: CreateTeamOpts): Pro
 
 export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: AgeKeySeam = createRealAgeKeySeam()): Promise<CreateTeamResult> {
   const slug = slugify(opts.name);
+  const team = defaultTeamName(slug);
   const dir = join(p.home, ".mattstack", "teams", slug);
-  assertNotRealStoreInTest(join(dir, "mattstack", "settings.team.jsonc"));
+  assertNotRealStoreInTest(join(dir, "mattstack", "org", "settings.org.jsonc"));
   assertOnlyTeam(p, slug);
 
   const originConfigured = p.exists(dir) ? readExistingOrigin(p, dir) : null;
@@ -190,7 +183,7 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
       mode: "create",
       team: { slug, name: opts.name, remote: originConfigured, others: opts.others },
     });
-    return { slug, name: opts.name, remote: stripUserinfo(originConfigured), dir, created: false };
+    return { slug, team, name: opts.name, remote: stripUserinfo(originConfigured), dir, created: false };
   }
 
   // Past here the zone is either absent or partially built (dir exists, but
@@ -202,7 +195,7 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
 
   const { publicKey } = await ensureAgeKey(ageKeySeam);
   const writeScaffold = () => {
-    for (const [relPath, content] of Object.entries(scaffoldFiles(slug, opts.name, remote, [publicKey]))) {
+    for (const [relPath, content] of Object.entries(scaffoldFiles(slug, opts.name, remote, [publicKey], team))) {
       const fullPath = join(dir, relPath);
       if (p.exists(fullPath)) continue; // a resumed partial zone already has this file — never clobber real content with the scaffold's own placeholder
       p.mkdirp(dirname(fullPath));
@@ -223,7 +216,7 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
   if (!p.exists(join(dir, ".git")) && !(await gitUsable(p.exec))) {
     writeScaffold();
     recordIntent();
-    return { slug, name: opts.name, remote: stripUserinfo(remote), dir, created: true, gitDeferred: true };
+    return { slug, team, name: opts.name, remote: stripUserinfo(remote), dir, created: true, gitDeferred: true };
   }
 
   if (!p.exists(join(dir, ".git"))) {
@@ -248,5 +241,5 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
 
   recordIntent();
 
-  return { slug, name: opts.name, remote: stripUserinfo(remote), dir, created: true };
+  return { slug, team, name: opts.name, remote: stripUserinfo(remote), dir, created: true };
 }

@@ -473,7 +473,7 @@ export async function joinRedeem(
   const resolved = await resolveSource(p, relay, opts.code);
   if (!isJoinSource(resolved)) return resolved;
   const { idHex, key, pointer } = resolved;
-  assertNotRealStoreInTest(join(p.home, ".mattstack", "teams", pointer.team, "mattstack", "settings.team.jsonc"));
+  assertNotRealStoreInTest(join(p.home, ".mattstack", "teams", pointer.team, "mattstack", "org", "settings.org.jsonc"));
   assertOnlyTeam(p, pointer.team);
 
   // Checkpointed BEFORE any clone/redeem attempt (not just on the dry-run
