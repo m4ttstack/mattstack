@@ -14,7 +14,7 @@ import type { OpenRow } from './explainParam';
 import type { WireIssue } from './issues';
 import type { PanelStore } from './KeyPanel';
 import { SettingRow, type RowOpen } from './SettingRow';
-import { useSettingsTeam } from './useConsoleSettings';
+import { useSettingsOrg, useSettingsTeam } from './useConsoleSettings';
 import {
   providerOf,
   type Provider,
@@ -26,9 +26,14 @@ const SUBHEAD: Record<
   StoreScope,
   { label: string; note: string; color: string }
 > = {
+  org: {
+    label: 'Org',
+    note: 'shared with every team through the org repo',
+    color: 'var(--tk-text-purple-small)',
+  },
   team: {
     label: 'Team',
-    note: 'shared with everyone through the team repo',
+    note: 'shared with your team through the org repo',
     color: 'var(--tk-text-purple-small)',
   },
   user: {
@@ -43,9 +48,15 @@ const SUBHEAD: Record<
   },
 };
 
-function subheadNote(scope: StoreScope, team: string | null): string {
+function subheadNote(
+  scope: StoreScope,
+  team: string | null,
+  org: string | null
+): string {
+  if (scope === 'org' && org)
+    return `shared with every team through the ${org} org repo`;
   if (scope === 'team' && team)
-    return `shared with everyone through the ${team} team repo`;
+    return `shared with the ${team} team through the org repo`;
   return SUBHEAD[scope].note;
 }
 
@@ -181,6 +192,7 @@ export function SettingsSection({
 } & RowWiring) {
   const { text } = useSchemeColors();
   const team = useSettingsTeam();
+  const org = useSettingsOrg();
   if (section.group.id === 'agents')
     return (
       <AgentsSection
@@ -224,7 +236,7 @@ export function SettingsSection({
                 {sub.defs.length}
               </Text>
               <Text fz={12} c={text.muted}>
-                {`· ${subheadNote(sub.scope, team)}`}
+                {`· ${subheadNote(sub.scope, team, org)}`}
               </Text>
             </Group>
           )}

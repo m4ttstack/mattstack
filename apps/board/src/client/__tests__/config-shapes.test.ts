@@ -285,13 +285,15 @@ describe('filterDefs', () => {
 });
 
 describe('groupByScope', () => {
-  test('orders team, user, machine and drops empty groups', () => {
+  test('orders org, team, user, machine and drops empty groups', () => {
     const groups = groupByScope([
       def({ key: 'm', scopes: ['machine'] }),
       def({ key: 't', scopes: ['team'] }),
+      def({ key: 'o', scopes: ['org'] }),
       def({ key: 'm2', scopes: ['machine'] }),
     ]);
     expect(groups.map(g => [g.scope, g.defs.map(d => d.key)])).toEqual([
+      ['org', ['o']],
       ['team', ['t']],
       ['machine', ['m', 'm2']],
     ]);
