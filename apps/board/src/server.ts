@@ -230,6 +230,7 @@ import {
 import { classifySend, drainOutbox, enqueueOutbox } from './peer/outbox.ts';
 import {
   attachPeerReviews,
+  importPeerReviewFiles,
   prunePeerReviews,
   readPeerReviews,
   type PeerReviewState,
@@ -370,6 +371,19 @@ const ENV_PATH = join(APP_ROOT, '.env');
 // fixture mode too now that BOARD_STATE_DB above has already contained it
 // to the fixture dir.
 getStateDb('server');
+if (!FIXTURE_DIR) {
+  try {
+    const peerImport = importPeerReviewFiles(getStateDb());
+    if (peerImport.imported || peerImport.skipped || peerImport.renamed)
+      console.error(
+        `peer review import: imported=${peerImport.imported} skipped=${peerImport.skipped} renamed=${peerImport.renamed}`
+      );
+  } catch (err) {
+    console.error(
+      `peer review import failed: ${err instanceof Error ? err.message : err}`
+    );
+  }
+}
 
 const config = FIXTURE_DIR
   ? parseConfig(readFileSync(fixtureFile('config.json'), 'utf8'))

@@ -1,4 +1,11 @@
-import { existsSync, mkdtempSync, rmSync } from 'fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { Database } from 'bun:sqlite';
@@ -27,6 +34,7 @@ import {
 } from '../peer/nudges.ts';
 import {
   attachPeerReviews,
+  importPeerReviewFiles,
   peerReviewFilePath,
   peerReviewKey,
   prunePeerReviews,
@@ -35,6 +43,7 @@ import {
   type PeerReviewState,
 } from '../peer/peer-reviews.ts';
 import { openStateDb } from '../state/db.ts';
+import { getKvValue } from '../state/kv-blob.ts';
 
 let dir: string;
 let db: Database;
@@ -96,9 +105,9 @@ describe('writePeerReview', () => {
     expect(
       writePeerReview(base({ updatedAt: 1000, status: 'reviewing' }), db)
     ).toBe(false);
-    expect(writePeerReview(base({ updatedAt: 2000, status: 'error' }), db)).toBe(
-      false
-    );
+    expect(
+      writePeerReview(base({ updatedAt: 2000, status: 'error' }), db)
+    ).toBe(false);
     expect(readPeerReviews(db).get(URL_A)?.[0]?.status).toBe('done');
   });
 
@@ -129,14 +138,178 @@ describe('writePeerReview', () => {
   });
 });
 
+describe('importPeerReviewFiles', () => {
+  const legacy = () => join(dir, 'peer-reviews');
+  const put = (s: PeerReviewState) => {
+    mkdirSync(legacy(), { recursive: true });
+    writeFileSync(
+      peerReviewFilePath(s.mrUrl, s.reviewer, legacy()),
+      JSON.stringify(s)
+    );
+  };
+  const NOW = new Date('2026-10-02T12:00:00');
+  const marker = () => getKvValue('meta', 'peer-reviews-imported', false, db);
+
+  test('imports each file, sets the marker and renames the folder aside', () => {
+    put({
+      mrUrl: URL_A,
+      iid: 4821,
+      reviewer: 'grace',
+      status: 'done',
+      updatedAt: 5,
+    });
+    put({
+      mrUrl: URL_B,
+      iid: 1,
+      reviewer: 'ada',
+      status: 'reviewing',
+      updatedAt: 5,
+    });
+    expect(importPeerReviewFiles(db, legacy(), NOW)).toEqual({
+      imported: 2,
+      skipped: 0,
+      renamed: true,
+    });
+    expect(readPeerReviews(db).get(URL_A)?.[0]?.status).toBe('done');
+    expect(readPeerReviews(db).get(URL_B)?.[0]?.status).toBe('reviewing');
+    expect(marker()).toBe(true);
+    expect(existsSync(legacy())).toBe(false);
+    expect(readdirSync(dir)).toContain('peer-reviews.imported-2026-10-02');
+  });
+
+  test('a newer db row wins over an older file', () => {
+    writePeerReview(
+      {
+        mrUrl: URL_A,
+        iid: 4821,
+        reviewer: 'grace',
+        status: 'done',
+        updatedAt: 9,
+      },
+      db
+    );
+    put({
+      mrUrl: URL_A,
+      iid: 4821,
+      reviewer: 'grace',
+      status: 'reviewing',
+      updatedAt: 5,
+    });
+    expect(importPeerReviewFiles(db, legacy(), NOW).imported).toBe(1);
+    expect(readPeerReviews(db).get(URL_A)?.[0]?.status).toBe('done');
+    expect(marker()).toBe(true);
+  });
+
+  test('skips unreadable and invalid files, imports the rest and sets the marker', () => {
+    put({
+      mrUrl: URL_A,
+      iid: 4821,
+      reviewer: 'grace',
+      status: 'done',
+      updatedAt: 5,
+    });
+    writeFileSync(join(legacy(), 'broken.json'), '{not json');
+    mkdirSync(join(legacy(), 'unreadable.json'));
+    writeFileSync(join(legacy(), 'invalid.json'), '{}');
+    writeFileSync(join(legacy(), 'ignored.txt'), '{not json');
+    expect(importPeerReviewFiles(db, legacy(), NOW)).toEqual({
+      imported: 1,
+      skipped: 3,
+      renamed: true,
+    });
+    expect(readPeerReviews(db).has(URL_A)).toBe(true);
+    expect(marker()).toBe(true);
+  });
+
+  test('a second run is inert, and a missing folder just sets the marker', () => {
+    expect(importPeerReviewFiles(db, legacy(), NOW)).toEqual({
+      imported: 0,
+      skipped: 0,
+      renamed: false,
+    });
+    expect(marker()).toBe(true);
+    put({
+      mrUrl: URL_A,
+      iid: 4821,
+      reviewer: 'grace',
+      status: 'done',
+      updatedAt: 5,
+    });
+    expect(importPeerReviewFiles(db, legacy(), NOW)).toEqual({
+      imported: 0,
+      skipped: 0,
+      renamed: false,
+    });
+    expect(readPeerReviews(db).size).toBe(0);
+    expect(existsSync(legacy())).toBe(true);
+  });
+
+  test('a busy write leaves the marker unset and legacy files intact for retry', () => {
+    put({
+      mrUrl: URL_A,
+      iid: 4821,
+      reviewer: 'grace',
+      status: 'done',
+      updatedAt: 5,
+    });
+    db.exec('PRAGMA journal_mode = DELETE; PRAGMA busy_timeout = 0');
+    const reader = new Database(join(dir, 'state.db'));
+    const originalTransaction = db.transaction.bind(db);
+    const originalError = console.error;
+    const errors: unknown[][] = [];
+    console.error = (...args: unknown[]) => errors.push(args);
+    reader.exec('BEGIN');
+    reader.query('SELECT * FROM kv').all();
+    db.transaction = ((fn: () => unknown) => {
+      const transaction = originalTransaction(fn);
+      return () => {
+        try {
+          return transaction();
+        } finally {
+          reader.exec('ROLLBACK');
+        }
+      };
+    }) as typeof db.transaction;
+    try {
+      expect(() => importPeerReviewFiles(db, legacy(), NOW)).toThrow();
+    } finally {
+      db.transaction = originalTransaction;
+      reader.close();
+      console.error = originalError;
+    }
+    expect(errors).toEqual([['peer review write: write skipped (db busy)']]);
+    expect(readPeerReviews(db).size).toBe(0);
+    expect(marker()).toBe(false);
+    expect(existsSync(peerReviewFilePath(URL_A, 'grace', legacy()))).toBe(true);
+    expect(importPeerReviewFiles(db, legacy(), NOW)).toEqual({
+      imported: 1,
+      skipped: 0,
+      renamed: true,
+    });
+    expect(marker()).toBe(true);
+  });
+});
+
 describe('readPeerReviews', () => {
   test('groups one entry per reviewer under each MR', () => {
     writePeerReview(
-      { mrUrl: URL_A, iid: 4821, reviewer: 'grace', status: 'done', updatedAt: 1 },
+      {
+        mrUrl: URL_A,
+        iid: 4821,
+        reviewer: 'grace',
+        status: 'done',
+        updatedAt: 1,
+      },
       db
     );
     writePeerReview(
-      { mrUrl: URL_A, iid: 4821, reviewer: 'ada', status: 'reviewing', updatedAt: 1 },
+      {
+        mrUrl: URL_A,
+        iid: 4821,
+        reviewer: 'ada',
+        status: 'reviewing',
+        updatedAt: 1,
+      },
       db
     );
     writePeerReview(
@@ -144,7 +317,12 @@ describe('readPeerReviews', () => {
       db
     );
     const map = readPeerReviews(db);
-    expect(map.get(URL_A)?.map(r => r.reviewer).sort()).toEqual(['ada', 'grace']);
+    expect(
+      map
+        .get(URL_A)
+        ?.map(r => r.reviewer)
+        .sort()
+    ).toEqual(['ada', 'grace']);
     expect(map.get(URL_B)?.length).toBe(1);
   });
 
@@ -156,11 +334,23 @@ describe('readPeerReviews', () => {
 describe('prunePeerReviews', () => {
   test('keeps states whose MR is kept, deletes the rest', () => {
     writePeerReview(
-      { mrUrl: URL_A, iid: 4821, reviewer: 'grace', status: 'reviewing', updatedAt: 1 },
+      {
+        mrUrl: URL_A,
+        iid: 4821,
+        reviewer: 'grace',
+        status: 'reviewing',
+        updatedAt: 1,
+      },
       db
     );
     writePeerReview(
-      { mrUrl: URL_B, iid: 1, reviewer: 'grace', status: 'reviewing', updatedAt: 1 },
+      {
+        mrUrl: URL_B,
+        iid: 1,
+        reviewer: 'grace',
+        status: 'reviewing',
+        updatedAt: 1,
+      },
       db
     );
     prunePeerReviews(new Set([URL_A]), db);

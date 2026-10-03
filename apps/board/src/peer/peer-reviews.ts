@@ -1,3 +1,4 @@
+import { existsSync, readdirSync, readFileSync, renameSync } from 'fs';
 import { join } from 'path';
 import type { Database } from 'bun:sqlite';
 
@@ -72,6 +73,63 @@ export function writePeerReview(
     })();
   });
   return wrote;
+}
+
+const IMPORT_MARKER = 'peer-reviews-imported';
+
+/** The meta marker prevents rescanning a legacy folder recreated later. */
+export function importPeerReviewFiles(
+  db: Database,
+  dir: string = PEER_REVIEW_DIR,
+  now: Date = new Date()
+): { imported: number; skipped: number; renamed: boolean } {
+  const result = { imported: 0, skipped: 0, renamed: false };
+  if (getKvValue('meta', IMPORT_MARKER, false, db)) return result;
+  if (existsSync(dir)) {
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue;
+      let state: PeerReviewState;
+      try {
+        state = JSON.parse(readFileSync(join(dir, name), 'utf8'));
+      } catch {
+        result.skipped++;
+        continue;
+      }
+      if (!state?.mrUrl || !state.reviewer) {
+        result.skipped++;
+        continue;
+      }
+      if (!writePeerReview(state, db)) {
+        const persisted = getKvValue<PeerReviewState | null>(
+          PEER_REVIEW_NS,
+          peerReviewKey(state.mrUrl, state.reviewer),
+          null,
+          db
+        );
+        if (!persisted || !(persisted.updatedAt >= state.updatedAt)) {
+          throw new Error('peer review import: state was not persisted');
+        }
+      }
+      result.imported++;
+    }
+  }
+  setKvValue('meta', IMPORT_MARKER, true, db);
+  if (existsSync(dir)) {
+    const stamp = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+    ].join('-');
+    try {
+      renameSync(dir, `${dir}.imported-${stamp}`);
+      result.renamed = true;
+    } catch (err) {
+      console.error(
+        `peer review import: could not rename ${dir}: ${err instanceof Error ? err.message : err}`
+      );
+    }
+  }
+  return result;
 }
 
 /** Every peer review state, grouped by mrUrl. */
