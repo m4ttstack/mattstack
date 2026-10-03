@@ -1000,7 +1000,7 @@ function TabsControl({
     the same info tip as the description. */
 const ROW_HINTS: Record<string, string> = {
   'board.hiddenMembers':
-    "The list is your team's members in the org roster; adding or dropping someone here changes the org roster.",
+    "The list is your team's members in the org roster, or everyone in it when this Mac is on no team. Adding or dropping someone here changes the org roster.",
   'board.tabs':
     'A new section\'s MRs land once rt has backfilled it; the tab shows "syncing" until then. A section must match a CODEOWNERS header exactly; the field suggests the headers rt has seen.',
 };
