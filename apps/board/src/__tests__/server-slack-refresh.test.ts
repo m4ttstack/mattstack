@@ -14,10 +14,17 @@ import { dbPathForRoot, openStateDb } from '../state/index.ts';
 // thing that can flip the ref is the endpoint under test.
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-slack-refresh-'));
 
-const teamDir = join(fakeHome, '.mattstack', 'teams', 'testteam', 'mattstack');
+const teamDir = join(
+  fakeHome,
+  '.mattstack',
+  'teams',
+  'testteam',
+  'mattstack',
+  'org'
+);
 mkdirSync(teamDir, { recursive: true });
 writeFileSync(
-  join(teamDir, 'settings.team.jsonc'),
+  join(teamDir, 'settings.org.jsonc'),
   JSON.stringify({
     'board.gitlabHost': 'https://gitlab.example.com',
     'board.projects': ['g/p'],

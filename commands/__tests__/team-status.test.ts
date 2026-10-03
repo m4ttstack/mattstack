@@ -213,8 +213,8 @@ describe("teamStatus", () => {
   test("two local teams and no --team -> still exits 2 with ambiguous-team, never solo", async () => {
     const teams = join(process.env.HOME!, ".mattstack", "teams");
     for (const team of ["acme", "beta"]) {
-      mkdirSync(join(teams, team, "mattstack"), { recursive: true });
-      writeFileSync(join(teams, team, "mattstack", "settings.team.jsonc"), "{}");
+      mkdirSync(join(teams, team, "mattstack", "org"), { recursive: true });
+      writeFileSync(join(teams, team, "mattstack", "org", "settings.org.jsonc"), "{}");
     }
     try {
       const deps = baseDeps();

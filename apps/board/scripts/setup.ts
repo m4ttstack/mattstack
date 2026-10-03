@@ -27,7 +27,7 @@ import { join, resolve } from 'node:path';
 
 import {
   getSetting,
-  listTeams,
+  listOrgs,
   setSetting,
   switchboardUrl,
 } from '@mattstack/rt-client';
@@ -313,7 +313,7 @@ async function main() {
     // own MRs from anyone else's, so redeeming here would burn a one-time
     // invite on a board that would publish nothing.
     console.error('Peer boards need your username; set it above and re-run.');
-  } else if (classified.kind === 'invite' && listTeams().length === 0) {
+  } else if (classified.kind === 'invite' && listOrgs().length === 0) {
     console.error(
       'Join a team on this Mac first, then paste the invite again.'
     );

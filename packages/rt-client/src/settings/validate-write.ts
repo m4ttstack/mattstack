@@ -31,12 +31,13 @@ export function validateWrite(def: SettingDef, value: unknown, opts: { scope: Se
     opts.repoIdentity !== undefined ? [opts.repoIdentity] : def.repoScoped ? [null, ...listStoreRepoIdentities()] : [null];
   for (const repoIdentity of contexts) {
     const after = mergedValueWith(def, { scope: opts.scope, repoIdentity: opts.repoIdentity, team: opts.team, value }, { repoIdentity, expand: false });
-    // A team write with no local team store patches nothing, so `after` is the current merge,
+    // A shared write with no store to land in patches nothing, so `after` is the current merge,
     // undefined only when nothing is set anywhere; setSetting refuses that write afterwards.
     if (after === undefined) continue;
     const afterIssues = checkSchema(def, after, { layer: false });
     if (afterIssues.length === 0) continue;
-    const before = currentMergedValue(def, { repoIdentity, expand: false });
+    const view = opts.scope === "team" && opts.team !== undefined ? { team: opts.team } : {};
+    const before = currentMergedValue(def, { repoIdentity, expand: false, ...view });
     if (before === undefined || checkSchema(def, before, { layer: false }).length === 0) {
       const where = repoIdentity ? ` for ${repoIdentity}` : "";
       return { ok: false, kind: "schema", reason: `merged value${where} would fail: ${firstIssueText(afterIssues)}`, issues: afterIssues };

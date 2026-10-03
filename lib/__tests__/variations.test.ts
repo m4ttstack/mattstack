@@ -63,7 +63,7 @@ describe("variations", () => {
       });
 
       test("an unexpandable ${repoRoot} in a stored value degrades to empty instead of throwing", () => {
-        setSetting("rt.variations", { "pkg/a:dev": [{ name: "root", command: "${repoRoot}/dev" }] }, "team", { repoIdentity: IDENTITY });
+        setSetting("rt.variations", { "pkg/a:dev": [{ name: "root", command: "${repoRoot}/dev" }] }, "org", { repoIdentity: IDENTITY });
 
         expect(() => loadVariations(IDENTITY)).not.toThrow();
         expect(loadVariations(IDENTITY)).toEqual({});
@@ -152,14 +152,14 @@ describe("variations", () => {
       rmSync(home, { recursive: true, force: true });
     });
 
-    test("surfaces the team-store refusal instead of silently dropping the save", () => {
+    test("surfaces the org-store refusal instead of silently dropping the save", () => {
       const result = saveVariation(IDENTITY, "/repo", "/repo/pkg/a", "dev", {
         name: "debug",
         command: "DEBUG=1 pnpm run dev",
       });
       expect(result.ok).toBe(false);
       if (!result.ok && result.reason === "write-failed") {
-        expect(result.message).toContain("no local team store");
+        expect(result.message).toContain("this Mac has no org yet");
       } else {
         throw new Error(`expected a write-failed refusal, got ${JSON.stringify(result)}`);
       }

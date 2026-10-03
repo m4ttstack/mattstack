@@ -138,17 +138,17 @@ describe("settings/resolve over versioned store names", () => {
   test("a repo section reads, labels and reports a diverged older name on its repo rung", () => {
     withMigration("rt.roles", ROLES_BUMP, () => {
       writeTeam(TEAM, { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } }, "rt.roles@2": { web: { devHook: "./other.sh" } } } } });
-      const row = explainSetting("rt.roles", { repoIdentity: IDENTITY }).find((r) => r.scope === "team.repo")!;
+      const row = explainSetting("rt.roles", { repoIdentity: IDENTITY }).find((r) => r.scope === "org.repo")!;
       expect(row.olderLabel).toBe("diverged");
       expect(row.olderNames?.[0]).toMatchObject({ storeName: "rt.roles", value: { web: { devHook: "./dev.sh" } } });
-      expect(repoSectionsFor("rt.roles")).toContainEqual({ identity: IDENTITY, scopes: ["team"] });
+      expect(repoSectionsFor("rt.roles")).toContainEqual({ identity: IDENTITY, scopes: ["org"] });
     });
   });
 
   test("repoSectionsFor counts a section holding only the versioned current name", () => {
     withMigration("rt.roles", ROLES_BUMP, () => {
       writeTeam(TEAM, { repos: { [IDENTITY]: { "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
-      expect(repoSectionsFor("rt.roles")).toContainEqual({ identity: IDENTITY, scopes: ["team"] });
+      expect(repoSectionsFor("rt.roles")).toContainEqual({ identity: IDENTITY, scopes: ["org"] });
     });
   });
 

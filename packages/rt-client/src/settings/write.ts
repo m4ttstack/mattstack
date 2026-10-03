@@ -1,7 +1,7 @@
 /**
  * The settings write path (RT-47): `setSetting` — a single, comment-preserving
- * write into one of the three AUTHORED stores (user/team/machine; `default`
- * is a read-only rung and never appears here).
+ * write into one of the AUTHORED stores (user/org/team/machine; `default` is
+ * a read-only rung and never appears here).
  *
  * Writes go through jsonc-parser's `modify`/`applyEdits` rather than
  * parse-mutate-stringify, so existing comments and formatting in the store
@@ -17,8 +17,8 @@
  * or the identity's section under it) are created by `modify` itself, and
  * that creation is comment-safe — no special-casing needed here.
  *
- * Creating an absent store file (user/machine only — see "Team selection"
- * below for why team stores are never auto-created): the file is seeded
+ * Creating an absent store file (user/machine only; see "Store selection"
+ * below for why shared stores are never auto-created): the file is seeded
  * in-memory as `// header comment\n{}\n` BEFORE the first `modify` call.
  * This is required, not cosmetic — a verified footgun: running `modify` on a
  * comment-only document with NO braces at all (e.g. just `// header\n`)
@@ -32,42 +32,31 @@
  * scope the def does not list, a
  * repoIdentity supplied for a key that is not `repoScoped`, `validate-write.ts`'s
  * `validateWrite` (type check and path-literal guard, then the layer schema,
- * then the merged result), and finally, only for `scope: "team"`, a team
- * store that cannot be resolved (see below). Filesystem-touching checks (team
- * resolution) run last, after every pure/in-memory refusal, so a bad call
+ * then the merged result), and finally, only for `scope: "org"` or `"team"`, a
+ * shared store that cannot be resolved (see below). Filesystem-touching checks
+ * (store resolution) run last, after every pure/in-memory refusal, so a bad call
  * never creates or touches a file it was going to refuse anyway. Last of all,
  * at the store seam itself (so `unsetSetting` is covered too), a test run may
  * not touch a store under the account's real ~/.mattstack (test-isolation.ts).
  *
  * ── The path-literal guard is scope-aware ──────────────────────────────
  * `validateWrite` mirrors `resolve.ts`'s `validateForScope`: `def.pathGuardFields`
- * (wave 1: `rt.roles.hook`) is enforced at `user` and `team` scope, where a
+ * (wave 1: `rt.roles.hook`) is enforced at `user`, `org` and `team` scope, where a
  * path literal would silently stop applying the moment a teammate's checkout
  * (or this developer's own machine) sits at a different path. `machine` scope
  * is exempt: it is the one store where a path literal is the CORRECT way to
  * express something local-only, so writes there skip the guard entirely.
  *
- * ── Team selection (a design decision this task made, per the brief) ──
- * The base signature (`setSetting(key, value, scope, opts?)`) is extended
- * here with `opts.team`, an explicit team NAME to target. Selection rule for
- * `scope: "team"`:
- *   - `opts.team` given → that team's store; refuse if it has no local
- *     settings file (a team dir can exist mid-clone without one — see
- *     `stores.ts#listTeams`).
- *   - `opts.team` omitted, exactly one team has a local store → use it.
- *   - `opts.team` omitted, zero or multiple teams have a local store →
- *     refuse with a clear error (asking for `opts.team` in the multiple
- *     case). Wave 1 ships exactly one team, so this is the common path; the
- *     alternative of silently picking "the first team alphabetically" was
- *     considered and rejected — guessing which team's shared file to mutate
- *     is exactly the silent-oracle behavior this design bans elsewhere.
- * A team store is NEVER auto-created by `setSetting` — team stores are
- * seeded by the migration/orchestrator step and live in a repo that needs a
- * commit+push to reach teammates; conjuring one here would produce an
- * uncommitted, unshared file masquerading as team state.
+ * ── Store selection ─────────────────────────────────────────────────────
+ * A `scope: "org"` write takes no name: it lands in the one org on this Mac.
+ * A `scope: "team"` write lands in the team folder `opts.team` names, or in
+ * this Mac's active team when it names none; with neither, it refuses.
+ * Neither store is ever created by a write: both live in the org repo, which
+ * needs a commit and push to reach anyone, so conjuring one here would
+ * produce an uncommitted, unshared file masquerading as shared state.
  *
  * A successful write or removal prints nothing unless the daemon cannot sync
- * the user or team repo on its own; then one tip line says what to do
+ * the user or org repo on its own; then one tip line says what to do
  * (`shareTip`).
  *
  * ── Malformed stores refuse rather than edit around the damage ─────────
@@ -99,20 +88,18 @@ import { basename, dirname, join, resolve } from "path";
 import { isDeepStrictEqual } from "util";
 import { assertNotRealStoreInTest } from "../test-isolation.ts";
 import { baselinesOf, baselinesToRecord, currentStoreName, MIGRATED_PROP, olderStoreNames, readSection } from "./migrate.ts";
-import { machineSettingsPath, teamSettingsPath, userSettingsPath } from "./paths.ts";
+import { activeTeam } from "./active-team.ts";
+import { machineSettingsPath, orgDir, orgSettingsPath, teamSettingsPath, userSettingsPath } from "./paths.ts";
 import { getDef, isMigrated, isRetiredKey, type SettingDef, type SettingScope } from "./registry-machinery.ts";
 import { getSetting } from "./resolve.ts";
-import { listTeams, readStore } from "./stores.ts";
+import { currentOrg, readStore, TEAM_NAME_RE } from "./stores.ts";
 import { isJoinedTeam } from "./team-local-read.ts";
 import { validateWrite } from "./validate-write.ts";
 
 export interface SetSettingOpts {
   /** Normalized repo identity — required to target a repoScoped key's `repos.<identity>` section. */
   repoIdentity?: string;
-  /**
-   * Which team's local store to write into, for `scope: "team"`. See the
-   * module doc's "Team selection" section. Ignored for `user`/`machine`.
-   */
+  /** The team folder a `scope: "team"` write lands in; the active team when omitted. Ignored for every other scope. */
   team?: string;
 }
 
@@ -142,7 +129,7 @@ function sectionPathOf(repoIdentity: string | undefined): JSONPath {
 /**
  * Writes `value` for `key` into the given scope's store, preserving every
  * existing comment and creating the file/section it needs. See the module
- * doc for the full refusal list and the team-selection rule.
+ * doc for the full refusal list and the store-selection rule.
  */
 export function setSetting(key: string, value: unknown, scope: SettingScope, opts: SetSettingOpts = {}): void {
   const def = getDef(key);
@@ -190,7 +177,7 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
           : [{ path: [...sectionPath, MIGRATED_PROP], value: baselines }]),
       ];
     },
-    /* createIfMissing */ scope !== "team",
+    /* createIfMissing */ scope === "user" || scope === "machine",
   );
 
   shareTip("saved", key, scope, storePath);
@@ -236,11 +223,11 @@ function notify(notice: SettingsNotice): void {
 }
 
 /**
- * The daemon's snapshot engines commit and push the user and team repos on
+ * The daemon's snapshot engines commit and push the user and org repos on
  * their own, so a write normally needs no follow-up and prints nothing. A tip
  * prints only when that sync cannot happen: the repo has no origin, or
  * rt.homeSnapshot / rt.teamSnapshot is disabled (a read failure counts as
- * enabled, as the daemon treats it). A pull-only (joined) team clone never
+ * enabled, as the daemon treats it). A pull-only (joined) org clone never
  * gets here: resolveStorePath refuses the write. It assumes the daemon is
  * running; nothing here checks.
  */
@@ -258,12 +245,14 @@ function shareTip(verb: "saved" | "removed", key: string, scope: SettingScope, s
     }
     return;
   }
-  const repo = dirname(dirname(storePath));
-  const team = basename(repo);
+  const org = currentOrg();
+  if (org === null) return;
+  const repo = orgDir(org);
+  const whose = scope === "org" ? `the ${org} org's settings` : `the ${basename(dirname(storePath))} team's settings`;
   if (!hasOrigin(repo)) {
-    notify({ text: `${did} ${prep} the ${team} team's settings on this Mac only. The team repo has no remote yet.`, next: `rt team publish --team ${team} --remote <url>` });
+    notify({ text: `${did} ${prep} ${whose} on this Mac only. The org repo has no remote yet.`, next: "rt team publish --remote <url>" });
   } else if (!snapshotEnabled("rt.teamSnapshot")) {
-    notify({ text: `${did} ${prep} the ${team} team's settings, but automatic team sync is off.`, next: `rt team publish --team ${team}` });
+    notify({ text: `${did} ${prep} ${whose}, but automatic team sync is off.`, next: "rt team publish" });
   }
 }
 
@@ -307,10 +296,10 @@ function snapshotEnabled(key: "rt.homeSnapshot" | "rt.teamSnapshot"): boolean {
  * Removes `key` from the given scope's store, comment-preserving. The refusal
  * ladder is `setSetting`'s minus the value check (there is no value): unknown
  * key, unmigrated, scope not in `def.scopes`, repoIdentity on a non-repoScoped
- * key, and the team-selection rule when ambiguous. Divergences from set, both
- * because removal has nothing to act on: a store FILE that does not exist is a
- * clean no-op rather than a refusal (an explicit `opts.team` naming a team
- * with no local store included — nothing to remove is success, not an error),
+ * key, and the store-selection rule. Divergences from set, both because
+ * removal has nothing to act on: a store FILE that does not exist is a clean
+ * no-op rather than a refusal (no org, no active team, or a team with no
+ * settings file included: nothing to remove is success, not an error),
  * and a key not present in the store is a no-op. Returns whether anything was
  * actually removed; the share tip prints only on a real removal.
  * A retired key is not in the registry but may linger in a store, so it can
@@ -345,7 +334,7 @@ export function unsetSetting(key: string, scope: SettingScope, opts: SetSettingO
     const diverged = readSection(def, section, { layer: true }).older.filter((o) => o.label === "diverged");
     if (diverged.length > 0) {
       refuse(
-        `"${key}" has an older store name edited after its current one (${diverged.map((o) => o.storeName).join(", ")}) in the ${scope} store; compare both values with \`rt settings migrate\`, then remove the older one with \`rt settings migrate --prune --force ${key}\` (add --team for a team-store name); prune lists every name it will delete before asking to confirm`,
+        `"${key}" has an older store name edited after its current one (${diverged.map((o) => o.storeName).join(", ")}) in the ${scope} store; compare both values with \`rt settings migrate\`, then remove the older one with \`rt settings migrate --prune --force ${key}\` (add --team for an org or team store name); prune lists every name it will delete before asking to confirm`,
       );
     }
     const names = [currentStoreName(def), ...olderStoreNames(def).map((o) => o.name)].filter((n) => section[n] !== undefined);
@@ -374,68 +363,52 @@ function migratedFalseMessage(key: string, def: SettingDef): string {
 
 /**
  * A clone that arrived by redeeming an invite is pull-only, so a write here
- * would never reach the team AND would leave a tracked file dirty, which is
+ * would never reach the org AND would leave a tracked file dirty, which is
  * enough on its own to make the daemon's fast-forward pull fail.
  */
-function refuseIfJoined(team: string): void {
-  if (isJoinedTeam(team)) {
+function refuseIfJoined(org: string): void {
+  if (isJoinedTeam(org)) {
     refuse(
-      `this machine joined "${team}" by invite, so its clone is pull-only and team settings cannot be written here. Ask the team's owner to make this change. Member-proposed changes are tracked in MAT-415.`,
+      `this Mac joined "${org}" by invite, so its clone is pull-only and shared settings cannot be written here. Ask an org admin to make this change.`,
     );
   }
 }
 
-/** Resolves which store file a write targets, applying the team-selection rule for `scope: "team"`. */
+function requireOrg(): string {
+  const org = currentOrg();
+  if (org === null) refuse("this Mac has no org yet, so there are no shared settings to write");
+  return org;
+}
+
+function sharedStoreTarget(scope: "org" | "team", opts: SetSettingOpts): { org: string; path: string; label: string } {
+  const org = requireOrg();
+  if (scope === "org") return { org, path: orgSettingsPath(org), label: `the ${org} org` };
+  const team = opts.team ?? activeTeam().team;
+  if (team === null) refuse("no active team on this Mac; name the team to write to");
+  if (!TEAM_NAME_RE.test(team)) refuse(`"${team}" is not a team name (lowercase letters, digits and dashes, starting with a letter)`);
+  return { org, path: teamSettingsPath(org, team), label: `the ${team} team` };
+}
+
+/** Resolves which store file a write targets. A shared store is never created here: it lives in a repo that has to be committed and pushed to reach anyone. */
 function resolveStorePath(scope: SettingScope, opts: SetSettingOpts): string {
   if (scope === "user") return userSettingsPath();
   if (scope === "machine") return machineSettingsPath();
-
-  if (opts.team !== undefined) {
-    const path = teamSettingsPath(opts.team);
-    if (!existsSync(path)) {
-      refuse(`team store for "${opts.team}" does not exist (${path}) — clone/seed it before writing to it`);
-    }
-    refuseIfJoined(opts.team);
-    return path;
-  }
-
-  const teams = listTeams();
-  if (teams.length === 0) {
-    refuse(`no local team store found — clone a team under ~/.mattstack/teams/<name> or pass opts.team`);
-  }
-  if (teams.length > 1) {
-    refuse(`multiple local team stores found (${teams.join(", ")}) — pass opts.team to choose one`);
-  }
-  const team = teams[0] as string;
-  refuseIfJoined(team);
-  return teamSettingsPath(team);
+  const { org, path, label } = sharedStoreTarget(scope, opts);
+  if (!existsSync(path)) refuse(`${label} has no settings file on this Mac (${path}); pull the org before writing to it`);
+  refuseIfJoined(org);
+  return path;
 }
 
-/**
- * `resolveStorePath` for removal: same selection rule, but "no store to
- * target" answers null (nothing to remove) instead of refusing — EXCEPT the
- * multiple-teams case, which still refuses: guessing which team's store to
- * edit is banned on the unset side for the same reason as the set side.
- */
+/** `resolveStorePath` for removal: no store to target answers null (nothing to remove) instead of refusing. */
 function resolveStorePathForUnset(scope: SettingScope, opts: SetSettingOpts): string | null {
   if (scope === "user") return userSettingsPath();
   if (scope === "machine") return machineSettingsPath();
-
-  if (opts.team !== undefined) {
-    const path = teamSettingsPath(opts.team);
-    if (!existsSync(path)) return null;
-    refuseIfJoined(opts.team);
-    return path;
-  }
-
-  const teams = listTeams();
-  if (teams.length === 0) return null;
-  if (teams.length > 1) {
-    refuse(`multiple local team stores found (${teams.join(", ")}) — pass opts.team to choose one`);
-  }
-  const team = teams[0] as string;
-  refuseIfJoined(team);
-  return teamSettingsPath(team);
+  if (currentOrg() === null) return null;
+  if (scope === "team" && opts.team === undefined && activeTeam().team === null) return null;
+  const { org, path } = sharedStoreTarget(scope, opts);
+  if (!existsSync(path)) return null;
+  refuseIfJoined(org);
+  return path;
 }
 
 /** `// header comment\n{}\n` — see module doc for why the object must be seeded before the first `modify`. */
@@ -512,7 +485,7 @@ function writeIntoStore(storePath: string, planEdits: (root: Record<string, unkn
   } else {
     if (!createIfMissing) {
       // Unreachable via setSetting today: resolveStorePath already refuses
-      // every "team" path that lacks a file before we get here. Kept as a
+      // every shared path that lacks a file before we get here. Kept as a
       // defensive guard against a future caller of writeIntoStore directly.
       refuse(`store file ${storePath} does not exist`);
     }

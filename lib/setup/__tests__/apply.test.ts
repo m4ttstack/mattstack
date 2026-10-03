@@ -985,7 +985,7 @@ describe("runApplyWith: --only runs unsatisfied prerequisites first", () => {
       p.mkdirp("/fake-home/.mattstack/teams/acme");
       p.mkdirp("/fake-home/.mattstack/teams/acme/.git");
       expect(await both()).toEqual([false, false]);
-      p.writeFile("/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc", "{}");
+      p.writeFile("/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc", "{}");
       expect(await both()).toEqual([false, false]);
       p.writeFile("/fake-home/.mattstack/teams/acme/.git/config", '[remote "upstream"]\n\turl = https://example.com/acme/other.git\n');
       expect(await both()).toEqual([false, false]);
@@ -1142,7 +1142,7 @@ describe("createApplyContext", () => {
     try {
       const p = fakeProbes({
         home: "/fake-home",
-        files: { "/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc": "{}" },
+        files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
         dirs: { "/fake-home/.mattstack/teams": ["acme"] },
       });
       const ctx = await createApplyContext({

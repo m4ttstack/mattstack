@@ -101,7 +101,7 @@ describe("teamCreate", () => {
       probes: fakeProbes({
         home: "/home/x",
         dirs: { [teams]: ["globex"] },
-        files: { [join(teams, "globex", "mattstack", "settings.team.jsonc")]: "{}" },
+        files: { [join(teams, "globex", "mattstack", "org", "settings.org.jsonc")]: "{}" },
       }),
     });
     const code = await runExpectingProcessExit(() => teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git", "--json"], {}, deps));
@@ -244,8 +244,8 @@ describe("teamInvite", () => {
     process.env.HOME = home;
 
     teamDir = join(home, ".mattstack", "teams", "acme");
-    mkdirSync(join(teamDir, "mattstack"), { recursive: true });
-    writeFileSync(join(teamDir, "mattstack", "settings.team.jsonc"), `${JSON.stringify({ "board.title": "Acme Team" }, null, 2)}\n`);
+    mkdirSync(join(teamDir, "mattstack", "org"), { recursive: true });
+    writeFileSync(join(teamDir, "mattstack", "org", "settings.org.jsonc"), `${JSON.stringify({ "board.title": "Acme Team" }, null, 2)}\n`);
     mkdirSync(join(teamDir, ".git"), { recursive: true });
   });
 

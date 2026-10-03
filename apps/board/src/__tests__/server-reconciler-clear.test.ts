@@ -24,10 +24,17 @@ import { openStateDb } from '../state/db.ts';
 // `{ok, data}` or `{ok: false, error}` body at HTTP 200.
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-reconciler-clear-'));
 
-const teamDir = join(fakeHome, '.mattstack', 'teams', 'testteam', 'mattstack');
+const teamDir = join(
+  fakeHome,
+  '.mattstack',
+  'teams',
+  'testteam',
+  'mattstack',
+  'org'
+);
 mkdirSync(teamDir, { recursive: true });
 writeFileSync(
-  join(teamDir, 'settings.team.jsonc'),
+  join(teamDir, 'settings.org.jsonc'),
   JSON.stringify({
     'board.gitlabHost': 'https://gitlab.example.com',
     'board.projects': ['g/p'],

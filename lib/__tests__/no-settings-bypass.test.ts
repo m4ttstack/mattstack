@@ -30,10 +30,11 @@ const IDENTIFIER_RULES = new Map<string, Rule>(Object.entries({
   readStores: "raw store reader",
   userSettingsPath: "store path helper",
   teamSettingsPath: "store path helper",
+  orgSettingsPath: "store path helper",
   machineSettingsPath: "store path helper",
 } satisfies Record<string, Rule>));
 
-const STORE_FILE_TEXT = [/settings\.(?:user|team|local)\.jsonc/, /settings\.\$\{/];
+const STORE_FILE_TEXT = [/settings\.(?:user|team|org|local)\.jsonc/, /settings\.\$\{/];
 
 const SCAN_ROOTS = ["commands", "lib", "scripts", "cli.ts", "apps", "packages", "extensions", "plugins"];
 const SKIP_DIRS = new Set(["node_modules", "dist", "dist-bin", "build", ".turbo", ".next", "fixtures", "test", "tests", "__tests__"]);
@@ -45,7 +46,7 @@ interface Allowed {
   reason: string;
 }
 
-const ROSTER_READ = "reads one team's own roster; getSetting merges every team store and has no per-team read";
+const ROSTER_READ = "reads the named org's own roster; getSetting reads only this Mac's view and has no per-org read";
 
 const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
   "per-rung reader": {
@@ -62,8 +63,8 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "lib/home/init-exec.ts": { count: 1, reason: "assertNotRealStoreInTest guard before home init seeds the user store" },
     "lib/team/create.ts": { count: 2, reason: "scaffolds a new team's store and guards it with assertNotRealStoreInTest" },
     "lib/team/join.ts": { count: 1, reason: "assertNotRealStoreInTest guard before join seeds the team store" },
-    "lib/setup/team-settings.ts": { count: 1, reason: "existence probe discovering cloned teams through the Probes seam" },
-    "lib/skills/init.ts": { count: 1, reason: "reads each team zone's own forge host; getSetting merges every team store and has no per-team read" },
+    "lib/setup/team-settings.ts": { count: 1, reason: "existence probe discovering org clones through the Probes seam" },
+    "lib/skills/init.ts": { count: 1, reason: "reads each team zone's own forge host; getSetting reads only this Mac's view and has no per-zone read" },
   },
   "raw store reader": {
     "commands/team.ts": { count: 2, reason: ROSTER_READ },
@@ -72,11 +73,11 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "packages/rt-client/src/index.ts": { count: 1, reason: "rt-client's public entry re-exports the resolver" },
   },
   "store path helper": {
-    "commands/team.ts": { count: 2, reason: "names the one team store its roster read targets" },
-    "lib/team/invite.ts": { count: 2, reason: "names the one team store its roster read targets" },
-    "lib/team/members.ts": { count: 2, reason: "names the one team store its roster read targets" },
-    "lib/endpoint/shim.ts": { count: 6, reason: "mtime staleness probe over the store files intercept rules came from" },
-    "lib/repo-reidentify.ts": { count: 8, reason: "renames a repo's section in every store file" },
+    "commands/team.ts": { count: 2, reason: "names the org store its roster read targets" },
+    "lib/team/invite.ts": { count: 2, reason: "names the org store its roster read targets" },
+    "lib/team/members.ts": { count: 2, reason: "names the org store its roster read targets" },
+    "lib/endpoint/shim.ts": { count: 4, reason: "mtime staleness probe over the store files intercept rules came from" },
+    "lib/repo-reidentify.ts": { count: 6, reason: "renames a repo's section in every store file" },
     "lib/repo-tracking.ts": { count: 3, reason: "refuses to move a tracking grant over an unparseable machine store" },
   },
 };

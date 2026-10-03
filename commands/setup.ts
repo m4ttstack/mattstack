@@ -21,7 +21,7 @@ import { createRealAgeKeySeam } from "../lib/home/age-key.ts";
 import { promptSecret } from "../lib/prompt-secret.ts";
 import { NoAgeKeyError, createRealSecretsExecSeam, personalStoreReady, writeSecret, type SecretsSeams } from "../lib/secrets/store.ts";
 import { NoTeamRecipientsError, createRealTeamSecretsSeams, readTeamSecret, writeTeamSecret } from "../lib/secrets/team-store.ts";
-import { listTeams } from "../lib/settings/stores.ts";
+import { listOrgs } from "../lib/settings/stores.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import * as out from "../lib/ui/out.ts";
@@ -116,7 +116,7 @@ async function runPlan(args: string[], deps: SetupDeps, mode: "plan" | "status")
       secrets: deps.secrets,
       ci: process.env.CI === "true",
       mode,
-      teams: listTeams(),
+      teams: listOrgs(),
       teamOverride: flagValue(args, "--team"),
     });
   } catch (err) {
@@ -247,7 +247,7 @@ const HARD_PRECONDITION_COPY: Record<string, { why: string; next?: string }> = {
 async function gateHardPreconditions(args: string[], deps: ApplyDeps): Promise<void> {
   if (args.includes("--force")) return;
   const plan = await (deps.planForGate?.() ??
-    composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", teams: listTeams() }));
+    composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", teams: listOrgs() }));
   const hard = plan.requiredMissing.filter((id) => HARD_PRECONDITION_IDS.has(id));
   if (hard.length === 0) return;
   // A hard id with no copy entry still names itself, so the person is never told nothing.
@@ -327,7 +327,7 @@ function stampUpdateWhenNothingPends(deps: ApplyDeps, json: boolean): void {
 async function finishIfClear(deps: ApplyDeps, json: boolean): Promise<void> {
   try {
     const plan = await (deps.planForFinish?.() ??
-      composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", teams: listTeams() }));
+      composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", teams: listOrgs() }));
     if (plan.finishBlockedBy.length === 0) markSetupFinished(deps.probes);
   } catch (err) {
     warnLine(json, "Setup was left unfinished because the finish check failed", err instanceof Error ? err.message : String(err));
@@ -466,7 +466,7 @@ export async function setupInteractive(args: string[], _ctx: CommandContext = {}
 
   if (!deps.isTTY() || json) return setupStatus(args, _ctx, setupDeps);
 
-  const plan = await composePlan({ p: deps.probes, secrets: setupDeps.secrets, ci: process.env.CI === "true", mode: "plan", teams: listTeams() });
+  const plan = await composePlan({ p: deps.probes, secrets: setupDeps.secrets, ci: process.env.CI === "true", mode: "plan", teams: listOrgs() });
   out.print(...planBlocks(plan, "plan"));
 
   if (!plan.canInstall && !args.includes("--force")) {
@@ -993,7 +993,7 @@ const GH_SOURCE_DETAIL = "Signed in through the gh CLI";
 /** Mirrors composePlan's own team resolution (readIntent → teamRefFromIntent → readTeamSnapshot → forge enrichment) without the `--team` override these single-integration verbs don't take. */
 function realResolveTeamSnapshot(p: Probes): TeamSnapshot {
   const intent = readIntent(p);
-  const ref = teamRefFromIntent(intent, listTeams());
+  const ref = teamRefFromIntent(intent, listOrgs());
   const snapshot = ref.slug ? readTeamSnapshot(p, ref.slug) : EMPTY_SNAPSHOT;
   return enrichSnapshotForge(snapshot, intent);
 }
@@ -1551,8 +1551,7 @@ export async function setupSlackCreateApp(args: string[], _ctx: CommandContext =
     deps.writeSetting(
       "mattstack.integrations",
       { ...snapshot.integrations, slack: { ...snapshot.integrations.slack, appId: data.app_id, clientId: data.credentials.client_id, callbackPort } },
-      "team",
-      { team: snapshot.slug },
+      "org",
     );
 
     printIntegrationResult(deps, json, {

@@ -89,7 +89,7 @@ export function saveVariation(
   all[key] = [...list, variation];
 
   try {
-    setSetting("rt.variations", all, "team", { repoIdentity });
+    setSetting("rt.variations", all, "org", { repoIdentity });
     return { ok: true };
   } catch (err) {
     return { ok: false, reason: "write-failed", message: err instanceof Error ? err.message : String(err) };

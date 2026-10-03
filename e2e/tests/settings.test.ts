@@ -351,7 +351,7 @@ describe("rt settings (four stores, one resolver — e2e)", () => {
     // constructor output and this assertion's expectation together and the
     // suite would stay green without these literals.
     expect(userStore).toBe(join(home, ".mattstack", "user", "settings.user.jsonc"));
-    expect(teamStore).toBe(join(home, ".mattstack", "teams", TEAM, "mattstack", "settings.team.jsonc"));
+    expect(teamStore).toBe(join(home, ".mattstack", "teams", TEAM, "mattstack", "org", "settings.org.jsonc"));
     expect(machineStore).toBe(join(home, ".mattstack", "user", "local", MACHINE_KEY, "settings.local.jsonc"));
 
     // The ZONE ROOT, not the mattstack/ dir the settings file lives in.
@@ -404,32 +404,32 @@ describe("rt settings (four stores, one resolver — e2e)", () => {
     expect(out.value.web.hook).toBe(`sh ${join(home, ".mattstack", "teams", TEAM)}/hook.sh`);
     // Domain template → untouched.
     expect(out.value.web.env.PORT).toBe("${port}");
-    expect(out.provenance).toEqual([{ scope: "team.repo", file: teamStore }]);
+    expect(out.provenance).toEqual([{ scope: "org.repo", file: teamStore }]);
   }, 30_000);
 
   test("get on a replace key reports exactly one provenance entry", async () => {
     const out = await rtJson(["settings", "get", "rt.intercepts", "--repo", REPO_NAME, "--json"]);
     expect(out.value).toHaveLength(1);
     expect(out.value[0].command).toBe("fakestart");
-    expect(out.provenance).toEqual([{ scope: "team.repo", file: teamStore }]);
+    expect(out.provenance).toEqual([{ scope: "org.repo", file: teamStore }]);
   }, 30_000);
 
-  test("the deep-merge key merges team + user + machine with multi-scope provenance", async () => {
+  test("the deep-merge key merges org + user + machine with multi-scope provenance", async () => {
     const out = await rtJson(["settings", "get", "rt.worktrees", "--repo", REPO_NAME, "--json"]);
     expect(out.value).toEqual({
-      onDeck: 3,                                  // team.repo
-      ready: [{ run: "echo team-ready" }],        // team.repo
+      onDeck: 3,                                  // org.repo
+      ready: [{ run: "echo team-ready" }],        // org.repo
       namePool: ["alpha", "beta"],                // user.repo
       root: "~/machine-trees",                    // machine.repo (path literals are legal there)
     });
     expect(out.provenance).toEqual([
-      { scope: "team.repo", file: teamStore },
+      { scope: "org.repo", file: teamStore },
       { scope: "user.repo", file: userStore },
       { scope: "machine.repo", file: machineStore },
     ]);
   }, 30_000);
 
-  test("list reports migrated flags and labels the team store's unregistered key", async () => {
+  test("list reports migrated flags and labels the org store's unregistered key", async () => {
     const out = await rtJson(["settings", "list", "--repo", REPO_NAME, "--json"]);
     const byKey = new Map<string, any>(out.settings.map((s: any) => [s.key, s]));
 
@@ -440,7 +440,7 @@ describe("rt settings (four stores, one resolver — e2e)", () => {
     const unknown = byKey.get("rt.e2eFutureKey");
     expect(unknown.unregistered).toBe(true);
     expect(unknown.value).toEqual({ enabled: true });
-    expect(unknown.provenance).toEqual([{ scope: "team", file: teamStore }]);
+    expect(unknown.provenance).toEqual([{ scope: "org", file: teamStore }]);
   }, 30_000);
 
   test("explain (human output) shows every reachable rung", async () => {
@@ -450,10 +450,11 @@ describe("rt settings (four stores, one resolver — e2e)", () => {
 
     expect(out).toContain("rt.worktrees");
     expect(out).toContain("built-in default");
-    expect(out).toMatch(new RegExp(`team\\.repo\\s+${teamStore}\\s+\\{"onDeck":3`));
+    expect(out).toMatch(new RegExp(`org\\.repo\\s+${teamStore}\\s+\\{"onDeck":3`));
     expect(out).toMatch(new RegExp(`user\\.repo\\s+${userStore}\\s+\\{"namePool"`));
     expect(out).toMatch(new RegExp(`machine\\.repo\\s+${machineStore}\\s+\\{"root"`));
     // Rung ORDER is the contract: weakest first.
+    expect(out.indexOf("org.repo")).toBeLessThan(out.indexOf("team.repo"));
     expect(out.indexOf("team.repo")).toBeLessThan(out.indexOf("user.repo"));
     expect(out.indexOf("user.repo")).toBeLessThan(out.indexOf("machine.repo"));
   }, 30_000);
@@ -480,7 +481,7 @@ describe("rt settings (four stores, one resolver — e2e)", () => {
     // The other scopes are untouched by a write that only owns namePool.
     expect(out.value.onDeck).toBe(3);
     expect(out.provenance.map((p: any) => p.scope)).toEqual([
-      "team.repo",
+      "org.repo",
       "user.repo",
       "machine.repo",
     ]);

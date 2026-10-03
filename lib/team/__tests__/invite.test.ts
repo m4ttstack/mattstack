@@ -223,8 +223,8 @@ describe("mintInvite", () => {
     await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
 
     expect(writeCalls).toEqual([
-      { key: "board.members", value: [{ username: "zaphod" }], scope: "team", opts: { team: SLUG } },
-      { key: "mattstack.roster", value: [{ username: "zaphod" }], scope: "team", opts: { team: SLUG } },
+      { key: "board.members", value: [{ username: "zaphod" }], scope: "org", opts: undefined },
+      { key: "mattstack.roster", value: [{ username: "zaphod" }], scope: "org", opts: undefined },
     ]);
   });
 
@@ -250,7 +250,7 @@ describe("mintInvite", () => {
     await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
 
     expect(writeCalls).toEqual([
-      { key: "mattstack.roster", value: [{ username: "zaphod" }], scope: "team", opts: { team: SLUG } },
+      { key: "mattstack.roster", value: [{ username: "zaphod" }], scope: "org", opts: undefined },
     ]);
   });
 

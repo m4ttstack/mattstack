@@ -167,10 +167,17 @@ function boot(
   });
   const host = `http://127.0.0.1:${gitlab.port}`;
 
-  const teamDir = join(home, '.mattstack', 'teams', 'testteam', 'mattstack');
+  const teamDir = join(
+    home,
+    '.mattstack',
+    'teams',
+    'testteam',
+    'mattstack',
+    'org'
+  );
   mkdirSync(teamDir, { recursive: true });
   writeFileSync(
-    join(teamDir, 'settings.team.jsonc'),
+    join(teamDir, 'settings.org.jsonc'),
     JSON.stringify({
       'board.gitlabHost': host,
       'board.projects': ['g/p'],

@@ -197,13 +197,9 @@ export function userSettingsPath(): string {
   return join(home(), ".mattstack", "user", "settings.user.jsonc");
 }
 
-/**
- * ~/.mattstack/teams/<team>/mattstack/settings.team.jsonc — the team store
- * (in the team repo zone): shared keys plus `repos.<identity>` sections.
- * `team` is a team NAME (directory name under teamsDir()), not an identity.
- */
-export function teamSettingsPath(team: string): string {
-  return join(teamsDir(), team, "mattstack", "settings.team.jsonc");
+/** ~/.mattstack/teams/<org>/mattstack/teams/<team>/settings.team.jsonc: one team folder's store. */
+export function teamSettingsPath(org: string, team: string): string {
+  return join(teamFolderDir(org, team), "settings.team.jsonc");
 }
 
 /**
