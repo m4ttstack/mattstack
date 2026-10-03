@@ -39,7 +39,7 @@ import { extractInviteCode } from "../lib/team/invite-crypto.ts";
 import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeams } from "../lib/team/invite.ts";
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
-import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSync, preferredRoster, teamRemote, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
+import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSync, teamRemote, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient } from "../lib/team/relay-client.ts";
@@ -60,7 +60,7 @@ export interface TeamDeps {
   joinRedeemSeams?: Partial<JoinRedeemSeams>;
   /** Overrides `mintInvite`'s seams; real by default. */
   mintInviteSeams?: Partial<MintInviteSeams>;
-  /** Overrides `teamStatus`'s `board.title`/`board.members` reads — real by default, so a test never has to seed a real settings store just to check envelope shape. */
+  /** Overrides `teamStatus`'s `board.title`/`mattstack.roster` reads — real by default, so a test never has to seed a real settings store just to check envelope shape. */
   statusRead?: SettingsReader;
   /** The forge token rt holds for a remote's host — real store by default. */
   forgeToken?: typeof storedForgeToken;
@@ -499,10 +499,10 @@ export async function teamMembersSync(args: string[], _ctx: CommandContext = {},
   }
 }
 
-/** Removable roster handles for the resolved team, from the same preferred-roster source `membersRemove` reads. Empty on an unresolved or ambiguous team or any read failure, so the picker falls through to the usage error an omitted handle always got. */
+/** Removable roster handles for the resolved team, from the same org roster `membersRemove` reads. Empty on an unresolved or ambiguous team or any read failure, so the picker falls through to the usage error an omitted handle always got. */
 function rosterHandles(args: string[]): string[] {
   try {
-    const members = preferredRoster(readStore(orgSettingsPath(resolveTeamSlug(args, "team members remove"))).global);
+    const members = readStore(orgSettingsPath(resolveTeamSlug(args, "team members remove"))).global["mattstack.roster"];
     if (!Array.isArray(members)) return [];
     return members
       .filter((m): m is { username: string } => m !== null && typeof m === "object" && typeof (m as { username?: unknown }).username === "string")
@@ -559,7 +559,7 @@ function defaultStatusRead(): SettingsReader {
 }
 
 /**
- * `board.members` lives in the team's git-synced settings store, writable by
+ * `mattstack.roster` lives in the org's git-synced settings store, writable by
  * any teammate (or a bad merge) — never trusted to already be an array of
  * `{username: string}` objects. A non-conforming entry is dropped rather than
  * crashing a contract verb with a raw `TypeError`, or letting a non-string
@@ -636,9 +636,8 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     const snapshot = readTeamSnapshot(deps.probes, slug, { read, warn: () => {} });
     const title = read<string>("board.title");
     const name = title && title.length > 0 ? title : slug;
-    const preferredMembers = read<unknown>("mattstack.roster");
-    const members = toRosterMembers(Array.isArray(preferredMembers) ? preferredMembers : read<unknown>("board.members"), (skipped) =>
-      warn("team", `skipped ${skipped} malformed board.members entr${skipped === 1 ? "y" : "ies"} (missing or non-string username)`, {
+    const members = toRosterMembers(read<unknown>("mattstack.roster"), (skipped) =>
+      warn("team", `skipped ${skipped} malformed mattstack.roster entr${skipped === 1 ? "y" : "ies"} (missing or non-string username)`, {
         show: { title: "Some team members could not be read", hint: `${skipped} left out` },
       }),
     );

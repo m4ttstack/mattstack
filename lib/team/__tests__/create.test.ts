@@ -402,7 +402,6 @@ describe("createTeam (real fs + real git, fake age key only) — R-T16-a / findi
 
       expect(result.created).toBe(true);
       expect(getSetting<unknown[]>("board.projects").value).toBeUndefined();
-      expect(getSetting<unknown[]>("board.members").value).toBeUndefined();
       expect(parseSettingsBody(p.readFile(join(result.dir, "mattstack", "teams", "acme", "settings.team.jsonc"))!)["board.title"]).toBe("Acme");
 
       const sopsYaml = p.readFile(join(result.dir, ".sops.yaml"));

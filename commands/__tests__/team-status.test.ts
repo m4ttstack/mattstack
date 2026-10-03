@@ -63,7 +63,7 @@ describe("teamStatus", () => {
         }
         return { code: 0, stdout: "", stderr: "" };
       },
-      read: { "board.title": "Acme Team", "board.members": [{ username: "matt" }] },
+      read: { "board.title": "Acme Team", "mattstack.roster": [{ username: "matt", teams: ["widgets"] }] },
     });
 
     await teamStatus(["--team", SLUG, "--json"], {}, deps);
@@ -84,38 +84,6 @@ describe("teamStatus", () => {
       conflicted: null,
       pullOnly: false,
     });
-  });
-
-  test("a non-array mattstack.roster value falls back to board.members, matching preferredRoster's rule", async () => {
-    const deps = clonedDeps({
-      exec: async () => ({ code: 0, stdout: "2026-08-21T10:00:00+00:00\n", stderr: "" }),
-      read: {
-        "board.title": "Acme Team",
-        "board.members": [{ username: "matt" }],
-        "mattstack.roster": "corrupted-not-an-array",
-      },
-    });
-
-    await teamStatus(["--team", SLUG, "--json"], {}, deps);
-
-    const body = JSON.parse(deps.lines[0]!);
-    expect(body.members).toEqual([{ username: "matt" }]);
-  });
-
-  test("members come from mattstack.roster when present; board.members is only the legacy fallback", async () => {
-    const deps = clonedDeps({
-      exec: async () => ({ code: 0, stdout: "2026-08-21T10:00:00+00:00\n", stderr: "" }),
-      read: {
-        "board.title": "Acme Team",
-        "board.members": [{ username: "legacy-only" }],
-        "mattstack.roster": [{ username: "matt" }, { username: "leath1" }],
-      },
-    });
-
-    await teamStatus(["--team", SLUG, "--json"], {}, deps);
-
-    const body = JSON.parse(deps.lines[0]!);
-    expect(body.members).toEqual([{ username: "matt" }, { username: "leath1" }]);
   });
 
   test("--json carries pullOnly through from the daemon's snapshot-status entry, so a member can see why nothing pushes", async () => {
@@ -239,10 +207,10 @@ describe("teamStatus", () => {
     expect(deps.lines[0]).not.toContain("tok3n");
   });
 
-  test("malformed board.members entries (null, a bare string, a non-string username) are filtered, not crashed on or leaked raw", async () => {
+  test("malformed mattstack.roster entries (null, a bare string, a non-string username) are filtered, not crashed on or leaked raw", async () => {
     const deps = clonedDeps({
       exec: async () => ({ code: 0, stdout: "", stderr: "" }),
-      read: { "board.members": [null, "matt", { username: { evil: 1 } }, { username: "alice" }, {}] },
+      read: { "mattstack.roster": [null, "matt", { username: { evil: 1 } }, { username: "alice", teams: ["widgets"] }, {}] },
     });
 
     const io = captureOut();
@@ -262,7 +230,7 @@ describe("teamStatus", () => {
   test("a malformed roster entry warns on stderr and leaves the envelope alone", async () => {
     const deps = clonedDeps({
       exec: async () => ({ code: 0, stdout: "", stderr: "" }),
-      read: { "board.members": [null, "matt", { username: { evil: 1 } }, { username: "alice" }, {}] },
+      read: { "mattstack.roster": [null, "matt", { username: { evil: 1 } }, { username: "alice", teams: ["widgets"] }, {}] },
     });
     const io = captureOut();
     ui.__test__.setHuman(() => false);
