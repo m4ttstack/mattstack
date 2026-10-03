@@ -20,7 +20,7 @@ import {
   hasSchema,
   isMigrated,
   listStoreRepoIdentities,
-  listTeams,
+  listOrgs,
   listUnregisteredSettings,
   pruneStoreName,
   repoSectionsFor,
@@ -129,7 +129,7 @@ export interface RtSettingsApi {
   listUnregisteredSettings: typeof listUnregisteredSettings;
   repoSectionsFor: typeof repoSectionsFor;
   listStoreRepoIdentities: typeof listStoreRepoIdentities;
-  listTeams: typeof listTeams;
+  listOrgs: typeof listOrgs;
   /** Repo identities known to the host app (e.g. its own repo registry), merged
       with the store-derived list on `GET {base}/repos`. Optional: a host with
       no such registry answers from stores alone. */
@@ -371,7 +371,7 @@ export async function settingsHandler(
     listUnregisteredSettings,
     repoSectionsFor,
     listStoreRepoIdentities,
-    listTeams,
+    listOrgs,
     ...opts.rt,
   };
   let url: URL;
@@ -419,10 +419,9 @@ export async function settingsHandler(
         }
         return wire;
       });
-    // The team a `scope: "team"` write with no `team` lands in: the machine's
-    // one zone. With several, the write refuses, so no name is promised.
-    const teams = rt.listTeams();
-    return json({ defs, unregistered: rt.listUnregisteredSettings(), team: teams.length === 1 ? teams[0] : null });
+    // The org this Mac reads shared settings from. With several clones none is promised.
+    const orgs = rt.listOrgs();
+    return json({ defs, unregistered: rt.listUnregisteredSettings(), team: orgs.length === 1 ? orgs[0] : null });
   }
 
   if (path.startsWith(`${base}/explain/`) && req.method === "GET") {

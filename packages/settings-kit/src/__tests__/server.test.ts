@@ -146,14 +146,14 @@ describe("settingsHandler routing", () => {
     expect(body.defs.map((d) => d.key).sort()).toEqual(["board.members", "board.rtRepos", "board.slack", "board.title"]);
   });
 
-  test("defs names the machine's one team, and null with none or several", async () => {
-    const one = await handle(get("/api/settings/defs"), { rt: { listTeams: () => ["acme"] } });
+  test("defs names the machine's one org, and null with none or several", async () => {
+    const one = await handle(get("/api/settings/defs"), { rt: { listOrgs: () => ["acme"] } });
     expect(((await one!.json()) as { team: string | null }).team).toBe("acme");
 
-    const none = await handle(get("/api/settings/defs"), { rt: { listTeams: () => [] } });
+    const none = await handle(get("/api/settings/defs"), { rt: { listOrgs: () => [] } });
     expect(((await none!.json()) as { team: string | null }).team).toBeNull();
 
-    const two = await handle(get("/api/settings/defs"), { rt: { listTeams: () => ["acme", "globex"] } });
+    const two = await handle(get("/api/settings/defs"), { rt: { listOrgs: () => ["acme", "globex"] } });
     expect(((await two!.json()) as { team: string | null }).team).toBeNull();
   });
 

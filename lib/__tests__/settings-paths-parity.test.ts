@@ -32,7 +32,7 @@ describe("settings paths parity (lib/rt-paths.ts vs rt-client/settings/paths.ts)
     process.env.HOME = "/tmp/parity-fake-home";
 
     expect(clientPaths.userSettingsPath()).toBe(rtPaths.userSettingsPath());
-    expect(clientPaths.teamSettingsPath("someteam")).toBe(rtPaths.teamSettingsPath("someteam"));
+    expect(clientPaths.teamSettingsPath("acme", "widgets")).toBe(rtPaths.teamSettingsPath("acme", "widgets"));
     expect(clientPaths.machineSettingsPath()).toBe(rtPaths.machineSettingsPath());
     expect(clientPaths.teamsDir()).toBe(rtPaths.teamsDir());
   });

@@ -32,7 +32,7 @@ export interface PlanInputs {
   secrets: SecretPresence;
   ci: boolean;
   mode: "plan" | "status";
-  /** Discovered team slugs — the real caller passes `listTeams()`; tests inject their own list instead of swapping process.env.HOME. */
+  /** Discovered org slugs: the real caller passes `listOrgs()`; tests inject their own list instead of swapping process.env.HOME. */
   teams: string[];
   teamOverride?: string;
   /** Row ids waived on this Mac; defaults to the resolver's `setup.waived`. Tests inject their own list instead of writing a store. */

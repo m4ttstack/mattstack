@@ -136,7 +136,7 @@ describe("teamJoin", () => {
         fetch: relayFetch(),
         exec: () => ({ code: 0, stdout: "", stderr: "" }),
         dirs: { [teams]: ["globex"] },
-        files: { [pathJoin(teams, "globex", "mattstack", "settings.team.jsonc")]: "{}" },
+        files: { [pathJoin(teams, "globex", "mattstack", "org", "settings.org.jsonc")]: "{}" },
       }),
     });
 

@@ -661,7 +661,7 @@ describe("worktree config", () => {
       expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
     });
 
-    test("a refused team value warns once, naming the key and scope but not the value", () => {
+    test("a refused org value warns once, naming the key and scope but not the value", () => {
       writeStore(sharedStorePath("acme"), { "rt.worktreeApp": ["secret-ish"] });
       const warnings: string[] = [];
       const orig = console.warn;
@@ -674,7 +674,7 @@ describe("worktree config", () => {
         console.warn = orig;
       }
       expect(warnings).toHaveLength(1);
-      expect(warnings[0]).toContain('"rt.worktreeApp" from the team scope');
+      expect(warnings[0]).toContain('"rt.worktreeApp" from the org scope');
       expect(warnings[0]).not.toContain("secret-ish");
     });
 

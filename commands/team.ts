@@ -22,10 +22,10 @@ import { join } from "path";
 import type { AgeKeySeam } from "../lib/home/age-key.ts";
 import { createRealAgeKeySeam } from "../lib/home/age-key.ts";
 import { promptSecret } from "../lib/prompt-secret.ts";
-import { teamSettingsPath } from "../lib/rt-paths.ts";
+import { orgSettingsPath } from "../lib/rt-paths.ts";
 import { createRealTeamSecretsSeams } from "../lib/secrets/team-store.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
-import { listTeams, readStore } from "../lib/settings/stores.ts";
+import { listOrgs, readStore } from "../lib/settings/stores.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
@@ -187,12 +187,12 @@ export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps
   }
 }
 
-/** `--team` omitted falls back to the one locally-cloned team, mirroring `rt settings set --scope team`'s own resolution (packages/rt-client/src/settings/write.ts's `resolveStorePath`). */
+/** `--team` omitted falls back to the one org clone on this Mac. */
 function resolveTeamSlug(args: string[], verb: string): string {
   const explicit = flagValue(args, "--team");
   if (explicit) return explicit;
 
-  const teams = listTeams();
+  const teams = listOrgs();
   if (teams.length === 0) {
     throw new UserActionableError("no-team", "This Mac has no team yet", {}, { next: "rt team create" });
   }
@@ -503,7 +503,7 @@ export async function teamMembersSync(args: string[], _ctx: CommandContext = {},
 /** Removable roster handles for the resolved team, from the same preferred-roster source `membersRemove` reads. Empty on an unresolved or ambiguous team or any read failure, so the picker falls through to the usage error an omitted handle always got. */
 function rosterHandles(args: string[]): string[] {
   try {
-    const members = preferredRoster(readStore(teamSettingsPath(resolveTeamSlug(args, "team members remove"))).global);
+    const members = preferredRoster(readStore(orgSettingsPath(resolveTeamSlug(args, "team members remove"))).global);
     if (!Array.isArray(members)) return [];
     return members
       .filter((m): m is { username: string } => m !== null && typeof m === "object" && typeof (m as { username?: unknown }).username === "string")
@@ -620,7 +620,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
   const json = args.includes("--json");
 
   try {
-    if (!flagValue(args, "--team") && listTeams().length === 0) {
+    if (!flagValue(args, "--team") && listOrgs().length === 0) {
       const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[] };
       if (json) deps.print(JSON.stringify(envelope(result)));
       else out.print(out.line("off", "No team on this Mac", "just you"));

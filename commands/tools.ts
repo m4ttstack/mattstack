@@ -21,7 +21,7 @@ import { readPackRequirements, type PackRequirements } from "../lib/setup/requir
 import { BREW_FORMULAE, VENDOR_INSTALLERS, claudeConfigDirs, installTool, setupTool } from "../lib/setup/tools-install.ts";
 import { bundledToolExec } from "../lib/deps/resolve.ts";
 import { DEFAULT_EXPOSED } from "../lib/deps/links.ts";
-import { listTeams } from "../lib/settings/stores.ts";
+import { listOrgs } from "../lib/settings/stores.ts";
 import { fastBrowserMarketplaceSource } from "../lib/setup/steps/plugins.ts";
 
 function tool(args: string[]): string | undefined {
@@ -30,7 +30,7 @@ function tool(args: string[]): string | undefined {
 
 /** Mirrors composePlan's own team resolution (readIntent → teamRefFromIntent) so a team-declared brew formula/vendor URL is found the same way the plan row that offered this Install action found it. No joined team is not an error: plenty of tools (herdr, claude, apple-clt) need no reqs at all. */
 function resolveTeamReqs(p: Probes): PackRequirements[] {
-  const ref = teamRefFromIntent(readIntent(p), listTeams());
+  const ref = teamRefFromIntent(readIntent(p), listOrgs());
   return ref.slug ? readPackRequirements(p, ref.slug) : [];
 }
 

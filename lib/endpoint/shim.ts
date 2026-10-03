@@ -31,13 +31,12 @@ import { join, relative } from "path";
 import {
   machineSettingsPath,
   rtDir,
-  teamSettingsPath,
   userSettingsPath,
 } from "../rt-paths.ts";
 import { loadRepoIndex } from "../repo-index.ts";
 import { getKvValue, hasKvValue, importLegacyJsonFile, renameLegacyOutOfTheWay, setKvValue } from "../state/index.ts";
 import { deriveRepoIdentity, identityFromRemote, serializeIdentity } from "../settings/identity.ts";
-import { listTeams } from "../settings/stores.ts";
+import { sharedStoreFiles } from "../settings/stores.ts";
 import { runCapture } from "../subprocess.ts";
 import { loadEndpointConfig, type InterceptMatch } from "./config.ts";
 
@@ -208,11 +207,11 @@ export async function buildInterceptRules(): Promise<InterceptRule[]> {
 // ─── staleness probe ─────────────────────────────────────────────────────────
 
 /**
- * Every file a rule in the cache could have come from: the three authored
- * store files, each cloned team's included.
+ * Every file a rule in the cache could have come from: the user and machine
+ * stores, the org's, and every team folder's.
  */
 function interceptSourceFiles(): string[] {
-  return [userSettingsPath(), machineSettingsPath(), ...listTeams().map(teamSettingsPath)];
+  return [userSettingsPath(), machineSettingsPath(), ...sharedStoreFiles()];
 }
 
 /**

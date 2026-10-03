@@ -52,9 +52,9 @@ describe("settings/paths", () => {
       rmSync(home, { recursive: true, force: true });
     });
 
-    test("teamSettingsPath nests under teams/<team>/mattstack/settings.team.jsonc", () => {
+    test("teamSettingsPath nests under teams/<org>/mattstack/teams/<team>/settings.team.jsonc", () => {
       process.env.HOME = "/tmp/fake-home-client-2";
-      expect(teamSettingsPath("acme")).toBe("/tmp/fake-home-client-2/.mattstack/teams/acme/mattstack/settings.team.jsonc");
+      expect(teamSettingsPath("acme", "widgets")).toBe("/tmp/fake-home-client-2/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc");
     });
 
     test("teamsDir resolves at call-time HOME", () => {

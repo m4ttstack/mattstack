@@ -169,8 +169,10 @@ export function formatValuePretty(value: unknown): string {
 
 const SCOPE_WORDS: Record<Scope, string> = {
   default: "the built-in default",
+  org: "the org's settings",
   team: "the team's settings",
   user: "your user settings",
+  "org.repo": "the org's settings for this repo",
   "team.repo": "the team's settings for this repo",
   "user.repo": "your user settings for this repo",
   machine: "this Mac's settings",
@@ -714,7 +716,7 @@ async function migratePrune(
   const notices: SettingsNotice[] = [];
   const byFile = new Map<string, OlderName[]>();
   for (const n of plan.older) {
-    if (n.scope === "team" && !o.team) refused.push({ ...n, reason: "team store: pass --team to prune it" });
+    if ((n.scope === "team" || n.scope === "org") && !o.team) refused.push({ ...n, reason: n.scope + " store: pass --team to prune it" });
     else if (n.label === "diverged" && !o.forced.has(n.key)) refused.push({ ...n, reason: `diverged: pass --force ${n.key} to delete it` });
     else byFile.set(n.file, [...(byFile.get(n.file) ?? []), n]);
   }
