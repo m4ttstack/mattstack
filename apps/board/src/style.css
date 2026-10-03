@@ -4842,6 +4842,15 @@ a.tui-id-card-ref:focus-visible {
 .tui-ask-btn + .tui-ask-btn {
   margin-left: -6px;
 }
+@media (max-width: 720px) {
+  .tui-ask {
+    flex-wrap: wrap;
+  }
+  .tui-ask-trigger {
+    flex: 1 0 100%;
+    margin-right: 0;
+  }
+}
 /* The trail's content, inside the kit's menu surface (which owns the card,
    shadow, clamping and entry motion). */
 .tui-ask-trail {
