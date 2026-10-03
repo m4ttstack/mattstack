@@ -138,12 +138,12 @@ describe("materializeSkills", () => {
   test("a failed pack marks the repo not ok and names the pack and fix", async () => {
     seedRepo("https://gitlab.example.com/acme/widgets.git");
     seedZone();
-    write(join(home, ".mattstack", "teams", "acme", "mattstack", "teams", "widgets", "packs", "widgets", "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base@acme" }));
+    write(join(home, ".mattstack", "teams", "acme", "mattstack", "teams", "widgets", "packs", "widgets", "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
     const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
     const result = await materializeSkills(p, {});
     if (result.skipped) throw new Error("skipped");
     expect(result.repos[0]!.ok).toBe(false);
-    expect(result.repos[0]!.detail).toBe("widgets: widgets extends acme-base@acme, which is not installed; add it to the team's claude.plugins");
+    expect(result.repos[0]!.detail).toBe(`widgets: widgets extends acme-base, but the org has no base pack there (looked in ${home}/.mattstack/teams/acme/mattstack/org/packs/acme-base)`);
   });
 
   test("--repo naming no registered repo throws repo-not-registered", async () => {
