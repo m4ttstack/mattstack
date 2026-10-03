@@ -933,24 +933,32 @@ export function applyRosterEdit(
 }
 
 /**
- * Replace the roster wholesale: a store-owned roster is written back to
- * `mattstack.roster` at org, otherwise to config.json. Callers own
+ * Replace the roster wholesale: a store-owned roster is merged into
+ * `mattstack.roster` at org, otherwise written to config.json. Callers own
  * validation (duplicate, unknown) and pass the full next list; this only
  * persists it and hands back the reloaded config so the server can swap its
- * in-memory copy. `mattstack.roster` is shared with every suite app and
- * carries no hidden field.
+ * in-memory copy. Against the store, `next` changes only membership and
+ * display names (mergeTeamRoster), and `viewed` names the members the list
+ * started from, so an entry written after it was read is kept; it defaults
+ * to the roster as resolved now. `mattstack.roster` carries no hidden field.
  */
 export function saveRosterMembers(
   next: Member[],
   path: string = CONFIG_PATH,
   resolve: GetSettingFn = getSetting,
-  write: SetSettingFn = setSetting
+  write: SetSettingFn = setSetting,
+  viewed?: string[]
 ): BoardConfig {
   const owner = rosterFromStore(resolve);
   if (owner) {
     const edited = next.map(({ hidden: _hidden, ...rest }) => rest);
     const full = storeValue<RosterEntry[]>('mattstack.roster', resolve) ?? [];
-    write('mattstack.roster', mergeTeamRoster(full, owner.team, edited), 'org');
+    const shown = viewed ?? owner.members.map(m => m.username);
+    write(
+      'mattstack.roster',
+      mergeTeamRoster(full, owner.team, edited, shown),
+      'org'
+    );
   } else {
     let raw: string;
     try {
