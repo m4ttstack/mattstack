@@ -1,26 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "mattstack zone marker (mattstack.jsonc)",
-  "description": "Marks the top of a mattstack zone. A repo may hold many team zones (one per namespace) and at most one user zone; all team zones in a repo share one org.",
+  "title": "mattstack org marker (mattstack/mattstack.jsonc)",
+  "description": "Marks an org clone at mattstack/mattstack.jsonc. Team folders sit under mattstack/teams/<team>/, each holding at most one pack named after the team.",
   "type": "object",
-  "required": ["role"],
+  "required": ["role", "org"],
   "properties": {
-    "role": { "enum": ["user", "team"] },
-    "namespace": {
-      "type": "string",
-      "pattern": "^[a-z][a-z0-9-]*$",
-      "description": "team only: the plugin name users type as /<namespace>:<verb>"
-    },
+    "role": { "const": "org" },
     "org": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9-]*$",
-      "description": "team only: the marketplace name; installs read <namespace>@<org>"
+      "description": "the org slug, the clone's folder name under ~/.mattstack/teams/"
     }
-  },
-  "allOf": [
-    {
-      "if": { "properties": { "role": { "const": "team" } } },
-      "then": { "required": ["namespace", "org"] }
-    }
-  ]
+  }
 }
