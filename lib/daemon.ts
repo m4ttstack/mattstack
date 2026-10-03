@@ -52,7 +52,7 @@ import { runAccountsSweep, type IntegrationTarget } from "./credential-health/sw
 import { INTEGRATIONS, type ValidateCtx } from "./setup/integrations.ts";
 import type { Integration } from "./setup/contract.ts";
 import { isValidHostname } from "./setup/host-validate.ts";
-import { discoverTeams, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "./setup/team-settings.ts";
+import { discoverOrgs, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "./setup/team-settings.ts";
 import { createRealAgeKeySeam } from "./home/age-key.ts";
 import { readSecret, createRealSecretsExecSeam, type SecretsSeams } from "./secrets/store.ts";
 import { startPeerWaker } from "./daemon/peer-waker.ts";
@@ -1029,7 +1029,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         const accountsProbes = createRealProbes();
         const accountsSecretsSeams: SecretsSeams = { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() };
         accountsSweepFn = async () => {
-          const teams = discoverTeams(accountsProbes);
+          const teams = discoverOrgs(accountsProbes);
           const team = teams[0] ? readTeamSnapshot(accountsProbes, teams[0]) : EMPTY_TEAM_SNAPSHOT;
           const overrides = readUserIntegrationOverrides();
 

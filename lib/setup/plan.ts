@@ -11,10 +11,10 @@
 import type { DaemonResponse } from "../daemon-client.ts";
 import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { createRealSecretsExecSeam, NoAgeKeyError, readSecret, type SecretsSeams } from "../secrets/store.ts";
-import { finalizePlan, GROUP_TITLES, isSolo, row, type Group, type GroupId, type Plan, type Row, type TeamRef } from "./contract.ts";
+import { finalizePlan, GROUP_TITLES, isSolo, row, type Group, type GroupId, type Plan, type Row, type OrgRef } from "./contract.ts";
 import { UserActionableError } from "../errors.ts";
 import { applyFinishGate, readWaived } from "./finish-gate.ts";
-import { readIntent, teamRefFromIntent, type SetupIntent } from "./intent.ts";
+import { readIntent, orgRefFromIntent, type SetupIntent } from "./intent.ts";
 import { fetchPermissions, permissionRows } from "./permissions.ts";
 import { createRealProbes, type Probes } from "./probes.ts";
 import { readPackRequirements } from "./requirements.ts";
@@ -33,7 +33,7 @@ export interface PlanInputs {
   ci: boolean;
   mode: "plan" | "status";
   /** Discovered org slugs: the real caller passes `listOrgs()`; tests inject their own list instead of swapping process.env.HOME. */
-  teams: string[];
+  orgs: string[];
   teamOverride?: string;
   /** Row ids waived on this Mac; defaults to the resolver's `setup.waived`. Tests inject their own list instead of writing a store. */
   waived?: string[];
@@ -42,7 +42,7 @@ export interface PlanInputs {
 const EMPTY_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
 
 /** A named team the user asked for that isn't actually cloned must never silently substitute a different (or empty) plan — that's exactly the honesty rule this repo enforces everywhere else. */
-function resolveTeam(intent: SetupIntent | null, teams: string[], teamOverride: string | undefined): TeamRef {
+function resolveTeam(intent: SetupIntent | null, teams: string[], teamOverride: string | undefined): OrgRef {
   if (teamOverride) {
     if (!teams.includes(teamOverride)) {
       const discovered = teams.length ? teams.join(", ") : "(none)";
@@ -50,7 +50,7 @@ function resolveTeam(intent: SetupIntent | null, teams: string[], teamOverride: 
     }
     return { slug: teamOverride, name: teamOverride, mode: "none" };
   }
-  return teamRefFromIntent(intent, teams);
+  return orgRefFromIntent(intent, teams);
 }
 
 /**
@@ -151,7 +151,7 @@ export function applyInstallSatisfiedFlip(groups: Group[], mode: "plan" | "statu
 
 export async function composePlan(i: PlanInputs): Promise<Plan> {
   const intent = readIntent(i.p);
-  const team = resolveTeam(intent, i.teams, i.teamOverride);
+  const team = resolveTeam(intent, i.orgs, i.teamOverride);
 
   const snapshot = enrichSnapshotForge(team.slug ? readTeamSnapshot(i.p, team.slug) : EMPTY_SNAPSHOT, intent);
   const reqs = readPackRequirements(i.p, team.slug);

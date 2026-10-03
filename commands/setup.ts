@@ -40,7 +40,7 @@ import { UserActionableError } from "../lib/errors.ts";
 import { realWaiverStore, unwaiveRow, waiveRow, type WaiverChange, type WaiverStore } from "../lib/setup/finish-gate.ts";
 import { isValidHostname } from "../lib/setup/host-validate.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";
-import { clearIntent, readIntent, teamRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
+import { clearIntent, readIntent, orgRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
 import { readTeamLocal } from "../lib/team/team-local.ts";
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
@@ -54,7 +54,7 @@ import { STEPS } from "../lib/setup/steps/index.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
 import { markSetupFinished } from "../lib/setup/state.ts";
-import { discoverTeams, readTeamSnapshot, readUserIntegrationOverrides, type TeamIntegrations, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
+import { discoverOrgs, readTeamSnapshot, readUserIntegrationOverrides, type TeamIntegrations, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
 import type { Plan } from "../lib/setup/contract.ts";
 import { createRelayClient, type RelayClient } from "../lib/team/relay-client.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
@@ -116,7 +116,7 @@ async function runPlan(args: string[], deps: SetupDeps, mode: "plan" | "status")
       secrets: deps.secrets,
       ci: process.env.CI === "true",
       mode,
-      teams: listOrgs(),
+      orgs: listOrgs(),
       teamOverride: flagValue(args, "--team"),
     });
   } catch (err) {
@@ -247,7 +247,7 @@ const HARD_PRECONDITION_COPY: Record<string, { why: string; next?: string }> = {
 async function gateHardPreconditions(args: string[], deps: ApplyDeps): Promise<void> {
   if (args.includes("--force")) return;
   const plan = await (deps.planForGate?.() ??
-    composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", teams: listOrgs() }));
+    composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", orgs: listOrgs() }));
   const hard = plan.requiredMissing.filter((id) => HARD_PRECONDITION_IDS.has(id));
   if (hard.length === 0) return;
   // A hard id with no copy entry still names itself, so the person is never told nothing.
@@ -327,7 +327,7 @@ function stampUpdateWhenNothingPends(deps: ApplyDeps, json: boolean): void {
 async function finishIfClear(deps: ApplyDeps, json: boolean): Promise<void> {
   try {
     const plan = await (deps.planForFinish?.() ??
-      composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", teams: listOrgs() }));
+      composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", orgs: listOrgs() }));
     if (plan.finishBlockedBy.length === 0) markSetupFinished(deps.probes);
   } catch (err) {
     warnLine(json, "Setup was left unfinished because the finish check failed", err instanceof Error ? err.message : String(err));
@@ -466,7 +466,7 @@ export async function setupInteractive(args: string[], _ctx: CommandContext = {}
 
   if (!deps.isTTY() || json) return setupStatus(args, _ctx, setupDeps);
 
-  const plan = await composePlan({ p: deps.probes, secrets: setupDeps.secrets, ci: process.env.CI === "true", mode: "plan", teams: listOrgs() });
+  const plan = await composePlan({ p: deps.probes, secrets: setupDeps.secrets, ci: process.env.CI === "true", mode: "plan", orgs: listOrgs() });
   out.print(...planBlocks(plan, "plan"));
 
   if (!plan.canInstall && !args.includes("--force")) {
@@ -525,7 +525,7 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
       return;
     }
     if (sub === "solo") {
-      const teams = discoverTeams(deps.probes);
+      const teams = discoverOrgs(deps.probes);
       if (teams.length > 0) {
         const folders = teams.map((slug) => `~/.mattstack/teams/${slug}`).join(" and ");
         throw new UserActionableError(
@@ -993,10 +993,10 @@ const EMPTY_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdent
 /** A connect that took its token from gh reports this, and the scope shortfall reads it back to offer a gh refresh. */
 const GH_SOURCE_DETAIL = "Signed in through the gh CLI";
 
-/** Mirrors composePlan's own team resolution (readIntent → teamRefFromIntent → readTeamSnapshot → forge enrichment) without the `--team` override these single-integration verbs don't take. */
+/** Mirrors composePlan's own team resolution (readIntent → orgRefFromIntent → readTeamSnapshot → forge enrichment) without the `--team` override these single-integration verbs don't take. */
 function realResolveTeamSnapshot(p: Probes): TeamSnapshot {
   const intent = readIntent(p);
-  const ref = teamRefFromIntent(intent, listOrgs());
+  const ref = orgRefFromIntent(intent, listOrgs());
   const snapshot = ref.slug ? readTeamSnapshot(p, ref.slug) : EMPTY_SNAPSHOT;
   return enrichSnapshotForge(snapshot, intent);
 }
