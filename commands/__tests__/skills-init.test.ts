@@ -213,6 +213,23 @@ describe("skillsInit", () => {
     expect(process.exitCode).toBe(2);
   });
 
+  test("a team with no forge host is a needs-you note on stderr with the fixing command as next, exit 2", async () => {
+    const HOME = "/h";
+    const fs = memFs({
+      [`${HOME}/.mattstack/teams/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: `{}`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
+    });
+    await skillsInit([], {}, stubDeps({ fs, home: HOME, gitRemote: async () => ({ kind: "ok", url: "git@gitlab.example.com:acme/api.git" }) }));
+    expect(io.stdout()).toBe("");
+    expect(io.stderr()).toBe(
+      "[needs you] The acme team has no forge host set, so rt cannot tell which host this repo is on\n" +
+        `  next: rt settings set board.gitlabHost '"gitlab.example.com"' --scope team --team acme\n`,
+    );
+    expect(io.stderr()).not.toContain("[failed]");
+    expect(process.exitCode).toBe(2);
+  });
+
   test("--json: a refusal with a remedy carries the command in the message", async () => {
     const deps = stubDeps({
       gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }),
