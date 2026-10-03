@@ -219,6 +219,7 @@ function InheritedTag({
     <Tooltip
       label={entry.scope === null ? '' : `from ${name(entry.scope)}`}
       disabled={entry.scope === null}
+      position="top"
     >
       {className ? (
         <span className={className} style={{ color: text.muted }}>
@@ -237,19 +238,30 @@ function AddInlineTags({ def, row }: { def: SettingDefWire; row: Row }) {
   const explained = useKeyExplain(def.key, useSettingsRepo());
   const { own, inherited } = addListParts(def, row, explained.rows);
   return (
-    <InlineTags
-      def={def}
-      row={row}
-      list={own}
-      inherited={inherited}
-      ready={!explained.loading && explained.error === null}
-      save={value =>
-        row.save(value).then(ok => {
-          explained.refresh();
-          return ok;
-        })
-      }
-    />
+    <Stack gap={4}>
+      <InlineTags
+        def={def}
+        row={row}
+        list={own}
+        inherited={inherited}
+        ready={!explained.loading && explained.error === null}
+        save={value =>
+          row.save(value).then(ok => {
+            explained.refresh();
+            return ok;
+          })
+        }
+      />
+      {explained.error && <ExplainError message={explained.error} />}
+    </Stack>
+  );
+}
+
+function ExplainError({ message }: { message: string }) {
+  return (
+    <Text fz={12} ff="monospace" c="var(--tk-text-bad-small)">
+      {message}
+    </Text>
   );
 }
 
@@ -332,6 +344,7 @@ function StringListBody({
           }}
         />
       </div>
+      {add && explained.error && <ExplainError message={explained.error} />}
       {resettable && (
         <Group gap={4} pb={2}>
           <Button
@@ -921,9 +934,7 @@ function DraftBody({
     return (
       <Body>
         {explained.error ? (
-          <Text fz={12} ff="monospace" c="var(--tk-text-bad-small)">
-            {explained.error}
-          </Text>
+          <ExplainError message={explained.error} />
         ) : (
           <Skeleton h={48} />
         )}
