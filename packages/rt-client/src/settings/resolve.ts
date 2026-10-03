@@ -15,6 +15,10 @@
  *    lists every scope that still owns at least one leaf of the resolved value,
  *    weakest-first — a scope whose every field was overridden is NOT listed
  *    (same honesty rule that makes `replace` provenance length 1).
+ *  - `add`: array values concatenate walking weakest → strongest, duplicates
+ *    dropped, and nothing subtracts an inherited item. `items`
+ *    carries each resolved item with every layer that lists it; provenance
+ *    lists every scope that contributed at least one item.
  *
  * Degrade rules (teammates run version-skewed binaries; one unknown key in the
  * team store must never brick resolution):
