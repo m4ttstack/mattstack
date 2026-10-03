@@ -5,7 +5,7 @@
  */
 
 import { dirname, join } from "path";
-import type { TeamRef } from "./contract.ts";
+import type { OrgRef } from "./contract.ts";
 import type { Probes } from "./probes.ts";
 
 export interface InvitePointer {
@@ -66,7 +66,7 @@ export function clearIntent(p: Pick<Probes, "removeFile" | "home">): void {
  * disk. Multi-team fallback takes teams[0] on the assumption the caller
  * passes teams pre-sorted alphabetically — a real picker is a §14 follow-up.
  */
-export function teamRefFromIntent(intent: SetupIntent | null, teams: string[]): TeamRef {
+export function orgRefFromIntent(intent: SetupIntent | null, teams: string[]): OrgRef {
   if (intent?.mode === "create" && intent.team) {
     return { slug: intent.team.slug, name: intent.team.name, mode: "create" };
   }

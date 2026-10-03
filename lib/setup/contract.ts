@@ -79,21 +79,21 @@ export interface Group {
 
 export type TeamMode = "join" | "create" | "restore" | "none";
 
-export interface TeamRef {
+export interface OrgRef {
   slug: string;
   name: string;
   mode: TeamMode;
 }
 
 /** No team known: the derived solo state every validator branches on. */
-export function isSolo(team: Pick<TeamRef, "slug" | "mode">): boolean {
+export function isSolo(team: Pick<OrgRef, "slug" | "mode">): boolean {
   return team.mode === "none" && team.slug === "";
 }
 
 export interface Plan {
   contract: 1;
   at: string;
-  team: TeamRef;
+  team: OrgRef;
   groups: Group[];
   canInstall: boolean;
   requiredMissing: string[];
@@ -190,7 +190,7 @@ export function finishBlockers(groups: Group[], waived: readonly string[] = []):
 }
 
 /** Install enables only when every required row is ready; requiredMissing lists the others in group order. A finish-gated row is Finish's concern whatever its `required` reads, so it never lands here. */
-export function finalizePlan(team: TeamRef, groups: Group[], now: Date = new Date(), waived: readonly string[] = []): Plan {
+export function finalizePlan(team: OrgRef, groups: Group[], now: Date = new Date(), waived: readonly string[] = []): Plan {
   const requiredMissing = groups.flatMap((g) => g.rows.filter((r) => r.required && !r.finishGated && r.status !== "ready").map((r) => r.id));
   return envelope({ team, groups, canInstall: requiredMissing.length === 0, requiredMissing, finishBlockedBy: finishBlockers(groups, waived) }, now);
 }

@@ -115,7 +115,7 @@ async function verifyRun(ctx: ApplyContext): Promise<StepOutcome> {
       secrets: ctx.secretPresence,
       ci: ctx.ci,
       mode: "status",
-      teams: ctx.team.slug ? [ctx.team.slug] : [],
+      orgs: ctx.team.slug ? [ctx.team.slug] : [],
     });
     rows = plan.groups.flatMap((g) => g.rows);
     return rowsToChecks(plan, { ci: ctx.ci });

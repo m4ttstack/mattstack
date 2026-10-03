@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "path";
-import type { TeamRef } from "../contract.ts";
+import type { OrgRef } from "../contract.ts";
 import { repoRootRow } from "../validators/repo-root.ts";
 import { stageRepoRoot } from "../repo-root.ts";
 import { getSetting } from "../../settings/resolve.ts";
@@ -11,7 +11,7 @@ import { fakeProbes } from "./fakes.ts";
 const HOME = "/Users/t";
 const DIR = { isDirectory: true, writable: true };
 
-function team(overrides: Partial<TeamRef> = {}): TeamRef {
+function team(overrides: Partial<OrgRef> = {}): OrgRef {
   return { slug: "acme", name: "Acme", mode: "none", ...overrides };
 }
 

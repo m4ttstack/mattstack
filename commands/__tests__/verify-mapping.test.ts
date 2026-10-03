@@ -7,10 +7,10 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { finalizePlan, row, type Plan, type Row, type TeamRef } from "../../lib/setup/contract.ts";
+import { finalizePlan, row, type Plan, type Row, type OrgRef } from "../../lib/setup/contract.ts";
 import { rowsToChecks } from "../verify.ts";
 
-const TEAM: TeamRef = { slug: "", name: "", mode: "none" };
+const TEAM: OrgRef = { slug: "", name: "", mode: "none" };
 
 function planOf(rows: Row[]): Plan {
   return finalizePlan(TEAM, [{ id: "mac", title: "Your Mac", rows }], new Date("2026-01-01T00:00:00.000Z"));
