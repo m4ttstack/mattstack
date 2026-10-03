@@ -142,21 +142,38 @@ export function activeTeamPack(): string | null {
 }
 
 /**
- * The full roster after an edit made in one team's view: members of other
- * teams are untouched, a member added in the view joins `team`, and a member
- * removed from the view leaves `team` but stays in the org.
+ * The full roster after an edit made in one view of it: the active team's
+ * members, or everyone when `team` is null. The view changes only membership
+ * (of `team`, or of the org when `team` is null) and the display `name`; every
+ * other field comes from `full`, the store's current roster. `viewed` names
+ * the members the view showed before the edit (default: `full`'s members of
+ * the view), so an entry the view never showed is kept as it is.
  */
-export function mergeTeamRoster(full: RosterEntry[], team: string | null, edited: RosterEntry[]): RosterEntry[] {
-  if (team === null) return edited;
-  const inView = (username: string) => edited.find((e) => sameUser(e.username, username));
-  const out: RosterEntry[] = full.map((entry) => {
+export function mergeTeamRoster(full: RosterEntry[], team: string | null, edited: RosterEntry[], viewed?: string[]): RosterEntry[] {
+  const shown = viewed ?? full.filter((e) => team === null || strings(e.teams).includes(team)).map((e) => e.username);
+  const wasShown = (username: string) => shown.some((v) => sameUser(v, username));
+  const editOf = (username: string) => edited.find((e) => sameUser(e.username, username));
+  const nameOf = (entry: RosterEntry) => (typeof entry.name === "string" && entry.name !== "" ? entry.name : undefined);
+  const out: RosterEntry[] = [];
+  for (const entry of full) {
+    const edit = editOf(entry.username);
     const teams = strings(entry.teams);
-    const kept = inView(entry.username);
-    if (kept) return { ...entry, ...kept, username: entry.username, teams: teams.includes(team) ? teams : [...teams, team] };
-    return teams.includes(team) ? { ...entry, teams: teams.filter((t) => t !== team) } : entry;
-  });
+    if (!edit) {
+      if (!wasShown(entry.username)) out.push(entry);
+      else if (team !== null) out.push(teams.includes(team) ? { ...entry, teams: teams.filter((t) => t !== team) } : entry);
+      continue;
+    }
+    const next: RosterEntry = { ...entry };
+    const name = nameOf(edit);
+    if (name !== undefined) next.name = name;
+    else if (wasShown(entry.username)) delete next.name;
+    if (team !== null && !teams.includes(team)) next.teams = [...teams, team];
+    out.push(next);
+  }
   for (const added of edited) {
-    if (!full.some((entry) => sameUser(entry.username, added.username))) out.push({ ...added, teams: [team] });
+    if (full.some((entry) => sameUser(entry.username, added.username))) continue;
+    const name = nameOf(added);
+    out.push({ username: added.username, ...(name !== undefined ? { name } : {}), ...(team !== null ? { teams: [team] } : {}) });
   }
   return out;
 }

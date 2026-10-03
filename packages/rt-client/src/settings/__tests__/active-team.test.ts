@@ -152,6 +152,30 @@ describe("mergeTeamRoster", () => {
   test("with no active team the edit is the whole roster", () => {
     expect(mergeTeamRoster(full, null, [{ username: "dev9" }])).toEqual([{ username: "dev9" }]);
   });
+
+  test("the view changes only membership and name: a key the store re-recorded since the view loaded survives", () => {
+    const fresh = [{ ...full[0]!, agePublicKey: "age1new" }, full[1]!, full[2]!];
+    const stale = [{ username: "dev1", name: "Dev 1", agePublicKey: "age1aaa", teams: ["widgets"], extra: "x" }, { username: "dev2" }];
+    expect(mergeTeamRoster(fresh, "widgets", stale)[0]).toEqual({ username: "dev1", name: "Dev 1", agePublicKey: "age1new", teams: ["widgets"] });
+    expect(mergeTeamRoster(fresh, null, [...stale, { username: "dev3" }])[0]).toEqual({ username: "dev1", name: "Dev 1", agePublicKey: "age1new", teams: ["widgets"] });
+  });
+
+  test("a blank or missing name on a shown member clears the stored name", () => {
+    expect(mergeTeamRoster(full, "widgets", [{ username: "dev1", name: "" }, { username: "dev2" }])[0]).toEqual({ username: "dev1", agePublicKey: "age1aaa", teams: ["widgets"] });
+    expect(mergeTeamRoster(full, null, [{ username: "dev1" }, { username: "dev2" }, { username: "dev3" }])[0]).toEqual({ username: "dev1", agePublicKey: "age1aaa", teams: ["widgets"] });
+  });
+
+  test("an entry the view never showed is kept, in a team view and in the everyone view", () => {
+    const later = [...full, { username: "dev5", agePublicKey: "age1ccc", teams: ["widgets"] }];
+    const shown = ["dev1", "dev2"];
+    expect(mergeTeamRoster(later, "widgets", [{ username: "dev1", name: "Dev One" }, { username: "dev2" }], shown)[3]).toEqual({ username: "dev5", agePublicKey: "age1ccc", teams: ["widgets"] });
+    const everyone = mergeTeamRoster(later, null, [{ username: "dev1", name: "Dev One" }, { username: "dev2" }, { username: "dev3" }], ["dev1", "dev2", "dev3"]);
+    expect(everyone.map((e) => e.username)).toEqual(["dev1", "dev2", "dev3", "dev5"]);
+  });
+
+  test("in the everyone view a shown member left out of the edit leaves the org", () => {
+    expect(mergeTeamRoster(full, null, [{ username: "dev1", name: "Dev One" }, { username: "dev3" }]).map((e) => e.username)).toEqual(["dev1", "dev3"]);
+  });
 });
 
 describe("activeTeamPack", () => {

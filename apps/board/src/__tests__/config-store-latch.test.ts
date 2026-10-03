@@ -88,6 +88,11 @@ function fakeWrite(
   }) as SetSettingFn;
 }
 
+const twoTeamsRoster = [
+  { username: 'dev1', teams: ['widgets'] },
+  { username: 'dev3', teams: ['gadgets'] },
+];
+
 const base = {
   gitlabHost: 'https://gitlab.com',
   projects: ['org/repo'],
@@ -307,10 +312,7 @@ describe('loadConfigFrom: store values get the same normalization/validation the
     expect(cfg.switchboard.url).toBe(switchboardUrl());
   });
 
-  const twoTeams = [
-    { username: 'dev1', teams: ['widgets'] },
-    { username: 'dev3', teams: ['gadgets'] },
-  ];
+  const twoTeams = twoTeamsRoster;
 
   test('the team pack comes from the active team, never from a setting, and survives the store round trip', () => {
     teamView.pack = () => 'widgets';
@@ -592,6 +594,107 @@ describe('saveRosterMembers: latch-gated writer', () => {
       { username: 'alice' },
       { username: 'bob', name: 'Bob' },
     ]);
+  });
+
+  test('a board edit keeps a key the store re-recorded after the board loaded', () => {
+    teamView.team = () => 'widgets';
+    const calls: Array<{ key: string; value: unknown; scope: string }> = [];
+    const stale = [
+      { username: 'dev1', name: 'Dev 1', agePublicKey: 'age1old' },
+      { username: 'dev4' },
+    ];
+    saveRosterMembers(
+      stale,
+      tmpConfig(),
+      fakeResolve({
+        'mattstack.roster': [
+          { username: 'dev1', agePublicKey: 'age1new', teams: ['widgets'] },
+        ],
+      }),
+      fakeWrite(calls)
+    );
+    expect(calls[0]!.value).toEqual([
+      {
+        username: 'dev1',
+        name: 'Dev 1',
+        agePublicKey: 'age1new',
+        teams: ['widgets'],
+      },
+      { username: 'dev4', teams: ['widgets'] },
+    ]);
+  });
+
+  test('an entry added to the store after the board loaded survives a save from the everyone view and from a team view', () => {
+    const later = [
+      ...twoTeamsRoster,
+      { username: 'dev5', agePublicKey: 'age1ccc', teams: ['widgets'] },
+    ];
+    for (const [team, shown] of [
+      [null, ['dev1', 'dev3']],
+      ['widgets', ['dev1']],
+    ] as const) {
+      teamView.team = () => team;
+      const calls: Array<{ key: string; value: unknown; scope: string }> = [];
+      saveRosterMembers(
+        [
+          { username: 'dev1', name: 'Dev One' },
+          ...(team ? [] : [{ username: 'dev3' }]),
+        ],
+        tmpConfig(),
+        fakeResolve({ 'mattstack.roster': later }),
+        fakeWrite(calls),
+        [...shown]
+      );
+      expect(calls[0]!.value).toContainEqual({
+        username: 'dev5',
+        agePublicKey: 'age1ccc',
+        teams: ['widgets'],
+      });
+    }
+  });
+
+  test('a blank-name rename in a team view clears the stored name', () => {
+    teamView.team = () => 'widgets';
+    const calls: Array<{ key: string; value: unknown; scope: string }> = [];
+    const roster = [{ username: 'dev1', name: 'Dev One', teams: ['widgets'] }];
+    const resolve = fakeResolve({ 'mattstack.roster': roster });
+    const view = loadConfigFrom(tmpConfig(), resolve).members;
+    const edit = applyRosterEdit(
+      view,
+      { action: 'rename', username: 'dev1', name: '' },
+      null
+    );
+    expect(edit.ok).toBe(true);
+    if (!edit.ok) return;
+    saveRosterMembers(edit.members, tmpConfig(), resolve, fakeWrite(calls));
+    expect(calls[0]!.value).toEqual([{ username: 'dev1', teams: ['widgets'] }]);
+  });
+});
+
+describe('saveMemberHidden: latch-gated writer', () => {
+  test("unowned: writes config.json's inline hidden flag, store untouched", () => {
+    const p = tmpConfig({
+      ...base,
+      members: [{ username: 'alice' }, { username: 'bob' }],
+    });
+    const calls: Array<{ key: string; value: unknown; scope: string }> = [];
+    const cfg = saveMemberHidden(
+      'bob',
+      true,
+      p,
+      fakeResolve({}),
+      fakeWrite(calls)
+    );
+    expect(calls).toEqual([]);
+    expect(cfg.members).toEqual([
+      { username: 'alice' },
+      { username: 'bob', hidden: true },
+    ]);
+    const onDisk = JSON.parse(readFileSync(p, 'utf8'));
+    expect(
+      onDisk.members.find((m: { username: string }) => m.username === 'bob')
+        .hidden
+    ).toBe(true);
   });
 
   test('owned: writes board.hiddenMembers (user), config.json untouched', () => {
