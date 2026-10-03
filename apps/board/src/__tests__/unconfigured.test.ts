@@ -88,7 +88,9 @@ describe('unconfiguredResponse', () => {
     expect(res.headers.get('content-type')).toContain('text/html');
     const body = await res.text();
     expect(body).toContain("Board isn't set up yet");
-    expect(body).toContain('rt team members');
+    expect(body).toContain('rt team invite');
+    expect(body).toContain('rt team join');
+    expect(body).not.toContain('rt team members');
     expect(body).toContain("fetch('/healthz'");
     expect(body).toContain('location.reload()');
   });
