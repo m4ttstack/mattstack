@@ -24,6 +24,7 @@ import { getDef, type SettingDef, type SettingScope } from "../registry-machiner
 import {
   expandVariables,
   explainSetting,
+  getOrgSetting,
   getSetting,
   listSettings,
   listUnregisteredSettings,
@@ -270,6 +271,20 @@ describe("settings/resolve", () => {
       const got = getSetting<{ username: string }[]>("mattstack.roster");
       expect(got.value.map((e) => e.username)).toEqual(["dev1", "dev2"]);
       expect(got.provenance).toEqual([{ scope: "org", file: orgSettingsPath(ORG) }]);
+    });
+
+    test("getOrgSetting reads the org store alone, never the active team's override", () => {
+      seedOrg({
+        org: ORG,
+        username: "dev1",
+        roster,
+        settings: { "board.title": "Acme", repos: { [IDENTITY]: { "rt.intercepts": [{ id: "org" }] } } },
+        teams: { widgets: { "board.title": "Widgets", repos: { [IDENTITY]: { "rt.intercepts": [{ id: "team" }] } } } },
+      });
+      expect(getSetting<string>("board.title").value).toBe("Widgets");
+      expect(getOrgSetting<string>("board.title")).toBe("Acme");
+      expect(getOrgSetting<{ id: string }[]>("rt.intercepts", { repoIdentity: IDENTITY })).toEqual([{ id: "org" }]);
+      expect(getOrgSetting("board.gitlabHost")).toBeUndefined();
     });
 
     test("with two org clones only the first by name is read, and rt warns once", () => {

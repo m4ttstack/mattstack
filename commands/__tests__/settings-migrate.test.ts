@@ -179,6 +179,7 @@ describe("rt settings migrate", () => {
       process.exitCode = 0;
       await settingsMigrate(["--prune", "--team", "--yes"], noPrompt);
       expect(read(orgSettingsPath(TEAM))).toEqual({ repos: { [IDENTITY]: { "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
+      expect(process.exitCode).toBe(0);
     });
   });
 

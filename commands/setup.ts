@@ -22,7 +22,7 @@ import { promptSecret } from "../lib/prompt-secret.ts";
 import { NoAgeKeyError, createRealSecretsExecSeam, personalStoreReady, writeSecret, type SecretsSeams } from "../lib/secrets/store.ts";
 import { NoTeamRecipientsError, createRealTeamSecretsSeams, readTeamSecret, writeTeamSecret } from "../lib/secrets/team-store.ts";
 import { listOrgs } from "../lib/settings/stores.ts";
-import { getSetting } from "../lib/settings/resolve.ts";
+import { getOrgSetting, getSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import * as out from "../lib/ui/out.ts";
 import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
@@ -54,7 +54,7 @@ import { STEPS } from "../lib/setup/steps/index.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
 import { markSetupFinished } from "../lib/setup/state.ts";
-import { discoverTeams, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
+import { discoverTeams, readTeamSnapshot, readUserIntegrationOverrides, type TeamIntegrations, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
 import type { Plan } from "../lib/setup/contract.ts";
 import { createRelayClient, type RelayClient } from "../lib/team/relay-client.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
@@ -899,6 +899,8 @@ export interface ConnectDeps extends SetupDeps {
   writer: SecretWriter;
   teamSecrets: TeamSecrets;
   writeSetting: typeof setSetting;
+  /** The org store's own value for a key, unmerged; what an org write starts from. */
+  readOrgSetting?: typeof getOrgSetting;
   /** Opens one OAuth callback listener on `port`, checks the callback's `state` against `expectedState`, and resolves with the `code` query param. Rejects (never hangs past its own timeout) on a state mismatch, a missing code, or a listen failure. */
   listen: (port: number, expectedState: string) => Promise<string>;
   /** Unguessable per-request token (CSRF-style) — never `Math.random`; the OAuth `state` param is the one consumer today. */
@@ -980,6 +982,7 @@ export function realConnectDeps(): ConnectDeps {
     writer: realSecretWriter(),
     teamSecrets: realTeamSecrets(probes),
     writeSetting: setSetting,
+    readOrgSetting: getOrgSetting,
     listen: realOAuthListen,
     randomState: () => randomBytes(16).toString("hex"),
   };
@@ -1545,12 +1548,13 @@ export async function setupSlackCreateApp(args: string[], _ctx: CommandContext =
     }
 
     // Deep-merge by hand: setSetting REPLACES the key's whole value, it does not merge (the registry's
-    // `merge: "deep"` is a read-side overlay across scopes, not a write-side behavior) — writing `{slack:{...}}`
-    // bare would silently drop the team's forge/linear config out from under every other verb
-    // that reads it (ctxFor, snapshotFor).
+    // `merge: "deep"` is a read-side overlay across scopes, not a write-side behavior), so writing `{slack:{...}}`
+    // bare would drop the org's forge/linear config. The base is the org store's own value, never the
+    // merged snapshot, which would copy the active team's overrides into the org layer.
+    const orgIntegrations = (deps.readOrgSetting ?? getOrgSetting)<TeamIntegrations>("mattstack.integrations") ?? {};
     deps.writeSetting(
       "mattstack.integrations",
-      { ...snapshot.integrations, slack: { ...snapshot.integrations.slack, appId: data.app_id, clientId: data.credentials.client_id, callbackPort } },
+      { ...orgIntegrations, slack: { ...orgIntegrations.slack, appId: data.app_id, clientId: data.credentials.client_id, callbackPort } },
       "org",
     );
 

@@ -822,6 +822,23 @@ function listUnregistered(stores: StoreBundle, opts: ResolveOpts): ListedSetting
 }
 
 /**
+ * The org store's own value for `key` (its repo section when `repoIdentity` is
+ * given), migrated but never merged or expanded; undefined when absent or
+ * invalid. A read-modify-write at `scope: "org"` starts from this, so the
+ * active team's overrides are never copied into the org layer.
+ */
+export function getOrgSetting<T>(key: string, opts: { repoIdentity?: string } = {}): T | undefined {
+  const def = getDef(key);
+  if (!def) throw unknownKey(key);
+  const org = readStores({ team: null }).org;
+  if (org === null) return undefined;
+  const section = opts.repoIdentity !== undefined ? org.repos[opts.repoIdentity] : org.global;
+  const read = readSection(def, section, { layer: true });
+  if (!read.present || !validateForScope(def, "org", read.value).ok) return undefined;
+  return read.value as T;
+}
+
+/**
  * One row per reachable rung, weakest-first, with `value` migrated to the
  * current shape and `authored` as stored. Repo rungs are omitted entirely
  * when the key is not repoScoped or no identity was supplied... showing rungs
