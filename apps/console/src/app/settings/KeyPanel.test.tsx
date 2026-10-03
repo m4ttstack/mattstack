@@ -21,6 +21,7 @@ import { PanelToolbar } from './PanelToolbar';
 import { schemaFields } from './testSchemas';
 import {
   prefetchKeyExplain,
+  SettingsOrgContext,
   SettingsRepoContext,
   SettingsTeamContext,
 } from './useConsoleSettings';
@@ -86,6 +87,7 @@ function renderPanel(
     s?: PanelStore;
     tab?: PanelTab;
     team?: string;
+    org?: string;
     repo?: string;
     value?: ReactNode;
     fix?: string | null;
@@ -102,18 +104,20 @@ function renderPanel(
     repo: string | null = opts.repo ?? null
   ) => (
     <QueryClientProvider client={client}>
-      <SettingsTeamContext.Provider value={opts.team ?? null}>
-        <SettingsRepoContext.Provider value={repo}>
-          <KeyPanel
-            def={d}
-            store={s}
-            tab={opts.tab ?? 'where'}
-            onTab={onTab}
-            value={opts.value ?? <div>value tab</div>}
-            fix={fix}
-          />
-        </SettingsRepoContext.Provider>
-      </SettingsTeamContext.Provider>
+      <SettingsOrgContext.Provider value={opts.org ?? null}>
+        <SettingsTeamContext.Provider value={opts.team ?? null}>
+          <SettingsRepoContext.Provider value={repo}>
+            <KeyPanel
+              def={d}
+              store={s}
+              tab={opts.tab ?? 'where'}
+              onTab={onTab}
+              value={opts.value ?? <div>value tab</div>}
+              fix={fix}
+            />
+          </SettingsRepoContext.Provider>
+        </SettingsTeamContext.Provider>
+      </SettingsOrgContext.Provider>
     </QueryClientProvider>
   );
   const { rerender, unmount } = renderWithProviders(panel(opts.fix));
@@ -367,7 +371,7 @@ describe('KeyPanel', () => {
         LAYERS[2]!,
         LAYERS[3]!,
       ],
-      { team: 'acme' }
+      { team: 'widgets', org: 'acme' }
     );
     const team = await screen.findByTestId('layer-team');
     await userEvent.hover(
@@ -376,7 +380,7 @@ describe('KeyPanel', () => {
       })
     );
     expect(
-      await screen.findByText('Remove from team (acme)')
+      await screen.findByText('Remove from team (widgets)')
     ).toBeInTheDocument();
     await userEvent.click(
       within(screen.getByTestId('layer-user')).getByRole('button', {
@@ -384,7 +388,50 @@ describe('KeyPanel', () => {
       })
     );
     expect(
-      await screen.findByRole('menuitem', { name: 'Move to team (acme)' })
+      await screen.findByRole('menuitem', { name: 'Move to team (widgets)' })
+    ).toBeInTheDocument();
+  });
+
+  it('names the org and the team as separate layers', async () => {
+    renderPanel(
+      def('board.agent.model', {
+        scopes: ['org', 'team', 'user', 'machine'],
+      }),
+      [
+        LAYERS[0]!,
+        { scope: 'org', file: '/stores/org.jsonc', present: false },
+        {
+          scope: 'team',
+          file: '/stores/team.jsonc',
+          present: true,
+          value: 'm-team',
+        },
+        LAYERS[2]!,
+        LAYERS[3]!,
+      ],
+      { team: 'widgets', org: 'acme' }
+    );
+    const org = await screen.findByTestId('layer-org');
+    await userEvent.hover(
+      within(org).getByRole('button', { name: 'set board.agent.model at org' })
+    );
+    expect(await screen.findByText('Set at org (acme)')).toBeInTheDocument();
+    const team = screen.getByTestId('layer-team');
+    await userEvent.hover(
+      within(team).getByRole('button', {
+        name: 'remove board.agent.model from team',
+      })
+    );
+    expect(
+      await screen.findByText('Remove from team (widgets)')
+    ).toBeInTheDocument();
+    await userEvent.click(
+      within(screen.getByTestId('layer-user')).getByRole('button', {
+        name: 'move board.agent.model from user',
+      })
+    );
+    expect(
+      await screen.findByRole('menuitem', { name: 'Move to org (acme)' })
     ).toBeInTheDocument();
   });
 

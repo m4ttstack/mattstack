@@ -23,6 +23,7 @@ import {
 import { useRowParts, ValueContent, WriteState } from './rowParts';
 import { ScopeBadge } from './ScopeBadge';
 import {
+  SettingsOrgContext,
   SettingsTeamContext,
   useConsoleSettings,
   type ConsoleStore,
@@ -177,9 +178,11 @@ function OwnStore(props: {
 }) {
   const store = useConsoleSettings(null, props.settingKey);
   return (
-    <SettingsTeamContext.Provider value={store.team}>
-      <Resolved {...props} store={store} />
-    </SettingsTeamContext.Provider>
+    <SettingsOrgContext.Provider value={store.org}>
+      <SettingsTeamContext.Provider value={store.team}>
+        <Resolved {...props} store={store} />
+      </SettingsTeamContext.Provider>
+    </SettingsOrgContext.Provider>
   );
 }
 

@@ -9,6 +9,7 @@ const STRING_LIST = { $schema: D, type: 'array', items: { type: 'string' } };
     render. testSchemas.test.ts fails when one drifts from rt-client's. */
 export const TEST_SCHEMAS: Record<string, JsonSchema> = {
   'board.ticketPrefixes': STRING_LIST,
+  'claude.plugins': STRING_LIST,
   'boxscore.excludeFilePatterns': STRING_LIST,
   'rt.repoRoots': STRING_LIST,
   'rt.homeSnapshot': {

@@ -13,6 +13,7 @@
  */
 
 import {
+  activeTeam,
   allDefs,
   checkSchema,
   explainSetting,
@@ -97,11 +98,13 @@ export type ExplainRowWire = Pick<
     layer's scope, "default" when the registry default wins, null when
     nothing is set and there is no default. `value` is the winning layer's
     value, except for a `merge: "deep"` object key, where it is the merged
-    value (registry default, then each live valid layer overlaid in order).
-    `value` is absent for secrets, for an invalid winning layer, and when
-    scope is null. A leaf edit of a deep-merged key must start from the
-    target layer's own authored value (its explain row), never from this
-    `value`, or it bakes the default and weaker layers into that store. */
+    value (registry default, then each live valid layer overlaid in order),
+    and a `merge: "add"` array key, where it is every live valid layer's
+    items, weakest first, without duplicates. `value` is absent for secrets,
+    for an invalid winning layer, and when scope is null. An edit of a
+    deep-merged or add key must start from the target layer's own value (its
+    explain row), never from this `value`, or it bakes the default and weaker
+    layers into that store. */
 export interface EffectiveWire {
   scope: string | null;
   value?: unknown;
@@ -130,6 +133,7 @@ export interface RtSettingsApi {
   repoSectionsFor: typeof repoSectionsFor;
   listStoreRepoIdentities: typeof listStoreRepoIdentities;
   listOrgs: typeof listOrgs;
+  activeTeam: typeof activeTeam;
   /** Repo identities known to the host app (e.g. its own repo registry), merged
       with the store-derived list on `GET {base}/repos`. Optional: a host with
       no such registry answers from stores alone. */
@@ -288,8 +292,9 @@ function issuesFromRows(def: SettingDef, rows: ExplainRow[], repo?: string): Wir
 }
 
 /** Winning layer from explain rows, which arrive weakest-first: the last
-    present, un-shadowed row wins. A deep-merged object reports the merged
-    value, not the winning layer's slice. Secrets omit the value. */
+    present, un-shadowed row wins. A deep-merged object and an add list
+    report the merged value, not the winning layer's slice. Secrets omit the
+    value. */
 export function effectiveFromRows(def: SettingDef, rows: ExplainRow[]): EffectiveWire {
   // A repo-only key's global layer is refused outright, never in effect,
   // unlike a type-invalid layer the page still names as the effective one.
@@ -316,6 +321,19 @@ export function effectiveFromRows(def: SettingDef, rows: ExplainRow[]): Effectiv
     }
     if (!top.invalid) wire.value = merged;
     if (authored !== undefined) wire.authored = authored;
+  } else if (def.merge === "add" && def.type === "array") {
+    const merged: unknown[] = [];
+    const seen = new Set<string>();
+    for (const r of live) {
+      if (r.invalid || !Array.isArray(r.value)) continue;
+      for (const item of r.value) {
+        const id = JSON.stringify(item);
+        if (seen.has(id)) continue;
+        seen.add(id);
+        merged.push(item);
+      }
+    }
+    if (!top.invalid) wire.value = merged;
   } else if (!top.invalid && "value" in top) {
     wire.value = top.value;
   }
@@ -345,7 +363,7 @@ function json(body: unknown, status = 200): Response {
 
 /**
  * Answers:
- *   GET  {base}/defs[?prefix=board.][?repo=host/owner/name]  → { defs: SettingDefWire[], unregistered, team }
+ *   GET  {base}/defs[?prefix=board.][?repo=host/owner/name]  → { defs: SettingDefWire[], unregistered, org, activeTeam }
  *   GET  {base}/explain/{key}[?repo=host/owner/name]         → { def, rows }
  *   GET  {base}/repos                                        → { repos: { identity, label }[] }
  *   POST {base}/set                                          → { rows, effective } | { error, issues? }
@@ -372,6 +390,7 @@ export async function settingsHandler(
     repoSectionsFor,
     listStoreRepoIdentities,
     listOrgs,
+    activeTeam,
     ...opts.rt,
   };
   let url: URL;
@@ -419,9 +438,8 @@ export async function settingsHandler(
         }
         return wire;
       });
-    // The org this Mac reads shared settings from. With several clones none is promised.
-    const orgs = rt.listOrgs();
-    return json({ defs, unregistered: rt.listUnregisteredSettings(), team: orgs.length === 1 ? orgs[0] : null });
+    const active = rt.activeTeam();
+    return json({ defs, unregistered: rt.listUnregisteredSettings(), org: active.org, activeTeam: active.team });
   }
 
   if (path.startsWith(`${base}/explain/`) && req.method === "GET") {

@@ -156,7 +156,7 @@ export function slugTabId(label: string, taken: Iterable<string>): string {
   return `${base}-${n}`;
 }
 
-const SCOPE_ORDER = ['team', 'user', 'machine'] as const;
+const SCOPE_ORDER = ['org', 'team', 'user', 'machine'] as const;
 
 export function groupByScope(
   defs: ConfigDef[]

@@ -1,5 +1,6 @@
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -1123,5 +1124,89 @@ describe('a deep composite editor whose explain read fails', () => {
     await openRow('gitq.forges');
     expect(await screen.findByText('explain failed: 500')).toBeInTheDocument();
     expect(screen.queryByLabelText('new host')).toBeNull();
+  });
+});
+
+describe('add keys', () => {
+  const PLUGINS = def('claude.plugins', {
+    scopes: ['user', 'team', 'org'],
+    merge: 'add',
+    effective: {
+      scope: 'user',
+      file: '/u',
+      value: ['acme-tools@acme', 'mine@x'],
+    },
+  });
+  const ROWS = [
+    { scope: 'default', file: null, present: false },
+    { scope: 'org', file: '/o', present: true, value: ['acme-tools@acme'] },
+    { scope: 'team', file: '/t', present: false },
+    { scope: 'user', file: '/u', present: true, value: ['mine@x'] },
+  ];
+
+  function stubRows() {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ def: null, rows: ROWS }),
+    }));
+  }
+
+  it('an edit at the user layer saves only that layer’s own items, never the org’s', async () => {
+    stubRows();
+    const s = store();
+    renderWithProviders(
+      <SettingRow def={PLUGINS} store={s} subhead={null} query="" />
+    );
+    const add = screen.getByRole('button', { name: 'add to claude.plugins' });
+    await waitFor(() => expect(add).toBeEnabled());
+    expect(screen.getByText('acme-tools@acme')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'remove mine@x' })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'remove acme-tools@acme' })
+    ).toBeNull();
+    await userEvent.click(add);
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'claude.plugins' }),
+      'new@x{enter}'
+    );
+    await waitFor(() =>
+      expect(s.set).toHaveBeenCalledWith('claude.plugins', 'user', [
+        'mine@x',
+        'new@x',
+      ])
+    );
+    const saved = (s.set.mock.calls as unknown[][])[0]![2];
+    expect(saved).not.toContain('acme-tools@acme');
+  });
+
+  it('removing the layer’s own item leaves the inherited one out of the write', async () => {
+    stubRows();
+    const s = store();
+    renderWithProviders(
+      <SettingRow def={PLUGINS} store={s} subhead={null} query="" />
+    );
+    const remove = await screen.findByRole('button', { name: 'remove mine@x' });
+    await waitFor(() => expect(remove).toBeEnabled());
+    await userEvent.click(remove);
+    await waitFor(() =>
+      expect(s.set).toHaveBeenCalledWith('claude.plugins', 'user', [])
+    );
+  });
+
+  it('the JSON draft starts from the target layer’s own list', async () => {
+    stubRows();
+    renderWithProviders(
+      <QueryClientProvider client={new QueryClient()}>
+        <SettingRow def={PLUGINS} store={store()} subhead={null} query="" />
+      </QueryClientProvider>
+    );
+    await openRow('claude.plugins');
+    await userEvent.click(screen.getByRole('radio', { name: 'Value' }));
+    await userEvent.click(await screen.findByRole('radio', { name: 'JSON' }));
+    const json = await screen.findByRole('textbox', { name: 'JSON' });
+    expect(JSON.parse((json as HTMLTextAreaElement).value)).toEqual(['mine@x']);
   });
 });
