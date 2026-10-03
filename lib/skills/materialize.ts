@@ -89,20 +89,27 @@ function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, ow
 }
 
 /**
- * Sets aside (renames to `.stale`, never deletes) a bindings file this run did not write, but only when the zone its
- * header records is present here (its marker reads as a team zone and its team.jsonc parses) and no longer holds a
- * claiming pack of that name for this repo. A file whose zone is absent or partial (not cloned yet, mid-sync, an
- * unreadable mount) or that records no zone is left alone, as is every pack this run claimed, ok or failed, so a
- * broken pack keeps its last good bindings. One limit remains: a pack directory caught mid-checkout (its
- * pack/skills.jsonc momentarily absent) reads as no longer claiming, so its file can be set aside until the next
- * materialize rewrites it; that is a rename, never a delete.
+ * Sets aside (renames to `.stale`, never deletes) a bindings file this run did
+ * not write, but only when the team its header records (`<org>/<team>`) is on
+ * disk with settings that parse, and that team no longer has a pack of that
+ * name claiming this repo. A file whose team folder or org clone is absent,
+ * whose team settings do not parse (not pulled yet, mid-sync, an unreadable
+ * mount), or whose header records no such zone is left alone, as is every
+ * pack this run claimed, ok or failed, so a broken pack keeps its last good
+ * bindings. It touches only `<root>/repos/<slug>/packs/<pack>/skills.jsonc`,
+ * for a folder named like a pack: never a pack source, never a team folder. A
+ * pack directory caught mid-checkout (its pack/skills.jsonc momentarily absent)
+ * reads as no longer claiming, so its file can be set aside until the next
+ * materialize rewrites it.
  */
 function setAsideStale(deps: MaterializeDeps, ref: RepoRef, owned: Set<string>, allZones: ZoneInfo[]): { pruned: string[]; warnings: string[] } {
   const pruned: string[] = [];
   const warnings: string[] = [];
-  for (const pack of deps.fs.readDir(join(deps.mattstackRoot, "repos", ref.slug, "packs")).sort()) {
-    if (owned.has(pack)) continue;
+  const packsDir = join(deps.mattstackRoot, "repos", ref.slug, "packs");
+  for (const pack of deps.fs.readDir(packsDir).sort()) {
+    if (owned.has(pack) || !TEAM_NAME_RE.test(pack)) continue;
     const path = packManifestPath(deps.mattstackRoot, ref.slug, pack);
+    if (dirname(dirname(path)) !== packsDir) continue;
     const text = deps.fs.readFile(path);
     const recorded = text === null ? null : readManifestZone(text);
     const zone = recorded === null ? undefined : allZones.find((z) => z.slug === recorded);
