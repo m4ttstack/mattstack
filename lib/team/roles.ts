@@ -20,6 +20,7 @@ export function roleFor(p: Reads, org: string): OrgRole {
 
 /** The one refusal every verb that changes the org clone raises, so the wording cannot drift between them. */
 export function assertMayWrite(p: Reads, org: string, relPath: string): void {
-  const refusal = writeRefusalFor(roleFor(p, org), rolesFor(p, org), relPath);
+  const roles = rolesFor(p, org);
+  const refusal = writeRefusalFor(roleOf(readTeamLocal(p, org).forgeUsername ?? null, roles), roles, relPath);
   if (refusal) throw new UserActionableError("team-pull-only", refusal.message, {}, { why: refusal.why });
 }
