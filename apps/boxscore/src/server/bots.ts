@@ -8,8 +8,8 @@ export type { SuspectedBot };
 
 /**
  * Scan every stored MR (index authors + metrics note authors/approvers) for usernames
- * that match built-in or extra bot patterns, excluding usernames already known as roster
- * members (visible or hidden).
+ * that match built-in or extra bot patterns, excluding usernames already known as org
+ * roster members (any team, visible or hidden).
  */
 export async function scanSuspectedBots(
   extraPatterns: string[]
@@ -24,7 +24,10 @@ export async function scanSuspectedBots(
   const keys = indexRows.map(r => mrKey(r.projectPath, r.iid));
   const metricsRows = store.metricsByKeys(keys);
 
-  const knownUsers = new Set(readSettings().roster.map(r => r.username));
+  const settings = readSettings();
+  const knownUsers = new Set(
+    [...settings.orgRoster, ...settings.roster].map(r => r.username)
+  );
   const seen = new Set<string>();
   const matches: SuspectedBot[] = [];
 
