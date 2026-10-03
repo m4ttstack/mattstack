@@ -29,6 +29,7 @@ const ENV: Env = { baseUrl: 'https://gl.example', token: 'tkn' };
 const SETTINGS: BoxscoreSettings = {
   projects: ['org/app'],
   roster: [{ username: 'alice' }],
+  orgRoster: [{ username: 'alice' }],
   hiddenMembers: [],
   users: ['alice'],
   doneStates: [],
