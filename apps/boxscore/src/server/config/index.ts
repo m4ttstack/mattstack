@@ -24,6 +24,8 @@ export interface Env {
 export interface BoxscoreSettings {
   projects: string[];
   roster: RosterEntry[];
+  /** Everyone in the org, whatever their team: who counts as a known person rather than a bot. */
+  orgRoster: RosterEntry[];
   hiddenMembers: string[];
   /** Roster usernames minus hiddenMembers: the leaderboard's comparison set. */
   users: string[];
@@ -89,6 +91,7 @@ export function readSettings(): BoxscoreSettings {
   return {
     projects: read<string[]>('boxscore.projects') ?? [],
     roster,
+    orgRoster: read<RosterEntry[]>('mattstack.roster') ?? [],
     hiddenMembers,
     users: roster.filter(m => !hidden.has(m.username)).map(m => m.username),
     doneStates: read<string[]>('boxscore.linearDoneStates') ?? [],
