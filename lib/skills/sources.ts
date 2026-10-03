@@ -1,6 +1,6 @@
 import { execFileSync } from "child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "fs";
-import { join, relative, sep } from "path";
+import { dirname, join, relative, sep } from "path";
 import { parse as parseYaml } from "yaml";
 import { resolveClaudeBin } from "../claude-bin.ts";
 import { stripJsonc } from "../jsonc.ts";
@@ -223,28 +223,37 @@ function readJsoncObject(path: string): Record<string, unknown> | null {
   }
 }
 
-/** The org slug of a pack folder that sits inside an org clone under `<mattstackRoot>/teams/`, or null for a pack anywhere else. */
-export function orgOfPackDir(mattstackRoot: string, packDir: string): string | null {
-  let teamsRoot: string;
+/**
+ * The org repo a pack folder sits in, whether the clone under `teams/` or a
+ * worktree or copy of it elsewhere: the nearest ancestor holding a
+ * `mattstack/mattstack.jsonc` marker, when that marker is an org marker with
+ * a valid slug. A nearer marker of any other kind ends the walk with null.
+ */
+export function orgOfPackDir(packDir: string): { org: string; root: string } | null {
   let dir: string;
   try {
-    teamsRoot = realpathSync(join(mattstackRoot, "teams"));
     dir = realpathSync(packDir);
   } catch {
     return null;
   }
-  const rel = relative(teamsRoot, dir);
-  if (rel === "" || rel.startsWith("..")) return null;
-  const [org, marker] = rel.split(sep);
-  return org && marker === "mattstack" ? org : null;
+  while (true) {
+    const markerPath = join(dir, "mattstack", "mattstack.jsonc");
+    if (existsSync(markerPath)) {
+      const marker = readJsoncObject(markerPath);
+      const org = marker?.org;
+      return marker?.role === "org" && typeof org === "string" && TEAM_NAME_RE.test(org) ? { org, root: dir } : null;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
 }
 
-/** One org clone's base packs under `<mattstackRoot>/teams/<org>/mattstack/org/packs/`: the folders materialize would admit as a base. */
-export function orgBasePackRoots(mattstackRoot: string, org: string): { name: string; dir: string; version: string }[] {
+/** One org repo's base packs under `<orgRoot>/mattstack/org/packs/`: the folders materialize would admit as a base. */
+export function orgBasePackRoots(orgRoot: string): { name: string; dir: string; version: string }[] {
   const out: { name: string; dir: string; version: string }[] = [];
-  const clone = join(mattstackRoot, "teams", org);
-  if (readJsoncObject(join(clone, "mattstack", "mattstack.jsonc"))?.role !== "org") return out;
-  const packs = join(clone, "mattstack", "org", "packs");
+  if (readJsoncObject(join(orgRoot, "mattstack", "mattstack.jsonc"))?.role !== "org") return out;
+  const packs = join(orgRoot, "mattstack", "org", "packs");
   for (const name of listDirs(packs)) {
     if (!TEAM_NAME_RE.test(name)) continue;
     const dir = join(packs, name);

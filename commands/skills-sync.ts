@@ -13,13 +13,13 @@
 
 import { homedir } from "os";
 import { join } from "path";
-import { discoverPacks, packFromDir, type PackInfo } from "../lib/skills/packs.ts";
+import { discoverPacks, packFromDir, solePack, type PackInfo } from "../lib/skills/packs.ts";
 import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts";
 import { realpathSync } from "fs";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import { syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
 import { SIGNATURE_RE } from "../lib/skills/changes.ts";
-import { checkPack, compilePackAll } from "./skills.ts";
+import { checkPack, compilePackAll, NO_PACKS_WHY } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
@@ -207,13 +207,13 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
 
   const packs = overrides?.packs ?? discoverPacks();
   if (packs.length === 0) {
-    fail("no packs discovered (no directory marketplace plugin carries a surface.jsonc); pass --pack <name>", {
+    fail("no packs discovered (no directory marketplace plugin, team folder or org folder carries a surface.jsonc); pass --pack <name>", {
       title: "No packs found",
-      why: "A pack is a plugin from a directory marketplace that has a surface file.",
+      why: NO_PACKS_WHY,
     });
   }
 
-  const pack = packFlag ? packs.find((p) => p.name === packFlag) : packs.length === 1 ? packs[0] : undefined;
+  const pack = packFlag ? packs.find((p) => p.name === packFlag) : solePack(packs);
   if (!pack) {
     const names = packs.map((p) => p.name).join(", ");
     if (packFlag) fail(`no pack named "${packFlag}" (discovered: ${names})`, { title: `No pack is called ${packFlag}`, next: out.cmd("rt skills packs"), details: `Packs here: ${names}` });
