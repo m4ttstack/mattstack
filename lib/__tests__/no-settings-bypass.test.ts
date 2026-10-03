@@ -70,6 +70,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "lib/team/join.ts": { count: 1, reason: "assertNotRealStoreInTest guard before join seeds the org store" },
     "lib/setup/team-settings.ts": { count: 1, reason: "existence probe discovering org clones through the Probes seam" },
     "lib/skills/init.ts": { count: 4, reason: "reads each org clone's team folders through the InitFs seam; getSetting reads only this Mac's org from HOME" },
+    "lib/team/active-team.ts": { count: 2, reason: "decides the active team through the Probes seam; setup and the daemon run it under fake probes, where getSetting would read the ambient HOME" },
   },
   "raw store reader": {
     "commands/team.ts": { count: 2, reason: ROSTER_READ },
