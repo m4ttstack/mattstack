@@ -1051,19 +1051,25 @@ func renderMissionModal(parent string, ms *modalState, width, height, topBarHeig
 	return lipgloss.NewCompositor(parentLayer, modalLayer).Render()
 }
 
-// renderNoticeStrip is the one-line refusal banner at the frame's bottom.
-// It paints whichever notice noticeText (mission.go) resolved: the wire
+// renderNoticeStrip is the one-line notice banner at the frame's bottom.
+// It paints whichever notice notice() (mission.go) resolved: the wire
 // Model's own Notice (a driver refusal) or the view-local one -- both
 // free-form and unbounded. The strip is a fixed single row the frame's own
 // layout budgets exactly 1 row for (layout's noticeH), so text is clipped
 // before Width() -- the same class of bug as the commit button (CodeRabbit,
 // PR #353): an unclipped long notice would wrap and desync every row below it.
-func renderNoticeStrip(text string, width int) string {
+// An error fills the row with coral: the info tint sits too close to the
+// frame background to be seen under the keybar.
+func renderNoticeStrip(text, tone string, width int) string {
 	if width <= 0 {
 		return ""
 	}
 	on := lipgloss.NewStyle().Background(theme.WarnBg)
 	fg := on.Foreground(theme.Peach)
+	if tone == noticeError {
+		on = lipgloss.NewStyle().Background(theme.Coral)
+		fg = on.Foreground(theme.Bg).Bold(true)
+	}
 	// Clip the WHOLE payload (glyph + gap + text), not just text: clipping
 	// only text left the fixed chrome around it (leading space + glyph +
 	// gap, 3 cells) unaccounted for, so at width 1-2 it alone still

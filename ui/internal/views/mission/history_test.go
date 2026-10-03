@@ -2611,7 +2611,7 @@ func TestClickAfterLocalNoticeHitsThePaintedRow(t *testing.T) {
 			}
 		}
 		m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
-		if m.noticeText() == "" {
+		if text, _ := m.notice(); text == "" {
 			t.Fatal("setup: b on a detached HEAD posts a local notice")
 		}
 		lines := strings.Split(m.View().Content, "\n")
