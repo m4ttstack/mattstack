@@ -633,6 +633,50 @@ describe("skillsCompile", () => {
     expect(existsSync(join(baseDir, "skills"))).toBe(false);
   });
 
+  test("a base pack of another org on the same Mac is not resolvable from this org's pack", async () => {
+    const mattstackDir = makeMattstackDir();
+    seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
+    seedOrg(mattstackDir, "other", { projects: [], teams: [] });
+    const otherBase = join(mattstackDir, "teams", "other", "mattstack", "org", "packs", "other-base");
+    writeFile(join(otherBase, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
+    writeFile(join(otherBase, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD);
+    writeFile(join(otherBase, "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
+    const packDir = teamPackDir(mattstackDir, "acme", "widgets");
+    writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+    const manifestPath = join(mattstackDir, "widgets-bindings.jsonc");
+    writeFile(manifestPath, JSON.stringify({ bindings: { "mattstack:watch-ci": { domain: "other-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
+
+    const { exitCode, errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]));
+
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain('no plugin root registered for "other-base"');
+  });
+
+  test("an org base pack named like an installed plugin is refused, and another org's compile still resolves that plugin's fills", async () => {
+    const mattstackDir = makeMattstackDir();
+    seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
+    seedOrg(mattstackDir, "other", { projects: [], teams: ["gadgets"] });
+    const clash = join(mattstackDir, "teams", "acme", "mattstack", "org", "packs", "mattstack");
+    writeFile(join(clash, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
+    const widgetsDir = teamPackDir(mattstackDir, "acme", "widgets");
+    const gadgetsDir = teamPackDir(mattstackDir, "other", "gadgets");
+    writeFile(join(widgetsDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+    writeFile(join(gadgetsDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+    const manifestPath = makeManifest();
+
+    const refused = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "widgets", "--pack-dir", widgetsDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]));
+    expect(refused.exitCode).toBe(1);
+    expect(refused.errors[0]).toBe("An org base pack has the same name as an installed plugin");
+    expect(existsSync(join(widgetsDir, "skills"))).toBe(false);
+
+    const other = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "gadgets", "--pack-dir", gadgetsDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]));
+    expect(other.errors).toEqual([]);
+    expect(existsSync(join(gadgetsDir, "skills", "watch-ci", "SKILL.md"))).toBe(true);
+  });
+
   test("another pack's file on the same repo is never picked", async () => {
     const mattstackDir = makeMattstackDir();
     const packDir = makePackDir();
