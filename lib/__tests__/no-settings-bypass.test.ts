@@ -59,7 +59,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "lib/worktree/ready-approval.ts": { count: 2, reason: "approval is trusted only from user.repo/machine.repo rungs, never a team rung" },
     "packages/settings-kit/src/server.ts": { count: 15, reason: "the console's scope-chain editor shows every rung and every repo section" },
     "packages/rt-client/src/index.ts": { count: 7, reason: "rt-client's public entry re-exports the resolver" },
-    "lib/skills/init.ts": { count: 2, reason: "reads each team folder's own claim and host; getSetting resolves only the active team" },
+    "lib/skills/init.ts": { count: 2, reason: "reads each org clone's team folders through the InitFs seam; getSetting reads only this Mac's org from HOME" },
   },
   "store file": {
     "commands/home.ts": { count: 1, reason: "existence probe listing adoptable machine profiles" },
@@ -68,7 +68,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "lib/team/create.ts": { count: 3, reason: "scaffolds the new org store and its first team folder store, and guards the org store with assertNotRealStoreInTest" },
     "lib/team/join.ts": { count: 1, reason: "assertNotRealStoreInTest guard before join seeds the org store" },
     "lib/setup/team-settings.ts": { count: 1, reason: "existence probe discovering org clones through the Probes seam" },
-    "lib/skills/init.ts": { count: 4, reason: "reads each team folder's own claim and host; getSetting resolves only the active team" },
+    "lib/skills/init.ts": { count: 4, reason: "reads each org clone's team folders through the InitFs seam; getSetting reads only this Mac's org from HOME" },
   },
   "raw store reader": {
     "commands/team.ts": { count: 2, reason: ROSTER_READ },
