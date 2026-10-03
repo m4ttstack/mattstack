@@ -24,7 +24,8 @@ to a store or the secrets layer.
 
 ## Stores and scopes
 
-Precedence: `default < team < user < team.repo < user.repo < machine < machine.repo`
+Scope order, weakest first:
+`default < org < team < user < org.repo < team.repo < user.repo < machine < machine.repo`
 (VS Code-style most-specific-wins; repo sections are keyed by normalized remote
 identity `host/path` — the RAW form, never the serialized `remote:…` wire form
 that keys everything outside the settings stores; [repo-identity.md](repo-identity.md)
@@ -33,7 +34,8 @@ identity in the path:
 
 | Scope   | File | Tracked in |
 |---|---|---|
-| team    | `~/.mattstack/teams/<team>/mattstack/settings.team.jsonc` | the team's own repo |
+| org     | `~/.mattstack/teams/<org>/mattstack/org/settings.org.jsonc` | the org's repo, shared by every team |
+| team    | `~/.mattstack/teams/<org>/mattstack/teams/<team>/settings.team.jsonc` | the same repo, one folder per team |
 | user    | `~/.mattstack/user/settings.user.jsonc` | the personal repo (`mattstack-home`) |
 | machine | `~/.mattstack/user/local/<machine-key>/settings.local.jsonc` | the personal repo — tracked and KEYED per machine ("travels keyed"); machines never share a profile |
 
@@ -44,25 +46,39 @@ is the authority (override honored only as a safe single path segment). The rt
 snapshot daemon auto-commits and pushes the personal repo (debounced; claimed
 zones in `user/snapshot-owners.jsonc` excluded; `rt home claim|release`), so
 every store write becomes a `snapshot:` commit within ~80s — by design.
-The same engine runs one instance per team clone under `~/.mattstack/teams/`
-(`rt.teamSnapshot`, machine scope): it commits only `mattstack/`, `.sops.yaml`
-and `.claude-plugin/`, pulls (fast-forward or rebase) at boot, every
-`pullIntervalSec` and before every push, and surfaces a rebase conflict as
-the `team.sync` checklist row instead of resolving it. So a `--scope team`
-write or a `members sync` reaches every member's machine without a hand
-commit, publish, or pull (`docs/home-repo.md`, "Team clones").
+The same engine runs one instance per org clone under `~/.mattstack/teams/`
+(`rt.teamSnapshot`, machine scope; the folder keeps the name `teams/`): it
+commits only `mattstack/`, `.sops.yaml` and `.claude-plugin/`, pulls
+(fast-forward or rebase) at boot, every `pullIntervalSec` and before every
+push, and surfaces a rebase conflict as the `team.sync` checklist row instead
+of resolving it. So a `--scope org` or `--scope team` write or a `members
+sync` reaches every member's machine without a hand commit, publish, or pull
+(`docs/home-repo.md`, "Team clones").
 
-One team per machine: the resolver folds every team store it finds, last
-name wins for a `replace` key, so `rt team join` and `rt team create` refuse
-to add a second zone (`team-already-set-up`), `rt setup` reports two zones as
-the `team.one-per-machine` row, and a read on such a machine warns once per
-process naming the teams. An active-team model is the follow-up (MAT-424).
+One org per machine: `rt team join` and `rt team create` refuse to add a
+second org clone (`team-already-set-up`) and `rt setup` reports two as the
+`team.one-per-machine` row, so the shared layers are always that one org plus
+one team of it. A team is a folder under `mattstack/teams/` whose name matches
+`^[a-z][a-z0-9-]*$`.
+
+The `team` layer is the active team's store only. `activeTeam()` in rt-client
+picks it from the org's roster (`mattstack.roster`, each entry's `teams`) and
+this Mac's stored forge username (`forgeUsername` in
+`~/.mattstack/rt/teams/<org>.json`): the team `mattstack.activeTeam` names
+when the roster lists you on it, else the first team in your roster entry. A
+Mac with no active team reads the org layer alone. Other teams' folders are
+never folded in; a caller that needs one reads it by name
+(`getSetting(key, { team: "<name>" })`, `setSetting(key, value, "team", {
+team })`, `rt settings set --scope team --team <name>`), and a team write
+with no name goes to the active team. Every key that allows `team` also
+allows `org`; `mattstack.roster` (each entry's `teams`) and `mattstack.org`
+(`admins`, and `owners` per team) are org only.
 
 ## The resolver and registry
 
 One in-process resolver for the whole suite, in `@mattstack/rt-client`
-(`packages/rt-client/src/settings/`): `getSetting(key)` re-reads the stores on
-every call (no memoization); `setSetting(key, value, scope, opts)` does
+(`packages/rt-client/src/settings/`): `getSetting(key, { team? })` re-reads the
+stores on every call (no memoization); `setSetting(key, value, scope, opts)` does
 comment-preserving jsonc edits with a refusal ladder (malformed/duplicate-key
 files are never blind-edited). `lib/rt-paths.ts` is the PATH authority —
 change it first, mirror in `packages/rt-client/src/settings/paths.ts`
@@ -76,7 +92,7 @@ default. `repoScoped: true` opens the three `*.repo` rungs; `repoOnly: true`
 something for one repo's code (roles, intercepts, worktree pool, ready
 approval, hooks, sync, branch naming, run presets and variations, Doppler
 template, ignored MRs). A repo-only key resolves to its repo sections plus the
-registry default: a value in a global team/user/machine section is refused
+registry default: a value in a global org/team/user/machine section is refused
 like a disallowed scope (`invalid` in `explain`, skipped with a warning by
 `getSetting`), `setSetting`, prune and `rt settings set` refuse a write with no
 repo, and `unsetSetting` still removes a stray global value. A repo with no
@@ -105,7 +121,10 @@ exist for out-of-process callers only.
 ## Adding a key (the checklist)
 
 1. Add the registry row in `registry-defs.ts` (pick the scope by who the intent
-   belongs to: team convention / this human everywhere / this machine). A key
+   belongs to: every team in the org / how one team works / this human
+   everywhere / this machine). A shared key lists `team` in `scopes` and the
+   org scope is derived from it; a list that should add up across layers sets
+   `merge: "add"`. A key
    whose value describes one repo's code is `repoScoped` and `repoOnly`; keep
    a per-repo key global-capable only when some field is read with no repo,
    as `rt.gitStatus`'s sweep switch and interval are.
@@ -171,7 +190,7 @@ path formatted `[0].pattern` or `emoji.looking`.
   (`invalid`). A value that fails only its schema stays in effect and is
   labeled `nonconforming`, with its issues, in `explain` and `list`; a
   merged value that fails the full schema is reported as `mergedIssues`.
-- **`rt settings check`** lists every stored value (team, user and machine
+- **`rt settings check`** lists every stored value (org, team, user and machine
   stores, global and repo sections) that fails its type check or layer
   schema, every merged value that fails the full schema, every global
   value on a repo-only key (as `invalid`), and the unregistered keys found in
