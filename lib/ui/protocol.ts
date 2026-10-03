@@ -363,6 +363,8 @@ export interface MissionCurrent {
   unmanaged: boolean;
 }
 
+export type MissionNoticeTone = "error" | "info";
+
 export interface MissionModel {
   current: MissionCurrent;
   action: MissionActionModel;
@@ -375,8 +377,10 @@ export interface MissionModel {
   filter: string;
   diff: MissionDiffModel;
   commit: MissionCommitModel;
-  /** One-line transient notice (guard refusals, not-yet-wired). */
+  /** One-line transient notice (guard refusals, git errors, confirmations). */
   notice: string;
+  /** "error" paints the strip as a failure; "info" is a quiet confirmation or prompt. */
+  noticeTone: MissionNoticeTone;
   tab: "changes" | "history";
   history: MissionHistoryModel;
   /** `rt code`'s resolved editor for the current worktree ("Zed"), "" when none resolves. */

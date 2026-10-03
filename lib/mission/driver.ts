@@ -40,7 +40,7 @@ import type { LastRepo } from "./launch.ts";
 import { loadUnregisteredRepos, mergeRepoRows, type UnregisteredRepo } from "./repo-list.ts";
 import type { KnownRepo } from "../repo-index.ts";
 import { buildHistoryModel, committedFileRow } from "./history-model.ts";
-import { buildModel, joinWorktreeRows, mergeWorktreeTrees, reconcileSelectedPath, type MissionLastCommit, type MissionModel, type MissionState, type WorktreeRow } from "./model.ts";
+import { buildModel, joinWorktreeRows, mergeWorktreeTrees, reconcileSelectedPath, stripRemotePrefix, type MissionLastCommit, type MissionNoticeTone, type MissionModel, type MissionState, type WorktreeRow } from "./model.ts";
 import {
   canStash,
   checkoutAndBringChanges,
@@ -350,6 +350,7 @@ export class MissionDriver {
       forcePushRecommended: false,
       busyAction: false,
       notice: "",
+      noticeTone: "info",
       showOversized: new Set(),
       selections: new Map(),
       confirmDiscard: null,
@@ -442,7 +443,7 @@ export class MissionDriver {
         if (data.path === this.state.currentWorktree) {
           this.state.settling = false;
           if (data.ok === false) {
-            this.state.notice = "a ready step failed; dependencies in this tree may be stale";
+            this.notify("a ready step failed; dependencies in this tree may be stale");
           }
           this.push();
           return;
@@ -454,7 +455,7 @@ export class MissionDriver {
       }
       if (ev.type !== "git-status") return;
       void this.onGitStatus().catch((err) => {
-        this.state.notice = `error: ${err instanceof Error ? err.message : String(err)}`;
+        this.notify(`error: ${err instanceof Error ? err.message : String(err)}`);
         this.push();
       });
     });
@@ -466,7 +467,7 @@ export class MissionDriver {
         } catch (err) {
           // A stale selIdx or a transient git failure must not tear down the
           // session -- report it as a notice and keep looping.
-          this.state.notice = `error: ${err instanceof Error ? err.message : String(err)}`;
+          this.notify(`error: ${err instanceof Error ? err.message : String(err)}`);
           this.push();
         }
       }
@@ -596,7 +597,12 @@ export class MissionDriver {
     }
   }
 
-  private async guardBranch(branch: string): Promise<BranchGuardVerdict> {
+  private notify(text: string, tone: MissionNoticeTone = "error"): void {
+    this.state.notice = text;
+    this.state.noticeTone = tone;
+  }
+
+  private async guardBranch(branch: string, opts: { stack: boolean }): Promise<BranchGuardVerdict> {
     const cwd = this.state.currentWorktree;
     return this.deps.guard({
       cwd,
@@ -604,9 +610,11 @@ export class MissionDriver {
       // The cache is always fresh here: cwd is this.state.currentWorktree,
       // and every path that changes it (handleCheckout/Worktree/Repo) awaits
       // refresh() -- which repopulates the cache -- before a guard check can
-      // run against the new worktree.
-      defaultBranch: this.defaultBranch,
+      // run against the new worktree. The guard compares local branch names,
+      // so "origin/main" would make main look like a stack member.
+      defaultBranch: stripRemotePrefix(this.defaultBranch),
       runners: createStackGuardRunners(createRealProbes()),
+      stack: opts.stack,
     });
   }
 
@@ -761,7 +769,7 @@ export class MissionDriver {
   // discard prompt) never survives an unrelated intent; a handler that needs
   // it to persist (a refusal, a re-arm) sets it again below, after this.
   private async handle(intent: SessionIntent): Promise<void> {
-    this.state.notice = "";
+    this.notify("");
     // An armed discard only survives an uninterrupted second d; anything
     // else in between means the user moved on, so the next d re-arms.
     if (intent.name !== "mission:discard") this.state.confirmDiscard = null;
@@ -899,7 +907,7 @@ export class MissionDriver {
     this.push();
     try {
       const result = await run();
-      this.state.notice = result.ok ? "" : result.detail;
+      this.notify(result.ok ? "" : result.detail);
       if (result.ok) onOk?.();
       await this.refresh();
     } finally {
@@ -992,7 +1000,7 @@ export class MissionDriver {
 
     if (!matches) {
       this.state.confirmDiscard = { path: payload.path, mode: payload.mode, selIdx: payload.selIdx ?? null, armedAt: now };
-      this.state.notice = "press d again to discard";
+      this.notify("press d again to discard", "info");
       this.push();
       return;
     }
@@ -1015,7 +1023,7 @@ export class MissionDriver {
     if (this.currentSelection(payload.path).getSelectionType() === DiffSelectionType.Partial) {
       this.state.selections.set(payload.path, DiffSelection.fromInitialSelection(DiffSelectionType.None));
     }
-    this.state.notice = "";
+    this.notify("");
     await this.refresh();
     this.push();
   }
@@ -1039,15 +1047,15 @@ export class MissionDriver {
     // The view already gates on a non-empty summary; this re-check covers
     // any other emitter so git never sees an empty -m.
     if (payload.summary.trim() === "") {
-      this.state.notice = "a summary is required to commit";
+      this.notify("a summary is required to commit");
       this.push();
       return;
     }
     if (payload.amend && this.snapshot.branch) {
-      const verdict = await this.guardBranch(this.snapshot.branch);
+      const verdict = await this.guardBranch(this.snapshot.branch, { stack: true });
       if (verdict.verdict === "refuse") {
         this.restoreDraft(payload);
-        this.state.notice = verdict.detail;
+        this.notify(verdict.detail);
         this.push();
         return;
       }
@@ -1076,7 +1084,7 @@ export class MissionDriver {
       }
     } catch (err) {
       this.restoreDraft(payload);
-      this.state.notice = `commit failed: ${err instanceof Error ? err.message : String(err)}`;
+      this.notify(`commit failed: ${err instanceof Error ? err.message : String(err)}`);
       this.push();
       return;
     }
@@ -1084,7 +1092,7 @@ export class MissionDriver {
     this.state.summary = "";
     this.state.description = "";
     this.state.amending = false;
-    this.state.notice = "";
+    this.notify("");
     // GHD's own post-commit reconciliation (app/src/lib/stores/updates/
     // changes-state.ts's updateChangedFiles, called with clearPartialState:
     // true right after a commit lands): a file whose selection was Partial
@@ -1141,11 +1149,11 @@ export class MissionDriver {
     const client = this.deps.client(this.state.currentWorktree);
     const result = await client.undoLastCommit();
     if (!result.ok) {
-      this.state.notice = `refused: ${result.reason}`;
+      this.notify(`refused: ${result.reason}`);
       this.push();
       return;
     }
-    this.state.notice = "";
+    this.notify("");
     this.state.forcePushRecommended = true;
     await this.refresh();
     this.push();
@@ -1158,9 +1166,9 @@ export class MissionDriver {
       return;
     }
     if (typeof payload.branch !== "string") return;
-    const verdict = await this.guardBranch(payload.branch);
+    const verdict = await this.guardBranch(payload.branch, { stack: false });
     if (verdict.verdict === "refuse") {
-      this.state.notice = verdict.detail;
+      this.notify(verdict.detail);
       this.push();
       return;
     }
@@ -1182,12 +1190,12 @@ export class MissionDriver {
     }
     let switched = false;
     try {
-      if (strategy === "leave") this.state.notice = await checkoutAndLeaveChanges(client, payload.branch, snapshot);
+      if (strategy === "leave") this.notify(await checkoutAndLeaveChanges(client, payload.branch, snapshot), "info");
       else if (strategy === "bring") await checkoutAndBringChanges(client, payload.branch, snapshot);
       else await client.checkoutBranch(payload.branch);
       switched = true;
     } catch (err) {
-      this.state.notice = err instanceof Error ? err.message : String(err);
+      this.notify(err instanceof Error ? err.message : String(err));
     }
     if (switched) {
       this.stash.hide();
@@ -1202,9 +1210,9 @@ export class MissionDriver {
     this.snapshot = await client.snapshot();
     if (canStash(this.snapshot)) {
       try {
-        this.state.notice = await createStashAndDropPreviousEntry(client, this.snapshot.branch!, untrackedPaths(this.snapshot));
+        this.notify(await createStashAndDropPreviousEntry(client, this.snapshot.branch!, untrackedPaths(this.snapshot)), "info");
       } catch (err) {
-        this.state.notice = err instanceof Error ? err.message : String(err);
+        this.notify(err instanceof Error ? err.message : String(err));
       }
     }
     await this.refresh();
@@ -1218,7 +1226,7 @@ export class MissionDriver {
       if (action === "restore") await client.popStashEntry(payload.sha);
       else await client.dropDesktopStashEntry(payload.sha);
     } catch (err) {
-      this.state.notice = err instanceof Error ? err.message : String(err);
+      this.notify(err instanceof Error ? err.message : String(err));
     }
     await this.refresh();
     this.push();
@@ -1240,11 +1248,11 @@ export class MissionDriver {
       // checkout itself fails, so a dirty tree cannot strand one.
       await client.createBranch(name, { from: payload.from, checkout: true });
     } catch (err) {
-      this.state.notice = err instanceof Error ? err.message : String(err);
+      this.notify(err instanceof Error ? err.message : String(err));
       this.push();
       return;
     }
-    this.state.notice = "";
+    this.notify("");
     this.state.selections = new Map();
     await this.refresh();
     this.push();
@@ -1284,14 +1292,14 @@ export class MissionDriver {
     const name = typeof payload.name === "string" ? payload.name.trim() : "";
     if (name === "") return;
     if (this.unmanaged) {
-      this.state.notice = "worktree provisioning needs a repo rt manages";
+      this.notify("worktree provisioning needs a repo rt manages");
       this.push();
       return;
     }
     // Provisioning can run for minutes (PROVISION_TIMEOUT_MS): the modal has
     // already closed by the time this awaits, so the board must say why it
     // is frozen rather than sitting blank until the daemon replies.
-    this.state.notice = `provisioning ${name}...`;
+    this.notify(`provisioning ${name}...`, "info");
     this.push();
     // A stale entry from an earlier provision attempt (one whose path never
     // matched, e.g. a refusal) must not be mistaken for this attempt's own
@@ -1310,20 +1318,20 @@ export class MissionDriver {
     }
 
     if (!res) {
-      this.state.notice = "the rt daemon is not running";
+      this.notify("the rt daemon is not running");
       this.push();
       return;
     }
     if (!res.ok) {
       const code = typeof res.error === "string" ? res.error : "unknown";
-      this.state.notice = PROVISION_REFUSALS[code] ?? `could not provision a worktree: ${code}`;
+      this.notify(PROVISION_REFUSALS[code] ?? `could not provision a worktree: ${code}`);
       this.push();
       return;
     }
 
     const data = res.data as { path?: string; readyPending?: boolean; readyHeld?: boolean } | undefined;
     if (typeof data?.path !== "string") {
-      this.state.notice = "the daemon provisioned a tree but returned no path";
+      this.notify("the daemon provisioned a tree but returned no path");
       this.push();
       return;
     }
@@ -1337,11 +1345,11 @@ export class MissionDriver {
     // switch onto a tree whose team ready steps never ran is exactly what
     // the readiness design forbids, so this notice is the one place that
     // gets said out loud (commands/worktree.ts prints the same case).
-    this.state.notice = data.readyHeld
+    this.notify(data.readyHeld
       ? "team ready steps held pending approval... run rt worktree ready-approve"
       : cachedOk === false
         ? "a ready step failed; dependencies in this tree may be stale"
-        : "";
+        : "");
     this.setCurrentWorktree(data.path, data.readyPending === true && cachedOk === undefined);
     this.state.selections = new Map();
     await this.refresh();
@@ -1377,7 +1385,7 @@ export class MissionDriver {
         this.indicatorBadges.delete(payload.repo);
         this.reloadRepoList();
       }
-      this.state.notice = `no known worktree for ${repoLabel(payload.repo)}`;
+      this.notify(`no known worktree for ${repoLabel(payload.repo)}`);
       this.push();
       return;
     }
@@ -1429,13 +1437,13 @@ export class MissionDriver {
           if (typeof p.sha === "string") this.copy(p.sha);
           break;
         case "reveal":
-          if (abs && !this.deps.fileActions.reveal(abs)) this.state.notice = `Could not reveal ${rel}`;
+          if (abs && !this.deps.fileActions.reveal(abs)) this.notify(`Could not reveal ${rel}`);
           break;
         case "reveal-repo":
-          if (!this.deps.fileActions.reveal(root, "folder")) this.state.notice = `Could not reveal ${basename(root)}`;
+          if (!this.deps.fileActions.reveal(root, "folder")) this.notify(`Could not reveal ${basename(root)}`);
           break;
         case "open-default":
-          if (abs && !this.deps.fileActions.open(abs)) this.state.notice = `Could not open ${rel}`;
+          if (abs && !this.deps.fileActions.open(abs)) this.notify(`Could not open ${rel}`);
           break;
         case "open-editor":
         case "open-repo-editor": {
@@ -1443,7 +1451,7 @@ export class MissionDriver {
           if (!target) break;
           if (!this.editor) this.resolveEditor();
           if (!this.editor) {
-            this.state.notice = "No editor set: run rt code once to pick one";
+            this.notify("No editor set: run rt code once to pick one");
             break;
           }
           this.launchInBackground(this.editor, target);
@@ -1476,7 +1484,7 @@ export class MissionDriver {
           mutated = true;
           const file = this.snapshot.files.find((f) => f.path === rel);
           if (!file) {
-            this.state.notice = `${rel} has no changes to discard`;
+            this.notify(`${rel} has no changes to discard`, "info");
             break;
           }
           await client.discardChanges([file]);
@@ -1487,7 +1495,7 @@ export class MissionDriver {
           this.snapshot = await client.snapshot();
           mutated = true;
           if (this.snapshot.files.length === 0) {
-            this.state.notice = "No changes to discard";
+            this.notify("No changes to discard", "info");
             break;
           }
           await client.discardChanges(this.snapshot.files);
@@ -1505,20 +1513,21 @@ export class MissionDriver {
         }
       }
     } catch (err) {
-      this.state.notice = err instanceof Error ? err.message : String(err);
+      this.notify(err instanceof Error ? err.message : String(err));
     }
     if (mutated) await this.refresh();
     this.push();
   }
 
   private copy(text: string): void {
-    this.state.notice = this.deps.fileActions.copy(text) ? "Copied" : "Could not copy";
+    const copied = this.deps.fileActions.copy(text);
+    this.notify(copied ? "Copied" : "Could not copy", copied ? "info" : "error");
   }
 
   /** Never awaited: an editor CLI that waits for its window must not hold up the intent loop. */
   private launchInBackground(editor: ResolvedEditor, target: string): void {
     const failed = (): void => {
-      this.state.notice = `Could not open ${editor.label}`;
+      this.notify(`Could not open ${editor.label}`);
       this.push();
     };
     this.deps.launchEditor(editor.command, target).then((ok) => {

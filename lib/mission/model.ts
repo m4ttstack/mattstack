@@ -32,6 +32,7 @@ import type {
   MissionHistoryModel,
   MissionLastCommit,
   MissionModel,
+  MissionNoticeTone,
   MissionRepoRow,
   MissionStashModel,
   MissionPublishPrompt,
@@ -54,6 +55,7 @@ export type {
   MissionHistoryModel,
   MissionLastCommit,
   MissionModel,
+  MissionNoticeTone,
   MissionRepoRow,
   MissionStashModel,
   MissionPublishPrompt,
@@ -75,6 +77,7 @@ export interface MissionState {
   forcePushRecommended: boolean;
   busyAction: boolean;
   notice: string;
+  noticeTone: MissionNoticeTone;
   showOversized: Set<string>;
   selections: Map<string, DiffSelection>;
   settling: boolean;
@@ -242,7 +245,7 @@ export function joinWorktreeRows(trees: WorktreeTreeRow[], badges: GitWorktreeBa
 const RECENT_BRANCH_COUNT = 5;
 
 /** getRemoteDefaultBranch returns e.g. "origin/main"; local branch names carry no remote prefix. */
-function stripRemotePrefix(ref: string | null): string | null {
+export function stripRemotePrefix(ref: string | null): string | null {
   if (ref === null) return null;
   const slash = ref.indexOf("/");
   return slash === -1 ? ref : ref.slice(slash + 1);
@@ -633,6 +636,7 @@ export function buildModel(input: {
     diff,
     commit,
     notice: state.notice,
+    noticeTone: state.noticeTone,
     tab,
     history: input.history ?? EMPTY_HISTORY_MODEL,
     editorLabel: input.editorLabel ?? "",
