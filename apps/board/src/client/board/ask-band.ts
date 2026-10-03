@@ -143,9 +143,7 @@ export function askBandModel(
         {
           tone: 'bad',
           icon: 'triangle-alert',
-          label: sent.reason
-            ? `failed to run: ${sent.reason}`
-            : 'failed to run',
+          label: sent.reason ? `stopped: ${sent.reason}` : 'failed to run',
           actions: ['retry', 'dismiss'],
         },
         {

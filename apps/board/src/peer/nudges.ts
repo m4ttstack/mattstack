@@ -233,8 +233,9 @@ export const SENT_FINISH_KEEP_MS = 24 * 60 * 60_000;
     pre-nudge "done" can arrive after a fresh ask went out. The timestamp
     fallback compares two boards' clocks, so skew can hold a finished ask
     open until it self-expires; peers that echo the id back never hit that.
-    Only an unresolved, confirmed or launched ask finishes: a rejected,
-    expired or already finished one keeps its first verdict. `reviewer`, when
+    Only an unresolved, confirmed or launched ask finishes, and a failed one
+    only to done (a reviewer who resumed a stopped run); a rejected, expired
+    or done one keeps its first verdict. `reviewer`, when
     given, is who sent the report: another teammate's review of the same MR
     is not the answer to this ask. */
 export function finishSentNudge(
@@ -256,7 +257,8 @@ export function finishSentNudge(
         if (prev.nudgeId !== nudgeId) return;
       } else if (prev.sentAt >= ifSentBefore) return;
       const r = prev.resolution?.result;
-      if (r && r !== 'confirmed' && r !== 'launched') return;
+      const doneAfterStop = r === 'failed' && finish.result === 'done';
+      if (r && r !== 'confirmed' && r !== 'launched' && !doneAfterStop) return;
       const next: SentNudge = { ...prev, resolution: finish };
       db.query(
         'UPDATE nudges_sent SET nudge = ?, updated_at = ? WHERE mr_url = ?'

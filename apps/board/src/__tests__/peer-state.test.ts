@@ -581,6 +581,69 @@ describe('resolveSentNudge', () => {
 const DONE = { result: 'done' as const, at: 1 };
 
 describe('finishSentNudge', () => {
+  test('done after failed still requires the matching ask, reviewer and fallback time', () => {
+    writeSentNudge(
+      { nudgeId: 'n1', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 1 },
+      db
+    );
+    const stopped = {
+      result: 'failed' as const,
+      reason: 'pane closed',
+      at: 10,
+    };
+    finishSentNudge(URL_A, stopped, 5, db, 'n1', 'grace');
+    finishSentNudge(URL_A, DONE, 5, db, 'old-ask', 'grace');
+    expect(readSentNudges(db).get(URL_A)?.resolution).toEqual(stopped);
+    finishSentNudge(URL_A, DONE, 5, db, 'n1', 'bob');
+    expect(readSentNudges(db).get(URL_A)?.resolution).toEqual(stopped);
+    finishSentNudge(URL_A, DONE, 1, db, undefined, 'grace');
+    expect(readSentNudges(db).get(URL_A)?.resolution).toEqual(stopped);
+    finishSentNudge(URL_A, DONE, 5, db, undefined, 'grace');
+    expect(readSentNudges(db).get(URL_A)?.resolution).toEqual(DONE);
+  });
+
+  test('done replaces failed; rejected, expired and done stay final', () => {
+    const send = () =>
+      writeSentNudge(
+        {
+          nudgeId: 'n1',
+          mrUrl: URL_A,
+          iid: 4821,
+          reviewer: 'grace',
+          sentAt: 1,
+        },
+        db
+      );
+    send();
+    finishSentNudge(
+      URL_A,
+      { result: 'failed', reason: 'pane closed', at: 10 },
+      5,
+      db,
+      'n1'
+    );
+    finishSentNudge(
+      URL_A,
+      { result: 'done', outcome: 'comment', at: 20 },
+      5,
+      db,
+      'n1'
+    );
+    expect(readSentNudges(db).get(URL_A)?.resolution).toEqual({
+      result: 'done',
+      outcome: 'comment',
+      at: 20,
+    });
+    finishSentNudge(URL_A, { result: 'failed', at: 30 }, 5, db, 'n1');
+    expect(readSentNudges(db).get(URL_A)?.resolution?.result).toBe('done');
+    for (const result of ['rejected', 'expired'] as const) {
+      send();
+      resolveSentNudge(URL_A, { result, at: 10 }, db);
+      finishSentNudge(URL_A, { result: 'done', at: 20 }, 5, db, 'n1');
+      expect(readSentNudges(db).get(URL_A)?.resolution?.result).toBe(result);
+    }
+  });
+
   test('is a no-op when no row exists for the MR', () => {
     finishSentNudge(URL_A, DONE, 10, db);
     expect(readSentNudges(db).size).toBe(0);

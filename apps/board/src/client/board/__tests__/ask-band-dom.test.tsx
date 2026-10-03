@@ -161,6 +161,35 @@ test('failed and no answer offer retry then dismiss; retry calls the retry handl
   }
 });
 
+test('a stopped ask renders its reason and offers retry and dismiss', async () => {
+  const calls: string[] = [];
+  await render(
+    mrWith({ display: 'failed', reason: 'pane closed', finishedAt: NOW }),
+    ctx({
+      onAskRetry: m => calls.push(`retry ${m.iid}`),
+      onAskDismiss: m => calls.push(`dismiss ${m.iid}`),
+    })
+  );
+  expect(container.querySelector('.tui-ask-label')?.textContent).toBe(
+    'stopped: pane closed'
+  );
+  expect(
+    container.querySelector('.tui-ask')?.getAttribute('data-ask-tone')
+  ).toBe('bad');
+  expect(container.querySelector('[data-part="spinner"]')).toBeNull();
+  expect(buttons()).toEqual(['Retry', 'Dismiss']);
+  const [retry, dismiss] = [
+    ...container.querySelectorAll<HTMLButtonElement>('.tui-ask-btn'),
+  ];
+  await React.act(async () => retry!.click());
+  await React.act(async () => dismiss!.click());
+  expect(calls).toEqual(['retry 1418', 'dismiss 1418']);
+  await render(mrWith({ display: 'failed' }), ctx());
+  expect(container.querySelector('.tui-ask-label')?.textContent).toBe(
+    'failed to run'
+  );
+});
+
 test('a quiet ask renders no update with retry, dismiss and its history trail', async () => {
   const calls: string[] = [];
   await render(

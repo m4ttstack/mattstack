@@ -130,7 +130,7 @@ describe('askBandModel', () => {
     expect(m).toMatchObject({
       tone: 'bad',
       icon: 'triangle-alert',
-      label: 'failed to run: boom',
+      label: 'stopped: boom',
       actions: ['retry', 'dismiss'],
     });
     expect(
