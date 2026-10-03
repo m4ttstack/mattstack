@@ -39,6 +39,7 @@ import { ScalarControl } from './ScalarControl';
 import { ScopeBadge, ScopeDot } from './ScopeBadge';
 import {
   useKeyExplain,
+  useSettingsOrg,
   useSettingsRepo,
   useSettingsTeam,
   type ConsoleStore,
@@ -280,13 +281,14 @@ function LayerLine({
   const { text } = useSchemeColors();
   const editorHref = useEditorHref();
   const team = useSettingsTeam();
+  const org = useSettingsOrg();
   const repo = useSettingsRepo();
   const scope = row.scope;
   const store = rungBase(scope);
-  // Accessible names keep the team-less label; only the text a person reads
-  // names the team.
+  // Accessible names keep the nameless label; only the text a person reads
+  // names the org or the team.
   const label = store ? layerLabel(scope as LayerScope) : null;
-  const named = store ? layerLabel(scope as LayerScope, team) : null;
+  const named = store ? layerLabel(scope as LayerScope, team, org) : null;
   const allRepos =
     repo && def.repoScoped && isStoreScope(scope) ? ' (all repos)' : '';
   const allowed = store !== null && def.scopes.includes(store);
@@ -407,7 +409,7 @@ function LayerLine({
                   leftSection={<ScopeDot scope={to} />}
                   onClick={() => void onMove(scope, to)}
                 >
-                  {`Move to ${scopeLabel(to, team)}`}
+                  {`Move to ${scopeLabel(to, team, org)}`}
                 </Menu.Item>
               ))}
             </Menu.Dropdown>
@@ -490,7 +492,7 @@ function LayerLine({
             def={def}
             form={formOf(def)}
             initial={row.present ? row.value : undefined}
-            targetLabel={layerLabel(scope as LayerScope, team)}
+            targetLabel={layerLabel(scope as LayerScope, team, org)}
             saving={busy}
             replaceWith={replaceWith}
             reported={reported}

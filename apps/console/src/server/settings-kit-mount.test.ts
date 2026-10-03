@@ -43,6 +43,13 @@ const RT = {
   ],
   validateValue: () => ({ ok: true }),
   listOrgs: () => [],
+  activeTeam: () => ({
+    org: null,
+    team: null,
+    reason: 'no-org',
+    username: null,
+    listedOn: [],
+  }),
   setSetting: (...args: unknown[]) => {
     writes.push(args);
   },
