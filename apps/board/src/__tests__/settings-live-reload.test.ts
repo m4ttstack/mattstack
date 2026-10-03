@@ -11,10 +11,17 @@ import { afterAll, expect, test } from 'bun:test';
 // server.ts's actual settingsHandler mount and reload path both run for real.
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-settings-reload-'));
 
-const teamDir = join(fakeHome, '.mattstack', 'teams', 'testteam', 'mattstack');
+const teamDir = join(
+  fakeHome,
+  '.mattstack',
+  'teams',
+  'testteam',
+  'mattstack',
+  'org'
+);
 mkdirSync(teamDir, { recursive: true });
 writeFileSync(
-  join(teamDir, 'settings.team.jsonc'),
+  join(teamDir, 'settings.org.jsonc'),
   JSON.stringify({
     'board.gitlabHost': 'https://gitlab.example.com',
     'board.projects': ['g/p'],
@@ -84,7 +91,7 @@ test('a board.* setting written through /api/settings/set applies live, no resta
     body: JSON.stringify({
       key: 'board.title',
       value: 'Reload Proof',
-      scope: 'team',
+      scope: 'org',
     }),
   });
   expect(setRes.ok).toBe(true);

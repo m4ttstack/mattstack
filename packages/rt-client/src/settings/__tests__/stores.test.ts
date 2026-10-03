@@ -9,8 +9,8 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { userSettingsPath, teamSettingsPath, teamsDir, machineSettingsPath } from "../paths.ts";
-import { currentOrg, listOrgs, listTeamFolders, listTeams, parseStoreText, readStore } from "../stores.ts";
+import { userSettingsPath, orgSettingsPath, teamsDir, machineSettingsPath } from "../paths.ts";
+import { currentOrg, listOrgs, listTeamFolders, parseStoreText, readStore } from "../stores.ts";
 
 describe("settings/stores", () => {
   const origHome = process.env.HOME;
@@ -174,86 +174,6 @@ describe("settings/stores", () => {
     });
   });
 
-  describe("listTeams", () => {
-    test("finds only team dirs that contain mattstack/settings.team.jsonc", () => {
-      // acme: has a settings file.
-      mkdirSync(join(home, ".mattstack", "teams", "acme", "mattstack"), { recursive: true });
-      writeFileSync(teamSettingsPath("acme"), "{}");
-
-      // ghost-team: dir exists but no settings file inside — not a team yet.
-      mkdirSync(join(home, ".mattstack", "teams", "ghost-team"), { recursive: true });
-
-      // a stray file sitting directly in teamsDir() — not a directory, must be skipped.
-      writeFileSync(join(teamsDir(), "not-a-team.txt"), "junk");
-
-      expect(listTeams().sort()).toEqual(["acme"]);
-    });
-
-    test("a team dir with only the OLD-name settings.jsonc (no settings.team.jsonc) is NOT listed", () => {
-      mkdirSync(join(home, ".mattstack", "teams", "stale-team", "mattstack"), { recursive: true });
-      writeFileSync(join(home, ".mattstack", "teams", "stale-team", "mattstack", "settings.jsonc"), "{}");
-
-      expect(listTeams()).toEqual([]);
-    });
-
-    test("no teams dir at all → empty list, no throw", () => {
-      expect(listTeams()).toEqual([]);
-    });
-
-    test("multiple teams are all found", () => {
-      for (const team of ["alpha", "beta"]) {
-        mkdirSync(join(home, ".mattstack", "teams", team, "mattstack"), { recursive: true });
-        writeFileSync(teamSettingsPath(team), "{}");
-      }
-
-      expect(listTeams().sort()).toEqual(["alpha", "beta"]);
-    });
-
-    test("a symlinked team clone still counts as a team", () => {
-      const real = join(home, "elsewhere", "acme");
-      mkdirSync(join(real, "mattstack"), { recursive: true });
-      writeFileSync(join(real, "mattstack", "settings.team.jsonc"), "{}");
-      mkdirSync(teamsDir(), { recursive: true });
-      symlinkSync(real, join(teamsDir(), "acme"));
-
-      expect(listTeams()).toEqual(["acme"]);
-    });
-
-    test("a DANGLING symlink is skipped with a warn — healthy teams still list", () => {
-      // The realistic trigger: a team clone symlinked in and later moved. The
-      // follow-the-link stat throws ENOENT, and listTeams is on the path of
-      // every settings resolution — so it must skip, not throw.
-      mkdirSync(join(home, ".mattstack", "teams", "acme", "mattstack"), { recursive: true });
-      writeFileSync(teamSettingsPath("acme"), "{}");
-      symlinkSync(join(home, "moved-away"), join(teamsDir(), "moved-team"));
-      const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
-
-      try {
-        expect(listTeams()).toEqual(["acme"]);
-        expect(warnSpy).toHaveBeenCalledTimes(1);
-        expect(warnSpy.mock.calls[0]?.[0]).toContain("moved-team");
-      } finally {
-        warnSpy.mockRestore();
-      }
-    });
-
-    test("an unreadable teams dir → empty list, warn, no throw", () => {
-      const dir = teamsDir();
-      mkdirSync(dir, { recursive: true });
-      chmodSync(dir, 0o000);
-      const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
-
-      try {
-        expect(listTeams()).toEqual([]);
-        expect(warnSpy).toHaveBeenCalledTimes(1);
-        expect(warnSpy.mock.calls[0]?.[0]).toContain(dir);
-      } finally {
-        warnSpy.mockRestore();
-        chmodSync(dir, 0o755); // so afterEach can remove the temp HOME
-      }
-    });
-  });
-
   describe("org listing", () => {
     test("an org is a clone with mattstack/org/settings.org.jsonc", () => {
       const org = join(teamsDir(), "acme", "mattstack", "org");
@@ -268,7 +188,61 @@ describe("settings/stores", () => {
     test("parseStoreText gives the same store readStore does", () => {
       const text = `// header\n{ "board.title": "Acme", "repos": { "gitlab.example.com/acme/widgets": { "rt.roles": {} } } }`;
       expect(parseStoreText("/x/settings.org.jsonc", text)).toEqual({ global: { "board.title": "Acme" }, repos: { "gitlab.example.com/acme/widgets": { "rt.roles": {} } }, file: "/x/settings.org.jsonc", exists: true });
-      expect(parseStoreText("/x/s.jsonc", "{ not json").global).toEqual({});
+      const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        expect(parseStoreText("/x/s.jsonc", "{ not json").global).toEqual({});
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    test("no teams dir at all lists no orgs, and does not throw", () => {
+      expect(listOrgs()).toEqual([]);
+      expect(currentOrg()).toBeNull();
+    });
+
+    test("a symlinked org clone still counts", () => {
+      const real = join(home, "elsewhere", "acme");
+      mkdirSync(join(real, "mattstack", "org"), { recursive: true });
+      writeFileSync(join(real, "mattstack", "org", "settings.org.jsonc"), "{}");
+      mkdirSync(teamsDir(), { recursive: true });
+      symlinkSync(real, join(teamsDir(), "acme"));
+
+      expect(listOrgs()).toEqual(["acme"]);
+    });
+
+    test("a DANGLING symlink is skipped with a warn, and healthy clones still list", () => {
+      // The realistic trigger: a clone symlinked in and later moved. The
+      // follow-the-link stat throws ENOENT, and listOrgs is on the path of
+      // every settings resolution, so it must skip, not throw.
+      mkdirSync(dirname(orgSettingsPath("acme")), { recursive: true });
+      writeFileSync(orgSettingsPath("acme"), "{}");
+      symlinkSync(join(home, "moved-away"), join(teamsDir(), "moved-org"));
+      const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+
+      try {
+        expect(listOrgs()).toEqual(["acme"]);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy.mock.calls[0]?.[0]).toContain("moved-org");
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    test("an unreadable teams dir lists no orgs, warns, and does not throw", () => {
+      const dir = teamsDir();
+      mkdirSync(dir, { recursive: true });
+      chmodSync(dir, 0o000);
+      const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+
+      try {
+        expect(listOrgs()).toEqual([]);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy.mock.calls[0]?.[0]).toContain(dir);
+      } finally {
+        warnSpy.mockRestore();
+        chmodSync(dir, 0o755); // so afterEach can remove the temp HOME
+      }
     });
 
     test("team folders are plain lowercase names, sorted", () => {

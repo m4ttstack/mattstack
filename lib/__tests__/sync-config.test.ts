@@ -8,7 +8,7 @@ import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 
 const IDENTITY = "gitlab.com/acme/test-repo";
 
-/** setSetting(..., "team", ...) refuses without a local team store (write.ts's team-selection rule). */
+/** setSetting(..., "org", ...) refuses without an org store. */
 function seedTeam(): void {
   const path = sharedStorePath("acme");
   mkdirSync(dirname(path), { recursive: true });
@@ -38,11 +38,11 @@ describe("loadSyncConfig over the settings resolver", () => {
     expect(loadSyncConfig(null)).toEqual({ autoResolve: [] });
   });
 
-  test("a store-seeded value at team.repo scope resolves through the loader", () => {
+  test("a store-seeded value at org.repo scope resolves through the loader", () => {
     setSetting(
       "rt.sync",
       { autoResolve: [{ glob: "gen.txt", strategy: "theirs", postResolve: ["pnpm install"] }] },
-      "team",
+      "org",
       { repoIdentity: IDENTITY },
     );
 
@@ -61,7 +61,7 @@ describe("loadSyncConfig over the settings resolver", () => {
     setSetting(
       "rt.sync",
       { autoResolve: [{ glob: "${repoRoot}/gen.txt", strategy: "theirs" }] },
-      "team",
+      "org",
       { repoIdentity: IDENTITY },
     );
 

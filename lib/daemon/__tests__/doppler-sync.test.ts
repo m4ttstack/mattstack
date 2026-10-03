@@ -18,7 +18,7 @@ function seedTemplate(entries: unknown[]): void {
   setSetting("rt.dopplerTemplate", entries, "machine", { repoIdentity: IDENTITY });
 }
 
-/** setSetting(..., "team", ...) refuses without a local team store (write.ts's team-selection rule). */
+/** setSetting(..., "org", ...) refuses without an org store. */
 function seedTeam(): void {
   const path = sharedStorePath("acme");
   mkdirSync(dirname(path), { recursive: true });
@@ -72,12 +72,12 @@ describe("reconcileForRepo", () => {
     });
   });
 
-  test("resolves a template declared at team.repo scope — where the cutover actually writes it", async () => {
+  test("resolves a template declared at org.repo scope, where the cutover actually writes it", async () => {
     seedTeam();
     setSetting(
       "rt.dopplerTemplate",
       [{ path: "apps/backend", project: "backend", config: "dev" }],
-      "team",
+      "org",
       { repoIdentity: IDENTITY },
     );
 

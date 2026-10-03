@@ -480,7 +480,7 @@ describe("accountRows: account.board-peering", () => {
   function machine(teams: Record<string, { joinedByRt: boolean }>, opts: { extra?: Record<string, string>; fetch?: typeof reachable; env?: Record<string, string> } = {}) {
     const files: Record<string, string> = { ...(opts.extra ?? {}) };
     for (const [slug, t] of Object.entries(teams)) {
-      files[`${TEAMS}/${slug}/mattstack/settings.team.jsonc`] = "// team settings\n{}\n";
+      files[`${TEAMS}/${slug}/mattstack/org/settings.org.jsonc`] = "// team settings\n{}\n";
       files[`${HOME}/.mattstack/rt/teams/${slug}.json`] = JSON.stringify({ createdByRt: !t.joinedByRt, joinedByRt: t.joinedByRt, rtMayManageMembership: false });
     }
     return fakeProbes({ home: HOME, files, dirs: { [TEAMS]: Object.keys(teams) }, fetch: opts.fetch ?? reachable, env: opts.env ?? {} });

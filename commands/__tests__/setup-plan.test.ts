@@ -6,7 +6,7 @@ import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 import { fakeProbes, missing, ok } from "../../lib/setup/__tests__/fakes.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
 import { composePlan } from "../../lib/setup/plan.ts";
-import { listTeams } from "../../lib/settings/stores.ts";
+import { listOrgs } from "../../lib/settings/stores.ts";
 import { capturePlain, realJson } from "./helpers/json-line.ts";
 
 /** setupPlan/setupStatus call process.exit(2) on a user-actionable error; the sentinel throw stops it from actually killing the test process, and the caller reads the exit code off the spy. */
@@ -198,7 +198,7 @@ describe("setup plan --json bytes", () => {
       const probes = fakeProbes({ exec: readyExec });
       const deps: SetupDeps = { probes, secrets: fakeSecrets(), json: realJson };
       await setupPlan(["--json"], {}, deps);
-      const plan = await composePlan({ p: probes, secrets: fakeSecrets(), ci: process.env.CI === "true", mode: "plan", teams: listTeams() });
+      const plan = await composePlan({ p: probes, secrets: fakeSecrets(), ci: process.env.CI === "true", mode: "plan", teams: listOrgs() });
       expect(cap.stdout()).toBe(JSON.stringify(plan) + "\n");
       expect(cap.stderr()).toBe("");
     } finally {

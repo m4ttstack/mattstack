@@ -527,7 +527,7 @@ describe('saveRosterMembers: latch-gated writer', () => {
       fakeWrite(calls)
     );
     expect(calls).toEqual([
-      { key: 'mattstack.roster', value: next, scope: 'team' },
+      { key: 'mattstack.roster', value: next, scope: 'org' },
     ]);
   });
 

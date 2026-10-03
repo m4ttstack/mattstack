@@ -24,7 +24,7 @@ import {
   gatePark,
   getRun,
   getSetting,
-  listTeams,
+  listOrgs,
   paneList,
   readDiscussions,
   readProjectMRs,
@@ -514,7 +514,7 @@ async function fetchReconcilerView(): Promise<ReconcilerView> {
 // without either it stays unstarted and every peer feature (publish, poll,
 // /nudge) is off. The runtime is startable later too, so joining needs no
 // restart.
-const inTeam = (): boolean => listTeams().length > 0;
+const inTeam = (): boolean => listOrgs().length > 0;
 const peerDeps = boardMaterializeDeps(line => console.error(line));
 const peering = makePeering({
   makeClient: makeSwitchboardClient,

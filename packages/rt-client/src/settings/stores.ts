@@ -2,7 +2,7 @@
  * Reading the four settings store files (RT-47).
  *
  * `readStore` is the shared "raw JSONC → {global, repos}" step every store
- * (user/team/machine) goes through before the resolver layers them by scope.
+ * (user/org/team/machine) goes through before the resolver layers them by scope.
  * It uses jsonc-parser (`parse`) rather than lib/jsonc.ts's stripJsonc: this
  * is the one place in rt that also needs to WRITE these files back with
  * comments/formatting intact (via jsonc-parser's `modify`/`applyEdits`, added
@@ -19,7 +19,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "fs";
 import { parse, type ParseError } from "jsonc-parser";
 import { join } from "path";
-import { orgSettingsPath, teamFolderDir, teamFoldersDir, teamsDir, teamSettingsPath } from "./paths.ts";
+import { orgSettingsPath, teamFoldersDir, teamsDir, teamSettingsPath } from "./paths.ts";
 
 export interface StoreFile {
   /** Top-level keys other than "repos" — the global scope for this store. */
@@ -85,60 +85,23 @@ export function parseStoreText(file: string, raw: string): StoreFile {
   return { global, repos: reposValid, file, exists: true };
 }
 
-/**
- * Names of every team that has a local settings store — i.e. subdirectories
- * of teamsDir() that contain mattstack/settings.team.jsonc. A team dir without a
- * settings file (a clone mid-setup, or an unrelated directory) is not yet a
- * team as far as the resolver is concerned.
- *
- * Honest-degrade like readStore, and for a sharper reason: this scan is on the
- * path of EVERY settings resolution, so one bad directory entry must never
- * brick `rt settings` or any reader behind it. A team clone that was symlinked
- * in and later moved leaves a dangling symlink here, and the follow-the-link
- * stat that keeps symlinked clones working throws ENOENT on exactly that — so
- * the scan is guarded twice: around the readdir (an unreadable teams dir means
- * no teams), and around EACH entry (a dangling link, an EACCES, or a stat that
- * loses a race with a concurrent move skips that entry and leaves the healthy
- * teams intact).
- */
-export function listTeams(): string[] {
-  const dir = teamsDir();
-  if (!existsSync(dir)) return [];
-
-  let entries: Dirent[];
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch (err) {
-    console.warn(`rt: failed to list teams in ${dir}, treating as no teams: ${(err as Error).message}`);
-    return [];
-  }
-
-  const teams: string[] = [];
-  for (const entry of entries) {
-    try {
-      // isDirectory() is false for a symlink, but a symlinked team clone is a
-      // real team — those resolve through stat, which is also what throws on a
-      // dangling link, hence the per-entry try.
-      const isDir =
-        entry.isDirectory() ||
-        (entry.isSymbolicLink() && statSync(join(dir, entry.name)).isDirectory());
-      if (!isDir) continue;
-      if (existsSync(teamSettingsPath(entry.name))) teams.push(entry.name);
-    } catch (err) {
-      console.warn(
-        `rt: skipping unreadable teams entry ${join(dir, entry.name)}: ${(err as Error).message}`,
-      );
-    }
-  }
-  return teams;
-}
-
 export const TEAM_NAME_RE = /^[a-z][a-z0-9-]*$/;
 
 /**
  * Org clones on this Mac: folders under teamsDir() that hold
- * mattstack/org/settings.org.jsonc. The scan degrades the way listTeams does:
- * one unreadable entry never empties the list.
+ * mattstack/org/settings.org.jsonc. A folder without that file (a clone
+ * mid-setup, or an unrelated directory) is not an org as far as the resolver
+ * is concerned.
+ *
+ * Honest-degrade like readStore, and for a sharper reason: this scan is on the
+ * path of EVERY settings resolution, so one bad directory entry must never
+ * brick `rt settings` or any reader behind it. A clone that was symlinked in
+ * and later moved leaves a dangling symlink here, and the follow-the-link stat
+ * that keeps symlinked clones working throws ENOENT on exactly that, so the
+ * scan is guarded twice: around the readdir (an unreadable teams dir means no
+ * orgs), and around EACH entry (a dangling link, an EACCES, or a stat that
+ * loses a race with a concurrent move skips that entry and leaves the healthy
+ * clones intact).
  */
 export function listOrgs(): string[] {
   const dir = teamsDir();
@@ -182,6 +145,6 @@ export function listTeamFolders(org: string): string[] {
 export function sharedStoreFiles(): string[] {
   const org = currentOrg();
   if (org === null) return [];
-  const teamFile = (team: string) => join(teamFolderDir(org, team), "settings.team.jsonc");
-  return [orgSettingsPath(org), ...listTeamFolders(org).map(teamFile).filter((file) => existsSync(file))];
+  const teamFiles = listTeamFolders(org).map((team) => teamSettingsPath(org, team));
+  return [orgSettingsPath(org), ...teamFiles.filter((file) => existsSync(file))];
 }

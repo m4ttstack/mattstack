@@ -10,7 +10,7 @@ import { loadBranchNamingConfig } from '../branchNaming';
 // docs/settings-architecture.md's store table.
 const userSettingsPath = (home: string) => join(home, '.mattstack', 'user', 'settings.user.jsonc');
 const teamSettingsPath = (home: string, team: string) =>
-  join(home, '.mattstack', 'teams', team, 'mattstack', 'settings.team.jsonc');
+  join(home, '.mattstack', 'teams', team, 'mattstack', 'org', 'settings.org.jsonc');
 
 // Every test repoints HOME at a fresh temp dir (call-time HOME resolution,
 // same convention as rt-client's own settings tests) so the settings store
@@ -45,10 +45,10 @@ describe('loadBranchNamingConfig', () => {
   const legacyPath = () => join(dataDir, 'branch-naming.json');
   const writeLegacy = (contents: string) => writeFileSync(legacyPath(), contents);
 
-  /** A cloned team store, so `setSetting(..., "team", ...)`'s single-team auto-detection has exactly one candidate. */
+  /** An org clone, so `setSetting(..., "org", ...)` has a store to write. */
   function seedTeamStore(team: string): void {
     const path = teamSettingsPath(home, team);
-    mkdirSync(join(home, '.mattstack', 'teams', team, 'mattstack'), { recursive: true });
+    mkdirSync(join(home, '.mattstack', 'teams', team, 'mattstack', 'org'), { recursive: true });
     writeFileSync(path, '{}\n');
   }
 
@@ -56,7 +56,7 @@ describe('loadBranchNamingConfig', () => {
     expect(loadBranchNamingConfig(dataDir, IDENTITY)).toBeNull();
   });
 
-  test('no store value, valid legacy file, exactly one cloned team -> imports into the team.repo rung, renames the file, and returns the template', () => {
+  test('no store value, valid legacy file, an org clone -> imports into the org.repo rung, renames the file, and returns the template', () => {
     seedTeamStore('acme');
     writeLegacy(JSON.stringify({ template: '${teamPrefix}-${ticketNumber}' }));
 

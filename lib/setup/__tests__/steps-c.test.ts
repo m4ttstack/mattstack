@@ -1858,7 +1858,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           fetch: async () => ({ status: 200, body: "", headers: {} }),
           dirs: { [teams]: ["acme"] },
           files: {
-            [`${teams}/acme/mattstack/settings.team.jsonc`]: "{}",
+            [`${teams}/acme/mattstack/org/settings.org.jsonc`]: "{}",
             "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ joinedByRt: true }),
           },
         });
@@ -1884,7 +1884,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           fetch: async () => ({ status: 200, body: "", headers: {} }),
           dirs: { [teams]: ["acme"] },
           files: {
-            [`${teams}/acme/mattstack/settings.team.jsonc`]: "{}",
+            [`${teams}/acme/mattstack/org/settings.org.jsonc`]: "{}",
             "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ createdByRt: true, joinedByRt: false }),
           },
         });
@@ -2026,7 +2026,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const teamPath = sharedStorePath("acme");
         mkdirSync(dirname(teamPath), { recursive: true });
         writeFileSync(teamPath, "// team store\n{}\n");
-        setSetting("mattstack.integrations", { forge: { host: "github.com", provider: "github" } }, "team", { team: "acme" });
+        setSetting("mattstack.integrations", { forge: { host: "github.com", provider: "github" } }, "org");
 
         let calls = 0;
         const p = fakeProbes({ home });

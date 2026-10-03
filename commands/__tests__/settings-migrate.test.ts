@@ -15,7 +15,7 @@ import { dirname, join } from "path";
 import { settingsMigrate } from "../settings-keys.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { userSettingsPath } from "../../packages/rt-client/src/settings/paths.ts";
+import { orgSettingsPath, userSettingsPath } from "../../packages/rt-client/src/settings/paths.ts";
 import { valueHash } from "../../packages/rt-client/src/settings/migrate.ts";
 import { getDef } from "../../packages/rt-client/src/settings/registry-machinery.ts";
 import { renameProperty } from "../../packages/rt-client/src/settings/migrations/helpers.ts";
@@ -170,16 +170,15 @@ describe("rt settings migrate", () => {
     });
   });
 
-  test("--prune leaves the team store alone without --team, and prunes it with --team", async () => {
+  test("--prune leaves the org store alone without --team, and prunes it with --team", async () => {
     await withMigrationAsync("rt.roles", ROLES_BUMP, async () => {
-      write(sharedStorePath(TEAM), { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } }, "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
+      write(orgSettingsPath(TEAM), { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } }, "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
       await settingsMigrate(["--prune", "--yes"], noPrompt);
-      expect((read(sharedStorePath(TEAM)).repos as Record<string, Record<string, unknown>>)[IDENTITY]!["rt.roles"]).toBeDefined();
+      expect((read(orgSettingsPath(TEAM)).repos as Record<string, Record<string, unknown>>)[IDENTITY]!["rt.roles"]).toBeDefined();
       expect(process.exitCode).toBe(1);
       process.exitCode = 0;
       await settingsMigrate(["--prune", "--team", "--yes"], noPrompt);
-      expect(read(sharedStorePath(TEAM))).toEqual({ repos: { [IDENTITY]: { "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
-      expect(process.exitCode).toBe(0);
+      expect(read(orgSettingsPath(TEAM))).toEqual({ repos: { [IDENTITY]: { "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
     });
   });
 

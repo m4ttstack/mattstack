@@ -9,13 +9,13 @@
  * store wins once it holds a value for this repo identity; otherwise the
  * legacy `<dataDir>/branch-naming.json` file stays authoritative and is
  * lazily imported into the store on read, then renamed (never deleted) so a
- * second read never re-imports it. Imports write to the TEAM.repo rung
+ * second read never re-imports it. Imports write to the org.repo rung
  * (docs/superpowers/specs/2026-08-20-suite-settings-migration.md's key
  * disposition table: a branch template is a repo convention, not a personal
  * preference, same reasoning as `rt.sync`/`rt.variations`). A machine with no
- * cloned team store (or more than one) can't take a `scope: "team"` write —
- * `setSetting` refuses, which this treats as any other import failure: warn,
- * leave the legacy file in place, serve the value from it this run.
+ * org clone can't take a `scope: "org"` write: `setSetting` refuses, which
+ * this treats as any other import failure: warn, leave the legacy file in
+ * place, serve the value from it this run.
  */
 
 import { existsSync, readFileSync, renameSync } from "fs";
@@ -52,17 +52,16 @@ function probeStore(repoIdentity: string | null): { owned: boolean; value: Branc
 }
 
 /**
- * Imports the legacy file's template into the team.repo store rung, then
+ * Imports the legacy file's template into the org.repo store rung, then
  * verifies the import actually landed (a fresh `getSetting` read — the
  * resolver never memoizes) before renaming the file. Never unlinks: a write
  * that silently failed to persist must leave the only copy of the template
- * on disk. `setSetting`'s single-team auto-detection picks the team when
- * exactly one has a local store; zero or multiple refuse, caught below like
- * any other import failure.
+ * on disk. `setSetting` writes the one org per Mac; a Mac with no org
+ * refuses, caught below like any other import failure.
  */
 function migrateLegacyFile(legacyPath: string, repoIdentity: string, config: BranchNamingConfig): void {
   try {
-    setSetting(SETTING_KEY, { template: config.template }, "team", { repoIdentity });
+    setSetting(SETTING_KEY, { template: config.template }, "org", { repoIdentity });
   } catch (err) {
     console.warn(`rt-context: could not import ${legacyPath} into the settings store: ${(err as Error).message}`);
     return;

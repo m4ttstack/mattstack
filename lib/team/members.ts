@@ -25,7 +25,7 @@
  */
 
 import { ensureAgeKey, readAgeKey } from "../home/age-key.ts";
-import { teamSettingsPath } from "../rt-paths.ts";
+import { orgSettingsPath } from "../rt-paths.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
 import { addTeamRecipient, readTeamRecipients, removeTeamRecipient } from "../secrets/team-store.ts";
 import { readStore } from "../settings/stores.ts";
@@ -156,7 +156,7 @@ function recordRosterKey(seams: MembersSeams, slug: string, handle: string, ageP
     const updated = existing.some((m) => m.username === handle)
       ? existing.map((m) => (m.username === handle ? { ...m, agePublicKey } : m))
       : [...existing, { username: handle, agePublicKey }];
-    seams.writeSetting(key, updated, "team", { team: slug });
+    seams.writeSetting(key, updated, "org");
   }
 }
 
@@ -174,7 +174,7 @@ export interface MembersSeams {
 }
 
 function defaultReadTeamStore(slug: string): Record<string, unknown> {
-  return readStore(teamSettingsPath(slug)).global;
+  return readStore(orgSettingsPath(slug)).global;
 }
 
 function defaultWarn(message: string, shown?: ShownWarning): void {
@@ -419,8 +419,7 @@ export async function membersRemove(
     seams.writeSetting(
       "board.members",
       boardRoster.filter((m) => m.username !== handle),
-      "team",
-      { team: slug },
+      "org",
     );
   }
 
@@ -429,8 +428,7 @@ export async function membersRemove(
     seams.writeSetting(
       "mattstack.roster",
       crossAppRoster.filter((m) => m.username !== handle),
-      "team",
-      { team: slug },
+      "org",
     );
   }
   const rosterRemoved = boardHad || crossAppHad;

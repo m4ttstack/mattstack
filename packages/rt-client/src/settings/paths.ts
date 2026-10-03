@@ -22,20 +22,20 @@ export function userSettingsPath(): string {
   return join(home(), ".mattstack", "user", "settings.user.jsonc");
 }
 
-/** ~/.mattstack/teams/<team>/mattstack/settings.team.jsonc — the team store. */
-export function teamSettingsPath(team: string): string {
-  return join(teamsDir(), team, "mattstack", "settings.team.jsonc");
+/** ~/.mattstack/teams/<org>/mattstack/teams/<team>/settings.team.jsonc: one team folder's store. */
+export function teamSettingsPath(org: string, team: string): string {
+  return join(teamFolderDir(org, team), "settings.team.jsonc");
 }
 
 /**
- * ~/.mattstack/rt/teams/<team>.json: the machine-local team record. Mirrored
- * from repo-tools/lib/team/team-local.ts's teamLocalPath, which is the
- * authority: rt-client has no dependency on rt's lib/, so this literal is
- * duplicated here rather than imported (same convention as `teamSettingsPath`
- * and `userSettingsPath` above).
+ * ~/.mattstack/rt/teams/<org>.json: the machine-local record, keyed by the org
+ * slug. Mirrored from repo-tools/lib/team/team-local.ts's teamLocalPath, which
+ * is the authority: rt-client has no dependency on rt's lib/, so this literal
+ * is duplicated here rather than imported (same convention as
+ * `teamSettingsPath` and `userSettingsPath` above).
  */
-export function teamLocalPath(team: string): string {
-  return join(home(), ".mattstack", "rt", "teams", `${team}.json`);
+export function teamLocalPath(org: string): string {
+  return join(home(), ".mattstack", "rt", "teams", `${org}.json`);
 }
 
 /**

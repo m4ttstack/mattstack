@@ -176,8 +176,8 @@ describe("setupSlackCreateApp", () => {
       linear: { teamKey: "ENG" },
       slack: { appId: "A123", clientId: "cid", callbackPort: DEFAULT_CALLBACK_PORT },
     });
-    expect(scope).toBe("team");
-    expect(opts).toEqual({ team: "acme" });
+    expect(scope).toBe("org");
+    expect(opts).toBeUndefined();
 
     expect(teamSecretWrites).toContainEqual(["acme", "board", "slackClientSecret", "csecret"]);
     expect(teamSecretWrites).toContainEqual(["acme", "board", "slackSigningSecret", "ssecret"]);
