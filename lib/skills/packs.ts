@@ -13,6 +13,8 @@ export type PackInfo = {
   layout: PackLayout;
   surfacePath: string;
   marketplace: string | null;
+  /** An org base pack: never installed, so it has no marketplace and is never picked for you. */
+  base?: true;
 };
 
 export type DiscoverOpts = {
@@ -140,8 +142,8 @@ export function orgFolderPacks(mattstackRoot: string): PackInfo[] {
     const basesDir = join(orgDir, "mattstack", "org", "packs");
     for (const base of subdirs(basesDir)) {
       if (!TEAM_NAME_RE.test(base)) continue;
-      const pack = packFromDir(base, join(basesDir, base), marketplace);
-      if (pack) found.push(pack);
+      const pack = packFromDir(base, join(basesDir, base), null);
+      if (pack) found.push({ ...pack, base: true });
     }
     const teamsDir = join(orgDir, "mattstack", "teams");
     for (const team of subdirs(teamsDir)) {
@@ -154,10 +156,12 @@ export function orgFolderPacks(mattstackRoot: string): PackInfo[] {
 }
 
 /**
- * A pack is any plugin served from a directory marketplace that carries a
- * surface.jsonc -- discovery reads what is actually installed instead of a
- * hardcoded pack list, so a new team pack appears the moment its marketplace
- * is registered.
+ * A pack is any folder carrying a surface.jsonc that is either a plugin served
+ * from a directory marketplace or a team or org base pack folder in an org
+ * clone under `<mattstackRoot>/teams/`. Discovery reads what is actually on
+ * this Mac instead of a hardcoded list, so a team pack appears the moment its
+ * folder or marketplace does. A marketplace entry wins over a folder pack of
+ * the same name.
  */
 export function discoverPacks(opts: DiscoverOpts = {}): PackInfo[] {
   const found = new Map<string, PackInfo>();
@@ -203,6 +207,12 @@ export function discoverPacks(opts: DiscoverOpts = {}): PackInfo[] {
   }
 
   return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The pack a verb may pick without asking: the only discovered pack that is not an org base pack. */
+export function solePack(packs: PackInfo[]): PackInfo | undefined {
+  const pickable = packs.filter((p) => !p.base);
+  return pickable.length === 1 ? pickable[0] : undefined;
 }
 
 /**
