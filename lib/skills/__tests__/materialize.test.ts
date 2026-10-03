@@ -505,3 +505,91 @@ describe("materializeRepo stale bindings files", () => {
     expect(existsSync(`${packFile(root, "widgets")}.stale`)).toBe(false);
   });
 });
+
+describe("stale bindings files (team-folder zones)", () => {
+  const fileFor = (root: string, pack: string) => join(root, "repos", SLUG, "packs", pack, "skills.jsonc");
+  const stale = (root: string, pack: string, zone: string) => write(fileFor(root, pack), `// zone: ${zone}\n{}`);
+
+  function run(root: string, engine: string, fs: MaterializeFs = realFs) {
+    const out = materializeRepo({ fs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(`expected written, got ${out.kind}`);
+    return out;
+  }
+
+  function snapshot(dir: string): Record<string, string> {
+    const out: Record<string, string> = {};
+    const walk = (d: string) => {
+      for (const entry of readdirSync(d, { withFileTypes: true })) {
+        const p = join(d, entry.name);
+        if (entry.isDirectory()) walk(p);
+        else out[p] = readFileSync(p, "utf8");
+      }
+    };
+    walk(dir);
+    return out;
+  }
+
+  test("the header records <org>/<team>", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } } } });
+    run(root, engine);
+    expect(readFileSync(fileFor(root, "widgets"), "utf8")).toContain("// zone: acme/widgets");
+  });
+
+  test("a file whose team no longer claims this repo is set aside", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } }, gadgets: { projects: ["acme/gadgets"], packs: { gadgets: {} } } } });
+    stale(root, "gadgets", "acme/gadgets");
+    expect(run(root, engine).pruned).toEqual([`${fileFor(root, "gadgets")}.stale`]);
+  });
+
+  test("a file whose team no longer has that pack is set aside", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } }, gadgets: { packs: {} } } });
+    stale(root, "gadgets", "acme/gadgets");
+    expect(run(root, engine).pruned).toEqual([`${fileFor(root, "gadgets")}.stale`]);
+  });
+
+  test("a missing team folder, a team whose settings do not parse, and a missing org clone set nothing aside", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } } } });
+    write(join(teamFolder(root, "acme", "broken"), "settings.team.jsonc"), "{ not json");
+    stale(root, "gone", "acme/gone");
+    stale(root, "broken", "acme/broken");
+    stale(root, "elsewhere", "other-org/elsewhere");
+    expect(run(root, engine).pruned).toEqual([]);
+    for (const pack of ["gone", "broken", "elsewhere"]) expect(existsSync(fileFor(root, pack))).toBe(true);
+  });
+
+  test("a file written before the org layout (its header names only the clone) is left alone", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } } } });
+    stale(root, "legacy", "acme");
+    expect(run(root, engine).pruned).toEqual([]);
+    expect(existsSync(fileFor(root, "legacy"))).toBe(true);
+  });
+
+  test("a folder that is not named like a pack is refused even when its header names a zone to sweep", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } }, gadgets: { packs: {} } } });
+    stale(root, "Not_A_Pack", "acme/gadgets");
+    expect(run(root, engine).pruned).toEqual([]);
+    expect(existsSync(fileFor(root, "Not_A_Pack"))).toBe(true);
+  });
+
+  test("a sweep renames one generated bindings file to a sibling .stale and touches nothing else", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } }, gadgets: { packs: {} } } });
+    stale(root, "gadgets", "acme/gadgets");
+    const teamsBefore = snapshot(join(root, "teams"));
+    const engineBefore = snapshot(engine);
+    const moves: Array<[string, string]> = [];
+    const fs: MaterializeFs = { ...realFs, rename: (from, to) => { moves.push([from, to]); realFs.rename(from, to); } };
+    const out = run(root, engine, fs);
+    expect(out.pruned).toEqual([`${fileFor(root, "gadgets")}.stale`]);
+    expect(moves.filter(([, to]) => to.endsWith(".stale"))).toEqual([[fileFor(root, "gadgets"), `${fileFor(root, "gadgets")}.stale`]]);
+    expect(snapshot(join(root, "teams"))).toEqual(teamsBefore);
+    expect(snapshot(engine)).toEqual(engineBefore);
+    expect(Object.keys(realFs)).not.toContain("remove");
+  });
+});
