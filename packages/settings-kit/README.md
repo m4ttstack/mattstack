@@ -60,7 +60,7 @@ collapsed line, and `targetScope` says where an edit lands (the winning
 layer when allowed, else the key's first scope). A deep-merged `leaves` row
 counts only fields some store layer sets (`effective.authored`), so a
 registry default alone reads as "0 of N set". `SHAPES` holds only the
-`external` keys (`board.tabs`, `board.members`, `board.hiddenMembers`),
+`external` keys (`board.tabs`, `board.hiddenMembers`),
 whose editor board owns.
 
 `checkValue(schema, value)` checks one value in the browser with the same

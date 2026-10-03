@@ -57,34 +57,6 @@
       }
     }
   },
-  "board.members": {
-    "storeVersion": 1,
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "username": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "hidden": {
-            "type": "boolean"
-          },
-          "agePublicKey": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "username"
-        ],
-        "additionalProperties": {}
-      }
-    }
-  },
   "board.peerAsks": {
     "storeVersion": 1,
     "schema": {
