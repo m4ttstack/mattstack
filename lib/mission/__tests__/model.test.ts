@@ -83,6 +83,7 @@ function baseState(overrides: Partial<MissionState> = {}): MissionState {
     forcePushRecommended: false,
     busyAction: false,
     notice: "",
+    noticeTone: "info",
     showOversized: new Set(),
     selections: new Map(),
     settling: false,

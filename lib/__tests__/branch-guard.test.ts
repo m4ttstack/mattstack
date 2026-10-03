@@ -66,6 +66,19 @@ describe("checkBranchGuard", () => {
     rmSync(parent, { recursive: true, force: true });
   });
 
+  test("stack: false clears a stack member, since a checkout moves no refs", async () => {
+    const dir = makeRepo();
+    const verdict = await checkBranchGuard({
+      cwd: dir,
+      branch: "feature-x",
+      defaultBranch: "main",
+      runners: unreachableRunners,
+      stack: false,
+    });
+    expect(verdict).toEqual({ verdict: "clear" });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("refuses a gitq stack member with the stack hint", async () => {
     const dir = makeRepo();
     const runners: StackGuardRunners = {

@@ -78,6 +78,7 @@
     "lastCommit": { "summary": "rt-ui: mission view skeleton behind an opt-in mouse session option", "when": "2 minutes ago", "undoable": true }
   },
   "notice": "",
+  "noticeTone": "info",
   "tab": "changes",
   "history": { "commits": [], "hasMore": false, "loading": false, "header": null, "files": [], "selectedFile": "" },
   "editorLabel": "Zed",

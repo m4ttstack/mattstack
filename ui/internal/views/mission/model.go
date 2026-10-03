@@ -192,8 +192,9 @@ type Model struct {
 	Filter        string         `json:"filter"`
 	Diff          DiffModel      `json:"diff"`
 	Commit        CommitModel    `json:"commit"`
-	Notice        string         `json:"notice"` // one-line transient notice (guard refusals, git and gh errors)
-	Tab           string         `json:"tab"`    // "changes"|"history"
+	Notice        string         `json:"notice"`     // one-line transient notice (guard refusals, git and gh errors)
+	NoticeTone    string         `json:"noticeTone"` // "error" or "info"
+	Tab           string         `json:"tab"`        // "changes"|"history"
 	History       HistoryModel   `json:"history"`
 	EditorLabel   string         `json:"editorLabel"` // rt code's resolved editor ("Zed"), "" when none resolves
 	Stash         *StashModel    `json:"stash"`

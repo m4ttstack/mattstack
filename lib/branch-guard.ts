@@ -59,6 +59,8 @@ export async function checkBranchGuard(opts: {
   branch: string;
   defaultBranch: string | null;
   runners: StackGuardRunners;
+  /** False skips the stack check: a checkout moves no refs, so only an operation that rewrites the branch can break its stack. */
+  stack?: boolean;
   listWorktrees?: typeof listWorktreesAsync;
 }): Promise<BranchGuardVerdict> {
   const listWorktrees = opts.listWorktrees ?? listWorktreesAsync;
@@ -88,6 +90,7 @@ export async function checkBranchGuard(opts: {
       detail: `${opts.branch} is checked out in another worktree: ${owner.path}`,
     };
   }
+  if (opts.stack === false) return { verdict: "clear" };
 
   const stackVerdict = await checkStackMembership({
     cwd: opts.cwd,

@@ -489,6 +489,7 @@ describe("MissionDriver: discard two-step confirm", () => {
     await runPromise;
 
     expect((session.pushed[0] as MissionModel).notice).toBe("press d again to discard");
+    expect((session.pushed[0] as MissionModel).noticeTone).toBe("info");
     expect(client.calls.discardSelection).toHaveLength(1);
     const { selection } = client.calls.discardSelection[0]!;
     expect(selection.isSelected(3)).toBe(true); // the armed target is what gets discarded
@@ -1147,6 +1148,28 @@ describe("MissionDriver: commit", () => {
     expect(last.notice).toBe("main is a stack root; amend refused");
   });
 
+  test("the amend guard gets the default branch as a local name, so main is never mistaken for a stack member", async () => {
+    const seen: Parameters<MissionDeps["guard"]>[0][] = [];
+    const session = new FakeSession([
+      { t: "intent", name: "mission:commit", payload: { summary: "Amend it", amend: true } },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({
+      session,
+      resolveDefaultBranch: () => "origin/main",
+      guard: async (opts) => {
+        seen.push(opts);
+        return { verdict: "clear" };
+      },
+    });
+
+    await new MissionDriver(deps, START).run();
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.defaultBranch).toBe("main");
+    expect(seen[0]!.stack).not.toBe(false);
+  });
+
   // The view clears its own local summary/description drafts the
   // moment it emits mission:commit (the only point a non-empty local draft
   // can ever go back to empty -- see mission.go's emitCommit/SetModel). A
@@ -1351,6 +1374,27 @@ describe("MissionDriver: checkout guard", () => {
     expect(client.calls.checkoutBranch).toHaveLength(0);
     const last = session.pushed.at(-1) as MissionModel;
     expect(last.notice).toBe("guarded-branch is checked out elsewhere");
+    expect(last.noticeTone).toBe("error");
+  });
+
+  test("checkout runs only the worktree check, never the stack check", async () => {
+    const seen: Parameters<MissionDeps["guard"]>[0][] = [];
+    const session = new FakeSession([
+      { t: "intent", name: "mission:checkout", payload: { branch: "main" } },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({
+      session,
+      guard: async (opts) => {
+        seen.push(opts);
+        return { verdict: "clear" };
+      },
+    });
+
+    await new MissionDriver(deps, START).run();
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.stack).toBe(false);
   });
 
   test("a new-branch intent with no name is a silent no-op", async () => {

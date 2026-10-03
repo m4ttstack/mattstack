@@ -97,6 +97,7 @@
       "lastCommit": null
     },
     "notice": "",
+    "noticeTone": "info",
     "tab": "history",
     "history": {
       "commits": [

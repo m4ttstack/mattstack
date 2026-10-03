@@ -109,7 +109,7 @@ type Mission struct {
 	// view decides on its own before any intent reaches the driver. It is
 	// cleared at the top of every KeyPressMsg and re-armed only by the key
 	// that triggers a fresh refusal, so it shows for exactly one render.
-	// Both share the one notice strip; noticeText picks the winner.
+	// Both share the one notice strip; notice picks the winner.
 	localNotice string
 
 	// hoverZone is the top-bar segment under the pointer, zoneNone when it
@@ -267,13 +267,19 @@ func newTextInput(placeholder string, width int) textinput.Model {
 	return ti
 }
 
-// noticeText is what the single notice strip shows: the wire model's own
-// Notice (a driver refusal) outranks a view-local one when both are pending.
-func (m *Mission) noticeText() string {
+const (
+	noticeError = "error"
+	noticeInfo  = "info"
+)
+
+// notice is what the single notice strip shows and how it reads: the wire
+// model's own Notice outranks a view-local one when both are pending. The
+// only local notice is the detached-HEAD refusal, so it is always an error.
+func (m *Mission) notice() (text, tone string) {
 	if m.model.Notice != "" {
-		return m.model.Notice
+		return m.model.Notice, m.model.NoticeTone
 	}
-	return m.localNotice
+	return m.localNotice, noticeError
 }
 
 // commitEnabled is the view-side commit gate: the wire CanCommit (something
@@ -857,7 +863,7 @@ func (m *Mission) layout() frameLayout {
 		topH:    lipgloss.Height(renderTopBar(m.model, m.spin.View(), m.width, m.hoverZone, m.openZone())),
 		keybarH: lipgloss.Height(renderKeybar(m.width, m.keybarMode())),
 	}
-	if m.noticeText() != "" {
+	if text, _ := m.notice(); text != "" {
 		l.noticeH = 1
 	}
 	l.bodyH = m.height - l.topH - l.keybarH - l.noticeH
@@ -935,8 +941,8 @@ func (m *Mission) View() tea.View {
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebarPadded, divider, diffPadded)
 	out := lipgloss.JoinVertical(lipgloss.Left, top, body, keybar)
 
-	if notice := m.noticeText(); notice != "" {
-		out = lipgloss.JoinVertical(lipgloss.Left, out, renderNoticeStrip(notice, m.width))
+	if text, tone := m.notice(); text != "" {
+		out = lipgloss.JoinVertical(lipgloss.Left, out, renderNoticeStrip(text, tone, m.width))
 	}
 	if m.modal != nil {
 		out = renderMissionModal(out, m.modal, m.width, m.height, lipgloss.Height(top))

@@ -1822,12 +1822,36 @@ func TestModelPushWithWireNoticePaintsIt(t *testing.T) {
 // own layout budgets exactly 1 row for it (layout's noticeH).
 func TestRenderNoticeStripClipsLongTextToOneRow(t *testing.T) {
 	long := strings.Repeat("a very long refusal message that keeps going ", 5)
-	out := renderNoticeStrip(long, 100)
+	out := renderNoticeStrip(long, noticeError, 100)
 	if strings.Contains(out, "\n") {
 		t.Fatalf("notice strip should render exactly 1 row even with a long message: %q", out)
 	}
 	if got := lipgloss.Width(ansi.Strip(out)); got != 100 {
 		t.Fatalf("notice strip should stay exactly 100 wide, got %d: %q", got, out)
+	}
+}
+
+// TestRenderNoticeStripErrorToneIsASolidCoralBand: a refusal painted in the
+// info strip's near-background tint went unseen under the keybar, so an
+// error fills the row with coral.
+func TestRenderNoticeStripErrorToneIsASolidCoralBand(t *testing.T) {
+	out := renderNoticeStrip("main is in a stack", noticeError, 60)
+	if !strings.Contains(out, bgSGR(theme.Coral)) {
+		t.Fatalf("error notice should paint a coral background: %q", out)
+	}
+	info := renderNoticeStrip("Copied", noticeInfo, 60)
+	if strings.Contains(info, bgSGR(theme.Coral)) {
+		t.Fatalf("info notice must not paint coral: %q", info)
+	}
+}
+
+// TestLocalNoticeIsAnError: the view's own notice is the detached-HEAD
+// refusal, so it paints as an error.
+func TestLocalNoticeIsAnError(t *testing.T) {
+	m := newTestMission()
+	m.localNotice = "Detached HEAD: check out a branch first"
+	if _, tone := m.notice(); tone != noticeError {
+		t.Fatalf("local notice tone = %q, want error", tone)
 	}
 }
 
@@ -1839,7 +1863,7 @@ func TestRenderNoticeStripClipsLongTextToOneRow(t *testing.T) {
 // (and including) the pathological 1-cell case.
 func TestRenderNoticeStripClipsAtNarrowWidths(t *testing.T) {
 	for _, width := range []int{1, 2, 3} {
-		out := renderNoticeStrip("a refusal message", width)
+		out := renderNoticeStrip("a refusal message", noticeError, width)
 		if strings.Contains(out, "\n") {
 			t.Fatalf("width %d: notice strip should render exactly 1 row: %q", width, out)
 		}
@@ -1854,10 +1878,10 @@ func TestRenderNoticeStripClipsAtNarrowWidths(t *testing.T) {
 // nothing rather than the fixed chrome (glyph + spaces) Width() would
 // otherwise still emit unclamped.
 func TestRenderNoticeStripNonPositiveWidthReturnsEmpty(t *testing.T) {
-	if out := renderNoticeStrip("a refusal message", 0); out != "" {
+	if out := renderNoticeStrip("a refusal message", noticeError, 0); out != "" {
 		t.Fatalf("width 0 should return empty, got %q", out)
 	}
-	if out := renderNoticeStrip("a refusal message", -1); out != "" {
+	if out := renderNoticeStrip("a refusal message", noticeError, -1); out != "" {
 		t.Fatalf("negative width should return empty, got %q", out)
 	}
 }
