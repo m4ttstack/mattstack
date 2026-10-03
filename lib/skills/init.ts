@@ -1,6 +1,9 @@
-import { join, relative, resolve } from "path";
+import { join } from "path";
 import { applyEdits, modify } from "jsonc-parser";
 import { logFailureDetail, UserActionableError } from "../errors.ts";
+import { readSection } from "../../packages/rt-client/src/settings/migrate.ts";
+import { getDef } from "../settings/registry.ts";
+import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { FragmentError, parseFragment } from "./manifest-merge.ts";
 import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
@@ -38,8 +41,13 @@ export type InitFs = {
 };
 
 export type ZoneInfo = {
+  /** "<org>/<team>": what a bindings file's header records. */
   slug: string;
-  namespace: string;
+  org: string;
+  team: string;
+  /** The org clone's root. */
+  orgDir: string;
+  /** The team folder. */
   dir: string;
   host: string | null;
   projects: string[];
@@ -56,14 +64,6 @@ function readJsonc(fs: InitFs, path: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
-}
-
-/** A pulled marker's namespace can carry path segments; refuse anything that is not a single, plain directory name below the zone. */
-function isValidNamespace(namespace: string, zoneDir: string): boolean {
-  if (!namespace || namespace === "." || namespace === "..") return false;
-  if (namespace.includes("/") || namespace.includes("\\")) return false;
-  const rel = relative(resolve(zoneDir), resolve(zoneDir, "mattstack", "packs", namespace));
-  return !rel.startsWith("..") && !rel.startsWith("/");
 }
 
 function hostOnly(value: unknown): string | null {
@@ -89,36 +89,67 @@ export function isBasePack(fs: Pick<InitFs, "readFile">, dir: string): boolean {
   }
 }
 
-/** A base pack never claims a repo, so it does not occupy the zone's one pack slot. */
-function zoneHasPack(fs: InitFs, dir: string): boolean {
-  const packs = join(dir, "mattstack", "packs");
-  return fs.readDir(packs).some((name) => isPackDir(fs, join(packs, name)) && !isBasePack(fs, join(packs, name)));
-}
-
 export function readZones(fs: InitFs, home: string): ZoneInfo[] {
   return readZonesFrom(fs, join(home, ".mattstack", "teams"));
 }
 
-/** A zone's marker can land before its team.jsonc (a partial clone); only a parsed team.jsonc says what the zone declares. */
-export function zoneTeamConfigReads(fs: InitFs, zoneDir: string): boolean {
-  return readJsonc(fs, join(zoneDir, "mattstack", "team.jsonc")) !== null;
+function storeGlobal(fs: InitFs, path: string): Record<string, unknown> | null {
+  const parsed = readJsonc(fs, path);
+  if (parsed === null) return null;
+  const { repos: _repos, ...global } = parsed;
+  return global;
 }
 
+function stored(key: string, section: Record<string, unknown> | null): unknown {
+  const def = getDef(key);
+  if (!def || section === null) return undefined;
+  const read = readSection(def, section, { layer: true });
+  return read.present ? read.value : undefined;
+}
+
+function forgeHost(section: Record<string, unknown> | null): unknown {
+  return (stored("mattstack.integrations", section) as { forge?: { host?: unknown } | null } | undefined)?.forge?.host;
+}
+
+export function zonePackDir(zone: Pick<ZoneInfo, "dir" | "team">): string {
+  return join(zone.dir, "packs", zone.team);
+}
+
+/** A team folder can land before its settings file (a partial pull); only a parsed settings file says what the team claims. */
+export function zoneTeamConfigReads(fs: InitFs, zoneDir: string): boolean {
+  return readJsonc(fs, join(zoneDir, "settings.team.jsonc")) !== null;
+}
+
+/**
+ * One zone per team folder of every org clone. A team's pack claims the
+ * projects in board.projects as that team resolves it (the team's own list,
+ * else the org's), on board.gitlabHost, else the forge host.
+ */
 export function readZonesFrom(fs: InitFs, teams: string): ZoneInfo[] {
   const zones: ZoneInfo[] = [];
-  for (const slug of fs.readDir(teams)) {
-    const dir = join(teams, slug);
-    const marker = readJsonc(fs, join(dir, "mattstack", "mattstack.jsonc"));
-    if (marker?.role !== "team") continue;
-    const namespace = typeof marker.namespace === "string" && marker.namespace ? marker.namespace : slug;
-    const shim = readJsonc(fs, join(dir, "mattstack", "team.jsonc"));
-    const settings = readJsonc(fs, join(dir, "mattstack", "settings.team.jsonc"));
-    const forge = (settings?.["mattstack.integrations"] as { forge?: { host?: unknown } } | undefined)?.forge;
-    const host = hostOnly(shim?.gitlabHost) ?? hostOnly(forge?.host);
-    const projects = Array.isArray(shim?.projects) ? shim.projects.filter((p): p is string => typeof p === "string") : [];
-    const market = readJsonc(fs, join(dir, ".claude-plugin", "marketplace.json"));
+  for (const org of [...fs.readDir(teams)].sort()) {
+    const orgDir = join(teams, org);
+    const marker = readJsonc(fs, join(orgDir, "mattstack", "mattstack.jsonc"));
+    if (marker?.role !== "org") continue;
+    const orgSettings = storeGlobal(fs, join(orgDir, "mattstack", "org", "settings.org.jsonc"));
+    const market = readJsonc(fs, join(orgDir, ".claude-plugin", "marketplace.json"));
     const marketplace = typeof market?.name === "string" ? market.name : null;
-    zones.push({ slug, namespace, dir, host, projects, marketplace, hasPack: zoneHasPack(fs, dir) });
+    const teamsRoot = join(orgDir, "mattstack", "teams");
+    for (const team of [...fs.readDir(teamsRoot)].sort()) {
+      if (!TEAM_NAME_RE.test(team)) continue;
+      const dir = join(teamsRoot, team);
+      const teamSettings = storeGlobal(fs, join(dir, "settings.team.jsonc"));
+      if (teamSettings === null) continue;
+      const claimed = stored("board.projects", teamSettings) ?? stored("board.projects", orgSettings);
+      const projects = Array.isArray(claimed) ? claimed.filter((p): p is string => typeof p === "string") : [];
+      const host =
+        hostOnly(stored("board.gitlabHost", teamSettings)) ??
+        hostOnly(stored("board.gitlabHost", orgSettings)) ??
+        hostOnly(forgeHost(teamSettings)) ??
+        hostOnly(forgeHost(orgSettings));
+      const packDir = zonePackDir({ dir, team });
+      zones.push({ slug: `${org}/${team}`, org, team, orgDir, dir, host, projects, marketplace, hasPack: isPackDir(fs, packDir) && !isBasePack(fs, packDir) });
+    }
   }
   return zones;
 }
@@ -134,7 +165,7 @@ export function chooseZone(zones: ZoneInfo[], repo: RepoRef, wanted: string | nu
   const onHost = (z: ZoneInfo) => z.host === null || z.host === repo.host;
   const declares = (z: ZoneInfo) => z.projects.includes(repo.path);
   if (wanted) {
-    const named = zones.find((z) => z.slug === wanted);
+    const named = zones.find((z) => z.team === wanted);
     if (!named) return { kind: "missing" };
     if (!onHost(named)) return { kind: "mismatch", zone: named };
     if (named.hasPack && !declares(named)) return { kind: "has-pack", zone: named };
@@ -221,28 +252,11 @@ function renderPackMd(pack: string): string {
   ].join("\n");
 }
 
-export function declareRepo(teamJsonc: string | null, repo: RepoRef): string {
-  if (teamJsonc === null) {
-    return (
-      "// Team declaration read by rt skills materialize: which forge host and which\n" +
-      "// projects this zone's pack binds.\n" +
-      JSON.stringify({ gitlabHost: `https://${repo.host}`, projects: [repo.path] }, null, 2) + "\n"
-    );
-  }
-  const parsed = JSON.parse(stripJsonc(teamJsonc)) as { projects?: unknown };
-  if (!Array.isArray(parsed.projects)) {
-    return applyEdits(teamJsonc, modify(teamJsonc, ["projects"], [repo.path], FORMAT));
-  }
-  if (parsed.projects.includes(repo.path)) return teamJsonc;
-  const edits = modify(teamJsonc, ["projects", parsed.projects.length], repo.path, { ...FORMAT, isArrayInsertion: true });
-  return applyEdits(teamJsonc, edits);
-}
-
-export function addMarketplacePlugin(marketplaceJson: string, pack: string, description: string): string {
+export function addMarketplacePlugin(marketplaceJson: string, pack: string, description: string, source: string): string {
   const parsed = JSON.parse(stripJsonc(marketplaceJson)) as { plugins?: { name?: unknown }[] };
   const plugins = Array.isArray(parsed.plugins) ? parsed.plugins : [];
   if (plugins.some((p) => p?.name === pack)) return marketplaceJson;
-  const entry = { name: pack, source: `./mattstack/packs/${pack}`, description };
+  const entry = { name: pack, source, description };
   const edits = modify(marketplaceJson, ["plugins", plugins.length], entry, { ...FORMAT, isArrayInsertion: true });
   return applyEdits(marketplaceJson, edits);
 }
@@ -255,7 +269,8 @@ export type InitDeps = {
   gitRemote(repoDir: string): Promise<{ kind: "ok"; url: string } | { kind: "not-a-repo" } | { kind: "no-remote" }>;
   isTTY: boolean;
   promptZone(): Promise<{ name: string; remote: string }>;
-  createZone(name: string, remote: string): Promise<{ slug: string; dir: string }>;
+  createZone(name: string, remote: string): Promise<{ slug: string; team: string; dir: string }>;
+  declareClaim(zone: ZoneInfo, projects: string[]): void;
   engineDescription(engine: string): string | null;
   claude: ((args: string[]) => Promise<RunResult>) | null;
   registerRepo(repoDir: string): Promise<string>;
@@ -266,7 +281,7 @@ export type InitDeps = {
 
 export type InitRefusalCode =
   | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-has-pack"
-  | "pack-exists" | "mattstack-missing" | "claude-missing" | "invalid-namespace";
+  | "pack-exists" | "mattstack-missing" | "claude-missing";
 
 export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "install-failed";
 
@@ -328,34 +343,31 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
   let wantedZone = opts.zone;
   if (choice.kind === "missing" && opts.zone === null) {
     if (!deps.isTTY) {
-      return refuse("zone-missing", `No team zone on ${repo.host} is free for a new pack`, "rt team create <name> --remote <url>");
+      return refuse("zone-missing", `No team on ${repo.host} is free for a new pack`, "rt team create <name> --remote <url>");
     }
     const answer = await deps.promptZone();
     const created = await deps.createZone(answer.name, answer.remote);
-    wantedZone = created.slug;
+    wantedZone = created.team;
     zones = readZones(deps.fs, deps.home);
-    choice = chooseZone(zones, repo, created.slug);
+    choice = chooseZone(zones, repo, created.team);
   }
-  if (choice.kind === "missing") return refuse("zone-missing", `There is no team zone called ${wantedZone}`);
+  if (choice.kind === "missing") return refuse("zone-missing", `There is no team called ${wantedZone}`);
   if (choice.kind === "ambiguous") {
-    return refuse("zone-ambiguous", `More than one team zone could hold this pack: ${choice.zones.map((z) => z.slug).join(", ")}`, "rt skills init --zone <slug>");
+    return refuse("zone-ambiguous", `More than one team could hold this pack: ${choice.zones.map((z) => z.team).join(", ")}`, "rt skills init --zone <slug>");
   }
   if (choice.kind === "mismatch") {
-    return refuse("zone-mismatch", `The ${choice.zone.slug} zone is on ${choice.zone.host}, but this repo is on ${repo.host}`);
+    return refuse("zone-mismatch", `The ${choice.zone.team} team is on ${choice.zone.host}, but this repo is on ${repo.host}`);
   }
   if (choice.kind === "has-pack") {
-    return refuse("zone-has-pack", `The ${choice.zone.slug} zone already has a team pack, and a zone holds only one (a base pack can sit beside it)`, "rt team create <name> --remote <url>");
+    return refuse("zone-has-pack", `The ${choice.zone.team} team already has a pack, and a team holds only one`, "rt team create <name> --remote <url>");
   }
   const zone = choice.zone;
-  const pack = zone.namespace;
-  if (!isValidNamespace(pack, zone.dir)) {
-    return refuse("invalid-namespace", `The ${zone.slug} zone's name cannot be a pack name`, undefined, `Pack names use lowercase letters, digits and dashes; this one is ${pack}.`);
-  }
-  const packDir = join(zone.dir, "mattstack", "packs", pack);
+  const pack = zone.team;
+  const packDir = zonePackDir(zone);
   if (zone.hasPack || deps.fs.exists(packDir)) {
-    return refuse("pack-exists", "This zone already has a pack for this repo, and rt never changes an existing pack. To add to it, use the mattstack:extending-a-pack skill");
+    return refuse("pack-exists", "This team already has a pack, and rt never changes an existing pack. To add to it, use the mattstack:extending-a-pack skill");
   }
-  const marketplace = zone.marketplace ?? zone.slug;
+  const marketplace = zone.marketplace ?? zone.org;
   const pluginId = `${pack}@${marketplace}`;
 
   const wrote: string[] = [];
@@ -366,7 +378,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
     if (code === "compile-failed" || code === "check-drift") {
       return { commands: [`rt skills compile --pack-dir ${packDir}`, `rt skills check --pack-dir ${packDir}`] };
     }
-    return { commands: [`claude plugin marketplace add ${zone.dir}`, `claude plugin install ${pluginId}`] };
+    return { commands: [`claude plugin marketplace add ${zone.orgDir}`, `claude plugin install ${pluginId}`] };
   };
 
   const failed = (code: FailureCode, detail: string, from?: { why?: string; next?: string }): InitOutcome => ({
@@ -395,16 +407,16 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
       deps.fs.writeFile(full, text);
       wrote.push(full);
     }
-    const teamPath = join(zone.dir, "mattstack", "team.jsonc");
-    const teamBefore = deps.fs.readFile(teamPath);
-    const teamAfter = declareRepo(teamBefore, repo);
-    if (teamAfter !== teamBefore) { deps.fs.writeFile(teamPath, teamAfter); wrote.push(teamPath); }
-    const marketPath = join(zone.dir, ".claude-plugin", "marketplace.json");
+    if (!zone.projects.includes(repo.path)) {
+      deps.declareClaim(zone, [...zone.projects, repo.path]);
+      wrote.push(join(zone.dir, "settings.team.jsonc"));
+    }
+    const marketPath = join(zone.orgDir, ".claude-plugin", "marketplace.json");
     const marketOnDisk = deps.fs.readFile(marketPath);
-    const marketBefore = marketOnDisk ?? JSON.stringify({ name: marketplace, owner: { name: zone.slug }, plugins: [] }, null, 2) + "\n";
-    const marketAfter = addMarketplacePlugin(marketBefore, pack, packDescription(pack));
+    const marketBefore = marketOnDisk ?? JSON.stringify({ name: marketplace, owner: { name: zone.org }, plugins: [] }, null, 2) + "\n";
+    const marketAfter = addMarketplacePlugin(marketBefore, pack, packDescription(pack), `./mattstack/teams/${zone.team}/packs/${zone.team}`);
     if (marketAfter !== marketOnDisk) {
-      deps.fs.mkdirp(join(zone.dir, ".claude-plugin"));
+      deps.fs.mkdirp(join(zone.orgDir, ".claude-plugin"));
       deps.fs.writeFile(marketPath, marketAfter);
       wrote.push(marketPath);
     }
@@ -432,10 +444,10 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
   const known = await attempt("install-failed", () => marketplaceNames(claude));
   if ("outcome" in known) return known.outcome;
   if (!known.value || !known.value.has(marketplace)) {
-    const added = await attempt("install-failed", () => claude(["plugin", "marketplace", "add", zone.dir]));
+    const added = await attempt("install-failed", () => claude(["plugin", "marketplace", "add", zone.orgDir]));
     if ("outcome" in added) return added.outcome;
     if (added.value.code !== 0 && !isAlreadyDone(added.value)) {
-      return failed("install-failed", `Adding the zone's marketplace to Claude Code failed (exit ${added.value.code}): ${added.value.stderr.trim() || added.value.stdout.trim()}`);
+      return failed("install-failed", `Adding the team's marketplace to Claude Code failed (exit ${added.value.code}): ${added.value.stderr.trim() || added.value.stdout.trim()}`);
     }
   }
   const installed = await attempt("install-failed", () => claude(["plugin", "install", pluginId]));
