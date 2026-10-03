@@ -19,7 +19,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "fs";
 import { parse, type ParseError } from "jsonc-parser";
 import { join } from "path";
-import { teamsDir, teamSettingsPath } from "./paths.ts";
+import { orgSettingsPath, teamFolderDir, teamFoldersDir, teamsDir, teamSettingsPath } from "./paths.ts";
 
 export interface StoreFile {
   /** Top-level keys other than "repos" — the global scope for this store. */
@@ -58,6 +58,11 @@ export function readStore(file: string): StoreFile {
     return EMPTY_STORE(file, true);
   }
 
+  return parseStoreText(file, raw);
+}
+
+/** `readStore`'s parse step, for a caller that already holds the file's text. Never throws. */
+export function parseStoreText(file: string, raw: string): StoreFile {
   if (raw.trim() === "") return EMPTY_STORE(file, true);
 
   const errors: ParseError[] = [];
@@ -126,4 +131,57 @@ export function listTeams(): string[] {
     }
   }
   return teams;
+}
+
+export const TEAM_NAME_RE = /^[a-z][a-z0-9-]*$/;
+
+/**
+ * Org clones on this Mac: folders under teamsDir() that hold
+ * mattstack/org/settings.org.jsonc. The scan degrades the way listTeams does:
+ * one unreadable entry never empties the list.
+ */
+export function listOrgs(): string[] {
+  const dir = teamsDir();
+  if (!existsSync(dir)) return [];
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (err) {
+    console.warn(`rt: failed to list orgs in ${dir}, treating as none: ${(err as Error).message}`);
+    return [];
+  }
+  const orgs: string[] = [];
+  for (const entry of entries) {
+    try {
+      const isDir = entry.isDirectory() || (entry.isSymbolicLink() && statSync(join(dir, entry.name)).isDirectory());
+      if (isDir && existsSync(orgSettingsPath(entry.name))) orgs.push(entry.name);
+    } catch (err) {
+      console.warn(`rt: skipping unreadable entry ${join(dir, entry.name)}: ${(err as Error).message}`);
+    }
+  }
+  return orgs;
+}
+
+/** One org per Mac; with several clones the first by name is the one read. */
+export function currentOrg(): string | null {
+  return [...listOrgs()].sort()[0] ?? null;
+}
+
+export function listTeamFolders(org: string): string[] {
+  try {
+    return readdirSync(teamFoldersDir(org), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && TEAM_NAME_RE.test(entry.name))
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/** The org store and every team folder's store that exists, for the one org on this Mac. */
+export function sharedStoreFiles(): string[] {
+  const org = currentOrg();
+  if (org === null) return [];
+  const teamFile = (team: string) => join(teamFolderDir(org, team), "settings.team.jsonc");
+  return [orgSettingsPath(org), ...listTeamFolders(org).map(teamFile).filter((file) => existsSync(file))];
 }
