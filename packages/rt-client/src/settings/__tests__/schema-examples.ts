@@ -251,13 +251,6 @@ export const EXAMPLES: Record<string, Example> = {
     layer: [{ publicDomain: "apps.example.com" }, { tunnel: { uuid: "00000000-0000-4000-8000-000000000000" } }],
   },
   "board.projects": { good: [[], ["acme/app", "acme/docs"]], bad: [{ value: [{ path: "acme/app" }], path: [0] }] },
-  "board.members": {
-    good: [[], [{ username: "dev1" }, { username: "dev2", name: "Dev Two", hidden: true }]],
-    bad: [
-      { value: [{ name: "Dev One" }], path: [0, "username"] },
-      { value: [{ username: "dev1", hidden: "yes" }], path: [0, "hidden"] },
-    ],
-  },
   "board.botUsernames": { good: [[], ["release-bot"]], bad: [{ value: [false], path: [0] }] },
   "board.ticketPrefixes": { good: [[], ["ACME", "OPS"]], bad: [{ value: "ACME", path: [] }] },
   "board.slack": {

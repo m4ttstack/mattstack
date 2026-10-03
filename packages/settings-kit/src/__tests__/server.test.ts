@@ -22,7 +22,7 @@ const DEFS: Record<string, FakeDef> = {
   "rt.secretThing": { key: "rt.secretThing", type: "string", scopes: ["user"], merge: "replace", description: "A secret", secret: true },
   "rt.legacyThing": { key: "rt.legacyThing", type: "string", scopes: ["user"], merge: "replace", description: "Unmigrated" },
   "rt.repoRoots": { key: "rt.repoRoots", type: "array", scopes: ["machine"], merge: "replace", description: "Scan roots", schema: { type: "array", items: { type: "string" } } },
-  "board.members": { key: "board.members", type: "array", scopes: ["team"], merge: "replace", description: "Roster" },
+  "board.hiddenMembers": { key: "board.hiddenMembers", type: "array", scopes: ["user"], merge: "replace", description: "Hidden people" },
   "board.slack": {
     key: "board.slack",
     type: "object",
@@ -147,7 +147,7 @@ describe("settingsHandler routing", () => {
   test("defs?prefix= filters to one app's namespace", async () => {
     const res = await handle(get("/api/settings/defs?prefix=board."));
     const body = (await res!.json()) as { defs: Array<{ key: string }> };
-    expect(body.defs.map((d) => d.key).sort()).toEqual(["board.members", "board.rtRepos", "board.slack", "board.title"]);
+    expect(body.defs.map((d) => d.key).sort()).toEqual(["board.hiddenMembers", "board.rtRepos", "board.slack", "board.title"]);
   });
 
   test("defs names the org and the active team, and nulls with no org", async () => {
@@ -385,7 +385,7 @@ describe("allowComposite: 'shaped'", () => {
     const w = Object.fromEntries(defs.map((d) => [d.key, d.writable]));
     expect(w["rt.repoRoots"]).toBe(true);
     expect(w["board.rtRepos"]).toBe(false);
-    expect(w["board.members"]).toBe(false);
+    expect(w["board.hiddenMembers"]).toBe(false);
   });
 
   test("writes a shaped composite whose value matches", async () => {
@@ -404,8 +404,8 @@ describe("allowComposite: 'shaped'", () => {
   test("refuses an unshaped composite and an external one", async () => {
     const a = await handle(post("/api/settings/set", { key: "board.rtRepos", scope: "machine", value: [] }), opts);
     expect(await a!.json()).toEqual({ error: '"board.rtRepos" has no editable shape' });
-    const b = await handle(post("/api/settings/set", { key: "board.members", scope: "team", value: [] }), opts);
-    expect(await b!.json()).toEqual({ error: '"board.members" has no editable shape' });
+    const b = await handle(post("/api/settings/set", { key: "board.hiddenMembers", scope: "user", value: [] }), opts);
+    expect(await b!.json()).toEqual({ error: '"board.hiddenMembers" has no editable shape' });
     expect(setCalls).toHaveLength(0);
   });
 
@@ -413,9 +413,9 @@ describe("allowComposite: 'shaped'", () => {
     const a = await handle(post("/api/settings/unset", { key: "board.rtRepos", scope: "machine" }), opts);
     expect(a!.status).toBe(400);
     expect(await a!.json()).toEqual({ error: '"board.rtRepos" has no editable shape' });
-    const b = await handle(post("/api/settings/unset", { key: "board.members", scope: "team" }), opts);
+    const b = await handle(post("/api/settings/unset", { key: "board.hiddenMembers", scope: "user" }), opts);
     expect(b!.status).toBe(400);
-    expect(await b!.json()).toEqual({ error: '"board.members" has no editable shape' });
+    expect(await b!.json()).toEqual({ error: '"board.hiddenMembers" has no editable shape' });
     expect(unsetCalls).toHaveLength(0);
   });
 

@@ -4,8 +4,11 @@
  * team layer, so going through the resolver would recurse.
  */
 
+import { readFileSync } from "fs";
+import { join } from "path";
+import { parse, type ParseError } from "jsonc-parser";
 import { readSection } from "./migrate.ts";
-import { orgSettingsPath, userSettingsPath } from "./paths.ts";
+import { orgSettingsPath, teamPackDir, userSettingsPath } from "./paths.ts";
 import { getDef } from "./registry-machinery.ts";
 import { currentOrg, listTeamFolders, readStore, TEAM_NAME_RE, type StoreFile } from "./stores.ts";
 import { readForgeUsername } from "./team-local-read.ts";
@@ -122,4 +125,38 @@ export function activeTeamRoster(): RosterEntry[] {
   const { team } = activeTeamFrom(org, orgStore, readStore(userSettingsPath()));
   const roster = rosterFrom(orgStore);
   return team === null ? roster : roster.filter((e) => strings(e.teams).includes(team));
+}
+
+/** The active team's pack: the team's own name when its folder holds a pack that is not a base; else null. */
+export function activeTeamPack(): string | null {
+  const { org, team } = activeTeam();
+  if (org === null || team === null) return null;
+  try {
+    const errors: ParseError[] = [];
+    const fragment: unknown = parse(readFileSync(join(teamPackDir(org, team), "pack", "skills.jsonc"), "utf8"), errors, { allowTrailingComma: true });
+    if (errors.length > 0 || fragment === null || typeof fragment !== "object" || Array.isArray(fragment)) return null;
+    return (fragment as { base?: unknown }).base === true ? null : team;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The full roster after an edit made in one team's view: members of other
+ * teams are untouched, a member added in the view joins `team`, and a member
+ * removed from the view leaves `team` but stays in the org.
+ */
+export function mergeTeamRoster(full: RosterEntry[], team: string | null, edited: RosterEntry[]): RosterEntry[] {
+  if (team === null) return edited;
+  const inView = (username: string) => edited.find((e) => sameUser(e.username, username));
+  const out: RosterEntry[] = full.map((entry) => {
+    const teams = strings(entry.teams);
+    const kept = inView(entry.username);
+    if (kept) return { ...entry, ...kept, username: entry.username, teams: teams.includes(team) ? teams : [...teams, team] };
+    return teams.includes(team) ? { ...entry, teams: teams.filter((t) => t !== team) } : entry;
+  });
+  for (const added of edited) {
+    if (!full.some((entry) => sameUser(entry.username, added.username))) out.push({ ...added, teams: [team] });
+  }
+  return out;
 }
