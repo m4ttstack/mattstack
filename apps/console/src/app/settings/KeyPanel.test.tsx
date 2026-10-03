@@ -700,7 +700,7 @@ describe('KeyPanel', () => {
       expect(value).toHaveTextContent(/^2 fields$/);
       expect(value.closest(`.${classes.line}`)).not.toBeNull();
       expect(within(storefront).getByText('user')).toBeInTheDocument();
-      expect(within(storefront).queryByText('user · repo')).toBeNull();
+      expect(within(storefront).queryByText('· repo')).toBeNull();
       expect(within(storefront).queryByTestId('json-block')).toBeNull();
       expect(within(storefront).queryByRole('link')).toBeNull();
       expect(within(storefront).queryAllByRole('button')).toHaveLength(0);
@@ -709,7 +709,7 @@ describe('KeyPanel', () => {
         await within(billing).findByTestId('layer-value-team.repo')
       ).toHaveTextContent(/^1 field$/);
       expect(within(billing).getByText('team')).toBeInTheDocument();
-      expect(within(billing).queryByText('team · repo')).toBeNull();
+      expect(within(billing).queryByText('· repo')).toBeNull();
     });
 
     it('a warmed repo section draws its line on the first render', async () => {

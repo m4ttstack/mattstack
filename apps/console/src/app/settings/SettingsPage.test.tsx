@@ -926,7 +926,13 @@ describe('repo picker', () => {
     await waitFor(() =>
       expect(new URLSearchParams(window.location.search).get('repo')).toBe(REPO)
     );
-    expect(await screen.findByText('team · repo')).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        (_, el) =>
+          !!el?.matches('.mantine-Badge-label') &&
+          el.textContent === 'team · repo'
+      )
+    ).toBeInTheDocument();
     expect(screen.getByText('for acme/app')).toBeInTheDocument();
   });
 
