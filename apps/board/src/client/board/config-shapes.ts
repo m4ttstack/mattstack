@@ -94,6 +94,24 @@ export function rowKind(def: ConfigDef): RowKind {
   return 'scalar';
 }
 
+/** The roster row edits `mattstack.roster` although it is hosted on
+    `board.hiddenMembers`, so it never shows that key's description. */
+const ROSTER_HELP =
+  "The people this board lists as authors: your team's members in the org roster, or everyone in it when this Mac is on no team. Adding or dropping someone here changes the org roster for everyone. Checking someone in or out from the roster panel only shows or hides them on your board.";
+
+/** Control-specific caveats the registry description cannot know, shown in
+    the same info tip as the description. */
+const ROW_HINTS: Record<string, string> = {
+  'board.tabs':
+    'A new section\'s MRs land once rt has backfilled it; the tab shows "syncing" until then. A section must match a CODEOWNERS header exactly; the field suggests the headers rt has seen.',
+};
+
+/** The text of a row's info tip. */
+export function rowHelp(def: ConfigDef): string {
+  if (rowKind(def) === 'roster') return ROSTER_HELP;
+  return [def.description, ROW_HINTS[def.key]].filter(Boolean).join('\n\n');
+}
+
 export function scopeLabel(scope: string): string {
   return scope === 'machine' ? 'machine' : `${scope} · local until pushed`;
 }
