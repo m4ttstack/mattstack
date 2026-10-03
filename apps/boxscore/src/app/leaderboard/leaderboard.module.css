@@ -533,8 +533,40 @@
 
 .ranking {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
   gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Standard scrollbar properties would switch the webkit pseudo-elements off, so they are the fallback only. */
+@supports not selector(::-webkit-scrollbar) {
+  .ranking {
+    scrollbar-color: transparent transparent;
+    scrollbar-width: thin;
+  }
+
+  .ranking:hover {
+    scrollbar-color: var(--tk-border-soft) transparent;
+  }
+}
+
+.ranking::-webkit-scrollbar {
+  width: 4px;
+}
+
+.ranking::-webkit-scrollbar-thumb {
+  border-radius: 2px;
+  background: transparent;
+}
+
+.ranking:hover::-webkit-scrollbar-thumb {
+  background: var(--tk-border-soft);
+}
+
+.ranking > * {
+  flex-shrink: 0;
 }
 
 .rankHit {
