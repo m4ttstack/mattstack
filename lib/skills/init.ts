@@ -52,6 +52,8 @@ export type ZoneInfo = {
   projects: string[];
   marketplace: string | null;
   hasPack: boolean;
+  /** Compile has written into the pack; a pack that has not is a skeleton init carries on. */
+  packCompiled: boolean;
 };
 
 function readJsonc(fs: InitFs, path: string): Record<string, unknown> | null {
@@ -90,6 +92,12 @@ export function isBasePack(fs: Pick<InitFs, "readFile">, dir: string): boolean {
 
 export function readZones(fs: InitFs, home: string): ZoneInfo[] {
   return readZonesFrom(fs, join(home, ".mattstack", "teams"));
+}
+
+/** The org clones on this Mac, by the folder name every zone's slug starts with. */
+export function readOrgSlugs(fs: InitFs, home: string): string[] {
+  const teams = join(home, ".mattstack", "teams");
+  return [...fs.readDir(teams)].sort().filter((org) => readJsonc(fs, join(teams, org, "mattstack", "mattstack.jsonc"))?.role === "org");
 }
 
 function storeGlobal(fs: InitFs, path: string): Record<string, unknown> | null {
@@ -150,7 +158,7 @@ export function readZonesFrom(fs: InitFs, teams: string): ZoneInfo[] {
         hostOnly(forgeHost(teamSettings)) ??
         hostOnly(forgeHost(orgSettings));
       const packDir = zonePackDir({ dir, team });
-      zones.push({ slug: `${org}/${team}`, org, team, orgDir, dir, host, projects, marketplace, hasPack: isPackDir(fs, packDir) && !isBasePack(fs, packDir) });
+      zones.push({ slug: `${org}/${team}`, org, team, orgDir, dir, host, projects, marketplace, hasPack: isPackDir(fs, packDir) && !isBasePack(fs, packDir), packCompiled: packIsCompiled(fs, packDir) });
     }
   }
   return zones;
@@ -164,7 +172,7 @@ export type ZoneChoice =
 
 export type ZoneWanted = { org: string | null; team: string | null; active: string | null };
 
-/** `team` is the --team flag and names a folder or nothing; `active` only breaks a tie and yields to the repo's own claim when its folder is absent. */
+/** `team` is the --team flag and names a folder or nothing; `active` only breaks a tie and yields to the repo's own claim when its folder is absent. A team whose pack never compiled is free: init carries it on. */
 export function chooseZone(zones: ZoneInfo[], repo: RepoRef, wanted: ZoneWanted): ZoneChoice {
   const inOrg = wanted.org ? zones.filter((z) => z.org === wanted.org) : zones;
   const onHost = (z: ZoneInfo) => z.host === null || z.host === repo.host;
@@ -180,7 +188,7 @@ export function chooseZone(zones: ZoneInfo[], repo: RepoRef, wanted: ZoneWanted)
   const declared = inOrg.filter((z) => onHost(z) && declares(z));
   if (declared.length === 1) return { kind: "found", zone: declared[0]! };
   if (declared.length > 1) return { kind: "ambiguous", zones: declared };
-  const free = inOrg.filter((z) => onHost(z) && !z.hasPack);
+  const free = inOrg.filter((z) => onHost(z) && !z.packCompiled);
   if (free.length === 1) return { kind: "found", zone: free[0]! };
   if (free.length > 1) return { kind: "ambiguous", zones: free };
   return { kind: "missing" };
@@ -317,6 +325,9 @@ export type InitOutcome =
 /** rt declining by rule, drawn as refused; every other refusal code is a missing prerequisite or a usage slip, drawn as a failure. */
 export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["pack-exists", "zone-mismatch"]);
 
+/** A missing setting only the user can supply: drawn as needs-you, never as a failure. */
+export const NEEDS_YOU_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["zone-no-host"]);
+
 function refuse(code: InitRefusalCode, detail: string, next?: string): InitOutcome {
   return { ok: false, refused: true, code, detail, ...(next ? { next } : {}) };
 }
@@ -353,7 +364,11 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   const claude = deps.claude;
 
   if (opts.team !== null && !TEAM_NAME_RE.test(opts.team)) {
-    return refuse("zone-missing", `${JSON.stringify(opts.team)} is not a team name. A team name is lowercase letters, digits and hyphens, starting with a letter`, "rt skills init --team <name>");
+    return refuse("zone-missing", `${opts.team || "An empty name"} is not a team name. A team name is lowercase letters, digits and hyphens, starting with a letter`, "rt skills init --team <name>");
+  }
+  let orgs = readOrgSlugs(deps.fs, deps.home);
+  if (opts.zone !== null && !orgs.includes(opts.zone)) {
+    return refuse("zone-missing", `There is no org called ${opts.zone} on this Mac${orgs.length > 0 ? `. Orgs here: ${orgs.join(", ")}` : ""}`);
   }
   const activeRaw = deps.activeTeam();
   const active = activeRaw !== null && TEAM_NAME_RE.test(activeRaw) ? activeRaw : null;
@@ -361,15 +376,19 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   const wanted = (): ZoneWanted => ({ org: opts.zone, team: wantedTeam, active });
   let zones = readZones(deps.fs, deps.home);
   let choice = chooseZone(zones, repo, wanted());
-  if (choice.kind === "missing" && opts.team === null && zones.length === 0) {
+  if (choice.kind === "missing" && opts.team === null && orgs.length === 0) {
     if (!deps.isTTY) {
       return refuse("zone-missing", "This Mac has no org yet, so there is no team to hold a pack", "rt team create <name> --remote <url>");
     }
     const answer = await deps.promptZone();
     const created = await deps.createZone(answer.name, answer.remote);
     wantedTeam = created.team;
+    orgs = readOrgSlugs(deps.fs, deps.home);
     zones = readZones(deps.fs, deps.home);
     choice = chooseZone(zones, repo, wanted());
+  }
+  if (choice.kind === "missing" && wantedTeam === null && zones.length === 0) {
+    return refuse("zone-missing", `${orgs.length === 1 ? `The ${orgs[0]} org has` : "Your orgs have"} no team folders yet, so there is no team to hold a pack`, "rt team add <team>");
   }
   if (choice.kind === "missing") {
     return wantedTeam
@@ -389,7 +408,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
     return refuse("pack-exists", "This team already has a pack, and rt never changes an existing pack. To add to it, use the mattstack:extending-a-pack skill");
   }
   if (zone.host === null) {
-    return refuse("zone-no-host", `The ${zone.team} team has no forge host set, so rt cannot tell which host this repo is on`, `rt settings set board.gitlabHost ${repo.host} --scope team`);
+    return refuse("zone-no-host", `The ${zone.team} team has no forge host set, so rt cannot tell which host this repo is on`, `rt settings set board.gitlabHost '"${repo.host}"' --scope team --team ${zone.team}`);
   }
   const marketplace = zone.marketplace ?? zone.org;
   const pluginId = `${pack}@${marketplace}`;
