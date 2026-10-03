@@ -51,6 +51,7 @@ const ROSTER_READ = "reads the named org's own roster; getSetting reads only thi
 
 const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
   "per-rung reader": {
+    "apps/boxscore/scripts/import-legacy-settings.ts": { count: 2, reason: "the integrations write starts from the org store's own value, never the merged view" },
     "commands/setup.ts": { count: 4, reason: "the Slack connect write starts from the org store's own integrations, never the merged view" },
     "commands/settings-keys.ts": { count: 2, reason: "`rt settings explain` prints every rung" },
     "commands/worktree-hook.ts": { count: 2, reason: "claudeHook is read from the machine rung only" },

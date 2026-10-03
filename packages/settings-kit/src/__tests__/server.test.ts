@@ -87,8 +87,10 @@ const RT = {
   },
   validateValue: (_def: FakeDef, value: unknown) =>
     value === "invalid" ? { ok: false, reason: "value is invalid" } : { ok: true },
-  validateWrite: (_def: FakeDef, value: unknown) =>
-    value === "invalid" ? { ok: false, reason: "value is invalid", issues: [{ path: [], message: "value is invalid" }] } : { ok: true },
+  validateWrite: (_def: FakeDef, value: unknown, opts?: { team?: string }) => {
+    if (opts?.team === "bad/name") throw new Error('rt: "bad/name" is not a team name');
+    return value === "invalid" ? { ok: false, reason: "value is invalid", issues: [{ path: [], message: "value is invalid" }] } : { ok: true };
+  },
   listUnregisteredSettings: () => [{ key: "board.rtRepos", scope: "machine", file: "/home/user/local/settings.local.jsonc" }],
   repoSectionsFor: (key: string) => (key === "rt.roles" ? [{ identity: "gitlab.example.com/acme/app", scopes: ["team"] }] : []),
   listStoreRepoIdentities: () => ["gitlab.example.com/acme/app"],
@@ -171,6 +173,24 @@ describe("settingsHandler routing", () => {
       { scope: "user", file: "/u", present: true, value: ["d@x"] },
     ] as never;
     expect(effectiveFromRows(def, rows)).toEqual({ scope: "user", file: "/u", value: ["a@acme", "b@acme", "c@acme", "d@x"] });
+  });
+
+  test("an add key still adds up the valid layers when its strongest layer is invalid", () => {
+    const def = { key: "claude.plugins", type: "array", scopes: ["user", "team", "org"], merge: "add", description: "" } as never;
+    const rows = [
+      { scope: "default", file: null, present: false },
+      { scope: "org", file: "/o", present: true, value: ["a@acme"] },
+      { scope: "team", file: "/t", present: true, value: ["b@acme"] },
+      { scope: "user", file: "/u", present: true, value: "nope", invalid: "expected array, got string" },
+    ] as never;
+    expect(effectiveFromRows(def, rows)).toEqual({ scope: "user", file: "/u", invalid: "expected array, got string", value: ["a@acme", "b@acme"] });
+  });
+
+  test("a set naming a bad team answers 400 with the error instead of throwing", async () => {
+    const res = await handle(post("/api/settings/set", { key: "board.slack", scope: "team", team: "bad/name", value: { webhookUrl: "https://hooks.example.com/x" } }), { allowComposite: true });
+    expect(res!.status).toBe(400);
+    expect(await res!.json()).toEqual({ error: 'rt: "bad/name" is not a team name' });
+    expect(setCalls).toHaveLength(0);
   });
 
   test("a set at org scope reaches setSetting with the org scope and no team", async () => {

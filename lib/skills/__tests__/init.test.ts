@@ -85,6 +85,12 @@ describe("readZones", () => {
     expect(byTeam).toEqual({ widgets: ["acme/widgets"], gadgets: ["acme/gadgets"] });
   });
 
+  test("a team whose board.projects is not a list claims the org's list, as the resolver reads it", () => {
+    const fs = memFs(orgFiles("acme", { "board.projects": ["acme/widgets"] }, { widgets: { "board.projects": "acme/gadgets" }, gadgets: { "board.projects": ["acme/gadgets"] } }));
+    const byTeam = Object.fromEntries(readZones(fs, HOME).map((z) => [z.team, z.projects]));
+    expect(byTeam).toEqual({ widgets: ["acme/widgets"], gadgets: ["acme/gadgets"] });
+  });
+
   test("the host falls back to the forge in mattstack.integrations, team then org", () => {
     const fs = memFs(orgFiles("acme", { "mattstack.integrations": { forge: { host: "github.com", provider: "github" } } }, { widgets: {} }));
     expect(readZones(fs, HOME)[0]!.host).toBe("github.com");
