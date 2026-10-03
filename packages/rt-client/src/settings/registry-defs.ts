@@ -396,15 +396,15 @@ const ROWS: readonly SettingDef[] = [
     key: "claude.marketplaces",
     type: "array",
     scopes: ["user", "team"],
-    merge: "replace",
-    description: "Claude Code plugin marketplaces to replay on restore, in add order.",
+    merge: "add",
+    description: "Claude Code plugin marketplaces to add, in order. The org's, the team's and your own lists add up.",
   },
   {
     key: "claude.plugins",
     type: "array",
     scopes: ["user", "team"],
-    merge: "replace",
-    description: "Claude Code plugins to replay on restore, in install order.",
+    merge: "add",
+    description: "Claude Code plugins to install, in order. The org's, the team's and your own lists add up; a plugin from the org or a team is installed but left for you to enable.",
   },
 
   // --- deck (MAT-384 settings half) ---------------------------------------

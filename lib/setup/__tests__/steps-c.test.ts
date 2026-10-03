@@ -19,7 +19,7 @@ import type { ToolResolution } from "../../deps/resolve.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import type { Probes } from "../probes.ts";
 
-import { MATTSTACK_MARKETPLACE_SOURCE, OFFICIAL_MARKETPLACE_SOURCE, pluginsInstallStep } from "../steps/plugins.ts";
+import { MATTSTACK_MARKETPLACE_SOURCE, OFFICIAL_MARKETPLACE_SOURCE, computePlugins, pluginsInstallStep } from "../steps/plugins.ts";
 import { gitIdentityStep } from "../steps/git-identity.ts";
 import { linearMcpStep } from "../steps/linear-mcp.ts";
 import { applyBaselinePermissions, claudePermissionsStep } from "../steps/claude-permissions.ts";
@@ -39,7 +39,7 @@ import { teamSyncRow } from "../validators/rt-health.ts";
 import { finalizePlan, type Row } from "../contract.ts";
 import { rowsToChecks } from "../../../commands/verify.ts";
 import { updateNotification } from "../update.ts";
-import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
+import { seedOrg, sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 // ─── shared fakes (mirrors steps-a/b.test.ts's trivial no-ops) ─────────────
 
@@ -166,6 +166,50 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(execCalls.some((a) => a.at(-1) === "ok-plugin@ok-market")).toBe(true);
       expect(logs.some((l) => l.line.includes("claude.marketplaces") && l.line.includes("dropped 1"))).toBe(true);
       expect(logs.some((l) => l.line.includes("claude.plugins") && l.line.includes("dropped 1"))).toBe(true);
+    });
+
+    describe("trust split per item", () => {
+      const roster = [{ username: "dev1", teams: ["widgets"] }];
+      let ctx: ApplyContext;
+      beforeEach(() => {
+        ctx = makeCtx(fakeProbes({ home })).ctx;
+      });
+
+      test("a plugin only the org or a team lists is installed and never enabled; one you list yourself is enabled", () => {
+        seedOrg({
+          org: "acme",
+          username: "dev1",
+          roster,
+          settings: { "claude.plugins": ["org-tool@acme", "both@acme"] },
+          teams: { widgets: { "claude.plugins": ["team-tool@acme"] } },
+        });
+        setSetting("claude.plugins", ["mine@elsewhere", "both@acme"], "user");
+
+        const { trusted, teamAuthored } = computePlugins(ctx, null);
+
+        expect(trusted).toEqual(expect.arrayContaining(["mine@elsewhere", "both@acme"]));
+        expect(teamAuthored).toEqual(["org-tool@acme", "team-tool@acme"]);
+        expect(trusted).not.toContain("org-tool@acme");
+      });
+
+      test("a plugin listed only at org scope is installed but not enabled, like a team-scope one", () => {
+        seedOrg({ org: "acme", username: "dev1", roster, settings: { "claude.plugins": ["org-tool@acme"] }, teams: { widgets: {} } });
+
+        const { trusted, teamAuthored } = computePlugins(ctx, null);
+
+        expect(teamAuthored).toEqual(["org-tool@acme"]);
+        expect(trusted).not.toContain("org-tool@acme");
+      });
+
+      test("a plugin listed only at user scope is enabled", () => {
+        seedOrg({ org: "acme", username: "dev1", roster, teams: { widgets: {} } });
+        setSetting("claude.plugins", ["mine@elsewhere"], "user");
+
+        const { trusted, teamAuthored } = computePlugins(ctx, null);
+
+        expect(trusted).toContain("mine@elsewhere");
+        expect(teamAuthored).not.toContain("mine@elsewhere");
+      });
     });
 
     test("superpowers installs as a trusted baseline plugin, its marketplace added right after rt's own and ahead of team/user sources", async () => {

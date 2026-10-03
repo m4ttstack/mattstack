@@ -91,6 +91,12 @@ export interface Provenance {
   file: string | null;
 }
 
+export interface ItemSource {
+  value: unknown;
+  /** Every layer that lists this item, weakest first. */
+  sources: Provenance[];
+}
+
 export interface ResolveOpts {
   /** Normalized repo identity (identity.ts). Null/absent = repo rungs are unreachable. */
   repoIdentity?: string | null;
@@ -105,6 +111,8 @@ export interface Resolved<T> {
   value: T;
   /** ALWAYS an array, weakest-first. Length 1 for replace keys. */
   provenance: Provenance[];
+  /** Present only for a `merge: "add"` key: each item of `value`, in order, with the layers it came from. */
+  items?: ItemSource[];
 }
 
 /** A scope whose authored value was found but refused (type, path guard, or store). */
@@ -118,6 +126,8 @@ export interface ListedSetting {
   key: string;
   value: unknown;
   provenance: Provenance[];
+  /** Present only for a `merge: "add"` key: each item of `value` with the layers it came from. */
+  items?: ItemSource[];
   migrated: boolean;
   /** Present only for keys found in files but absent from the registry. */
   unregistered?: true;
@@ -435,6 +445,7 @@ function collectSlots(def: SettingDef, stores: StoreBundle, opts: ResolveOpts): 
 interface Resolution {
   value: unknown;
   provenance: Provenance[];
+  items?: ItemSource[];
   invalid: InvalidScope[];
   rows: ExplainRow[];
   mergedIssues: SchemaIssue[];
@@ -547,13 +558,13 @@ function resolveDef(def: SettingDef, stores: StoreBundle, opts: ResolveOpts): Re
 
   const merged = mergeApplied(def, applied);
   const mergedIssues = merged.value === undefined ? [] : checkSchema(def, merged.value, { layer: false });
-  return { value: merged.value, provenance: merged.provenance, invalid, rows, mergedIssues };
+  return { value: merged.value, provenance: merged.provenance, invalid, rows, mergedIssues, ...(merged.items ? { items: merged.items } : {}) };
 }
 
 function mergeApplied(
   def: SettingDef,
   applied: Array<{ scope: Scope; file: string | null; value: unknown }>,
-): { value: unknown; provenance: Provenance[] } {
+): { value: unknown; provenance: Provenance[]; items?: ItemSource[] } {
   if (applied.length === 0) return { value: undefined, provenance: [] };
 
   // Deep merge is only meaningful for objects; a `deep` def with any other
@@ -570,6 +581,38 @@ function mergeApplied(
           const layer = objectLayers[i] as (typeof applied)[number];
           return { scope: layer.scope, file: layer.file };
         }),
+      };
+    }
+  }
+
+  if (def.merge === "add" && def.type === "array") {
+    const lists = applied.filter((layer) => Array.isArray(layer.value));
+    if (lists.length > 0) {
+      const items: ItemSource[] = [];
+      const byId = new Map<string, ItemSource>();
+      const contributors: Provenance[] = [];
+      for (const layer of lists) {
+        const source: Provenance = { scope: layer.scope, file: layer.file };
+        const seenHere = new Set<string>();
+        for (const value of layer.value as unknown[]) {
+          const id = JSON.stringify(value);
+          if (seenHere.has(id)) continue;
+          seenHere.add(id);
+          let item = byId.get(id);
+          if (!item) {
+            item = { value, sources: [] };
+            byId.set(id, item);
+            items.push(item);
+          }
+          item.sources.push(source);
+        }
+        if (seenHere.size > 0) contributors.push(source);
+      }
+      const strongest = lists[lists.length - 1] as (typeof applied)[number];
+      return {
+        value: items.map((item) => item.value),
+        provenance: contributors.length > 0 ? contributors : [{ scope: strongest.scope, file: strongest.file }],
+        items,
       };
     }
   }
@@ -719,7 +762,7 @@ export function getSetting<T>(key: string, opts: ResolveOpts = {}): Resolved<T> 
       ? expandVariables(resolution.value, expandCtxFrom(opts))
       : resolution.value;
 
-  return { value: value as T, provenance: resolution.provenance };
+  return { value: value as T, provenance: resolution.provenance, ...(resolution.items ? { items: resolution.items } : {}) };
 }
 
 /**
@@ -745,6 +788,7 @@ export function listSettings(opts: ResolveOpts = {}): ListedSetting[] {
       migrated: isMigrated(def),
     };
     if (resolution.invalid.length > 0) listed.invalid = resolution.invalid;
+    if (resolution.items) listed.items = resolution.items;
 
     const nonconforming = resolution.rows.filter((r) => r.nonconforming).map((r) => ({ scope: r.scope, file: r.file, issues: r.nonconforming! }));
     if (nonconforming.length > 0) listed.nonconforming = nonconforming;
