@@ -211,7 +211,6 @@ const BOARD_EDITOR = { kind: "external", app: "board" } as const;
     other composite key's editor kind comes from `recognize(def.schema)`. */
 export const SHAPES: Record<string, CompositeShape> = {
   "board.tabs": BOARD_EDITOR,
-  "board.members": BOARD_EDITOR,
   "board.hiddenMembers": BOARD_EDITOR,
 };
 

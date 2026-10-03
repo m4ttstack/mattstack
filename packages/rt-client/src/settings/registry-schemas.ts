@@ -180,7 +180,6 @@ export const SCHEMAS = {
     railway: z.looseObject({ projectId: z.string(), environmentId: z.string() }).nullable().optional(),
   }),
   "board.projects": z.array(z.string()),
-  "board.members": z.array(z.looseObject({ username: z.string(), name: z.string().optional(), hidden: z.boolean().optional(), agePublicKey: z.string().optional() })),
   "board.botUsernames": z.array(z.string()),
   "board.ticketPrefixes": z.array(z.string()),
   "board.slack": z.looseObject({

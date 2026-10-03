@@ -450,13 +450,6 @@ const ROWS: readonly SettingDef[] = [
     description: "GitLab projects the board tracks, shared by the whole team.",
   },
   {
-    key: "board.members",
-    type: "array",
-    scopes: ["team"],
-    merge: "replace",
-    description: "The authors tab's roster: whose MRs the classic board lists, including hidden-by-default entries. Codeowners tabs list MRs from anyone. The cross-app roster successor is mattstack.roster; this key remains the board's own list until the board adopts it.",
-  },
-  {
     key: "board.title",
     type: "string",
     scopes: ["team"],
@@ -536,18 +529,11 @@ const ROWS: readonly SettingDef[] = [
     description: "Which board member identity this developer's local board runs as by default.",
   },
   {
-    key: "board.defaultPack",
-    type: "string",
-    scopes: ["user"],
-    merge: "replace",
-    description: "The team pack this developer's board launches review, respond and doctor with when a tab names none; setup seeds it with the first pack of the team you joined.",
-  },
-  {
     key: "board.hiddenMembers",
     type: "array",
     scopes: ["user"],
     merge: "replace",
-    description: "Usernames this developer hides from the authors tab's board.members roster; overlays the team truth without editing it.",
+    description: "Usernames this developer hides from the authors tab's roster; overlays the team truth without editing it.",
   },
   {
     key: "board.triage",
