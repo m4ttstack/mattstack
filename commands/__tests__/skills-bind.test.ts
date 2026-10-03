@@ -945,10 +945,11 @@ describe("applyBind", () => {
       process.env.HOME = home;
       process.env.RT_ENGINE_PACK_DIR = join(root, "engine");
       writeFile(join(root, "engine", "pack", "skills.jsonc"), "{}");
-      const zone = join(home, ".mattstack", "teams", "acme", "mattstack");
-      writeFile(join(zone, "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "acme" }));
-      writeFile(join(zone, "team.jsonc"), JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets", "acme/gadgets"] }));
-      writeFile(join(zone, "packs", "widgets", "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { domain: "widgets:ci" } } }));
+      const orgDir = join(home, ".mattstack", "teams", "acme", "mattstack");
+      writeFile(join(orgDir, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
+      writeFile(join(orgDir, "org", "settings.org.jsonc"), JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets", "acme/gadgets"] }));
+      writeFile(join(orgDir, "teams", "widgets", "settings.team.jsonc"), "{}");
+      writeFile(join(orgDir, "teams", "widgets", "packs", "widgets", "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { domain: "widgets:ci" } } }));
       for (const name of registered) {
         const dir = join(root, "src", name);
         execFileSync("git", ["init", "-q", dir]);

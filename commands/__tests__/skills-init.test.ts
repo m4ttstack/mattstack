@@ -50,18 +50,18 @@ describe("init outcome", () => {
           ok: false,
           refused: true,
           code: "zone-has-pack",
-          detail: "The acme zone already has a team pack, and a zone holds only one (a base pack can sit beside it)",
+          detail: "The acme team already has a pack, and a team holds only one",
           next: "rt team create <name> --remote <url>",
         }),
       ),
     ).toBe(
-      "[refused] The acme zone already has a team pack, and a zone holds only one (a base pack can sit beside it)\n  next: rt team create <name> --remote <url>\n",
+      "[refused] The acme team already has a pack, and a team holds only one\n  next: rt team create <name> --remote <url>\n",
     );
   });
 
   test("a refusal that is not a policy one is a failure, its command as next", () => {
-    const failure = initFailure({ ok: false, refused: true, code: "zone-ambiguous", detail: "More than one team zone could hold this pack: acme, beta", next: "rt skills init --zone <slug>" });
-    expect(renderPlain([ui.failure(failure)])).toBe("More than one team zone could hold this pack: acme, beta\n  next: rt skills init --zone <slug>\n");
+    const failure = initFailure({ ok: false, refused: true, code: "zone-ambiguous", detail: "More than one team could hold this pack: acme, beta", next: "rt skills init --zone <slug>" });
+    expect(renderPlain([ui.failure(failure)])).toBe("More than one team could hold this pack: acme, beta\n  next: rt skills init --zone <slug>\n");
   });
 
   test("the failure prefers the error's next to the generic remedy", () => {
@@ -203,7 +203,7 @@ test("a refusal has no trailing written-path block", () => {
 });
 
 test("a refusal keeps its reason in the failure and refusal blocks", () => {
-  const o = { ok: false as const, refused: true as const, code: "invalid-namespace" as const, detail: "The acme zone's name cannot be a pack name", why: "Pack names use lowercase letters, digits and dashes; this one is ../escape." };
+  const o = { ok: false as const, refused: true as const, code: "zone-mismatch" as const, detail: "The widgets team is on another host", why: "This repo is on gitlab.example.com." };
   expect(initFailure(o)).toEqual({ title: o.detail, why: o.why });
   expect(renderPlain(initRefusalBlocks(o))).toBe(`[refused] ${o.detail}\n  why: ${o.why}\n`);
 });
@@ -239,6 +239,7 @@ function stubDeps(overrides: Partial<InitDeps> = {}): InitDeps {
     isTTY: false,
     promptZone: async () => { throw new Error("promptZone should not be called"); },
     createZone: async () => { throw new Error("createZone should not be called"); },
+    declareClaim: () => {},
     engineDescription: () => "engine description",
     claude: async () => ({ code: 0, stdout: "", stderr: "" }),
     registerRepo: async () => "repo-slug",
@@ -299,13 +300,14 @@ describe("skillsInit", () => {
   test("a policy refusal is a refused note on stderr, exit 2", async () => {
     const HOME = "/h";
     const fs = memFs({
-      [`${HOME}/.mattstack/teams/acme/mattstack/mattstack.jsonc`]: `{ "role": "team", "namespace": "acme", "org": "x" }`,
-      [`${HOME}/.mattstack/teams/acme/mattstack/team.jsonc`]: `{ "gitlabHost": "https://gitlab.com", "projects": ["acme/api"] }`,
-      [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/pack/stubs.jsonc`]: "{}",
+      [`${HOME}/.mattstack/teams/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com", "board.projects": ["acme/api"] }`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/teams/acme/packs/acme/pack/stubs.jsonc`]: "{}",
     });
     await skillsInit([], {}, stubDeps({ fs, home: HOME, gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }) }));
     expect(io.stdout()).toBe("");
-    expect(io.errLines()[0]).toStartWith("[refused] This zone already has a pack for this repo");
+    expect(io.errLines()[0]).toStartWith("[refused] This team already has a pack");
     expect(io.stderr()).not.toContain("[failed]");
     expect(process.exitCode).toBe(2);
   });
@@ -368,8 +370,9 @@ describe("skillsInit", () => {
   test("--json: a post-write compile failure envelope carries the wrote list", async () => {
     const HOME = "/h";
     const fs = memFs({
-      [`${HOME}/.mattstack/teams/acme/mattstack/mattstack.jsonc`]: `{ "role": "team", "namespace": "acme", "org": "x" }`,
-      [`${HOME}/.mattstack/teams/acme/mattstack/team.jsonc`]: `{ "gitlabHost": "https://gitlab.com", "projects": [] }`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com", "board.projects": [] }`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
       [`${HOME}/.mattstack/teams/acme/.claude-plugin/marketplace.json`]: `{ "name": "acme-market", "owner": { "name": "acme" }, "plugins": [] }`,
     });
     const deps = stubDeps({

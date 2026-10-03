@@ -385,13 +385,14 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin", RT_ENGINE_PACK_DIR: "/fake/engine" },
-        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/packs`]: ["widgets"] },
+        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets/packs`]: ["widgets"] },
         files: {
           "/usr/local/bin/claude": "bin",
           "/fake/engine/pack/skills.jsonc": "{}",
-          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "team", namespace: "acme" }),
-          [`${zone}/team.jsonc`]: JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }),
-          [`${zone}/packs/widgets/pack/skills.jsonc`]: "{}",
+          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }),
+          [`${zone}/org/settings.org.jsonc`]: JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }),
+          [`${zone}/teams/widgets/settings.team.jsonc`]: "{}",
+          [`${zone}/teams/widgets/packs/widgets/pack/skills.jsonc`]: "{}",
         },
         exec: async (argv) => {
           if (argv[2] === "list") return ok("[]");
@@ -414,13 +415,14 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin", RT_ENGINE_PACK_DIR: "/fake/engine" },
-        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/packs`]: ["widgets"] },
+        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets/packs`]: ["widgets"] },
         files: {
           "/usr/local/bin/claude": "bin",
           "/fake/engine/pack/skills.jsonc": "{}",
-          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "team", namespace: "acme" }),
-          [`${zone}/team.jsonc`]: JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }),
-          [`${zone}/packs/widgets/pack/skills.jsonc`]: "{}",
+          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }),
+          [`${zone}/org/settings.org.jsonc`]: JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }),
+          [`${zone}/teams/widgets/settings.team.jsonc`]: "{}",
+          [`${zone}/teams/widgets/packs/widgets/pack/skills.jsonc`]: "{}",
         },
         exec: async (argv) => {
           if (argv[2] === "list") return ok("[]");
@@ -446,13 +448,14 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin", RT_ENGINE_PACK_DIR: "/fake/engine" },
-        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/packs`]: ["widgets"] },
+        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets/packs`]: ["widgets"] },
         files: {
           "/usr/local/bin/claude": "bin",
           "/fake/engine/pack/skills.jsonc": "{}",
-          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "team", namespace: "acme" }),
-          [`${zone}/team.jsonc`]: JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }),
-          [`${zone}/packs/widgets/pack/skills.jsonc`]: "{ nope",
+          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }),
+          [`${zone}/org/settings.org.jsonc`]: JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }),
+          [`${zone}/teams/widgets/settings.team.jsonc`]: "{}",
+          [`${zone}/teams/widgets/packs/widgets/pack/skills.jsonc`]: "{ nope",
         },
         exec: async (argv) => {
           if (argv[2] === "list") return ok("[]");
