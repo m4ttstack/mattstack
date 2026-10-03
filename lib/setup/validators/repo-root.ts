@@ -5,7 +5,7 @@
  * a machine whose setup is done and has no intent left.
  */
 import { getSetting } from "../../settings/resolve.ts";
-import { row, type Action, type Row, type TeamRef } from "../contract.ts";
+import { row, type Action, type Row, type OrgRef } from "../contract.ts";
 import type { Probes } from "../probes.ts";
 import { checkRepoRoot, detectCandidate, readStagedRepoRoot } from "../repo-root.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
@@ -27,7 +27,7 @@ function configuredRoot(): string | null {
 
 export function repoRootRow(
   p: Pick<Probes, "home" | "exists" | "statPath" | "readFile">,
-  team: TeamRef,
+  team: OrgRef,
   snapshot: TeamSnapshot,
 ): Row | null {
   if (team.mode !== "join" && snapshot.trackingIdentities.length === 0) return null;

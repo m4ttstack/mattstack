@@ -18,7 +18,7 @@ const readyExec: ExecScript = (argv) => (argv[0] === "sw_vers" ? ok("15.6") : ok
 const secrets: SecretPresence = { async has() { return null; } };
 
 async function plan(mode: "plan" | "status"): Promise<Plan> {
-  return composePlan({ p: fakeProbes({ exec: readyExec }), secrets, ci: false, mode, teams: [], waived: [] });
+  return composePlan({ p: fakeProbes({ exec: readyExec }), secrets, ci: false, mode, orgs: [], waived: [] });
 }
 
 /** The only keys inside an action that a person reads and no program does. Everything else in an action is the app's to act on. */
