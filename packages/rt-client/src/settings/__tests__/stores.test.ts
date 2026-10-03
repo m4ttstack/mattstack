@@ -10,7 +10,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { userSettingsPath, teamSettingsPath, teamsDir, machineSettingsPath } from "../paths.ts";
-import { readStore, listTeams } from "../stores.ts";
+import { currentOrg, listOrgs, listTeamFolders, listTeams, parseStoreText, readStore } from "../stores.ts";
 
 describe("settings/stores", () => {
   const origHome = process.env.HOME;
@@ -251,6 +251,32 @@ describe("settings/stores", () => {
         warnSpy.mockRestore();
         chmodSync(dir, 0o755); // so afterEach can remove the temp HOME
       }
+    });
+  });
+
+  describe("org listing", () => {
+    test("an org is a clone with mattstack/org/settings.org.jsonc", () => {
+      const org = join(teamsDir(), "acme", "mattstack", "org");
+      mkdirSync(org, { recursive: true });
+      writeFileSync(join(org, "settings.org.jsonc"), "{}");
+      mkdirSync(join(teamsDir(), "old-layout", "mattstack"), { recursive: true });
+      writeFileSync(join(teamsDir(), "old-layout", "mattstack", "settings.team.jsonc"), "{}");
+      expect(listOrgs()).toEqual(["acme"]);
+      expect(currentOrg()).toBe("acme");
+    });
+
+    test("parseStoreText gives the same store readStore does", () => {
+      const text = `// header\n{ "board.title": "Acme", "repos": { "gitlab.example.com/acme/widgets": { "rt.roles": {} } } }`;
+      expect(parseStoreText("/x/settings.org.jsonc", text)).toEqual({ global: { "board.title": "Acme" }, repos: { "gitlab.example.com/acme/widgets": { "rt.roles": {} } }, file: "/x/settings.org.jsonc", exists: true });
+      expect(parseStoreText("/x/s.jsonc", "{ not json").global).toEqual({});
+    });
+
+    test("team folders are plain lowercase names, sorted", () => {
+      const teams = join(teamsDir(), "acme", "mattstack", "teams");
+      for (const name of ["widgets", "gadgets", "Widgets2", ".git"]) mkdirSync(join(teams, name), { recursive: true });
+      writeFileSync(join(teams, "notes.md"), "");
+      expect(listTeamFolders("acme")).toEqual(["gadgets", "widgets"]);
+      expect(listTeamFolders("nope")).toEqual([]);
     });
   });
 });
