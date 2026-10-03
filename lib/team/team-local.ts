@@ -102,6 +102,15 @@ export function assertNotJoined(p: Pick<Probes, "readFile" | "home">, slug: stri
   throw new UserActionableError("team-pull-only", `This Mac joined the ${slug} team by invite, so its copy is pull-only.`, {}, { why: "Ask the team's owner to make this change." });
 }
 
+/** A roster write lands in the org this Mac reads settings from, so a verb named for any other org would read one store and write another. */
+export function assertCurrentOrg(slug: string, current: string | null, verb: string): void {
+  if (current === slug) return;
+  if (current === null) {
+    throw new UserActionableError("org-not-on-this-mac", `This Mac has no clone of the ${slug} org, so its roster can't change here.`, {}, { next: "rt team join" });
+  }
+  throw new UserActionableError("org-not-current", `This Mac reads settings from the ${current} org, not ${slug}, so the ${slug} roster can't change here.`, {}, { next: `rt ${verb} --team ${current}` });
+}
+
 /** Merges one field without clobbering the rest — callers set `createdByRt` and the operator sets the permission, at different times. */
 export function updateTeamLocal(
   p: Pick<Probes, "readFile" | "home" | "mkdirp" | "writeFile" | "chmod">,
