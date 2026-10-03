@@ -16,6 +16,7 @@ import {
   finishSentNudge,
   markNudgeHandled,
   NUDGE_NO_RESPONSE_MS,
+  NUDGE_QUIET_MS,
   pendingNudgesByMr,
   pruneFinishedSentNudges,
   pruneNudges,
@@ -452,6 +453,37 @@ describe('writeSentNudge / readSentNudges', () => {
 });
 
 describe('resolveSentNudge', () => {
+  test('a progress confirmation refreshes a launched ask', () => {
+    writeSentNudge(
+      { nudgeId: 'n1', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 1 },
+      db
+    );
+    resolveSentNudge(URL_A, { result: 'launched', at: 10 }, db);
+    resolveSentNudge(URL_A, { result: 'confirmed', at: 50 }, db);
+    expect(readSentNudges(db).get(URL_A)?.resolution).toEqual({
+      result: 'confirmed',
+      at: 50,
+    });
+  });
+
+  test('a confirmation never replaces a declined or expired ask', () => {
+    for (const result of ['rejected', 'expired'] as const) {
+      writeSentNudge(
+        {
+          nudgeId: 'n1',
+          mrUrl: URL_A,
+          iid: 4821,
+          reviewer: 'grace',
+          sentAt: 1,
+        },
+        db
+      );
+      resolveSentNudge(URL_A, { result, at: 10 }, db);
+      resolveSentNudge(URL_A, { result: 'confirmed', at: 50 }, db);
+      expect(readSentNudges(db).get(URL_A)?.resolution?.result).toBe(result);
+    }
+  });
+
   test('is a no-op when no row exists for the MR', () => {
     resolveSentNudge(URL_A, { result: 'launched', at: 10 }, db);
     expect(readSentNudges(db).size).toBe(0);
@@ -820,6 +852,49 @@ describe('pruneSentNudges', () => {
 });
 
 describe('sentNudgeDisplay', () => {
+  test('a launched or confirmed ask quiet past NUDGE_QUIET_MS reads no-update', () => {
+    const base: SentNudge = {
+      nudgeId: 'n',
+      mrUrl: 'u',
+      iid: 1,
+      reviewer: 'matt',
+      sentAt: 0,
+    };
+    for (const result of ['launched', 'confirmed'] as const) {
+      const n = { ...base, resolution: { result, at: 100 } };
+      expect(sentNudgeDisplay(n, 100 + NUDGE_QUIET_MS)).toBe(result);
+      expect(sentNudgeDisplay(n, 100 + NUDGE_QUIET_MS + 1)).toBe('no-update');
+    }
+  });
+
+  test('an unanswered ask never reads no-update', () => {
+    const base: SentNudge = {
+      nudgeId: 'n',
+      mrUrl: 'u',
+      iid: 1,
+      reviewer: 'matt',
+      sentAt: 0,
+    };
+    expect(sentNudgeDisplay(base, NUDGE_QUIET_MS + 1)).toBe('requested');
+  });
+
+  test('finished, declined and expired asks never read no-update', () => {
+    const base: SentNudge = {
+      nudgeId: 'n',
+      mrUrl: 'u',
+      iid: 1,
+      reviewer: 'matt',
+      sentAt: 0,
+    };
+    for (const result of ['done', 'failed', 'rejected', 'expired'] as const)
+      expect(
+        sentNudgeDisplay(
+          { ...base, resolution: { result, at: 0 } },
+          NUDGE_QUIET_MS * 10
+        )
+      ).toBe(result);
+  });
+
   test('honours resolution then self-expiry', () => {
     const base: SentNudge = {
       nudgeId: 'n',
@@ -835,7 +910,7 @@ describe('sentNudgeDisplay', () => {
     expect(
       sentNudgeDisplay(
         { ...base, resolution: { result: 'launched', at: 5 } },
-        NUDGE_NO_RESPONSE_MS + 1
+        6
       )
     ).toBe('launched');
     expect(

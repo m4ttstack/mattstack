@@ -161,6 +161,24 @@ describe('askBandModel', () => {
     }
   });
 
+  test('no update: warn tone, hourglass, retry and dismiss, a quiet trail step', () => {
+    const m = askBandModel(
+      sent({ display: 'no-update', kind: 'review', resolvedAt: NOW - 40 * MIN })
+    );
+    expect(m).toMatchObject({
+      tone: 'warn',
+      icon: 'hourglass',
+      label: 'no update',
+      actions: ['retry', 'dismiss'],
+    });
+    expect(m.steps.map(s => s.name)).toEqual([
+      'Requested',
+      'Started',
+      'No update',
+    ]);
+    expect(m.steps[2]?.detail).toBe("Grace's agent has been quiet for 30m");
+  });
+
   test('the trail lists what the row knows, oldest first', () => {
     const m = askBandModel(
       sent({

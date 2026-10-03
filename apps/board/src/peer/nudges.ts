@@ -194,11 +194,9 @@ function readSentNudgeRow(mrUrl: string, db: Database): SentNudge | null {
 }
 
 /** Read-merge-write a sent nudge's resolution. Silently returns when no row
-    exists for this MR -- an outcome for a nudge this board never sent (e.g.
-    a stale/duplicate delivery). An existing terminal resolution ("launched" /
-    "rejected" / "expired") is never overwritten; only a "confirmed"
-    resolution may be replaced, since confirmation is a provisional ack, not
-    the final word. */
+    exists for this MR (a stale or duplicate delivery). Only a `confirmed`
+    resolution may be replaced, and a `launched` one only by a fresh
+    `confirmed`, so progress keeps resetting the quiet clock. */
 export function resolveSentNudge(
   mrUrl: string,
   resolution: SentNudgeResolution,
@@ -210,7 +208,10 @@ export function resolveSentNudge(
       const prev = readSentNudgeRow(mrUrl, db);
       if (!prev) return;
       if (reviewer !== undefined && prev.reviewer !== reviewer) return;
-      if (prev.resolution && prev.resolution.result !== 'confirmed') return;
+      const was = prev.resolution?.result;
+      const refreshesLaunch =
+        was === 'launched' && resolution.result === 'confirmed';
+      if (was && was !== 'confirmed' && !refreshesLaunch) return;
       const next: SentNudge = { ...prev, resolution };
       db.query(
         'UPDATE nudges_sent SET nudge = ?, updated_at = ? WHERE mr_url = ?'
@@ -369,20 +370,29 @@ export function sentNudgeView(n: SentNudge, now: number): SentNudgeView | null {
     before the chip self-expires to "no-response" in the UI. */
 export const NUDGE_NO_RESPONSE_MS = 48 * 60 * 60_000;
 
+/** A launched or confirmed ask with nothing heard for this long reads
+    "no-update" on the row, without a write. */
+export const NUDGE_QUIET_MS = 30 * 60_000;
+
 export type SentNudgeDisplay =
   | 'requested'
   | 'confirmed'
   | 'launched'
+  | 'no-update'
   | 'rejected'
   | 'expired'
   | 'no-response'
   | 'done'
   | 'failed';
 
-/** How a sent nudge should render right now. Resolution wins outright;
-    otherwise it's "requested" until NUDGE_NO_RESPONSE_MS elapses, then the
-    chip self-expires to "no-response" without needing a write. */
+/** A launched or confirmed ask quiet for over 30 minutes reads "no-update".
+    An unanswered ask reads "requested" until 48 hours elapse, then
+    "no-response". Both transitions need no write. */
 export function sentNudgeDisplay(n: SentNudge, now: number): SentNudgeDisplay {
-  if (n.resolution) return n.resolution.result;
+  const r = n.resolution;
+  if (r) {
+    const running = r.result === 'launched' || r.result === 'confirmed';
+    return running && now - r.at > NUDGE_QUIET_MS ? 'no-update' : r.result;
+  }
   return now - n.sentAt > NUDGE_NO_RESPONSE_MS ? 'no-response' : 'requested';
 }

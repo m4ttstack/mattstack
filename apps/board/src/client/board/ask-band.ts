@@ -178,6 +178,17 @@ export function askBandModel(
         },
         { name: 'No answer', detail: `${name}'s board never replied` }
       );
+    case 'no-update':
+      return band(
+        {
+          tone: 'warn',
+          icon: 'hourglass',
+          label: 'no update',
+          actions: ['retry', 'dismiss'],
+        },
+        { name: 'Started', detail: `${name}'s agent`, at: sent.resolvedAt },
+        { name: 'No update', detail: `${name}'s agent has been quiet for 30m` }
+      );
     case 'requested':
       return band({
         tone: 'neutral',

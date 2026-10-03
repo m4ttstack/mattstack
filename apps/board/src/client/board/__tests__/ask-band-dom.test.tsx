@@ -161,6 +161,47 @@ test('failed and no answer offer retry then dismiss; retry calls the retry handl
   }
 });
 
+test('a quiet ask renders no update with retry, dismiss and its history trail', async () => {
+  const calls: string[] = [];
+  await render(
+    mrWith({
+      display: 'no-update',
+      kind: 'review',
+      resolvedAt: NOW - 40 * 60_000,
+    }),
+    ctx({
+      onAskRetry: m => calls.push(`retry ${m.iid}`),
+      onAskDismiss: m => calls.push(`dismiss ${m.iid}`),
+    })
+  );
+  const band = container.querySelector('.tui-ask')!;
+  expect(band.getAttribute('data-ask-tone')).toBe('warn');
+  expect(container.querySelector('.tui-ask-label')?.textContent).toBe(
+    'no update'
+  );
+  expect(container.querySelector('[data-part="spinner"]')).toBeNull();
+  expect(buttons()).toEqual(['Retry', 'Dismiss']);
+  const [retry, dismiss] = [
+    ...container.querySelectorAll<HTMLButtonElement>('.tui-ask-btn'),
+  ];
+  await React.act(async () => retry!.click());
+  await React.act(async () => dismiss!.click());
+  expect(calls).toEqual(['retry 1418', 'dismiss 1418']);
+  await React.act(async () =>
+    container.querySelector<HTMLButtonElement>('.tui-ask-trigger')!.click()
+  );
+  const trail = document.querySelector('.tui-ask-trail')!;
+  expect(
+    [...trail.querySelectorAll('.tui-ask-trail-name')].map(s => s.textContent)
+  ).toEqual(['Requested', 'Started', 'No update']);
+  expect(trail.textContent).toContain("Grace's agent has been quiet for 30m");
+  expect(
+    [...trail.querySelectorAll('.tui-ask-trail-step')]
+      .at(-1)
+      ?.getAttribute('data-stop')
+  ).toBe('warn');
+});
+
 test('a clicked action does not bubble to the row', async () => {
   let rowClicks = 0;
   await React.act(async () => {
