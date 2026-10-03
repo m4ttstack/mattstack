@@ -3,7 +3,7 @@ import { join } from "path";
 import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
-import { createTeam, scaffoldFiles } from "../create.ts";
+import { createTeam, defaultTeamName, scaffoldFiles } from "../create.ts";
 import { UserActionableError } from "../../errors.ts";
 import { readIntent } from "../../setup/intent.ts";
 import { resetCltCacheForTests } from "../../setup/home-git.ts";
@@ -27,7 +27,7 @@ class FakeAgeKeySeam implements AgeKeySeam {
   }
 }
 
-/** `settings.team.jsonc`'s content is a one-line header comment followed by the JSON body. */
+/** A settings store's content is a one-line header comment followed by the JSON body. */
 function parseSettingsBody(content: string): Record<string, unknown> {
   return JSON.parse(content.split("\n").slice(1).join("\n"));
 }
@@ -67,37 +67,56 @@ function gitAwareFakeProbes(home: string, intercept?: Intercept) {
 }
 
 describe("scaffoldFiles", () => {
-  test("gitlab remote: forge + board.gitlabHost both present", () => {
+  const ORG_SETTINGS = "mattstack/org/settings.org.jsonc";
+  const TEAM_SETTINGS = "mattstack/teams/acme/settings.team.jsonc";
+
+  test("writes the org layout: marker, org store, one team folder, marketplace, sops rule", () => {
     const files = scaffoldFiles("acme", "Acme", "https://gitlab.example.com/g/acme.git");
-    const settings = parseSettingsBody(files["mattstack/settings.team.jsonc"]!);
-    expect((settings["mattstack.integrations"] as any).forge).toEqual({ host: "gitlab.example.com", provider: "gitlab" });
-    expect(settings["board.gitlabHost"]).toBe("gitlab.example.com");
+    expect(Object.keys(files).sort()).toEqual([".claude-plugin/marketplace.json", ".gitignore", ".sops.yaml", "mattstack/mattstack.jsonc", ORG_SETTINGS, TEAM_SETTINGS].sort());
+    expect(JSON.parse(files["mattstack/mattstack.jsonc"]!)).toEqual({ role: "org", org: "acme" });
+  });
+
+  test("gitlab remote: the org store holds the forge and board.gitlabHost", () => {
+    const org = parseSettingsBody(scaffoldFiles("acme", "Acme", "https://gitlab.example.com/g/acme.git")[ORG_SETTINGS]!);
+    expect(org["mattstack.integrations"]).toEqual({ forge: { host: "gitlab.example.com", provider: "gitlab" } });
+    expect(org["board.gitlabHost"]).toBe("gitlab.example.com");
   });
 
   test("github remote: no board.gitlabHost key at all", () => {
-    const files = scaffoldFiles("acme", "Acme", "https://github.com/acme/mattstack-team-acme.git");
-    const settings = parseSettingsBody(files["mattstack/settings.team.jsonc"]!);
-    expect((settings["mattstack.integrations"] as any).forge).toEqual({ host: "github.com", provider: "github" });
-    expect("board.gitlabHost" in settings).toBe(false);
+    const org = parseSettingsBody(scaffoldFiles("acme", "Acme", "https://github.com/acme/mattstack-team-acme.git")[ORG_SETTINGS]!);
+    expect("board.gitlabHost" in org).toBe(false);
   });
 
-  test("board.projects and board.members are never written — an empty array would flip their store-ownership latch", () => {
-    for (const remote of ["https://github.com/acme/repo.git", "https://gitlab.example.com/g/acme.git"]) {
-      const settings = parseSettingsBody(scaffoldFiles("acme", "Acme", remote)["mattstack/settings.team.jsonc"]!);
-      expect("board.projects" in settings).toBe(false);
-      expect("board.members" in settings).toBe(false);
-      expect(settings["board.title"]).toBe("Acme");
-    }
+  test("the display name is the first team's board title", () => {
+    const team = parseSettingsBody(scaffoldFiles("acme", "Acme", "https://github.com/acme/repo.git")[TEAM_SETTINGS]!);
+    expect(team).toEqual({ "board.title": "Acme" });
+  });
+
+  test("board.projects is never written: a present value would claim repos nobody chose", () => {
+    const files = scaffoldFiles("acme", "Acme", "https://github.com/acme/repo.git");
+    expect("board.projects" in parseSettingsBody(files[ORG_SETTINGS]!)).toBe(false);
+    expect("board.projects" in parseSettingsBody(files[TEAM_SETTINGS]!)).toBe(false);
+  });
+
+  test("a named first team gets its own folder", () => {
+    const files = scaffoldFiles("acme", "Acme", "https://github.com/acme/repo.git", [], "widgets");
+    expect(files["mattstack/teams/widgets/settings.team.jsonc"]).toBeDefined();
+    expect(files[TEAM_SETTINGS]).toBeUndefined();
   });
 
   test("seeds .sops.yaml with the given recipients, not empty", () => {
     const files = scaffoldFiles("acme", "Acme", "https://github.com/acme/repo.git", [FAKE_PUBLIC_KEY]);
-    expect(files[".sops.yaml"]).toContain(`age: ${FAKE_PUBLIC_KEY}`);
+    expect(files[".sops.yaml"]).toContain(FAKE_PUBLIC_KEY);
   });
+});
 
-  test("mattstack.jsonc names the owner parsed from the remote", () => {
-    const files = scaffoldFiles("acme", "Acme", "https://github.com/acme/mattstack-team-acme.git");
-    expect(JSON.parse(files["mattstack/mattstack.jsonc"]!)).toEqual({ role: "team", namespace: "acme", org: "acme" });
+describe("defaultTeamName", () => {
+  test("the org slug when it is a team name", () => {
+    expect(defaultTeamName("acme")).toBe("acme");
+    expect(defaultTeamName("acme-labs")).toBe("acme-labs");
+  });
+  test("a slug that starts with a digit gets a team- prefix", () => {
+    expect(defaultTeamName("3d-tools")).toBe("team-3d-tools");
   });
 });
 
@@ -127,8 +146,10 @@ describe("createTeam", () => {
       new FakeAgeKeySeam(),
     );
 
+    expect(result.team).toBe("acme");
     expect(result).toEqual({
       slug: "acme",
+      team: "acme",
       name: "Acme",
       remote: "https://github.com/acme/mattstack-team-acme.git",
       dir: join("/home/x", ".mattstack", "teams", "acme"),
@@ -183,7 +204,7 @@ describe("createTeam", () => {
     const opts = { name: "Acme", remote: "https://github.com/acme/repo.git", others: false };
     await createTeam(p, opts, new FakeAgeKeySeam());
     const dir = join("/home/x", ".mattstack", "teams", "acme");
-    p.writeFile(join(dir, "mattstack", "settings.team.jsonc"), "// edited before CLT arrived\n{}");
+    p.writeFile(join(dir, "mattstack", "org", "settings.org.jsonc"), "// edited before CLT arrived\n{}");
     p.calls.exec.length = 0;
 
     cltInstalled = true;
@@ -197,7 +218,7 @@ describe("createTeam", () => {
       ["git", "add", "-A"],
       ["git", "commit", "-m", "team: scaffold acme"],
     ]);
-    expect(p.readFile(join(dir, "mattstack", "settings.team.jsonc"))).toBe("// edited before CLT arrived\n{}");
+    expect(p.readFile(join(dir, "mattstack", "org", "settings.org.jsonc"))).toBe("// edited before CLT arrived\n{}");
   });
 
   test("--create-repo o creates o/mattstack-team-<slug> via gh and the printed URL becomes the remote", async () => {
@@ -347,7 +368,7 @@ describe("createTeam", () => {
 
       p.writeFile(join(dir, ".git", "config"), `[remote "origin"]\n\turl = ${remote}\n`);
       p.writeFile(join(dir, "mattstack", "mattstack.jsonc"), '{"role":"team","namespace":"acme","org":"acme"}\n');
-      p.writeFile(join(dir, "mattstack", "settings.team.jsonc"), customSettings);
+      p.writeFile(join(dir, "mattstack", "org", "settings.org.jsonc"), customSettings);
       p.writeFile(join(dir, ".sops.yaml"), customSops);
       p.writeFile(join(dir, "mattstack", "secrets", "rt.json"), secretBlob);
       p.calls.writes = {};
@@ -359,7 +380,7 @@ describe("createTeam", () => {
       expect(p.calls.exec).toEqual([]);
       // The only permitted write on this path is the runtime intent — every zone file is untouched.
       expect(Object.keys(p.calls.writes)).toEqual(["/home/x/.mattstack/rt/setup-intent.json"]);
-      expect(p.readFile(join(dir, "mattstack", "settings.team.jsonc"))).toBe(customSettings);
+      expect(p.readFile(join(dir, "mattstack", "org", "settings.org.jsonc"))).toBe(customSettings);
       expect(p.readFile(join(dir, ".sops.yaml"))).toBe(customSops);
       expect(p.readFile(join(dir, "mattstack", "secrets", "rt.json"))).toBe(secretBlob);
     });
@@ -382,7 +403,7 @@ describe("createTeam (real fs + real git, fake age key only) — R-T16-a / findi
       expect(result.created).toBe(true);
       expect(getSetting<unknown[]>("board.projects").value).toBeUndefined();
       expect(getSetting<unknown[]>("board.members").value).toBeUndefined();
-      expect(getSetting<string>("board.title").value).toBe("Acme");
+      expect(parseSettingsBody(p.readFile(join(result.dir, "mattstack", "teams", "acme", "settings.team.jsonc"))!)["board.title"]).toBe("Acme");
 
       const sopsYaml = p.readFile(join(result.dir, ".sops.yaml"));
       expect(sopsYaml).toContain(`age: ${FAKE_PUBLIC_KEY}`);
