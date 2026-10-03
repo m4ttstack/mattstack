@@ -5,10 +5,12 @@ description: Use when a team wants the mattstack pipeline on a repo that has no 
 
 # Creating a pack
 
-A pack is a plugin in the team's zone: a verb roster, a bindings fragment,
-and (later) domain fills. `rt skills init` writes all of it; this skill runs
-that verb, proves the result, and offers the first rules. One zone holds
-one pack, named after the zone's namespace.
+A pack is a plugin in the team's folder of the org repo: a verb roster, a
+bindings fragment, and (later) domain fills. `rt skills init` writes all of
+it; this skill runs that verb, proves the result, and offers the first
+rules. One team folder holds one pack, named after the team: the widgets
+team in the acme org has its pack at
+`~/.mattstack/teams/acme/mattstack/teams/widgets/packs/widgets/`.
 
 Walk this map to the end; a pack is not done until it is published.
 
@@ -23,11 +25,12 @@ digraph create_pack {
     "Every prerequisite passes?" [shape=diamond];
     "Name each miss and the command that installs it" [shape=box];
     "STOP: never improvise a substitute" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Team and its zone known?" [shape=diamond];
-    "Ask the author: which team, and a remote it owns" [shape=box];
-    "The team's own zone exists?" [shape=diamond];
+    "Team and its org known?" [shape=diamond];
+    "Ask the author which team" [shape=box];
+    "The team's folder exists?" [shape=diamond];
     "rt team create <Name> --remote <url>" [shape=plaintext];
-    "rt skills init --json --zone <slug> --repo <repo-path>" [shape=plaintext];
+    "rt team add <team>" [shape=plaintext];
+    "rt skills init --json --team <team> --repo <repo-path>" [shape=plaintext];
     "Envelope?" [shape=diamond];
     "Relay error.message verbatim" [shape=box];
     "Refusal code?" [shape=diamond];
@@ -56,10 +59,10 @@ digraph create_pack {
     "Hand each rule to extending-a-pack, one per round" [shape=box];
     "Say rules can be added any time" [shape=box];
     "git status -sb" [shape=plaintext];
-    "Zone state?" [shape=diamond];
-    "Push the zone's default branch" [shape=box];
-    "Zone push landed?" [shape=diamond];
-    "Gate: zone push rejected" [shape=box];
+    "Org clone state?" [shape=diamond];
+    "Push the org clone's default branch" [shape=box];
+    "Org push landed?" [shape=diamond];
+    "Gate: org push rejected" [shape=box];
     "Status checks = 3?" [shape=diamond];
     "Wait for the daemon's snapshot commit" [shape=box];
     "Gate: snapshot never landed" [shape=box];
@@ -72,26 +75,28 @@ digraph create_pack {
     "rt_verb {args: [\"daemon\", \"status\"]}" -> "claude plugin list --json";
     "claude plugin list --json" -> "git remote get-url origin";
     "git remote get-url origin" -> "Every prerequisite passes?";
-    "Every prerequisite passes?" -> "Team and its zone known?" [label="yes"];
+    "Every prerequisite passes?" -> "Team and its org known?" [label="yes"];
     "Every prerequisite passes?" -> "Name each miss and the command that installs it" [label="no"];
     "Name each miss and the command that installs it" -> "STOP: never improvise a substitute";
     "STOP: never improvise a substitute" -> "Stopped at prerequisites";
-    "Team and its zone known?" -> "rt skills init --json --zone <slug> --repo <repo-path>" [label="yes"];
-    "Team and its zone known?" -> "Ask the author: which team, and a remote it owns" [label="team unclear, or no zone yet"];
-    "Ask the author: which team, and a remote it owns" -> "The team's own zone exists?";
-    "The team's own zone exists?" -> "rt skills init --json --zone <slug> --repo <repo-path>" [label="yes"];
-    "The team's own zone exists?" -> "rt team create <Name> --remote <url>" [label="no: their remote, never an invented one"];
-    "rt team create <Name> --remote <url>" -> "rt skills init --json --zone <slug> --repo <repo-path>";
-    "rt skills init --json --zone <slug> --repo <repo-path>" -> "Envelope?";
+    "Team and its org known?" -> "rt skills init --json --team <team> --repo <repo-path>" [label="yes"];
+    "Team and its org known?" -> "Ask the author which team" [label="team unclear, or no team folder yet"];
+    "Ask the author which team" -> "The team's folder exists?";
+    "The team's folder exists?" -> "rt skills init --json --team <team> --repo <repo-path>" [label="yes"];
+    "The team's folder exists?" -> "rt team add <team>" [label="no: the org is on this Mac"];
+    "The team's folder exists?" -> "rt team create <Name> --remote <url>" [label="no org on this Mac: their remote, never an invented one"];
+    "rt team add <team>" -> "rt skills init --json --team <team> --repo <repo-path>";
+    "rt team create <Name> --remote <url>" -> "rt skills init --json --team <team> --repo <repo-path>";
+    "rt skills init --json --team <team> --repo <repo-path>" -> "Envelope?";
     "Envelope?" -> "In a herdr pane?" [label="ok: true"];
     "Envelope?" -> "Relay error.message verbatim" [label="refused: true"];
     "Envelope?" -> "Relay error.message and error.wrote" [label="refused: false, after a write"];
     "Relay error.message verbatim" -> "Refusal code?";
-    "Refusal code?" -> "Init runs = 2?" [label="zone-missing or zone-has-pack"];
+    "Refusal code?" -> "Init runs = 2?" [label="zone-missing or zone-ambiguous"];
     "Refusal code?" -> "Stopped: refusal relayed" [label="any other code"];
-    "Init runs = 2?" -> "Ask the author: which team, and a remote it owns" [label="no"];
+    "Init runs = 2?" -> "Ask the author which team" [label="no"];
     "Init runs = 2?" -> "Gate: init budget spent" [label="yes"];
-    "Gate: init budget spent" -> "rt skills init --json --zone <slug> --repo <repo-path>" [label="retry: author fixed it"];
+    "Gate: init budget spent" -> "rt skills init --json --team <team> --repo <repo-path>" [label="retry: author fixed it"];
     "Gate: init budget spent" -> "Handed to the author" [label="author takes over"];
     "Relay error.message and error.wrote" -> "write-failed?";
     "write-failed?" -> "Removed the pack dir once already?" [label="yes"];
@@ -102,7 +107,7 @@ digraph create_pack {
     "Removed the pack dir once already?" -> "Gate: write failed after cleanup" [label="yes"];
     "Gate: write failed after cleanup" -> "Remove the pack dir" [label="retry: author fixed it"];
     "Gate: write failed after cleanup" -> "Handed to the author" [label="author takes over"];
-    "Remove the pack dir" -> "rt skills init --json --zone <slug> --repo <repo-path>";
+    "Remove the pack dir" -> "rt skills init --json --team <team> --repo <repo-path>";
     "Follow the printed remedy" -> "The remedy completed the pack?";
     "The remedy completed the pack?" -> "In a herdr pane?" [label="yes"];
     "The remedy completed the pack?" -> "Gate: remedy did not complete the pack" [label="no"];
@@ -124,15 +129,15 @@ digraph create_pack {
     "Rules written down?" -> "Say rules can be added any time" [label="no"];
     "Hand each rule to extending-a-pack, one per round" -> "git status -sb";
     "Say rules can be added any time" -> "git status -sb";
-    "git status -sb" -> "Zone state?";
-    "Zone state?" -> "Pack published" [label="clean, not ahead"];
-    "Zone state?" -> "Push the zone's default branch" [label="ahead"];
-    "Zone state?" -> "Status checks = 3?" [label="the snapshot has not committed yet"];
-    "Push the zone's default branch" -> "Zone push landed?";
-    "Zone push landed?" -> "Pack published" [label="yes"];
-    "Zone push landed?" -> "Gate: zone push rejected" [label="no: quote the rejection"];
-    "Gate: zone push rejected" -> "Push the zone's default branch" [label="retry: author fixed it"];
-    "Gate: zone push rejected" -> "Handed to the author" [label="author takes over"];
+    "git status -sb" -> "Org clone state?";
+    "Org clone state?" -> "Pack published" [label="clean, not ahead"];
+    "Org clone state?" -> "Push the org clone's default branch" [label="ahead"];
+    "Org clone state?" -> "Status checks = 3?" [label="the snapshot has not committed yet"];
+    "Push the org clone's default branch" -> "Org push landed?";
+    "Org push landed?" -> "Pack published" [label="yes"];
+    "Org push landed?" -> "Gate: org push rejected" [label="no: quote the rejection"];
+    "Gate: org push rejected" -> "Push the org clone's default branch" [label="retry: author fixed it"];
+    "Gate: org push rejected" -> "Handed to the author" [label="author takes over"];
     "Status checks = 3?" -> "Wait for the daemon's snapshot commit" [label="no"];
     "Status checks = 3?" -> "Gate: snapshot never landed" [label="yes"];
     "Wait for the daemon's snapshot commit" -> "git status -sb";
@@ -160,25 +165,33 @@ non-GitLab `origin` is the author's to fix: name the miss and say the remote
 must be the repo on its GitLab host. Never set a remote yourself. Do not
 improvise a substitute.
 
-### Ask the author: which team, and a remote it owns
+### Ask the author which team
 
-A zone is a directory under `~/.mattstack/teams/` whose
-`mattstack/mattstack.jsonc` says `role: team`. When the team is unclear,
-ask which team this is before running anything.
+The org repo is cloned at `~/.mattstack/teams/<org>/` (its
+`mattstack/mattstack.jsonc` says `role: org`), and each team is a folder
+under its `mattstack/teams/`, named in lowercase letters, digits and
+hyphens (`widgets`, `gadgets`). When the team is unclear, ask which team
+this is before running anything.
 
-When the team has no zone of its own, `rt team create <Name> --remote <url>`
-makes one. It is a one-time setup call, not routine, and the remote is an
-empty repo the team owns. Ask the author for that URL; never invent one.
+When the org has no folder for the team, `rt team add <team>` adds one,
+pack skeleton included, and init carries that skeleton on. When this Mac
+has no org at all, `rt team create <Name> --remote <url>` makes the org
+with its first team folder. It is a one-time setup call, not routine, and
+the remote is an empty repo the org owns. Ask the author for that URL;
+never invent one.
 
 ### Relay error.message verbatim
 
 A refusal is `{ "error": { "code", "message", "refused": true } }`, and
-nothing was written. Relay `error.message` word for word, then read
-`error.code`:
+nothing was written. Relay `error.message` word for word (it ends with the
+command to run, when there is one), then read `error.code`:
 
-- `zone-missing` (outside a TTY): the team has no zone yet.
-- `zone-has-pack`: the zone found already belongs to another team's pack,
-  so this team needs a zone of its own, made the same way.
+- `zone-missing`: no org on this Mac, no team folder yet, or no team by the
+  name given.
+- `zone-ambiguous`: more than one team could hold the pack; name one with
+  `--team`.
+- `pack-exists`: this team's pack has already compiled, and init never
+  changes it. Rules and verbs go through `mattstack:extending-a-pack`.
 
 ### Relay error.message and error.wrote
 
@@ -191,7 +204,7 @@ init wrote files before it failed. Relay `error.message` and the
 
 Only after `write-failed`: that code's remedy is to remove the pack dir and
 run init again. Remove the pack dir the `error.wrote` paths sit in, and
-nothing else in the zone.
+nothing else in the org clone.
 
 ### Follow the printed remedy
 
@@ -249,10 +262,10 @@ Each yes is one round of `mattstack:extending-a-pack`, one rule per round.
 No is a complete answer. Say that rules can be added any time with
 `mattstack:extending-a-pack`.
 
-### Push the zone's default branch
+### Push the org clone's default branch
 
 Ahead means the daemon's snapshot committed but could not push. From the
-zone checkout, a bare push (`git_push` refuses a default branch):
+org clone, a bare push (`git_push` refuses a default branch):
 
 `git push` <!-- mcp-lint: allow -->
 
@@ -260,14 +273,15 @@ Never force.
 
 ### Wait for the daemon's snapshot commit
 
-The daemon's team snapshot commits the zone on its own within a minute of
-init: a `snapshot:` commit covering the pack dir, `team.jsonc`, and
-`marketplace.json`. Give it that minute before the next status check.
+The daemon's team snapshot commits the org clone on its own within a
+minute of init: a `snapshot:` commit covering the pack dir, the team's
+`settings.team.jsonc` (its `board.projects` claim), and `marketplace.json`.
+Give it that minute before the next status check.
 
 ### Gate: init budget spent
 
 Quote each init envelope's `error.message` and propose the next move: the
-zone and remote to use, or what to clear. Retry: the author fixed it; run
+team (and org) to use, or what to clear. Retry: the author fixed it; run
 init again, with `Init runs` starting again at zero. Takes over: the author
 runs init.
 
@@ -285,7 +299,7 @@ Retry: follow the remedy again with the author's note, and a remedy that
 still leaves the pack incomplete comes back here. Takes over: the pack stays
 as init and the remedy left it, for the author.
 
-### Gate: zone push rejected
+### Gate: org push rejected
 
 Quote the rejection and propose the next move (bring in the remote change,
 fix the credentials). Never force. Retry: the author fixed it; push again,
@@ -296,22 +310,28 @@ for the author to push.
 
 Quote the three `git status -sb` results and propose the next move (check
 the daemon is running with `rt_verb {args: ["daemon", "status"]}`, or the
-author commits the zone). Retry: the author fixed it; check the status again,
-with `Status checks` starting again at zero. Takes over: the author commits
-and pushes the zone.
+author commits the org clone). Retry: the author fixed it; check the
+status again, with `Status checks` starting again at zero. Takes over: the
+author commits and pushes the org clone.
 
 ## What the graph cannot show
 
-- Name the zone and the app repo explicitly on init, never relying on the
-  current directory. Without `--zone`, init picks by detection (the zone
-  declaring this repo, else the one packless zone on the host), which can
-  land the pack in another team's zone.
+- Name the team and the app repo explicitly on init, never relying on the
+  current directory. Without `--team`, init takes your own team, else
+  detects one (the team that declares this repo, else the one team on the
+  host with no compiled pack), which can land the pack in another team's
+  folder. Add `--zone <org>` only when this Mac has more than one org.
+- The pack binds the repos in its team's `board.projects` (the org's list
+  unless the team sets its own), on the org's forge host. Init adds this
+  repo to the team's list.
 - An ok envelope is `{ "ok": true, ... }` and carries `pack.name`,
   `pack.dir`, `tryNext` and `restartNeeded`. `restartNeeded` is always
   true; the reload runs in place, never a restart.
-- Before `git status -sb`, `cd <zone checkout>` as its own Bash call.
-- At `Pack published`, however the zone got there, say that teammates
-  receive the pack through `rt setup`, and hand any later change to
+- Before `git status -sb`, `cd ~/.mattstack/teams/<org>` as its own Bash
+  call.
+- At `Pack published`, however the org clone got there, say that the
+  team's members receive the pack through `rt setup` (a Mac installs only
+  its active team's pack), and hand any later change to
   `mattstack:editing-skills`; a rule made and GREEN in a
   `mattstack:extending-a-pack` round enters it at `What changed?`.
 

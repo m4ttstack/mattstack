@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chooseZone, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, zoneTeamConfigReads, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, type InitDeps, type RunResult } from "../init.ts";
+import { chooseZone, packIsCompiled, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, zoneTeamConfigReads, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, type InitDeps, type RunResult } from "../init.ts";
 import { stripJsonc } from "../sources.ts";
 
 /** mkdirp'd dirs and dirs that already hold a file are writable; anything else throws ENOENT, mirroring a real fs. */
@@ -65,7 +65,7 @@ describe("readZones", () => {
     expect(zones.map((z) => z.slug)).toEqual(["acme/gadgets", "acme/widgets"]);
     expect(zones[1]).toEqual({
       slug: "acme/widgets", org: "acme", team: "widgets", orgDir: ORG_ROOT("acme"), dir: `${ORG_ROOT("acme")}/mattstack/teams/widgets`,
-      host: null, projects: [], marketplace: "acme-market", hasPack: false,
+      host: null, projects: [], marketplace: "acme-market", hasPack: false, packCompiled: false,
     });
     expect(readZones(fs, HOME)).toEqual(zones);
   });
@@ -104,6 +104,16 @@ describe("readZones", () => {
     expect(byTeam).toEqual({ widgets: true, gadgets: false });
   });
 
+  test("packCompiled is true only once a verb or stage has compiled", () => {
+    const fs = memFs(orgFiles("acme", {}, { widgets: {}, gadgets: {} }, {
+      [`${ORG_ROOT("acme")}/mattstack/teams/widgets/packs/widgets/pack/skills.jsonc`]: `{}`,
+      [`${ORG_ROOT("acme")}/mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc`]: `{}`,
+      [`${ORG_ROOT("acme")}/mattstack/teams/gadgets/packs/gadgets/skills/work/SKILL.md`]: `x`,
+    }));
+    const byTeam = Object.fromEntries(readZones(fs, HOME).map((z) => [z.team, z.packCompiled]));
+    expect(byTeam).toEqual({ widgets: false, gadgets: true });
+  });
+
   test("a base pack under packs/<team> does not occupy the team's pack slot", () => {
     const fs = memFs(orgFiles("acme", {}, { widgets: {} }, {
       [`${ORG_ROOT("acme")}/mattstack/teams/widgets/packs/widgets/pack/skills.jsonc`]: `{ "base": true }`,
@@ -140,40 +150,81 @@ describe("readZones", () => {
 describe("chooseZone", () => {
   const repo = { host: "gitlab.com", path: "acme/api", slug: "gitlab.com-acme-api" };
   const z = (team: string, host: string | null, projects: string[] = [], hasPack = false): ZoneInfo =>
-    ({ slug: `acme/${team}`, org: "acme", team, orgDir: "/z", dir: `/z/mattstack/teams/${team}`, host, projects, marketplace: "acme", hasPack });
+    ({ slug: `acme/${team}`, org: "acme", team, orgDir: "/z", dir: `/z/mattstack/teams/${team}`, host, projects, marketplace: "acme", hasPack, packCompiled: hasPack });
+  const none = { org: null, team: null, active: null };
   test("a zone already declaring the repo wins, pack or not", () => {
-    const r = chooseZone([z("a", "gitlab.com"), z("b", "gitlab.com", ["acme/api"], true)], repo, null);
+    const r = chooseZone([z("a", "gitlab.com"), z("b", "gitlab.com", ["acme/api"], true)], repo, none);
     expect(r).toEqual({ kind: "found", zone: z("b", "gitlab.com", ["acme/api"], true) });
   });
   test("a zone on the host that already has a pack is skipped", () => {
-    const r = chooseZone([z("claim", "gitlab.com", ["acme/other"], true), z("fresh", "gitlab.com")], repo, null);
+    const r = chooseZone([z("claim", "gitlab.com", ["acme/other"], true), z("fresh", "gitlab.com")], repo, none);
     expect(r).toEqual({ kind: "found", zone: z("fresh", "gitlab.com") });
   });
   test("only packed zones on the host means missing", () => {
-    expect(chooseZone([z("claim", "gitlab.com", ["acme/other"], true)], repo, null)).toEqual({ kind: "missing" });
+    expect(chooseZone([z("claim", "gitlab.com", ["acme/other"], true)], repo, none)).toEqual({ kind: "missing" });
   });
   test("two packless host matches is ambiguous", () => {
-    const r = chooseZone([z("a", "gitlab.com"), z("b", "gitlab.com")], repo, null);
+    const r = chooseZone([z("a", "gitlab.com"), z("b", "gitlab.com")], repo, none);
     expect(r.kind).toBe("ambiguous");
   });
-  test("--zone picks among candidates by team name", () => {
-    const r = chooseZone([z("a", "gitlab.com"), z("b", "gitlab.com")], repo, "b");
+  test("--team picks among candidates by team name", () => {
+    const r = chooseZone([z("a", "gitlab.com"), z("b", "gitlab.com")], repo, { ...none, team: "b" });
     expect(r).toEqual({ kind: "found", zone: z("b", "gitlab.com") });
   });
-  test("--zone naming a zone on another host is a mismatch", () => {
-    const r = chooseZone([z("gh", "github.com")], repo, "gh");
+  test("--team naming a zone on another host is a mismatch", () => {
+    const r = chooseZone([z("gh", "github.com")], repo, { ...none, team: "gh" });
     expect(r).toEqual({ kind: "mismatch", zone: z("gh", "github.com") });
   });
-  test("--zone naming a packed zone that does not declare the repo is has-pack", () => {
-    const packed = z("claim", "gitlab.com", ["acme/other"], true);
-    expect(chooseZone([packed], repo, "claim")).toEqual({ kind: "has-pack", zone: packed });
-  });
   test("a zone with no host yet is a candidate", () => {
-    const r = chooseZone([z("fresh", null)], repo, null);
+    const r = chooseZone([z("fresh", null)], repo, none);
     expect(r).toEqual({ kind: "found", zone: z("fresh", null) });
   });
   test("no candidates is missing", () => {
-    expect(chooseZone([z("gh", "github.com")], repo, null)).toEqual({ kind: "missing" });
+    expect(chooseZone([z("gh", "github.com")], repo, none)).toEqual({ kind: "missing" });
+  });
+
+  describe("with team folders", () => {
+    const shared = ["acme/api"];
+    const zones = [z("widgets", "gitlab.com", shared), z("gadgets", "gitlab.com", shared)];
+
+    test("the active team wins when two teams claim the shared repo", () => {
+      expect(chooseZone(zones, repo, { org: null, team: null, active: "gadgets" })).toEqual({ kind: "found", zone: zones[1]! });
+    });
+    test("--team names the folder, whatever the active team is", () => {
+      expect(chooseZone(zones, repo, { org: null, team: "widgets", active: "gadgets" })).toEqual({ kind: "found", zone: zones[0]! });
+    });
+    test("an unknown --team is missing", () => {
+      expect(chooseZone(zones, repo, { org: null, team: "sprockets", active: "gadgets" })).toEqual({ kind: "missing" });
+    });
+    test("--zone filters by org before the team is picked", () => {
+      expect(chooseZone(zones, repo, { org: "other", team: null, active: "gadgets" })).toEqual({ kind: "missing" });
+    });
+    test("with no active team and no --team, two claiming teams are ambiguous", () => {
+      expect(chooseZone(zones, repo, { org: null, team: null, active: null })).toEqual({ kind: "ambiguous", zones });
+    });
+    test("a team on another host is a mismatch", () => {
+      const other = [z("widgets", "gitlab.example.com", shared)];
+      expect(chooseZone(other, repo, { org: null, team: "widgets", active: null })).toEqual({ kind: "mismatch", zone: other[0]! });
+    });
+    test("an active team that has no folder falls back to the repo's claim", () => {
+      expect(chooseZone([z("widgets", "gitlab.com", shared)], repo, { org: null, team: null, active: "gadgets" })).toEqual({ kind: "found", zone: z("widgets", "gitlab.com", shared) });
+    });
+  });
+});
+
+describe("packIsCompiled", () => {
+  const fs = (files: Record<string, string>) => memFs(files);
+  test("a skeleton with no skills or attachments is not compiled", () => {
+    expect(packIsCompiled(fs({ "/p/pack/skills.jsonc": "{}", "/p/.claude-plugin/plugin.json": "{}" }), "/p")).toBe(false);
+  });
+  test("a compiled public verb is compiled output", () => {
+    expect(packIsCompiled(fs({ "/p/skills/work/SKILL.md": "x" }), "/p")).toBe(true);
+  });
+  test("a compiled stage under attachments is compiled output", () => {
+    expect(packIsCompiled(fs({ "/p/attachments/stage-plan/SKILL.md": "x" }), "/p")).toBe(true);
+  });
+  test("a skills folder with no SKILL.md is not compiled", () => {
+    expect(packIsCompiled(fs({ "/p/skills/work/notes.md": "x" }), "/p")).toBe(false);
   });
 });
 
@@ -247,10 +298,10 @@ const TEAM_DIR = (team: string) => `${ORG_ROOT("acme")}/mattstack/teams/${team}`
 const ACME_PACK = `${TEAM_DIR("acme")}/packs/acme`;
 const GITLAB = { "board.gitlabHost": "gitlab.com" };
 
-function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; marketplaces?: string[] } = {}) {
+function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; marketplaces?: string[]; noOrg?: boolean } = {}) {
   const calls: Calls = { claude: [], registered: [], materialized: [], compiled: [], checked: [], claims: [] };
   const files: Record<string, string> = {
-    ...orgFiles("acme", GITLAB, { acme: {} }),
+    ...(overrides.noOrg ? {} : orgFiles("acme", GITLAB, { acme: {} })),
     ...(overrides.files ?? {}),
   };
   const fs = memFs(files);
@@ -262,6 +313,7 @@ function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; 
     isTTY: false,
     promptZone: async () => { throw new Error("must not prompt"); },
     createZone: async () => { throw new Error("must not create"); },
+    activeTeam: () => "acme",
     declareClaim: (zone, projects) => { calls.claims.push([zone.slug, projects]); },
     engineDescription: (e) => (e === "work" ? "Use when running a unit of work." : null),
     claude: async (args) => {
@@ -287,7 +339,7 @@ function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; 
 describe("initPack", () => {
   test("happy path writes the pack named after the team, claims the repo, installs, and reports", async () => {
     const { deps, calls, fs } = world();
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     expect(out.pack).toEqual({ name: "acme", dir: ACME_PACK, zone: "acme/acme", marketplace: "acme-market" });
@@ -307,14 +359,14 @@ describe("initPack", () => {
 
   test("a new claim is the team's resolved list plus the new repo, never the new repo alone", async () => {
     const { deps, calls } = world({ files: orgFiles("acme", { ...GITLAB, "board.projects": ["acme/widgets"] }, { acme: {} }) });
-    const out = await initPack({ repoDir: REPO, zone: "acme" }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: "acme" }, deps);
     expect(out.ok).toBe(true);
     expect(calls.claims).toEqual([["acme/acme", ["acme/widgets", "acme/api"]]]);
   });
 
   test("a repo the team already claims writes no claim", async () => {
     const { deps, calls } = world({ files: orgFiles("acme", { ...GITLAB, "board.projects": ["acme/api"] }, { acme: {} }) });
-    await initPack({ repoDir: REPO, zone: null }, deps);
+    await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(calls.claims).toEqual([]);
   });
 
@@ -329,6 +381,7 @@ describe("initPack", () => {
       isTTY: false,
       promptZone: async () => { throw new Error("must not prompt"); },
       createZone: async () => { throw new Error("must not create"); },
+      activeTeam: () => "acme",
       declareClaim: () => {},
       engineDescription: (e) => (e === "work" ? "Use when running a unit of work." : null),
       claude: async (args) => (args[1] === "marketplace" && args[2] === "list" ? ok("[]") : ok("")),
@@ -341,7 +394,7 @@ describe("initPack", () => {
       compile: async () => ({ ok: true, errors: [] }),
       check: async () => ({ drift: false }),
     };
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out.ok).toBe(true);
     const written = fs.readFile(`${ORG_ROOT("acme")}/.claude-plugin/marketplace.json`);
     expect(written).not.toBeNull();
@@ -350,7 +403,7 @@ describe("initPack", () => {
 
   test("a marketplace already listed is not re-added", async () => {
     const { deps, calls } = world({ marketplaces: ["acme-market"] });
-    await initPack({ repoDir: REPO, zone: null }, deps);
+    await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(calls.claude.some((a) => a[2] === "add")).toBe(false);
   });
 
@@ -363,7 +416,7 @@ describe("initPack", () => {
         return ok("");
       },
     });
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out.ok).toBe(true);
     expect(calls.claude).toContainEqual(["plugin", "install", "acme@acme-market"]);
   });
@@ -377,17 +430,63 @@ describe("initPack", () => {
         return ok("");
       },
     });
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: false, code: "install-failed" });
     if (out.ok || out.refused) return;
     expect(out.detail).toContain("no such plugin");
   });
 
-  const PACKED = { [`${TEAM_DIR("acme")}/packs/acme/.claude-plugin/plugin.json`]: `{ "name": "acme", "version": "0.3.0" }`, [`${TEAM_DIR("acme")}/packs/acme/pack/skills.jsonc`]: `{}` };
+  test("a pack skeleton that never compiled is carried on: claim, materialize, compile, install", async () => {
+    const pack = `${HOME}/.mattstack/teams/acme/mattstack/teams/acme/packs/acme`;
+    const { deps, calls, fs } = world({
+      files: orgFiles("acme", { "board.gitlabHost": "gitlab.com" }, { acme: {} }, {
+        [`${pack}/.claude-plugin/plugin.json`]: `{ "name": "acme", "version": "0.1.0" }`,
+        [`${pack}/pack/skills.jsonc`]: `{}`,
+        [`${pack}/pack/stubs.jsonc`]: `{ "verbs": { "work": { "engine": "work", "description": "kept" } } }`,
+        [`${HOME}/.mattstack/teams/acme/.claude-plugin/marketplace.json`]: `{ "name": "acme-market", "plugins": [{ "name": "acme", "source": "./mattstack/teams/acme/packs/acme" }] }`,
+      }),
+    });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out.ok).toBe(true);
+    expect(fs.readFile(`${pack}/pack/stubs.jsonc`)).toContain('"kept"');
+    expect(calls.claims).toEqual([["acme/acme", ["acme/api"]]]);
+    expect(calls.compiled).toEqual([pack]);
+    expect(calls.claude).toContainEqual(["plugin", "install", "acme@acme-market"]);
+  });
 
-  test("refuses before writing: pack-exists when the claiming team already has a pack", async () => {
+  test("a pack with compiled output is never changed", async () => {
+    const pack = `${HOME}/.mattstack/teams/acme/mattstack/teams/acme/packs/acme`;
+    const { deps, calls } = world({
+      files: orgFiles("acme", { "board.gitlabHost": "gitlab.com" }, { acme: {} }, {
+        [`${pack}/pack/skills.jsonc`]: `{}`,
+        [`${pack}/skills/work/SKILL.md`]: `compiled`,
+      }),
+    });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "pack-exists" });
+    expect(calls.claims).toEqual([]);
+  });
+
+  test("with no --team the pack goes to the active team's folder", async () => {
+    const { deps } = world({
+      files: orgFiles("acme", { "board.gitlabHost": "gitlab.com", "board.projects": ["acme/api"] }, { widgets: {}, gadgets: {} }),
+      activeTeam: () => "gadgets",
+    });
+    deps.materialize = async () => {
+      deps.fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/gadgets`);
+      deps.fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/gadgets/skills.jsonc`, "{}");
+      return { ok: true, detail: "merged" };
+    };
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.pack).toMatchObject({ name: "gadgets", zone: "acme/gadgets" });
+  });
+
+  const PACKED = { [`${TEAM_DIR("acme")}/packs/acme/.claude-plugin/plugin.json`]: `{ "name": "acme", "version": "0.3.0" }`, [`${TEAM_DIR("acme")}/packs/acme/pack/skills.jsonc`]: `{}`, [`${TEAM_DIR("acme")}/packs/acme/skills/work/SKILL.md`]: "compiled" };
+
+  test("refuses before writing: pack-exists when the claiming team already has a compiled pack", async () => {
     const { deps, fs } = world({ files: orgFiles("acme", { ...GITLAB, "board.projects": ["acme/api"] }, { acme: {} }, PACKED) });
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: true, code: "pack-exists" });
     if (out.ok || !out.refused) return;
     expect(out.detail).toBe("This team already has a pack, and rt never changes an existing pack. To add to it, use the mattstack:extending-a-pack skill");
@@ -395,19 +494,69 @@ describe("initPack", () => {
   });
 
   test("a packed team on the host that does not claim the repo is skipped, so the outcome is zone-missing", async () => {
-    const { deps, calls } = world({ files: orgFiles("acme", { ...GITLAB, "board.projects": ["acme/other"] }, { acme: {} }, PACKED) });
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const { deps, calls } = world({ files: orgFiles("acme", { ...GITLAB, "board.projects": ["acme/other"] }, { acme: {} }, PACKED), activeTeam: () => null });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing" });
     expect(calls.registered).toEqual([]);
   });
 
-  test("--zone naming a packed team refuses zone-has-pack", async () => {
-    const { deps } = world({ files: orgFiles("acme", { ...GITLAB, "board.projects": ["acme/other"] }, { acme: {} }, PACKED) });
-    const out = await initPack({ repoDir: REPO, zone: "acme" }, deps);
-    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-has-pack" });
+  test("--team naming a team with a compiled pack refuses pack-exists, whatever it claims", async () => {
+    const { deps, calls } = world({ files: orgFiles("acme", { ...GITLAB, "board.projects": ["acme/other"] }, { acme: {} }, PACKED) });
+    const out = await initPack({ repoDir: REPO, zone: null, team: "acme" }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "pack-exists" });
+    expect(calls.claims).toEqual([]);
+  });
+
+  test("a team name that is not a team name is refused before any folder is read", async () => {
+    for (const bad of ["../escape", "Widgets", "a/b", ""]) {
+      const { deps, calls } = world();
+      const out = await initPack({ repoDir: REPO, zone: null, team: bad }, deps);
+      expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing" });
+      expect(calls.registered).toEqual([]);
+    }
+  });
+
+  test("a bad team name is written plainly in the refusal", async () => {
+    const { deps } = world();
+    const out = await initPack({ repoDir: REPO, zone: null, team: "Widgets" }, deps);
+    if (out.ok || !out.refused) throw new Error("expected a refusal");
+    expect(out.detail).toBe("Widgets is not a team name. A team name is lowercase letters, digits and hyphens, starting with a letter");
+  });
+
+  test("--zone naming no org on this Mac says so, and lists the orgs that are here", async () => {
+    const { deps, calls } = world();
+    const out = await initPack({ repoDir: REPO, zone: "other", team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", detail: "There is no org called other on this Mac. Orgs here: acme" });
+    expect(calls.registered).toEqual([]);
+  });
+
+  test("an org clone with no team folders refuses plainly with the add-a-team remedy, even on a TTY", async () => {
+    const files = { [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }` };
+    const { deps } = world({ noOrg: true, files, isTTY: true });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", detail: "The acme org has no team folders yet, so there is no team to hold a pack", next: "rt team add <team>" });
+  });
+
+  test("an uncompiled skeleton nobody claims is free: with no team and no active team it is carried on", async () => {
+    const pack = `${TEAM_DIR("acme")}/packs/acme`;
+    const { deps, calls } = world({
+      files: orgFiles("acme", GITLAB, { acme: {} }, { [`${pack}/pack/skills.jsonc`]: `{}`, [`${pack}/pack/stubs.jsonc`]: `{ "kept": true }` }),
+      activeTeam: () => null,
+    });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out.ok).toBe(true);
+    expect(calls.claims).toEqual([["acme/acme", ["acme/api"]]]);
+  });
+
+  test("a team and an org with no host or forge refuse, naming the setting that fixes it", async () => {
+    const { deps, calls, fs } = world({ files: orgFiles("acme", {}, { acme: {} }), gitRemote: async () => ({ kind: "ok", url: "git@gitlab.example.com:acme/api.git" }) });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-no-host", next: `rt settings set board.gitlabHost '"gitlab.example.com"' --scope team --team acme` });
     if (out.ok || !out.refused) return;
-    expect(out.detail).toBe("The acme team already has a pack, and a team holds only one");
-    expect(out.next).toBe("rt team create <name> --remote <url>");
+    expect(out.detail).toBe("The acme team has no forge host set, so rt cannot tell which host this repo is on");
+    expect(calls.claims).toEqual([]);
+    expect(calls.registered).toEqual([]);
+    expect(fs.exists(`${ACME_PACK}/pack/stubs.jsonc`)).toBe(false);
   });
 
   test.each([
@@ -417,41 +566,61 @@ describe("initPack", () => {
     ["claude-missing", { claude: null }],
   ])("refuses with %s", async (code, over) => {
     const { deps, calls } = world(over as Partial<InitDeps>);
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: true, code });
     expect(calls.registered).toEqual([]);
   });
 
   test("a credential-bearing remote with no path refuses no-remote without leaking the credential", async () => {
     const { deps } = world({ gitRemote: async () => ({ kind: "ok", url: "https://user:secret@gitlab.com" }) });
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: true, code: "no-remote" });
     if (out.ok || !out.refused) return;
     expect(out.detail).not.toContain("secret");
   });
 
-  test("zone-missing without a TTY names rt team create", async () => {
-    const { deps } = world({ gitRemote: async () => ({ kind: "ok", url: "git@gitlab.example.com:acme/api.git" }) });
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+  test("zone-missing without a TTY names rt team add", async () => {
+    const { deps } = world({ gitRemote: async () => ({ kind: "ok", url: "git@gitlab.example.com:acme/api.git" }), activeTeam: () => null });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing" });
     if (out.ok || !out.refused) return;
-    expect(out.next).toBe("rt team create <name> --remote <url>");
+    expect(out.next).toBe("rt team add <team>");
     expect(out.detail).toBe("No team on gitlab.example.com is free for a new pack");
   });
 
+  test("a Mac with an org never prompts for a new one, even on a TTY", async () => {
+    const { deps } = world({ gitRemote: async () => ({ kind: "ok", url: "git@gitlab.example.com:acme/api.git" }), isTTY: true, activeTeam: () => null });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", next: "rt team add <team>" });
+  });
+
+  test("an unknown --team names rt team add", async () => {
+    const { deps } = world();
+    const out = await initPack({ repoDir: REPO, zone: null, team: "sprockets" }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", detail: "There is no team called sprockets", next: "rt team add sprockets" });
+  });
+
+  test("a Mac with no org yet and no TTY points at rt team create", async () => {
+    const { deps } = world({ noOrg: true });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", next: "rt team create <name> --remote <url>" });
+  });
+
   test("zone-ambiguous names the teams by their own names", async () => {
-    const { deps } = world({ files: orgFiles("acme", GITLAB, { acme: {}, gadgets: {} }) });
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const { deps } = world({ files: orgFiles("acme", GITLAB, { acme: {}, gadgets: {} }), activeTeam: () => null });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: true, code: "zone-ambiguous" });
     if (out.ok || !out.refused) return;
     expect(out.detail).toBe("More than one team could hold this pack: acme, gadgets");
+    expect(out.next).toBe("rt skills init --team <name>");
   });
 
-  test("zone-missing with a TTY prompts and creates the team, then claims the repo for it", async () => {
+  test("zone-missing with a TTY prompts and creates the org, then claims the repo for its first team", async () => {
     const created: string[] = [];
     const { deps, fs, calls } = world({
       gitRemote: async () => ({ kind: "ok", url: "git@gitlab.example.com:acme/api.git" }),
       isTTY: true,
+      noOrg: true,
       promptZone: async () => ({ name: "Beta", remote: "https://gitlab.example.com/acme/mattstack-team-beta.git" }),
       createZone: async (name, remote) => {
         created.push(`${name} ${remote}`);
@@ -467,7 +636,7 @@ describe("initPack", () => {
         return { ok: true, detail: "merged" };
       },
     });
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(created).toEqual(["Beta https://gitlab.example.com/acme/mattstack-team-beta.git"]);
     expect(out.ok).toBe(true);
     expect(calls.claims).toEqual([["beta/beta", ["acme/api"]]]);
@@ -477,10 +646,11 @@ describe("initPack", () => {
     const { deps } = world({
       gitRemote: async () => ({ kind: "ok", url: "git@gitlab.example.com:acme/api.git" }),
       isTTY: true,
+      noOrg: true,
       promptZone: async () => ({ name: "Beta", remote: "https://gitlab.example.com/acme/mattstack-team-beta.git" }),
       createZone: async () => ({ slug: "beta", team: "beta", dir: ORG_ROOT("beta") }),
     });
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing" });
     if (out.ok || !out.refused) return;
     expect(out.detail).toBe("There is no team called beta");
@@ -495,7 +665,7 @@ describe("initPack", () => {
       if (writes === 2) throw new Error("disk full");
       originalWriteFile(p, text);
     };
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: false, code: "write-failed" });
     if (out.ok || out.refused) return;
     expect(out.detail).toContain("disk full");
@@ -505,7 +675,7 @@ describe("initPack", () => {
 
   test("a compile failure after writing reports every written path", async () => {
     const { deps } = world({ compile: async () => ({ ok: false, errors: ["boom"] }) });
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: false, code: "compile-failed" });
     if (out.ok || out.refused) return;
     expect(out.detail).toContain("boom");
@@ -514,7 +684,7 @@ describe("initPack", () => {
 
   test("materialize that leaves no manifest is materialize-failed", async () => {
     const { deps } = world({ materialize: async () => ({ ok: false, detail: "no team declares" }) });
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: false, code: "materialize-failed", remedy: { commands: [`rt skills materialize --dir ${REPO}`] } });
   });
 
@@ -522,7 +692,7 @@ describe("initPack", () => {
     const { deps } = world({
       registerRepo: async () => { throw new Error("daemon down"); },
     });
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: false, code: "materialize-failed" });
     if (out.ok || out.refused) return;
     expect(out.detail).toContain("daemon down");
@@ -533,6 +703,7 @@ describe("initPack", () => {
     const { deps, fs } = world({
       gitRemote: async () => ({ kind: "ok", url: "git@gitlab.example.com:acme/api.git" }),
       isTTY: true,
+      noOrg: true,
       promptZone: async () => ({ name: "Beta", remote: "https://github.com/acme/mattstack-team-beta.git" }),
       createZone: async () => {
         for (const [p, t] of Object.entries(orgFiles("beta", { "board.gitlabHost": "github.com" }, { beta: {} }))) {
@@ -542,7 +713,7 @@ describe("initPack", () => {
         return { slug: "beta", team: "beta", dir: ORG_ROOT("beta") };
       },
     });
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: true, code: "zone-mismatch" });
     if (out.ok || !out.refused) return;
     expect(out.detail).toBe("The beta team is on github.com, but this repo is on gitlab.example.com");

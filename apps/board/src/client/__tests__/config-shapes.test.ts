@@ -14,6 +14,7 @@ import {
   matchesShape,
   parseScalar,
   rosterSummary,
+  rowHelp,
   rowKind,
   scopeLabel,
   setLeaf,
@@ -80,7 +81,7 @@ describe('shapeOf', () => {
       },
     });
     expect(shapeOf(REGISTRY.get('board.tabs')!)).toEqual({ kind: 'tabs' });
-    expect(shapeOf(REGISTRY.get('board.members')!)).toEqual({
+    expect(shapeOf(REGISTRY.get('board.hiddenMembers')!)).toEqual({
       kind: 'roster',
     });
   });
@@ -92,6 +93,33 @@ describe('shapeOf', () => {
     expect(
       shapeOf({ key: 'board.mystery', schema: undefined })
     ).toBeUndefined();
+  });
+});
+
+describe('rowHelp', () => {
+  test("the roster row explains the org roster, never the hosting key's overlay description", () => {
+    const hosting = REGISTRY.get('board.hiddenMembers')!;
+    const help = rowHelp(
+      def({
+        key: 'board.hiddenMembers',
+        type: 'array',
+        description: hosting.description,
+      })
+    );
+    expect(help).not.toContain(hosting.description);
+    expect(help).toContain('changes the org roster');
+    expect(help).toContain('only shows or hides them on your board');
+  });
+
+  test('other rows show their description, then any control hint', () => {
+    expect(
+      rowHelp(def({ key: 'board.title', description: 'The title.' }))
+    ).toBe('The title.');
+    const tabs = rowHelp(
+      def({ key: 'board.tabs', type: 'array', description: 'Tabs.' })
+    );
+    expect(tabs.startsWith('Tabs.\n\n')).toBe(true);
+    expect(tabs).toContain('CODEOWNERS');
   });
 });
 
@@ -119,7 +147,9 @@ describe('rowKind', () => {
 
   test('roster keys summarize regardless of writability', () => {
     expect(
-      rowKind(def({ key: 'board.members', type: 'array', writable: false }))
+      rowKind(
+        def({ key: 'board.hiddenMembers', type: 'array', writable: false })
+      )
     ).toBe('roster');
     expect(rowKind(def({ key: 'board.hiddenMembers', type: 'array' }))).toBe(
       'roster'

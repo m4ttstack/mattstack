@@ -2380,12 +2380,13 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       init: {
-        description: "Scaffold this zone's team pack with a generic work pipeline, declare the repo, compile, check, and install it",
+        description: "Scaffold your team's pack with a generic work pipeline, declare the repo, compile, check, and install it",
         module: "./commands/skills-init.ts",
         fn: "skillsInit",
         args: [
           { name: "Repo", flag: "--repo", type: "text", placeholder: "/path/to/repo", hint: "Repo to declare; defaults to the current directory" },
-          { name: "Zone", flag: "--zone", type: "text", placeholder: "acme", hint: "Team zone slug when more than one packless zone could host the pack" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "widgets", hint: "The team folder that gets the pack; your own team when left out" },
+          { name: "Zone", flag: "--zone", type: "text", placeholder: "acme", hint: "The org clone, when this Mac has more than one" },
           SETUP_JSON_ARG,
         ],
       },

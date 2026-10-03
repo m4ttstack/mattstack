@@ -52,6 +52,8 @@ export type ZoneInfo = {
   projects: string[];
   marketplace: string | null;
   hasPack: boolean;
+  /** Compile has written into the pack; a pack that has not is a skeleton init carries on. */
+  packCompiled: boolean;
 };
 
 function readJsonc(fs: InitFs, path: string): Record<string, unknown> | null {
@@ -90,6 +92,12 @@ export function isBasePack(fs: Pick<InitFs, "readFile">, dir: string): boolean {
 
 export function readZones(fs: InitFs, home: string): ZoneInfo[] {
   return readZonesFrom(fs, join(home, ".mattstack", "teams"));
+}
+
+/** The org clones on this Mac, by the folder name every zone's slug starts with. */
+export function readOrgSlugs(fs: InitFs, home: string): string[] {
+  const teams = join(home, ".mattstack", "teams");
+  return [...fs.readDir(teams)].sort().filter((org) => readJsonc(fs, join(teams, org, "mattstack", "mattstack.jsonc"))?.role === "org");
 }
 
 function storeGlobal(fs: InitFs, path: string): Record<string, unknown> | null {
@@ -150,7 +158,7 @@ export function readZonesFrom(fs: InitFs, teams: string): ZoneInfo[] {
         hostOnly(forgeHost(teamSettings)) ??
         hostOnly(forgeHost(orgSettings));
       const packDir = zonePackDir({ dir, team });
-      zones.push({ slug: `${org}/${team}`, org, team, orgDir, dir, host, projects, marketplace, hasPack: isPackDir(fs, packDir) && !isBasePack(fs, packDir) });
+      zones.push({ slug: `${org}/${team}`, org, team, orgDir, dir, host, projects, marketplace, hasPack: isPackDir(fs, packDir) && !isBasePack(fs, packDir), packCompiled: packIsCompiled(fs, packDir) });
     }
   }
   return zones;
@@ -160,26 +168,37 @@ export type ZoneChoice =
   | { kind: "found"; zone: ZoneInfo }
   | { kind: "ambiguous"; zones: ZoneInfo[] }
   | { kind: "missing" }
-  | { kind: "mismatch"; zone: ZoneInfo }
-  | { kind: "has-pack"; zone: ZoneInfo };
+  | { kind: "mismatch"; zone: ZoneInfo };
 
-export function chooseZone(zones: ZoneInfo[], repo: RepoRef, wanted: string | null): ZoneChoice {
+export type ZoneWanted = { org: string | null; team: string | null; active: string | null };
+
+/** `team` is the --team flag and names a folder or nothing; `active` only breaks a tie and yields to the repo's own claim when its folder is absent. A team whose pack never compiled is free: init carries it on. */
+export function chooseZone(zones: ZoneInfo[], repo: RepoRef, wanted: ZoneWanted): ZoneChoice {
+  const inOrg = wanted.org ? zones.filter((z) => z.org === wanted.org) : zones;
   const onHost = (z: ZoneInfo) => z.host === null || z.host === repo.host;
   const declares = (z: ZoneInfo) => z.projects.includes(repo.path);
-  if (wanted) {
-    const named = zones.find((z) => z.team === wanted);
-    if (!named) return { kind: "missing" };
-    if (!onHost(named)) return { kind: "mismatch", zone: named };
-    if (named.hasPack && !declares(named)) return { kind: "has-pack", zone: named };
-    return { kind: "found", zone: named };
+
+  const named = wanted.team ?? wanted.active;
+  if (named) {
+    const zone = inOrg.find((z) => z.team === named);
+    if (zone) return onHost(zone) ? { kind: "found", zone } : { kind: "mismatch", zone };
+    if (wanted.team) return { kind: "missing" };
   }
-  const declared = zones.filter((z) => onHost(z) && declares(z));
+
+  const declared = inOrg.filter((z) => onHost(z) && declares(z));
   if (declared.length === 1) return { kind: "found", zone: declared[0]! };
   if (declared.length > 1) return { kind: "ambiguous", zones: declared };
-  const candidates = zones.filter((z) => onHost(z) && !z.hasPack);
-  if (candidates.length === 1) return { kind: "found", zone: candidates[0]! };
-  if (candidates.length > 1) return { kind: "ambiguous", zones: candidates };
+  const free = inOrg.filter((z) => onHost(z) && !z.packCompiled);
+  if (free.length === 1) return { kind: "found", zone: free[0]! };
+  if (free.length > 1) return { kind: "ambiguous", zones: free };
   return { kind: "missing" };
+}
+
+/** A pack that compile has written into: its public verbs live under skills/, its stages and fills under attachments/. */
+export function packIsCompiled(fs: Pick<InitFs, "readDir" | "exists">, packDir: string): boolean {
+  return ["skills", "attachments"].some((side) =>
+    fs.readDir(join(packDir, side)).some((name) => fs.exists(join(packDir, side, name, "SKILL.md"))),
+  );
 }
 
 export const PIPELINE_STAGES = [
@@ -270,6 +289,7 @@ export type InitDeps = {
   home: string;
   gitRemote(repoDir: string): Promise<{ kind: "ok"; url: string } | { kind: "not-a-repo" } | { kind: "no-remote" }>;
   isTTY: boolean;
+  activeTeam(): string | null;
   promptZone(): Promise<{ name: string; remote: string }>;
   createZone(name: string, remote: string): Promise<{ slug: string; team: string; dir: string }>;
   declareClaim(zone: ZoneInfo, projects: string[]): void;
@@ -282,7 +302,7 @@ export type InitDeps = {
 };
 
 export type InitRefusalCode =
-  | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-has-pack"
+  | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host"
   | "pack-exists" | "mattstack-missing" | "claude-missing";
 
 export type FailureCode = "write-failed" | "materialize-failed" | "compile-failed" | "check-drift" | "install-failed";
@@ -303,7 +323,10 @@ export type InitOutcome =
   | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy };
 
 /** rt declining by rule, drawn as refused; every other refusal code is a missing prerequisite or a usage slip, drawn as a failure. */
-export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["pack-exists", "zone-has-pack", "zone-mismatch"]);
+export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["pack-exists", "zone-mismatch"]);
+
+/** A missing setting only the user can supply: drawn as needs-you, never as a failure. */
+export const NEEDS_YOU_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["zone-no-host"]);
 
 function refuse(code: InitRefusalCode, detail: string, next?: string): InitOutcome {
   return { ok: false, refused: true, code, detail, ...(next ? { next } : {}) };
@@ -326,7 +349,7 @@ async function marketplaceNames(claude: NonNullable<InitDeps["claude"]>): Promis
   }
 }
 
-export async function initPack(opts: { repoDir: string; zone: string | null }, deps: InitDeps): Promise<InitOutcome> {
+export async function initPack(opts: { repoDir: string; zone: string | null; team: string | null }, deps: InitDeps): Promise<InitOutcome> {
   const remote = await deps.gitRemote(opts.repoDir);
   if (remote.kind === "not-a-repo") return refuse("not-a-repo", `${opts.repoDir} is not a git repo`);
   if (remote.kind === "no-remote") return refuse("no-remote", `${opts.repoDir} has no git remote. Add one, so the team can name this repo`);
@@ -340,34 +363,52 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
   if (!deps.claude) return refuse("claude-missing", "Claude Code is not on your PATH. Install it, then run this again");
   const claude = deps.claude;
 
+  if (opts.team !== null && !TEAM_NAME_RE.test(opts.team)) {
+    return refuse("zone-missing", `${opts.team || "An empty name"} is not a team name. A team name is lowercase letters, digits and hyphens, starting with a letter`, "rt skills init --team <name>");
+  }
+  let orgs = readOrgSlugs(deps.fs, deps.home);
+  if (opts.zone !== null && !orgs.includes(opts.zone)) {
+    return refuse("zone-missing", `There is no org called ${opts.zone} on this Mac${orgs.length > 0 ? `. Orgs here: ${orgs.join(", ")}` : ""}`);
+  }
+  const activeRaw = deps.activeTeam();
+  const active = activeRaw !== null && TEAM_NAME_RE.test(activeRaw) ? activeRaw : null;
+  let wantedTeam = opts.team;
+  const wanted = (): ZoneWanted => ({ org: opts.zone, team: wantedTeam, active });
   let zones = readZones(deps.fs, deps.home);
-  let choice = chooseZone(zones, repo, opts.zone);
-  let wantedZone = opts.zone;
-  if (choice.kind === "missing" && opts.zone === null) {
+  let choice = chooseZone(zones, repo, wanted());
+  if (choice.kind === "missing" && opts.team === null && orgs.length === 0) {
     if (!deps.isTTY) {
-      return refuse("zone-missing", `No team on ${repo.host} is free for a new pack`, "rt team create <name> --remote <url>");
+      return refuse("zone-missing", "This Mac has no org yet, so there is no team to hold a pack", "rt team create <name> --remote <url>");
     }
     const answer = await deps.promptZone();
     const created = await deps.createZone(answer.name, answer.remote);
-    wantedZone = created.team;
+    wantedTeam = created.team;
+    orgs = readOrgSlugs(deps.fs, deps.home);
     zones = readZones(deps.fs, deps.home);
-    choice = chooseZone(zones, repo, created.team);
+    choice = chooseZone(zones, repo, wanted());
   }
-  if (choice.kind === "missing") return refuse("zone-missing", `There is no team called ${wantedZone}`);
+  if (choice.kind === "missing" && wantedTeam === null && zones.length === 0) {
+    return refuse("zone-missing", `${orgs.length === 1 ? `The ${orgs[0]} org has` : "Your orgs have"} no team folders yet, so there is no team to hold a pack`, "rt team add <team>");
+  }
+  if (choice.kind === "missing") {
+    return wantedTeam
+      ? refuse("zone-missing", `There is no team called ${wantedTeam}`, `rt team add ${wantedTeam}`)
+      : refuse("zone-missing", `No team on ${repo.host} is free for a new pack`, "rt team add <team>");
+  }
   if (choice.kind === "ambiguous") {
-    return refuse("zone-ambiguous", `More than one team could hold this pack: ${choice.zones.map((z) => z.team).join(", ")}`, "rt skills init --zone <slug>");
+    return refuse("zone-ambiguous", `More than one team could hold this pack: ${choice.zones.map((z) => z.team).join(", ")}`, "rt skills init --team <name>");
   }
   if (choice.kind === "mismatch") {
     return refuse("zone-mismatch", `The ${choice.zone.team} team is on ${choice.zone.host}, but this repo is on ${repo.host}`);
   }
-  if (choice.kind === "has-pack") {
-    return refuse("zone-has-pack", `The ${choice.zone.team} team already has a pack, and a team holds only one`, "rt team create <name> --remote <url>");
-  }
   const zone = choice.zone;
   const pack = zone.team;
   const packDir = zonePackDir(zone);
-  if (zone.hasPack || deps.fs.exists(packDir)) {
+  if (packIsCompiled(deps.fs, packDir)) {
     return refuse("pack-exists", "This team already has a pack, and rt never changes an existing pack. To add to it, use the mattstack:extending-a-pack skill");
+  }
+  if (zone.host === null) {
+    return refuse("zone-no-host", `The ${zone.team} team has no forge host set, so rt cannot tell which host this repo is on`, `rt settings set board.gitlabHost '"${repo.host}"' --scope team --team ${zone.team}`);
   }
   const marketplace = zone.marketplace ?? zone.org;
   const pluginId = `${pack}@${marketplace}`;
@@ -398,6 +439,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
   try {
     for (const [rel, text] of Object.entries(renderPackFiles({ pack, workDescription }))) {
       const full = join(packDir, rel);
+      if (deps.fs.exists(full)) continue;
       deps.fs.mkdirp(join(full, ".."));
       deps.fs.writeFile(full, text);
       wrote.push(full);

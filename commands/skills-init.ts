@@ -1,15 +1,16 @@
 /**
- * rt skills init [--repo <path>] [--zone <slug>] [--json]
+ * rt skills init [--repo <path>] [--team <name>] [--zone <org>] [--json]
  *
  * Scaffolds a zero-fill team pack named after its team folder (roster
  * `work` only, every domain slot unbound), adds the repo to the team's claim,
  * materializes, compiles, checks, and installs the pack plugin on this
- * machine. Never commits; never writes into an existing pack directory.
+ * machine. Never commits; never changes a pack that has compiled output.
  */
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { dirname, resolve } from "path";
+import { activeTeam } from "../packages/rt-client/src/settings/active-team.ts";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { healErrorClause, updateRepoIndexAsync, type IndexHealResult } from "../lib/repo-index.ts";
@@ -20,7 +21,7 @@ import { createRealProbes } from "../lib/setup/probes.ts";
 import { materializeSkills, packVerdict, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { createTeam } from "../lib/team/create.ts";
 import { setSetting } from "../lib/settings/write.ts";
-import { initPack, POLICY_REFUSALS, type InitDeps, type InitOutcome, type InitRemedy } from "../lib/skills/init.ts";
+import { initPack, NEEDS_YOU_REFUSALS, POLICY_REFUSALS, type InitDeps, type InitOutcome, type InitRemedy } from "../lib/skills/init.ts";
 import { loadStepSource, resolvePluginRoots } from "../lib/skills/sources.ts";
 import { textInput } from "../lib/ui/prompts.ts";
 import * as ui from "../lib/ui/out.ts";
@@ -28,10 +29,10 @@ import type { Block, Segment } from "../lib/ui/protocol.ts";
 import { checkPack, compilePackAll } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
 
-export type InitArgs = { repo: string; zone: string | null; json: boolean };
+export type InitArgs = { repo: string; zone: string | null; team: string | null; json: boolean };
 
 export function parseInitArgs(args: string[]): InitArgs {
-  const out: InitArgs = { repo: process.cwd(), zone: null, json: false };
+  const out: InitArgs = { repo: process.cwd(), zone: null, team: null, json: false };
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     const value = (flag: string): string => {
@@ -41,6 +42,7 @@ export function parseInitArgs(args: string[]): InitArgs {
     };
     switch (a) {
       case "--repo": out.repo = resolve(value(a)); break;
+      case "--team": out.team = value(a); break;
       case "--zone": out.zone = value(a); break;
       case "--json": out.json = true; break;
       default: throw new UserActionableError("usage", `unrecognized argument "${a}"`);
@@ -61,7 +63,7 @@ export function initOutcomeBlocks(o: Extract<InitOutcome, { ok: true }>): Block[
 }
 
 export function initRefusalBlocks(o: Extract<InitOutcome, { ok: false; refused: true }>): Block[] {
-  return [ui.line("refused", o.detail), ...(o.next ? [ui.callout("next", ui.cmd(o.next))] : [])];
+  return [ui.line(NEEDS_YOU_REFUSALS.has(o.code) ? "needs-you" : "refused", o.detail), ...(o.next ? [ui.callout("next", ui.cmd(o.next))] : [])];
 }
 
 function remedyCell(r: InitRemedy): Array<string | Segment> {
@@ -152,9 +154,10 @@ function realDeps(opts: { json: boolean }): InitDeps {
       }
     },
     isTTY: Boolean(process.stdin.isTTY) && !opts.json && !process.env.RT_BATCH,
+    activeTeam: () => activeTeam().team,
     promptZone: async () => ({
-      name: await textInput({ message: "Team name (a new zone will be created)", stderr: true }),
-      remote: await textInput({ message: "Empty git remote URL for the team zone", stderr: true }),
+      name: await textInput({ message: "Org name (a new org will be created)", stderr: true }),
+      remote: await textInput({ message: "Empty git remote URL for the org", stderr: true }),
     }),
     createZone: async (name, remote) => {
       const r = await createTeam(p, { name, remote, others: false });
@@ -217,7 +220,7 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
   const resolvedDeps = deps ?? realDeps({ json: parsed.json });
   let out: InitOutcome;
   try {
-    out = await initPack({ repoDir: parsed.repo, zone: parsed.zone }, resolvedDeps);
+    out = await initPack({ repoDir: parsed.repo, zone: parsed.zone, team: parsed.team }, resolvedDeps);
   } catch (err) {
     // A dep the pre-attempt setup calls directly (promptZone, createZone) can throw a
     // UserActionableError before initPack's own post-write attempt() wrapper is reached;
@@ -240,7 +243,7 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
     else ui.json(userErrorPayload(new UserActionableError(out.code, out.detail, { refused: false, wrote: out.wrote })));
   } else if (out.ok) {
     ui.print(...initOutcomeBlocks(out));
-  } else if (out.refused && POLICY_REFUSALS.has(out.code)) {
+  } else if (out.refused && (POLICY_REFUSALS.has(out.code) || NEEDS_YOU_REFUSALS.has(out.code))) {
     ui.note(...initRefusalBlocks(out));
   } else {
     ui.fail(initFailure(out));

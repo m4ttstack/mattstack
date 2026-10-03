@@ -201,21 +201,7 @@ export const TEST_SCHEMAS: Record<string, JsonSchema> = {
       additionalProperties: {},
     },
   },
-  'board.members': {
-    $schema: D,
-    type: 'array',
-    items: {
-      type: 'object',
-      properties: {
-        username: { type: 'string' },
-        name: { type: 'string' },
-        hidden: { type: 'boolean' },
-        agePublicKey: { type: 'string' },
-      },
-      required: ['username'],
-      additionalProperties: {},
-    },
-  },
+  'board.hiddenMembers': STRING_LIST,
 };
 
 /** Keys whose registry def merges deep, so their wire def carries a layer

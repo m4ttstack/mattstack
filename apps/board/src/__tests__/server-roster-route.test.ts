@@ -5,7 +5,7 @@ import { afterAll, expect, test } from 'bun:test';
 
 // Boots the real server against a fake $HOME whose team store owns
 // mattstack.roster, then drives POST /roster. Proves the route's three
-// actions land in the suite key (not board.members) and that a rename
+// actions land in the suite key and that a rename
 // survives the write, without touching the real ~/.mattstack or the real
 // apps/board checkout's config.json.
 //
@@ -89,7 +89,11 @@ async function roster(body: unknown): Promise<Response> {
   });
 }
 
-function stored(): Array<{ username: string; name?: string }> {
+function stored(): Array<{
+  username: string;
+  name?: string;
+  agePublicKey?: string;
+}> {
   return JSON.parse(readFileSync(storePath, 'utf8'))['mattstack.roster'];
 }
 
@@ -98,9 +102,6 @@ test('add with a name writes mattstack.roster', async () => {
   const res = await roster({ action: 'add', username: 'cy', name: 'Cy Park' });
   expect(res.status).toBe(200);
   expect(stored()).toContainEqual({ username: 'cy', name: 'Cy Park' });
-  expect(
-    JSON.parse(readFileSync(storePath, 'utf8'))['board.members']
-  ).toBeUndefined();
 });
 
 test('rename sets a name on an existing member', async () => {
@@ -164,4 +165,26 @@ test('hiding an unknown username is a 400, not a 500', async () => {
   const res = await settings({ username: 'zed', hidden: true });
   expect(res.status).toBe(400);
   expect(await res.text()).toBe('unknown member "zed"');
+});
+
+test('an edit applies to the roster as stored now: writes made after boot survive it', async () => {
+  const onDisk = JSON.parse(readFileSync(storePath, 'utf8'));
+  onDisk['mattstack.roster'] = [
+    ...onDisk['mattstack.roster'].map((m: { username: string }) =>
+      m.username === 'bo' ? { ...m, agePublicKey: 'age1rerecorded' } : m
+    ),
+    { username: 'late', agePublicKey: 'age1late' },
+  ];
+  writeFileSync(storePath, JSON.stringify(onDisk));
+  const res = await roster({ action: 'rename', username: 'bo', name: 'Bo C' });
+  expect(res.status).toBe(200);
+  expect(stored()).toContainEqual({
+    username: 'bo',
+    name: 'Bo C',
+    agePublicKey: 'age1rerecorded',
+  });
+  expect(stored()).toContainEqual({
+    username: 'late',
+    agePublicKey: 'age1late',
+  });
 });

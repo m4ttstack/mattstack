@@ -32,7 +32,7 @@ import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
 
 export const INVITE_TTL_DAYS = 7;
 
-/** Forge usernames only (letters, digits, `.`, `_`, `-`; must start alphanumeric) — this handle also becomes a `board.members` entry and a mint-record key, so it is checked before anything downstream trusts it. */
+/** Forge usernames only (letters, digits, `.`, `_`, `-`; must start alphanumeric). This handle also becomes a `mattstack.roster` entry and a mint-record key, so it is checked before anything downstream trusts it. */
 const HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/;
 
 export const DEFAULT_JOIN_BASE_URL = "https://mattstack.dev/join";
@@ -161,19 +161,17 @@ export function realMintInviteSeams(): MintInviteSeams {
   };
 }
 
-interface BoardMember {
+interface RosterEntryLike {
   username: string;
   [key: string]: unknown;
 }
 
-/** Both roster keys, each judged on its own contents: board.members is the board's own list, mattstack.roster the cross-app successor, and a store can legitimately carry one without the other. */
+/** Adds the handle to the org roster unless it is already there. */
 function addToRoster(seams: MintInviteSeams, slug: string, handle: string): void {
   const store = seams.readTeamStore(slug);
-  for (const key of ["board.members", "mattstack.roster"] as const) {
-    const existing = Array.isArray(store[key]) ? (store[key] as BoardMember[]) : [];
-    if (existing.some((m) => m.username === handle)) continue;
-    seams.writeSetting(key, [...existing, { username: handle }], "org");
-  }
+  const existing = Array.isArray(store["mattstack.roster"]) ? (store["mattstack.roster"] as RosterEntryLike[]) : [];
+  if (existing.some((m) => m.username === handle)) return;
+  seams.writeSetting("mattstack.roster", [...existing, { username: handle }], "org");
 }
 
 function assertValidHandle(handle: string): void {

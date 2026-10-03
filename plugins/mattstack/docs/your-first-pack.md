@@ -4,7 +4,7 @@ A pack is your team's plugin: the verbs your team types (`/<team>:work`), the
 bindings that route each pipeline stage to your rules, and the rules
 themselves. Nobody writes it by hand. Two skills do the work; this page shows
 what happens at each step so you know what to expect and what to check. The
-examples use a team called `acme`.
+examples use an org called `acme` and its team `widgets`.
 
 ## Before you start
 
@@ -18,12 +18,17 @@ On the machine that runs it:
 | glab | `which glab` | the mattstack app bundles it |
 | a GitLab remote | `git remote get-url origin` | the repo's origin |
 
-A team zone must exist too: a directory under `~/.mattstack/teams/<slug>/`
-that is a clone of a repo your team owns. If your team has none yet:
+Your org must be on the machine too: `~/.mattstack/teams/<org>/`, a clone
+of the org repo, with one folder per team under `mattstack/teams/`. If
+there is no org yet:
 
 ```bash
-rt team create Acme --remote https://gitlab.example.com/acme/mattstack-team.git   # an empty repo the team owns
+rt team create Acme --remote https://gitlab.example.com/acme/mattstack-org.git   # an empty repo the org owns
 ```
+
+That makes the org and its first team folder, named after the org. Another
+team gets its folder with `rt team add widgets`, which also writes the
+team's pack skeleton.
 
 ## 1. Create the pack
 
@@ -31,7 +36,7 @@ In the repo, start Claude and say what you want in plain words:
 
 ```
 $ claude
-> we want the mattstack work pipeline on this repo, our team is acme
+> we want the mattstack work pipeline on this repo, our team is widgets
 ```
 
 `mattstack:creating-a-pack` picks itself up from that phrasing (or type
@@ -39,24 +44,30 @@ $ claude
 naming the fix. Then it runs:
 
 ```bash
-rt skills init --json --zone acme
+rt skills init --json --team widgets
 ```
 
-which writes, in the zone:
+(`--team` is your own team when left out; add `--zone acme` when the
+machine has more than one org). It writes, in the org clone:
 
 ```
-mattstack/packs/acme/.claude-plugin/plugin.json   the pack's plugin manifest, version 0.1.0
-mattstack/packs/acme/PACK.md                       what this pack is and where to go next
-mattstack/packs/acme/pack/surface.jsonc            which verbs are public (work)
-mattstack/packs/acme/pack/stubs.jsonc              the verb roster: work, compiled from the mattstack engine
-mattstack/packs/acme/pack/skills.jsonc             the bindings fragment: the eight-stage feature pipeline, model tiering, GitLab CI
-mattstack/team.jsonc                               the repo declared under the team's forge host
-.claude-plugin/marketplace.json                    the pack listed as a plugin
+mattstack/teams/widgets/packs/widgets/.claude-plugin/plugin.json   the pack's plugin manifest, version 0.1.0
+mattstack/teams/widgets/packs/widgets/PACK.md                       what this pack is and where to go next
+mattstack/teams/widgets/packs/widgets/pack/surface.jsonc            which verbs are public (work)
+mattstack/teams/widgets/packs/widgets/pack/stubs.jsonc              the verb roster: work, compiled from the mattstack engine
+mattstack/teams/widgets/packs/widgets/pack/skills.jsonc             the bindings fragment: the eight-stage feature pipeline, model tiering, GitLab CI
+mattstack/teams/widgets/settings.team.jsonc                         the repo added to the team's board.projects
+.claude-plugin/marketplace.json                                     the pack listed as a plugin
 ```
 
 and then compiles the pack (`skills/work/`, `attachments/stage-*/`), checks
-it, and installs it on your machine as `acme@<marketplace>`. The envelope it
-prints ends with `"tryNext": "/acme:work <ticket>"`.
+it, and installs it on your machine as `widgets@<marketplace>`. The
+envelope it prints ends with `"tryNext": "/widgets:work <ticket>"`. A team
+folder made by `rt team add` already has the pack files; init keeps them
+and carries on with the claim, compile and install.
+
+The pack binds the repos in its team's `board.projects` (the org's list
+unless the team sets its own), on the org's forge host.
 
 Two things about that pack:
 
@@ -64,18 +75,19 @@ Two things about that pack:
   purpose: the pipeline works on day one, and rules arrive one at a time
   (step 3).
 - **The daemon publishes it.** Within about a minute, the team-snapshot job
-  commits the new files in the zone and pushes them. The skill checks that
-  this happened (`git -C ~/.mattstack/teams/acme status -sb` is clean and
-  not ahead) and pushes if it did not. Teammates receive the pack through
-  `rt setup`.
+  commits the new files in the org clone and pushes them. The skill checks
+  that this happened (`git -C ~/.mattstack/teams/acme status -sb` is clean
+  and not ahead) and pushes if it did not. The team's members receive the
+  pack through `rt setup`; a machine installs only its active team's
+  pack.
 
 ## 2. Prove it
 
-`/acme:work` appears only after a restart. Restart Claude Code in the repo
-and run the pipeline on a small real ticket:
+`/widgets:work` appears after `/reload-plugins` in your Claude session.
+Then run the pipeline on a small real ticket:
 
 ```
-> /acme:work <ticket>
+> /widgets:work <ticket>
 ```
 
 A good first run: a branch or worktree, an `APPROACH:` block at the plan
@@ -114,12 +126,12 @@ you will see, in order:
 
 1. **RED.** The skill runs the ship stage without the rule on a small task in
    a worktree and stops before the push, recording that nothing ran lint.
-2. **The fill.** `mattstack/packs/acme/attachments/ship-lint/SKILL.md`, a
+2. **The fill.** `mattstack/teams/widgets/packs/widgets/attachments/ship-lint/SKILL.md`, a
    small skill whose frontmatter declares `metadata.provides:
    "ship-domain@1"` and whose body is the rule in your team's words: run
    `bun run lint`, and on failure do not push.
 3. **Bind, certify, check.**
-   `rt skills bind stage-ship domain acme:ship-lint` writes the binding into
+   `rt skills bind stage-ship domain widgets:ship-lint` writes the binding into
    `pack/skills.jsonc` (the file teammates receive), regenerates the pack's
    bindings file for your repo and recompiles; `tests/certify.sh` and
    `rt skills check` pass.
@@ -127,7 +139,7 @@ you will see, in order:
    `claude --plugin-dir <pack dir>` so it loads the pack source instead of
    the installed copy: lint runs, a failure blocks the push.
 5. **Publish** through `mattstack:editing-skills`: bump the pack version,
-   commit, push, `rt skills sync --pack acme`, restart.
+   commit, push, `rt skills sync --pack widgets`, `/reload-plugins`.
 
 A rule can be undone the same way: remove the binding and the fill, bump,
 publish.
@@ -140,21 +152,39 @@ publish.
   from it, and the next update erases the edit.
 - Do not edit `~/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc` by
   hand: `rt skills materialize` regenerates it; `pack/skills.jsonc` is the
-  source. A pack that builds on another declares
-  `"extends": "<plugin>@<marketplace>"` there, and its own fills override the
-  base pack's slot by slot. The base's own `pack/skills.jsonc` says
-  `"base": true`, so it never claims a repo or gets a bindings file. The
-  team installs the base by listing it in `claude.plugins`; members do not
-  join the base's team.
+  source.
 - Do not copy another team's pack: its fills carry that team's rules.
 - Do not write a fill "to have something there": an unbound slot renders as
   nothing, and that is the correct state until a rule exists.
+
+## Fills the whole org shares
+
+A rule every team follows goes in the org's base pack, a folder the org
+admin adds by hand at `mattstack/org/packs/acme-base/` in the org repo:
+
+- `pack/skills.jsonc` says `"base": true` and binds the shared fills.
+- `pack/surface.jsonc` is `{ "public": [] }`.
+- The fills sit under `attachments/<fill>/`, never `skills/`: nothing
+  installs a base pack, so its fills are always inlined into each team's
+  compiled verbs.
+
+A team pack uses it with `"extends": "acme-base"` in its
+`pack/skills.jsonc`, and its own fills override the base's slot by slot.
+The base is never listed in `claude.plugins` and has no marketplace entry.
+
+A verb the org defines (for example `watch-ci`) reaches a team when the
+team lists it in `pack/stubs.jsonc` and compiles: with no team fill for a
+slot, the org's fill lands, and the verb is the team's (`/widgets:watch-ci`).
+
+Bindings follow the base at once on every machine. Compiled fills follow
+at the team owner's next `rt skills compile`.
 
 ## Where things live
 
 | thing | path |
 | --- | --- |
-| the zone (a git clone the daemon keeps in sync) | `~/.mattstack/teams/<slug>/` |
-| the pack | `~/.mattstack/teams/<slug>/mattstack/packs/<pack>/` |
+| the org clone (a git clone the daemon keeps in sync) | `~/.mattstack/teams/<org>/` |
+| a team's pack | `~/.mattstack/teams/<org>/mattstack/teams/<team>/packs/<team>/` |
+| the org's base pack | `~/.mattstack/teams/<org>/mattstack/org/packs/<org>-base/` |
 | the bindings file per repo and pack (generated, never edited) | `~/.mattstack/repos/<host>-<path>/packs/<pack>/skills.jsonc` |
 | the installed copy sessions load | `~/.claude/plugins/cache/<marketplace>/<pack>/<version>/` |

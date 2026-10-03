@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { activeTeam, activeTeamRoster, decideActiveTeam, readOrgRoles, sameUser, type RosterEntry } from "../active-team.ts";
-import { orgSettingsPath, teamFolderDir, teamLocalPath, userSettingsPath } from "../paths.ts";
+import { seedOrg } from "../../../test/org-fixture.ts";
+import { activeTeam, activeTeamPack, activeTeamRoster, decideActiveTeam, mergeTeamRoster, readOrgRoles, sameUser, type RosterEntry } from "../active-team.ts";
+import { orgSettingsPath, teamFolderDir, teamLocalPath, teamPackDir, userSettingsPath } from "../paths.ts";
 
 const ROSTER: RosterEntry[] = [
   { username: "dev1", teams: ["widgets"] },
@@ -117,5 +118,93 @@ describe("activeTeam on disk", () => {
   test("malformed roles read as nobody", () => {
     write(orgSettingsPath("acme"), { "mattstack.org": { admins: "dev1", teams: [] } });
     expect(readOrgRoles("acme")).toEqual({ admins: [], teams: {} });
+  });
+});
+
+describe("mergeTeamRoster", () => {
+  const full: RosterEntry[] = [
+    { username: "dev1", name: "Dev One", agePublicKey: "age1aaa", teams: ["widgets"] },
+    { username: "dev2", teams: ["widgets", "gadgets"] },
+    { username: "dev3", teams: ["gadgets"] },
+  ];
+
+  test("an edit in one team's view never touches members of other teams", () => {
+    const out = mergeTeamRoster(full, "widgets", [{ username: "dev1", name: "Dev 1" }, { username: "dev2" }]);
+    expect(out).toEqual([
+      { username: "dev1", name: "Dev 1", agePublicKey: "age1aaa", teams: ["widgets"] },
+      { username: "dev2", teams: ["widgets", "gadgets"] },
+      { username: "dev3", teams: ["gadgets"] },
+    ]);
+  });
+
+  test("a member added in the view joins that team; one already in the org gains it", () => {
+    const out = mergeTeamRoster(full, "widgets", [{ username: "dev1" }, { username: "dev2" }, { username: "DEV3" }, { username: "dev4", name: "Dev Four" }]);
+    expect(out.find((e) => e.username === "dev3")!.teams).toEqual(["gadgets", "widgets"]);
+    expect(out[3]).toEqual({ username: "dev4", name: "Dev Four", teams: ["widgets"] });
+  });
+
+  test("a member removed from the view leaves the team but stays in the org", () => {
+    const out = mergeTeamRoster(full, "widgets", [{ username: "dev2" }]);
+    expect(out[0]).toEqual({ username: "dev1", name: "Dev One", agePublicKey: "age1aaa", teams: [] });
+    expect(out.length).toBe(3);
+  });
+
+  test("with no active team the edit is the whole roster", () => {
+    expect(mergeTeamRoster(full, null, [{ username: "dev9" }])).toEqual([{ username: "dev9" }]);
+  });
+
+  test("the view changes only membership and name: a key the store re-recorded since the view loaded survives", () => {
+    const fresh = [{ ...full[0]!, agePublicKey: "age1new" }, full[1]!, full[2]!];
+    const stale = [{ username: "dev1", name: "Dev 1", agePublicKey: "age1aaa", teams: ["widgets"], extra: "x" }, { username: "dev2" }];
+    expect(mergeTeamRoster(fresh, "widgets", stale)[0]).toEqual({ username: "dev1", name: "Dev 1", agePublicKey: "age1new", teams: ["widgets"] });
+    expect(mergeTeamRoster(fresh, null, [...stale, { username: "dev3" }])[0]).toEqual({ username: "dev1", name: "Dev 1", agePublicKey: "age1new", teams: ["widgets"] });
+  });
+
+  test("a blank or missing name on a shown member clears the stored name", () => {
+    expect(mergeTeamRoster(full, "widgets", [{ username: "dev1", name: "" }, { username: "dev2" }])[0]).toEqual({ username: "dev1", agePublicKey: "age1aaa", teams: ["widgets"] });
+    expect(mergeTeamRoster(full, null, [{ username: "dev1" }, { username: "dev2" }, { username: "dev3" }])[0]).toEqual({ username: "dev1", agePublicKey: "age1aaa", teams: ["widgets"] });
+  });
+
+  test("an entry the view never showed is kept, in a team view and in the everyone view", () => {
+    const later = [...full, { username: "dev5", agePublicKey: "age1ccc", teams: ["widgets"] }];
+    const shown = ["dev1", "dev2"];
+    expect(mergeTeamRoster(later, "widgets", [{ username: "dev1", name: "Dev One" }, { username: "dev2" }], shown)[3]).toEqual({ username: "dev5", agePublicKey: "age1ccc", teams: ["widgets"] });
+    const everyone = mergeTeamRoster(later, null, [{ username: "dev1", name: "Dev One" }, { username: "dev2" }, { username: "dev3" }], ["dev1", "dev2", "dev3"]);
+    expect(everyone.map((e) => e.username)).toEqual(["dev1", "dev2", "dev3", "dev5"]);
+  });
+
+  test("in the everyone view a shown member left out of the edit leaves the org", () => {
+    expect(mergeTeamRoster(full, null, [{ username: "dev1", name: "Dev One" }, { username: "dev3" }]).map((e) => e.username)).toEqual(["dev1", "dev3"]);
+  });
+});
+
+describe("activeTeamPack", () => {
+  const origHome = process.env.HOME;
+  let home: string;
+  beforeEach(() => { home = realpathSync(mkdtempSync(join(tmpdir(), "rt-active-pack-"))); process.env.HOME = home; });
+  afterEach(() => { process.env.HOME = origHome; rmSync(home, { recursive: true, force: true }); });
+
+  function seed(fragment: string | null): void {
+    seedOrg({ org: "acme", username: "dev1", roster: [{ username: "dev1", teams: ["widgets"] }], teams: { widgets: {} } });
+    if (fragment !== null) {
+      const file = join(teamPackDir("acme", "widgets"), "pack", "skills.jsonc");
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, fragment);
+    }
+  }
+
+  test("the team's name when its folder holds a pack", () => {
+    seed(`// bindings\n{ "version": 1 }`);
+    expect(activeTeamPack()).toBe("widgets");
+  });
+  test("null with no pack, a base pack, an unreadable fragment, or no active team", () => {
+    seed(null);
+    expect(activeTeamPack()).toBeNull();
+    seed(`{ "base": true }`);
+    expect(activeTeamPack()).toBeNull();
+    seed(`{ not json`);
+    expect(activeTeamPack()).toBeNull();
+    seedOrg({ org: "acme", username: "stranger", teams: { widgets: {} } });
+    expect(activeTeamPack()).toBeNull();
   });
 });

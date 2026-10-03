@@ -592,7 +592,7 @@ describe("skillsCompile", () => {
     const widgetsDir = zone("widgets", "acme:watch-ci-domain");
     const gadgetsDir = zone("gadgets", "gadgets:watch-ci-domain");
     const engine = join(mattstackDir, "plugins", "mattstack");
-    const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, claudeHome: mattstackDir, enginePackDir: engine }, "https://gitlab.example.com/acme/widgets.git");
+    const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, enginePackDir: engine }, "https://gitlab.example.com/acme/widgets.git");
     if (out.kind !== "written") throw new Error(out.kind);
     expect(out.packs.every((p) => p.ok)).toBe(true);
 
@@ -609,6 +609,101 @@ describe("skillsCompile", () => {
     expect(widgetsBody).not.toContain("gadgets:watch-ci-domain");
     expect(gadgetsBody).toContain("gadgets:watch-ci-domain");
     expect(gadgetsBody).not.toContain("acme:watch-ci-domain");
+  });
+
+  test("a team pack compiles a fill that lives in the org base pack", async () => {
+    const mattstackDir = makeMattstackDir();
+    seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
+    const baseDir = join(mattstackDir, "teams", "acme", "mattstack", "org", "packs", "acme-base");
+    const packDir = teamPackDir(mattstackDir, "acme", "widgets");
+    writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD);
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
+    writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
+    writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+
+    const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, enginePackDir: join(mattstackDir, "plugins", "mattstack") }, "https://gitlab.example.com/acme/widgets.git");
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs).toMatchObject([{ pack: "widgets", ok: true, layers: ["base:acme-base", "pack"] }]);
+
+    const { errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
+    expect(errors).toEqual([]);
+    expect(readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8")).toContain("acme-base:watch-ci-domain");
+    expect(existsSync(join(baseDir, "skills"))).toBe(false);
+  });
+
+  test("a team pack in a copy of the org repo outside teams/ compiles its org base fill from that copy, and a pack in no org repo gets no bases", async () => {
+    const mattstackDir = makeMattstackDir();
+    seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
+    const baseDir = join(mattstackDir, "teams", "acme", "mattstack", "org", "packs", "acme-base");
+    writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD);
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
+    const clonePack = teamPackDir(mattstackDir, "acme", "widgets");
+    writeFile(join(clonePack, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
+    writeFile(join(clonePack, "pack", "stubs.jsonc"), STUBS_JSONC);
+    const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, enginePackDir: join(mattstackDir, "plugins", "mattstack") }, "https://gitlab.example.com/acme/widgets.git");
+    if (out.kind !== "written") throw new Error(out.kind);
+
+    const worktree = join(realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-org-wt-"))), "acme-wt");
+    cpSync(join(mattstackDir, "teams", "acme"), worktree, { recursive: true });
+    const worktreePack = join(worktree, "mattstack", "teams", "widgets", "packs", "widgets");
+    const compiled = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "widgets", "--pack-dir", worktreePack, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
+    expect(compiled.errors).toEqual([]);
+    expect(readFileSync(join(worktreePack, "skills", "watch-ci", "SKILL.md"), "utf8")).toContain("acme-base:watch-ci-domain");
+
+    const loose = join(realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-loose-"))), "widgets");
+    cpSync(clonePack, loose, { recursive: true });
+    const refused = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "widgets", "--pack-dir", loose, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
+    expect(refused.exitCode).toBe(1);
+    expect(refused.errors.join("\n")).toContain('no plugin root registered for "acme-base"');
+  });
+
+  test("a base pack of another org on the same Mac is not resolvable from this org's pack", async () => {
+    const mattstackDir = makeMattstackDir();
+    seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
+    seedOrg(mattstackDir, "other", { projects: [], teams: [] });
+    const otherBase = join(mattstackDir, "teams", "other", "mattstack", "org", "packs", "other-base");
+    writeFile(join(otherBase, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
+    writeFile(join(otherBase, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD);
+    writeFile(join(otherBase, "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
+    const packDir = teamPackDir(mattstackDir, "acme", "widgets");
+    writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+    const manifestPath = join(mattstackDir, "widgets-bindings.jsonc");
+    writeFile(manifestPath, JSON.stringify({ bindings: { "mattstack:watch-ci": { domain: "other-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
+
+    const { exitCode, errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]));
+
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain('no plugin root registered for "other-base"');
+  });
+
+  test("an org base pack named like an installed plugin is refused, and another org's compile still resolves that plugin's fills", async () => {
+    const mattstackDir = makeMattstackDir();
+    seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
+    seedOrg(mattstackDir, "other", { projects: [], teams: ["gadgets"] });
+    const clash = join(mattstackDir, "teams", "acme", "mattstack", "org", "packs", "mattstack");
+    writeFile(join(clash, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
+    const widgetsDir = teamPackDir(mattstackDir, "acme", "widgets");
+    const gadgetsDir = teamPackDir(mattstackDir, "other", "gadgets");
+    writeFile(join(widgetsDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+    writeFile(join(gadgetsDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+    const manifestPath = makeManifest();
+
+    const refused = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "widgets", "--pack-dir", widgetsDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]));
+    expect(refused.exitCode).toBe(1);
+    expect(refused.errors[0]).toBe("An org base pack has the same name as an installed plugin");
+    expect(existsSync(join(widgetsDir, "skills"))).toBe(false);
+
+    const other = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "gadgets", "--pack-dir", gadgetsDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci"]));
+    expect(other.errors).toEqual([]);
+    expect(existsSync(join(gadgetsDir, "skills", "watch-ci", "SKILL.md"))).toBe(true);
   });
 
   test("another pack's file on the same repo is never picked", async () => {

@@ -50,7 +50,7 @@ import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } fro
 import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
-import { discoverPacks, findEnclosingPack, surfaceFileFor, type PackInfo } from "../lib/skills/packs.ts";
+import { discoverPacks, findEnclosingPack, solePack, surfaceFileFor, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
@@ -64,6 +64,8 @@ import {
   loadAttachment,
   loadInclude,
   loadStepSource,
+  orgBasePackRoots,
+  orgOfPackDir,
   parseStageQualifiedName,
   readManifestBindings,
   readManifestPipelines,
@@ -77,6 +79,8 @@ import {
   type SurfaceConfig,
 } from "../lib/skills/sources.ts";
 import type { AttachmentSource, CompileResult, Side, StageEntry, StepSource, VerbDef } from "../lib/skills/types.ts";
+
+export const NO_PACKS_WHY = "A pack is a folder with a surface file: a plugin from a directory marketplace, or a team's or the org's pack folder in your org repo.";
 
 /**
  * An expected, user-facing condition (bad flags, an absent binding, an
@@ -243,11 +247,12 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
     );
   }
 
-  if (packs.length === 1) return { team: packs[0]!.name, packDir: packs[0]!.dir };
+  const sole = solePack(packs);
+  if (sole) return { team: sole.name, packDir: sole.dir };
   if (packs.length === 0) {
-    throw new SkillsUsageError("no packs discovered (no directory marketplace plugin carries a surface.jsonc); pass --pack <name>", {
+    throw new SkillsUsageError("no packs discovered (no directory marketplace plugin, team folder or org folder carries a surface.jsonc); pass --pack <name>", {
       title: "No packs found",
-      why: "A pack is a plugin from a directory marketplace that has a surface file.",
+      why: NO_PACKS_WHY,
       next: ["Run it again with ", out.cmd("--pack <name>"), " or ", out.cmd("--pack-dir <folder>")],
     });
   }
@@ -587,6 +592,21 @@ async function resolve(flags: Flags): Promise<Resolved> {
   const self = packPluginIdentity(packDir);
   if (self && fullRoster.length > 0) pluginRoots.byName[self.name] = { dir: packDir, version: self.version };
   const invocable = fullRoster.length === 0 ? new Set<string>() : invocableRoster(pluginRoots);
+  // After the invocable roster: a base pack is never installed, so nothing in it is invocable.
+  const packOrg = fullRoster.length > 0 ? orgOfPackDir(packDir) : null;
+  if (packOrg) {
+    for (const baseRoot of orgBasePackRoots(packOrg.root)) {
+      if (baseRoot.name === self?.name) continue;
+      if (pluginRoots.byName[baseRoot.name]) {
+        throw new SkillsUsageError(`org base pack ${baseRoot.name} has the same name as an installed plugin`, {
+          title: "An org base pack has the same name as an installed plugin",
+          details: `Rename the base pack folder ${baseRoot.dir} so its fills do not replace ${baseRoot.name}'s.`,
+        });
+      }
+      pluginRoots.byName[baseRoot.name] = { dir: baseRoot.dir, version: baseRoot.version };
+      (pluginRoots.folderOnly ??= new Set()).add(baseRoot.name);
+    }
+  }
   const surface = readSurface(packDir);
   const internalRoster = computeInternalRoster(team, packDir, surface, fullRoster);
 
@@ -1309,7 +1329,7 @@ function skillsFlagValue(args: string[], flag: string): string | undefined {
 
 export function packsBlocks(rows: Array<{ name: string; dir: string; layout: string }>): Block[] {
   if (rows.length === 0) {
-    return [out.line("pending", "No packs found"), out.callout("note", "A pack is a plugin from a directory marketplace that has a surface file.")];
+    return [out.line("pending", "No packs found"), out.callout("note", NO_PACKS_WHY)];
   }
   return [out.table(rows.map((row) => [out.strong(row.name), row.layout, out.dim(row.dir)]), ["Pack", "Layout", "Folder"])];
 }
