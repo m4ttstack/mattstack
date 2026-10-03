@@ -12,6 +12,7 @@ import { materializeWorld } from "./materialize-world.ts";
 import type { Probes } from "../probes.ts";
 
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../pack.ts";
+import { readServedPacks } from "../pack-cache.ts";
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
@@ -196,5 +197,23 @@ describe("setupPackFlow", () => {
     const p = fakeProbes({ home });
     const reqs: PackRequirements[] = [{ pack: "widgets", tools: [], integrations: [], error: "invalid JSON: Unexpected token" }];
     expect(await setupPackFlow(makeCtx(p, { reqs }))).toEqual({ ok: false, detail: "invalid JSON: Unexpected token" });
+  });
+});
+
+describe("readServedPacks filter", () => {
+  const market = JSON.stringify({ name: "acme", plugins: [
+    { name: "widgets", source: "./mattstack/teams/widgets/packs/widgets" },
+    { name: "gadgets", source: "./mattstack/teams/gadgets/packs/gadgets" },
+  ] });
+  const p = fakeProbes({ home: "/h", files: { "/h/.mattstack/teams/acme/.claude-plugin/marketplace.json": market } });
+
+  test("with no filter every entry is served", () => {
+    expect(readServedPacks(p, "acme").packs.map((x) => x.name)).toEqual(["widgets", "gadgets"]);
+  });
+  test("only names the one pack this Mac installs", () => {
+    expect(readServedPacks(p, "acme", { only: "gadgets" }).packs.map((x) => x.id)).toEqual(["gadgets@acme"]);
+  });
+  test("null means no active team, so nothing is served", () => {
+    expect(readServedPacks(p, "acme", { only: null }).packs).toEqual([]);
   });
 });

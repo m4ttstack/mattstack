@@ -27,6 +27,7 @@ import { materializeSkills, materializeTally } from "../skills-materialize.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import { childOutput, isAlready, isNotFound, parsePluginList, settlePack, PACK_EXEC_TIMEOUT_MS, type ClaudeRunner } from "../pack-cache.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
+import { activeTeamFor } from "../../team/active-team.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
@@ -189,7 +190,7 @@ function computeMarketplaces(ctx: ApplyContext, teamMarketplace: TeamMarketplace
 interface ComputedPlugins {
   /** rt's own baseline, plus anything one of your own layers lists. */
   trusted: string[];
-  /** Listed only by the org or a team, or served by the org's marketplace. */
+  /** Listed only by the org or a team, or the active team's entry in the org's marketplace.json. */
   teamAuthored: string[];
 }
 
@@ -204,9 +205,10 @@ export function computePlugins(ctx: ApplyContext, teamMarketplace: TeamMarketpla
   const shared = named.filter((item) => sharedOnly(item.sources)).map((item) => item.value);
 
   const marketplaceName = teamMarketplace?.name ?? ctx.team.slug;
+  const active = ctx.activeTeam ? ctx.activeTeam() : ctx.team.slug ? activeTeamFor(ctx.p, ctx.team.slug).team : null;
   const teamPlugins = (teamMarketplace?.plugins ?? [])
     .map((plugin) => plugin.name)
-    .filter((name): name is string => typeof name === "string" && name.length > 0)
+    .filter((name): name is string => typeof name === "string" && name.length > 0 && name === active)
     .map((name) => `${name}@${marketplaceName}`);
 
   const trusted = dedupe([...own, ...BASE_PLUGINS]);
