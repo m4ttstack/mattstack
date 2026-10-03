@@ -198,7 +198,7 @@ describe("setup plan --json bytes", () => {
       const probes = fakeProbes({ exec: readyExec });
       const deps: SetupDeps = { probes, secrets: fakeSecrets(), json: realJson };
       await setupPlan(["--json"], {}, deps);
-      const plan = await composePlan({ p: probes, secrets: fakeSecrets(), ci: process.env.CI === "true", mode: "plan", teams: listOrgs() });
+      const plan = await composePlan({ p: probes, secrets: fakeSecrets(), ci: process.env.CI === "true", mode: "plan", orgs: listOrgs() });
       expect(cap.stdout()).toBe(JSON.stringify(plan) + "\n");
       expect(cap.stderr()).toBe("");
     } finally {

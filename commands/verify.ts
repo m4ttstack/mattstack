@@ -195,13 +195,13 @@ export function verifyBlocks(plan: Plan, opts: { ci: boolean }): Block[] {
 export interface VerifyDeps {
   probes: Probes;
   secrets: SecretPresence;
-  teams: () => string[];
+  orgs: () => string[];
   compose: (i: PlanInputs) => Promise<Plan>;
   exit: (code: number) => never;
 }
 
 export function realVerifyDeps(): VerifyDeps {
-  return { probes: createRealProbes(), secrets: realSecretPresence(), teams: listOrgs, compose: composePlan, exit: process.exit };
+  return { probes: createRealProbes(), secrets: realSecretPresence(), orgs: listOrgs, compose: composePlan, exit: process.exit };
 }
 
 export async function runVerify(args: string[], _ctx: CommandContext = {}, deps: VerifyDeps = realVerifyDeps()): Promise<void> {
@@ -210,7 +210,7 @@ export async function runVerify(args: string[], _ctx: CommandContext = {}, deps:
   const ci = args.includes("--ci") || process.env.CI === "true";
   const json = args.includes("--json");
 
-  const plan = await deps.compose({ p: deps.probes, secrets: deps.secrets, ci, mode: "status", teams: deps.teams() });
+  const plan = await deps.compose({ p: deps.probes, secrets: deps.secrets, ci, mode: "status", orgs: deps.orgs() });
   const results = rowsToChecks(plan, { ci });
   const failures = results.filter((r) => r.status === "fail" && r.severity === "critical");
 
