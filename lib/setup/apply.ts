@@ -50,6 +50,8 @@ export interface ApplyContext {
   reqs: PackRequirements[];
   /** Re-reads `snapshot` and `reqs` from disk; the engine calls it after a done or partial `reloadsTeam` step. */
   reloadTeam?: () => void;
+  /** Test seam: the active team's name. Production reads it from the org's roster through `p`. */
+  activeTeam?: () => string | null;
   nonInteractive: boolean;
   /** Set only for `rt setup update`: a step must not re-assert anything the member undid since rt put it there (a disabled or removed plugin, an editor rt never installed into). */
   update?: true;
