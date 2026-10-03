@@ -215,9 +215,6 @@ function rowRank(d: SettingDefWire): number {
   return SCALAR_RANK[d.type] ?? 4;
 }
 
-/** Every group with at least one registered key, in GROUPS order, with
-    unknown first segments after them. Empty-after-filter sections are kept
-    so the index can show zeros. */
 const isShared = (s: string | null | undefined): s is 'org' | 'team' =>
   s === 'org' || s === 'team';
 
@@ -231,6 +228,9 @@ function subheadOf(def: SettingDefWire): string | undefined {
   return first;
 }
 
+/** Every group with at least one registered key, in GROUPS order, with
+    unknown first segments after them. Empty-after-filter sections are kept
+    so the index can show zeros. */
 export function buildSections(
   all: SettingDefWire[],
   f: ViewFilter,

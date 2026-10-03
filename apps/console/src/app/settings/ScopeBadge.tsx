@@ -5,7 +5,7 @@ import { useSettingsOrg, useSettingsTeam } from './useConsoleSettings';
 import { layerLabel, rungBase, type LayerScope, type StoreScope } from './view';
 
 export const SCOPE_COLOR: Record<StoreScope, string> = {
-  org: 'purple',
+  org: 'gold',
   team: 'purple',
   user: 'cyan',
   machine: 'accent',
@@ -29,21 +29,12 @@ export function ScopeDot({ scope }: { scope: BadgeBase }) {
   );
 }
 
-/** `bare` leaves the org's and team's names off, for a fixed-width column a long slug
-    would truncate. A label that still does not fit ends in an ellipsis and
-    shows whole in a tooltip. */
-export function ScopeBadge({
-  scope,
-  bare = false,
-}: {
-  scope: LayerScope | 'default';
-  bare?: boolean;
-}) {
+/** A label that does not fit its column ends in an ellipsis and shows whole
+    in a tooltip. */
+export function ScopeBadge({ scope }: { scope: LayerScope | 'default' }) {
   const base: BadgeBase = scope === 'default' ? 'default' : rungBase(scope)!;
-  const namedTeam = useSettingsTeam();
-  const namedOrg = useSettingsOrg();
-  const team = bare ? null : namedTeam;
-  const org = bare ? null : namedOrg;
+  const team = useSettingsTeam();
+  const org = useSettingsOrg();
   const hue = base === 'default' ? null : SCOPE_COLOR[base];
   const label = scope === 'default' ? 'default' : layerLabel(scope, team, org);
   const { ref, hasOverflow } = useHasOverflowX<HTMLParagraphElement>();
