@@ -62,7 +62,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
   },
   "store file": {
     "commands/home.ts": { count: 1, reason: "existence probe listing adoptable machine profiles" },
-    "lib/command-tree-def.ts": { count: 6, reason: "help hints naming where --scope writes" },
+    "lib/command-tree-def.ts": { count: 4, reason: "help hints naming where --scope writes" },
     "lib/home/init-exec.ts": { count: 1, reason: "assertNotRealStoreInTest guard before home init seeds the user store" },
     "lib/team/create.ts": { count: 2, reason: "scaffolds a new team's store and guards it with assertNotRealStoreInTest" },
     "lib/team/join.ts": { count: 1, reason: "assertNotRealStoreInTest guard before join seeds the team store" },
