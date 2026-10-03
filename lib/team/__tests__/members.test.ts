@@ -176,7 +176,7 @@ function fakeMembersSeams(overrides: Partial<MembersSeams> = {}): { seams: Membe
     readTeamStore: () => store,
     writeSetting: ((key: string, value: unknown, scope: string, opts?: unknown) => {
       writes.push({ key, value, scope, opts });
-      if (key === "board.members" || key === "mattstack.roster") store = { ...store, [key]: value };
+      if (key === "mattstack.roster") store = { ...store, [key]: value };
     }) as MembersSeams["writeSetting"],
     currentOrg: () => SLUG,
     revokeRead: async () => ({ access: "revoked", manualSteps: [] }),
@@ -244,32 +244,14 @@ describe("membersSync", () => {
     expect(result.pending).toEqual([]);
     expect(execSeam.calls.some((c) => c.cmd[0] === "sops" && c.cmd[1] === "updatekeys")).toBe(true);
     expect(p.readFile(join(HOME, ".mattstack", "rt", "invites", `${SLUG}.json`))).toBe("{}");
-    // Roster gained alice with her age key, via writeSetting("board.members", ..., "org").
-    const rosterWrite = writes.find((w) => w.key === "board.members" && (w.value as { username: string }[]).some((m) => m.username === "alice"));
+    // Roster gained alice with her age key, via writeSetting("mattstack.roster", ..., "org").
+    const rosterWrite = writes.find((w) => w.key === "mattstack.roster" && (w.value as { username: string }[]).some((m) => m.username === "alice"));
     expect(rosterWrite).toBeDefined();
     expect((rosterWrite!.value as { username: string; agePublicKey?: string }[]).find((m) => m.username === "alice")?.agePublicKey).toBe(ALICE_PUBLIC_KEY);
     expect(rosterWrite!.scope).toBe("org");
     expect(rosterWrite!.opts).toBeUndefined();
     expect(Object.keys(result).sort()).toEqual(["added", "addedHandles", "pending", "reencrypted"]);
     expect(Object.values(result).every(Array.isArray)).toBe(true);
-  });
-
-  test("also records alice's age key onto mattstack.roster, the cross-app roster, alongside board.members", async () => {
-    const p = fakeProbes({ home: HOME });
-    upsertInviteRecord(p, SLUG, "alice", aliceRecord());
-    const { execSeam, secrets } = seamsWithClone();
-    execSeam.writeFile(teamSecretsFile(SLUG, "board"), JSON.stringify({ data: "opaque", sops: {} }));
-    const { seams, writes } = fakeMembersSeams();
-    const blob = await replyBlob(ALICE_PUBLIC_KEY, "alice");
-    const relay = fakeRelay({ readReply: async () => ({ blob }) });
-
-    await membersSync(p, relay, secrets, SLUG, seams);
-
-    const rosterWrite = writes.find((w) => w.key === "mattstack.roster" && (w.value as { username: string }[]).some((m) => m.username === "alice"));
-    expect(rosterWrite).toBeDefined();
-    expect((rosterWrite!.value as { username: string; agePublicKey?: string }[]).find((m) => m.username === "alice")?.agePublicKey).toBe(ALICE_PUBLIC_KEY);
-    expect(rosterWrite!.scope).toBe("org");
-    expect(rosterWrite!.opts).toBeUndefined();
   });
 
   test("a second sync run with no new replies reports nothing added (the owner's key is already a recipient)", async () => {
@@ -447,7 +429,7 @@ describe("membersSync", () => {
       const raw = p.readFile(join(HOME, ".mattstack", "rt", "invites", `${SLUG}.json`));
       expect(JSON.parse(raw!)).toHaveProperty("alice");
       // No roster entry was ever written recording the owner's key as alice's.
-      const aliceRosterWrite = writes.find((w) => w.key === "board.members" && (w.value as { username: string }[]).some((m) => m.username === "alice"));
+      const aliceRosterWrite = writes.find((w) => w.key === "mattstack.roster" && (w.value as { username: string }[]).some((m) => m.username === "alice"));
       expect(aliceRosterWrite).toBeUndefined();
       expect(readTeamRecipients(SLUG, secrets)).toEqual([OWNER_PUBLIC_KEY]);
     });
@@ -568,7 +550,7 @@ describe("membersRemove", () => {
 
     const revokeCalls: unknown[] = [];
     const { seams } = fakeMembersSeams({
-      readTeamStore: () => ({ "board.members": [{ username: "matt" }, { username: "alice", agePublicKey: ALICE_PUBLIC_KEY }] }),
+      readTeamStore: () => ({ "mattstack.roster": [{ username: "matt" }, { username: "alice", agePublicKey: ALICE_PUBLIC_KEY }] }),
       readTeamLocal: () => ({ createdByRt: false, joinedByRt: false, rtMayManageMembership: false }),
       revokeRead: async (...args) => {
         revokeCalls.push(args);
@@ -600,7 +582,7 @@ describe("membersRemove", () => {
 
     const revokeCalls: unknown[] = [];
     const { seams } = fakeMembersSeams({
-      readTeamStore: () => ({ "board.members": [{ username: "matt" }, { username: "alice", agePublicKey: ALICE_PUBLIC_KEY }] }),
+      readTeamStore: () => ({ "mattstack.roster": [{ username: "matt" }, { username: "alice", agePublicKey: ALICE_PUBLIC_KEY }] }),
       readTeamLocal: () => ({ createdByRt: false, joinedByRt: false, rtMayManageMembership: true }),
       revokeRead: async (...args) => {
         revokeCalls.push(args);
@@ -615,25 +597,7 @@ describe("membersRemove", () => {
     expect(result.manualSteps.join(" ")).toContain("can still see the team repo");
   });
 
-  test("divergent keys across the two rosters are BOTH revoked: no stale recipient survives the removal", async () => {
-    const DIVERGENT_KEY = "age12tszxzvjgdsw9hge35352mesauj93umyvqee5dzuza72lp7qty0q50tcaj";
-    const p = fakeProbes({ home: HOME });
-    const { secrets } = seamsWithClone();
-    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY, DIVERGENT_KEY], secrets);
-    const { seams } = fakeMembersSeams({
-      readTeamStore: () => ({
-        "board.members": [{ username: "matt" }, { username: "alice", agePublicKey: ALICE_PUBLIC_KEY }],
-        "mattstack.roster": [{ username: "matt" }, { username: "alice", agePublicKey: DIVERGENT_KEY }],
-      }),
-    });
-
-    const result = await membersRemove(p, secrets, SLUG, "alice", undefined, seams);
-
-    expect(result.rosterRemoved).toBe(true);
-    expect(readTeamRecipients(SLUG, secrets)).toEqual([OWNER_PUBLIC_KEY]);
-  });
-
-  test("an entry that lives only on mattstack.roster is still found: its key is revoked and the row removed, with no board.members needed", async () => {
+  test("without the permission, the key recorded on mattstack.roster is still revoked and the row removed", async () => {
     const remote = "git@github.com:acme/widgets.git";
     const p = fakeProbes({ home: HOME, files: { [join(HOME, ".mattstack", "teams", SLUG, ".git", "config")]: gitConfigWithRemote(remote) } });
     const { execSeam, secrets } = seamsWithClone();
@@ -666,7 +630,7 @@ describe("membersRemove", () => {
 
     const revokeCalls: { remote: string; handle: string; token: string | null | undefined }[] = [];
     const { seams, writes } = fakeMembersSeams({
-      readTeamStore: () => ({ "board.members": [{ username: "matt" }, { username: "alice", agePublicKey: ALICE_PUBLIC_KEY }] }),
+      readTeamStore: () => ({ "mattstack.roster": [{ username: "matt" }, { username: "alice", agePublicKey: ALICE_PUBLIC_KEY }] }),
       readTeamLocal: () => ({ createdByRt: true, joinedByRt: false, rtMayManageMembership: true }),
       forgeToken: async () => "ghp-secret",
       revokeRead: async (_p, r, h, token) => {
@@ -680,7 +644,7 @@ describe("membersRemove", () => {
     expect(revokeCalls).toEqual([{ remote, handle: "alice", token: "ghp-secret" }]);
     expect(result.forgeAccess).toBe("revoked");
     expect(result.rosterRemoved).toBe(true);
-    const rosterWrite = writes.find((w) => w.key === "board.members");
+    const rosterWrite = writes.find((w) => w.key === "mattstack.roster");
     expect((rosterWrite!.value as { username: string }[]).map((m) => m.username)).toEqual(["matt"]);
     expect(result.reencrypted).toEqual([teamSecretsFile(SLUG, "board")]);
     expect(execSeam.calls.some((c) => c.cmd[0] === "sops" && c.cmd[1] === "updatekeys")).toBe(true);
@@ -691,49 +655,11 @@ describe("membersRemove", () => {
     expect({ forgeAccess: typeof result.forgeAccess, residueNote: typeof result.residueNote, rosterRemoved: typeof result.rosterRemoved }).toEqual({ forgeAccess: "string", residueNote: "string", rosterRemoved: "boolean" });
   });
 
-  test("strips the handle from mattstack.roster as well as board.members", async () => {
-    const p = fakeProbes({ home: HOME });
-    const { secrets } = seamsWithClone();
-    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
-    const { seams, writes } = fakeMembersSeams({
-      readTeamStore: () => ({
-        "board.members": [{ username: "matt" }, { username: "alice", agePublicKey: ALICE_PUBLIC_KEY }],
-        "mattstack.roster": [{ username: "matt" }, { username: "alice" }],
-      }),
-    });
-
-    await membersRemove(p, secrets, SLUG, "alice", undefined, seams);
-
-    const rosterWrite = writes.find((w) => w.key === "mattstack.roster");
-    expect(rosterWrite).toBeDefined();
-    expect((rosterWrite!.value as { username: string }[]).map((m) => m.username)).toEqual(["matt"]);
-    expect(rosterWrite!.scope).toBe("org");
-    expect(rosterWrite!.opts).toBeUndefined();
-  });
-
-  test("each roster key is judged on its own contents: a mattstack.roster that never had the handle is left alone", async () => {
-    const p = fakeProbes({ home: HOME });
-    const { secrets } = seamsWithClone();
-    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
-    const { seams, writes } = fakeMembersSeams({
-      readTeamStore: () => ({
-        "board.members": [{ username: "matt" }, { username: "alice", agePublicKey: ALICE_PUBLIC_KEY }],
-        "mattstack.roster": [{ username: "matt" }], // alice was never on this roster
-      }),
-    });
-
-    const result = await membersRemove(p, secrets, SLUG, "alice", undefined, seams);
-
-    expect(result.rosterRemoved).toBe(true); // board.members alone still drives this flag
-    expect(writes.some((w) => w.key === "board.members")).toBe(true);
-    expect(writes.some((w) => w.key === "mattstack.roster")).toBe(false);
-  });
-
   test("an explicit agePublicKey overrides whatever the roster carries", async () => {
     const p = fakeProbes({ home: HOME });
     const { secrets } = seamsWithClone();
     writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
-    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "board.members": [] }) });
+    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": [] }) });
 
     const result = await membersRemove(p, secrets, SLUG, "alice", ALICE_PUBLIC_KEY, seams);
 
@@ -746,7 +672,7 @@ describe("membersRemove", () => {
     const { secrets } = seamsWithClone();
     // A recipient with no roster entry at all — a hand-edited store, or a key that was never legitimately assigned to any handle.
     writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
-    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "board.members": [] }) });
+    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": [] }) });
 
     const result = await membersRemove(p, secrets, SLUG, "unrecorded-recipient", ALICE_PUBLIC_KEY, seams);
 
@@ -758,7 +684,7 @@ describe("membersRemove", () => {
     const p = fakeProbes({ home: HOME });
     const { secrets } = seamsWithClone();
     writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
-    const { seams, writes } = fakeMembersSeams({ readTeamStore: () => ({ "board.members": [] }) });
+    const { seams, writes } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": [] }) });
 
     await expect(membersRemove(p, secrets, SLUG, "alice", `age1${"q".repeat(50)}`, seams)).rejects.toThrow(UserActionableError);
 
@@ -769,7 +695,7 @@ describe("membersRemove", () => {
   test("a private key passed as --key never reaches the error's log", async () => {
     const p = fakeProbes({ home: HOME });
     const { secrets } = seamsWithClone();
-    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "board.members": [] }) });
+    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": [] }) });
     const privateKey = `AGE-SECRET-KEY-1${"Q7X".repeat(20)}`;
 
     const err = await membersRemove(p, secrets, SLUG, "alice", privateKey, seams).catch((e: unknown) => e);
@@ -784,7 +710,7 @@ describe("membersRemove", () => {
   test("no git remote configured -> forge access is skipped, never a crash", async () => {
     const p = fakeProbes({ home: HOME }); // no .git/config at all
     const { secrets } = seamsWithClone();
-    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "board.members": [] }) });
+    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": [] }) });
 
     const result = await membersRemove(p, secrets, SLUG, "alice", undefined, seams);
 
@@ -794,7 +720,7 @@ describe("membersRemove", () => {
   test("no agePublicKey anywhere (never synced) -> no recipient-removal call, still reports the residue note honestly", async () => {
     const p = fakeProbes({ home: HOME });
     const { execSeam, secrets } = seamsWithClone();
-    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "board.members": [{ username: "alice" }] }) });
+    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": [{ username: "alice" }] }) });
     execSeam.calls.length = 0;
 
     const result = await membersRemove(p, secrets, SLUG, "alice", undefined, seams);
@@ -810,7 +736,7 @@ describe("membersRemove", () => {
     const absentAgeKeySeam = fakeAgeKeySeamAbsent();
     const secrets: SecretsSeams = { ageKeySeam: absentAgeKeySeam, execSeam };
     writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
-    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "board.members": [{ username: "alice", agePublicKey: ALICE_PUBLIC_KEY }] }) });
+    const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": [{ username: "alice", agePublicKey: ALICE_PUBLIC_KEY }] }) });
 
     const result = await membersRemove(p, secrets, SLUG, "alice", undefined, seams);
 
@@ -831,7 +757,7 @@ describe("membersRemove", () => {
       const revokeCalls: unknown[] = [];
       const { seams, writes } = fakeMembersSeams({
         // Simulates the roster having already recorded the owner's key under "alice" — the exact end state the echo attack (defense i) exists to prevent, tested here in isolation so defense ii is proven to hold even if defense i were bypassed.
-        readTeamStore: () => ({ "board.members": [{ username: "alice", agePublicKey: OWNER_PUBLIC_KEY }] }),
+        readTeamStore: () => ({ "mattstack.roster": [{ username: "alice", agePublicKey: OWNER_PUBLIC_KEY }] }),
         readTeamLocal: () => ({ createdByRt: true, joinedByRt: false, rtMayManageMembership: true }),
         revokeRead: async (...args) => {
           revokeCalls.push(args);
@@ -850,7 +776,7 @@ describe("membersRemove", () => {
       const p = fakeProbes({ home: HOME });
       const { secrets } = seamsWithClone();
       writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY], secrets);
-      const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "board.members": [{ username: "alice", agePublicKey: OWNER_PUBLIC_KEY }] }) });
+      const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": [{ username: "alice", agePublicKey: OWNER_PUBLIC_KEY }] }) });
 
       let caught: unknown;
       try {
@@ -867,7 +793,7 @@ describe("membersRemove", () => {
       const p = fakeProbes({ home: HOME });
       const { secrets } = seamsWithClone();
       writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY], secrets);
-      const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "board.members": [] }) });
+      const { seams } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": [] }) });
 
       await expect(membersRemove(p, secrets, SLUG, "whoever", OWNER_PUBLIC_KEY, seams)).rejects.toThrow(UserActionableError);
       expect(readTeamRecipients(SLUG, secrets)).toEqual([OWNER_PUBLIC_KEY]);
