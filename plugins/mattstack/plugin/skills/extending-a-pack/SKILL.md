@@ -175,8 +175,9 @@ checkout is not the RED pass; it tests the tool, not the pipeline.
 
 ### Write the rule in the author's words
 
-Paths: `<zone>/mattstack/packs/<pack>/skills/context/SKILL.md` for context,
-`<zone>/mattstack/packs/<pack>/attachments/<fill>/SKILL.md` for a fill.
+Paths, for the widgets team in the acme org (the pack carries its team's
+name): `~/.mattstack/teams/acme/mattstack/teams/widgets/packs/widgets/skills/context/SKILL.md`
+for context, `.../packs/widgets/attachments/<fill>/SKILL.md` for a fill.
 `rt skills packs` (Bash, one-time) prints the pack dir.
 
 A fill has this frontmatter and nothing else in it:
@@ -292,17 +293,41 @@ again at zero. Takes over: the author finishes the rule.
   every materialize. That is why the fragment, not the generated file, is
   checked for the new `bindings` entry.
 - Two packs on one repo never conflict: each gets its own bindings file.
-  Two packs in one zone that both claim a repo are refused. A base pack
-  named by `extends` says `"base": true` in its own `pack/skills.jsonc`, so
-  it claims no repo, gets no bindings file, and can sit beside the pack
-  that claims the repo. Materialize reads the installed copy of the base
-  (from the plugin cache), not the copy in the zone, so an edit to the base
-  takes effect only once it is published and the installed plugin updates.
+  A team folder holds one pack, and it claims the team's `board.projects`
+  (the org's list unless the team sets its own).
 - When the ask has both a stage level and a verb level (`mattstack:stage-ship`
   and `mattstack:ship`), bind both, one bind call each.
 - A `shepherdr` door compiles only with its two required slots bound:
   `tiering` to `mattstack:model-tiering`, `strategy` to
   `mattstack:execution-strategy`.
+
+## The org base pack
+
+Fills every team shares live in the org's base pack, a folder the org
+admin adds by hand at `mattstack/org/packs/acme-base/` in the org repo:
+
+- `pack/skills.jsonc` says `"base": true` and binds the shared fills the
+  way a team fragment does:
+  `"mattstack:watch-ci": { "domain": "acme-base:watch-ci-rules" }`, plus
+  the same entry for `mattstack:stage-watch-ci`.
+- `pack/surface.jsonc` is `{ "public": [] }`.
+- Its fills sit under `attachments/<fill>/`, never `skills/`: nothing
+  installs a base pack, so its fills are always inlined into a team's
+  compiled verbs.
+
+A team pack uses it with `"extends": "acme-base"` in its own
+`pack/skills.jsonc`. The base is never listed in `claude.plugins` and has
+no marketplace entry, and a compile reads only its own org's base packs.
+
+An org-defined verb reaches a team the same way as any door: the team lists
+it in `pack/stubs.jsonc` and compiles. With no team fill for a slot, the
+org's fill lands; a team fill bound to the slot overrides it. The verb is
+the team's (`/widgets:watch-ci`), and its stages stay internal.
+
+Bindings follow the base at once on every Mac, since materialize reads the
+base's `pack/skills.jsonc` from the org folder. Compiled fills follow at
+the team owner's next compile, so in between a member's
+bindings can be newer than the team's compiled verbs.
 
 ## Publish
 
@@ -310,7 +335,7 @@ Hand to `mattstack:editing-skills`: bump, commit, push, check and sync each
 pack (`rt_verb {args: ["skills", "sync", "--pack", "<pack>"]}`), then
 `/reload-plugins`. The round already passed RED and GREEN, so it enters
 editing-skills at `What changed?`. The daemon's team snapshot may commit the
-zone first; that is fine, the bump and push still go through editing-skills.
+org clone first; that is fine, the bump and push still go through editing-skills.
 
 ## Red flags
 
