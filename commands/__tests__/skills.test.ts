@@ -633,6 +633,35 @@ describe("skillsCompile", () => {
     expect(existsSync(join(baseDir, "skills"))).toBe(false);
   });
 
+  test("a team pack in a copy of the org repo outside teams/ compiles its org base fill from that copy, and a pack in no org repo gets no bases", async () => {
+    const mattstackDir = makeMattstackDir();
+    seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
+    const baseDir = join(mattstackDir, "teams", "acme", "mattstack", "org", "packs", "acme-base");
+    writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD);
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
+    const clonePack = teamPackDir(mattstackDir, "acme", "widgets");
+    writeFile(join(clonePack, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
+    writeFile(join(clonePack, "pack", "stubs.jsonc"), STUBS_JSONC);
+    const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, enginePackDir: join(mattstackDir, "plugins", "mattstack") }, "https://gitlab.example.com/acme/widgets.git");
+    if (out.kind !== "written") throw new Error(out.kind);
+
+    const worktree = join(realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-org-wt-"))), "acme-wt");
+    cpSync(join(mattstackDir, "teams", "acme"), worktree, { recursive: true });
+    const worktreePack = join(worktree, "mattstack", "teams", "widgets", "packs", "widgets");
+    const compiled = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "widgets", "--pack-dir", worktreePack, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
+    expect(compiled.errors).toEqual([]);
+    expect(readFileSync(join(worktreePack, "skills", "watch-ci", "SKILL.md"), "utf8")).toContain("acme-base:watch-ci-domain");
+
+    const loose = join(realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-loose-"))), "widgets");
+    cpSync(clonePack, loose, { recursive: true });
+    const refused = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "widgets", "--pack-dir", loose, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
+    expect(refused.exitCode).toBe(1);
+    expect(refused.errors.join("\n")).toContain('no plugin root registered for "acme-base"');
+  });
+
   test("a base pack of another org on the same Mac is not resolvable from this org's pack", async () => {
     const mattstackDir = makeMattstackDir();
     seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });

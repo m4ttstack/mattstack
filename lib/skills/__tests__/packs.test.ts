@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { pathToFileURL } from "url";
-import { detectLayout, discoverPacks, orgFolderPacks } from "../packs.ts";
+import { detectLayout, discoverPacks, orgFolderPacks, solePack } from "../packs.ts";
 
 function writeFile(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -250,10 +250,19 @@ describe("orgFolderPacks", () => {
 
   test("finds each team's pack and the org base pack, by folder", () => {
     const { root, widgets, base } = makeOrg();
-    expect(orgFolderPacks(root).map((p) => [p.name, p.dir, p.marketplace])).toEqual([
-      ["acme-base", base, "acme-market"],
-      ["widgets", widgets, "acme-market"],
+    expect(orgFolderPacks(root).map((p) => [p.name, p.dir, p.marketplace, p.base])).toEqual([
+      ["acme-base", base, null, true],
+      ["widgets", widgets, "acme-market", undefined],
     ]);
+  });
+
+  test("a base pack is never picked for you: one team pack plus a base picks the team pack", () => {
+    const { root } = makeOrg();
+    const packs = discoverPacks({ settingsPath: join(tmp("rt-packs-nosettings-"), "settings.json"), mattstackRoot: root });
+    expect(packs.map((p) => p.name)).toEqual(["acme-base", "widgets"]);
+    expect(solePack(packs)?.name).toBe("widgets");
+    expect(solePack(packs.filter((p) => p.base))).toBeUndefined();
+    expect(solePack([])).toBeUndefined();
   });
 
   test("a clone that is not an org, or a root with no teams dir, yields nothing", () => {
