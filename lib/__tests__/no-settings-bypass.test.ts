@@ -26,6 +26,7 @@ const IDENTIFIER_RULES = new Map<string, Rule>(Object.entries({
   storeSections: "per-rung reader",
   mergedValueWith: "per-rung reader",
   currentMergedValue: "per-rung reader",
+  getOrgSetting: "per-rung reader",
   readStore: "raw store reader",
   readStores: "raw store reader",
   userSettingsPath: "store path helper",
@@ -50,12 +51,14 @@ const ROSTER_READ = "reads the named org's own roster; getSetting reads only thi
 
 const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
   "per-rung reader": {
+    "commands/setup.ts": { count: 4, reason: "the Slack connect write starts from the org store's own integrations, never the merged view" },
     "commands/settings-keys.ts": { count: 2, reason: "`rt settings explain` prints every rung" },
     "commands/worktree-hook.ts": { count: 2, reason: "claudeHook is read from the machine rung only" },
+    "lib/variations.ts": { count: 2, reason: "saveVariation starts from the org store's own map, never the merged view" },
     "lib/worktree/config.ts": { count: 3, reason: "declared-presence check and ready-ladder owner need per-rung presence" },
     "lib/worktree/ready-approval.ts": { count: 2, reason: "approval is trusted only from user.repo/machine.repo rungs, never a team rung" },
     "packages/settings-kit/src/server.ts": { count: 15, reason: "the console's scope-chain editor shows every rung and every repo section" },
-    "packages/rt-client/src/index.ts": { count: 6, reason: "rt-client's public entry re-exports the resolver" },
+    "packages/rt-client/src/index.ts": { count: 7, reason: "rt-client's public entry re-exports the resolver" },
   },
   "store file": {
     "commands/home.ts": { count: 1, reason: "existence probe listing adoptable machine profiles" },

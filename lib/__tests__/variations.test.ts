@@ -11,7 +11,8 @@ import {
   variationKey,
   type Variation,
 } from "../variations.ts";
-import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
+import { seedOrg, sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
+import { readStore } from "../settings/stores.ts";
 
 const IDENTITY = "gitlab.com/acme/test-repo";
 
@@ -122,7 +123,23 @@ describe("variations", () => {
         expect(loadVariations(null)).toEqual({});
       });
 
-      test("lands in the team store (scope decision: team.repo)", () => {
+      test("a team folder's variation is never copied into the org store", () => {
+        seedOrg({
+          org: "acme",
+          username: "dev1",
+          roster: [{ username: "dev1", teams: ["widgets"] }],
+          teams: { widgets: { repos: { [IDENTITY]: { "rt.variations": { "pkg/a:dev": [{ name: "team-only", command: "x" }] } } } } },
+        });
+        expect(loadVariations(IDENTITY)["pkg/a:dev"]).toEqual([{ name: "team-only", command: "x" }]);
+
+        expect(saveVariation(IDENTITY, "/repo", "/repo/pkg/a", "dev", { name: "debug", command: "DEBUG=1 pnpm run dev" })).toEqual({ ok: true });
+
+        expect(readStore(sharedStorePath("acme")).repos[IDENTITY]!["rt.variations"]).toEqual({
+          "pkg/a:dev": [{ name: "debug", command: "DEBUG=1 pnpm run dev" }],
+        });
+      });
+
+      test("lands in the org store (scope decision: org.repo)", () => {
         saveVariation(IDENTITY, "/repo", "/repo/pkg/a", "dev", {
           name: "debug",
           command: "DEBUG=1 pnpm run dev",
