@@ -101,7 +101,7 @@ describe("rt settings set / unset output", () => {
 
   describe("org and team scopes", () => {
     beforeEach(() => {
-      seedOrg({ org: "acme", username: "dev1", roster: [{ username: "dev1", teams: ["widgets"] }], teams: { widgets: {}, gadgets: {} } });
+      seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} }, roster: [{ username: "dev1", teams: ["widgets"] }], teams: { widgets: {}, gadgets: {} } });
     });
 
     test("set --scope org writes the org store", async () => {

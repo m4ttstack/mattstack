@@ -19,7 +19,7 @@ import {
   __test__ as repoTrackingTest,
   type CacheKind,
 } from "../../repo-tracking.ts";
-import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
+import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 
 /** The serialized wire identity every store keys on, from a readable host/path. */
 const idOf = (hostPath: string): string => serializeIdentity({ kind: "remote", id: hostPath });
@@ -34,9 +34,7 @@ function writeStore(file: string, obj: unknown): void {
 
 /** setSetting("mattstack.tracking", ..., "org") refuses without an org store. */
 function seedTeam(): void {
-  const path = sharedStorePath("acme");
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, "// team store\n{}\n");
+  seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
 }
 
 describe("loadRepoTracking through the settings resolver", () => {
