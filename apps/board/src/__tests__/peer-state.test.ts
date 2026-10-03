@@ -28,6 +28,7 @@ import {
 import {
   attachPeerReviews,
   peerReviewFilePath,
+  peerReviewKey,
   prunePeerReviews,
   readPeerReviews,
   writePeerReview,
@@ -60,6 +61,13 @@ describe('peerReviewFilePath', () => {
   });
 });
 
+describe('peerReviewKey', () => {
+  test('separates MR and reviewer so the pair is unique', () => {
+    expect(peerReviewKey(URL_A, 'grace')).toBe(`${URL_A}\ngrace`);
+    expect(peerReviewKey(URL_A, 'grace')).not.toBe(peerReviewKey(URL_A, 'ada'));
+  });
+});
+
 describe('writePeerReview', () => {
   const base = (over: Partial<PeerReviewState> = {}): PeerReviewState => ({
     mrUrl: URL_A,
@@ -71,89 +79,73 @@ describe('writePeerReview', () => {
   });
 
   test('first write returns true and persists', () => {
-    expect(writePeerReview(base(), dir)).toBe(true);
-    expect(readPeerReviews(dir).get(URL_A)?.[0]?.status).toBe('reviewing');
+    expect(writePeerReview(base(), db)).toBe(true);
+    expect(readPeerReviews(db).get(URL_A)?.[0]?.status).toBe('reviewing');
   });
 
-  test('a newer write wins over an older one', () => {
-    writePeerReview(base({ updatedAt: 1000, status: 'reviewing' }), dir);
-    expect(
-      writePeerReview(base({ updatedAt: 2000, status: 'done' }), dir)
-    ).toBe(true);
-    expect(readPeerReviews(dir).get(URL_A)?.[0]?.status).toBe('done');
+  test('a newer state replaces an older one', () => {
+    writePeerReview(base({ updatedAt: 1000, status: 'reviewing' }), db);
+    expect(writePeerReview(base({ updatedAt: 2000, status: 'done' }), db)).toBe(
+      true
+    );
+    expect(readPeerReviews(db).get(URL_A)?.[0]?.status).toBe('done');
   });
 
-  test('an older (stale) write returns false and does not clobber the newer state', () => {
-    writePeerReview(base({ updatedAt: 2000, status: 'done' }), dir);
+  test('an older or equal state is ignored', () => {
+    writePeerReview(base({ updatedAt: 2000, status: 'done' }), db);
     expect(
-      writePeerReview(base({ updatedAt: 1000, status: 'reviewing' }), dir)
+      writePeerReview(base({ updatedAt: 1000, status: 'reviewing' }), db)
     ).toBe(false);
-    expect(readPeerReviews(dir).get(URL_A)?.[0]?.status).toBe('done');
+    expect(writePeerReview(base({ updatedAt: 2000, status: 'error' }), db)).toBe(
+      false
+    );
+    expect(readPeerReviews(db).get(URL_A)?.[0]?.status).toBe('done');
+  });
+
+  test('writes nothing to the legacy folder', () => {
+    writePeerReview(base(), db);
+    expect(existsSync(peerReviewFilePath(URL_A, 'grace', dir))).toBe(false);
   });
 });
 
 describe('readPeerReviews', () => {
-  test('groups two reviewers under one mrUrl', () => {
+  test('groups one entry per reviewer under each MR', () => {
     writePeerReview(
-      {
-        mrUrl: URL_A,
-        iid: 4821,
-        reviewer: 'grace',
-        status: 'reviewing',
-        updatedAt: 1,
-      },
-      dir
+      { mrUrl: URL_A, iid: 4821, reviewer: 'grace', status: 'done', updatedAt: 1 },
+      db
     );
     writePeerReview(
-      {
-        mrUrl: URL_A,
-        iid: 4821,
-        reviewer: 'ada',
-        status: 'done',
-        updatedAt: 1,
-      },
-      dir
+      { mrUrl: URL_A, iid: 4821, reviewer: 'ada', status: 'reviewing', updatedAt: 1 },
+      db
     );
-    const map = readPeerReviews(dir);
-    const reviewers = map
-      .get(URL_A)
-      ?.map(r => r.reviewer)
-      .sort();
-    expect(reviewers).toEqual(['ada', 'grace']);
+    writePeerReview(
+      { mrUrl: URL_B, iid: 1, reviewer: 'grace', status: 'done', updatedAt: 1 },
+      db
+    );
+    const map = readPeerReviews(db);
+    expect(map.get(URL_A)?.map(r => r.reviewer).sort()).toEqual(['ada', 'grace']);
+    expect(map.get(URL_B)?.length).toBe(1);
   });
 
-  test('returns empty map when dir is missing', () => {
-    expect(readPeerReviews(join(dir, 'nope')).size).toBe(0);
+  test('returns an empty map on an empty db', () => {
+    expect(readPeerReviews(db).size).toBe(0);
   });
 });
 
 describe('prunePeerReviews', () => {
   test('keeps states whose MR is kept, deletes the rest', () => {
     writePeerReview(
-      {
-        mrUrl: URL_A,
-        iid: 4821,
-        reviewer: 'grace',
-        status: 'reviewing',
-        updatedAt: 1,
-      },
-      dir
+      { mrUrl: URL_A, iid: 4821, reviewer: 'grace', status: 'reviewing', updatedAt: 1 },
+      db
     );
     writePeerReview(
-      {
-        mrUrl: URL_B,
-        iid: 1,
-        reviewer: 'grace',
-        status: 'reviewing',
-        updatedAt: 1,
-      },
-      dir
+      { mrUrl: URL_B, iid: 1, reviewer: 'grace', status: 'reviewing', updatedAt: 1 },
+      db
     );
-
-    prunePeerReviews(new Set([URL_A]), dir);
-
-    expect(existsSync(peerReviewFilePath(URL_A, 'grace', dir))).toBe(true);
-    expect(existsSync(peerReviewFilePath(URL_B, 'grace', dir))).toBe(false);
+    prunePeerReviews(new Set([URL_A]), db);
+    const map = readPeerReviews(db);
+    expect(map.has(URL_A)).toBe(true);
+    expect(map.has(URL_B)).toBe(false);
   });
 });
 
