@@ -35,6 +35,22 @@ describe("roleOf", () => {
   test("an org that lists nobody leaves everyone a member", () => {
     expect(roleOf("dev1", { admins: [], teams: {} })).toEqual({ kind: "member" });
   });
+  test("an owner listed under a key that is not a plain team name is a member and owns nothing", () => {
+    for (const key of ["Widgets", "a/b", "../org", "", "-x", "a b"]) {
+      const role = roleOf("dev2", { admins: [], teams: { [key]: { owners: ["dev2"] } } });
+      expect(role).toEqual({ kind: "member" });
+      expect(ownedRoots(role)).toEqual([]);
+    }
+  });
+  test("only the plain team names count when an owner is listed under several keys", () => {
+    expect(roleOf("dev2", { admins: [], teams: { Widgets: { owners: ["dev2"] }, gadgets: { owners: ["dev2"] } } })).toEqual({ kind: "owner", teams: ["gadgets"] });
+  });
+});
+
+describe("ownedRoots on a hand-built role", () => {
+  test("never yields a root for a team name that is not a plain folder name", () => {
+    expect(ownedRoots({ kind: "owner", teams: ["Widgets", "a/b", "../org", "gadgets"] })).toEqual(["mattstack/teams/gadgets"]);
+  });
 });
 
 describe("what a role may write", () => {
@@ -71,6 +87,12 @@ describe("what a role may write", () => {
     expect(mayWritePath(owner, "mattstack/teams/gadgets/../widgets/settings.team.jsonc")).toBe(false);
     expect(mayWritePath(admin, "/abs/mattstack/x")).toBe(false);
   });
+
+  test("a path with a backslash is never owned", () => {
+    expect(mayWritePath(owner, "mattstack/teams/gadgets\\x")).toBe(false);
+    expect(mayWritePath(owner, "mattstack\\teams\\gadgets\\x")).toBe(false);
+    expect(mayWritePath(admin, "mattstack\\org\\settings.org.jsonc")).toBe(false);
+  });
 });
 
 describe("writeRefusalFor names the owner", () => {
@@ -95,6 +117,13 @@ describe("writeRefusalFor names the owner", () => {
   test("an org with no admins says so instead of naming nobody", () => {
     const refusal = writeRefusalFor(roleOf("dev4", { admins: [], teams: {} }), { admins: [], teams: {} }, "mattstack/org/settings.org.jsonc");
     expect(refusal?.why).toBe("This org names no admins yet. Its mattstack.org setting has to list one.");
+  });
+  test("an admin writing outside what rt manages is not told to ask an admin", () => {
+    const refusal = writeRefusalFor(roleOf("dev1", ROLES), ROLES, "src/index.ts");
+    expect(refusal).toEqual({
+      message: "rt does not change that file",
+      why: "rt only changes the org's mattstack folder, .sops.yaml and .claude-plugin.",
+    });
   });
   test("an allowed write has no refusal", () => {
     expect(writeRefusalFor(roleOf("dev1", ROLES), ROLES, ".sops.yaml")).toBeNull();
