@@ -199,6 +199,10 @@ import {
   type SwitchboardClient,
 } from './peer/client.ts';
 import {
+  pruneClosedPaneMarkers,
+  sweepClosedPeerReviews,
+} from './peer/closed-pane.ts';
+import {
   buildAskDraft,
   canonicalUsername,
   makeEnvelope,
@@ -1441,6 +1445,7 @@ const httpServer = Bun.serve({
           );
           pruneDrafts(onBoard);
           prunePeerReviews(onBoard);
+          pruneClosedPaneMarkers(onBoard);
           pruneSentNudges(onBoard);
           pruneFinishedSentNudges();
           pruneNudges(onBoard);
@@ -4145,6 +4150,28 @@ async function handleAgentSignal(
   }
 }
 
+/** A closed pane emits no agent signal; only the current writer may relay it. */
+async function reportClosedPeerReviews(): Promise<void> {
+  await sweepClosedPeerReviews({
+    current: () => {
+      const client = peering.current()?.client;
+      return writer && client
+        ? { self: config.defaultMember, client }
+        : undefined;
+    },
+    readReviews: readReviewStates,
+    fetchExecutors: async () => (await fetchReconcilerView()).executors,
+    fetchAuthors: async () =>
+      new Map(
+        (await cache.get()).mrs.flatMap(m =>
+          m.webUrl ? [[m.webUrl, m.author.username] as const] : []
+        )
+      ),
+    readNudges,
+    kickOutbox,
+  });
+}
+
 const agentStatusFeed = new AgentStatusFeed({
   eventsHead: () => eventsHead(),
   eventsList: (after, limit) =>
@@ -4203,6 +4230,11 @@ if (writer) {
     void runGateSweep().catch(err =>
       console.error(
         `gate sweep failed: ${err instanceof Error ? err.message : err}`
+      )
+    );
+    void reportClosedPeerReviews().catch(err =>
+      console.error(
+        `closed pane report failed: ${err instanceof Error ? err.message : err}`
       )
     );
     wakeAgentStatusFeed();
