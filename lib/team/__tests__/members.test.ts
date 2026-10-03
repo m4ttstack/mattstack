@@ -178,6 +178,7 @@ function fakeMembersSeams(overrides: Partial<MembersSeams> = {}): { seams: Membe
       writes.push({ key, value, scope, opts });
       if (key === "board.members" || key === "mattstack.roster") store = { ...store, [key]: value };
     }) as MembersSeams["writeSetting"],
+    currentOrg: () => SLUG,
     revokeRead: async () => ({ access: "revoked", manualSteps: [] }),
     readTeamLocal: () => ({ createdByRt: true, joinedByRt: false, rtMayManageMembership: true }),
     forgeToken: async () => null,
@@ -525,6 +526,19 @@ describe("membersSync", () => {
     expect(err.pending).toEqual([]);
     expect(err.message).toBe("rt stopped syncing members partway, after adding 0 keys");
     expect(err.detail).toStartWith("added none; pending none; ");
+  });
+
+  test("sync and remove refuse an org this Mac does not read settings from, writing nothing", async () => {
+    const p = fakeProbes({ home: HOME });
+    const { secrets } = seamsWithClone();
+    const { seams, writes } = fakeMembersSeams({ currentOrg: () => "zeta" });
+
+    await expect(membersSync(p, fakeRelay(), secrets, SLUG, seams)).rejects.toMatchObject({ code: "org-not-current", next: "rt team members sync --team zeta" });
+    await expect(membersRemove(p, secrets, SLUG, "alice", undefined, seams)).rejects.toMatchObject({
+      code: "org-not-current",
+      next: "rt team members remove alice --team zeta",
+    });
+    expect(writes).toEqual([]);
   });
 
   test("membersSync refuses on a joined clone", async () => {

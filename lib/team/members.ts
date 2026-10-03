@@ -28,7 +28,7 @@ import { ensureAgeKey, readAgeKey } from "../home/age-key.ts";
 import { orgSettingsPath } from "../rt-paths.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
 import { addTeamRecipient, readTeamRecipients, removeTeamRecipient } from "../secrets/team-store.ts";
-import { readStore } from "../settings/stores.ts";
+import { currentOrg, readStore } from "../settings/stores.ts";
 import { setSetting } from "../settings/write.ts";
 import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
@@ -36,7 +36,7 @@ import { parseOriginUrl } from "../setup/team-settings.ts";
 import { revokeRead, type RevokeAccess } from "./forge.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { scrub } from "./redact.ts";
-import { assertNotJoined, readTeamLocal } from "./team-local.ts";
+import { assertCurrentOrg, assertNotJoined, readTeamLocal } from "./team-local.ts";
 import { openReply } from "./invite-crypto.ts";
 import { readInviteRecords, removeInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
@@ -161,9 +161,11 @@ function recordRosterKey(seams: MembersSeams, slug: string, handle: string, ageP
 }
 
 export interface MembersSeams {
-  /** The ONE team's own store, unmixed with the resolver's multi-team overlay — mirrors invite.ts's own `readTeamStore` for the same reason: a roster read/write must target the team it's about, not the union of every locally-cloned team. */
+  /** The org store's own top-level keys, unmerged with the active team's, as in invite.ts: a roster read-modify-write targets the org layer. */
   readTeamStore: (slug: string) => Record<string, unknown>;
   writeSetting: typeof setSetting;
+  /** The org this Mac reads settings from, which is where an org write lands. */
+  currentOrg: () => string | null;
   revokeRead: typeof revokeRead;
   /** Local, per-machine team record — carries the membership permission. Seamed like invite.ts's, so a test grants it explicitly rather than by writing a real home. */
   readTeamLocal: typeof readTeamLocal;
@@ -182,7 +184,7 @@ function defaultWarn(message: string, shown?: ShownWarning): void {
 }
 
 export function realMembersSeams(): MembersSeams {
-  return { readTeamStore: defaultReadTeamStore, writeSetting: setSetting, revokeRead, readTeamLocal, forgeToken: storedForgeToken, warn: defaultWarn };
+  return { readTeamStore: defaultReadTeamStore, writeSetting: setSetting, currentOrg, revokeRead, readTeamLocal, forgeToken: storedForgeToken, warn: defaultWarn };
 }
 
 export function teamRemote(p: Probes, slug: string): string | null {
@@ -249,6 +251,7 @@ export async function membersSync(
   seams: MembersSeams = realMembersSeams(),
 ): Promise<MembersSyncResult> {
   assertNotJoined(p, slug);
+  assertCurrentOrg(slug, seams.currentOrg(), "team members sync");
 
   const added: string[] = [];
   const addedHandles: string[] = [];
@@ -367,6 +370,7 @@ export async function membersRemove(
       log: "the --key value is not a well-formed age1 recipient (bech32 checksum failed); pass the exact key from `rt team status` or the roster",
     });
   }
+  assertCurrentOrg(slug, seams.currentOrg(), `team members remove ${handle}`);
 
   const boardRoster = readRoster(seams, slug, "board.members");
   const crossAppRoster = readRoster(seams, slug, "mattstack.roster");
