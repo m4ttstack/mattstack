@@ -60,7 +60,7 @@ export interface TeamDeps {
   joinRedeemSeams?: Partial<JoinRedeemSeams>;
   /** Overrides `mintInvite`'s seams; real by default. */
   mintInviteSeams?: Partial<MintInviteSeams>;
-  /** Overrides `teamStatus`'s `board.title`/`mattstack.roster` reads — real by default, so a test never has to seed a real settings store just to check envelope shape. */
+  /** Overrides `teamStatus`'s `board.title`/`mattstack.roster` reads; real by default, so a test never has to seed a real settings store just to check envelope shape. */
   statusRead?: SettingsReader;
   /** The forge token rt holds for a remote's host — real store by default. */
   forgeToken?: typeof storedForgeToken;
