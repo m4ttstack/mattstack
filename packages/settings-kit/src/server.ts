@@ -333,7 +333,7 @@ export function effectiveFromRows(def: SettingDef, rows: ExplainRow[]): Effectiv
         merged.push(item);
       }
     }
-    if (!top.invalid) wire.value = merged;
+    wire.value = merged;
   } else if (!top.invalid && "value" in top) {
     wire.value = top.value;
   }
@@ -500,8 +500,12 @@ export async function settingsHandler(
     if (!isWritable(def, rt.isMigrated, mode)) {
       return json({ error: `"${key}" is not writable through the resolver yet` }, 400);
     }
-    const check = rt.validateWrite(def, value, { scope, repoIdentity: repo, team });
-    if (!check.ok) return json({ error: check.reason, issues: check.issues }, 400);
+    try {
+      const check = rt.validateWrite(def, value, { scope, repoIdentity: repo, team });
+      if (!check.ok) return json({ error: check.reason, issues: check.issues }, 400);
+    } catch (err) {
+      return json({ error: (err as Error).message }, 400);
+    }
 
     const writeOpts: { team?: string; repoIdentity?: string } = {};
     if (team) writeOpts.team = team;
