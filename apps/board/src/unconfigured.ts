@@ -22,7 +22,7 @@ const SETUP_PAGE = `<!doctype html>
 <body>
 <main>
   <h1>Board isn't set up yet</h1>
-  <p>Board lists your team's open GitLab merge requests. It starts on its own once your team's board settings exist: join a team that has them, or set <code>board.gitlabHost</code>, <code>board.projects</code> and <code>board.members</code> with <code>rt settings</code>.</p>
+  <p>Board lists your team's open GitLab merge requests. It starts on its own once your team's board settings exist: join a team that has them, or set <code>board.gitlabHost</code> and <code>board.projects</code> with <code>rt settings</code> and add yourself with <code>rt team members</code>.</p>
   <p>This page checks again every few seconds.</p>
 </main>
 <script>

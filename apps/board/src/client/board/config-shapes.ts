@@ -61,7 +61,6 @@ export type CompositeShape =
 /** settings-kit marks these `external`; the board owns their editors. */
 const BOARD_EDITORS: Record<string, CompositeShape> = {
   'board.tabs': { kind: 'tabs' },
-  'board.members': { kind: 'roster' },
   'board.hiddenMembers': { kind: 'roster' },
 };
 

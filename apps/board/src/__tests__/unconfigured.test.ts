@@ -1,13 +1,22 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import type { getSetting } from '@mattstack/rt-client';
-import { boardConfiguredAt } from '../config.ts';
+import { boardConfiguredAt, teamView } from '../config.ts';
 import { serveUnconfigured, unconfiguredResponse } from '../unconfigured.ts';
 
 type GetSettingFn = typeof getSetting;
+
+const realView = { ...teamView };
+beforeEach(() => {
+  teamView.pack = () => null;
+  teamView.team = () => null;
+});
+afterEach(() => {
+  Object.assign(teamView, realView);
+});
 
 function fakeResolve(values: Record<string, unknown>): GetSettingFn {
   return (<T>(key: string) => ({
@@ -23,7 +32,7 @@ const throwingResolve = (() => {
 const STORE_OWNED = {
   'board.gitlabHost': 'https://gitlab.com',
   'board.projects': ['group/project'],
-  'board.members': [{ username: 'someone' }],
+  'mattstack.roster': [{ username: 'someone' }],
 };
 
 describe('boardConfiguredAt', () => {
@@ -46,7 +55,7 @@ describe('boardConfiguredAt', () => {
 
   test('no file and a store missing the roster is not configured', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'board-cfg-')), 'config.json');
-    const { 'board.members': _, ...partial } = STORE_OWNED;
+    const { 'mattstack.roster': _, ...partial } = STORE_OWNED;
     expect(boardConfiguredAt(path, fakeResolve(partial))).toBe(false);
   });
 
@@ -55,7 +64,7 @@ describe('boardConfiguredAt', () => {
     expect(
       boardConfiguredAt(
         path,
-        fakeResolve({ ...STORE_OWNED, 'board.members': [] })
+        fakeResolve({ ...STORE_OWNED, 'mattstack.roster': [] })
       )
     ).toBe(false);
   });
@@ -79,7 +88,7 @@ describe('unconfiguredResponse', () => {
     expect(res.headers.get('content-type')).toContain('text/html');
     const body = await res.text();
     expect(body).toContain("Board isn't set up yet");
-    expect(body).toContain('board.members');
+    expect(body).toContain('rt team members');
     expect(body).toContain("fetch('/healthz'");
     expect(body).toContain('location.reload()');
   });
