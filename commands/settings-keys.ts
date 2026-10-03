@@ -4,7 +4,7 @@
  * dev-mode/runaway leaves) so this file owns only the four resolver verbs.
  *
  *   rt settings get <key> [--repo <name>] [--json]
- *   rt settings set <key> <json-value> --scope user|team|machine [--repo <name>] [--team <name>]
+ *   rt settings set <key> <json-value> --scope user|org|team|machine [--repo <name>] [--team <name>]
  *   rt settings list [--repo <name>] [--json]
  *   rt settings explain <key> [--repo <name>]
  *
@@ -100,7 +100,11 @@ function collectSettingsNotices<T>(fn: () => T): { result: T; notices: SettingsN
 }
 
 function whereText(scope: SettingScope, team: string | undefined, repoName: string | undefined): string {
-  const store = scope === "user" ? "your user settings" : scope === "machine" ? "this Mac's settings" : team ? `the ${team} team's settings` : "the team's settings";
+  const store =
+    scope === "user" ? "your user settings"
+    : scope === "machine" ? "this Mac's settings"
+    : scope === "org" ? "the org's settings"
+    : team ? `the ${team} team's settings` : "your team's settings";
   return repoName ? `${store} for ${repoName}` : store;
 }
 
@@ -233,11 +237,11 @@ export async function settingsGet(args: string[]): Promise<void> {
 
 // ─── set / unset ────────────────────────────────────────────────────────────
 
-const VALID_SCOPES: SettingScope[] = ["user", "team", "machine"];
+const VALID_SCOPES: SettingScope[] = ["user", "org", "team", "machine"];
 
 function requireScope(scope: string | undefined, title: string, usage: string): SettingScope {
-  if (!scope) fail({ title, why: "A value lives in exactly one of your user, team or machine settings.", next: out.cmd(usage) });
-  if (!VALID_SCOPES.includes(scope as SettingScope)) fail({ title: `${scope} is not a scope`, why: "The scopes are user, team and machine.", next: out.cmd(usage) });
+  if (!scope) fail({ title, why: "A value lives in exactly one of your user, org, team or machine settings.", next: out.cmd(usage) });
+  if (!VALID_SCOPES.includes(scope as SettingScope)) fail({ title: `${scope} is not a scope`, why: "The scopes are user, org, team and machine.", next: out.cmd(usage) });
   return scope as SettingScope;
 }
 
@@ -278,7 +282,7 @@ function teamFlag(args: string[], scope: SettingScope, usage: string): string | 
   return team;
 }
 
-const SET_USAGE = "rt settings set <key> <value> --scope user|team|machine";
+const SET_USAGE = "rt settings set <key> <value> --scope user|org|team|machine";
 
 export async function settingsSet(args: string[]): Promise<void> {
   const [key, rawValue] = positionals(args);
@@ -315,7 +319,7 @@ export async function settingsSet(args: string[]): Promise<void> {
   );
 }
 
-const UNSET_USAGE = "rt settings unset <key> --scope user|team|machine";
+const UNSET_USAGE = "rt settings unset <key> --scope user|org|team|machine";
 
 /**
  * Removes a key from one authored store. The counterpart to `set`, and the
