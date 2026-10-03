@@ -105,7 +105,7 @@ describe("settings/registry", () => {
       expect(def!.default).toBe(10);
     });
 
-    test("skills.writingStyle is a user+team string with no default (unset is what makes the setup row ask)", () => {
+    test("skills.writingStyle is a user, team and org string with no default (unset is what makes the setup row ask)", () => {
       const def = getDef("skills.writingStyle");
       expect(def).toBeDefined();
       expect(def!.type).toBe("string");
@@ -134,7 +134,7 @@ describe("settings/registry", () => {
       expect(setting!.default).toBe(def);
     });
 
-    test("rt.worktreeApp is a team+user+machine field-bag object defaulting to off", () => {
+    test("rt.worktreeApp is a team, org, user and machine field-bag object defaulting to off", () => {
       const def = getDef("rt.worktreeApp");
 
       expect(def?.scopes).toEqual(["team", "org", "user", "machine"]);
@@ -152,7 +152,7 @@ describe("settings/registry", () => {
       expect(def?.default).toBeUndefined();
     });
 
-    test("board.reReview is a user+team gate defaulting enabled (a fresh key, not a latch port)", () => {
+    test("board.reReview is a user, team and org gate defaulting enabled (a fresh key, not a latch port)", () => {
       const def = getDef("board.reReview");
 
       expect([...def!.scopes].sort()).toEqual(["org", "team", "user"]);
@@ -168,7 +168,7 @@ describe("settings/registry", () => {
       }
     });
 
-    test("repoScoped keys allow all three scopes", () => {
+    test("repoScoped keys allow the user, team, org and machine scopes", () => {
       for (const def of allDefs()) {
         if (!def.repoScoped) continue;
         expect([...def.scopes].sort()).toEqual(["machine", "org", "team", "user"]);
@@ -451,7 +451,7 @@ describe("settings/registry", () => {
       expect(getDef("mattstack.appPath")?.scopes).toEqual(["machine"]);
     });
 
-    test("claude.marketplaces and claude.plugins are user+team arrays that add up across layers", () => {
+    test("claude.marketplaces and claude.plugins are user, team and org arrays that add up across layers", () => {
       for (const key of ["claude.marketplaces", "claude.plugins"]) {
         const def = getDef(key)!;
         expect([...def.scopes].sort()).toEqual(["org", "team", "user"]);

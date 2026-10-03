@@ -9,6 +9,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  getOrgSetting,
   getSetting,
   rtCommand,
   setSetting,
@@ -186,7 +187,7 @@ async function main(): Promise<void> {
   ];
 
   const currentIntegrations =
-    getSetting<Integrations | undefined>('mattstack.integrations').value ?? {};
+    getOrgSetting<Integrations>('mattstack.integrations') ?? {};
   const { merged: mergedIntegrations, changed: integrationsChanged } =
     mergeIntegrations(currentIntegrations, {
       host: gitlabBaseUrl,
