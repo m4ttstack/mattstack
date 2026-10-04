@@ -1,5 +1,4 @@
 [
-  "commands/apps.ts",
   "commands/bg.ts",
   "commands/cd.ts",
   "commands/code.ts",
@@ -12,7 +11,6 @@
   "commands/reconciler.ts",
   "commands/run.ts",
   "commands/runner.ts",
-  "commands/services.ts",
   "commands/state-backup-init.ts",
   "commands/state-backup-status.ts",
   "commands/state.ts",

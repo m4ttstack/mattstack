@@ -1,7 +1,17 @@
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { join } from "path";
-import { appsDisable, appsEnable, appsList, type AppsDeps } from "../apps.ts";
+import { appsListBlocks, appsDisable, appsEnable, appsList, type AppsDeps } from "../apps.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
+
+let io: CapturedOut;
+beforeEach(() => {
+  io = captureOut();
+  ui.__test__.setHuman(() => false);
+});
+afterEach(() => io.restore());
 
 const ROWS = [
   { name: "board", managedBy: "rt", displayName: "Board", description: "Open MRs ready for review.", enabled: false, requiresTeam: true },
@@ -65,7 +75,7 @@ describe("rt apps", () => {
     await expect(appsEnable(["mine", "--json"], {}, d409)).rejects.toThrow(/exit 2/);
     expect(JSON.parse(d409.out[0]!).error).toMatchObject({
       code: "not-managed",
-      message: "mine is not a mattstack app; rt manages only the apps mattstack ships, and user apps and deck itself are always served",
+      message: "mine is not one of the apps mattstack ships",
     });
   });
 
@@ -80,14 +90,15 @@ describe("rt apps", () => {
       const d = deps({ listBody });
       await expect(appsList(["--json"], {}, d)).rejects.toThrow(/exit 2/);
       expect(d.out).toHaveLength(1);
-      expect(JSON.parse(d.out[0]!).error).toMatchObject({ code: "deck-error", message: "deck answered an unreadable app list" });
+      expect(JSON.parse(d.out[0]!).error).toMatchObject({ code: "deck-error", message: "deck gave an answer rt could not read" });
     }
   });
 
   test("text list with no rt-managed rows says so in one line", async () => {
     const d = deps({ listBody: JSON.stringify({ apps: [ROWS[2]] }) });
     await appsList([], {}, d);
-    expect(d.out).toEqual(["no mattstack apps registered"]);
+    expect(io.stdout()).toBe(renderPlain(appsListBlocks([])));
+    expect(io.stdout()).toBe("[skipped] No mattstack apps are registered\n");
   });
 
   describe("enable with no name", () => {
@@ -117,21 +128,42 @@ describe("rt apps", () => {
       setTTY(true);
       const d = deps();
       await expect(appsEnable([], {}, d)).rejects.toThrow(/exit 2/);
-      expect(d.out).toHaveLength(3);
-      expect(d.out[2]).toBe("rt apps enable: usage: rt apps enable <name> [--json]");
+      expect(io.stdout()).toContain("Board");
+      expect(io.stderr()).toBe("Which app?\n  next: rt apps enable <name>\n");
+      expect(d.out).toEqual([]);
     });
 
-    test("text without a TTY, or under RT_BATCH, prints only the usage line", async () => {
+    test("text without a TTY prints only the usage line", async () => {
       setTTY(false);
       const noTty = deps();
       await expect(appsEnable([], {}, noTty)).rejects.toThrow(/exit 2/);
-      expect(noTty.out).toEqual(["rt apps enable: usage: rt apps enable <name> [--json]"]);
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toBe("Which app?\n  next: rt apps enable <name>\n");
+    });
 
+    test("text under RT_BATCH prints only the usage line", async () => {
       setTTY(true);
       process.env.RT_BATCH = "1";
       const batch = deps();
       await expect(appsEnable([], {}, batch)).rejects.toThrow(/exit 2/);
-      expect(batch.out).toEqual(["rt apps enable: usage: rt apps enable <name> [--json]"]);
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toBe("Which app?\n  next: rt apps enable <name>\n");
     });
   });
+});
+
+test("apps list shows on, off and needs a team", () => {
+  const blocks = appsListBlocks([
+    { name: "board", displayName: "Board", enabled: true, requiresTeam: true },
+    { name: "chat", displayName: "Chat", enabled: false, requiresTeam: false },
+  ]);
+  expect(renderPlain(blocks)).toMatch(/^on +board +Board +needs a team\noff +chat +Chat *\n$/);
+});
+
+test("an unmanaged app is a refusal on stderr", async () => {
+  const d = deps({ patchStatus: 409 });
+  await expect(appsEnable(["deck"], {}, d)).rejects.toThrow("exit 2");
+  expect(io.stdout()).toBe("");
+  expect(d.out).toEqual([]);
+  expect(io.stderr()).toBe("[refused] rt leaves deck alone  it is not one of the apps mattstack ships\n");
 });
