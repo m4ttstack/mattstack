@@ -435,8 +435,17 @@ describe("herd views at a terminal", () => {
     expect(text).toContain("[warning] This session's inbox cannot be reached");
     expect(text).toContain("[needs you] job-b is waiting at a trust prompt  accept it in pane w1:p4");
     expect(text).toContain("[failed] job-c: the pane is open but Claude is gone\n  next: rt herd spawn --herd h-sample --job job-c");
-    expect(text).toContain("[needs you] job-d did not see the answer to gate g7\n  next: rt chat dm job-a");
-    expect(text).toContain("[warning] job-d has not read the answer to gate g7");
+    expect(text).toContain("[needs you] job-d did not see the update to gate g7\n  next: rt chat dm job-a 'Please read the update to gate g7.'\n");
+    expect(text).toContain("[warning] job-d has not read the update to gate g7");
+  });
+
+  test("status: a closed gate has a complete DM remedy about its update", () => {
+    const text = renderPlain(herdStatusBlocks(statusData({
+      jobs: [{ ...job, lastGate: "gt-9", lastGateStatus: "closed", lastGateDelivery: "dead-pane", lastGateConsumed: false }],
+    })));
+    expect(text).toContain("[needs you] job-a did not see the update to gate gt-9\n  next: rt chat dm job-a 'Please read the update to gate gt-9.'\n");
+    expect(text).toContain("[warning] job-a has not read the update to gate gt-9");
+    expect(text).not.toContain("answer");
   });
 
   test("gates: one row per open gate; none says so", () => {

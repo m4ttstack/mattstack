@@ -32,6 +32,7 @@ import { resolveRepoArg, currentRepoIdentity } from "../lib/repo-arg.ts";
 import { assembleBrief, type BriefInputs } from "../lib/herd-brief.ts";
 import { selfPaneRef } from "../lib/self-pane.ts";
 import { callerCswapAccount } from "../lib/cswap.ts";
+import { shellQuote } from "../lib/herdr-launch.ts";
 
 function fail(msg: string): never {
   out.diagnostic(`rt herd: ${msg}\n`);
@@ -132,8 +133,8 @@ export function herdStatusBlocks(data: HerdStatusData): Block[] {
     if (j.sessionDead) problems.push(out.line("failed", `${j.name}: the pane is open but Claude is gone`), out.callout("next", out.cmd(`rt herd spawn --herd ${j.herd} --job ${j.name}`)));
     if (j.status === "stuck-at-modal") problems.push(out.line("needs-you", `${j.name} is waiting at a trust prompt`, `accept it in pane ${j.pane ?? "-"}`));
     const terminal = j.lastGateStatus === "answered" || j.lastGateStatus === "closed";
-    if (terminal && j.lastGateDelivery === "dead-pane") problems.push(out.line("needs-you", `${j.name} did not see the answer to gate ${j.lastGate}`), out.callout("next", out.cmd(`rt chat dm ${j.handleName ?? j.handle}`)));
-    if (j.lastGateConsumed === false) problems.push(out.line("warn", `${j.name} has not read the answer to gate ${j.lastGate}`));
+    if (terminal && j.lastGateDelivery === "dead-pane") problems.push(out.line("needs-you", `${j.name} did not see the update to gate ${j.lastGate}`), out.callout("next", out.cmd(`rt chat dm ${shellQuote(j.handleName ?? j.handle)} ${shellQuote(`Please read the update to gate ${j.lastGate}.`)}`)));
+    if (j.lastGateConsumed === false) problems.push(out.line("warn", `${j.name} has not read the update to gate ${j.lastGate}`));
   }
   return [out.section(id, `room ${data.herd.room}`, ...facts, ...(rows.length > 0 ? [out.table(rows)] : [out.line("skipped", "No jobs yet")]), ...problems)];
 }
