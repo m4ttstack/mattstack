@@ -79,6 +79,8 @@ describe("uninstall (liveness guard)", () => {
     expect(existsSync(DAEMON_PID_PATH)).toBe(true); // cleanupDaemonFiles did NOT run
     expect(JSON.parse(readFileSync(DAEMON_CONFIG_PATH, "utf8")).installed).toBe(true); // markDaemonUninstalled did NOT run
     expect(output()).toContain("launchctl bootout");
+    expect(io.stderr()).toContain("[refused] Left the daemon's files alone  it is still running");
+    expect(io.stdout()).not.toContain("refused");
   });
 
   test("leaves rt.sock/daemon.json when probeSocketHolder() finds a live holder (no rt.pid at all)", async () => {
@@ -91,6 +93,8 @@ describe("uninstall (liveness guard)", () => {
 
     expect(JSON.parse(readFileSync(DAEMON_CONFIG_PATH, "utf8")).installed).toBe(true);
     expect(output()).toContain("launchctl bootout");
+    expect(io.stderr()).toContain("[refused] Left the daemon's files alone  it is still running");
+    expect(io.stdout()).not.toContain("refused");
   });
 
   test("cleans up rt.sock/rt.pid/daemon.json when nothing is alive", async () => {
@@ -105,7 +109,7 @@ describe("uninstall (liveness guard)", () => {
     expect(existsSync(DAEMON_PID_PATH)).toBe(false);
     expect(JSON.parse(readFileSync(DAEMON_CONFIG_PATH, "utf8")).installed).toBe(false);
     expect(output()).not.toContain("launchctl bootout");
-    expect(output()).toContain("daemon fully uninstalled");
+    expect(output()).toContain("[ok] Uninstalled the daemon");
   });
 });
 

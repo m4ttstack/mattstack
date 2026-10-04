@@ -183,7 +183,7 @@ describe("daemon", () => {
       const result = await rt(["daemon", "install"], { home });
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("saved config");
+      expect(result.stdout).toContain("Turned the daemon on for this Mac");
       expect(existsSync(daemonJson)).toBe(true);
     }, 30_000);
 

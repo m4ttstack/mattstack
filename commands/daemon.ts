@@ -168,60 +168,57 @@ function cleanupLaunchdPlist(): boolean {
 
 export async function install(_args: string[] = []): Promise<void> {
   const flavor = processFlavor();
-  console.log(`  ${dim}registering the ${flavor} daemon${reset}`);
-
   // Persist the install marker so isDaemonInstalled() returns true and the
   // CLI will attempt to reach the daemon (rather than silently no-op).
   markDaemonInstalled();
-  console.log(`  ${green}✓${reset} saved config to ~/.mattstack/rt/daemon.json`);
+  out.print(out.line("done", "Turned the daemon on for this Mac"));
 
-  // Migrate away from any pre-SMAppService launchd plist.
   if (cleanupLaunchdPlist()) {
-    console.log(`  ${green}✓${reset} removed legacy launchd plist`);
+    out.print(out.line("done", "Removed a launch agent an older rt left behind"));
   }
 
-  // Ask the tray to register the daemon. If the tray isn't running yet, it
-  // will register on next launch.
   const trayResult = await trayQuery("/daemon/start", "POST");
   if (trayResult?.ok) {
-    console.log(`  ${green}✓${reset} tray app is registering daemon`);
+    out.print(out.line("done", `${TRAY_APP_NAME} is starting the daemon`));
   } else {
-    console.log(`  ${yellow}⚠${reset} ${TRAY_APP_NAME} not reachable — open it to finish setup`);
-    console.log(`  ${dim}  ${bold}open ${flavorHintPath(flavor)}${reset}`);
+    out.print(
+      out.line("needs-you", `${TRAY_APP_NAME} is not open`, "open it to finish"),
+      out.callout("next", out.cmd(`open ${flavorHintPath(flavor)}`)),
+    );
   }
 
-  // Wait for daemon to come online
-  let connected = false;
-  for (let i = 0; i < 12; i++) {
-    await Bun.sleep(250);
-    if (await isDaemonRunning()) { connected = true; break; }
-  }
+  const connected = await withTransientStep("Waiting for the daemon to answer", async () => {
+    for (let i = 0; i < 12; i++) {
+      await Bun.sleep(250);
+      if (await isDaemonRunning()) return true;
+    }
+    return false;
+  });
 
   if (connected) {
-    console.log(`  ${green}✓${reset} daemon is running`);
-    console.log(`\n  ${green}${bold}✓ installed${reset} ${dim}— managed by ${TRAY_APP_NAME} · launchd-supervised · TCC inherits from ${TRAY_APP_BUNDLE}${reset}\n`);
+    out.print(out.line("done", "Installed the daemon", `${TRAY_APP_NAME} keeps it running`));
   } else {
-    // Query the tray to find out WHY the daemon isn't responding
     const trayStatus = await trayQuery("/daemon/status", "GET");
     const smStatus = trayStatus?.ok ? (trayStatus as any).status : "unknown";
 
-    console.log(`  ${yellow}⚠${reset} daemon not yet responding`);
+    out.print(out.line("warn", "The daemon is not answering yet"));
 
     if (smStatus === "requiresApproval") {
-      console.log(`  ${dim}macOS requires approval to run the background service.${reset}`);
-      console.log(`  ${dim}Opening System Settings → Login Items — click ${bold}Allow${reset}${dim} next to ${TRAY_APP_NAME}.${reset}`);
-      console.log(`  ${dim}Then run: ${bold}rt daemon start${reset}\n`);
+      out.print(
+        out.line("needs-you", "macOS needs your approval to run it in the background", `System Settings is open at Login Items: allow ${TRAY_APP_NAME}`),
+        out.callout("next", out.cmd("rt daemon start")),
+      );
       try { execSync("open 'x-apple.systempreferences:com.apple.LoginItems-Settings.extension'", { stdio: "pipe" }); } catch { /* */ }
     } else if (smStatus === "notFound") {
-      console.log(`  ${red}✗${reset} daemon binary not found inside ${TRAY_APP_BUNDLE}`);
-      console.log(`  ${dim}Re-run: ${bold}rt --post-install${reset}${dim} to reinstall the tray app.${reset}\n`);
+      out.fail({
+        title: `The daemon is missing from ${TRAY_APP_NAME}`,
+        why: "The app install looks incomplete.",
+        next: out.cmd("rt --post-install"),
+      });
     } else if (smStatus === "enabled") {
-      // Registered + approved, but daemon is crashing on launch
-      console.log(`  ${dim}The agent is registered with launchd but the process keeps exiting.${reset}`);
-      console.log(`  ${dim}Check logs: ${bold}rt daemon logs${reset}\n`);
+      out.fail({ title: "The daemon stops right after it starts", next: out.cmd("rt daemon logs") });
     } else {
-      // notRegistered, unknown, or tray unreachable
-      console.log(`  ${dim}check logs: rt daemon logs${reset}\n`);
+      out.print(out.callout("next", out.cmd("rt daemon logs")));
     }
   }
 }
@@ -232,15 +229,15 @@ export async function uninstall(): Promise<void> {
   // 1. Ask tray to unregister the SMAppService agent (stops launchd supervision).
   const result = await trayQuery("/daemon/stop", "POST");
   if (result?.ok) {
-    console.log(`  ${green}✓${reset} daemon unregistered via tray`);
+    out.print(out.line("done", `Turned the daemon off in ${TRAY_APP_NAME}`));
     await Bun.sleep(500);
   } else {
-    console.log(`  ${dim}·${reset} tray not reachable — daemon may still be registered`);
+    out.print(out.line("warn", `${TRAY_APP_NAME} is not open`, "the daemon may still be turned on"));
   }
 
   // 2. Remove any legacy launchd plist.
   if (cleanupLaunchdPlist()) {
-    console.log(`  ${green}✓${reset} removed legacy launchd plist`);
+    out.print(out.line("done", "Removed a launch agent an older rt left behind"));
   }
 
   // 3. A failed/absent tray stop must never delete rt.sock/rt.pid/daemon.json
@@ -251,17 +248,17 @@ export async function uninstall(): Promise<void> {
   // matching rt.pid, e.g. after a crash-and-respawn under launchd).
   const stillAlive = isDaemonProcessRunning() || (await probeSocketHolder()) !== null;
   if (stillAlive) {
-    console.log(`\n  ${yellow}⚠${reset} daemon is still running, leaving rt.sock/rt.pid/daemon.json in place`);
-    console.log(`  ${dim}Fix: ${bold}launchctl bootout gui/$UID/${activeLaunchdLabel()}${reset}\n`);
+    out.note(
+      out.line("refused", "Left the daemon's files alone", "it is still running"),
+      out.callout("next", out.cmd(`launchctl bootout gui/$UID/${activeLaunchdLabel()}`)),
+    );
     return;
   }
 
   // 4. Clear install flag + sock/pid files.
   markDaemonUninstalled();
   cleanupDaemonFiles();
-  console.log(`  ${green}✓${reset} cleared install flag`);
-
-  console.log(`\n  ${dim}daemon fully uninstalled${reset}\n`);
+  out.print(out.line("done", "Uninstalled the daemon"));
 }
 
 // ─── Start / Stop / Restart ──────────────────────────────────────────────────
