@@ -124,7 +124,7 @@ export async function claimPendingAdmin(p: Probes, slug: string, username: strin
   }
 }
 
-/** The scaffold's own marker: present only once the initial commit has actually happened, so a partially-built dir (mkdirp/git-init done, nothing committed yet) is never mistaken for a finished zone. */
+/** The marker in HEAD proves that the scoped scaffold commit completed. */
 const SCAFFOLD_MARKER = join("mattstack", "mattstack.jsonc");
 const ORG_SETTINGS_HEADER = "// mattstack org settings, shared by every team. Created by `rt team create`. JSONC: comments and trailing commas are fine.\n";
 const TEAM_SETTINGS_HEADER = "// mattstack team settings. Created by `rt team create`. JSONC: comments and trailing commas are fine.\n";
@@ -276,7 +276,9 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
     return { needsCommit: after !== before || pending !== undefined, deferred: false, username };
   };
 
-  const scaffolded = p.exists(join(dir, SCAFFOLD_MARKER));
+  const scaffolded = originConfigured !== null && p.exists(join(dir, SCAFFOLD_MARKER))
+    ? (await p.exec(["git", "cat-file", "-e", `HEAD:${SCAFFOLD_MARKER}`], { cwd: dir })).code === 0
+    : false;
   if (originConfigured !== null && scaffolded) {
     const creator = await recordCreator(originConfigured);
     if (creator.needsCommit && creator.username) {
