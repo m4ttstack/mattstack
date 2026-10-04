@@ -1,7 +1,14 @@
-import { existsSync, mkdtempSync, rmSync } from 'fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import type { Database } from 'bun:sqlite';
+import { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
@@ -9,6 +16,7 @@ import {
   finishSentNudge,
   markNudgeHandled,
   NUDGE_NO_RESPONSE_MS,
+  NUDGE_QUIET_MS,
   pendingNudgesByMr,
   pruneFinishedSentNudges,
   pruneNudges,
@@ -27,13 +35,16 @@ import {
 } from '../peer/nudges.ts';
 import {
   attachPeerReviews,
+  importPeerReviewFiles,
   peerReviewFilePath,
+  peerReviewKey,
   prunePeerReviews,
   readPeerReviews,
   writePeerReview,
   type PeerReviewState,
 } from '../peer/peer-reviews.ts';
 import { openStateDb } from '../state/db.ts';
+import { getKvValue } from '../state/kv-blob.ts';
 
 let dir: string;
 let db: Database;
@@ -60,6 +71,13 @@ describe('peerReviewFilePath', () => {
   });
 });
 
+describe('peerReviewKey', () => {
+  test('separates MR and reviewer so the pair is unique', () => {
+    expect(peerReviewKey(URL_A, 'grace')).toBe(`${URL_A}\ngrace`);
+    expect(peerReviewKey(URL_A, 'grace')).not.toBe(peerReviewKey(URL_A, 'ada'));
+  });
+});
+
 describe('writePeerReview', () => {
   const base = (over: Partial<PeerReviewState> = {}): PeerReviewState => ({
     mrUrl: URL_A,
@@ -71,59 +89,246 @@ describe('writePeerReview', () => {
   });
 
   test('first write returns true and persists', () => {
-    expect(writePeerReview(base(), dir)).toBe(true);
-    expect(readPeerReviews(dir).get(URL_A)?.[0]?.status).toBe('reviewing');
+    expect(writePeerReview(base(), db)).toBe(true);
+    expect(readPeerReviews(db).get(URL_A)?.[0]?.status).toBe('reviewing');
   });
 
-  test('a newer write wins over an older one', () => {
-    writePeerReview(base({ updatedAt: 1000, status: 'reviewing' }), dir);
-    expect(
-      writePeerReview(base({ updatedAt: 2000, status: 'done' }), dir)
-    ).toBe(true);
-    expect(readPeerReviews(dir).get(URL_A)?.[0]?.status).toBe('done');
+  test('a newer state replaces an older one', () => {
+    writePeerReview(base({ updatedAt: 1000, status: 'reviewing' }), db);
+    expect(writePeerReview(base({ updatedAt: 2000, status: 'done' }), db)).toBe(
+      true
+    );
+    expect(readPeerReviews(db).get(URL_A)?.[0]?.status).toBe('done');
   });
 
-  test('an older (stale) write returns false and does not clobber the newer state', () => {
-    writePeerReview(base({ updatedAt: 2000, status: 'done' }), dir);
+  test('an older or equal state is ignored', () => {
+    writePeerReview(base({ updatedAt: 2000, status: 'done' }), db);
     expect(
-      writePeerReview(base({ updatedAt: 1000, status: 'reviewing' }), dir)
+      writePeerReview(base({ updatedAt: 1000, status: 'reviewing' }), db)
     ).toBe(false);
-    expect(readPeerReviews(dir).get(URL_A)?.[0]?.status).toBe('done');
+    expect(
+      writePeerReview(base({ updatedAt: 2000, status: 'error' }), db)
+    ).toBe(false);
+    expect(readPeerReviews(db).get(URL_A)?.[0]?.status).toBe('done');
+  });
+
+  test('a busy commit returns false and rolls back the write', () => {
+    db.exec('PRAGMA journal_mode = DELETE; PRAGMA busy_timeout = 0');
+    const reader = new Database(join(dir, 'state.db'));
+    const errors: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => errors.push(args);
+    let wrote: boolean;
+    try {
+      reader.exec('BEGIN');
+      reader.query('SELECT * FROM kv').all();
+      wrote = writePeerReview(base(), db);
+    } finally {
+      reader.exec('ROLLBACK');
+      reader.close();
+      console.error = originalError;
+    }
+    expect(readPeerReviews(db).size).toBe(0);
+    expect(errors).toEqual([['peer review write: write skipped (db busy)']]);
+    expect(wrote).toBe(false);
+  });
+
+  test('writes nothing to the legacy folder', () => {
+    writePeerReview(base(), db);
+    expect(existsSync(peerReviewFilePath(URL_A, 'grace', dir))).toBe(false);
   });
 });
 
-describe('readPeerReviews', () => {
-  test('groups two reviewers under one mrUrl', () => {
+describe('importPeerReviewFiles', () => {
+  const legacy = () => join(dir, 'peer-reviews');
+  const put = (s: PeerReviewState) => {
+    mkdirSync(legacy(), { recursive: true });
+    writeFileSync(
+      peerReviewFilePath(s.mrUrl, s.reviewer, legacy()),
+      JSON.stringify(s)
+    );
+  };
+  const NOW = new Date('2026-10-02T12:00:00');
+  const marker = () => getKvValue('meta', 'peer-reviews-imported', false, db);
+
+  test('imports each file, sets the marker and renames the folder aside', () => {
+    put({
+      mrUrl: URL_A,
+      iid: 4821,
+      reviewer: 'grace',
+      status: 'done',
+      updatedAt: 5,
+    });
+    put({
+      mrUrl: URL_B,
+      iid: 1,
+      reviewer: 'ada',
+      status: 'reviewing',
+      updatedAt: 5,
+    });
+    expect(importPeerReviewFiles(db, legacy(), NOW)).toEqual({
+      imported: 2,
+      skipped: 0,
+      renamed: true,
+    });
+    expect(readPeerReviews(db).get(URL_A)?.[0]?.status).toBe('done');
+    expect(readPeerReviews(db).get(URL_B)?.[0]?.status).toBe('reviewing');
+    expect(marker()).toBe(true);
+    expect(existsSync(legacy())).toBe(false);
+    expect(readdirSync(dir)).toContain('peer-reviews.imported-2026-10-02');
+  });
+
+  test('a newer db row wins over an older file', () => {
     writePeerReview(
       {
         mrUrl: URL_A,
         iid: 4821,
         reviewer: 'grace',
-        status: 'reviewing',
+        status: 'done',
+        updatedAt: 9,
+      },
+      db
+    );
+    put({
+      mrUrl: URL_A,
+      iid: 4821,
+      reviewer: 'grace',
+      status: 'reviewing',
+      updatedAt: 5,
+    });
+    expect(importPeerReviewFiles(db, legacy(), NOW).imported).toBe(1);
+    expect(readPeerReviews(db).get(URL_A)?.[0]?.status).toBe('done');
+    expect(marker()).toBe(true);
+  });
+
+  test('skips unreadable and invalid files, imports the rest and sets the marker', () => {
+    put({
+      mrUrl: URL_A,
+      iid: 4821,
+      reviewer: 'grace',
+      status: 'done',
+      updatedAt: 5,
+    });
+    writeFileSync(join(legacy(), 'broken.json'), '{not json');
+    mkdirSync(join(legacy(), 'unreadable.json'));
+    writeFileSync(join(legacy(), 'invalid.json'), '{}');
+    writeFileSync(join(legacy(), 'ignored.txt'), '{not json');
+    expect(importPeerReviewFiles(db, legacy(), NOW)).toEqual({
+      imported: 1,
+      skipped: 3,
+      renamed: true,
+    });
+    expect(readPeerReviews(db).has(URL_A)).toBe(true);
+    expect(marker()).toBe(true);
+  });
+
+  test('a second run is inert, and a missing folder just sets the marker', () => {
+    expect(importPeerReviewFiles(db, legacy(), NOW)).toEqual({
+      imported: 0,
+      skipped: 0,
+      renamed: false,
+    });
+    expect(marker()).toBe(true);
+    put({
+      mrUrl: URL_A,
+      iid: 4821,
+      reviewer: 'grace',
+      status: 'done',
+      updatedAt: 5,
+    });
+    expect(importPeerReviewFiles(db, legacy(), NOW)).toEqual({
+      imported: 0,
+      skipped: 0,
+      renamed: false,
+    });
+    expect(readPeerReviews(db).size).toBe(0);
+    expect(existsSync(legacy())).toBe(true);
+  });
+
+  test('a busy write leaves the marker unset and legacy files intact for retry', () => {
+    put({
+      mrUrl: URL_A,
+      iid: 4821,
+      reviewer: 'grace',
+      status: 'done',
+      updatedAt: 5,
+    });
+    db.exec('PRAGMA journal_mode = DELETE; PRAGMA busy_timeout = 0');
+    const reader = new Database(join(dir, 'state.db'));
+    const originalTransaction = db.transaction.bind(db);
+    const originalError = console.error;
+    const errors: unknown[][] = [];
+    console.error = (...args: unknown[]) => errors.push(args);
+    reader.exec('BEGIN');
+    reader.query('SELECT * FROM kv').all();
+    db.transaction = ((fn: () => unknown) => {
+      const transaction = originalTransaction(fn);
+      return () => {
+        try {
+          return transaction();
+        } finally {
+          reader.exec('ROLLBACK');
+        }
+      };
+    }) as typeof db.transaction;
+    try {
+      expect(() => importPeerReviewFiles(db, legacy(), NOW)).toThrow();
+    } finally {
+      db.transaction = originalTransaction;
+      reader.close();
+      console.error = originalError;
+    }
+    expect(errors).toEqual([['peer review write: write skipped (db busy)']]);
+    expect(readPeerReviews(db).size).toBe(0);
+    expect(marker()).toBe(false);
+    expect(existsSync(peerReviewFilePath(URL_A, 'grace', legacy()))).toBe(true);
+    expect(importPeerReviewFiles(db, legacy(), NOW)).toEqual({
+      imported: 1,
+      skipped: 0,
+      renamed: true,
+    });
+    expect(marker()).toBe(true);
+  });
+});
+
+describe('readPeerReviews', () => {
+  test('groups one entry per reviewer under each MR', () => {
+    writePeerReview(
+      {
+        mrUrl: URL_A,
+        iid: 4821,
+        reviewer: 'grace',
+        status: 'done',
         updatedAt: 1,
       },
-      dir
+      db
     );
     writePeerReview(
       {
         mrUrl: URL_A,
         iid: 4821,
         reviewer: 'ada',
-        status: 'done',
+        status: 'reviewing',
         updatedAt: 1,
       },
-      dir
+      db
     );
-    const map = readPeerReviews(dir);
-    const reviewers = map
-      .get(URL_A)
-      ?.map(r => r.reviewer)
-      .sort();
-    expect(reviewers).toEqual(['ada', 'grace']);
+    writePeerReview(
+      { mrUrl: URL_B, iid: 1, reviewer: 'grace', status: 'done', updatedAt: 1 },
+      db
+    );
+    const map = readPeerReviews(db);
+    expect(
+      map
+        .get(URL_A)
+        ?.map(r => r.reviewer)
+        .sort()
+    ).toEqual(['ada', 'grace']);
+    expect(map.get(URL_B)?.length).toBe(1);
   });
 
-  test('returns empty map when dir is missing', () => {
-    expect(readPeerReviews(join(dir, 'nope')).size).toBe(0);
+  test('returns an empty map on an empty db', () => {
+    expect(readPeerReviews(db).size).toBe(0);
   });
 });
 
@@ -137,7 +342,7 @@ describe('prunePeerReviews', () => {
         status: 'reviewing',
         updatedAt: 1,
       },
-      dir
+      db
     );
     writePeerReview(
       {
@@ -147,13 +352,12 @@ describe('prunePeerReviews', () => {
         status: 'reviewing',
         updatedAt: 1,
       },
-      dir
+      db
     );
-
-    prunePeerReviews(new Set([URL_A]), dir);
-
-    expect(existsSync(peerReviewFilePath(URL_A, 'grace', dir))).toBe(true);
-    expect(existsSync(peerReviewFilePath(URL_B, 'grace', dir))).toBe(false);
+    prunePeerReviews(new Set([URL_A]), db);
+    const map = readPeerReviews(db);
+    expect(map.has(URL_A)).toBe(true);
+    expect(map.has(URL_B)).toBe(false);
   });
 });
 
@@ -249,6 +453,37 @@ describe('writeSentNudge / readSentNudges', () => {
 });
 
 describe('resolveSentNudge', () => {
+  test('a progress confirmation refreshes a launched ask', () => {
+    writeSentNudge(
+      { nudgeId: 'n1', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 1 },
+      db
+    );
+    resolveSentNudge(URL_A, { result: 'launched', at: 10 }, db);
+    resolveSentNudge(URL_A, { result: 'confirmed', at: 50 }, db);
+    expect(readSentNudges(db).get(URL_A)?.resolution).toEqual({
+      result: 'confirmed',
+      at: 50,
+    });
+  });
+
+  test('a confirmation never replaces a declined or expired ask', () => {
+    for (const result of ['rejected', 'expired'] as const) {
+      writeSentNudge(
+        {
+          nudgeId: 'n1',
+          mrUrl: URL_A,
+          iid: 4821,
+          reviewer: 'grace',
+          sentAt: 1,
+        },
+        db
+      );
+      resolveSentNudge(URL_A, { result, at: 10 }, db);
+      resolveSentNudge(URL_A, { result: 'confirmed', at: 50 }, db);
+      expect(readSentNudges(db).get(URL_A)?.resolution?.result).toBe(result);
+    }
+  });
+
   test('is a no-op when no row exists for the MR', () => {
     resolveSentNudge(URL_A, { result: 'launched', at: 10 }, db);
     expect(readSentNudges(db).size).toBe(0);
@@ -346,6 +581,69 @@ describe('resolveSentNudge', () => {
 const DONE = { result: 'done' as const, at: 1 };
 
 describe('finishSentNudge', () => {
+  test('done after failed still requires the matching ask, reviewer and fallback time', () => {
+    writeSentNudge(
+      { nudgeId: 'n1', mrUrl: URL_A, iid: 4821, reviewer: 'grace', sentAt: 1 },
+      db
+    );
+    const stopped = {
+      result: 'failed' as const,
+      reason: 'pane closed',
+      at: 10,
+    };
+    finishSentNudge(URL_A, stopped, 5, db, 'n1', 'grace');
+    finishSentNudge(URL_A, DONE, 5, db, 'old-ask', 'grace');
+    expect(readSentNudges(db).get(URL_A)?.resolution).toEqual(stopped);
+    finishSentNudge(URL_A, DONE, 5, db, 'n1', 'bob');
+    expect(readSentNudges(db).get(URL_A)?.resolution).toEqual(stopped);
+    finishSentNudge(URL_A, DONE, 1, db, undefined, 'grace');
+    expect(readSentNudges(db).get(URL_A)?.resolution).toEqual(stopped);
+    finishSentNudge(URL_A, DONE, 5, db, undefined, 'grace');
+    expect(readSentNudges(db).get(URL_A)?.resolution).toEqual(DONE);
+  });
+
+  test('done replaces failed; rejected, expired and done stay final', () => {
+    const send = () =>
+      writeSentNudge(
+        {
+          nudgeId: 'n1',
+          mrUrl: URL_A,
+          iid: 4821,
+          reviewer: 'grace',
+          sentAt: 1,
+        },
+        db
+      );
+    send();
+    finishSentNudge(
+      URL_A,
+      { result: 'failed', reason: 'pane closed', at: 10 },
+      5,
+      db,
+      'n1'
+    );
+    finishSentNudge(
+      URL_A,
+      { result: 'done', outcome: 'comment', at: 20 },
+      5,
+      db,
+      'n1'
+    );
+    expect(readSentNudges(db).get(URL_A)?.resolution).toEqual({
+      result: 'done',
+      outcome: 'comment',
+      at: 20,
+    });
+    finishSentNudge(URL_A, { result: 'failed', at: 30 }, 5, db, 'n1');
+    expect(readSentNudges(db).get(URL_A)?.resolution?.result).toBe('done');
+    for (const result of ['rejected', 'expired'] as const) {
+      send();
+      resolveSentNudge(URL_A, { result, at: 10 }, db);
+      finishSentNudge(URL_A, { result: 'done', at: 20 }, 5, db, 'n1');
+      expect(readSentNudges(db).get(URL_A)?.resolution?.result).toBe(result);
+    }
+  });
+
   test('is a no-op when no row exists for the MR', () => {
     finishSentNudge(URL_A, DONE, 10, db);
     expect(readSentNudges(db).size).toBe(0);
@@ -617,6 +915,49 @@ describe('pruneSentNudges', () => {
 });
 
 describe('sentNudgeDisplay', () => {
+  test('a launched or confirmed ask quiet past NUDGE_QUIET_MS reads no-update', () => {
+    const base: SentNudge = {
+      nudgeId: 'n',
+      mrUrl: 'u',
+      iid: 1,
+      reviewer: 'matt',
+      sentAt: 0,
+    };
+    for (const result of ['launched', 'confirmed'] as const) {
+      const n = { ...base, resolution: { result, at: 100 } };
+      expect(sentNudgeDisplay(n, 100 + NUDGE_QUIET_MS)).toBe(result);
+      expect(sentNudgeDisplay(n, 100 + NUDGE_QUIET_MS + 1)).toBe('no-update');
+    }
+  });
+
+  test('an unanswered ask never reads no-update', () => {
+    const base: SentNudge = {
+      nudgeId: 'n',
+      mrUrl: 'u',
+      iid: 1,
+      reviewer: 'matt',
+      sentAt: 0,
+    };
+    expect(sentNudgeDisplay(base, NUDGE_QUIET_MS + 1)).toBe('requested');
+  });
+
+  test('finished, declined and expired asks never read no-update', () => {
+    const base: SentNudge = {
+      nudgeId: 'n',
+      mrUrl: 'u',
+      iid: 1,
+      reviewer: 'matt',
+      sentAt: 0,
+    };
+    for (const result of ['done', 'failed', 'rejected', 'expired'] as const)
+      expect(
+        sentNudgeDisplay(
+          { ...base, resolution: { result, at: 0 } },
+          NUDGE_QUIET_MS * 10
+        )
+      ).toBe(result);
+  });
+
   test('honours resolution then self-expiry', () => {
     const base: SentNudge = {
       nudgeId: 'n',
@@ -632,7 +973,7 @@ describe('sentNudgeDisplay', () => {
     expect(
       sentNudgeDisplay(
         { ...base, resolution: { result: 'launched', at: 5 } },
-        NUDGE_NO_RESPONSE_MS + 1
+        6
       )
     ).toBe('launched');
     expect(

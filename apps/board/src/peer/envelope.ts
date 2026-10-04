@@ -36,6 +36,8 @@ export interface ReviewStatePayload {
       echoed back so the asker retires by identity instead of comparing two
       boards' clocks. */
   nudgeId?: string;
+  /** On an `error`: why the run ended, in words the asker's band shows. */
+  reason?: string;
 }
 
 export interface ReReviewRequestPayload {
@@ -128,17 +130,22 @@ function mrBase(p: unknown): { mrUrl: string; iid: number } | null {
 export function parseReviewStatePayload(p: unknown): ReviewStatePayload | null {
   const base = mrBase(p);
   if (!base) return null;
-  const { status, outcome, updatedAt, nudgeId } = p as Record<string, unknown>;
+  const { status, outcome, updatedAt, nudgeId, reason } = p as Record<
+    string,
+    unknown
+  >;
   if (typeof status !== 'string' || !status) return null;
   if (outcome !== undefined && typeof outcome !== 'string') return null;
   if (typeof updatedAt !== 'number' || !Number.isFinite(updatedAt)) return null;
   if (nudgeId !== undefined && typeof nudgeId !== 'string') return null;
+  if (reason !== undefined && typeof reason !== 'string') return null;
   return {
     ...base,
     status,
     outcome: outcome as string | undefined,
     updatedAt,
     nudgeId: nudgeId as string | undefined,
+    reason: reason as string | undefined,
   };
 }
 
