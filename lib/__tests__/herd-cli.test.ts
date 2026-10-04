@@ -391,11 +391,33 @@ describe("renderStatus", () => {
 });
 
 import { renderPlain } from "../../lib/ui/out-plain.ts";
+import type { Block } from "../../lib/ui/protocol.ts";
 import { herdGatesBlocks, herdListBlocks, herdStatusBlocks } from "../../commands/herd.ts";
 
 describe("herd views at a terminal", () => {
   const herd = { id: "h-sample", repo: "sample-app", room: "herd-h-sample", workspace: "w1", shepherdSession: "s", shepherdHandle: "ana.1", shepherdName: "ana", herdrSocket: null, hidden: false, status: "active" as const, createdAt: 1, wrappedAt: null };
   const job = { herd: "h-sample", name: "job-a", worktree: "/code/wt", branch: "job-a", tree: "wt", pane: "w1:p3", agentSession: "s2", agentId: null, handle: "job-a.2", handleName: "job-a", status: "active" as const, disposable: false, lastGate: null, lastReport: null, createdAt: 1, updatedAt: 1, openGate: null, paneStatus: "working", sessionDead: false, lastGateStatus: null, lastGateDelivery: null, lastGateConsumed: null };
+
+  function statusCell(blocks: Block[]) {
+    const section = blocks[0];
+    if (section?.t !== "section") throw new Error("Expected the herd section");
+    const table = section.blocks.find((block) => block.t === "table");
+    const row = table?.rows[0];
+    if (!row || !("cells" in row)) throw new Error("Expected a job row");
+    return row.cells[1];
+  }
+
+  test.each(["active", "spawning"] as const)("status: a dead %s session overrides stale working text", (status) => {
+    const blocks = herdStatusBlocks(statusData({ jobs: [{ ...job, status, sessionDead: true }] }));
+    const row = renderPlain(blocks).split("\n").find((line) => /^job-a +/.test(line));
+    expect(row).toMatch(/^job-a +session gone +pane w1:p3 *$/);
+    expect(row).not.toContain("working");
+  });
+
+  test("status: a dead session uses the failed role in the job row", () => {
+    const blocks = herdStatusBlocks(statusData({ jobs: [{ ...job, sessionDead: true }] }));
+    expect(statusCell(blocks)).toEqual([{ text: "session gone", role: "failed" }]);
+  });
 
   test("list: one row per herd, its status in its own word", () => {
     const text = renderPlain(herdListBlocks([{ ...herd, jobs: 2 }, { ...herd, id: "h-two", status: "wrapped", jobs: 1 }]));
@@ -407,7 +429,9 @@ describe("herd views at a terminal", () => {
 
   test("status: a healthy herd is a heading, its numbers and its jobs, with no problem lines", () => {
     const data = { herd, jobs: [job], unread: 0, lifecycleConnected: true, hiddenUp: null, subscription: { id: "sub-1", dead: false, lastDelivery: null }, push: { state: "reachable" as const, lastDelivery: null } };
-    const text = renderPlain(herdStatusBlocks(data as never));
+    const blocks = herdStatusBlocks(data as never);
+    const text = renderPlain(blocks);
+    expect(statusCell(blocks)).toEqual([{ text: "working", role: "running" }]);
     expect(text).toContain("h-sample");
     expect(text).toMatch(/job-a +working +pane w1:p3/);
     expect(text).not.toContain("[warning]");

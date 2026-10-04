@@ -127,9 +127,9 @@ export function herdStatusBlocks(data: HerdStatusData): Block[] {
   if (data.push.state === "unreachable") problems.push(out.line("warn", "This session's inbox cannot be reached", `last delivery ${pushAge(data.push.lastDelivery)}`));
   const rows: out.CellInput[][] = [];
   for (const j of data.jobs) {
-    const s = JOB_STATUS[j.status];
+    const s = j.sessionDead ? { word: "session gone", role: "failed" as const } : JOB_STATUS[j.status];
     const poked = j.watchdog && j.watchdog.strikes > 0 ? `poked ${j.watchdog.strikes}x${j.watchdog.lastPokeAt === null ? "" : ` ${ago(j.watchdog.lastPokeAt)}`}` : "";
-    rows.push([out.strong(j.name), { text: s.word, role: s.role }, out.dim(`pane ${j.pane ?? "-"}`), out.dim([j.paneStatus ?? "-", j.openGate ? `gate ${j.openGate}` : "", poked].filter(Boolean).join(" · "))]);
+    rows.push([out.strong(j.name), { text: s.word, role: s.role }, out.dim(`pane ${j.pane ?? "-"}`), out.dim([j.sessionDead ? "" : j.paneStatus ?? "-", j.openGate ? `gate ${j.openGate}` : "", poked].filter(Boolean).join(" · "))]);
     if (j.sessionDead) problems.push(out.line("failed", `${j.name}: the pane is open but Claude is gone`), out.callout("next", out.cmd(`rt herd spawn --herd ${j.herd} --job ${j.name}`)));
     if (j.status === "stuck-at-modal") problems.push(out.line("needs-you", `${j.name} is waiting at a trust prompt`, `accept it in pane ${j.pane ?? "-"}`));
     const terminal = j.lastGateStatus === "answered" || j.lastGateStatus === "closed";
