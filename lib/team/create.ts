@@ -27,6 +27,7 @@ import { forgeFromRemote, parseOriginUrl, stripUserinfo } from "../setup/team-se
 import { withoutUrls } from "./redact.ts";
 import { TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
 import { assertNotRealStoreInTest } from "../../packages/rt-client/src/test-isolation.ts";
+import { assertTeamName } from "./team-names.ts";
 import { slugify } from "./slug.ts";
 
 export interface CreateTeamOpts {
@@ -242,9 +243,7 @@ async function resolveRemote(p: Probes, slug: string, opts: CreateTeamOpts): Pro
 export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: AgeKeySeam = createRealAgeKeySeam(), seams: CreateTeamSeams = REAL_SEAMS): Promise<CreateTeamResult> {
   const slug = slugify(opts.name);
   const team = opts.firstTeam ?? defaultTeamName(slug);
-  if (!TEAM_NAME_RE.test(team)) {
-    throw new UserActionableError("bad-team-name", `${JSON.stringify(team)} cannot be a team name`, {}, { why: "A team name uses lowercase letters, digits and dashes, and starts with a letter." });
-  }
+  assertTeamName(team);
   const dir = join(p.home, ".mattstack", "teams", slug);
   assertNotRealStoreInTest(orgStoreFile(p.home, slug));
   assertOnlyTeam(p, slug);
