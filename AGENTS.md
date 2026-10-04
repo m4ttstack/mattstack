@@ -461,6 +461,13 @@ The log viewer's seams take blocks (`print`, `fail`), so the tray, which
 shows the first stderr line when `rt daemon logs --no-open` exits early,
 reads a failure title.
 
+`rt herd`, `rt pane` and `rt agent` follow chat's rule: off a terminal
+every verb writes the bytes it always wrote (`say` and `out.json` on
+stdout, `out.diagnostic` on stderr), pinned by
+`commands/__tests__/fixtures/herd-pane-agent-bytes.json`; only `herd
+list`, `herd status`, `herd gates`, `pane list` and `agent list` draw
+blocks, and only when a person is at the terminal.
+
 ## The TypeScript CLI is UI-free
 
 The rt TS CLI (`commands/`, `lib/`, `cli.ts`, `scripts/`) is pure Bun/TypeScript
