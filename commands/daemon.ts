@@ -584,7 +584,7 @@ export function trackListBlocks(repos: Record<string, string>, tracking: Record<
   }
   const blocks: Block[] = [out.section("Repo tracking", "what rt watches in the background", out.table(rows))];
   for (const identity of Object.keys(tracking).filter((n) => !repos[n])) {
-    blocks.push(out.line("warn", `${trackingLabel(identity)} is tracked, but rt does not know where it is`), out.callout("next", out.cmd(`rt repos locate <new-path> --repo ${trackingLabel(identity)}`)));
+    blocks.push(out.line("warn", `${trackingLabel(identity)} is tracked, but rt does not know where it is`), out.callout("next", out.cmd("rt repos register <path>")));
   }
   blocks.push(out.callout("next", out.cmd("rt daemon track <repo> live|poll|off")));
   return blocks;
@@ -651,7 +651,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
   let interactiveWindowDays: number | null | undefined; // undefined = untouched, null = clear
   if (!levelArg) {
     if (!resolved) {
-      out.fail({ title: `rt does not know a repo called ${repoArg}`, next: out.cmd(`rt repos locate <path> --repo ${repoArg}`) });
+      out.fail({ title: `rt does not know a repo called ${repoArg}`, next: out.cmd("rt repos register <path>") });
       return;
     }
     const identity = resolved.identity;
@@ -739,7 +739,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
   if (levelArg2 !== "off") {
     const repoPath = resolved?.path ?? null;
     if (!repoPath) {
-      out.fail({ title: `rt does not know a repo called ${repoArg}`, next: out.cmd(`rt repos locate <path> --repo ${repoArg}`) });
+      out.fail({ title: `rt does not know a repo called ${repoArg}`, next: out.cmd("rt repos register <path>") });
       return;
     }
     if (levelArg2 === "live") {
@@ -826,7 +826,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
     out.print(out.kv("live watchers", watching.length > 0 ? watching.join(", ") : "none"));
     if (levelArg2 !== "off") await daemonQuery("cache:refresh");
   } else {
-    out.print(out.line("pending", "The daemon is not running", "this applies when it next starts"));
+    out.print(out.line("pending", "The daemon did not apply this tracking change", "this applies when it next starts or refreshes"));
   }
 }
 
@@ -883,7 +883,7 @@ export async function showLogs(args: string[] = []): Promise<void> {
           : null;
       const { show } = nativeStderrDisplay(mtimeMs, daemonStartedAt);
       if (show) {
-        out.print(out.line("warn", "The daemon crashed since it last started", `captured ${new Date(mtimeMs).toLocaleString()}`), out.verbatim(content.split("\n").slice(-20), "what it printed"));
+        out.print(out.line("warn", daemonStartedAt === null ? "The daemon has captured native output" : "The daemon crashed since it last started", `captured ${new Date(mtimeMs).toLocaleString()}`), out.verbatim(content.split("\n").slice(-20), "what it printed"));
       } else {
         out.print(out.line("skipped", "No crash since this daemon started"));
       }
@@ -1181,7 +1181,7 @@ export async function setLogLevel(args: string[] = []): Promise<void> {
   const level = args.find((a) => !a.startsWith("--"));
   const res = await daemonQuery("daemon:log-level", level ? { level } : {});
   if (!res) {
-    out.fail({ title: "The daemon is not running", next: out.cmd("rt daemon start") });
+    out.fail({ title: "The daemon did not answer the log level request", next: out.cmd("rt daemon status") });
     return;
   }
   if (json) {

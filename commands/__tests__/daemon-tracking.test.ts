@@ -28,6 +28,7 @@ import { machineSettingsPath, teamSettingsPath } from "../../lib/rt-paths.ts";
 import { getSetting } from "../../lib/settings/resolve.ts";
 import { serializeIdentity } from "../../lib/settings/identity.ts";
 import { deleteKvValue, getKvValue, setKvValue } from "../../lib/state/index.ts";
+import { DAEMON_SOCK_PATH } from "../../lib/daemon-config.ts";
 import { manageTracking, trackListBlocks } from "../daemon.ts";
 
 const REPO_NAME = "rt-rider-cli-wiring-repo";
@@ -135,6 +136,8 @@ describe("manageTracking off-branch (CLI wiring)", () => {
   test("poll prints its cadence and live refusal leaves the grant unchanged", async () => {
     await manageTracking([REPO_NAME, "poll"]);
     expect(io.stdout()).toContain(`[ok] Tracking ${REPO_NAME}: every 5 minutes`);
+    expect(io.stdout()).toContain("The daemon did not apply this tracking change");
+    expect(io.stdout()).toContain("this applies when it next starts or refreshes");
     const saved = getSetting<Record<string, unknown>>("rt.repoTracking").value;
     io.clear();
     await manageTracking([REPO_NAME, "live"]);
@@ -153,6 +156,31 @@ describe("manageTracking off-branch (CLI wiring)", () => {
     await manageTracking([REPO_NAME, "poll", "bad-cache"]);
     expect(io.stderr()).toContain('"bad-cache" has a cache rt does not know');
     expect(getSetting<Record<string, unknown>>("rt.repoTracking").value).toEqual(saved);
+  });
+
+  test("unknown repo guidance registers a checkout without changing tracking", async () => {
+    const saved = getSetting<Record<string, unknown>>("rt.repoTracking").value;
+    for (const args of [["rt-unknown-final-fix"], ["rt-unknown-final-fix", "poll"]]) {
+      io.clear();
+      await manageTracking(args);
+      expect(io.stderr()).toContain("next: rt repos register <path>");
+      expect(getSetting<Record<string, unknown>>("rt.repoTracking").value).toEqual(saved);
+    }
+  });
+
+  test("a rejected reconcile preserves intent and describes the unsuccessful request", async () => {
+    mkdirSync(dirname(DAEMON_SOCK_PATH), { recursive: true });
+    const server = Bun.serve({ unix: DAEMON_SOCK_PATH, fetch: () => Response.json({ ok: false, error: "busy" }) });
+    try {
+      await manageTracking([REPO_NAME, "poll"]);
+      expect(io.stdout()).toContain("The daemon did not apply this tracking change");
+      expect(io.stdout()).toContain("this applies when it next starts or refreshes");
+      expect(io.stdout()).not.toContain("The daemon is not running");
+      expect(getSetting<Record<string, unknown>>("rt.repoTracking").value[SERIALIZED]).toEqual({ mode: "poll", caches: ["branches"] });
+    } finally {
+      server.stop(true);
+      rmSync(DAEMON_SOCK_PATH, { force: true });
+    }
   });
 
   test("off on a repo the team no longer names deletes outright", async () => {
@@ -180,5 +208,6 @@ test("the tracking list is one table, off repos quiet, unknown tracked repos fla
   expect(text).toContain("watcher starting");
   expect(text).toContain("[warning] gone is tracked, but rt does not know where it is");
   expect(text).toContain("next: rt daemon track <repo> live|poll|off");
+  expect(text).toContain("next: rt repos register <path>");
   expect(text).not.toContain("remote:");
 });
