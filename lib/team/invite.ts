@@ -40,7 +40,7 @@ import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
 export const INVITE_TTL_DAYS = 7;
 
 /** Forge usernames only (letters, digits, `.`, `_`, `-`; must start alphanumeric). This handle also becomes a `mattstack.roster` entry and a mint-record key, so it is checked before anything downstream trusts it. */
-const HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/;
+export const HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/;
 
 export const DEFAULT_JOIN_BASE_URL = "https://mattstack.dev/join";
 

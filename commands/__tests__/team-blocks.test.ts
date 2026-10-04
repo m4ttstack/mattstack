@@ -37,6 +37,7 @@ test("an invite GitHub is still waiting on the invitee to accept reads as not ye
 });
 
 const join = (extra: Partial<JoinResult> = {}): JoinResult => ({
+  teams: [],
   team: { slug: "acme", name: "Acme", owner: "zaphod" },
   access: "ok",
   peering: "idle",
@@ -90,4 +91,9 @@ test("members remove names the member, what is left to do by hand, and a next st
   expect(renderPlain(membersRemoveBlocks("alice", "acme", { forgeAccess: "revoked", manualSteps: [], reencrypted: [], rosterRemoved: false, residueNote: "n" }))).toBe(
     "[skipped] alice was not on the team list  forge access: revoked\n  note: n\n  next: rt secrets rotate --team acme <domain> <key>\n",
   );
+});
+
+
+test("a join shows the invite's teams in order", () => {
+  expect(renderPlain(joinBlocks(join({ teams: ["gadgets", "widgets"] })))).toBe("[ok] Joined Acme, owned by zaphod.\nteams: gadgets, widgets\n");
 });

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { applyInstallSatisfiedFlip, composePlan } from "../plan.ts";
+import { applyInstallSatisfiedFlip, composePlan, pendingJoinTeam } from "../plan.ts";
 import { FINISH_GATED_ROW_IDS, finalizePlan, row, type Group, type Row } from "../contract.ts";
 import { WAIVED_NOTE, applyFinishGate } from "../finish-gate.ts";
 import { setSetting } from "../../settings/write.ts";
@@ -67,7 +67,7 @@ function joinIntent(): SetupIntent {
       id: "inv1",
       keyB64: "k",
       pointer: {
-        v: 2, username: "dev2", teams: ["widgets"],
+        v: 2, username: "dev2", teams: ["gadgets", "widgets"],
         team: "acme",
         name: "Acme",
         // The remote alone would derive "example.com", not "github.com"... proves the pointer's own forge wins.
@@ -451,4 +451,19 @@ describe("finish gate", () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+});
+
+
+describe("pendingJoinTeam", () => {
+  test("before the clone exists the pointer's first team selects the pack", () => { expect(pendingJoinTeam(joinIntent(), [])).toBe("gadgets"); });
+  test("after cloning the clone selects the team", () => { expect(pendingJoinTeam(joinIntent(), ["acme"])).toBeUndefined(); });
+  test("no intent or a create intent has no pending join team", () => { expect(pendingJoinTeam(null, [])).toBeUndefined(); expect(pendingJoinTeam(createIntent(), [])).toBeUndefined(); });
+});
+
+
+test("a saved old invite leaves the plan renderable until join refuses it", () => {
+  const intent = joinIntent();
+  const pointer = { ...intent.join!.pointer, v: 1, teams: undefined };
+  intent.join!.pointer = pointer as unknown as NonNullable<SetupIntent["join"]>["pointer"];
+  expect(pendingJoinTeam(intent, [])).toBeNull();
 });

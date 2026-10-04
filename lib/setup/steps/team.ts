@@ -131,6 +131,9 @@ export function outcomeFromJoinError(err: unknown): StepOutcome {
       remedy: "Fix the secrets store (Retry from the home repo step if it never ran), then Retry. The invite is already redeemed, so Retry resumes here without a new code",
     };
   }
+  if (err instanceof UserActionableError && err.code === "roster-not-ready") {
+    return { state: "failed", detail: err.message, remedy: "Retry in a minute. You do not need a new code" };
+  }
   if (err instanceof UserActionableError && err.code === "secrets-store-not-ready") {
     return { state: "failed", detail: err.message, remedy: "Retry from the home repo step, or run rt home init, then Retry. No new code is needed" };
   }
