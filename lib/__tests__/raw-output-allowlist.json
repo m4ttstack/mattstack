@@ -1,5 +1,4 @@
 [
-  "commands/bg.ts",
   "commands/cd.ts",
   "commands/code.ts",
   "commands/cron.ts",
@@ -7,7 +6,6 @@
   "commands/glitter.ts",
   "commands/nav.ts",
   "commands/post-install.ts",
-  "commands/reconciler.ts",
   "commands/run.ts",
   "commands/runner.ts",
   "commands/state-backup-init.ts",

@@ -92,6 +92,20 @@ describe("rt reconciler (e2e)", () => {
     expect(res.stdout.trim()).toBe('{"ok":true,"sweptAt":0,"herdrReachable":false,"executors":[]}');
   }, 20_000);
 
+  test("status describes the sweep, herdr, and empty executor list", async () => {
+    const res = await finished(runRt(["reconciler", "status"], home));
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toBe("last sweep: never\n[warning] herdr is not reachable\n[skipped] No known executors\n");
+    expect(res.stderr).toBe("");
+  }, 20_000);
+
+  test("clear reports the cleared agent", async () => {
+    const res = await finished(runRt(["reconciler", "clear", "ag-unknown"], home));
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toBe("[ok] Cleared ag-unknown\n");
+    expect(res.stderr).toBe("");
+  }, 20_000);
+
   test("clear --json is the exact envelope for an unknown agent", async () => {
     const res = await finished(runRt(["reconciler", "clear", "ag-unknown", "--json"], home));
     expect(res.exitCode).toBe(0);

@@ -4,7 +4,9 @@ import { tmpdir } from "os";
 import { join } from "path";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { bgRelease, bgStatus, bgStop, renderStatus } from "../bg.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
+import { bgRelease, bgStatus, bgStatusBlocks, bgStop } from "../bg.ts";
+import { reconcilerClear, reconcilerStatus, reconcilerStatusBlocks } from "../reconciler.ts";
 
 let home: string;
 let origHome: string | undefined;
@@ -54,22 +56,50 @@ async function run(fn: (args: string[]) => Promise<void>, args: string[]) {
 
 // ─── status ─────────────────────────────────────────────────────────────────
 
-test("renderStatus: no claims says so plainly", () => {
-  const text = renderStatus({ up: true, socket: "/tmp/bg.sock", claims: [] });
-  expect(text).toContain("server: up");
-  expect(text).toContain("socket: /tmp/bg.sock");
-  expect(text).toContain("no live claims");
+test("bg status: the server state, then its claims, with no socket path", () => {
+  const text = renderPlain(bgStatusBlocks({ up: true, socket: "/tmp/bg.sock", claims: [{ owner: "runner", pane: "bg:w1:p1", createdAt: 0 }] }, 42_000));
+  expect(text).toStartWith("[running] The background server is running\n");
+  expect(text).toMatch(/runner +bg:w1:p1 +42s/);
+  expect(text).not.toContain("/tmp/bg.sock");
+  expect(renderPlain(bgStatusBlocks({ up: false, socket: "/s", claims: [] }, 0))).toBe("[off] The background server is stopped\n[skipped] No live claims\n");
 });
 
-test("renderStatus: claims render owner, pane, age", () => {
-  const now = Date.now();
-  const text = renderStatus({
-    up: true, socket: "/tmp/bg.sock",
-    claims: [{ owner: "herd:hd-1", pane: "bg:w1:p1", createdAt: now - 5_000 }],
-  });
-  expect(text).toContain("herd:hd-1");
-  expect(text).toContain("bg:w1:p1");
-  expect(text).toMatch(/5s/);
+test("bg status clamps a future claim's age and uses a missing-pane placeholder", () => {
+  expect(renderPlain(bgStatusBlocks({ up: true, socket: "/s", claims: [{ owner: "runner", pane: null, createdAt: 1000 }] }, 0))).toMatch(/runner +- +0s/);
+});
+
+test("reconciler status: the sweep, herdr, and each executor's state as a word", () => {
+  const text = renderPlain(reconcilerStatusBlocks({ sweptAt: 0, herdrReachable: false, executors: [{ agentId: "ag-1", state: "blocked", paneRef: "w1:p2" }, { agentId: "ag-2", state: "gone", paneRef: null }] } as never));
+  expect(text).toContain("last sweep: never");
+  expect(text).toContain("[warning] herdr is not reachable");
+  expect(text).toMatch(/ag-1 +waiting on you +w1:p2/);
+  expect(text).toMatch(/ag-2 +gone +-/);
+});
+
+test("reconciler status assigns each state its status role and handles unknown keys safely", () => {
+  const states = ["live", "blocked", "hidden", "gone", "cleared", "unknown", "future", "constructor", "__proto__"];
+  const blocks = reconcilerStatusBlocks({ sweptAt: 0, herdrReachable: true, executors: states.map((state) => ({ agentId: state, state, paneRef: null })) } as never);
+  const table = blocks.at(-1);
+  expect(table?.t).toBe("table");
+  if (table?.t !== "table") throw new Error("missing executors table");
+  expect(table.rows.map((row) => "cells" in row ? row.cells[1] : null)).toEqual([
+    [{ text: "live", role: "running" }],
+    [{ text: "waiting on you", role: "needs-you" }],
+    [{ text: "hidden", role: "off" }],
+    [{ text: "gone", role: "warn" }],
+    [{ text: "cleared", role: "skipped" }],
+    [{ text: "unknown", role: "skipped" }],
+    [{ text: "unknown", role: "skipped" }],
+    [{ text: "unknown", role: "skipped" }],
+    [{ text: "unknown", role: "skipped" }],
+  ]);
+});
+
+test("reconciler status renders a local sweep time and an empty executor list", () => {
+  const sweptAt = 1_700_000_000_000;
+  const text = renderPlain(reconcilerStatusBlocks({ sweptAt, herdrReachable: true, executors: [] }));
+  expect(text).toContain(`last sweep: ${new Date(sweptAt).toLocaleString()}`);
+  expect(text).toContain("[ok] herdr is reachable\n[skipped] No known executors\n");
 });
 
 test("bg status --json prints the raw record; plain prints the rendering", async () => {
@@ -78,7 +108,7 @@ test("bg status --json prints the raw record; plain prints the rendering", async
   const json = await run(bgStatus, ["--json"]);
   expect(JSON.parse(json.stdout)).toEqual({ ok: true, ...data });
   const plain = await run(bgStatus, []);
-  expect(plain.stdout).toContain("server: down");
+  expect(plain.stdout).toContain("[off] The background server is stopped");
 });
 
 // ─── release ────────────────────────────────────────────────────────────────
@@ -87,7 +117,7 @@ test("bg release <owner> forwards the claim and prints the outcome", async () =>
   replies = { "bg:release": { ok: true, data: { released: true } } };
   const r = await run(bgRelease, ["herd:hd-1"]);
   expect(seen[0]).toEqual({ cmd: "bg:release", payload: { claim: "herd:hd-1" } });
-  expect(r.stdout).toBe("released herd:hd-1\n");
+  expect(r.stdout).toBe("[ok] Released herd:hd-1\n");
   expect(r.code).toBe(0);
 });
 
@@ -100,14 +130,14 @@ test("bg release <owner> --json prints the raw record", async () => {
 test("bg release with no owner and no TTY fails with usage (never spawns a picker)", async () => {
   const r = await run(bgRelease, []);
   expect(r.code).toBe(1);
-  expect(r.stderr).toContain("usage");
+  expect(r.stderr).toBe("Which claim?\n  next: rt bg release <owner>\n");
   expect(seen).toEqual([]);
 });
 
 test("bg release --json with no owner fails with usage even under RT_BATCH-less env", async () => {
   const r = await run(bgRelease, ["--json"]);
   expect(r.code).toBe(1);
-  expect(r.stderr).toContain("usage");
+  expect(r.stderr).toBe("Which claim?\n  next: rt bg release <owner>\n");
 });
 
 test("bg release exits non-zero when the daemon refuses", async () => {
@@ -122,7 +152,7 @@ test("bg release exits non-zero when the daemon refuses", async () => {
 test("bg stop prints stopped on success", async () => {
   replies = { "bg:stop": { ok: true, data: { stopped: true } } };
   const r = await run(bgStop, []);
-  expect(r.stdout).toBe("stopped\n");
+  expect(r.stdout).toBe("[ok] Stopped the background server\n");
   expect(r.code).toBe(0);
 });
 
@@ -132,9 +162,47 @@ test("bg stop --json prints the raw record", async () => {
   expect(JSON.parse(r.stdout)).toEqual({ ok: true, stopped: true });
 });
 
-test("bg stop renders the daemon's refusal text plainly and exits 1", async () => {
+test("stop with live claims is a refusal that names the release command", async () => {
   replies = { "bg:stop": { ok: false, error: "bg server has live claims: herd:hd-1, runner:123" } };
   const r = await run(bgStop, []);
   expect(r.code).toBe(1);
-  expect(r.stderr).toContain("bg server has live claims: herd:hd-1, runner:123");
+  expect(r.stdout).toBe("");
+  expect(r.stderr).toBe("[refused] Left the background server running  it still has live claims: herd:hd-1, runner:123\n  next: rt bg release herd:hd-1\n");
+});
+
+test("bg stop --json with live claims keeps stdout empty and shows the refusal", async () => {
+  replies = { "bg:stop": { ok: false, error: "bg server has live claims: runner" } };
+  const r = await run(bgStop, ["--json"]);
+  expect(r.code).toBe(1);
+  expect(r.stdout).toBe("");
+  expect(r.stderr).toContain("[refused] Left the background server running");
+  expect(r.stderr).toContain("next: rt bg release runner");
+});
+
+test("bg release of a missing claim is skipped", async () => {
+  replies = { "bg:release": { ok: true, data: { released: false } } };
+  const r = await run(bgRelease, ["runner"]);
+  expect(r).toEqual({ code: 0, stdout: "[skipped] runner was not claimed\n", stderr: "" });
+});
+
+test("bg stop daemon errors are failures rather than refusals", async () => {
+  replies = { "bg:stop": { ok: false, error: "could not stop the server" } };
+  expect(await run(bgStop, [])).toEqual({ code: 1, stdout: "", stderr: "could not stop the server\n" });
+});
+
+test("reconciler status prints its blocks and clear reports success", async () => {
+  replies = { "reconciler:status": { ok: true, data: { sweptAt: 0, herdrReachable: true, executors: [] } } };
+  expect((await run(reconcilerStatus, [])).stdout).toBe("last sweep: never\n[ok] herdr is reachable\n[skipped] No known executors\n");
+  replies = { "reconciler:clear": { ok: true, data: { cleared: true } } };
+  expect(await run(reconcilerClear, ["ag-1"])).toEqual({ code: 0, stdout: "[ok] Cleared ag-1\n", stderr: "" });
+});
+
+test("reconciler clear asks for the missing agent without calling the daemon", async () => {
+  expect(await run(reconcilerClear, [])).toEqual({ code: 1, stdout: "", stderr: "Which agent?\n  next: rt reconciler clear <agentId>\n" });
+  expect(seen).toEqual([]);
+});
+
+test("reconciler daemon errors print a failure without a verb prefix", async () => {
+  replies = { "reconciler:clear": { ok: false, error: "agent could not be cleared" } };
+  expect(await run(reconcilerClear, ["ag-1"])).toEqual({ code: 1, stdout: "", stderr: "agent could not be cleared\n" });
 });
