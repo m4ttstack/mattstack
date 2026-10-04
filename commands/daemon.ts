@@ -29,7 +29,6 @@ import { usageFailure } from "../lib/ui/usage.ts";
 import { withTransientStep } from "../lib/ui/transient-step.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 
-import { bold, dim, green, yellow, red, reset } from "../lib/tui.ts";
 import {
   isDaemonInstalled,
   isDaemonProcessRunning,
@@ -570,6 +569,27 @@ function trackingLabel(serialized: string): string {
   return id.kind === "remote" ? (id.id.split("/").pop() ?? id.id) : basename(id.id);
 }
 
+export function trackListBlocks(repos: Record<string, string>, tracking: Record<string, RepoTrackingEntry>, freshness: Record<string, { state: string }>): Block[] {
+  const rows: out.CellInput[][] = [];
+  for (const identity of Object.keys(repos).sort()) {
+    const g = grants(tracking, identity);
+    const label = trackingLabel(identity);
+    if (g.mode === "off") {
+      rows.push([{ text: "off", role: "off" }, out.dim(label), ""]);
+      continue;
+    }
+    const watcher = g.mode === "live" ? [freshness[identity] ? `watcher ${freshness[identity]!.state}` : "watcher starting"] : [];
+    const detail = [...watcher, `caches ${[...g.caches].join(", ")}`, `window ${formatWindowLabel(tracking[identity]?.projectMrsWindowDays)}`].join(" · ");
+    rows.push([{ text: g.mode === "live" ? "live" : "every 5 minutes", role: "running" }, out.strong(label), out.dim(detail)]);
+  }
+  const blocks: Block[] = [out.section("Repo tracking", "what rt watches in the background", out.table(rows))];
+  for (const identity of Object.keys(tracking).filter((n) => !repos[n])) {
+    blocks.push(out.line("warn", `${trackingLabel(identity)} is tracked, but rt does not know where it is`), out.callout("next", out.cmd(`rt repos locate <new-path> --repo ${trackingLabel(identity)}`)));
+  }
+  blocks.push(out.callout("next", out.cmd("rt daemon track <repo> live|poll|off")));
+  return blocks;
+}
+
 /**
  * Resolve the operator's `rt daemon track <arg>` argument — an already-serialized
  * identity, a directory path, or a bare repo name — to the serialized identity
@@ -616,24 +636,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
     const freshness = ((status?.ok ? status.data?.freshness : undefined) ?? {}) as
       Record<string, { state: string }>;
 
-    console.log(`\n  ${bold}repo tracking${reset} ${dim}(opt-in · rt.repoTracking · unlisted = off)${reset}\n`);
-    for (const identity of Object.keys(repos).sort()) {
-      const g = grants(tracking, identity);
-      const watcher = freshness[identity];
-      const label = trackingLabel(identity);
-      const marker = g.mode === "live" ? `${green}●${reset}` : g.mode === "poll" ? `${yellow}◐${reset}` : `${dim}○${reset}`;
-      const detail = g.mode === "live"
-        ? `live${watcher ? ` (${watcher.state})` : " (watcher starting)"}`
-        : g.mode === "poll" ? "poll" : "";
-      const suffix = g.mode === "off" ? "" : ` [${[...g.caches].join(", ")}] window ${formatWindowLabel(tracking[identity]?.projectMrsWindowDays)}`;
-      console.log(`  ${marker} ${g.mode === "off" ? `${dim}${label}${reset}` : label}${detail ? ` ${dim}${detail}${reset}` : ""}${suffix ? ` ${dim}${suffix}${reset}` : ""}`);
-    }
-    // Tracking entries that no longer match a registered repo do nothing;
-    // surface them so a rename or typo isn't silently inert.
-    for (const identity of Object.keys(tracking).filter((n) => !repos[n])) {
-      console.log(`  ${yellow}!${reset} ${trackingLabel(identity)} ${dim}(tracked but not in ~/.mattstack/rt/repos.json)${reset}`);
-    }
-    console.log(`\n  ${dim}set: rt daemon track <repo> live|poll|off [caches]   caches: ${[...CACHE_KINDS].join(",")} (default branches)${reset}\n`);
+    out.print(...trackListBlocks(repos, tracking, freshness));
     return;
   }
 
@@ -648,7 +651,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
   let interactiveWindowDays: number | null | undefined; // undefined = untouched, null = clear
   if (!levelArg) {
     if (!resolved) {
-      console.log(`\n  ${red}✗${reset} repo "${repoArg}" not registered in ~/.mattstack/rt/repos.json\n`);
+      out.fail({ title: `rt does not know a repo called ${repoArg}`, next: out.cmd(`rt repos locate <path> --repo ${repoArg}`) });
       return;
     }
     const identity = resolved.identity;
@@ -659,18 +662,16 @@ export async function manageTracking(args: string[] = []): Promise<void> {
     const current = grants(displayTracking, identity);
     const modeHint = (m: string) => (current.mode === m ? "current" : undefined);
 
-    console.log(`\n  ${bold}${repoArg}${reset} ${dim}window ${formatWindowLabel(rawEntry?.projectMrsWindowDays)}${reset}`);
-    // Read-only: the store is written only by the daemon (deep sync,
-    // registerDemand), never by the CLI. CLI-side construction (spec
-    // "Store-by-store" item 2) — explicit cli-flavor db handle, since
-    // createProjectMRs' own default targets the daemon-flavor connection.
+    // Read demands from the CLI-flavor database; only the daemon writes them.
     const demands = createProjectMRs(getStateDb()).read(identity)?.demands;
+    const editorBlocks: Block[] = [];
     if (demands && Object.keys(demands).length > 0) {
-      console.log(`  ${dim}demands (read-only):${reset}`);
+      editorBlocks.push(out.line("skipped", "Read only: rt records these, you do not set them"));
       for (const [client, d] of Object.entries(demands)) {
-        console.log(`    ${dim}${client} · ${d.authors.length} author${d.authors.length === 1 ? "" : "s"} [${d.authors.join(", ")}] · last seen ${timeAgo(d.lastSeenAt)}${reset}`);
+        editorBlocks.push(out.kv(client, `${d.authors.length} author${d.authors.length === 1 ? "" : "s"}: ${d.authors.join(", ")}, last seen ${timeAgo(d.lastSeenAt)}`));
       }
     }
+    out.print(out.section(repoArg, `window ${formatWindowLabel(rawEntry?.projectMrsWindowDays)}`, ...(editorBlocks.length ? [out.section("demands", undefined, ...editorBlocks)] : [])));
 
     const picked = await filterableSelect({
       message: `${repoArg} tracking mode`,
@@ -684,7 +685,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
     interactiveLevel = picked;
     if (picked !== "off") {
       const selected = await filterableMultiselect({
-        message: `${repoArg} caches — space to toggle, enter to confirm`,
+        message: `${repoArg} caches: space to toggle, enter to confirm`,
         options: [
           { value: "branches",    label: "branches",    hint: "my branches: MR + Linear enrichment" },
           { value: "project-mrs", label: "project-mrs", hint: "team-wide open-MR list (boards)" },
@@ -694,7 +695,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
       });
       if (selected === null) return; // esc = no changes
       if (selected.length === 0) {
-        console.log(`\n  ${red}✗${reset} at least one cache is required ${dim}(use off to stop tracking)${reset}\n`);
+        out.fail({ title: "Pick at least one cache", why: "To stop tracking, choose off." });
         return;
       }
       interactiveCaches = selected as CacheKind[];
@@ -710,14 +711,14 @@ export async function manageTracking(args: string[] = []): Promise<void> {
         if (trimmed === "") { interactiveWindowDays = null; break; }
         const n = Number(trimmed);
         if (Number.isInteger(n) && n > 0) { interactiveWindowDays = n; break; }
-        console.log(`  ${red}✗${reset} enter a positive integer, or leave empty to clear`);
+        out.print(out.line("warn", "Enter a whole number of days, or leave it empty for the default"));
       }
     }
   }
 
   const level = interactiveLevel ?? levelArg;
   if (!level || !["live", "poll", "off"].includes(level)) {
-    console.log(`\n  usage: rt daemon track [<repo>] [live|poll|off [caches…]]\n         <repo> alone opens the interactive editor\n         caches: ${[...CACHE_KINDS].join(" ")} (space-separated; default branches)\n`);
+    out.fail(usageFailure("Which tracking mode?", "rt daemon track [<repo>] [live|poll|off [caches...]]", "Name a repo alone to choose in a menu."));
     return;
   }
   const levelArg2 = level;
@@ -729,7 +730,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
   if (!interactiveCaches && levelArg2 !== "off" && cachesArg !== undefined) {
     const parsed = parseCachesArg(cachesArg);
     if (!parsed) {
-      console.log(`\n  ${red}✗${reset} unknown cache name in "${args.slice(2).join(" ")}" ${dim}(valid: ${[...CACHE_KINDS].join(", ")})${reset}\n`);
+      out.fail({ title: `"${args.slice(2).join(" ")}" has a cache rt does not know`, why: `The caches are ${CACHE_KINDS[0]}, ${CACHE_KINDS[1]} and ${CACHE_KINDS[2]}.` });
       return;
     }
     caches = parsed;
@@ -738,7 +739,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
   if (levelArg2 !== "off") {
     const repoPath = resolved?.path ?? null;
     if (!repoPath) {
-      console.log(`\n  ${red}✗${reset} repo "${repoArg}" not registered in ~/.mattstack/rt/repos.json\n`);
+      out.fail({ title: `rt does not know a repo called ${repoArg}`, next: out.cmd(`rt repos locate <path> --repo ${repoArg}`) });
       return;
     }
     if (levelArg2 === "live") {
@@ -751,7 +752,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
         }).trim();
       } catch { /* no origin remote */ }
       if (!isGitLabRemote(remoteUrl)) {
-        console.log(`\n  ${red}✗${reset} ${repoArg} has no GitLab remote ${dim}(${remoteUrl || "no origin"})${reset}; live watching is GitLab-only (use poll)\n`);
+        out.note(out.line("refused", `rt cannot watch ${repoArg} live`, "live watching needs a GitLab remote"), out.callout("next", out.cmd(`rt daemon track ${repoArg} poll`)));
         return;
       }
     }
@@ -800,9 +801,9 @@ export async function manageTracking(args: string[] = []): Promise<void> {
     rawTracking[writeKey] = newEntry;
   }
   saveRepoTrackingRaw(rawTracking);
-  console.log(`\n  ${green}✓${reset} ${repoArg} tracking: ${levelArg2}${levelArg2 === "off" ? "" : ` [${caches.join(", ")}] window ${formatWindowLabel(newEntry?.projectMrsWindowDays)}`}`);
+  out.print(levelArg2 === "off" ? out.line("done", `Stopped tracking ${repoArg}`) : out.line("done", `Tracking ${repoArg}: ${levelArg2 === "poll" ? "every 5 minutes" : "live"}`, `caches ${caches.join(", ")}, window ${formatWindowLabel(newEntry?.projectMrsWindowDays)}`));
   if (offMarker) {
-    console.log(`    ${dim}${repoArg} is still team-tracked — recorded as a local opt-out (rt daemon track ${repoArg} live to re-enable)${reset}`);
+    out.print(out.callout("note", "Your team still tracks it, so this is saved as your own opt-out."), out.callout("next", out.cmd(`rt daemon track ${repoArg} live`)));
   }
   // A write that omits the caches arg always resets to ["branches"] (see
   // default above). If the entry it replaced granted more than that, the
@@ -814,7 +815,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
     previousEntry &&
     previousEntry.caches.some((c) => c !== "branches")
   ) {
-    console.log(`    ${dim}note: caches reset to [branches] (was [${previousEntry.caches.join(", ")}]) — pass a caches list to keep grants${reset}`);
+    out.print(out.callout("note", `Its caches went back to branches only; they were ${previousEntry.caches.join(", ")}.`), out.callout("next", out.cmd(`rt daemon track ${repoArg} ${levelArg2} ${previousEntry.caches.join(" ")}`)));
   }
 
   // Watchers apply immediately; a fresh enrichment pass makes poll/live
@@ -822,11 +823,10 @@ export async function manageTracking(args: string[] = []): Promise<void> {
   const res = await daemonQuery("freshness:reconcile", undefined, 30_000);
   if (res?.ok) {
     const watching = Object.keys((res.data ?? {}) as Record<string, unknown>).map(trackingLabel).sort();
-    console.log(`    ${dim}live watchers: ${watching.length > 0 ? watching.join(", ") : "none"}${reset}`);
+    out.print(out.kv("live watchers", watching.length > 0 ? watching.join(", ") : "none"));
     if (levelArg2 !== "off") await daemonQuery("cache:refresh");
-    console.log("");
   } else {
-    console.log(`    ${dim}daemon not reachable; applies when it next starts or refreshes${reset}\n`);
+    out.print(out.line("pending", "The daemon is not running", "this applies when it next starts"));
   }
 }
 

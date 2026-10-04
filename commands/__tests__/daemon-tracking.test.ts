@@ -1,3 +1,4 @@
+import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 /**
@@ -12,8 +13,8 @@ import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out
  * that, this test drives manageTracking through its real seams as they
  * actually exist: the repo-index store (ns='repo-index') under the (ambient,
  * process-wide) state.db, and the settings stores under the (same,
- * dynamically-resolved) HOME. Nothing is mocked — console.log is captured
- * only to keep the run quiet. Every fixture is written with a name unique to
+ * dynamically-resolved) HOME. Output is captured through the output layer.
+ * Every fixture is written with a name unique to
  * this file and precisely restored in afterEach, since the ambient HOME is
  * shared with every other test file in this process that doesn't repoint it.
  */
@@ -27,7 +28,7 @@ import { machineSettingsPath, teamSettingsPath } from "../../lib/rt-paths.ts";
 import { getSetting } from "../../lib/settings/resolve.ts";
 import { serializeIdentity } from "../../lib/settings/identity.ts";
 import { deleteKvValue, getKvValue, setKvValue } from "../../lib/state/index.ts";
-import { manageTracking } from "../daemon.ts";
+import { manageTracking, trackListBlocks } from "../daemon.ts";
 
 const REPO_NAME = "rt-rider-cli-wiring-repo";
 const TEAM_NAME = "rt-rider-cli-wiring-team";
@@ -75,7 +76,7 @@ describe("manageTracking off-branch (CLI wiring)", () => {
   let repoPath: string;
 
   beforeEach(() => {
-    io = captureOut({ console: true });
+    io = captureOut();
     ui.__test__.setHuman(() => false);
 
     priorRepoIndexEntry = getKvValue<string | null>(REPO_INDEX_NS, SERIALIZED, null);
@@ -126,7 +127,32 @@ describe("manageTracking off-branch (CLI wiring)", () => {
 
     const saved = getSetting<Record<string, unknown>>("rt.repoTracking").value;
     expect(saved[SERIALIZED]).toEqual({ mode: "off" });
+    expect(io.stdout()).toContain(`[ok] Stopped tracking ${REPO_NAME}`);
+    expect(io.stdout()).toContain("Your team still tracks it");
     expect(saved[REPO_NAME]).toBeUndefined();
+  });
+
+  test("poll prints its cadence and live refusal leaves the grant unchanged", async () => {
+    await manageTracking([REPO_NAME, "poll"]);
+    expect(io.stdout()).toContain(`[ok] Tracking ${REPO_NAME}: every 5 minutes`);
+    const saved = getSetting<Record<string, unknown>>("rt.repoTracking").value;
+    io.clear();
+    await manageTracking([REPO_NAME, "live"]);
+    expect(io.stdout()).toBe("");
+    expect(io.stderr()).toContain(`[refused] rt cannot watch ${REPO_NAME} live`);
+    expect(io.stderr()).toContain(`next: rt daemon track ${REPO_NAME} poll`);
+    expect(getSetting<Record<string, unknown>>("rt.repoTracking").value).toEqual(saved);
+  });
+
+  test("invalid mode and cache print failures without changing tracking", async () => {
+    const saved = getSetting<Record<string, unknown>>("rt.repoTracking").value;
+    await manageTracking([REPO_NAME, "invalid"]);
+    expect(io.stdout()).toBe("");
+    expect(io.stderr()).toStartWith("Which tracking mode?");
+    io.clear();
+    await manageTracking([REPO_NAME, "poll", "bad-cache"]);
+    expect(io.stderr()).toContain('"bad-cache" has a cache rt does not know');
+    expect(getSetting<Record<string, unknown>>("rt.repoTracking").value).toEqual(saved);
   });
 
   test("off on a repo the team no longer names deletes outright", async () => {
@@ -137,4 +163,22 @@ describe("manageTracking off-branch (CLI wiring)", () => {
     const saved = getSetting<Record<string, unknown>>("rt.repoTracking").value;
     expect(saved[SERIALIZED]).toBeUndefined();
   });
+});
+
+test("the tracking list is one table, off repos quiet, unknown tracked repos flagged", () => {
+  const id = (n: string) => serializeIdentity({ kind: "remote", id: `gitlab.example.com/acme/${n}` });
+  const blocks = trackListBlocks(
+    { [id("alpha")]: "/code/alpha", [id("beta")]: "/code/beta", [id("delta")]: "/code/delta", [id("gamma")]: "/code/gamma" },
+    { [id("alpha")]: { mode: "live", caches: ["branches", "project-mrs"] }, [id("gone")]: { mode: "poll", caches: ["branches"] }, [id("delta")]: { mode: "poll", caches: ["branches"], projectMrsWindowDays: 45 }, [id("gamma")]: { mode: "live", caches: ["branches"] } },
+    { [id("alpha")]: { state: "connected" } },
+  );
+  const text = renderPlain(blocks);
+  expect(text).toContain("Repo tracking");
+  expect(text).toMatch(/live +alpha +watcher connected · caches branches, project-mrs · window \(default 30\)/);
+  expect(text).toMatch(/off +beta/);
+  expect(text).toMatch(/every 5 minutes +delta +caches branches · window 45d/);
+  expect(text).toContain("watcher starting");
+  expect(text).toContain("[warning] gone is tracked, but rt does not know where it is");
+  expect(text).toContain("next: rt daemon track <repo> live|poll|off");
+  expect(text).not.toContain("remote:");
 });
