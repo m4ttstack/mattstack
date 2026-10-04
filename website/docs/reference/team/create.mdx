@@ -7,7 +7,7 @@ sidebar_label: create
 
 `rt › team › create`
 
-Scaffold a fresh team zone (~/.mattstack/teams/&lt;slug&gt;) and set its remote — Install pushes it
+Start an org for your team, with its first team inside
 
 ## Usage
 
@@ -19,7 +19,8 @@ rt team create <name> [flags]
 
 | Flag / Arg | Type | Default | Description |
 | --- | --- | --- | --- |
-| `<name>` | text |  | Team display name — slugified for the on-disk directory |
+| `<name>` | text |  | The org's display name; its folder name is made from it |
+| `--first-team` | text |  | The first team's name; the org's own name when left out |
 | `--remote` | text |  | An existing empty repo's URL |
 | `--create-repo` | text |  | Owner (user or org) to create &lt;owner&gt;/mattstack-team-&lt;slug&gt; under via gh, instead of pasting --remote |
 | `--others` | boolean | `false` | Mark the team as having members beyond you |

@@ -38,7 +38,7 @@ async function resolveCreateOpts(ctx: ApplyContext): Promise<CreateTeamOpts | "n
 
   if (intentTeam) {
     const createRepoOwner = intentTeam.remote ? undefined : ((await forgeLogin(p, "github", "github.com")) ?? undefined);
-    return { name: intentTeam.name, remote: intentTeam.remote || null, createRepoOwner, others: intentTeam.others };
+    return { name: intentTeam.name, remote: intentTeam.remote || null, createRepoOwner, others: intentTeam.others, ...(intentTeam.firstTeam ? { firstTeam: intentTeam.firstTeam } : {}) };
   }
 
   const envRemote = p.env.RT_TEAM_REMOTE ?? null;
@@ -61,7 +61,7 @@ async function teamCreateRun(ctx: ApplyContext): Promise<StepOutcome> {
 
   let created;
   try {
-    created = await createTeam(ctx.p, opts, ctx.secrets.ageKeySeam);
+    created = await createTeam(ctx.p, opts, ctx.secrets.ageKeySeam, { forgeLogin, forgeToken: (_p, remote) => forgeTokenFor(ctx, remote) });
   } catch (err) {
     // createTeam's own git-step failures are all UserActionableError, but its
     // ensureAgeKey call (a keychain/age-keygen subprocess) is not wrapped and
@@ -72,6 +72,10 @@ async function teamCreateRun(ctx: ApplyContext): Promise<StepOutcome> {
       return { state: "failed", detail: err.message, ...remedyFrom(err) };
     }
     return toFailedOutcome(err);
+  }
+
+  if (created.rolesDeferred) {
+    return { state: "partial", detail: "The org is created, but rt could not read your forge login, so it has no admin yet", remedy: "Connect your forge account in Setup, then Retry" };
   }
 
   try {

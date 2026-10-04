@@ -1,3 +1,4 @@
+import { readIntent } from "../intent.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
@@ -19,7 +20,7 @@ import { createRealProbes } from "../probes.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import type { SecretsExecResult, SecretsExecSeam, SecretsSeams } from "../../secrets/store.ts";
 import { readTeamSecret, teamSopsYamlPath } from "../../secrets/team-store.ts";
-import { teamLocalPath, writeTeamLocal } from "../../team/team-local.ts";
+import { readTeamLocal, teamLocalPath, writeTeamLocal } from "../../team/team-local.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import { runApplyWith } from "../apply.ts";
@@ -343,6 +344,50 @@ function gitExecFor(remote: string, pushResult: ExecResult = ok("main -> main"))
 }
 
 describe("team.create", () => {
+  test("team.create keeps the first team named in its intent", async () => {
+    const remote = "https://github.com/acme/repo.git";
+    const p = fakeProbes({ home: "/fake-home", exec: async (argv, opts) => argv[0] === "gh" ? ok(JSON.stringify({ login: "dev1" })) : gitExecFor(remote)(argv, opts) });
+    const { ctx } = makeCtx(p, { intent: { v: 1, at: "", mode: "create", team: { slug: "acme", name: "Acme", remote, others: false, firstTeam: "widgets" } } });
+    expect((await teamCreateStep.run(ctx)).state).toBe("done");
+    expect(p.exists("/fake-home/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc")).toBe(true);
+    expect(readIntent(p)?.team?.firstTeam).toBe("widgets");
+  });
+
+  test("team.create writes the creator's roles under the forge login the run resolves", async () => {
+    const remote = "https://github.com/acme/mattstack-team-personal.git";
+    const p = fakeProbes({ home: "/fake-home", env: { RT_TEAM_REMOTE: remote }, exec: async (argv, opts) => argv[0] === "gh" ? ok(JSON.stringify({ login: "dev1" })) : gitExecFor(remote)(argv, opts) });
+    const { ctx } = makeCtx(p, { teamOfOne: true, intent: null, team: { slug: "", name: "", mode: "none" } });
+
+    expect((await teamCreateStep.run(ctx)).state).toBe("done");
+    expect(readTeamLocal(p, "personal").forgeUsername).toBe("dev1");
+    const org = JSON.parse(p.readFile("/fake-home/.mattstack/teams/personal/mattstack/org/settings.org.jsonc")!.split("\n").filter((l) => !l.startsWith("//")).join("\n"));
+    expect(org["mattstack.org"].admins).toEqual(["dev1"]);
+  });
+
+  test("with no forge login yet, team.create ends partial and does not push", async () => {
+    const remote = "https://github.com/acme/mattstack-team-personal.git";
+    const pushes: string[][] = [];
+    const base = gitExecFor(remote);
+    const p = fakeProbes({
+      home: "/fake-home",
+      env: { RT_TEAM_REMOTE: remote, USER: "dev2" },
+      exec: async (argv, opts) => {
+        if (argv[0] === "gh") return { code: 1, stdout: "", stderr: "not logged in" };
+        if (argv[0] === "git" && argv[1] === "push") pushes.push(argv);
+        return base(argv, opts);
+      },
+    });
+    const { ctx } = makeCtx(p, { teamOfOne: true, intent: null, team: { slug: "", name: "", mode: "none" } });
+
+    expect(await teamCreateStep.run(ctx)).toEqual({
+      state: "partial",
+      detail: "The org is created, but rt could not read your forge login, so it has no admin yet",
+      remedy: "Connect your forge account in Setup, then Retry",
+    });
+    expect(pushes).toEqual([]);
+    expect(readTeamLocal(p, "personal").forgeUsername).toBeUndefined();
+  });
+
   function adminProbes(opts: Parameters<typeof fakeProbes>[0] = {}) {
     return fakeProbes({ ...opts, files: {
       "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),

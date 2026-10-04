@@ -2,7 +2,7 @@
  * rt team create|publish|invite|join|members|status — the team-repo
  * lifecycle verbs.
  *
- *   rt team create <name> (--remote <url> | --create-repo <owner>) [--others] [--json]
+ *   rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]
  *   rt team publish [--team <slug>] --remote <url> [--json]
  *   rt team invite --handle <h> [--team <slug>] [--require-peering] [--json]
  *   rt team join [--dry-run] [--json]   (code on stdin as {"code":"..."}, or a prompt on a TTY)
@@ -34,6 +34,7 @@ import { warn } from "../lib/ui/warn.ts";
 import { UserActionableError, exitUserError, logFailureDetail } from "../lib/errors.ts";
 import { createRealProbes, readStdinJson, type Probes } from "../lib/setup/probes.ts";
 import { readTeamSnapshot, stripUserinfo, type SettingsReader } from "../lib/setup/team-settings.ts";
+import { forgeLogin } from "../lib/team/forge.ts";
 import { createTeam } from "../lib/team/create.ts";
 import { extractInviteCode } from "../lib/team/invite-crypto.ts";
 import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeams } from "../lib/team/invite.ts";
@@ -158,7 +159,8 @@ export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps
   const others = args.includes("--others");
   const remote = flagValue(args, "--remote") ?? null;
   const createRepoOwner = flagValue(args, "--create-repo");
-  let name = positional(args, ["--remote", "--create-repo"])[0];
+  const firstTeam = flagValue(args, "--first-team");
+  let name = positional(args, ["--remote", "--create-repo", "--first-team"])[0];
 
   if (!name) {
     if (process.stdin.isTTY && !json && !process.env.RT_BATCH) {
@@ -166,20 +168,21 @@ export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps
       name = await textInput({ message: "Team name", placeholder: "Platform Team" });
       if (!name) process.exit(0);
     } else {
-      usageError(deps, json, "team create", "What should the team be called?", "rt team create <name> (--remote <url> | --create-repo <owner>) [--others] [--json]");
+      usageError(deps, json, "team create", "What should the team be called?", "rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]");
     }
   }
 
   try {
-    const result = await createTeam(deps.probes, { name, remote, createRepoOwner, others }, deps.ageKeySeam);
+    const result = await createTeam(deps.probes, { name, remote, createRepoOwner, others, firstTeam }, deps.ageKeySeam, { forgeLogin, forgeToken: deps.forgeToken ?? storedForgeToken });
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
     }
     out.print(
       result.created
-        ? out.line("done", `Created the ${result.slug} team`, result.remote)
-        : out.line("skipped", `The ${result.slug} team is already set up`, result.remote),
+        ? out.line("done", `Created the ${result.slug} org`, result.remote)
+        : out.line("skipped", `The ${result.slug} org is already set up`, result.remote),
+      ...(result.rolesDeferred ? [out.callout("next", "Connect your forge account in Setup so rt can make you this org's admin")] : []),
     );
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, "team create", deps);
