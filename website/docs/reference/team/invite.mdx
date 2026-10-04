@@ -7,7 +7,7 @@ sidebar_label: invite
 
 `rt › team › invite`
 
-Mint an opaque invite code for a handle, granting forge read access where mattstack manages membership
+Invite someone to your org and put them on a team
 
 ## Usage
 
@@ -20,7 +20,8 @@ rt team invite [flags]
 | Flag / Arg | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--handle` | text |  | The invitee's forge username |
-| `--team` | text |  | Which cloned team to invite into; omit when only one is cloned |
+| `--team` | text |  | Which org clone; leave out, since a Mac holds one |
+| `--teams` | text |  | The teams to put them on, comma separated; your own team when left out |
 | `--require-peering` | boolean | `false` | Refuse to mint an invite that cannot carry the invitee's board token |
 | [`--json`](/guides/common-flags) | boolean | `false` | Machine-readable result |
 

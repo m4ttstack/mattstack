@@ -67,7 +67,7 @@ function joinIntent(): SetupIntent {
       id: "inv1",
       keyB64: "k",
       pointer: {
-        v: 1,
+        v: 2, username: "dev2", teams: ["widgets"],
         team: "acme",
         name: "Acme",
         // The remote alone would derive "example.com", not "github.com"... proves the pointer's own forge wins.

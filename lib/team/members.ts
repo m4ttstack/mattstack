@@ -1,3 +1,4 @@
+import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
 /**
  * `rt team members sync|remove` — the owner side of the invite loop: sync
  * turns each outstanding invite record with a posted reply into a sops
@@ -138,13 +139,20 @@ function readRoster(seams: MembersSeams, slug: string): RosterMember[] {
   return Array.isArray(store["mattstack.roster"]) ? (store["mattstack.roster"] as RosterMember[]) : [];
 }
 
+export function withRosterKey(roster: RosterMember[], handle: string, agePublicKey: string): RosterMember[] {
+  return roster.some((m) => sameUser(m.username, handle))
+    ? roster.map((m) => (sameUser(m.username, handle) ? { ...m, agePublicKey } : m))
+    : [...roster, { username: handle, agePublicKey }];
+}
+
+export function withoutMember(roster: RosterMember[], handle: string): { roster: RosterMember[]; removed: RosterMember | null } {
+  const removed = roster.find((m) => sameUser(m.username, handle)) ?? null;
+  return { roster: removed ? roster.filter((m) => !sameUser(m.username, handle)) : roster, removed };
+}
+
 /** Sets (or overwrites) one roster entry's `agePublicKey`: the sync-time record of which sops recipient a handle maps to, so `membersRemove` can find it later without a `--key` argument. */
 function recordRosterKey(seams: MembersSeams, slug: string, handle: string, agePublicKey: string): void {
-  const existing = readRoster(seams, slug);
-  const updated = existing.some((m) => m.username === handle)
-    ? existing.map((m) => (m.username === handle ? { ...m, agePublicKey } : m))
-    : [...existing, { username: handle, agePublicKey }];
-  seams.writeSetting("mattstack.roster", updated, "org");
+  seams.writeSetting("mattstack.roster", withRosterKey(readRoster(seams, slug), handle, agePublicKey), "org");
 }
 
 export interface MembersSeams {
@@ -365,7 +373,7 @@ export async function membersRemove(
   const recordedKeys = [
     ...new Set(
       roster
-        .filter((m) => m.username === handle)
+        .filter((m) => sameUser(m.username, handle))
         .map((m) => m.agePublicKey)
         .filter((k): k is string => typeof k === "string"),
     ),
@@ -400,14 +408,9 @@ export async function membersRemove(
               : [`${handle} can still see the team repo. Remove them there too: mattstack does not manage who can see this repo.`],
         };
 
-  const rosterRemoved = roster.some((m) => m.username === handle);
-  if (rosterRemoved) {
-    seams.writeSetting(
-      "mattstack.roster",
-      roster.filter((m) => m.username !== handle),
-      "org",
-    );
-  }
+  const removal = withoutMember(roster, handle);
+  const rosterRemoved = removal.removed !== null;
+  if (rosterRemoved) seams.writeSetting("mattstack.roster", removal.roster, "org");
 
   let reencrypted: string[] = [];
   for (const key of keysToRemove) {

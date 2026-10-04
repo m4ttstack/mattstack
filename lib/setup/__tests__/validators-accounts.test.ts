@@ -38,7 +38,7 @@ const JOIN_INTENT: SetupIntent = {
   v: 1,
   at: "2026-08-21T00:00:00.000Z",
   mode: "join",
-  join: { id: "inv1", keyB64: "abc", pointer: { v: 1, team: "acme", name: "Acme", remote: "https://gitlab.example.com/acme/mattstack.git", owner: "owner1", forge: "gitlab.example.com", createdAt: "2026-08-01T00:00:00.000Z" } },
+  join: { id: "inv1", keyB64: "abc", pointer: { v: 2, username: "dev2", teams: ["widgets"], team: "acme", name: "Acme", remote: "https://gitlab.example.com/acme/mattstack.git", owner: "owner1", forge: "gitlab.example.com", createdAt: "2026-08-01T00:00:00.000Z" } },
 };
 const RESTORE_INTENT: SetupIntent = { v: 1, at: "2026-08-21T00:00:00.000Z", mode: "restore", restore: { homeRepo: "/x" } };
 

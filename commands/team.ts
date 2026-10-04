@@ -1,10 +1,12 @@
+import { activeTeamFor } from "../lib/team/active-team.ts";
+import { roleFor, rolesFor } from "../lib/team/roles.ts";
 /**
  * rt team create|publish|invite|join|members|status — the team-repo
  * lifecycle verbs.
  *
  *   rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]
  *   rt team publish [--team <slug>] --remote <url> [--json]
- *   rt team invite --handle <h> [--team <slug>] [--require-peering] [--json]
+ *   rt team invite --handle <h> [--teams <team>[,<team>]] [--team <org>] [--require-peering] [--json]
  *   rt team join [--dry-run] [--json]   (code on stdin as {"code":"..."}, or a prompt on a TTY)
  *   rt team members sync [--team <slug>] [--json]
  *   rt team members remove <handle> [--key <age1...>] [--team <slug>] [--json]
@@ -53,6 +55,7 @@ import { daemonQuery } from "../lib/daemon-client.ts";
 import type { TeamSnapshotEntry } from "../lib/daemon/team-snapshots.ts";
 
 export interface TeamDeps {
+  mintInvite?: typeof mintInvite;
   addTeamSeams?: AddTeamSeams;
   probes: Probes;
   /** The --json envelope line only; human text goes through lib/ui/out.ts. */
@@ -361,22 +364,23 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
   const handle = flagValue(args, "--handle");
 
   if (!handle) {
-    usageError(deps, json, "Who is the invite for?", "rt team invite --handle <h> [--team <slug>] [--require-peering] [--json]");
+    usageError(deps, json, "Who is the invite for?", "rt team invite --handle <h> [--teams <team>[,<team>]] [--team <org>] [--require-peering] [--json]");
   }
 
   try {
     const slug = resolveTeamSlug(args, "team invite");
 
     const local = readTeamLocal(deps.probes, slug);
-    if (local.joinedByRt) {
-      throw new UserActionableError("team-pull-only", `This Mac joined the ${slug} team by invite, so its copy is pull-only and cannot invite anyone.`, {}, {
-        why: `Ask the team's owner to invite ${handle}.`,
+    if (roleFor(deps.probes, slug).kind !== "admin") {
+      const admins = rolesFor(deps.probes, slug).admins;
+      throw new UserActionableError("team-pull-only", "Only an org admin invites", {}, {
+        why: admins.length > 0 ? `Ask ${admins.join(" or ")} to invite ${handle}.` : "This org names no admins yet.",
       });
     }
+    const named = (flagValue(args, "--teams") ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "");
+    const own = activeTeamFor(deps.probes, slug).team;
+    const teams = named.length > 0 ? named : own ? [own] : [];
 
-    // Asked here, not inside mintInvite: the mint POSTs to the relay before it
-    // reaches the roster, so a question answered later would arrive after the
-    // world had already changed.
     const gate = deps.interactive ?? (await import("../lib/ui/gate.ts")).interactive;
     if (!json && local.createdByRt && !local.rtMayManageMembership && gate()) {
       const ask = deps.confirm ?? (async (message: string) => (await import("../lib/ui/prompts.ts")).confirm({ message }));
@@ -386,10 +390,10 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
     }
 
     const relay = createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env));
-    const result = await mintInvite(
+    const result = await (deps.mintInvite ?? mintInvite)(
       deps.probes,
       relay,
-      { slug, handle, now: deps.probes.now(), requirePeering: args.includes("--require-peering") },
+      { slug, handle, teams, now: deps.probes.now(), requirePeering: args.includes("--require-peering") },
       { ...realMintInviteSeams(), ...deps.mintInviteSeams },
     );
 

@@ -80,7 +80,17 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   const cmd = gitWithToken(["push", "-u", "origin", "main"], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
   const push = await p.exec(cmd.argv, { cwd: dir, env: cmd.env });
 
-  if (push.code !== 0) throw classifyPushFailure(push);
+  if (push.code !== 0) {
+    const text = `${push.stdout}\n${push.stderr}`;
+    if (REJECTED_PATTERN.test(text) && (await p.exec(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"], { cwd: dir })).code === 0) {
+      throw new UserActionableError("org-moved", "The org repo has changes this Mac does not have yet", {}, {
+        why: "Someone else pushed first. Pull, then try again.",
+        next: "rt team pull",
+        log: withoutUrls(text.trim()),
+      });
+    }
+    throw classifyPushFailure(push);
+  }
 
   const publicRemote = stripUserinfo(activeRemote);
   const stdout = push.stdout.trim();
