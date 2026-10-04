@@ -3,13 +3,13 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { buildAskPayload, buildBriefInputs, buildSpawnPayload, buildWrapUpPayload, brief, jobEnv, renderAnswer, renderHerdRow, renderResumed, renderStatus, soleHerdId, withCallerAccount, workerEnv } from "../../commands/herd.ts";
+import * as out from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import type { Commands, HerdListRow, HerdStatusData } from "../../packages/rt-client/src/index.ts";
 
 async function run(fn: (args: string[]) => Promise<void>, args: string[]) {
-  const out: string[] = [];
-  const err: string[] = [];
-  const logSpy = spyOn(console, "log").mockImplementation((...a: unknown[]) => { out.push(a.map(String).join(" ")); });
-  const errSpy = spyOn(console, "error").mockImplementation((...a: unknown[]) => { err.push(a.map(String).join(" ")); });
+  const io = captureOut({ console: true });
+  out.__test__.setHuman(() => false);
   const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("process.exit sentinel"); });
   let code = 0;
   try {
@@ -18,9 +18,10 @@ async function run(fn: (args: string[]) => Promise<void>, args: string[]) {
     if (e instanceof Error && e.message === "process.exit sentinel") code = (exitSpy.mock.calls.at(-1)?.[0] as number | undefined) ?? 1;
     else throw e;
   } finally {
-    logSpy.mockRestore(); errSpy.mockRestore(); exitSpy.mockRestore();
+    exitSpy.mockRestore();
+    io.restore();
   }
-  return { code, stdout: out.join("\n"), stderr: err.join("\n") };
+  return { code, stdout: io.stdout().replace(/\n$/, ""), stderr: io.stderr().replace(/\n$/, "") };
 }
 
 describe("rt herd payload builders", () => {
@@ -221,6 +222,21 @@ describe("rt herd brief", () => {
     expect(parsed.brief).toContain("# Job: widget");
   });
 
+  test("brief stays a payload at a terminal", async () => {
+    const template = tmpFile("t.md", TEMPLATE);
+    const methodFile = tmpFile("m.md", "Do the thing.");
+    const io = captureOut();
+    out.__test__.setHuman(() => true);
+    try {
+      await brief(["--job", "widget", "--template", template, "--method-file", methodFile, "--fill", "goal=ship it"]);
+      expect(io.stdout().startsWith("# Job: widget\n")).toBe(true);
+      expect(io.stdout()).not.toContain("\x1b");
+      expect(io.stderr()).toBe("");
+    } finally {
+      io.restore();
+    }
+  });
+
   test("brief --out writes the file and always prints {ok:true,path}, --json or not", async () => {
     const template = tmpFile("t.md", TEMPLATE);
     const methodFile = tmpFile("m.md", "Do the thing.");
@@ -371,5 +387,61 @@ describe("renderStatus", () => {
     const status = statusData({ herd: { ...statusData({}).herd, shepherdHandle: "shep.k3f9", shepherdName: "shep" } });
     const line = renderResumed("hd-1", { subscription: "sub-1", gates: [], unread: 2, status, handle: "shep.k3f9" });
     expect(line).toBe("resumed hd-1 as shep: subscription sub-1, 0 open gate(s), 2 unread");
+  });
+});
+
+import { renderPlain } from "../../lib/ui/out-plain.ts";
+import { herdGatesBlocks, herdListBlocks, herdStatusBlocks } from "../../commands/herd.ts";
+
+describe("herd views at a terminal", () => {
+  const herd = { id: "h-sample", repo: "sample-app", room: "herd-h-sample", workspace: "w1", shepherdSession: "s", shepherdHandle: "ana.1", shepherdName: "ana", herdrSocket: null, hidden: false, status: "active" as const, createdAt: 1, wrappedAt: null };
+  const job = { herd: "h-sample", name: "job-a", worktree: "/code/wt", branch: "job-a", tree: "wt", pane: "w1:p3", agentSession: "s2", agentId: null, handle: "job-a.2", handleName: "job-a", status: "active" as const, disposable: false, lastGate: null, lastReport: null, createdAt: 1, updatedAt: 1, openGate: null, paneStatus: "working", sessionDead: false, lastGateStatus: null, lastGateDelivery: null, lastGateConsumed: null };
+
+  test("list: one row per herd, its status in its own word", () => {
+    const text = renderPlain(herdListBlocks([{ ...herd, jobs: 2 }, { ...herd, id: "h-two", status: "wrapped", jobs: 1 }]));
+    expect(text.split("\n")[0]).toMatch(/^h-sample +active +room herd-h-sample +2 jobs$/);
+    expect(text.split("\n")[1]).toMatch(/^h-two +wrapped +room herd-h-sample +1 job$/);
+    expect(renderPlain(herdListBlocks([]))).toBe("[skipped] No herds\n  next: rt herd list --all\n");
+    expect(renderPlain(herdListBlocks([], true))).toBe("[skipped] No herds\n");
+  });
+
+  test("status: a healthy herd is a heading, its numbers and its jobs, with no problem lines", () => {
+    const data = { herd, jobs: [job], unread: 0, lifecycleConnected: true, hiddenUp: null, subscription: { id: "sub-1", dead: false, lastDelivery: null }, push: { state: "reachable" as const, lastDelivery: null } };
+    const text = renderPlain(herdStatusBlocks(data as never));
+    expect(text).toContain("h-sample");
+    expect(text).toMatch(/job-a +working +pane w1:p3/);
+    expect(text).not.toContain("[warning]");
+    expect(text).not.toContain("[needs you]");
+  });
+
+  test("status: every problem the shepherd must act on is its own line, with the command that fixes it", () => {
+    const data = {
+      herd,
+      jobs: [
+        { ...job, name: "job-b", status: "stuck-at-modal" as const, pane: "w1:p4" },
+        { ...job, name: "job-c", sessionDead: true },
+        { ...job, name: "job-d", status: "at-gate" as const, lastGate: "g7", lastGateStatus: "answered" as const, lastGateDelivery: "dead-pane" as const, lastGateConsumed: false },
+      ],
+      unread: 3,
+      lifecycleConnected: false,
+      hiddenUp: false,
+      subscription: null,
+      push: { state: "unreachable" as const, lastDelivery: null },
+    };
+    const text = renderPlain(herdStatusBlocks(data as never));
+    expect(text).toContain("[needs you] This session is not subscribed to the herd\n  next: rt herd resume h-sample");
+    expect(text).toContain("[warning] Lifecycle events are not reaching the herd");
+    expect(text).toContain("[warning] The hidden herd session is down");
+    expect(text).toContain("[warning] This session's inbox cannot be reached");
+    expect(text).toContain("[needs you] job-b is waiting at a trust prompt  accept it in pane w1:p4");
+    expect(text).toContain("[failed] job-c: the pane is open but Claude is gone\n  next: rt herd spawn --herd h-sample --job job-c");
+    expect(text).toContain("[needs you] job-d did not see the answer to gate g7\n  next: rt chat dm job-a");
+    expect(text).toContain("[warning] job-d has not read the answer to gate g7");
+  });
+
+  test("gates: one row per open gate; none says so", () => {
+    const g = { id: "g7", subject: "herd:h-sample/job-d", kind: "decision", questions: [{ id: "q", label: "Ship it?", multi: false, options: ["yes"] }] };
+    expect(renderPlain(herdGatesBlocks([g as never]))).toMatch(/^g7 +decision +herd:h-sample\/job-d +Ship it\?\n$/);
+    expect(renderPlain(herdGatesBlocks([]))).toBe("[skipped] No open gates\n");
   });
 });

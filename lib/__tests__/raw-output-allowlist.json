@@ -7,7 +7,6 @@
   "commands/endpoint.ts",
   "commands/flavor.ts",
   "commands/glitter.ts",
-  "commands/herd.ts",
   "commands/nav.ts",
   "commands/post-install.ts",
   "commands/reconciler.ts",

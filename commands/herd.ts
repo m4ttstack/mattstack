@@ -25,14 +25,16 @@ import {
   herdStart, herdSpawn, herdAsk, herdMilestone, herdAnswer, herdReport, herdGates,
   herdStatus, herdList, herdResume, herdClose, herdFollowUp, herdAttend, herdWrapUp, herdStopHidden,
 } from "../packages/rt-client/src/index.ts";
-import type { Commands, HerdListRow, HerdStatusData, RtResponse } from "../packages/rt-client/src/index.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block, Segment } from "../lib/ui/protocol.ts";
+import type { Commands, GateRow, HerdListRow, HerdStatusData, RtResponse } from "../packages/rt-client/src/index.ts";
 import { resolveRepoArg, currentRepoIdentity } from "../lib/repo-arg.ts";
 import { assembleBrief, type BriefInputs } from "../lib/herd-brief.ts";
 import { selfPaneRef } from "../lib/self-pane.ts";
 import { callerCswapAccount } from "../lib/cswap.ts";
 
 function fail(msg: string): never {
-  console.error(`rt herd: ${msg}`);
+  out.diagnostic(`rt herd: ${msg}\n`);
   process.exit(1);
 }
 
@@ -74,8 +76,66 @@ function unwrap<T>(res: RtResponse<T>, label: string): T {
   return res.data;
 }
 
+function say(text: string): void {
+  out.payload(`${text}\n`);
+}
+
+function show(blocks: () => Block[], frozen: () => string): void {
+  if (out.isHuman()) out.print(...blocks());
+  else say(frozen());
+}
+
 function emit(json: boolean, data: unknown, line: string): void {
-  console.log(json ? JSON.stringify(data, null, 2) : line);
+  if (json) out.json(data, 2);
+  else say(line);
+}
+
+const JOB_STATUS: Record<HerdStatusData["jobs"][number]["status"], { word: string; role: Segment["role"] }> = {
+  spawning: { word: "starting", role: "pending" },
+  active: { word: "working", role: "running" },
+  "at-gate": { word: "waiting on you", role: "needs-you" },
+  "at-milestone": { word: "waiting on you", role: "needs-you" },
+  "stuck-at-modal": { word: "stuck at a prompt", role: "needs-you" },
+  done: { word: "done", role: "done" },
+  closed: { word: "closed", role: "off" },
+  crashed: { word: "crashed", role: "failed" },
+};
+
+export function herdListBlocks(herds: HerdListRow[], all = false): Block[] {
+  if (herds.length === 0) return all ? [out.line("skipped", "No herds")] : [out.line("skipped", "No herds"), out.callout("next", out.cmd("rt herd list --all"))];
+  return [
+    out.table(
+      herds.map((h) => [out.strong(h.id), { text: h.status, role: h.status === "active" ? "running" : "off" }, out.dim(`room ${h.room}`), `${h.jobs} ${h.jobs === 1 ? "job" : "jobs"}`]),
+    ),
+  ];
+}
+
+export function herdGatesBlocks(gates: GateRow[]): Block[] {
+  if (gates.length === 0) return [out.line("skipped", "No open gates")];
+  return [out.table(gates.map((g) => [out.strong(g.id), g.kind, g.subject, out.dim(g.questions.map((q) => q.label).join(" | "))]))];
+}
+
+export function herdStatusBlocks(data: HerdStatusData): Block[] {
+  const id = data.herd.id;
+  const facts = [out.kv("unread", String(data.unread)), out.kv("push", `${data.push.state}, last delivery ${pushAge(data.push.lastDelivery)}`)];
+  const problems: Block[] = [];
+  if (!data.subscription) problems.push(out.line("needs-you", "This session is not subscribed to the herd"), out.callout("next", out.cmd(`rt herd resume ${id}`)));
+  else if (data.subscription.dead) problems.push(out.line("warn", "The herd subscription stopped delivering"), out.callout("next", out.cmd(`rt herd resume ${id}`)));
+  if (!data.lifecycleConnected) problems.push(out.line("warn", "Lifecycle events are not reaching the herd"));
+  if (data.hiddenUp === false) problems.push(out.line("warn", "The hidden herd session is down"));
+  if (data.push.state === "unreachable") problems.push(out.line("warn", "This session's inbox cannot be reached", `last delivery ${pushAge(data.push.lastDelivery)}`));
+  const rows: out.CellInput[][] = [];
+  for (const j of data.jobs) {
+    const s = JOB_STATUS[j.status];
+    const poked = j.watchdog && j.watchdog.strikes > 0 ? `poked ${j.watchdog.strikes}x${j.watchdog.lastPokeAt === null ? "" : ` ${ago(j.watchdog.lastPokeAt)}`}` : "";
+    rows.push([out.strong(j.name), { text: s.word, role: s.role }, out.dim(`pane ${j.pane ?? "-"}`), out.dim([j.paneStatus ?? "-", j.openGate ? `gate ${j.openGate}` : "", poked].filter(Boolean).join(" · "))]);
+    if (j.sessionDead) problems.push(out.line("failed", `${j.name}: the pane is open but Claude is gone`), out.callout("next", out.cmd(`rt herd spawn --herd ${j.herd} --job ${j.name}`)));
+    if (j.status === "stuck-at-modal") problems.push(out.line("needs-you", `${j.name} is waiting at a trust prompt`, `accept it in pane ${j.pane ?? "-"}`));
+    const terminal = j.lastGateStatus === "answered" || j.lastGateStatus === "closed";
+    if (terminal && j.lastGateDelivery === "dead-pane") problems.push(out.line("needs-you", `${j.name} did not see the answer to gate ${j.lastGate}`), out.callout("next", out.cmd(`rt chat dm ${j.handleName ?? j.handle}`)));
+    if (j.lastGateConsumed === false) problems.push(out.line("warn", `${j.name} has not read the answer to gate ${j.lastGate}`));
+  }
+  return [out.section(id, `room ${data.herd.room}`, ...facts, ...(rows.length > 0 ? [out.table(rows)] : [out.line("skipped", "No jobs yet")]), ...problems)];
 }
 
 /** The job's identity alone. Verbs that do not open a gate need this and no
@@ -271,15 +331,11 @@ export async function gates(args: string[]): Promise<void> {
   const json = has(args, "--json");
   const herd = flagValue(args, "--herd") ?? process.env.HERD_ID ?? await soleHerd("usage: rt herd gates --herd <id>");
   const data = unwrap(await herdGates({ herd }), "gates");
-  if (json) {
-    emit(true, data, "");
-    return;
-  }
-  if (data.gates.length === 0) {
-    console.log("no open gates");
-    return;
-  }
-  for (const g of data.gates) console.log(`${g.id}  ${g.kind}  ${g.subject}  ${g.questions.map((q) => q.label).join(" | ")}`);
+  if (json) return void out.json(data, 2);
+  show(
+    () => herdGatesBlocks(data.gates),
+    () => data.gates.length === 0 ? "no open gates" : data.gates.map((g) => `${g.id}  ${g.kind}  ${g.subject}  ${g.questions.map((q) => q.label).join(" | ")}`).join("\n"),
+  );
 }
 
 /** Wall-clock, not an injected `now()`: this formats a timestamp for a
@@ -328,21 +384,18 @@ export async function status(args: string[]): Promise<void> {
   const json = has(args, "--json");
   const herd = flagValue(args, "--herd") ?? process.env.HERD_ID ?? await soleHerd("usage: rt herd status --herd <id>");
   const data = unwrap(await herdStatus({ herd }), "status");
-  emit(json, data, renderStatus(data));
+  if (json) out.json(data, 2);
+  else show(() => herdStatusBlocks(data), () => renderStatus(data));
 }
 
 export async function list(args: string[]): Promise<void> {
   const json = has(args, "--json");
   const data = unwrap(await herdList({ all: has(args, "--all") }), "list");
-  if (json) {
-    emit(true, data, "");
-    return;
-  }
-  if (data.herds.length === 0) {
-    console.log("no herds");
-    return;
-  }
-  for (const h of data.herds) console.log(renderHerdRow(h));
+  if (json) return void out.json(data, 2);
+  show(
+    () => herdListBlocks(data.herds, has(args, "--all")),
+    () => data.herds.length === 0 ? "no herds" : data.herds.map(renderHerdRow).join("\n"),
+  );
 }
 
 export function renderResumed(herd: string, data: Commands["herd:resume"]["data"]): string {
@@ -362,8 +415,8 @@ export async function resume(args: string[]): Promise<void> {
     emit(true, data, "");
     return;
   }
-  console.log(renderResumed(herd, data));
-  for (const g of data.gates) console.log(`  ${g.id}  ${g.kind}  ${g.subject}`);
+  say(renderResumed(herd, data));
+  for (const g of data.gates) say(`  ${g.id}  ${g.kind}  ${g.subject}`);
 }
 
 export async function close(args: string[]): Promise<void> {
@@ -373,7 +426,7 @@ export async function close(args: string[]): Promise<void> {
   if (!job || !herd) fail("usage: rt herd close <job> --herd <id>");
   const data = unwrap(await herdClose({ herd, job }), "close");
   emit(json, data, `${data.job} closed`);
-  if (!json && data.warning) console.log(`  ${data.warning}`);
+  if (!json && data.warning) say(`  ${data.warning}`);
 }
 
 export async function followUp(args: string[]): Promise<void> {
@@ -409,8 +462,8 @@ export async function wrapUp(args: string[]): Promise<void> {
     emit(true, data, "");
     return;
   }
-  console.log(`closed ${data.closed.length} pane(s)${data.workspaceClosed ? ", workspace closed" : ""}; disposed ${data.disposed.join(", ") || "none"}; job dirs ${data.deletedJobDirs ? "deleted" : "kept"}; room ${data.archived ? "archived" : "kept"}`);
-  for (const r of data.refused) console.log(`  refused ${r.tree}: ${r.reason}`);
+  say(`closed ${data.closed.length} pane(s)${data.workspaceClosed ? ", workspace closed" : ""}; disposed ${data.disposed.join(", ") || "none"}; job dirs ${data.deletedJobDirs ? "deleted" : "kept"}; room ${data.archived ? "archived" : "kept"}`);
+  for (const r of data.refused) say(`  refused ${r.tree}: ${r.reason}`);
 }
 
 export async function stop(args: string[]): Promise<void> {
