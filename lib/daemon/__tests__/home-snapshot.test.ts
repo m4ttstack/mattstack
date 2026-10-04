@@ -1,11 +1,11 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { execFileSync } from "child_process";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
-import { runCapture, type RunResult } from "../../subprocess.ts";
+import { childEnv, runCapture, type RunResult } from "../../subprocess.ts";
 import type { Owners } from "../../home/snapshot-owners.ts";
 import { openStateDb } from "../../state/db.ts";
 import { closeStateDb, getKvValue } from "../../state/index.ts";
@@ -2072,7 +2072,7 @@ describe("startSnapshot: spec", () => {
     handle.stop();
   });
 
-  test("a rename OUT of the scope still stages the in-scope deletion, so the clone does not stay dirty forever", async () => {
+  test("a staged rename OUT of the scope commits the in-scope deletion without adding its missing source", async () => {
     const statusZ = "R  src/foo.ts\0mattstack/foo.ts\0";
     const { fn, calls } = makeFakeExec(defaultResponders({ statusZ }));
     const { deps } = baseDeps({ exec: fn });
@@ -2082,7 +2082,8 @@ describe("startSnapshot: spec", () => {
     const result = await handle.runNow("manual");
     expect(result.committed).toBe(true);
     expect(result.paths).toEqual(["mattstack/foo.ts"]);
-    expect(calls.find((c) => gitVerb(c) === "add")).toEqual(["git", "add", "-A", "--", "mattstack/foo.ts"]);
+    expect(calls.some((c) => gitVerb(c) === "add")).toBe(false);
+    expect(calls.find((c) => gitVerb(c) === "commit")!.slice(-2)).toEqual(["--", "mattstack/foo.ts"]);
     handle.stop();
   });
 });
@@ -2090,7 +2091,7 @@ describe("startSnapshot: spec", () => {
 describe("teamSnapshotSpec", () => {
   test("names the clone by slug, scopes to the team roots, pulls on the interval, and reads the stored forge token for origin", async () => {
     const p = { ...fakeProbes({ home: "/h" }) };
-    const spec = teamSnapshotSpec("acme", "/h/.mattstack/teams/acme", { pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: p, readToken: async () => "glpat-x" });
+    const spec = teamSnapshotSpec("acme", "/h/.mattstack/teams/acme", { ownedRoots: ["mattstack", ".sops.yaml", ".claude-plugin"], pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: p, readToken: async () => "glpat-x" });
     expect(spec).toMatchObject({ id: "team:acme", repoDir: "/h/.mattstack/teams/acme", kvNamespace: "team-snapshot:acme", eventPrefix: "team", pull: { intervalSec: 120 } });
     expect(spec.scope!("mattstack/x")).toBe(true);
     expect(spec.scope!("src/x")).toBe(false);
@@ -2106,7 +2107,7 @@ describe("teamSnapshotSpec", () => {
     const { fn } = makeFakeExec(defaultResponders({ statusZ: "?? a.txt\0" }));
     const { deps } = baseDeps({ exec: fn });
     const { repoDir: _repoDir, ...specDeps } = deps;
-    const runSpec = teamSnapshotSpec("acme", FAKE_REPO_DIR, { pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: p, readToken: async () => "glpat-x" });
+    const runSpec = teamSnapshotSpec("acme", FAKE_REPO_DIR, { ownedRoots: ["mattstack", ".sops.yaml", ".claude-plugin"], pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: p, readToken: async () => "glpat-x" });
     const handle = startSnapshot(runSpec, specDeps);
     await handle.ready;
     await handle.runNow("manual");
@@ -2154,6 +2155,102 @@ function pullResponders(opts: { behind: number; ahead: number; rebase?: "ok" | "
     (argv) => gitVerb(argv) === "rebase" && argv.includes("--abort") ? (rmSync(rebaseDir, { recursive: true, force: true }), { stdout: "", stderr: "", exitCode: 0 }) : undefined,
   ];
 }
+
+describe("role-scoped snapshot ownership", () => {
+  test("a pull reports unowned rename sources but not unchanged copy sources, and clears repaired edits", async () => {
+    let dirty = "R  mattstack/teams/widgets/new.txt\0mattstack/org/old.txt\0C  mattstack/teams/widgets/copy.txt\0mattstack/org/source.txt\0 M mattstack/org/old.txt\0?? src/unmanaged.txt\0 M mattstack/org/space name\nfile.txt\0";
+    const { fn: exec } = makeFakeExec([
+      (argv) => gitVerb(argv) === "status" ? { stdout: dirty, stderr: "", exitCode: 0 } : undefined,
+      ...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders(),
+    ]);
+    const { deps } = baseDeps({ exec });
+    const { repoDir: _r, ...rest } = deps;
+    const handle = startSnapshot({ ...teamSpecFor(), scope: (path) => path.startsWith("mattstack/teams/widgets/"), watch: teamScope }, rest);
+    try {
+      await handle.ready;
+      await handle.pullNow();
+      expect(handle.status().unownedDirty).toEqual(["mattstack/org/old.txt", "mattstack/org/space name\nfile.txt"]);
+      const reported = handle.status().unownedDirty;
+      reported.push("changed externally");
+      expect(handle.status().unownedDirty).toEqual(["mattstack/org/old.txt", "mattstack/org/space name\nfile.txt"]);
+      dirty = "";
+      await handle.pullNow();
+      expect(handle.status().unownedDirty).toEqual([]);
+    } finally { handle.stop(); }
+  });
+
+  for (const kind of ["staged-edit", "rename-into-owned", "rename-out-of-owned", "rename-out-with-recreated-source", "staged-deletion", "claimed-zone"] as const) {
+    test(`an automatic commit keeps unowned staged changes out (${kind})`, async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-team-ownership-")));
+      const repoDir = join(root, "clone");
+      const originDir = join(root, "origin.git");
+      const git = (...args: string[]) => execFileSync("git", args, { cwd: repoDir, env: childEnv(), encoding: "utf8" });
+      mkdirSync(repoDir);
+      execFileSync("git", ["init", "--bare", "-q", originDir], { env: childEnv() });
+      git("init", "-q", "-b", "main");
+      git("config", "user.name", "dev2");
+      git("config", "user.email", "dev2@example.test");
+      const owned = "mattstack/teams/widgets/owned.txt";
+      const stray = "mattstack/org/unowned.txt";
+      mkdirSync(join(repoDir, "mattstack", "teams", "widgets"), { recursive: true });
+      mkdirSync(join(repoDir, "mattstack", "org"), { recursive: true });
+      writeFileSync(join(repoDir, owned), "owned seed\n");
+      writeFileSync(join(repoDir, stray), "unowned seed\n");
+      git("add", "-A");
+      git("commit", "-q", "-m", "seed");
+      git("remote", "add", "origin", originDir);
+      git("push", "-q", "-u", "origin", "main");
+      if (kind === "staged-edit" || kind === "claimed-zone") {
+        writeFileSync(join(repoDir, stray), "unowned edit\n");
+        git("add", "--", stray);
+        writeFileSync(join(repoDir, owned), "owned edit\n");
+        if (kind === "claimed-zone") writeFileSync(join(repoDir, stray), "unowned worktree edit\n");
+      } else if (kind === "staged-deletion") {
+        git("rm", "--", owned);
+        writeFileSync(join(repoDir, stray), "unowned edit\n");
+        git("add", "--", stray);
+      } else if (kind === "rename-into-owned") {
+        git("mv", stray, "mattstack/teams/widgets/moved.txt");
+      } else {
+        git("mv", owned, "mattstack/org/moved.txt");
+        if (kind === "rename-out-with-recreated-source") writeFileSync(join(repoDir, owned), "owned replacement\n");
+      }
+      let now = 1_000_000;
+      const { deps } = baseDeps({ repoDir, now: () => now, readOwners: () => kind === "claimed-zone" ? { zones: { "mattstack/": { owner: "dev2", claimedAt: "2026-01-01T00:00:00.000Z" } } } : NO_OWNERS });
+      const { repoDir: _r, exec: _e, ...rest } = deps;
+      const spec = { ...homeSnapshotSpec(repoDir), id: "team:acme", kvNamespace: "team-snapshot:acme", eventPrefix: "team" as const, scope: (path: string) => path.startsWith("mattstack/teams/widgets/"), watch: teamScope, pull: { intervalSec: 300 } };
+      const handle = startSnapshot(spec, rest);
+      try {
+        await handle.ready;
+        await handle.pullNow();
+        expect(handle.status().unownedDirty).toEqual([kind.startsWith("rename-out") ? "mattstack/org/moved.txt" : stray]);
+        if (kind === "claimed-zone") {
+          expect((await handle.runNow("watch")).committed).toBe(false);
+          now += 7 * 60 * 60 * 1000;
+        }
+        const run = await handle.runNow(kind === "claimed-zone" ? "janitor" : "watch");
+        expect(run.committed).toBe(true);
+        expect(git("show", "HEAD:" + stray)).toBe("unowned seed\n");
+        const unownedPath = kind.startsWith("rename-out") ? "mattstack/org/moved.txt" : stray;
+        if (kind === "rename-into-owned") {
+          expect(git("ls-files", "--stage", "--", stray)).toBe("");
+          expect(existsSync(join(repoDir, stray))).toBe(false);
+        } else {
+          const expected = kind.startsWith("rename-out") ? "owned seed\n" : "unowned edit\n";
+          expect(git("show", ":" + unownedPath)).toBe(expected);
+          expect(readFileSync(join(repoDir, unownedPath), "utf8")).toBe(kind === "claimed-zone" ? "unowned worktree edit\n" : expected);
+        }
+        if (kind.startsWith("rename-out")) expect(git("ls-tree", "--name-only", "HEAD", "mattstack/org/moved.txt")).toBe("");
+        if (kind === "rename-out-with-recreated-source") expect(git("show", "HEAD:" + owned)).toBe("owned replacement\n");
+        expect(git("diff", "--cached", "--name-only").trim()).toBe(kind.startsWith("rename-out") ? "mattstack/org/moved.txt" : stray);
+      } finally {
+        handle.stop();
+        deps.db?.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
 
 describe("startSnapshot: pull", () => {
   // The conflict responder creates a real `.git/rebase-merge` under the shared
@@ -2255,7 +2352,7 @@ describe("startSnapshot: pull", () => {
     expect(result.outcome).toBe("conflict");
     const conflictWarn = log.calls.find((c) => c.level === "warn" && typeof c.args[1] === "string" && (c.args[1] as string).includes("rebase conflict"));
     expect(conflictWarn?.args[1]).not.toContain("rt team publish");
-    expect(conflictWarn?.args[1]).toContain("reset it to origin or ask the team's owner");
+    expect(conflictWarn?.args[1]).toContain("reset it to origin or ask an org admin");
     handle.stop();
   });
 
