@@ -1224,18 +1224,24 @@ async function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
   return false;
 }
 
-/** Pure formatter for `daemon:log-level` results, shared by the CLI and its tests. */
-export function formatLogLevelResult(res: { ok: boolean; level?: string; error?: string }, wasSet: boolean): string {
-  if (!res.ok) return `  ${red}●${reset} ${res.error ?? "failed"}`;
-  return `  ${green}●${reset} daemon log level ${wasSet ? "set to" : "is"} ${res.level}`;
+export function logLevelBlocks(res: { ok: boolean; level?: string; error?: string }, wasSet: boolean): { print: Block[]; failure?: out.FailureInput } {
+  if (!res.ok) return { print: [], failure: { title: res.error ?? "The daemon did not change its log level" } };
+  return { print: [wasSet ? out.line("done", `Set the daemon's log level to ${res.level}`) : out.kv("log level", res.level)] };
 }
 
-/** Show (no arg) or set (level arg) the running daemon's live pino log level. */
 export async function setLogLevel(args: string[] = []): Promise<void> {
   const json = args.includes("--json");
   const level = args.find((a) => !a.startsWith("--"));
   const res = await daemonQuery("daemon:log-level", level ? { level } : {});
-  if (!res) { console.log(`  ${red}●${reset} daemon not reachable`); return; }
-  if (json) { console.log(JSON.stringify(res)); return; }
-  console.log(formatLogLevelResult(res as any, Boolean(level)));
+  if (!res) {
+    out.fail({ title: "The daemon is not running", next: out.cmd("rt daemon start") });
+    return;
+  }
+  if (json) {
+    out.json(res);
+    return;
+  }
+  const shown = logLevelBlocks(res as { ok: boolean; level?: string; error?: string }, Boolean(level));
+  if (shown.failure) out.fail(shown.failure);
+  else out.print(...shown.print);
 }

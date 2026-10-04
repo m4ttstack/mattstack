@@ -73,3 +73,9 @@ test("log-level --json passes the daemon's reply through", async () => {
   expect(io.stderr()).toBe("");
   expect(io.stdout().split("\n")).toHaveLength(2);
 });
+
+test("log-level --json with the daemon down leaves stdout empty", async () => {
+  await setLogLevel(["--json"]);
+  expect(io.stdout()).toBe("");
+  expect(io.stderr()).toStartWith("The daemon is not running\n");
+});
