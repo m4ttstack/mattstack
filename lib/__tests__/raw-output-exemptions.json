@@ -1,0 +1,17 @@
+[
+  {
+    "file": "lib/cli-logger.ts",
+    "reason": "The crash handler's last-resort print before exit; lib/ui/out.ts imports this module, so it cannot import out.",
+    "lines": 1
+  },
+  {
+    "file": "lib/daemon-logger.ts",
+    "reason": "The daemon's own stderr capture: it replaces process.stderr.write so stray writes land in the daemon log, and reports its own init failure where no logger exists yet.",
+    "lines": 6
+  },
+  {
+    "file": "lib/daemon/inject.ts",
+    "reason": "Parses escape sequences in a captured pane to read the text under them; it prints nothing.",
+    "lines": 1
+  }
+]
