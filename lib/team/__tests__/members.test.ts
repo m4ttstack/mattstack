@@ -1,3 +1,4 @@
+import * as memberActions from "../members.ts";
 import { withRosterKey, withoutMember } from "../members.ts";
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 import { beforeEach, describe, test, expect } from "bun:test";
@@ -891,4 +892,74 @@ test("removing mixed-case duplicate rows revokes every recorded key and preserve
   expect(readTeamRecipients(SLUG, secrets)).toEqual([OWNER_PUBLIC_KEY]);
   expect(result.reencrypted).toEqual([teamSecretsFile(SLUG, "board")]);
   expect(execSeam.calls.filter((call) => call.cmd[0] === "sops" && call.cmd[1] === "updatekeys")).toHaveLength(2);
+});
+
+
+describe("membersSetTeams", () => {
+  const roster = [
+    { username: "dev1", teams: ["widgets"] },
+    { username: "Dev2", name: "Dev Two", agePublicKey: "age1...", extra: { keep: true }, teams: ["widgets"] },
+  ];
+
+  function world(username = "dev1", currentOrg: string | null = "acme") {
+    const p = fakeProbes({ home: HOME, files: {
+      [teamLocalPath(HOME, "acme")]: JSON.stringify({ forgeUsername: username }),
+      [`${HOME}/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc`]: "{}",
+      [`${HOME}/.mattstack/teams/acme/mattstack/teams/gadgets/settings.team.jsonc`]: "{}",
+    } });
+    return { p, ...fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": roster }), currentOrg: () => currentOrg }) };
+  }
+
+  test("replaces ordered teams case insensitively while preserving roster order and metadata", () => {
+    const { p, seams, writes } = world("DEV1");
+    expect(memberActions.membersSetTeams(p, seams, "acme", "dev2", ["gadgets", "widgets", "gadgets"])).toEqual({ username: "Dev2", teams: ["gadgets", "widgets"], previous: ["widgets"] });
+    expect(writes).toEqual([{ key: "mattstack.roster", value: [roster[0], { ...roster[1], teams: ["gadgets", "widgets"] }], scope: "org", opts: undefined }]);
+    expect(roster[1]!.teams).toEqual(["widgets"]);
+  });
+
+  test.each(["dev2", "stranger", ""])("refuses non-admin %s before any roster read or write", (username) => {
+    const { p, seams, writes } = world(username);
+    seams.readTeamStore = () => { throw new Error("must not read roster"); };
+    expect(() => memberActions.membersSetTeams(p, seams, "acme", "dev1", ["gadgets"])).toThrow(UserActionableError);
+    expect(writes).toEqual([]);
+  });
+
+  test.each([null, "gadgets"])("refuses a resolver org mismatch %s before writing", (currentOrg) => {
+    const { p, seams, writes } = world("dev1", currentOrg);
+    expect(() => memberActions.membersSetTeams(p, seams, "acme", "dev2", ["gadgets"])).toThrow("roster can't change here");
+    expect(writes).toEqual([]);
+  });
+
+  test.each([
+    ["stranger", ["widgets"], "stranger is not in this org yet"],
+    ["dev2", ["sprockets"], "This org has no sprockets team"],
+    ["dev2", ["../x"], "cannot be a team name"],
+    ["dev2", ["widgets", "../x"], "cannot be a team name"],
+  ] as [string, string[], string][])("refuses %s with %j without writing", (handle, teams, message) => {
+    const { p, seams, writes } = world();
+    expect(() => memberActions.membersSetTeams(p, seams, "acme", handle, teams)).toThrow(message);
+    expect(writes).toEqual([]);
+  });
+
+  test("an empty list leaves the member in the org with no team", () => {
+    const { p, seams, writes } = world();
+    expect(memberActions.membersSetTeams(p, seams, "acme", "dev2", [])).toEqual({ username: "Dev2", teams: [], previous: ["widgets"] });
+    expect(writes[0]!.value).toEqual([roster[0], { ...roster[1], teams: [] }]);
+  });
+
+  test("checks admin ownership again immediately before writing", () => {
+    const { p, seams, writes } = world();
+    seams.readTeamStore = () => {
+      p.writeFile(teamLocalPath(HOME, "acme"), JSON.stringify({ forgeUsername: "dev2" }));
+      return { "mattstack.roster": roster };
+    };
+    expect(() => memberActions.membersSetTeams(p, seams, "acme", "dev2", ["widgets"])).toThrow("The org's shared files belong to its admins");
+    expect(writes).toEqual([]);
+  });
+
+  test("an old roster entry with no teams reports an empty previous list", () => {
+    const { p, seams } = world();
+    seams.readTeamStore = () => ({ "mattstack.roster": [{ username: "dev2", name: "Dev Two" }] });
+    expect(memberActions.membersSetTeams(p, seams, "acme", "dev2", ["widgets"])).toEqual({ username: "dev2", teams: ["widgets"], previous: [] });
+  });
 });

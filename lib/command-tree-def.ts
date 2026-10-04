@@ -2890,8 +2890,20 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       members: {
-        description: "Roster: collect invitee keys / remove a member",
+        description: "Members: collect keys, change teams, remove someone",
         subcommands: {
+          set: {
+            description: "Change which teams someone is on",
+            module: "./commands/team.ts",
+            fn: "teamMembersSet",
+            omitBehavior: "picker",
+            args: [
+              { name: "Username", type: "text", placeholder: "dev2", hint: "The member's forge username" },
+              { name: "Teams", flag: "--teams", type: "text", placeholder: "widgets,gadgets", hint: "Their teams, comma separated; the first is the one they start on" },
+              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
+              SETUP_JSON_ARG,
+            ],
+          },
           sync: {
             description: "Collect every outstanding invite's reply key and add it as a sops recipient",
             module: "./commands/team.ts",
