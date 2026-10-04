@@ -25,7 +25,7 @@ const REMOTE = "https://github.com/acme/widgets.git";
 const TEAM_DIR = pathJoin(HOME, ".mattstack", "teams", "acme");
 
 const POINTER: InvitePointer = {
-  v: 1,
+  v: 2, username: "dev2", teams: ["widgets"],
   team: "acme",
   name: "Acme",
   remote: REMOTE,

@@ -31,7 +31,7 @@ function joinIntent(owner: string): SetupIntent {
     v: 1,
     at: "2026-08-21T00:00:00.000Z",
     mode: "join",
-    join: { id: "inv1", keyB64: "abc", pointer: { v: 1, team: "acme", name: "Acme", remote: REMOTE, owner, forge: "gitlab.example.com", createdAt: "2026-08-01T00:00:00.000Z" } },
+    join: { id: "inv1", keyB64: "abc", pointer: { v: 2, username: "dev2", teams: ["widgets"], team: "acme", name: "Acme", remote: REMOTE, owner, forge: "gitlab.example.com", createdAt: "2026-08-01T00:00:00.000Z" } },
   };
 }
 
@@ -195,7 +195,7 @@ describe("accessRows — access.team-repo", () => {
       v: 1,
       at: "2026-08-21T00:00:00.000Z",
       mode: "join",
-      join: { id: "inv1", keyB64: "abc", pointer: { v: 1, team: "acme", name: "Acme", remote: REMOTE, owner: "owner1", forge: "gitlab.example.com", createdAt: "2026-08-01T00:00:00.000Z" } },
+      join: { id: "inv1", keyB64: "abc", pointer: { v: 2, username: "dev2", teams: ["widgets"], team: "acme", name: "Acme", remote: REMOTE, owner: "owner1", forge: "gitlab.example.com", createdAt: "2026-08-01T00:00:00.000Z" } },
     };
     let seenRemote: string | undefined;
     const exec: ExecScript = (argv) => {

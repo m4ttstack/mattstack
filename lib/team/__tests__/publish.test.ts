@@ -146,7 +146,7 @@ describe("publishTeam", () => {
       exec: (argv) =>
         argv[0] === "git" && argv[1] === "push"
           ? { code: 1, stdout: "", stderr: "! [rejected]        main -> main (fetch first)\nerror: failed to push some refs" }
-          : { code: 0, stdout: "", stderr: "" },
+          : { code: argv[1] === "rev-parse" ? 1 : 0, stdout: "", stderr: "" },
     });
 
     let thrown: unknown;
@@ -215,3 +215,19 @@ describe("publishTeam", () => {
     expect(result.detail).not.toContain("SECRET");
   });
 });
+
+  test("a rejected push on an org that has been pushed before says the org moved, never that the repo is not empty", async () => {
+    const p = probesWithZone({
+      home: "/home/x",
+      exec: (argv) =>
+        argv[0] === "git" && argv.includes("push")
+          ? { code: 1, stdout: "", stderr: "! [rejected]        main -> main (fetch first)\nerror: failed to push some refs" }
+          : { code: 0, stdout: "", stderr: "" },
+    });
+    await expect(publishTeam(p, "acme", null)).rejects.toMatchObject({
+      code: "org-moved",
+      message: "The org repo has changes this Mac does not have yet",
+      why: "Someone else pushed first. Pull, then try again.",
+      next: "rt team pull",
+    });
+  });
