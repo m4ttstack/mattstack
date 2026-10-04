@@ -850,6 +850,21 @@ describe("oneTeamRow", () => {
 describe("teamSyncRow", () => {
   const now = () => 1_000_000;
 
+  const inSync = { slug: "acme", lastPullAt: 900_000, lastPushError: null, conflicted: null };
+  test("a hand edit this Mac may not push is named", async () => {
+    const entry = { ...inSync, pullOnly: true, unownedDirty: ["mattstack/org/settings.org.jsonc"] };
+    const r = await teamSyncRow(["acme"], async () => [entry as never], now, 300);
+    expect(r?.status).toBe("needs-you");
+    expect(r?.detail).toBe("acme: changed on this Mac but not yours to push: mattstack/org/settings.org.jsonc. Undo the change, or ask who owns it to make it");
+  });
+  test("the same edit is named as the reason a pull stopped", async () => {
+    const entry = { ...inSync, pullOnly: true, lastPullSkipped: "error: Your local changes would be overwritten", unownedDirty: ["mattstack/org/settings.org.jsonc"] };
+    const r = await teamSyncRow(["acme"], async () => [entry as never], now, 300);
+    expect(r?.detail).toBe("acme: a pull stopped on a change that is not yours to push: mattstack/org/settings.org.jsonc. Undo the change, then pull again");
+  });
+  test("an entry from a daemon that predates the field reads as nothing stray", async () => {
+    expect((await teamSyncRow(["acme"], async () => [inSync as never], now, 300))?.status).toBe("ready");
+  });
   test("no teams: no row", async () => {
     expect(await teamSyncRow([], async () => [], now, 300)).toBeNull();
   });
@@ -940,7 +955,7 @@ describe("teamSyncRow", () => {
     expect(r?.status).toBe("needs-you");
     expect(r?.detail).toContain("acme");
     expect(r?.detail).not.toContain("rt team publish");
-    expect(r?.detail).toContain("reset it to origin or ask the team's owner");
+    expect(r?.detail).toContain("reset it to origin or ask an org admin");
   });
 
   test("a standing fetch error is needs-you even when the last successful pull was recent", async () => {
