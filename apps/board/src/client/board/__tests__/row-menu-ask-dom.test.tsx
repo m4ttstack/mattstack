@@ -17,8 +17,8 @@ const URL = MR_URL(1418);
 
 test('own MR with free roster members offers the picker and fires the ask', async () => {
   await openMenu(mrx(1418), { self: 'pat', roster: ['pat', 'kim', 'jo'] });
-  await clickItem('request review from…');
-  // Second stage lists only the free members -- never the author.
+  await openSub('request review from…');
+  // The submenu lists only the free members -- never the author.
   expect(itemTexts().some(t => t.includes('pat'))).toBe(false);
   await clickItem('kim');
   expect(harness.effects).toEqual([{ effect: 'ask:review:kim', iid: 1418 }]);
@@ -47,7 +47,7 @@ test('engaged peers block the item with a reason', async () => {
     }),
     { self: 'pat', roster: ['pat', 'kim', 'jo'] }
   );
-  await openSub('sessions and reports');
+  await openSub('all agent actions');
   const ask = itemTexts().find(t => t.includes('request review from'));
   expect(ask).toContain('everyone engaged');
   await clickItem('request review from');
@@ -83,7 +83,7 @@ test('a known enrollment list narrows the picker to enrolled members', async () 
     roster: ['pat', 'kim', 'jo'],
     peers: ['kim'],
   });
-  await clickItem('request review from…');
+  await openSub('request review from…');
   expect(itemTexts().some(t => t.includes('kim'))).toBe(true);
   expect(itemTexts().some(t => t.includes('jo'))).toBe(false);
 });

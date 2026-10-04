@@ -199,6 +199,11 @@ import {
   type SwitchboardClient,
 } from './peer/client.ts';
 import {
+  clearClosedPeerReviews,
+  pruneClosedPaneMarkers,
+  sweepClosedPeerReviews,
+} from './peer/closed-pane.ts';
+import {
   buildAskDraft,
   canonicalUsername,
   makeEnvelope,
@@ -230,6 +235,7 @@ import {
 import { classifySend, drainOutbox, enqueueOutbox } from './peer/outbox.ts';
 import {
   attachPeerReviews,
+  importPeerReviewFiles,
   prunePeerReviews,
   readPeerReviews,
   type PeerReviewState,
@@ -370,6 +376,19 @@ const ENV_PATH = join(APP_ROOT, '.env');
 // fixture mode too now that BOARD_STATE_DB above has already contained it
 // to the fixture dir.
 getStateDb('server');
+if (!FIXTURE_DIR) {
+  try {
+    const peerImport = importPeerReviewFiles(getStateDb());
+    if (peerImport.imported || peerImport.skipped || peerImport.renamed)
+      console.error(
+        `peer review import: imported=${peerImport.imported} skipped=${peerImport.skipped} renamed=${peerImport.renamed}`
+      );
+  } catch (err) {
+    console.error(
+      `peer review import failed: ${err instanceof Error ? err.message : err}`
+    );
+  }
+}
 
 const config = FIXTURE_DIR
   ? parseConfig(readFileSync(fixtureFile('config.json'), 'utf8'))
@@ -1427,6 +1446,7 @@ const httpServer = Bun.serve({
           );
           pruneDrafts(onBoard);
           prunePeerReviews(onBoard);
+          pruneClosedPaneMarkers(onBoard);
           pruneSentNudges(onBoard);
           pruneFinishedSentNudges();
           pruneNudges(onBoard);
@@ -2935,11 +2955,33 @@ const httpServer = Bun.serve({
           return new Response('expected { agentId: string }', {
             status: 400,
           });
-        const res = await rtCommand(
-          'reconciler:clear',
-          { agentId },
-          { timeoutMs: 5000 }
-        );
+        const res = await clearClosedPeerReviews(agentId, {
+          ...closedPeerReviewIO(),
+          onReportError: err =>
+            console.error(
+              `closed pane report failed: ${err instanceof Error ? err.message : err}`
+            ),
+          clearExecutor: () =>
+            rtCommand('reconciler:clear', { agentId }, { timeoutMs: 5000 }),
+          settleReview: mrUrl =>
+            writeReviewState(reviewFilePath(mrUrl), {
+              status: 'error',
+              message: 'pane closed',
+            }),
+          settleResponds: (clearedAgent, sessionId) => {
+            const settle = lanesClearedByExecutor(
+              clearedAgent,
+              sessionId,
+              new Map(),
+              readRespondStates()
+            );
+            for (const mrUrl of settle.responds)
+              writeRespondState(respondFilePath(mrUrl), {
+                status: 'error',
+                message: 'pane closed',
+              });
+          },
+        });
         if (!res.ok) {
           return new Response(
             JSON.stringify({
@@ -2948,29 +2990,6 @@ const httpServer = Bun.serve({
             }),
             { status: 502, headers: { 'content-type': 'application/json' } }
           );
-        }
-        // The tombstone removes the "gone" signal, so any in-flight lane the
-        // dead pane was running must settle too -- otherwise its own state
-        // goes back to claiming "reviewing…" forever with nothing running.
-        {
-          const view = await fetchReconcilerView();
-          const executor = view.executors.find(e => e.agentId === agentId);
-          const settle = lanesClearedByExecutor(
-            agentId,
-            executor?.sessionId,
-            readReviewStates(),
-            readRespondStates()
-          );
-          for (const mrUrl of settle.reviews)
-            writeReviewState(reviewFilePath(mrUrl), {
-              status: 'error',
-              message: 'pane closed',
-            });
-          for (const mrUrl of settle.responds)
-            writeRespondState(respondFilePath(mrUrl), {
-              status: 'error',
-              message: 'pane closed',
-            });
         }
         return new Response(JSON.stringify({ ok: true }), {
           headers: { 'content-type': 'application/json' },
@@ -4131,6 +4150,32 @@ async function handleAgentSignal(
   }
 }
 
+/** A closed pane emits no agent signal; only the current writer may relay it. */
+async function reportClosedPeerReviews(): Promise<void> {
+  await sweepClosedPeerReviews(closedPeerReviewIO());
+}
+
+function closedPeerReviewIO() {
+  return {
+    current: () => {
+      const client = peering.current()?.client;
+      return writer && client
+        ? { self: config.defaultMember, client }
+        : undefined;
+    },
+    readReviews: readReviewStates,
+    fetchExecutors: async () => (await fetchReconcilerView()).executors,
+    fetchAuthors: async () =>
+      new Map(
+        (await cache.get()).mrs.flatMap(m =>
+          m.webUrl ? [[m.webUrl, m.author.username] as const] : []
+        )
+      ),
+    readNudges,
+    kickOutbox,
+  };
+}
+
 const agentStatusFeed = new AgentStatusFeed({
   eventsHead: () => eventsHead(),
   eventsList: (after, limit) =>
@@ -4189,6 +4234,11 @@ if (writer) {
     void runGateSweep().catch(err =>
       console.error(
         `gate sweep failed: ${err instanceof Error ? err.message : err}`
+      )
+    );
+    void reportClosedPeerReviews().catch(err =>
+      console.error(
+        `closed pane report failed: ${err instanceof Error ? err.message : err}`
       )
     );
     wakeAgentStatusFeed();

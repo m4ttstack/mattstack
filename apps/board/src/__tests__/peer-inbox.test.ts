@@ -505,6 +505,47 @@ describe('materializeEnvelope', () => {
   });
 
   describe('ask echo', () => {
+    test('an error review-state passes its reason to finish', () => {
+      const deps = fakeDeps();
+      materializeEnvelope(
+        envelope({
+          payload: {
+            mrUrl: URL_A,
+            iid: 4821,
+            status: 'error',
+            updatedAt: 500,
+            reason: 'pane closed',
+            nudgeId: 'ask-1',
+          },
+        }),
+        deps,
+        1000
+      );
+      expect(deps.finishes[0]?.finish).toEqual({
+        result: 'failed',
+        reason: 'pane closed',
+        at: 1000,
+      });
+    });
+
+    test('a done review-state never carries a reason into finish', () => {
+      const deps = fakeDeps();
+      materializeEnvelope(
+        envelope({
+          payload: {
+            mrUrl: URL_A,
+            iid: 4821,
+            status: 'done',
+            updatedAt: 500,
+            reason: 'ignored',
+          },
+        }),
+        deps,
+        1000
+      );
+      expect(deps.finishes[0]?.finish.reason).toBeUndefined();
+    });
+
     test('a finishing review-state passes its nudgeId to finish', () => {
       const deps = fakeDeps();
       materializeEnvelope(

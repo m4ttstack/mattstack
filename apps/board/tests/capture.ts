@@ -256,8 +256,8 @@ try {
       );
       await (
         await required(
-          page.getByRole('menuitem', { name: 'sessions and reports' }),
-          "!1236's sessions and reports flyout"
+          page.getByRole('menuitem', { name: 'all agent actions' }),
+          "!1236's all agent actions flyout"
         )
       ).click();
       await page.getByRole('menuitem', { name: 'view agent review' }).waitFor();

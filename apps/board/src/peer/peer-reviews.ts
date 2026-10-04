@@ -1,13 +1,14 @@
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'fs';
+import { existsSync, readdirSync, readFileSync, renameSync } from 'fs';
 import { join } from 'path';
+import type { Database } from 'bun:sqlite';
+
+import { getStateDb, persistOrWarn } from '../state/index.ts';
+import {
+  deleteKvValue,
+  getKvValue,
+  listKvValues,
+  setKvValue,
+} from '../state/kv-blob.ts';
 
 /** A peer's review status for one MR, as materialized from an inbound
     review-state envelope. Multiple reviewers can each have their own state
@@ -21,7 +22,14 @@ export interface PeerReviewState {
   updatedAt: number;
 }
 
-/** Per-(mrUrl, reviewer) JSON files live here. */
+export const PEER_REVIEW_NS = 'peer-review';
+
+export function peerReviewKey(mrUrl: string, reviewer: string): string {
+  return `${mrUrl}\n${reviewer}`;
+}
+
+/** Where peer reviews lived before state.db; read only by the one-shot
+    import. */
 export const PEER_REVIEW_DIR = join(
   import.meta.dir,
   '..',
@@ -30,8 +38,6 @@ export const PEER_REVIEW_DIR = join(
   'peer-reviews'
 );
 
-/** Deterministic file path for an mrUrl + reviewer pair, so a repeat delivery
-    resolves the same file. */
 export function peerReviewFilePath(
   mrUrl: string,
   reviewer: string,
@@ -44,46 +50,96 @@ export function peerReviewFilePath(
   return join(dir, `${slug}.json`);
 }
 
-/** Write a peer's review state, atomically. Returns false (and leaves the
-    prior state untouched) when a newer state is already on disk.
-    At-least-once delivery + outbox retries can deliver an older state after
-    a newer one; last-write-wins on the payload clock, not arrival order. */
+/** Last-write-wins on the payload clock, not arrival order: at-least-once
+    delivery and outbox retries can deliver an older state after a newer
+    one. Returns whether this state was written. */
 export function writePeerReview(
   s: PeerReviewState,
-  dir: string = PEER_REVIEW_DIR
+  db: Database = getStateDb()
 ): boolean {
-  const path = peerReviewFilePath(s.mrUrl, s.reviewer, dir);
-  try {
-    const prev = JSON.parse(readFileSync(path, 'utf8')) as PeerReviewState;
-    if (prev.updatedAt >= s.updatedAt) return false;
-  } catch {
-    // no prior state -- first write
-  }
-  mkdirSync(dir, { recursive: true });
-  const tmp = path + '.tmp';
-  writeFileSync(tmp, JSON.stringify(s, null, 2) + '\n');
-  renameSync(tmp, path);
-  return true;
+  const key = peerReviewKey(s.mrUrl, s.reviewer);
+  let wrote = false;
+  persistOrWarn('peer review write', () => {
+    wrote = db.transaction(() => {
+      const prev = getKvValue<PeerReviewState | null>(
+        PEER_REVIEW_NS,
+        key,
+        null,
+        db
+      );
+      if (prev && prev.updatedAt >= s.updatedAt) return false;
+      setKvValue(PEER_REVIEW_NS, key, s, db);
+      return true;
+    })();
+  });
+  return wrote;
 }
 
-/** Read all peer review states, grouped by mrUrl -- a single MR can have one
-    entry per reviewer who's shared their status. */
+const IMPORT_MARKER = 'peer-reviews-imported';
+
+/** The meta marker prevents rescanning a legacy folder recreated later. */
+export function importPeerReviewFiles(
+  db: Database,
+  dir: string = PEER_REVIEW_DIR,
+  now: Date = new Date()
+): { imported: number; skipped: number; renamed: boolean } {
+  const result = { imported: 0, skipped: 0, renamed: false };
+  if (getKvValue('meta', IMPORT_MARKER, false, db)) return result;
+  if (existsSync(dir)) {
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue;
+      let state: PeerReviewState;
+      try {
+        state = JSON.parse(readFileSync(join(dir, name), 'utf8'));
+      } catch {
+        result.skipped++;
+        continue;
+      }
+      if (!state?.mrUrl || !state.reviewer) {
+        result.skipped++;
+        continue;
+      }
+      if (!writePeerReview(state, db)) {
+        const persisted = getKvValue<PeerReviewState | null>(
+          PEER_REVIEW_NS,
+          peerReviewKey(state.mrUrl, state.reviewer),
+          null,
+          db
+        );
+        if (!persisted || !(persisted.updatedAt >= state.updatedAt)) {
+          throw new Error('peer review import: state was not persisted');
+        }
+      }
+      result.imported++;
+    }
+  }
+  setKvValue('meta', IMPORT_MARKER, true, db);
+  if (existsSync(dir)) {
+    const stamp = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+    ].join('-');
+    try {
+      renameSync(dir, `${dir}.imported-${stamp}`);
+      result.renamed = true;
+    } catch (err) {
+      console.error(
+        `peer review import: could not rename ${dir}: ${err instanceof Error ? err.message : err}`
+      );
+    }
+  }
+  return result;
+}
+
+/** Every peer review state, grouped by mrUrl. */
 export function readPeerReviews(
-  dir: string = PEER_REVIEW_DIR
+  db: Database = getStateDb()
 ): Map<string, PeerReviewState[]> {
   const out = new Map<string, PeerReviewState[]>();
-  if (!existsSync(dir)) return out;
-  for (const name of readdirSync(dir)) {
-    if (!name.endsWith('.json')) continue;
-    let state: PeerReviewState;
-    try {
-      state = JSON.parse(
-        readFileSync(join(dir, name), 'utf8')
-      ) as PeerReviewState;
-    } catch {
-      continue;
-    }
-    if (!state.mrUrl) continue;
+  for (const value of listKvValues(PEER_REVIEW_NS, db).values()) {
+    const state = value as PeerReviewState;
+    if (!state?.mrUrl) continue;
     const list = out.get(state.mrUrl);
     if (list) list.push(state);
     else out.set(state.mrUrl, [state]);
@@ -91,27 +147,21 @@ export function readPeerReviews(
   return out;
 }
 
-/** Delete peer review states whose MR is no longer on the board. `keepUrls`
-    is the current board MR set; callers gate this on a healthy snapshot so a
-    failed fetch can't wipe live state. */
+/** Callers gate this on a healthy snapshot so a failed fetch can't wipe
+    live state. */
 export function prunePeerReviews(
   keepUrls: ReadonlySet<string>,
-  dir: string = PEER_REVIEW_DIR
+  db: Database = getStateDb()
 ): void {
-  if (!existsSync(dir)) return;
-  for (const name of readdirSync(dir)) {
-    if (!name.endsWith('.json')) continue;
-    const path = join(dir, name);
-    let mrUrl: string | undefined;
-    try {
-      mrUrl = (JSON.parse(readFileSync(path, 'utf8')) as PeerReviewState).mrUrl;
-    } catch {
-      continue;
-    }
-    if (mrUrl && !keepUrls.has(mrUrl)) {
-      rmSync(path, { force: true });
-    }
-  }
+  const stale = [...listKvValues(PEER_REVIEW_NS, db)].filter(
+    ([, v]) => !keepUrls.has((v as PeerReviewState)?.mrUrl)
+  );
+  if (stale.length === 0) return;
+  persistOrWarn('peer review prune', () => {
+    db.transaction(() => {
+      for (const [key] of stale) deleteKvValue(PEER_REVIEW_NS, key, db);
+    })();
+  });
 }
 
 /** Attach each MR's peer review states (matched by webUrl) as a

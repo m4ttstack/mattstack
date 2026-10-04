@@ -3,6 +3,12 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, expect, test } from 'bun:test';
 
+import { readOutbox } from '../peer/outbox.ts';
+import { readRespondStates, writeRespondState } from '../respond-state.ts';
+import { readReviewStates, writeReviewState } from '../review-state.ts';
+import { mintHandle } from '../state/agent-states.ts';
+import { openStateDb } from '../state/db.ts';
+
 // Proves POST /reconciler/clear (SDD executor-reconciler task 14): a thin
 // proxy onto the daemon's `reconciler:clear` command, same shape as
 // /gate/focus -- forward the body, degrade to a 502 JSON error when the
@@ -73,6 +79,12 @@ const rtDaemon = Bun.serve({
   },
 });
 
+const dbPath = join(fakeHome, 'state.db');
+const db = openStateDb(dbPath);
+const MR = 'https://gitlab.example.com/g/p/-/merge_requests/77';
+const reviewHandle = mintHandle('review', MR, fakeHome);
+const respondHandle = mintHandle('respond', MR, fakeHome);
+
 const PORT = 47953;
 const proc = Bun.spawn(
   ['bun', 'run', join(import.meta.dir, '..', 'server.ts')],
@@ -81,6 +93,7 @@ const proc = Bun.spawn(
       ...process.env,
       HOME: fakeHome,
       BOARD_APP_ROOT: fakeHome,
+      BOARD_STATE_DB: dbPath,
       PORT: String(PORT),
       GITLAB_TOKEN: '',
       SLACK_TOKEN: '',
@@ -95,6 +108,7 @@ const proc = Bun.spawn(
 afterAll(() => {
   proc.kill();
   rtDaemon.stop(true);
+  db.close();
 });
 
 async function ready(): Promise<void> {
@@ -162,4 +176,39 @@ test('GET /data.json sweeps the reconciler view via the reconciler:status comman
   expect(
     seen.some(s => s.cmd === 'reconciler' || s.cmd === 'api/reconciler')
   ).toBe(false);
+}, 15_000);
+
+test('successful endpoint clear settles review and respond lanes without peering; refusal preserves them', async () => {
+  await ready();
+  writeReviewState(
+    reviewHandle,
+    { mrUrl: MR, iid: 77, status: 'queued', agentId: 'agent-77' },
+    1000,
+    db
+  );
+  writeRespondState(
+    respondHandle,
+    { mrUrl: MR, iid: 77, status: 'drafting', agentId: 'agent-77' },
+    1000,
+    db
+  );
+  clearOutcome = 'fail';
+  try {
+    expect((await clear({ agentId: 'agent-77' })).status).toBe(502);
+    expect(readReviewStates(db).get(MR)?.status).toBe('queued');
+    expect(readRespondStates(db).get(MR)?.status).toBe('drafting');
+    expect(readOutbox(db)).toEqual([]);
+  } finally {
+    clearOutcome = 'ok';
+  }
+  expect((await clear({ agentId: 'agent-77' })).status).toBe(200);
+  expect(readReviewStates(db).get(MR)).toMatchObject({
+    status: 'error',
+    message: 'pane closed',
+  });
+  expect(readRespondStates(db).get(MR)).toMatchObject({
+    status: 'error',
+    message: 'pane closed',
+  });
+  expect(readOutbox(db)).toEqual([]);
 }, 15_000);

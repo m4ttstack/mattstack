@@ -114,6 +114,7 @@ const NUDGE_RETRYABLE = new Set<SentNudgeInfo['display']>([
   'rejected',
   'expired',
   'no-response',
+  'no-update',
   'done',
   'failed',
 ]);

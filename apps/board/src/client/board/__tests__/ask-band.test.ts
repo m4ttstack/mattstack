@@ -72,7 +72,7 @@ describe('askBandModel', () => {
     expect(askBandModel(sent({})).label).toBe('re-review requested');
   });
 
-  test('confirmed and launched read as running, work tone, no action', () => {
+  test('confirmed and launched read as running, work tone, dismissable', () => {
     for (const display of ['confirmed', 'launched'] as const) {
       const m = askBandModel(
         sent({ display, kind: 'review', resolvedAt: NOW - 12 * MIN })
@@ -82,7 +82,7 @@ describe('askBandModel', () => {
         icon: 'loader',
         label: 'reviewing',
       });
-      expect(m.actions).toEqual([]);
+      expect(m.actions).toEqual(['dismiss']);
     }
     expect(askBandModel(sent({ display: 'launched' })).label).toBe(
       're-reviewing'
@@ -130,7 +130,7 @@ describe('askBandModel', () => {
     expect(m).toMatchObject({
       tone: 'bad',
       icon: 'triangle-alert',
-      label: 'failed to run: boom',
+      label: 'stopped: boom',
       actions: ['retry', 'dismiss'],
     });
     expect(
@@ -159,6 +159,24 @@ describe('askBandModel', () => {
         actions: ['retry', 'dismiss'],
       });
     }
+  });
+
+  test('no update: warn tone, hourglass, retry and dismiss, a quiet trail step', () => {
+    const m = askBandModel(
+      sent({ display: 'no-update', kind: 'review', resolvedAt: NOW - 40 * MIN })
+    );
+    expect(m).toMatchObject({
+      tone: 'warn',
+      icon: 'hourglass',
+      label: 'no update',
+      actions: ['retry', 'dismiss'],
+    });
+    expect(m.steps.map(s => s.name)).toEqual([
+      'Requested',
+      'Started',
+      'No update',
+    ]);
+    expect(m.steps[2]?.detail).toBe("Grace's agent has been quiet for 30m");
   });
 
   test('the trail lists what the row knows, oldest first', () => {

@@ -118,6 +118,7 @@ export function askBandModel(
           tone: 'work',
           icon: 'loader',
           label: RUNNING[kind],
+          actions: ['dismiss'],
         },
         {
           name: 'Started',
@@ -142,9 +143,7 @@ export function askBandModel(
         {
           tone: 'bad',
           icon: 'triangle-alert',
-          label: sent.reason
-            ? `failed to run: ${sent.reason}`
-            : 'failed to run',
+          label: sent.reason ? `stopped: ${sent.reason}` : 'failed to run',
           actions: ['retry', 'dismiss'],
         },
         {
@@ -176,6 +175,17 @@ export function askBandModel(
           actions: ['retry', 'dismiss'],
         },
         { name: 'No answer', detail: `${name}'s board never replied` }
+      );
+    case 'no-update':
+      return band(
+        {
+          tone: 'warn',
+          icon: 'hourglass',
+          label: 'no update',
+          actions: ['retry', 'dismiss'],
+        },
+        { name: 'Started', detail: `${name}'s agent`, at: sent.resolvedAt },
+        { name: 'No update', detail: `${name}'s agent has been quiet for 30m` }
       );
     case 'requested':
       return band({

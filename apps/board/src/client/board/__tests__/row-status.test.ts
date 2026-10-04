@@ -1259,6 +1259,31 @@ describe('rowStatus: social lanes', () => {
     expect(line!.verbs[0]).toEqual({ kind: 'view-peer', label: 'view ↗' });
   });
 
+  test('a peer review my own ask started is left to the ask band', () => {
+    const lines = candidateLines(
+      mr({
+        sentNudge: {
+          display: 'confirmed',
+          reviewer: 'pat',
+          sentAt: NOW,
+        },
+        peerReviews: [
+          {
+            mrUrl: 'u',
+            iid: 1,
+            reviewer: 'pat',
+            status: 'reviewing',
+            updatedAt: NOW,
+          },
+        ],
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(lines.some(l => l.word === 'pat is reviewing…')).toBe(false);
+  });
+
   test('a finished peer review is a go line naming the outcome', () => {
     const [line] = candidateLines(
       mr({

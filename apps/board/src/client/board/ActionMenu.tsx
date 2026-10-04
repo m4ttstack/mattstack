@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 
 import { ContextMenu } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
+import { AskGlyph } from './ask-glyph.tsx';
 import {
   AgentGlyph,
   ArrowOutGlyph,
@@ -30,7 +31,7 @@ type FlyoutSection = Exclude<Section, 'top' | 'agent'>;
 /** A Record, so a new Section fails to compile until it has a flyout. Key
     order is the menu's order. */
 const FLYOUT: Record<FlyoutSection, [string, ActionGlyph]> = {
-  sessions: ['sessions and reports', { kind: 'menu', name: 'file' }],
+  sessions: ['all agent actions', { kind: 'agent' }],
   gitlab: ['gitlab', { kind: 'menu', name: 'branch' }],
   slack: ['slack', { kind: 'slack' }],
   more: ['more', { kind: 'menu', name: 'note' }],
@@ -48,6 +49,10 @@ function glyphNode(g: ActionGlyph, blocked = false): React.ReactNode {
       return <FlagGlyph kind={g.name} />;
     case 'out':
       return <ArrowOutGlyph />;
+    case 'agent':
+      return <AgentGlyph />;
+    case 'cloud':
+      return <AskGlyph name="cloud" />;
     case 'slack':
       return <SlackLogo mono={blocked} />;
     case 'emoji':
@@ -92,7 +97,8 @@ function entryLabel(e: MenuEntry, text: string) {
     the shell (box, viewport clamp, dismissals); this draws a list of entries
     as a short top level (reactions, agent actions) with the rest in flyouts,
     or every section inline when `flat`, plus the stages any entry can ask
-    for: a second-click confirm, a picker, and the alt-click note box. */
+    for: a second-click confirm, a picker (bulk menu only; a row menu nests its
+    picks in a submenu), and the alt-click note box. */
 function ActionMenu({
   x,
   y,
@@ -266,20 +272,36 @@ function ActionMenu({
       <span className="tui-menu-check">✓</span>
     ) : undefined;
 
-  const renderItem = (e: MenuEntry) => (
-    <ContextMenu.Item
-      key={e.key}
-      label={entryLabel(
-        e,
-        e.confirm && armed === armKey(e) ? e.confirm : e.label
-      )}
-      hint={hintOf(e)}
-      trailing={trailingOf(e)}
-      disabled={!!e.blocked}
-      aria-busy={pending.includes(e.key) || undefined}
-      onClick={click(e)}
-    />
-  );
+  const renderItem = (e: MenuEntry) =>
+    e.pick && !flat && !e.blocked ? (
+      <ContextMenu.Sub
+        key={e.key}
+        label={entryLabel(e, e.label)}
+        ariaLabel={`${e.pick.aria} for ${subject}`}
+      >
+        {e.pick.options.map(o => (
+          <ContextMenu.Item
+            key={`ask-${o.value}`}
+            label={o.value}
+            hint={o.hint}
+            onClick={() => fire(e, { pick: o.value })}
+          />
+        ))}
+      </ContextMenu.Sub>
+    ) : (
+      <ContextMenu.Item
+        key={e.key}
+        label={entryLabel(
+          e,
+          e.confirm && armed === armKey(e) ? e.confirm : e.label
+        )}
+        hint={hintOf(e)}
+        trailing={trailingOf(e)}
+        disabled={!!e.blocked}
+        aria-busy={pending.includes(e.key) || undefined}
+        onClick={click(e)}
+      />
+    );
   const shell = (body: React.ReactNode) => (
     <ContextMenu
       key="items"

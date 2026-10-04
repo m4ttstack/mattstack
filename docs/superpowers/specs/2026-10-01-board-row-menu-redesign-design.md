@@ -15,7 +15,8 @@ nothing on screen to say it exists.
 - The top level of an own-MR menu fits in about 8 rows.
 - Every action key reachable today stays reachable, in exactly one place.
 - An action that cannot apply because of MR state is shown inside its flyout
-  as blocked with a short reason, never removed.
+  as blocked with a short reason, except session rows with nothing to act on
+  (no session, no report, nothing to dismiss), which are left out.
 - A test fails if any action key goes missing for a known MR state.
 - Teammate MRs, remote boards, seatless boards and the bulk menu keep working.
 
@@ -84,14 +85,14 @@ label "review from scratch". Both keys stay.
 | respond / restart / focus / relaunch response | agent | local, own | never; always one primary |
 | call doctor / again / focus doctor | agent | local, own | omitted when `pipelineFailing` and `hasConflicts` are both false (no unknown state exists; both are always booleans) |
 | rebase locally | agent | local, own | omitted when no conflicts, no `shouldBeRebased` and `(behindTarget ?? 0) === 0`, as today. Null counts as 0 on purpose: the daemon's project list sync (`fetchPullRequests` with `projectPath`, GitLabProvider.ts) passes no diverged count, so null is the common case, not an unknown, and showing the row on null would put it on nearly every MR |
-| resume review | sessions | local | no session id: "no session" |
-| resume response | sessions | local, own | no session id: "no session" |
-| view agent review | sessions | always (no local gate today) | report not ready: "no report yet" |
-| view agent response | sessions | own (always shown when its report is ready, as today) | report not ready: "no report yet" |
-| dismiss review line | sessions | local | lane not in error or already dismissed: "nothing to dismiss" |
-| dismiss respond line / dismiss doctor line | sessions | local, own | lane not in error or already dismissed: "nothing to dismiss" |
-| ask X's agent to re-review (`nudge-<reviewer>`) | sessions | local, own | when no reviewer qualifies, one placeholder `nudge-none` blocked with "no peer review" or "ask already sent" |
-| request review from... | sessions | local, own | no roster member left: "everyone engaged"; an ask outstanding: "ask already sent" |
+| resume review | sessions | local | no session id: omitted |
+| resume response | sessions | local, own | no session id: omitted |
+| view agent review | sessions | always (no local gate today) | report not ready: omitted |
+| view agent response | sessions | own (always shown when its report is ready, as today) | report not ready: omitted |
+| dismiss review line | sessions | local | lane not in error or already dismissed: omitted |
+| dismiss respond line / dismiss doctor line | sessions | local, own | lane not in error or already dismissed: omitted |
+| ask X's agent to re-review (`nudge-<reviewer>`) | sessions | local, own | no placeholder when no reviewer qualifies |
+| request review from... | agent when someone can be asked (a hover submenu of reviewers), else sessions | local, own | no roster member left: "everyone engaged"; an ask outstanding: "ask already sent" |
 | ask {author}'s agent to respond | agent | local, seat, not own | "no finished review with comments", "author not enrolled" or "ask already sent" |
 | seat-hint (author actions) | agent | local, no seat | always blocked, as today |
 | merge | gitlab | local, own, open | draft: "draft"; merging: "merging"; not `isReady`: merge-status reason |

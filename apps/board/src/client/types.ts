@@ -125,6 +125,7 @@ export interface SentNudgeInfo {
     | 'requested'
     | 'confirmed'
     | 'launched'
+    | 'no-update'
     | 'rejected'
     | 'expired'
     | 'no-response'

@@ -26,15 +26,7 @@ test('an idle own MR: every action, by section, in menu order', () => {
     'agent:review',
     'agent:respond',
     'agent:rebase-local',
-    'sessions:resume-review',
-    'sessions:resume-respond',
-    'sessions:view-review',
-    'sessions:view-respond',
-    'sessions:dismiss-review',
-    'sessions:dismiss-respond',
-    'sessions:dismiss-doctor',
-    'sessions:nudge-none',
-    'sessions:request-review',
+    'agent:request-review',
     'gitlab:merge',
     'gitlab:rebase',
     'gitlab:setAutoMerge',
@@ -48,23 +40,13 @@ test('an idle own MR: every action, by section, in menu order', () => {
   ]);
 });
 
-test('an idle own MR blocks what its state cannot run, with a reason', () => {
+test('an idle own MR blocks what its state cannot run, and hides session rows with nothing to act on', () => {
   const blocked = Object.fromEntries(
     rowActions(ownIdle, actionEnvOf(ownEnv, ownIdle))
       .filter(a => a.blocked)
       .map(a => [a.key, a.blocked])
   );
-  expect(blocked).toEqual({
-    'resume-review': 'no session',
-    'resume-respond': 'no session',
-    'view-review': 'no report yet',
-    'view-respond': 'no report yet',
-    'dismiss-review': 'nothing to dismiss',
-    'dismiss-respond': 'nothing to dismiss',
-    'dismiss-doctor': 'nothing to dismiss',
-    'nudge-none': 'no peer review',
-    'open-slack-post': 'no thread',
-  });
+  expect(blocked).toEqual({ 'open-slack-post': 'no thread' });
 });
 
 test("a teammate's reviewed MR with a found thread", () => {
@@ -76,7 +58,6 @@ test("a teammate's reviewed MR with a found thread", () => {
     'agent:ask-respond',
     'sessions:resume-review',
     'sessions:view-review',
-    'sessions:dismiss-review',
     'gitlab:open-gitlab',
     'slack:open-slack-post',
     'slack:copy',
@@ -91,8 +72,6 @@ test('a remote board drops local-only rows and says why', () => {
   );
   expect(actions.map(a => `${a.section}:${a.key}`)).toEqual([
     'agent:local-hint',
-    'sessions:view-review',
-    'sessions:view-respond',
     'gitlab:open-gitlab',
     'slack:copy',
     'more:note',
@@ -271,7 +250,7 @@ test('the respond ask names an author who has not enrolled', () => {
   expect(ask?.blocked).toBe('author not enrolled');
 });
 
-test('an outstanding ask blocks request review and nudges with the same reason', () => {
+test('an outstanding ask blocks request review and leaves no re-review placeholder', () => {
   const mr = mrx(1418, {
     sentNudge: { display: 'requested', reviewer: 'kim' },
   });
@@ -279,7 +258,7 @@ test('an outstanding ask blocks request review and nudges with the same reason',
     rowActions(mr, actionEnvOf(ownEnv, mr)).map(a => [a.key, a])
   );
   expect(by['request-review']?.blocked).toBe('ask already sent');
-  expect(by['nudge-none']?.blocked).toBe('ask already sent');
+  expect(by['nudge-none']).toBeUndefined();
 });
 
 test('a teammate respond report and a live teammate lane error stay reachable', () => {
@@ -382,13 +361,8 @@ test('request review from… carries its picker; asks name their reviewer', () =
     reviewer: 'kim',
   });
   const dismiss = actions.filter(a => a.key.startsWith('dismiss-'));
-  expect(dismiss.filter(a => !a.blocked).map(a => a.key)).toEqual([
-    'dismiss-review',
-    'dismiss-doctor',
-  ]);
-  expect(dismiss.find(a => a.key === 'dismiss-respond')?.blocked).toBe(
-    'nothing to dismiss'
-  );
+  expect(dismiss.map(a => a.key)).toEqual(['dismiss-review', 'dismiss-doctor']);
+  expect(dismiss.some(a => a.blocked)).toBe(false);
 });
 
 const visible = { visible: true, disabled: false, loading: false };
