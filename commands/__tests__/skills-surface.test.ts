@@ -1092,15 +1092,18 @@ describe("apply on packs with plugin.json skills roots", () => {
 
 
 describe("pack role refusals", () => {
-  for (const json of [[], ["--json"]]) {
-    test(`member writes are refused ${json.length ? "as JSON" : "for a person"}`, async () => {
+  for (const username of ["dev4", "dev2"]) for (const target of ["team", "root", "..pack"]) for (const json of [[], ["--json"]]) {
+    if (username === "dev2" && target === "team") continue;
+    test(`${username} writes to ${target} are refused ${json.length ? "as JSON" : "for a person"}`, async () => {
       const savedHome = process.env.HOME;
       process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-pack-role-")));
       try {
-        seedOrg({ org: "acme", username: "dev4", roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
-        const packDir = join(process.env.HOME!, ".mattstack", "teams", "acme", "mattstack", "teams", "widgets", "packs", "widgets");
+        seedOrg({ org: "acme", username, roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
+        const orgRoot = join(process.env.HOME!, ".mattstack", "teams", "acme");
+        const packDir = target === "root" ? orgRoot : target === "..pack" ? join(orgRoot, "..pack") : join(orgRoot, "mattstack", "teams", "widgets", "packs", "widgets");
         writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
-        const refusal = "The widgets team's files belong to its owners. Ask dev2 (the team's owner) or dev1 (an org admin) to make this change.";
+        const title = target === "team" ? "The widgets team's files belong to its owners" : "The org's shared files belong to its admins";
+        const refusal = `${title}. ${target === "team" ? "Ask dev2 (the team's owner) or dev1 (an org admin) to make this change." : "Ask dev1 (an org admin) to make this change."}`;
 
       writeFile(join(packDir, "pack", "surface.jsonc"), '{"public":["helper"]}');
       writeFile(join(packDir, "skills", "helper", "SKILL.md"), "---\nname: helper\ndescription: Help\n---\nHelp.\n");
@@ -1109,9 +1112,10 @@ describe("pack role refusals", () => {
         const result = await runExpectingCleanExit(() => skillsSurface([...mode, "--pack-dir", packDir, ...json]));
         expect(result.exitCode).toBe(2);
         if (json.length) expect(JSON.parse(io.lines().at(-1)!)).toEqual({ ok: false, dryRun: false, ...(mode[0] === "set" ? { set: [{ name: "helper", want: "internal" }] } : {}), moved: [], recorded: [], compileErrors: [refusal] });
-        else expect(io.stderr()).toStartWith("[refused] The widgets team's files belong to its owners");
+        else expect(io.stderr()).toStartWith(`[refused] ${title}`);
         expect(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8")).toBe(before);
-        expect(existsSync(join(packDir, "skills", "helper", "SKILL.md"))).toBe(true);
+        expect(readFileSync(join(packDir, "skills", "helper", "SKILL.md"), "utf8")).toBe("---\nname: helper\ndescription: Help\n---\nHelp.\n");
+        expect(existsSync(join(packDir, "pack", "skills", "helper", "SKILL.md"))).toBe(false);
         expect((await runExpectingCleanExit(() => skillsSurface([...mode, "--pack-dir", packDir, "--dry-run", ...json]))).exitCode).toBeUndefined();
         expect(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8")).toBe(before);
       }

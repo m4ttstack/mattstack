@@ -108,7 +108,7 @@ function refuseUnlessPackOwned(packDir: string): void {
   const org = currentOrg();
   if (org === null) return;
   const rel = relativePath(canonicalPath(orgDir(org)), canonicalPath(packDir));
-  if (rel === "" || rel.startsWith("..") || isAbsolutePath(rel)) return;
+  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolutePath(rel)) return;
   const roles = readOrgRoles(org);
   const refusal = writeRefusalFor(roleOf(readForgeUsername(org), roles), roles, rel.split(sep).join("/"));
   if (refusal) throw new SkillsRefusal(`${refusal.message}. ${refusal.why}`, { title: refusal.message, why: refusal.why });

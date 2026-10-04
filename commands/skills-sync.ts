@@ -227,7 +227,7 @@ export async function skillsSync(args: string[]): Promise<void> {
       const dir = packs.find(p => p.name === name)?.dir;
       if (org === null || role === null || dir === undefined) return true;
       const rel = relative(canonical(orgDir(org)), canonical(dir));
-      return rel.startsWith("..") || isAbsolute(rel) || mayWritePath(role, rel.split(sep).join("/"));
+      return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel) || mayWritePath(role, rel.split(sep).join("/"));
     },
     run: async (cmd, cmdArgs, opts) => {
       const proc = Bun.spawn([cmd, ...cmdArgs], { cwd: opts?.cwd, env: childEnv(), stdout: "pipe", stderr: "pipe" });
