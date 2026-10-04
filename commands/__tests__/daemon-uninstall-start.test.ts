@@ -143,7 +143,7 @@ describe("start (kickstart escalation)", () => {
     captureLogs();
     await start();
 
-    expect(output()).toContain("daemon started");
+    expect(output()).toContain("[ok] The daemon started");
   }, 20_000);
 });
 

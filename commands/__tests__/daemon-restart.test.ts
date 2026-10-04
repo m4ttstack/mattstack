@@ -59,9 +59,9 @@ test("restart does not claim success while the old daemon pid still answers", as
 
   await restart();
 
-  expect(output()).not.toContain("✓ daemon restarted");
+  expect(output()).not.toContain("The daemon restarted");
   expect(output()).toContain("111");
-  expect(output().toLowerCase()).toContain("did not");
+  expect(io.stderr()).toContain("The daemon did not restart");
 });
 
 test("restart succeeds only once a different pid answers, and names the turnover", async () => {
@@ -73,8 +73,7 @@ test("restart succeeds only once a different pid answers, and names the turnover
 
   await restart();
 
-  expect(output()).toContain("✓ daemon restarted");
-  expect(output()).toContain("111 → 222");
+  expect(output()).toContain("[ok] The daemon restarted  pid 111 to 222");
 });
 
 test("restart of a confidently-down daemon (no socket file) succeeds when any live pid comes up", async () => {
@@ -87,13 +86,13 @@ test("restart of a confidently-down daemon (no socket file) succeeds when any li
 
   await restart();
 
-  expect(output()).toContain("✓ daemon restarted");
+  expect(output()).toContain("The daemon restarted");
 });
 
 test("a failed baseline probe never converts an unchanged daemon into a ✓", async () => {
   // The daemon socket exists but the pre-restart probe keeps failing (load,
   // timeout). The old daemon may still be alive, so a pid answering later
-  // proves nothing — the verdict must be unverified, not success.
+  // proves nothing; the verdict must be unverified, not success.
   let calls = 0;
   fakeSockets({
     trayReply: () => new Response(JSON.stringify({ ok: true })),
@@ -102,8 +101,8 @@ test("a failed baseline probe never converts an unchanged daemon into a ✓", as
 
   await restart();
 
-  expect(output()).not.toContain("✓ daemon restarted");
-  expect(output().toLowerCase()).toContain("unverified");
+  expect(output()).not.toContain("The daemon restarted");
+  expect(output()).toContain("rt could not tell whether it restarted");
 });
 
 test("restart ignores RT_APP_SOCKET when trayQuery's own socket gate said the tray is gone", async () => {
@@ -118,8 +117,8 @@ test("restart ignores RT_APP_SOCKET when trayQuery's own socket gate said the tr
 
     await restart();
 
-    expect(output()).toContain("is not running");
-    expect(output()).not.toContain("✓ daemon restarted");
+    expect(output()).toContain("is not open");
+    expect(output()).not.toContain("The daemon restarted");
   } finally {
     delete process.env.RT_APP_SOCKET;
   }
@@ -137,9 +136,8 @@ test("a present-but-slow tray still gets a pid-verified verdict, not 'tray not r
 
   await restart();
 
-  expect(output()).not.toContain("is not running");
-  expect(output()).toContain("✓ daemon restarted");
-  expect(output()).toContain("111 → 222");
+  expect(output()).not.toContain("is not open");
+  expect(output()).toContain("[ok] The daemon restarted  pid 111 to 222");
 });
 
 test("a tray that reports the op failed is surfaced as failure, not as 'tray not running'", async () => {
@@ -150,9 +148,9 @@ test("a tray that reports the op failed is surfaced as failure, not as 'tray not
 
   await restart();
 
-  expect(output()).not.toContain("✓ daemon restarted");
-  expect(output().toLowerCase()).toContain("failed");
-  expect(output()).not.toContain("is not running");
+  expect(output()).not.toContain("The daemon restarted");
+  expect(io.stderr()).toContain("could not restart the daemon");
+  expect(output()).not.toContain("is not open");
 });
 
 test("start of a down daemon surfaces a failed op instead of claiming the tray is not running", async () => {
@@ -164,8 +162,8 @@ test("start of a down daemon surfaces a failed op instead of claiming the tray i
 
   await start();
 
-  expect(output()).not.toContain("is not running");
-  expect(output().toLowerCase()).toContain("failed");
+  expect(output()).not.toContain("is not open");
+  expect(io.stderr()).toContain("could not start the daemon");
 });
 
 test("stop surfaces a failed unregister instead of claiming there was nothing to stop", async () => {
@@ -178,5 +176,5 @@ test("stop surfaces a failed unregister instead of claiming there was nothing to
 
   expect(output()).not.toContain("nothing to stop");
   expect(output()).not.toContain("✓");
-  expect(output().toLowerCase()).toContain("failed");
+  expect(io.stderr()).toContain("could not stop the daemon");
 });

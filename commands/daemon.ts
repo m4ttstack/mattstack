@@ -97,47 +97,26 @@ export function flavorHintPath(flavor: Flavor): string {
   return flavor === "dev" ? devTrayAppPath() : trayAppHintPath();
 }
 
-/**
- * Shared copy for stop/start/restart's post-op flavor probe: the daemon that
- * answered on rt.sock isn't the flavor the operation targeted. `stop` wants
- * it gone; `start`/`restart` want their own flavor answering, so the verb
- * differs while the remedy doesn't.
- */
-export function flavorMismatchLines(
+export function flavorMismatchBlocks(
   op: "stop" | "start" | "restart",
   holder: { flavor: string; pid: number | null },
   flavor: Flavor,
-): [string, string] {
-  const pidPart = holder.pid ? ` (pid ${holder.pid})` : "";
-  const verb = op === "stop" ? "still holds" : "answered on";
-  return [
-    `a ${holder.flavor} daemon ${verb} rt.sock${pidPart}, not ${flavor}`,
-    `Fix: open ${flavorHintPath(flavor)} (quit it first if it is running)`,
-  ];
+): Block[] {
+  const pid = holder.pid ? `pid ${holder.pid}` : undefined;
+  const line = op === "stop"
+    ? out.line("warn", `A ${holder.flavor} daemon is still running`, [pid, `you stopped the ${flavor} one`].filter(Boolean).join("; "))
+    : out.line("warn", `A ${holder.flavor} daemon answered instead of the ${flavor} one`, pid);
+  return [line, out.callout("next", out.cmd(`open ${flavorHintPath(flavor)}`)), out.callout("note", "Quit it first if it is running.")];
 }
 
-/** stop's holder-still-present case when the holder is its OWN flavor: not a mismatch, just a slow shutdown. */
-export function stillShuttingDownLine(holder: { pid: number | null }): string {
-  return `still shutting down — give it a moment${holder.pid ? ` (pid ${holder.pid})` : ""}`;
+export function stillShuttingDownBlock(holder: { pid: number | null }): Block {
+  return out.line("pending", "The daemon is still shutting down", holder.pid ? `pid ${holder.pid}` : undefined);
 }
 
-/** Prints stop/start/restart's mismatch warning in the shared two-line shape. */
-function printFlavorMismatch(op: "stop" | "start" | "restart", holder: { flavor: string; pid: number | null }, flavor: Flavor): void {
-  const [headline, remedy] = flavorMismatchLines(op, holder, flavor);
-  console.log(`\n  ${yellow}⚠ ${headline}${reset}`);
-  console.log(`  ${dim}${remedy}${reset}\n`);
-}
-
-/**
- * start/restart's post-liveness flavor check. Any holder flavor other than
- * this CLI's is worth a warning, including "unknown flavor", since the
- * daemon that was just (re)started should be answering with real identity.
- * Returns true when it printed the warning, so the caller skips the plain ✓.
- */
 async function warnIfWrongFlavor(op: "start" | "restart", flavor: Flavor): Promise<boolean> {
   const holder = await probeSocketHolder();
   if (!holder || holder.flavor === flavor) return false;
-  printFlavorMismatch(op, holder, flavor);
+  out.print(...flavorMismatchBlocks(op, holder, flavor));
   return true;
 }
 
@@ -265,56 +244,38 @@ export async function uninstall(): Promise<void> {
 
 export async function start(): Promise<void> {
   if (!isDaemonInstalled()) {
-    console.log(`\n  ${yellow}daemon is not installed${reset}`);
-    console.log(`  ${dim}run: rt daemon install${reset}\n`);
+    out.print(out.line("off", "The daemon is not installed"), out.callout("next", out.cmd("rt daemon install")));
     return;
   }
-
   const flavor = processFlavor();
-
   if (await isDaemonRunning()) {
-    if (!(await warnIfWrongFlavor("start", flavor))) {
-      console.log(`\n  ${green}daemon is already running${reset}\n`);
-    }
+    if (!(await warnIfWrongFlavor("start", flavor))) out.print(out.line("skipped", "The daemon is already running"));
     return;
   }
-
   const result = await trayQuery("/daemon/start", "POST");
   if (result && !result.ok) {
-    console.log(`\n  ${yellow}⚠ start failed in the tray${reset}`);
-    console.log(`  ${dim}check the tray log: rt daemon logs${reset}\n`);
+    out.fail({ title: `${TRAY_APP_NAME} could not start the daemon`, next: out.cmd("rt daemon logs") });
     return;
   }
   if (!result) {
-    console.log(`\n  ${yellow}${TRAY_APP_NAME} is not running${reset}`);
-    console.log(`  ${dim}open it: ${bold}open ${flavorHintPath(flavor)}${reset}\n`);
+    out.print(out.line("needs-you", `${TRAY_APP_NAME} is not open`), out.callout("next", out.cmd(`open ${flavorHintPath(flavor)}`)));
     return;
   }
-
-  console.log(`  ${dim}starting ${flavor} daemon via tray…${reset}`);
-  if (await pollForDaemonUp(flavor)) return;
-
-  // The tray acked /daemon/start, but SMAppService can register a job that
-  // never actually launches (still booting, crash-looping, etc.); kick it
-  // via /daemon/restart, which forces launchd to invoke it, rather than
-  // leaving the operator staring at "check logs" for something a retry fixes.
-  console.log(`  ${dim}not up yet, escalating to restart (kickstart)…${reset}`);
-  const restartResult = await trayQuery("/daemon/restart", "POST");
-  if (restartResult?.ok && (await pollForDaemonUp(flavor))) return;
-
-  console.log(`\n  ${yellow}daemon starting… check logs: rt daemon logs${reset}\n`);
+  const up = (await withTransientStep(`Starting the ${flavor} daemon`, pollForDaemonUp)) || (await withTransientStep("It has not answered yet; restarting it", async () => {
+    const restartResult = await trayQuery("/daemon/restart", "POST");
+    return Boolean(restartResult?.ok) && (await pollForDaemonUp());
+  }));
+  if (up) {
+    if (!(await warnIfWrongFlavor("start", flavor))) out.print(out.line("done", "The daemon started"));
+    return;
+  }
+  out.print(out.line("pending", "The daemon has not answered yet"), out.callout("next", out.cmd("rt daemon logs")));
 }
 
-/** Shared poll loop for start()'s initial wait and its kickstart escalation. */
-async function pollForDaemonUp(flavor: Flavor): Promise<boolean> {
+async function pollForDaemonUp(): Promise<boolean> {
   for (let i = 0; i < 12; i++) {
     await Bun.sleep(250);
-    if (await isDaemonRunning()) {
-      if (!(await warnIfWrongFlavor("start", flavor))) {
-        console.log(`\n  ${green}✓ daemon started${reset}\n`);
-      }
-      return true;
-    }
+    if (await isDaemonRunning()) return true;
   }
   return false;
 }
@@ -323,27 +284,22 @@ export async function stop(): Promise<void> {
   const flavor = processFlavor();
   const result = await trayQuery("/daemon/stop", "POST");
   if (result && !result.ok) {
-    console.log(`\n  ${yellow}⚠ stop failed in the tray — the daemon may still be registered${reset}`);
-    console.log(`  ${dim}check the tray log: rt daemon logs${reset}\n`);
+    out.fail({ title: `${TRAY_APP_NAME} could not stop the daemon`, why: "It may still be turned on.", next: out.cmd("rt daemon logs") });
     return;
   }
   if (result?.ok) {
     await Bun.sleep(500);
-    // The ack only proves the reached tray's OWN flavor was told to stop —
-    // rt.sock is shared, so a different-flavor daemon can still hold it.
+    // The ack only proves the reached tray's own flavor was told to stop.
     const holder = await probeSocketHolder();
     if (holder) {
-      if (holder.flavor === flavor) {
-        console.log(`\n  ${yellow}⚠ ${stillShuttingDownLine(holder)}${reset}\n`);
-        return;
-      }
-      printFlavorMismatch("stop", holder, flavor);
+      if (holder.flavor === flavor) out.print(stillShuttingDownBlock(holder));
+      else out.print(...flavorMismatchBlocks("stop", holder, flavor));
       return;
     }
-    console.log(`\n  ${green}✓ ${flavor} daemon stopped${reset}\n`);
+    out.print(out.line("done", `Stopped the ${flavor} daemon`));
     return;
   }
-  console.log(`\n  ${yellow}${TRAY_APP_NAME} is not running — nothing to stop${reset}\n`);
+  out.print(out.line("skipped", `${TRAY_APP_NAME} is not open, so nothing is running to stop`));
 }
 
 /** Test seam: the poll cadence for restart's pid-turnover wait. */
@@ -355,7 +311,7 @@ export async function restart(): Promise<void> {
   // liveness poll too, so "a daemon is up" proved nothing when the tray
   // silently dropped the op (2026-09-21: three restarts reported ✓ while
   // the pid never changed). A failed baseline probe with the socket file
-  // present is UNKNOWN, never "down" — the old daemon may just have missed
+  // present is UNKNOWN, never "down"; the old daemon may just have missed
   // one probe, and a pid seen later then proves nothing.
   const sockPresent = existsSync(DAEMON_SOCK_PATH);
   let before = sockPresent ? await probeSocketHolder() : null;
@@ -366,43 +322,43 @@ export async function restart(): Promise<void> {
   const baselineUnknown = sockPresent && !before?.pid;
   const result = await trayQuery("/daemon/restart", "POST");
   if (result && !result.ok) {
-    console.log(`\n  ${yellow}⚠ restart failed in the tray${reset}`);
-    console.log(`  ${dim}check the tray log: rt daemon logs${reset}\n`);
+    out.fail({ title: `${TRAY_APP_NAME} could not restart the daemon`, next: out.cmd("rt daemon logs") });
     return;
   }
   // The tray replies after the op completes, so a slow op can outlive the
   // request timeout. Its socket existing means the tray is there; the pid
-  // poll below still decides the truth. Only a missing socket means gone —
+  // poll below still decides the truth. Only a missing socket means gone;
   // the same TRAY_SOCK_PATH trayQuery itself gates on, so "no reply" and
   // "no tray" can never disagree about which socket they mean.
   if (!result && !existsSync(TRAY_SOCK_PATH)) {
-    console.log(`\n  ${yellow}${TRAY_APP_NAME} is not running${reset}`);
-    console.log(`  ${dim}open it: ${bold}open ${flavorHintPath(flavor)}${reset}\n`);
+    out.print(out.line("needs-you", `${TRAY_APP_NAME} is not open`), out.callout("next", out.cmd(`open ${flavorHintPath(flavor)}`)));
     return;
   }
-  console.log(`  ${dim}restarting ${flavor} daemon via tray…${reset}`);
-  for (let i = 0; i < RESTART_POLL.attempts; i++) {
-    await Bun.sleep(RESTART_POLL.intervalMs);
-    const now = await probeSocketHolder();
-    if (!now?.pid) continue;
-    if (before?.pid && now.pid === before.pid) continue;
-    if (baselineUnknown) {
-      console.log(`\n  ${yellow}⚠ a daemon answers as pid ${now.pid}, but the pre-restart pid could not be read — restart unverified${reset}`);
-      console.log(`  ${dim}check the tray log: rt daemon logs${reset}\n`);
-      return;
+  const polled = await withTransientStep(`Restarting the ${flavor} daemon`, async () => {
+    for (let i = 0; i < RESTART_POLL.attempts; i++) {
+      await Bun.sleep(RESTART_POLL.intervalMs);
+      const now = await probeSocketHolder();
+      if (!now?.pid) continue;
+      if (before?.pid && now.pid === before.pid) continue;
+      if (baselineUnknown) return { unverified: now.pid };
+      return { now };
     }
-    if (!(await warnIfWrongFlavor("restart", flavor))) {
-      console.log(`\n  ${green}✓ daemon restarted${reset} ${dim}(pid ${before?.pid ?? "down"} → ${now.pid})${reset}\n`);
-    }
+    return null;
+  });
+  if (polled?.unverified) {
+    out.print(out.line("warn", "A daemon is answering, but rt could not tell whether it restarted", `pid ${polled.unverified}`), out.callout("next", out.cmd("rt daemon logs")));
+    return;
+  }
+  if (polled?.now) {
+    if (!(await warnIfWrongFlavor("restart", flavor))) out.print(out.line("done", "The daemon restarted", `pid ${before?.pid ?? "down"} to ${polled.now.pid}`));
     return;
   }
   const still = await probeSocketHolder();
   if (before?.pid && still?.pid === before.pid) {
-    console.log(`\n  ${yellow}⚠ restart did not happen — the daemon still answers as pid ${still.pid}${reset}`);
-    console.log(`  ${dim}check the tray log: rt daemon logs${reset}\n`);
+    out.fail({ title: "The daemon did not restart", why: `It still answers as pid ${still.pid}.`, next: out.cmd("rt daemon logs") });
     return;
   }
-  console.log(`\n  ${yellow}daemon restarting… check logs: rt daemon logs${reset}\n`);
+  out.print(out.line("pending", "The daemon has not answered yet"), out.callout("next", out.cmd("rt daemon logs")));
 }
 
 // ─── Status ──────────────────────────────────────────────────────────────────
