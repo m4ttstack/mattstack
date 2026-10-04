@@ -91,11 +91,12 @@ import { isDeepStrictEqual } from "util";
 import { assertNotRealStoreInTest } from "../test-isolation.ts";
 import { baselinesOf, baselinesToRecord, currentStoreName, MIGRATED_PROP, olderStoreNames, readSection } from "./migrate.ts";
 import { activeTeam, readOrgRoles } from "./active-team.ts";
-import { machineSettingsPath, orgDir, orgSettingsPath, teamSettingsPath, userSettingsPath } from "./paths.ts";
+import { machineSettingsPath, orgDir, orgSettingsPath, teamSettingsPath, teamsDir, userSettingsPath } from "./paths.ts";
 import { getDef, isMigrated, isRetiredKey, type SettingDef, type SettingScope } from "./registry-machinery.ts";
-import { currentRole, writeRefusalFor } from "./org-roles.ts";
+import { roleOf, writeRefusalFor } from "./org-roles.ts";
 import { getSetting } from "./resolve.ts";
 import { currentOrg, readStore, TEAM_NAME_RE } from "./stores.ts";
+import { readForgeUsername } from "./team-local-read.ts";
 import { validateWrite } from "./validate-write.ts";
 
 export interface SetSettingOpts {
@@ -366,8 +367,9 @@ function migratedFalseMessage(key: string, def: SettingDef): string {
 /** A shared store is written only by a role that owns its file: an org admin, or the team's owner for a team folder. */
 function refuseUnlessOwned(org: string, storePath: string): void {
   const relPath = relative(orgDir(org), storePath).split(sep).join("/");
-  const refusal = writeRefusalFor(currentRole(org), readOrgRoles(org), relPath);
-  if (refusal) refuse(`${refusal.message}. ${refusal.why}`);
+  const roles = readOrgRoles(org);
+  const refusal = writeRefusalFor(roleOf(readForgeUsername(org), roles), roles, relPath);
+  if (refusal) refuse(`${refusal.message.replace(/^rt /, "")}. ${refusal.why}`);
 }
 
 function requireOrg(): string {
@@ -647,8 +649,17 @@ export function renameRepoSection(
   // writes leaves behind; only the removal is left to do.
   const interrupted = newSection !== undefined && isDeepStrictEqual(oldSection, newSection);
   if (newSection !== undefined && !interrupted) return { status: "refused", keys, detail: "both populated" };
-  if (opts.dryRun) return { status: "moved", keys };
   try {
+    const [org, folder, scope, team] = relative(teamsDir(), storePath).split(sep);
+    if (org && org !== ".." && folder === "mattstack") {
+      if (
+        resolve(storePath) === orgSettingsPath(org) ||
+        (scope === "teams" && team && TEAM_NAME_RE.test(team) && resolve(storePath) === teamSettingsPath(org, team))
+      ) {
+        refuseUnlessOwned(org, storePath);
+      }
+    }
+    if (opts.dryRun) return { status: "moved", keys };
     if (!interrupted) writeIntoStore(storePath, () => [{ path: ["repos", newId], value: oldSection }], false);
     removeFromStore(storePath, () => [["repos", oldId]]);
   } catch (err) {
