@@ -2,6 +2,8 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { bgRelease, bgStatus, bgStop, renderStatus } from "../bg.ts";
 
 let home: string;
@@ -34,10 +36,8 @@ afterEach(() => {
 });
 
 async function run(fn: (args: string[]) => Promise<void>, args: string[]) {
-  const out: string[] = [];
-  const err: string[] = [];
-  const logSpy = spyOn(console, "log").mockImplementation((...a: unknown[]) => { out.push(a.map(String).join(" ")); });
-  const errSpy = spyOn(console, "error").mockImplementation((...a: unknown[]) => { err.push(a.map(String).join(" ")); });
+  const io = captureOut({ console: true });
+  ui.__test__.setHuman(() => false);
   const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("process.exit sentinel"); });
   let code = 0;
   try {
@@ -46,9 +46,10 @@ async function run(fn: (args: string[]) => Promise<void>, args: string[]) {
     if (e instanceof Error && e.message === "process.exit sentinel") code = (exitSpy.mock.calls.at(-1)?.[0] as number | undefined) ?? 1;
     else throw e;
   } finally {
-    logSpy.mockRestore(); errSpy.mockRestore(); exitSpy.mockRestore();
+    exitSpy.mockRestore();
+    io.restore();
   }
-  return { code, stdout: out.join("\n"), stderr: err.join("\n") };
+  return { code, stdout: io.stdout(), stderr: io.stderr() };
 }
 
 // ─── status ─────────────────────────────────────────────────────────────────
@@ -86,7 +87,7 @@ test("bg release <owner> forwards the claim and prints the outcome", async () =>
   replies = { "bg:release": { ok: true, data: { released: true } } };
   const r = await run(bgRelease, ["herd:hd-1"]);
   expect(seen[0]).toEqual({ cmd: "bg:release", payload: { claim: "herd:hd-1" } });
-  expect(r.stdout).toBe("released herd:hd-1");
+  expect(r.stdout).toBe("released herd:hd-1\n");
   expect(r.code).toBe(0);
 });
 
@@ -121,7 +122,7 @@ test("bg release exits non-zero when the daemon refuses", async () => {
 test("bg stop prints stopped on success", async () => {
   replies = { "bg:stop": { ok: true, data: { stopped: true } } };
   const r = await run(bgStop, []);
-  expect(r.stdout).toBe("stopped");
+  expect(r.stdout).toBe("stopped\n");
   expect(r.code).toBe(0);
 });
 
