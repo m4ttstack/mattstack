@@ -10,7 +10,6 @@
   "commands/glitter.ts",
   "commands/herd.ts",
   "commands/nav.ts",
-  "commands/pane.ts",
   "commands/post-install.ts",
   "commands/reconciler.ts",
   "commands/run.ts",
