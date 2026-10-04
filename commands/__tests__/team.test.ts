@@ -1,3 +1,5 @@
+import * as teamActions from "../team.ts";
+import type { MembersSeams } from "../../lib/team/members.ts";
 import type { InviteResult, MintInviteOpts } from "../../lib/team/invite.ts";
 import { afterEach, beforeEach, describe, test, expect, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
@@ -744,5 +746,80 @@ describe("teamAdd", () => {
       expect(captured.stdout()).toContain("rt team members set <username> --teams gadgets");
       expect(deps.lines).toEqual([]);
     } finally { captured.restore(); }
+  });
+});
+
+
+describe("teamMembersSet", () => {
+  function world(username = "dev1", ownsTeam = true) {
+    const roster = [{ username: "dev1", teams: ["widgets"] }, { username: "Dev2", name: "Dev Two", teams: ["widgets"] }];
+    const writes: { key: string; value: unknown; scope: string }[] = [];
+    const membersSeams: MembersSeams = {
+      readTeamStore: () => ({ "mattstack.roster": roster }),
+      writeSetting: ((key: string, value: unknown, scope: string) => { writes.push({ key, value, scope }); }) as MembersSeams["writeSetting"],
+      currentOrg: () => "acme",
+      revokeRead: async () => { throw new Error("must not revoke access"); },
+      readTeamLocal: () => { throw new Error("must not read membership permissions"); },
+      forgeToken: async () => { throw new Error("must not read secrets"); },
+      warn: () => { throw new Error("must not warn"); },
+    };
+    const deps = baseDeps({ membersSeams, probes: fakeProbes({ home: "/home/x", files: {
+      ...adminFiles,
+      [`${ZONE_DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ownsTeam ? ["dev2"] : [] } } } }),
+      [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: username }),
+      [`${ZONE_DIR}/mattstack/teams/widgets/settings.team.jsonc`]: "{}",
+      [`${ZONE_DIR}/mattstack/teams/gadgets/settings.team.jsonc`]: "{}",
+    } }) });
+    return { deps, writes };
+  }
+
+  test("runs the real roster mutation and emits one flat JSON envelope", async () => {
+    const { deps, writes } = world();
+    await teamActions.teamMembersSet(["--teams", " gadgets, widgets, gadgets, ", "--team", "acme", "dev2", "--json"], {}, deps);
+    expect(deps.lines).toHaveLength(1);
+    const { at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(typeof at).toBe("string");
+    expect(body).toEqual({ contract: 1, username: "Dev2", teams: ["gadgets", "widgets"], previous: ["widgets"] });
+    expect(writes).toEqual([{ key: "mattstack.roster", value: [{ username: "dev1", teams: ["widgets"] }, { username: "Dev2", name: "Dev Two", teams: ["gadgets", "widgets"] }], scope: "org" }]);
+  });
+
+  test("empty teams clears membership and human output shows the previous team", async () => {
+    const { deps, writes } = world();
+    const captured = captureOut();
+    try {
+      await teamActions.teamMembersSet(["dev2", "--teams", "", "--team", "acme"], {}, deps);
+      expect(captured.stdout()).toContain("Dev2 is on no team");
+      expect(captured.stdout()).toContain("was on widgets");
+    } finally { captured.restore(); }
+    expect(deps.lines).toEqual([]);
+    expect((writes[0]!.value as { teams: string[] }[])[1]!.teams).toEqual([]);
+  });
+
+  test.each([
+    [["dev2", "--team", "acme", "--json"]],
+    [["--teams", "widgets", "--team", "acme", "--json"]],
+  ])("missing required arguments exits 2 without writing: %j", async (args) => {
+    const { deps, writes } = world();
+    expect(await runExpectingProcessExit(() => teamActions.teamMembersSet(args, {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ contract: 1, error: { code: "usage" } });
+    expect(writes).toEqual([]);
+  });
+
+  test.each([["team owner", true], ["member", false]] as const)("a %s gets the flat refusal envelope and no write", async (_role, ownsTeam) => {
+    const { deps, writes } = world("dev2", ownsTeam);
+    expect(await runExpectingProcessExit(() => teamActions.teamMembersSet(["dev1", "--teams", "gadgets", "--team", "acme", "--json"], {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ contract: 1, error: { code: "team-pull-only" } });
+    expect(writes).toEqual([]);
+  });
+
+  test("policy refusal is drawn as refused for a person", async () => {
+    const { deps, writes } = world("dev2");
+    const captured = captureOut();
+    try {
+      expect(await runExpectingProcessExit(() => teamActions.teamMembersSet(["dev1", "--teams", "gadgets", "--team", "acme"], {}, deps))).toBe(2);
+      expect(captured.stderr()).toContain("[refused]");
+      expect(captured.stderr()).not.toContain("[failed]");
+    } finally { captured.restore(); }
+    expect(writes).toEqual([]);
   });
 });

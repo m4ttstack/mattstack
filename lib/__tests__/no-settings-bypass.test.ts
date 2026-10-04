@@ -63,6 +63,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "lib/skills/init.ts": { count: 2, reason: "reads each org clone's team folders through the InitFs seam; getSetting reads only this Mac's org from HOME" },
   },
   "store file": {
+    "lib/team/members.ts": { count: 2, reason: "checks org roster ownership before validation and immediately before writing" },
     "lib/team/team-names.ts": { count: 1, reason: "checks named team folders exist before an org roster write" },
     "commands/home.ts": { count: 1, reason: "existence probe listing adoptable machine profiles" },
     "lib/command-tree-def.ts": { count: 4, reason: "help hints naming where --scope writes" },

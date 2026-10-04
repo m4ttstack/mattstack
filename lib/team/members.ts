@@ -38,6 +38,7 @@ import { revokeRead, type RevokeAccess } from "./forge.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { scrub } from "./redact.ts";
 import { assertMayWrite } from "./roles.ts";
+import { assertTeamFolders } from "./team-names.ts";
 import { assertCurrentOrg, readTeamLocal } from "./team-local.ts";
 import { openReply } from "./invite-crypto.ts";
 import { readInviteRecords, removeInviteRecord } from "./invite-records.ts";
@@ -185,6 +186,28 @@ export function realMembersSeams(): MembersSeams {
 export function teamRemote(p: Probes, slug: string): string | null {
   const raw = p.readFile(`${p.home}/.mattstack/teams/${slug}/.git/config`);
   return raw !== null ? parseOriginUrl(raw) : null;
+}
+
+export interface MembersSetResult {
+  username: string;
+  teams: string[];
+  previous: string[];
+}
+
+export function membersSetTeams(p: Probes, seams: MembersSeams, slug: string, handle: string, teams: string[]): MembersSetResult {
+  assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
+  assertCurrentOrg(slug, seams.currentOrg(), "team members set");
+  assertTeamFolders(p, slug, teams);
+  const roster = readRoster(seams, slug);
+  const entry = roster.find((member) => sameUser(member.username, handle));
+  if (!entry) {
+    throw new UserActionableError("not-a-member", `${handle} is not in this org yet`, {}, { next: `rt team invite --handle ${handle} --teams <team>` });
+  }
+  const previous = Array.isArray(entry.teams) ? entry.teams.filter((team): team is string => typeof team === "string") : [];
+  const next = [...new Set(teams)];
+  assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
+  seams.writeSetting("mattstack.roster", roster.map((member) => member === entry ? { ...member, teams: next } : member), "org");
+  return { username: entry.username, teams: next, previous };
 }
 
 export interface MembersSyncResult {
