@@ -17,6 +17,9 @@ import { rtBinaryPath } from "../lib/dev-mode.ts";
 import { DEV_TRAY_APP_NAME, TRAY_APP_BUNDLE, TRAY_APP_NAME, trayAppPath } from "../lib/rt-paths.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { installShellIntegration } from "../lib/shell-integration.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 import { enableDevMode, installProdRt, resolveStoredSourcePath } from "./settings.ts";
 
 export interface TakeoverSeams {
@@ -26,7 +29,8 @@ export interface TakeoverSeams {
   /** The prod app bundle this compiled rt runs from, or null from source. */
   ownProdBundle: () => string | null;
   log: (line: string) => void;
-  error: (line: string) => void;
+  fail: (failure: out.FailureInput) => void;
+  print: (...blocks: Block[]) => void;
   exit: (code: number) => never;
 }
 
@@ -35,8 +39,9 @@ function realSeams(): TakeoverSeams {
     exists: existsSync,
     resolveSourcePath: resolveStoredSourcePath,
     ownProdBundle: () => (buildFlavor() === "prod" ? bundleRootFromExec() : null),
-    log: (line) => console.log(line),
-    error: (line) => console.error(line),
+    log: (line) => out.payload(`${line}\n`),
+    fail: out.fail,
+    print: out.print,
     exit: (code) => process.exit(code),
   };
 }
@@ -87,9 +92,9 @@ async function waitUntilGone(sockPath: string, label: string): Promise<boolean> 
   }
 }
 
-function fail(seams: TakeoverSeams, json: boolean, code: string, message: string): void {
+function fail(seams: TakeoverSeams, json: boolean, code: string, message: string, failure: out.FailureInput): void {
   if (json) seams.log(JSON.stringify(envelope({ ok: false, error: { code, message } })));
-  else seams.error(`rt flavor takeover: ${message}`);
+  else seams.fail(failure);
   seams.exit(2);
 }
 
@@ -98,7 +103,7 @@ export async function flavorTakeover(args: string[], _ctx: CommandContext = {}, 
   const json = args.includes("--json");
   const target = args.find((a) => !a.startsWith("--"));
   if (target !== "dev" && target !== "prod") {
-    fail(seams, json, "usage", "usage: rt flavor takeover <dev|prod>");
+    fail(seams, json, "usage", "usage: rt flavor takeover <dev|prod>", usageFailure("Which app should this Mac run?", "rt flavor takeover <dev|prod>"));
     return;
   }
   const other = otherFlavor(target);
@@ -108,13 +113,19 @@ export async function flavorTakeover(args: string[], _ctx: CommandContext = {}, 
   if (target === "dev") {
     sourcePath = seams.resolveSourcePath();
     if (!sourcePath) {
-      fail(seams, json, "no-source-path", "no rt source checkout is known; set one with: rt settings source-path <path>");
+      fail(seams, json, "no-source-path", "no rt source checkout is known; set one with: rt settings source-path <path>", {
+        title: "rt does not know where your rt source is",
+        next: out.cmd("rt settings source-path <path>"),
+      });
       return;
     }
   } else {
     prodBinary = join(seams.ownProdBundle() ?? trayAppPath(seams.exists), RT_BUNDLE_PATH);
     if (!seams.exists(prodBinary)) {
-      fail(seams, json, "no-prod-app", `${TRAY_APP_BUNDLE} is not installed, so there is no compiled rt to link at ${rtBinaryPath()}`);
+      fail(seams, json, "no-prod-app", `${TRAY_APP_BUNDLE} is not installed, so there is no compiled rt to link at ${rtBinaryPath()}`, {
+        title: `${TRAY_APP_BUNDLE} is not installed`,
+        why: "The prod app carries the rt this Mac would run.",
+      });
       return;
     }
   }
@@ -132,7 +143,10 @@ export async function flavorTakeover(args: string[], _ctx: CommandContext = {}, 
       lines.push(`${rtBinaryPath()} links ${prodBinary}`);
     }
   } catch (err) {
-    fail(seams, json, "local-write", `could not point ${rtBinaryPath()} at the ${target} app: ${(err as Error).message}`);
+    fail(seams, json, "local-write", `could not point ${rtBinaryPath()} at the ${target} app: ${(err as Error).message}`, {
+      title: `rt could not switch this Mac to the ${target} app`,
+      why: (err as Error).message,
+    });
     return;
   }
 
@@ -187,6 +201,9 @@ export async function flavorTakeover(args: string[], _ctx: CommandContext = {}, 
     })));
     return;
   }
-  for (const line of lines) seams.log(`  ${line}`);
-  seams.log(`  this Mac now runs the ${target} app`);
+  seams.print(...takeoverBlocks(target, lines));
+}
+
+export function takeoverBlocks(target: Flavor, lines: string[]): Block[] {
+  return [out.line("done", `This Mac now runs the ${target} app`), ...(lines.length > 0 ? [out.verbatim(lines, "what changed")] : [])];
 }
