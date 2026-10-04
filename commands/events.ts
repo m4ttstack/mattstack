@@ -13,6 +13,7 @@
 
 import { daemonQuery } from "../lib/daemon-client.ts";
 import { parseDuration } from "../lib/duration.ts";
+import * as out from "../lib/ui/out.ts";
 export { parseDuration };
 
 const DAEMON_WAIT_MS = 240_000;          // daemon clamps to this too
@@ -24,7 +25,7 @@ export function nextWaitMs(deadline: number | null, now: number): number {
 }
 
 function fail(msg: string): never {
-  console.error(`rt events: ${msg}`);
+  out.diagnostic(`rt events: ${msg}\n`);
   process.exit(1);
 }
 
@@ -61,7 +62,7 @@ export async function eventsEmit(args: string[]): Promise<void> {
   const res = await daemonQuery("events:emit", { topic, payload }, 10_000);
   if (!res) fail("daemon unavailable — the event bus needs the rt daemon (rt daemon start)");
   if (!res.ok) fail(res.error ?? "emit failed");
-  console.log(JSON.stringify({ ok: true, id: res.data.id }));
+  out.json({ ok: true, id: res.data.id });
 }
 
 /** Shared poll loop for wait (one round) and tail (endless). */
@@ -88,13 +89,13 @@ export async function eventsWait(args: string[]): Promise<void> {
   while (true) {
     const waitMs = nextWaitMs(deadline, Date.now());
     if (waitMs === 0) {
-      console.log(JSON.stringify({ ok: true, timedOut: true, cursor: after ?? null }));
+      out.json({ ok: true, timedOut: true, cursor: after ?? null });
       process.exit(124);
     }
     const data = await pollOnce(pattern, after, waitMs);
     after = data.cursor; // ALWAYS thread the cursor — empty responses included
     if (data.events.length) {
-      console.log(JSON.stringify({ ok: true, events: data.events, cursor: data.cursor }));
+      out.json({ ok: true, events: data.events, cursor: data.cursor });
       return;
     }
   }
@@ -114,7 +115,7 @@ export async function eventsList(args: string[]): Promise<void> {
   const res = await daemonQuery("events:list", payload, 10_000);
   if (!res) fail("daemon unavailable — the event bus needs the rt daemon (rt daemon start)");
   if (!res.ok) fail(res.error ?? "list failed");
-  console.log(JSON.stringify({ ok: true, events: res.data.events, cursor: res.data.cursor }));
+  out.json({ ok: true, events: res.data.events, cursor: res.data.cursor });
 }
 
 export async function eventsTail(args: string[]): Promise<void> {
@@ -131,12 +132,12 @@ export async function eventsTail(args: string[]): Promise<void> {
   const res = await daemonQuery("events:list", { pattern, after: listAfter }, 10_000);
   if (!res) fail("daemon unavailable — the event bus needs the rt daemon (rt daemon start)");
   if (!res.ok) fail(res.error ?? "tail failed");
-  for (const ev of res.data.events) console.log(JSON.stringify(ev));
+  for (const ev of res.data.events) out.json(ev);
   after = res.data.cursor;
 
   while (true) {
     const data = await pollOnce(pattern, after, DAEMON_WAIT_MS);
     after = data.cursor;
-    for (const ev of data.events) console.log(JSON.stringify(ev));
+    for (const ev of data.events) out.json(ev);
   }
 }
