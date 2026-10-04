@@ -255,7 +255,7 @@ describe("createTeam", () => {
     expect(readTeamLocal(p, "acme")).toEqual({ createdByRt: true, joinedByRt: false, rtMayManageMembership: false, forgeUsername: "dev1" });
   });
 
-  test("second call with the same remote is idempotent: created:false, zero git calls, intent (re)written", async () => {
+  test("second call with the same remote only checks the committed scaffold and refreshes intent", async () => {
     const p = gitAwareFakeProbes("/home/x");
     await createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false }, new FakeAgeKeySeam(), seams);
     p.calls.exec.length = 0;
@@ -265,7 +265,7 @@ describe("createTeam", () => {
 
     expect(result.created).toBe(false);
     expect(result.remote).toBe("https://github.com/acme/repo.git");
-    expect(p.calls.exec).toEqual([]);
+    expect(p.calls.exec).toEqual([["git", "cat-file", "-e", "HEAD:mattstack/mattstack.jsonc"]]);
     // The intent file is refreshed (finding 8), but no NEW path is ever written on the idempotent path — no scaffold file is rewritten.
     expect(Object.keys(p.calls.writes).sort()).toEqual(writePathsBefore);
     expect(readIntent(p)?.team?.remote).toBe("https://github.com/acme/repo.git");
@@ -393,7 +393,7 @@ describe("createTeam", () => {
       const result = await createTeam(p, { name: "Acme", remote, others: false }, new FakeAgeKeySeam(), seams);
 
       expect(result.created).toBe(false);
-      expect(p.calls.exec).toEqual([]);
+      expect(p.calls.exec).toEqual([["git", "cat-file", "-e", "HEAD:mattstack/mattstack.jsonc"]]);
       // The only permitted write on this path is the runtime intent — every zone file is untouched.
       expect(Object.keys(p.calls.writes)).toEqual(["/home/x/.mattstack/rt/setup-intent.json"]);
       expect(p.readFile(join(dir, "mattstack", "org", "settings.org.jsonc"))).toBe(customSettings);
@@ -625,5 +625,64 @@ describe("creator commits with an existing index", () => {
         rmSync(home, { recursive: true, force: true });
       }
     });
+  }
+});
+
+describe("fresh scaffold failure recovery", () => {
+  for (const failure of ["add", "commit"] as const) {
+    for (const known of [true, false]) {
+      test(`initial ${failure} failure retries every scaffold path with ${known ? "known" : "unknown"} forge login`, async () => {
+        const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-fresh-scaffold-retry-")));
+        const originalHome = process.env.HOME;
+        process.env.HOME = home;
+        try {
+          const p = createRealProbes();
+          const dir = join(home, ".mattstack", "teams", "acme");
+          const run = (args: string[]) => {
+            const result = Bun.spawnSync(["git", ...args], { cwd: dir, env: childEnv(), stdout: "pipe", stderr: "pipe" });
+            expect(result.exitCode).toBe(0);
+            return result.stdout.toString().trim();
+          };
+          let failing = true;
+          const realExec = p.exec;
+          p.exec = async (argv, opts) => {
+            if (argv[0] === "xcode-select") return { code: 0, stdout: "/fake-clt", stderr: "" };
+            if (failing && argv[0] === "git" && argv[1] === failure) return { code: 1, stdout: "", stderr: `fake initial ${failure} failure` };
+            if (argv.includes("push")) throw new Error("create must never push");
+            return realExec(argv, opts);
+          };
+          const opts = { name: "Acme", remote: "https://github.com/acme/repo.git", others: false, firstTeam: "widgets" };
+          const forge = known ? seams : { forgeLogin: async () => null, forgeToken: async () => null };
+          await expect(createTeam(p, opts, new FakeAgeKeySeam(), forge)).rejects.toMatchObject({ code: failure === "add" ? "git-add-failed" : "git-commit-failed" });
+          writeFileSync(join(dir, "unrelated.txt"), "original\n");
+          run(["add", "--", "unrelated.txt"]);
+          run(["commit", "-m", "fixture unrelated", "--", "unrelated.txt"]);
+          writeFileSync(join(dir, "unrelated.txt"), "staged\n");
+          run(["add", "--", "unrelated.txt"]);
+          writeFileSync(join(dir, "unrelated.txt"), "working\n");
+          failing = false;
+          const retried = await createTeam(p, opts, new FakeAgeKeySeam(), forge);
+          expect(retried.rolesDeferred).toBe(known ? undefined : true);
+          const paths = ["mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/widgets/settings.team.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", ".gitignore"];
+          for (const path of paths) expect(run(["show", `HEAD:${path}`])).toBe(p.readFile(join(dir, path))!.trim());
+          expect(retried).toMatchObject({ created: true, team: "widgets" });
+          expect(run(["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]).split("\n").sort()).toEqual([...paths].sort());
+          expect(run(["show", "HEAD:unrelated.txt"])).toBe("original");
+          expect(run(["show", ":unrelated.txt"])).toBe("staged");
+          expect(p.readFile(join(dir, "unrelated.txt"))).toBe("working\n");
+          expect(readTeamLocal(p, "acme").creatorPending).toEqual(known ? undefined : { team: "widgets", agePublicKey: FAKE_PUBLIC_KEY });
+          const org = parseSettingsBody(p.readFile(join(dir, "mattstack", "org", "settings.org.jsonc"))!);
+          if (known) expect(org["mattstack.org"]).toEqual({ admins: ["dev1"], teams: { widgets: { owners: ["dev1"] } } });
+          else {
+            expect(readTeamLocal(p, "acme").forgeUsername).toBeUndefined();
+            expect(org["mattstack.org"]).toBeUndefined();
+            expect(org["mattstack.roster"]).toBeUndefined();
+          }
+        } finally {
+          process.env.HOME = originalHome;
+          rmSync(home, { recursive: true, force: true });
+        }
+      });
+    }
   }
 });

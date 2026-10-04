@@ -481,10 +481,10 @@ describe("team.create", () => {
     const second = await teamCreateStep.run(secondCtx);
 
     expect(second.state).toBe("done");
-    // createTeam's early return means the ONLY exec call left for the second
-    // run is publishTeam's own `git push` — never another
-    // init/remote-add/add/commit, which real idempotency depends on skipping.
-    expect(p.calls.exec.slice(execCallsBefore)).toEqual([["git", "push", "-u", "origin", "main"]]);
+    expect(p.calls.exec.slice(execCallsBefore)).toEqual([
+      ["git", "cat-file", "-e", "HEAD:mattstack/mattstack.jsonc"],
+      ["git", "push", "-u", "origin", "main"],
+    ]);
   });
 
   test("push-denied -> failed with a credentials remedy, from an explicit create intent", async () => {
