@@ -910,7 +910,7 @@ export async function showLogs(args: string[] = []): Promise<void> {
   const terminal = args.includes("--terminal") || args.includes("-t");
 
   if (!existsSync(LOG_DIR)) {
-    console.log(`\n  ${dim}no daemon logs yet... start the daemon first${reset}\n`);
+    out.print(out.line("skipped", "No daemon logs yet"), out.callout("next", out.cmd("rt daemon start")));
     return;
   }
 
@@ -928,15 +928,11 @@ export async function showLogs(args: string[] = []): Promise<void> {
         ping && (ping as any).ok && typeof (ping as any).startedAt === "number"
           ? ((ping as any).startedAt as number)
           : null;
-      const { show, header } = nativeStderrDisplay(mtimeMs, daemonStartedAt);
+      const { show } = nativeStderrDisplay(mtimeMs, daemonStartedAt);
       if (show) {
-        console.log(`\n  ${red}${bold}${header}${reset} ${dim}(${stderrPath})${reset}`);
-        for (const line of content.split("\n").slice(-20)) {
-          console.log(`  ${red}${line}${reset}`);
-        }
-        console.log("");
+        out.print(out.line("warn", "The daemon crashed since it last started", `captured ${new Date(mtimeMs).toLocaleString()}`), out.verbatim(content.split("\n").slice(-20), "what it printed"));
       } else {
-        console.log(`\n  ${dim}${header}${reset}\n`);
+        out.print(out.line("skipped", "No crash since this daemon started"));
       }
     }
   }
@@ -955,7 +951,7 @@ export async function showLogs(args: string[] = []): Promise<void> {
     if (!prev || mtime > prev.mtime) newestPerSurface.set(surface, { f, mtime });
   }
   if (newestPerSurface.size === 0) {
-    console.log(`\n  ${dim}no log files in ${LOG_DIR}... start the daemon first${reset}\n`);
+    out.print(out.line("skipped", "No daemon logs yet"), out.callout("next", out.cmd("rt daemon start")));
     return;
   }
   const logPaths = [...newestPerSurface.values()]
@@ -993,8 +989,7 @@ async function runTerminalViewer(logPaths: string[]): Promise<void> {
       stdio: "inherit",
     });
   } else {
-    console.log(`  ${dim}tailing ${logPaths.join(", ")} via pino-pretty (Ctrl-C to stop)${reset}`);
-    console.log(`  ${dim}for a nicer interactive view: ${bold}brew install lnav${reset}\n`);
+    out.print(out.line("running", "Following the daemon's logs", "Ctrl-C to stop"), out.callout("tip", ["For a richer view, install lnav: ", out.cmd("brew install lnav")]));
     // sh -c pipeline avoids Bun's stream-as-stdio limitation between two spawns.
     const quoted = logPaths.map(p => JSON.stringify(p)).join(" ");
     viewer = spawn("sh", ["-c", `tail -F ${quoted} | bunx pino-pretty`], {
@@ -1119,8 +1114,8 @@ export interface WebViewerSeams {
   openUrl(url: string): void;
   onSignal(signal: "SIGINT" | "SIGTERM", cb: () => void): void;
   exit(code: number): never;
-  log(line: string): void;
-  error(line: string): void;
+  print(...blocks: Block[]): void;
+  fail(f: out.FailureInput): void;
 }
 
 const REAL_WEB_VIEWER_SEAMS: WebViewerSeams = {
@@ -1137,8 +1132,8 @@ const REAL_WEB_VIEWER_SEAMS: WebViewerSeams = {
   openUrl: (url) => { spawnSync("open", [url]); },
   onSignal: (signal, cb) => { process.on(signal, cb); },
   exit: (code) => process.exit(code),
-  log: (line) => console.log(line),
-  error: (line) => console.error(line),
+  print: (...blocks) => out.print(...blocks),
+  fail: (f) => out.fail(f),
 };
 
 const LOGDY_PORT = 5544;
@@ -1157,16 +1152,15 @@ export async function runWebViewer(
 ): Promise<void> {
   const bin = seams.findLogdy();
   if (!bin) {
-    seams.error("logdy not found (checked mattstack.app, PATH, /opt/homebrew/bin, /usr/local/bin, ~/.local/bin)");
-    seams.error(`  ${dim}install: ${bold}brew install logdy${reset}${dim}, or use ${bold}rt daemon logs --terminal${reset}`);
+    seams.fail({ title: "rt could not find logdy", why: "It ships with the app, and it was not there or on your PATH.", next: [out.cmd("brew install logdy"), ", or ", out.cmd("rt daemon logs --terminal")] });
     return seams.exit(1);
   }
 
   const configPath = seams.materializeConfig();
 
   const url = `http://localhost:${LOGDY_PORT}`;
-  seams.log(`  ${green}●${reset} starting logdy on ${url}`);
-  seams.log(`  ${dim}tailing: ${logPaths.join(", ")}${reset}`);
+  seams.print(out.line("running", "Starting the log viewer", url));
+  logCliEvent("debug", "daemon", "logdy follows", { paths: logPaths });
 
   const logdy = seams.spawnLogdy(bin, [
     "follow", ...logPaths,
@@ -1191,18 +1185,18 @@ export async function runWebViewer(
   // whatever service answered on the port.
   let answered = false;
   logdy.onExit((code) => {
-    if (!answered) seams.error(`logdy exited ${code ?? "on a signal"} before answering on :${LOGDY_PORT}`);
+    if (!answered) seams.fail({ title: "The log viewer stopped before it opened", why: `logdy exited ${code ?? "on a signal"}.` });
     return stop(code ?? 0);
   });
 
   answered = await seams.waitForPort(LOGDY_PORT, LOGDY_ANSWER_TIMEOUT_MS);
   if (!answered) {
-    seams.error(`logdy did not answer on :${LOGDY_PORT} within ${LOGDY_ANSWER_TIMEOUT_MS / 1000}s`);
+    seams.fail({ title: "The log viewer did not start in time", why: `Nothing answered on port ${LOGDY_PORT} within ${LOGDY_ANSWER_TIMEOUT_MS / 1000} seconds.` });
     return stop(1);
   }
   if (opts.open) seams.openUrl(url);
 
-  seams.log(`  ${green}✓${reset} viewer running on ${url} ... ${dim}Ctrl-C to stop${reset}\n`);
+  seams.print(out.line("running", "The log viewer is open", `${url}, Ctrl-C to stop`));
 }
 
 /** Poll TCP connect until the port is accepting connections, up to timeoutMs. */
