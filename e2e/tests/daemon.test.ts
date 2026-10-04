@@ -192,7 +192,7 @@ describe("daemon", () => {
 
       expect(result.exitCode).toBe(0);
       const output = result.stdout;
-      expect(output).toContain("installed");
+      expect(output).toContain("The daemon is");
     }, 30_000);
   });
 
@@ -210,7 +210,7 @@ describe("daemon", () => {
       const result = await rt(["daemon", "status"], { home });
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("not installed");
+      expect(result.stdout).toContain("The daemon is not installed");
     });
   });
 });

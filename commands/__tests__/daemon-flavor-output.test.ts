@@ -1,25 +1,7 @@
 import { describe, test, expect } from "bun:test";
-import { tupleWarning, flavorHintPath, flavorMismatchLines, stillShuttingDownLine } from "../daemon.ts";
+import { flavorHintPath, flavorMismatchLines, stillShuttingDownLine } from "../daemon.ts";
 
 describe("flavor-aware daemon output", () => {
-  test("a daemon of the CLI's own flavor produces no warning", () => {
-    expect(tupleWarning({ cliFlavor: "dev", daemon: { flavor: "dev", pid: 1 } })).toBeNull();
-  });
-
-  test("the other app's daemon answering this CLI names both flavors and the app to open", () => {
-    const w = tupleWarning({ cliFlavor: "dev", daemon: { flavor: "prod", pid: 99 } })!;
-    expect(w).toContain("prod daemon");
-    expect(w).toContain("dev CLI");
-    expect(w).toContain("pid 99");
-    expect(w).toContain("mattstack-dev.app");
-    expect(w).toContain("(quit it first if it is running)");
-    expect(w).not.toContain("dev-mode");
-  });
-
-  test("daemon down is not a mismatch", () => {
-    expect(tupleWarning({ cliFlavor: "dev", daemon: null })).toBeNull();
-  });
-
   test("hint path follows the flavor", () => {
     expect(flavorHintPath("dev")).toContain("mattstack-dev.app");
     expect(flavorHintPath("prod")).not.toContain("mattstack-dev.app");

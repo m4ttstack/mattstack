@@ -23,6 +23,12 @@ import { repoLabelQualified } from "../lib/repo-label.ts";
 import { basename, join } from "path";
 import { reverseLookupByName } from "../lib/repo-arg.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
+import { withTransientStep } from "../lib/ui/transient-step.ts";
+import { logCliEvent } from "../lib/cli-logger.ts";
+
 import { bold, dim, green, yellow, red, reset } from "../lib/tui.ts";
 import {
   isDaemonInstalled,
@@ -84,13 +90,6 @@ export function formatFreshnessParts(
       : "no events yet";
     return `${repoLabelQualified(repo)} ${f.state} (${age})`;
   });
-}
-
-/** Null when coherent OR when no daemon answers: a down daemon is a liveness problem, not a flavor mismatch. */
-export function tupleWarning(t: FlavorTuple): string | null {
-  if (!t.daemon || t.daemon.flavor === t.cliFlavor) return null;
-  const pid = t.daemon.pid ? ` (pid ${t.daemon.pid})` : "";
-  return `a ${t.daemon.flavor} daemon${pid} answers this ${t.cliFlavor} CLI. Fix: open ${flavorHintPath(t.cliFlavor)} (quit it first if it is running)`;
 }
 
 /** Bundle to point an "open it" hint at for `flavor`. */
@@ -457,8 +456,8 @@ export async function showStatus(args: string[] = []): Promise<void> {
   const json = args.includes("--json");
 
   if (!isDaemonInstalled()) {
-    if (json) return void console.log(JSON.stringify({ ok: true, state: "not-installed" }));
-    console.log(`  ${dim}○${reset} not installed ${dim}(run rt daemon install)${reset}\n`);
+    if (json) return void out.json({ ok: true, state: "not-installed" });
+    out.print(...statusBlocks({ state: "not-installed" }, Date.now()).print);
     return;
   }
 
@@ -505,145 +504,99 @@ export async function showStatus(args: string[] = []): Promise<void> {
     pingEventLoop: (pingResp as any)?.eventLoop,
   });
 
-  if (json) return void console.log(JSON.stringify({ ok: true, ...verdict }));
+  if (json) return void out.json({ ok: true, ...verdict });
 
-  for (const line of statusLines(verdict, Date.now())) console.log(line);
-
+  const shown = statusBlocks(verdict, Date.now());
+  const extra: Block[] = [];
   if (verdict.state === "running") {
-    // `status`'s reply, already fetched above, carries `data.identity` — reuse
-    // it rather than a second probeSocketHolder() round-trip.
-    const identity = verdict.data.identity as
-      | { flavor: "dev" | "prod"; version: string; sourceRev: string | null }
-      | undefined;
-    if (identity) {
-      printFlavorInfo({ flavor: identity.flavor, version: identity.version, sourceRev: identity.sourceRev, pid: verdict.data.pid ?? null });
-    }
-    // S077: a declared pool this machine has never opted into (unowned default
-    // is now disabled) would otherwise build nothing with no visible reason.
+    const identity = verdict.data.identity as { flavor: "dev" | "prod"; version: string; sourceRev: string | null } | undefined;
+    if (identity) extra.push(...flavorInfoBlocks({ flavor: identity.flavor, version: identity.version, sourceRev: identity.sourceRev, pid: verdict.data.pid ?? null }, processFlavor()));
     const worktreePool = verdict.data.worktreePool as { dormant: boolean; message?: string } | undefined;
-    if (worktreePool?.dormant) {
-      console.log(`    ${dim}${worktreePool.message}${reset}`);
-    }
+    if (worktreePool?.dormant && worktreePool.message) extra.push(out.callout("note", worktreePool.message));
   } else if (verdict.state === "degraded") {
-    // `status` timed out or errored, but the daemon proved it's alive — the
-    // flavor cross-check matters most right here, so it earns its own ping.
-    printFlavorInfo(await probeSocketHolder());
+    extra.push(...flavorInfoBlocks(await probeSocketHolder(), processFlavor()));
   }
-
-  console.log(`    ${dim}config: ~/.mattstack/rt/daemon.json${reset}`);
-  console.log(`    ${dim}logs: ~/.mattstack/rt/logs/ ${reset}${dim}(view with: rt daemon logs)${reset}`);
-  console.log("");
+  if (shown.print.length + extra.length > 0) out.print(...shown.print, ...extra);
+  if (shown.failure) out.fail(shown.failure);
 }
 
-/** Renders from whatever identity the caller has on hand — full ping/status data, or just a probeSocketHolder() flavor+pid. */
-function printFlavorInfo(daemon: { flavor: string; pid: number | null; version?: string; sourceRev?: string | null } | null): void {
-  if (!daemon) return;
-  const rev = daemon.flavor === "dev" && daemon.sourceRev ? ` (${daemon.sourceRev})` : "";
-  const versionPart = daemon.version ? ` · ${daemon.version}${rev}` : "";
-  console.log(`    ${dim}${daemon.flavor}${versionPart}${reset}`);
-
-  const tuple: FlavorTuple = { cliFlavor: processFlavor(), daemon: { flavor: daemon.flavor, pid: daemon.pid } };
-  const warning = tupleWarning(tuple);
-  if (warning) console.log(`    ${yellow}⚠${reset} ${warning}`);
+export function tupleWarningBlocks(t: FlavorTuple): Block[] {
+  if (!t.daemon || t.daemon.flavor === t.cliFlavor) return [];
+  return [
+    out.line("warn", `A ${t.daemon.flavor} daemon is answering this ${t.cliFlavor} rt`, t.daemon.pid ? `pid ${t.daemon.pid}` : undefined),
+    out.callout("next", out.cmd(`open ${flavorHintPath(t.cliFlavor)}`)),
+    out.callout("note", "Quit it first if it is running."),
+  ];
 }
 
-/**
- * Render a verdict to the lines the operator reads. Pure — `now` is injected so
- * the freshness ages are deterministic under test.
- */
-export function statusLines(verdict: DaemonStatusVerdict, now: number): string[] {
-  if (verdict.state === "running") {
-    const { pid, uptime, watchedRepos, cacheEntries } = verdict.data;
-    const lines = [
-      `  ${green}●${reset} running ${dim}(SMAppService · pid ${pid} · uptime ${formatUptime(uptime)})${reset}`,
-      `    ${dim}watching: ${watchedRepos} repo${watchedRepos !== 1 ? "s" : ""}${reset}`,
-      `    ${dim}cache: ${cacheEntries} entries${reset}`,
-    ];
+export function flavorInfoBlocks(daemon: { flavor: string; pid: number | null; version?: string; sourceRev?: string | null } | null, cliFlavor: Flavor): Block[] {
+  if (!daemon) return [];
+  const rev = daemon.flavor === "dev" && daemon.sourceRev ? `, ${daemon.sourceRev}` : "";
+  const version = daemon.version ? `, ${daemon.version}${rev}` : "";
+  return [out.kv("version", `${daemon.flavor}${version}`), ...tupleWarningBlocks({ cliFlavor, daemon: { flavor: daemon.flavor, pid: daemon.pid } })];
+}
 
-    const freshness = verdict.data.freshness as
-      | Record<string, { state: string; lastSyncedAt: string | null }>
-      | undefined;
-    if (freshness && Object.keys(freshness).length > 0) {
-      lines.push(`    ${dim}events: ${formatFreshnessParts(freshness, now).join(" · ")}${reset}`);
+const NOT_SERVING: Record<"booting" | "wedged" | "quarantined", string> = {
+  booting: "It is still starting up.",
+  wedged: "It started, then stopped answering; it may be stuck.",
+  quarantined: "It reset a damaged database and has not answered since.",
+};
+
+export function statusBlocks(verdict: DaemonStatusVerdict, now: number): { print: Block[]; failure?: out.FailureInput } {
+  switch (verdict.state) {
+    case "running": {
+      const { pid, uptime, watchedRepos, cacheEntries } = verdict.data;
+      const blocks: Block[] = [
+        out.line("running", "The daemon is running", `pid ${pid}, up ${formatUptime(uptime)}`),
+        out.kv("watching", `${watchedRepos} repo${watchedRepos !== 1 ? "s" : ""}`),
+        out.kv("cache", `${cacheEntries} entries`),
+      ];
+      const freshness = verdict.data.freshness as Record<string, { state: string; lastSyncedAt: string | null }> | undefined;
+      if (freshness && Object.keys(freshness).length > 0) blocks.push(out.kv("events", formatFreshnessParts(freshness, now).join(" · ")));
+      const el = verdict.data.eventLoop as { maxLagMs: number } | undefined;
+      if (el && el.maxLagMs >= 500) blocks.push(out.kv("event loop", `slowest pause ${el.maxLagMs} ms`));
+      const health = verdict.data.health as { level: string; reasons: string[] } | undefined;
+      if (health && health.level !== "ok") {
+        blocks.push(out.line("warn", `The daemon reports it is ${health.level}`));
+        if (health.reasons.length > 0) blocks.push(out.verbatim(health.reasons, "why"));
+      }
+      return { print: blocks };
     }
-
-    const health = verdict.data.health as { level: string; reasons: string[] } | undefined;
-    if (health && health.level !== "ok") {
-      const dot = health.level === "unhealthy" ? red : yellow;
-      lines.push(`    ${dot}health: ${health.level}${reset}`);
-      for (const r of health.reasons) lines.push(`      ${dim}- ${r}${reset}`);
+    case "degraded": {
+      const why =
+        verdict.reason === "error"
+          ? `Its status command failed: ${verdict.detail ?? "unknown error"}`
+          : verdict.eventLoop && verdict.eventLoop.maxLagMs > 0
+            ? `It answered a ping, but status timed out; its slowest pause was ${verdict.eventLoop.maxLagMs} ms${verdict.eventLoop.lastStallCmd ? `, in ${verdict.eventLoop.lastStallCmd}` : ""}.`
+            : "It answered a ping, but status timed out, probably while it syncs.";
+      return {
+        print: [
+          out.line("warn", "The daemon is running but did not report its status", verdict.pid ? `pid ${verdict.pid}` : undefined),
+          out.callout("why", why),
+          out.callout("next", out.cmd("rt daemon logs")),
+        ],
+      };
     }
-    const el = verdict.data.eventLoop as { maxLagMs: number } | undefined;
-    if (el && el.maxLagMs >= 500) lines.push(`    ${dim}event loop: maxLag ${el.maxLagMs}ms${reset}`);
-    return lines;
-  }
-
-  if (verdict.state === "degraded") {
-    // Up, but `status` did not come back. Saying "not running" here would send
-    // the operator to `rt daemon start` against a daemon that is already up.
-    const lines = [`  ${yellow}●${reset} running, but not reporting status`];
-    if (verdict.pid) lines.push(`    ${dim}pid: ${verdict.pid}${reset}`);
-    if (verdict.reason === "error") {
-      lines.push(`    ${dim}status command failed: ${verdict.detail ?? "unknown error"}${reset}`);
-    } else if (verdict.eventLoop && verdict.eventLoop.maxLagMs > 0) {
-      const el = verdict.eventLoop;
-      lines.push(`    ${dim}answers ping, status timed out: event loop maxLag ${el.maxLagMs}ms${el.lastStallCmd ? ` (last stall in ${el.lastStallCmd})` : ""}${reset}`);
-    } else {
-      lines.push(`    ${dim}answers ping, but status timed out — likely mid-sync${reset}`);
+    case "parked":
+      return {
+        print: [
+          out.line("off", "This daemon is waiting", verdict.holderFlavor ? `the ${verdict.holderFlavor} daemon is running instead` : "another daemon is running instead"),
+          out.callout("next", out.cmd("rt daemon logs")),
+        ],
+      };
+    case "alive-not-serving": {
+      const why = verdict.detail === "stalled" ? `It has not checked in for ${Math.round((verdict.stalledForMs ?? 0) / 1000)} seconds.` : NOT_SERVING[verdict.detail];
+      return { print: [out.line("warn", "The daemon is running but not answering", `pid ${verdict.pid}`), out.callout("why", why), out.callout("next", out.cmd("rt daemon logs -t"))] };
     }
-    lines.push(`    ${dim}check: rt daemon logs${reset}`);
-    return lines;
+    case "crash-looping":
+      return { print: [], failure: { title: "The daemon keeps crashing", hint: `${verdict.failures} failures recently`, why: verdict.reason, next: out.cmd("rt daemon logs -t") } };
+    case "boot-failed":
+      return { print: [], failure: { title: "The daemon failed to start", hint: `while ${verdict.phase}`, why: verdict.reason, next: out.cmd("rt daemon start") } };
+    case "not-running":
+      return { print: [out.line("off", "The daemon is installed but not running", verdict.pid ? `last pid ${verdict.pid}` : undefined), out.callout("next", out.cmd("rt daemon start"))] };
+    case "not-installed":
+      return { print: [out.line("off", "The daemon is not installed"), out.callout("next", out.cmd("rt daemon install"))] };
   }
-
-  if (verdict.state === "parked") {
-    const lines = [`  ${yellow}◐${reset} parked ${dim}(pid ${verdict.pid}, another flavor owns rt.sock)${reset}`];
-    lines.push(
-      verdict.holderFlavor
-        ? `    ${dim}held by: ${verdict.holderFlavor}${reset}`
-        : `    ${dim}waiting for the other flavor's daemon to let go of rt.sock${reset}`,
-    );
-    lines.push(`    ${dim}check: rt daemon logs${reset}`);
-    return lines;
-  }
-
-  if (verdict.state === "alive-not-serving") {
-    const detailLine = {
-      booting: "still booting",
-      wedged: "reached ready but stopped answering (likely deadlocked)",
-      quarantined: "recovered from a corrupt db but still not answering",
-      stalled: `event loop stalled ${Math.round((verdict.stalledForMs ?? 0) / 1000)}s ago (no heartbeat)`,
-    }[verdict.detail];
-    return [
-      `  ${yellow}●${reset} process ${verdict.pid} is running but not answering rt.sock`,
-      `    ${dim}${detailLine}${reset}`,
-      `    ${dim}check: rt daemon logs -t${reset}`,
-    ];
-  }
-
-  if (verdict.state === "crash-looping") {
-    return [
-      `  ${red}●${reset} crash-looping ${dim}(${verdict.failures} failures recently)${reset}`,
-      `    ${dim}last reason: ${verdict.reason}${reset}`,
-      `    ${dim}check: rt daemon logs -t${reset}`,
-    ];
-  }
-
-  if (verdict.state === "boot-failed") {
-    return [
-      `  ${red}●${reset} boot failed ${dim}(phase: ${verdict.phase})${reset}`,
-      `    ${dim}reason: ${verdict.reason}${reset}`,
-      `    ${dim}run: rt daemon start${reset}`,
-    ];
-  }
-
-  if (verdict.state === "not-running") {
-    const lines = [`  ${red}●${reset} installed but not running`];
-    if (verdict.pid) lines.push(`    ${dim}last pid: ${verdict.pid}${reset}`);
-    lines.push(`    ${dim}run: rt daemon start${reset}`);
-    return lines;
-  }
-
-  return [];
 }
 
 // ─── Per-repo tracking (opt-in) ──────────────────────────────────────────────
