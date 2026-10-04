@@ -200,23 +200,7 @@ async function repoAndCwd(args: string[]): Promise<{ repo: string; cwd: string }
   return { repo: identity, cwd: process.cwd() };
 }
 
-function renderRecord(r: AgentRecord): string {
-  const bits = [
-    `${r.id}  ${repoLabel(r.repo)}  ${r.surface}`,
-    `provider ${r.provider}`,
-    `session ${r.sessionId}`,
-    r.handle && `chat ${r.name ?? r.handle}`,
-    r.model && `model ${r.model}`,
-    r.account && `account ${r.account}`,
-    r.yolo && "yolo",
-    r.paneId && `pane ${r.paneId}`,
-    r.finishedAt !== undefined && (r.exitCode !== undefined ? `exit ${r.exitCode}` : "finished"),
-    r.lastResumedAt !== undefined && "resumed",
-  ].filter(Boolean);
-  return bits.join("  |  ");
-}
-
-function recordRest(r: AgentRecord): string {
+function recordDetails(r: AgentRecord): string[] {
   return [
     `provider ${r.provider}`,
     `session ${r.sessionId}`,
@@ -227,14 +211,16 @@ function recordRest(r: AgentRecord): string {
     r.paneId && `pane ${r.paneId}`,
     r.finishedAt !== undefined && (r.exitCode !== undefined ? `exit ${r.exitCode}` : "finished"),
     r.lastResumedAt !== undefined && "resumed",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  ].filter(Boolean);
+}
+
+function renderRecord(r: AgentRecord): string {
+  return [`${r.id}  ${repoLabel(r.repo)}  ${r.surface}`, ...recordDetails(r)].join("  |  ");
 }
 
 function agentListBlocks(records: AgentRecord[]): Block[] {
   if (records.length === 0) return [out.line("skipped", "No agent handoffs yet")];
-  return [out.table(records.map((r) => [out.strong(r.id), repoLabel(r.repo), r.surface, out.dim(recordRest(r))]))];
+  return [out.table(records.map((r) => [out.strong(r.id), repoLabel(r.repo), r.surface, out.dim(recordDetails(r).join(" · "))]))];
 }
 
 async function runStart(args: string[]): Promise<void> {

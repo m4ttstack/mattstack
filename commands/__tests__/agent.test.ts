@@ -143,6 +143,13 @@ describe("agent list at a terminal", () => {
     expect(rows[1]).toMatch(/^ag-2 +sample-app +headless +provider claude · session s-1 · exit 1$/);
   });
 
+  test("optional details stay ordered in both record formats", () => {
+    const record = rec({ handle: "remy.k3f9", model: "opus", account: "acct-1", yolo: true, paneId: "w1:p2", finishedAt: 2, lastResumedAt: 3 });
+
+    expect(__test__.renderRecord(record)).toBe("ag-1  sample-app  herdr  |  provider claude  |  session s-1  |  chat remy.k3f9  |  model opus  |  account acct-1  |  yolo  |  pane w1:p2  |  finished  |  resumed");
+    expect(renderPlain(__test__.agentListBlocks([record]))).toMatch(/^ag-1 +sample-app +herdr +provider claude · session s-1 · chat remy\.k3f9 · model opus · account acct-1 · yolo · pane w1:p2 · finished · resumed\n$/);
+  });
+
   test("none says so", () => {
     expect(renderPlain(__test__.agentListBlocks([]))).toBe("[skipped] No agent handoffs yet\n");
   });
