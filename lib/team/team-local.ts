@@ -55,6 +55,8 @@ export interface TeamLocalRecord {
    * may spawn a forge CLI.
    */
   forgeUsername?: string;
+  /** This Mac's creator roles still need a forge login or a commit. */
+  creatorPending?: { team: string; agePublicKey?: string };
 }
 
 const RECORD_MODE = 0o600;
@@ -77,6 +79,9 @@ export function readTeamLocal(p: Pick<Probes, "readFile" | "home">, slug: string
       joinedByRt: parsed.joinedByRt === true,
       rtMayManageMembership: parsed.rtMayManageMembership === true,
       ...(typeof parsed.agePublicKey === "string" && parsed.agePublicKey.startsWith("age1") ? { agePublicKey: parsed.agePublicKey } : {}),
+      ...(parsed.creatorPending && typeof parsed.creatorPending.team === "string" ? {
+        creatorPending: { team: parsed.creatorPending.team, ...(typeof parsed.creatorPending.agePublicKey === "string" ? { agePublicKey: parsed.creatorPending.agePublicKey } : {}) },
+      } : {}),
       ...(typeof parsed.forgeUsername === "string" && parsed.forgeUsername.trim() !== "" ? { forgeUsername: parsed.forgeUsername.trim() } : {}),
     };
   } catch {

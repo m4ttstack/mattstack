@@ -2823,12 +2823,13 @@ export const TREE: Record<string, CommandNode> = {
     description: "Team repo: create, join, invite, publish, members",
     subcommands: {
       create: {
-        description: "Scaffold a fresh team zone (~/.mattstack/teams/<slug>) and set its remote — Install pushes it",
+        description: "Start an org for your team, with its first team inside",
         module: "./commands/team.ts",
         fn: "teamCreate",
         omitBehavior: "prompt",
         args: [
-          { name: "Name", type: "text", placeholder: "Acme", hint: "Team display name — slugified for the on-disk directory" },
+          { name: "Name", type: "text", placeholder: "Acme", hint: "The org's display name; its folder name is made from it" },
+          { name: "First team", flag: "--first-team", type: "text", placeholder: "widgets", hint: "The first team's name; the org's own name when left out" },
           { name: "Remote", flag: "--remote", type: "text", placeholder: "https://github.com/acme/mattstack-team-acme.git", hint: "An existing empty repo's URL" },
           { name: "Create repo", flag: "--create-repo", type: "text", placeholder: "acme", hint: "Owner (user or org) to create <owner>/mattstack-team-<slug> under via gh, instead of pasting --remote" },
           { name: "Others", flag: "--others", type: "boolean", default: false, hint: "Mark the team as having members beyond you" },

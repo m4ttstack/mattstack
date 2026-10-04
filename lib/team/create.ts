@@ -9,12 +9,16 @@
  * rather than a permanent `team-exists` wall or a silently empty remote.
  */
 
+import { applyEdits, modify, parse } from "jsonc-parser";
+import { orgStoreFile } from "./org-store.ts";
+import { publishTeam } from "./publish.ts";
+import { storedForgeToken } from "./stored-forge-token.ts";
 import { dirname, join } from "path";
 import { type AgeKeySeam, createRealAgeKeySeam, ensureAgeKey, renderSopsYamlFor } from "../home/age-key.ts";
 import { TEAM_PATH_REGEX } from "../secrets/team-store.ts";
-import { forgeArgv } from "./forge.ts";
+import { forgeArgv, forgeLogin } from "./forge.ts";
 import { assertOnlyTeam } from "./one-team.ts";
-import { updateTeamLocal } from "./team-local.ts";
+import { readTeamLocal, updateTeamLocal } from "./team-local.ts";
 import { UserActionableError } from "../errors.ts";
 import { readIntent, writeIntent } from "../setup/intent.ts";
 import { gitUsable } from "../setup/home-git.ts";
@@ -30,6 +34,8 @@ export interface CreateTeamOpts {
   remote: string | null;
   createRepoOwner?: string;
   others: boolean;
+  /** The first team folder; defaults to the org slug or team-<slug>. */
+  firstTeam?: string;
 }
 
 export interface CreateTeamResult {
@@ -38,11 +44,84 @@ export interface CreateTeamResult {
   name: string;
   remote: string;
   dir: string;
-  /** false when the dir already existed — nothing was written or committed. */
+  /** False when the clone was already scaffolded; deferred roles may still be written. */
   created: boolean;
   /** Files and intent are on disk but no git ran: CLT was absent, so the
    *  Install re-run owns init/remote/commit once the checklist installs it. */
   gitDeferred?: true;
+  /** The creator's forge login is not known yet. */
+  rolesDeferred?: true;
+}
+
+export interface CreateTeamSeams {
+  forgeLogin: typeof forgeLogin;
+  forgeToken: typeof storedForgeToken;
+}
+
+const REAL_SEAMS: CreateTeamSeams = { forgeLogin, forgeToken: storedForgeToken };
+const JSONC_EDIT = { formattingOptions: { insertSpaces: true, tabSize: 2 } };
+const ORG_STORE_RELATIVE = "mattstack/org/settings.org.jsonc";
+
+function namedAdmins(storeText: string): unknown[] {
+  const current = parse(storeText, [], { allowTrailingComma: true }) as Record<string, unknown> | undefined;
+  const admins = (current?.["mattstack.org"] as { admins?: unknown } | undefined)?.admins;
+  return Array.isArray(admins) ? admins : [];
+}
+
+/** Existing admins are authoritative, including on a create rerun. */
+export function withCreator(storeText: string, team: string, creator: { username: string; agePublicKey?: string }): string {
+  if (namedAdmins(storeText).length > 0) return storeText;
+  const roles = { admins: [creator.username], teams: { [team]: { owners: [creator.username] } } };
+  const entry = { username: creator.username, ...(creator.agePublicKey ? { agePublicKey: creator.agePublicKey } : {}), teams: [team] };
+  const withRoles = applyEdits(storeText, modify(storeText, ["mattstack.org"], roles, JSONC_EDIT));
+  return applyEdits(withRoles, modify(withRoles, ["mattstack.roster"], [entry], JSONC_EDIT));
+}
+
+async function creatorUsername(p: Probes, slug: string, remote: string, seams: CreateTeamSeams): Promise<string | null> {
+  const recorded = readTeamLocal(p, slug).forgeUsername;
+  if (recorded) return recorded;
+  const forge = forgeFromRemote(remote);
+  if (!forge) return p.env.USER ?? null;
+  return seams.forgeLogin(p, forge.provider, forge.host, await seams.forgeToken(p, remote));
+}
+
+async function commitFiles(p: Probes, slug: string, paths: string[], message: string): Promise<void> {
+  const cwd = join(p.home, ".mattstack", "teams", slug);
+  const add = await p.exec(["git", "add", "--", ...paths], { cwd });
+  if (add.code !== 0) throw gitStepError("git-add-failed", "git add", add);
+  const diff = await p.exec(["git", "diff", "--cached", "--quiet", "--", ...paths], { cwd });
+  if (diff.code === 0) return;
+  if (diff.code !== 1) throw gitStepError("git-commit-failed", "git diff", diff);
+  const commit = await p.exec(["git", "commit", "-m", message, "--", ...paths], { cwd });
+  if (commit.code !== 0) throw gitStepError("git-commit-failed", "git commit", commit);
+}
+
+function commitCreator(p: Probes, slug: string, username: string): Promise<void> {
+  return commitFiles(p, slug, [ORG_STORE_RELATIVE], `team: ${username} is the ${slug} org's admin`);
+}
+
+/** Only this Mac's pending create may claim or finish its creator's role commit. */
+export async function claimPendingAdmin(p: Probes, slug: string, username: string, token: string | null): Promise<{ claimed: boolean; published: boolean; detail?: string }> {
+  const pending = readTeamLocal(p, slug).creatorPending;
+  if (!pending) return { claimed: false, published: false };
+  const file = orgStoreFile(p.home, slug);
+  const before = p.readFile(file);
+  if (before === null) return { claimed: false, published: false };
+  const after = withCreator(before, pending.team, { username, ...(pending.agePublicKey ? { agePublicKey: pending.agePublicKey } : {}) });
+  if (after === before && !namedAdmins(before).includes(username)) {
+    updateTeamLocal(p, slug, { creatorPending: undefined });
+    return { claimed: false, published: false };
+  }
+  if (after !== before) p.writeFile(file, after);
+  try {
+    await commitCreator(p, slug, username);
+    updateTeamLocal(p, slug, { creatorPending: undefined });
+    const origin = readExistingOrigin(p, join(p.home, ".mattstack", "teams", slug));
+    await publishTeam(p, slug, null, { token, tokenRemote: origin });
+    return { claimed: true, published: true };
+  } catch (err) {
+    return { claimed: true, published: false, detail: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /** The scaffold's own marker: present only once the initial commit has actually happened, so a partially-built dir (mkdirp/git-init done, nothing committed yet) is never mistaken for a finished zone. */
@@ -73,7 +152,7 @@ export function scaffoldFiles(slug: string, name: string, remote: string, recipi
 
   return {
     [SCAFFOLD_MARKER]: `${JSON.stringify({ role: "org", org: slug }, null, 2)}\n`,
-    "mattstack/org/settings.org.jsonc": `${ORG_SETTINGS_HEADER}${JSON.stringify(orgSettings, null, 2)}\n`,
+    [ORG_STORE_RELATIVE]: `${ORG_SETTINGS_HEADER}${JSON.stringify(orgSettings, null, 2)}\n`,
     [`mattstack/teams/${team}/settings.team.jsonc`]: `${TEAM_SETTINGS_HEADER}${JSON.stringify(teamSettings, null, 2)}\n`,
     ".claude-plugin/marketplace.json": `${JSON.stringify(marketplace, null, 2)}\n`,
     ".sops.yaml": renderSopsYamlFor(TEAM_PATH_REGEX, recipients),
@@ -156,15 +235,18 @@ async function resolveRemote(p: Probes, slug: string, opts: CreateTeamOpts): Pro
   // leave both flags true and this brand-new team pull-only from birth.
   updateTeamLocal(p, slug, { createdByRt: true, joinedByRt: false });
 
-  writeIntent(p, { v: 1, at: p.now().toISOString(), mode: "create", team: { slug, name: opts.name, remote: url, others: opts.others } });
+  writeIntent(p, { v: 1, at: p.now().toISOString(), mode: "create", team: { slug, name: opts.name, remote: url, others: opts.others, ...(opts.firstTeam ? { firstTeam: opts.firstTeam } : {}) } });
   return url;
 }
 
-export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: AgeKeySeam = createRealAgeKeySeam()): Promise<CreateTeamResult> {
+export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: AgeKeySeam = createRealAgeKeySeam(), seams: CreateTeamSeams = REAL_SEAMS): Promise<CreateTeamResult> {
   const slug = slugify(opts.name);
-  const team = defaultTeamName(slug);
+  const team = opts.firstTeam ?? defaultTeamName(slug);
+  if (!TEAM_NAME_RE.test(team)) {
+    throw new UserActionableError("bad-team-name", `${JSON.stringify(team)} cannot be a team name`, {}, { why: "A team name uses lowercase letters, digits and dashes, and starts with a letter." });
+  }
   const dir = join(p.home, ".mattstack", "teams", slug);
-  assertNotRealStoreInTest(join(dir, "mattstack", "org", "settings.org.jsonc"));
+  assertNotRealStoreInTest(orgStoreFile(p.home, slug));
   assertOnlyTeam(p, slug);
 
   const originConfigured = p.exists(dir) ? readExistingOrigin(p, dir) : null;
@@ -175,15 +257,39 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
     });
   }
 
+  const recordCreator = async (remote: string): Promise<{ needsCommit: boolean; deferred: boolean; username: string | null }> => {
+    const file = orgStoreFile(p.home, slug);
+    const before = p.readFile(file);
+    if (before === null) return { needsCommit: false, deferred: false, username: null };
+    const username = await creatorUsername(p, slug, remote, seams);
+    const { publicKey } = await ensureAgeKey(ageKeySeam);
+    if (username === null) {
+      const named = namedAdmins(before).length > 0;
+      if (!named) updateTeamLocal(p, slug, { creatorPending: { team, agePublicKey: publicKey } });
+      return { needsCommit: false, deferred: !named, username: null };
+    }
+    const after = withCreator(before, team, { username, agePublicKey: publicKey });
+    if (after !== before) p.writeFile(file, after);
+    const local = readTeamLocal(p, slug);
+    const pending = after !== before ? { team, agePublicKey: publicKey } : namedAdmins(before).includes(username) ? local.creatorPending : undefined;
+    if (!local.forgeUsername || local.creatorPending || pending) updateTeamLocal(p, slug, { ...(!local.forgeUsername ? { forgeUsername: username } : {}), creatorPending: pending });
+    return { needsCommit: after !== before || pending !== undefined, deferred: false, username };
+  };
+
   const scaffolded = p.exists(join(dir, SCAFFOLD_MARKER));
   if (originConfigured !== null && scaffolded) {
+    const creator = await recordCreator(originConfigured);
+    if (creator.needsCommit && creator.username) {
+      await commitCreator(p, slug, creator.username);
+      updateTeamLocal(p, slug, { creatorPending: undefined });
+    }
     writeIntent(p, {
       v: 1,
       at: p.now().toISOString(),
       mode: "create",
-      team: { slug, name: opts.name, remote: originConfigured, others: opts.others },
+      team: { slug, name: opts.name, remote: originConfigured, others: opts.others, firstTeam: team },
     });
-    return { slug, team, name: opts.name, remote: stripUserinfo(originConfigured), dir, created: false };
+    return { slug, team, name: opts.name, remote: stripUserinfo(originConfigured), dir, created: false, ...(creator.deferred ? { rolesDeferred: true as const } : {}) };
   }
 
   // Past here the zone is either absent or partially built (dir exists, but
@@ -194,8 +300,10 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
   p.mkdirp(dir);
 
   const { publicKey } = await ensureAgeKey(ageKeySeam);
+  const scaffold = scaffoldFiles(slug, opts.name, remote, [publicKey], team);
+  const paths = Object.keys(scaffold);
   const writeScaffold = () => {
-    for (const [relPath, content] of Object.entries(scaffoldFiles(slug, opts.name, remote, [publicKey], team))) {
+    for (const [relPath, content] of Object.entries(scaffold)) {
       const fullPath = join(dir, relPath);
       if (p.exists(fullPath)) continue; // a resumed partial zone already has this file — never clobber real content with the scaffold's own placeholder
       p.mkdirp(dirname(fullPath));
@@ -207,7 +315,7 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
       v: 1,
       at: p.now().toISOString(),
       mode: "create",
-      team: { slug, name: opts.name, remote, others: opts.others },
+      team: { slug, name: opts.name, remote, others: opts.others, firstTeam: team },
     });
 
   // The Team screen reaches here before the checklist installs CLT, when
@@ -215,8 +323,9 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
   // the zone git-less; Install re-runs this once CLT exists and finishes it.
   if (!p.exists(join(dir, ".git")) && !(await gitUsable(p.exec))) {
     writeScaffold();
+    const creator = await recordCreator(remote);
     recordIntent();
-    return { slug, team, name: opts.name, remote: stripUserinfo(remote), dir, created: true, gitDeferred: true };
+    return { slug, team, name: opts.name, remote: stripUserinfo(remote), dir, created: true, gitDeferred: true, ...(creator.deferred ? { rolesDeferred: true as const } : {}) };
   }
 
   if (!p.exists(join(dir, ".git"))) {
@@ -230,16 +339,13 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
   }
 
   writeScaffold();
+  const creator = await recordCreator(remote);
 
-  const addResult = await p.exec(["git", "add", "-A"], { cwd: dir });
-  if (addResult.code !== 0) throw gitStepError("git-add-failed", "git add -A", addResult);
+  await commitFiles(p, slug, paths, `team: scaffold ${slug}`);
 
-  const commitResult = await p.exec(["git", "commit", "-m", `team: scaffold ${slug}`], { cwd: dir });
-  if (commitResult.code !== 0 && !/nothing to commit/i.test(`${commitResult.stdout}\n${commitResult.stderr}`)) {
-    throw gitStepError("git-commit-failed", "git commit", commitResult);
-  }
-
+  const creatorLocal = readTeamLocal(p, slug);
+  if (creatorLocal.forgeUsername && creatorLocal.creatorPending) updateTeamLocal(p, slug, { creatorPending: undefined });
   recordIntent();
 
-  return { slug, team, name: opts.name, remote: stripUserinfo(remote), dir, created: true };
+  return { slug, team, name: opts.name, remote: stripUserinfo(remote), dir, created: true, ...(creator.deferred ? { rolesDeferred: true as const } : {}) };
 }
