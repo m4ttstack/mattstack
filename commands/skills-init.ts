@@ -10,7 +10,9 @@ import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { dirname, resolve } from "path";
-import { activeTeam } from "../packages/rt-client/src/settings/active-team.ts";
+import { activeTeam, readOrgRoles } from "../packages/rt-client/src/settings/active-team.ts";
+import { readForgeUsername } from "../packages/rt-client/src/settings/team-local-read.ts";
+import { roleOf, writeRefusalFor } from "../packages/rt-client/src/settings/org-roles.ts";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { healErrorClause, updateRepoIndexAsync, type IndexHealResult } from "../lib/repo-index.ts";
@@ -155,6 +157,10 @@ function realDeps(opts: { json: boolean }): InitDeps {
     },
     isTTY: Boolean(process.stdin.isTTY) && !opts.json && !process.env.RT_BATCH,
     activeTeam: () => activeTeam().team,
+    mayWrite: (zone, relPath) => {
+      const roles = readOrgRoles(zone.org);
+      return writeRefusalFor(roleOf(readForgeUsername(zone.org), roles), roles, relPath);
+    },
     promptZone: async () => ({
       name: await textInput({ message: "Org name (a new org will be created)", stderr: true }),
       remote: await textInput({ message: "Empty git remote URL for the org", stderr: true }),

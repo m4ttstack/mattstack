@@ -10,6 +10,7 @@ import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import { outcomeFromJoinError, teamCreateStep } from "../steps/team.ts";
+import { teamLocalPath } from "../../team/team-local.ts";
 import { fakeProbes } from "./fakes.ts";
 
 function cliLog(): string {
@@ -84,7 +85,10 @@ describe("setup team create records the cause of a failure", () => {
   test("a publish failure reaches the CLI log and its why rides in the remedy", async () => {
     const slug = "marker-publish-zz";
     const rejected: ExecResult = { code: 1, stdout: "", stderr: "! [rejected] main -> main (fetch first) marker-publish-zz" };
-    const p = fakeProbes({ home: "/fake-home", exec: async (argv) => (argv.includes("push") ? rejected : ok) });
+    const p = fakeProbes({ home: "/fake-home", exec: async (argv) => (argv.includes("push") ? rejected : ok), files: {
+      [`/fake-home/.mattstack/teams/${slug}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      [teamLocalPath("/fake-home", slug)]: JSON.stringify({ forgeUsername: "dev1" }),
+    } });
 
     const outcome = await teamCreateStep.run(createCtx(p, slug, "https://forge.example/someone/new.git"));
 

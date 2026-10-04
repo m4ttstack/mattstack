@@ -11,11 +11,15 @@ import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
 import type { Probes } from "../../lib/setup/probes.ts";
 import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { joinLink, joinLinkBase, pasteBlock } from "../../lib/team/invite.ts";
-import { readTeamLocal, writeTeamLocal, type TeamLocalRecord } from "../../lib/team/team-local.ts";
+import { readTeamLocal, writeTeamLocal, teamLocalPath, type TeamLocalRecord } from "../../lib/team/team-local.ts";
 
 const FAKE_PUBLIC_KEY = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
 const FAKE_PRIVATE_KEY = "AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ";
 const ZONE_DIR = "/home/x/.mattstack/teams/acme";
+const adminFiles = {
+  [`${ZONE_DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+  [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
+};
 
 class FakeAgeKeySeam implements AgeKeySeam {
   async run(cmd: string[]): Promise<AgeExecResult> {
@@ -29,7 +33,7 @@ function baseDeps(overrides: Partial<TeamDeps> = {}): TeamDeps & { lines: string
   const lines: string[] = [];
   const exitCodes: number[] = [];
   return {
-    probes: fakeProbes({ home: "/home/x" }),
+    probes: fakeProbes({ home: "/home/x", files: adminFiles }),
     print: (s: string) => lines.push(s),
     exit: (code: number) => {
       exitCodes.push(code);
@@ -44,7 +48,7 @@ function baseDeps(overrides: Partial<TeamDeps> = {}): TeamDeps & { lines: string
 
 /** `publishTeam` prechecks the zone exists — every teamPublish test that means to reach the git steps needs it seeded. */
 function depsWithZone(overrides: Partial<TeamDeps> = {}) {
-  return baseDeps({ probes: fakeProbes({ home: "/home/x", dirs: { [ZONE_DIR]: [] } }), ...overrides });
+  return baseDeps({ probes: fakeProbes({ home: "/home/x", files: adminFiles, dirs: { [ZONE_DIR]: [] } }), ...overrides });
 }
 
 /** Every exit path (usage refusals included, now that they route through `exitUserError`) calls the real `process.exit(2)`, never `deps.exit` — `deps.exit` stays only as a defensive sentinel that would fail a test loudly if some future path called it unexpectedly. */
@@ -194,6 +198,7 @@ describe("teamPublish", () => {
     const seen: { argv: string[]; env?: Record<string, string> }[] = [];
     const probes = fakeProbes({
       home: "/home/x",
+      files: adminFiles,
       dirs: { [ZONE_DIR]: [] },
       exec: (argv, opts) => {
         seen.push({ argv, env: opts?.env });

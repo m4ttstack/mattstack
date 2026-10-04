@@ -151,6 +151,7 @@ describe("reidentify", () => {
           expect(readStore(path).repos[OLD_RAW]).toBeUndefined();
         } else {
           expect(readFileSync(path, "utf8")).toBe(before[i]!);
+          if (i === 0 && username === "dev4") expect(r.stores.find(store => store.store === label)?.detail).toBe("The org's shared files belong to its admins. Ask dev1 (an org admin) to make this change.");
         }
       }
       expect(r.stores.find((store) => store.store === "settings:user")?.status).toBe("moved");
