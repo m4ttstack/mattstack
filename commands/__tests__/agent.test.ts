@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { __test__ } from "../agent.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
 import type { AgentRecord } from "../../packages/rt-client/src/index.ts";
 
 const { parseStartArgs, parseResumeArgs } = __test__;
@@ -130,4 +131,19 @@ test("renderRecord shows the chat name, never the id", () => {
   const line = __test__.renderRecord(rec);
   expect(line).toContain("chat remy");
   expect(line).not.toContain("remy.k3f9");
+});
+
+describe("agent list at a terminal", () => {
+  const rec = (over: Partial<AgentRecord>): AgentRecord => ({ id: "ag-1", repo: "sample-app", cwd: "/code/sample-app", provider: "claude", surface: "herdr", sessionId: "s-1", createdAt: 1, ...over }) as AgentRecord;
+
+  test("one row per handoff: id, repo, surface, then the rest", () => {
+    const text = renderPlain(__test__.agentListBlocks([rec({ model: "opus", paneId: "w1:p2" }), rec({ id: "ag-2", surface: "headless", finishedAt: 2, exitCode: 1 })]));
+    const rows = text.split("\n");
+    expect(rows[0]).toMatch(/^ag-1 +sample-app +herdr +provider claude · session s-1 · model opus · pane w1:p2$/);
+    expect(rows[1]).toMatch(/^ag-2 +sample-app +headless +provider claude · session s-1 · exit 1$/);
+  });
+
+  test("none says so", () => {
+    expect(renderPlain(__test__.agentListBlocks([]))).toBe("[skipped] No agent handoffs yet\n");
+  });
 });

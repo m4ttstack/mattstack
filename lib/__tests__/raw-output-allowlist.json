@@ -1,5 +1,4 @@
 [
-  "commands/agent.ts",
   "commands/apps.ts",
   "commands/bg.ts",
   "commands/cd.ts",
