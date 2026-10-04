@@ -107,6 +107,8 @@ describe("scaffoldFiles", () => {
   test("seeds .sops.yaml with the given recipients, not empty", () => {
     const files = scaffoldFiles("acme", "Acme", "https://github.com/acme/repo.git", [FAKE_PUBLIC_KEY]);
     expect(files[".sops.yaml"]).toContain(FAKE_PUBLIC_KEY);
+    expect(files[".sops.yaml"]).toContain("mattstack/org/secrets/.*");
+    expect(files[".gitignore"]).toBe("mattstack/org/secrets/*.tmp\n.DS_Store\n");
   });
 });
 
@@ -363,14 +365,14 @@ describe("createTeam", () => {
       const remote = "https://github.com/acme/repo.git";
 
       const customSettings = '// hand-edited\n{"board.title":"Acme (real)"}\n';
-      const customSops = "creation_rules:\n  - path_regex: mattstack/secrets/.*\n    age: age1aaa,age1bbb\n";
+      const customSops = "creation_rules:\n  - path_regex: mattstack/org/secrets/.*\n    age: age1aaa,age1bbb\n";
       const secretBlob = '{"rt":{"switchboardAdminToken":"sops-encrypted-blob"}}';
 
       p.writeFile(join(dir, ".git", "config"), `[remote "origin"]\n\turl = ${remote}\n`);
       p.writeFile(join(dir, "mattstack", "mattstack.jsonc"), '{"role":"team","namespace":"acme","org":"acme"}\n');
       p.writeFile(join(dir, "mattstack", "org", "settings.org.jsonc"), customSettings);
       p.writeFile(join(dir, ".sops.yaml"), customSops);
-      p.writeFile(join(dir, "mattstack", "secrets", "rt.json"), secretBlob);
+      p.writeFile(join(dir, "mattstack", "org", "secrets", "rt.json"), secretBlob);
       p.calls.writes = {};
       p.calls.exec.length = 0;
 
@@ -382,7 +384,7 @@ describe("createTeam", () => {
       expect(Object.keys(p.calls.writes)).toEqual(["/home/x/.mattstack/rt/setup-intent.json"]);
       expect(p.readFile(join(dir, "mattstack", "org", "settings.org.jsonc"))).toBe(customSettings);
       expect(p.readFile(join(dir, ".sops.yaml"))).toBe(customSops);
-      expect(p.readFile(join(dir, "mattstack", "secrets", "rt.json"))).toBe(secretBlob);
+      expect(p.readFile(join(dir, "mattstack", "org", "secrets", "rt.json"))).toBe(secretBlob);
     });
   });
 });

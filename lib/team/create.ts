@@ -77,7 +77,7 @@ export function scaffoldFiles(slug: string, name: string, remote: string, recipi
     [`mattstack/teams/${team}/settings.team.jsonc`]: `${TEAM_SETTINGS_HEADER}${JSON.stringify(teamSettings, null, 2)}\n`,
     ".claude-plugin/marketplace.json": `${JSON.stringify(marketplace, null, 2)}\n`,
     ".sops.yaml": renderSopsYamlFor(TEAM_PATH_REGEX, recipients),
-    ".gitignore": "mattstack/secrets/*.tmp\n.DS_Store\n",
+    ".gitignore": "mattstack/org/secrets/*.tmp\n.DS_Store\n",
   };
 }
 
