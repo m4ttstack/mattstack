@@ -607,9 +607,14 @@ describe("settings/write: write guard", () => {
     seedAs(undefined);
     mkdirSync(dirname(userSettingsPath()), { recursive: true });
     writeFileSync(userSettingsPath(), JSON.stringify({ "mattstack.activeTeam": "widgets" }));
-    expect(() => setSetting("board.title", "x", "team")).toThrow(
-      "rt can't tell who you are, so it will not change the org's shared files. Connect your forge account in Setup, then try again.",
-    );
+    try {
+      setSetting("board.title", "x", "team");
+      throw new Error("Expected an ownership refusal");
+    } catch (err) {
+      expect((err as Error).message).toBe(
+        "rt: can't tell who you are, so it will not change the org's shared files. Connect your forge account in Setup, then try again.",
+      );
+    }
   });
 
   test("having joined by invite no longer decides anything: an owner who joined still writes", () => {
