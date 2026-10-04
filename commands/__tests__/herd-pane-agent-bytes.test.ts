@@ -16,12 +16,13 @@ import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { paneAccounts, paneDirectories, paneFocus, paneList, panePeek, paneSend, paneSpawn } from "../pane.ts";
 import { agent } from "../agent.ts";
 import {
-  answer as herdAnswer, ask as herdAsk, attend as herdAttend, close as herdClose, followUp as herdFollowUp, gates as herdGates,
+  answer as herdAnswer, ask as herdAsk, attend as herdAttend, brief as herdBrief, close as herdClose, followUp as herdFollowUp, gates as herdGates,
   list as herdList, milestone as herdMilestone, report as herdReport, resume as herdResume, spawn as herdSpawn, start as herdStart,
   status as herdStatus, stop as herdStop, wrapUp as herdWrapUp,
 } from "../herd.ts";
 
 const FIXTURE = join(import.meta.dir, "fixtures", "herd-pane-agent-bytes.json");
+const SUPPLEMENT = join(import.meta.dir, "fixtures", "herd-pane-agent-supplement-bytes.json");
 
 let home: string;
 let repo: string;
@@ -242,11 +243,77 @@ describe("herd, pane and agent (frozen bytes)", () => {
     await run("herd-report-json", herdReport, ["--file", reportFile, "--json"]);
     for (const k of ["CLAUDE_CODE_SESSION_ID", "HERD_ID", "HERD_JOB", "HERDR_WORKSPACE_ID"]) delete process.env[k];
 
-    if (process.env.RT_UPDATE_HPA_BYTES) {
-      mkdirSync(dirname(FIXTURE), { recursive: true });
-      const ascii = JSON.stringify(got, null, 2).replace(/[^\x00-\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
-      writeFileSync(FIXTURE, ascii + "\n");
-    }
     expect(got).toEqual(JSON.parse(readFileSync(FIXTURE, "utf8")));
+  }, 60_000);
+
+  test("missing contract paths write their original bytes", async () => {
+    expect(await isDaemonRunning()).toBe(true);
+    const got: Record<string, { code: number; stdout: string; stderr: string }> = {};
+    const run = async (name: string, fn: (args: string[]) => Promise<void>, args: string[]) => {
+      const r = await runVerb(fn, args);
+      got[name] = { ...r, stdout: r.stdout.replaceAll(home, "<home>"), stderr: r.stderr.replaceAll(home, "<home>") };
+      return r;
+    };
+
+    replies = { "agent:get": { ok: true, data: RECORD } };
+    const shown = await run("agent-show-json", agent, ["show", RECORD.id, "--json"]);
+    const shownRecord = JSON.parse(shown.stdout).agent;
+    expect(shownRecord).toEqual(RECORD);
+    for (const key of ["account", "handle", "name", "finishedAt", "exitCode", "lastResumedAt"]) {
+      expect(Object.hasOwn(shownRecord, key)).toBe(false);
+    }
+    replies = { "agent:get": { ok: false, error: "no such agent: ag-missing" } };
+    const refused = await run("agent-show-refused-json", agent, ["show", "ag-missing", "--json"]);
+    expect(refused).toEqual({ code: 1, stdout: "", stderr: "rt agent: no such agent: ag-missing\n" });
+
+    replies = { "herd:gates": { ok: true, data: { gates: [GATE] } } };
+    await run("herd-gates-json", herdGates, ["--herd", HERD.id, "--json"]);
+    replies = { "herd:gates": { ok: true, data: { gates: [] } } };
+    const emptyGates = await run("herd-gates-none-json", herdGates, ["--herd", HERD.id, "--json"]);
+    expect(JSON.parse(emptyGates.stdout)).toEqual({ gates: [] });
+    replies = { "herd:close": { ok: true, data: { job: JOB.name, status: "closed", warning: "a resumable run can still write into this worktree" } } };
+    await run("herd-close-json", herdClose, [JOB.name, "--herd", HERD.id, "--json"]);
+    replies = { "herd:close": { ok: true, data: { job: JOB.name, status: "closed" } } };
+    const closed = await run("herd-close-no-warning-json", herdClose, [JOB.name, "--herd", HERD.id, "--json"]);
+    expect(JSON.parse(closed.stdout)).toEqual({ job: JOB.name, status: "closed" });
+    expect(Object.hasOwn(JSON.parse(closed.stdout), "warning")).toBe(false);
+    replies = { "herd:follow-up": { ok: true, data: { job: JOB.name, status: "active" } } };
+    await run("herd-follow-up-json", herdFollowUp, [JOB.name, "--herd", HERD.id, "--json"]);
+    replies = { "herd:stop-hidden": { ok: true, data: { stopped: true } } };
+    await run("herd-stop-json", herdStop, ["--hidden", "--json"]);
+
+    process.env.CLAUDE_CODE_SESSION_ID = RECORD.sessionId;
+    process.env.HERD_ID = HERD.id;
+    process.env.HERD_JOB = JOB.name;
+    try {
+      replies = { "herd:milestone": { ok: true, data: { gate: "g9", message: 13 } } };
+      await run("herd-milestone-json", herdMilestone, ["--artifact", "plan.md", "--summary", "first cut", "--json"]);
+    } finally {
+      for (const k of ["CLAUDE_CODE_SESSION_ID", "HERD_ID", "HERD_JOB"]) delete process.env[k];
+    }
+
+    const templateFile = join(home, "template.md");
+    const methodFile = join(home, "method.md");
+    const outFile = join(home, "brief.md");
+    writeFileSync(templateFile, "# Job: <name>\n\nGoal: <goal>\n\n## Method\n\n<approach>\n");
+    writeFileSync(methodFile, "Read the code, then run the checks.\n");
+    const briefArgs = ["--job", JOB.name, "--template", templateFile, "--method-file", methodFile, "--fill", "goal=Pin the command contract"];
+    const expectedBrief = "# Job: job-a\n\nGoal: Pin the command contract\n\n## Method\nRead the code, then run the checks.\n";
+    const text = await run("herd-brief", herdBrief, briefArgs);
+    expect(text.stdout).toBe(expectedBrief + "\n");
+    const json = await run("herd-brief-json", herdBrief, [...briefArgs, "--json"]);
+    expect(JSON.parse(json.stdout)).toEqual({ ok: true, brief: expectedBrief });
+    const written = await run("herd-brief-out", herdBrief, [...briefArgs, "--out", outFile]);
+    const acknowledgement = JSON.parse(written.stdout);
+    expect(acknowledgement).toEqual({ ok: true, path: outFile });
+    expect(Object.hasOwn(acknowledgement, "brief")).toBe(false);
+    expect(readFileSync(outFile, "utf8")).toBe(expectedBrief);
+    for (const [name, result] of Object.entries(got)) {
+      if (name === "agent-show-refused-json") continue;
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe("");
+    }
+
+    expect(got).toEqual(JSON.parse(readFileSync(SUPPLEMENT, "utf8")));
   }, 60_000);
 });
