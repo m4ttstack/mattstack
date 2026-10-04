@@ -35,6 +35,9 @@ import { UserActionableError, exitUserError, logFailureDetail } from "../lib/err
 import { createRealProbes, readStdinJson, type Probes } from "../lib/setup/probes.ts";
 import { readTeamSnapshot, stripUserinfo, type SettingsReader } from "../lib/setup/team-settings.ts";
 import { forgeLogin } from "../lib/team/forge.ts";
+import { addTeam, type AddTeamSeams } from "../lib/team/add.ts";
+import { setSetting } from "../lib/settings/write.ts";
+import { loadStepSource, resolvePluginRoots } from "../lib/skills/sources.ts";
 import { createTeam } from "../lib/team/create.ts";
 import { extractInviteCode } from "../lib/team/invite-crypto.ts";
 import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeams } from "../lib/team/invite.ts";
@@ -50,6 +53,7 @@ import { daemonQuery } from "../lib/daemon-client.ts";
 import type { TeamSnapshotEntry } from "../lib/daemon/team-snapshots.ts";
 
 export interface TeamDeps {
+  addTeamSeams?: AddTeamSeams;
   probes: Probes;
   /** The --json envelope line only; human text goes through lib/ui/out.ts. */
   print: (s: string) => void;
@@ -152,6 +156,40 @@ function exitTeamError(err: UserActionableError, json: boolean, deps: TeamDeps):
     ...(err.next ? [out.callout("next", out.cmd(err.next))] : []),
   );
   process.exit(2);
+}
+
+export async function teamAdd(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  const team = positional(args, ["--owner", "--team"])[0];
+  const owners = (flagValue(args, "--owner") ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "");
+  if (!team || owners.length === 0) {
+    usageError(deps, json, "team add", "Name the new team and who owns it", "rt team add <team> --owner <username>[,<username>] [--json]");
+  }
+  try {
+    const org = resolveTeamSlug(args, "team add");
+    const result = addTeam(deps.probes, { org, team, owners }, deps.addTeamSeams ?? realAddTeamSeams());
+    if (json) {
+      deps.print(JSON.stringify(envelope(result)));
+      return;
+    }
+    out.print(
+      out.line("done", `Added the ${team} team`, `owned by ${owners.join(", ")}`),
+      out.callout("next", [`Put people on it with `, out.cmd(`rt team members set <username> --teams ${team}`)]),
+    );
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, "team add", deps);
+    throw err;
+  }
+}
+
+function realAddTeamSeams(): AddTeamSeams {
+  return {
+    writeOrgSetting: (key, value) => setSetting(key, value, "org"),
+    engineDescription: (engine) => {
+      try { return loadStepSource(engine, resolvePluginRoots()).description; }
+      catch { return null; }
+    },
+  };
 }
 
 export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
