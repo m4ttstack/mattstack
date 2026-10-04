@@ -487,7 +487,7 @@ describe("integrationConnect — slack (OAuth flow)", () => {
   describe("a joined member the owner has not accepted yet", () => {
     const MINE = "age1mine0000000000000000000000000000000000000000000000000000000";
     const OWNER = "age1owner000000000000000000000000000000000000000000000000000000";
-    const BOARD = "/fake-home/.mattstack/teams/acme/mattstack/secrets/board.json";
+    const BOARD = "/fake-home/.mattstack/teams/acme/mattstack/org/secrets/board.json";
 
     function memberProbes(recipients: string[], unreadable: string[] = []) {
       return fakeProbes({

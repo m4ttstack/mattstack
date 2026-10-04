@@ -1,6 +1,7 @@
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 import { beforeEach, describe, test, expect } from "bun:test";
 import {
+  TEAM_PATH_REGEX,
   teamSecretsFile,
   teamSopsYamlPath,
   readTeamRecipients,
@@ -180,8 +181,9 @@ function seamsWithKey(key = "AGE-TEAM-KEY", slug = "acme"): { execSeam: FakeTeam
 }
 
 describe("teamSecretsFile / teamSopsYamlPath", () => {
-  test("layout matches the contract: teams/<slug>/mattstack/secrets/<domain>.json and teams/<slug>/.sops.yaml", () => {
-    expect(teamSecretsFile("acme", "board")).toBe(join(teamsDir(), "acme", "mattstack", "secrets", "board.json"));
+  test("layout matches the contract: teams/<slug>/mattstack/org/secrets/<domain>.json and teams/<slug>/.sops.yaml", () => {
+    expect(teamSecretsFile("acme", "board")).toBe(join(teamsDir(), "acme", "mattstack", "org", "secrets", "board.json"));
+    expect(TEAM_PATH_REGEX).toBe("mattstack/org/secrets/.*");
     expect(teamSopsYamlPath("acme")).toBe(join(teamsDir(), "acme", ".sops.yaml"));
   });
 
@@ -201,7 +203,7 @@ describe("readTeamRecipients / writeTeamRecipients", () => {
     writeTeamRecipients("acme", ["age1bbb", "age1aaa"], seams);
 
     const content = execSeam.readFile(teamSopsYamlPath("acme"));
-    expect(content).toContain("path_regex: mattstack/secrets/.*");
+    expect(content).toContain("path_regex: mattstack/org/secrets/.*");
     expect(content).toContain("age1aaa");
     expect(content).toContain("age1bbb");
   });
@@ -242,7 +244,7 @@ describe("readTeamRecipients / writeTeamRecipients", () => {
     const { execSeam, seams } = seamsWithKey();
     const handEdited = [
       "creation_rules:",
-      "  - path_regex: mattstack/secrets/.*",
+      "  - path_regex: mattstack/org/secrets/.*",
       "    age: age1aaa",
       "  - path_regex: other/.*",
       "    age: age1bbb",
@@ -265,7 +267,7 @@ describe("readTeamRecipients / writeTeamRecipients", () => {
 });
 
 describe("writeTeamSecret", () => {
-  test("argv pins --filename-override mattstack/secrets/board.json", async () => {
+  test("argv pins --filename-override mattstack/org/secrets/board.json", async () => {
     const { execSeam, seams } = seamsWithKey();
     writeTeamRecipients("acme", ["age1aaa"], seams);
 
@@ -273,7 +275,7 @@ describe("writeTeamSecret", () => {
 
     const encryptCall = execSeam.calls.find((c) => c.cmd[1] === "-e")!;
     const overrideIdx = encryptCall.cmd.indexOf("--filename-override");
-    expect(encryptCall.cmd[overrideIdx + 1]).toBe(join("mattstack", "secrets", "board.json"));
+    expect(encryptCall.cmd[overrideIdx + 1]).toBe(join("mattstack", "org", "secrets", "board.json"));
   });
 
   test("the value round-trips into the team domain file", async () => {
@@ -602,7 +604,7 @@ const SOPS_WRONG_KEY_STDERR = [
 function unreadableTeam(stderr = SOPS_WRONG_KEY_STDERR): { execSeam: FakeTeamExecSeam; seams: SecretsSeams } {
   const execSeam = new FakeTeamExecSeam({ decrypt: { code: 128, stdout: "", stderr } });
   execSeam.files.set(teamCloneRootFor("acme"), "");
-  execSeam.writeFile(teamSopsYamlPath("acme"), "creation_rules:\n  - path_regex: mattstack/secrets/.*\n    age: age1aaa\n");
+  execSeam.writeFile(teamSopsYamlPath("acme"), "creation_rules:\n  - path_regex: mattstack/org/secrets/.*\n    age: age1aaa\n");
   execSeam.writeFile(teamSecretsFile("acme", "board"), "ciphertext");
   return { execSeam, seams: { ageKeySeam: fakeAgeKeySeamWithKey("AGE-TEAM-KEY"), execSeam } };
 }
@@ -654,7 +656,7 @@ describe("a team file this Mac's key cannot decrypt", () => {
     const { seams } = unreadableTeam();
     const { decryptAtLocation } = await import("../store.ts");
 
-    await expect(decryptAtLocation({ filePath: teamSecretsFile("acme", "board"), filenameOverride: "mattstack/secrets/board.json", cwd: teamCloneRootFor("acme") }, seams)).rejects.toBeInstanceOf(SopsDecryptError);
+    await expect(decryptAtLocation({ filePath: teamSecretsFile("acme", "board"), filenameOverride: "mattstack/org/secrets/board.json", cwd: teamCloneRootFor("acme") }, seams)).rejects.toBeInstanceOf(SopsDecryptError);
   });
 });
 

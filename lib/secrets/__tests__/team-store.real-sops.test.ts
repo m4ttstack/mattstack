@@ -66,7 +66,7 @@ describe.skipIf(!hasRealSops)("team-store against real sops + age", () => {
     const slug = `realsops-${process.pid}`;
     seedOrg({ org: slug, username: "dev1", roles: { admins: ["dev1"], teams: {} } });
     const root = join(teamsDir(), slug);
-    mkdirSync(join(root, "mattstack", "secrets"), { recursive: true });
+    mkdirSync(join(root, "mattstack", "org", "secrets"), { recursive: true });
 
     const a = await generateAgeKeypair();
     const b = await generateAgeKeypair();
@@ -112,7 +112,7 @@ describe.skipIf(!hasRealSops)("team-store against real sops + age", () => {
     const slug = `realsops-members-${process.pid}`;
     seedOrg({ org: slug, username: "dev1", roles: { admins: ["dev1"], teams: {} } });
     const root = join(teamsDir(), slug);
-    mkdirSync(join(root, "mattstack", "secrets"), { recursive: true });
+    mkdirSync(join(root, "mattstack", "org", "secrets"), { recursive: true });
 
     const owner = await generateAgeKeypair();
     const joiner = await generateAgeKeypair();
@@ -132,7 +132,7 @@ describe.skipIf(!hasRealSops)("team-store against real sops + age", () => {
     const addResult = await addTeamRecipient(slug, opened.agePublicKey, seamsOwner);
 
     expect(addResult.added).toBe(true);
-    expect(addResult.reencrypted).toEqual([join(root, "mattstack", "secrets", "board.json")]);
+    expect(addResult.reencrypted).toEqual([join(root, "mattstack", "org", "secrets", "board.json")]);
     expect(await readTeamSecret(slug, "board", "slackClientSecret", seamsJoiner)).toBe("owner-only-value");
   }, 30_000);
 });

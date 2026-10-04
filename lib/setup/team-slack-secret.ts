@@ -46,7 +46,7 @@ export function slackSecretWait(p: Pick<Probes, "readFile" | "fileSize" | "home"
   const mine = ownRecipients(p, slug);
   if (mine.size === 0) return null;
 
-  const path = join(p.home, ".mattstack", "teams", slug, "mattstack", "secrets", "board.json");
+  const path = join(p.home, ".mattstack", "teams", slug, "mattstack", "org", "secrets", "board.json");
   if (p.fileSize(path) === null) return { kind: "not-shared" };
   const raw = p.readFile(path);
   if (raw === null) return { kind: "unreadable", path, reason: "could not be read" };

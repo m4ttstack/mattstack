@@ -9,7 +9,7 @@ const SLUG = "acme";
 const MINE = "age1mine0000000000000000000000000000000000000000000000000000000";
 const OLD = "age1old00000000000000000000000000000000000000000000000000000000";
 const OWNER = "age1owner000000000000000000000000000000000000000000000000000000";
-const BOARD = join(HOME, ".mattstack", "teams", SLUG, "mattstack", "secrets", "board.json");
+const BOARD = join(HOME, ".mattstack", "teams", SLUG, "mattstack", "org", "secrets", "board.json");
 const PERSONAL_SOPS = join(HOME, ".mattstack", "user", ".sops.yaml");
 
 function boardFile(recipients: string[], keys: string[] = ["slackClientSecret"]): string {

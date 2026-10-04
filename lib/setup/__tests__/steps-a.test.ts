@@ -651,7 +651,7 @@ describe("secrets.write", () => {
     const teamSeams = fakeSecrets();
     (teamSeams.execSeam as FakeSecretsExecSeam).files.set(
       teamSopsYamlPath(slug),
-      "creation_rules:\n  - path_regex: mattstack/secrets/.*\n    age: age1testrecipient\n",
+      "creation_rules:\n  - path_regex: mattstack/org/secrets/.*\n    age: age1testrecipient\n",
     );
     const p = stagedProbes({ "team-acme-board": { slackWebhook: "https://hooks.example/x" } });
     const { ctx } = makeCtx(p, { teamSecrets: () => teamSeams });
@@ -709,7 +709,7 @@ describe("secrets.write", () => {
       }
     }
     const execSeam = new UndecryptableSeam();
-    execSeam.files.set(teamSopsYamlPath(slug), "creation_rules:\n  - path_regex: mattstack/secrets/.*\n    age: age1testrecipient\n");
+    execSeam.files.set(teamSopsYamlPath(slug), "creation_rules:\n  - path_regex: mattstack/org/secrets/.*\n    age: age1testrecipient\n");
     const teamSeams: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey(), execSeam };
     const p = stagedProbes({ "team-acme-board": { slackWebhook: "https://hooks.example/x" } });
     const { ctx } = makeCtx(p, { teamSecrets: () => teamSeams });
