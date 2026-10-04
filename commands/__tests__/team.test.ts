@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { realTeamDeps, teamCreate, teamInvite, teamManageMembership, teamPublish, teamPull, teamStatus, type TeamDeps } from "../team.ts";
+import { realTeamDeps, teamAdd, teamCreate, teamInvite, teamManageMembership, teamPublish, teamPull, teamStatus, type TeamDeps } from "../team.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
@@ -655,4 +655,56 @@ test("teamStatus --json carries the daemon's sync fields, null when the daemon i
   expect(body.lastPull).toBe(new Date(1_700_000_000_000).toISOString());
   expect(body.lastPushAt).toBeNull();
   expect(body.conflicted).toBeNull();
+});
+
+
+describe("teamAdd", () => {
+  function addDeps(username = "dev1") {
+    const deps = baseDeps({ probes: fakeProbes({ home: "/home/x", files: {
+      ...adminFiles,
+      [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: username }),
+    } }) });
+    const writes: [string, unknown][] = [];
+    return { ...deps, writes, addTeamSeams: {
+      writeOrgSetting: (key: string, value: unknown) => { writes.push([key, value]); },
+      engineDescription: () => "Use when running a unit of work.",
+    } };
+  }
+
+  test("actual add parses flags and prints a flat JSON result", async () => {
+    const deps = addDeps();
+    await teamAdd(["--owner", " dev2, dev1 ", "--team", "acme", "gadgets", "--json"], {}, deps);
+    expect(deps.lines).toHaveLength(1);
+    const { at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(typeof at).toBe("string");
+    expect(body).toEqual({ contract: 1, org: "acme", team: "gadgets", dir: `${ZONE_DIR}/mattstack/teams/gadgets`, owners: ["dev2", "dev1"], wrote: expect.any(Array) });
+    expect(deps.probes.exists(`${body.dir}/packs/gadgets/pack/skills.jsonc`)).toBe(true);
+    expect(deps.writes).toHaveLength(1);
+  });
+
+  test("missing owners exits with usage without writing", async () => {
+    const deps = addDeps();
+    expect(await runExpectingProcessExit(() => teamAdd(["gadgets", "--team", "acme", "--json"], {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error.code).toBe("usage");
+    expect(deps.writes).toEqual([]);
+  });
+
+  test("member JSON refuses before shared writes", async () => {
+    const deps = addDeps("dev2");
+    expect(await runExpectingProcessExit(() => teamAdd(["gadgets", "--owner", "dev2", "--team", "acme", "--json"], {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error.code).toBe("team-pull-only");
+    expect(deps.probes.exists(`${ZONE_DIR}/mattstack/teams/gadgets`)).toBe(false);
+    expect(deps.writes).toEqual([]);
+  });
+
+  test("human success uses output and leaves the envelope seam empty", async () => {
+    const deps = addDeps();
+    const captured = captureOut();
+    try {
+      await teamAdd(["gadgets", "--owner", "dev2", "--team", "acme"], {}, deps);
+      expect(captured.stdout()).toContain("Added the gadgets team");
+      expect(captured.stdout()).toContain("rt team members set <username> --teams gadgets");
+      expect(deps.lines).toEqual([]);
+    } finally { captured.restore(); }
+  });
 });
