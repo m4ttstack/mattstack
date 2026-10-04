@@ -219,6 +219,28 @@ export function payload(text: string): void {
   process.stdout.write(text);
 }
 
+/**
+ * A --json envelope written as json() writes it, resolving once the write has
+ * flushed: a verb that exits right after a payload larger than a pipe buffer
+ * would otherwise cut it short.
+ */
+export function jsonFlushed(value: unknown, indent?: number): Promise<void> {
+  const text = JSON.stringify(value, null, indent) + "\n";
+  return new Promise<void>((resolve, reject) => {
+    const taken = process.stdout.write(text, (err) => (err ? reject(err) : resolve()));
+    if (taken && process.stdout.write.length < 2) resolve();
+  });
+}
+
+/**
+ * Stderr text an agent-only verb writes for the program that ran it, byte for
+ * byte and never styled: the stderr twin of payload(). A failure a person
+ * reads goes through fail().
+ */
+export function diagnostic(text: string): void {
+  process.stderr.write(text);
+}
+
 export const __test__ = {
   setHuman(fn: ((stream: Stream) => boolean) | undefined): void {
     human = fn ?? realHuman;

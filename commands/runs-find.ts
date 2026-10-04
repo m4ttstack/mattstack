@@ -7,6 +7,7 @@
  */
 import { required, Usage } from "../lib/cli-args.ts";
 import { findRunsBySession } from "../lib/runs/store.ts";
+import * as out from "../lib/ui/out.ts";
 
 export type CliResult = { out: string; code: number };
 
@@ -34,6 +35,6 @@ export function runFind(args: string[]): CliResult {
 
 export async function runsFind(args: string[]): Promise<void> {
   const r = runFind(args);
-  if (r.out !== "") console.log(r.out);
+  if (r.out !== "") out.payload(`${r.out}\n`);
   if (r.code !== 0) process.exit(r.code);
 }
