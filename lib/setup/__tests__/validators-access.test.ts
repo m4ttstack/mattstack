@@ -60,7 +60,7 @@ describe("accessRows — access.team-repo", () => {
       id: "access.team-repo",
       kind: "access",
       title: "Team repo",
-      why: "rt needs read/write access to your team's home repo to sync settings and packs.",
+      why: "rt needs read access to your team's home repo to sync settings and packs. Only the org's admins and your team's owners write it.",
       required: true,
       optionalNote: null,
       status: "ready",
@@ -87,12 +87,16 @@ describe("accessRows — access.team-repo", () => {
     expect(r.why).not.toContain("read/write");
   });
 
-  test("a clone rt created itself still asks for read/write (it is the one clone that pushes)", async () => {
-    const team = baseTeam({ remote: REMOTE });
-    const exec: ExecScript = () => ok();
-    const r = await pickRow(accessRows(fakeProbes({ exec }), team, null), "access.team-repo");
-    expect(r.why).toContain("read/write");
-  });
+  for (const username of ["dev1", "dev2"]) {
+    test(`a role that owns shared files asks for read/write (${username})`, async () => {
+      const files = {
+        "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ joinedByRt: true, forgeUsername: username }),
+        "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+      };
+      const r = await pickRow(accessRows(fakeProbes({ exec: () => ok(), files }), baseTeam({ remote: REMOTE }), null), "access.team-repo");
+      expect(r.why).toContain("read/write");
+    });
+  }
 
   test("exit 128 with an auth-refusal stderr -> needs-you, detail never echoes the remote URL, carries a re-check action (finding 5)", async () => {
     const team = baseTeam({ remote: REMOTE });
