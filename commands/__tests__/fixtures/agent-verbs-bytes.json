@@ -1,0 +1,147 @@
+{
+  "gate-wait-no-id": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt gate: usage: rt gate wait <id> [--timeout <duration>]\n"
+  },
+  "gate-wait-bad-timeout": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt gate: --timeout: bad duration \"soon\" (use 30s, 5m, 500ms, or bare seconds)\n"
+  },
+  "gate-park-no-id": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt gate: usage: rt gate park <id>\n"
+  },
+  "gate-close-no-reason": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt gate: usage: rt gate close <id> --reason <abandoned|superseded|pruned>\n"
+  },
+  "gate-close-bad-reason": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt gate: usage: rt gate close <id> --reason <abandoned|superseded|pruned>\n"
+  },
+  "gate-subscribe-no-flags": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt gate: usage: rt gate subscribe --subject-prefix <p> --session <addr>\n"
+  },
+  "gate-unsubscribe-no-id": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt gate: usage: rt gate unsubscribe <id>\n"
+  },
+  "gate-list-bad-limit": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt gate: --limit must be a number\n"
+  },
+  "gate-ask-no-questions": {
+    "code": 1,
+    "stdout": "{\"ok\":false,\"error\":\"usage: rt gate ask --questions <json> [--context <text>] [--kind <k>] [--subject <s>] [--json]\"}\n",
+    "stderr": ""
+  },
+  "gate-ask-bad-json": {
+    "code": 1,
+    "stdout": "{\"ok\":false,\"error\":\"--questions is not valid JSON: {nope\"}\n",
+    "stderr": ""
+  },
+  "gate-answer-no-id": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt gate: usage: rt gate answer <id> --answers <json> --by <surface> [--session <id>] [--override]\n"
+  },
+  "events-emit-no-topic": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt events: usage: rt events emit <topic> [--json '<json>']\n"
+  },
+  "events-emit-bad-json": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt events: --json is not valid JSON: {nope\n"
+  },
+  "events-wait-no-pattern": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt events: usage: rt events wait <pattern> [--after <cursor>] [--timeout <dur>]\n"
+  },
+  "events-wait-bad-after": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt events: --after must be a number\n"
+  },
+  "events-list-bad-limit": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt events: --limit must be a number\n"
+  },
+  "events-tail-bad-after": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt events: --after must be a number\n"
+  },
+  "gate-wait-retry-then-answered": {
+    "code": 0,
+    "stdout": "",
+    "stderr": "rt gate: wait failed (socket closed); retrying until reconnect...\n"
+  },
+  "ci-claim-no-url": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "usage: rt ci lease claim <mr-url> (an https MR or PR URL)\n"
+  },
+  "ci-claim-no-url-json": {
+    "code": 2,
+    "stdout": "{\"error\":\"usage: rt ci lease claim <mr-url>\"}\n",
+    "stderr": ""
+  },
+  "ci-claim-bad-holder": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "--holder must be watch-ci or doctor\n"
+  },
+  "ci-heartbeat-no-lease": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "no lease\n"
+  },
+  "ci-release-no-lease": {
+    "code": 0,
+    "stdout": "no lease\n",
+    "stderr": ""
+  },
+  "ci-show-none": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "none\n"
+  },
+  "ci-show-none-json": {
+    "code": 1,
+    "stdout": "{\"lease\":null,\"stale\":null,\"mine\":false}\n",
+    "stderr": ""
+  },
+  "runs-find-no-session": {
+    "code": 2,
+    "stdout": "{\"ok\":false,\"error\":\"--session is required\"}\n",
+    "stderr": ""
+  },
+  "runs-find-none": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"runs\":[]}\n",
+    "stderr": ""
+  },
+  "runs-run-start-no-args": {
+    "code": 2,
+    "stdout": "{\"ok\":false,\"error\":\"--repo is required\"}\n",
+    "stderr": ""
+  },
+  "runs-stage-start-no-args": {
+    "code": 2,
+    "stdout": "{\"ok\":false,\"error\":\"--stage is required\"}\n",
+    "stderr": ""
+  }
+}

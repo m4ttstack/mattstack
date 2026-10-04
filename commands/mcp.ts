@@ -1,5 +1,6 @@
 import { mcpTools, type McpToolDef } from "../lib/mcp/tools.ts";
 import { callTool } from "../lib/mcp/redact.ts";
+import * as out from "../lib/ui/out.ts";
 
 declare const RT_VERSION: string;
 
@@ -9,14 +10,11 @@ export function mcpToolsPayload(tools: McpToolDef[] = mcpTools()): { tools: Arra
 
 export async function mcpToolsList(args: string[]): Promise<void> {
   const payload = mcpToolsPayload();
-  // The roster is larger than a pipe buffer, and the CLI exits right after
-  // dispatch, so the write is awaited or a pipe reader gets a cut-off JSON.
   if (args.includes("--json")) {
-    const text = JSON.stringify(payload) + "\n";
-    await new Promise<void>((resolve, reject) => process.stdout.write(text, (err) => (err ? reject(err) : resolve())));
+    await out.jsonFlushed(payload);
     return;
   }
-  for (const t of payload.tools) console.log(t.name);
+  out.payload(payload.tools.map((t) => `${t.name}\n`).join(""));
 }
 
 /**

@@ -442,6 +442,18 @@ copy of the words.
 `lib/prompt-secret.ts` re-exports `lib/ui/prompt-secret.ts`: the no-echo
 prompt holds the terminal in raw mode and lives with the other prompts.
 
+The agent-only verbs the spec leaves unconverted (`gate`, `events`, `ci`,
+`mcp`, `runs find` and the run-tracking writes, `worktree claude-hook`)
+still write through the layer, with no change of bytes: stdout through
+`out.json`, `out.jsonFlushed` or `out.payload`, stderr through
+`out.diagnostic`, which is the stderr twin of `out.payload` and is for
+agent-facing verbs only (these, and the herd, pane and agent verbs).
+`commands/__tests__/fixtures/agent-verbs-bytes.json` pins them; never
+regenerate it to make a change pass. A file that must
+touch a stream directly (the loggers, an escape parser) goes on
+`lib/__tests__/raw-output-exemptions.json` with its reason and its exact
+count of raw lines, and the guard fails if that count moves.
+
 ## The TypeScript CLI is UI-free
 
 The rt TS CLI (`commands/`, `lib/`, `cli.ts`, `scripts/`) is pure Bun/TypeScript

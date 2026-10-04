@@ -34,6 +34,7 @@ import {
   decisionRecord, fieldGet, fieldSet, openRunDb, runIdentity, runStatus, snapshot, stageEnd, stageStart,
   type Fail,
 } from "../lib/runs/write.ts";
+import * as out from "../lib/ui/out.ts";
 
 export type WriteVerb = "run-start" | "run-status" | "stage-start" | "stage-done" | "stage-fail" | "stage-redirect" | "field" | "decision" | "snapshot";
 export type CliResult = { out: string; code: number };
@@ -204,7 +205,7 @@ async function withRunDbAsync(env: NodeJS.ProcessEnv, cwd: string, body: (run: R
 }
 
 async function finish(result: CliResult): Promise<void> {
-  if (result.out !== "") console.log(result.out);
+  if (result.out !== "") out.payload(`${result.out}\n`);
   if (result.code !== 0) process.exit(result.code);
 }
 

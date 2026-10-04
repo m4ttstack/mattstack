@@ -33,9 +33,10 @@ import {
 import type { Commands, GateRow, RtResponse } from "../packages/rt-client/src/index.ts";
 import { parseDuration, nextWaitMs } from "./events.ts";
 import { GATE_FORK_HOOK_TIMEOUT_SECONDS } from "../lib/agent-hooks.ts";
+import * as out from "../lib/ui/out.ts";
 
 function fail(msg: string): never {
-  console.error(`rt gate: ${msg}`);
+  out.diagnostic(`rt gate: ${msg}\n`);
   process.exit(1);
 }
 
@@ -115,7 +116,7 @@ export async function gateOpen(args: string[]): Promise<void> {
   const payload = buildOpenPayload(args);
   const res = await clientOpen(payload);
   const data = unwrap(res, "open");
-  console.log(JSON.stringify({ ok: true, id: data.id, supersededId: data.supersededId }));
+  out.json({ ok: true, id: data.id, supersededId: data.supersededId });
 }
 
 // ─── answer ──────────────────────────────────────────────────────────────────
@@ -161,8 +162,8 @@ export async function gateAnswer(args: string[]): Promise<void> {
   const data = res.data;
   // A CAS loss is a defined outcome (ok:true, conflict:true) carrying the
   // winning row, not an error — see packages/rt-client/src/commands.ts.
-  if (data.conflict) console.error(`rt gate: answer lost: ${payload.id} was already answered; showing the winning row`);
-  console.log(JSON.stringify({ ok: true, row: data.row, conflict: data.conflict ?? false }));
+  if (data.conflict) out.diagnostic(`rt gate: answer lost: ${payload.id} was already answered; showing the winning row\n`);
+  out.json({ ok: true, row: data.row, conflict: data.conflict ?? false });
 }
 
 // ─── ask ─────────────────────────────────────────────────────────────────────
@@ -176,7 +177,7 @@ const ASK_USAGE = "usage: rt gate ask --questions <json> [--context <text>] [--k
 /** Always-JSON failure: agents parse stdout on both
     outcomes, so refusals never take fail()'s stderr-prose path. */
 function askFail(message: string): never {
-  console.log(JSON.stringify({ ok: false, error: message }));
+  out.json({ ok: false, error: message });
   process.exit(1);
 }
 
@@ -224,12 +225,12 @@ export async function gateAsk(args: string[]): Promise<void> {
   if (!res.ok || res.data === undefined) askFail(res.error ?? "ask failed");
   const data = res.data;
   if (data.contextOmitted) {
-    console.error(`rt gate: context omitted: gate context plus question contexts exceeded the shared ${CONTEXT_CAP_BYTES}-byte budget; question contexts were dropped, and the gate context too if it was over on its own; shorten and re-ask`);
+    out.diagnostic(`rt gate: context omitted: gate context plus question contexts exceeded the shared ${CONTEXT_CAP_BYTES}-byte budget; question contexts were dropped, and the gate context too if it was over on its own; shorten and re-ask\n`);
   }
   if (data.formCapExceeded) {
-    console.error(`rt gate: form cap exceeded (${data.formCapExceeded.map((q) => `${q.question}: ${q.options}`).join(", ")}): ${data.formCapAdvisory}`);
+    out.diagnostic(`rt gate: form cap exceeded (${data.formCapExceeded.map((q) => `${q.question}: ${q.options}`).join(", ")}): ${data.formCapAdvisory}\n`);
   }
-  console.log(JSON.stringify(gateAskOutput(data)));
+  out.json(gateAskOutput(data));
 }
 
 // ─── fork-check ──────────────────────────────────────────────────────────────
@@ -301,7 +302,7 @@ export async function gateForkCheck(_args: string[]): Promise<void> {
   const stdin = process.stdin.isTTY ? "" : await Bun.stdin.text();
   const payload = buildForkCheckPayload(stdin, process.env, process.cwd());
   const res = payload ? await clientForkCheck(payload, { timeoutMs: FORK_CHECK_TIMEOUT_MS }) : null;
-  console.log(JSON.stringify(forkCheckHookOutput(res)));
+  out.json(forkCheckHookOutput(res));
 }
 
 // ─── wait ────────────────────────────────────────────────────────────────────
@@ -349,7 +350,7 @@ export async function waitForGate(
     if (!res.ok) {
       if (res.error === "not-found") return { terminal: "not-found" };
       if (!warned) {
-        console.error(`rt gate: wait failed (${res.error ?? "unknown error"}); retrying until reconnect...`);
+        out.diagnostic(`rt gate: wait failed (${res.error ?? "unknown error"}); retrying until reconnect...\n`);
         warned = true;
       }
       // Bound the backoff by the remaining budget: a short --timeout must
@@ -380,11 +381,11 @@ export async function gateWait(args: string[]): Promise<void> {
 
   const outcome = await waitForGate(id, deadline, clientWait, undefined, process.env.CLAUDE_CODE_SESSION_ID);
   if (outcome.terminal === "budget") {
-    console.log(JSON.stringify({ ok: true, timedOut: true }));
+    out.json({ ok: true, timedOut: true });
     process.exit(124);
   }
   if (outcome.terminal === "not-found") fail(`gate not found: ${id}`);
-  console.log(JSON.stringify({ ok: true, status: outcome.terminal, row: outcome.row }));
+  out.json({ ok: true, status: outcome.terminal, row: outcome.row });
 }
 
 // ─── list ────────────────────────────────────────────────────────────────────
@@ -424,7 +425,7 @@ export async function gateList(args: string[]): Promise<void> {
   const payload = buildListPayload(args);
   const res = await clientList(payload);
   const data = unwrap(res, "list");
-  console.log(JSON.stringify({ ok: true, gates: withGateTokens(data.gates), cursor: data.cursor }));
+  out.json({ ok: true, gates: withGateTokens(data.gates), cursor: data.cursor });
 }
 
 // ─── park / close ────────────────────────────────────────────────────────────
@@ -434,7 +435,7 @@ export async function gatePark(args: string[]): Promise<void> {
   if (!id) fail("usage: rt gate park <id>");
   const res = await clientPark({ id });
   unwrap(res, "park");
-  console.log(JSON.stringify({ ok: true }));
+  out.json({ ok: true });
 }
 
 const CLOSE_REASONS = new Set(["abandoned", "superseded", "pruned"]);
@@ -447,7 +448,7 @@ export async function gateClose(args: string[]): Promise<void> {
   if (!reason || !CLOSE_REASONS.has(reason)) fail(CLOSE_USAGE);
   const res = await clientClose({ id, reason: reason as Commands["gate:close"]["payload"]["reason"] });
   unwrap(res, "close");
-  console.log(JSON.stringify({ ok: true }));
+  out.json({ ok: true });
 }
 
 // ─── subscribe / unsubscribe ────────────────────────────────────────────────
@@ -458,7 +459,7 @@ export async function gateSubscribe(args: string[]): Promise<void> {
   if (!subjectPrefix || !session) fail("usage: rt gate subscribe --subject-prefix <p> --session <addr>");
   const res = await clientSubscribe({ subjectPrefix, session });
   const data = unwrap(res, "subscribe");
-  console.log(JSON.stringify({ ok: true, id: data.id }));
+  out.json({ ok: true, id: data.id });
 }
 
 export async function gateUnsubscribe(args: string[]): Promise<void> {
@@ -466,7 +467,7 @@ export async function gateUnsubscribe(args: string[]): Promise<void> {
   if (!id) fail("usage: rt gate unsubscribe <id>");
   const res = await clientUnsubscribe({ id });
   const data = unwrap(res, "unsubscribe");
-  console.log(JSON.stringify({ ok: true, removed: data.removed }));
+  out.json({ ok: true, removed: data.removed });
 }
 
 export function buildSubscriptionsPayload(args: string[]): Commands["gate:subscriptions"]["payload"] {
@@ -481,5 +482,5 @@ export async function gateSubscriptions(args: string[]): Promise<void> {
   const payload = buildSubscriptionsPayload(args);
   const res = await clientSubscriptions(payload);
   const data = unwrap(res, "subscriptions");
-  console.log(JSON.stringify({ ok: true, subscriptions: data.subscriptions }));
+  out.json({ ok: true, subscriptions: data.subscriptions });
 }

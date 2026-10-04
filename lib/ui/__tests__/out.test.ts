@@ -1,10 +1,11 @@
-import { test, expect, beforeEach, afterEach } from "bun:test";
+import { test, expect, beforeEach, afterEach, describe } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { logsDir } from "../../rt-paths.ts";
 import { __test__ as background } from "../background.ts";
 import * as out from "../out.ts";
+import { captureOut } from "./capture-out.ts";
 
 const FAKE = resolve(import.meta.dir, "fake-rt-ui.ts");
 let dir: string;
@@ -312,4 +313,76 @@ test("a helper that rejects the blank block still prints the breadcrumb plain", 
   process.env.RT_UI_FAKE = JSON.stringify({ record, exit: 2 });
   out.note(out.section("rt › show", undefined), out.blank());
   expect(stderr.join("")).toBe("rt › show\n\n");
+});
+
+describe("the two writers agent-only verbs use", () => {
+  test("diagnostic writes stderr byte for byte, at a terminal too, and never stdout", () => {
+    const io = captureOut();
+    out.__test__.setHuman(() => true);
+    try {
+      out.diagnostic("rt gate: usage: rt gate park <id>\n");
+      expect(io.stderr()).toBe("rt gate: usage: rt gate park <id>\n");
+      expect(io.stdout()).toBe("");
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("jsonFlushed writes what json writes and resolves after the write", async () => {
+    const io = captureOut();
+    try {
+      const value = { tools: [{ name: "a" }, { name: "b" }] };
+      out.json(value);
+      const viaJson = io.stdout();
+      io.clear();
+      await out.jsonFlushed(value);
+      expect(io.stdout()).toBe(viaJson);
+      io.clear();
+      await out.jsonFlushed(value, 2);
+      expect(io.stdout()).toBe(JSON.stringify(value, null, 2) + "\n");
+    } finally {
+      io.restore();
+    }
+  });
+
+  for (const accepted of [true, false]) {
+    test(`jsonFlushed waits for a successful writer callback when write returns ${accepted}`, async () => {
+      let complete!: (error?: Error | null) => void;
+      process.stdout.write = ((text: string, callback: (error?: Error | null) => void) => {
+        stdout.push(text);
+        complete = callback;
+        return accepted;
+      }) as typeof process.stdout.write;
+      let settled = false;
+      const flushed = out.jsonFlushed({ tools: [] }).then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(stdout).toEqual(['{"tools":[]}\n']);
+      expect(settled).toBe(false);
+      complete();
+      await flushed;
+      expect(settled).toBe(true);
+    });
+
+    test(`jsonFlushed rejects a writer callback error when write returns ${accepted}`, async () => {
+      let complete!: (error?: Error | null) => void;
+      process.stdout.write = ((_text: string, callback: (error?: Error | null) => void) => {
+        complete = callback;
+        return accepted;
+      }) as typeof process.stdout.write;
+      let settled = false;
+      const flushed = out.jsonFlushed({ tools: [] });
+      void flushed.then(
+        () => { settled = true; },
+        () => { settled = true; },
+      );
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      const error = new Error("writer failed");
+      complete(error);
+      await expect(flushed).rejects.toBe(error);
+      expect(settled).toBe(true);
+    });
+  }
 });

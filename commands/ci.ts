@@ -18,6 +18,7 @@ import {
   type CiLeaseHolder,
 } from "../packages/rt-client/src/index.ts";
 import { ciToolDefs, isHttpsMrUrl, ownerFromEnv, type CiWatchToolDeps } from "../lib/mcp/ci-tools.ts";
+import * as out from "../lib/ui/out.ts";
 
 export function cliOwner(env: NodeJS.ProcessEnv): string {
   return ownerFromEnv(env) ?? `user:${env.USER || userInfo().username}`;
@@ -45,11 +46,11 @@ function positional(args: string[]): string | undefined {
   return args.find((a, i) => !a.startsWith("--") && !(i > 0 && args[i - 1]!.startsWith("--") && args[i - 1] !== "--json"));
 }
 
-/** json always goes to stdout regardless of exit code, so a --json caller can still parse a failure; plain text follows the exit code (0 to stdout, non-zero to stderr). Mirrors commands/chat.ts's fail(). */
+/** json always goes to stdout regardless of exit code, so a --json caller can still parse a failure; plain text follows the exit code (0 to stdout, non-zero to stderr). */
 function emit(json: boolean, body: unknown, text: string, code = 0): never {
-  if (json) process.stdout.write(`${JSON.stringify(body)}\n`);
-  else if (code === 0) process.stdout.write(`${text}\n`);
-  else process.stderr.write(`${text}\n`);
+  if (json) out.json(body);
+  else if (code === 0) out.payload(`${text}\n`);
+  else out.diagnostic(`${text}\n`);
   process.exit(code);
 }
 

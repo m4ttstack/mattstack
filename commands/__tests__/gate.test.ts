@@ -1,4 +1,5 @@
 import { describe, test, expect, spyOn } from "bun:test";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import {
   buildOpenPayload,
   buildAnswerPayload,
@@ -116,12 +117,13 @@ describe("buildListPayload", () => {
     const exitSpy = spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
     }) as never);
-    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    const captured = captureOut();
     try {
       expect(() => buildListPayload(["--limit", "abc"])).toThrow("exit:1");
+      expect(captured.stderr()).toBe("rt gate: --limit must be a number\n");
     } finally {
       exitSpy.mockRestore();
-      errorSpy.mockRestore();
+      captured.restore();
     }
   });
 });

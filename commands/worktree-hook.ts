@@ -5,6 +5,9 @@
  * The WorktreeRemove stdin shape is UNVERIFIED (never observed firing), so
  * the parser accepts worktree_path or path and treats absence as a noop.
  */
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { warn } from "../lib/ui/warn.ts";
 import { existsSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -116,22 +119,37 @@ export async function maybeOfferClaudeHook(json: boolean): Promise<void> {
 
     const rtBin = Bun.which("rt");
     if (!rtBin) {
-      console.warn("rt: skipping claude hook install offer... rt is not on PATH");
+      warn("worktree-hook", "skipping claude hook install offer: rt is not on PATH", { show: { title: "rt could not install the worktree hook", hint: "rt is not on your PATH" } });
       return;
     }
     installClaudeWorktreeHooks(settingsPath, rtBin);
     recordClaudeHookAnswer("installed");
   } catch (err) {
-    console.warn(`rt: claude hook install offer failed... ${String(err)}`);
+    warn("worktree-hook", `claude hook install offer failed: ${String(err)}`, {
+      show: { title: "rt could not install the worktree hook", hint: firstLine(String(err)), next: out.cmd("rt worktree hook install") },
+    });
   }
 }
 
-function emit(json: boolean, data: Record<string, unknown>, text: string): void {
-  console.log(json ? JSON.stringify(data) : `\n  ${text}\n`);
+function firstLine(text: string): string {
+  return text.split("\n")[0] ?? text;
+}
+
+export function hookResultBlocks(kind: "install" | "uninstall", changed: boolean): Block[] {
+  if (kind === "install") {
+    return [changed ? out.line("done", "Installed the worktree hook", "Claude Code now asks rt for a worktree") : out.line("skipped", "The worktree hook is already installed")];
+  }
+  return [changed ? out.line("done", "Removed the worktree hook") : out.line("skipped", "The worktree hook was not installed")];
+}
+
+export function hookStatusBlocks(s: ReturnType<typeof claudeWorktreeHookStatus>): Block[] {
+  if (!s.installed) return [out.line("off", "The worktree hook is not installed"), out.callout("next", out.cmd("rt worktree hook install"))];
+  return [out.line("done", "The worktree hook is installed"), out.kv("runs", s.command)];
 }
 
 function settingsFail(json: boolean, err: unknown): never {
-  emit(json, { error: String(err) }, `✗ ${String(err)}`);
+  if (json) out.json({ error: String(err) });
+  else out.fail({ title: "rt could not update Claude Code's settings", why: firstLine(String(err)) });
   process.exit(1);
 }
 
@@ -143,13 +161,15 @@ export async function hookInstallCommand(
   const json = args.includes("--json");
   const rtBin = deps.which("rt");
   if (!rtBin) {
-    emit(json, { error: "rt-not-on-path" }, "✗ rt is not on PATH; install rt first");
+    if (json) out.json({ error: "rt-not-on-path" });
+    else out.fail({ title: "rt is not on your PATH", why: "rt must be available before you can install the hook." });
     process.exit(1);
   }
   try {
     const r = installClaudeWorktreeHooks(claudeSettingsPath(), rtBin);
     recordClaudeHookAnswer("installed");
-    emit(json, { installed: true, changed: r.changed, rtBin }, r.changed ? `✓ hook installed (${rtBin})` : "✓ already installed");
+    if (json) out.json({ installed: true, changed: r.changed, rtBin });
+    else out.print(...hookResultBlocks("install", r.changed));
   } catch (err) {
     settingsFail(json, err);
   }
@@ -159,7 +179,8 @@ export async function hookUninstallCommand(args: string[], _ctx: unknown): Promi
   const json = args.includes("--json");
   try {
     const r = uninstallClaudeWorktreeHooks(claudeSettingsPath());
-    emit(json, { installed: false, changed: r.changed }, r.changed ? "✓ hook entries removed" : "nothing to remove");
+    if (json) out.json({ installed: false, changed: r.changed });
+    else out.print(...hookResultBlocks("uninstall", r.changed));
   } catch (err) {
     settingsFail(json, err);
   }
@@ -170,17 +191,14 @@ export async function hookStatusCommand(args: string[], _ctx: unknown): Promise<
   try {
     const s = claudeWorktreeHookStatus(claudeSettingsPath());
     if (json) {
-      console.log(JSON.stringify(s));
+      out.json(s);
       return;
     }
-    if (!s.installed) {
-      console.log("\n  hook not installed (rt worktree hook install)\n");
+    if (s.installed && !s.binaryExists) {
+      out.fail({ title: "The worktree hook points at an rt that is gone", why: "Every new Claude worktree will fail until it is fixed.", next: out.cmd("rt worktree hook uninstall") });
       return;
     }
-    console.log(`\n  installed: ${s.command}`);
-    console.log(s.binaryExists
-      ? "  binary: ok\n"
-      : "  ✗ binary missing (EnterWorktree will fail everywhere); escape hatch: rt worktree hook uninstall\n");
+    out.print(...hookStatusBlocks(s));
   } catch (err) {
     settingsFail(json, err);
   }
@@ -273,7 +291,7 @@ export async function claudeHookCommand(args: string[], _ctx: unknown): Promise<
   const parsed = parseHookStdin(await Bun.stdin.text());
 
   if (parsed.event === "invalid") {
-    console.error("rt worktree claude-hook: unrecognized stdin payload");
+    out.diagnostic("rt worktree claude-hook: unrecognized stdin payload\n");
     process.exit(removeMode ? 0 : 2);
   }
 
@@ -282,7 +300,7 @@ export async function claudeHookCommand(args: string[], _ctx: unknown): Promise<
     const decision = decideRemove(parsed.path, (p) => findTreeByPath(p));
     if (decision.kind === "dispose") {
       const res = await daemonQuery("worktree:dispose", { repoName: decision.repoName, tree: decision.tree, force: false, callerPid: process.pid });
-      if (res && !res.ok) console.error(`rt: tree kept: ${explainError(res.error ?? "unknown error")}`);
+      if (res && !res.ok) out.diagnostic(`rt: tree kept: ${explainError(res.error ?? "unknown error")}\n`);
     }
     process.exit(0);
   }
@@ -298,7 +316,7 @@ export async function claudeHookCommand(args: string[], _ctx: unknown): Promise<
   );
 
   if (decision.kind === "refused") {
-    console.error(`rt worktree provision refused: ${explainError(decision.error)} (escape hatch: rt worktree hook uninstall)`);
+    out.diagnostic(`rt worktree provision refused: ${explainError(decision.error)} (escape hatch: rt worktree hook uninstall)\n`);
     process.exit(2);
   }
   if (decision.kind === "provisioned" && parsed.sessionId) {
@@ -311,6 +329,6 @@ export async function claudeHookCommand(args: string[], _ctx: unknown): Promise<
       // same as announceRelocation: the dialog falls to the human on a daemon-down case
     }
   }
-  console.log(decision.path);
+  out.payload(`${decision.path}\n`);
   process.exit(0);
 }
