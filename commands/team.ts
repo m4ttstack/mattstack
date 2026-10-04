@@ -1,3 +1,5 @@
+import { orgStoreFile } from "../lib/team/org-store.ts";
+import { rosterFrom } from "../packages/rt-client/src/settings/active-team.ts";
 import { activeTeamFor } from "../lib/team/active-team.ts";
 import { roleFor, rolesFor } from "../lib/team/roles.ts";
 /**
@@ -27,7 +29,7 @@ import { promptSecret } from "../lib/prompt-secret.ts";
 import { orgSettingsPath } from "../lib/rt-paths.ts";
 import { createRealTeamSecretsSeams } from "../lib/secrets/team-store.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
-import { listOrgs, readStore } from "../lib/settings/stores.ts";
+import { listOrgs, parseStoreText, readStore } from "../lib/settings/stores.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
@@ -45,7 +47,7 @@ import { extractInviteCode } from "../lib/team/invite-crypto.ts";
 import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeams } from "../lib/team/invite.ts";
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
-import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSync, teamRemote, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
+import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient } from "../lib/team/relay-client.ts";
@@ -57,6 +59,7 @@ import type { TeamSnapshotEntry } from "../lib/daemon/team-snapshots.ts";
 export interface TeamDeps {
   mintInvite?: typeof mintInvite;
   addTeamSeams?: AddTeamSeams;
+  membersSeams?: MembersSeams;
   probes: Probes;
   /** The --json envelope line only; human text goes through lib/ui/out.ts. */
   print: (s: string) => void;
@@ -555,6 +558,43 @@ function rosterHandles(args: string[]): string[] {
       .map((m) => m.username);
   } catch {
     return [];
+  }
+}
+
+function readOrgRosterNames(p: Probes, slug: string): string[] {
+  const file = orgStoreFile(p.home, slug);
+  const raw = p.readFile(file);
+  return raw === null ? [] : rosterFrom(parseStoreText(file, raw)).map((member) => member.username);
+}
+
+export async function teamMembersSet(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  let handle = positional(args, ["--teams", "--team"])[0];
+  const teamsFlag = flagValue(args, "--teams");
+  try {
+    const slug = resolveTeamSlug(args, "team members set");
+    if (!handle && process.stdin.isTTY && !json && !process.env.RT_BATCH) {
+      const candidates = readOrgRosterNames(deps.probes, slug);
+      if (candidates.length > 0) {
+        const { filterableSelect } = await import("../lib/pick-wrappers.ts");
+        const picked = await filterableSelect({ message: "Whose teams?", options: candidates.map((name) => ({ value: name, label: name })), stderr: true });
+        if (!picked) process.exit(0);
+        handle = picked;
+      }
+    }
+    if (!handle || teamsFlag === undefined) {
+      usageError(deps, json, "team members set", "Say whose teams, and which", "rt team members set <username> --teams <team>[,<team>] [--team <org>] [--json]");
+    }
+    const teams = teamsFlag.split(",").map((team) => team.trim()).filter((team) => team !== "");
+    const result = membersSetTeams(deps.probes, deps.membersSeams ?? realMembersSeams(), slug, handle, teams);
+    if (json) {
+      deps.print(JSON.stringify(envelope(result)));
+      return;
+    }
+    out.print(out.line("done", `${result.username} is on ${result.teams.length > 0 ? result.teams.join(", ") : "no team"}`, result.previous.length > 0 ? `was on ${result.previous.join(", ")}` : undefined));
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, "team members set", deps);
+    throw err;
   }
 }
 
