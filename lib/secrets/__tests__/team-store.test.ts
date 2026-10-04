@@ -1,4 +1,5 @@
-import { describe, test, expect } from "bun:test";
+import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
+import { beforeEach, describe, test, expect } from "bun:test";
 import {
   teamSecretsFile,
   teamSopsYamlPath,
@@ -26,6 +27,8 @@ import * as out from "../../ui/out.ts";
 import { captureOut } from "../../ui/__tests__/capture-out.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { teamLocalPath } from "../../team/team-local.ts";
+
+beforeEach(() => { seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }); });
 
 function teamCloneRootFor(slug: string): string {
   return join(teamsDir(), slug);
@@ -297,10 +300,13 @@ describe("writeTeamSecret", () => {
     const seams: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey("AGE-X"), execSeam: new FakeTeamExecSeam() };
     const probes = fakeProbes({
       home: "/home/x",
-      files: { [teamLocalPath("/home/x", slug)]: JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false }) },
+      files: {
+        [`/home/x/.mattstack/teams/${slug}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+        [teamLocalPath("/home/x", slug)]: JSON.stringify({ joinedByRt: true, forgeUsername: "dev2" }),
+      },
     });
 
-    await expect(writeTeamSecret(slug, "rt", "k", "v", seams, probes)).rejects.toThrow(/pull-only/);
+    await expect(writeTeamSecret(slug, "rt", "k", "v", seams, probes)).rejects.toMatchObject({ code: "team-pull-only", message: "The org's shared files belong to its admins" });
   });
 
   test("no age key on this machine -> NoAgeKeyError (the interim seam's staging-fallback trigger)", async () => {
@@ -466,10 +472,13 @@ describe("reencryptTeamSecrets", () => {
     const seams: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey("AGE-X"), execSeam };
     const probes = fakeProbes({
       home: "/home/x",
-      files: { [teamLocalPath("/home/x", slug)]: JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false }) },
+      files: {
+        [`/home/x/.mattstack/teams/${slug}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+        [teamLocalPath("/home/x", slug)]: JSON.stringify({ joinedByRt: true, forgeUsername: "dev2" }),
+      },
     });
 
-    await expect(reencryptTeamSecrets(slug, seams, probes)).rejects.toThrow(/pull-only/);
+    await expect(reencryptTeamSecrets(slug, seams, probes)).rejects.toMatchObject({ code: "team-pull-only", message: "The org's shared files belong to its admins" });
     expect(execSeam.calls).toEqual([]);
   });
 
@@ -621,7 +630,10 @@ describe("a team file this Mac's key cannot decrypt", () => {
     const { seams } = unreadableTeam();
 
     await expect(listTeamSecretNames("acme", "board", seams)).rejects.toBeInstanceOf(UserActionableError);
-    const write = await writeTeamSecret("acme", "board", "slackClientSecret", "shh", seams, fakeProbes({ home: "/home/x" })).catch((e: unknown) => e);
+    const write = await writeTeamSecret("acme", "board", "slackClientSecret", "shh", seams, fakeProbes({ home: "/home/x", files: {
+      "/home/x/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
+    } })).catch((e: unknown) => e);
     expect(write).toBeInstanceOf(UserActionableError);
     expect((write as UserActionableError).code).toBe("team-secrets-unreadable");
   });
@@ -644,4 +656,17 @@ describe("a team file this Mac's key cannot decrypt", () => {
 
     await expect(decryptAtLocation({ filePath: teamSecretsFile("acme", "board"), filenameOverride: "mattstack/secrets/board.json", cwd: teamCloneRootFor("acme") }, seams)).rejects.toBeInstanceOf(SopsDecryptError);
   });
+});
+
+
+test("an invited admin may write and reencrypt secrets", async () => {
+  const { execSeam, seams } = seamsWithKey();
+  writeTeamRecipients("acme", ["age1aaa"], seams);
+  const probes = fakeProbes({ home: "/home/x", files: {
+    "/home/x/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+    [teamLocalPath("/home/x", "acme")]: JSON.stringify({ joinedByRt: true, forgeUsername: "dev1" }),
+  } });
+  await writeTeamSecret("acme", "board", "k", "v", seams, probes);
+  await expect(reencryptTeamSecrets("acme", seams, probes)).resolves.toEqual([teamSecretsFile("acme", "board")]);
+  expect(execSeam.calls.some(c => c.cmd.includes("updatekeys"))).toBe(true);
 });

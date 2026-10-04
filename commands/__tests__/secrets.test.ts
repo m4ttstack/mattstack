@@ -7,7 +7,8 @@
  * covers the personal-store path and the value-never-leaks canary; this
  * file is the team-routing complement.
  */
-import { describe, test, expect, spyOn } from "bun:test";
+import { beforeEach, describe, test, expect, spyOn } from "bun:test";
+import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { secretsSet, secretsList, secretsRotate } from "../secrets.ts";
 import { secretsFilePath, type SecretsExecResult, type SecretsExecSeam, type SecretsSeams } from "../../lib/secrets/store.ts";
 import { teamSecretsFile, writeTeamRecipients, writeTeamSecret, readTeamSecret } from "../../lib/secrets/team-store.ts";
@@ -15,6 +16,8 @@ import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import { teamsDir } from "../../lib/rt-paths.ts";
 import { join } from "path";
 import { capturePlain } from "./helpers/json-line.ts";
+
+beforeEach(() => { seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } }); });
 
 function fakeAgeKeySeamWithKey(key: string): AgeKeySeam {
   return {

@@ -1,3 +1,5 @@
+import { tmpdir } from "os";
+import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 /**
  * Real-sops/age integration coverage for the team store. A fake exec seam
  * that always returns `code: 0` for `sops updatekeys` can't catch a missing
@@ -10,8 +12,8 @@
  * `sops`/`age-keygen` aren't on PATH rather than failing CI on a machine
  * without them.
  */
-import { describe, test, expect } from "bun:test";
-import { mkdirSync } from "fs";
+import { beforeEach, afterEach, describe, test, expect } from "bun:test";
+import { mkdirSync, mkdtempSync } from "fs";
 import { join } from "path";
 import {
   createRealSecretsExecSeam,
@@ -54,8 +56,15 @@ function fakeAgeKeySeamWithKey(privateKey: string): AgeKeySeam {
 }
 
 describe.skipIf(!hasRealSops)("team-store against real sops + age", () => {
+  let savedHome: string | undefined;
+  beforeEach(() => {
+    savedHome = process.env.HOME;
+    process.env.HOME = mkdtempSync(join(tmpdir(), "rt-team-sops-role-"));
+  });
+  afterEach(() => { process.env.HOME = savedHome; });
   test("writeTeamRecipients + writeTeamSecret + addTeamRecipient + removeTeamRecipient all round-trip against real sops, with real SOPS_AGE_KEY injection into updatekeys", async () => {
     const slug = `realsops-${process.pid}`;
+    seedOrg({ org: slug, username: "dev1", roles: { admins: ["dev1"], teams: {} } });
     const root = join(teamsDir(), slug);
     mkdirSync(join(root, "mattstack", "secrets"), { recursive: true });
 
@@ -101,6 +110,7 @@ describe.skipIf(!hasRealSops)("team-store against real sops + age", () => {
 
   test("membersSync's add-recipient path end to end: a real sealed reply's age key becomes a real sops recipient", async () => {
     const slug = `realsops-members-${process.pid}`;
+    seedOrg({ org: slug, username: "dev1", roles: { admins: ["dev1"], teams: {} } });
     const root = join(teamsDir(), slug);
     mkdirSync(join(root, "mattstack", "secrets"), { recursive: true });
 

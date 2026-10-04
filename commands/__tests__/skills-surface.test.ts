@@ -1,3 +1,4 @@
+import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
@@ -1151,3 +1152,33 @@ for (const json of [false, true]) {
     expect(readFileSync(join(packDir, "skills", "beta"), "utf8")).toBe("blocks the directory rename\n");
   });
 }
+
+describe("pack role refusals", () => {
+  for (const json of [[], ["--json"]]) {
+    test(`member writes are refused ${json.length ? "as JSON" : "for a person"}`, async () => {
+      const savedHome = process.env.HOME;
+      process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-pack-role-")));
+      try {
+        seedOrg({ org: "acme", username: "dev4", roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
+        const packDir = join(process.env.HOME!, ".mattstack", "teams", "acme", "mattstack", "teams", "widgets", "packs", "widgets");
+        writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
+        const refusal = "The widgets team's files belong to its owners. Ask dev2 (the team's owner) or dev1 (an org admin) to make this change.";
+
+      writeFile(join(packDir, "pack", "surface.jsonc"), '{"public":["helper"]}');
+      writeFile(join(packDir, "skills", "helper", "SKILL.md"), "---\nname: helper\ndescription: Help\n---\nHelp.\n");
+      const before = readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8");
+      for (const mode of [["set", "helper", "--internal"], ["apply"]]) {
+        const result = await runExpectingCleanExit(() => skillsSurface([...mode, "--pack-dir", packDir, ...json]));
+        expect(result.exitCode).toBe(2);
+        if (json.length) expect(JSON.parse(io.lines().at(-1)!)).toEqual({ ok: false, dryRun: false, ...(mode[0] === "set" ? { set: [{ name: "helper", want: "internal" }] } : {}), moved: [], recorded: [], compileErrors: [refusal] });
+        else expect(io.stderr()).toStartWith("[refused] The widgets team's files belong to its owners");
+        expect(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8")).toBe(before);
+        expect(existsSync(join(packDir, "skills", "helper", "SKILL.md"))).toBe(true);
+        expect((await runExpectingCleanExit(() => skillsSurface([...mode, "--pack-dir", packDir, "--dry-run", ...json]))).exitCode).toBeUndefined();
+        expect(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8")).toBe(before);
+      }
+
+      } finally { process.env.HOME = savedHome; }
+    });
+  }
+});

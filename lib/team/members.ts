@@ -36,7 +36,8 @@ import { parseOriginUrl } from "../setup/team-settings.ts";
 import { revokeRead, type RevokeAccess } from "./forge.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { scrub } from "./redact.ts";
-import { assertCurrentOrg, assertNotJoined, readTeamLocal } from "./team-local.ts";
+import { assertMayWrite } from "./roles.ts";
+import { assertCurrentOrg, readTeamLocal } from "./team-local.ts";
 import { openReply } from "./invite-crypto.ts";
 import { readInviteRecords, removeInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
@@ -236,7 +237,7 @@ export async function membersSync(
   slug: string,
   seams: MembersSeams = realMembersSeams(),
 ): Promise<MembersSyncResult> {
-  assertNotJoined(p, slug);
+  assertMayWrite(p, slug, ".sops.yaml");
   assertCurrentOrg(slug, seams.currentOrg(), "team members sync");
 
   const added: string[] = [];
@@ -347,7 +348,7 @@ export async function membersRemove(
   agePublicKey?: string,
   seams: MembersSeams = realMembersSeams(),
 ): Promise<MembersRemoveResult> {
-  assertNotJoined(p, slug);
+  assertMayWrite(p, slug, ".sops.yaml");
 
   if (agePublicKey !== undefined && !isValidAgePublicKey(agePublicKey)) {
     throw new UserActionableError("invalid-age-key", "That is not a valid age key", {}, {
