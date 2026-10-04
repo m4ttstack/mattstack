@@ -454,6 +454,13 @@ touch a stream directly (the loggers, an escape parser) goes on
 `lib/__tests__/raw-output-exemptions.json` with its reason and its exact
 count of raw lines, and the guard fails if that count moves.
 
+`rt daemon` draws a stopped or uninstalled daemon as `off` and a slow one as
+`pending`; only `crash-looping` and `boot-failed` are failures. Its waits on
+the tray run under `withTransientStep` and print one result line after.
+The log viewer's seams take blocks (`print`, `fail`), so the tray, which
+shows the first stderr line when `rt daemon logs --no-open` exits early,
+reads a failure title.
+
 ## The TypeScript CLI is UI-free
 
 The rt TS CLI (`commands/`, `lib/`, `cli.ts`, `scripts/`) is pure Bun/TypeScript
