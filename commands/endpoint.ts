@@ -19,7 +19,10 @@
  */
 
 import { basename } from "path";
-import { dim, green, red, reset, yellow } from "../lib/tui.ts";
+import * as out from "../lib/ui/out.ts";
+import type { FailureInput } from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 import { canon } from "../lib/fs-canon.ts";
 import { resolveIndexPathForIdentity } from "../lib/repo-index.ts";
 import { runCapture } from "../lib/subprocess.ts";
@@ -28,12 +31,12 @@ import { loadEndpointConfig } from "../lib/endpoint/config.ts";
 // deriveRepoName, not getRepoIdentity: the latter's updateRepoIndex side
 // effect would write to the repo index from a read-only lookup.
 import { deriveRepoName } from "../lib/repo.ts";
-// deriveRepoIdentity (not getRepoIdentity) for the same reason — pure
+// deriveRepoIdentity (not getRepoIdentity) for the same reason: pure
 // derivation, no repo-index write.
 import { deriveRepoIdentity, serializeIdentity } from "../lib/settings/identity.ts";
 
-function fail(msg: string): never {
-  console.error(`rt endpoint: ${msg}`);
+function fail(failure: FailureInput): never {
+  out.fail(failure);
   process.exit(1);
 }
 
@@ -105,55 +108,38 @@ export interface LookupCliContext {
   indexPath: string | null;
 }
 
-/**
- * Composes both output modes from one decision pass (RT-115): the --json
- * payload (daemon data plus `worktree.main`) and the plain lines, which name
- * the resolved worktree and shout when the listening process is not the
- * claim's own.
- */
 export function buildLookupOutput(
   data: LookupData,
   ctx: LookupCliContext,
-): { payload: Record<string, unknown>; lines: string[] } {
+): { payload: Record<string, unknown>; blocks: Block[] } {
   const main = ctx.indexPath !== null && canon(ctx.toplevel) === canon(ctx.indexPath);
   const worktree = { ...(data.worktree ?? { path: ctx.toplevel, name: null }), main };
   const listener = data.listener ?? null;
   const payload = { ok: true, ...data, worktree, listener };
 
-  const lines: string[] = [];
-  const treeLabel = worktree.name !== null ? `${worktree.name} (${worktree.path})` : worktree.path;
-
+  const blocks: Block[] = [];
+  const treeLabel = worktree.name ?? basename(worktree.path);
   if (!data.claimed) {
-    lines.push(`${dim}no claim for role "${ctx.role}" in ${ctx.repoName}${reset}`);
+    blocks.push(out.line("off", `No claim for the ${ctx.role} role`, ctx.repoName));
   } else {
     const foreign = listener !== null && listener.ownsClaim === false;
-    const status = foreign
-      ? "port taken"
+    const [status, words] = foreign
+      ? (["failed", "another process holds this port"] as const)
       : listener !== null
-        ? "running"
+        ? (["running", "running"] as const)
         : data.running
-          ? "claimed, process alive, not listening yet"
-          : "claimed, not running";
-    const statusColor = foreign ? red : listener !== null ? green : yellow;
-    lines.push(`${statusColor}${data.url}${reset} ${dim}(${status})${reset}`);
+          ? (["pending", "the process is up but not listening yet"] as const)
+          : (["off", "claimed, not running"] as const);
+    blocks.push(out.line(status, data.url ?? `port ${data.port}`, words));
   }
-
-  lines.push(`${dim}worktree ${treeLabel}${reset}`);
-
+  blocks.push(out.kv("worktree", treeLabel));
   if (listener !== null && listener.ownsClaim === false) {
-    const where = listener.cwd !== null ? `, ${listener.cwd}` : "";
-    lines.push(
-      `${red}⚠ port ${data.port} is listening, but pid ${listener.pid} (${listener.command}${where}) does not belong to this worktree${reset}`,
-    );
+    blocks.push(out.line("warn", `Port ${data.port} belongs to another worktree`, `pid ${listener.pid}, ${listener.command}`));
   } else if (listener !== null && listener.ownsClaim === null) {
-    lines.push(`${yellow}the listening process (pid ${listener.pid}, ${listener.command}) could not be attributed to a worktree${reset}`);
+    blocks.push(out.line("warn", `rt could not tell which worktree owns port ${data.port}`, `pid ${listener.pid}, ${listener.command}`));
   }
-
-  if (main) {
-    lines.push(`${yellow}⚠ running from the canonical main checkout, not a claimed worktree${reset}`);
-  }
-
-  return { payload, lines };
+  if (main) blocks.push(out.line("warn", "This is the main checkout, not a worktree with a claim"));
+  return { payload, blocks };
 }
 
 async function pickRole(cwd: string): Promise<string | null> {
@@ -172,13 +158,13 @@ async function pickRole(cwd: string): Promise<string | null> {
       });
     }
   }
-  fail("usage: rt endpoint lookup <role> [--path <dir>] [--json]");
+  fail(usageFailure("Which role?", "rt endpoint lookup <role> [--path <dir>]"));
 }
 
 export async function endpointLookup(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const parsed = parseEndpointLookupArgs(args);
-  if (parsed.pathInvalid) fail("--path needs a value (usage: rt endpoint lookup <role> [--path <dir>] [--json])");
+  if (parsed.pathInvalid) fail(usageFailure("Which path?", "rt endpoint lookup <role> --path <dir>"));
   const cwd = parsed.path ?? process.cwd();
   let role = parsed.role;
   if (!role) {
@@ -186,12 +172,12 @@ export async function endpointLookup(args: string[]): Promise<void> {
       role = (await pickRole(cwd)) ?? undefined;
       if (!role) process.exit(0);
     } else {
-      fail("usage: rt endpoint lookup <role> [--path <dir>] [--json]");
+      fail(usageFailure("Which role?", "rt endpoint lookup <role> [--path <dir>]"));
     }
   }
 
   const toplevel = await gitToplevel(cwd);
-  if (!toplevel) fail(parsed.path ? `--path ${parsed.path} is not in a git repo` : "not in a git repo");
+  if (!toplevel) fail({ title: "You are not in a git repo" });
 
   const remote = await gitRemote(toplevel);
   const repoName = remote ? deriveRepoName(remote) : basename(toplevel);
@@ -208,20 +194,20 @@ export async function endpointLookup(args: string[]): Promise<void> {
   // registering: a repo in neither form still fails.
   const indexPath = await resolveIndexPathForIdentity(identity);
   if (indexPath === null) {
-    fail(`repo "${repoName}" is not registered — visit it with rt first (repos.json is a derived mirror, not the source of truth)`);
+    fail({ title: "rt does not know this repo yet", why: "rt learns a repo the first time you run it there.", next: out.cmd("rt repos register .") });
   }
 
   const res = await daemonQuery("endpoint:lookup", { repo: identity, worktree: toplevel, role }, 10_000);
-  if (!res) fail("daemon unavailable — rt endpoint lookup needs the rt daemon (rt daemon start)");
-  if (!res.ok) fail(res.error ?? "lookup failed");
+  if (!res) fail({ title: "The rt daemon is not running", next: out.cmd("rt daemon start") });
+  if (!res.ok) fail({ title: res.error ?? "lookup failed" });
 
-  const { payload, lines } = buildLookupOutput(res.data as LookupData, { role, repoName, toplevel, indexPath });
+  const { payload, blocks } = buildLookupOutput(res.data as LookupData, { role, repoName, toplevel, indexPath });
 
   if (json) {
-    console.log(JSON.stringify(payload));
+    out.json(payload);
     return;
   }
-  console.log(`\n  ${lines.join("\n  ")}\n`);
+  out.print(...blocks);
 }
 
 interface ReleaseData {
@@ -234,7 +220,10 @@ async function pickWorktree(identity: string): Promise<string | null> {
   if (!res?.ok) return null;
   const data = res.data as { repos: Record<string, Array<{ worktree: string }>> };
   const worktrees = [...new Set((data.repos[identity] ?? []).map((c) => c.worktree))];
-  if (worktrees.length === 0) fail("no claims to release");
+  if (worktrees.length === 0) {
+    out.print(out.line("skipped", "No claims to release here"));
+    process.exit(1);
+  }
   const { filterableSelect } = await import("../lib/pick-wrappers.ts");
   return filterableSelect({
     message: "worktree to release",
@@ -275,20 +264,18 @@ export function parseEndpointReleaseArgs(args: string[]): ParsedEndpointReleaseA
 export async function endpointRelease(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const parsed = parseEndpointReleaseArgs(args);
-  if (parsed.roleInvalid) fail("--role needs a value (usage: rt endpoint release <worktree> --role <role>)");
+  if (parsed.roleInvalid) fail(usageFailure("Which role?", "rt endpoint release <worktree> --role <role>"));
   const role = parsed.role;
   let worktree = parsed.worktree;
 
   const cwd = process.cwd();
   const toplevel = await gitToplevel(cwd);
-  if (!toplevel) fail("not in a git repo");
+  if (!toplevel) fail({ title: "You are not in a git repo" });
 
-  const remote = await gitRemote(toplevel);
-  const repoName = remote ? deriveRepoName(remote) : basename(toplevel);
   const identity = serializeIdentity(await deriveRepoIdentity(toplevel));
 
   if ((await resolveIndexPathForIdentity(identity)) === null) {
-    fail(`repo "${repoName}" is not registered... visit it with rt first (repos.json is a derived mirror, not the source of truth)`);
+    fail({ title: "rt does not know this repo yet", why: "rt learns a repo the first time you run it there.", next: out.cmd("rt repos register .") });
   }
 
   if (!worktree) {
@@ -296,24 +283,24 @@ export async function endpointRelease(args: string[]): Promise<void> {
       worktree = (await pickWorktree(identity)) ?? undefined;
       if (!worktree) process.exit(0);
     } else {
-      fail("usage: rt endpoint release <worktree> [--role <role>] [--json]");
+      fail(usageFailure("Which worktree?", "rt endpoint release <worktree> [--role <role>]"));
     }
   }
 
   const res = await daemonQuery("endpoint:release", { repo: identity, worktree, role }, 10_000);
-  if (!res) fail("daemon unavailable... rt endpoint release needs the rt daemon (rt daemon start)");
-  if (!res.ok) fail(res.error ?? "release failed");
+  if (!res) fail({ title: "The rt daemon is not running", next: out.cmd("rt daemon start") });
+  if (!res.ok) fail({ title: res.error ?? "release failed" });
 
   const data = res.data as ReleaseData;
 
   if (json) {
-    console.log(JSON.stringify({ ok: true, ...data }));
+    out.json({ ok: true, ...data });
     return;
   }
 
   if (data.released === 0) {
-    console.log(`\n  ${dim}no claim(s) to release for ${worktree}${role ? ` (role "${role}")` : ""} in ${repoName}${reset}\n`);
+    out.print(out.line("skipped", "No claims to release", `${worktree}${role ? `, role ${role}` : ""}`));
     return;
   }
-  console.log(`\n  ${green}released ${data.released} claim${data.released === 1 ? "" : "s"}${reset} ${dim}for ${worktree} in ${repoName}${reset}\n`);
+  out.print(out.line("done", `Released ${data.released} claim${data.released === 1 ? "" : "s"}`, worktree));
 }

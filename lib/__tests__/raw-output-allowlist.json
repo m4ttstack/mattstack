@@ -1,7 +1,6 @@
 [
   "commands/cd.ts",
   "commands/code.ts",
-  "commands/endpoint.ts",
   "commands/glitter.ts",
   "commands/nav.ts",
   "commands/run.ts",
@@ -9,7 +8,6 @@
   "commands/state-backup-init.ts",
   "commands/state-backup-status.ts",
   "commands/state.ts",
-  "lib/endpoint/config.ts",
   "lib/pickers.ts",
   "lib/run-history.ts",
   "lib/runner/runner.ts",

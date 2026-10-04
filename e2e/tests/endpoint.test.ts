@@ -391,10 +391,17 @@ describe("rt endpoint / intercept (just-works e2e)", () => {
 
     const res = await finished(runFakestart(repoMain, "go", { KEEP_ME: "1" }));
     expect(res.exitCode).toBe(0);
-    expect(res.stderr).toContain("passthrough");
+    expect(res.stderr).toContain("ran without an rt port");
     // No port claimed and no arg injection — the caller's invocation verbatim.
     expect(res.stdout.trim()).toBe("PORT= ARGS=go");
   }, 40_000);
+
+  test("endpoint lookup with the daemon down is a failure on stderr", async () => {
+    const res = await finished(runRt(["endpoint", "lookup", "web"], repoMain));
+    expect(res.exitCode).toBe(1);
+    expect(res.stdout).toBe("");
+    expect(res.stderr).toBe("The rt daemon is not running\n  next: rt daemon start\n");
+  });
 
   test("after a daemon restart the claim is still readable via rt endpoint lookup", async () => {
     daemon = runRt(["--daemon"]);
@@ -417,6 +424,27 @@ describe("rt endpoint / intercept (just-works e2e)", () => {
     expect(out.listener.ownsClaim).toBe(true);
   }, 40_000);
 
+  test("endpoint lookup renders the live state and main checkout warning on stdout", async () => {
+    const res = await finished(runRt(["endpoint", "lookup", "web"], repoMain));
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toBe(`[running] http://localhost:${poolBase}  running\nworktree: repo-main\n[warning] This is the main checkout, not a worktree with a claim\n`);
+    expect(res.stderr).toBe("");
+  });
+
+  test("endpoint usage failures preserve exit 1 and write only to stderr", async () => {
+    for (const [args, title, next] of [
+      [["endpoint", "lookup"], "Which role?", "rt endpoint lookup <role> [--path <dir>]"],
+      [["endpoint", "lookup", "web", "--path"], "Which path?", "rt endpoint lookup <role> --path <dir>"],
+      [["endpoint", "release"], "Which worktree?", "rt endpoint release <worktree> [--role <role>]"],
+      [["endpoint", "release", "missing", "--role"], "Which role?", "rt endpoint release <worktree> --role <role>"],
+    ] as const) {
+      const res = await finished(runRt([...args], repoMain));
+      expect(res.exitCode).toBe(1);
+      expect(res.stdout).toBe("");
+      expect(res.stderr).toBe(`${title}\n  next: ${next}\n`);
+    }
+  });
+
   test("rt intercept status reports the shim installed and up to date", async () => {
     const res = await finished(runRt(["intercept", "status", "--json"]));
     expect(res.exitCode).toBe(0);
@@ -437,4 +465,19 @@ describe("rt endpoint / intercept (just-works e2e)", () => {
     expect(check.status).toBe("pass");
     expect(check.detail).toContain("1 installed and up to date");
   }, 60_000);
+  test("endpoint release renders the released and empty states; JSON stays a payload", async () => {
+    const released = await finished(runRt(["endpoint", "release", realpathSync(repoMain)], repoMain));
+    expect(released.exitCode).toBe(0);
+    expect(released.stdout).toBe(`[ok] Released 1 claim  ${realpathSync(repoMain)}\n`);
+    expect(released.stderr).toBe("");
+    const empty = await finished(runRt(["endpoint", "release", realpathSync(repoMain), "--role", "web"], repoMain));
+    expect(empty.exitCode).toBe(0);
+    expect(empty.stdout).toBe(`[skipped] No claims to release  ${realpathSync(repoMain)}, role web\n`);
+    expect(empty.stderr).toBe("");
+    const json = await finished(runRt(["endpoint", "release", realpathSync(repoMain), "--json"], repoMain));
+    expect(json.exitCode).toBe(0);
+    expect(json.stdout).toBe('{"ok":true,"released":0}\n');
+    expect(json.stderr).toBe("");
+  });
+
 });

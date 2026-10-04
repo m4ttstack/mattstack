@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { buildLookupOutput, parseEndpointLookupArgs, parseEndpointReleaseArgs } from "../endpoint.ts";
-
-const stripAnsi = (s: string): string => s.replace(/\x1b\[\d+m/g, "");
+import { renderPlain } from "../../lib/ui/out-plain.ts";
 
 describe("parseEndpointReleaseArgs", () => {
   test("worktree first, no role", () => {
@@ -102,14 +101,13 @@ describe("buildLookupOutput", () => {
       worktree: { path: "/wt/seamus", name: "seamus" },
       listener: { pid: 55, command: "node", cwd: "/wt/seamus/apps/web", ownsClaim: true },
     };
-    const { payload, lines } = buildLookupOutput(data, ctx);
+    const { payload, blocks } = buildLookupOutput(data, ctx);
     expect(payload).toMatchObject({ ok: true, claimed: true, port: 4001, worktree: { path: "/wt/seamus", name: "seamus", main: false } });
-    const plain = stripAnsi(lines.join("\n"));
-    expect(plain).toContain("http://localhost:4001");
-    expect(plain).toContain("(running)");
-    expect(plain).toContain("worktree seamus (/wt/seamus)");
-    expect(plain).not.toContain("does not belong");
-    expect(plain).not.toContain("canonical main checkout");
+    const plain = renderPlain(blocks);
+    expect(plain).toContain("[running] http://localhost:4001  running");
+    expect(plain).toContain("worktree: seamus");
+    expect(plain).not.toContain("belongs to another worktree");
+    expect(plain).not.toContain("[warning] This is the main checkout, not a worktree with a claim");
   });
 
   test("a foreign listener is called out, loudly", () => {
@@ -118,12 +116,12 @@ describe("buildLookupOutput", () => {
       worktree: { path: "/wt/seamus", name: "seamus" },
       listener: { pid: 99, command: "node", cwd: "/wt/dobby", ownsClaim: false },
     };
-    const { payload, lines } = buildLookupOutput(data, ctx);
+    const { payload, blocks } = buildLookupOutput(data, ctx);
     expect(payload).toMatchObject({ listener: { pid: 99, ownsClaim: false } });
-    const plain = stripAnsi(lines.join("\n"));
-    expect(plain).toContain("does not belong to this worktree");
+    const plain = renderPlain(blocks);
+    expect(plain).toContain("[warning] Port 4001 belongs to another worktree  pid 99, node");
     expect(plain).toContain("pid 99");
-    expect(plain).toContain("/wt/dobby");
+    expect(plain).toContain("[failed] http://localhost:4001  another process holds this port");
   });
 
   test("an unattributable listener is flagged as unverified, not as foreign", () => {
@@ -132,40 +130,40 @@ describe("buildLookupOutput", () => {
       worktree: { path: "/wt/seamus", name: "seamus" },
       listener: { pid: 99, command: "node", cwd: null, ownsClaim: null },
     };
-    const plain = stripAnsi(buildLookupOutput(data, ctx).lines.join("\n"));
-    expect(plain).toContain("could not be attributed");
-    expect(plain).not.toContain("does not belong");
+    const plain = renderPlain(buildLookupOutput(data, ctx).blocks);
+    expect(plain).toContain("[warning] rt could not tell which worktree owns port 4001  pid 99, node");
+    expect(plain).not.toContain("belongs to another worktree");
   });
 
   test("running via pid with nothing listening reads as not listening yet", () => {
     const data = { ...base, worktree: { path: "/wt/seamus", name: null }, listener: null };
-    const plain = stripAnsi(buildLookupOutput(data, ctx).lines.join("\n"));
-    expect(plain).toContain("not listening yet");
-    expect(plain).toContain("worktree /wt/seamus");
+    const plain = renderPlain(buildLookupOutput(data, ctx).blocks);
+    expect(plain).toContain("[not yet] http://localhost:4001  the process is up but not listening yet");
+    expect(plain).toContain("worktree: seamus");
   });
 
   test("invoked from the canonical main checkout: json main:true and a plain warning", () => {
     const mainCtx = { ...ctx, toplevel: "/repo/main" };
     const data = { ...base, worktree: { path: "/repo/main", name: null }, listener: null };
-    const { payload, lines } = buildLookupOutput(data, mainCtx);
+    const { payload, blocks } = buildLookupOutput(data, mainCtx);
     expect(payload).toMatchObject({ worktree: { path: "/repo/main", name: null, main: true } });
-    expect(stripAnsi(lines.join("\n"))).toContain("canonical main checkout");
+    expect(renderPlain(blocks)).toContain("[warning] This is the main checkout, not a worktree with a claim");
   });
 
   test("an old daemon response without worktree/listener still renders, worktree from the CLI's own resolution", () => {
-    const { payload, lines } = buildLookupOutput({ ...base, running: false }, ctx);
+    const { payload, blocks } = buildLookupOutput({ ...base, running: false }, ctx);
     expect(payload).toMatchObject({ worktree: { path: "/wt/seamus", name: null, main: false }, listener: null });
-    const plain = stripAnsi(lines.join("\n"));
-    expect(plain).toContain("(claimed, not running)");
-    expect(plain).toContain("worktree /wt/seamus");
+    const plain = renderPlain(blocks);
+    expect(plain).toContain("[off] http://localhost:4001  claimed, not running");
+    expect(plain).toContain("worktree: seamus");
   });
 
   test("no claim: plain says so and still reports worktree context", () => {
     const data = { claimed: false, port: null, url: null, running: false, worktree: { path: "/wt/seamus", name: "seamus" }, listener: null };
-    const { payload, lines } = buildLookupOutput(data, ctx);
+    const { payload, blocks } = buildLookupOutput(data, ctx);
     expect(payload).toMatchObject({ claimed: false, worktree: { path: "/wt/seamus", name: "seamus", main: false } });
-    const plain = stripAnsi(lines.join("\n"));
-    expect(plain).toContain('no claim for role "portal"');
-    expect(plain).toContain("worktree seamus");
+    const plain = renderPlain(blocks);
+    expect(plain).toContain("[off] No claim for the portal role  repo-tools");
+    expect(plain).toContain("worktree: seamus");
   });
 });
