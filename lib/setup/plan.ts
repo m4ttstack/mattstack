@@ -149,6 +149,12 @@ export function applyInstallSatisfiedFlip(groups: Group[], mode: "plan" | "statu
   }));
 }
 
+export function pendingJoinTeam(intent: SetupIntent | null, orgs: string[]): string | null | undefined {
+  const pointer = intent?.mode === "join" ? intent.join?.pointer : undefined;
+  if (!pointer || orgs.includes(pointer.team)) return undefined;
+  return Array.isArray(pointer.teams) && typeof pointer.teams[0] === "string" ? pointer.teams[0] : null;
+}
+
 export async function composePlan(i: PlanInputs): Promise<Plan> {
   const intent = readIntent(i.p);
   const team = resolveTeam(intent, i.orgs, i.teamOverride);
@@ -167,7 +173,7 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
     buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets, solo)),
     buildGroup("tools", async () => {
       const [hasBrew, healthRows] = await Promise.all([detectHasBrew(i.p), rtHealthRows(i.p, { ci: i.ci })]);
-      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo });
+      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo, activeTeam: pendingJoinTeam(intent, i.orgs) });
       const repoRoot = repoRootRow(i.p, team, snapshot);
       return [...tools, ...(repoRoot ? [repoRoot] : []), ...healthRows];
     }),

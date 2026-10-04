@@ -336,7 +336,7 @@ function joinStatus(result: JoinResult): RenderStatus {
 }
 
 export function joinBlocks(result: JoinResult): Block[] {
-  return [out.line(joinStatus(result), result.message)];
+  return [out.line(joinStatus(result), result.message), ...(result.teams.length > 0 ? [out.kv("teams", result.teams.join(", "))] : [])];
 }
 
 export function membersSyncBlocks(result: MembersSyncResult): Block[] {

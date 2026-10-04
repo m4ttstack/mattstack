@@ -514,7 +514,7 @@ const joinIntent: SetupIntent = { v: 1, at: "", mode: "join", join: { id: "a".re
 
 /** joinRedeem reads its resume state straight off `p` (readIntent(p)), not off `ctx.intent` — every fake probe below must carry the intent file too, not just the ApplyContext field. */
 function intentFile(home: string, intent: SetupIntent): Record<string, string> {
-  return { [intentPath(home)]: JSON.stringify(intent) };
+  return { [intentPath(home)]: JSON.stringify(intent), ...(intent.mode === "join" ? { [`${home}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.roster": [{ username: "dev2", teams: ["widgets"] }] }) } : {}) };
 }
 
 describe("team.join", () => {
@@ -531,7 +531,7 @@ describe("team.join", () => {
       files: intentFile("/fake-home", joinIntent),
       exec: async (argv) => {
         if (argv[0] === "git" && argv[1] === "clone") return ok();
-        if (argv[0] === "gh" && argv[1] === "api") return ok(JSON.stringify({ login: "carol" }));
+        if (argv[0] === "gh" && argv[1] === "api") return ok(JSON.stringify({ login: "dev2" }));
         return ok();
       },
     });
@@ -553,7 +553,7 @@ describe("team.join", () => {
         [`${dir}/.git/config`]: `[remote "origin"]\n\turl = ${joinPointer.remote}\n`,
         ...intentFile("/fake-home", joinIntent),
       },
-      exec: async (argv) => (argv[0] === "gh" && argv[1] === "api" ? ok(JSON.stringify({ login: "carol" })) : ok()),
+      exec: async (argv) => (argv[0] === "gh" && argv[1] === "api" ? ok(JSON.stringify({ login: "dev2" })) : ok()),
     });
     const relay: RelayClient = { ...fakeRelay, redeem: async () => "already", reply: async () => {} };
     const { ctx } = makeCtx(p, { intent: joinIntent, relay, secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
@@ -590,7 +590,7 @@ describe("team.join", () => {
       files: intentFile("/fake-home", joinIntent),
       exec: async (argv) => {
         if (argv[0] === "git" && argv[1] === "clone") return ok();
-        if (argv[0] === "gh" && argv[1] === "api") return ok(JSON.stringify({ login: "carol" }));
+        if (argv[0] === "gh" && argv[1] === "api") return ok(JSON.stringify({ login: "dev2" }));
         return ok();
       },
     });
@@ -617,7 +617,7 @@ describe("team.join", () => {
 });
 
 describe("team.join outcomes", () => {
-  const joined: JoinResult = { team: { slug: "acme", name: "Acme", owner: "bob" }, access: "ok", peering: "applied", message: "Joined Acme (owner bob)", intent: "written" };
+  const joined: JoinResult = { teams: ["widgets"], team: { slug: "acme", name: "Acme", owner: "bob" }, access: "ok", peering: "applied", message: "Joined Acme (owner bob)", intent: "written" };
 
   test("a join that peered, or had nothing to peer, is done", () => {
     expect(outcomeFromJoin(joined)).toEqual({ state: "done", detail: "Joined Acme (owner bob)" });
@@ -1498,5 +1498,17 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     reachable = true;
     expect(await runApplyWith(steps, makeCtx(fakeProbes({ home })).ctx, { only: "repos.clone" })).toEqual({ ok: true });
     expect(readFileSync(shimPath("fakecmd-late"), "utf8")).toBe(renderInterceptShim("fakecmd-late"));
+  });
+});
+
+
+describe("join refusal outcomes", () => {
+  test("a login mismatch names both logins and gives its remedy", () => {
+    const err = new UserActionableError("invite-login-mismatch", "This invite is for dev2; you're signed in as dev1.", {}, { why: "Ask for an invite for dev1, or connect dev2's token." });
+    expect(outcomeFromJoinError(err)).toEqual({ state: "failed", detail: "This invite is for dev2; you're signed in as dev1.", remedy: "Ask for an invite for dev1, or connect dev2's token." });
+  });
+  test("a delayed roster needs a retry without a new code", () => {
+    const message = "Your admin's roster change has not reached the org repo yet; try again in a minute";
+    expect(outcomeFromJoinError(new UserActionableError("roster-not-ready", message))).toEqual({ state: "failed", detail: message, remedy: "Retry in a minute. You do not need a new code" });
   });
 });
