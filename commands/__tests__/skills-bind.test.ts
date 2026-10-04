@@ -1061,15 +1061,18 @@ describe("bindBlocks", () => {
 
 
 describe("pack role refusals", () => {
-  for (const json of [[], ["--json"]]) {
-    test(`member writes are refused ${json.length ? "as JSON" : "for a person"}`, async () => {
+  for (const username of ["dev4", "dev2"]) for (const target of ["team", "root", "..pack"]) for (const json of [[], ["--json"]]) {
+    if (username === "dev2" && target === "team") continue;
+    test(`${username} writes to ${target} are refused ${json.length ? "as JSON" : "for a person"}`, async () => {
       const savedHome = process.env.HOME;
       process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-pack-role-")));
       try {
-        seedOrg({ org: "acme", username: "dev4", roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
-        const packDir = join(process.env.HOME!, ".mattstack", "teams", "acme", "mattstack", "teams", "widgets", "packs", "widgets");
+        seedOrg({ org: "acme", username, roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
+        const orgRoot = join(process.env.HOME!, ".mattstack", "teams", "acme");
+        const packDir = target === "root" ? orgRoot : target === "..pack" ? join(orgRoot, "..pack") : join(orgRoot, "mattstack", "teams", "widgets", "packs", "widgets");
         writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
-        const refusal = "The widgets team's files belong to its owners. Ask dev2 (the team's owner) or dev1 (an org admin) to make this change.";
+        const title = target === "team" ? "The widgets team's files belong to its owners" : "The org's shared files belong to its admins";
+        const refusal = `${title}. ${target === "team" ? "Ask dev2 (the team's owner) or dev1 (an org admin) to make this change." : "Ask dev1 (an org admin) to make this change."}`;
 
       writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
       const { mattstackDir, manifestPath } = makeEngineFixture();
@@ -1080,7 +1083,7 @@ describe("pack role refusals", () => {
       const result = await runExpectingCleanExit(() => skillsBind(["watch-ci", "domain", "acme:watch-ci-domain-v2", "--pack-dir", packDir, "--manifest", manifestPath, "--mattstack-dir", mattstackDir, ...json]));
       expect(result.exitCode).toBe(2);
       if (json.length) expect(JSON.parse(io.lines().at(-1)!)).toEqual({ ok: false, verb: "watch-ci", slot: "domain", from: "acme:watch-ci-domain-v1", to: "acme:watch-ci-domain-v2", fragmentUpdated: null, shadowedBy: null, compileErrors: [refusal] });
-      else expect(io.stderr()).toStartWith("[refused] The widgets team's files belong to its owners");
+      else expect(io.stderr()).toStartWith(`[refused] ${title}`);
       expect(readFileSync(manifestPath, "utf8")).toBe(before);
       expect(readFileSync(fragmentPath, "utf8")).toBe(fragmentBefore);
       expect((await runExpectingCleanExit(() => skillsBind(["watch-ci", "domain", "acme:watch-ci-domain-v2", "--pack-dir", packDir, "--manifest", manifestPath, "--mattstack-dir", mattstackDir, "--dry-run", ...json]))).exitCode).toBeUndefined();
