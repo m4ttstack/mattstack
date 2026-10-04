@@ -1,3 +1,5 @@
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 /**
  * manageTracking's off-branch — CLI wiring (the rider, RT-50).
  *
@@ -66,14 +68,15 @@ function parseMachineStore(raw: string): Record<string, unknown> {
 }
 
 describe("manageTracking off-branch (CLI wiring)", () => {
-  const origLog = console.log;
+  let io: CapturedOut;
   let priorRepoIndexEntry: string | null;
   let priorTeamStore: string | null;
   let priorMachineStore: string | null;
   let repoPath: string;
 
   beforeEach(() => {
-    console.log = () => {};
+    io = captureOut({ console: true });
+    ui.__test__.setHuman(() => false);
 
     priorRepoIndexEntry = getKvValue<string | null>(REPO_INDEX_NS, SERIALIZED, null);
     priorTeamStore = readOrNull(teamSettingsPath(TEAM_NAME));
@@ -110,7 +113,7 @@ describe("manageTracking off-branch (CLI wiring)", () => {
   });
 
   afterEach(() => {
-    console.log = origLog;
+    io.restore();
     rmSync(repoPath, { recursive: true, force: true });
     if (priorRepoIndexEntry === null) deleteKvValue(REPO_INDEX_NS, SERIALIZED);
     else setKvValue(REPO_INDEX_NS, SERIALIZED, priorRepoIndexEntry);

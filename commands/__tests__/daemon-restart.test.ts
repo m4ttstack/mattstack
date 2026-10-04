@@ -1,3 +1,5 @@
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync, rmSync } from "fs";
 import { dirname, join } from "path";
@@ -6,13 +8,13 @@ import { processFlavor } from "../../lib/flavor.ts";
 import { restart, start, stop, RESTART_POLL } from "../daemon.ts";
 
 const realFetch = globalThis.fetch;
-const realLog = console.log;
+let io: CapturedOut;
 
-let lines: string[] = [];
+
 
 beforeEach(() => {
-  lines = [];
-  console.log = (...args: unknown[]) => { lines.push(args.join(" ")); };
+  io = captureOut({ console: true });
+  ui.__test__.setHuman(() => false);
   mkdirSync(dirname(TRAY_SOCK_PATH), { recursive: true });
   writeFileSync(TRAY_SOCK_PATH, "");
   writeFileSync(DAEMON_SOCK_PATH, "");
@@ -21,7 +23,7 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = realFetch;
-  console.log = realLog;
+  io.restore();
   rmSync(TRAY_SOCK_PATH, { force: true });
   rmSync(DAEMON_SOCK_PATH, { force: true });
   rmSync(join(dirname(DAEMON_SOCK_PATH), "daemon.json"), { force: true });
@@ -29,7 +31,7 @@ afterEach(() => {
 });
 
 function output(): string {
-  return lines.join("\n");
+  return io.stdout() + io.stderr();
 }
 
 /**
