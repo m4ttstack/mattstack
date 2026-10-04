@@ -211,7 +211,7 @@ function recordDetails(r: AgentRecord): string[] {
     r.paneId && `pane ${r.paneId}`,
     r.finishedAt !== undefined && (r.exitCode !== undefined ? `exit ${r.exitCode}` : "finished"),
     r.lastResumedAt !== undefined && "resumed",
-  ].filter(Boolean);
+  ].filter((value): value is string => Boolean(value));
 }
 
 function renderRecord(r: AgentRecord): string {
