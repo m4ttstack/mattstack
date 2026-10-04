@@ -1,5 +1,5 @@
 /**
- * rt cron install|remove — manage daemon cron triggers.
+ * rt cron install|remove: manage daemon cron triggers.
  *
  *   rt cron install <trigger> [--json]   (trigger: board-triage)
  *   rt cron remove <trigger> [--json]
@@ -98,7 +98,7 @@ export async function cronRemove(args: string[], _ctx: CommandContext = {}): Pro
   if (result.removed) {
     out.print(
       out.line("done", `Removed the ${name} schedule`, "the daemon drops it within 30 seconds"),
-      out.callout("tip", ["To start it now: ", out.cmd("rt daemon restart")]),
+      out.callout("tip", ["To apply this now: ", out.cmd("rt daemon restart")]),
     );
   } else {
     out.print(out.line("skipped", `The ${name} schedule was not installed`));

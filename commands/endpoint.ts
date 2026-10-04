@@ -134,7 +134,7 @@ export function buildLookupOutput(
   }
   blocks.push(out.kv("worktree", treeLabel));
   if (listener !== null && listener.ownsClaim === false) {
-    blocks.push(out.line("warn", `Port ${data.port} belongs to another worktree`, `pid ${listener.pid}, ${listener.command}`));
+    blocks.push(out.line("warn", `Port ${data.port} is held outside this worktree`, `pid ${listener.pid}, ${listener.command}`));
   } else if (listener !== null && listener.ownsClaim === null) {
     blocks.push(out.line("warn", `rt could not tell which worktree owns port ${data.port}`, `pid ${listener.pid}, ${listener.command}`));
   }

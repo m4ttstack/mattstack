@@ -106,7 +106,7 @@ describe("buildLookupOutput", () => {
     const plain = renderPlain(blocks);
     expect(plain).toContain("[running] http://localhost:4001  running");
     expect(plain).toContain("worktree: seamus");
-    expect(plain).not.toContain("belongs to another worktree");
+    expect(plain).not.toContain("is held outside this worktree");
     expect(plain).not.toContain("[warning] This is the main checkout, not a worktree with a claim");
   });
 
@@ -119,7 +119,7 @@ describe("buildLookupOutput", () => {
     const { payload, blocks } = buildLookupOutput(data, ctx);
     expect(payload).toMatchObject({ listener: { pid: 99, ownsClaim: false } });
     const plain = renderPlain(blocks);
-    expect(plain).toContain("[warning] Port 4001 belongs to another worktree  pid 99, node");
+    expect(plain).toContain("[warning] Port 4001 is held outside this worktree  pid 99, node");
     expect(plain).toContain("pid 99");
     expect(plain).toContain("[failed] http://localhost:4001  another process holds this port");
   });
@@ -132,7 +132,7 @@ describe("buildLookupOutput", () => {
     };
     const plain = renderPlain(buildLookupOutput(data, ctx).blocks);
     expect(plain).toContain("[warning] rt could not tell which worktree owns port 4001  pid 99, node");
-    expect(plain).not.toContain("belongs to another worktree");
+    expect(plain).not.toContain("is held outside this worktree");
   });
 
   test("running via pid with nothing listening reads as not listening yet", () => {
@@ -166,4 +166,16 @@ describe("buildLookupOutput", () => {
     expect(plain).toContain("[off] No claim for the portal role  repo-tools");
     expect(plain).toContain("worktree: seamus");
   });
+});
+
+test("a listener in an unrelated directory is only identified as outside this worktree", () => {
+  const data = {
+    claimed: true, port: 4001, url: "http://localhost:4001", running: true,
+    worktree: { path: "/wt/seamus", name: "seamus" },
+    listener: { pid: 99, command: "node", cwd: "/unrelated/server", ownsClaim: false },
+  };
+  const { payload, blocks } = buildLookupOutput(data, { role: "web", repoName: "repo-tools", toplevel: "/wt/seamus", indexPath: "/repo/main" });
+  expect(payload).toEqual({ ok: true, ...data, worktree: { path: "/wt/seamus", name: "seamus", main: false } });
+  expect(renderPlain(blocks)).toContain("[warning] Port 4001 is held outside this worktree  pid 99, node");
+  expect(renderPlain(blocks)).not.toContain("another worktree");
 });

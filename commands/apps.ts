@@ -9,7 +9,7 @@ import type { Block } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { envelope } from "../lib/setup/contract.ts";
-import { UserActionableError, userErrorPayload, failureFor } from "../lib/errors.ts";
+import { UserActionableError, userErrorPayload, failureFor, logFailureDetail } from "../lib/errors.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { MATTSTACK_REGISTRAR, deckHealthyAt, readDeckApiPortFrom } from "../lib/setup/steps/deck.ts";
 
@@ -32,6 +32,7 @@ export interface AppRow {
 }
 
 function fail(deps: AppsDeps, json: boolean, err: UserActionableError, refusedName?: string): never {
+  logFailureDetail(err);
   if (json) deps.print(JSON.stringify(userErrorPayload(err, deps.probes.now())));
   else if (refusedName !== undefined) out.note(out.line("refused", `rt leaves ${refusedName} alone`, "it is not one of the apps mattstack ships"));
   else out.fail(failureFor(err));

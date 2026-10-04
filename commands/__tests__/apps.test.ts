@@ -3,6 +3,9 @@ import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { join } from "path";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { logsDir } from "../../lib/rt-paths.ts";
 import { appsListBlocks, appsDisable, appsEnable, appsList, type AppsDeps } from "../apps.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 
@@ -19,7 +22,7 @@ const ROWS = [
   { name: "mine", managedBy: "user", displayName: "mine", enabled: true, requiresTeam: false },
 ];
 
-function deps(overrides: { patchStatus?: number; running?: boolean; listBody?: string } = {}): AppsDeps & { out: string[]; patches: string[] } {
+function deps(overrides: { patchStatus?: number; running?: boolean; listBody?: string; listStatus?: number } = {}): AppsDeps & { out: string[]; patches: string[] } {
   const home = "/fake-home";
   const running = overrides.running ?? true;
   const out: string[] = [];
@@ -29,7 +32,7 @@ function deps(overrides: { patchStatus?: number; running?: boolean; listBody?: s
     files: running ? { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) } : {},
     fetch: async (url, init) => {
       if (url.endsWith("/healthz")) return { status: 200, body: "ok", headers: {} };
-      if (url.endsWith("/api/v1/apps")) return { status: 200, body: overrides.listBody ?? JSON.stringify({ apps: ROWS }), headers: {} };
+      if (url.endsWith("/api/v1/apps")) return { status: overrides.listStatus ?? 200, body: overrides.listBody ?? JSON.stringify({ apps: ROWS }), headers: {} };
       if (init?.method === "PATCH") {
         patches.push(`${url} ${init.body} ${init.headers?.["x-local-caller"]}`);
         return { status: overrides.patchStatus ?? 200, body: "{}", headers: {} };
@@ -167,3 +170,51 @@ test("an unmanaged app is a refusal on stderr", async () => {
   expect(d.out).toEqual([]);
   expect(io.stderr()).toBe("[refused] rt leaves deck alone  it is not one of the apps mattstack ships\n");
 });
+
+for (const json of [false, true]) {
+  for (const scenario of [
+    { name: "HTTP list failure", overrides: { listStatus: 503 }, detail: "deck answered 503 listing apps", run: appsList, args: [] },
+    { name: "unreadable list", overrides: { listBody: "not json" }, detail: "deck answered an unreadable app list", run: appsList, args: [] },
+    { name: "HTTP PATCH failure", overrides: { patchStatus: 502 }, detail: "deck answered 502", run: appsEnable, args: ["board"] },
+  ]) {
+    test(`${scenario.name} persists its detail before ${json ? "JSON" : "human"} output and exit`, async () => {
+      const savedHome = process.env.HOME;
+      const home = mkdtempSync(join(tmpdir(), "rt-apps-failure-"));
+      process.env.HOME = home;
+      try {
+        const d = deps(scenario.overrides);
+        const now = new Date("2026-10-04T12:34:56.000Z");
+        d.probes.now = () => now;
+        const logs = () => existsSync(logsDir())
+          ? readdirSync(logsDir()).filter((f) => f.startsWith("cli.") && f.endsWith(".log"))
+            .flatMap((f) => readFileSync(join(logsDir(), f), "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)))
+          : [];
+        // Both the envelope writer and exit observe the persisted detail.
+        d.print = (s) => {
+          expect(logs()).toContainEqual(expect.objectContaining({ level: "warn", module: "errors", code: "deck-error", detail: scenario.detail }));
+          d.out.push(s);
+        };
+        d.exit = (c) => {
+          expect(logs()).toContainEqual(expect.objectContaining({ level: "warn", module: "errors", code: "deck-error", detail: scenario.detail }));
+          throw new Error(`exit ${c}`);
+        };
+        await expect(scenario.run([...scenario.args, ...(json ? ["--json"] : [])], {}, d)).rejects.toThrow("exit 2");
+        const details = logs().filter((line) => line.detail === scenario.detail);
+        expect(details).toHaveLength(1);
+        expect(details[0].msg).toBe("deck gave an answer rt could not read");
+        expect(io.stdout()).toBe("");
+        if (json) {
+          expect(d.out).toEqual(['{"contract":1,"at":"2026-10-04T12:34:56.000Z","error":{"code":"deck-error","message":"deck gave an answer rt could not read"}}']);
+          expect(io.stderr()).toBe("");
+        } else {
+          expect(d.out).toEqual([]);
+          expect(io.stderr()).toBe("deck gave an answer rt could not read\n  the full output is in the rt log\n");
+        }
+      } finally {
+        if (savedHome === undefined) delete process.env.HOME;
+        else process.env.HOME = savedHome;
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+  }
+}
