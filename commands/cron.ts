@@ -12,17 +12,22 @@ import { installCronTrigger, removeCronTrigger, resolveBoardTriage, triageTrigge
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
+import * as out from "../lib/ui/out.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 
 const KNOWN_TRIGGERS = ["board-triage"] as const;
 type KnownTrigger = (typeof KNOWN_TRIGGERS)[number];
 
 function usageForTrigger(json: boolean, verb: string): never {
-  exitUserError(
-    new UserActionableError("usage", `usage: rt cron ${verb} <trigger> [--json] (trigger: ${KNOWN_TRIGGERS.join(", ")})`),
-    json,
-    `cron ${verb}`,
-    console.log,
-  );
+  if (json) {
+    exitUserError(
+      new UserActionableError("usage", `usage: rt cron ${verb} <trigger> [--json] (trigger: ${KNOWN_TRIGGERS.join(", ")})`),
+      json,
+      `cron ${verb}`,
+    );
+  }
+  out.fail(usageFailure("Which trigger?", "rt cron <install|remove> <trigger>", `The one trigger is ${KNOWN_TRIGGERS.join(", ")}.`));
+  process.exit(2);
 }
 
 async function requireKnownTrigger(args: string[], json: boolean, verb: string): Promise<KnownTrigger> {
@@ -58,11 +63,12 @@ export async function cronInstall(args: string[], _ctx: CommandContext = {}): Pr
     exitUserError(
       new UserActionableError(
         "board-missing",
-        "board binary not found — resolve it first: `rt deps resolve board` (once bundled, `rt deps link board` exposes it)",
+        "rt cannot find the board app",
+        {},
+        { next: "rt deps resolve board" },
       ),
       json,
       "cron install",
-      console.log,
     );
   }
 
@@ -70,11 +76,13 @@ export async function cronInstall(args: string[], _ctx: CommandContext = {}): Pr
   installCronTrigger(trigger);
 
   if (json) {
-    console.log(JSON.stringify(envelope({ installed: trigger, restartRequired: false })));
+    out.json(envelope({ installed: trigger, restartRequired: false }));
     return;
   }
-  console.log(`rt cron install: installed "${trigger.name}"`);
-  console.log("the daemon arms it within 30 seconds of its next event (rt daemon restart arms it now)");
+  out.print(
+    out.line("done", `Installed the ${trigger.name} schedule`, "the daemon picks it up within 30 seconds"),
+    out.callout("tip", ["To start it now: ", out.cmd("rt daemon restart")]),
+  );
 }
 
 export async function cronRemove(args: string[], _ctx: CommandContext = {}): Promise<void> {
@@ -84,9 +92,15 @@ export async function cronRemove(args: string[], _ctx: CommandContext = {}): Pro
   const result = removeCronTrigger(name);
 
   if (json) {
-    console.log(JSON.stringify(envelope({ removed: result.removed, name, restartRequired: false })));
+    out.json(envelope({ removed: result.removed, name, restartRequired: false }));
     return;
   }
-  console.log(result.removed ? `rt cron remove: removed "${name}"` : `rt cron remove: "${name}" was not installed`);
-  if (result.removed) console.log("the daemon drops it within 30 seconds of its next event (rt daemon restart drops it now)");
+  if (result.removed) {
+    out.print(
+      out.line("done", `Removed the ${name} schedule`, "the daemon drops it within 30 seconds"),
+      out.callout("tip", ["To start it now: ", out.cmd("rt daemon restart")]),
+    );
+  } else {
+    out.print(out.line("skipped", `The ${name} schedule was not installed`));
+  }
 }
