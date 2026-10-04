@@ -509,7 +509,7 @@ describe("team.create", () => {
 
 // ─── team.join ───────────────────────────────────────────────────────────────
 
-const joinPointer = { v: 1 as const, team: "acme", name: "Acme", remote: "https://github.com/acme/mattstack-team-acme.git", owner: "bob", forge: "github", createdAt: "2026-01-01T00:00:00Z" };
+const joinPointer = { v: 2 as const, username: "dev2", teams: ["widgets"], team: "acme", name: "Acme", remote: "https://github.com/acme/mattstack-team-acme.git", owner: "bob", forge: "github", createdAt: "2026-01-01T00:00:00Z" };
 const joinIntent: SetupIntent = { v: 1, at: "", mode: "join", join: { id: "a".repeat(32), keyB64: Buffer.from(new Uint8Array(32).fill(7)).toString("base64"), pointer: joinPointer } };
 
 /** joinRedeem reads its resume state straight off `p` (readIntent(p)), not off `ctx.intent` — every fake probe below must carry the intent file too, not just the ApplyContext field. */

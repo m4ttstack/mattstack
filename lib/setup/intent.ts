@@ -8,14 +8,18 @@ import { dirname, join } from "path";
 import type { OrgRef } from "./contract.ts";
 import type { Probes } from "./probes.ts";
 
+export const INVITE_POINTER_VERSION = 2;
+
 export interface InvitePointer {
-  v: 1;
+  v: 2;
   team: string;
   name: string;
   remote: string;
   owner: string;
   forge: string;
   createdAt: string;
+  username: string;
+  teams: string[];
   /** Board peering, pre-minted at invite time: the owner's machine registers
       the invitee's board on the switchboard and seals the per-board token
       here, because at join time the invitee cannot yet decrypt team secrets

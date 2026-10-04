@@ -1,3 +1,4 @@
+import type { InviteResult, MintInviteOpts } from "../../lib/team/invite.ts";
 import { afterEach, beforeEach, describe, test, expect, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
@@ -257,7 +258,7 @@ describe("teamInvite", () => {
     process.env.HOME = home;
 
     teamDir = join(home, ".mattstack", "teams", "acme");
-    seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} }, settings: { "board.title": "Acme Team" } });
+    seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} }, settings: { "board.title": "Acme Team" }, roster: [{ username: "dev1", teams: ["widgets"] }], teams: { widgets: {} } });
     mkdirSync(join(teamDir, ".git"), { recursive: true });
   });
 
@@ -289,7 +290,16 @@ describe("teamInvite", () => {
   function inviteDeps(overrides: { exec?: ExecScript; record?: Partial<TeamLocalRecord>; onRelay?: () => void; adminToken?: string } = {}): TeamDeps & { lines: string[]; exitCodes: number[] } {
     const probes = fakeProbes({
       home,
-      files: { [join(teamDir, ".git", "config")]: GIT_CONFIG },
+      dirs: { [teamDir]: [], [join(teamDir, "mattstack", "teams")]: ["widgets"] },
+      files: {
+        [join(teamDir, ".git", "config")]: GIT_CONFIG,
+        [join(teamDir, "mattstack", "org", "settings.org.jsonc")]: JSON.stringify({
+          "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } },
+          "mattstack.roster": [{ username: "dev1", teams: ["widgets"] }],
+        }),
+        [join(teamDir, "mattstack", "teams", "widgets", "settings.team.jsonc")]: "{}",
+        [teamLocalPath(home, "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
+      },
       exec: overrides.exec ?? ghExec(),
       fetch: (url, init) => {
         if (url.endsWith("/boards")) return Promise.resolve({ status: 401, body: "", headers: {} });
@@ -298,7 +308,7 @@ describe("teamInvite", () => {
       },
     });
     if (overrides.record) {
-      writeTeamLocal(probes, "acme", { createdByRt: false, joinedByRt: false, rtMayManageMembership: false, ...overrides.record });
+      writeTeamLocal(probes, "acme", { createdByRt: false, joinedByRt: false, rtMayManageMembership: false, forgeUsername: "dev1", ...overrides.record });
     }
     const deps = baseDeps({ probes });
     return overrides.adminToken === undefined ? deps : { ...deps, mintInviteSeams: { readLocalSecret: async () => overrides.adminToken! } };
@@ -371,29 +381,57 @@ describe("teamInvite", () => {
     });
   });
 
-  test("a joined machine refuses before the relay is ever touched", async () => {
-    let relayCalls = 0;
-    const deps = inviteDeps({ record: { joinedByRt: true }, onRelay: () => { relayCalls++; } });
+  describe("who may invite, and to which team", () => {
+    const MINTED = { code: "C", expiresAt: "2026-01-08T00:00:00.000Z", pasteBlock: "x", forgeAccess: "skipped", manualSteps: [], link: "l", peering: "none" } as unknown as InviteResult;
 
-    const code = await runExpectingProcessExit(() => teamInvite(["--handle", "zaphod", "--team", "acme", "--json"], {}, deps));
+    function orgDeps(username: string, minted: MintInviteOpts[]): TeamDeps & { lines: string[]; exitCodes: number[] } {
+      const probes = fakeProbes({
+        home,
+        dirs: { [join(teamDir, "mattstack", "teams")]: ["widgets", "gadgets"] },
+        files: {
+          [join(teamDir, ".git", "config")]: GIT_CONFIG,
+          [join(teamDir, "mattstack", "org", "settings.org.jsonc")]: JSON.stringify({
+            "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } },
+            "mattstack.roster": [{ username: "dev1", teams: ["widgets"] }, { username: "dev2", teams: ["widgets"] }],
+          }),
+          [teamLocalPath(home, "acme")]: JSON.stringify({ forgeUsername: username }),
+        },
+      });
+      return baseDeps({ probes, mintInvite: async (_p, _relay, opts) => { minted.push(opts); return MINTED; } });
+    }
 
-    expect(relayCalls).toBe(0);
-    expect(code).toBe(2);
-    expect(JSON.parse(deps.lines[0]!).error.code).toBe("team-pull-only");
+    test("only an org admin invites; an owner is told who can", async () => {
+      const minted: MintInviteOpts[] = [];
+      const deps = orgDeps("dev2", minted);
+      const code = await runExpectingProcessExit(() => teamInvite(["--handle", "dev3", "--team", "acme", "--json"], {}, deps));
+      expect(code).toBe(2);
+      expect(JSON.parse(deps.lines[0]!).error).toMatchObject({ code: "team-pull-only", message: "Only an org admin invites" });
+      expect(minted).toEqual([]);
+    });
+
+    test("with no --teams the invite is for the inviter's own team, so the app's Invite button needs no new flag", async () => {
+      const minted: MintInviteOpts[] = [];
+      await teamInvite(["--handle", "dev3", "--team", "acme", "--json"], {}, orgDeps("dev1", minted));
+      expect(minted[0]).toMatchObject({ slug: "acme", handle: "dev3", teams: ["widgets"] });
+    });
+
+    test("--teams names the team folders, in order", async () => {
+      const minted: MintInviteOpts[] = [];
+      await teamInvite(["--handle", "dev3", "--team", "acme", "--teams", "gadgets,widgets", "--json"], {}, orgDeps("dev1", minted));
+      expect(minted[0]!.teams).toEqual(["gadgets", "widgets"]);
+    });
   });
 
-  test("human mode: a pull-only clone refuses to invite, as a refused line", async () => {
-    const deps = inviteDeps({ record: { joinedByRt: true } });
+  test("human mode: an owner is refused before minting", async () => {
+    const deps = inviteDeps({ record: { forgeUsername: "dev2" } });
     const io = captureOut();
     ui.__test__.setHuman(() => false);
     try {
-      const code = await runExpectingProcessExit(() => teamInvite(["--handle", "zaphod", "--team", "acme"], {}, deps));
+      const code = await runExpectingProcessExit(() => teamInvite(["--handle", "dev3", "--team", "acme"], {}, deps));
       expect(code).toBe(2);
-      expect(io.stderr()).toBe("[refused] This Mac joined the acme team by invite, so its copy is pull-only and cannot invite anyone.\n  why: Ask the team's owner to invite zaphod.\n");
+      expect(io.stderr()).toBe("[refused] Only an org admin invites\n  why: Ask dev1 to invite dev3.\n");
       expect(io.stdout()).toBe("");
-    } finally {
-      io.restore();
-    }
+    } finally { io.restore(); }
   });
 
   test("on a TTY, accepting the offer writes the permission before minting", async () => {
@@ -439,7 +477,7 @@ describe("teamInvite", () => {
       const code = await runExpectingProcessExit(() => teamInvite([], {}, deps));
       expect(code).toBe(2);
       expect(deps.lines).toEqual([]);
-      expect(io.stderr()).toBe("Who is the invite for?\n  next: rt team invite --handle <h> [--team <slug>] [--require-peering] [--json]\n");
+      expect(io.stderr()).toBe("Who is the invite for?\n  next: rt team invite --handle <h> [--teams <team>[,<team>]] [--team <org>] [--require-peering] [--json]\n");
     } finally {
       io.restore();
     }

@@ -19,7 +19,7 @@ const CODE = encodeCode(ID_HEX, KEY);
 const REMOTE = "git@github.com:acme/widgets.git";
 
 const POINTER: InvitePointer = {
-  v: 1,
+  v: 2, username: "dev2", teams: ["widgets"],
   team: "acme",
   name: "Acme",
   remote: REMOTE,

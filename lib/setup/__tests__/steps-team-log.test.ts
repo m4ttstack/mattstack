@@ -85,7 +85,7 @@ describe("setup team create records the cause of a failure", () => {
   test("a publish failure reaches the CLI log and its why rides in the remedy", async () => {
     const slug = "marker-publish-zz";
     const rejected: ExecResult = { code: 1, stdout: "", stderr: "! [rejected] main -> main (fetch first) marker-publish-zz" };
-    const p = fakeProbes({ home: "/fake-home", exec: async (argv) => (argv.includes("push") ? rejected : ok), files: {
+    const p = fakeProbes({ home: "/fake-home", exec: async (argv) => (argv.includes("push") ? rejected : argv[1] === "rev-parse" ? { code: 1, stdout: "", stderr: "" } : ok), files: {
       [`/fake-home/.mattstack/teams/${slug}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
       [teamLocalPath("/fake-home", slug)]: JSON.stringify({ forgeUsername: "dev1" }),
     } });
