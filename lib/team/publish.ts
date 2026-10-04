@@ -12,7 +12,8 @@ import { UserActionableError } from "../errors.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
 import { parseOriginUrl, stripUserinfo } from "../setup/team-settings.ts";
 import { withoutUrls } from "./redact.ts";
-import { assertNotJoined } from "./team-local.ts";
+import { assertMayWrite, roleFor } from "./roles.ts";
+import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
 
 export interface PublishTeamResult {
   remote: string;
@@ -56,7 +57,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     // to a directory outside teamsDir() and run git there.
     throw new UserActionableError("invalid-team-slug", "That is not a team name rt can use", {}, { log: err instanceof Error ? err.message : String(err) });
   }
-  assertNotJoined(p, slug);
+  if (ownedRoots(roleFor(p, slug)).length === 0) assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
 
   const dir = join(p.home, ".mattstack", "teams", slug);
   if (!p.exists(dir)) {

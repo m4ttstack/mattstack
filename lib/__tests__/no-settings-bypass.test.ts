@@ -66,6 +66,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "commands/home.ts": { count: 1, reason: "existence probe listing adoptable machine profiles" },
     "lib/command-tree-def.ts": { count: 4, reason: "help hints naming where --scope writes" },
     "lib/home/init-exec.ts": { count: 1, reason: "assertNotRealStoreInTest guard before home init seeds the user store" },
+    "lib/team/publish.ts": { count: 1, reason: "uses the org store ownership refusal when the recorded role owns no managed root" },
     "lib/team/create.ts": { count: 3, reason: "scaffolds the new org store and its first team folder store, and guards the org store with assertNotRealStoreInTest" },
     "lib/team/join.ts": { count: 1, reason: "assertNotRealStoreInTest guard before join seeds the org store" },
     "lib/setup/team-settings.ts": { count: 1, reason: "existence probe discovering org clones through the Probes seam" },

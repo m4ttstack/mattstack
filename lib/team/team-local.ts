@@ -96,12 +96,6 @@ export function writeTeamLocal(
   p.chmod(path, RECORD_MODE);
 }
 
-/** The one refusal every owner-shaped team verb raises on a joined machine, so the wording cannot drift between them. */
-export function assertNotJoined(p: Pick<Probes, "readFile" | "home">, slug: string): void {
-  if (!readTeamLocal(p, slug).joinedByRt) return;
-  throw new UserActionableError("team-pull-only", `This Mac joined the ${slug} team by invite, so its copy is pull-only.`, {}, { why: "Ask the team's owner to make this change." });
-}
-
 /** A roster write lands in the org this Mac reads settings from, so a verb named for any other org would read one store and write another. */
 export function assertCurrentOrg(slug: string, current: string | null, verb: string): void {
   if (current === slug) return;

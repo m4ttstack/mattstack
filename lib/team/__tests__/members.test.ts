@@ -1,6 +1,7 @@
-import { describe, test, expect } from "bun:test";
+import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
+import { beforeEach, describe, test, expect } from "bun:test";
 import { join } from "path";
-import { fakeProbes } from "../../setup/__tests__/fakes.ts";
+import { fakeProbes as rawFakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { readTeamRecipients, teamSecretsFile, writeTeamRecipients } from "../../secrets/team-store.ts";
 import type { SecretsExecResult, SecretsExecSeam, SecretsSeams } from "../../secrets/store.ts";
@@ -12,6 +13,8 @@ import { membersRemove, membersSync, MembersSyncAbortedError, type MembersSeams 
 import { teamLocalPath } from "../team-local.ts";
 import type { RelayClient } from "../relay-client.ts";
 
+beforeEach(() => { seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } }); });
+
 const HOME = "/home/x";
 const SLUG = "acme";
 const OWNER_PUBLIC_KEY = "age19gmvtjcupd0gq46003yh9tepvlj4fr97pfg4zh024fpq0kqfqyys5ftxdh";
@@ -20,15 +23,23 @@ const ID_HEX = "0102030405060708090a0b0c0d0e0f10";
 const KEY = new Uint8Array(32).fill(9);
 const CREATOR_SECRET = "creator-secret-alice";
 
+function fakeProbes(opts: Parameters<typeof rawFakeProbes>[0] = {}) {
+  const home = opts.home ?? HOME;
+  return rawFakeProbes({ ...opts, files: {
+    [`${home}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+    [teamLocalPath(home, "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
+    ...opts.files,
+  } });
+}
+
 function teamCloneRootFor(slug: string): string {
   return join(teamsDir(), slug);
 }
 
-/** A machine that redeemed an invite for `slug` (the local record read by `assertNotJoined`), unrelated to any file in the team clone itself. */
-function probesWithJoinedTeam(slug = SLUG) {
+function probesWithJoinedTeam(slug = SLUG, username = "dev2") {
   return fakeProbes({
     home: HOME,
-    files: { [teamLocalPath(HOME, slug)]: JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false }) },
+    files: { [teamLocalPath(HOME, slug)]: JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, forgeUsername: username }) },
   });
 }
 
@@ -529,7 +540,7 @@ describe("membersSync", () => {
     const { seams } = fakeMembersSeams();
     const relay = fakeRelay();
 
-    await expect(membersSync(p, relay, secrets, SLUG, seams)).rejects.toThrow(/pull-only/);
+    await expect(membersSync(p, relay, secrets, SLUG, seams)).rejects.toMatchObject({ code: "team-pull-only", message: "The org's shared files belong to its admins" });
   });
 });
 
@@ -826,6 +837,21 @@ describe("membersRemove", () => {
     const { secrets } = seamsWithClone();
     const { seams } = fakeMembersSeams();
 
-    await expect(membersRemove(p, secrets, SLUG, "zaphod", undefined, seams)).rejects.toThrow(/pull-only/);
+    await expect(membersRemove(p, secrets, SLUG, "zaphod", undefined, seams)).rejects.toMatchObject({ code: "team-pull-only", message: "The org's shared files belong to its admins" });
   });
+});
+
+
+test("an invited admin may sync members", async () => {
+  const { secrets } = seamsWithClone();
+  const { seams } = fakeMembersSeams();
+  await expect(membersSync(probesWithJoinedTeam(SLUG, "dev1"), fakeRelay(), secrets, SLUG, seams)).resolves.toBeDefined();
+});
+
+
+test("an invited admin may remove a roster member", async () => {
+  const { secrets } = seamsWithClone();
+  const { seams, writes } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": [{ username: "dev3" }] }) });
+  await membersRemove(probesWithJoinedTeam(SLUG, "dev1"), secrets, SLUG, "dev3", undefined, seams);
+  expect(writes.find(w => w.key === "mattstack.roster")).toMatchObject({ value: [] });
 });

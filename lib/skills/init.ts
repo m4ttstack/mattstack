@@ -286,6 +286,7 @@ export function addMarketplacePlugin(marketplaceJson: string, pack: string, desc
 export type RunResult = { code: number; stdout: string; stderr: string };
 
 export type InitDeps = {
+  mayWrite(zone: ZoneInfo, relPath: string): { message: string; why: string } | null;
   fs: InitFs;
   home: string;
   gitRemote(repoDir: string): Promise<{ kind: "ok"; url: string } | { kind: "not-a-repo" } | { kind: "no-remote" }>;
@@ -303,6 +304,7 @@ export type InitDeps = {
 };
 
 export type InitRefusalCode =
+  | "not-yours"
   | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host"
   | "pack-exists" | "mattstack-missing" | "claude-missing";
 
@@ -324,7 +326,7 @@ export type InitOutcome =
   | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy; why?: string; next?: string };
 
 /** rt declining by rule, drawn as refused; every other refusal code is a missing prerequisite or a usage slip, drawn as a failure. */
-export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["pack-exists", "zone-mismatch"]);
+export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["not-yours", "pack-exists", "zone-mismatch"]);
 
 /** A missing setting only the user can supply: drawn as needs-you, never as a failure. */
 export const NEEDS_YOU_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["zone-no-host"]);
@@ -407,6 +409,12 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   const packDir = zonePackDir(zone);
   if (packIsCompiled(deps.fs, packDir)) {
     return refuse("pack-exists", "This team already has a pack, and rt never changes an existing pack. To add to it, use the mattstack:extending-a-pack skill");
+  }
+  const marketOnDiskEarly = deps.fs.readFile(join(zone.orgDir, ".claude-plugin", "marketplace.json"));
+  const entryThere = marketOnDiskEarly !== null && addMarketplacePlugin(marketOnDiskEarly, pack, packDescription(pack), `./mattstack/teams/${zone.team}/packs/${zone.team}`) === marketOnDiskEarly;
+  for (const relPath of [`mattstack/teams/${zone.team}`, ...(entryThere ? [] : [".claude-plugin/marketplace.json"])]) {
+    const refusal = deps.mayWrite(zone, relPath);
+    if (refusal) return refuse("not-yours", `${refusal.message}. ${refusal.why}`);
   }
   if (zone.host === null) {
     return refuse("zone-no-host", `The ${zone.team} team has no forge host set, so rt cannot tell which host this repo is on`, `rt settings set board.gitlabHost '"${repo.host}"' --scope team --team ${zone.team}`);
