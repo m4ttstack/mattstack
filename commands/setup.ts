@@ -828,7 +828,7 @@ export function realSecretWriter(): SecretWriter {
 /**
  * Team-scoped secrets (Slack's client/signing secret, a future shared service
  * token). Backed by the real N-recipient team store (lib/secrets/team-store.ts):
- * `teams/<slug>/mattstack/secrets/<domain>.json`, encrypted to every team
+ * `teams/<slug>/mattstack/org/secrets/<domain>.json`, encrypted to every team
  * member's age key via `teams/<slug>/.sops.yaml`. `write` mirrors
  * `storeCredential`'s own age-key-gated fallback (stage when there's no key
  * yet) so a team secret written before `rt home init` still lands somewhere

@@ -389,7 +389,7 @@ describe("accountRows — account.slack + account.slack-app", () => {
   describe("a joined member waiting on the owner to accept them", () => {
     const MINE = "age1mine0000000000000000000000000000000000000000000000000000000";
     const OWNER = "age1owner000000000000000000000000000000000000000000000000000000";
-    const BOARD = "/fake-home/.mattstack/teams/acme/mattstack/secrets/board.json";
+    const BOARD = "/fake-home/.mattstack/teams/acme/mattstack/org/secrets/board.json";
     const PULL: Action = { type: "run", label: "Re-check", verb: ["team", "pull", "--team", "acme"] };
     const team = baseTeam({ integrations: { slack: { clientId: "abc" } } });
 
