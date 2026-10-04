@@ -20,7 +20,6 @@
   "commands/state-backup-init.ts",
   "commands/state-backup-status.ts",
   "commands/state.ts",
-  "commands/worktree-hook.ts",
   "lib/endpoint/config.ts",
   "lib/pickers.ts",
   "lib/run-history.ts",
