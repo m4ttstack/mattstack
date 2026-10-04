@@ -67,6 +67,12 @@ async function runExpectingProcessExit(fn: () => Promise<void>): Promise<number 
 }
 
 describe("teamCreate", () => {
+  test("--first-team names the team without becoming a name positional", async () => {
+    const deps = baseDeps();
+    await teamCreate(["--first-team", "widgets", "Acme", "--remote", "https://github.com/acme/repo.git", "--json"], {}, deps);
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ slug: "acme", name: "Acme", team: "widgets" });
+  });
+
   test("--json prints the exact contract envelope shape", async () => {
     const deps = baseDeps();
     await teamCreate(["Acme", "--remote", "https://github.com/acme/mattstack-team-acme.git", "--json"], {}, deps);
@@ -136,7 +142,7 @@ describe("teamCreate", () => {
       const code = await runExpectingProcessExit(() => teamCreate(["--remote", "https://github.com/acme/repo.git"], {}, deps));
       expect(code).toBe(2);
       expect(deps.lines).toEqual([]);
-      expect(io.stderr()).toBe("What should the team be called?\n  next: rt team create <name> (--remote <url> | --create-repo <owner>) [--others] [--json]\n");
+      expect(io.stderr()).toBe("What should the team be called?\n  next: rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]\n");
     } finally {
       io.restore();
     }
@@ -148,7 +154,7 @@ describe("teamCreate", () => {
     ui.__test__.setHuman(() => false);
     try {
       await teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git"], {}, deps);
-      expect(io.stdout()).toBe("[ok] Created the acme team  https://github.com/acme/repo.git\n");
+      expect(io.stdout()).toBe("[ok] Created the acme org  https://github.com/acme/repo.git\n");
       expect(deps.lines).toEqual([]);
     } finally {
       io.restore();

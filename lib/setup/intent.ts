@@ -29,7 +29,7 @@ export interface SetupIntent {
   v: 1;
   at: string;
   mode: "create" | "join" | "restore" | "solo";
-  team?: { slug: string; name: string; remote: string; others: boolean };
+  team?: { slug: string; name: string; remote: string; others: boolean; firstTeam?: string };
   join?: { id: string; keyB64: string; pointer: InvitePointer };
   restore?: { homeRepo: string };
   /** Orthogonal to `mode` — create and join both need one; restore keeps its own under `restore.homeRepo`. */
