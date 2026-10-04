@@ -344,4 +344,45 @@ describe("the two writers agent-only verbs use", () => {
       io.restore();
     }
   });
+
+  for (const accepted of [true, false]) {
+    test(`jsonFlushed waits for a successful writer callback when write returns ${accepted}`, async () => {
+      let complete!: (error?: Error | null) => void;
+      process.stdout.write = ((text: string, callback: (error?: Error | null) => void) => {
+        stdout.push(text);
+        complete = callback;
+        return accepted;
+      }) as typeof process.stdout.write;
+      let settled = false;
+      const flushed = out.jsonFlushed({ tools: [] }).then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(stdout).toEqual(['{"tools":[]}\n']);
+      expect(settled).toBe(false);
+      complete();
+      await flushed;
+      expect(settled).toBe(true);
+    });
+
+    test(`jsonFlushed rejects a writer callback error when write returns ${accepted}`, async () => {
+      let complete!: (error?: Error | null) => void;
+      process.stdout.write = ((_text: string, callback: (error?: Error | null) => void) => {
+        complete = callback;
+        return accepted;
+      }) as typeof process.stdout.write;
+      let settled = false;
+      const flushed = out.jsonFlushed({ tools: [] });
+      void flushed.then(
+        () => { settled = true; },
+        () => { settled = true; },
+      );
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      const error = new Error("writer failed");
+      complete(error);
+      await expect(flushed).rejects.toBe(error);
+      expect(settled).toBe(true);
+    });
+  }
 });

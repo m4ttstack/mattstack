@@ -9,7 +9,6 @@ const ALLOWLIST = resolve(import.meta.dir, "raw-output-allowlist.json");
 const EXEMPTIONS = resolve(import.meta.dir, "raw-output-exemptions.json");
 const SCAN_ROOTS = ["cli.ts", "commands", "lib"];
 
-// The output layer and legacy color modules remain outside this scan.
 const EXEMPT_DIRS = [/^lib\/ui\//, /^lib\/tui\//, /^lib\/ansi\.ts$/, /^lib\/tui\.ts$/];
 
 const RAW = [/\bconsole\.(log|error|warn|info)\s*\(/, /\bprocess\.std(out|err)\b(?!\.(isTTY|columns|rows|fd|on|once|off|removeListener)\b)/, /from\s+["'][^"']*\/(ansi|tui|tui\/palette)\.ts["']/, /\\x1b\[|\\u001b\[/];

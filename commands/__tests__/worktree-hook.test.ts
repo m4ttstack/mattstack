@@ -170,6 +170,7 @@ describe("hookInstallCommand", () => {
       fresh();
       await expect(hookInstallCommand([], undefined, { which: () => null })).rejects.toThrow("exit 1");
       expect(io.stderr()).toStartWith("rt is not on your PATH\n");
+      expect(io.stderr()).toContain("rt must be available before you can install the hook.");
       expect(io.stdout()).toBe("");
       await hookInstallCommand([], undefined, { which: () => "/x/rt" });
       fresh();

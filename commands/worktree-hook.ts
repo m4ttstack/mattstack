@@ -162,7 +162,7 @@ export async function hookInstallCommand(
   const rtBin = deps.which("rt");
   if (!rtBin) {
     if (json) out.json({ error: "rt-not-on-path" });
-    else out.fail({ title: "rt is not on your PATH", why: "The hook runs rt by name, so Claude Code has to find it." });
+    else out.fail({ title: "rt is not on your PATH", why: "rt must be available before you can install the hook." });
     process.exit(1);
   }
   try {
