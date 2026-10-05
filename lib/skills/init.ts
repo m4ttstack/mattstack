@@ -1,4 +1,4 @@
-import { join } from "path";
+import { join, relative } from "path";
 import { applyEdits, modify } from "jsonc-parser";
 import { logFailureDetail, UserActionableError } from "../errors.ts";
 import { readSection } from "../../packages/rt-client/src/settings/migrate.ts";
@@ -521,12 +521,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
     return failed("install-failed", `Installing ${pluginId} in Claude Code failed (exit ${installed.value.code}): ${installed.value.stderr.trim() || installed.value.stdout.trim()}`);
   }
 
-  const teamRel = `mattstack/teams/${zone.team}`;
-  const sharePaths = [
-    `${teamRel}/packs/${pack}`,
-    ...(wrote.includes(join(zone.dir, "settings.team.jsonc")) ? [`${teamRel}/settings.team.jsonc`] : []),
-    ...(wrote.includes(join(zone.orgDir, ".claude-plugin", "marketplace.json")) ? [".claude-plugin/marketplace.json"] : []),
-  ];
+  const sharePaths = [packDir, ...wrote.filter((path) => !path.startsWith(`${packDir}/`))].map((path) => relative(zone.orgDir, path));
   const published = await deps.sharePack(zone, sharePaths);
 
   return {
