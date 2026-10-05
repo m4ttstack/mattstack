@@ -1119,7 +1119,7 @@ function SettingRow({
   open,
   onToggle,
   onOpenRoster,
-  onTabsSaved,
+  onSaved,
 }: {
   def: ConfigDef;
   store: SettingsScopeState;
@@ -1131,7 +1131,7 @@ function SettingRow({
   open: boolean;
   onToggle: () => void;
   onOpenRoster: () => void;
-  onTabsSaved: () => void;
+  onSaved: () => void;
 }) {
   const kind = rowKind(def);
   const row = useRowSave(store, def);
@@ -1151,7 +1151,11 @@ function SettingRow({
       <TurnControl
         value={value}
         busy={row.busy}
-        onSave={next => void row.save(next)}
+        onSave={next =>
+          void row.save(next).then(ok => {
+            if (ok) onSaved();
+          })
+        }
       />
     );
   } else if (kind === 'tabs' && !malformed) {
@@ -1168,7 +1172,7 @@ function SettingRow({
         knownSections={knownSections}
         onSaved={() => {
           store.refresh();
-          onTabsSaved();
+          onSaved();
         }}
       />
     );
@@ -1328,7 +1332,7 @@ function ConfigModal({
   knownSections,
   onClose,
   onOpenRoster,
-  onTabsSaved,
+  onSaved,
   focusKey,
 }: {
   /** A row to open and scroll to when the modal appears. */
@@ -1339,8 +1343,8 @@ function ConfigModal({
   knownSections: string[] | null;
   onClose: () => void;
   onOpenRoster: () => void;
-  /** Reload board data so the new tab strip lands without waiting for a poll. */
-  onTabsSaved: () => void;
+  /** Reload board data so a saved tab strip or turn config lands without waiting for a poll. */
+  onSaved: () => void;
 }) {
   const store = useSettingsScope('board.');
   const rosterKey = useSettingKey('mattstack.roster');
@@ -1400,7 +1404,7 @@ function ConfigModal({
                   open={openRows.has(def.key)}
                   onToggle={() => toggleRow(def.key)}
                   onOpenRoster={onOpenRoster}
-                  onTabsSaved={onTabsSaved}
+                  onSaved={onSaved}
                 />
               ))}
             </ul>

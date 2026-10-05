@@ -306,7 +306,7 @@ export function Board() {
       const linkedUrl = gateId ? null : mrParam(location.search);
       if (linkedIid !== null) {
         // The stored/URL filters resolved above may hide the linked MR (wrong
-        // tab, a member pick, "posted only") -- a deep link has to land, so
+        // tab, a member pick, a Show pick) -- a deep link has to land, so
         // widen whatever would otherwise keep the row off-screen.
         resolved = viewStateForMr(
           resolved,
@@ -882,7 +882,7 @@ export function Board() {
   }, [fastPoll, load]);
 
   // The pure filter/group/sort pipeline (overlay -> tabFiltered ->
-  // filterBySlack(filterByMember(...)) -> groupMRs(...).map(sortMRs...)),
+  // filterByShow(filterByMember(...)) -> groupMRs(...).map(sortMRs...)),
   // hoisted above the loading guard below and memoized so it has exactly one
   // source of truth: the render body reads its fields instead of
   // recomputing them, and the decision queue below reads the same `groups`
@@ -1561,7 +1561,7 @@ export function Board() {
           tabs={data.tabs}
           knownSections={data.scopeKnownSections}
           focusKey={configFocus}
-          onTabsSaved={() => load()}
+          onSaved={() => load()}
           onClose={() => setShowConfig(false)}
           onOpenRoster={() => {
             setShowConfig(false);

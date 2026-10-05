@@ -129,6 +129,8 @@ function MenuButton({
   );
 }
 
+const TURN_SETTINGS_LABEL = 'Whose turn settings…';
+
 export function ShowMenuItems({
   show,
   onOpenTurnSettings,
@@ -177,7 +179,7 @@ export function ShowMenuItems({
           <ContextMenu.Separator />
           <ContextMenu.Item
             className="tui-show-settings"
-            label="What counts as “waiting on author”…"
+            label={TURN_SETTINGS_LABEL}
             onClick={() => {
               close?.();
               onOpenTurnSettings();
@@ -277,6 +279,14 @@ function Controls({
                   </button>
                 );
               })}
+              {onOpenTurnSettings && (
+                <button
+                  className="tui-drawer-action tui-show-settings"
+                  onClick={onOpenTurnSettings}
+                >
+                  {TURN_SETTINGS_LABEL}
+                </button>
+              )}
             </div>
           </div>
         )}

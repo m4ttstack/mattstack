@@ -77,7 +77,7 @@ test('the Show menu footer closes the menu, then opens the turn settings', async
   await React.act(async () => showing.click());
   const footer = [
     ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
-  ].find(i => i.textContent?.includes('What counts as'))!;
+  ].find(i => i.textContent === 'Whose turn settings…')!;
   await React.act(async () => footer.click());
   expect(opened).toHaveLength(1);
   expect(document.querySelector('[role="menu"]')).toBeNull();
@@ -116,4 +116,39 @@ test('checking a Show item leaves the menu open', async () => {
       .click()
   );
   expect(document.querySelector('[role="menu"]')).not.toBeNull();
+});
+
+test('the drawer offers the turn settings link under its show row', async () => {
+  let opened = 0;
+  await React.act(async () => {
+    root.render(
+      <Controls
+        state={DEFAULT_VIEW}
+        update={() => {}}
+        theme="system"
+        pickTheme={() => {}}
+        onRefresh={() => {}}
+        refreshing={false}
+        show={{
+          offered: ['authorTurn'],
+          off: [],
+          counts: { posted: 0, notPosted: 0, authorTurn: 2, myDrafts: 0 },
+          channel: null,
+          shown: 2,
+          total: 2,
+          toggle: () => {},
+          showAll: () => {},
+        }}
+        onOpenTurnSettings={() => {
+          opened += 1;
+        }}
+        stacked
+      />
+    );
+  });
+  const link = [
+    ...container.querySelectorAll<HTMLButtonElement>('.tui-ctl-show button'),
+  ].find(b => b.textContent === 'Whose turn settings…')!;
+  await React.act(async () => link.click());
+  expect(opened).toBe(1);
 });

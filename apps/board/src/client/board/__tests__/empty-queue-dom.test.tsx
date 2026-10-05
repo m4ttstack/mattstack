@@ -74,6 +74,21 @@ let Board: typeof import('../Board.tsx').Board;
 const realFetch = globalThis.fetch;
 let servedData: Record<string, unknown> = BOARD_DATA;
 let posts: string[] = [];
+let dataLoads = 0;
+
+const TURN_DEF = {
+  key: 'board.turn',
+  type: 'object',
+  scopes: ['user'],
+  merge: 'replace',
+  secret: false,
+  teamLocked: false,
+  repoScoped: false,
+  writable: true,
+  description: 'whose turn',
+  hasDefault: false,
+  effective: { scope: null, value: undefined },
+};
 
 function needsMeMr(iid: number) {
   return {
@@ -107,7 +122,25 @@ beforeAll(async () => {
     const url = typeof input === 'string' ? input : input.toString();
     if (init?.method === 'POST') posts.push(url);
     if (url.startsWith('/data.json')) {
+      dataLoads += 1;
       return new Response(JSON.stringify(servedData), { status: 200 });
+    }
+    if (url.startsWith('/api/settings/defs')) {
+      return new Response(JSON.stringify({ defs: [TURN_DEF] }), {
+        status: 200,
+      });
+    }
+    if (url.startsWith('/api/settings/explain/')) {
+      return new Response(JSON.stringify({ def: null, rows: [] }), {
+        status: 200,
+      });
+    }
+    if (url === '/api/settings/set') {
+      const { value } = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({ effective: { scope: 'user', value } }),
+        { status: 200 }
+      );
     }
     return new Response('{}', { status: 200 });
   }) as typeof fetch;
@@ -120,6 +153,7 @@ beforeAll(async () => {
 beforeEach(() => {
   servedData = BOARD_DATA;
   posts = [];
+  dataLoads = 0;
   localStorage.clear();
   history.replaceState(null, '', '/');
 });
@@ -358,5 +392,65 @@ test('the toolbar drops the copy-summary button and the old filter chips', async
         l => l.textContent
       )
     ).toEqual(['Group', 'Sort', 'Showing']);
+  });
+});
+
+function rowCount(container: HTMLElement): number {
+  return container.querySelectorAll('[data-mr-iid]').length;
+}
+
+test('a stored Not Posted pick hides nothing on a board without Slack', async () => {
+  servedData = {
+    ...withRows([needsMeMr(1), needsMeMr(2)]),
+    slackEnabled: false,
+  };
+  localStorage.setItem(
+    'mrs-view-state',
+    JSON.stringify({ off: ['notPosted'] })
+  );
+  await mount(async container => {
+    expect(rowCount(container)).toBe(2);
+    expect(container.querySelector('.tui-also-show')).toBeNull();
+  });
+});
+
+test('Needs me keeps its rows under a stored Waiting on author pick and offers no such item', async () => {
+  servedData = withRows([needsMeMr(1), needsMeMr(2)]);
+  localStorage.setItem(
+    'mrs-view-state',
+    JSON.stringify({ off: ['authorTurn'] })
+  );
+  await mount(async container => {
+    await openNeedsMe(container);
+    expect(rowCount(container)).toBe(2);
+    await React.act(async () => showButton(container).click());
+    const menu = document.querySelector('[role="menu"]')?.textContent ?? '';
+    expect(menu).toContain('Not Posted');
+    expect(menu).not.toContain('Waiting on author');
+  });
+});
+
+test('saving a Whose turn signal reloads the board', async () => {
+  servedData = withRows([needsMeMr(1)]);
+  await mount(async container => {
+    await React.act(async () => showButton(container).click());
+    const link = [
+      ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    ].find(i => i.textContent === 'Whose turn settings…')!;
+    await React.act(async () => link.click());
+    await React.act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    const box = [
+      ...document.querySelectorAll<HTMLLabelElement>('.tui-config-turn label'),
+    ]
+      .find(l => l.textContent?.includes('merge conflicts'))!
+      .querySelector('input')!;
+    const before = dataLoads;
+    await React.act(async () => box.click());
+    await React.act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    expect(dataLoads).toBe(before + 1);
   });
 });
