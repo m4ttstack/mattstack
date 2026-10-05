@@ -120,11 +120,17 @@ func (r *renderer) table(b protocol.Block) {
 	measured := append([]int(nil), widths...)
 	avail := r.width - len(indent)
 	widths = fitColumns(widths, avail)
+	room := avail - 2*(cols-1)
 	for i := 0; i < cols-1; i++ {
+		room -= widths[i]
 		if widths[i] < measured[i] {
 			r.stackedTable(b, header, avail)
 			return
 		}
+	}
+	if cols > 0 && room < min(measured[cols-1], minWrap) {
+		r.stackedTable(b, header, avail)
+		return
 	}
 
 	if len(header) > 0 {

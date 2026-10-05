@@ -249,3 +249,28 @@ func TestAStackedCellIsStillCleaned(t *testing.T) {
 		}
 	}
 }
+
+func TestATableAtTheColumnFloorStacksBeforeClipping(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		headers []string
+		values  []string
+	}{
+		{"headerless", nil, []string{"abcdefgh", "ijklmnop", "qrstuvwx"}},
+		{"headered", []string{"FIRST", "SECOND", "THIRD"}, []string{"abcdefgh", "ijklmnop", "qrstuvwx"}},
+		{"floors overrun the pane", nil, []string{"abcdefgh", "ijklmnop", "qrstuvwx", "yzabcdef"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := plainAt(26, protocol.Block{T: "table", Headers: tc.headers, Rows: []protocol.TableRow{cells(tc.values...)}})
+			checkWidth(t, got, 26)
+			if strings.Contains(got, "…") {
+				t.Fatalf("a cell at the column floor was clipped:\n%s", got)
+			}
+			for _, value := range tc.values {
+				if !strings.Contains(flat(got), value) {
+					t.Errorf("%q is missing:\n%s", value, got)
+				}
+			}
+		})
+	}
+}
