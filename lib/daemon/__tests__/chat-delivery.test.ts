@@ -602,7 +602,7 @@ test("release frees the id for the next claimant and wakes nobody", async () => 
   await h["chat:claim"]({ id, handle: "b" });
   await Bun.sleep(0);
   calls.length = 0;
-  expect(await h["chat:release"]({ id, handle: "c" })).toEqual({ ok: false, error: `you are neither the holder of #${id} nor its author` });
+  expect(await h["chat:release"]({ id, handle: "c" })).toEqual({ ok: false, error: `you are neither the holder of #${id} nor its author`, failure: { code: "not-holder", message: `you are neither the holder of #${id} nor its author` } });
   expect(await h["chat:release"]({ id, handle: "b" })).toEqual({ ok: true, data: { holder: "b", holderName: "b" } });
   expect(await h["chat:release"]({ id, handle: "b" })).toEqual({ ok: false, error: `#${id} is not claimed` });
   const next = await h["chat:claim"]({ id, handle: "c" });

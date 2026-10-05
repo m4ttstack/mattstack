@@ -257,16 +257,21 @@ function legacyIdentity(row: PresenceRawRow): IdentityRow {
   return { id: row.handle, name: row.handle, baseName: row.base_handle, mintedAt: row.signed_in_at, sessionId: row.session_id };
 }
 
+/** Hooks and sign-in retries match these messages, so codes must not change their words. */
+function refusal(code: "identity-held" | "identity-fixed", message: string): Error {
+  return Object.assign(new Error(message), { code });
+}
+
 function heldByAnotherSession(handle: string): Error {
-  return new Error(`chat: handle reclaimed: "${handle}" is now held by another session; sign in again`);
+  return refusal("identity-held", `chat: handle reclaimed: "${handle}" is now held by another session; sign in again`);
 }
 
 /** The identity `continueId` names, or, when it names no known identity, the display name to mint under (`--as newname` has nothing to continue). */
 function continuationTarget(continueId: string, db: Database): IdentityRow | string {
   const id = resolveHandle(continueId, db);
   for (const x of [continueId, id]) {
-    const refusal = fixedIdentityRefusal(x);
-    if (refusal) throw new Error(`chat: may not continue ${JSON.stringify(x)}: ${refusal}`);
+    const reason = fixedIdentityRefusal(x);
+    if (reason) throw refusal("identity-fixed", `chat: may not continue ${JSON.stringify(x)}: ${reason}`);
   }
   if (!isKnownId(id, db)) return id;
   return getIdentity(id, db) ?? { id, name: id, baseName: baseOfHandle(id), mintedAt: 0, sessionId: null };
@@ -453,7 +458,7 @@ export function assertSessionOwnsHandle(handle: string, sessionId: string | unde
  */
 export function assertSessionSignedIn(sessionId: string, db: Database = getStateDb()): PresenceRow {
   const row = presenceForSession(sessionId, db);
-  if (!row) throw new Error("chat: handle reclaimed while you were away; sign in again");
+  if (!row) throw refusal("identity-held", "chat: handle reclaimed while you were away; sign in again");
   if (row.signedOutAt !== undefined) throw new Error(`chat: session ${sessionId} is not signed in`);
   return row;
 }
