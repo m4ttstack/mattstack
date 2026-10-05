@@ -4,7 +4,7 @@
  * osascript/pkill/launchctl/open are PATH-prepended fakes that only log, so
  * nothing here quits an app or touches launchd; spawnSync must forward
  * `env: process.env` for Bun to honor the runtime PATH. The tray socket is a
- * real Bun.serve bound at TRAY_SOCK_PATH inside the isolated test HOME, and
+ * real Bun.serve bound at an isolated RT_APP_SOCKET, and
  * `exists` denies the real /Applications so a machine's own installs never
  * decide an outcome.
  */
@@ -25,6 +25,7 @@ import { DEV_TRAY_APP_NAME, TRAY_APP_BUNDLE, TRAY_APP_NAME } from "../../lib/rt-
 import { deleteKvValue, getKvValue, hasKvValue } from "../../lib/state/index.ts";
 
 const HOME = process.env.HOME!;
+const fixtureSocket = join(process.env.RT_TEST_SOCKET_DIR!, "takeover.sock");
 const WRAPPER_PATH = join(HOME, ".local", "bin", "rt");
 const PRELOAD = DEV_MODE_PRELOAD;
 const FAKE_PROD_APP = join(HOME, "Applications", TRAY_APP_BUNDLE);
@@ -36,19 +37,17 @@ const STANDALONE_25_WRAPPER = `#!/bin/zsh\nexec "/Users/someone/.bun/bin/bun" ru
 const LEGACY_DEV_CONFIG = JSON.stringify({ sourcePath: "/Users/someone/repo-tools", bunPath: "/Users/someone/.bun/bin/bun" });
 const LEGACY_DEV_CONFIGS = [join(HOME, ".rt", "dev-mode.json"), join(HOME, ".mattstack", "rt", "dev-mode.json")];
 
-let originalAppSocket: string | undefined;
 beforeEach(() => {
   for (const path of [HOME, TRAY_SOCK_PATH, PRELOAD]) {
     expect(path).toMatch(/^\/(?:private\/)?(?:tmp\/|var\/folders\/)/);
   }
-  originalAppSocket = process.env.RT_APP_SOCKET;
-  process.env.RT_APP_SOCKET = TRAY_SOCK_PATH;
 });
 
 let fakeBinDir = "";
 let logPath = "";
 let originalPath = "";
 let originalShell: string | undefined;
+let originalAppSocket: string | undefined;
 let server: ReturnType<typeof Bun.serve> | null = null;
 let sourceDir = "";
 
@@ -112,7 +111,7 @@ function setUpFakes(loaded: string[]): void {
 }
 
 /** A tray answering /health as `flavor`; a retire unloads its daemon label and closes the socket shortly after. */
-function serveTray(flavor: "dev" | "prod" | null, socketPath = TRAY_SOCK_PATH): void {
+function serveTray(flavor: "dev" | "prod" | null, socketPath = fixtureSocket): void {
   try { rmSync(socketPath); } catch { /* absent */ }
   const label = flavor === "dev" ? "com.mattstack.daemon.dev" : "com.mattstack.daemon";
   server = Bun.serve({
@@ -165,18 +164,24 @@ async function run(args: string[], seams: Partial<TakeoverSeams> = {}): Promise<
   return r;
 }
 
+// Keep the fake and client on one socket even if another suite loaded daemon-config under a different HOME.
+beforeEach(() => {
+  originalAppSocket = process.env.RT_APP_SOCKET;
+  process.env.RT_APP_SOCKET = fixtureSocket;
+});
+
 afterEach(() => {
-  if (originalAppSocket === undefined) delete process.env.RT_APP_SOCKET;
-  else process.env.RT_APP_SOCKET = originalAppSocket;
   try { server?.stop(true); } catch { /* already stopped */ }
   server = null;
+  if (originalAppSocket === undefined) delete process.env.RT_APP_SOCKET;
+  else process.env.RT_APP_SOCKET = originalAppSocket;
   if (originalPath) process.env.PATH = originalPath;
   if (originalShell === undefined) delete process.env.SHELL;
   else process.env.SHELL = originalShell;
   for (const p of [fakeBinDir, sourceDir, FAKE_PROD_APP, dirname(HAND_DECK_PLIST), join(HOME, ".mattstack", "deck")]) {
     if (p) rmSync(p, { recursive: true, force: true });
   }
-  for (const p of [WRAPPER_PATH, PRELOAD, TRAY_SOCK_PATH, ...LEGACY_DEV_CONFIGS]) rmSync(p, { force: true });
+  for (const p of [WRAPPER_PATH, PRELOAD, fixtureSocket, ...LEGACY_DEV_CONFIGS]) rmSync(p, { force: true });
   try { deleteKvValue("dev-mode", "config"); } catch { /* never opened */ }
 });
 
@@ -246,7 +251,7 @@ describe("rt flavor takeover", () => {
   test("probes and retires the tray on RT_APP_SOCKET", async () => {
     setUpFakes(["com.mattstack.daemon"]);
     const savedSocket = process.env.RT_APP_SOCKET;
-    const socketPath = join(process.env.RT_TEST_SOCKET_DIR!, "takeover.sock");
+    const socketPath = join(process.env.RT_TEST_SOCKET_DIR!, "override.sock");
     try {
       process.env.RT_APP_SOCKET = socketPath;
       serveTray("prod", socketPath);
@@ -320,9 +325,9 @@ describe("rt flavor takeover", () => {
 
   test("a failed retire boots the other daemon out directly", async () => {
     setUpFakes(["com.mattstack.daemon"]);
-    try { rmSync(TRAY_SOCK_PATH); } catch { /* absent */ }
+    try { rmSync(fixtureSocket); } catch { /* absent */ }
     server = Bun.serve({
-      unix: TRAY_SOCK_PATH,
+      unix: fixtureSocket,
       fetch(req) {
         const url = new URL(req.url);
         if (url.pathname === "/health") return Response.json({ ok: true, app: "mattstack", flavor: "prod" });
@@ -341,9 +346,9 @@ describe("rt flavor takeover", () => {
 
   test("a retire that takes longer than a quick request is waited for, not booted out from under", async () => {
     setUpFakes(["com.mattstack.daemon"]);
-    try { rmSync(TRAY_SOCK_PATH); } catch { /* absent */ }
+    try { rmSync(fixtureSocket); } catch { /* absent */ }
     server = Bun.serve({
-      unix: TRAY_SOCK_PATH,
+      unix: fixtureSocket,
       async fetch(req) {
         const url = new URL(req.url);
         if (url.pathname === "/health") return Response.json({ ok: true, app: "mattstack", flavor: "prod" });

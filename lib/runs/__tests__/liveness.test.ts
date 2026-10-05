@@ -33,8 +33,10 @@ test("probeAgents keeps every agent with its status, session, and cwds", async (
 test("probeAgents runs the herdr found on the live PATH, not the PATH the process started with", async () => {
   const dir = mkdtempSync(join(tmpdir(), "liveness-herdr-"));
   writeFileSync(join(dir, "herdr"), "#!/bin/sh\n", { mode: 0o755 });
-  const saved = process.env.PATH;
+  const savedPath = process.env.PATH;
+  const savedHerdrBin = process.env.HERDR_BIN;
   process.env.PATH = `${dir}:/usr/bin:/bin`;
+  delete process.env.HERDR_BIN;
   let argv0 = "";
   try {
     await probeAgents((async (argv: string[]) => {
@@ -42,7 +44,11 @@ test("probeAgents runs the herdr found on the live PATH, not the PATH the proces
       return { stdout: "", stderr: "", exitCode: 1 };
     }) as unknown as typeof runCapture);
   } finally {
-    process.env.PATH = saved;
+    if (savedPath === undefined) delete process.env.PATH;
+    else process.env.PATH = savedPath;
+    if (savedHerdrBin === undefined) delete process.env.HERDR_BIN;
+    else process.env.HERDR_BIN = savedHerdrBin;
+    rmSync(dir, { recursive: true, force: true });
   }
   expect(argv0).toBe(join(dir, "herdr"));
 });

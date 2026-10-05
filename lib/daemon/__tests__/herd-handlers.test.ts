@@ -13,6 +13,7 @@ import { bgSocketPath, type BgService } from "../bg-service.ts";
 import { createBgHandlers } from "../handlers/bg.ts";
 import { createEscapeInjector } from "../gate-escape.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
+import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import { acceptTrustOnPane } from "../trust-accept.ts";
 import { deleteChatSession, readChatSession, writeChatSession } from "../../chat-session.ts";
 
@@ -180,7 +181,7 @@ export function harness(over: Partial<HerdDeps> = {}, trustTestBudgets: { regist
     ...over,
   };
   const h = createHerdHandlers(deps);
-  return { h, store, gateStore, gate, chatCalls, agentCalls, worktreeCalls, herdrCalls, socketCalls, order, screen, trust, snapshotPanes, dir, claims, bg, bgStopCalls: () => bgStopCalls };
+  return { h, store, gateStore, gate, chat: deps.chat, agent: deps.agent, chatCalls, agentCalls, worktreeCalls, herdrCalls, socketCalls, order, screen, trust, snapshotPanes, dir, claims, bg, bgStopCalls: () => bgStopCalls };
 }
 
 const START = { name: "demo", repo: "gh:m4ttstack/rt", session: "sess-shep" };
@@ -1124,6 +1125,144 @@ describe("herd:spawn", () => {
     if (!res.ok) throw new Error(res.error);
     expect(agentCalls[0].prompt).toBe("# job\nplain");
   });
+
+  for (const trust of ["none", "stuck"] as const) {
+    test(`spawn completion preserves a report delivered during agent:start (trust ${trust})`, async () => {
+      const hx = await started();
+      const start = hx.agent["agent:start"];
+      let message: number | undefined;
+      hx.agent["agent:start"] = async (p) => {
+        const rec = await start(p);
+        if (!rec.ok) return rec;
+        const report = await hx.h["herd:report"]({ herd: hx.herd, job: "job-a", body: "finished before startup returned" });
+        if (!report.ok) throw new Error(report.error);
+        message = report.data.message;
+        return { ...rec, data: { ...rec.data, trust } };
+      };
+      const res = await hx.h["herd:spawn"]({ herd: hx.herd, job: "job-a", brief: "b", dir: "/t" });
+      if (!res.ok) throw new Error(res.error);
+      expect(message).toBeNumber();
+      expect(hx.store.getJob(hx.herd, "job-a")).toMatchObject({
+        status: "done", lastReport: message, pane: "w9:p1", agentSession: "sess-w1", agentId: "ag-1",
+      });
+    });
+  }
+
+  for (const kind of ["ask", "milestone"] as const) {
+    test(`spawn completion preserves ${kind} delivered during agent:start`, async () => {
+      const hx = await started();
+      const start = hx.agent["agent:start"];
+      let gate: string | undefined;
+      hx.agent["agent:start"] = async (p) => {
+        const rec = await start(p);
+        if (!rec.ok) return rec;
+        const worker = { herd: hx.herd, job: "job-a", session: "sess-w1", pane: "w9:p1" };
+        const opened = kind === "ask"
+          ? await hx.h["herd:ask"]({ ...worker, questions: [{ id: "q", label: "Which?", multi: false, options: ["a", "b"] }] })
+          : await hx.h["herd:milestone"]({ ...worker, artifact: "review.md", summary: "ready for review" });
+        if (!opened.ok) throw new Error(opened.error);
+        gate = opened.data.gate;
+        return { ...rec, data: { ...rec.data, trust: "stuck" as const } };
+      };
+      const res = await hx.h["herd:spawn"]({ herd: hx.herd, job: "job-a", brief: "b", dir: "/t" });
+      if (!res.ok) throw new Error(res.error);
+      expect(gate).toBeString();
+      expect(hx.gateStore.get(gate!)!.status).toBe("open");
+      expect(hx.store.getJob(hx.herd, "job-a")).toMatchObject({
+        status: kind === "ask" ? "at-gate" : "at-milestone", lastGate: gate, pane: "w9:p1", agentSession: "sess-w1", agentId: "ag-1",
+      });
+    });
+  }
+
+  for (const hidden of [false, true]) {
+    test(`spawn completion closes the pane after an early disposable report (hidden ${hidden})`, async () => {
+      const hx = harness();
+      const herd = await hx.h["herd:start"]({ ...START, hidden });
+      if (!herd.ok) throw new Error(herd.error);
+      const start = hx.agent["agent:start"];
+      let message: number | undefined;
+      hx.agent["agent:start"] = async (p) => {
+        const rec = await start(p);
+        if (!rec.ok) return rec;
+        const report = await hx.h["herd:report"]({ herd: herd.data.herd, job: "job-a", body: "review complete" });
+        if (!report.ok) throw new Error(report.error);
+        message = report.data.message;
+        expect(hx.store.getJob(herd.data.herd, "job-a")).toMatchObject({ status: "closed", pane: null });
+        return rec;
+      };
+      const res = await hx.h["herd:spawn"]({ herd: herd.data.herd, job: "job-a", brief: "b", dir: "/t", disposable: true });
+      if (!res.ok) throw new Error(res.error);
+      expect(message).toBeNumber();
+      expect(hx.store.getJob(herd.data.herd, "job-a")).toMatchObject({ status: "closed", lastReport: message });
+      expect(hx.herdrCalls.filter((args) => args[0] === "pane")).toEqual([["pane", "close", "w9:p1"]]);
+    });
+  }
+
+  test("spawn completion preserves a report delivered while a renamed worker joins chat", async () => {
+    const hx = await started();
+    const signIn = hx.chat["chat:sign-in"];
+    const join = hx.chat["chat:join"];
+    let message: number | undefined;
+    hx.chat["chat:sign-in"] = async (p) => {
+      const signedIn = await signIn(p);
+      return signedIn.ok ? { ...signedIn, data: { ...signedIn.data, handle: "job-a.renamed" } } : signedIn;
+    };
+    hx.chat["chat:join"] = async (p) => {
+      const joined = await join(p);
+      const report = await hx.h["herd:report"]({ herd: hx.herd, job: "job-a", body: "done while joining" });
+      if (!report.ok) throw new Error(report.error);
+      message = report.data.message;
+      return joined;
+    };
+    const res = await hx.h["herd:spawn"]({ herd: hx.herd, job: "job-a", brief: "b", dir: "/t" });
+    if (!res.ok) throw new Error(res.error);
+    expect(message).toBeNumber();
+    expect(hx.store.getJob(hx.herd, "job-a")).toMatchObject({ status: "done", lastReport: message, handle: "job-a.renamed" });
+    expect(res.data.handle).toBe("job-a.renamed");
+  });
+
+  for (const boundary of ["agent:start", "chat:join"] as const) {
+    test(`an older spawn completing after a replacement at ${boundary} leaves the replacement intact`, async () => {
+      let minted = 0;
+      const hx = harness({ mintWorkerId: (job) => `${job}.w00${++minted}` });
+      const herd = await hx.h["herd:start"](START);
+      if (!herd.ok) throw new Error(herd.error);
+      const herdId = herd.data.herd;
+      const start = hx.agent["agent:start"];
+      const signIn = hx.chat["chat:sign-in"];
+      const join = hx.chat["chat:join"];
+      let replacement: ReturnType<HerdStore["getJob"]>;
+      const replace = async () => {
+        const spawned = await hx.h["herd:spawn"]({ herd: herdId, job: "job-a", brief: "new brief", dir: "/new" });
+        if (!spawned.ok) throw new Error(spawned.error);
+        const report = await hx.h["herd:report"]({ herd: herdId, job: "job-a", body: "replacement finished" });
+        if (!report.ok) throw new Error(report.error);
+        replacement = hx.store.getJob(herdId, "job-a");
+      };
+      hx.agent["agent:start"] = async (p) => {
+        const rec = await start(p);
+        if (!rec.ok || (p as Commands["agent:start"]["payload"]).handle !== "job-a.w001") return rec;
+        if (boundary === "agent:start") await replace();
+        return { ...rec, data: { ...rec.data, id: "ag-old", sessionId: "sess-w2", paneId: "w9:p2", trust: "stuck" as const } };
+      };
+      hx.chat["chat:sign-in"] = async (p) => {
+        const signedIn = await signIn(p);
+        return signedIn.ok && (p as Commands["chat:sign-in"]["payload"]).continue === "job-a.w001"
+          ? { ...signedIn, data: { ...signedIn.data, handle: "job-a.old" } }
+          : signedIn;
+      };
+      hx.chat["chat:join"] = async (p) => {
+        const joined = await join(p);
+        if (boundary === "chat:join" && (p as Commands["chat:join"]["payload"]).handle === "job-a.old") await replace();
+        return joined;
+      };
+      const res = await hx.h["herd:spawn"]({ herd: herdId, job: "job-a", brief: "old brief", dir: "/old" });
+      if (!res.ok) throw new Error(res.error);
+      expect(replacement!).toMatchObject({ status: "done", handle: "job-a.w002", worktree: "/new", pane: "w9:p1", agentSession: "sess-w1", agentId: "ag-1" });
+      expect(hx.store.getJob(herdId, "job-a")).toEqual(replacement!);
+      expect(hx.herdrCalls).not.toContainEqual(["pane", "close", "w9:p1"]);
+    });
+  }
 
   test("provisions, starts the agent in the herd workspace with env and handle, signs the pane in, records the job", async () => {
     const { h, store, agentCalls, worktreeCalls, chatCalls, herd, room, dir } = await started();

@@ -473,7 +473,15 @@ export function createHerdHandlers(deps: HerdDeps) {
       });
       if (!started.ok) return started;
       const rec = started.data;
-      store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle: workerId, status: "spawning", pane: rec.paneId ?? null, agentSession: rec.sessionId, agentId: rec.id });
+      // The worker can report or open a gate before agent:start returns.
+      // Attach its pane without undoing that progress, and only while this
+      // attempt's minted identity still owns the job.
+      const attaching = store.getJob(herdId, name);
+      if (attaching?.handle === workerId) {
+        store.upsertJob({ ...attaching, pane: rec.paneId ?? null, agentSession: rec.sessionId, agentId: rec.id });
+        // An early disposable report had no pane to close yet.
+        if (attaching.status === "closed" && rec.paneId) await closePane(herd.herdrSocket, rec.paneId, { herd: herdId, job: name });
+      }
 
       // Chat identity first: the trust wait can spend its whole budget, and a
       // worker with no handle can neither report nor be reached meanwhile.
@@ -483,7 +491,11 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (signIn.ok) recordChatSession(log, rec.sessionId, { handle, baseHandle: signIn.data.baseHandle, name: signIn.data.name });
       const joined = await deps.chat["chat:join"]({ room: herd.room, handle, pane: rec.paneId, cwd: worktree });
       if (!joined.ok) log.warn({ herd: herdId, job: name, error: joined.error }, "herd: worker room join failed");
-      if (handle !== workerId) store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle, status: "spawning" });
+      // Sign-in and join yield too: a report or a replacement spawn may
+      // have changed the row while this attempt was joining the room.
+      const current = store.getJob(herdId, name);
+      const ownsJob = current?.handle === workerId && current.agentId === rec.id && current.agentSession === rec.sessionId;
+      if (ownsJob && handle !== workerId) store.upsertJob({ ...current, handle });
 
       // agent:start drives the dialog for every claude pane it launches
       // (RT-156); a non-claude provider's record carries no outcome at all.
@@ -492,7 +504,7 @@ export function createHerdHandlers(deps: HerdDeps) {
       // brief, and `spawning` would read as a launch merely in progress.
       // herd-lifecycle clears it back to active the moment herdr detects the
       // agent, so a hand-accepted modal needs no second command.
-      if (trust === "stuck") store.setJobStatus(herdId, name, "stuck-at-modal");
+      if (ownsJob && current.status === "spawning" && trust === "stuck") store.setJobStatus(herdId, name, "stuck-at-modal");
 
       const paneRef = rec.paneId ? formatPaneRef(rec.paneId, herd.hidden ? "bg" : "visible") : "";
       return { ok: true, data: { herd: herdId, job: name, pane: paneRef, worktree, branch, tree, wasOnDeck, agentId: rec.id, sessionId: rec.sessionId, handle, trust } };

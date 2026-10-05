@@ -1109,12 +1109,9 @@ describe("integrationConnect — slack (OAuth flow)", () => {
   });
 });
 
-// Skipped under CI: these bind fixed ports against a real Bun.serve and settle
-// their promise off a real HTTP round-trip, so they depend on a free port AND
-// on bun:test's rejection-attribution timing (see realOAuthListen's own header
-// comment). Both hold locally and are flaky on a shared runner. The connect
-// flow that consumes this seam is covered with fakes in the slack describe
-// above, so CI keeps that coverage; run these locally, or with RUN_REAL_OAUTH=1.
+// Skipped under CI: these bind fixed ports against a real Bun.serve, so they
+// need free local ports. The connect flow is covered with fakes above; run
+// these locally, or opt in on a runner with RUN_REAL_OAUTH=1.
 const skipRealOAuth = process.env.CI === "true" && process.env.RUN_REAL_OAUTH !== "1";
 describe.skipIf(skipRealOAuth)("realOAuthListen (real Bun.serve, no fakes — this is the seam being pinned)", () => {
   test("a mismatched state rejects instead of resolving with the code", async () => {
