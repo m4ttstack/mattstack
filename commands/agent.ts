@@ -23,6 +23,8 @@ import { isDaemonRunning } from "../lib/daemon-client.ts";
 import { currentRepoIdentity, repoLabel, resolveRepoArg } from "../lib/repo-arg.ts";
 import { callerCswapAccount } from "../lib/cswap.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
 import {
   agentGet, agentList, agentResume, agentStart,
   type AgentRecord, type AgentSurface,
@@ -35,8 +37,19 @@ const FLAGS_WITH_VALUES = new Set([
 ]);
 
 function fail(msg: string): never {
-  console.error(`rt agent: ${msg}`);
+  out.diagnostic(`rt agent: ${msg}\n`);
   process.exit(1);
+}
+
+/** One line an agent may be reading: stdout, byte for byte. */
+function say(text: string): void {
+  out.payload(`${text}\n`);
+}
+
+/** Blocks for a person at a terminal; the frozen text for every other reader. */
+function show(blocks: () => Block[], frozen: () => string): void {
+  if (out.isHuman()) out.print(...blocks());
+  else say(frozen());
 }
 
 function flagValue(args: string[], flag: string): string | undefined {
@@ -187,9 +200,8 @@ async function repoAndCwd(args: string[]): Promise<{ repo: string; cwd: string }
   return { repo: identity, cwd: process.cwd() };
 }
 
-function renderRecord(r: AgentRecord): string {
-  const bits = [
-    `${r.id}  ${repoLabel(r.repo)}  ${r.surface}`,
+function recordDetails(r: AgentRecord): string[] {
+  return [
     `provider ${r.provider}`,
     `session ${r.sessionId}`,
     r.handle && `chat ${r.name ?? r.handle}`,
@@ -199,8 +211,16 @@ function renderRecord(r: AgentRecord): string {
     r.paneId && `pane ${r.paneId}`,
     r.finishedAt !== undefined && (r.exitCode !== undefined ? `exit ${r.exitCode}` : "finished"),
     r.lastResumedAt !== undefined && "resumed",
-  ].filter(Boolean);
-  return bits.join("  |  ");
+  ].filter((value): value is string => Boolean(value));
+}
+
+function renderRecord(r: AgentRecord): string {
+  return [`${r.id}  ${repoLabel(r.repo)}  ${r.surface}`, ...recordDetails(r)].join("  |  ");
+}
+
+function agentListBlocks(records: AgentRecord[]): Block[] {
+  if (records.length === 0) return [out.line("skipped", "No agent handoffs yet")];
+  return [out.table(records.map((r) => [out.strong(r.id), repoLabel(r.repo), r.surface, out.dim(recordDetails(r).join(" · "))]))];
 }
 
 async function runStart(args: string[]): Promise<void> {
@@ -216,12 +236,12 @@ async function runStart(args: string[]): Promise<void> {
   if (args.includes("--json")) {
     // Deliberately unannotated: a machine consumer needs the raw record, and
     // the session id it carries for codex is provisional (see the note below).
-    console.log(JSON.stringify({ ok: true, agent: data }));
+    out.json({ ok: true, agent: data });
     return;
   }
-  console.log(renderRecord(data));
+  say(renderRecord(data));
   if (data.provider === "codex") {
-    console.log(`note: codex mints its own session id; the one above is provisional. Capturing the real one needs the rt daemon running (start it with \`rt daemon start\` if it isn't) -- once it is, \`rt agent show ${data.id}\` confirms the real id before resuming.`);
+    say(`note: codex mints its own session id; the one above is provisional. Capturing the real one needs the rt daemon running (start it with \`rt daemon start\` if it isn't) -- once it is, \`rt agent show ${data.id}\` confirms the real id before resuming.`);
   }
 }
 
@@ -234,10 +254,10 @@ async function runResume(args: string[]): Promise<void> {
   }
   const data = unwrap(await dispatch("agent:resume", parsed, () => agentResume(parsed)), "resume");
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, agent: data }));
+    out.json({ ok: true, agent: data });
     return;
   }
-  console.log(renderRecord(data));
+  say(renderRecord(data));
 }
 
 async function runShow(args: string[]): Promise<void> {
@@ -245,10 +265,10 @@ async function runShow(args: string[]): Promise<void> {
   if (!id) fail("missing id: rt agent show <id|session-uuid>");
   const data = unwrap(await dispatch("agent:get", { id }, () => agentGet({ id })), "show");
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, agent: data }));
+    out.json({ ok: true, agent: data });
     return;
   }
-  console.log(renderRecord(data));
+  say(renderRecord(data));
 }
 
 async function runList(args: string[]): Promise<void> {
@@ -256,21 +276,20 @@ async function runList(args: string[]): Promise<void> {
   const repo = repoArg ? await resolveRepoArg(repoArg, fail) : currentRepoIdentity();
   const data = unwrap(await dispatch("agent:list", repo ? { repo } : {}, () => agentList(repo ? { repo } : {})), "list");
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, agents: data.agents }));
+    out.json({ ok: true, agents: data.agents });
     return;
   }
-  if (data.agents.length === 0) {
-    console.log("no agent handoffs recorded");
-    return;
-  }
-  for (const r of data.agents) console.log(renderRecord(r));
+  show(
+    () => agentListBlocks(data.agents),
+    () => (data.agents.length === 0 ? "no agent handoffs recorded" : data.agents.map(renderRecord).join("\n")),
+  );
 }
 
 const USAGE = "usage: rt agent <start|resume|show|list> ...";
 
 /** Stdout usage printer, shared by the --help guard below (fail() covers the error path). */
 function usage(): void {
-  console.log(USAGE);
+  say(USAGE);
 }
 
 const VERBS: Record<string, (args: string[]) => Promise<void>> = {
@@ -314,4 +333,4 @@ export async function agent(args: string[]): Promise<void> {
   await handler(rest);
 }
 
-export const __test__ = { parseStartArgs, parseResumeArgs, withCallerAccount, renderRecord };
+export const __test__ = { parseStartArgs, parseResumeArgs, withCallerAccount, renderRecord, agentListBlocks };

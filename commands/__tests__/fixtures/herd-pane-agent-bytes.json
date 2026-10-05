@@ -1,0 +1,377 @@
+{
+  "pane-list": {
+    "code": 0,
+    "stdout": "w1:p1    idle     meg (live)             acme \u00b7 Evaluate codegen  sample-app \u00b7 main  #build\n\nbackground:\nbg:w9:p1 idle     not signed in          acme \u00b7 nightly  sample-app \u00b7 main\n",
+    "stderr": ""
+  },
+  "pane-list-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"panes\":[{\"paneId\":\"w1:p1\",\"workspace\":\"acme\",\"title\":\"Evaluate codegen\",\"repo\":\"sample-app\",\"branch\":\"main\",\"agentStatus\":\"idle\",\"presence\":{\"handle\":\"meg.1\",\"name\":\"meg\",\"status\":\"live\",\"rooms\":[\"build\"]}},{\"paneId\":\"bg:w9:p1\",\"workspace\":\"acme\",\"title\":\"nightly\",\"repo\":\"sample-app\",\"branch\":\"main\",\"agentStatus\":\"idle\"}]}\n",
+    "stderr": ""
+  },
+  "pane-list-none": {
+    "code": 0,
+    "stdout": "no claude panes\n",
+    "stderr": ""
+  },
+  "pane-list-refused": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt pane: herdr unavailable: no socket\n"
+  },
+  "pane-list-refused-json": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt pane: herdr unavailable: no socket\n"
+  },
+  "pane-peek": {
+    "code": 0,
+    "stdout": "$ ls\na  b\n",
+    "stderr": ""
+  },
+  "pane-peek-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"paneId\":\"w1:p1\",\"lines\":[\"$ ls\",\"a  b\"]}\n",
+    "stderr": ""
+  },
+  "pane-peek-bad-lines": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt pane: --lines must be a positive integer (got \"x\")\n"
+  },
+  "pane-spawn": {
+    "code": 0,
+    "stdout": "ready  w1:p1 idle     meg (live)             acme \u00b7 Evaluate codegen  sample-app \u00b7 main  #build\n",
+    "stderr": ""
+  },
+  "pane-spawn-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"ready\":true,\"pane\":{\"paneId\":\"w1:p1\",\"workspace\":\"acme\",\"title\":\"Evaluate codegen\",\"repo\":\"sample-app\",\"branch\":\"main\",\"agentStatus\":\"idle\",\"presence\":{\"handle\":\"meg.1\",\"name\":\"meg\",\"status\":\"live\",\"rooms\":[\"build\"]}}}\n",
+    "stderr": ""
+  },
+  "pane-spawn-no-cwd": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt pane: usage: rt pane spawn --cwd <path> [--account <a>] [--model <m>] [--effort <e>] [--prompt <text>] [--workspace <label>]\n"
+  },
+  "pane-send-then": {
+    "code": 0,
+    "stdout": "w1:p1 accepted\nthen: w1:p1 scheduled\n",
+    "stderr": ""
+  },
+  "pane-send-then-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"paneId\":\"w1:p1\",\"delivered\":\"accepted\",\"then\":{\"delivered\":\"scheduled\"}}\n",
+    "stderr": ""
+  },
+  "pane-send-refused": {
+    "code": 0,
+    "stdout": "w1:p1 refused (at a prompt)\n",
+    "stderr": ""
+  },
+  "pane-focus": {
+    "code": 0,
+    "stdout": "w1:p1 focused\n",
+    "stderr": ""
+  },
+  "pane-focus-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"paneId\":\"w1:p1\",\"focused\":true}\n",
+    "stderr": ""
+  },
+  "pane-accounts": {
+    "code": 0,
+    "stdout": " 1: work  a@example.com  62%\n 2: b@example.com\n",
+    "stderr": ""
+  },
+  "pane-accounts-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"accounts\":[{\"slot\":1,\"email\":\"a@example.com\",\"alias\":\"work\",\"headroom\":\"62%\"},{\"slot\":2,\"email\":\"b@example.com\"}]}\n",
+    "stderr": ""
+  },
+  "pane-accounts-none": {
+    "code": 0,
+    "stdout": "no cswap accounts\n",
+    "stderr": ""
+  },
+  "pane-directories": {
+    "code": 0,
+    "stdout": "/code/sample-app  sample-app \u00b7 main\n",
+    "stderr": ""
+  },
+  "pane-directories-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"directories\":[{\"path\":\"/code/sample-app\",\"repo\":\"sample-app\",\"branch\":\"main\"}]}\n",
+    "stderr": ""
+  },
+  "agent-list": {
+    "code": 0,
+    "stdout": "ag-1a2b3c4d  sample-app  herdr  |  provider claude  |  session 11111111-2222-3333-4444-555555555555  |  model opus  |  pane w1:p2\nag-9  sample-app  herdr  |  provider claude  |  session 11111111-2222-3333-4444-555555555555  |  model opus  |  pane w1:p2  |  exit 0\n",
+    "stderr": ""
+  },
+  "agent-list-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"agents\":[{\"id\":\"ag-1a2b3c4d\",\"repo\":\"sample-app\",\"cwd\":\"/code/sample-app\",\"provider\":\"claude\",\"surface\":\"herdr\",\"sessionId\":\"11111111-2222-3333-4444-555555555555\",\"model\":\"opus\",\"paneId\":\"w1:p2\",\"createdAt\":1700000000000},{\"id\":\"ag-9\",\"repo\":\"sample-app\",\"cwd\":\"/code/sample-app\",\"provider\":\"claude\",\"surface\":\"herdr\",\"sessionId\":\"11111111-2222-3333-4444-555555555555\",\"model\":\"opus\",\"paneId\":\"w1:p2\",\"createdAt\":1700000000000,\"finishedAt\":2,\"exitCode\":0}]}\n",
+    "stderr": ""
+  },
+  "agent-list-none": {
+    "code": 0,
+    "stdout": "no agent handoffs recorded\n",
+    "stderr": ""
+  },
+  "agent-show": {
+    "code": 0,
+    "stdout": "ag-1a2b3c4d  sample-app  herdr  |  provider claude  |  session 11111111-2222-3333-4444-555555555555  |  model opus  |  pane w1:p2\n",
+    "stderr": ""
+  },
+  "agent-show-no-id": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt agent: missing id: rt agent show <id|session-uuid>\n"
+  },
+  "agent-start-codex": {
+    "code": 0,
+    "stdout": "ag-1a2b3c4d  sample-app  herdr  |  provider codex  |  session 11111111-2222-3333-4444-555555555555  |  model opus  |  pane w1:p2\nnote: codex mints its own session id; the one above is provisional. Capturing the real one needs the rt daemon running (start it with `rt daemon start` if it isn't) -- once it is, `rt agent show ag-1a2b3c4d` confirms the real id before resuming.\n",
+    "stderr": ""
+  },
+  "agent-start-codex-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"agent\":{\"id\":\"ag-1a2b3c4d\",\"repo\":\"sample-app\",\"cwd\":\"/code/sample-app\",\"provider\":\"codex\",\"surface\":\"herdr\",\"sessionId\":\"11111111-2222-3333-4444-555555555555\",\"model\":\"opus\",\"paneId\":\"w1:p2\",\"createdAt\":1700000000000}}\n",
+    "stderr": ""
+  },
+  "agent-start": {
+    "code": 0,
+    "stdout": "ag-1a2b3c4d  sample-app  herdr  |  provider claude  |  session 11111111-2222-3333-4444-555555555555  |  model opus  |  pane w1:p2\n",
+    "stderr": ""
+  },
+  "agent-resume": {
+    "code": 0,
+    "stdout": "ag-1a2b3c4d  sample-app  herdr  |  provider claude  |  session 11111111-2222-3333-4444-555555555555  |  model opus  |  pane w1:p2  |  resumed\n",
+    "stderr": ""
+  },
+  "agent-resume-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"agent\":{\"id\":\"ag-1a2b3c4d\",\"repo\":\"sample-app\",\"cwd\":\"/code/sample-app\",\"provider\":\"claude\",\"surface\":\"herdr\",\"sessionId\":\"11111111-2222-3333-4444-555555555555\",\"model\":\"opus\",\"paneId\":\"w1:p2\",\"createdAt\":1700000000000,\"lastResumedAt\":2}}\n",
+    "stderr": ""
+  },
+  "agent-resume-no-id": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt agent: missing id: rt agent resume <id|session-uuid>\n"
+  },
+  "agent-unknown-verb": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt agent: unknown verb \"frobnicate\": usage: rt agent <start|resume|show|list> ...\n"
+  },
+  "agent-help": {
+    "code": 0,
+    "stdout": "usage: rt agent <start|resume|show|list> ...\n",
+    "stderr": ""
+  },
+  "herd-list": {
+    "code": 0,
+    "stdout": "h-sample  active  room herd-h-sample  4 jobs\nh-two  wrapped  room herd-h-sample  1 job\n",
+    "stderr": ""
+  },
+  "herd-list-json": {
+    "code": 0,
+    "stdout": "{\n  \"herds\": [\n    {\n      \"id\": \"h-sample\",\n      \"repo\": \"sample-app\",\n      \"room\": \"herd-h-sample\",\n      \"workspace\": \"w1\",\n      \"shepherdSession\": \"s\",\n      \"shepherdHandle\": \"ana.1\",\n      \"shepherdName\": \"ana\",\n      \"herdrSocket\": null,\n      \"hidden\": false,\n      \"status\": \"active\",\n      \"createdAt\": 1,\n      \"wrappedAt\": null,\n      \"jobs\": 4\n    },\n    {\n      \"id\": \"h-two\",\n      \"repo\": \"sample-app\",\n      \"room\": \"herd-h-sample\",\n      \"workspace\": \"w1\",\n      \"shepherdSession\": \"s\",\n      \"shepherdHandle\": \"ana.1\",\n      \"shepherdName\": \"ana\",\n      \"herdrSocket\": null,\n      \"hidden\": false,\n      \"status\": \"wrapped\",\n      \"createdAt\": 1,\n      \"wrappedAt\": null,\n      \"jobs\": 1\n    }\n  ]\n}\n",
+    "stderr": ""
+  },
+  "herd-list-none": {
+    "code": 0,
+    "stdout": "no herds\n",
+    "stderr": ""
+  },
+  "herd-status": {
+    "code": 0,
+    "stdout": "h-sample  room herd-h-sample  unread 3  lifecycle OFF  push: unreachable (last delivery never)  subscription MISSING (run rt herd resume)\n  job-a                    active         pane w1:p3  working\n  job-b                    stuck-at-modal pane w1:p4  blocked  STUCK AT TRUST MODAL: accept it in pane w1:p4; the watchdog resumes watching once the agent is idle or working\n  job-c                    active         pane w1:p5  working  SESSION DEAD (pane alive, no claude): rt herd spawn --herd h-sample --job job-c\n  job-d                    at-gate        pane w1:p6  working  gate g7 answered, worker not woken: rt chat dm job-a  gate g7 UNCONSUMED\n",
+    "stderr": ""
+  },
+  "herd-status-json": {
+    "code": 0,
+    "stdout": "{\n  \"herd\": {\n    \"id\": \"h-sample\",\n    \"repo\": \"sample-app\",\n    \"room\": \"herd-h-sample\",\n    \"workspace\": \"w1\",\n    \"shepherdSession\": \"s\",\n    \"shepherdHandle\": \"ana.1\",\n    \"shepherdName\": \"ana\",\n    \"herdrSocket\": null,\n    \"hidden\": false,\n    \"status\": \"active\",\n    \"createdAt\": 1,\n    \"wrappedAt\": null\n  },\n  \"jobs\": [\n    {\n      \"herd\": \"h-sample\",\n      \"name\": \"job-a\",\n      \"worktree\": \"/code/wt\",\n      \"branch\": \"job-a\",\n      \"tree\": \"wt\",\n      \"pane\": \"w1:p3\",\n      \"agentSession\": \"s2\",\n      \"agentId\": null,\n      \"handle\": \"job-a.2\",\n      \"handleName\": \"job-a\",\n      \"status\": \"active\",\n      \"disposable\": false,\n      \"lastGate\": null,\n      \"lastReport\": null,\n      \"createdAt\": 1,\n      \"updatedAt\": 1,\n      \"openGate\": null,\n      \"paneStatus\": \"working\",\n      \"sessionDead\": false,\n      \"lastGateStatus\": null,\n      \"lastGateDelivery\": null,\n      \"lastGateConsumed\": null\n    },\n    {\n      \"herd\": \"h-sample\",\n      \"name\": \"job-b\",\n      \"worktree\": \"/code/wt\",\n      \"branch\": \"job-a\",\n      \"tree\": \"wt\",\n      \"pane\": \"w1:p4\",\n      \"agentSession\": \"s2\",\n      \"agentId\": null,\n      \"handle\": \"job-a.2\",\n      \"handleName\": \"job-a\",\n      \"status\": \"stuck-at-modal\",\n      \"disposable\": false,\n      \"lastGate\": null,\n      \"lastReport\": null,\n      \"createdAt\": 1,\n      \"updatedAt\": 1,\n      \"openGate\": null,\n      \"paneStatus\": \"blocked\",\n      \"sessionDead\": false,\n      \"lastGateStatus\": null,\n      \"lastGateDelivery\": null,\n      \"lastGateConsumed\": null\n    },\n    {\n      \"herd\": \"h-sample\",\n      \"name\": \"job-c\",\n      \"worktree\": \"/code/wt\",\n      \"branch\": \"job-a\",\n      \"tree\": \"wt\",\n      \"pane\": \"w1:p5\",\n      \"agentSession\": \"s2\",\n      \"agentId\": null,\n      \"handle\": \"job-a.2\",\n      \"handleName\": \"job-a\",\n      \"status\": \"active\",\n      \"disposable\": false,\n      \"lastGate\": null,\n      \"lastReport\": null,\n      \"createdAt\": 1,\n      \"updatedAt\": 1,\n      \"openGate\": null,\n      \"paneStatus\": \"working\",\n      \"sessionDead\": true,\n      \"lastGateStatus\": null,\n      \"lastGateDelivery\": null,\n      \"lastGateConsumed\": null\n    },\n    {\n      \"herd\": \"h-sample\",\n      \"name\": \"job-d\",\n      \"worktree\": \"/code/wt\",\n      \"branch\": \"job-a\",\n      \"tree\": \"wt\",\n      \"pane\": \"w1:p6\",\n      \"agentSession\": \"s2\",\n      \"agentId\": null,\n      \"handle\": \"job-a.2\",\n      \"handleName\": \"job-a\",\n      \"status\": \"at-gate\",\n      \"disposable\": false,\n      \"lastGate\": \"g7\",\n      \"lastReport\": null,\n      \"createdAt\": 1,\n      \"updatedAt\": 1,\n      \"openGate\": null,\n      \"paneStatus\": \"working\",\n      \"sessionDead\": false,\n      \"lastGateStatus\": \"answered\",\n      \"lastGateDelivery\": \"dead-pane\",\n      \"lastGateConsumed\": false\n    }\n  ],\n  \"unread\": 3,\n  \"lifecycleConnected\": false,\n  \"hiddenUp\": null,\n  \"subscription\": null,\n  \"push\": {\n    \"state\": \"unreachable\",\n    \"lastDelivery\": null\n  }\n}\n",
+    "stderr": ""
+  },
+  "herd-gates": {
+    "code": 0,
+    "stdout": "g7  decision  herd:h-sample/job-d  Ship it?\n",
+    "stderr": ""
+  },
+  "herd-gates-none": {
+    "code": 0,
+    "stdout": "no open gates\n",
+    "stderr": ""
+  },
+  "herd-close": {
+    "code": 0,
+    "stdout": "job-a closed\n  a resumable run can still write into this worktree\n",
+    "stderr": ""
+  },
+  "herd-close-no-job": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt herd: usage: rt herd close <job> --herd <id>\n"
+  },
+  "herd-follow-up": {
+    "code": 0,
+    "stdout": "job-a is in a follow-up round; it reads as active until its next report\n",
+    "stderr": ""
+  },
+  "herd-stop": {
+    "code": 0,
+    "stdout": "hidden herd session stopped\n",
+    "stderr": ""
+  },
+  "herd-stop-no-flag": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt herd: usage: rt herd stop --hidden\n"
+  },
+  "herd-status-refused-json": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt herd: no such herd: h-x\n"
+  },
+  "herd-start-no-session": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt herd: run inside a Claude Code session (or pass --session <id>)\n"
+  },
+  "herd-ask-outside-worker": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt herd: HERD_ID and HERD_JOB are not set; this verb runs inside a herd worker pane\n"
+  },
+  "herd-start": {
+    "code": 0,
+    "stdout": "herd h-sample\nroom herd-h-sample\nworkspace w1\nsubscription sub-1\nhidden: yes\n",
+    "stderr": ""
+  },
+  "herd-start-json": {
+    "code": 0,
+    "stdout": "{\n  \"herd\": \"h-sample\",\n  \"room\": \"herd-h-sample\",\n  \"workspace\": \"w1\",\n  \"subscription\": \"sub-1\",\n  \"handle\": \"ana.1\",\n  \"hidden\": true\n}\n",
+    "stderr": ""
+  },
+  "herd-spawn-stuck": {
+    "code": 0,
+    "stdout": "job-a pane w1:p3 worktree /code/wt session s2 (cold provision) (STUCK AT TRUST MODAL)\n",
+    "stderr": ""
+  },
+  "herd-spawn-json": {
+    "code": 0,
+    "stdout": "{\n  \"herd\": \"h-sample\",\n  \"job\": \"job-a\",\n  \"pane\": \"w1:p3\",\n  \"worktree\": \"/code/wt\",\n  \"branch\": \"job-a\",\n  \"tree\": \"wt\",\n  \"wasOnDeck\": false,\n  \"agentId\": \"ag-1\",\n  \"sessionId\": \"s2\",\n  \"handle\": \"job-a.2\",\n  \"trust\": \"stuck\"\n}\n",
+    "stderr": ""
+  },
+  "herd-spawn-accepted": {
+    "code": 0,
+    "stdout": "job-a pane w1:p3 worktree /code/wt session s2 (trust dialog accepted)\n",
+    "stderr": ""
+  },
+  "herd-spawn-no-job": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt herd: usage: rt herd spawn --herd <id> --job <name> [--brief <file>] [--dir <path>] [--model M] [--effort E] [--account A] [--disposable]\n"
+  },
+  "herd-resume": {
+    "code": 0,
+    "stdout": "resumed h-sample as ana: subscription sub-2, 1 open gate(s), 2 unread\n  g7  decision  herd:h-sample/job-d\n",
+    "stderr": ""
+  },
+  "herd-resume-json": {
+    "code": 0,
+    "stdout": "{\n  \"subscription\": \"sub-2\",\n  \"gates\": [\n    {\n      \"id\": \"g7\",\n      \"subject\": \"herd:h-sample/job-d\",\n      \"kind\": \"decision\",\n      \"questions\": [\n        {\n          \"id\": \"q\",\n          \"label\": \"Ship it?\",\n          \"multi\": false,\n          \"options\": [\n            \"yes\",\n            \"no\"\n          ]\n        }\n      ],\n      \"meta\": null\n    }\n  ],\n  \"unread\": 2,\n  \"status\": {\n    \"herd\": {\n      \"id\": \"h-sample\",\n      \"repo\": \"sample-app\",\n      \"room\": \"herd-h-sample\",\n      \"workspace\": \"w1\",\n      \"shepherdSession\": \"s\",\n      \"shepherdHandle\": \"ana.1\",\n      \"shepherdName\": \"ana\",\n      \"herdrSocket\": null,\n      \"hidden\": false,\n      \"status\": \"active\",\n      \"createdAt\": 1,\n      \"wrappedAt\": null\n    },\n    \"jobs\": [\n      {\n        \"herd\": \"h-sample\",\n        \"name\": \"job-a\",\n        \"worktree\": \"/code/wt\",\n        \"branch\": \"job-a\",\n        \"tree\": \"wt\",\n        \"pane\": \"w1:p3\",\n        \"agentSession\": \"s2\",\n        \"agentId\": null,\n        \"handle\": \"job-a.2\",\n        \"handleName\": \"job-a\",\n        \"status\": \"active\",\n        \"disposable\": false,\n        \"lastGate\": null,\n        \"lastReport\": null,\n        \"createdAt\": 1,\n        \"updatedAt\": 1,\n        \"openGate\": null,\n        \"paneStatus\": \"working\",\n        \"sessionDead\": false,\n        \"lastGateStatus\": null,\n        \"lastGateDelivery\": null,\n        \"lastGateConsumed\": null\n      },\n      {\n        \"herd\": \"h-sample\",\n        \"name\": \"job-b\",\n        \"worktree\": \"/code/wt\",\n        \"branch\": \"job-a\",\n        \"tree\": \"wt\",\n        \"pane\": \"w1:p4\",\n        \"agentSession\": \"s2\",\n        \"agentId\": null,\n        \"handle\": \"job-a.2\",\n        \"handleName\": \"job-a\",\n        \"status\": \"stuck-at-modal\",\n        \"disposable\": false,\n        \"lastGate\": null,\n        \"lastReport\": null,\n        \"createdAt\": 1,\n        \"updatedAt\": 1,\n        \"openGate\": null,\n        \"paneStatus\": \"blocked\",\n        \"sessionDead\": false,\n        \"lastGateStatus\": null,\n        \"lastGateDelivery\": null,\n        \"lastGateConsumed\": null\n      },\n      {\n        \"herd\": \"h-sample\",\n        \"name\": \"job-c\",\n        \"worktree\": \"/code/wt\",\n        \"branch\": \"job-a\",\n        \"tree\": \"wt\",\n        \"pane\": \"w1:p5\",\n        \"agentSession\": \"s2\",\n        \"agentId\": null,\n        \"handle\": \"job-a.2\",\n        \"handleName\": \"job-a\",\n        \"status\": \"active\",\n        \"disposable\": false,\n        \"lastGate\": null,\n        \"lastReport\": null,\n        \"createdAt\": 1,\n        \"updatedAt\": 1,\n        \"openGate\": null,\n        \"paneStatus\": \"working\",\n        \"sessionDead\": true,\n        \"lastGateStatus\": null,\n        \"lastGateDelivery\": null,\n        \"lastGateConsumed\": null\n      },\n      {\n        \"herd\": \"h-sample\",\n        \"name\": \"job-d\",\n        \"worktree\": \"/code/wt\",\n        \"branch\": \"job-a\",\n        \"tree\": \"wt\",\n        \"pane\": \"w1:p6\",\n        \"agentSession\": \"s2\",\n        \"agentId\": null,\n        \"handle\": \"job-a.2\",\n        \"handleName\": \"job-a\",\n        \"status\": \"at-gate\",\n        \"disposable\": false,\n        \"lastGate\": \"g7\",\n        \"lastReport\": null,\n        \"createdAt\": 1,\n        \"updatedAt\": 1,\n        \"openGate\": null,\n        \"paneStatus\": \"working\",\n        \"sessionDead\": false,\n        \"lastGateStatus\": \"answered\",\n        \"lastGateDelivery\": \"dead-pane\",\n        \"lastGateConsumed\": false\n      }\n    ],\n    \"unread\": 3,\n    \"lifecycleConnected\": false,\n    \"hiddenUp\": null,\n    \"subscription\": null,\n    \"push\": {\n      \"state\": \"unreachable\",\n      \"lastDelivery\": null\n    }\n  },\n  \"handle\": \"ana.1\"\n}\n",
+    "stderr": ""
+  },
+  "herd-wrap-up": {
+    "code": 0,
+    "stdout": "closed 2 pane(s), workspace closed; disposed wt; job dirs kept; room archived\n  refused wt-b: dirty worktree\n",
+    "stderr": ""
+  },
+  "herd-wrap-up-json": {
+    "code": 0,
+    "stdout": "{\n  \"closed\": [\n    \"w1:p3\",\n    \"w1:p4\"\n  ],\n  \"workspaceClosed\": true,\n  \"disposed\": [\n    \"wt\"\n  ],\n  \"refused\": [\n    {\n      \"tree\": \"wt-b\",\n      \"reason\": \"dirty worktree\"\n    }\n  ],\n  \"deletedJobDirs\": false,\n  \"archived\": true\n}\n",
+    "stderr": ""
+  },
+  "herd-wrap-up-no-id": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt herd: usage: rt herd wrap-up <id> [--close-panes] [--dispose <job>...] [--delete-job-dirs] [--archive-room]\n"
+  },
+  "herd-attend": {
+    "code": 0,
+    "stdout": "attached in tab t4; detach with ctrl+b q, then close the tab\n",
+    "stderr": ""
+  },
+  "herd-attend-json": {
+    "code": 0,
+    "stdout": "{\n  \"tab\": \"t4\",\n  \"pane\": \"w1:p3\"\n}\n",
+    "stderr": ""
+  },
+  "herd-answer-answered": {
+    "code": 0,
+    "stdout": "gate g7 answered by matt:\n{\n  \"q\": \"yes\"\n}\n",
+    "stderr": ""
+  },
+  "herd-answer-json": {
+    "code": 0,
+    "stdout": "{\n  \"gate\": \"g7\",\n  \"status\": \"answered\",\n  \"answer\": {\n    \"answers\": {\n      \"q\": \"yes\"\n    },\n    \"by\": \"matt\",\n    \"answeredAt\": 1\n  },\n  \"closedReason\": null\n}\n",
+    "stderr": ""
+  },
+  "herd-answer-open": {
+    "code": 0,
+    "stdout": "gate g7 is still open\n",
+    "stderr": ""
+  },
+  "herd-answer-closed": {
+    "code": 0,
+    "stdout": "gate g7 closed (superseded); do not invent an answer\n",
+    "stderr": ""
+  },
+  "herd-answer-parked": {
+    "code": 0,
+    "stdout": "gate g7 is parked; do not invent an answer, wait for it to be answered\n",
+    "stderr": ""
+  },
+  "herd-answer-empty": {
+    "code": 0,
+    "stdout": "gate g7 is marked answered but carries no answer; do not invent one, ask the shepherd\n",
+    "stderr": ""
+  },
+  "herd-ask": {
+    "code": 0,
+    "stdout": "holding at gate g8\n",
+    "stderr": ""
+  },
+  "herd-ask-json": {
+    "code": 0,
+    "stdout": "{\n  \"gate\": \"g8\",\n  \"message\": 12\n}\n",
+    "stderr": ""
+  },
+  "herd-ask-bad-json": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt herd: --questions is not valid JSON: {\n"
+  },
+  "herd-milestone": {
+    "code": 0,
+    "stdout": "holding at gate g9\n",
+    "stderr": ""
+  },
+  "herd-milestone-no-artifact": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt herd: usage: rt herd milestone --artifact <path> [--summary <text>]\n"
+  },
+  "herd-report": {
+    "code": 0,
+    "stdout": "reported (message #14)\n",
+    "stderr": ""
+  },
+  "herd-report-json": {
+    "code": 0,
+    "stdout": "{\n  \"message\": 14\n}\n",
+    "stderr": ""
+  }
+}

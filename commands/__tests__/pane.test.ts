@@ -3,6 +3,10 @@ import { mkdirSync, mkdtempSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { paneAccounts, paneDirectories, paneFocus, paneList, panePeek, renderPaneFocus, paneSend, paneSpawn } from "../pane.ts";
+import * as out from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
+import { paneListBlocks } from "../pane.ts";
 
 let home: string;
 let origHome: string | undefined;
@@ -33,22 +37,29 @@ afterEach(() => {
   process.env.HOME = origHome;
 });
 
-async function run(fn: (args: string[]) => Promise<void>, args: string[]) {
-  const out: string[] = [];
-  const err: string[] = [];
-  const logSpy = spyOn(console, "log").mockImplementation((...a: unknown[]) => { out.push(a.map(String).join(" ")); });
-  const errSpy = spyOn(console, "error").mockImplementation((...a: unknown[]) => { err.push(a.map(String).join(" ")); });
-  const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("process.exit sentinel"); });
+class Exit extends Error {
+  constructor(public code: number) {
+    super("process.exit sentinel");
+  }
+}
+
+async function runVerb(fn: (args: string[]) => Promise<void>, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  const io = captureOut({ console: true });
+  out.__test__.setHuman(() => false);
+  const exit = spyOn(process, "exit").mockImplementation(((code?: number) => {
+    throw new Exit(code ?? 0);
+  }) as unknown as typeof process.exit);
   let code = 0;
   try {
     await fn(args);
-  } catch (e) {
-    if (e instanceof Error && e.message === "process.exit sentinel") code = (exitSpy.mock.calls.at(-1)?.[0] as number | undefined) ?? 1;
-    else throw e;
+  } catch (err) {
+    if (err instanceof Exit) code = err.code;
+    else throw err;
   } finally {
-    logSpy.mockRestore(); errSpy.mockRestore(); exitSpy.mockRestore();
+    exit.mockRestore();
+    io.restore();
   }
-  return { code, stdout: out.join("\n"), stderr: err.join("\n") };
+  return { code, stdout: io.stdout().replace(/\n$/, ""), stderr: io.stderr().replace(/\n$/, "") };
 }
 
 const PANE = { paneId: "w1:p1", workspace: "acme", title: "Evaluate codegen", cwd: "/repos/acme", repo: "acme", branch: "main", agentStatus: "idle", presence: { handle: "meg", status: "live", rooms: ["build"] } };
@@ -56,9 +67,9 @@ const PANE = { paneId: "w1:p1", workspace: "acme", title: "Evaluate codegen", cw
 test("pane list --json prints the rows; plain prints one line per pane", async () => {
   const panes = [PANE, { ...PANE, paneId: "w1:p2", presence: undefined, title: "fred" }];
   replies = { "pane:list": { ok: true, data: { panes } } };
-  const json = await run(paneList, ["--json"]);
+  const json = await runVerb(paneList, ["--json"]);
   expect(JSON.parse(json.stdout)).toEqual({ ok: true, panes });
-  const plain = await run(paneList, []);
+  const plain = await runVerb(paneList, []);
   expect(plain.stdout).toContain("w1:p1");
   expect(plain.stdout).toContain("meg");
   expect(plain.stdout).toContain("not signed in");
@@ -66,27 +77,27 @@ test("pane list --json prints the rows; plain prints one line per pane", async (
 
 test("pane list reports herdr unavailable and exits 1", async () => {
   replies = { "pane:list": { ok: false, error: "herdr unavailable: no socket" } };
-  const r = await run(paneList, []);
+  const r = await runVerb(paneList, []);
   expect(r.code).toBe(1);
   expect(r.stderr).toContain("herdr unavailable");
 });
 
 test("pane peek passes the pane id and --lines", async () => {
   replies = { "pane:peek": { ok: true, data: { paneId: "w1:p1", lines: ["a", "b"] } } };
-  const r = await run(panePeek, ["w1:p1", "--lines", "2"]);
+  const r = await runVerb(panePeek, ["w1:p1", "--lines", "2"]);
   expect(seen[0]).toEqual({ cmd: "pane:peek", payload: { paneId: "w1:p1", lines: 2 } });
   expect(r.stdout).toBe("a\nb");
 });
 
 test("pane spawn passes every flag and prints the pane and readiness", async () => {
   replies = { "pane:spawn": { ok: true, data: { pane: PANE, ready: true } } };
-  const r = await run(paneSpawn, ["--cwd", "/repos/acme", "--account", "Acme", "--model", "claude-fable-5", "--effort", "high", "--workspace", "chat", "--prompt", "read AGENTS.md", "--json"]);
+  const r = await runVerb(paneSpawn, ["--cwd", "/repos/acme", "--account", "Acme", "--model", "claude-fable-5", "--effort", "high", "--workspace", "chat", "--prompt", "read AGENTS.md", "--json"]);
   expect(seen[0]!.payload).toEqual({ cwd: "/repos/acme", account: "Acme", model: "claude-fable-5", effort: "high", workspace: "chat", prompt: "read AGENTS.md" });
   expect(JSON.parse(r.stdout)).toMatchObject({ ok: true, ready: true, pane: { paneId: "w1:p1" } });
 });
 
 test("pane spawn requires --cwd", async () => {
-  const r = await run(paneSpawn, []);
+  const r = await runVerb(paneSpawn, []);
   expect(r.code).toBe(1);
   expect(r.stderr).toContain("--cwd");
 });
@@ -96,8 +107,8 @@ test("pane accounts and directories render", async () => {
     "pane:accounts": { ok: true, data: { accounts: [{ slot: 1, email: "a@b.c", alias: "A", headroom: "5h 3%" }] } },
     "pane:directories": { ok: true, data: { directories: [{ path: "/repos/chat", repo: "chat" }] } },
   };
-  expect((await run(paneAccounts, [])).stdout).toContain("A");
-  const d = await run(paneDirectories, ["--q", "chat"]);
+  expect((await runVerb(paneAccounts, [])).stdout).toContain("A");
+  const d = await runVerb(paneDirectories, ["--q", "chat"]);
   expect(seen.at(-1)).toEqual({ cmd: "pane:directories", payload: { q: "chat" } });
   expect(d.stdout).toContain("/repos/chat");
 });
@@ -107,7 +118,7 @@ test("pane send forwards the text and HERDR_PANE_ID as callerPane", async () => 
   const orig = process.env.HERDR_PANE_ID;
   process.env.HERDR_PANE_ID = "w1:p1";
   try {
-    const r = await run(paneSend, ["w1:p2", "--text", "standup in 5"]);
+    const r = await runVerb(paneSend, ["w1:p2", "--text", "standup in 5"]);
     expect(seen[0]).toEqual({ cmd: "pane:send", payload: { paneId: "w1:p2", text: "standup in 5", callerPane: "w1:p1" } });
     expect(r.stdout).toBe("w1:p2 accepted");
     expect(r.code).toBe(0);
@@ -124,7 +135,7 @@ test("pane send from inside a bg pane sends callerPane as a bg: ref", async () =
   process.env.HERDR_PANE_ID = "w1:p1";
   process.env.HERDR_SESSION = "bg";
   try {
-    await run(paneSend, ["w1:p2", "--text", "standup in 5"]);
+    await runVerb(paneSend, ["w1:p2", "--text", "standup in 5"]);
     expect(seen[0]).toEqual({ cmd: "pane:send", payload: { paneId: "w1:p2", text: "standup in 5", callerPane: "bg:w1:p1" } });
   } finally {
     if (origPane === undefined) delete process.env.HERDR_PANE_ID; else process.env.HERDR_PANE_ID = origPane;
@@ -134,7 +145,7 @@ test("pane send from inside a bg pane sends callerPane as a bg: ref", async () =
 
 test("pane send prints the outcome and does not exit non-zero on refused", async () => {
   replies = { "pane:send": { ok: true, data: { paneId: "w1:p2", delivered: "refused", reason: "at a prompt" } } };
-  const r = await run(paneSend, ["w1:p2", "--text", "x"]);
+  const r = await runVerb(paneSend, ["w1:p2", "--text", "x"]);
   expect(r.stdout).toContain("refused");
   expect(r.stdout).toContain("at a prompt");
   expect(r.code).toBe(0);
@@ -143,7 +154,7 @@ test("pane send prints the outcome and does not exit non-zero on refused", async
 test("pane send --json prints the PaneSendResult and exits 0 on refused", async () => {
   const result = { paneId: "w1:p2", delivered: "refused", reason: "at a prompt" };
   replies = { "pane:send": { ok: true, data: result } };
-  const r = await run(paneSend, ["w1:p2", "--text", "x", "--json"]);
+  const r = await runVerb(paneSend, ["w1:p2", "--text", "x", "--json"]);
   expect(JSON.parse(r.stdout)).toEqual({ ok: true, ...result });
   expect(r.code).toBe(0);
 });
@@ -153,7 +164,7 @@ test("pane send omits callerPane when HERDR_PANE_ID is unset", async () => {
   const orig = process.env.HERDR_PANE_ID;
   delete process.env.HERDR_PANE_ID;
   try {
-    await run(paneSend, ["w1:p2", "--text", "hi"]);
+    await runVerb(paneSend, ["w1:p2", "--text", "hi"]);
     expect(seen[0]).toEqual({ cmd: "pane:send", payload: { paneId: "w1:p2", text: "hi" } });
   } finally {
     if (orig !== undefined) process.env.HERDR_PANE_ID = orig;
@@ -166,7 +177,7 @@ test("pane send --text - reads a multi-line body from stdin", async () => {
   delete process.env.HERDR_PANE_ID;
   const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(() => new Response("line one\nline two").body!);
   try {
-    await run(paneSend, ["w1:p2", "--text", "-"]);
+    await runVerb(paneSend, ["w1:p2", "--text", "-"]);
     expect(seen[0]).toEqual({ cmd: "pane:send", payload: { paneId: "w1:p2", text: "line one\nline two" } });
   } finally {
     stdinSpy.mockRestore();
@@ -175,17 +186,17 @@ test("pane send --text - reads a multi-line body from stdin", async () => {
 });
 
 test("pane send requires a pane and --text", async () => {
-  const noPane = await run(paneSend, ["--text", "x"]);
+  const noPane = await runVerb(paneSend, ["--text", "x"]);
   expect(noPane.code).toBe(1);
   expect(noPane.stderr).toContain("usage");
-  const noText = await run(paneSend, ["w1:p2"]);
+  const noText = await runVerb(paneSend, ["w1:p2"]);
   expect(noText.code).toBe(1);
   expect(noText.stderr).toContain("usage");
 });
 
 test("pane send exits non-zero when the daemon fails", async () => {
   replies = { "pane:send": { ok: false, error: "herdr unavailable: no socket" } };
-  const r = await run(paneSend, ["w1:p2", "--text", "x"]);
+  const r = await runVerb(paneSend, ["w1:p2", "--text", "x"]);
   expect(r.code).toBe(1);
   expect(r.stderr).toContain("herdr unavailable");
 });
@@ -199,7 +210,7 @@ test("pane send self targets HERDR_PANE_ID and omits callerPane", async () => {
   process.env.HERDR_PANE_ID = "w1:p1";
   delete process.env.HERDR_SESSION;
   try {
-    const r = await run(paneSend, ["self", "--text", "/cd /repos/acme"]);
+    const r = await runVerb(paneSend, ["self", "--text", "/cd /repos/acme"]);
     expect(seen[0]).toEqual({ cmd: "pane:send", payload: { paneId: "w1:p1", text: "/cd /repos/acme" } });
     expect(r.stdout).toBe("w1:p1 queued");
     expect(r.code).toBe(0);
@@ -216,7 +227,7 @@ test("pane send self --json prints the JSON shape", async () => {
   process.env.HERDR_PANE_ID = "w1:p1";
   delete process.env.HERDR_SESSION;
   try {
-    const r = await run(paneSend, ["self", "--text", "/cd /repos/acme", "--json"]);
+    const r = await runVerb(paneSend, ["self", "--text", "/cd /repos/acme", "--json"]);
     expect(JSON.parse(r.stdout)).toEqual({ ok: true, paneId: "w1:p1", delivered: "queued" });
   } finally {
     if (orig === undefined) delete process.env.HERDR_PANE_ID; else process.env.HERDR_PANE_ID = orig;
@@ -231,7 +242,7 @@ test("pane send self from a bg pane targets the bg: ref", async () => {
   process.env.HERDR_PANE_ID = "w1:p1";
   process.env.HERDR_SESSION = "bg";
   try {
-    await run(paneSend, ["self", "--text", "/cd /repos/acme"]);
+    await runVerb(paneSend, ["self", "--text", "/cd /repos/acme"]);
     expect(seen[0]).toEqual({ cmd: "pane:send", payload: { paneId: "bg:w1:p1", text: "/cd /repos/acme" } });
   } finally {
     if (origPane === undefined) delete process.env.HERDR_PANE_ID; else process.env.HERDR_PANE_ID = origPane;
@@ -244,7 +255,7 @@ test("pane send self outside a herdr pane fails before any daemon call", async (
   const orig = process.env.HERDR_PANE_ID;
   delete process.env.HERDR_PANE_ID;
   try {
-    const r = await run(paneSend, ["self", "--text", "/cd /repos/acme"]);
+    const r = await runVerb(paneSend, ["self", "--text", "/cd /repos/acme"]);
     expect(r.code).toBe(1);
     expect(r.stderr).toBe("rt pane: not in a herdr pane (HERDR_PANE_ID unset)");
     expect(seen).toEqual([]);
@@ -260,7 +271,7 @@ test("pane send with a literal copy of the caller's own id still sends callerPan
   process.env.HERDR_PANE_ID = "w1:p1";
   delete process.env.HERDR_SESSION;
   try {
-    const r = await run(paneSend, ["w1:p1", "--text", "/cd /repos/acme"]);
+    const r = await runVerb(paneSend, ["w1:p1", "--text", "/cd /repos/acme"]);
     expect(seen[0]).toEqual({ cmd: "pane:send", payload: { paneId: "w1:p1", text: "/cd /repos/acme", callerPane: "w1:p1" } });
     expect(r.stdout).toBe("w1:p1 refused (that is this pane)");
   } finally {
@@ -272,14 +283,14 @@ test("pane send with a literal copy of the caller's own id still sends callerPan
 // ─── pane send --then ────────────────────────────────────────────────────────
 
 test("pane send --then \"\" is a usage error before any daemon call", async () => {
-  const r = await run(paneSend, ["w1:p2", "--text", "hi", "--then", ""]);
+  const r = await runVerb(paneSend, ["w1:p2", "--text", "hi", "--then", ""]);
   expect(r.code).toBe(1);
   expect(r.stderr).toContain("--then needs a body");
   expect(seen).toEqual([]);
 });
 
 test("pane send --then as the last argument is a usage error, not an omitted flag", async () => {
-  const r = await run(paneSend, ["w1:p2", "--text", "hi", "--then"]);
+  const r = await runVerb(paneSend, ["w1:p2", "--text", "hi", "--then"]);
   expect(r.code).toBe(1);
   expect(r.stderr).toContain("--then needs a body");
   expect(seen).toEqual([]);
@@ -290,7 +301,7 @@ test("pane send --then rides the payload as continuation and prints the deferred
   const orig = process.env.HERDR_PANE_ID;
   process.env.HERDR_PANE_ID = "w1:p1";
   try {
-    const r = await run(paneSend, ["self", "--text", "/cd /repos/acme", "--then", "Continue: enter worktree foo"]);
+    const r = await runVerb(paneSend, ["self", "--text", "/cd /repos/acme", "--then", "Continue: enter worktree foo"]);
     expect(seen).toEqual([{ cmd: "pane:send", payload: { paneId: "w1:p1", text: "/cd /repos/acme", continuation: "Continue: enter worktree foo" } }]);
     expect(r.stdout).toBe("w1:p1 queued\nthen: w1:p1 deferred");
     expect(r.code).toBe(0);
@@ -301,7 +312,7 @@ test("pane send --then rides the payload as continuation and prints the deferred
 
 test("pane send --then prints no then line when the daemon scheduled nothing", async () => {
   replies = { "pane:send": { ok: true, data: { paneId: "w1:p2", delivered: "refused", reason: "at a prompt" } } };
-  const r = await run(paneSend, ["w1:p2", "--text", "hi", "--then", "and again"]);
+  const r = await runVerb(paneSend, ["w1:p2", "--text", "hi", "--then", "and again"]);
   expect(seen).toHaveLength(1);
   expect(seen[0]!.payload).toMatchObject({ paneId: "w1:p2", text: "hi", continuation: "and again" });
   expect(r.stdout).toBe("w1:p2 refused (at a prompt)");
@@ -310,25 +321,25 @@ test("pane send --then prints no then line when the daemon scheduled nothing", a
 
 test("pane send --then --json maps continuation to then", async () => {
   replies = { "pane:send": { ok: true, data: { paneId: "w1:p2", delivered: "accepted", continuation: { delivered: "deferred" } } } };
-  const r = await run(paneSend, ["w1:p2", "--text", "hi", "--then", "and again", "--json"]);
+  const r = await runVerb(paneSend, ["w1:p2", "--text", "hi", "--then", "and again", "--json"]);
   expect(JSON.parse(r.stdout)).toEqual({ ok: true, paneId: "w1:p2", delivered: "accepted", then: { delivered: "deferred" } });
 });
 
 test("pane send --then --json omits then when the daemon scheduled nothing", async () => {
   replies = { "pane:send": { ok: true, data: { paneId: "w1:p2", delivered: "refused", reason: "not a claude pane" } } };
-  const r = await run(paneSend, ["w1:p2", "--text", "hi", "--then", "and again", "--json"]);
+  const r = await runVerb(paneSend, ["w1:p2", "--text", "hi", "--then", "and again", "--json"]);
   expect(JSON.parse(r.stdout)).toEqual({ ok: true, paneId: "w1:p2", delivered: "refused", reason: "not a claude pane" });
 });
 
 test("pane send without --then sends no continuation", async () => {
   replies = { "pane:send": { ok: true, data: { paneId: "w1:p2", delivered: "accepted" } } };
-  await run(paneSend, ["w1:p2", "--text", "hi"]);
+  await runVerb(paneSend, ["w1:p2", "--text", "hi"]);
   expect(seen[0]!.payload).not.toHaveProperty("continuation");
 });
 
 test("pane send --then value is not mistaken for the positional pane", async () => {
   replies = { "pane:send": { ok: true, data: { paneId: "w1:p2", delivered: "accepted" } } };
-  await run(paneSend, ["--then", "and again", "w1:p2", "--text", "hi"]);
+  await runVerb(paneSend, ["--then", "and again", "w1:p2", "--text", "hi"]);
   expect(seen[0]!.payload).toMatchObject({ paneId: "w1:p2", text: "hi" });
 });
 
@@ -338,7 +349,7 @@ test("pane send --then with --text - reads the first line's body from stdin", as
   delete process.env.HERDR_PANE_ID;
   const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(() => new Response("line one\nline two").body!);
   try {
-    const r = await run(paneSend, ["w1:p2", "--text", "-", "--then", "and again"]);
+    const r = await runVerb(paneSend, ["w1:p2", "--text", "-", "--then", "and again"]);
     expect(seen[0]).toEqual({ cmd: "pane:send", payload: { paneId: "w1:p2", text: "line one\nline two", continuation: "and again" } });
     expect(r.stdout).toBe("w1:p2 queued\nthen: w1:p2 deferred");
   } finally {
@@ -364,7 +375,7 @@ test("pane focus fills callerWorkspace from HERDR_WORKSPACE_ID and renders the a
   const orig = process.env.HERDR_WORKSPACE_ID;
   process.env.HERDR_WORKSPACE_ID = "wv";
   try {
-    const r = await run(paneFocus, ["bg:w1:p1"]);
+    const r = await runVerb(paneFocus, ["bg:w1:p1"]);
     expect(seen[0]).toEqual({ cmd: "pane:focus", payload: { paneId: "bg:w1:p1", callerWorkspace: "wv" } });
     expect(r.stdout).toBe("attached bg:w1:p1 in tab wv:t9; detach with ctrl+b q, then close the tab");
     expect(r.code).toBe(0);
@@ -379,7 +390,7 @@ test("pane focus omits callerWorkspace when HERDR_WORKSPACE_ID is unset, and pri
   const orig = process.env.HERDR_WORKSPACE_ID;
   delete process.env.HERDR_WORKSPACE_ID;
   try {
-    const r = await run(paneFocus, ["w1:p1"]);
+    const r = await runVerb(paneFocus, ["w1:p1"]);
     expect(seen[0]).toEqual({ cmd: "pane:focus", payload: { paneId: "w1:p1" } });
     expect(r.stdout).toBe("w1:p1 focused");
   } finally {
@@ -389,13 +400,13 @@ test("pane focus omits callerWorkspace when HERDR_WORKSPACE_ID is unset, and pri
 
 test("pane focus --json passes attendTab through untouched", async () => {
   replies = { "pane:focus": { ok: true, data: { paneId: "bg:w1:p1", focused: true, attendTab: "wv:t9" } } };
-  const r = await run(paneFocus, ["bg:w1:p1", "--json"]);
+  const r = await runVerb(paneFocus, ["bg:w1:p1", "--json"]);
   expect(JSON.parse(r.stdout)).toEqual({ ok: true, paneId: "bg:w1:p1", focused: true, attendTab: "wv:t9" });
 });
 
 test("pane focus exits non-zero when the daemon fails (e.g. no HERDR_WORKSPACE_ID for a bg ref)", async () => {
   replies = { "pane:focus": { ok: false, error: "focus for a background pane must run from a herdr pane; HERDR_WORKSPACE_ID is unset" } };
-  const r = await run(paneFocus, ["bg:w1:p1"]);
+  const r = await runVerb(paneFocus, ["bg:w1:p1"]);
   expect(r.code).toBe(1);
   expect(r.stderr).toContain("HERDR_WORKSPACE_ID is unset");
 });
@@ -405,7 +416,7 @@ test("pane focus exits non-zero when the daemon fails (e.g. no HERDR_WORKSPACE_I
 test("pane list stays silent about background when the bg server is down (no bg rows)", async () => {
   const panes = [PANE, { ...PANE, paneId: "w1:p2", presence: undefined, title: "fred" }];
   replies = { "pane:list": { ok: true, data: { panes } } };
-  const r = await run(paneList, []);
+  const r = await runVerb(paneList, []);
   expect(r.stdout).not.toContain("background:");
   expect(r.stdout).toContain("w1:p1");
   expect(r.stdout).toContain("w1:p2");
@@ -415,7 +426,7 @@ test("pane list grows a labeled background: section after visible panes when bg 
   const visible = { ...PANE, paneId: "w1:p1" };
   const bgRow = { ...PANE, paneId: "bg:w9:p9", presence: undefined, title: "worker" };
   replies = { "pane:list": { ok: true, data: { panes: [visible, bgRow] } } };
-  const r = await run(paneList, []);
+  const r = await runVerb(paneList, []);
   const visibleLineIdx = r.stdout.indexOf("w1:p1");
   const headerIdx = r.stdout.indexOf("background:");
   const bgLineIdx = r.stdout.indexOf("bg:w9:p9");
@@ -427,7 +438,7 @@ test("pane list grows a labeled background: section after visible panes when bg 
 test("pane list with only bg rows (no visible claude panes) still shows the background: section", async () => {
   const bgRow = { ...PANE, paneId: "bg:w9:p9", presence: undefined, title: "worker" };
   replies = { "pane:list": { ok: true, data: { panes: [bgRow] } } };
-  const r = await run(paneList, []);
+  const r = await runVerb(paneList, []);
   expect(r.stdout).toContain("background:");
   expect(r.stdout).toContain("bg:w9:p9");
 });
@@ -437,7 +448,7 @@ test("pane list --json stays a flat list regardless of bg rows", async () => {
   const bgRow = { ...PANE, paneId: "bg:w9:p9", presence: undefined, title: "worker" };
   const panes = [visible, bgRow];
   replies = { "pane:list": { ok: true, data: { panes } } };
-  const r = await run(paneList, ["--json"]);
+  const r = await runVerb(paneList, ["--json"]);
   expect(JSON.parse(r.stdout)).toEqual({ ok: true, panes });
 });
 
@@ -445,7 +456,7 @@ test("pane list id column width follows the longest ref, not a fixed 8", async (
   const visible = { ...PANE, paneId: "w1:p1" };
   const bgRow = { ...PANE, paneId: "bg:workspace9:pane9999", presence: undefined, title: "worker" };
   replies = { "pane:list": { ok: true, data: { panes: [visible, bgRow] } } };
-  const r = await run(paneList, []);
+  const r = await runVerb(paneList, []);
   const idWidth = "bg:workspace9:pane9999".length;
   expect(r.stdout).toContain(`w1:p1${" ".repeat(idWidth - "w1:p1".length)} `);
   expect(r.stdout).toContain(`bg:workspace9:pane9999 `);
@@ -454,8 +465,39 @@ test("pane list id column width follows the longest ref, not a fixed 8", async (
 test("pane list prints the presence name, never the id, and hides a title equal to the name", async () => {
   const minted = { ...PANE, title: "meg", presence: { handle: "meg.k3f9", name: "meg", status: "live", rooms: ["build"] } };
   replies = { "pane:list": { ok: true, data: { panes: [minted] } } };
-  const plain = await run(paneList, []);
+  const plain = await runVerb(paneList, []);
   expect(plain.stdout).toContain("meg (live)");
   expect(plain.stdout).not.toContain("meg.k3f9");
   expect(plain.stdout).not.toContain("· meg");
+});
+
+test("pane list at a terminal: one row per pane, background panes under their own label", () => {
+  const text = renderPlain(paneListBlocks([PANE as never, { ...PANE, paneId: "bg:w9:p1", presence: undefined, title: "nightly" } as never]));
+  const rows = text.split("\n");
+  expect(rows[0]).toMatch(/^w1:p1 +idle +meg +acme · Evaluate codegen +acme · main +#build$/);
+  expect(rows[1]).toBe("background:");
+  expect(rows[2]).toMatch(/^bg:w9:p1 +idle +not signed in +acme · nightly +acme · main *$/);
+});
+
+test("no panes says so", () => {
+  expect(renderPlain(paneListBlocks([]))).toBe("[skipped] No Claude panes\n");
+});
+
+test("a hostile pane title is cleaned in the table", () => {
+  const text = renderPlain(paneListBlocks([{ ...PANE, title: "x\x1b[2Jy\n[ok] forged" } as never]));
+  expect(text).not.toContain("\x1b");
+  expect(text.split("\n").filter(Boolean)).toHaveLength(1);
+});
+
+test("peek is a payload at a terminal", async () => {
+  replies = { "pane:peek": { ok: true, data: { paneId: "w1:p1", lines: ["\x1b[1mbold\x1b[0m"] } } };
+  const io = captureOut();
+  out.__test__.setHuman(() => true);
+  try {
+    await panePeek(["w1:p1"]);
+    expect(io.stdout()).toBe("\x1b[1mbold\x1b[0m\n");
+  } finally {
+    out.__test__.setHuman(() => false);
+    io.restore();
+  }
 });

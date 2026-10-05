@@ -1,0 +1,62 @@
+{
+  "agent-show-json": {
+    "code": 0,
+    "stdout": "{\"ok\":true,\"agent\":{\"id\":\"ag-1a2b3c4d\",\"repo\":\"sample-app\",\"cwd\":\"/code/sample-app\",\"provider\":\"claude\",\"surface\":\"herdr\",\"sessionId\":\"11111111-2222-3333-4444-555555555555\",\"model\":\"opus\",\"paneId\":\"w1:p2\",\"createdAt\":1700000000000}}\n",
+    "stderr": ""
+  },
+  "agent-show-refused-json": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "rt agent: no such agent: ag-missing\n"
+  },
+  "herd-gates-json": {
+    "code": 0,
+    "stdout": "{\n  \"gates\": [\n    {\n      \"id\": \"g7\",\n      \"subject\": \"herd:h-sample/job-d\",\n      \"kind\": \"decision\",\n      \"questions\": [\n        {\n          \"id\": \"q\",\n          \"label\": \"Ship it?\",\n          \"multi\": false,\n          \"options\": [\n            \"yes\",\n            \"no\"\n          ]\n        }\n      ]\n    }\n  ]\n}\n",
+    "stderr": ""
+  },
+  "herd-gates-none-json": {
+    "code": 0,
+    "stdout": "{\n  \"gates\": []\n}\n",
+    "stderr": ""
+  },
+  "herd-close-json": {
+    "code": 0,
+    "stdout": "{\n  \"job\": \"job-a\",\n  \"status\": \"closed\",\n  \"warning\": \"a resumable run can still write into this worktree\"\n}\n",
+    "stderr": ""
+  },
+  "herd-close-no-warning-json": {
+    "code": 0,
+    "stdout": "{\n  \"job\": \"job-a\",\n  \"status\": \"closed\"\n}\n",
+    "stderr": ""
+  },
+  "herd-follow-up-json": {
+    "code": 0,
+    "stdout": "{\n  \"job\": \"job-a\",\n  \"status\": \"active\"\n}\n",
+    "stderr": ""
+  },
+  "herd-stop-json": {
+    "code": 0,
+    "stdout": "{\n  \"stopped\": true\n}\n",
+    "stderr": ""
+  },
+  "herd-milestone-json": {
+    "code": 0,
+    "stdout": "{\n  \"gate\": \"g9\",\n  \"message\": 13\n}\n",
+    "stderr": ""
+  },
+  "herd-brief": {
+    "code": 0,
+    "stdout": "# Job: job-a\n\nGoal: Pin the command contract\n\n## Method\nRead the code, then run the checks.\n\n",
+    "stderr": ""
+  },
+  "herd-brief-json": {
+    "code": 0,
+    "stdout": "{\n  \"ok\": true,\n  \"brief\": \"# Job: job-a\\n\\nGoal: Pin the command contract\\n\\n## Method\\nRead the code, then run the checks.\\n\"\n}\n",
+    "stderr": ""
+  },
+  "herd-brief-out": {
+    "code": 0,
+    "stdout": "{\n  \"ok\": true,\n  \"path\": \"<home>/brief.md\"\n}\n",
+    "stderr": ""
+  }
+}
