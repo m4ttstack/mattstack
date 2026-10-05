@@ -20,6 +20,7 @@ import type { BoardMR } from '../../data.ts';
 import { inferRoster } from '../../data.ts';
 import type { GateRow } from '../../gates/store.ts';
 import { sectionStatus } from '../../sections.ts';
+import { ALL_TURN } from '../../turn.ts';
 import {
   menuActsOnSelection,
   postableOf,
@@ -967,8 +968,9 @@ export function Board() {
       overlay(data.mrs, optimisticLifecycle.state),
       merging.merging
     );
+    const turnCfg = data.turn ?? ALL_TURN;
     const need = (mr: BoardMRWithReview) =>
-      self === null ? null : needOf(mr, self, now, draftResolved);
+      self === null ? null : needOf(mr, self, now, draftResolved, turnCfg);
     const needsMe = (rows: BoardMRWithReview[]) =>
       rows.filter(mr => need(mr) !== null);
     const tabFiltered = isSeatTab

@@ -333,6 +333,7 @@ import {
   writeRefreshedIdentity,
   writeStandDown,
 } from './triage/memory-store.ts';
+import { readTurnConfig } from './turn-setting.ts';
 import { manualDoctorFields, resolveDispatchIdentity } from './triage/run.ts';
 import { effectiveSeat, isOwnMr, resolveStandDownTarget } from './view.ts';
 
@@ -1541,6 +1542,7 @@ const httpServer = Bun.serve({
             scopeUncoveredSections: snapshot.scopeUncoveredSections,
             scopeKnownSections: snapshot.scopeKnownSections,
             staleAfterDays: config.staleAfterDays,
+            turn: readTurnConfig(),
             tabs: config.tabs,
           }),
           { headers: { 'content-type': 'application/json' } }
