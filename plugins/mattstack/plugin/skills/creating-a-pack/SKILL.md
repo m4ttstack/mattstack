@@ -28,8 +28,10 @@ digraph create_pack {
     "Team and its org known?" [shape=diamond];
     "Ask the author which team" [shape=box];
     "The team's folder exists?" [shape=diamond];
-    "rt team create <Name> --remote <url>" [shape=plaintext];
-    "rt team add <team>" [shape=plaintext];
+    "rt team create <Name> --remote <url> --first-team <team>" [shape=plaintext];
+    "Author is an org admin?" [shape=diamond];
+    "rt team add <team> --owner <username>" [shape=plaintext];
+    "Ask an org admin to add the team" [shape=box];
     "rt skills init --json --team <team> --repo <repo-path>" [shape=plaintext];
     "Envelope?" [shape=diamond];
     "Relay error.message verbatim" [shape=box];
@@ -83,10 +85,13 @@ digraph create_pack {
     "Team and its org known?" -> "Ask the author which team" [label="team unclear, or no team folder yet"];
     "Ask the author which team" -> "The team's folder exists?";
     "The team's folder exists?" -> "rt skills init --json --team <team> --repo <repo-path>" [label="yes"];
-    "The team's folder exists?" -> "rt team add <team>" [label="no: the org is on this Mac"];
-    "The team's folder exists?" -> "rt team create <Name> --remote <url>" [label="no org on this Mac: their remote, never an invented one"];
-    "rt team add <team>" -> "rt skills init --json --team <team> --repo <repo-path>";
-    "rt team create <Name> --remote <url>" -> "rt skills init --json --team <team> --repo <repo-path>";
+    "The team's folder exists?" -> "Author is an org admin?" [label="no: the org is on this Mac"];
+    "The team's folder exists?" -> "rt team create <Name> --remote <url> --first-team <team>" [label="no org on this Mac: their remote, never an invented one"];
+    "Author is an org admin?" -> "rt team add <team> --owner <username>" [label="yes"];
+    "Author is an org admin?" -> "Ask an org admin to add the team" [label="no"];
+    "Ask an org admin to add the team" -> "Handed to the author";
+    "rt team add <team> --owner <username>" -> "rt skills init --json --team <team> --repo <repo-path>";
+    "rt team create <Name> --remote <url> --first-team <team>" -> "rt skills init --json --team <team> --repo <repo-path>";
     "rt skills init --json --team <team> --repo <repo-path>" -> "Envelope?";
     "Envelope?" -> "In a herdr pane?" [label="ok: true"];
     "Envelope?" -> "Relay error.message verbatim" [label="refused: true"];
@@ -173,12 +178,26 @@ under its `mattstack/teams/`, named in lowercase letters, digits and
 hyphens (`widgets`, `gadgets`). When the team is unclear, ask which team
 this is before running anything.
 
-When the org has no folder for the team, `rt team add <team>` adds one,
-pack skeleton included, and init carries that skeleton on. When this Mac
-has no org at all, `rt team create <Name> --remote <url>` makes the org
-with its first team folder. It is a one-time setup call, not routine, and
-the remote is an empty repo the org owns. Ask the author for that URL;
-never invent one.
+When the org has no folder for the team,
+`rt team add <team> --owner <username>` adds one, pack skeleton included,
+and init carries that skeleton on. `--owner` is required: the forge
+usernames (comma separated) who may change the team's settings and pack,
+usually the author. Only an org admin can run it; when you do not know
+whether the author is one, ask.
+
+When this Mac has no org at all,
+`rt team create <Name> --remote <url> --first-team <team>` makes the org
+with the author's team as its first folder (without `--first-team` the
+first folder is named after the org). It is a one-time setup call, not
+routine, and the remote is an empty repo the org owns. Ask the author for
+that URL; never invent one.
+
+### Ask an org admin to add the team
+
+The author is not an org admin, so `rt team add` would be refused. Say the
+team needs a folder, give the command an admin runs
+(`rt team add <team> --owner <username>`, with the author as owner), and
+stop until the folder exists.
 
 ### Relay error.message verbatim
 
@@ -187,7 +206,12 @@ nothing was written. Relay `error.message` word for word (it ends with the
 command to run, when there is one), then read `error.code`:
 
 - `zone-missing`: no org on this Mac, no team folder yet, or no team by the
-  name given.
+  name given. The message's command is the one to run (`rt team add` only
+  as an org admin).
+- `other-org`: `--zone` named an org other than the one this Mac uses. rt
+  works with one org per Mac, so a pack for that org is made from a Mac
+  that uses it. Never re-run init without `--zone` to get past this: the
+  pack would land in this Mac's org instead.
 - `zone-ambiguous`: more than one team could hold the pack; name one with
   `--team`.
 - `pack-exists`: this team's pack has already compiled, and init never
@@ -320,7 +344,8 @@ author commits and pushes the org clone.
   current directory. Without `--team`, init takes your own team, else
   detects one (the team that declares this repo, else the one team on the
   host with no compiled pack), which can land the pack in another team's
-  folder. Add `--zone <org>` only when this Mac has more than one org.
+  folder. rt works with one org per Mac (the first clone by name when a
+  Mac has several), so `--zone <org>` only ever names that org.
 - The pack binds the repos in its team's `board.projects` (the org's list
   unless the team sets its own), on the org's forge host. Init adds this
   repo to the team's list.

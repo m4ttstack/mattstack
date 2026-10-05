@@ -23,12 +23,14 @@ of the org repo, with one folder per team under `mattstack/teams/`. If
 there is no org yet:
 
 ```bash
-rt team create Acme --remote https://gitlab.example.com/acme/mattstack-org.git   # an empty repo the org owns
+rt team create Acme --remote https://gitlab.example.com/acme/mattstack-org.git --first-team widgets   # an empty repo the org owns
 ```
 
-That makes the org and its first team folder, named after the org. Another
-team gets its folder with `rt team add widgets`, which also writes the
-team's pack skeleton.
+That makes the org with `widgets` as its first team folder (left out, the
+first folder is named after the org). An org admin gives another team its
+folder, and that team's pack skeleton, with
+`rt team add gadgets --owner dev1`, naming the forge usernames who own the
+team.
 
 ## 1. Create the pack
 
@@ -47,8 +49,8 @@ naming the fix. Then it runs:
 rt skills init --json --team widgets
 ```
 
-(`--team` is your own team when left out; add `--zone acme` when the
-machine has more than one org). It writes, in the org clone:
+(`--team` is your own team when left out). rt works with one org per
+machine, so the pack always lands in that org. It writes, in the org clone:
 
 ```
 mattstack/teams/widgets/packs/widgets/.claude-plugin/plugin.json   the pack's plugin manifest, version 0.1.0
