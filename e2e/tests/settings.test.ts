@@ -536,13 +536,19 @@ describe("rt settings (four stores, one resolver — e2e)", () => {
 
   // ── 4. staleness ───────────────────────────────────────────────────────────
 
-  test("a store file newer than the rules cache reports stale, and install clears it", async () => {
+  test("a store file newer than the rules cache reports stale only when its rules changed, and install clears it", async () => {
     const fresh = await rtJson(["intercept", "status", "--json"]);
     expect(fresh.stale.stale).toBe(false);
 
     // Explicit utimes, never a bare `touch`: same-tick mtimes flake, so the
     // store is pushed a full 2s past the CACHE's own generatedAt.
     const cacheSeconds = readInterceptRulesRow(home)!.generatedAt / 1000;
+    utimesSync(teamStore, cacheSeconds + 2, cacheSeconds + 2);
+
+    const touched = await rtJson(["intercept", "status", "--json"]);
+    expect(touched.stale.stale).toBe(false);
+
+    write(teamStore, teamStoreText().replace(`"cwdGlob": "."`, `"cwdGlob": "./**"`));
     utimesSync(teamStore, cacheSeconds + 2, cacheSeconds + 2);
 
     const stale = await rtJson(["intercept", "status", "--json"]);
