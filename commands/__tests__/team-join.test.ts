@@ -117,6 +117,21 @@ function relayFetch(): Probes["fetch"] {
 }
 
 describe("teamJoin", () => {
+  test("an older invite exits 2 with invite-outdated and writes no intent", async () => {
+    const probes = fakeProbes({
+      home: HOME,
+      fetch: async () => ({ status: 200, body: JSON.stringify({ ciphertext: await seal({ ...POINTER, v: 1 } as unknown as InvitePointer, KEY, ID_HEX) }), headers: {} }),
+    });
+    const deps = baseDeps({ probes });
+
+    const code = await runExpectingProcessExit(() => teamJoin(["--dry-run", "--json"], {}, deps));
+
+    expect(code).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error).toMatchObject({ code: "invite-outdated", message: "That invite was made by an older mattstack. Ask for a new invite." });
+    expect(probes.calls.writes[pathJoin(HOME, ".mattstack", "rt", "setup-intent.json")]).toBeUndefined();
+    expect(probes.calls.exec).toEqual([]);
+  });
+
   test("an invite code passed as an argument exits 2 with code-on-argv, before touching the relay", async () => {
     const fetchCalls: string[] = [];
     const deps = baseDeps({
