@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { execFileSync } from "child_process";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
 import { parse } from "jsonc-parser";
 import { UserActionableError, failureFor, logFailureDetail } from "../lib/errors.ts";
@@ -95,6 +95,32 @@ function main(): void {
   }
   if (git("status", "--porcelain").trim() !== "") refuse("The clone has uncommitted changes", "Commit or discard them before converting.");
   if (git("status", "--porcelain", "--ignored", "--", "mattstack", ".claude-plugin", ".sops.yaml", ".gitignore").trim() !== "") refuse("The clone has ignored files in its managed folders", "Move them aside before converting so a failed conversion can restore the clean start.");
+  const targets = [...plan.moves.map(([, to]) => to), ...Object.keys(plan.writes)];
+  const newTargets = new Set([...plan.moves.map(([, to]) => to), ...Object.keys(plan.writes).filter((rel) => files[rel] === undefined)]);
+  const createdRoots = new Set<string>();
+  const existingDirectories = new Set<string>();
+  for (const rel of targets) {
+    if (newTargets.has(rel) && existsSync(join(clone, rel))) refuse("A conversion destination already exists", "Move the existing destination aside before converting so its content is preserved.");
+    const parts = rel.split("/");
+    for (let i = 1; i <= parts.length; i++) {
+      const path = join(clone, ...parts.slice(0, i));
+      if (!existsSync(path)) {
+        // Only an absent path can be removed on rollback, including ignored output.
+        createdRoots.add(path);
+        break;
+      }
+      if (i < parts.length) {
+        if (!lstatSync(path).isDirectory()) refuse("A file blocks a conversion destination", "Move it aside before converting so its content is preserved.");
+        existingDirectories.add(path);
+      }
+    }
+  }
+  const rememberDirectories = (path: string): void => {
+    if (!lstatSync(path).isDirectory()) return;
+    existingDirectories.add(path);
+    for (const entry of readdirSync(path, { withFileTypes: true })) if (entry.isDirectory()) rememberDirectories(join(path, entry.name));
+  };
+  for (const [from] of plan.moves) rememberDirectories(join(clone, from));
   const start = git("rev-parse", "HEAD").trim();
   try {
     for (const [from, to] of plan.moves) {
@@ -110,7 +136,9 @@ function main(): void {
     git("commit", "-q", "-m", "org: convert to the org layout");
   } catch (err) {
     git("reset", "-q", "--hard", start);
-    git("clean", "-fdq", "--", "mattstack", ".claude-plugin");
+    for (const path of createdRoots) rmSync(path, { recursive: true, force: true });
+    // Git restores tracked files, but can prune their preexisting empty parents.
+    for (const path of existingDirectories) mkdirSync(path, { recursive: true });
     throw new UserActionableError("conversion-stopped", "The conversion stopped partway, and the clone is back as it was", {}, { log: err instanceof Error ? err.message : String(err) });
   }
   out.print(out.line("done", "Converted this clone in one commit", "Review the commit before publishing, then turn team sync back on"), out.callout("next", out.cmd("git show"), out.cmd("rt team publish")));
