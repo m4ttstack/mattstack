@@ -42,10 +42,10 @@ function failNoRepos(title: string): never {
   process.exit(1);
 }
 
-function failCannotAsk(): never {
+function failCannotAsk(what: "repo" | "worktree"): never {
   out.fail({
     title: "You are not in a git repo",
-    why: "rt knows more than one repo and cannot ask which one you mean without a terminal.",
+    why: `rt knows more than one ${what} and cannot ask which one you mean without a terminal.`,
     next: "Run this from inside the repo you mean",
   });
   process.exit(1);
@@ -270,7 +270,7 @@ export async function requireRepoIdentity(commandLabel?: string): Promise<RepoId
   let selectedRepo = choices[0]!;
 
   if (choices.length > 1) {
-    if (!process.stdin.isTTY) failCannotAsk();
+    if (!process.stdin.isTTY) failCannotAsk("repo");
 
     const { filterableSelect } = await import("./pick-wrappers.ts");
     const picked = await filterableSelect({
@@ -309,7 +309,7 @@ export async function pickWorktree(prompt: string): Promise<string> {
     return choices[0]!.worktrees[0]!.path;
   }
 
-  if (!process.stdin.isTTY) failCannotAsk();
+  if (!process.stdin.isTTY) failCannotAsk(choices.length > 1 ? "repo" : "worktree");
 
   let selectedRepo: KnownRepo;
 
