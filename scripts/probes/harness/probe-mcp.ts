@@ -1,0 +1,12 @@
+import { safeAppend } from "./evidence";
+import { redactDeep } from "../../../lib/mcp/redact";
+import { envSnapshot } from "./probe-cli";
+export function handleMcpMessage(state:{init?:unknown},msg:any,record:(r:unknown)=>void,env:Record<string,string|undefined>):any{
+ if(msg.id===undefined)return;
+ const reply=(result:unknown)=>({jsonrpc:"2.0",id:msg.id,result});
+ if(msg.method==="initialize"){state.init=redactDeep(msg.params);record(redactDeep({kind:"initialize",pid:process.pid,env:envSnapshot(env),init:state.init}));return reply({protocolVersion:msg.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:"harness-probe",version:"0.0.0"}});}
+ if(msg.method==="tools/list")return reply({tools:["probe_whoami","probe_rt_ping"].map(name=>({name,description:name==="probe_whoami"?"Record the actual native caller identity":"Read-only rt daemon ping",inputSchema:{type:"object",properties:{marker:{type:"string"}},required:["marker"],additionalProperties:false}}))});
+ if(msg.method==="tools/call" && ["probe_whoami","probe_rt_ping"].includes(msg.params?.name)){const row=redactDeep({kind:"call",tool:msg.params.name,marker:msg.params.arguments?.marker,pid:process.pid,env:envSnapshot(env),meta:msg.params._meta??null,init:state.init});record(row);return reply({content:[{type:"text",text:JSON.stringify(row)}]});}
+ return {jsonrpc:"2.0",id:msg.id,error:{code:-32601,message:"unknown method/tool"}};
+}
+if(import.meta.main){const [file,socket]=process.argv.slice(2);if(!file || !socket)throw new Error("missing recorder arguments");const record=(r:unknown)=>safeAppend(file,r);const state={};let buffer="";const decoder=new TextDecoder();for await(const chunk of Bun.stdin.stream()){buffer+=decoder.decode(chunk,{stream:true});let nl:number;while((nl=buffer.indexOf("\n"))>=0){const line=buffer.slice(0,nl).trim();buffer=buffer.slice(nl+1);if(!line)continue;const msg=JSON.parse(line);let reply=handleMcpMessage(state,msg,record,process.env);if(reply?.result && msg.method==="tools/call" && msg.params?.name==="probe_rt_ping"){let ping:any;try{ping=await (await fetch("http://localhost/ping",{unix:socket,method:"POST",body:"{}",signal:AbortSignal.timeout(5000)})).json();}catch(e){ping={ok:false,error:String(e)};}record({kind:"rt-ping",marker:msg.params.arguments?.marker,pid:process.pid,ping});reply.result={content:[{type:"text",text:JSON.stringify(redactDeep(ping))}]};}if(reply)process.stdout.write(JSON.stringify(reply)+"\n");}}}
