@@ -427,7 +427,7 @@ describe("rt endpoint / intercept (just-works e2e)", () => {
   test("endpoint lookup renders the live state and main checkout warning on stdout", async () => {
     const res = await finished(runRt(["endpoint", "lookup", "web"], repoMain));
     expect(res.exitCode).toBe(0);
-    expect(res.stdout).toBe(`[running] http://localhost:${poolBase}  running\nworktree: repo-main\n[warning] This is the main checkout, not a worktree with a claim\n`);
+    expect(res.stdout).toBe(`[running] http://localhost:${poolBase}  running\nworktree: repo-main\n[warning] This is the main checkout\n`);
     expect(res.stderr).toBe("");
   });
 

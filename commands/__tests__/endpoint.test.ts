@@ -107,7 +107,7 @@ describe("buildLookupOutput", () => {
     expect(plain).toContain("[running] http://localhost:4001  running");
     expect(plain).toContain("worktree: seamus");
     expect(plain).not.toContain("is held outside this worktree");
-    expect(plain).not.toContain("[warning] This is the main checkout, not a worktree with a claim");
+    expect(plain).not.toContain("[warning] This is the main checkout");
   });
 
   test("a foreign listener is called out, loudly", () => {
@@ -147,7 +147,7 @@ describe("buildLookupOutput", () => {
     const data = { ...base, worktree: { path: "/repo/main", name: null }, listener: null };
     const { payload, blocks } = buildLookupOutput(data, mainCtx);
     expect(payload).toMatchObject({ worktree: { path: "/repo/main", name: null, main: true } });
-    expect(renderPlain(blocks)).toContain("[warning] This is the main checkout, not a worktree with a claim");
+    expect(renderPlain(blocks)).toContain("[warning] This is the main checkout\n");
   });
 
   test("an old daemon response without worktree/listener still renders, worktree from the CLI's own resolution", () => {

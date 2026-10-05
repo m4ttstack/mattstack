@@ -138,7 +138,7 @@ export function buildLookupOutput(
   } else if (listener !== null && listener.ownsClaim === null) {
     blocks.push(out.line("warn", `rt could not tell which worktree owns port ${data.port}`, `pid ${listener.pid}, ${listener.command}`));
   }
-  if (main) blocks.push(out.line("warn", "This is the main checkout, not a worktree with a claim"));
+  if (main) blocks.push(out.line("warn", "This is the main checkout"));
   return { payload, blocks };
 }
 
