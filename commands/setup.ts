@@ -44,7 +44,7 @@ import { clearIntent, readIntent, orgRefFromIntent, writeIntent } from "../lib/s
 import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
 import type { forgeLogin } from "../lib/team/forge.ts";
 import { cloneSlugs, cloneOrigin, recordForgeIdentity } from "../lib/setup/steps/org.ts";
-import { forgeFromRemote } from "../lib/setup/team-settings.ts";
+import { forgeFromRemote, hostFromRemote } from "../lib/setup/team-settings.ts";
 import { readTeamLocal } from "../lib/team/team-local.ts";
 import { roleFor } from "../lib/team/roles.ts";
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
@@ -1344,10 +1344,12 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
   if (id === "github" || id === "gitlab") {
     const team = snapshotFor(deps);
     const slug = team.slug || cloneSlugs(deps.probes)[0] || "";
-    const remote = team.remote ?? (slug ? cloneOrigin(deps.probes, slug) : null);
+    const origin = slug ? cloneOrigin(deps.probes, slug) : null;
+    const remote = team.remote ?? origin;
     const forge = team.integrations.forge ?? (remote ? forgeFromRemote(remote) : null);
     const host = id === "github" ? "github.com" : (ctx.host ?? "gitlab.com");
-    if (slug && forge?.provider === id && forge.host === host) {
+    const explicitlyMatched = team.integrations.forge === undefined && id === "gitlab" && hostFlag !== undefined && origin !== null && hostFromRemote(origin) === host;
+    if (slug && ((forge?.provider === id && forge.host === host) || explicitlyMatched)) {
       const identity = await recordForgeIdentity(deps.probes, slug, { provider: id, host }, value, deps.forgeLogin);
       if (identity.admin?.claimed && !identity.admin.published) {
         const pending = readTeamLocal(deps.probes, slug).creatorPending !== undefined;

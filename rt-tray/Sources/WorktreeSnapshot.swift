@@ -32,19 +32,20 @@ enum WorktreeSnapshot {
         let voldemort = panel.rows.first { $0.tree == "voldemort" }!
         for scheme in [ColorScheme.light, .dark] {
             let tag = scheme == .light ? "light" : "dark"
-            render(WorktreePanelView(controller: WorktreePanelController(fixture: panel), isSnapshot: true),
-                   width: 760, scheme, out.appendingPathComponent("panel-\(tag).png"))
-            render(WorktreePanelView(controller: WorktreePanelController(fixture: catalog), keptOpen: true, isSnapshot: true),
-                   width: 760, scheme, out.appendingPathComponent("state-catalog-\(tag).png"))
-            render(WorktreeReviewSheet(row: look, controller: WorktreePanelController(fixture: catalog),
+            let appearance: NSAppearance.Name = scheme == .dark ? .darkAqua : .aqua
+            SnapshotRenderer.renderImage(content(WorktreePanelView(controller: WorktreePanelController(fixture: panel), isSnapshot: true),
+                   width: 760, scheme), appearance: appearance, to: out.appendingPathComponent("panel-\(tag).png"))
+            SnapshotRenderer.renderImage(content(WorktreePanelView(controller: WorktreePanelController(fixture: catalog), keptOpen: true, isSnapshot: true),
+                   width: 760, scheme), appearance: appearance, to: out.appendingPathComponent("state-catalog-\(tag).png"))
+            SnapshotRenderer.renderImage(content(WorktreeReviewSheet(row: look, controller: WorktreePanelController(fixture: catalog),
                                        initialLoad: TriageDiffLoad(files: diff, truncatedFiles: false)),
-                   width: 680, scheme, out.appendingPathComponent("review-sheet-\(tag).png"))
-            render(WorktreeReviewSheet(row: look, controller: WorktreePanelController(fixture: catalog),
+                   width: 680, scheme), appearance: appearance, to: out.appendingPathComponent("review-sheet-\(tag).png"))
+            SnapshotRenderer.renderImage(content(WorktreeReviewSheet(row: look, controller: WorktreePanelController(fixture: catalog),
                                        initialLoad: TriageDiffLoad(files: diff, truncatedFiles: false),
                                        expanded: [diff[1].path]),
-                   width: 680, scheme, out.appendingPathComponent("review-sheet-expanded-\(tag).png"))
-            render(InteractionStatesSnapshot(row: voldemort),
-                   width: 1180, scheme, out.appendingPathComponent("interaction-states-\(tag).png"))
+                   width: 680, scheme), appearance: appearance, to: out.appendingPathComponent("review-sheet-expanded-\(tag).png"))
+            SnapshotRenderer.renderImage(content(InteractionStatesSnapshot(row: voldemort),
+                   width: 1180, scheme), appearance: appearance, to: out.appendingPathComponent("interaction-states-\(tag).png"))
         }
         print("wrote 10 snapshots to \(out.path)")
         return true
@@ -59,24 +60,13 @@ enum WorktreeSnapshot {
         exit(code)
     }
 
-    /// `Color(nsColor:)` resolves against the drawing appearance, not the
-    /// SwiftUI `colorScheme`, so each scheme renders inside its own appearance.
-    @MainActor
-    private static func render<V: View>(_ view: V, width: CGFloat, _ scheme: ColorScheme, _ url: URL) {
-        let appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)!
-        appearance.performAsCurrentDrawingAppearance {
-            let content = view
-                .environment(\.triageSnapshot, true)
-                .frame(width: width)
-                .fixedSize(horizontal: false, vertical: true)
-                .background(WT.window)
-                .environment(\.colorScheme, scheme)
-            let r = ImageRenderer(content: content)
-            r.scale = 2
-            guard let cg = r.cgImage else { fatalError("render failed: \(url.lastPathComponent)") }
-            let rep = NSBitmapImageRep(cgImage: cg)
-            try! rep.representation(using: .png, properties: [:])!.write(to: url)
-        }
+    private static func content<V: View>(_ view: V, width: CGFloat, _ scheme: ColorScheme) -> some View {
+        view
+            .environment(\.triageSnapshot, true)
+            .frame(width: width)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(WT.window)
+            .environment(\.colorScheme, scheme)
     }
     #endif
 }

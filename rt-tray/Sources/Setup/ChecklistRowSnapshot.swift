@@ -20,7 +20,7 @@ enum ChecklistRowSnapshot {
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         _ = NSApplication.shared
         for scheme in ["light", "dark"] {
-            render(Rows(), appearance: scheme == "dark" ? .darkAqua : .aqua, to: out.appendingPathComponent("checklist-rows-\(scheme).png"))
+            SnapshotRenderer.render(Rows(), appearance: scheme == "dark" ? .darkAqua : .aqua, to: out.appendingPathComponent("checklist-rows-\(scheme).png"))
         }
         print("wrote 2 snapshots to \(out.path)")
         return true
@@ -83,22 +83,5 @@ enum ChecklistRowSnapshot {
         }
     }
 
-    /// AppKit-backed controls (buttons, the progress spinner) only draw through
-    /// a real view hierarchy, so this renders a hosting view in an offscreen window.
-    @MainActor
-    private static func render<V: View>(_ view: V, appearance: NSAppearance.Name, to url: URL) {
-        let host = NSHostingView(rootView: view)
-        host.appearance = NSAppearance(named: appearance)
-        let size = host.fittingSize
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.appearance = NSAppearance(named: appearance)
-        window.contentView = host
-        host.frame = NSRect(origin: .zero, size: size)
-        host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { fatalError("no bitmap for \(url.lastPathComponent)") }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        try! rep.representation(using: .png, properties: [:])!.write(to: url)
-    }
     #endif
 }
