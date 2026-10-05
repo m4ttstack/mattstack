@@ -2530,10 +2530,15 @@ test('catalog: an app the bundle ships no Helpers binary for gets no row, and th
   expect(catalogReport()).toBeNull();
 });
 
-test('catalog: an existing catalog row carrying a portless issue is re-aliased and the issue clears; a clean row is left alone', async () => {
+test('catalog: a stale portless issue clears when portless already routes the row, stays when it does not, and portless is never called', async () => {
   const helpers = mkdtempSync(join(tmpdir(), 'stale-portless-helpers-'));
   writeFileSync(join(helpers, 'board'), '');
   writeFileSync(join(helpers, 'chat'), '');
+  const issue = {
+    source: 'portless' as const,
+    message: 'Error: Executable not found in $PATH: "portless"',
+    at: AT,
+  };
   for (const [name, port] of [
     ['board', 11006],
     ['chat', 11002],
@@ -2545,19 +2550,13 @@ test('catalog: an existing catalog row carrying a portless issue is re-aliased a
       kind: 'service',
       label: `com.mattstack.deck.${name}`,
       createdAt: AT,
-      ...(name === 'board'
-        ? {
-            issues: [
-              {
-                source: 'portless' as const,
-                message: 'Error: Executable not found in $PATH: "portless"',
-                at: AT,
-              },
-            ],
-          }
-        : {}),
+      issues: [issue],
     });
   }
+  writeFileSync(
+    process.env.LOCAL_APPS_ROUTES_PATH!,
+    JSON.stringify([{ hostname: 'board.localhost', port: 11006, pid: 0 }])
+  );
   setServeShapeDeps({
     devMode: () => false,
     helpersDir: helpers,
@@ -2570,8 +2569,8 @@ test('catalog: an existing catalog row carrying a portless issue is re-aliased a
   await reresolveManagedApps(drivers);
 
   expect(getRecord('board')!.issues).toBeUndefined();
-  expect(drivers.edge.aliases.get('board')).toBe(11006);
-  expect(drivers.edge.aliases.has('chat')).toBe(false);
+  expect(getRecord('chat')!.issues).toEqual([issue]);
+  expect(drivers.edge.aliases.size).toBe(0);
 });
 
 test("catalog: the report leaves deck's own record and its launchd issue alone", async () => {

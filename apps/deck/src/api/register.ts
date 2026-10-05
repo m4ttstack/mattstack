@@ -345,6 +345,13 @@ export async function registerApp(
     hand-registered alias, or the remnant of a removed app) with no registry
     record behind it. Publish and delete both accept these names: a row the
     board renders must be actionable, record or not. */
+function routeServes(app: string, port: number): boolean {
+  const tlds = getPlatformSettings().tlds;
+  return readRoutes().some(
+    r => r.port === port && bareName(r.hostname, tlds) === app
+  );
+}
+
 export function knownRouteApp(app: string): boolean {
   const tlds = getPlatformSettings().tlds;
   return readRoutes().some(r => bareName(r.hostname, tlds) === app);
@@ -595,12 +602,15 @@ async function ensureCatalogRows(
       out.created.push(name);
       continue;
     }
-    // A portless issue clears only on a later successful sync, and nothing
-    // else re-syncs an existing row, so a stale badge would never go away.
-    if (existing.issues?.some(i => i.source === 'portless')) {
-      await tryDriver(name, 'portless', () =>
-        drivers.edge.alias(name, existing.port)
-      );
+    // Nothing re-syncs an existing row, so a portless issue from a failed first
+    // alias would stay forever. Read the routes rather than spawn portless here:
+    // a boot-time portless call on a Mac whose proxy is not set up yet stalls
+    // the sweep and sends the tray's watchdog into a restart loop.
+    if (
+      existing.issues?.some(i => i.source === 'portless') &&
+      routeServes(name, existing.port)
+    ) {
+      clearIssues(name, 'portless');
     }
     if (!adopt || existing.managedBy !== 'user') continue;
     if (existing.kind !== 'service') {
