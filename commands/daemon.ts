@@ -57,7 +57,7 @@ import { loadRepoIndex } from "../lib/repo-index.ts";
 import { createProjectMRs } from "../lib/daemon/project-mrs-store.ts";
 import { getStateDb } from "../lib/state/index.ts";
 import { timeAgo } from "../lib/tui/utils/label.ts";
-import { trayAppPath, installedTrayAppPath, devTrayAppPath, TRAY_APP_NAME, TRAY_APP_BUNDLE, tmpDir } from "../lib/rt-paths.ts";
+import { trayAppPath, installedTrayAppPath, devTrayAppPath, TRAY_APP_NAME, TRAY_APP_BUNDLE, tmpDir, rtDir } from "../lib/rt-paths.ts";
 
 /** Where to point an "open it" hint: the bundle's real install location if we can find one, else the conventional ~/Applications destination. */
 function trayAppHintPath(): string {
@@ -1051,7 +1051,7 @@ export function materializeLogdyConfig(): string {
     writeFileSync(configPath, LOGDY_PINO_COLUMNS_JSON);
   }
 
-  const legacyPath = join(RT_DIR, "logdy-pino-columns.json");
+  const legacyPath = join(rtDir(), "logdy-pino-columns.json");
   try {
     if (existsSync(legacyPath)) unlinkSync(legacyPath);
   } catch { /* best-effort */ }

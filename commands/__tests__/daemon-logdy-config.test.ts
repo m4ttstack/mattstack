@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "os";
 import { join } from "path";
 import { materializeLogdyConfig } from "../daemon.ts";
+import { restoreHome } from "../../lib/__tests__/home-env.ts";
 import { tmpDir } from "../../lib/rt-paths.ts";
 
 import { RT_DIR } from "../../lib/daemon-config.ts";
@@ -48,6 +49,23 @@ describe("materializeLogdyConfig", () => {
     materializeLogdyConfig();
 
     expect(existsSync(legacyPath())).toBe(false);
+  });
+
+  test("removes the legacy config from the current HOME after the module was loaded", () => {
+    const savedHome = process.env.HOME;
+    const changedHome = mkdtempSync(join(tmpdir(), "rt-logdy-home-"));
+    try {
+      process.env.HOME = changedHome;
+      const legacy = join(changedHome, ".mattstack", "rt", "logdy-pino-columns.json");
+      mkdirSync(join(changedHome, ".mattstack", "rt"), { recursive: true });
+      writeFileSync(legacy, "{}");
+
+      expect(materializeLogdyConfig()).toBe(join(changedHome, ".mattstack", "rt", "tmp", "logdy-pino-columns.json"));
+      expect(existsSync(legacy)).toBe(false);
+    } finally {
+      restoreHome(savedHome);
+      rmSync(changedHome, { recursive: true, force: true });
+    }
   });
 
   test("is a no-op removal when no legacy file exists", () => {

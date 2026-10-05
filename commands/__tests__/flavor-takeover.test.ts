@@ -112,11 +112,11 @@ function setUpFakes(loaded: string[]): void {
 }
 
 /** A tray answering /health as `flavor`; a retire unloads its daemon label and closes the socket shortly after. */
-function serveTray(flavor: "dev" | "prod" | null): void {
-  try { rmSync(TRAY_SOCK_PATH); } catch { /* absent */ }
+function serveTray(flavor: "dev" | "prod" | null, socketPath = TRAY_SOCK_PATH): void {
+  try { rmSync(socketPath); } catch { /* absent */ }
   const label = flavor === "dev" ? "com.mattstack.daemon.dev" : "com.mattstack.daemon";
   server = Bun.serve({
-    unix: TRAY_SOCK_PATH,
+    unix: socketPath,
     fetch(req) {
       const url = new URL(req.url);
       if (req.method === "POST" && url.pathname === "/flavor/retire") {
@@ -241,6 +241,31 @@ describe("rt flavor takeover", () => {
     expect(renderPlain(r.printed)).toContain(`  ${WRAPPER_PATH} runs the source at ${src}\n`);
     expect(r.out).toEqual([]);
     expect(getKvValue<{ sourcePath?: string }>("dev-mode", "config", {}).sourcePath).toBe(src);
+  }, 15_000);
+
+  test("probes and retires the tray on RT_APP_SOCKET", async () => {
+    setUpFakes(["com.mattstack.daemon"]);
+    const savedSocket = process.env.RT_APP_SOCKET;
+    const socketPath = join(process.env.RT_TEST_SOCKET_DIR!, "takeover.sock");
+    try {
+      process.env.RT_APP_SOCKET = socketPath;
+      serveTray("prod", socketPath);
+      const src = devSource();
+
+      const r = await run(["dev", "--json"], { resolveSourcePath: () => src });
+
+      expect(JSON.parse(r.out.join("\n")).retired).toBe(true);
+      expect(steps()).toEqual([
+        "retire",
+        `osascript -e tell application "${TRAY_APP_NAME}" to quit`,
+        `pkill -x ${TRAY_APP_NAME}`,
+      ]);
+    } finally {
+      if (savedSocket === undefined) delete process.env.RT_APP_SOCKET;
+      else process.env.RT_APP_SOCKET = savedSocket;
+      server?.stop(true);
+      rmSync(socketPath, { force: true });
+    }
   }, 15_000);
 
   test("prod over a running dev app: quits by the dev names and links the bundled rt", async () => {

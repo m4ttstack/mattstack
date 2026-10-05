@@ -44,3 +44,6 @@ scripts/parity/*.js
 /*.md
 # Imported plugins keep their own style
 /plugins
+
+# Preserved local harness evidence; not source files
+/.harness-spike/

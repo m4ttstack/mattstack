@@ -11,6 +11,7 @@ import { tryLockTree } from "../../../worktree/locks.ts";
 import { markHandoffDelivered } from "../../../worktree/patch.ts";
 import { legacyWorktreePoolRoots, worktreePoolRoot } from "../../../rt-paths.ts";
 import { branchExistsLocalAsync } from "../../../worktree/git-async.ts";
+import { restoreHome } from "../../../__tests__/home-env.ts";
 import { scrubGitEnv } from "../../../../packages/git-core/src/exec.ts";
 
 /**
@@ -43,8 +44,11 @@ beforeEach(() => {
 });
 afterEach(() => {
   const fixtureHome = process.env.HOME;
-  closeStateDb();
-  process.env.HOME = priorHome;
+  try {
+    closeStateDb();
+  } finally {
+    restoreHome(priorHome);
+  }
   if (fixtureHome && fixtureHome !== priorHome) rmSync(fixtureHome, { recursive: true, force: true });
 });
 

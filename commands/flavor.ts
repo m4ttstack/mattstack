@@ -150,12 +150,12 @@ export async function flavorTakeover(args: string[], _ctx: CommandContext = {}, 
     return;
   }
 
-  const { TRAY_SOCK_PATH } = await import("../lib/daemon-config.ts");
-  const { trayRequest } = await import("../lib/daemon-client.ts");
+  const { trayRequest, traySocketPath } = await import("../lib/daemon-client.ts");
+  const socketPath = traySocketPath();
   const otherDaemon = daemonLabelFor(other);
 
   let retired: boolean | null = null;
-  const holder = await trayHolder(TRAY_SOCK_PATH);
+  const holder = await trayHolder(socketPath);
   if (holder?.flavor === other) {
     const reply = await trayRequest<{ ok?: boolean; error?: string }>("/flavor/retire", {
       method: "POST",
@@ -173,7 +173,7 @@ export async function flavorTakeover(args: string[], _ctx: CommandContext = {}, 
   // quit that always lands.
   spawnSync("pkill", ["-x", appName(other)], { stdio: "pipe", env: process.env });
   if (holder?.flavor === other) {
-    const gone = await waitUntilGone(TRAY_SOCK_PATH, otherDaemon);
+    const gone = await waitUntilGone(socketPath, otherDaemon);
     lines.push(gone ? `${appName(other)} quit` : `${appName(other)} did not fully quit in time`);
   }
 

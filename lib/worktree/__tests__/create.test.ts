@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { execSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -11,6 +11,16 @@ import { branchExistsLocalAsync, listWorktreesAsync } from "../git-async.ts";
 import { createTree, scrapTree, type CreateDeps } from "../create.ts";
 import { loadDopplerConfig } from "../../doppler-config.ts";
 import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
+import { restoreHome } from "../../__tests__/home-env.ts";
+
+let savedHome: string | undefined;
+beforeEach(() => {
+  savedHome = process.env.HOME;
+});
+afterEach(() => {
+  closeStateDb();
+  restoreHome(savedHome);
+});
 
 function readMachineStore(): Record<string, unknown> {
   try {
