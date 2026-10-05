@@ -235,8 +235,9 @@ existed, and the same verify from the source checkout reported it correctly. Bef
 the row as real, read the `gh run list` output for a row whose `headBranch` is the tag. Listed:
 every verify rerun from here runs from the source checkout,
 `bun run cli.ts release verify <tag> --json`, still counted by `Verify reruns = 4?`. Not listed:
-the tag push may not have started a run yet; the reruns wait for it, and the publish-still-pending
-gate quotes this listing once they run out.
+the tag push may not have started a run yet; the reruns (also from the source checkout, about five
+minutes apart) wait for it, and the publish-still-pending gate quotes this listing once they run
+out.
 
 ### Gate: approve the update-machine legs
 
@@ -344,7 +345,9 @@ Team packs normally sync any time, on their own schedule, independent of the app
 never a standing step of a release. This question asks only whether one was held waiting on this
 release: Matt or the team recorded the hold because the pack's recompiled skills call an MCP tool
 or rt verb that only this release ships. Check the recorded hold's tool or verb against the range
-(`git log <previous-tag>..<tag>`). No such hold takes `no`, with nothing to do.
+(`git log <previous-tag>..<tag>`). No such hold takes `no`, with nothing to do. A hold whose tool
+or verb this range does not ship stays held for a later release: it also takes `no`, and the
+turn's final message says it is still held and why.
 
 ### Gate: have the team's members updated to <tag>?
 

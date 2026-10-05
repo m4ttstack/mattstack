@@ -158,8 +158,8 @@ lag origin/main), then take the first edge that matches:
 
 - `notes commit on origin/main, a fix for this release merged after it, no tag`: fact 2 matched,
   `ls-remote` printed nothing, and the earlier hold recorded "re-prepare on the new main" as its
-  resume point, in the turn's final message or in the answer to the gate that
-  recommended it, and that fix has merged. The evidence is that record, never a count of commits
+  resume point, in a message to Matt (the turn's final message, or the one a late addition
+  sends) or in the answer to the gate that recommended it, and that fix has merged. The evidence is that record, never a count of commits
   after the notes. A merged fix can change pins, the tree state or the diff gate, so preflight
   runs first and the release goes through Prepare again from there: its copy-aside keeps the
   curated notes, and Matt re-approves only the delta (`Approved before in this release?` in
@@ -174,9 +174,9 @@ lag origin/main), then take the first edge that matches:
 - `nothing started`: neither. A fast-path notes commit (`chore(release): notes for <tag>`)
   with no tag also lands here: `rt release apps` resumes its own steps.
 
-A late addition is the usual source of the "re-prepare on the new main" record. When Matt adds a fix after the notes commit ("get
-#N into this release"), it is his instruction, not a gate: record "re-prepare on the new main" as
-the resume point in the turn's final message. If the fix has merged, re-enter at
+A late addition is the usual source of that record. When Matt adds a fix after the notes commit
+("get #N into this release"), it is his instruction, not a gate: record "re-prepare on the new
+main" as the resume point in a message to Matt before going further. If the fix has merged, re-enter at
 `git fetch origin --tags` now; if not, the release is `Held: release paused, resume point named`
 until it merges. One release can take several late additions; each one re-enters the same way.
 

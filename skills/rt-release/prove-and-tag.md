@@ -236,9 +236,13 @@ Two runs may go at once, never more (the macOS cap), and never two that attach t
 the same time. Every run's preflight attaches its `--dmg` for a moment to read the version, so
 start the second run of a pair only once the first has passed preflight. Join's invite phase also
 attaches the dmg to read rt unless `--mint-rt` is given, which is why join takes the rt from the
-extracted zip. Pair create with the update leg (different dmgs), then join with solo. Between runs,
-take the `tart list` and `hdiutil info` checks again. On a rerun, run only the scenarios not yet
-green, and run a scenario alone when its failure looked like VM degradation (below).
+extracted zip. Pair create with join first, then solo with the update leg, so the kept update VM
+is the last guest up and `Check the kept update VM` reads it before anything else boots; a kept
+guest left running would count against the two-VM cap. Between pairs, take the `tart list` and
+`hdiutil info` checks again. On a rerun, run only the scenarios not yet green, and run a scenario
+alone when its failure looked like VM degradation (below). A scenario is green only on the
+rehearsal build it ran; a new rehearsal (after a re-prepare) owes all four again. The previous
+release's dmg name is whatever `gh release download` wrote; read it from `<scratch>/previous`.
 
 Green, per scenario, is the report's phases:
 
@@ -247,6 +251,8 @@ Green, per scenario, is the report's phases:
 - update leg: `screens`, `assert` and `update` pass, and `Check the kept update VM` finds what it
   expects.
 
+A scenario red only as expected noise (`Read the walkthrough failure`) is green. In a round with
+several scenarios red, take each one through `Read the walkthrough failure` and its own count.
 A `skip` is not green, with two by-design exceptions: `update` skips in every scenario but the
 update leg, and `team-upgrade` skips in every scenario but solo.
 
@@ -258,11 +264,13 @@ update leg, and `team-upgrade` skips in every scenario but solo.
 
 - `~/.mattstack/rt/setup-state.json` has `lastUpdate.version` naming the rehearsal (the compiled
   tag form, `v<X.Y.Z>-ci<run>`) and a `migrations` list holding every id in `MIGRATIONS`
-  (`lib/setup/migrations/index.ts`) at the exercised sha; a failed migration is never recorded.
+  (`git show <exercised-sha>:lib/setup/migrations/index.ts`); a failed migration is never
+  recorded, so a missing id, or no `migrations` at all, is a migration that did not complete.
 - `~/.mattstack/rt/logs/cli.<date>.log` has a line with `"command":"setup update"` timed after the
   Sparkle relaunch.
 
-Either one missing is a red update leg, read like any other failure. Then `tart stop` and
+Either one missing is a red update leg, read like any other failure: copy the file and the log
+lines out to `<scratch>` first, since the guest is deleted next. Then `tart stop` and
 `tart delete` the guest.
 
 ### Teardown note names a kept team repo?
@@ -285,8 +293,9 @@ Check the result against the expected noise first. These are not failures of the
 
 Anything else red is a failure. Tell VM degradation from a regression by where it failed and by
 history: a failure inside macOS's own UI (the System Settings Full Disk Access toggle, an AX fill
-that never reaches the app) that an earlier run passed on the same build the same day points at
-the VM. Rerun that scenario alone, with no second VM up, before any gate. A failure inside the
+that never reaches the app) at a step an earlier run of any scenario passed on the same build the
+same day points at the VM. Rerun that scenario alone, with no second VM up, before any gate; the rerun counts toward
+`Runs of the failing scenario = 2?` like any other. A failure inside the
 app, or one no earlier run on this build passed, is a regression until shown otherwise.
 
 When `deck.managed` fails, read `~/.mattstack/deck/logs/agent.log` from the guest-home tarball first:
