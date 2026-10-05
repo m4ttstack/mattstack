@@ -16,6 +16,35 @@ beforeEach(() => {
 });
 afterEach(() => cap.restore());
 
+function pendingRolePublication(argv: string[]) {
+  const remote = "https://gitlab.com/acme/org.git";
+  const pendingMain = "a".repeat(40);
+  const publishedMain = "b".repeat(40);
+  if (argv[1] === "remote" && argv[2] === "get-url") {
+    expect(argv).toEqual(["git", "remote", "get-url", "--push", "--all", "origin"]);
+    return ok(`${remote}\n`);
+  }
+  if (argv.includes("ls-remote")) {
+    expect(argv.slice(-3)).toEqual(["--", remote, "refs/heads/main"]);
+    return ok(`${publishedMain}\trefs/heads/main\n`);
+  }
+  if (argv[1] === "rev-list") {
+    expect(argv).toEqual(["git", "rev-list", "--max-count=1001", `${publishedMain}..refs/heads/main`]);
+    return ok(`${pendingMain}\n`);
+  }
+  if (argv[1] === "diff-tree") {
+    expect(argv.at(-1)).toBe(pendingMain);
+    return ok("mattstack/org/settings.org.jsonc\0");
+  }
+  return null;
+}
+
+function expectPublicationInspection(calls: string[][]) {
+  const pushIndex = calls.findIndex((argv) => argv.includes("push"));
+  expect(pushIndex).toBeGreaterThan(3);
+  expect(calls.slice(pushIndex - 4, pushIndex).map((argv) => argv.find((arg) => ["remote", "ls-remote", "rev-list", "diff-tree"].includes(arg)))).toEqual(["remote", "ls-remote", "rev-list", "diff-tree"]);
+}
+
 function neverCalled<T extends unknown[], R>(name: string) {
   return async (..._args: T): Promise<R> => {
     throw new Error(`unexpected call: ${name}`);
@@ -377,7 +406,7 @@ describe("integrationConnect: forge token scopes", () => {
         "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}",
         [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ forgeUsername: "dev1", creatorPending: { team: "widgets" } }),
       },
-      exec: (argv) => ({ code: argv[1] === "diff" ? 1 : argv.includes("push") && fail ? 128 : 0, stdout: "", stderr: argv.includes("push") && fail ? "denied" : "" }),
+      exec: (argv) => pendingRolePublication(argv) ?? ({ code: argv[1] === "diff" ? 1 : argv.includes("push") && fail ? 128 : 0, stdout: "", stderr: argv.includes("push") && fail ? "denied" : "" }),
     });
     const deps = baseDeps({
       probes,
@@ -398,6 +427,7 @@ describe("integrationConnect: forge token scopes", () => {
     await integrationConnect("gitlab", ["--json"], deps);
     expect(JSON.parse(deps.lines[1]!).status).toBe("ready");
     expect(probes.calls.exec.filter((argv) => argv.includes("push"))).toHaveLength(1);
+    expectPublicationInspection(probes.calls.exec);
   });
 
   for (const verb of ["add", "commit"])
@@ -412,7 +442,7 @@ describe("integrationConnect: forge token scopes", () => {
           "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}",
           [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ creatorPending: { team: "widgets" } }),
         },
-        exec: (argv) => ({ code: argv[1] === "diff" ? 1 : argv[1] === verb && fail ? 128 : 0, stdout: "", stderr: "denied" }),
+        exec: (argv) => pendingRolePublication(argv) ?? ({ code: argv[1] === "diff" ? 1 : argv[1] === verb && fail ? 128 : 0, stdout: "", stderr: "denied" }),
       });
       const deps = baseDeps({
         probes,
@@ -438,6 +468,7 @@ describe("integrationConnect: forge token scopes", () => {
       expect(readTeamLocal(probes, "acme").creatorPending).toBeUndefined();
       expect(probes.calls.exec.some((argv) => argv.includes("push"))).toBe(true);
       expect(lookups).toBe(1);
+      expectPublicationInspection(probes.calls.exec);
     });
 
   const CREATE_INTENT = JSON.stringify({ v: 1, at: "2026-09-24T00:00:00.000Z", mode: "create", team: { slug: "acme", name: "Acme", remote: "https://gitlab.com/acme/mattstack.git", others: false } });
