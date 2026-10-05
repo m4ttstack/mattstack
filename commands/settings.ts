@@ -102,7 +102,10 @@ export async function sendTestPushNotification(): Promise<void> {
 
 // ─── Dev app source checkout and the ~/.local/bin/rt it runs ─────────────────
 
-export const DEV_MODE_PRELOAD = join(rtDir(), "dev-restore-cwd.ts");
+// Resolve with the wrapper at call time: a HOME change must move both artifacts.
+function devModePreloadPath(): string {
+  return join(rtDir(), "dev-restore-cwd.ts");
+}
 
 // kv row (ns='dev-mode', k='config') — see lib/state/db.ts's note on the kv
 // table before touching this shape: rt-tray/Sources-daemon-shim/main.swift
@@ -223,7 +226,7 @@ export function enableDevMode(sourcePath: string): void {
 
   // The absolute bun path, not bare `bun`: mattstack.app spawns rt under
   // launchd, whose PATH is only /usr/bin:/bin:/usr/sbin:/sbin.
-  writeFileSync(DEV_MODE_PRELOAD, renderDevModePreload());
+  writeFileSync(devModePreloadPath(), renderDevModePreload());
   writeDevModeWrapperFile(renderDevModeWrapper(sourcePath, bunPath));
 }
 
@@ -322,7 +325,7 @@ export function renderDevModeWrapper(sourcePath: string, bunPath: string): strin
     `export RT_LAUNCH_CWD="$PWD"`,
     `export MATTSTACK_FLAVOR=dev`,
     `cd "${sourcePath}" || { echo "rt: dev-mode source checkout missing: ${sourcePath}" >&2; exit 1; }`,
-    `exec "${bunPath}" run --preload="${DEV_MODE_PRELOAD}" "${sourcePath}/cli.ts" "$@"`,
+    `exec "${bunPath}" run --preload="${devModePreloadPath()}" "${sourcePath}/cli.ts" "$@"`,
   ].join("\n") + "\n";
 }
 
@@ -353,8 +356,9 @@ export function renderDevModePreload(): string {
  */
 export function installProdRt(prodBinary: string): void {
   installRtBinary(prodBinary);
-  if (existsSync(DEV_MODE_PRELOAD)) {
-    rmSync(DEV_MODE_PRELOAD);
+  const preload = devModePreloadPath();
+  if (existsSync(preload)) {
+    rmSync(preload);
   }
 }
 

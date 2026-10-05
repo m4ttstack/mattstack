@@ -7,7 +7,7 @@
  * asserted against ground truth rather than mocks.
  */
 
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test as bunTest, expect, beforeEach, afterEach } from "bun:test";
 import { execSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -171,12 +171,55 @@ function seedClaimed(repo: string, repoName: string, name: string, branch: strin
 // itself be a syntactically valid serialized identity, not a plain name.
 const repoName = "remote:acme";
 
-beforeEach(() => {
+// Bun times out a test without cancelling its async body. Keep its fixture
+// alive until that body and its background ready work have actually settled.
+let fixture: {
+  incomingHome: string | undefined;
+  bodySettled: Promise<void>;
+  cleanup: Promise<void> | null;
+} | null = null;
+
+function fixtureBody<T extends unknown[]>(body: (...args: T) => unknown) {
+  return (...args: T): Promise<unknown> => {
+    const running = Promise.resolve().then(() => body(...args));
+    fixture!.bodySettled = running.then(() => {}, () => {});
+    // Bun still receives the rejecting promise; the observer only owns cleanup.
+    return running;
+  };
+}
+
+function test(name: string, body: () => unknown, timeout?: number): void {
+  bunTest(name, fixtureBody(body), timeout);
+}
+
+beforeEach(async () => {
+  // afterEach can itself time out. Its same cleanup must finish before the
+  // next fixture changes HOME or opens another state database.
+  await fixture?.cleanup;
+  fixture = { incomingHome: process.env.HOME, bodySettled: Promise.resolve(), cleanup: null };
   process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rtwh-home-")));
   closeStateDb();
   // killProcesses off: the process killer shells out to ps/lsof and has
   // nothing to find in a fixture.
   writeMachineStore({ ...readMachineStore(), "rt.worktreeApp": { enabled: true, killProcesses: false } });
+});
+
+afterEach(() => {
+  const owned = fixture;
+  if (!owned) return;
+  return owned.cleanup ??= (async () => {
+    try {
+      await owned.bodySettled;
+      // These cases retain rows while ready work is pending, even when a
+      // body assertion fails before its explicit ready-task await.
+      const ready = loadRegistry(repoName).map((tree) => readyTaskFor(tree.path));
+      await Promise.all(ready);
+    } finally {
+      closeStateDb();
+      if (owned.incomingHome === undefined) delete process.env.HOME;
+      else process.env.HOME = owned.incomingHome;
+    }
+  })();
 });
 
 describe("worktree:provision", () => {
@@ -849,14 +892,14 @@ describe("worktree:dispose", () => {
 });
 
 describe("worktree:restore", () => {
-  test.each(["..", ".", "a/b", "../evil", "a\\b", "..\\evil"])(
+  bunTest.each(["..", ".", "a/b", "../evil", "a\\b", "..\\evil"])(
     "rejects treeName %j before locking or calling restoreTree",
-    async (bad) => {
+    fixtureBody(async (bad: string) => {
       const repo = makeRepo();
       const { h } = makeHandlers({ [repoName]: repo });
       const res: any = await h["worktree:restore"]!({ repoName, tree: bad });
       expect(res).toMatchObject({ ok: false, error: "no-target" });
-    },
+    }),
     20_000,
   );
 

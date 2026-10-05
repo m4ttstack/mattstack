@@ -11,42 +11,27 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
+import { restoreHome } from "../../lib/__tests__/home-env.ts";
 import { rtDir } from "../../lib/rt-paths.ts";
 import { closeStateDb, getStateDb, hasKvValue, setKvValue } from "../../lib/state/index.ts";
 import { devModeConfigPath, enableDevMode, readDevModeConfig } from "../settings.ts";
 
-// commands/settings.ts's DEV_MODE_WRAPPER/DEV_MODE_PRELOAD are captured ONCE
-// at module-load time (not call-time like rtDir()), so they stay pinned to
-// whatever HOME was active when this test file's `import "../settings.ts"`
-// first ran — enableDevMode() always writes both, so their parent dirs must
-// exist there regardless of which HOME a given test points state.db at, and
-// the files themselves must be cleaned up after every test: any other test
-// file loaded in this same `bun test` process (no --isolate) resolves the
-// same frozen paths and would otherwise see this suite's leftovers.
-const WRAPPER_HOME = process.env.HOME!;
-const DEVMODE_WRAPPER_PATH = join(WRAPPER_HOME, ".local", "bin", "rt");
-const PRELOAD_PATH = join(WRAPPER_HOME, ".mattstack", "rt", "dev-restore-cwd.ts");
-
 describe("dev-mode config (state.db)", () => {
+  let savedHome: string | undefined;
+  let fixtureHome: string;
+
   beforeEach(() => {
-    process.env.HOME = mkdtempSync(join(tmpdir(), "rt-devmode-cfg-"));
+    savedHome = process.env.HOME;
+    fixtureHome = mkdtempSync(join(tmpdir(), "rt-devmode-cfg-"));
     closeStateDb();
-    mkdirSync(join(WRAPPER_HOME, ".local", "bin"), { recursive: true });
-    mkdirSync(join(WRAPPER_HOME, ".mattstack", "rt"), { recursive: true });
+    process.env.HOME = fixtureHome;
   });
 
-  // Other test files in this same `bun test` process (no --isolate) read
-  // process.env.HOME at call time via rtDir()/home() and reuse the state.db
-  // singleton — leaving HOME pointed at a throwaway per-test dir here would
-  // misdirect their state.db reads/writes. Restore both after every test,
-  // and remove any wrapper/preload files enableDevMode() wrote to the
-  // frozen WRAPPER_HOME location.
+  // State, wrapper and preload now share the fixture's call-time HOME.
   afterEach(() => {
-    process.env.HOME = WRAPPER_HOME;
     closeStateDb();
-    for (const p of [DEVMODE_WRAPPER_PATH, `${DEVMODE_WRAPPER_PATH}.new`, PRELOAD_PATH]) {
-      try { rmSync(p); } catch { /* absent */ }
-    }
+    restoreHome(savedHome);
+    rmSync(fixtureHome, { recursive: true, force: true });
   });
 
   test("empty reads as {}", () => {

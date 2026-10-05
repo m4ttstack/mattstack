@@ -4,17 +4,21 @@
 // line on exit. Instead the wrapper cds into the rt source repo (so bun
 // resolves rt's own tsconfig from cwd) and a preload script restores the
 // user's launch cwd before any other module loads.
-import { describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEV_MODE_PRELOAD, renderDevModePreload, renderDevModeWrapper } from "../../commands/settings.ts";
+import { enableDevMode, installProdRt, renderDevModePreload, renderDevModeWrapper } from "../../commands/settings.ts";
+
+import { closeStateDb } from "../state/index.ts";
+import { restoreHome } from "./home-env.ts";
 
 const SOURCE = "/Users/someone/checkouts/repo-tools";
 const BUN = "/Users/someone/.bun/bin/bun";
 
 describe("renderDevModeWrapper", () => {
   const wrapper = renderDevModeWrapper(SOURCE, BUN);
+  const preload = join(process.env.HOME!, ".mattstack", "rt", "dev-restore-cwd.ts");
 
   test("does not use --tsconfig-override (bun#22023 regression guard)", () => {
     expect(wrapper).not.toContain("--tsconfig-override");
@@ -36,7 +40,7 @@ describe("renderDevModeWrapper", () => {
   });
 
   test("preloads the cwd-restore script and runs cli.ts with forwarded args", () => {
-    expect(wrapper).toContain(`--preload="${DEV_MODE_PRELOAD}"`);
+    expect(wrapper).toContain(`--preload="${preload}"`);
     expect(wrapper).toContain(`"${SOURCE}/cli.ts" "$@"`);
   });
 
@@ -104,5 +108,50 @@ describe("renderDevModePreload", () => {
       stderr: "pipe",
     });
     expect(await proc.exited).toBe(0);
+  });
+});
+
+describe("dev-mode paths after HOME changes", () => {
+  let home: string;
+  let savedHome: string | undefined;
+
+  beforeEach(() => {
+    savedHome = process.env.HOME;
+    home = mkdtempSync(join(tmpdir(), "rt-devmode-home-"));
+    closeStateDb();
+    process.env.HOME = home;
+  });
+
+  afterEach(() => {
+    closeStateDb();
+    restoreHome(savedHome);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test("the wrapper loads the preload from the current HOME", () => {
+    const preload = join(home, ".mattstack", "rt", "dev-restore-cwd.ts");
+    expect(renderDevModeWrapper(SOURCE, BUN)).toContain(`--preload="${preload}"`);
+  });
+
+  test("enabling dev mode writes its preload beside the current HOME's state", () => {
+    enableDevMode(SOURCE);
+
+    const preload = join(home, ".mattstack", "rt", "dev-restore-cwd.ts");
+    expect(existsSync(preload)).toBe(true);
+    expect(readFileSync(join(home, ".local", "bin", "rt"), "utf8")).toContain(`--preload="${preload}"`);
+  });
+
+  test("installing prod removes the current HOME's dev preload", () => {
+    const runtime = join(home, ".mattstack", "rt");
+    const preload = join(runtime, "dev-restore-cwd.ts");
+    mkdirSync(runtime, { recursive: true });
+    writeFileSync(preload, "export {};\n");
+    const prodBinary = join(home, "prod-rt");
+    writeFileSync(prodBinary, Buffer.from([0xcf, 0xfa, 0xed, 0xfe]));
+
+    installProdRt(prodBinary);
+
+    expect(readlinkSync(join(home, ".local", "bin", "rt"))).toBe(prodBinary);
+    expect(existsSync(preload)).toBe(false);
   });
 });
