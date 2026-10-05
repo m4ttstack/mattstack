@@ -78,10 +78,7 @@ export function launchArgv(
     "--no-alt-screen",
     "-C",
     cwd,
-    "-s",
-    "workspace-write",
-    "-a",
-    "never",
+    ...(socketPath && threadId ? [] : ["-s", "workspace-write", "-a", "never"]),
     ...config.flatMap(c => ["-c", c]),
     ...(threadId ? ["resume", threadId] : ["Reply READY and nothing else."]),
   ];

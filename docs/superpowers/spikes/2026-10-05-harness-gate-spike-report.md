@@ -1,6 +1,6 @@
 # Harness integrations: F1 follow-up exit report
 
-**Decision: stop before F2. G5 is not proven, so revise the spec before re-planning the provisional packages.** This spike establishes several missing native contracts; it does not establish full Codex support. No production integration was implemented.
+**Current decision: re-plan before F2.** The subsequent [focused hook follow-up](2026-10-05-codex-hooks-followup.md) proves G5 with explicitly approved temporary trust, clearing the four F1 runtime gates. The original run and blocked G5 verdict below are historical; its evidence is retained unchanged. Integrate the proven loading/trust lifecycle into the spec and revised packages. This spike establishes several missing native contracts; it does not establish full Codex support. No production integration was implemented.
 
 Executed October 5, 2026, following Matt's explicit go-ahead, in the existing `harness-integrations` worktree with his regular HOME and authentication. All services were already running. No shared daemon was started, restarted, stopped or reconfigured; no global Codex settings or hook trust were changed.
 
@@ -26,7 +26,7 @@ The available earlier `rpc.py`, `ws.py`, `native-form.py`, queue and marker scri
 
 ### G1 and G2: caller binding
 
-G1 selects `attribution-05`; G2/G6 select `attribution-06`. Workers were created through `thread/start` on the existing control endpoint and attached to disposable Herdr panes using `codex --remote unix://<control-socket> resume <thread-id>`. This proves that managed launch arrangement; default CLI launches are not assumed equivalent.
+G1 selects `attribution-05`; G2/G6 select `attribution-06`. Workers were created through `thread/start` on the existing control endpoint. Disposable Herdr terminals were launched to attach to those IDs, but successful TUI attachment was not verified in F1. The [focused hook follow-up](2026-10-05-codex-hooks-followup.md) found folder-trust prompts in attribution, question and policy pane captures, plus a remote-resume flag bug. These measurements prove the native API-driven threads and their shell/MCP callers, not successful interactive CLI attachment or ordinary default CLI launches.
 
 CLI calls carried distinct native IDs despite identical inherited pane hints. Herdr environment values remain hints, not caller identity.
 
@@ -42,7 +42,7 @@ The initial blocking request and the replay had the same `threadId`, `turnId` an
 
 After `thread/resume`, status included `waitingOnUserInput`. The new connection sent the answer using the replayed request, not the stale connection's request object. `serverRequest/resolved`, the exact turn's final `Beta` agent message and `turn/completed` were observed. The synchronous question was not emitted as a separate completed item in this stream; its completion evidence is request resolution plus the correlated answer and completed turn.
 
-Other owned observers and the attached terminal remained connected. This proves recovery of the bridge connection, not recovery after all clients disappear or the server restarts.
+Other owned control-client observers remained connected. Terminal attachment was not established in F1. This proves recovery of the bridge connection, not recovery after all clients disappear or the server restarts.
 
 ### G4: async emission is not answer completion
 
@@ -77,7 +77,7 @@ G7 submitted `thread/queue/add` with `clientUserMessageId`. The consumed `userMe
 ## Native fields and configuration available to re-planning
 
 - CLI caller: exact `CODEX_THREAD_ID`; MCP caller: host `tools/call.params._meta.threadId`.
-- Native launch: `thread/start` with owned cwd, supported config, runtime workspace roots; first turn before terminal attach. Explicit remote CLI attach is the tested arrangement.
+- Native launch: `thread/start` with owned cwd, supported config, runtime workspace roots; first turn before terminal attach. Remote CLI attachment was attempted, but not established in this run; the focused hook follow-up subsequently verified it.
 - Synchronous form: `item/tool/requestUserInput`, `threadId/turnId/itemId`, connection-local request ID, `thread/resume` replay, native response, then `serverRequest/resolved` and completed turn.
 - Delivery: experimental `thread/queue/add.clientUserMessageId` → owned `item/started` user message → `item.clientId` and native item ID.
 - MCP permissions: `mcp_servers.harness_probe.tools.<tool>.approval_mode = "approve"`, limited to the two disposable probe tools; effective sandbox was inspected.
@@ -94,11 +94,11 @@ All **16 owned Herdr workspaces** from successful and failed attempts were close
 
 Normal native session history and ignored run artifacts remain for inspection. Existing user sessions and shared daemon processes were left running. The spike does not claim exhaustive discovery of native IDs from failed default-CLI startup attempts before explicit thread binding; their owned workspaces were closed.
 
-## Verification and decision
+## Original run verification and decision
 
 Probe unit tests: **24 passed, 0 failed**. TypeScript check and repository purity check passed. The full root suite (`bun run test`) exited 1: **14,356 passed, 3 skipped, 13 failed, 5 errors**, across 877 files. It ran 14,372 tests in 1,536.91 seconds. Failures were in untouched worktree reconciler (3), worktree triage (1), flavor takeover (5), logdy cleanup (1), extension installation (1), rebase (1), and rebase output (1) suites. Six failures were test timeouts; the other seven were assertions. No baseline comparison established whether these failures predate this branch. The separate final probe run includes all three newly added review regressions and passes 24/24. Full-suite output is retained locally at `.harness-spike/verification/root-tests.log`; this spike does not certify a green full repository suite. No production source or dependency changed.
 
-G1/G2/G3 passed; **G5 did not pass**. Revise the spec's **Capabilities and compatibility**, **Questions and gates**, **Setup and application adoption**, and **Verification and release criteria** to make the supported scoped policy-loading/trust mechanism and its enforcement proof explicit. M6/S4 require that evidence before managed Codex can satisfy the full workflow profile. G4's async limitation and G7's restart gaps must remain explicit in the next planning pass. F2 and later remain provisional and unexecuted.
+In this original run, G1/G2/G3 passed; **G5 did not pass**. The subsequent focused hook follow-up supersedes that G5 result. Revise the spec's **Capabilities and compatibility**, **Questions and gates**, **Setup and application adoption**, and **Verification and release criteria** to make the supported scoped policy-loading/trust mechanism and its enforcement proof explicit. M6/S4 require that evidence before managed Codex can satisfy the full workflow profile. G4's async limitation and G7's restart gaps must remain explicit in the next planning pass. F2 and later remain provisional and unexecuted.
 
 ## Final review and probe corrections
 
@@ -110,7 +110,7 @@ A fresh GPT-6 Astra review checked the full change against F1, raw owned events 
 
 No additional live runs were needed; none of these fixes changes the selected results. There were no separately deferred minor findings.
 
-## Execution rulings
+## Original run execution rulings
 
 - Execute inline with one fresh final reviewer: avoids repeated context for tightly coupled probes; the tradeoff is fewer intermediate independent reviews.
 - Bind replies to the full inbound request object and its connection, rather than a bare numeric ID: prevents connection-local ID reuse; the cost is a probe-only signature change.
@@ -120,5 +120,5 @@ No additional live runs were needed; none of these fixes changes the selected re
 - Create the owned native thread first, persist its READY turn, then attach the terminal: remote CLI rejects additional-directory arguments and a fresh thread has no rollout; default launch remains separate acceptance work.
 - Reserve production adapter readiness and adversarial MCP spoofing for acceptance: observed host metadata is not a complete production trust boundary; full support cannot yet be claimed.
 - Defer shared-daemon restart and all-observer disconnect recovery: outside this run's authorization; persistence and those recovery modes remain unverified.
-- Leave actual enforcement under a working scoped-hook arrangement unobserved: its prerequisite failed; G5 continues to block progression.
+- Leave actual enforcement under a working scoped-hook arrangement unobserved: its prerequisite failed; G5 blocked progression at this point; the later focused follow-up supplies that evidence.
 - Record broad root-suite failures without changing unrelated production code: no causal baseline comparison was run; this branch is not certified merge-ready by the spike.

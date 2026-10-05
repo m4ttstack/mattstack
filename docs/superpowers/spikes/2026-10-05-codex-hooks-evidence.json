@@ -1,0 +1,326 @@
+{
+  "runId": "hooks-review-01",
+  "sourceBase": "e21285af1",
+  "sourceChanges": [
+    "remote-resume permission flag fix; no production changes",
+    "focused ignored scripts listed with hashes below"
+  ],
+  "versions": {
+    "codex": "0.160.0",
+    "herdr": "0.9.3",
+    "bun": "1.4.2"
+  },
+  "question": "G5",
+  "verdict": "proven",
+  "scope": "Native worker-scoped synchronous question refusal and Stop continuation; synthetic controller-owned policies, not production Mattstack policy integration",
+  "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+  "turns": {
+    "questionAllowed": "01a10d0a-4d0e-7313-b671-bc829a3c800d",
+    "questionRefused": "01a10d0a-a6e9-7801-8481-16e5ffbbfd21",
+    "stopContinuation": "01a10d0b-2424-7d30-b8bd-ea54f7a54caf"
+  },
+  "assertions": {
+    "allowedQuestionAnsweredBeta": true,
+    "refusedQuestionProducedNoNativeRequest": true,
+    "exactHookThreadAndTurnIdsMatched": true,
+    "stopSequence": [
+      "DONE",
+      "hook:blocked",
+      "CONTINUED",
+      "hook:completed",
+      "turn:completed"
+    ]
+  },
+  "questionResolution": {
+    "requestId": 2,
+    "connection": "47295e51-dfb4-4850-9683-beb686a9ce06",
+    "resolvedOnSameConnection": true
+  },
+  "events": [
+    {
+      "method": "hook/completed",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0a-4d0e-7313-b671-bc829a3c800d",
+      "eventName": "preToolUse",
+      "status": "completed",
+      "entries": []
+    },
+    {
+      "method": "item/tool/requestUserInput",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0a-4d0e-7313-b671-bc829a3c800d",
+      "requestId": 2,
+      "itemId": "call_Lp8jtFl30uzkqDD9E216tnHj",
+      "isBlocking": true
+    },
+    {
+      "method": "item/completed",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0a-4d0e-7313-b671-bc829a3c800d",
+      "itemId": "msg_0791705ccc5bf7e8016ac3d9b3da6887d181839676666eb8d2",
+      "text": "Beta"
+    },
+    {
+      "method": "hook/completed",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0a-4d0e-7313-b671-bc829a3c800d",
+      "eventName": "stop",
+      "status": "completed",
+      "entries": []
+    },
+    {
+      "method": "turn/completed",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0a-4d0e-7313-b671-bc829a3c800d",
+      "status": "completed"
+    },
+    {
+      "method": "hook/completed",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0a-a6e9-7801-8481-16e5ffbbfd21",
+      "eventName": "preToolUse",
+      "status": "blocked",
+      "entries": [
+        {
+          "kind": "feedback",
+          "text": "Harness spike refused this action. If this is a Stop, reply CONTINUED now."
+        }
+      ]
+    },
+    {
+      "method": "item/completed",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0a-a6e9-7801-8481-16e5ffbbfd21",
+      "itemId": "msg_0791705ccc5bf7e8016ac3d9ca830487d19bc80b82b60d4de1",
+      "text": "REFUSED"
+    },
+    {
+      "method": "hook/completed",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0a-a6e9-7801-8481-16e5ffbbfd21",
+      "eventName": "stop",
+      "status": "completed",
+      "entries": []
+    },
+    {
+      "method": "turn/completed",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0a-a6e9-7801-8481-16e5ffbbfd21",
+      "status": "completed"
+    },
+    {
+      "method": "item/completed",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0b-2424-7d30-b8bd-ea54f7a54caf",
+      "itemId": "msg_0b297246bd632c98016ac3d9e69b5487d1bd6dfc41f582345a",
+      "text": "DONE"
+    },
+    {
+      "method": "hook/completed",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0b-2424-7d30-b8bd-ea54f7a54caf",
+      "eventName": "stop",
+      "status": "blocked",
+      "entries": [
+        {
+          "kind": "feedback",
+          "text": "Harness spike refused this action. If this is a Stop, reply CONTINUED now."
+        }
+      ]
+    },
+    {
+      "method": "item/completed",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0b-2424-7d30-b8bd-ea54f7a54caf",
+      "itemId": "msg_0b297246bd632c98016ac3d9e8c90487d1ab25d1ece625ba18",
+      "text": "CONTINUED"
+    },
+    {
+      "method": "hook/completed",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0b-2424-7d30-b8bd-ea54f7a54caf",
+      "eventName": "stop",
+      "status": "completed",
+      "entries": []
+    },
+    {
+      "method": "turn/completed",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0b-2424-7d30-b8bd-ea54f7a54caf",
+      "status": "completed"
+    }
+  ],
+  "hookRows": [
+    {
+      "event": "Stop",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d09-fb22-7010-9637-0207a3194318",
+      "tool": null,
+      "exitCode": 0
+    },
+    {
+      "event": "PreToolUse",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0a-4d0e-7313-b671-bc829a3c800d",
+      "tool": "request_user_input",
+      "exitCode": 0
+    },
+    {
+      "event": "Stop",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0a-4d0e-7313-b671-bc829a3c800d",
+      "tool": null,
+      "exitCode": 0
+    },
+    {
+      "event": "PreToolUse",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0a-a6e9-7801-8481-16e5ffbbfd21",
+      "tool": "request_user_input",
+      "exitCode": 2
+    },
+    {
+      "event": "Stop",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0a-a6e9-7801-8481-16e5ffbbfd21",
+      "tool": null,
+      "exitCode": 0
+    },
+    {
+      "event": "Stop",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0b-2424-7d30-b8bd-ea54f7a54caf",
+      "tool": null,
+      "exitCode": 2
+    },
+    {
+      "event": "Stop",
+      "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+      "turnId": "01a10d0b-2424-7d30-b8bd-ea54f7a54caf",
+      "tool": null,
+      "exitCode": 0
+    }
+  ],
+  "trustInventory": [
+    {
+      "eventName": "preToolUse",
+      "source": "project",
+      "enabled": true,
+      "trustStatus": "trusted",
+      "currentHash": "sha256:433d8a34ed6a7af40a20f73cf18556a1c7210fe828cf86f47d33d13ee58d4e0e"
+    },
+    {
+      "eventName": "stop",
+      "source": "project",
+      "enabled": true,
+      "trustStatus": "trusted",
+      "currentHash": "sha256:1acce7153c10111bc3411f8ee6569baa1df262594bd69b6ffc35a7f85c9b112d"
+    }
+  ],
+  "effective": {
+    "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+    "model": "gpt-6.1-sol",
+    "approvalPolicy": "never",
+    "sandbox": {
+      "type": "workspaceWrite",
+      "writableRoots": [
+        "$WORKTREE/.harness-spike/hooks-review-01",
+        "/private/tmp",
+        "$TMPDIR"
+      ],
+      "networkAccess": false,
+      "excludeTmpdirEnvVar": false,
+      "excludeSlashTmp": false
+    },
+    "status": {
+      "type": "idle"
+    }
+  },
+  "cleanup": {
+    "trust": {
+      "temporaryBlocksRemoved": 3,
+      "exactFolderTrustAbsent": true,
+      "ownHookTrustAbsent": true,
+      "otherConfigBytesPreserved": true
+    },
+    "workers": {
+      "threads": [
+        {
+          "threadId": "01a10d00-29d4-7442-b17e-fad844dd7008",
+          "status": {
+            "type": "notLoaded"
+          }
+        },
+        {
+          "threadId": "01a10d09-f9d3-73f3-8954-318f6c511599",
+          "status": {
+            "type": "idle"
+          }
+        }
+      ],
+      "workspaceAbsent": true
+    }
+  },
+  "rawArtifacts": [
+    {
+      "path": ".harness-spike/hooks-review-01/hooks.jsonl",
+      "sha256": "235f7cd4c7fb079be24d09f591ee52820faa3508748fe0772d238ed8f790e67c"
+    },
+    {
+      "path": ".harness-spike/hooks-review-01/live-events.jsonl",
+      "sha256": "0b3e1293da76db17b3c6bc6bc8a724c6c3fb47313ad803503419d30221aaeaf3"
+    },
+    {
+      "path": ".harness-spike/hooks-review-01/fresh-events.jsonl",
+      "sha256": "9b3afd7d3e5dfd287ef6820ff14fa457dd29a4506eb9791f1a32b15b2fe5813b"
+    },
+    {
+      "path": ".harness-spike/hooks-review-01/inventory.json",
+      "sha256": "1a067342392e1f09183c7e4b18bf17b30424dc05262857e32ac4a3d0a0a30fc5"
+    },
+    {
+      "path": ".harness-spike/hooks-review-01/owned-worker.json",
+      "sha256": "d49692667767c6f9988b8f1b45a8d7b80c3cbd64cb52eef33bbb574e9e3c79f1"
+    },
+    {
+      "path": ".harness-spike/hooks-review-01/original-worker.json",
+      "sha256": "c4c5abbaae0826f7c3e3023f654853822e1248a9cdf317aeb4e755b9b39ee13e"
+    },
+    {
+      "path": ".harness-spike/hooks-review-01/attached-terminal.txt",
+      "sha256": "1f7bd2fb30513780851e5d9d8d91e8967486b4bbc33d3123552e54143afe02c4"
+    },
+    {
+      "path": ".harness-spike/hooks-review-01/effective.json",
+      "sha256": "f5e3dbbbf0f7679603dc8cfa24068e3ce61af361e7a05f8e466e527ddad970ee"
+    },
+    {
+      "path": ".harness-spike/hooks-review-01/trust-cleanup.json",
+      "sha256": "ac55d512478bfe56f0a17d410f010adc1aa1bd04728fddb4618ed4500514f80e"
+    },
+    {
+      "path": ".harness-spike/hooks-review-01/worker-cleanup.json",
+      "sha256": "a60573c5e7dbd857dbe4e0bc3df3d49f0e4bb90d03104b80c04f92b761a85a1d"
+    },
+    {
+      "path": ".harness-spike/hooks-review-01/live.ts",
+      "sha256": "bebee459e232d0f399540f00ce6635c4cc35d5dfbbe20725dbde4e2df5083f9d"
+    },
+    {
+      "path": ".harness-spike/hooks-review-01/fresh.ts",
+      "sha256": "6be9559ff0b6ad793109bf89ee25fe8f04756130bc709a9536d6f310d096f3bb"
+    },
+    {
+      "path": ".harness-spike/hooks-review-01/inventory.ts",
+      "sha256": "519fb6ccd3565b6a4a3c2a690721f91edc4d9ce1bcae04e7ed12d970d6ab6ef6"
+    },
+    {
+      "path": ".harness-spike/hooks-review-01/worker/.codex/hooks.json",
+      "sha256": "560ea276b8af19c2bf848de2235afdda905110e832a8f8079aa7b82a43e4aa6b"
+    },
+    {
+      "path": ".harness-spike/hooks-review-01/worker/.codex/config.toml",
+      "sha256": "d37497c3278121598a663564ab38b53f658969717f78decb661ddd11c66551ea"
+    }
+  ]
+}

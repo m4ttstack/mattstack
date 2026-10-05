@@ -10,7 +10,9 @@
 
 **Spec:** [Harness integrations design](../specs/2026-10-04-harness-integrations-design.md). Parent: [plan index](2026-10-04-harness-integrations.md).
 
-**Status:** Executed after Matt's 2026-10-05 go-ahead. See the [exit report](../spikes/2026-10-05-harness-gate-spike-report.md): G5 remains blocked; revise the spec before re-planning. F2 and later remain provisional and unexecuted. The original task checklist below is retained as the execution contract; the report records completed work and unproven observations.
+**Status:** Executed after Matt's 2026-10-05 go-ahead. See the [exit report](../spikes/2026-10-05-harness-gate-spike-report.md): its original G5 block is superseded by the [focused hook follow-up](../spikes/2026-10-05-codex-hooks-followup.md), which proves scoped question refusal and Stop continuation. G1/G2/G3/G5 now pass; incorporate the hook loading/trust lifecycle in the spec and re-plan. F2 and later remain provisional and unexecuted. The original task checklist below is retained as the execution contract; the report records completed work and unproven observations.
+
+**Follow-up authorization:** Matt separately approved temporary trust for one exact disposable folder and its two reviewed hook hashes. That focused run removed all three entries afterward; the original no-global-config rule below remains the default for other probes. No shared daemon restart or trust bypass was authorized.
 
 ## Global Constraints
 

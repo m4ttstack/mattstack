@@ -9,8 +9,8 @@ import { quote } from "../lab";
 import { judgePolicy } from "../verdicts";
 import { cli, drive, ready } from "./common";
 
-// Native hook summaries carry the turn binding that hook stdin lacks.
-// Correlate recorder timestamps (ms) to those native intervals (seconds),
+// This historical probe correlates native turn-bound hook summaries with
+// recorder timestamps (ms) inside native intervals (seconds),
 // then require actual model continuation between the two stop outcomes.
 export function stopContinuationObserved(
   rows: any[],

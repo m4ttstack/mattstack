@@ -27,6 +27,8 @@
 - F1 uses the regular HOME, existing authentication/services and disposable owned workers, per Matt’s 2026-10-05 instruction. No alternate-home lab or credential copy. Existing rt access is read-only; shared daemon restarts are deferred. Later destructive acceptance cases need an explicitly scoped environment or agreed disruption window during re-planning; do not run them against shared services by default.
 - A test that reads source as text, or spawns `cli.ts`, is named `no-*.test.ts` so the PR scope selector runs it.
 
+**F1 result:** [Original exit report](../spikes/2026-10-05-harness-gate-spike-report.md) plus [focused hook follow-up](../spikes/2026-10-05-codex-hooks-followup.md) prove G1/G2/G3/G5. Re-plan before F2, incorporating the observed hook loading/trust lifecycle; G4 async completion and G7 restart remain explicit gaps.
+
 ## Review Focus
 
 These five failure classes receive explicit tests in the owning tasks:
@@ -280,7 +282,9 @@ because the interface exists or a fake passes.
 
 **Planning status:** F1 executed on 2026-10-05 with regular HOME and existing
 services. See the [exit report](../spikes/2026-10-05-harness-gate-spike-report.md)
-and [evidence](../spikes/2026-10-05-harness-gate-spike-evidence.json). G1/G2/G3/G6
-are proven; G4/G7 are partial; G5 is blocked at scoped hook loading. Revise the
-spec before package re-planning. G7 restart coverage remains deferred acceptance
-work. F2 onward is provisional and unexecuted.
+and [original evidence](../spikes/2026-10-05-harness-gate-spike-evidence.json), plus
+the [focused hook follow-up](../spikes/2026-10-05-codex-hooks-followup.md) and its
+[evidence](../spikes/2026-10-05-codex-hooks-evidence.json). G1/G2/G3/G5/G6 are
+proven; G4/G7 are partial. Incorporate the proven scoped hook loading/trust
+lifecycle into the spec before package re-planning. G7 restart coverage remains
+deferred acceptance work. F2 onward is provisional and unexecuted.

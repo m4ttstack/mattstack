@@ -77,3 +77,10 @@ test("owned active turns are interrupted independently during cleanup", async ()
   expect(calls).toEqual(["T1/A", "T2/B"]);
   expect(rows.map(r => r.ok)).toEqual([false, true]);
 });
+
+test("remote resume does not reapply permission overrides already set on the thread", () => {
+  const args = launchArgv("/worker", [], "/control", "T1");
+  expect(args).not.toContain("-s");
+  expect(args).not.toContain("-a");
+  expect(launchArgv("/worker")).toContain("-s");
+});
