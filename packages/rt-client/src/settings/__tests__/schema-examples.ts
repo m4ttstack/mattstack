@@ -289,6 +289,17 @@ export const EXAMPLES: Record<string, Example> = {
     layer: [{ doctors: "doctors" }],
   },
   "board.hiddenMembers": { good: [[], ["dev2"]], bad: [{ value: [{ username: "dev2" }], path: [0] }] },
+  "board.turn": {
+    good: [
+      {},
+      { author: [] },
+      { author: ["threads", "ciFailing"], reviewer: ["assigned", "repliedThreads"] },
+    ],
+    bad: [
+      { value: { author: ["ci"] }, path: ["author", 0] },
+      { value: { reviewer: "assigned" }, path: ["reviewer"] },
+    ],
+  },
   "board.triage": {
     good: [
       {},

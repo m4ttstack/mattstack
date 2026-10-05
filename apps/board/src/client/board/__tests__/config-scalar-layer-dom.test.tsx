@@ -97,7 +97,7 @@ async function render() {
         knownSections={null}
         onClose={noop}
         onOpenRoster={noop}
-        onTabsSaved={noop}
+        onSaved={noop}
       />
     );
   });

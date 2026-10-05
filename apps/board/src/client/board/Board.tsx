@@ -26,12 +26,12 @@ import {
   selectionOf,
   tabChangeClearsSelection,
 } from '../../selection.ts';
+import { ALL_TURN } from '../../turn.ts';
 import {
   dataAgeLabel,
   effectiveSeat,
-  filterByDraft,
   filterByMember,
-  filterBySlack,
+  filterByShow,
   filterByTab,
   freshnessBanner,
   GROUP_KEYS,
@@ -45,13 +45,7 @@ import {
   serializeViewState,
   sortMRs,
 } from '../../view.ts';
-import type {
-  DraftFilter,
-  GroupKey,
-  SlackFilter,
-  StackNode,
-  ViewState,
-} from '../../view.ts';
+import type { GroupKey, ShowItem, StackNode, ViewState } from '../../view.ts';
 import { postAction, type ActionResult } from '../api.ts';
 import type {
   BoardData,
@@ -70,10 +64,11 @@ import {
   type RunnerDeps,
 } from './action-runner.ts';
 import { ActionMenu } from './ActionMenu.tsx';
+import { AlsoShow } from './AlsoShow.tsx';
 import { AppMark } from './AppMark.tsx';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
 import { ConfigModal } from './ConfigModal.tsx';
-import { Controls, ThemeControl } from './Controls.tsx';
+import { Controls, RefreshControl, ThemeControl } from './Controls.tsx';
 import type { QueueEntry } from './decision-queue.ts';
 import {
   decidedEntries,
@@ -94,7 +89,7 @@ import {
   viewStateForMr,
 } from './deep-link.ts';
 import { DraftModal } from './DraftModal.tsx';
-import { boardSummary, draftKey, mrLine } from './format.ts';
+import { draftKey, mrLine } from './format.ts';
 import {
   useBoardData,
   useLaunchAction,
@@ -119,6 +114,8 @@ import { SettingsModal } from './SettingsModal.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import { useStaleTabTitle } from './stale-tab-title.ts';
 import { TabBar } from './TabBar.tsx';
+import { turnSummary } from './turn-summary.ts';
+import { TurnSummary } from './TurnSummary.tsx';
 
 declare global {
   interface Window {
@@ -182,61 +179,6 @@ const needsQueue = (gate: GateRow): boolean =>
     move is anybody's). The config editor keeps `data.tabs` alone. */
 function boardTabs(d: Pick<BoardData, 'tabs' | 'defaultMember'>): TabConfig[] {
   return d.defaultMember === 'all' ? d.tabs : [...d.tabs, NEEDS_ME_TAB];
-}
-
-/** Empty-list copy: the posted-in-slack and hide-drafts chips both persist
-    across tabs, so an empty view has to name whichever is on — and how many
-    rows it hid — rather than read as "this queue has no work". Slack wins
-    when both are on at once; the two firing together to empty a queue is
-    rare enough not to earn its own combined phrasing. */
-function emptyQueueCopy(
-  slackFilter: SlackFilter,
-  slackHidden: number,
-  draftFilter: DraftFilter,
-  draftsHidden: number
-): string {
-  if (slackFilter === 'posted') {
-    const slack = slackHiddenCopy(slackFilter, slackHidden);
-    return slack
-      ? `Nothing found in slack · ${slack}`
-      : 'Nothing found in slack';
-  }
-  const drafts = draftsHiddenCopy(draftFilter, draftsHidden);
-  return drafts
-    ? `nothing waiting on review ✓ · ${drafts}`
-    : 'nothing waiting on review ✓';
-}
-
-function slackHiddenCopy(
-  slackFilter: SlackFilter,
-  slackHidden: number
-): string | null {
-  if (slackFilter !== 'posted' || slackHidden === 0) return null;
-  return `${slackHidden} item${slackHidden === 1 ? '' : 's'} hidden`;
-}
-
-function draftsHiddenCopy(
-  draftFilter: DraftFilter,
-  draftsHidden: number
-): string | null {
-  if (draftFilter !== 'hide' || draftsHidden === 0) return null;
-  return `${draftsHidden} draft${draftsHidden === 1 ? '' : 's'} hidden`;
-}
-
-/** The sidebar counts every row for a member, including the ones the slack
-    and drafts chips filter out, so a trimmed list has to say what it hid or
-    the two numbers read as disagreeing. */
-function hiddenRowsNote(
-  slackFilter: SlackFilter,
-  slackHidden: number,
-  draftFilter: DraftFilter,
-  draftsHidden: number
-): string | null {
-  const parts = [
-    slackHiddenCopy(slackFilter, slackHidden),
-    draftsHiddenCopy(draftFilter, draftsHidden),
-  ].filter(Boolean);
-  return parts.length > 0 ? parts.join(' · ') : null;
 }
 
 // Module scope, not inline in useLaunchAction's call below: an inline arrow
@@ -364,14 +306,15 @@ export function Board() {
       const linkedUrl = gateId ? null : mrParam(location.search);
       if (linkedIid !== null) {
         // The stored/URL filters resolved above may hide the linked MR (wrong
-        // tab, a member pick, "posted only") -- a deep link has to land, so
+        // tab, a member pick, a Show pick) -- a deep link has to land, so
         // widen whatever would otherwise keep the row off-screen.
         resolved = viewStateForMr(
           resolved,
           d.mrs,
           tabs,
           new Set(usernames),
-          m => m.iid === linkedIid
+          m => m.iid === linkedIid,
+          d.turn ?? ALL_TURN
         );
         setDeepLink({ gateId: gateId!, iid: linkedIid, mrUrl: null });
       } else if (
@@ -389,7 +332,8 @@ export function Board() {
           d.mrs,
           tabs,
           new Set(usernames),
-          m => m.webUrl === linkedUrl
+          m => m.webUrl === linkedUrl,
+          d.turn ?? ALL_TURN
         );
         setDeepLink({ gateId: null, iid: null, mrUrl: linkedUrl });
       }
@@ -446,6 +390,7 @@ export function Board() {
 
   const [showSettings, setShowSettings] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
+  const [configFocus, setConfigFocus] = useState<string | undefined>();
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Row action menu (right-click) and transient toasts.
@@ -937,7 +882,7 @@ export function Board() {
   }, [fastPoll, load]);
 
   // The pure filter/group/sort pipeline (overlay -> tabFiltered ->
-  // filterBySlack(filterByMember(...)) -> groupMRs(...).map(sortMRs...)),
+  // filterByShow(filterByMember(...)) -> groupMRs(...).map(sortMRs...)),
   // hoisted above the loading guard below and memoized so it has exactly one
   // source of truth: the render body reads its fields instead of
   // recomputing them, and the decision queue below reads the same `groups`
@@ -967,8 +912,9 @@ export function Board() {
       overlay(data.mrs, optimisticLifecycle.state),
       merging.merging
     );
+    const turnCfg = data.turn ?? ALL_TURN;
     const need = (mr: BoardMRWithReview) =>
-      self === null ? null : needOf(mr, self, now, draftResolved);
+      self === null ? null : needOf(mr, self, now, draftResolved, turnCfg);
     const needsMe = (rows: BoardMRWithReview[]) =>
       rows.filter(mr => need(mr) !== null);
     const tabFiltered = isSeatTab
@@ -987,21 +933,26 @@ export function Board() {
     const inferred = isCodeownersTab || isSeatTab;
     const roster = inferred ? inferRoster(tabFiltered) : data.members;
     const rosterTotal = inferred ? tabFiltered.length : total;
-    // A stored "posted" pick with slack unconfigured would hide every row
-    // behind a control that isn't rendered, so the filter only bites when
-    // there are refs to filter on.
-    const slackFilter = data.slackEnabled ? state.slack : 'all';
-    // Drafts never appear at all on an "all" board (buildBoard drops every
-    // draft when there's no single defaultMember to own one), so the same
-    // guard keeps a stored "hide" pick from doing anything on a board where
-    // the chip isn't rendered.
-    const draftFilter: DraftFilter =
-      data.defaultMember !== 'all' ? state.drafts : 'all';
+    // Offered items are the ones the toolbar renders. Drafts never appear on
+    // an "all" board (buildBoard drops every draft when no single
+    // defaultMember owns one), and Needs me is already turn-based.
+    const offered: ShowItem[] = [
+      ...(data.slackEnabled ? (['posted', 'notPosted'] as const) : []),
+      ...(isSeatTab ? [] : (['authorTurn'] as const)),
+      ...(data.defaultMember !== 'all' ? (['myDrafts'] as const) : []),
+    ];
     const memberFiltered = filterByMember(tabFiltered, state.member);
-    const slackFiltered = filterBySlack(memberFiltered, slackFilter);
-    const filtered = filterByDraft(slackFiltered, draftFilter);
-    const slackHidden = memberFiltered.length - slackFiltered.length;
-    const draftsHidden = slackFiltered.length - filtered.length;
+    const { rows: filtered, counts: showCounts } = filterByShow(
+      memberFiltered,
+      state.off,
+      offered,
+      turnCfg
+    );
+    const summary = turnSummary(
+      memberFiltered,
+      turnCfg,
+      self === null ? null : mr => need(mr) !== null
+    );
     const groups = groupMRs(
       filtered,
       state.group,
@@ -1021,15 +972,13 @@ export function Board() {
       isCodeownersTab,
       isSeatTab,
       needsMeCount,
-      rosterUsernames,
       mrs,
-      tabFiltered,
       roster,
       rosterTotal,
-      slackFilter,
-      slackHidden,
-      draftFilter,
-      draftsHidden,
+      offered,
+      showCounts,
+      memberFiltered,
+      summary,
       filtered,
       groups,
     };
@@ -1179,25 +1128,17 @@ export function Board() {
     isCodeownersTab,
     isSeatTab,
     needsMeCount,
-    rosterUsernames,
     mrs,
-    tabFiltered,
     roster,
     rosterTotal,
-    slackFilter,
-    slackHidden,
-    draftFilter,
-    draftsHidden,
+    offered,
+    showCounts,
+    memberFiltered,
+    summary,
     filtered,
     groups,
   } = boardView!;
 
-  const hiddenNote = hiddenRowsNote(
-    slackFilter,
-    slackHidden,
-    draftFilter,
-    draftsHidden
-  );
   const dataAge = dataAgeLabel(data.dataSyncedAt, now);
   // An explicit board window wider than rt actually syncs is config drift the
   // board can't self-correct, so it needs to be visible. Unset follows rt.
@@ -1243,7 +1184,6 @@ export function Board() {
   // Drawn from `mrs`, not `filtered` -- that's what lets a selection span
   // member filters.
   const selectedMrs = selectionOf(mrs, selected);
-  const summaryText = boardSummary(flatMrs, data.slackTemplates);
   const seat = effectiveSeat(data.defaultMember, data.tokenUser);
   const postableMrs = postableOf(flatMrs, seat);
   const postableSelected = postableOf(selectedMrs, seat);
@@ -1301,15 +1241,25 @@ export function Board() {
   };
   const openConfig = () => {
     setMenuOpen(false);
+    setConfigFocus(undefined);
     setShowConfig(true);
   };
-  // Refs go stale between sweeps, so switching the filter on re-checks the
-  // board (forced sweep, server-side); the current data filters immediately
-  // and newly found rows land on the reload.
-  const toggleSlackFilter = () => {
-    const next = state.slack === 'posted' ? 'all' : 'posted';
-    update({ slack: next });
-    if (next !== 'posted' || !data.local) return;
+  const openTurnConfig = () => {
+    setMenuOpen(false);
+    setConfigFocus('board.turn');
+    setShowConfig(true);
+  };
+  // Refs go stale between sweeps, so taking Not Posted off re-checks Slack
+  // (forced sweep, server-side); newly found rows land on the reload. The
+  // other items ride the regular poll.
+  const toggleShow = (item: ShowItem) => {
+    const turningOff = !state.off.includes(item);
+    update({
+      off: turningOff
+        ? [...state.off, item]
+        : state.off.filter(i => i !== item),
+    });
+    if (!(turningOff && item === 'notPosted' && data.local)) return;
     const toast = startToast('refreshing slack status…');
     postAction('/slack/refresh', {}).then(result => {
       if (!result.ok)
@@ -1318,11 +1268,8 @@ export function Board() {
       load();
     });
   };
-  // No server refresh needed here: isDraft rides the regular poll, unlike
-  // slack status which needs its own out-of-band check.
-  const toggleDraftFilter = () => {
-    update({ drafts: state.drafts === 'hide' ? 'all' : 'hide' });
-  };
+  const showAll = () =>
+    update({ off: state.off.filter(i => !offered.includes(i)) });
   const inferredNote = isCodeownersTab
     ? 'authors in this queue'
     : isSeatTab
@@ -1335,25 +1282,30 @@ export function Board() {
     groupKeys: isSeatTab ? GROUP_KEYS : GROUP_KEYS.filter(k => k !== 'needs'),
     theme,
     pickTheme,
-    // The bar owns copy while a selection is live -- its header input has to
-    // sit next to the button that consumes it.
-    canCopy: filtered.length > 0 && selectedMrs.length === 0,
-    summaryText,
     onRefresh: refreshNow,
     refreshing,
     canPostSummary: data.slackEnabled && data.local && postableMrs.length > 0,
     postingSummary,
     onPostSummary: () => handlePostSummary(postableMrs),
-    slackFilter: data.slackEnabled
-      ? { active: slackFilter === 'posted', toggle: toggleSlackFilter }
-      : null,
-    // `active` is "drafts are showing", not "the filter is engaged": drafts
-    // show by default, so a chip that only lit up once they were hidden read
-    // as off in the state the board is normally in.
-    draftFilter:
-      data.defaultMember !== 'all'
-        ? { active: draftFilter === 'all', toggle: toggleDraftFilter }
+    show:
+      offered.length > 0
+        ? {
+            offered,
+            off: state.off,
+            counts: showCounts,
+            // BoardData carries no board-wide channel; a row's resolved
+            // slackChannel is the tab's override or slack.channel.
+            channel:
+              activeTab.slackChannel ??
+              memberFiltered.find(mr => mr.slackChannel)?.slackChannel ??
+              null,
+            shown: filtered.length,
+            total: memberFiltered.length,
+            toggle: toggleShow,
+            showAll,
+          }
         : null,
+    onOpenTurnSettings: openTurnConfig,
   };
 
   return (
@@ -1397,17 +1349,22 @@ export function Board() {
                 </span>
               )}
             </h1>
-            <p className="tui-sub">
-              <span className="tui-comment">
-                # {filtered.length} awaiting review · pick one, it opens in
-                gitlab
-              </span>
-            </p>
+            <TurnSummary
+              counts={summary}
+              synced={dataAge}
+              onNeedsMe={
+                needsMeCount === null
+                  ? null
+                  : () => update({ tab: NEEDS_ME_TAB.id })
+              }
+            />
           </div>
           <div className="tui-controls tui-controls-header">
             <Controls {...controlProps} />
           </div>
+          {controlProps.show && <AlsoShow show={controlProps.show} />}
           <div className="tui-header-corner">
+            <RefreshControl onRefresh={refreshNow} refreshing={refreshing} />
             <ThemeControl theme={theme} pickTheme={pickTheme} />
           </div>
         </header>
@@ -1507,12 +1464,9 @@ export function Board() {
         freshness?.intent !== 'bad' &&
         !activeSection?.unknown ? (
           <p className="tui-empty">
-            {emptyQueueCopy(
-              slackFilter,
-              slackHidden,
-              draftFilter,
-              draftsHidden
-            )}
+            {memberFiltered.length > 0
+              ? 'nothing to show with these picks'
+              : 'nothing waiting on review ✓'}
           </p>
         ) : (
           groups.map(g => (
@@ -1534,17 +1488,6 @@ export function Board() {
             </Panel>
           ))
         )}
-        {filtered.length > 0 && hiddenNote && (
-          <p className="tui-hidden-note">{hiddenNote}</p>
-        )}
-
-        <footer
-          className={
-            dataAge.stale ? 'tui-footer tui-footer-stale' : 'tui-footer'
-          }
-        >
-          {dataAge.text}
-        </footer>
       </div>
 
       {/* Mobile drawer: roster + controls, tucked behind the burger. */}
@@ -1617,7 +1560,8 @@ export function Board() {
         <ConfigModal
           tabs={data.tabs}
           knownSections={data.scopeKnownSections}
-          onTabsSaved={() => load()}
+          focusKey={configFocus}
+          onSaved={() => load()}
           onClose={() => setShowConfig(false)}
           onOpenRoster={() => {
             setShowConfig(false);
