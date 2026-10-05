@@ -33,7 +33,7 @@ import { promptSecret } from "../lib/prompt-secret.ts";
 import { orgSettingsPath } from "../lib/rt-paths.ts";
 import { createRealTeamSecretsSeams } from "../lib/secrets/team-store.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
-import { listOrgs, parseStoreText, readStore } from "../lib/settings/stores.ts";
+import { listOrgs, parseStoreText, readStore, TEAM_NAME_RE } from "../lib/settings/stores.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
@@ -717,7 +717,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
   try {
     if (!flagValue(args, "--team") && listOrgs().length === 0) {
-      const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[] };
+      const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[], role: null, activeTeam: null, teams: [] as never[], orgTeams: [] as never[] };
       if (json) deps.print(JSON.stringify(envelope(result)));
       else out.print(out.line("off", "No team on this Mac", "just you"));
       return;
@@ -733,7 +733,18 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     const snapshot = readTeamSnapshot(deps.probes, slug, { read, warn: () => {} });
     const title = read<string>("board.title");
     const name = title && title.length > 0 ? title : slug;
-    const members = toRosterMembers(read<unknown>("mattstack.roster"), (skipped) =>
+    const active = activeTeamFor(deps.probes, slug);
+    const role = roleFor(deps.probes, slug).kind;
+    const teamsDir = join(dir, "mattstack", "teams");
+    const orgTeams = deps.probes.readDir(teamsDir)
+      .filter((team) => TEAM_NAME_RE.test(team) && deps.probes.exists(join(teamsDir, team, "settings.team.jsonc")))
+      .sort();
+    const rosterValue = read<unknown>("mattstack.roster");
+    const everyone = Array.isArray(rosterValue) ? rosterValue : [];
+    const onTeam = active.team === null ? everyone : everyone.filter((member) =>
+      Array.isArray((member as { teams?: unknown } | null)?.teams) && (member as { teams: unknown[] }).teams.includes(active.team),
+    );
+    const members = toRosterMembers(onTeam, (skipped) =>
       warn("team", `skipped ${skipped} malformed mattstack.roster entr${skipped === 1 ? "y" : "ies"} (missing or non-string username)`, {
         show: { title: "Some team members could not be read", hint: `${skipped} left out` },
       }),
@@ -746,7 +757,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
     const { reachable, ...sync } = await readTeamSyncFields(deps, slug);
 
-    const result = { slug, name, remote, lastPush, members, ...sync };
+    const result = { slug, name, remote, lastPush, members, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
@@ -763,6 +774,8 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
         out.kv("remote", result.remote ?? "none"),
         out.kv("last push", lastPush ?? "never"),
         out.kv("members", String(members.length)),
+        out.kv("your team", active.team ?? "none"),
+        out.kv("your role", role === "admin" ? "org admin" : role === "owner" ? "team owner" : role === "member" ? "member" : "unknown"),
         out.kv("sync", syncState, syncNotes.length > 0 ? syncNotes.join("; ") : undefined),
         ...(sync.conflicted !== null ? [out.line("needs-you", "The team has changes that clash with yours", sync.conflicted.detail)] : []),
       ),
