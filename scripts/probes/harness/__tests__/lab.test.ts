@@ -16,3 +16,7 @@ test("shared-service probes explicitly connect to the discovered endpoint",()=>{
  const args=launchArgv("/repo/worker",[],"/home/codex/control.sock");
  expect(args.slice(args.indexOf("--remote"),args.indexOf("--remote")+2)).toEqual(["--remote","unix:///home/codex/control.sock"]);
 });
+test("remote worker attaches an already-created native thread without unsupported add-dir",()=>{
+ const args=launchArgv("/repo/worker",[],"/home/codex/control.sock","T1");
+ expect(args).toContain("resume");expect(args).toContain("T1");expect(args).not.toContain("--add-dir");
+});

@@ -1,5 +1,5 @@
 export type Inbound = { kind: "request" | "notification"; id?: number | string; method: string; params: any; connection: string };
-type Options = { socketPath: string; ownedThreads: Set<string>; experimentalApi: boolean; timeoutMs?: number; record?: (message: Inbound) => void };
+type Options = { socketPath: string; ownedThreads: Set<string>; ownedCwds?: Set<string>; experimentalApi: boolean; timeoutMs?: number; record?: (message: Inbound) => void };
 const READ = new Set(["thread/loaded/list", "hooks/list", "config/read", "model/list", "experimentalFeature/list"]);
 export class CodexControl {
   readonly connection = crypto.randomUUID();
@@ -29,7 +29,7 @@ export class CodexControl {
   async call<T=any>(method:string,params:any):Promise<T> {
     if(this.closed) throw new Error("closed");
     const discovery=method==="thread/read" && params.includeTurns===false;
-    if(method!=="initialize" && !READ.has(method) && !discovery && !this.options.ownedThreads.has(params?.threadId)) throw new Error("thread is not owned");
+    if(method!=="initialize" && !(method==="thread/start" && this.options.ownedCwds?.has(params.cwd)) && !READ.has(method) && !discovery && !this.options.ownedThreads.has(params?.threadId)) throw new Error("thread is not owned");
     const id=++this.seq;
     return new Promise((resolve,reject)=>{
       const timer=setTimeout(()=>{this.pending.delete(id);reject(new Error(`${method} timed out`));},this.options.timeoutMs??25000);

@@ -9,7 +9,8 @@ import {cli,drive,ready} from "./common";
 export async function run(lab:Lab,ev:Evidence){
  const log=join(lab.runDir,"hooks.jsonl");const pre=join(lab.runDir,"pre.json");const stop=join(lab.runDir,"stop.json");writeFileSync(pre,"{}");writeFileSync(stop,"{}");
  const hook=(event:string,file:string)=>[Bun.which("bun")??"bun",join(lab.repo,"scripts/probes/harness/probe-hook.ts"),log,event,file].map(quote).join(" ");
- const overrides=["features.hooks=true",...[["PreToolUse",pre],["Stop",stop],["SessionStart",pre]].map(([event,file])=>`hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(hook(event!,file!))}}]} `)];
+ const overrides:Record<string,unknown>={"features.hooks":true};
+ for(const [event,file] of [["PreToolUse",pre],["Stop",stop],["SessionStart",pre]])overrides[`hooks.${event}`]=[{hooks:[{type:"command",command:hook(event!,file!)}]}];
  const w=await lab.launchWorker("p1",overrides);const c=await lab.connect();try{await ready(c,w);const inventory=await c.call("hooks/list",{cwds:[w.cwd]});const hooks=(inventory.data??[]).flatMap((e:any)=>e.hooks??[]).filter((h:any)=>h.command?.includes("probe-hook.ts"));ev.record("G5-inventory",{hooks,errors:(inventory.data??[]).flatMap((e:any)=>e.errors??[])});
  const listed=hooks.filter((h:any)=>h.enabled&&["preToolUse","stop"].includes(h.eventName)&&["trusted","managed"].includes(h.trustStatus)).length;
  const file=join(lab.runDir,"policy-cli.jsonl");await drive(c,w,`Run exactly: ${cli(lab)} record ${quote(file)} allowed. Reply DONE.`);
