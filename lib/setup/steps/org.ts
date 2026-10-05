@@ -5,9 +5,8 @@ import { forgeLogin } from "../../team/forge.ts";
 import { readTeamLocal, updateTeamLocal } from "../../team/team-local.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import type { Probes } from "../probes.ts";
-import { discoverOrgs, forgeFromRemote, parseOriginUrl } from "../team-settings.ts";
+import { discoverOrgs, forgeFromRemote, parseOriginUrl, probeUserSettingsReader } from "../team-settings.ts";
 import { trustedForgeTokenFor } from "./forge-token.ts";
-import { parseStoreText } from "../../settings/stores.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 const PULL_TIMEOUT_MS = 180_000;
@@ -60,11 +59,7 @@ export function cloneOrigin(p: Pick<Probes, "readFile" | "home">, slug: string):
 
 async function storedTokenFor(ctx: ApplyContext, host: string): Promise<string | null> {
   const token = await trustedForgeTokenFor(ctx, tokenLookupRemoteForHost(host), {
-    read: <T,>(key: string) => {
-      const file = join(ctx.p.home, ".mattstack", "user", "settings.user.jsonc");
-      const raw = ctx.p.readFile(file);
-      return raw === null ? undefined : (parseStoreText(file, raw).global[key] as T | undefined);
-    },
+    read: probeUserSettingsReader(ctx.p),
   });
   if (token) ctx.redact(token);
   return token;
