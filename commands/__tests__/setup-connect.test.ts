@@ -1006,18 +1006,13 @@ const skipRealOAuth = process.env.CI === "true" && process.env.RUN_REAL_OAUTH !=
 describe.skipIf(skipRealOAuth)("realOAuthListen (real Bun.serve, no fakes — this is the seam being pinned)", () => {
   test("a mismatched state rejects instead of resolving with the code", async () => {
     const port = 18765;
-    const promise = realOAuthListen(port, "expected-state");
+    const result = realOAuthListen(port, "expected-state").then(
+      (code) => ({ code, error: undefined }),
+      (error: unknown) => ({ code: undefined, error }),
+    );
     const res = await fetch(`http://127.0.0.1:${port}/callback?code=abc&state=WRONG`);
     expect(res.status).toBe(200);
-    // Plain try/catch, not `expect(promise).rejects` — under bun:test, that matcher combined with an
-    // awaited round-trip to an in-process Bun.serve handler reports the rejection as a hard test
-    // failure regardless of whether it's later caught, rather than as a normal assertion.
-    let caught: unknown;
-    try {
-      await promise;
-    } catch (err) {
-      caught = err;
-    }
+    const { error: caught } = await result;
     expect(caught).toBeInstanceOf(Error);
     expect((caught as Error).message).toMatch(/state/i);
   });

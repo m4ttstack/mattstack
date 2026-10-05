@@ -1,3 +1,10 @@
+import { execFileSync } from "child_process";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
+import { createRealProbes } from "../../setup/probes.ts";
+import { childEnv } from "../../subprocess.ts";
 import { describe, expect, test } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { addTeam, type AddTeamSeams } from "../add.ts";
@@ -117,4 +124,59 @@ describe("addTeam marketplace validation", () => {
     try { addTeam(p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams); } catch (err) { code = (err as { code: string }).code; }
     expect(code).toBe("team-marketplace-invalid");
   });
+});
+
+for (const source of ["./old-pack", "./mattstack/teams/widgets/packs/widgets"]) {
+  test(`conflicting gadgets source ${source} preserves all files before adding a team`, () => {
+    const { p, seams, writes } = world();
+    const path = `${ROOT}/.claude-plugin/marketplace.json`;
+    const text = JSON.stringify({ name: "acme", plugins: [{ name: "gadgets", source }] });
+    p.writeFile(path, text);
+    const before = { ...p.calls.writes };
+    expect(() => addTeam(p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams)).toThrow();
+    expect(p.readFile(path)).toBe(text);
+    expect(p.calls.writes).toEqual(before);
+    expect(p.exists(`${ROOT}/mattstack/teams/gadgets`)).toBe(false);
+    expect(writes).toEqual([]);
+    expect(p.calls.exec).toEqual([]);
+  });
+}
+test("a matching gadgets marketplace entry is reused once", () => {
+  const { p, seams } = world();
+  const path = `${ROOT}/.claude-plugin/marketplace.json`;
+  p.writeFile(path, JSON.stringify({ name: "acme", plugins: [{ name: "gadgets", source: "./mattstack/teams/gadgets/packs/gadgets" }] }));
+  addTeam(p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams);
+  expect(JSON.parse(p.readFile(path)!).plugins).toEqual([{ name: "gadgets", source: "./mattstack/teams/gadgets/packs/gadgets" }]);
+});
+
+test("marketplace collision preserves real git index and worktree bytes", () => {
+  const priorHome = process.env.HOME;
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-add-collision-")));
+  process.env.HOME = home;
+  try {
+    seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
+    const root = join(home, ".mattstack/teams/acme");
+    const market = join(root, ".claude-plugin/marketplace.json");
+    const p = createRealProbes();
+    p.mkdirp(join(root, ".claude-plugin"));
+    p.writeFile(market, JSON.stringify({ name: "acme", plugins: [] }));
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env: childEnv(), encoding: "utf8" });
+    git("init", "-q", "-b", "main");
+    git("config", "user.name", "dev1"); git("config", "user.email", "dev1@example.test");
+    git("add", "."); git("commit", "-q", "-m", "seed");
+    writeFileSync(market, JSON.stringify({ name: "acme", plugins: [{ name: "gadgets", source: "./old-pack" }] }));
+    git("add", "--", ".claude-plugin/marketplace.json");
+    const working = JSON.stringify({ name: "acme", plugins: [{ name: "gadgets", source: "./mattstack/teams/widgets/packs/widgets" }] });
+    writeFileSync(market, working);
+    const index = readFileSync(join(root, ".git/index"));
+    const roles = p.readFile(join(root, "mattstack/org/settings.org.jsonc"));
+    expect(() => addTeam(p, { org: "acme", team: "gadgets", owners: ["dev2"] }, {
+      engineDescription: () => "Use when doing work.",
+      writeOrgSetting: () => { throw new Error("Unexpected role write"); },
+    })).toThrow();
+    expect(readFileSync(join(root, ".git/index"))).toEqual(index);
+    expect(p.readFile(market)).toBe(working);
+    expect(p.readFile(join(root, "mattstack/org/settings.org.jsonc"))).toBe(roles);
+    expect(p.exists(join(root, "mattstack/teams/gadgets"))).toBe(false);
+  } finally { process.env.HOME = priorHome; rmSync(home, { recursive: true, force: true }); }
 });

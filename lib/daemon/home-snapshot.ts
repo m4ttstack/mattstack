@@ -42,6 +42,8 @@ import {
   setKvValue,
 } from "../state/index.ts";
 import { gitWithToken } from "../team/git-credential.ts";
+import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { roleFor } from "../team/roles.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
@@ -151,6 +153,7 @@ export interface SnapshotSpec {
   scope?: (relPath: string) => boolean;
   /** Zones claimed for as long as the spec runs, as if written to the owners file; a claim in the file wins over one here. */
   standingZones?: Owners["zones"];
+  readAuthorization?: () => { scope: (relPath: string) => boolean; pullOnly: boolean };
   /** Every managed path, including paths this Mac may not push. */
   watch?: (relPath: string) => boolean;
   /** Fetch + rebase policy; absent = never pull (the home repo is single-writer). */
@@ -392,6 +395,13 @@ export function teamSnapshotSpec(
     eventPrefix: "team",
     scope: (path) => teamScope(path) && owns(path),
     standingZones: TEAM_STANDING_ZONES,
+    readAuthorization: () => {
+      const roots = ownedRoots(roleFor(opts.probes, slug));
+      return {
+        scope: (path) => teamScope(path) && roots.some((root) => path === root || path.startsWith(`${root}/`)),
+        pullOnly: roots.length === 0,
+      };
+    },
     watch: teamScope,
     pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled },
     pullOnly: opts.ownedRoots.length === 0,
@@ -825,9 +835,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (spec.watch) {
       const dirty = await deps.exec(["git", "status", "--porcelain=v1", "-uall", "-z"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
       if (dirty.exitCode === 0) {
-        unownedDirty = [...new Set(parsePorcelainZ(dirty.stdout)
-          .flatMap((entry) => entry.origPath && entry.xy.includes("R") ? [entry.path, entry.origPath] : [entry.path])
-          .filter((path) => spec.watch!(path) && !(spec.scope?.(path) ?? true)))].sort();
+        reportUnowned(parsePorcelainZ(dirty.stdout), authorization().scope);
       }
     }
     const counts = await deps.exec(["git", "rev-list", "--left-right", "--count", `refs/remotes/origin/${branch}...HEAD`], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
@@ -952,6 +960,49 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     }
   }
 
+  function authorization() {
+    return spec.readAuthorization?.() ?? { scope: spec.scope, pullOnly: spec.pullOnly === true };
+  }
+
+  let observedEntries: ReturnType<typeof parsePorcelainZ> = [];
+
+  function reportUnowned(entries: ReturnType<typeof parsePorcelainZ>, scope: SnapshotSpec["scope"]): void {
+    observedEntries = entries;
+    if (!spec.watch) return;
+    unownedDirty = [...new Set(entries
+      .flatMap((entry) => entry.origPath && entry.xy.includes("R") ? [entry.path, entry.origPath] : [entry.path])
+      .filter((path) => spec.watch!(path) && !(scope?.(path) ?? true)))].sort();
+  }
+
+  function mayWrite(paths: string[], entries: ReturnType<typeof parsePorcelainZ>): boolean {
+    const current = authorization();
+    reportUnowned(entries, current.scope);
+    return !current.pullOnly && paths.every((path) => current.scope?.(path) ?? true);
+  }
+
+  async function mayPush(): Promise<boolean> {
+    if (!spec.readAuthorization) return !spec.pullOnly;
+    const branch = await deps.exec(["git", "symbolic-ref", "--quiet", "--short", "HEAD"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+    if (branch.exitCode !== 0) {
+      pushPending = true;
+      lastPushError = "rt could not check your pending changes";
+      return false;
+    }
+    const diff = await deps.exec(["git", "diff", "--name-only", "-z", `refs/remotes/origin/${branch.stdout.trim()}`, "HEAD"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+    const current = authorization();
+    if (diff.exitCode !== 0) {
+      pushPending = true;
+      lastPushError = "rt could not check your pending changes";
+      return false;
+    }
+    if (current.pullOnly || diff.stdout.split("\0").filter(Boolean).some((path) => !(current.scope?.(path) ?? true))) {
+      pushPending = true;
+      lastPushError = "Your role no longer owns these pending changes. Ask an org admin before publishing them";
+      return false;
+    }
+    return true;
+  }
+
   async function doPushInner(): Promise<void> {
     // Kill switch, second door: doRun's own enabled check cancels a
     // scheduled push timer, but only when doRun ITSELF runs — a push
@@ -967,7 +1018,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // Backstop. A pull-only spec never commits, so nothing should ever arm a
     // push, but the timer is armed from more than one place and this costs
     // nothing.
-    if (spec.pullOnly) return;
+    if (!spec.readAuthorization && spec.pullOnly) return;
     // Local-only (rt home init with no remote attached) is a permanent,
     // supported state — not a push failure: no exec, no retry, no broadcast.
     // Clearing pushPending/lastPushError here matters for a remote that
@@ -989,12 +1040,13 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       const pulled = await pullNow({ converge: false });
       if (pulled.outcome === "conflict" || conflicted) return;
     }
+    if (!(await mayPush())) return;
     let result = await remoteGit(["push", "-q", "origin", "HEAD"], PUSH_TIMEOUT_MS);
     if (result.exitCode !== 0 && spec.pull && pushRetryAttempt === 0 && /\[rejected\]|non-fast-forward|fetch first/i.test(result.stderr)) {
       // The remote moved between the pull above and this push; one inline
       // replay beats waiting out a whole retry-backoff window.
       await pullNow({ converge: false });
-      if (conflicted) return;
+      if (conflicted || !(await mayPush())) return;
       result = await remoteGit(["push", "-q", "origin", "HEAD"], PUSH_TIMEOUT_MS);
     }
     if (result.exitCode === 0) {
@@ -1102,7 +1154,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (conflicted) {
       return { committed: false, sha: null, paths: [], reason, skipped: "conflict" };
     }
-    if (spec.pullOnly) {
+    if (!spec.readAuthorization && spec.pullOnly) {
       return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
     }
 
@@ -1125,7 +1177,10 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       stderr: "pipe",
     });
     const rawEntries = parsePorcelainZ(statusResult.stdout);
-    const entries = scopeEntries(rawEntries, spec.scope);
+    const current = authorization();
+    reportUnowned(rawEntries, current.scope);
+    if (current.pullOnly) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
+    const entries = scopeEntries(rawEntries, current.scope);
     // A scoped spec's pathspec is the scoped entries' own paths, never the
     // scope's roots: `git add -A -- mattstack .sops.yaml .claude-plugin`
     // exits 128 and stages nothing when any root is absent from both tree
@@ -1133,16 +1188,16 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // every cycle as add-failed. A rename's origPath rides along so the old
     // path's deletion lands in the same commit as the new path; scopeEntries
     // is what guarantees both halves are inside the scope.
-    const scopeArgs: string[] = spec.scope
+    const scopeArgs: string[] = current.scope
       ? [...new Set(entries.flatMap((e) => (e.origPath ? [e.origPath, e.path] : [e.path])))]
       : ["."];
 
     // A staged deletion (including a rename source) is already absent from
     // the index, so git add rejects it. It still belongs in the commit.
-    const addScopeArgs = spec.scope
+    const addScopeArgs = current.scope
       ? [...new Set(rawEntries.flatMap((entry) => [
-        ...(entry.origPath && entry.xy[0] !== "R" && spec.scope!(entry.origPath) ? [entry.origPath] : []),
-        ...(entry.xy[0] !== "D" && spec.scope!(entry.path) ? [entry.path] : []),
+        ...(entry.origPath && entry.xy[0] !== "R" && current.scope!(entry.origPath) ? [entry.origPath] : []),
+        ...(entry.xy[0] !== "D" && current.scope!(entry.path) ? [entry.path] : []),
       ]))]
       : scopeArgs;
 
@@ -1206,8 +1261,9 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       // A scoped spec names each path; one inside a claimed zone would sit in
       // the pathspec beside its own exclude, so it is dropped here instead.
       const outsideClaims = (path: string) => !plan.excludedZones.some((zone) => isUnderZone(path, zone));
-      const autoArgs = spec.scope ? scopeArgs.filter(outsideClaims) : scopeArgs;
-      const autoAddArgs = spec.scope ? addScopeArgs.filter(outsideClaims) : addScopeArgs;
+      const autoArgs = current.scope ? scopeArgs.filter(outsideClaims) : scopeArgs;
+      const autoAddArgs = current.scope ? addScopeArgs.filter(outsideClaims) : addScopeArgs;
+      if (!mayWrite(autoArgs, rawEntries)) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
       const addResult = autoAddArgs.length > 0
         ? await deps.exec(["git", "add", "-A", "--", ...autoAddArgs, ...excludeArgs], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" })
         : { exitCode: 0, stderr: "" };
@@ -1236,6 +1292,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       // about an unattended backup commit needs a signature. (Git identity
       // is confirmed once, above, before either commit site runs.)
       const message = reason === "manual" ? plan.message!.replace(/^snapshot:/, "snapshot (manual):") : plan.message!;
+      if (!mayWrite(autoArgs, rawEntries)) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
       const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", ...autoArgs, ...excludeArgs], {
         cwd: deps.repoDir,
         timeoutMs: GIT_TIMEOUT_MS,
@@ -1266,6 +1323,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
         if (commitPaths.length === 0) continue;
         const dirtyHours = Math.floor((deps.now() - jz.dirtySinceMs) / (60 * 60 * 1000));
         const message = `snapshot (janitor): ${jz.zone} dirty >${dirtyHours}h, owner ${jz.owner}`;
+        if (!mayWrite(commitPaths, rawEntries)) continue;
         const addResult = addPaths.length > 0
           ? await deps.exec(["git", "add", "-A", "--", ...addPaths], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" })
           : { exitCode: 0, stderr: "" };
@@ -1274,6 +1332,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
           continue;
         }
         // Same self-contained-commit and unsigned-commit reasoning as the auto commit above.
+        if (!mayWrite(commitPaths, rawEntries)) continue;
         const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", ...commitPaths], {
           cwd: deps.repoDir,
           timeoutMs: GIT_TIMEOUT_MS,
@@ -1331,6 +1390,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   }
 
   function status(): SnapshotStatus {
+    const current = authorization();
+    reportUnowned(observedEntries, current.scope);
     let claimedZones: string[] = [];
     let ownersError: string | null = null;
     try {
@@ -1365,7 +1426,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       lastPullError,
       lastPullSkipped,
       conflicted,
-      pullOnly: spec.pullOnly === true,
+      pullOnly: current.pullOnly,
       unownedDirty: [...unownedDirty],
       claimedZones,
       firstSeenDirty: { ...firstSeenDirty },

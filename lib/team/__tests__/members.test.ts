@@ -1,7 +1,10 @@
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { closeStateDb } from "../../state/index.ts";
 import * as memberActions from "../members.ts";
 import { withRosterKey, withoutMember } from "../members.ts";
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
-import { beforeEach, describe, test, expect } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { join } from "path";
 import { fakeProbes as rawFakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
@@ -15,7 +18,20 @@ import { membersRemove, membersSync, MembersSyncAbortedError, type MembersSeams 
 import { teamLocalPath } from "../team-local.ts";
 import type { RelayClient } from "../relay-client.ts";
 
-beforeEach(() => { seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } }); });
+let fixtureHome: string;
+let priorHome: string | undefined;
+beforeEach(() => {
+  priorHome = process.env.HOME;
+  closeStateDb();
+  fixtureHome = realpathSync(mkdtempSync(`${tmpdir()}/rt-org-fixture-`));
+  process.env.HOME = fixtureHome;
+  seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
+});
+afterEach(() => {
+  closeStateDb();
+  process.env.HOME = priorHome;
+  rmSync(fixtureHome, { recursive: true, force: true });
+});
 
 const HOME = "/home/x";
 const SLUG = "acme";

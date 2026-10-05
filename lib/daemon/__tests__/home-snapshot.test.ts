@@ -3040,3 +3040,139 @@ describe("startSnapshot: pull", () => {
     handle.stop();
   });
 });
+
+describe("current snapshot authorization", () => {
+  function world() {
+    const p = fakeProbes({ home: "/h", files: {
+      "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev2" }),
+      "/h/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+    } });
+    const revoke = () => p.writeFile("/h/.mattstack/teams/acme/mattstack/org/settings.org.jsonc", JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }));
+    const spec = teamSnapshotSpec("acme", FAKE_REPO_DIR, { ownedRoots: ["mattstack/teams/widgets"], probes: p, originUrl: "https://github.com/acme/org.git", pullIntervalSec: 300, readToken: async () => null });
+    return { spec, revoke };
+  }
+
+  test("ownership revoked during the pre-push pull retains pending work and refuses push", async () => {
+    const { spec, revoke } = world();
+    let revokeOnFetch = false;
+    const exec = makeFakeExec([
+      (argv) => { if (revokeOnFetch && gitVerb(argv) === "fetch") revoke(); return undefined; },
+      ...pullResponders({ behind: 0, ahead: 1 }),
+      ...defaultResponders({ statusZ: " M mattstack/teams/widgets/settings.team.jsonc\0" }),
+    ]);
+    const { deps, timers } = baseDeps({ exec: exec.fn });
+    const { repoDir: _r, ...rest } = deps;
+    const handle = startSnapshot(spec, rest);
+    try {
+      await handle.ready;
+      expect((await handle.runNow("watch")).committed).toBe(true);
+      revokeOnFetch = true;
+      timers.fire((timer) => timer.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+      await flushAsync();
+      expect(exec.calls.filter((argv) => gitVerb(argv) === "push")).toEqual([]);
+      expect(handle.status()).toMatchObject({ pullOnly: true, pushPending: true, unownedDirty: ["mattstack/teams/widgets/settings.team.jsonc"] });
+    } finally { handle.stop(); }
+  });
+
+  test("a pending-path read error keeps the pending work and does not report revoked ownership", async () => {
+    const { spec } = world();
+    const exec = makeFakeExec([
+      (argv) => gitVerb(argv) === "diff" ? { stdout: "", stderr: "fatal: unknown remote ref", exitCode: 128 } : undefined,
+      ...pullResponders({ behind: 0, ahead: 1 }),
+      ...defaultResponders({ statusZ: " M mattstack/teams/widgets/settings.team.jsonc\0" }),
+    ]);
+    const { deps, timers } = baseDeps({ exec: exec.fn });
+    const { repoDir: _r, ...rest } = deps;
+    const handle = startSnapshot(spec, rest);
+    try {
+      await handle.ready;
+      await handle.runNow("watch");
+      timers.fire((timer) => timer.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+      await flushAsync();
+      expect(exec.calls.filter((argv) => gitVerb(argv) === "push")).toEqual([]);
+      expect(handle.status()).toMatchObject({ pullOnly: false, pushPending: true, lastPushError: "rt could not check your pending changes", unownedDirty: [] });
+    } finally { handle.stop(); }
+  });
+
+  test("partial revocation refuses pending commits outside the remaining owned team", async () => {
+    const { spec } = world();
+    let roots = ["mattstack/teams/widgets", "mattstack/teams/gadgets"];
+    spec.readAuthorization = () => ({ pullOnly: false, scope: (path) => roots.some((root) => path.startsWith(`${root}/`)) });
+    let revokeOnFetch = false;
+    const exec = makeFakeExec([
+      (argv) => { if (revokeOnFetch && gitVerb(argv) === "fetch") roots = ["mattstack/teams/gadgets"]; return undefined; },
+      (argv) => gitVerb(argv) === "diff" ? { stdout: "mattstack/teams/widgets/settings.team.jsonc\0", stderr: "", exitCode: 0 } : undefined,
+      ...pullResponders({ behind: 0, ahead: 1 }),
+      ...defaultResponders({ statusZ: " M mattstack/teams/widgets/settings.team.jsonc\0" }),
+    ]);
+    const { deps, timers } = baseDeps({ exec: exec.fn });
+    const { repoDir: _r, ...rest } = deps;
+    const handle = startSnapshot(spec, rest);
+    try {
+      await handle.ready;
+      await handle.runNow("watch");
+      revokeOnFetch = true;
+      timers.fire((timer) => timer.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+      await flushAsync();
+      expect(exec.calls.filter((argv) => gitVerb(argv) === "push")).toEqual([]);
+      expect(handle.status()).toMatchObject({ pullOnly: false, pushPending: true, lastPushError: expect.stringContaining("Your role no longer owns"), unownedDirty: ["mattstack/teams/widgets/settings.team.jsonc"] });
+    } finally { handle.stop(); }
+  });
+
+  for (const boundary of ["planned", "staged"] as const) {
+    test(`${boundary}: real git keeps revoked paths and existing index bytes without a commit`, async () => {
+      const { spec, revoke } = world();
+      const repoDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-snapshot-revoked-")));
+      const path = "mattstack/teams/widgets/owned.txt";
+      const git = (...args: string[]) => execFileSync("git", args, { cwd: repoDir, env: childEnv(), encoding: "utf8" });
+      mkdirSync(join(repoDir, "mattstack/teams/widgets"), { recursive: true });
+      git("init", "-q", "-b", "main");
+      git("config", "user.name", "dev2"); git("config", "user.email", "dev2@example.test");
+      writeFileSync(join(repoDir, path), "seed\n"); git("add", "."); git("commit", "-q", "-m", "seed");
+      writeFileSync(join(repoDir, path), "staged\n"); git("add", "--", path);
+      writeFileSync(join(repoDir, path), "working\n");
+      const head = git("rev-parse", "HEAD");
+      const { deps } = baseDeps({ repoDir, exec: async (argv, opts) => {
+        if (gitVerb(argv) === "fetch") return { stdout: "", stderr: "offline fixture", exitCode: 1 };
+        if (boundary === "planned" && gitVerb(argv) === "var") revoke();
+        const result = await runCapture(argv, opts);
+        if (boundary === "staged" && gitVerb(argv) === "add") revoke();
+        return result;
+      } });
+      const { repoDir: _r, ...rest } = deps;
+      const handle = startSnapshot({ ...spec, repoDir }, rest);
+      try {
+        await handle.ready;
+        expect((await handle.runNow("watch")).committed).toBe(false);
+        expect(git("rev-parse", "HEAD")).toBe(head);
+        expect(git("show", `:${path}`)).toBe(boundary === "planned" ? "staged\n" : "working\n");
+        expect(readFileSync(join(repoDir, path), "utf8")).toBe("working\n");
+        expect(handle.status()).toMatchObject({ pullOnly: true, unownedDirty: [path] });
+      } finally { handle.stop(); rmSync(repoDir, { recursive: true, force: true }); }
+    });
+  }
+
+  for (const reason of ["watch", "janitor"] as const) {
+    test(`${reason}: revocation after planning prevents staging dirty paths before the supervisor rescan`, async () => {
+      const { spec, revoke } = world();
+      let revokeOnIdentity = false;
+      let now = 1_000_000;
+      const exec = makeFakeExec([
+        (argv) => { if (revokeOnIdentity && gitVerb(argv) === "var") revoke(); return undefined; },
+        ...pullResponders({ behind: 0, ahead: 0 }),
+        ...defaultResponders({ statusZ: " M mattstack/teams/widgets/settings.team.jsonc\0" }),
+      ]);
+      const { deps } = baseDeps({ exec: exec.fn, now: () => now, readOwners: () => reason === "janitor" ? { zones: { "mattstack/teams/widgets/": { owner: "dev2", claimedAt: "2026-01-01T00:00:00.000Z" } } } : NO_OWNERS });
+      const { repoDir: _r, ...rest } = deps;
+      const handle = startSnapshot(spec, rest);
+      try {
+        await handle.ready;
+        if (reason === "janitor") { await handle.runNow("watch"); now += 7 * 60 * 60 * 1000; }
+        revokeOnIdentity = true;
+        expect((await handle.runNow(reason)).committed).toBe(false);
+        expect(exec.calls.filter((argv) => ["add", "commit"].includes(gitVerb(argv)!))).toEqual([]);
+        expect(handle.status()).toMatchObject({ pullOnly: true, unownedDirty: ["mattstack/teams/widgets/settings.team.jsonc"] });
+      } finally { handle.stop(); }
+    });
+  }
+});
