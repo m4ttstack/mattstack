@@ -10,7 +10,7 @@ export class OwnedResources {
  require(id:string):void{if(!this.ids.has(id))throw new Error("resource is not owned");}
  async stop():Promise<CleanupRow[]>{const rows:CleanupRow[]=[];for(const id of [...this.ids].reverse()){try{await this.close(id);this.ids.delete(id);rows.push({resource:id,ok:true});}catch(e){rows.push({resource:id,ok:false,detail:String(e)});}}return rows;}
 }
-export function launchArgv(cwd:string,config:string[]=[]):string[]{return ["codex","--no-alt-screen","-C",cwd,"-s","workspace-write","-a","never",...config.flatMap(c=>["-c",c]),"You are a disposable harness protocol test worker. Follow only the controller's test instructions. Do not use rt chat, send messages, change project code or launch other agents. Reply READY and nothing else."];}
+export function launchArgv(cwd:string,config:string[]=[],socketPath?:string):string[]{return ["codex",...(socketPath?["--remote",`unix://${socketPath}`]:[]),"--no-alt-screen","-C",cwd,"-s","workspace-write","-a","never",...config.flatMap(c=>["-c",c]),"You are a disposable harness protocol test worker. Follow only the controller's test instructions. Do not use rt chat, send messages, change project code or launch other agents. Reply READY and nothing else."];}
 export function quote(s:string):string{return "'"+s.replaceAll("'","'\\''")+"'";}
 export async function command(argv:string[]):Promise<string>{const proc=Bun.spawn(argv,{env:process.env,stdout:"pipe",stderr:"pipe"});const timer=setTimeout(()=>proc.kill(),45000);try{const [out,err,code]=await Promise.all([new Response(proc.stdout).text(),new Response(proc.stderr).text(),proc.exited]);if(code!==0)throw new Error(`${argv[0]} ${argv[1]}: ${err.slice(0,1500)}`);return out;}finally{clearTimeout(timer);}}
 export function parseHerdrOutput(raw:string):any{return raw.trim()?JSON.parse(raw):{};}
@@ -37,7 +37,7 @@ export async function startLab(o:{repo:string;runDir:string;ev:Evidence}){
    o.ev.record("workspace-created",{workspace,pane,cwd});
    try {
     const config=[`mcp_servers.harness_probe.command=${JSON.stringify(Bun.which("bun")??"bun")}`,`mcp_servers.harness_probe.args=${JSON.stringify([join(o.repo,"scripts/probes/harness/probe-mcp.ts"),join(runDir,"mcp.jsonl"),rtSocket])}`,"sandbox_workspace_write.network_access=false",...scopedOptions];
-    const argv=launchArgv(cwd,config);argv.splice(argv.length-1,0,"--add-dir",runDir);
+    const argv=launchArgv(cwd,config,status.socketPath);argv.splice(argv.length-1,0,"--add-dir",runDir);
     await herdr("pane","run",pane,argv.map(quote).join(" "));
     const deadline=Date.now()+120000;
     while(Date.now()<deadline){

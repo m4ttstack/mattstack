@@ -12,3 +12,7 @@ test("worker launch preserves authentication and scopes config to invocation",()
 });
 
 test("successful pane run with empty stdout is not a failed launch",()=>{expect(parseHerdrOutput("")).toEqual({});expect(parseHerdrOutput('{"result":{"id":"w1"}}')).toEqual({result:{id:"w1"}});});
+test("shared-service probes explicitly connect to the discovered endpoint",()=>{
+ const args=launchArgv("/repo/worker",[],"/home/codex/control.sock");
+ expect(args.slice(args.indexOf("--remote"),args.indexOf("--remote")+2)).toEqual(["--remote","unix:///home/codex/control.sock"]);
+});
