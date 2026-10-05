@@ -315,5 +315,6 @@ func (r *renderer) failure(b protocol.Block) {
 				r.emit(calloutIndent + r.cell(row))
 			}
 		}
+		r.afterCopy = false
 	}
 }
