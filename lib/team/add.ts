@@ -49,9 +49,17 @@ export function addTeam(p: Probes, opts: AddTeamOpts, seams: AddTeamSeams): AddT
   }
   const marketBefore = marketText ?? `${JSON.stringify({ name: org, owner: { name: org }, plugins: [] }, null, 2)}\n`;
   let marketAfter: string;
+  const source = `./mattstack/teams/${team}/packs/${team}`;
   try {
-    marketAfter = addMarketplacePlugin(marketBefore, team, packDescription(team), `./mattstack/teams/${team}/packs/${team}`);
+    const market = JSON.parse(marketBefore) as { plugins?: { name?: string; source?: unknown }[] };
+    if (market.plugins?.some((entry) => entry.name === team && entry.source !== source)) {
+      throw new UserActionableError("team-marketplace-conflict", `Your org's marketplace points ${team} at another pack`, {}, {
+        why: "Ask an org admin to correct its source, then try again.",
+      });
+    }
+    marketAfter = addMarketplacePlugin(marketBefore, team, packDescription(team), source);
   } catch (err) {
+    if (err instanceof UserActionableError) throw err;
     throw new UserActionableError("team-marketplace-invalid", "rt could not read your org's marketplace", {}, {
       why: "Fix its JSON, then try again.",
       log: err instanceof Error ? err.message : String(err),

@@ -225,12 +225,20 @@ describe("teamPublish", () => {
   });
 
   test("no --team and no local team clone exits 2 with no-team", async () => {
-    const deps = baseDeps();
-    const code = await runExpectingProcessExit(() => teamPublish(["--remote", "https://github.com/acme/repo.git", "--json"], {}, deps));
+    const priorHome = process.env.HOME;
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-no-org-")));
+    process.env.HOME = home;
+    try {
+      const deps = baseDeps();
+      const code = await runExpectingProcessExit(() => teamPublish(["--remote", "https://github.com/acme/repo.git", "--json"], {}, deps));
 
-    expect(code).toBe(2);
-    const body = JSON.parse(deps.lines[0]!);
-    expect(body.error.code).toBe("no-team");
+      expect(code).toBe(2);
+      const body = JSON.parse(deps.lines[0]!);
+      expect(body.error.code).toBe("no-team");
+    } finally {
+      process.env.HOME = priorHome;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("--team given but no zone on disk exits 2 with no-team-zone", async () => {

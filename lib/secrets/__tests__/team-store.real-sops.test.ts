@@ -13,7 +13,7 @@ import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
  * without them.
  */
 import { beforeEach, afterEach, describe, test, expect } from "bun:test";
-import { mkdirSync, mkdtempSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync } from "fs";
 import { join } from "path";
 import {
   createRealSecretsExecSeam,
@@ -61,7 +61,11 @@ describe.skipIf(!hasRealSops)("team-store against real sops + age", () => {
     savedHome = process.env.HOME;
     process.env.HOME = mkdtempSync(join(tmpdir(), "rt-team-sops-role-"));
   });
-  afterEach(() => { process.env.HOME = savedHome; });
+  afterEach(() => {
+    const fixtureHome = process.env.HOME;
+    process.env.HOME = savedHome;
+    if (fixtureHome) rmSync(fixtureHome, { recursive: true, force: true });
+  });
   test("writeTeamRecipients + writeTeamSecret + addTeamRecipient + removeTeamRecipient all round-trip against real sops, with real SOPS_AGE_KEY injection into updatekeys", async () => {
     const slug = `realsops-${process.pid}`;
     seedOrg({ org: slug, username: "dev1", roles: { admins: ["dev1"], teams: {} } });

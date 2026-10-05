@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
@@ -12,6 +12,7 @@ import type { MigrationDef } from "../../lib/setup/migrations/index.ts";
 import { composePlan } from "../../lib/setup/plan.ts";
 import { createRealProbes, type Probes } from "../../lib/setup/probes.ts";
 import { orgPullStep, recordForgeIdentity, teamIdentityStep } from "../../lib/setup/steps/org.ts";
+import * as materializer from "../../lib/setup/skills-materialize.ts";
 import { pluginsInstallStep } from "../../lib/setup/steps/plugins.ts";
 import { teamCreateStep, teamJoinStep } from "../../lib/setup/steps/team.ts";
 import { orgRows } from "../../lib/setup/validators/org.ts";
@@ -228,7 +229,7 @@ describe("onboarding in an org", () => {
     expect(activeTeam()).toMatchObject({ org: "acme", team: "acme", reason: "first-team" });
     expect(currentRole("acme")).toEqual({ kind: "admin" });
     expect(settled(events, "team.identity")).toEqual({ state: "skipped", detail: "Already recorded" });
-    expect(settled(events, "org.pull")?.state).not.toBe("failed");
+    expect(settled(events, "org.pull")).toMatchObject({ state: "skipped" });
 
     const plan = await composePlan({ p, secrets: { has: async () => null }, ci: false, mode: "status", orgs: ["acme"] });
     const ids = plan.groups.flatMap((g) => g.rows.map((r) => r.id));
@@ -355,6 +356,32 @@ describe("onboarding in an org", () => {
     expect(execCalls).toContainEqual([deckPath(), "restart", "boxscore"]);
   });
 
+  for (const hasClaude of [true, false]) {
+    test(`team switching with Claude ${hasClaude ? "available" : "missing"} materializes once and reports installation truthfully`, async () => {
+      const p = probes();
+      cloneHere(orgTree([{ username: "dev2", teams: ["gadgets", "widgets"] }]));
+      updateTeamLocal(p, "acme", { forgeUsername: "dev2" });
+      if (!hasClaude) rmSync(join(home, "bin", "claude"));
+      const materialize = materializer.materializeSkills;
+      const outcomes: Awaited<ReturnType<typeof materialize>>[] = [];
+      const scan = spyOn(materializer, "materializeSkills").mockImplementation(async (...args) => {
+        const result = await materialize(...args);
+        outcomes.push(result);
+        return result;
+      });
+      try {
+        const lines: string[] = [];
+        await teamUse(["widgets", "--json"], {}, { probes: p, print: (line) => { lines.push(line); }, deckPath, secrets: SECRETS, secretPresence: { has: async () => null } });
+        const result = JSON.parse(lines[0]!);
+        expect(result.pack).toMatchObject({ installed: hasClaude, enabled: hasClaude });
+        expect(activeTeamSetting()).toBe("widgets");
+        expect(outcomes).toHaveLength(1);
+        expect(outcomes[0]).toMatchObject({ skipped: true, repos: [] });
+        if (!hasClaude) expect(result.pack.detail).toContain("Claude Code is not installed");
+      } finally { scan.mockRestore(); }
+    });
+  }
+
   test("the update run from the old layout: the migration, then the pull that brings the org layout, then identity, then the install against what the pull brought", async () => {
     const p = probes();
     const dir = join(home, ".mattstack", "teams", "acme");
@@ -390,7 +417,7 @@ describe("onboarding in an org", () => {
     expect(order).toEqual(["migration.2026-10-01-example", "org.pull", "team.identity", "plugins.install", "verify"]);
     expect(settled(events, "org.pull")).toEqual({ state: "done", detail: "Pulled acme" });
     expect(settled(events, "team.identity")).toEqual({ state: "done", detail: "You are dev2" });
-    expect(settled(events, "plugins.install")?.state).not.toBe("failed");
+    expect(settled(events, "plugins.install")).toMatchObject({ state: "done" });
     expect(packInstalls()).toEqual(["gadgets@acme"]);
   });
 

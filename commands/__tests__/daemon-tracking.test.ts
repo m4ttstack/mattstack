@@ -1,23 +1,6 @@
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
-/**
- * manageTracking's off-branch — CLI wiring (the rider, RT-50).
- *
- * `lib/daemon-config.ts`'s RT_DIR is a MODULE-LOAD-TIME constant (frozen to
- * whatever HOME was active the first time that module was imported in this
- * process), and the repo-index store's `getStateDb()` singleton binds to
- * ambient HOME the same way (first call in the process, no per-test repoint
- * here) — so `readRepoIndex()` in commands/daemon.ts does NOT follow a
- * per-test HOME repoint the way the settings stores do. Rather than fight
- * that, this test drives manageTracking through its real seams as they
- * actually exist: the repo-index store (ns='repo-index') under the (ambient,
- * process-wide) state.db, and the settings stores under the (same,
- * dynamically-resolved) HOME. Output is captured through the output layer.
- * Every fixture is written with a name unique to
- * this file and precisely restored in afterEach, since the ambient HOME is
- * shared with every other test file in this process that doesn't repoint it.
- */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -27,7 +10,7 @@ import { parse as parseJsonc } from "jsonc-parser";
 import { machineSettingsPath } from "../../lib/rt-paths.ts";
 import { getSetting } from "../../lib/settings/resolve.ts";
 import { serializeIdentity } from "../../lib/settings/identity.ts";
-import { deleteKvValue, getKvValue, setKvValue } from "../../lib/state/index.ts";
+import { closeStateDb, deleteKvValue, getKvValue, setKvValue } from "../../lib/state/index.ts";
 import { DAEMON_SOCK_PATH } from "../../lib/daemon-config.ts";
 import { manageTracking, trackListBlocks } from "../daemon.ts";
 import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
@@ -76,8 +59,14 @@ describe("manageTracking off-branch (CLI wiring)", () => {
   let priorTeamStore: string | null;
   let priorMachineStore: string | null;
   let repoPath: string;
+  let priorHome: string | undefined;
+  let fixtureHome: string;
 
   beforeEach(() => {
+    priorHome = process.env.HOME;
+    closeStateDb();
+    fixtureHome = realpathSync(mkdtempSync(join(tmpdir(), "rt-tracking-home-")));
+    process.env.HOME = fixtureHome;
     io = captureOut();
     ui.__test__.setHuman(() => false);
 
@@ -122,6 +111,9 @@ describe("manageTracking off-branch (CLI wiring)", () => {
     else setKvValue(REPO_INDEX_NS, SERIALIZED, priorRepoIndexEntry);
     restore(sharedStorePath(TEAM_NAME), priorTeamStore);
     restore(machineSettingsPath(), priorMachineStore);
+    closeStateDb();
+    process.env.HOME = priorHome;
+    rmSync(fixtureHome, { recursive: true, force: true });
   });
 
   test("off on a team-tracked repo plants an explicit {mode:\"off\"} marker, not a delete", async () => {
