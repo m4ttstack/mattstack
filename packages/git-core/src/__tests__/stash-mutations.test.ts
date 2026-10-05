@@ -136,6 +136,33 @@ describe("stashApply / stashPop / stashDrop", () => {
     });
   }
 
+  for (const index of [0, 1]) {
+    it(`pop at index ${index} reports not kept when another entry has the same commit`, async () => {
+      const sb = await seeded();
+      try {
+        const client = createGitClient(sb.dir);
+        await sb.write("a.txt", "selected\n");
+        await client.stashPush({ message: "selected" });
+        const selectedHash = (await sb.git(["rev-parse", "stash@{0}"])).trim();
+        await sb.write("a.txt", "temporary\n");
+        const temporaryHash = (await sb.git(["stash", "create", "temporary"])).trim();
+        await sb.git(["checkout", "--", "a.txt"]);
+        await sb.git(["stash", "store", "-m", "temporary", temporaryHash]);
+        await sb.git(["stash", "store", "-m", "duplicate", selectedHash]);
+        await sb.git(["stash", "drop", "stash@{1}"]);
+        expect((await client.stashes()).length).toBe(2);
+
+        expect(await client.stashPop(index)).toEqual({ kept: false });
+        expect(await Bun.file(`${sb.dir}/a.txt`).text()).toBe("selected\n");
+        expect((await client.stashes()).length).toBe(1);
+        expect((await sb.git(["stash", "list", "--format=%gs"])).trim()).toBe(index === 0 ? "On main: selected" : "duplicate");
+        expect((await sb.git(["stash", "list", "--format=%H"])).trim()).toBe(selectedHash);
+      } finally {
+        await sb.cleanup();
+      }
+    });
+  }
+
   it("pop rejects a local-edit collision with a filename containing CONFLICT", async () => {
     const sb = await seeded();
     try {
@@ -191,6 +218,25 @@ describe("stashPop on a conflict", () => {
       await client.stashPush({ message: "mine" });
       await sb.write("a.txt", "committed\n");
       await sb.commitAll("theirs");
+      expect(await client.stashPop(0)).toEqual({ kept: true });
+      expect((await client.stashes()).length).toBe(1);
+      expect(await Bun.file(`${sb.dir}/a.txt`).text()).toContain("<<<<<<<");
+    } finally {
+      await sb.cleanup();
+    }
+  });
+
+  it("a conflicting pop keeps the entry when an untracked filename looks like a drop message", async () => {
+    const sb = await seeded();
+    try {
+      const client = createGitClient(sb.dir);
+      await sb.write("a.txt", "stashed\n");
+      await client.stashPush({ message: "mine" });
+      const selectedHash = (await sb.git(["rev-parse", "stash@{0}"])).trim();
+      await sb.write("a.txt", "committed\n");
+      await sb.commitAll("theirs");
+      await sb.write(`Dropped stash@{0} (${selectedHash})`, "untracked\n");
+
       expect(await client.stashPop(0)).toEqual({ kept: true });
       expect((await client.stashes()).length).toBe(1);
       expect(await Bun.file(`${sb.dir}/a.txt`).text()).toContain("<<<<<<<");
