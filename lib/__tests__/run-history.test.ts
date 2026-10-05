@@ -1,7 +1,7 @@
 /**
  * lib/run-history.ts — thin domain wrapper over lib/state/run-history-store.ts.
  */
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from "fs";
 import { mkdtempSync } from "fs";
@@ -10,6 +10,7 @@ import { join } from "path";
 import { repoDataDir, rtDir } from "../rt-paths.ts";
 import { closeStateDb, getStateDb } from "../state/index.ts";
 import { appendRunHistory, readRunHistory, rekeyRunHistoryTable, type RunHistoryEntry } from "../run-history.ts";
+import { setWarningLog, __test__ as warningTest } from "../ui/warn.ts";
 
 function entry(overrides: Partial<RunHistoryEntry> = {}): RunHistoryEntry {
   return {
@@ -32,14 +33,19 @@ function legacyHistoryPath(repoName: string): string {
 describe("run history — state.db persistence", () => {
   const origHome = process.env.HOME;
   let home: string;
+  let logged: { module: string; message: string }[];
 
   beforeEach(() => {
+    warningTest.reset();
+    logged = [];
+    setWarningLog((module, message) => logged.push({ module, message }));
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-run-history-domain-")));
     process.env.HOME = home;
     closeStateDb();
   });
 
   afterEach(() => {
+    warningTest.reset();
     process.env.HOME = origHome;
     closeStateDb();
   });
@@ -69,13 +75,7 @@ describe("run history — state.db persistence", () => {
     appendRunHistory("legacy-repo", entry({ cmd: "legacy" }));
     appendRunHistory("remote:gitlab.com%2Fg%2Fr", entry({ cmd: "already-keyed" }));
 
-    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
-    let report: Awaited<ReturnType<typeof rekeyRunHistoryTable>>;
-    try {
-      report = await rekeyRunHistoryTable();
-    } finally {
-      warnSpy.mockRestore();
-    }
+    const report = await rekeyRunHistoryTable();
 
     // "legacy-repo" has no repo-index entry in this test HOME, so the
     // real resolver can't derive an identity for it — retained, not lost.
@@ -114,16 +114,13 @@ describe("run history — state.db persistence", () => {
     const path = legacyHistoryPath("repo-e");
     mkdirSync(join(rtDir(), "repos", "repo-e"), { recursive: true });
     writeFileSync(path, "not json\nalso not json\n");
-    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
-
-    try {
-      expect(readRunHistory("repo-e")).toEqual([]);
-      expect(existsSync(path)).toBe(true);
-      expect(existsSync(`${path}.migrated`)).toBe(false);
-      expect(warnSpy).toHaveBeenCalled();
-    } finally {
-      warnSpy.mockRestore();
-    }
+    expect(readRunHistory("repo-e")).toEqual([]);
+    expect(existsSync(path)).toBe(true);
+    expect(existsSync(`${path}.migrated`)).toBe(false);
+    expect(logged).toContainEqual({
+      module: "run-history",
+      message: `legacy run history ${path} had no entries rt could read, left in place`,
+    });
   });
 
   test("appendRunHistory reached WITHOUT a prior read (the single-script rt run early-return path) still imports pre-existing history instead of stranding it", () => {
@@ -177,18 +174,10 @@ describe("run history — state.db persistence", () => {
   }, 20_000);
 
   test("appendRunHistory is best-effort: a persistence failure warns rather than throwing", () => {
-    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      // Force the store write to fail outright (not just SQLITE_BUSY, which
-      // persistOrWarn already swallows) — closeStateDb() then a directory at
-      // state.db's path makes the next getStateDb() call throw on open.
-      closeStateDb();
-      mkdirSync(join(rtDir(), "state.db"), { recursive: true });
+    closeStateDb();
+    mkdirSync(join(rtDir(), "state.db"), { recursive: true });
 
-      expect(() => appendRunHistory("repo-f", entry())).not.toThrow();
-      expect(warnSpy).toHaveBeenCalled();
-    } finally {
-      warnSpy.mockRestore();
-    }
+    expect(() => appendRunHistory("repo-f", entry())).not.toThrow();
+    expect(logged.some(({ module, message }) => module === "run-history" && message.startsWith("could not record run history for repo-f:"))).toBe(true);
   });
 });

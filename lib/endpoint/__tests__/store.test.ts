@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { setWarningLog, __test__ as warningTest } from "../../ui/warn.ts";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from "fs";
 import { mkdtempSync } from "fs";
@@ -61,15 +62,19 @@ describe("claims store — state.db persistence", () => {
     const path = endpointsPath("r5");
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, "{ not valid json");
-    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    warningTest.reset();
+    const warnings: Array<{ module: string; message: string }> = [];
+    setWarningLog((module, message) => warnings.push({ module, message }));
 
     try {
       expect(loadClaims("r5")).toEqual([]);
       expect(existsSync(path)).toBe(true);
       expect(existsSync(`${path}.migrated`)).toBe(false);
-      expect(warnSpy).toHaveBeenCalled();
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]?.module).toBe("state");
+      expect(warnings[0]?.message).toContain("is not valid JSON, left in place:");
     } finally {
-      warnSpy.mockRestore();
+      warningTest.reset();
     }
   });
 

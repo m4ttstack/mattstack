@@ -5,7 +5,8 @@
  * kv table) — round-trip and migrate-on-read behavior here must stay
  * compatible with what that Swift reader expects.
  */
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { setWarningLog, __test__ as warningTest } from "../../lib/ui/warn.ts";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -91,15 +92,19 @@ describe("dev-mode config (state.db)", () => {
     const path = devModeConfigPath();
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, "{ not valid json");
-    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    warningTest.reset();
+    const warnings: Array<{ module: string; message: string }> = [];
+    setWarningLog((module, message) => warnings.push({ module, message }));
 
     try {
       expect(readDevModeConfig()).toEqual({});
       expect(existsSync(path)).toBe(true);
       expect(existsSync(`${path}.migrated`)).toBe(false);
-      expect(warnSpy).toHaveBeenCalled();
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]?.module).toBe("state");
+      expect(warnings[0]?.message).toContain(`legacy state file ${path} is not valid JSON, left in place:`);
     } finally {
-      warnSpy.mockRestore();
+      warningTest.reset();
     }
   });
 

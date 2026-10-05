@@ -11,6 +11,7 @@
  */
 
 import { existsSync, readFileSync, renameSync } from "fs";
+import { warn } from "./ui/warn.ts";
 import { legacyRepoFile } from "./legacy-repo-data.ts";
 import {
   appendRunHistoryEntry,
@@ -65,7 +66,7 @@ function importLegacyHistoryFile(repoName: string): void {
   try {
     raw = readFileSync(path, "utf8");
   } catch (err) {
-    console.warn(`rt: legacy run history ${path} could not be read, leaving in place: ${(err as Error).message}`);
+    warn("run-history", `legacy run history ${path} could not be read, left in place: ${(err as Error).message}`, { context: { path, err } });
     return;
   }
 
@@ -79,7 +80,7 @@ function importLegacyHistoryFile(repoName: string): void {
     }
   }
   if (lines.length > 0 && entries.length === 0) {
-    console.warn(`rt: legacy run history ${path} had no parseable entries, leaving in place`);
+    warn("run-history", `legacy run history ${path} had no entries rt could read, left in place`, { context: { path } });
     return;
   }
 
@@ -88,14 +89,14 @@ function importLegacyHistoryFile(repoName: string): void {
   for (const entry of entries) appendRunHistoryEntry(repoName, entry);
 
   if (entries.length > 0 && !hasRunHistory(repoName)) {
-    console.warn(`rt: imported legacy run history ${path} but the write did not land (db busy?) — leaving it in place to retry on the next read`);
+    warn("run-history", `imported legacy run history ${path}, but the write did not land; left in place to retry`, { context: { path } });
     return;
   }
 
   try {
     renameSync(path, `${path}.migrated`);
   } catch (err) {
-    console.warn(`rt: imported legacy run history ${path} but could not rename it to .migrated: ${(err as Error).message}`);
+    warn("run-history", `imported legacy run history ${path}, but could not rename it: ${(err as Error).message}`, { context: { path, err } });
   }
 }
 
@@ -123,6 +124,6 @@ export function appendRunHistory(repoName: string, entry: RunHistoryEntry): void
     importLegacyHistoryFile(repoName);
     appendRunHistoryEntry(repoName, entry);
   } catch (err) {
-    console.warn(`rt: failed to record run history for ${repoName}: ${(err as Error).message}`);
+    warn("run-history", `could not record run history for ${repoName}: ${(err as Error).message}`, { context: { repo: repoName, err } });
   }
 }

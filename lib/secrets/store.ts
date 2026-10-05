@@ -31,6 +31,8 @@
  * safe for concurrent/multi-process writers.
  */
 
+import { logCliEvent } from "../cli-logger.ts";
+import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 import { resolveBundledTool } from "../bundled-tool.ts";
 import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeSync } from "fs";
 import { dirname, join } from "path";
@@ -500,7 +502,7 @@ export function formatDebugLine(cmd: string[], opts?: { sensitive?: boolean }): 
 
 function debugLog(cmd: string[], sensitive: boolean | undefined): void {
   if (!CLI_DEBUG) return;
-  console.error(formatDebugLine(cmd, { sensitive }));
+  logCliEvent("debug", "secrets", redactCredentials(formatDebugLine(cmd, { sensitive })));
 }
 
 /**

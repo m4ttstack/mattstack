@@ -1,3 +1,4 @@
+import * as out from "../lib/ui/out.ts";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { mattstackHome } from "../lib/rt-paths.ts";
@@ -8,11 +9,20 @@ import { originPushState } from "../lib/setup/home-git.ts";
 import { execWithTimeout } from "../lib/setup/probes.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 
+const PUSH_WORDS: Record<string, string> = { synced: "up to date", "no remote tracking ref": "no remote", unknown: "unknown" };
+const LFS_WORDS: Record<string, string> = { "filter active": "on", "filter not configured": "off", "git-lfs not found": "not installed", unknown: "unknown" };
+
+function formatBytes(n: number): string {
+  return n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export async function stateBackupStatus(args: string[], _ctx: CommandContext): Promise<void> {
   const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
 
   if (!isBackupConfigured()) {
-    console.log("State backup is not configured. Run `rt state backup init` to set up.");
+    if (json) out.json({ configured: false });
+    else out.print(out.line("off", "Encrypted backup is not set up"), out.callout("next", out.cmd("rt state backup init")));
     return;
   }
 
@@ -50,7 +60,7 @@ export async function stateBackupStatus(args: string[], _ctx: CommandContext): P
   }
 
   if (json) {
-    console.log(JSON.stringify({ configured: true, recipients: recip.length, apps: status }));
+    out.json({ configured: true, recipients: recip.length, apps: status });
     return;
   }
 
@@ -80,28 +90,14 @@ export async function stateBackupStatus(args: string[], _ctx: CommandContext): P
     }
   }
 
-  if (json) {
-    console.log(JSON.stringify({
-      configured: true,
-      recipients: recip.length,
-      pushState,
-      lfsState,
-      apps: status,
-    }));
-    return;
-  }
-
-  console.log(`State backup: configured, ${recip.length} recipient(s)`);
-  console.log(`Sweep: every 4 hours`);
-  console.log(`Push: ${pushState}`);
-  console.log(`LFS: ${lfsState}`);
-  console.log("");
-
-  for (const s of status) {
-    if (s.lastBackup) {
-      console.log(`  ${s.app}: ${s.count} backup(s), ${(s.totalBytes / 1024).toFixed(0)}K total, latest: ${s.lastBackup}`);
-    } else {
-      console.log(`  ${s.app}: no backups`);
-    }
-  }
+  const pushed = /^(\d+) commit\(s\) ahead$/.exec(pushState);
+  out.print(
+    out.line("done", "Encrypted backup is set up", `${recip.length} ${recip.length === 1 ? "key" : "keys"} can decrypt it`),
+    out.kv("backups", "every 4 hours"),
+    out.kv("pushed", pushed ? `${pushed[1]} not pushed yet` : (PUSH_WORDS[pushState] ?? pushState)),
+    out.kv("Git LFS", LFS_WORDS[lfsState] ?? lfsState),
+    out.table(status.map((s) => s.lastBackup
+      ? [out.strong(s.app), `${s.count} backup${s.count === 1 ? "" : "s"}`, formatBytes(s.totalBytes), out.dim(`latest ${s.lastBackup}`)]
+      : [out.strong(s.app), out.dim("no backups")])),
+  );
 }

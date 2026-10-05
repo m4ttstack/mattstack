@@ -1,4 +1,5 @@
-import { describe, expect, test, beforeEach, afterEach, spyOn } from "bun:test";
+import { setWarningLog, __test__ as warnings } from "../../ui/warn.ts";
+import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -9,9 +10,9 @@ import { appendRunHistoryEntry, listRunHistory } from "../run-history-store.ts";
 describe("rekeyKvNamespace", () => {
   const origHome = process.env.HOME;
   let home: string;
-  let warnSpy: ReturnType<typeof spyOn<Console, "warn">>;
-  beforeEach(() => { home = mkdtempSync(join(tmpdir(), "rt-rek-")); process.env.HOME = home; closeStateDb(); warnSpy = spyOn(console, "warn").mockImplementation(() => {}); });
-  afterEach(() => { warnSpy.mockRestore(); process.env.HOME = origHome; closeStateDb(); rmSync(home, { recursive: true, force: true }); });
+  let logged: string[];
+  beforeEach(() => { home = mkdtempSync(join(tmpdir(), "rt-rek-")); process.env.HOME = home; closeStateDb(); warnings.reset(); logged = []; setWarningLog((_module, message) => logged.push(message)); });
+  afterEach(() => { warnings.reset(); process.env.HOME = origHome; closeStateDb(); rmSync(home, { recursive: true, force: true }); });
 
   test("a legacy name resolvable to a remote identity is re-keyed", async () => {
     setKvValue("repo-index", "repo-tools", "/tmp/does-not-need-to-exist");
@@ -38,16 +39,16 @@ describe("rekeyKvNamespace", () => {
     const report = await rekeyKvNamespace("demo-ns", { resolve: async () => null });
     expect(report.retained).toEqual(["ghost"]);
     expect(listKvValues("demo-ns")["ghost"]).toEqual({ v: 3 });
-    expect(warnSpy).toHaveBeenCalled();
+    expect(logged).toContain("could not re-key demo-ns/ghost to an identity; left in place");
   });
 });
 
 describe("rekeyTableColumn", () => {
   const origHome = process.env.HOME;
   let home: string;
-  let warnSpy: ReturnType<typeof spyOn<Console, "warn">>;
-  beforeEach(() => { home = mkdtempSync(join(tmpdir(), "rt-rek-table-")); process.env.HOME = home; closeStateDb(); warnSpy = spyOn(console, "warn").mockImplementation(() => {}); });
-  afterEach(() => { warnSpy.mockRestore(); process.env.HOME = origHome; closeStateDb(); rmSync(home, { recursive: true, force: true }); });
+  let logged: string[];
+  beforeEach(() => { home = mkdtempSync(join(tmpdir(), "rt-rek-table-")); process.env.HOME = home; closeStateDb(); warnings.reset(); logged = []; setWarningLog((_module, message) => logged.push(message)); });
+  afterEach(() => { warnings.reset(); process.env.HOME = origHome; closeStateDb(); rmSync(home, { recursive: true, force: true }); });
 
   const row = { ts: "2026-08-24T00:00:00Z", cmd: "bun test", cwd: "/repo", worktree: "/repo", branch: "main", pkg: ".", script: "test", exit: 0 };
 
@@ -73,7 +74,7 @@ describe("rekeyTableColumn", () => {
     const report = await rekeyTableColumn("run_history", "repo", { resolve: async () => null });
     expect(report.retained).toEqual(["ghost-repo"]);
     expect(listRunHistory("ghost-repo", 10, getStateDb())).toHaveLength(1);
-    expect(warnSpy).toHaveBeenCalled();
+    expect(logged).toContain("could not re-key run_history.repo=ghost-repo to an identity; left in place");
   });
 
   test("a legacy row colliding with an already-identity row migrates without throwing, leaving exactly the identity row", async () => {
@@ -90,6 +91,6 @@ describe("rekeyTableColumn", () => {
 
     const rows = db.query("SELECT repo, port FROM endpoint_claims WHERE worktree = 'wt1' AND role = 'web'").all() as { repo: string; port: number }[];
     expect(rows).toEqual([{ repo: "remote:gitlab.com%2Fg%2Facme-repo", port: 5000 }]);
-    expect(warnSpy).toHaveBeenCalled();
+    expect(logged.some((message) => /^endpoint_claims\.repo=acme-repo \(rowid \d+\) collided with an existing remote:gitlab.com%2Fg%2Facme-repo row; dropped the stale legacy duplicate$/.test(message))).toBe(true);
   });
 });
