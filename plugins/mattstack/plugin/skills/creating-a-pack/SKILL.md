@@ -12,7 +12,10 @@ rules. One team folder holds one pack, named after the team: the widgets
 team in the acme org has its pack at
 `~/.mattstack/teams/acme/mattstack/teams/widgets/packs/widgets/`.
 
-Walk this map to the end; a pack is not done until it is published.
+Walk this map to the end; a pack is not done until it is published. A
+successful init publishes the new pack itself: it commits the pack, the
+team's claim and the marketplace entry in one commit and pushes the org
+clone, and says how that went in the envelope's `published`.
 
 ```dot
 digraph create_pack {
@@ -34,6 +37,11 @@ digraph create_pack {
     "Ask an org admin to add the team" [shape=box];
     "rt skills init --json --team <team> --repo <repo-path>" [shape=plaintext];
     "Envelope?" [shape=diamond];
+    "published.pushed?" [shape=diamond];
+    "Relay published.reason" [shape=box];
+    "rt team publish --team <org>" [shape=plaintext];
+    "Publish result?" [shape=diamond];
+    "Gate: share did not land" [shape=box];
     "Relay error.message verbatim" [shape=box];
     "Refusal code?" [shape=diamond];
     "Init runs = 2?" [shape=diamond];
@@ -46,6 +54,7 @@ digraph create_pack {
     "STOP: never re-run init on a written pack" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Follow the printed remedy" [shape=box];
     "The remedy completed the pack?" [shape=diamond];
+    "Commit the pack in the org clone" [shape=box];
     "Gate: remedy did not complete the pack" [shape=box];
     "In a herdr pane?" [shape=diamond];
     "rt pane send self --text \"/reload-plugins\" --then \"Continue: <tryNext> with a small real ticket\"" [shape=plaintext];
@@ -60,14 +69,9 @@ digraph create_pack {
     "Rules written down?" [shape=diamond];
     "Hand each rule to extending-a-pack, one per round" [shape=box];
     "Say rules can be added any time" [shape=box];
-    "git status -sb" [shape=plaintext];
-    "Org clone state?" [shape=diamond];
     "Push the org clone's default branch" [shape=box];
     "Org push landed?" [shape=diamond];
     "Gate: org push rejected" [shape=box];
-    "Status checks = 3?" [shape=diamond];
-    "Wait for the daemon's snapshot commit" [shape=box];
-    "Gate: snapshot never landed" [shape=box];
     "Stopped at prerequisites" [shape=doublecircle];
     "Stopped: refusal relayed" [shape=doublecircle];
     "Handed to the author" [shape=doublecircle];
@@ -93,7 +97,15 @@ digraph create_pack {
     "rt team add <team> --owner <username>" -> "rt skills init --json --team <team> --repo <repo-path>";
     "rt team create <Name> --remote <url> --first-team <team>" -> "rt skills init --json --team <team> --repo <repo-path>";
     "rt skills init --json --team <team> --repo <repo-path>" -> "Envelope?";
-    "Envelope?" -> "In a herdr pane?" [label="ok: true"];
+    "Envelope?" -> "published.pushed?" [label="ok: true"];
+    "published.pushed?" -> "In a herdr pane?" [label="true"];
+    "published.pushed?" -> "Relay published.reason" [label="false"];
+    "Relay published.reason" -> "rt team publish --team <org>";
+    "rt team publish --team <org>" -> "Publish result?";
+    "Publish result?" -> "In a herdr pane?" [label="pushed"];
+    "Publish result?" -> "Gate: share did not land" [label="failed or refused"];
+    "Gate: share did not land" -> "rt team publish --team <org>" [label="retry: author fixed it"];
+    "Gate: share did not land" -> "Handed to the author" [label="author takes over"];
     "Envelope?" -> "Relay error.message verbatim" [label="refused: true"];
     "Envelope?" -> "Relay error.message and error.wrote" [label="refused: false, after a write"];
     "Relay error.message verbatim" -> "Refusal code?";
@@ -114,7 +126,8 @@ digraph create_pack {
     "Gate: write failed after cleanup" -> "Handed to the author" [label="author takes over"];
     "Remove the pack dir" -> "rt skills init --json --team <team> --repo <repo-path>";
     "Follow the printed remedy" -> "The remedy completed the pack?";
-    "The remedy completed the pack?" -> "In a herdr pane?" [label="yes"];
+    "The remedy completed the pack?" -> "Commit the pack in the org clone" [label="yes"];
+    "Commit the pack in the org clone" -> "Push the org clone's default branch";
     "The remedy completed the pack?" -> "Gate: remedy did not complete the pack" [label="no"];
     "Gate: remedy did not complete the pack" -> "Follow the printed remedy" [label="retry with their note"];
     "Gate: remedy did not complete the pack" -> "Handed to the author" [label="author takes over"];
@@ -132,22 +145,13 @@ digraph create_pack {
     "Ask the first-rules question once" -> "Rules written down?";
     "Rules written down?" -> "Hand each rule to extending-a-pack, one per round" [label="yes"];
     "Rules written down?" -> "Say rules can be added any time" [label="no"];
-    "Hand each rule to extending-a-pack, one per round" -> "git status -sb";
-    "Say rules can be added any time" -> "git status -sb";
-    "git status -sb" -> "Org clone state?";
-    "Org clone state?" -> "Pack published" [label="clean, not ahead"];
-    "Org clone state?" -> "Push the org clone's default branch" [label="ahead"];
-    "Org clone state?" -> "Status checks = 3?" [label="the snapshot has not committed yet"];
+    "Hand each rule to extending-a-pack, one per round" -> "Pack published";
+    "Say rules can be added any time" -> "Pack published";
     "Push the org clone's default branch" -> "Org push landed?";
-    "Org push landed?" -> "Pack published" [label="yes"];
+    "Org push landed?" -> "In a herdr pane?" [label="yes"];
     "Org push landed?" -> "Gate: org push rejected" [label="no: quote the rejection"];
     "Gate: org push rejected" -> "Push the org clone's default branch" [label="retry: author fixed it"];
     "Gate: org push rejected" -> "Handed to the author" [label="author takes over"];
-    "Status checks = 3?" -> "Wait for the daemon's snapshot commit" [label="no"];
-    "Status checks = 3?" -> "Gate: snapshot never landed" [label="yes"];
-    "Wait for the daemon's snapshot commit" -> "git status -sb";
-    "Gate: snapshot never landed" -> "git status -sb" [label="retry: author fixed it"];
-    "Gate: snapshot never landed" -> "Handed to the author" [label="author takes over"];
 }
 ```
 
@@ -198,6 +202,22 @@ The author is not an org admin, so `rt team add` would be refused. Say the
 team needs a folder, give the command an admin runs
 (`rt team add <team> --owner <username>`, with the author as owner), and
 stop until the folder exists.
+
+### Relay published.reason
+
+`published` is `{ "pushed": false, "reason", "next" }` when the commit or
+the push failed. The pack is installed on this Mac but not shared yet. Say
+so, relay `published.reason`, and run `published.next` on Bash, which is
+`rt team publish --team <org>`: it makes the commit init could not, then
+pushes.
+
+### Gate: share did not land
+
+Quote the `rt team publish` output and propose the next move: a refusal
+means this Mac may not write the team's files (an org admin or the team's
+owner finishes it); when the org repo moved on, `rt team pull` comes first.
+Never force. Retry: the author fixed it; run `rt team publish --team <org>`
+again. Takes over: the pack stays on this Mac for the author to share.
 
 ### Relay error.message verbatim
 
@@ -286,21 +306,22 @@ Each yes is one round of `mattstack:extending-a-pack`, one rule per round.
 No is a complete answer. Say that rules can be added any time with
 `mattstack:extending-a-pack`.
 
+### Commit the pack in the org clone
+
+Init stopped before it shared anything, so the pack the remedy completed
+exists only on this Mac, and nothing commits it for you: the daemon's
+snapshot leaves pack folders to their own publish. In the org clone, stage
+the pack dir and each other `error.wrote` path by name (the team's
+`settings.team.jsonc`, `marketplace.json`), never everything, then commit
+them as `skills: new <pack> pack`.
+
 ### Push the org clone's default branch
 
-Ahead means the daemon's snapshot committed but could not push. From the
-org clone, a bare push (`git_push` refuses a default branch):
+From the org clone, a bare push (`git_push` refuses a default branch):
 
 `git push` <!-- mcp-lint: allow -->
 
 Never force.
-
-### Wait for the daemon's snapshot commit
-
-The daemon's team snapshot commits the org clone on its own within a
-minute of init: a `snapshot:` commit covering the pack dir, the team's
-`settings.team.jsonc` (its `board.projects` claim), and `marketplace.json`.
-Give it that minute before the next status check.
 
 ### Gate: init budget spent
 
@@ -330,14 +351,6 @@ fix the credentials). Never force. Retry: the author fixed it; push again,
 and a second rejection comes back here. Takes over: the commit stays local
 for the author to push.
 
-### Gate: snapshot never landed
-
-Quote the three `git status -sb` results and propose the next move (check
-the daemon is running with `rt_verb {args: ["daemon", "status"]}`, or the
-author commits the org clone). Retry: the author fixed it; check the
-status again, with `Status checks` starting again at zero. Takes over: the
-author commits and pushes the org clone.
-
 ## What the graph cannot show
 
 - Name the team and the app repo explicitly on init, never relying on the
@@ -350,14 +363,17 @@ author commits and pushes the org clone.
   unless the team sets its own), on the org's forge host. Init adds this
   repo to the team's list.
 - An ok envelope is `{ "ok": true, ... }` and carries `pack.name`,
-  `pack.dir`, `tryNext` and `restartNeeded`. `restartNeeded` is always
+  `pack.dir`, `tryNext`, `restartNeeded` and `published`. `restartNeeded`
+  is always
   true; the reload runs in place, never a restart.
-- Before `git status -sb`, `cd ~/.mattstack/teams/<org>` as its own Bash
-  call.
-- At `Pack published`, however the org clone got there, say that the
-  team's members receive the pack through `rt setup` (a Mac installs only
-  its active team's pack), and hand any later change to
-  `mattstack:editing-skills`; a rule made and GREEN in a
+- Before the commit and the push, `cd ~/.mattstack/teams/<org>` as its own
+  Bash call.
+- At `Pack published`, say that the team's members receive the pack
+  through `rt setup` (a Mac installs only its active team's pack). Every
+  later change to the pack goes out through the pack's own publish in
+  `mattstack:editing-skills` (bump, commit, push, then
+  `rt_verb {args: ["skills", "sync", "--pack", "<pack>"]}`), never through
+  the daemon or `rt team publish`; a rule made and GREEN in a
   `mattstack:extending-a-pack` round enters it at `What changed?`.
 
 ## Writing fills later

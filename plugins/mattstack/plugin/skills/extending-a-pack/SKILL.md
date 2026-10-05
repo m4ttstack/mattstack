@@ -334,8 +334,8 @@ bindings can be newer than the team's compiled verbs.
 Hand to `mattstack:editing-skills`: bump, commit, push, check and sync each
 pack (`rt_verb {args: ["skills", "sync", "--pack", "<pack>"]}`), then
 `/reload-plugins`. The round already passed RED and GREEN, so it enters
-editing-skills at `What changed?`. The daemon's team snapshot may commit the
-org clone first; that is fine, the bump and push still go through editing-skills.
+editing-skills at `What changed?`. The daemon's team snapshot leaves pack
+edits to this publish; it is how the edit reaches the team.
 
 ## Red flags
 

@@ -76,12 +76,13 @@ Two things about that pack:
 - **It has no rules yet.** Every stage runs its generic path. That is on
   purpose: the pipeline works on day one, and rules arrive one at a time
   (step 3).
-- **The daemon publishes it.** Within about a minute, the team-snapshot job
-  commits the new files in the org clone and pushes them. The skill checks
-  that this happened (`git -C ~/.mattstack/teams/acme status -sb` is clean
-  and not ahead) and pushes if it did not. The team's members receive the
-  pack through `rt setup`; a machine installs only its active team's
-  pack.
+- **Init publishes it.** Once the pack installs, init commits the new
+  files in the org clone in one commit and pushes them, and its envelope
+  says so in `published`. When that commit or push fails, `published.next`
+  names `rt team publish --team acme`, which finishes it. The team's
+  members receive the pack through `rt setup`; a machine installs only its
+  active team's pack. Later edits go out through the pack's own publish
+  (step 3).
 
 ## 2. Prove it
 
