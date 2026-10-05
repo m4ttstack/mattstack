@@ -68,8 +68,17 @@ still incomplete and production extraction is blocked.
 2026-10-05 evidence review: the built-in reviewer became unavailable, and Matt
 explicitly approved a read-only Claude review of the relevant source and evidence.
 The same native reviewer approved the hydration fixture fix and, after a separate
-document loop, approved the final report. Current root, compiled and static
+document loop, approved the report version committed as `345e2177e`. The later
+timeout follow-up has its own review record. Current root, compiled and static
 commands are green. **B0 admission remains BLOCKED**, with no exception granted,
 because historical deadline-only triggers are not all causally resolved. The
 last prerequisite fix is local commit `af1c9ecd0`; the evidence report and manifest
 record all four prerequisite commits, commands, controls and review artifacts.
+
+
+2026-10-05 timeout follow-up review: the same native reviewer approved the
+investigation report in round two. The measured Git-launch cost is a candidate
+mitigation target, not proof of every historical timeout cause. Neither the
+launcher optimization nor a passing rerun alone clears B0. The report now names
+the causal-verification route and the explicit-reviewed-exception route; no
+exception or production extraction is authorized by this review.

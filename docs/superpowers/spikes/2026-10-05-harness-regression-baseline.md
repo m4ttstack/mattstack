@@ -49,7 +49,7 @@ Read-only audits inspected assertion bodies. Paths below are relative to the rep
 
 [Committed command metadata and hashes](2026-10-05-harness-regression-baseline-evidence.json)
 identify the runs. Raw logs remain under `.harness-spike/baseline-01/` and
-`.harness-spike/baseline-02/` in this worktree and are not committed. Run metadata records each starting HEAD; pre-commit runs can include the
+`.harness-spike/baseline-02/` and `.harness-spike/baseline-03/` in this worktree and are not committed. Run metadata records each starting HEAD; pre-commit runs can include the
 subsequently committed changes identified in the prerequisite sections. A
 starting HEAD is not a claim that uncommitted new cases existed at that revision.
 
@@ -479,18 +479,115 @@ not retroactively prove R1–R3 had the same cause. This retains the approved B0
 rule that a green rerun alone does not erase instability.
 
 The remaining investigation is bounded to the deadline cases identified in
-`root-failure-comparison.json` and the disposition table above. Its next useful
-full-suite diagnostic requires a coordinated window without competing full
-suites, preserving the normal deadlines and capturing native Git timing if a
-failure recurs. No other agent's process may be stopped to obtain that window.
-Alternatively, an explicit reviewed admission exception would need to name its
-allowed extraction scope, rationale, unchanged before/after gates and still-held
-boundaries; this report grants none. The named compaction, native skill audit,
-rendered Board and S9 distribution gates remain as recorded above.
+`root-failure-comparison.json` and the disposition table above. The follow-up
+below identifies Git dispatch as a measurable contributor to execution cost.
+The next useful experiment is a targeted reproduction with timing captured,
+evaluating portable test-only Git resolution as a candidate mitigation. The
+performance gain alone is not a reason to ship that change as a timeout fix.
+Any subsequent full-suite diagnostic requires a coordinated window without
+competing full suites, preserving normal deadlines and recording native Git
+timing. No other agent's process may be stopped to obtain that window.
+
+**Exit rule:** a launcher optimization plus a green broad rerun is insufficient
+by itself. Normal admission requires captured causal reproduction of the affected
+instability, a separately reviewed mitigation shown to resolve that failure with
+the normal deadlines, and the mapped green compatibility gates. If the failures
+remain unreproducible and their original triggers unidentifiable, admission
+requires an explicit reviewed exception naming its allowed extraction scope,
+rationale, unchanged before/after gates and still-held boundaries. Repeated
+passing runs alone do not supply that exception. This report grants none. The
+named compaction, native skill audit, rendered Board and S9 distribution gates
+remain as recorded above.
 
 No integrations implementation, shared-daemon restart, push or merge was
 performed by this baseline continuation. Raw native session history remains
-local; the report records bounded artifacts and hashes. The same native Claude reviewer approved this document in round two on
-2026-10-05. That approval confirms the report and its BLOCKED admission
+local; the report records bounded artifacts and hashes. The same native Claude
+reviewer approved the earlier report version committed as `345e2177e` in round
+two on 2026-10-05; that approval predates the timeout follow-up below. That approval confirms the report and its BLOCKED admission
 decision; it does not grant F2 admission. The prerequisite code commit is
 `af1c9ecd0`, following the other separately reviewed commits listed above.
+
+
+### Timeout investigation follow-up — 2026-10-05, 22:02Z
+
+**Result: a repeatable process-launch cost is proven; the original intermittent
+timeouts did not recur. B0 admission remains BLOCKED.** This investigation changed
+only ignored diagnostic artifacts and process-local environment settings. It did
+not change production code, test assertions, deadlines or the canonical test
+runner.
+
+The six affected files (create, dispose, hydrate, worktree handlers, marketplace
+release and scoped purity) ran with native Git Trace2 and caller-side subprocess
+timing. All **199 tests / 600 assertions passed**, in 97.77 seconds. Git executed
+2,642 top-level calls; its median native duration was 2.65ms and its maximum was
+93.22ms. The historically affected cases performed 9–63 Git calls each. No
+single stalled Git operation reproduced. The observer separates native Git time
+from process startup, shell/interpreter work and JS completion; the remaining
+time is not automatically attributed to one mechanism.
+
+A controlled 120-call comparison found that invoking `/usr/bin/git` cost
+17–19ms at the median, versus 4–5ms when calling the underlying Xcode Git directly.
+The same executable version and helper directory were verified in both paths:
+Apple Git 2.54.0 (Apple Git-157). Synchronous and asynchronous calls both show
+the difference, and the modes were run in alternating order. The first probe
+invocation matched no tests because its path lacked `./`; that invocation is
+retained as a diagnostic setup failure, not counted as coverage.
+
+A process-local PATH directory containing a symlink to that same executable
+provided a second six-file run: **199 tests / 600 assertions passed**, in 75.65
+seconds. The native Git call count remained 2,642. Median measured time outside
+Git fell from 16.48ms to 5.39ms for matched caller operations. Native Git itself
+was slower in this second run (34.65s aggregate versus 25.95s), which reinforces
+why total elapsed time alone cannot stand in for component measurements.
+
+The five expensive historical worktree cases were then run in A–B–B–A order,
+without the subprocess observer:
+
+| Git lookup | Whole five-case command, seconds | Result |
+| --- | --- | --- |
+| System dispatcher A1 | 6.274 | 5 pass, 0 fail |
+| Same underlying Git, direct B1 | 2.995 | 5 pass, 0 fail |
+| Same underlying Git, direct B2 | 3.015 | 5 pass, 0 fail |
+| System dispatcher A2 | 5.913 | 5 pass, 0 fail |
+
+These are command totals, not individual five-second test deadlines. This
+comparison establishes that repeated system Git dispatch materially increases
+these tests' cost. It supports a narrowly scoped, separately reviewed test-runner
+optimization: resolve the selected Git executable once on macOS and use it for
+the test process, preserving version, configuration, helpers and deliberate fake
+PATH tests. The diagnostic's hard-coded Xcode path is not a portable
+implementation and must not be copied into the committed test runner.
+
+Other boundaries remain explicit:
+
+- The sampled long-lived Git processes are sleeping `fsmonitor--daemon` processes,
+  not evidence of a blocked test Git command. No peer process was stopped. No
+  detached `rt-tests` cleanup process was observed in the initial process check.
+- Captured fixture Git configuration contained only the intentional hooks
+  suppression; no fsmonitor or XDG/global-config override appeared in these runs.
+- Marketplace tests conditionally invoke the installed Claude CLI to validate a
+  local staged catalog, in the script's disposable config. Their shell duration
+  includes that native parser and cannot all be called Git-launch overhead.
+- The historical dispose `dirty` result is consistent with its existing
+  fail-closed handling of a failed Git status command. The earlier timeout killed
+  a child, but its exact command was not captured, so this is a supported possible
+  mechanism rather than a retrospective identification.
+- The existing fixture ownership fixes address late continuations. Today's
+  measurements identify unnecessary launch cost and sensitivity to machine load;
+  they do not establish every missing R1–R3 trigger or grant an admission waiver.
+
+Artifacts are under `.harness-spike/baseline-03/`: `targeted-timing-01`,
+`targeted-native-git-01`, their Trace2/process logs and analysis JSON,
+`git-launch-comparison-summary.json`, `targeted-timing-01-case-costs.json` and
+`paired-summary.json`. Exact commands, starting commit and file hashes are in the
+committed evidence manifest. This narrows the next experiment to a captured targeted reproduction with
+portable test-only Git resolution evaluated as a candidate mitigation, followed
+by the causal-verification or explicit-exception rule above. The observed speed
+improvement alone is insufficient to clear the historical timeout gate.
+
+
+Follow-up review, 2026-10-05: the same read-only Claude reviewer approved this
+timeout investigation in round two after the next-step order, exit rule and
+prior approval scope were clarified. This approves the evidence and its stated
+limits; B0 admission remains BLOCKED. The reviewed-content hash and review
+artifacts are retained in the evidence manifest.

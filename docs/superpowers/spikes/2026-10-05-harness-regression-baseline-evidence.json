@@ -1334,6 +1334,366 @@
     "round": 2,
     "sessionId": "2413bac7-ba1b-4253-8abd-d5bf668a6059",
     "scope": "Report consistency, completeness and alignment with B0; not an admission exception",
-    "evidence": ".harness-spike/baseline-02/baseline-doc-review-round2-result.json"
+    "evidence": ".harness-spike/baseline-02/baseline-doc-review-round2-result.json",
+    "reportCommit": "345e2177e5cbef27a94e4a62c4559326ca37abf1"
+  },
+  "timeoutInvestigation": {
+    "status": "launch-cost-contributor-proven; historical-timeout-not-reproduced",
+    "commit": "345e2177e5cbef27a94e4a62c4559326ca37abf1",
+    "sourceSha256": {
+      "lib/worktree/__tests__/create.test.ts": "990f79204c04f5c92653e780c3889cfd8b3d974299cf03a39c5662163299606b",
+      "lib/worktree/__tests__/dispose.test.ts": "f01014513fd836dbf389b5510307200c4d98eb5a315c979cca51aa45b60e06ae",
+      "lib/worktree/__tests__/hydrate.test.ts": "f2956b27a75bc93fb3a51714d67a691dfe5b1107b63b69418b3e24ef34821075",
+      "lib/daemon/__tests__/worktree-handlers.test.ts": "d9c53377bd257ba74e417a0eceb598f2268c8c244d21f6e340f4b60e439be119",
+      "scripts/__tests__/release-marketplace.test.ts": "52aa5d159454305f0a634b137cfd590839026d6e5eb18565b3c37a705e0bc82f",
+      "scripts/__tests__/no-repo-purity-scoped.test.ts": "3870858ba05f0c0ed52b4264e8aad70a8ccef7d8095a5ff9b005871787d35884"
+    },
+    "canonicalRunnerChanged": false,
+    "deadlineOverride": false,
+    "targetedRuns": [
+      {
+        "command": [
+          "bun",
+          "test",
+          "--preload",
+          "./.harness-spike/baseline-03/observe-processes.ts",
+          "lib/worktree/__tests__/create.test.ts",
+          "lib/worktree/__tests__/dispose.test.ts",
+          "lib/worktree/__tests__/hydrate.test.ts",
+          "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "scripts/__tests__/release-marketplace.test.ts",
+          "scripts/__tests__/no-repo-purity-scoped.test.ts"
+        ],
+        "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+        "commit": "345e2177e5cbef27a94e4a62c4559326ca37abf1",
+        "startedAt": "2026-10-05T21:53:24.062534+00:00",
+        "regularHomeBeforeRepositoryPreload": "/Users/matt",
+        "deadlineOverride": false,
+        "exitCode": 0,
+        "elapsedSeconds": 97.77322854206432,
+        "finishedAt": "2026-10-05T21:55:01.814320+00:00",
+        "logSha256": "2c4a6d96a9c384472ba7f6991fcffaa9a128a8eca6c7fc6d533e67b43b9ccce5"
+      },
+      {
+        "command": [
+          "bun",
+          "test",
+          "--preload",
+          "./.harness-spike/baseline-03/observe-processes.ts",
+          "lib/worktree/__tests__/create.test.ts",
+          "lib/worktree/__tests__/dispose.test.ts",
+          "lib/worktree/__tests__/hydrate.test.ts",
+          "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "scripts/__tests__/release-marketplace.test.ts",
+          "scripts/__tests__/no-repo-purity-scoped.test.ts"
+        ],
+        "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+        "commit": "345e2177e5cbef27a94e4a62c4559326ca37abf1",
+        "startedAt": "2026-10-05T21:59:08.807617+00:00",
+        "regularHomeBeforeRepositoryPreload": "/Users/matt",
+        "deadlineOverride": false,
+        "exitCode": 0,
+        "elapsedSeconds": 75.64907325000968,
+        "finishedAt": "2026-10-05T22:00:24.368997+00:00",
+        "logSha256": "3a3fa6126e12736b4cf8ddf8671b3aac838e88b64a47faccf837cf31aa03e79c"
+      }
+    ],
+    "pairedRuns": [
+      {
+        "label": "pair-system-1",
+        "command": [
+          "bun",
+          "test",
+          "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "--test-name-pattern",
+          "local branches report existing-clean|cutting a new branch refreshes|no golden: cold-creates|a hydrate failure still returns|runs the named tree and fast-forwards"
+        ],
+        "gitLookup": "/usr/bin/git",
+        "startedAt": "2026-10-05T22:01:39.501893+00:00",
+        "loadBefore": [
+          6.15869140625,
+          6.52880859375,
+          6.58544921875
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 6.27400650002528,
+        "loadAfter": [
+          6.3056640625,
+          6.55322265625,
+          6.59326171875
+        ],
+        "logSha256": "f2876f79598f4d3deee379314ab253484563b38b75a330a51c98eb54375c0232"
+      },
+      {
+        "label": "pair-native-1",
+        "command": [
+          "bun",
+          "test",
+          "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "--test-name-pattern",
+          "local branches report existing-clean|cutting a new branch refreshes|no golden: cold-creates|a hydrate failure still returns|runs the named tree and fast-forwards"
+        ],
+        "gitLookup": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan/.harness-spike/baseline-03/native-git-bin/git",
+        "startedAt": "2026-10-05T22:01:45.776439+00:00",
+        "loadBefore": [
+          6.3056640625,
+          6.55322265625,
+          6.59326171875
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 2.9946977919898927,
+        "loadAfter": [
+          6.28076171875,
+          6.5439453125,
+          6.58935546875
+        ],
+        "logSha256": "e3461327a13a88b6fca245430e31022ea8404d752e65cf87931b32e7b5e477c9"
+      },
+      {
+        "label": "pair-native-2",
+        "command": [
+          "bun",
+          "test",
+          "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "--test-name-pattern",
+          "local branches report existing-clean|cutting a new branch refreshes|no golden: cold-creates|a hydrate failure still returns|runs the named tree and fast-forwards"
+        ],
+        "gitLookup": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan/.harness-spike/baseline-03/native-git-bin/git",
+        "startedAt": "2026-10-05T22:01:48.771719+00:00",
+        "loadBefore": [
+          6.28076171875,
+          6.5439453125,
+          6.58935546875
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 3.014948167023249,
+        "loadAfter": [
+          6.09765625,
+          6.50146484375,
+          6.57373046875
+        ],
+        "logSha256": "c9b59f5991b2c1cd4d4f92fb668152dc6a07db444cf4badd0901169cae068682"
+      },
+      {
+        "label": "pair-system-2",
+        "command": [
+          "bun",
+          "test",
+          "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "--test-name-pattern",
+          "local branches report existing-clean|cutting a new branch refreshes|no golden: cold-creates|a hydrate failure still returns|runs the named tree and fast-forwards"
+        ],
+        "gitLookup": "/usr/bin/git",
+        "startedAt": "2026-10-05T22:01:51.787122+00:00",
+        "loadBefore": [
+          6.09765625,
+          6.50146484375,
+          6.57373046875
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 5.912844334030524,
+        "loadAfter": [
+          5.84912109375,
+          6.44287109375,
+          6.552734375
+        ],
+        "logSha256": "5a8582c8f33288a933d93c325e50817e3db618aecd45cd4525366228cbf52638"
+      }
+    ],
+    "artifacts": [
+      {
+        "path": ".harness-spike/baseline-03/analyze-timing.py",
+        "sha256": "8dbcb31a9f39332df58d71aef47fc98f4890cba18ae1aefe1b20627689238044"
+      },
+      {
+        "path": ".harness-spike/baseline-03/git-launch-comparison-summary.json",
+        "sha256": "c501681c11dd3f5c162ca3f2462461145e104f7863e7e63366bac6e61700071e"
+      },
+      {
+        "path": ".harness-spike/baseline-03/git-launch-probe.test.ts",
+        "sha256": "8f9f7ccc180a29a8da00f1ff3790e9c05dc4f3c9aab1f395fb962d82cc19c325"
+      },
+      {
+        "path": ".harness-spike/baseline-03/git-launch-samples.jsonl",
+        "sha256": "ebac4ad7b7e181d0e5b2dddcd58251bbbe739effd656fea6738d195bc80941d1"
+      },
+      {
+        "path": ".harness-spike/baseline-03/git-provenance.json",
+        "sha256": "5f7922edac223a015390e023e1b1855c947ee0eafdad0d56f42c30c5d1c60e6b"
+      },
+      {
+        "path": ".harness-spike/baseline-03/observe-processes.ts",
+        "sha256": "4cfa4cef1e8c90b25ea7710765970710f20fdba01f883a11cd4bc00cc94c771e"
+      },
+      {
+        "path": ".harness-spike/baseline-03/pair-native-1.json",
+        "sha256": "d25f0a5fe76b51f75896b0b5502254585f70461ea0d9d9edbfea6e0cd8856d9d"
+      },
+      {
+        "path": ".harness-spike/baseline-03/pair-native-1.log",
+        "sha256": "e3461327a13a88b6fca245430e31022ea8404d752e65cf87931b32e7b5e477c9"
+      },
+      {
+        "path": ".harness-spike/baseline-03/pair-native-2.json",
+        "sha256": "9c543e3aaca5c9c80f0180e6372462720315df89666930dc220714f3e0a5cf96"
+      },
+      {
+        "path": ".harness-spike/baseline-03/pair-native-2.log",
+        "sha256": "c9b59f5991b2c1cd4d4f92fb668152dc6a07db444cf4badd0901169cae068682"
+      },
+      {
+        "path": ".harness-spike/baseline-03/pair-system-1.json",
+        "sha256": "84e94faf13046119243ecbe5b0de824750f9d3a69e7fe184e4a00657006be72a"
+      },
+      {
+        "path": ".harness-spike/baseline-03/pair-system-1.log",
+        "sha256": "f2876f79598f4d3deee379314ab253484563b38b75a330a51c98eb54375c0232"
+      },
+      {
+        "path": ".harness-spike/baseline-03/pair-system-2.json",
+        "sha256": "a0ca8bf15bdac79339f53a2f80e8c3a0806f96d03b531fa09a76aa50856b0a99"
+      },
+      {
+        "path": ".harness-spike/baseline-03/pair-system-2.log",
+        "sha256": "5a8582c8f33288a933d93c325e50817e3db618aecd45cd4525366228cbf52638"
+      },
+      {
+        "path": ".harness-spike/baseline-03/paired-summary.json",
+        "sha256": "de718b20ca3ecf147be461c577f87ef34bd88723bb6f09f212853b2f52d4c445"
+      },
+      {
+        "path": ".harness-spike/baseline-03/run-paired.py",
+        "sha256": "54e31ed5b881f3fee407aff9ebf561abae957ac30edb1ce913cd05b012241999"
+      },
+      {
+        "path": ".harness-spike/baseline-03/run-targets.py",
+        "sha256": "5faa868d3bf8ac3d90dc0148f4ddb2cff7d0162ed5212c0ce1282a0a5cf7ad06"
+      },
+      {
+        "path": ".harness-spike/baseline-03/targeted-native-git-01-analysis.json",
+        "sha256": "9104faa526028431401c44cfdf36c68c2281303fc4c37fbe0cda3aa001666860"
+      },
+      {
+        "path": ".harness-spike/baseline-03/targeted-native-git-01-git.jsonl",
+        "sha256": "6b59ad8030d7b7eabb69d7ff356aeec6917478a4931168494bf71e434800d90d"
+      },
+      {
+        "path": ".harness-spike/baseline-03/targeted-native-git-01-machine.jsonl",
+        "sha256": "fb8f379b95f1a4a396ae6822f9be2e269ac90ac5a5cb2d8780dfedf11d260b99"
+      },
+      {
+        "path": ".harness-spike/baseline-03/targeted-native-git-01-processes.jsonl",
+        "sha256": "3887e5b01a06ade1f8043e80741296670e55c93cf987ccb2694aea5272e0cbaf"
+      },
+      {
+        "path": ".harness-spike/baseline-03/targeted-native-git-01.json",
+        "sha256": "58d14f1affd90912a76d63277fe078e29c3a99da0ce7dfe01117db5d13231eb6"
+      },
+      {
+        "path": ".harness-spike/baseline-03/targeted-native-git-01.log",
+        "sha256": "3a3fa6126e12736b4cf8ddf8671b3aac838e88b64a47faccf837cf31aa03e79c"
+      },
+      {
+        "path": ".harness-spike/baseline-03/targeted-timing-01-analysis.json",
+        "sha256": "c394d3089d8fdb0a697e27b101abab01041fb6803f9e52dac198841d5380939c"
+      },
+      {
+        "path": ".harness-spike/baseline-03/targeted-timing-01-case-costs.json",
+        "sha256": "b44e16eff221de87c7dc9903d0c1d0555c82063b990a9b0add1600ebe1422bde"
+      },
+      {
+        "path": ".harness-spike/baseline-03/targeted-timing-01-git.jsonl",
+        "sha256": "fe09175f87915698d7dd5791411cc26ec169f48b93f7bb29244bf7320e1f0203"
+      },
+      {
+        "path": ".harness-spike/baseline-03/targeted-timing-01-machine.jsonl",
+        "sha256": "b99847d1d129232cf3d796178a2437f93045ef772fd63e5355584fa602b23554"
+      },
+      {
+        "path": ".harness-spike/baseline-03/targeted-timing-01-processes.jsonl",
+        "sha256": "687bc666a695d655d1a987244c994a125e378d95666cb1e263092d93c3493849"
+      },
+      {
+        "path": ".harness-spike/baseline-03/targeted-timing-01.json",
+        "sha256": "096a81e95d6fe0d15db052f3c63362232cc336345ea175fc325fd4f757f77e71"
+      },
+      {
+        "path": ".harness-spike/baseline-03/targeted-timing-01.log",
+        "sha256": "2c4a6d96a9c384472ba7f6991fcffaa9a128a8eca6c7fc6d533e67b43b9ccce5"
+      },
+      {
+        "path": ".harness-spike/baseline-03/timeout-review-meta.json",
+        "sha256": "0abed7a055b99579f7af9b4de0be94720b48a9a338df47a0307b537fccf0e9bf"
+      },
+      {
+        "path": ".harness-spike/baseline-03/timeout-review-prompt.txt",
+        "sha256": "144031cecb91a4929537fe63d04cc33a96be8d75e5edfd5d0e030f5f8b8385f9"
+      },
+      {
+        "path": ".harness-spike/baseline-03/timeout-review-result.json",
+        "sha256": "947d0b831da76260d12d235d08f96b51474fd12da34c1cff7927202944670945"
+      },
+      {
+        "path": ".harness-spike/baseline-03/timeout-review-round2-meta.json",
+        "sha256": "d6ba6c990e9c5781af0fde0722962823031c466b47c1c45948d317fa6fb3c7d5"
+      },
+      {
+        "path": ".harness-spike/baseline-03/timeout-review-round2-prompt.txt",
+        "sha256": "6e7b990c6abe00002cbddd1d36712ddb8622aabffdbf04b7ec7f5cfe1a8fe9bb"
+      },
+      {
+        "path": ".harness-spike/baseline-03/timeout-review-round2-result.json",
+        "sha256": "507e163acfad7e25ff4c5fae8c4437df993dadee68d567f9145b99627ef33bbf"
+      },
+      {
+        "path": ".harness-spike/baseline-03/timeout-review-round2-stderr.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": ".harness-spike/baseline-03/timeout-review-stderr.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "review": {
+      "status": "Approved",
+      "round": 2,
+      "reviewedReportSha256": "70301d714b39e6245244a1ebda01b5860932f1a01118874fdcb58aeb0ecc905e",
+      "evidence": ".harness-spike/baseline-03/timeout-review-round2-result.json",
+      "scope": "Investigation report and explicit remaining admission requirements; no admission exception."
+    },
+    "launchRunAttempts": [
+      {
+        "command": [
+          "bun",
+          "test",
+          ".harness-spike/baseline-03/git-launch-probe.test.ts"
+        ],
+        "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+        "startedAt": "2026-10-05T21:57:26.767456+00:00",
+        "commit": "345e2177e5cbef27a94e4a62c4559326ca37abf1",
+        "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+        "exitCode": 1,
+        "elapsedSeconds": 0.1,
+        "finishedAt": "2026-10-05T21:57:26.878436+00:00",
+        "logSha256": "abb9e783009c908313b4c785230446224b8c65f119a3b417156cc556d1b6759a",
+        "evidence": ".harness-spike/baseline-01/git-launch-comparison.json"
+      },
+      {
+        "command": [
+          "bun",
+          "test",
+          "./.harness-spike/baseline-03/git-launch-probe.test.ts"
+        ],
+        "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+        "startedAt": "2026-10-05T21:57:38.367769+00:00",
+        "commit": "345e2177e5cbef27a94e4a62c4559326ca37abf1",
+        "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+        "exitCode": 0,
+        "elapsedSeconds": 2.24,
+        "finishedAt": "2026-10-05T21:57:40.628344+00:00",
+        "logSha256": "90c215b594b1ea9083449409366ad5b77574c610fdb073ddf00f88bf1a3b0cb3",
+        "evidence": ".harness-spike/baseline-01/git-launch-comparison-02.json"
+      }
+    ]
   }
 }
