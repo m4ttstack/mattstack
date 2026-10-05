@@ -13,6 +13,7 @@
  */
 
 import { spawnSync } from "child_process";
+import { parseRunningRunDetail } from "../lib/worktree/running-run.ts";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { RT_DIR } from "../lib/daemon-config.ts";
@@ -417,15 +418,15 @@ const DISPOSE_WORDS: Record<string, string> = {
  */
 function disposeReason(reason: string, detail?: string): { words: string; next?: out.CellInput; failed?: true } {
   if (reason === "running-run") {
-    const m = detail ? /^running run (\S+) at (\S+);/.exec(detail) : null;
+    const m = detail ? parseRunningRunDetail(detail) : null;
     if (!m) return { words: detail ?? "a pipeline run is still working in it" };
-    return { words: `a pipeline run is still working in it (run ${m[1]}, at ${m[2]})`, next: out.cmd(`rt runs abandon ${m[1]}`) };
+    return { words: `a pipeline run is still working in it (run ${m.id}, at ${m.stage})`, next: out.cmd(`rt runs abandon ${m.id}`) };
   }
   if (reason === "runs-unreadable") return { words: "rt could not check whether a pipeline run is using it", next: out.cmd("rt runs") };
   if (reason === "remove-failed") return { words: DISPOSE_WORDS[reason]!, failed: true };
   if (reason === "unknown") return { words: DISPOSE_WORDS[reason]!, next: out.cmd("rt worktree list"), failed: true };
   if (DISPOSE_WORDS[reason]) return { words: DISPOSE_WORDS[reason]! };
-  if (reason.startsWith("kind-")) return { words: "rt did not make it, so rt does not remove it" };
+  if (reason.startsWith("kind-")) return { words: "rt did not make it, so rt left it alone" };
   return { words: reason };
 }
 

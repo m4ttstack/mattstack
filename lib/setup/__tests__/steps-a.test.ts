@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import * as shimModule from "../../endpoint/shim.ts";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { execSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -1382,6 +1383,17 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const outcome = await reposCloneStep.run(ctx);
     expect(outcome.state).toBe("skipped");
     expect(p.calls.exec).toEqual([]);
+  });
+
+  test("intercepts.install: logs what rt left alone", async () => {
+    const fake = spyOn(shimModule, "installShims").mockResolvedValue({ installed: [], current: [], skipped: ["deck"], rules: 0 });
+    try {
+      const { ctx, logs } = makeCtx(fakeProbes({ home }));
+      await interceptsInstallStep.run(ctx);
+      expect(logs).toContainEqual({ id: "intercepts.install", line: "rt did not make these, so rt left them alone: deck" });
+    } finally {
+      fake.mockRestore();
+    }
   });
 
   test("intercepts.install: an empty repo index reports 'no commands to shim'", async () => {
