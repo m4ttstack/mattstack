@@ -14,6 +14,7 @@ import {
   renderInterceptShim,
   shimPath,
   shimReport,
+  interceptsOutOfDate,
   staleIntercepts,
   uninstallShims,
   writeInterceptRules,
@@ -431,6 +432,41 @@ describe("staleIntercepts", () => {
     writeCache("r");
     writeAt(teamSettingsPath("acme"), "{}", NEWER);
     expect(staleIntercepts().stale).toBe(true);
+  });
+
+  test("interceptsOutOfDate: a newer store whose rules did not change is not stale", async () => {
+    writeCache("r");
+    writeAt(userSettingsPath(), "{}", NEWER);
+    const same = async () => [{ command: "c", repo: "r", repoRemote: null, matches: [] }];
+    expect(await interceptsOutOfDate(same)).toEqual({ stale: false });
+    let rebuilt = false;
+    const spy = async () => {
+      rebuilt = true;
+      return [];
+    };
+    expect(await interceptsOutOfDate(spy)).toEqual({ stale: false });
+    expect(rebuilt).toBe(false);
+  });
+
+  test("interceptsOutOfDate: a newer store whose rules changed stays stale and names the file", async () => {
+    writeCache("r");
+    writeAt(userSettingsPath(), "{}", NEWER);
+    const changed = async () => [{ command: "c", repo: "r2", repoRemote: null, matches: [] }];
+    const probe = await interceptsOutOfDate(changed);
+    expect(probe.stale).toBe(true);
+    expect(probe.reason).toContain(userSettingsPath());
+  });
+
+  test("interceptsOutOfDate: no newer store never rebuilds the rules", async () => {
+    writeCache("r");
+    writeAt(userSettingsPath(), "{}", OLDER);
+    let built = false;
+    const spy = async () => {
+      built = true;
+      return [];
+    };
+    expect(await interceptsOutOfDate(spy)).toEqual({ stale: false });
+    expect(built).toBe(false);
   });
 
   test("a legacy intercepts.json (no store row yet) is imported by the probe itself, and a newer store still reports stale — not the pre-fix {stale:false} on a null cache", () => {

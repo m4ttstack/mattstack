@@ -55,6 +55,34 @@ describe("resolveRealBinary", () => {
     const dir = mkdtempSync(join(tmpdir(), "rt-resolve-empty-"));
     delete process.env.RT_INTERCEPT_REAL;
     process.env.PATH = dir;
-    expect(resolveRealBinary("no-such-command")).toBeNull();
+    expect(resolveRealBinary("no-such-command", [])).toBeNull();
+  });
+
+  test("falls back to the well-known bin dirs when the app's minimal PATH has no copy", () => {
+    const pathDir = mkdtempSync(join(tmpdir(), "rt-resolve-minimal-"));
+    const brewDir = mkdtempSync(join(tmpdir(), "rt-resolve-brew-"));
+    const realPath = makeExecutable(brewDir, "fakecmd3", "#!/bin/sh\necho real\n");
+    delete process.env.RT_INTERCEPT_REAL;
+    process.env.PATH = pathDir;
+    expect(resolveRealBinary("fakecmd3", [brewDir])).toBe(realPath);
+  });
+
+  test("PATH still wins over the well-known bin dirs", () => {
+    const pathDir = mkdtempSync(join(tmpdir(), "rt-resolve-path-"));
+    const brewDir = mkdtempSync(join(tmpdir(), "rt-resolve-brew-"));
+    const onPath = makeExecutable(pathDir, "fakecmd4", "#!/bin/sh\necho path\n");
+    makeExecutable(brewDir, "fakecmd4", "#!/bin/sh\necho brew\n");
+    delete process.env.RT_INTERCEPT_REAL;
+    process.env.PATH = pathDir;
+    expect(resolveRealBinary("fakecmd4", [brewDir])).toBe(onPath);
+  });
+
+  test("a shim copy in a well-known dir is still skipped", () => {
+    const pathDir = mkdtempSync(join(tmpdir(), "rt-resolve-minimal-"));
+    const brewDir = mkdtempSync(join(tmpdir(), "rt-resolve-brew-"));
+    makeExecutable(brewDir, "fakecmd5", ["#!/bin/sh", GENERATED_MARKER, 'exec rt intercept run fakecmd5 -- "$@"', ""].join("\n"));
+    delete process.env.RT_INTERCEPT_REAL;
+    process.env.PATH = pathDir;
+    expect(resolveRealBinary("fakecmd5", [brewDir])).toBeNull();
   });
 });

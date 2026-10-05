@@ -20,7 +20,9 @@
  */
 
 import { closeSync, openSync, readSync, realpathSync, statSync } from "fs";
+import { homedir } from "os";
 import { join } from "path";
+import { wellKnownBinDirs } from "../lib/bundled-tool.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
@@ -28,7 +30,7 @@ import { logCliEvent } from "../lib/cli-logger.ts";
 import { redactCredentials } from "../packages/rt-client/src/redact.ts";
 import { daemonQuery } from "../lib/daemon-client.ts";
 import { runCapture } from "../lib/subprocess.ts";
-import { GENERATED_MARKER, loadInterceptRules, shimPath, shimReport, installShims, staleIntercepts, uninstallShims } from "../lib/endpoint/shim.ts";
+import { GENERATED_MARKER, loadInterceptRules, shimPath, shimReport, installShims, interceptsOutOfDate, uninstallShims } from "../lib/endpoint/shim.ts";
 import { runInterception, type RunDeps } from "../lib/endpoint/run.ts";
 
 function toStringEnv(env: Record<string, string | undefined>): Record<string, string> {
@@ -104,7 +106,7 @@ function looksLikeGeneratedShim(path: string): boolean {
  *
  * `RT_INTERCEPT_REAL` overrides the whole search (test/debug escape hatch).
  */
-export function resolveRealBinary(command: string): string | null {
+export function resolveRealBinary(command: string, fallbackDirs: string[] = wellKnownBinDirs(process.env.HOME ?? homedir())): string | null {
   if (process.env.RT_INTERCEPT_REAL) return process.env.RT_INTERCEPT_REAL;
 
   let ownShimPath: string | null = null;
@@ -122,8 +124,10 @@ export function resolveRealBinary(command: string): string | null {
     }
   }
 
+  // The app spawns rt with launchd's minimal PATH, which has no Homebrew dir,
+  // so a brew-installed command behind a shim resolves only through these.
   const pathVar = process.env.PATH ?? "";
-  for (const dir of pathVar.split(":")) {
+  for (const dir of [...pathVar.split(":"), ...fallbackDirs]) {
     if (!dir) continue;
     const candidate = join(dir, command);
     if (candidate === ownShimPath) continue;
@@ -277,7 +281,7 @@ export async function interceptStatus(args: string[]): Promise<void> {
   for (const rule of rules) rulesByRepo[rule.repo] = (rulesByRepo[rule.repo] ?? 0) + 1;
 
   const daemonUp = (await daemonQuery("endpoint:status", {}, 5_000)) !== null;
-  const stale = staleIntercepts();
+  const stale = await interceptsOutOfDate();
 
   if (json) {
     out.json({ ok: true, shims: report, rulesByRepo, daemonUp, stale });
