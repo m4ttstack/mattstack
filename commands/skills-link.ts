@@ -20,8 +20,8 @@ import { envelope } from "../lib/setup/contract.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
 
-function fail(title: string, next?: string): never {
-  out.fail({ title, ...(next ? { next: out.cmd(next) } : {}) });
+function fail(title: string, next?: string, hint?: string): never {
+  out.fail({ title, ...(next ? { next: out.cmd(next) } : {}), ...(hint ? { hint } : {}) });
   process.exit(1);
 }
 
@@ -72,11 +72,11 @@ export async function skillsLink(args: string[]): Promise<void> {
       case "--json": json = true; break;
       case "--from": {
         const value = args[++i];
-        if (value === undefined) fail("--from needs a folder");
+        if (value === undefined || value.startsWith("--")) fail("Which folder should the links come from?", "rt skills link --from <folder>");
         from = value;
         break;
       }
-      default: fail(`rt skills link does not take ${args[i]}`);
+      default: fail("rt skills link does not take that option", undefined, args[i]);
     }
   }
 
@@ -115,7 +115,7 @@ export function linkBlocks(skillsDir: string, claudeSkillsDir: string, result: R
   const conflicts = result.actions.filter((a) => a.kind === "conflict").length;
   return [
     out.section("Skill links", dryRun ? "dry run" : undefined, out.kv("From", skillsDir), out.kv("To", claudeSkillsDir), ...rows),
-    ...(conflicts > 0 ? [out.callout("note", "rt never removes a link it did not make. Sort these out by hand.")] : []),
+    ...(conflicts > 0 ? [out.callout("note", "rt left those alone. Move or rename them by hand, then run this again.")] : []),
     ...(!result.changed && conflicts === 0 ? [out.summary("done", "Everything is already linked")] : []),
   ];
 }

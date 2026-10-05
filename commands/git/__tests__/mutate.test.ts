@@ -127,7 +127,7 @@ test("tag create and delete say what happened; a missing name asks for one", asy
   expect(io.stderr()).toBe("What should the tag be called?\n  next: rt git tag create <name> [--message <m>] [--at <sha>] [--push] [--json]\n");
 });
 
-test("a tag pushed to a --remote URL with a token never prints the token, and --json keeps the value", async () => {
+test("a tag pushed to a remote URL with a token sanitizes the remote in text and JSON", async () => {
   const secret = ["tok", "123"].join("");
   const url = `https://user:${secret}@example.test/x.git`;
   const bare = join(root, "bare.git");
@@ -139,7 +139,7 @@ test("a tag pushed to a --remote URL with a token never prints the token, and --
   expect(io.stdout() + io.stderr()).not.toContain(secret);
   io.clear();
   await inDir(repo, () => tagPushCommand(["v0.0.2-sample", "--remote", url, "--json"]));
-  expect(io.stdout()).toBe(JSON.stringify({ ok: true, name: "v0.0.2-sample", remote: url }) + "\n");
+  expect(io.stdout()).toBe(JSON.stringify({ ok: true, name: "v0.0.2-sample", remote: "https://example.test/x.git" }) + "\n");
 });
 
 test("a tag git will not delete fails with a plain title over git's words", async () => {

@@ -12,7 +12,7 @@ import { homedir } from "os";
 import { dirname, resolve } from "path";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
-import { healErrorClause, updateRepoIndexAsync, type IndexHealResult } from "../lib/repo-index.ts";
+import { updateRepoIndexAsync, type IndexHealResult } from "../lib/repo-index.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../lib/settings/identity.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { failureFor, logFailureDetail, UserActionableError, userErrorPayload } from "../lib/errors.ts";
@@ -25,6 +25,7 @@ import { textInput } from "../lib/ui/prompts.ts";
 import * as ui from "../lib/ui/out.ts";
 import type { Block, Segment } from "../lib/ui/protocol.ts";
 import { checkPack, compilePackAll } from "./skills.ts";
+import { claudeMissingBlocks } from "./skills-sync.ts";
 import { childEnv } from "../lib/subprocess.ts";
 
 export type InitArgs = { repo: string; zone: string | null; json: boolean };
@@ -60,7 +61,7 @@ export function initOutcomeBlocks(o: Extract<InitOutcome, { ok: true }>): Block[
 }
 
 export function initRefusalBlocks(o: Extract<InitOutcome, { ok: false; refused: true }>): Block[] {
-  return [ui.line("refused", o.detail), ...(o.next ? [ui.callout("next", ui.cmd(o.next))] : [])];
+  return [ui.line("refused", o.detail), ...(o.why ? [ui.callout("why", o.why)] : []), ...(o.next ? [ui.callout("next", ui.cmd(o.next))] : [])];
 }
 
 function remedyCell(r: InitRemedy): Array<string | Segment> {
@@ -69,14 +70,29 @@ function remedyCell(r: InitRemedy): Array<string | Segment> {
 }
 
 export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureInput {
-  if (o.refused) return { title: o.detail, ...(o.next ? { next: ui.cmd(o.next) } : {}) };
+  if (o.refused) return { title: o.detail, ...(o.why ? { why: o.why } : {}), ...(o.next ? { next: ui.cmd(o.next) } : {}) };
+  if (o.code === "compile-failed") {
+    return {
+      title: "The new pack did not compile",
+      ...(o.why ? { why: o.why } : {}),
+      next: o.next ? ui.cmd(o.next) : o.remedy ? remedyCell(o.remedy) : ["Fix it, then run ", ui.cmd("rt skills compile"), " and ", ui.cmd("rt skills check")],
+    };
+  }
   const [title = o.detail, ...rest] = o.detail.split("\n");
-  const details = [...rest, ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
+  const details = [...rest, ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : [])];
   return {
     title,
-    next: o.remedy ? remedyCell(o.remedy) : ["Fix it, then run ", ui.cmd("rt skills compile"), " and ", ui.cmd("rt skills check")],
+    ...(o.why ? { why: o.why } : {}),
+    next: o.next ? ui.cmd(o.next) : (o.remedy ? remedyCell(o.remedy) : ["Fix it, then run ", ui.cmd("rt skills compile"), " and ", ui.cmd("rt skills check")]),
     ...(details.length > 0 ? { details: details.join("\n") } : {}),
   };
+}
+
+export function initFailureAfter(o: Extract<InitOutcome, { ok: false }>): Block[] {
+  if (o.refused) return [];
+  if (o.code !== "compile-failed") return o.wrote.length > 0 ? [ui.verbatim(o.wrote, "written so far")] : [];
+  const lines = [...o.detail.split("\n"), ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
+  return [ui.verbatim(lines, "what did not compile")];
 }
 
 export function initMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string; warnings: string[]; pruneWarnings: string[] } {
@@ -90,9 +106,10 @@ export function initMaterializeVerdict(r: MaterializeSkillsResult, pack: string)
 }
 
 export function repoListFailure(dir: string, indexed: Omit<Extract<IndexHealResult, { ok: false }>, "ok">): UserActionableError {
-  return new UserActionableError("locate-failed", `rt could not add ${dir} to its repo list: ${healErrorClause(indexed.error)}`, {}, {
-    ...(indexed.why ? { why: indexed.why } : {}),
+  return new UserActionableError("locate-failed", "rt could not add this repo to its list", {}, {
+    why: indexed.why ?? indexed.error,
     ...(indexed.next ? { next: indexed.next } : {}),
+    log: `${dir}: ${indexed.error}`,
   });
 }
 
@@ -238,10 +255,12 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
     else ui.json(userErrorPayload(new UserActionableError(out.code, out.detail, { refused: false, wrote: out.wrote })));
   } else if (out.ok) {
     ui.print(...initOutcomeBlocks(out));
+  } else if (out.code === "claude-missing") {
+    ui.note(...claudeMissingBlocks());
   } else if (out.refused && POLICY_REFUSALS.has(out.code)) {
     ui.note(...initRefusalBlocks(out));
   } else {
-    ui.fail(initFailure(out));
+    ui.fail(initFailure(out), ...initFailureAfter(out));
   }
   if (!out.ok) process.exitCode = out.refused ? 2 : 1;
 }

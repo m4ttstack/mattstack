@@ -182,7 +182,11 @@ export function syncFailure(report: SyncReport): out.FailureInput | null {
   return { title: `The sync stopped at: ${stepTitle(failed)}`, why, ...(rest.length > 0 ? { details: rest.join("\n") } : {}) };
 }
 
-export async function skillsSync(args: string[]): Promise<void> {
+export function claudeMissingBlocks(): Block[] {
+  return [out.line("needs-you", "Claude Code is not installed", "rt installs and syncs packs through it"), out.callout("next", "Install Claude Code, then run this again")];
+}
+
+export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]; deps: SyncDeps }): Promise<void> {
   const json = args.includes("--json");
   const packFlag = flagValue(args, "--pack");
   const target = manifestTarget(args);
@@ -201,7 +205,7 @@ export async function skillsSync(args: string[]): Promise<void> {
     fail(err.message, usageFailure("Which signature?", "rt skills sync --commit-pending --expect <signature>", "Pass the signature rt skills changes --json printed for the changes you looked at."));
   }
 
-  const packs = discoverPacks();
+  const packs = overrides?.packs ?? discoverPacks();
   if (packs.length === 0) {
     fail("no packs discovered (no directory marketplace plugin carries a surface.jsonc); pass --pack <name>", {
       title: "No packs found",
@@ -216,7 +220,7 @@ export async function skillsSync(args: string[]): Promise<void> {
     else fail(`which pack? pass --pack <name> (discovered: ${names})`, usageFailure("Which pack?", "rt skills sync --pack <name>", `There is more than one: ${names}.`));
   }
   const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
-  const deps: SyncDeps = {
+  const deps: SyncDeps = overrides?.deps ?? {
     run: async (cmd, cmdArgs, opts) => {
       const proc = Bun.spawn([cmd, ...cmdArgs], { cwd: opts?.cwd, env: childEnv(), stdout: "pipe", stderr: "pipe" });
       const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
@@ -259,7 +263,8 @@ export async function skillsSync(args: string[]): Promise<void> {
     const blocks = syncBlocks(report);
     if (blocks.length > 0) out.print(...blocks);
     const refusal = syncRefusal(report);
-    if (refusal) out.note(...refusal);
+    if (deps.claudeBin === null && report.steps.some((step) => step.name === "guards" && step.status === "refused")) out.note(...claudeMissingBlocks());
+    else if (refusal) out.note(...refusal);
     const failure = syncFailure(report);
     if (failure) out.fail(failure);
   }

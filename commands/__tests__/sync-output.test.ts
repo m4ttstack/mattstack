@@ -153,11 +153,36 @@ describe("sync all's summary", () => {
 });
 
 describe("what sync all prints under a branch once its sync ends", () => {
-  test("a conflict that was undone shows its files and its backup", () => {
-    const failure = conflictFailure({ unresolvedFiles: ["a.txt"], backupBranch: "rt-backup/rebase/feature/2026-09-30T10-00-00" });
-    expect(renderPlain(branchEnding(summary({ error: failure.title, failure })))).toBe(
-      "The rebase stopped on conflicts in 1 file\n  why: rt put the branch back the way it was.\n  a.txt\n  A backup is at rt-backup/rebase/feature/2026-09-30T10-00-00\n",
-    );
+  const conflict = (over: Partial<NonNullable<SyncSummary["rebaseResult"]>> = {}) => ({ status: "conflict" as const, branch: "feature", target: "origin/main", commitsBehind: 1, resolvedFiles: [], unresolvedFiles: ["a.txt"], postResolveSteps: [], backupBranch: "rt-backup/rebase/feature/2026-09-30T10-00-00", ...over });
+  const conflictOutput = "The rebase stopped on conflicts in 1 file\n  why: rt put the branch back the way it was. Your branch as it was is saved as rt-backup/rebase/feature/2026-09-30T10-00-00.\n";
+
+  test("a conflict that was undone shows its files under a caption and its backup in why", () => {
+    const rebaseResult = conflict();
+    const failure = conflictFailure(rebaseResult);
+    const s = summary({ error: failure.title, failure, rebaseResult });
+    expect(renderPlain(branchEnding(s))).toBe(conflictOutput + "files with conflicts:\n  a.txt\n");
+    expect(reportSync(s, false)).toBe(1);
+    expect(io.stderr()).toBe(conflictOutput + "files with conflicts:\n  a.txt\n");
+    expect(io.stdout()).toBe("");
+  });
+
+  test("under --json an undone conflict has no file list and keeps the backup in the stderr tail", () => {
+    const rebaseResult = conflict();
+    const failure = conflictFailure(rebaseResult);
+    expect(compactFailure(failure)).toEqual({ title: failure.title, why: failure.why });
+    expect(reportSync(summary({ error: failure.title, failure, rebaseResult }), true)).toBe(1);
+    expect(io.stderr()).toBe(conflictOutput);
+    expect(io.stdout()).toBe("");
+  });
+
+  test("paused conflicts and empty file lists add no files block", () => {
+    for (const rebaseResult of [conflict({ rebaseInProgress: true }), conflict({ unresolvedFiles: [] })]) {
+      const failure = { title: "The rebase stopped" };
+      const s = summary({ error: failure.title, failure, rebaseResult });
+      expect(branchEnding(s)).toEqual([out.failure(failure)]);
+      expect(reportSync(s, false)).toBe(1);
+    }
+    expect(io.stderr()).toBe("The rebase stopped\n[failed] The rebase stopped\n");
   });
 
   test("a stack member and the uncommitted-changes guard are refused notes; an error with no failure is its own title; a sync that worked prints nothing", () => {

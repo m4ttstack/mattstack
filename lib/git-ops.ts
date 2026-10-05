@@ -5,15 +5,17 @@
  * Uses child_process for all git commands.
  */
 
-import { execFileSync, execSync } from "child_process";
+import { execFileSync } from "child_process";
+
+const GIT_OPTS = { encoding: "utf8" as const, stdio: "pipe" as const };
 
 /**
  * Get the current branch name (or null if detached HEAD).
  */
 export function getCurrentBranch(cwd: string): string | null {
   try {
-    return execSync("git symbolic-ref --quiet --short HEAD", {
-      cwd, encoding: "utf8", stdio: "pipe",
+    return execFileSync("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], {
+      cwd, ...GIT_OPTS,
     }).trim() || null;
   } catch {
     return null;
@@ -25,8 +27,8 @@ export function getCurrentBranch(cwd: string): string | null {
  */
 export function hasUncommittedChanges(cwd: string): boolean {
   try {
-    const stdout = execSync("git status --porcelain", {
-      cwd, encoding: "utf8", stdio: "pipe",
+    const stdout = execFileSync("git", ["status", "--porcelain"], {
+      cwd, ...GIT_OPTS,
     });
     return stdout.trim().length > 0;
   } catch {
@@ -40,8 +42,8 @@ export function hasUncommittedChanges(cwd: string): boolean {
  *  see `getRemoteDefaultBranch`'s own doc comment. */
 function localDefaultBranchSymref(cwd: string, remote: string): string | null {
   try {
-    const ref = execSync(`git symbolic-ref --quiet --short refs/remotes/${remote}/HEAD`, {
-      cwd, encoding: "utf8", stdio: "pipe",
+    const ref = execFileSync("git", ["symbolic-ref", "--quiet", "--short", `refs/remotes/${remote}/HEAD`], {
+      cwd, ...GIT_OPTS,
     }).trim();
     return ref || null;
   } catch {
@@ -54,8 +56,8 @@ function localDefaultBranchSymref(cwd: string, remote: string): string | null {
  *  remote can't hang the caller indefinitely. */
 function remoteDefaultBranchSymref(cwd: string, remote: string): string | null {
   try {
-    const out = execSync(`git ls-remote --symref ${remote} HEAD`, {
-      cwd, encoding: "utf8", stdio: "pipe", timeout: 5000,
+    const out = execFileSync("git", ["ls-remote", "--symref", remote, "HEAD"], {
+      cwd, ...GIT_OPTS, timeout: 5000,
     });
     const match = out.match(/^ref:\s+refs\/heads\/(\S+)\s+HEAD/m);
     return match ? `${remote}/${match[1]}` : null;
@@ -102,6 +104,9 @@ export function getRemoteDefaultBranch(
   remote = "origin",
   opts: { preferRemote?: boolean } = {},
 ): string | null {
+  // git reads a leading dash as an option, whatever argv position it is in.
+  if (remote.startsWith("-")) return null;
+
   const probes = opts.preferRemote
     ? [() => remoteDefaultBranchSymref(cwd, remote), () => localDefaultBranchSymref(cwd, remote)]
     : [() => localDefaultBranchSymref(cwd, remote), () => remoteDefaultBranchSymref(cwd, remote)];
@@ -112,7 +117,7 @@ export function getRemoteDefaultBranch(
 
   for (const candidate of [`${remote}/main`, `${remote}/master`]) {
     try {
-      execSync(`git rev-parse --verify ${candidate}`, { cwd, stdio: "pipe" });
+      execFileSync("git", ["rev-parse", "--verify", candidate], { cwd, ...GIT_OPTS });
       return candidate;
     } catch { /* doesn't exist */ }
   }

@@ -5,7 +5,8 @@ import { join } from "path";
 import { createGitClient } from "../../../packages/git-core/src/index.ts";
 import * as out from "../../../lib/ui/out.ts";
 import { captureOut, type CapturedOut } from "../../../lib/ui/__tests__/capture-out.ts";
-import { amendCommand, stashDropCommand, stashListCommand, stashPopCommand, stashPushCommand, tagCreateCommand, tagDeleteCommand, tagListCommand, undoCommand } from "../mutate.ts";
+import { amendCommand, stashDropCommand, stashListCommand, stashPopCommand, stashPushCommand, tagCreateCommand, tagDeleteCommand, tagListCommand, tagPushEnvelope, undoCommand } from "../mutate.ts";
+import { printable } from "../shared.ts";
 import { exitCodeOf, git, inDir, makeRepo, trapExit } from "./helpers.ts";
 
 let root: string;
@@ -65,6 +66,15 @@ test("tag create, list and delete keep their envelopes", async () => {
 test("a flag is never taken as a tag name", async () => {
   expect(await exitCodeOf(() => inDir(repo, () => tagCreateCommand(["-D", "--json"])))).toBe(1);
   expect(io.stdout()).toBe('{"ok":false,"error":"usage: rt git tag create <name> [--message <m>] [--at <sha>] [--push] [--json]"}\n');
+});
+
+test("tag push --json names the remote as printable shows it", () => {
+  const credentialed = "https://user:secret@gitlab.example.com/acme/app.git";
+  expect(tagPushEnvelope("v1", credentialed)).toEqual({ ok: true, name: "v1", remote: printable(credentialed) });
+  expect(JSON.stringify(tagPushEnvelope("v1", credentialed))).not.toContain("secret");
+  expect(tagPushEnvelope("v1", "origin")).toEqual({ ok: true, name: "v1", remote: "origin" });
+  expect(JSON.stringify(tagPushEnvelope("v1", "origin"))).toBe('{"ok":true,"name":"v1","remote":"origin"}');
+  expect(JSON.stringify(tagPushEnvelope("v1", credentialed))).toBe(`{"ok":true,"name":"v1","remote":${JSON.stringify(printable(credentialed))}}`);
 });
 
 test("amend and undo on a branch another worktree holds keep the refused envelope, exit 1", async () => {

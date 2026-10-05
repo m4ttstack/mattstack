@@ -170,7 +170,7 @@ export interface GitClient {
   stashes(): Promise<StashEntry[]>;
   stashPush(opts?: { message?: string; includeUntracked?: boolean }): Promise<{ created: boolean }>;
   stashApply(index: number): Promise<void>;
-  stashPop(index: number): Promise<void>;
+  stashPop(index: number): Promise<{ kept: boolean }>;
   stashDrop(index: number): Promise<void>;
   fetchState(): Promise<FetchState>;
   fetch(remote?: string, signal?: AbortSignal, opts?: FetchOptions): Promise<void>;

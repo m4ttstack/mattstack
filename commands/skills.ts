@@ -2312,6 +2312,7 @@ async function runApply(flags: SurfaceFlags): Promise<ApplyResult> {
 
   const candidates = [...new Set<string>([...skillsNames, ...attachmentNames])].sort();
   const moved: string[] = [];
+  const blocks: Block[] = [];
 
   for (const name of candidates) {
     const currentlyUnderSkills = skillsNames.has(name);
@@ -2329,12 +2330,18 @@ async function runApply(flags: SurfaceFlags): Promise<ApplyResult> {
     moved.push(name);
 
     if (flags.dryRun) {
-      if (!flags.json) out.print(out.line("pending", name, `would move ${route}`));
+      if (!flags.json) blocks.push(out.line("pending", name, `would move ${route}`));
       continue;
     }
 
-    const note = moveHandAuthoredDir(packDir, move);
-    if (!flags.json) out.print(out.line("done", name, `moved ${route}${note ? ` (${note})` : ""}`));
+    let note: string | null;
+    try {
+      note = moveHandAuthoredDir(packDir, move);
+    } catch (err) {
+      if (!flags.json && blocks.length > 0) out.print(...blocks);
+      throw err;
+    }
+    if (!flags.json) blocks.push(out.line("done", name, `moved ${route}${note ? ` (${note})` : ""}`));
   }
 
   // surface.jsonc only ever names the public side -- internal is the absence
@@ -2348,11 +2355,13 @@ async function runApply(flags: SurfaceFlags): Promise<ApplyResult> {
     if (existsSync(outDirFor(packDir, name, true)) || existsSync(otherSideDir(packDir, name, true))) continue;
     recorded.push(name);
     if (!flags.json) {
-      out.print(out.line("pending", name, flags.dryRun ? "would be recorded; written to skills/ on the next compile" : "recorded; written to skills/ on the next compile"));
+      blocks.push(out.line("pending", name, flags.dryRun ? "would be recorded; written to skills/ on the next compile" : "recorded; written to skills/ on the next compile"));
     }
   }
 
-  if (!flags.json && moved.length === 0 && recorded.length === 0) out.print(out.line("skipped", "Nothing needs to move"));
+  if (!flags.json && moved.length === 0 && recorded.length === 0) blocks.push(out.line("skipped", "Nothing needs to move"));
+
+  if (!flags.json && blocks.length > 0) out.print(...blocks);
 
   if (flags.json) {
     // The recompile runs through compilePackAll, not skillsCompile, so its

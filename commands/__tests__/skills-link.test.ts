@@ -1,14 +1,20 @@
-import { beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
-import { linkBlocks, resolveSkillsDir } from "../skills-link.ts";
+import { linkBlocks, resolveSkillsDir, skillsLink } from "../skills-link.ts";
+import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
+import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 
 let root: string;
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "rt-skills-link-cmd-"));
+});
+
+afterEach(() => {
+  rmSync(root, { recursive: true, force: true });
 });
 
 describe("resolveSkillsDir", () => {
@@ -73,7 +79,7 @@ describe("linkBlocks", () => {
         { ...action, kind: "create" as const, name: "alpha", detail: null },
         { ...action, kind: "ok" as const, name: "beta", detail: null },
         { ...action, kind: "prune" as const, name: "gamma", target: null, detail: "the skill it pointed at is gone: /r/skills/gamma" },
-        { ...action, kind: "conflict" as const, name: "delta", detail: "a file or folder rt did not make has this name" },
+        { ...action, kind: "conflict" as const, name: "delta", detail: "a file or folder already has this name, and rt did not make it" },
         { ...action, kind: "skip" as const, name: "epsilon", detail: "its SKILL.md header has no name" },
       ],
     };
@@ -85,9 +91,9 @@ describe("linkBlocks", () => {
         "[ok] alpha  linked",
         "[ok] beta  already linked",
         "[off] gamma  link removed: the skill it pointed at is gone: /r/skills/gamma",
-        "[needs you] delta  left alone: a file or folder rt did not make has this name",
+        "[needs you] delta  left alone: a file or folder already has this name, and rt did not make it",
         "[skipped] epsilon  not linked: its SKILL.md header has no name",
-        "  note: rt never removes a link it did not make. Sort these out by hand.",
+        "  note: rt left those alone. Move or rename them by hand, then run this again.",
         "",
       ].join("\n"),
     );
@@ -100,5 +106,80 @@ describe("linkBlocks", () => {
     expect(renderPlain(linkBlocks("/r/skills", "/h/.claude/skills", { changed: false, actions: [{ ...action, kind: "ok", name: "alpha", detail: null }] }, false))).toBe(
       "Skill links\nFrom: /r/skills\nTo: /h/.claude/skills\n[ok] alpha  already linked\n\n[ok] Everything is already linked\n",
     );
+  });
+});
+
+describe("rt skills link", () => {
+  let io: CapturedOut;
+  let previousHome: string | undefined;
+
+  beforeEach(() => {
+    previousHome = process.env.HOME;
+    process.env.HOME = root;
+    io = captureSkills();
+  });
+
+  afterEach(() => {
+    io.restore();
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+  });
+
+  test("--from with no value asks which folder to link", async () => {
+    const r = await runExpectingCleanExit(() => skillsLink(["--from"]));
+    expect(r.exitCode).toBe(1);
+    expect(r.errors).toEqual(["Which folder should the links come from?", "  next: rt skills link --from <folder>"]);
+    expect(io.stdout()).toBe("");
+  });
+
+  test.each(["--dry-run", "--json"])("--from rejects %s as a missing folder without creating links", async (option) => {
+    const source = join(root, option, "alpha");
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "SKILL.md"), "---\nname: alpha\ndescription: alpha\n---\n");
+    const previousCwd = process.cwd();
+    process.chdir(root);
+    try {
+      const r = await runExpectingCleanExit(() => skillsLink(["--from", option]));
+      expect(r.exitCode).toBe(1);
+      expect(r.errors).toEqual(["Which folder should the links come from?", "  next: rt skills link --from <folder>"]);
+      expect(io.stdout()).toBe("");
+      expect(readdirSync(root)).toEqual([option]);
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
+
+  test("an unknown option is a hint under a plain title", async () => {
+    const r = await runExpectingCleanExit(() => skillsLink(["--unknown"]));
+    expect(r.exitCode).toBe(1);
+    expect(r.errors).toEqual(["rt skills link does not take that option  --unknown"]);
+    expect(io.stdout()).toBe("");
+  });
+
+  test("the JSON conflict detail explains why rt leaves the directory alone", async () => {
+    const source = join(root, "skills");
+    const target = join(source, "alpha");
+    const claudeSkillsDir = join(root, ".claude", "skills");
+    mkdirSync(target, { recursive: true });
+    mkdirSync(join(claudeSkillsDir, "alpha"), { recursive: true });
+    writeFileSync(join(target, "SKILL.md"), "---\nname: alpha\ndescription: alpha\n---\n");
+    await skillsLink(["--from", source, "--json"]);
+    expect(JSON.parse(io.stdout())).toEqual({
+      contract: 1,
+      at: expect.any(String),
+      ok: true,
+      dryRun: false,
+      skillsDir: source,
+      claudeSkillsDir,
+      changed: false,
+      actions: [{
+        kind: "conflict",
+        name: "alpha",
+        link: join(claudeSkillsDir, "alpha"),
+        target: realpathSync(target),
+        detail: "a file or folder already has this name, and rt did not make it",
+      }],
+    });
+    expect(io.stderr()).toBe("");
   });
 });

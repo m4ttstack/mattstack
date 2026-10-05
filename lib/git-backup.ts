@@ -11,7 +11,7 @@
  *   - rt git restore (interactive restore from any backup)
  */
 
-import { execSync, execFileSync } from "child_process";
+import { execFileSync } from "child_process";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -59,8 +59,9 @@ export function createBackup(operation: string, cwd: string): string {
 export function listBackups(cwd: string): BackupBranch[] {
   let stdout: string;
   try {
-    stdout = execSync(
-      `git branch --list "${BACKUP_PREFIX}*" --format="%(refname:short)\t%(objectname:short)" --sort=-committerdate`,
+    stdout = execFileSync(
+      "git",
+      ["branch", "--list", `${BACKUP_PREFIX}*`, "--format=%(refname:short)\t%(objectname:short)", "--sort=-committerdate"],
       { cwd, encoding: "utf8", stdio: "pipe" },
     );
   } catch {
@@ -106,7 +107,7 @@ export function restoreFromBackup(backupRef: string, cwd: string): void {
  * Delete a specific backup branch.
  */
 export function deleteBackup(backupRef: string, cwd: string): void {
-  execSync(`git branch -D "${backupRef}"`, { cwd, stdio: "pipe" });
+  execFileSync("git", ["branch", "-D", backupRef], { cwd, stdio: "pipe" });
 }
 
 /**
@@ -124,7 +125,7 @@ export function deleteBackupsForBranch(cwd: string, branch: string): number {
 
 function getCurrentBranchOrThrow(cwd: string): string {
   try {
-    const branch = execSync("git symbolic-ref --quiet --short HEAD", {
+    const branch = execFileSync("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], {
       cwd,
       encoding: "utf8",
       stdio: "pipe",

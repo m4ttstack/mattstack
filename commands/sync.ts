@@ -25,7 +25,7 @@ import { loadSyncConfig } from "../lib/sync-config.ts";
 import { deriveRepoIdentity } from "../lib/settings/identity.ts";
 import { repoLabel } from "../lib/repo-label.ts";
 import { shellQuote } from "../lib/herdr-launch.ts";
-import { rebaseOnto, type RebaseResult } from "./git/rebase.ts";
+import { conflictFilesBlock, rebaseOnto, type RebaseResult } from "./git/rebase.ts";
 import { resetToOrigin, type ResetResult } from "./git/reset.ts";
 import { syncLog } from "../lib/sync-log.ts";
 import {
@@ -346,7 +346,10 @@ export function branchEnding(s: SyncSummary): Block[] {
   if (s.refusal) return refusalBlocks(s.refusal);
   if (!s.error) return [];
   const failure = s.failure ?? { title: s.error };
-  return s.refused ? refusalNote(failure) : [out.failure(failure)];
+  const after = s.rebaseResult?.status === "conflict" && !s.rebaseResult.rebaseInProgress && s.rebaseResult.unresolvedFiles.length > 0
+    ? [conflictFilesBlock(s.rebaseResult.unresolvedFiles)]
+    : [];
+  return [...(s.refused ? refusalNote(failure) : [out.failure(failure)]), ...after];
 }
 
 /** Printed alone before a heading: in the same render call as the section, the styled renderer would add a second gap. */
@@ -495,7 +498,10 @@ export function reportSync(summary: SyncSummary, json: boolean): number {
   }
   if (summary.error) {
     const failure = summary.failure ?? { title: summary.error };
-    drawFailure(json ? compactFailure(failure) : failure, summary.refused);
+    const after = !json && summary.rebaseResult?.status === "conflict" && !summary.rebaseResult.rebaseInProgress && summary.rebaseResult.unresolvedFiles.length > 0
+      ? [conflictFilesBlock(summary.rebaseResult.unresolvedFiles)]
+      : [];
+    drawFailure(json ? compactFailure(failure) : failure, summary.refused, after);
     return 1;
   }
   return 0;

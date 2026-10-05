@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, statSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -260,6 +260,47 @@ describe("runEscalationFlow (agent path)", () => {
     expect(io.stderr()).toBe("");
   }, 20_000);
 
+  for (const row of [
+    { name: "multiple lines", stderr: "\nfirst push line\nsecond push line\n", expected: "push output:\n  first push line\n  second push line\n" },
+    { name: "one line", stderr: "single push line\n", expected: "push output:\n  single push line\n" },
+    { name: "empty output", stderr: "", expected: "" },
+    { name: "whitespace-only output", stderr: "\n \t\n", expected: "" },
+  ]) {
+    test(`a failed push with ${row.name} keeps its title and formats its output`, async () => {
+      const repo = makeConflictRepo();
+      const result = await pausedConflict(repo);
+      writeFileSync(join(repo, "app.txt"), "merged change\n");
+      sh("git add app.txt", repo);
+      sh("GIT_EDITOR=true git -c user.email=t@t -c user.name=t rebase --continue", repo);
+      const realGit = Bun.which("git")!;
+      const bin = join(tmpRoot, "bin");
+      const stderrPath = join(tmpRoot, "push-stderr");
+      mkdirSync(bin);
+      writeFileSync(stderrPath, row.stderr);
+      const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+      writeFileSync(join(bin, "git"), `#!/bin/sh
+if [ "$1" = "push" ]; then
+  cat ${quote(stderrPath)} >&2
+  exit 1
+fi
+exec ${quote(realGit)} "$@"
+`, { mode: 0o755 });
+      const savedPath = process.env.PATH;
+      process.env.PATH = `${bin}:${savedPath ?? ""}`;
+      try {
+        const { runner } = scriptedHerdr();
+        const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: true, herdrRunner: runner });
+        expect(code).toBe(1);
+        expect(io.stderr()).toBe("The rebase finished, but the push failed\n" + row.expected);
+        expect(io.stdout()).toBe("[running] An agent is resolving the conflicts  pane p1; Ctrl+C leaves it working\n");
+        expect(verifyRebaseCompleted(repo, "feature", "master")).toBe("completed");
+      } finally {
+        if (savedPath === undefined) delete process.env.PATH;
+        else process.env.PATH = savedPath;
+      }
+    }, 20_000);
+  }
+
   test("agent wait times out: reports and reads the pane, never the removed verb", async () => {
     const repo = makeConflictRepo();
     const result = await pausedConflict(repo);
@@ -284,8 +325,38 @@ describe("runEscalationFlow (agent path)", () => {
     expect(calls).toContainEqual(["pane", "read", "p1", "--source", "recent"]);
     expect(io.errLines()[0]).toBe("The agent did not finish in 10 minutes");
     expect(io.errLines()[1]).toBe("  why: Nothing was pushed.");
-    expect(io.errLines()[2]).toBe("  Pane p1 is still open.");
+    expect(io.errLines()[2]).toBe("pane: p1");
+    expect(io.errLines()[3]).toBe(`backup: ${result.backupBranch}`);
+    expect(io.stderr()).toBe(`The agent did not finish in 10 minutes\n  why: Nothing was pushed.\npane: p1\nbackup: ${result.backupBranch}\nthe end of the pane:\n  last pane output\n`);
     expect(io.stderr()).toEndWith("the end of the pane:\n  last pane output\n");
+  }, 20_000);
+
+  test("an agent that gives up lists its pane and backup before the excerpt", async () => {
+    const repo = makeConflictRepo();
+    const result = await pausedConflict(repo);
+    sh("git rebase --abort", repo);
+    const { runner } = scriptedHerdr({ "pane read": { stdout: "agent gave up" } });
+    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: false, herdrRunner: runner });
+    expect(code).toBe(1);
+    expect(io.stderr()).toBe(`The agent gave up and undid the rebase\npane: p1\nbackup: ${result.backupBranch}\nthe end of the pane:\n  agent gave up\n`);
+  }, 20_000);
+
+  test("an unfinished rebase lists its pane and backup before the excerpt", async () => {
+    const repo = makeConflictRepo();
+    const result = await pausedConflict(repo);
+    const { runner } = scriptedHerdr({ "pane read": { stdout: "agent stopped" } });
+    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: false, herdrRunner: runner });
+    expect(code).toBe(1);
+    expect(io.stderr()).toBe(`The agent stopped, but the rebase is not finished\n  why: The rebase is still paused.\npane: p1\nbackup: ${result.backupBranch}\nthe end of the pane:\n  agent stopped\n`);
+  }, 20_000);
+
+  test("agent failures with no backup still name the pane and omit the backup row", async () => {
+    const repo = makeConflictRepo();
+    const result = { ...await pausedConflict(repo), backupBranch: null };
+    const { runner } = scriptedHerdr({ "agent wait": { stdout: "", exitCode: 1 } });
+    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: false, herdrRunner: runner });
+    expect(code).toBe(1);
+    expect(io.stderr()).toBe("The agent did not finish in 10 minutes\n  why: Nothing was pushed.\npane: p1\n");
   }, 20_000);
 
   test("an existing rebase tab is focused, not waited on: no wait against an empty pane id", async () => {

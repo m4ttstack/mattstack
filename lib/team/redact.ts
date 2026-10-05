@@ -19,6 +19,11 @@ const SSH_REMOTE_RE = /\bgit@\S+:\S+/g;
  */
 const CREDENTIAL_TOKEN_RE = /\b(?:ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|glpat-|xox[abpsr]-|sk-ant-)[A-Za-z0-9_-]+/g;
 
+export function holdsCredentialToken(text: string): boolean {
+  // A fresh non-global regex avoids carrying lastIndex between calls.
+  return new RegExp(CREDENTIAL_TOKEN_RE.source).test(text);
+}
+
 /** Full redaction for free-text error messages, where the exact shape doesn't matter — only that no credential-bearing substring survives. */
 export function withoutUrls(message: string): string {
   return message.replace(URL_RE, "<remote>").replace(SSH_REMOTE_RE, "<remote>").replace(CREDENTIAL_TOKEN_RE, "<redacted>");

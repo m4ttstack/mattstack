@@ -106,7 +106,27 @@ describe("rt skills expand", () => {
   test("--mattstack-dir with no value is a usage error", async () => {
     const r = await runExpectingCleanExit(() => skillsExpand(["--src", join(root, "src"), "--out", join(root, "out"), "--mattstack-dir"]));
     expect(r.exitCode).toBe(1);
-    expect(r.errors.join("\n")).toContain("--mattstack-dir needs a value");
+    expect(r.errors).toEqual(["Which mattstack folder?", "  next: rt skills expand --mattstack-dir <dir>"]);
+  });
+
+  test.each([
+    ["--src", undefined, "Which folder holds the skills to expand?"],
+    ["--src", "--check", "Which folder holds the skills to expand?"],
+    ["--out", undefined, "Which folder should the expanded skills go in?"],
+    ["--out", "--check", "Which folder should the expanded skills go in?"],
+  ])("%s with next argument %s asks for its folder", async (flag, next, title) => {
+    const args = next === undefined ? [flag] : [flag, next];
+    const r = await runExpectingCleanExit(() => skillsExpand(args));
+    expect(r.exitCode).toBe(1);
+    expect(r.errors).toEqual([title, "  next: rt skills expand --src <dir> --out <dir>"]);
+    expect(io.stdout()).toBe("");
+  });
+
+  test("an unknown option is a hint under a plain title", async () => {
+    const r = await runExpectingCleanExit(() => skillsExpand(["--unknown"]));
+    expect(r.exitCode).toBe(1);
+    expect(r.errors).toEqual(["rt skills expand does not take that option  --unknown"]);
+    expect(io.stdout()).toBe("");
   });
 
   test("--strict fails on a shell form in the expanded output, dry run included", async () => {
@@ -151,5 +171,80 @@ describe("rt skills expand", () => {
     const r = await runExpectingCleanExit(() => skillsExpand(base()));
     expect(r.exitCode).toBe(1);
     expect(r.errors.join("\n")).toContain('include "nope"');
+  });
+});
+
+describe("expanded skill diagnostics lists", () => {
+  test.each([1, 2])("check prints %i drift entries after the remedy under diagnostics", async (count) => {
+    if (count === 2) write(join(root, "src", "b", "SKILL.md"), "---\nname: app:b\ndescription: b\n---\n\nShared.\n");
+    const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--check"]));
+    expect(r.exitCode).toBe(1);
+    expect(io.stdout()).toBe("");
+    expect(io.stderr()).toBe(
+      "The expanded skills are out of date\n" +
+      `  next: rt skills expand --src ${join(root, "src")} --out ${join(root, "out")} --mattstack-dir ${root}\n` +
+      "diagnostics:\n  a: missing\n" + (count === 2 ? "  b: missing\n" : ""),
+    );
+  });
+
+  test.each([
+    ["check", 1], ["check", 2], ["expand", 1], ["expand", 2],
+  ] as const)("strict %s prints %i lint entries as a list", async (mode, count) => {
+    write(join(root, "src", "a", "SKILL.md"),
+      "---\nname: app:a\ndescription: a\n---\n\nPost with `glab mr note 3 -m hi`.\n" +
+      (count === 2 ? "Post with `glab mr note 4 -m bye`.\n" : ""),
+    );
+    if (mode === "check") await skillsExpand(base());
+    io.clear();
+    const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--strict", ...(mode === "check" ? ["--check"] : [])]));
+    expect(r.exitCode).toBe(1);
+    const title = mode === "check" ? `The expanded skills have ${count} lint ${count === 1 ? "hit" : "hits"}` : `${count} lint ${count === 1 ? "hit" : "hits"} in the expanded skills`;
+    expect(io.stderr()).toBe(
+      `${title}\n${mode === "check" ? "diagnostics" : "lint"}:\n` +
+      `  ${join(root, "out", "a", "SKILL.md")}:9: \`glab mr note 3 -m hi\` shells out for glab mr note; use the mr_comment tool\n` +
+      (count === 2 ? `  ${join(root, "out", "a", "SKILL.md")}:10: \`glab mr note 4 -m bye\` shells out for glab mr note; use the mr_comment tool\n` : ""),
+    );
+    expect(io.stdout()).toBe(mode === "check" ? "" : "+ a\n");
+  });
+
+  test("strict check puts drift then lint in one diagnostics list after the remedy and keeps its JSON envelope", async () => {
+    write(join(root, "src", "a", "SKILL.md"), "---\nname: app:a\ndescription: a\n---\n\nPost with `glab mr note 3 -m hi`.\n");
+    const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--strict", "--check"]));
+    expect(r.exitCode).toBe(1);
+    expect(io.stderr()).toBe(
+      "The expanded skills are out of date\n" +
+      `  next: rt skills expand --src ${join(root, "src")} --out ${join(root, "out")} --mattstack-dir ${root}\n` +
+      "diagnostics:\n  a: missing\n" +
+      `  ${join(root, "out", "a", "SKILL.md")}:9: \`glab mr note 3 -m hi\` shells out for glab mr note; use the mr_comment tool\n`,
+    );
+    io.clear();
+    const json = await runExpectingCleanExit(() => skillsExpand([...base(), "--strict", "--check", "--json"]));
+    expect(json.exitCode).toBe(1);
+    expect(io.stdout()).toBe(JSON.stringify({
+      ok: false, mode: "check", skills: ["a"], removed: [], drift: [{ skill: "a", causes: ["missing"] }],
+      lint: [`${join(root, "out", "a", "SKILL.md")}:9: \`glab mr note 3 -m hi\` shells out for glab mr note; use the mr_comment tool`],
+    }) + "\n");
+  });
+
+  test.each(["check", "expand"])("strict %s preserves the exact JSON envelope", async (mode) => {
+    write(join(root, "src", "a", "SKILL.md"), "---\nname: app:a\ndescription: a\n---\n\nPost with `glab mr note 3 -m hi`.\n");
+    if (mode === "check") await skillsExpand(base());
+    io.clear();
+    const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--strict", "--json", ...(mode === "check" ? ["--check"] : [])]));
+    expect(r.exitCode).toBe(1);
+    expect(io.stdout()).toBe(JSON.stringify({
+      ok: false, mode, skills: ["a"], removed: [], drift: [],
+      lint: [`${join(root, "out", "a", "SKILL.md")}:9: \`glab mr note 3 -m hi\` shells out for glab mr note; use the mr_comment tool`],
+    }) + "\n");
+  });
+
+  test("clean check and expand do not print empty diagnostics or lint captions", async () => {
+    await skillsExpand([...base(), "--strict"]);
+    expect(io.stdout()).toBe("+ a\n");
+    expect(io.stderr()).toBe("");
+    io.clear();
+    await skillsExpand([...base(), "--strict", "--check"]);
+    expect(io.stdout()).toBe("[ok] The expanded skills are current  1 skill\n");
+    expect(io.stderr()).toBe("");
   });
 });
