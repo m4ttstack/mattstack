@@ -12,18 +12,23 @@ A patch for new and existing team members: team tools behind an intercept (doppl
 
 ### Board
 
+- a review the board just started no longer flashes "review interrupted" while its pane is still opening (#694)
 - a peer ask that hears nothing for 30 minutes says so, a closed review pane is reported to the asker's board, and a running ask can be dismissed (#677)
 - peer review state lives in the board's state database; leftover files are imported once (#677)
 - request review sits in a nested submenu, and empty session rows are hidden (#677)
 
 ### Output
 
-- RT-369 phase 6: agent verbs, daemon, herd and pane, services, git and skills, and chat commands print through the output layer; wording polished throughout (#681, #682, #683, #684, #686, #687, #689)
+- RT-369 phase 6: agent verbs, daemon, herd and pane, services, git and skills, and chat commands print through the output layer; wording polished throughout (#681, #682, #683, #684, #686, #687, #689), and the renderer gets another round (#692)
 
 ### Also
 
 - glitter checks out a stacked branch again, and its refusals paint as a solid band (#676)
 - boxscore cards scroll (918621edf)
+
+### Bundled
+
+- the catalog's fast-browser plugin moves to fast-browser main aac4b69cb0f0 (#695)
 
 ### Held pins
 
