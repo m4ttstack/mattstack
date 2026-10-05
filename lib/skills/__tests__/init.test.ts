@@ -437,7 +437,8 @@ describe("initPack", () => {
     const out = await initPack({ repoDir: REPO, zone: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: true, code: "invalid-namespace" });
     if (out.ok || !out.refused) return;
-    expect(out.detail).toContain("../escape");
+    expect(out.detail).toBe("The acme zone's name cannot be a pack name");
+    expect(out.why).toBe("Pack names use lowercase letters, digits and dashes; this one is ../escape.");
     expect(fs.exists(`${HOME}/.mattstack/teams/acme/mattstack/packs`)).toBe(false);
     expect(fs.exists(`${HOME}/escape`)).toBe(false);
   });
@@ -576,4 +577,9 @@ describe("initPack", () => {
     if (out.ok || !out.refused) return;
     expect(out.detail).toContain("beta");
   });
+});
+
+test("refusal titles name no path or config file", async () => {
+  const notRepo = await initPack({ repoDir: REPO, zone: null }, world({ gitRemote: async () => ({ kind: "not-a-repo" }) }).deps);
+  expect(notRepo).toMatchObject({ refused: true, detail: "This folder is not a git repo" });
 });

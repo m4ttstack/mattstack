@@ -60,7 +60,7 @@ export function initOutcomeBlocks(o: Extract<InitOutcome, { ok: true }>): Block[
 }
 
 export function initRefusalBlocks(o: Extract<InitOutcome, { ok: false; refused: true }>): Block[] {
-  return [ui.line("refused", o.detail), ...(o.next ? [ui.callout("next", ui.cmd(o.next))] : [])];
+  return [ui.line("refused", o.detail), ...(o.why ? [ui.callout("why", o.why)] : []), ...(o.next ? [ui.callout("next", ui.cmd(o.next))] : [])];
 }
 
 function remedyCell(r: InitRemedy): Array<string | Segment> {
@@ -69,7 +69,14 @@ function remedyCell(r: InitRemedy): Array<string | Segment> {
 }
 
 export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureInput {
-  if (o.refused) return { title: o.detail, ...(o.next ? { next: ui.cmd(o.next) } : {}) };
+  if (o.refused) return { title: o.detail, ...(o.why ? { why: o.why } : {}), ...(o.next ? { next: ui.cmd(o.next) } : {}) };
+  if (o.code === "compile-failed") {
+    return {
+      title: "The new pack did not compile",
+      ...(o.why ? { why: o.why } : {}),
+      next: o.next ? ui.cmd(o.next) : o.remedy ? remedyCell(o.remedy) : ["Fix it, then run ", ui.cmd("rt skills compile"), " and ", ui.cmd("rt skills check")],
+    };
+  }
   const [title = o.detail, ...rest] = o.detail.split("\n");
   const details = [...rest, ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
   return {
@@ -78,6 +85,12 @@ export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureI
     next: o.next ? ui.cmd(o.next) : (o.remedy ? remedyCell(o.remedy) : ["Fix it, then run ", ui.cmd("rt skills compile"), " and ", ui.cmd("rt skills check")]),
     ...(details.length > 0 ? { details: details.join("\n") } : {}),
   };
+}
+
+export function initFailureAfter(o: Extract<InitOutcome, { ok: false }>): Block[] {
+  if (o.refused || o.code !== "compile-failed") return [];
+  const lines = [...o.detail.split("\n"), ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
+  return [ui.verbatim(lines, "what did not compile")];
 }
 
 export function initMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string; warnings: string[]; pruneWarnings: string[] } {
@@ -243,7 +256,7 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
   } else if (out.refused && POLICY_REFUSALS.has(out.code)) {
     ui.note(...initRefusalBlocks(out));
   } else {
-    ui.fail(initFailure(out));
+    ui.fail(initFailure(out), ...initFailureAfter(out));
   }
   if (!out.ok) process.exitCode = out.refused ? 2 : 1;
 }

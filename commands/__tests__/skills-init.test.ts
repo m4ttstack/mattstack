@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { initFailure, initMaterializeVerdict, initOutcomeBlocks, initRefusalBlocks, parseInitArgs, repoListFailure, skillsInit } from "../skills-init.ts";
+import { initFailure, initFailureAfter, initMaterializeVerdict, initOutcomeBlocks, initRefusalBlocks, parseInitArgs, repoListFailure, skillsInit } from "../skills-init.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import type { InitDeps, InitOutcome } from "../../lib/skills/init.ts";
 import { UserActionableError } from "../../lib/errors.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
@@ -77,31 +78,35 @@ describe("init outcome", () => {
   });
 
   test("a failure names each command of its remedy, then what was written", () => {
-    const failure = initFailure({
+    const outcome: Extract<InitOutcome, { ok: false; refused: false }> = {
       ok: false,
       refused: false,
       code: "compile-failed",
       detail: "boom",
       wrote: ["/a", "/b"],
       remedy: { commands: ["rt skills compile --pack-dir /z/mattstack/packs/acme", "rt skills check --pack-dir /z/mattstack/packs/acme"] },
-    });
+    };
+    const failure = initFailure(outcome);
     expect(renderPlain([ui.failure(failure)])).toBe(
-      "boom\n  next: Run rt skills compile --pack-dir /z/mattstack/packs/acme, then rt skills check --pack-dir /z/mattstack/packs/acme\n  Written so far:\n  /a\n  /b\n",
+      "The new pack did not compile\n  next: Run rt skills compile --pack-dir /z/mattstack/packs/acme, then rt skills check --pack-dir /z/mattstack/packs/acme\n",
     );
+    expect(initFailureAfter(outcome)).toEqual([ui.verbatim(["boom", "Written so far:", "/a", "/b"], "what did not compile")]);
   });
 
-  test("a multi-line detail keeps each line: the first is the title, the rest lead the details", () => {
-    const failure = initFailure({
+  test("a multi-line compile detail keeps each line under its caption", () => {
+    const outcome: Extract<InitOutcome, { ok: false; refused: false }> = {
       ok: false,
       refused: false,
       code: "compile-failed",
       detail: "stubs.jsonc: unknown slot review\nskills.jsonc: duplicate name work",
       wrote: ["/a"],
       remedy: { commands: ["rt skills compile --pack-dir /z/p"] },
-    });
+    };
+    const failure = initFailure(outcome);
     expect(renderPlain([ui.failure(failure)])).toBe(
-      "stubs.jsonc: unknown slot review\n  next: Run rt skills compile --pack-dir /z/p\n  skills.jsonc: duplicate name work\n  Written so far:\n  /a\n",
+      "The new pack did not compile\n  next: Run rt skills compile --pack-dir /z/p\n",
     );
+    expect(initFailureAfter(outcome)).toEqual([ui.verbatim(["stubs.jsonc: unknown slot review", "skills.jsonc: duplicate name work", "Written so far:", "/a"], "what did not compile")]);
   });
 
   test("a write failure says to delete the folder it started, then run init again", () => {
@@ -120,9 +125,37 @@ describe("init outcome", () => {
 
   test("with no remedy, the next step is the general one", () => {
     expect(renderPlain([ui.failure(initFailure({ ok: false, refused: false, code: "compile-failed", detail: "boom", wrote: [] }))])).toBe(
-      "boom\n  next: Fix it, then run rt skills compile and rt skills check\n",
+      "The new pack did not compile\n  next: Fix it, then run rt skills compile and rt skills check\n",
     );
   });
+});
+
+test("a compile failure is one title and its next, then every error under a caption", () => {
+  const o: Extract<InitOutcome, { ok: false; refused: false }> = { ok: false, refused: false, code: "compile-failed", detail: "skills/a: missing title\nskills/b: bad slot", wrote: [], remedy: { commands: ["rt skills compile --pack-dir /p"] } };
+  const f = initFailure(o);
+  expect(f.title).toBe("The new pack did not compile");
+  expect(f.details).toBeUndefined();
+  const io = captureOut();
+  io.reset();
+  ui.__test__.setHuman(() => false);
+  try {
+    ui.fail(f, ...initFailureAfter(o));
+    const err = io.stderr();
+    const at = (s: string) => err.indexOf(s);
+    expect(at("The new pack did not compile")).toBe(0);
+    expect(at("next: Run rt skills compile --pack-dir /p")).toBeGreaterThan(0);
+    expect(at("what did not compile")).toBeGreaterThan(at("next: Run rt skills compile --pack-dir /p"));
+    expect(at("skills/a: missing title")).toBeGreaterThan(at("what did not compile"));
+    expect(at("skills/b: bad slot")).toBeGreaterThan(at("skills/a: missing title"));
+  } finally {
+    io.restore();
+  }
+});
+
+test("a refusal keeps its reason in the failure and refusal blocks", () => {
+  const o = { ok: false as const, refused: true as const, code: "invalid-namespace" as const, detail: "The acme zone's name cannot be a pack name", why: "Pack names use lowercase letters, digits and dashes; this one is ../escape." };
+  expect(initFailure(o)).toEqual({ title: o.detail, why: o.why });
+  expect(renderPlain(initRefusalBlocks(o))).toBe(`[refused] ${o.detail}\n  why: ${o.why}\n`);
 });
 
 describe("repoListFailure", () => {
@@ -199,7 +232,7 @@ describe("skillsInit", () => {
   test("a plain refusal (no-remote) is a failure on stderr and exits 2", async () => {
     await skillsInit([], {}, stubDeps());
     expect(io.stdout()).toBe("");
-    expect(io.errLines()).toHaveLength(1);
+    expect(io.errLines()).toEqual(["This repo has no git remote", "  next: git remote add origin <url>"]);
     expect(io.stderr()).not.toContain("rt skills init:");
     expect(io.stderr()).not.toContain("[refused]");
     expect(process.exitCode).toBe(2);
