@@ -47,6 +47,7 @@ import {
 } from '../../view.ts';
 import type {
   DraftFilter,
+  GroupKey,
   SlackFilter,
   StackNode,
   ViewState,
@@ -146,6 +147,23 @@ function unfoldPanel(title: string): void {
     );
   } catch {
     // Unreadable or blocked storage leaves the panel as the user folded it.
+  }
+}
+
+/** Keeps the grouping you had before the seat tab, so leaving it can hand it
+    back. Blocked storage costs only that memory, never the tab switch. */
+function rememberGroupBeforeSeat(group: GroupKey): void {
+  if (group === 'needs') return;
+  try {
+    localStorage.setItem(GROUP_BEFORE_SEAT_KEY, group);
+  } catch {}
+}
+
+function groupBeforeSeat(): string | null {
+  try {
+    return localStorage.getItem(GROUP_BEFORE_SEAT_KEY);
+  } catch {
+    return null;
   }
 }
 
@@ -279,8 +297,7 @@ export function Board() {
       patch.tab !== undefined &&
       patch.tab !== NEEDS_ME_TAB.id &&
       state.tab === NEEDS_ME_TAB.id;
-    if (entersSeat && !patch.group && state.group !== 'needs')
-      localStorage.setItem(GROUP_BEFORE_SEAT_KEY, state.group);
+    if (entersSeat && !patch.group) rememberGroupBeforeSeat(state.group);
     const next = {
       ...state,
       ...patch,
@@ -288,9 +305,7 @@ export function Board() {
       ...(entersSeat && !patch.group ? { group: 'needs' as const } : {}),
       ...(leavesSeat && state.group === 'needs'
         ? {
-            group: groupOnLeavingSeat(
-              localStorage.getItem(GROUP_BEFORE_SEAT_KEY)
-            ),
+            group: groupOnLeavingSeat(groupBeforeSeat()),
           }
         : {}),
     };
@@ -384,8 +399,7 @@ export function Board() {
         resolved.tab === NEEDS_ME_TAB.id &&
         !new URLSearchParams(location.search).has('group')
       ) {
-        if (resolved.group !== 'needs')
-          localStorage.setItem(GROUP_BEFORE_SEAT_KEY, resolved.group);
+        rememberGroupBeforeSeat(resolved.group);
         resolved = { ...resolved, group: 'needs' };
       }
       setState(resolved);
