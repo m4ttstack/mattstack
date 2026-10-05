@@ -2822,6 +2822,16 @@ export const TREE: Record<string, CommandNode> = {
   team: {
     description: "Team repo: create, join, invite, publish, members",
     subcommands: {
+      use: {
+        description: "Switch which of your teams you work as",
+        module: "./commands/team.ts",
+        fn: "teamUse",
+        omitBehavior: "picker",
+        args: [
+          { name: "Team", type: "text", placeholder: "gadgets", hint: "One of the teams the org put you on" },
+          SETUP_JSON_ARG,
+        ],
+      },
       add: {
         description: "Add a team to your org, with its owners",
         module: "./commands/team.ts",

@@ -1,3 +1,7 @@
+import { activeTeam, decideActiveTeam, type RosterEntry } from "../packages/rt-client/src/settings/active-team.ts";
+import { useTeam, type UseTeamSeams } from "../lib/team/use.ts";
+import type { SecretsSeams } from "../lib/secrets/store.ts";
+import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
 import { orgStoreFile } from "../lib/team/org-store.ts";
 import { rosterFrom } from "../packages/rt-client/src/settings/active-team.ts";
 import { activeTeamFor } from "../lib/team/active-team.ts";
@@ -57,6 +61,12 @@ import { daemonQuery } from "../lib/daemon-client.ts";
 import type { TeamSnapshotEntry } from "../lib/daemon/team-snapshots.ts";
 
 export interface TeamDeps {
+  useTeamSeams?: UseTeamSeams;
+  secrets?: SecretsSeams;
+  secretPresence?: SecretPresence;
+  /** Tests must resolve a fixture executable instead of the installed app. */
+  deckPath?: (p: Probes) => string | null;
+  selectTeam?: (choices: string[]) => Promise<string | null>;
   mintInvite?: typeof mintInvite;
   addTeamSeams?: AddTeamSeams;
   membersSeams?: MembersSeams;
@@ -143,6 +153,7 @@ function usageError(deps: TeamDeps, json: boolean, verb: string, title: string, 
 
 /** rt declining by policy rather than failing: a person reads a refused line, never a failure block. */
 const REFUSAL_CODES = new Set([
+  "not-on-team",
   "team-pull-only",
   "not-rt-created",
   "team-already-set-up",
@@ -758,6 +769,97 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     );
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, "team status", deps);
+    throw err;
+  }
+}
+
+export async function realUseTeamSeams(deps: TeamDeps): Promise<UseTeamSeams> {
+  const { bundledToolPath, resolveTool } = await import("../lib/deps/resolve.ts");
+  const { claudeConfigDirs } = await import("../lib/setup/tools-install.ts");
+  const { PACK_EXEC_TIMEOUT_MS } = await import("../lib/setup/pack-cache.ts");
+  return {
+    activeTeam: () => {
+      const before = activeTeam();
+      if (before.org === null) return before;
+      const decision = decideActiveTeam({
+        username: before.username,
+        roster: getSetting<RosterEntry[]>("mattstack.roster").value ?? [],
+        setting: getSetting<string>("mattstack.activeTeam").value,
+        teamFolders: () => deps.probes.readDir(join(deps.probes.home, ".mattstack", "teams", before.org!, "mattstack", "teams")),
+      });
+      return { ...before, ...decision };
+    },
+    writeUserSetting: (key, value) => { setSetting(key, value, "user"); },
+    installPack: async () => {
+      const { createApplyContext } = await import("../lib/setup/apply.ts");
+      const { installPlugins } = await import("../lib/setup/steps/plugins.ts");
+      const { materializeSkills } = await import("../lib/setup/skills-materialize.ts");
+      const { createRealSecretsExecSeam } = await import("../lib/secrets/store.ts");
+      const { realSecretPresence } = await import("../lib/setup/plan.ts");
+      const ctx = await createApplyContext({
+        probes: deps.probes,
+        emit: () => {},
+        secrets: deps.secrets ?? { ageKeySeam: deps.ageKeySeam ?? createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() },
+        relay: createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env)),
+        secretPresence: deps.secretPresence ?? realSecretPresence(),
+        flags: { nonInteractive: true, teamOfOne: false, ci: false, update: true },
+      });
+      const plugins = await installPlugins(ctx);
+      if (plugins.state === "failed") return { ok: false, detail: plugins.detail };
+      await materializeSkills(ctx.p, {});
+      return { ok: true, detail: plugins.detail ?? "The packs are installed" };
+    },
+    setPackEnabled: async (id, enabled) => {
+      const claude = resolveTool(deps.probes, "claude");
+      if (claude.exec === null) return false;
+      let ok = true;
+      for (const dir of claudeConfigDirs(deps.probes, [])) {
+        const res = await deps.probes.exec([...claude.exec, "plugin", enabled ? "enable" : "disable", id], { env: { CLAUDE_CONFIG_DIR: dir }, timeoutMs: PACK_EXEC_TIMEOUT_MS });
+        if (res.code !== 0 && !(enabled ? /already enabled/i : /already disabled/i).test(res.stderr)) ok = false;
+      }
+      return ok;
+    },
+    marketplace: (org) => {
+      const raw = deps.probes.readFile(join(deps.probes.home, ".mattstack", "teams", org, ".claude-plugin", "marketplace.json"));
+      if (raw !== null) {
+        try {
+          const parsed: unknown = JSON.parse(raw);
+          if (parsed !== null && typeof parsed === "object" && "name" in parsed && typeof parsed.name === "string" && parsed.name.length > 0) return parsed.name;
+        } catch {}
+      }
+      return org;
+    },
+    restartApp: async (app) => {
+      const deck = deps.deckPath ? deps.deckPath(deps.probes) : bundledToolPath(deps.probes, "deck");
+      return deck !== null && (await deps.probes.exec([deck, "restart", app])).code === 0;
+    },
+  };
+}
+
+export async function teamUse(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
+  let team = positional(args, [])[0];
+  try {
+    const seams = deps.useTeamSeams ?? await realUseTeamSeams(deps);
+    if (!team) {
+      const choices = seams.activeTeam().listedOn;
+      if (choices.length > 0 && (deps.interactive?.() ?? process.stdin.isTTY) && !json && !process.env.RT_BATCH) {
+        const { filterableSelect } = await import("../lib/pick-wrappers.ts");
+        const picked = deps.selectTeam ? await deps.selectTeam(choices) : await filterableSelect({ message: "Which team?", options: choices.map((name) => ({ value: name, label: name })), stderr: true });
+        if (!picked) process.exit(0);
+        team = picked;
+      } else usageError(deps, json, "team use", "Which team do you want to work as?", "rt team use <team> [--json]");
+    }
+    const result = await useTeam(team, seams);
+    if (json) { deps.print(JSON.stringify(envelope(result))); return; }
+    out.print(
+      out.line("done", `You are working as the ${result.team} team`, result.previous && result.previous !== result.team ? `was ${result.previous}` : undefined),
+      result.pack.enabled ? out.line("done", `The ${result.team} pack is on`) : out.line("needs-you", `The ${result.team} pack is not on yet`, result.pack.detail),
+      result.pack.enabled ? out.callout("next", "Restart Claude Code sessions to pick up the new pack") : out.callout("next", out.cmd("rt setup pack")),
+    );
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, "team use", deps);
     throw err;
   }
 }
