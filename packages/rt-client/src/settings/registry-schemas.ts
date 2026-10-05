@@ -192,6 +192,10 @@ export const SCHEMAS = {
   "board.tabs": z.array(tab),
   "board.workspaces": z.looseObject({ reviews: z.string().optional(), responds: z.string().optional(), doctors: z.string().optional() }),
   "board.hiddenMembers": z.array(z.string()),
+  "board.turn": z.looseObject({
+    author: z.array(z.enum(["threads", "changesRequested", "conflicts", "rebase", "ciFailing", "readyToMerge"])).optional(),
+    reviewer: z.array(z.enum(["assigned", "approvalReset", "repliedThreads"])).optional(),
+  }),
   "board.triage": z.looseObject({
     enabled: z.boolean().optional(),
     cooldownMinutes: z.number().optional(),
