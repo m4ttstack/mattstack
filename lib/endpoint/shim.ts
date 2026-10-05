@@ -264,8 +264,20 @@ export async function interceptsOutOfDate(build: () => Promise<InterceptRule[]> 
   const probe = staleIntercepts();
   if (!probe.stale) return probe;
   const fresh = await build();
-  if (ruleKey(fresh) === ruleKey(loadInterceptRules())) return { stale: false };
-  return probe;
+  const cached = readRulesFile();
+  if (!cached || ruleKey(fresh) !== ruleKey(sanitizeRules(cached.rules))) return probe;
+  // Stamped to the newest source rather than now, so a store written while the
+  // rules were rebuilding still reads as newer next time.
+  let newest = cached.generatedAt;
+  for (const file of interceptSourceFiles()) {
+    try {
+      newest = Math.max(newest, statSync(file).mtimeMs);
+    } catch {
+      // absent source
+    }
+  }
+  setKvValue(INTERCEPTS_NS, INTERCEPTS_KEY, { ...cached, generatedAt: newest });
+  return { stale: false };
 }
 
 // ─── shim render + path ──────────────────────────────────────────────────────

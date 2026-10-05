@@ -548,8 +548,10 @@ describe("rt settings (four stores, one resolver — e2e)", () => {
     const touched = await rtJson(["intercept", "status", "--json"]);
     expect(touched.stale.stale).toBe(false);
 
+    // The unchanged check above restamped the cache to that mtime, so the
+    // edit has to land past it.
     write(teamStore, teamStoreText().replace(`"cwdGlob": "."`, `"cwdGlob": "./**"`));
-    utimesSync(teamStore, cacheSeconds + 2, cacheSeconds + 2);
+    utimesSync(teamStore, cacheSeconds + 4, cacheSeconds + 4);
 
     const stale = await rtJson(["intercept", "status", "--json"]);
     expect(stale.stale.stale).toBe(true);
@@ -558,7 +560,7 @@ describe("rt settings (four stores, one resolver — e2e)", () => {
     // The cache is rewritten at wall-clock time, so wait past the future mtime
     // we just stamped before regenerating — otherwise the fresh cache is still
     // "older" than the store and the probe would (correctly) stay stale.
-    await Bun.sleep(2_500);
+    await Bun.sleep(4_500);
     const reinstall = await rtJson(["intercept", "install", "--json"]);
     expect(reinstall.ok).toBe(true);
 

@@ -439,6 +439,13 @@ describe("staleIntercepts", () => {
     writeAt(userSettingsPath(), "{}", NEWER);
     const same = async () => [{ command: "c", repo: "r", repoRemote: null, matches: [] }];
     expect(await interceptsOutOfDate(same)).toEqual({ stale: false });
+    let rebuilt = false;
+    const spy = async () => {
+      rebuilt = true;
+      return [];
+    };
+    expect(await interceptsOutOfDate(spy)).toEqual({ stale: false });
+    expect(rebuilt).toBe(false);
   });
 
   test("interceptsOutOfDate: a newer store whose rules changed stays stale and names the file", async () => {
