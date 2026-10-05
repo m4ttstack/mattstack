@@ -390,6 +390,7 @@ export function Board() {
 
   const [showSettings, setShowSettings] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
+  const [configFocus, setConfigFocus] = useState<string | undefined>();
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Row action menu (right-click) and transient toasts.
@@ -1240,6 +1241,12 @@ export function Board() {
   };
   const openConfig = () => {
     setMenuOpen(false);
+    setConfigFocus(undefined);
+    setShowConfig(true);
+  };
+  const openTurnConfig = () => {
+    setMenuOpen(false);
+    setConfigFocus('board.turn');
     setShowConfig(true);
   };
   // Refs go stale between sweeps, so taking Not Posted off re-checks Slack
@@ -1298,7 +1305,7 @@ export function Board() {
             showAll,
           }
         : null,
-    onOpenTurnSettings: openConfig,
+    onOpenTurnSettings: openTurnConfig,
   };
 
   return (
@@ -1553,6 +1560,7 @@ export function Board() {
         <ConfigModal
           tabs={data.tabs}
           knownSections={data.scopeKnownSections}
+          focusKey={configFocus}
           onTabsSaved={() => load()}
           onClose={() => setShowConfig(false)}
           onOpenRoster={() => {

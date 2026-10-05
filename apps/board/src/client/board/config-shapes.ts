@@ -56,11 +56,13 @@ export function leafWrite(
 export type CompositeShape =
   | Exclude<KitShape, { kind: 'external' }>
   | { kind: 'roster' }
-  | { kind: 'tabs' };
+  | { kind: 'tabs' }
+  | { kind: 'turn' };
 
 /** settings-kit marks these `external`; the board owns their editors. */
 const BOARD_EDITORS: Record<string, CompositeShape> = {
   'board.tabs': { kind: 'tabs' },
+  'board.turn': { kind: 'turn' },
   'board.members': { kind: 'roster' },
   'board.hiddenMembers': { kind: 'roster' },
 };
@@ -89,6 +91,7 @@ export function rowKind(def: ConfigDef): RowKind {
   const shape = shapeOf(def);
   if (shape?.kind === 'roster') return 'roster';
   if (shape?.kind === 'tabs') return 'tabs';
+  if (shape?.kind === 'turn') return 'turn';
   if (def.secret || !def.writable) return 'readonly';
   if (def.type === 'object' || def.type === 'array')
     return shape?.kind ?? 'readonly';
@@ -105,6 +108,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 export function matchesShape(shape: CompositeShape, value: unknown): boolean {
   if (shape.kind === 'roster') return Array.isArray(value);
+  if (shape.kind === 'turn') return isRecord(value);
   if (shape.kind === 'tabs')
     return (
       Array.isArray(value) &&

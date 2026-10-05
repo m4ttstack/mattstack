@@ -3197,6 +3197,26 @@ a.tui-id-card-ref:focus-visible {
   border-color: transparent;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
 }
+.tui-config-turns {
+  display: flex;
+  flex-direction: column;
+}
+.tui-config-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0;
+}
+.tui-config-turn legend {
+  padding: 0;
+  margin-bottom: 4px;
+  color: var(--text-1);
+}
+.tui-config-turn label {
+  color: var(--text-2);
+}
 .tui-config-control {
   display: flex;
   align-items: center;

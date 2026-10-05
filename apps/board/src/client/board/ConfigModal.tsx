@@ -10,6 +10,14 @@ import {
 import { Modal } from '@mattstack/tui-kit';
 import type { TabConfig } from '../../config.ts';
 import { sectionStatus } from '../../sections.ts';
+import {
+  AUTHOR_SIGNALS,
+  REVIEWER_SIGNALS,
+  resolveTurnConfig,
+  type AuthorSignal,
+  type ReviewerSignal,
+  type TurnConfig,
+} from '../../turn.ts';
 import { postAction } from '../api.ts';
 import {
   addToList,
@@ -1004,23 +1012,92 @@ const ROW_HINTS: Record<string, string> = {
     'A new section\'s MRs land once rt has backfilled it; the tab shows "syncing" until then. A section must match a CODEOWNERS header exactly; the field suggests the headers rt has seen.',
 };
 
+const AUTHOR_LABEL: Record<AuthorSignal, string> = {
+  threads: 'unanswered comments',
+  changesRequested: 'changes requested',
+  conflicts: 'merge conflicts',
+  rebase: 'needs a rebase',
+  ciFailing: 'CI failing',
+  readyToMerge: 'approved, ready to merge',
+};
+const REVIEWER_LABEL: Record<ReviewerSignal, string> = {
+  assigned: "assigned and haven't finished",
+  approvalReset: 'a push reset my approval',
+  repliedThreads: 'the author answered my comment',
+};
+
+function TurnControl({
+  value,
+  busy,
+  onSave,
+}: {
+  value: unknown;
+  busy: boolean;
+  onSave: (next: TurnConfig) => void;
+}) {
+  const cfg = resolveTurnConfig(value);
+  const flip = <K extends 'author' | 'reviewer'>(
+    side: K,
+    s: TurnConfig[K][number]
+  ) => {
+    const list = cfg[side] as string[];
+    const next = list.includes(s) ? list.filter(x => x !== s) : [...list, s];
+    onSave({ ...cfg, [side]: next });
+  };
+  const group = <K extends 'author' | 'reviewer'>(
+    side: K,
+    title: string,
+    all: readonly TurnConfig[K][number][],
+    labels: Record<string, string>
+  ) => (
+    <fieldset className="tui-config-turn" disabled={busy}>
+      <legend>{title}</legend>
+      {all.map(s => (
+        <label key={s}>
+          <input
+            type="checkbox"
+            checked={(cfg[side] as string[]).includes(s)}
+            onChange={() => flip(side, s)}
+          />{' '}
+          {labels[s]}
+        </label>
+      ))}
+    </fieldset>
+  );
+  return (
+    <div className="tui-config-turns">
+      {group('author', "Author's turn when", AUTHOR_SIGNALS, AUTHOR_LABEL)}
+      {group(
+        'reviewer',
+        'My turn as a reviewer when',
+        REVIEWER_SIGNALS,
+        REVIEWER_LABEL
+      )}
+    </div>
+  );
+}
+
 const OPEN_ROWS_KEY = 'board.config.openRows';
 
 /** Which composite rows are expanded, remembered per browser so the modal
     reopens the way it was left. Storage is a convenience only: any failure
     reads as "all collapsed". */
-function useOpenRows(): [Set<string>, (key: string) => void] {
+function useOpenRows(
+  focusKey?: string
+): [Set<string>, (key: string) => void] {
   const [open, setOpen] = useState<Set<string>>(() => {
     try {
       const raw = localStorage.getItem(OPEN_ROWS_KEY);
       const parsed: unknown = raw ? JSON.parse(raw) : [];
-      return new Set(
+      const keys = new Set(
         Array.isArray(parsed)
           ? parsed.filter((k): k is string => typeof k === 'string')
           : []
       );
+      if (focusKey) keys.add(focusKey);
+      return keys;
     } catch {
-      return new Set();
+      return new Set(focusKey ? [focusKey] : []);
     }
   });
   const toggle = (key: string) => {
@@ -1077,7 +1154,15 @@ function SettingRow({
 
   let control;
   let keyname: string = def.key;
-  if (kind === 'tabs' && !malformed) {
+  if (kind === 'turn' && !malformed) {
+    control = (
+      <TurnControl
+        value={value}
+        busy={row.busy}
+        onSave={next => void row.save(next)}
+      />
+    );
+  } else if (kind === 'tabs' && !malformed) {
     const channel = getLeaf(
       store.defs.find(d => d.key === 'board.slack')?.effective.value,
       'channel'
@@ -1252,7 +1337,10 @@ function ConfigModal({
   onClose,
   onOpenRoster,
   onTabsSaved,
+  focusKey,
 }: {
+  /** A row to open and scroll to when the modal appears. */
+  focusKey?: string;
   /** Effective tabs from /data.json: the editor's base whichever side owns them. */
   tabs: TabConfig[];
   /** Section headers rt saw in the projects' CODEOWNERS; null when rt did not report them. */
@@ -1265,8 +1353,20 @@ function ConfigModal({
   const store = useSettingsScope('board.');
   const rosterKey = useSettingKey('mattstack.roster');
   const [query, setQuery] = useState('');
-  const [openRows, toggleRow] = useOpenRows();
+  const [openRows, toggleRow] = useOpenRows(focusKey);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const focused = useRef(false);
   const groups = groupByScope(filterDefs(store.defs, query));
+
+  useEffect(() => {
+    if (!focusKey || focused.current || store.loading) return;
+    const row = bodyRef.current?.querySelector(
+      `[data-key="${CSS.escape(focusKey)}"]`
+    );
+    if (!row) return;
+    focused.current = true;
+    row.scrollIntoView({ block: 'center' });
+  }, [focusKey, store.loading, store.defs]);
 
   return (
     <Modal
@@ -1292,7 +1392,7 @@ function ConfigModal({
       />
       {store.loading && <p className="tui-modal-sub">loading…</p>}
       {store.error && <p className="tui-config-error">{store.error}</p>}
-      <div className="tui-config-body">
+      <div className="tui-config-body" ref={bodyRef}>
         {groups.map(g => (
           <section key={g.scope}>
             <h3 className="tui-config-group">{g.scope}</h3>
