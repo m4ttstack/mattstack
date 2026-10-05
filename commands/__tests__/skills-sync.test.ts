@@ -1,14 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { PackInfo } from "../../lib/skills/packs.ts";
 import type { MaterializeSkillsResult } from "../../lib/setup/skills-materialize.ts";
 import { TREE } from "../../lib/command-tree-def.ts";
-import type { SyncReport } from "../../lib/skills/sync.ts";
+import type { SyncDeps, SyncReport } from "../../lib/skills/sync.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
-import { deriveEngine, manifestTarget, syncBlocks, syncFailure, syncMaterializeVerdict, syncOptions, syncRefusal } from "../skills-sync.ts";
+import { deriveEngine, skillsSync, manifestTarget, syncBlocks, syncFailure, syncMaterializeVerdict, syncOptions, syncRefusal } from "../skills-sync.ts";
+import * as syncCommand from "../skills-sync.ts";
+import { captureSkills } from "../../lib/skills/__tests__/helpers.ts";
 
 function pack(name: string): PackInfo {
   return { name, dir: `/fake/${name}`, layout: "flat", surfacePath: `/fake/${name}/surface.jsonc`, marketplace: "local" };
@@ -305,4 +307,28 @@ describe("syncBlocks", () => {
     expect(text).toContain("  why: The pack checkout at /z/packs/acme has uncommitted changes (M a.md\n");
     expect(text).toContain("       ?? b.md). Commit or stash them, then run this again\n");
   });
+});
+
+test("no Claude Code is a needs-you note, the same one init prints", () => {
+  expect(renderPlain(syncCommand.claudeMissingBlocks())).toBe("[needs you] Claude Code is not installed  rt installs and syncs packs through it\n  next: Install Claude Code, then run this again\n");
+});
+
+test("skillsSync sends the missing Claude Code note to stderr and keeps exit 1", async () => {
+  const io = captureSkills();
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-sync-missing-claude-")));
+  const unexpected = async (): Promise<never> => { throw new Error("Missing Claude Code must stop before dependencies run"); };
+  const deps: SyncDeps = {
+    claudeBin: null, run: unexpected, checkPack: unexpected, compilePack: unexpected,
+    materialize: unexpected, configDir: join(dir, "config"), cswapSessionsDir: join(dir, "sessions"), inTreeRoot: null,
+  };
+  try {
+    await skillsSync([], { packs: [{ ...pack("mattstack"), dir }], deps });
+    expect(io.stderr()).toBe(renderPlain(syncCommand.claudeMissingBlocks()));
+    expect(io.stdout()).toBe("");
+    expect(process.exitCode).toBe(1);
+  } finally {
+    io.restore();
+    process.exitCode = 0;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

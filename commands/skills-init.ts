@@ -25,6 +25,7 @@ import { textInput } from "../lib/ui/prompts.ts";
 import * as ui from "../lib/ui/out.ts";
 import type { Block, Segment } from "../lib/ui/protocol.ts";
 import { checkPack, compilePackAll } from "./skills.ts";
+import { claudeMissingBlocks } from "./skills-sync.ts";
 import { childEnv } from "../lib/subprocess.ts";
 
 export type InitArgs = { repo: string; zone: string | null; json: boolean };
@@ -253,6 +254,8 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
     else ui.json(userErrorPayload(new UserActionableError(out.code, out.detail, { refused: false, wrote: out.wrote })));
   } else if (out.ok) {
     ui.print(...initOutcomeBlocks(out));
+  } else if (out.code === "claude-missing") {
+    ui.note(...claudeMissingBlocks());
   } else if (out.refused && POLICY_REFUSALS.has(out.code)) {
     ui.note(...initRefusalBlocks(out));
   } else {

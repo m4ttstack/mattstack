@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { initFailure, initFailureAfter, initMaterializeVerdict, initOutcomeBlocks, initRefusalBlocks, parseInitArgs, repoListFailure, skillsInit } from "../skills-init.ts";
+import * as syncCommand from "../skills-sync.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import type { InitDeps, InitOutcome } from "../../lib/skills/init.ts";
 import { UserActionableError } from "../../lib/errors.ts";
@@ -235,6 +236,14 @@ describe("skillsInit", () => {
     expect(io.errLines()).toEqual(["This repo has no git remote", "  next: git remote add origin <url>"]);
     expect(io.stderr()).not.toContain("rt skills init:");
     expect(io.stderr()).not.toContain("[refused]");
+    expect(process.exitCode).toBe(2);
+  });
+
+  test("claude-missing prints the same needs-you note as sync, exit 2", async () => {
+    await skillsInit([], {}, stubDeps({ claude: null, gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }) }));
+    expect(io.errLines()[0]).toBe("[needs you] Claude Code is not installed  rt installs and syncs packs through it");
+    expect(io.stderr()).toBe(renderPlain(syncCommand.claudeMissingBlocks()));
+    expect(io.stdout()).toBe("");
     expect(process.exitCode).toBe(2);
   });
 

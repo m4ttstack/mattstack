@@ -6,9 +6,10 @@ import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "fs";
 import { Readable } from "node:stream";
 import { tmpdir } from "os";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 import { installFakePick, type PickFakeStep } from "../../lib/ui/pick-fake.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
+import * as out from "../../lib/ui/out.ts";
 import * as prompts from "../../lib/ui/prompts.ts";
 import { computeRows, decidePaletteAction, skillsSurface, surfaceBlocks } from "../skills.ts";
 
@@ -1087,4 +1088,35 @@ describe("apply on packs with plugin.json skills roots", () => {
     expect(written.startsWith(header)).toBe(true);
     expect(written).toContain('"checkout"');
   });
+});
+
+test("surface apply moves print in one call", async () => {
+  const packDir = makePackDir();
+  const { mattstackDir, manifestPath } = makeEngineFixture();
+  writeStubs(packDir, {});
+  writeFile(join(packDir, "surface.jsonc"), '{ "public": ["alpha", "beta"] }\n');
+  for (const name of ["alpha", "beta"]) writeFile(join(packDir, "attachments", name, "SKILL.md"), `---\nname: ${name}\n---\nbody\n`);
+  const record = join(packDir, "renders.ndjson");
+  const previous = { bin: process.env.RT_UI_BIN, fake: process.env.RT_UI_FAKE, color: process.env.NO_COLOR };
+  process.env.RT_UI_BIN = resolve(import.meta.dir, "../../lib/ui/__tests__/fake-rt-ui.ts");
+  process.env.RT_UI_FAKE = JSON.stringify({ record });
+  delete process.env.NO_COLOR;
+  out.__test__.setHuman(() => true);
+  try {
+    await skillsSurface(["apply", "--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]);
+    const records = readFileSync(record, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    const renders = records.filter((row) => "argv" in row);
+    expect(renders).toHaveLength(2);
+    const moves = records.filter((row) => row.t === "line" && ["alpha", "beta"].includes(row.title));
+    expect(moves.map((row) => row.title)).toEqual(["alpha", "beta"]);
+    const moveRenderIndexes = moves.map((row) => records.slice(0, records.indexOf(row)).filter((entry) => "argv" in entry).length);
+    expect(new Set(moveRenderIndexes).size).toBe(1);
+    for (const name of ["alpha", "beta"]) expect(existsSync(join(packDir, "skills", name, "SKILL.md"))).toBe(true);
+  } finally {
+    for (const [key, value] of [["RT_UI_BIN", previous.bin], ["RT_UI_FAKE", previous.fake], ["NO_COLOR", previous.color]]) {
+      if (value === undefined) delete process.env[key!];
+      else process.env[key!] = value;
+    }
+    out.__test__.setHuman(() => false);
+  }
 });
