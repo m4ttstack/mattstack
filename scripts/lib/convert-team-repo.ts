@@ -1,5 +1,6 @@
 import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
 import { parse, parseTree, printParseErrorCode, type Node, type ParseError } from "jsonc-parser";
+import { isMap, isScalar, isSeq, parseDocument } from "yaml";
 
 export interface ConvertInput {
   files: Record<string, string>;
@@ -91,6 +92,22 @@ function rewritePaths(value: unknown, swaps: [string, string][], note: (from: st
     return Object.fromEntries(Object.entries(value as Json).map(([k, v]) => [k, rewritePaths(v, swaps, note)]));
   }
   return value;
+}
+
+function rewriteSopsRules(text: string): string | undefined {
+  const doc = parseDocument(text);
+  if (doc.errors.length > 0 || !isMap(doc.contents)) return undefined;
+  const rules = doc.contents.get("creation_rules", true);
+  if (!isSeq(rules)) return undefined;
+  let updated = false;
+  for (const rule of rules.items) {
+    if (!isMap(rule)) continue;
+    const path = rule.get("path_regex", true);
+    if (!isScalar(path) || typeof path.value !== "string" || !/^\^?mattstack\/secrets\//.test(path.value)) continue;
+    path.value = path.value.replaceAll("mattstack/secrets/", "mattstack/org/secrets/");
+    updated = true;
+  }
+  return updated ? doc.toString() : undefined;
 }
 
 export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertPlan {
@@ -228,9 +245,10 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
   if (input.hasSecrets) moves.push(["mattstack/secrets", "mattstack/org/secrets"]);
   const sops = input.files[".sops.yaml"];
   if (sops !== undefined) {
-    if (sops.includes("mattstack/secrets/.*")) writes[".sops.yaml"] = sops.split("mattstack/secrets/.*").join("mattstack/org/secrets/.*");
-    else report.push("warning: .sops.yaml has no mattstack/secrets/.* rule; fix its path_regex by hand");
-  }
+    const rewritten = rewriteSopsRules(sops);
+    if (rewritten !== undefined) writes[".sops.yaml"] = rewritten;
+    else report.push("warning: .sops.yaml has no supported old secrets creation rule; fix its path_regex by hand");
+  } else if (input.hasSecrets) report.push("warning: .sops.yaml is missing; add its secrets creation rule before publishing");
   const ignore = input.files[".gitignore"];
   if (ignore?.includes("mattstack/secrets/")) writes[".gitignore"] = ignore.split("mattstack/secrets/").join("mattstack/org/secrets/");
 
