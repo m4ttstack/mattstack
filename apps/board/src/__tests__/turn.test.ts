@@ -89,6 +89,16 @@ describe('authorTurn', () => {
   test('a signal switched off does not fire', () => {
     expect(authorTurn(blocked({ pipelineFailing: true }), only(['threads']))).toBeNull();
   });
+  test('awaiting threads outrank changes requested', () => {
+    const m = mr({
+      threadSummary: { awaiting: 2, replied: 0, resolved: 0 },
+      reviews: {
+        isApproved: false, required: 1, given: 0,
+        reviewers: [{ username: 'sam', name: 'Sam', reviewState: 'REQUESTED_CHANGES' }],
+      },
+    });
+    expect(authorTurn(m, ALL_TURN)).toBe('threads');
+  });
   test('a running pipeline and an untouched MR are nobody\'s turn', () => {
     expect(authorTurn(blocked({ pipelineRunning: true }), ALL_TURN)).toBeNull();
     expect(authorTurn(mr(), ALL_TURN)).toBeNull();
@@ -132,6 +142,18 @@ describe('reviewerTurn', () => {
   });
   test('unassigned: only resolved threads are not my turn', () => {
     expect(reviewerTurn(mr({ myThreads: { awaiting: 0, replied: 0, resolved: 3 } }), 'me', ALL_TURN)).toBeNull();
+  });
+  test('with approvalReset off, an answered thread still brings a reset reviewer back', () => {
+    const cfg: TurnConfig = { ...ALL_TURN, reviewer: ['assigned', 'repliedThreads'] };
+    expect(reviewerTurn(asReviewer('UNAPPROVED', { myThreads: { awaiting: 0, replied: 1, resolved: 0 } }), 'me', cfg)).toBe('repliedThreads');
+    expect(reviewerTurn(asReviewer('UNAPPROVED'), 'me', cfg)).toBeNull();
+  });
+  test('unassigned: my thread still awaiting the author is the author\'s turn', () => {
+    expect(reviewerTurn(mr({ myThreads: { awaiting: 1, replied: 2, resolved: 0 } }), 'me', ALL_TURN)).toBeNull();
+  });
+  test('assigned with repliedThreads off still counts as assigned', () => {
+    const cfg: TurnConfig = { ...ALL_TURN, reviewer: ['assigned', 'approvalReset'] };
+    expect(reviewerTurn(asReviewer('UNREVIEWED', { myThreads: { awaiting: 0, replied: 2, resolved: 0 } }), 'me', cfg)).toBe('assigned');
   });
   test('signals switched off', () => {
     const cfg: TurnConfig = { ...ALL_TURN, reviewer: [] };

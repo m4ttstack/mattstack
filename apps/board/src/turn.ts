@@ -94,7 +94,7 @@ export function reviewerTurn(
   const me = mr.reviews.reviewers.find(r => r.username === self);
   const state = me?.reviewState;
   if (state === 'APPROVED') return null;
-  if (state === 'UNAPPROVED') return on('approvalReset') ? 'approvalReset' : null;
+  if (state === 'UNAPPROVED' && on('approvalReset')) return 'approvalReset';
   const mine = mr.myThreads;
   if (mine && mine.awaiting > 0) return null;
   const answered = me
