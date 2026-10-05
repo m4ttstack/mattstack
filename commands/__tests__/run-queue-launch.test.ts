@@ -169,6 +169,7 @@ test("runCommand with --resolve-only on a queue prints the seed envelope to stdo
   expect(boardCalled).toBe(false);
   expect(fallbackCalled).toBe(false);
   expect(outs).toHaveLength(1);
+  expect(outs[0]).toBe(`${JSON.stringify(JSON.parse(outs[0]!))}\n`);
   expect(JSON.parse(outs[0]!)).toEqual({
     seed: [
       { name: "dev", command: expect.stringContaining("run dev"), cwd: join(root, "packages/a"), pkg: "a", repo: "fixture" },
