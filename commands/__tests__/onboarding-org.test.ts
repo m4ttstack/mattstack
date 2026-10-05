@@ -8,7 +8,7 @@ import type { SecretsSeams } from "../../lib/secrets/store.ts";
 import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type StepDef } from "../../lib/setup/apply.ts";
 import type { ApplyEvent } from "../../lib/setup/contract.ts";
 import { readIntent } from "../../lib/setup/intent.ts";
-import type { MigrationDef } from "../../lib/setup/migrations/index.ts";
+import { MIGRATIONS } from "../../lib/setup/migrations/index.ts";
 import { composePlan } from "../../lib/setup/plan.ts";
 import { createRealProbes, type Probes } from "../../lib/setup/probes.ts";
 import { orgPullStep, recordForgeIdentity, teamIdentityStep } from "../../lib/setup/steps/org.ts";
@@ -384,6 +384,9 @@ describe("onboarding in an org", () => {
 
   test("the update run from the old layout: the migration, then the pull that brings the org layout, then identity, then the install against what the pull brought", async () => {
     const p = probes();
+    setSetting("board.peerAsks", { enabled: false }, "user");
+    const user = readStore(userSettingsPath()).global;
+    writeFileSync(userSettingsPath(), JSON.stringify({ ...user, "board.defaultPack": "widgets" }));
     const dir = join(home, ".mattstack", "teams", "acme");
     mkdirSync(join(dir, ".git"), { recursive: true });
     writeFileSync(join(dir, ".git", "config"), origin(REMOTE));
@@ -394,27 +397,29 @@ describe("onboarding in an org", () => {
     login = "dev2";
     daemon = async (cmd) => {
       if (cmd !== "team:pull") return null;
+      expect(readStore(userSettingsPath()).global["board.defaultPack"]).toBeUndefined();
       rmSync(join(dir, "mattstack"), { recursive: true, force: true });
       cpSync(converted, dir, { recursive: true });
       return { ok: true, data: { outcome: "fast-forwarded", detail: null } };
     };
 
-    const ran: string[] = [];
-    const migration: MigrationDef = { id: "2026-10-01-example", title: "Example", run: async () => { ran.push("migration"); return { state: "done", detail: "" }; } };
     const verify: StepDef = { id: "verify", title: "Verify", kind: "rt", updateSafe: true, applies: () => true, run: async () => ({ state: "done", detail: "" }) };
 
     const events: ApplyEvent[] = [];
     const ctx = await context(p, events, { update: true });
     expect(ctx.reqs).toEqual([]);
-    const result = await runUpdateWith([orgPullStep, teamIdentityStep, pluginsInstallStep, verify], [migration], ctx);
+    const result = await runUpdateWith([orgPullStep, teamIdentityStep, pluginsInstallStep, verify], MIGRATIONS, ctx);
     expect(result.ok).toBe(true);
-    expect(ran).toEqual(["migration"]);
     expect(ctx.reqs).toMatchObject([{ pack: "gadgets", tools: [{ name: "gadgets-tool" }] }]);
     expect(readForgeUsername("acme")).toBe("dev2");
     expect(activeTeam()).toMatchObject({ team: "gadgets", reason: "first-team" });
 
+    const expectedOrder = ["migration.2026-10-01-board-peer-trigger", "migration.2026-10-01-unset-board-default-pack", "migration.2026-10-02-retire-switchboard-url", "org.pull", "team.identity", "plugins.install", "verify"];
     const order = events.filter((e) => e.event === "step" && e.state === "running").map((e) => (e as { id: string }).id);
-    expect(order).toEqual(["migration.2026-10-01-example", "org.pull", "team.identity", "plugins.install", "verify"]);
+    expect(order).toEqual(expectedOrder);
+    expect(events.find((e) => e.event === "plan")).toMatchObject({ steps: expectedOrder.map((id) => ({ id })) });
+    expect(settled(events, "migration.2026-10-01-board-peer-trigger")).toEqual({ state: "skipped", detail: "Automatic peer asks are off" });
+    expect(settled(events, "migration.2026-10-01-unset-board-default-pack")).toEqual({ state: "done", detail: "Removed the old default pack setting" });
     expect(settled(events, "org.pull")).toEqual({ state: "done", detail: "Pulled acme" });
     expect(settled(events, "team.identity")).toEqual({ state: "done", detail: "You are dev2" });
     expect(settled(events, "plugins.install")).toMatchObject({ state: "done" });
