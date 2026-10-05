@@ -28,7 +28,7 @@ digraph publish_and_finish {
     "rt release verify <tag> --json" [shape=plaintext];
     "Verify status?" [shape=diamond];
     "Verify reruns = 4?" [shape=diamond];
-    "gh run list --workflow release.yml --event push --json databaseId,headBranch,status,conclusion" [shape=plaintext];
+    "gh run list --workflow release.yml --event push --branch <tag> --json databaseId,headBranch,status,conclusion" [shape=plaintext];
     "A tag-push run for <tag> listed?" [shape=diamond];
     "rt release verify <tag> --json, rerun after the wait" [shape=plaintext];
     "Failure is the asset-upload 500 flake?" [shape=diamond];
@@ -84,8 +84,8 @@ digraph publish_and_finish {
     "rt release verify <tag> --json, rerun after the wait" -> "Verify status?";
     "Verify status?" -> "bash scripts/deploy-docs.sh" [label="released"];
     "Verify status?" -> "Verify reruns = 4?" [label="pending, or an error row other than the run row"];
-    "Verify status?" -> "gh run list --workflow release.yml --event push --json databaseId,headBranch,status,conclusion" [label="the run row errors: no release.yml run found"];
-    "gh run list --workflow release.yml --event push --json databaseId,headBranch,status,conclusion" -> "A tag-push run for <tag> listed?";
+    "Verify status?" -> "gh run list --workflow release.yml --event push --branch <tag> --json databaseId,headBranch,status,conclusion" [label="the run row errors: no release.yml run found"];
+    "gh run list --workflow release.yml --event push --branch <tag> --json databaseId,headBranch,status,conclusion" -> "A tag-push run for <tag> listed?";
     "A tag-push run for <tag> listed?" -> "Verify reruns = 4?" [label="yes: verify misread it, rerun from the source checkout"];
     "A tag-push run for <tag> listed?" -> "Verify reruns = 4?" [label="no: not started yet"];
     "Verify status?" -> "Failure is the asset-upload 500 flake?" [label="failed run"];
@@ -232,7 +232,8 @@ answers received at that gate: it is yes once Matt has answered iterate twice.
 
 The `rt` on the PATH has reported "no release.yml run found for a tag push" while the run
 existed, and the same verify from the source checkout reported it correctly. Before treating
-the row as real, read the `gh run list` output for a row whose `headBranch` is the tag. Listed:
+the row as real, list the tag's runs (`--branch <tag>` keeps an older tag's run inside the
+default 20-row page) and look for a row whose `headBranch` is the tag. Listed:
 every verify rerun from here runs from the source checkout,
 `bun run cli.ts release verify <tag> --json`, still counted by `Verify reruns = 4?`. Not listed:
 the tag push may not have started a run yet; the reruns (also from the source checkout, about five

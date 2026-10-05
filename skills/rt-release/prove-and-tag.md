@@ -43,7 +43,7 @@ digraph prove_and_tag {
     "gh repo delete <kept-slug> --yes" [shape=plaintext];
     "Walkthrough result?" [shape=diamond];
     "Read the walkthrough failure" [shape=box];
-    "Runs of the failing scenario = 2?" [shape=diamond];
+    "Runs of the failing scenario >= 2?" [shape=diamond];
     "STOP: a skipped phase is not green" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "git fetch origin, before the tag" [shape=plaintext];
     "git log --oneline <exercised-sha>..origin/main" [shape=plaintext];
@@ -125,15 +125,15 @@ digraph prove_and_tag {
     "Walkthrough result?" -> "Read the walkthrough failure" [label="a fail or a skip outside the expected noise"];
     "Walkthrough result?" -> "STOP: a skipped phase is not green" [label="tempted to count a skip as green"];
     "STOP: a skipped phase is not green" -> "Read the walkthrough failure";
-    "Read the walkthrough failure" -> "Runs of the failing scenario = 2?";
-    "Runs of the failing scenario = 2?" -> "tart list" [label="no: rerun that scenario"];
+    "Read the walkthrough failure" -> "Runs of the failing scenario >= 2?";
+    "Runs of the failing scenario >= 2?" -> "tart list" [label="no: rerun that scenario"];
     "Off-script gate: walkthrough still red" -> "git fetch origin, before the tag" [label="take: Matt waives the walkthrough on the record"];
     "Off-script gate: walkthrough still red" -> "Walkthrough still red: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: walkthrough still red" -> "Held: release paused, resume point named" [label="hold"];
     "Off-script gate: walkthrough still red" -> "Handed back to Matt" [label="hand back"];
     "Walkthrough still red: gate rounds = 2?" -> "tart list" [label="no: retry"];
     "Walkthrough still red: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
-    "Runs of the failing scenario = 2?" -> "Off-script gate: walkthrough still red" [label="yes: budget spent"];
+    "Runs of the failing scenario >= 2?" -> "Off-script gate: walkthrough still red" [label="yes: budget spent"];
     "git fetch origin, before the tag" -> "git log --oneline <exercised-sha>..origin/main";
     "git log --oneline <exercised-sha>..origin/main" -> "Does origin/main still equal the exercised sha?";
     "Does origin/main still equal the exercised sha?" -> "git tag -a <tag> <exercised-sha> -m <tag>" [label="yes"];
@@ -176,9 +176,10 @@ as `GITLAB_TOKEN`), `MATTSTACK_VMTEST_ORG=matts-hasura-demo` and
 `<scratch>` is this session's scratchpad.
 
 Counters: the first dispatch is not a rerun, so `Rehearsal reruns = 2?` is yes after the second
-`gh run rerun <run-id> --failed` has also gone red. `Runs of the failing scenario = 2?` counts
-the runs of the scenario that just failed, its first run included, so it is yes after that
-scenario's second run fails; each of the four scenarios keeps its own count. Every
+`gh run rerun <run-id> --failed` has also gone red. `Runs of the failing scenario >= 2?` counts
+the runs of the scenario that just failed, its first run included, so it is yes from that
+scenario's second failed run on, including runs after an iterate; each of the four scenarios
+keeps its own count. Every
 `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes once
 Matt has answered iterate twice.
 
@@ -295,7 +296,7 @@ Anything else red is a failure. Tell VM degradation from a regression by where i
 history: a failure inside macOS's own UI (the System Settings Full Disk Access toggle, an AX fill
 that never reaches the app) at a step an earlier run of any scenario passed on the same build the
 same day points at the VM. Rerun that scenario alone, with no second VM up, before any gate; the rerun counts toward
-`Runs of the failing scenario = 2?` like any other. A failure inside the
+`Runs of the failing scenario >= 2?` like any other. A failure inside the
 app, or one no earlier run on this build passed, is a regression until shown otherwise.
 
 When `deck.managed` fails, read `~/.mattstack/deck/logs/agent.log` from the guest-home tarball first:
