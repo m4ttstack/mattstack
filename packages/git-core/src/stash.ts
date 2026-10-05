@@ -40,15 +40,14 @@ export async function stashApply(ctx: ClientContext, index: number): Promise<voi
 
 export async function stashPop(ctx: ClientContext, index: number): Promise<{ kept: boolean }> {
   const selectedHash = (await ctx.git.stashList()).all[index]?.hash;
-  let dropped = false;
   try {
     const output = await ctx.git.stash(["pop", `stash@{${index}}`]);
-    dropped = output.split(/\r?\n/).includes(`Dropped stash@{${index}} (${selectedHash})`);
+    if (output.split(/\r?\n/).includes(`Dropped stash@{${index}} (${selectedHash})`)) return { kept: false };
   } catch (err) {
     if (!/^CONFLICT \([^)]+\): /m.test(err instanceof Error ? err.message : String(err))) throw err;
   }
   const after = await ctx.git.stashList();
-  return { kept: !dropped && after.all.some((entry) => entry.hash === selectedHash) };
+  return { kept: after.all.some((entry) => entry.hash === selectedHash) };
 }
 
 export async function stashDrop(ctx: ClientContext, index: number): Promise<void> {
