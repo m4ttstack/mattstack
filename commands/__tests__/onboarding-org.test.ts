@@ -17,7 +17,7 @@ import { pluginsInstallStep } from "../../lib/setup/steps/plugins.ts";
 import { teamCreateStep, teamJoinStep } from "../../lib/setup/steps/team.ts";
 import { orgRows } from "../../lib/setup/validators/org.ts";
 import { forgeLogin } from "../../lib/team/forge.ts";
-import { createTeam } from "../../lib/team/create.ts";
+import { createTeam, scaffoldFiles } from "../../lib/team/create.ts";
 import { encodeCode, seal } from "../../lib/team/invite-crypto.ts";
 import { joinDryRun } from "../../lib/team/join.ts";
 import type { RelayClient } from "../../lib/team/relay-client.ts";
@@ -26,6 +26,7 @@ import type { InvitePointer } from "../../lib/setup/intent.ts";
 import { teamUse, type TeamDeps } from "../team.ts";
 
 const REMOTE = "https://github.com/acme/org.git";
+const PENDING_MAIN = "a".repeat(40);
 const GITHUB = { provider: "github" as const, host: "github.com" };
 const NOW = new Date("2026-10-01T00:00:00.000Z");
 const ID_HEX = "0102030405060708090a0b0c0d0e0f10";
@@ -118,6 +119,22 @@ function probes(): Probes {
       }
       if (bin === "git" && argv[1] === "init" && opts?.cwd) mkdirSync(join(opts.cwd, ".git"), { recursive: true });
       if (bin === "git" && argv[1] === "remote" && argv[2] === "add" && opts?.cwd) writeFileSync(join(opts.cwd, ".git", "config"), origin(argv[4]!));
+      if (bin === "git" && argv[1] === "remote" && argv[2] === "get-url") {
+        expect(argv).toEqual(["git", "remote", "get-url", "--push", "--all", "origin"]);
+        return ok(`${REMOTE}\n`);
+      }
+      if (bin === "git" && argv.includes("ls-remote") && argv.includes("--refs")) {
+        expect(argv.slice(-3)).toEqual(["--", REMOTE, "refs/heads/main"]);
+        return ok();
+      }
+      if (bin === "git" && argv[1] === "rev-list") {
+        expect(argv).toEqual(["git", "rev-list", "--max-count=1001", "refs/heads/main"]);
+        return ok(`${PENDING_MAIN}\n`);
+      }
+      if (bin === "git" && argv[1] === "diff-tree") {
+        expect(argv.at(-1)).toBe(PENDING_MAIN);
+        return ok(`${Object.keys(scaffoldFiles("acme", "Acme", REMOTE)).join("\0")}\0`);
+      }
       if (bin === "claude") {
         const [, , verb, sub, target] = argv;
         if (verb === "list") return ok(JSON.stringify([...installed].map(([id, enabled]) => ({ id, enabled, version: "0.1.0" }))));
@@ -221,6 +238,9 @@ describe("onboarding in an org", () => {
     const events: ApplyEvent[] = [];
     const result = await runApplyWith([teamCreateStep, orgPullStep, teamIdentityStep], await context(p, events));
     expect(result).toEqual({ ok: true });
+    const pushIndex = execCalls.findIndex((argv) => argv.includes("push"));
+    expect(pushIndex).toBeGreaterThan(3);
+    expect(execCalls.slice(pushIndex - 4, pushIndex).map((argv) => argv[1])).toEqual(["remote", "ls-remote", "rev-list", "diff-tree"]);
 
     const org = readStore(orgSettingsPath("acme")).global;
     expect(org["mattstack.org"]).toEqual({ admins: ["dev1"], teams: { acme: { owners: ["dev1"] } } });
