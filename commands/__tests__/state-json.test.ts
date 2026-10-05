@@ -113,13 +113,13 @@ for (const errors of [[], ["rt: damaged copy"]]) {
     expectJson({ ok: errors.length === 0, dryRun: true, ...result }, errors.length ? 1 : 0);
     process.exitCode = 0;
   });
-  test(`encrypted restore pins its pull notice, result and exit code with ${errors.length} errors`, async () => {
+  test(`encrypted restore pins result and exit code with ${errors.length} errors`, async () => {
     const result = { restored: [{ app: "rt", targetPath: "/t/state.db" }], skipped: [], errors };
-    const pull = spyOn(restore, "pullHomeRepo").mockResolvedValue(undefined);
+    const pull = spyOn(restore, "pullHomeRepo").mockResolvedValue({ pullOk: true, lfsOk: true });
     spies.push(pull, spyOn(restore, "restoreFromBackup").mockResolvedValue(result));
     await stateRestore(["--from-backup", "--identity", identity(), "--force", "--json"]);
     expect(pull).toHaveBeenCalledTimes(1);
-    expect(io.stdout()).toBe(`Pulling latest backups from home repo...\n${JSON.stringify({ ok: errors.length === 0, dryRun: false, ...result })}\n`);
+    expect(io.stdout()).toBe(`${JSON.stringify({ ok: errors.length === 0, dryRun: false, ...result })}\n`);
     expect(io.stderr()).toBe("");
     expect(process.exitCode).toBe(errors.length ? 1 : 0);
     process.exitCode = 0;
@@ -161,36 +161,36 @@ async function expectExit(run: () => Promise<void>, stderr: string) {
 
 test("unconfigured backup has no JSON payload and exits 1", async () => {
   await expectExit(() => stateBackup(["--json"]),
-    "Backup not configured. Run `rt state backup init` to set up encrypted backup.\nUse --local for a local-only unencrypted backup.\n");
+    "Encrypted backup is not set up on this Mac\n  next: rt state backup init\n  tip: For a copy on this Mac only: rt state backup --local\n");
 });
 
 test("restore without a copy has no JSON payload and exits 1", async () => {
   await expectExit(() => stateRestore(["--force", "--json"]),
-    "rt state: usage: rt state restore <copy> [--json]\n");
+    "Which backup?\n  next: rt state restore <copy>\n");
 });
 
 test("restore of a missing copy has no JSON payload and exits 1", async () => {
   await expectExit(() => stateRestore(["missing.db", "--force", "--json"]),
-    "rt state: backup not found: missing.db\n");
+    "There is no backup called missing.db\n  next: rt state restore\n");
 });
 
 test("local restore while daemon runs has no JSON payload and exits 1", async () => {
   spies.push(spyOn(daemon, "isDaemonRunning").mockResolvedValue(true));
   await expectExit(() => stateRestore(["copy.db", "--json"]),
-    "rt state: the daemon is running; state.db is shared with it. Stop it first (rt daemon stop) or pass --force to override\n");
+    "[refused] rt will not restore while the daemon is running  it shares this data with rt\n  next: rt daemon stop\n  note: To restore anyway: rt state restore copy.db --force\n");
 });
 
 test("encrypted restore while daemon runs has no JSON payload and exits 1", async () => {
   spies.push(spyOn(daemon, "isDaemonRunning").mockResolvedValue(true));
   await expectExit(() => stateRestore(["--from-backup", "--json"]),
-    "rt state: the daemon appears to be running (or its socket exists). Stop it first (rt daemon stop) or pass --force to override\n");
+    "[refused] rt will not restore while the daemon is running  it shares this data with rt\n  next: rt daemon stop\n  note: To restore anyway: rt state restore --from-backup --force\n");
 });
 
 test("encrypted restore without a key has no JSON payload and exits 1", async () => {
   spies.push(spyOn(ageKey, "createRealAgeKeySeam").mockReturnValue({} as never));
   spies.push(spyOn(ageKey, "readAgeKey").mockResolvedValue({ kind: "missing" } as never));
   await expectExit(() => stateRestore(["--from-backup", "--force", "--json"]),
-    "rt state restore: no age key found in the keychain.\nOn a new machine, pass --identity <path-to-team-key> to decrypt with the team key.\n");
+    "This Mac has no key to decrypt your backups\n  why: On a new Mac, use the team key file.\n  next: rt state restore --from-backup --identity <key file>\n");
 });
 
 test("local restore failing integrity has no JSON payload and exits 1", async () => {
@@ -199,5 +199,51 @@ test("local restore failing integrity has no JSON payload and exits 1", async ()
   io.clear();
   spies.push(spyOn(state, "quickCheck").mockReturnValue(["damaged"]));
   await expectExit(() => stateRestore([source, "--force", "--json"]),
-    `rt state: ${source} fails integrity check: damaged\n`);
+    `That backup is damaged\n  why: damaged\n  ${source}\n`);
 });
+
+test("full backup shows source sizes, pruning and partial errors", async () => {
+  configured();
+  spies.push(spyOn(orchestrator, "runFullBackup").mockResolvedValue({ backed: [
+    { app: "rt", path: "/b/rt.age", sizeBytes: 2048, contentHash: "abc" },
+    { app: "board", path: "/b/board.age", sizeBytes: 1572864, contentHash: "def" },
+  ], skipped: [], errors: ["chat: disk full"] }));
+  spies.push(spyOn(orchestrator, "pruneOldBackups").mockResolvedValue({ removed: ["old.age"] } as never));
+  await stateBackup([]);
+  expect(io.stdout()).toContain("[ok] Backed up rt's state  2 sources\n");
+  expect(io.stdout()).toContain("rt");
+  expect(io.stdout()).toContain("2 KB");
+  expect(io.stdout()).toContain("1.5 MB");
+  expect(io.stdout()).toContain("[ok] Removed 1 older backup\n");
+  expect(io.stderr()).toBe("[warning] Some sources were not backed up\n  chat: disk full\n");
+});
+
+for (const thrown of [false, true]) {
+  test(`human local fallback confirms the copy after ${thrown ? "a thrown failure" : "all sources fail"}`, async () => {
+    configured();
+    const run = spyOn(orchestrator, "runFullBackup");
+    spies.push(run);
+    if (thrown) run.mockRejectedValue(new Error("age exploded\nraw details"));
+    else run.mockResolvedValue({ backed: [], skipped: [], errors: ["rt: disk full"] });
+    await stateBackup([]);
+    expect(io.stdout()).toContain("[ok] Saved a local copy of rt's state");
+    expect(listStateBackups()).toHaveLength(1);
+    expect(io.stderr()).toContain("[warning] The encrypted backup failed, so rt saved a local copy instead");
+    expect(io.stderr()).toContain(thrown ? "age exploded" : "rt: disk full");
+    if (thrown) expect(io.stderr()).not.toContain("raw details");
+  });
+}
+
+for (const dryRun of [false, true]) {
+  test(`human encrypted restore shows ${dryRun ? "proposed" : "restored"} rows, skips and errors`, async () => {
+    spies.push(spyOn(restore, "pullHomeRepo").mockResolvedValue({ pullOk: true, lfsOk: true }));
+    spies.push(spyOn(restore, "restoreFromBackup").mockResolvedValue({ restored: [{ app: "rt", targetPath: "/t/state.db" }], skipped: ["chat: no backup"], errors: ["board: damaged", "console: busy"] }));
+    await stateRestore(["--from-backup", "--identity", identity(), "--force", ...(dryRun ? ["--dry-run"] : [])]);
+    expect(io.stdout()).toContain(dryRun ? "Would restore\n" : "Restored\n");
+    expect(io.stdout()).toContain("/t/state.db");
+    expect(io.stdout()).toContain("[skipped] chat: no backup\n");
+    expect(io.stderr()).toBe("Some backups were not restored\n  board: damaged\n  console: busy\n");
+    expect(process.exitCode).toBe(1);
+    process.exitCode = 0;
+  });
+}

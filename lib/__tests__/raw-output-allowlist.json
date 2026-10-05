@@ -7,7 +7,6 @@
   "commands/runner.ts",
   "commands/state-backup-init.ts",
   "commands/state-backup-status.ts",
-  "commands/state.ts",
   "lib/pickers.ts",
   "lib/run-history.ts",
   "lib/runner/runner.ts",
