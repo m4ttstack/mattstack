@@ -2,6 +2,7 @@ import {
   appendFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
@@ -34,6 +35,8 @@ export function safeAppend(file: string, row: unknown): void {
   appendFileSync(file, JSON.stringify(redactDeep(row)) + "\n", { mode: 0o600 });
 }
 export function createEvidence(dir: string, versions: Record<string, string>) {
+  if (existsSync(dir) && readdirSync(dir).length)
+    throw new Error("output directory must be empty; preserve prior evidence");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const report = {
     runId: crypto.randomUUID(),

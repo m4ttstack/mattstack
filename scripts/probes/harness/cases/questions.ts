@@ -111,25 +111,19 @@ export async function run(
           })
         );
       } else {
-        let completed = false;
-        const asyncNative = first?.params.isBlocking === false;
-        if (first && asyncNative) {
-          const done = c
-            .next(
-              e =>
-                e.method === "item/completed" &&
-                e.params.threadId === w.threadId &&
-                e.params.item?.id === first.params.itemId,
-              60000
-            )
-            .then(
-              () => true,
-              () => false
-            );
-          c.respond(first, { answers: { choice: { answers: ["Beta"] } } });
-          completed = await done;
-        }
-        results.push(judgeAsyncQuestion({ async: asyncNative, completed }));
+        // The observed async item completes when it is emitted, before any
+        // answer. No correlated native answer contract has been identified.
+        // Do not answer a speculative request or promote buffered emission.
+        ev.record("G4-answer-path", {
+          supported: false,
+          reason: "native answer resolution contract unproven",
+        });
+        results.push(
+          judgeAsyncQuestion({
+            async: first?.params.isBlocking === false,
+            completed: false,
+          })
+        );
       }
     } finally {
       c.close();

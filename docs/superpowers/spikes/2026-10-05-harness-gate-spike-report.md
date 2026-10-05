@@ -96,6 +96,29 @@ Normal native session history and ignored run artifacts remain for inspection. E
 
 ## Verification and decision
 
-Probe unit tests: **21 passed, 0 failed**. TypeScript check and repository purity check passed. The full root test suite is being recorded separately; final outcome will be appended before handoff. No production source or dependency changed.
+Probe unit tests: **24 passed, 0 failed**. TypeScript check and repository purity check passed. The full root test suite is being recorded separately; final outcome will be appended before handoff. No production source or dependency changed.
 
 G1/G2/G3 passed; **G5 did not pass**. Revise the spec's **Capabilities and compatibility**, **Questions and gates**, **Setup and application adoption**, and **Verification and release criteria** to make the supported scoped policy-loading/trust mechanism and its enforcement proof explicit. M6/S4 require that evidence before managed Codex can satisfy the full workflow profile. G4's async limitation and G7's restart gaps must remain explicit in the next planning pass. F2 and later remain provisional and unexecuted.
+
+## Final review and probe corrections
+
+A fresh GPT-6 Astra review checked the full change against F1, raw owned events and committed evidence. It confirmed the selected verdicts and found three defects affecting future reruns. Each had a failing regression test before its fix, then the complete probe suite passed:
+
+1. G4 could accept an item-completion event buffered before the answer. The speculative answer branch is removed; G4 remains partial until a native answer-resolution contract is established.
+2. G5 inferred continuation from two Stop recorder rows. It now requires native blocked and allowed hook events on the same owned turn, recorder timestamps within those native hook intervals, intervening exact `CONTINUED` output, and successful completion of that turn.
+3. Reusing a populated output directory could mix prior successful evidence into a new run. Such a directory is now refused before service connection or worker launch, preserving previous evidence.
+
+No additional live runs were needed; none of these fixes changes the selected results. There were no separately deferred minor findings.
+
+## Execution rulings
+
+- Execute inline with one fresh final reviewer: avoids repeated context for tightly coupled probes; the tradeoff is fewer intermediate independent reviews.
+- Bind replies to the full inbound request object and its connection, rather than a bare numeric ID: prevents connection-local ID reuse; the cost is a probe-only signature change.
+- Group helpers with their initial consuming cases: permitted by the revised plan; the cost is a larger initial review range.
+- Observe hook trust without bypassing or persisting it: preserves regular configuration; the cost is an unresolved scoped-loading/trust prerequisite.
+- Use explicit remote attachment to the discovered server: the default CLI thread was not loaded on that endpoint; default CLI launch equivalence remains unproven.
+- Create the owned native thread first, persist its READY turn, then attach the terminal: remote CLI rejects additional-directory arguments and a fresh thread has no rollout; default launch remains separate acceptance work.
+- Reserve production adapter readiness and adversarial MCP spoofing for acceptance: observed host metadata is not a complete production trust boundary; full support cannot yet be claimed.
+- Defer shared-daemon restart and all-observer disconnect recovery: outside this run's authorization; persistence and those recovery modes remain unverified.
+- Leave actual enforcement under a working scoped-hook arrangement unobserved: its prerequisite failed; G5 continues to block progression.
+- Record broad root-suite failures without changing unrelated production code: no causal baseline comparison was run; this branch is not certified merge-ready by the spike.

@@ -225,7 +225,7 @@
           "question": "G1",
           "verdict": "not-run",
           "observations": [
-            "Error: -32603: failed to read thread: thread-store internal error: failed to read session metadata <codex-home>/sessions/2026/10/05/rollout-2026-10-05T09-54-55-01a10c8f-877c-70c2-87c1-32f6639957fc.jsonl: rollout at <codex-home>/sessions/2026/10/05/rollout-2026-10-05T09-54-55-01a10c8f-877c-70c2-87c1-32f6639957fc.jsonl is empty"
+            "Error: -32603: failed to read thread: thread-store internal error: failed to read session metadata <unbound-session-rollout>: rollout at <unbound-session-rollout> is empty"
           ],
           "consequence": "Verify probe setup and repeat affected case",
           "evidenceRefs": [
@@ -236,7 +236,7 @@
           "question": "G2",
           "verdict": "not-run",
           "observations": [
-            "Error: -32603: failed to read thread: thread-store internal error: failed to read session metadata <codex-home>/sessions/2026/10/05/rollout-2026-10-05T09-54-55-01a10c8f-877c-70c2-87c1-32f6639957fc.jsonl: rollout at <codex-home>/sessions/2026/10/05/rollout-2026-10-05T09-54-55-01a10c8f-877c-70c2-87c1-32f6639957fc.jsonl is empty"
+            "Error: -32603: failed to read thread: thread-store internal error: failed to read session metadata <unbound-session-rollout>: rollout at <unbound-session-rollout> is empty"
           ],
           "consequence": "Verify probe setup and repeat affected case",
           "evidenceRefs": [
@@ -247,7 +247,7 @@
           "question": "G6",
           "verdict": "not-run",
           "observations": [
-            "Error: -32603: failed to read thread: thread-store internal error: failed to read session metadata <codex-home>/sessions/2026/10/05/rollout-2026-10-05T09-56-05-01a10c90-9a21-7420-9be3-327c6e4cf6e4.jsonl: rollout at <codex-home>/sessions/2026/10/05/rollout-2026-10-05T09-56-05-01a10c90-9a21-7420-9be3-327c6e4cf6e4.jsonl is empty"
+            "Error: -32603: failed to read thread: thread-store internal error: failed to read session metadata <unbound-session-rollout>: rollout at <unbound-session-rollout> is empty"
           ],
           "consequence": "Verify probe setup and repeat affected case",
           "evidenceRefs": [
@@ -550,7 +550,7 @@
             "writableRoots": [
               "<worktree>/.harness-spike/attribution-05",
               "/private/tmp",
-              "/private/var/folders/45/l51y5l597397wlm3ct7t7r_h0000gn/T"
+              "<system-tmpdir>"
             ],
             "networkAccess": false,
             "excludeTmpdirEnvVar": false,
@@ -568,7 +568,7 @@
             "writableRoots": [
               "<worktree>/.harness-spike/attribution-05",
               "/private/tmp",
-              "/private/var/folders/45/l51y5l597397wlm3ct7t7r_h0000gn/T"
+              "<system-tmpdir>"
             ],
             "networkAccess": false,
             "excludeTmpdirEnvVar": false,
@@ -618,7 +618,7 @@
             "writableRoots": [
               "<worktree>/.harness-spike/attribution-06",
               "/private/tmp",
-              "/private/var/folders/45/l51y5l597397wlm3ct7t7r_h0000gn/T"
+              "<system-tmpdir>"
             ],
             "networkAccess": false,
             "excludeTmpdirEnvVar": false,
@@ -636,7 +636,7 @@
             "writableRoots": [
               "<worktree>/.harness-spike/attribution-06",
               "/private/tmp",
-              "/private/var/folders/45/l51y5l597397wlm3ct7t7r_h0000gn/T"
+              "<system-tmpdir>"
             ],
             "networkAccess": false,
             "excludeTmpdirEnvVar": false,
@@ -688,22 +688,7 @@
             "arguments": {
               "marker": "w1-mcp"
             },
-            "appContext": null,
-            "mcpAppUi": null,
-            "pluginId": null,
-            "readOnlyHint": null,
-            "result": {
-              "content": [
-                {
-                  "type": "text",
-                  "text": "{\"kind\":\"call\",\"tool\":\"probe_whoami\",\"marker\":\"w1-mcp\",\"pid\":23899,\"env\":{},\"meta\":{\"callId\":\"exec-d0a6c96f-1745-4649-a161-596366a6b16a\",\"x-codex-turn-metadata\":{\"session_id\":\"01a10c94-690c-79a3-981b-885a681a4a7e\",\"thread_id\":\"01a10c94-690c-79a3-981b-885a681a4a7e\",\"reasoning_effort\":\"low\",\"turn_id\":\"01a10c94-95dd-7c70-a3dd-a454887d8299\",\"model\":\"gpt-6.1-sol\",\"sandbox\":\"seatbelt\",\"sandbox_mode\":\"workspace-write\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":true,\"node_repl_disabled\":false,\"workspaces\":{\"<worktree>\":{\"associated_remote_urls\":{\"origin\":\"https://github.com/m4ttstack/mattstack.git\",\"scrub\":\"/private/tmp/claude-501/-Users-matt-Documents-GitHub-repo-tools/8c6a8515-af39-4794-9476-74f04bcf9c16/scratchpad/purity/scratch2\"},\"latest_git_commit_hash\":\"c2bccb2dbd93750b88f52b4b73647461a982bc49\",\"has_changes\":false}},\"turn_started_at_unix_ms\":1791212426722,\"codex_version\":\"0.160.0\"},\"threadId\":\"01a10c94-690c-79a3-981b-885a681a4a7e\",\"sessionId\":\"01a10c94-690c-79a3-981b-885a681a4a7e\",\"windowId\":\"01a10c94-690c-79a3-981b-885a681a4a7e:0\",\"itemId\":\"ctc_05b2c6dc6befaba7016ac3bb8d852c87d19698099aad90768d\",\"progressToken\":1},\"init\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"experimental\":{\"codex/auth-change\":{}},\"elicitation\":{\"form\":{},\"url\":{}}},\"clientInfo\":{\"name\":\"codex-mcp-client\",\"title\":\"Codex\",\"version\":\"0.160.0\"}}}"
-                }
-              ],
-              "structuredContent": null,
-              "_meta": null
-            },
-            "error": null,
-            "durationMs": 0
+            "error": null
           }
         },
         {
@@ -718,22 +703,7 @@
             "arguments": {
               "marker": "w2-mcp"
             },
-            "appContext": null,
-            "mcpAppUi": null,
-            "pluginId": null,
-            "readOnlyHint": null,
-            "result": {
-              "content": [
-                {
-                  "type": "text",
-                  "text": "{\"kind\":\"call\",\"tool\":\"probe_whoami\",\"marker\":\"w2-mcp\",\"pid\":24762,\"env\":{},\"meta\":{\"callId\":\"exec-ba4f668d-21b1-414f-bc21-ce52ee36d40a\",\"x-codex-turn-metadata\":{\"session_id\":\"01a10c94-820e-73b2-bef0-3bed5fbe66e2\",\"thread_id\":\"01a10c94-820e-73b2-bef0-3bed5fbe66e2\",\"reasoning_effort\":\"low\",\"turn_id\":\"01a10c94-95e0-7c53-959d-0610274ff069\",\"model\":\"gpt-6.1-sol\",\"sandbox\":\"seatbelt\",\"sandbox_mode\":\"workspace-write\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":true,\"node_repl_disabled\":false,\"workspaces\":{\"<worktree>\":{\"associated_remote_urls\":{\"origin\":\"https://github.com/m4ttstack/mattstack.git\",\"scrub\":\"/private/tmp/claude-501/-Users-matt-Documents-GitHub-repo-tools/8c6a8515-af39-4794-9476-74f04bcf9c16/scratchpad/purity/scratch2\"},\"latest_git_commit_hash\":\"c2bccb2dbd93750b88f52b4b73647461a982bc49\",\"has_changes\":false}},\"turn_started_at_unix_ms\":1791212426736,\"codex_version\":\"0.160.0\"},\"threadId\":\"01a10c94-820e-73b2-bef0-3bed5fbe66e2\",\"sessionId\":\"01a10c94-820e-73b2-bef0-3bed5fbe66e2\",\"windowId\":\"01a10c94-820e-73b2-bef0-3bed5fbe66e2:0\",\"itemId\":\"ctc_0fe34d967971f23a016ac3bb8de92487d1bf48bc696fcaeb0d\",\"progressToken\":1},\"init\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"experimental\":{\"codex/auth-change\":{}},\"elicitation\":{\"form\":{},\"url\":{}}},\"clientInfo\":{\"name\":\"codex-mcp-client\",\"title\":\"Codex\",\"version\":\"0.160.0\"}}}"
-                }
-              ],
-              "structuredContent": null,
-              "_meta": null
-            },
-            "error": null,
-            "durationMs": 0
+            "error": null
           }
         },
         {
@@ -748,22 +718,7 @@
             "arguments": {
               "marker": "G6"
             },
-            "appContext": null,
-            "mcpAppUi": null,
-            "pluginId": null,
-            "readOnlyHint": null,
-            "result": {
-              "content": [
-                {
-                  "type": "text",
-                  "text": "{\"ok\":true,\"uptime\":237929986,\"pid\":44579,\"flavor\":\"dev\",\"version\":\"source\",\"sourceRev\":\"2e4e0b543\",\"startedAt\":1790974510025,\"health\":\"ok\",\"eventLoop\":{\"maxLagMs\":8,\"lastStallAt\":1790978291869,\"lastStallCmd\":null,\"stalls\":5},\"heartbeatSeq\":117968,\"supervision\":{\"bootAttempts\":509,\"lastReadyAt\":1790974510330,\"recentFailures\":[],\"lastExit\":{\"at\":1790974502544,\"kind\":\"signal\",\"code\":1}}}"
-                }
-              ],
-              "structuredContent": null,
-              "_meta": null
-            },
-            "error": null,
-            "durationMs": 1
+            "error": null
           }
         }
       ]
@@ -1035,7 +990,7 @@
           "writableRoots": [
             "<worktree>/.harness-spike/policy-01",
             "/private/tmp",
-            "/private/var/folders/45/l51y5l597397wlm3ct7t7r_h0000gn/T"
+            "<system-tmpdir>"
           ],
           "networkAccess": false,
           "excludeTmpdirEnvVar": false,
@@ -1072,7 +1027,7 @@
             "writableRoots": [
               "<worktree>/.harness-spike/attribution-06",
               "/private/tmp",
-              "/private/var/folders/45/l51y5l597397wlm3ct7t7r_h0000gn/T"
+              "<system-tmpdir>"
             ],
             "networkAccess": false,
             "excludeTmpdirEnvVar": false,
