@@ -20,6 +20,7 @@
 
 import { join } from "path";
 import { logCliEvent } from "../cli-logger.ts";
+import { parseStoreText } from "../settings/stores.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { parseRemoteUrl } from "../enrich.ts";
 import type { Probes } from "./probes.ts";
@@ -76,6 +77,14 @@ export function readUserIntegrationOverrides(opts: { read?: SettingsReader; warn
   const warn = opts.warn ?? defaultWarn;
   const read = opts.read ?? defaultReader(warn);
   return read<UserIntegrationOverrides>("rt.integrations") ?? {};
+}
+
+export function probeUserSettingsReader(p: Pick<Probes, "home" | "readFile">): SettingsReader {
+  return <T,>(key: string) => {
+    const file = join(p.home, ".mattstack", "user", "settings.user.jsonc");
+    const raw = p.readFile(file);
+    return raw === null ? undefined : (parseStoreText(file, raw).global[key] as T | undefined);
+  };
 }
 
 /** Every org clone's slug: subdirectories of `<home>/.mattstack/teams` that hold `mattstack/org/settings.org.jsonc`. Deliberately built off `Probes` (`p.home`/`p.readDir`/`p.exists`) rather than `listOrgs()`, which resolves `process.env.HOME` at call time: a context built from a fake `Probes` must never leak the real ambient HOME into which team it resolves. */

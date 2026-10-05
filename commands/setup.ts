@@ -46,6 +46,7 @@ import type { forgeLogin } from "../lib/team/forge.ts";
 import { cloneSlugs, cloneOrigin, recordForgeIdentity } from "../lib/setup/steps/org.ts";
 import { forgeFromRemote } from "../lib/setup/team-settings.ts";
 import { readTeamLocal } from "../lib/team/team-local.ts";
+import { roleFor } from "../lib/team/roles.ts";
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
 import { planBlocks, rowTitles } from "../lib/setup/plan-blocks.ts";
 import { composePlan, enrichSnapshotForge, realSecretPresence } from "../lib/setup/plan.ts";
@@ -1309,8 +1310,8 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
   // A token the forge accepts can still lack what the owner's push or the members API needs later, so the shortfall is named here, at the paste, not at the clone.
   if (id === "github" || id === "gitlab") {
     const team = snapshotFor(deps);
-    const joinedByRt = team.slug ? readTeamLocal(deps.probes, team.slug).joinedByRt : false;
-    const role = forgeRole({ intentMode: readIntent(deps.probes)?.mode ?? null, joinedByRt, hasTeam: team.slug !== "" });
+    const orgRole = team.slug ? roleFor(deps.probes, team.slug).kind : null;
+    const role = forgeRole({ intentMode: readIntent(deps.probes)?.mode ?? null, role: orgRole, hasTeam: team.slug !== "" });
     const missing = missingScopes(id, role, result.scopesSeen);
     if (missing.length > 0) {
       const how = sourceDetail === GH_SOURCE_DETAIL ? ` (run: gh auth refresh -s ${missing.join(",")})` : "";

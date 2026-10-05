@@ -63,7 +63,6 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "lib/skills/init.ts": { count: 2, reason: "reads each org clone's team folders through the InitFs seam; getSetting reads only this Mac's org from HOME" },
   },
   "store file": {
-    "lib/setup/steps/org.ts": { count: 1, reason: "reads only injected HOME user host confirmation before the trusted forge token gate" },
     "commands/team.ts": { count: 1, reason: "lists valid team folders with settings through Probes for status; getSetting cannot enumerate org teams" },
     "lib/team/members.ts": { count: 2, reason: "checks org roster ownership before validation and immediately before writing" },
     "lib/team/team-names.ts": { count: 1, reason: "checks named team folders exist before an org roster write" },
@@ -73,7 +72,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "lib/team/publish.ts": { count: 1, reason: "uses the org store ownership refusal when the recorded role owns no managed root" },
     "lib/team/add.ts": { count: 1, reason: "bootstraps a new team store through Probes after admin authorization; existing org roles are written through setSetting" },
     "lib/team/create.ts": { count: 2, reason: "scaffolds the org and first team stores; creator edits and the isolation guard use orgStoreFile" },
-    "lib/setup/team-settings.ts": { count: 1, reason: "existence probe discovering org clones through the Probes seam" },
+    "lib/setup/team-settings.ts": { count: 2, reason: "discovers org clones and reads injected HOME user host confirmation for trusted forge tokens and creation links" },
     "lib/skills/init.ts": { count: 4, reason: "reads each org clone's team folders through the InitFs seam; getSetting reads only this Mac's org from HOME" },
     "lib/team/active-team.ts": { count: 1, reason: "decides the active team through the Probes seam; setup and the daemon run it under fake probes, where getSetting would read the ambient HOME" },
     "lib/team/org-store.ts": { count: 1, reason: "the one Probes-seamed path to the org store, shared by the active-team and role readers" },

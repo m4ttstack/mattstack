@@ -24,7 +24,8 @@ import { accessRows } from "./validators/access.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
 import { macRows } from "./validators/mac.ts";
 import { repoRootRow } from "./validators/repo-root.ts";
-import { rtHealthRows } from "./validators/rt-health.ts";
+import { orgRows } from "./validators/org.ts";
+import { readTeamSnapshotStatus, rtHealthRows } from "./validators/rt-health.ts";
 import { INSTALLED_BY_INSTALL_NOTE, toolRows } from "./validators/tools.ts";
 
 export interface PlanInputs {
@@ -169,7 +170,14 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
       const [permReply, tccRes, macList] = await Promise.all([fetchPermissions(i.p.tray), i.p.daemon("tcc:check"), macRows(i.p)]);
       return [...permissionRows(permReply, tccSummary(tccRes)), ...macList];
     }),
-    buildGroup("accounts", () => accountRows(i.p, snapshot, reqs, i.secrets, intent, userOverrides, solo)),
+    buildGroup("accounts", async () => {
+      const accounts = await accountRows(i.p, snapshot, reqs, i.secrets, intent, userOverrides, solo);
+      const org = i.orgs.includes(team.slug) ? await orgRows(i.p, team.slug, {
+        forge: snapshot.integrations.forge ?? (snapshot.remote ? forgeFromRemote(snapshot.remote) : null),
+        readStatus: () => readTeamSnapshotStatus(i.p),
+      }) : [];
+      return [...accounts, ...org];
+    }),
     buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets, solo)),
     buildGroup("tools", async () => {
       const [hasBrew, healthRows] = await Promise.all([detectHasBrew(i.p), rtHealthRows(i.p, { ci: i.ci })]);
