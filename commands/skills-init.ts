@@ -12,7 +12,7 @@ import { homedir } from "os";
 import { dirname, resolve } from "path";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
-import { healErrorClause, updateRepoIndexAsync, type IndexHealResult } from "../lib/repo-index.ts";
+import { updateRepoIndexAsync, type IndexHealResult } from "../lib/repo-index.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../lib/settings/identity.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { failureFor, logFailureDetail, UserActionableError, userErrorPayload } from "../lib/errors.ts";
@@ -74,7 +74,8 @@ export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureI
   const details = [...rest, ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
   return {
     title,
-    next: o.remedy ? remedyCell(o.remedy) : ["Fix it, then run ", ui.cmd("rt skills compile"), " and ", ui.cmd("rt skills check")],
+    ...(o.why ? { why: o.why } : {}),
+    next: o.next ? ui.cmd(o.next) : (o.remedy ? remedyCell(o.remedy) : ["Fix it, then run ", ui.cmd("rt skills compile"), " and ", ui.cmd("rt skills check")]),
     ...(details.length > 0 ? { details: details.join("\n") } : {}),
   };
 }
@@ -90,9 +91,10 @@ export function initMaterializeVerdict(r: MaterializeSkillsResult, pack: string)
 }
 
 export function repoListFailure(dir: string, indexed: Omit<Extract<IndexHealResult, { ok: false }>, "ok">): UserActionableError {
-  return new UserActionableError("locate-failed", `rt could not add ${dir} to its repo list: ${healErrorClause(indexed.error)}`, {}, {
-    ...(indexed.why ? { why: indexed.why } : {}),
+  return new UserActionableError("locate-failed", "rt could not add this repo to its list", {}, {
+    why: indexed.why ?? indexed.error,
     ...(indexed.next ? { next: indexed.next } : {}),
+    log: `${dir}: ${indexed.error}`,
   });
 }
 

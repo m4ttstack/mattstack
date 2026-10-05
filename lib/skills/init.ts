@@ -1,5 +1,6 @@
 import { join, relative, resolve } from "path";
 import { applyEdits, modify } from "jsonc-parser";
+import { logFailureDetail, UserActionableError } from "../errors.ts";
 import { FragmentError, parseFragment } from "./manifest-merge.ts";
 import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
@@ -282,7 +283,7 @@ export type InitOutcome =
       tryNext: string;
     }
   | { ok: false; refused: true; code: InitRefusalCode; detail: string; next?: string }
-  | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy };
+  | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy; why?: string; next?: string };
 
 /** rt declining by rule, drawn as refused; every other refusal code is a missing prerequisite or a usage slip, drawn as a failure. */
 export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["pack-exists", "zone-has-pack", "zone-mismatch"]);
@@ -368,14 +369,21 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
     return { commands: [`claude plugin marketplace add ${zone.dir}`, `claude plugin install ${pluginId}`] };
   };
 
-  const failed = (code: FailureCode, detail: string): InitOutcome =>
-    ({ ok: false, refused: false, code, detail, wrote, remedy: remedyFor(code) });
+  const failed = (code: FailureCode, detail: string, from?: { why?: string; next?: string }): InitOutcome => ({
+    ok: false, refused: false, code, detail, wrote, remedy: remedyFor(code),
+    ...(from?.why ? { why: from.why } : {}),
+    ...(from?.next ? { next: from.next } : {}),
+  });
 
   /** A daemon-backed dep can throw instead of returning a failure shape; the throw must still carry `wrote` forward, same as a returned failure. */
   const attempt = async <T>(code: FailureCode, fn: () => Promise<T>): Promise<{ value: T } | { outcome: InitOutcome }> => {
     try {
       return { value: await fn() };
     } catch (err) {
+      if (err instanceof UserActionableError) {
+        logFailureDetail(err);
+        return { outcome: failed(code, err.message, { why: err.why, next: err.next }) };
+      }
       return { outcome: failed(code, err instanceof Error ? err.message : String(err)) };
     }
   };

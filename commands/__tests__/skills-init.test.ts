@@ -62,6 +62,20 @@ describe("init outcome", () => {
     expect(renderPlain([ui.failure(failure)])).toBe("More than one team zone could hold this pack: acme, beta\n  next: rt skills init --zone <slug>\n");
   });
 
+  test("the failure prefers the error's next to the generic remedy", () => {
+    const f = initFailure({
+      ok: false,
+      refused: false,
+      code: "materialize-failed",
+      detail: "rt could not add this repo to its list",
+      wrote: [],
+      remedy: { commands: ["rt skills materialize --dir /code/x"] },
+      why: "The rt daemon is not running.",
+      next: "rt daemon start",
+    });
+    expect(f).toMatchObject({ title: "rt could not add this repo to its list", why: "The rt daemon is not running.", next: ui.cmd("rt daemon start") });
+  });
+
   test("a failure names each command of its remedy, then what was written", () => {
     const failure = initFailure({
       ok: false,
@@ -119,15 +133,17 @@ describe("repoListFailure", () => {
       next: "rt daemon status",
     });
     expect(err.code).toBe("locate-failed");
-    expect(err.message).toBe("rt could not add /r/api to its repo list: the rt daemon is running but did not answer");
+    expect(err.message).toBe("rt could not add this repo to its list");
+    expect(err.log).toBe("/r/api: The rt daemon is running but did not answer");
     expect(err.why).toBe("rt will not move the repo itself while the daemon holds its records: the two would race.");
     expect(err.next).toBe("rt daemon status");
   });
 
-  test("a refusal with no guidance carries none", () => {
+  test("a refusal with no guidance uses the daemon error as why", () => {
     const err = repoListFailure("/r/api", { error: "git worktree repair failed: exit 1" });
-    expect(err.message).toBe("rt could not add /r/api to its repo list: git worktree repair failed: exit 1");
-    expect(err.why).toBeUndefined();
+    expect(err.message).toBe("rt could not add this repo to its list");
+    expect(err.why).toBe("git worktree repair failed: exit 1");
+    expect(err.log).toBe("/r/api: git worktree repair failed: exit 1");
     expect(err.next).toBeUndefined();
   });
 });

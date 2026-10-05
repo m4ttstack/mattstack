@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { chooseZone, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, declareRepo, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, type InitDeps, type RunResult } from "../init.ts";
+import { UserActionableError } from "../../errors.ts";
 import { stripJsonc } from "../sources.ts";
 
 /** mkdirp'd dirs and dirs that already hold a file are writable; anything else throws ENOENT, mirroring a real fs. */
@@ -529,6 +530,19 @@ describe("initPack", () => {
     const { deps } = world({ materialize: async () => ({ ok: false, detail: "no team declares" }) });
     const out = await initPack({ repoDir: REPO, zone: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: false, code: "materialize-failed", remedy: { commands: [`rt skills materialize --dir ${REPO}`] } });
+  });
+
+  test("a step that throws keeps the error's why and next", async () => {
+    const { deps } = world({
+      registerRepo: async () => {
+        throw new UserActionableError("locate-failed", "rt could not add this repo to its list", {}, {
+          why: "The rt daemon is not running.",
+          next: "rt daemon start",
+        });
+      },
+    });
+    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: false, why: "The rt daemon is not running.", next: "rt daemon start" });
   });
 
   test("a throw from registerRepo after writing is materialize-failed, keeping wrote", async () => {
