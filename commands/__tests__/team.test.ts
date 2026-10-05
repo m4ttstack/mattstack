@@ -801,7 +801,7 @@ describe("teamAdd", () => {
     /** Someone else pushes to origin, so this clone's next push is not a fast-forward. */
     function moveOrigin(w: ReturnType<typeof orgWorld>): void {
       const other = join(w.home, "other");
-      execFileSync("git", ["clone", "-q", w.remote, other], { env: childEnv() });
+      execFileSync("git", ["clone", "-q", "-b", "main", w.remote, other], { env: childEnv() });
       writeFileSync(join(other, "README.md"), "moved\n");
       execFileSync("git", ["add", "README.md"], { cwd: other, env: childEnv() });
       execFileSync("git", ["-c", "user.name=dev2", "-c", "user.email=dev2@example.test", "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "elsewhere"], { cwd: other, env: childEnv() });
