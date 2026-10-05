@@ -1,7 +1,7 @@
 /**
  * Turns a worktree-domain daemon error code into the prose the CLI has
- * always shown for it. Its own module (no lib/repo-arg.ts, lib/tui.ts, or
- * other command-layer imports) so lib/mcp/tools.ts can share it without
+ * always shown for it. Its own module (no lib/repo-arg.ts or other
+ * command-layer imports) so lib/mcp/tools.ts can share it without
  * dragging in the CLI's TUI-adjacent graph: an unrecognized code passes
  * through unchanged, so callers outside the worktree domain (gate, chat)
  * are unaffected.
