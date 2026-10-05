@@ -1,6 +1,6 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, afterEach, beforeEach } from "bun:test";
 import { execSync, execFileSync } from "child_process";
-import { mkdtempSync, realpathSync, writeFileSync } from "fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { Logger } from "pino";
@@ -35,6 +35,18 @@ function makeRepo(): string {
   );
   return dir;
 }
+
+let priorHome: string | undefined;
+beforeEach(() => {
+  priorHome = process.env.HOME;
+  closeStateDb();
+});
+afterEach(() => {
+  const fixtureHome = process.env.HOME;
+  closeStateDb();
+  process.env.HOME = priorHome;
+  if (fixtureHome && fixtureHome !== priorHome) rmSync(fixtureHome, { recursive: true, force: true });
+});
 
 describe("reconcile.ts: reconcileRepo", () => {
   const repoName = "acme";

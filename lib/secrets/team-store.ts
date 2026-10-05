@@ -1,7 +1,7 @@
 /**
- * The team-scope sops secrets store: `~/.mattstack/teams/<slug>/mattstack/secrets/<domain>.json`,
+ * The team-scope sops secrets store: `~/.mattstack/teams/<slug>/mattstack/org/secrets/<domain>.json`,
  * encrypted to every team member's age public key via
- * `~/.mattstack/teams/<slug>/.sops.yaml` (path_regex `mattstack/secrets/.*`).
+ * `~/.mattstack/teams/<slug>/.sops.yaml` (path_regex `mattstack/org/secrets/.*`).
  * This is the N-recipient counterpart to `store.ts`'s single-recipient
  * personal store — every encrypt/decrypt still routes through that module's
  * `SecretsLocation` machinery (`decryptAtLocation`/`writeAtLocation`), just
@@ -27,7 +27,7 @@
  * worth the staleness-tracking complexity.
  *
  * `writeTeamRecipients` owns `.sops.yaml` entirely: it always renders
- * exactly one creation rule (`mattstack/secrets/.*`) and refuses outright
+ * exactly one creation rule (`mattstack/org/secrets/.*`) and refuses outright
  * (`TeamSopsYamlHandEditedError`) rather than collapsing a file that already
  * has more than one rule — a hand-edited `.sops.yaml` is out of scope for
  * this store, not something it silently overwrites.
@@ -36,9 +36,9 @@
 import { join } from "path";
 import { UserActionableError } from "../errors.ts";
 import { createRealAgeKeySeam, renderSopsYamlFor } from "../home/age-key.ts";
-import { teamsDir } from "../rt-paths.ts";
+import { orgSecretsDir, teamsDir } from "../rt-paths.ts";
 import { createRealProbes, type Probes } from "../setup/probes.ts";
-import { assertNotJoined } from "../team/team-local.ts";
+import { assertMayWrite } from "../team/roles.ts";
 import {
   createRealSecretsExecSeam,
   decryptAtLocation,
@@ -68,12 +68,12 @@ export class NoTeamCloneError extends Error {
   }
 }
 
-/** Thrown by `writeTeamRecipients` when the existing `.sops.yaml` already has more than one creation rule — this store only ever renders/owns the single `mattstack/secrets/.*` rule; a hand-edited file with other rules would be silently collapsed to just that one if this store rewrote it wholesale. */
+/** Thrown by `writeTeamRecipients` when the existing `.sops.yaml` already has more than one creation rule; this store only ever renders/owns the single `mattstack/org/secrets/.*` rule; a hand-edited file with other rules would be silently collapsed to just that one if this store rewrote it wholesale. */
 export class TeamSopsYamlHandEditedError extends Error {
   constructor(slug: string) {
     super(
       `team "${slug}"'s .sops.yaml has more than one creation rule — this store only manages its own single ` +
-        `"mattstack/secrets/.*" rule; edit recipients by hand instead of through rt.`,
+        `"mattstack/org/secrets/.*" rule; edit recipients by hand instead of through rt.`,
     );
   }
 }
@@ -101,32 +101,33 @@ export class TeamReencryptError extends Error {
 }
 
 /** Exported so `lib/team/create.ts`'s scaffold seeds `.sops.yaml` with the exact same rule this store reads — a divergence here would mean a scaffolded file silently stops matching this store's own creation rule. */
-export const TEAM_PATH_REGEX = "mattstack/secrets/.*";
+export const TEAM_PATH_REGEX = "mattstack/org/secrets/.*";
 
 function teamCloneRoot(slug: string): string {
   validateSlug(slug);
   return join(teamsDir(), slug);
 }
 
-/** `~/.mattstack/teams/<slug>/mattstack/secrets/<domain>.json` */
+/** `~/.mattstack/teams/<slug>/mattstack/org/secrets/<domain>.json` */
 export function teamSecretsFile(slug: string, domain: string): string {
   validateDomain(domain);
-  return join(teamCloneRoot(slug), "mattstack", "secrets", `${domain}.json`);
+  return join(teamSecretsDir(slug), `${domain}.json`);
 }
 
-/** `~/.mattstack/teams/<slug>/.sops.yaml` — recipients for every `mattstack/secrets/*.json` file in this clone. */
+/** `~/.mattstack/teams/<slug>/.sops.yaml`; recipients for every `mattstack/org/secrets/*.json` file in this clone. */
 export function teamSopsYamlPath(slug: string): string {
   return join(teamCloneRoot(slug), ".sops.yaml");
 }
 
 function teamSecretsDir(slug: string): string {
-  return join(teamCloneRoot(slug), "mattstack", "secrets");
+  validateSlug(slug);
+  return orgSecretsDir(slug);
 }
 
 function teamLocation(slug: string, domain: string): SecretsLocation {
   return {
     filePath: teamSecretsFile(slug, domain),
-    filenameOverride: join("mattstack", "secrets", `${domain}.json`),
+    filenameOverride: join("mattstack", "org", "secrets", `${domain}.json`),
     cwd: teamCloneRoot(slug),
   };
 }
@@ -180,7 +181,7 @@ export function readTeamRecipients(slug: string, seams: SecretsSeams): string[] 
 
 /**
  * Renders and writes `.sops.yaml` with exactly `recipients` (sorted,
- * deduped) as the `mattstack/secrets/.*` rule's recipients. Refuses to run
+ * deduped) as the `mattstack/org/secrets/.*` rule's recipients. Refuses to run
  * against a team with no local clone (`NoTeamCloneError`) — the real seam's
  * `writeFile` would otherwise happily `mkdir -p` a fresh `teams/<slug>/`
  * directory out of a typo'd slug — and refuses a `.sops.yaml` that already
@@ -244,7 +245,7 @@ export async function writeTeamSecret(
   // one.
   probes: Pick<Probes, "readFile" | "home"> = createRealProbes(),
 ): Promise<void> {
-  assertNotJoined(probes, slug);
+  assertMayWrite(probes, slug, ".sops.yaml");
   validateKey(key);
   const recipients = readTeamRecipients(slug, seams);
   if (recipients.length === 0) throw new NoTeamRecipientsError(slug);
@@ -277,17 +278,16 @@ function listTeamDomainFiles(slug: string, seams: SecretsSeams): string[] {
  * `keys.txt`, so a call with no env at all fails on a real machine (sops
  * exits 128, "failed to load age identities").
  *
- * `assertNotJoined` runs here rather than in each caller: every path that
+ * `assertMayWrite` runs here rather than in each caller: every path that
  * reaches this function (member add/remove, `rt secrets rotate --team`)
- * mutates every tracked domain file on disk, and a joined machine's clone
- * is pull-only, so there is no caller for which that mutation is legitimate.
+ * mutates every tracked domain file on disk, so only an org admin re-encrypts.
  */
 export async function reencryptTeamSecrets(
   slug: string,
   seams: SecretsSeams,
   probes: Pick<Probes, "readFile" | "home"> = createRealProbes(),
 ): Promise<string[]> {
-  assertNotJoined(probes, slug);
+  assertMayWrite(probes, slug, ".sops.yaml");
   const files = listTeamDomainFiles(slug, seams);
   if (files.length === 0) return [];
 

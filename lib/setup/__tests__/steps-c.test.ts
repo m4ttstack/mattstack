@@ -39,7 +39,7 @@ import { teamSyncRow } from "../validators/rt-health.ts";
 import { finalizePlan, type Row } from "../contract.ts";
 import { rowsToChecks } from "../../../commands/verify.ts";
 import { updateNotification } from "../update.ts";
-import { seedOrg, sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
+import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 
 // ─── shared fakes (mirrors steps-a/b.test.ts's trivial no-ops) ─────────────
 
@@ -2116,9 +2116,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         // real (if minimal) settings.team.jsonc plus the integration setting,
         // the same seeding pattern lib/daemon/__tests__/repo-tracking.test.ts
         // uses for a `scope: "team"` write.
-        const teamPath = sharedStorePath("acme");
-        mkdirSync(dirname(teamPath), { recursive: true });
-        writeFileSync(teamPath, "// team store\n{}\n");
+        seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
         setSetting("mattstack.integrations", { forge: { host: "github.com", provider: "github" } }, "org");
 
         let calls = 0;

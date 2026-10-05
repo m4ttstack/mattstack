@@ -1,5 +1,6 @@
+import { closeStateDb } from "../../state/index.ts";
 import { describe, test, expect } from "bun:test";
-import { applyInstallSatisfiedFlip, composePlan } from "../plan.ts";
+import { applyInstallSatisfiedFlip, composePlan, pendingJoinTeam } from "../plan.ts";
 import { FINISH_GATED_ROW_IDS, finalizePlan, row, type Group, type Row } from "../contract.ts";
 import { WAIVED_NOTE, applyFinishGate } from "../finish-gate.ts";
 import { setSetting } from "../../settings/write.ts";
@@ -67,7 +68,7 @@ function joinIntent(): SetupIntent {
       id: "inv1",
       keyB64: "k",
       pointer: {
-        v: 1,
+        v: 2, username: "dev2", teams: ["gadgets", "widgets"],
         team: "acme",
         name: "Acme",
         // The remote alone would derive "example.com", not "github.com"... proves the pointer's own forge wins.
@@ -156,19 +157,30 @@ describe("composePlan", () => {
   });
 
   test("solo intent, no teams -> no access rows, github optional, fast-browser optional, no team rows, and the existing modes unchanged", async () => {
-    // canInstall also needs tool.arch and tool.app ready; readyExec/grantedTray alone leave both unmocked, and neither is solo-specific.
-    const soloExec: ExecScript = (argv) => (argv[0] === "uname" ? ok("arm64") : readyExec(argv));
-    const p = fakeProbes({ exec: soloExec, tray: grantedTray, dirs: { "/Applications/mattstack.app": [] } });
-    writeIntent(p, { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "solo" });
-    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
-    expect(plan.team).toEqual({ slug: "", name: "", mode: "none" });
-    expect(plan.groups.find((g) => g.id === "access")!.rows).toEqual([]);
-    const accounts = plan.groups.find((g) => g.id === "accounts")!.rows;
-    expect(accounts.map((r) => [r.id, r.required])).toEqual([["account.github", false]]);
-    const tools = plan.groups.find((g) => g.id === "tools")!.rows;
-    expect(tools.find((r) => r.id === "tool.fast-browser")!.required).toBe(false);
-    expect(tools.some((r) => r.id.startsWith("team."))).toBe(false);
-    expect(plan.canInstall).toBe(true);
+    const priorHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "rt-plan-solo-"));
+    closeStateDb();
+    process.env.HOME = home;
+    try {
+      // canInstall also needs tool.arch and tool.app ready; readyExec/grantedTray alone leave both unmocked, and neither is solo-specific.
+      const soloExec: ExecScript = (argv) => (argv[0] === "uname" ? ok("arm64") : readyExec(argv));
+      const p = fakeProbes({ exec: soloExec, tray: grantedTray, dirs: { "/Applications/mattstack.app": [] } });
+      writeIntent(p, { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "solo" });
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });
+      expect(plan.team).toEqual({ slug: "", name: "", mode: "none" });
+      expect(plan.groups.find((g) => g.id === "access")!.rows).toEqual([]);
+      const accounts = plan.groups.find((g) => g.id === "accounts")!.rows;
+      expect(accounts.map((r) => [r.id, r.required])).toEqual([["account.github", false]]);
+      const tools = plan.groups.find((g) => g.id === "tools")!.rows;
+      expect(tools.find((r) => r.id === "tool.fast-browser")!.required).toBe(false);
+      expect(tools.some((r) => r.id.startsWith("team."))).toBe(false);
+      expect(plan.requiredMissing).toEqual([]);
+      expect(plan.canInstall).toBe(true);
+    } finally {
+      closeStateDb();
+      process.env.HOME = priorHome;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("create, join and restore intents produce the same rows as before solo existed", async () => {
@@ -451,4 +463,19 @@ describe("finish gate", () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+});
+
+
+describe("pendingJoinTeam", () => {
+  test("before the clone exists the pointer's first team selects the pack", () => { expect(pendingJoinTeam(joinIntent(), [])).toBe("gadgets"); });
+  test("after cloning the clone selects the team", () => { expect(pendingJoinTeam(joinIntent(), ["acme"])).toBeUndefined(); });
+  test("no intent or a create intent has no pending join team", () => { expect(pendingJoinTeam(null, [])).toBeUndefined(); expect(pendingJoinTeam(createIntent(), [])).toBeUndefined(); });
+});
+
+
+test("a saved old invite leaves the plan renderable until join refuses it", () => {
+  const intent = joinIntent();
+  const pointer = { ...intent.join!.pointer, v: 1, teams: undefined };
+  intent.join!.pointer = pointer as unknown as NonNullable<SetupIntent["join"]>["pointer"];
+  expect(pendingJoinTeam(intent, [])).toBeNull();
 });

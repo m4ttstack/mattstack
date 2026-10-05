@@ -30,7 +30,7 @@ describe("writeIntent / readIntent", () => {
       join: {
         id: "inv1",
         keyB64: "a2V5",
-        pointer: { v: 1, team: "acme", name: "Acme", remote: "git@host:acme/rt-home.git", owner: "matt", forge: "github", createdAt: "2026-08-20T00:00:00.000Z" },
+        pointer: { v: 2, username: "dev2", teams: ["widgets"], team: "acme", name: "Acme", remote: "git@host:acme/rt-home.git", owner: "matt", forge: "github", createdAt: "2026-08-20T00:00:00.000Z" },
       },
     };
     writeIntent(p, intent);
@@ -82,7 +82,7 @@ describe("orgRefFromIntent", () => {
       join: {
         id: "inv1",
         keyB64: "k",
-        pointer: { v: 1, team: "acme", name: "Acme HQ", remote: "r", owner: "o", forge: "github", createdAt: "x" },
+        pointer: { v: 2, username: "dev2", teams: ["widgets"], team: "acme", name: "Acme HQ", remote: "r", owner: "o", forge: "github", createdAt: "x" },
       },
     };
     expect(orgRefFromIntent(intent, [])).toEqual({ slug: "acme", name: "Acme HQ", mode: "join" });

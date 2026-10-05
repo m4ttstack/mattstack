@@ -1,5 +1,11 @@
 import { describe, test, expect, beforeEach, spyOn } from "bun:test";
 import { join as pathJoin } from "path";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
+import { getSetting } from "../../settings/resolve.ts";
+import { setSetting, setSettingsNoticeSink } from "../../settings/write.ts";
+import { createRealProbes } from "../../setup/probes.ts";
 import { fakeProbes, type ExecScript } from "../../setup/__tests__/fakes.ts";
 import { UserActionableError } from "../../errors.ts";
 import { resetCltCacheForTests } from "../../setup/home-git.ts";
@@ -25,7 +31,7 @@ const REMOTE = "https://github.com/acme/widgets.git";
 const TEAM_DIR = pathJoin(HOME, ".mattstack", "teams", "acme");
 
 const POINTER: InvitePointer = {
-  v: 1,
+  v: 2, username: "dev2", teams: ["widgets"],
   team: "acme",
   name: "Acme",
   remote: REMOTE,
@@ -33,6 +39,9 @@ const POINTER: InvitePointer = {
   forge: "github.com",
   createdAt: "2026-08-01T00:00:00.000Z",
 };
+
+const ORG_STORE = `${TEAM_DIR}/mattstack/org/settings.org.jsonc`;
+const rosterWith = (...usernames: string[]) => JSON.stringify({ "mattstack.roster": usernames.map((username) => ({ username, teams: ["widgets", "gadgets"] })) });
 
 const NOW = new Date("2026-08-22T00:00:00.000Z");
 const SB = SWITCHBOARD_URL;
@@ -130,12 +139,14 @@ function baseJoinRedeemSeams(overrides: Partial<JoinRedeemSeams> = {}): {
     readTeamSecret: unknown[][];
     forgeLogin: unknown[][];
     secretWrites: { key: string; value: string }[];
+    userSettingWrites: { key: string; value: unknown }[];
   };
 } {
   const calls = {
     readTeamSecret: [] as unknown[][],
     forgeLogin: [] as unknown[][],
     secretWrites: [] as { key: string; value: string }[],
+    userSettingWrites: [] as { key: string; value: unknown }[],
   };
   const seams: JoinRedeemSeams = {
     ageKeySeam: fakeAgeKeySeam(),
@@ -146,13 +157,14 @@ function baseJoinRedeemSeams(overrides: Partial<JoinRedeemSeams> = {}): {
     }) as JoinRedeemSeams["readTeamSecret"],
     forgeLogin: (async (...args: unknown[]) => {
       calls.forgeLogin.push(args);
-      return "zaphod";
+      return "dev2";
     }) as JoinRedeemSeams["forgeLogin"],
     forgeToken: async () => null,
     localStoreReady: async () => true,
     writeLocalSecret: async (key, value) => {
       calls.secretWrites.push({ key, value });
     },
+    writeUserSetting: (key, value) => { calls.userSettingWrites.push({ key, value }); },
     warn: () => {},
     ...overrides,
   };
@@ -214,6 +226,7 @@ describe("joinDryRun", () => {
 
     expect(result).toEqual({
       team: { slug: "acme", name: "Acme", owner: "matt" },
+      teams: ["widgets"],
       access: "ok",
       peering: "idle",
       message: "Joining Acme, owned by matt.",
@@ -273,6 +286,7 @@ describe("joinDryRun", () => {
     const result = await joinDryRun(p, relay.client, CODE);
     expect(result.access).toBe("unreachable");
     expect(result.team).toEqual({ slug: "", name: "", owner: "" });
+    expect(result.teams).toEqual([]);
     expect(result.peering).toBe("idle");
   });
 
@@ -483,7 +497,7 @@ describe("joinDryRun", () => {
 
 describe("joinRedeem", () => {
   function redeemProbes(overrides: Parameters<typeof fakeProbes>[0] = {}): ReturnType<typeof fakeProbes> {
-    return fakeProbes({ home: HOME, now: NOW, exec: () => ({ code: 0, stdout: "", stderr: "" }), ...overrides });
+    return fakeProbes({ home: HOME, now: NOW, exec: () => ({ code: 0, stdout: "", stderr: "" }), ...overrides, files: { [ORG_STORE]: rosterWith("dev2"), ...(overrides?.files ?? {}) } });
   }
 
   test("clones, redeems after the clone, and posts a reply blob the inviter can open", async () => {
@@ -501,7 +515,7 @@ describe("joinRedeem", () => {
     expect(relay.replyCalls).toHaveLength(1);
     const reply = await openReply(relay.replyCalls[0]!.blob, KEY, ID_HEX);
     expect(reply.agePublicKey).toBe(FAKE_PUBLIC_KEY);
-    expect(reply.handle).toBe("zaphod");
+    expect(reply.handle).toBe("dev2");
 
     // The code itself never leaks into the result.
     expect(JSON.stringify(result)).not.toContain(CODE);
@@ -694,7 +708,7 @@ describe("joinRedeem", () => {
     const p = redeemProbes({
       fetch: async (url, init) => {
         fetchCalls.push({ url, init });
-        return { status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-1" }), headers: {} };
+        return { status: 201, body: JSON.stringify({ username: "dev2", token: "tok-1" }), headers: {} };
       },
     });
     const relay = fakeRelay();
@@ -709,7 +723,7 @@ describe("joinRedeem", () => {
     expect(fetchCalls[0]!.url).toBe(`${SB}/boards`);
     expect(fetchCalls[0]!.init?.method).toBe("POST");
     expect(fetchCalls[0]!.init?.headers?.Authorization).toBe("Bearer admin-token-xyz");
-    expect(JSON.parse(fetchCalls[0]!.init?.body ?? "{}")).toEqual({ username: "zaphod" });
+    expect(JSON.parse(fetchCalls[0]!.init?.body ?? "{}")).toEqual({ username: "dev2" });
     expect(calls.secretWrites).toEqual([{ key: "switchboardToken", value: "tok-1" }]);
   });
 
@@ -743,7 +757,7 @@ describe("joinRedeem", () => {
     const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
 
     expect(result.peering).toBe("unavailable");
-    expect(result.peeringFix).toContain("Ask matt to invite zaphod again");
+    expect(result.peeringFix).toContain("Ask matt to invite dev2 again");
     expect(calls.secretWrites).toEqual([]);
     expect(p.calls.fetch).toHaveLength(0);
     expect(warnings.some((w) => w.includes("different switchboard"))).toBe(true);
@@ -864,7 +878,7 @@ describe("joinRedeem", () => {
 
   test("a minted board token that cannot be stored stops the join before the reply, keeping the intent so a plain rerun finishes it", async () => {
     const p = redeemProbes({
-      fetch: async () => ({ status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-1" }), headers: {} }),
+      fetch: async () => ({ status: 201, body: JSON.stringify({ username: "dev2", token: "tok-1" }), headers: {} }),
     });
     const relay = fakeRelay();
     const { seams } = baseJoinRedeemSeams({
@@ -1008,7 +1022,7 @@ describe("joinRedeem", () => {
 
       expect(result.access).toBe("ok");
       expect(result.peering).toBe("unavailable");
-      expect(result.peeringFix).toContain("Ask matt to invite zaphod again");
+      expect(result.peeringFix).toContain("Ask matt to invite dev2 again");
       expect(result.peeringFix).toContain("or ask them to invite your board again from the board's members panel");
       expect(result.message).toContain(result.peeringFix!);
     });
@@ -1024,7 +1038,7 @@ describe("joinRedeem", () => {
       const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
 
       expect(result.peering).toBe("unavailable");
-      expect(JSON.parse(p.readFile(teamLocalPath(p.home, POINTER.team))!)).toEqual({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, agePublicKey: FAKE_PUBLIC_KEY });
+      expect(JSON.parse(p.readFile(teamLocalPath(p.home, POINTER.team))!)).toEqual({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, agePublicKey: FAKE_PUBLIC_KEY, forgeUsername: "dev2" });
     });
 
     test("applied and idle peering carry no fix", async () => {
@@ -1287,6 +1301,7 @@ describe("joinRedeem", () => {
     const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
     expect(result.access).toBe("unreachable");
     expect(result.team).toEqual({ slug: "", name: "", owner: "" });
+    expect(result.teams).toEqual([]);
   });
 
   test("a programming error while resolving the pointer is not swallowed into 'check your network'", async () => {
@@ -1536,7 +1551,7 @@ describe("one team per machine", () => {
   }
 
   function probes(overrides: Parameters<typeof fakeProbes>[0]): ReturnType<typeof fakeProbes> {
-    return fakeProbes({ home: HOME, now: NOW, exec: () => ({ code: 0, stdout: "", stderr: "" }), ...overrides });
+    return fakeProbes({ home: HOME, now: NOW, exec: () => ({ code: 0, stdout: "", stderr: "" }), ...overrides, files: { [ORG_STORE]: rosterWith("dev2"), ...(overrides?.files ?? {}) } });
   }
 
   beforeEach(() => resetCltCacheForTests());
@@ -1578,7 +1593,7 @@ describe("one team per machine", () => {
     const own = zone(POINTER.team);
     const p = probes({
       dirs: { ...own.dirs, [TEAM_DIR]: [".git", "mattstack"] },
-      files: { ...own.files, [pathJoin(TEAM_DIR, ".git", "config")]: gitConfigWithRemote(REMOTE) },
+      files: { ...own.files, [ORG_STORE]: rosterWith("dev2"), [pathJoin(TEAM_DIR, ".git", "config")]: gitConfigWithRemote(REMOTE) },
     });
     const { seams } = baseJoinRedeemSeams();
 
@@ -1586,4 +1601,111 @@ describe("one team per machine", () => {
 
     expect(result.access).toBe("ok");
   });
+});
+
+
+describe("join identity and teams", () => {
+  const probes = (files: Record<string, string> = {}) => fakeProbes({ home: HOME, now: NOW, files: { [ORG_STORE]: rosterWith("dev2"), ...files }, exec: () => ({ code: 0, stdout: "", stderr: "" }) });
+
+  test("an old pointer is refused before intent or clone writes on dry run, redeem and resume", async () => {
+    const old = { ...POINTER, v: 1 } as unknown as InvitePointer;
+    const error = { code: "invite-outdated", message: "That invite was made by an older mattstack. Ask for a new invite." };
+    const p = probes();
+    await expect(joinDryRun(p, relayWith(old), CODE)).rejects.toMatchObject(error);
+    await expect(joinRedeem(p, relayWith(old), () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams)).rejects.toMatchObject(error);
+    expect(readIntent(p)).toBeNull();
+    expect(p.calls.exec).toEqual([]);
+    expect(p.calls.writes).toEqual({});
+    const saved: SetupIntent = { v: 1, at: NOW.toISOString(), mode: "join", join: { id: ID_HEX, keyB64: Buffer.from(KEY).toString("base64"), pointer: old } };
+    const resumed = probes({ [intentPath(HOME)]: JSON.stringify(saved) });
+    await expect(joinRedeem(resumed, fakeRelay().client, () => NO_SECRETS, {}, baseJoinRedeemSeams().seams)).rejects.toMatchObject(error);
+    expect(resumed.calls.exec).toEqual([]);
+    expect(resumed.calls.writes).toEqual({});
+  });
+
+  test("invalid username or team names are refused before writes", async () => {
+    for (const patch of [{ teams: ["../x"] }, { teams: [] }, { teams: ["Widgets"] }, { teams: [1] }, { username: "bad handle!" }, { username: "" }]) {
+      const p = probes();
+      const bad = { ...POINTER, ...patch } as InvitePointer;
+      await expect(joinDryRun(p, relayWith(bad), CODE)).rejects.toMatchObject({ code: "invite-malformed" });
+      await expect(joinRedeem(p, relayWith(bad), () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams)).rejects.toMatchObject({ code: "invite-malformed" });
+      expect(p.calls.exec).toEqual([]);
+      expect(readIntent(p)).toBeNull();
+    }
+  });
+
+  test("dry run reports the ordered teams with no clone", async () => {
+    const p = probes();
+    expect(p.exists(TEAM_DIR)).toBe(false);
+    expect((await joinDryRun(p, relayWith({ ...POINTER, teams: ["gadgets", "widgets"] }), CODE)).teams).toEqual(["gadgets", "widgets"]);
+  });
+
+  test("redeem stores the real login and selects the pointer's first team", async () => {
+    const p = probes();
+    const { seams, calls } = baseJoinRedeemSeams({ forgeLogin: async () => "Dev2" });
+    const result = await joinRedeem(p, relayWith({ ...POINTER, teams: ["gadgets", "widgets"] }), () => NO_SECRETS, { code: CODE }, seams);
+    expect(result).toMatchObject({ access: "ok", teams: ["gadgets", "widgets"] });
+    expect(readTeamLocal(p, "acme").forgeUsername).toBe("Dev2");
+    expect(calls.userSettingWrites).toEqual([{ key: "mattstack.activeTeam", value: "gadgets" }]);
+  });
+
+  test("a different login keeps the intent and refuses before redeem or identity writes", async () => {
+    const p = probes();
+    const relay = fakeRelay();
+    const { seams, calls } = baseJoinRedeemSeams({ forgeLogin: async () => "dev1" });
+    await expect(joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams)).rejects.toMatchObject({ code: "invite-login-mismatch", message: "This invite is for dev2; you're signed in as dev1.", why: "Ask for an invite for dev1, or connect dev2's token." });
+    expect(relay.redeemCalls).toEqual([]);
+    expect(readIntent(p)?.mode).toBe("join");
+    expect(readTeamLocal(p, "acme").forgeUsername).toBeUndefined();
+    expect(calls.userSettingWrites).toEqual([]);
+  });
+
+  test("a missing roster entry pulls once and accepts the newly arrived entry", async () => {
+    const p = probes({ [ORG_STORE]: rosterWith() });
+    p.exec = async (argv) => { p.calls.exec.push(argv); if (argv.includes("pull")) p.writeFile(ORG_STORE, rosterWith("dev2")); return { code: 0, stdout: "", stderr: "" }; };
+    expect((await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams)).access).toBe("ok");
+    expect(p.calls.exec.filter((argv) => argv.includes("pull"))).toEqual([["git", "pull", "--ff-only"]]);
+  });
+
+  test("a roster still missing after one pull keeps the invite and resume intent", async () => {
+    const p = probes({ [ORG_STORE]: rosterWith("dev1") });
+    const relay = fakeRelay();
+    const { seams, calls } = baseJoinRedeemSeams();
+    await expect(joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams)).rejects.toMatchObject({ code: "roster-not-ready", message: "Your admin's roster change has not reached the org repo yet; try again in a minute" });
+    expect(p.calls.exec.filter((argv) => argv.includes("pull"))).toHaveLength(1);
+    expect(relay.redeemCalls).toEqual([]);
+    expect(readIntent(p)?.mode).toBe("join");
+    expect(readTeamLocal(p, "acme").forgeUsername).toBeUndefined();
+    expect(calls.userSettingWrites).toEqual([]);
+  });
+
+  test("roster identity is case insensitive and skips the extra pull", async () => {
+    const p = probes({ [ORG_STORE]: rosterWith("Dev2") });
+    expect((await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams)).access).toBe("ok");
+    expect(p.calls.exec.some((argv) => argv.includes("pull"))).toBe(false);
+  });
+});
+
+
+test("a joined identity reads the selected team's board title through the resolver", async () => {
+  const home = mkdtempSync(pathJoin(tmpdir(), "join-team-title-"));
+  const priorHome = process.env.HOME;
+  process.env.HOME = home;
+  const notices: string[] = [];
+  const priorSink = setSettingsNoticeSink((line) => { notices.push(line); });
+  try {
+    seedOrg({ org: "acme", roster: [{ username: "Dev2", teams: ["widgets", "gadgets"] }], settings: { "board.title": "Acme" }, teams: { widgets: { "board.title": "Widgets" }, gadgets: { "board.title": "Gadgets" } } });
+    const p = createRealProbes();
+    p.exec = async () => ({ code: 0, stdout: "", stderr: "" });
+    const { seams } = baseJoinRedeemSeams({ forgeLogin: async () => "dev2", writeUserSetting: (key, value) => { setSetting(key, value, "user"); } });
+    await joinRedeem(p, relayWith({ ...POINTER, teams: ["gadgets", "widgets"] }), () => NO_SECRETS, { code: CODE }, seams);
+    expect(readTeamLocal(p, "acme").forgeUsername).toBe("dev2");
+    expect(getSetting("mattstack.activeTeam").value).toBe("gadgets");
+    expect(getSetting("board.title").value).toBe("Gadgets");
+    expect(notices).toHaveLength(1);
+  } finally {
+    setSettingsNoticeSink(priorSink);
+    if (priorHome === undefined) delete process.env.HOME; else process.env.HOME = priorHome;
+    rmSync(home, { recursive: true, force: true });
+  }
 });

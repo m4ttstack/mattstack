@@ -1,5 +1,9 @@
-import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
+import { captureSkills } from "../../lib/skills/__tests__/helpers.ts";
+import * as packsModule from "../../lib/skills/packs.ts";
+import * as syncModule from "../../lib/skills/sync.ts";
+import { describe, expect, test, spyOn } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { PackInfo } from "../../lib/skills/packs.ts";
@@ -10,7 +14,6 @@ import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
 import { deriveEngine, skillsSync, manifestTarget, syncBlocks, syncFailure, syncMaterializeVerdict, syncOptions, syncRefusal } from "../skills-sync.ts";
 import * as syncCommand from "../skills-sync.ts";
-import { captureSkills } from "../../lib/skills/__tests__/helpers.ts";
 
 function pack(name: string): PackInfo {
   return { name, dir: `/fake/${name}`, layout: "flat", surfacePath: `/fake/${name}/surface.jsonc`, marketplace: "local" };
@@ -330,5 +333,47 @@ test("skillsSync sends the missing Claude Code note to stderr and keeps exit 1",
     io.restore();
     process.exitCode = 0;
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+for (const target of ["root", "..pack"]) test(`member sync cannot commit ${target} source`, async () => {
+  const savedHome = process.env.HOME;
+  const savedExit = process.exitCode;
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-sync-containment-")));
+  process.env.HOME = home;
+  const io = captureSkills();
+  let permission: boolean | undefined;
+  const calls: string[] = [];
+  seedOrg({ org: "acme", username: "dev4", roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
+  const root = join(home, ".mattstack", "teams", "acme");
+  const dir = target === "root" ? root : join(root, target);
+  mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+  const manifest = join(dir, ".claude-plugin", "plugin.json");
+  const before = '{"name":"widgets","version":"1.0.0"}\n';
+  writeFileSync(manifest, before);
+  const source = { ...pack("widgets"), dir, marketplace: "local" };
+  const engine = { ...pack("mattstack"), installedCache: true, marketplace: "local" };
+  const discovery = spyOn(packsModule, "discoverPacks").mockReturnValue([source, engine]);
+  const realSync = syncModule.syncPack;
+  const seam = spyOn(syncModule, "syncPack").mockImplementation(async (p, e, deps, options) => {
+    permission = deps.mayCompile(p.name);
+    return realSync(p, e, { ...deps, claudeBin: "/fake/claude", inTreeRoot: null, run: async (_cmd, args) => {
+      calls.push(args[0]!);
+      return { code: 0, stdout: args[0] === "status" ? " M .claude-plugin/plugin.json\n" : "", stderr: "" };
+    } }, options);
+  });
+  try {
+    await skillsSync(["--pack", "widgets", "--commit-pending", "--json"]);
+    expect(permission).toBe(false);
+    expect(process.exitCode).toBe(1);
+    const result = JSON.parse(io.stdout());
+    expect(result).toMatchObject({ ok: false, pack: "widgets", steps: [{ name: "guards", status: "refused", detail: "This pack has changes, but only its team's owners can commit them" }] });
+    expect(Object.keys(result).sort()).toEqual(["ok", "pack", "restartNeeded", "steps", "versions", "warnings"]);
+    expect(calls.some(c => ["add", "commit", "push", "pull"].includes(c))).toBe(false);
+    expect(readFileSync(manifest, "utf8")).toBe(before);
+  } finally {
+    seam.mockRestore(); discovery.mockRestore(); io.restore();
+    process.env.HOME = savedHome; process.exitCode = savedExit ?? 0;
+    rmSync(home, { recursive: true, force: true });
   }
 });

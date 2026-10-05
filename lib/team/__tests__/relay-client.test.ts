@@ -313,7 +313,7 @@ describe("invariant: relay traffic never carries plaintext", () => {
     const idHex = ID_HEX;
     const key = generateKey();
     const pointer: InvitePointer = {
-      v: 1,
+      v: 2, username: "dev2", teams: ["widgets"],
       team: "SENTINEL-TEAM-9f3a",
       name: "Sentinel Display Name",
       remote: "git@github.com:sentinel-org/sentinel-repo.git",

@@ -162,7 +162,7 @@ function workspaceEditorsReport(from: string, to: string, dryRun: boolean): Stor
 
 function settingsReport(label: string, path: string, from: string, to: string, dryRun: boolean): StoreReport {
   const r = renameRepoSection(path, from, to, { dryRun });
-  return { store: `settings:${label}`, status: r.status, count: r.keys, ...(r.detail ? { detail: r.detail } : {}) };
+  return { store: `settings:${label}`, status: r.status, count: r.keys, ...(r.detail ? { detail: label.startsWith("shared:") ? r.detail.replace(/^Error: rt: /, "") : r.detail } : {}) };
 }
 
 export async function reidentify(fromArg: string, toArg: string, opts: { dryRun?: boolean } = {}): Promise<ReidentifyReport | { error: string }> {

@@ -1,10 +1,18 @@
+import { activeTeam, decideActiveTeam, type RosterEntry } from "../packages/rt-client/src/settings/active-team.ts";
+import { useTeam, type UseTeamSeams } from "../lib/team/use.ts";
+import type { SecretsSeams } from "../lib/secrets/store.ts";
+import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
+import { orgStoreFile } from "../lib/team/org-store.ts";
+import { rosterFrom } from "../packages/rt-client/src/settings/active-team.ts";
+import { activeTeamFor } from "../lib/team/active-team.ts";
+import { roleFor, rolesFor } from "../lib/team/roles.ts";
 /**
  * rt team create|publish|invite|join|members|status — the team-repo
  * lifecycle verbs.
  *
- *   rt team create <name> (--remote <url> | --create-repo <owner>) [--others] [--json]
+ *   rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]
  *   rt team publish [--team <slug>] --remote <url> [--json]
- *   rt team invite --handle <h> [--team <slug>] [--require-peering] [--json]
+ *   rt team invite --handle <h> [--teams <team>[,<team>]] [--team <org>] [--require-peering] [--json]
  *   rt team join [--dry-run] [--json]   (code on stdin as {"code":"..."}, or a prompt on a TTY)
  *   rt team members sync [--team <slug>] [--json]
  *   rt team members remove <handle> [--key <age1...>] [--team <slug>] [--json]
@@ -25,7 +33,7 @@ import { promptSecret } from "../lib/prompt-secret.ts";
 import { orgSettingsPath } from "../lib/rt-paths.ts";
 import { createRealTeamSecretsSeams } from "../lib/secrets/team-store.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
-import { listOrgs, readStore } from "../lib/settings/stores.ts";
+import { listOrgs, parseStoreText, readStore, TEAM_NAME_RE } from "../lib/settings/stores.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
@@ -34,12 +42,16 @@ import { warn } from "../lib/ui/warn.ts";
 import { UserActionableError, exitUserError, logFailureDetail } from "../lib/errors.ts";
 import { createRealProbes, readStdinJson, type Probes } from "../lib/setup/probes.ts";
 import { readTeamSnapshot, stripUserinfo, type SettingsReader } from "../lib/setup/team-settings.ts";
+import { forgeLogin } from "../lib/team/forge.ts";
+import { addTeam, type AddTeamSeams } from "../lib/team/add.ts";
+import { setSetting } from "../lib/settings/write.ts";
+import { loadStepSource, resolvePluginRoots } from "../lib/skills/sources.ts";
 import { createTeam } from "../lib/team/create.ts";
 import { extractInviteCode } from "../lib/team/invite-crypto.ts";
 import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeams } from "../lib/team/invite.ts";
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
-import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSync, teamRemote, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
+import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient } from "../lib/team/relay-client.ts";
@@ -49,6 +61,15 @@ import { daemonQuery } from "../lib/daemon-client.ts";
 import type { TeamSnapshotEntry } from "../lib/daemon/team-snapshots.ts";
 
 export interface TeamDeps {
+  useTeamSeams?: UseTeamSeams;
+  secrets?: SecretsSeams;
+  secretPresence?: SecretPresence;
+  /** Tests must resolve a fixture executable instead of the installed app. */
+  deckPath?: (p: Probes) => string | null;
+  selectTeam?: (choices: string[]) => Promise<string | null>;
+  mintInvite?: typeof mintInvite;
+  addTeamSeams?: AddTeamSeams;
+  membersSeams?: MembersSeams;
   probes: Probes;
   /** The --json envelope line only; human text goes through lib/ui/out.ts. */
   print: (s: string) => void;
@@ -132,6 +153,7 @@ function usageError(deps: TeamDeps, json: boolean, verb: string, title: string, 
 
 /** rt declining by policy rather than failing: a person reads a refused line, never a failure block. */
 const REFUSAL_CODES = new Set([
+  "not-on-team",
   "team-pull-only",
   "not-rt-created",
   "team-already-set-up",
@@ -153,12 +175,47 @@ function exitTeamError(err: UserActionableError, json: boolean, verb: string, de
   process.exit(2);
 }
 
+export async function teamAdd(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  const team = positional(args, ["--owner", "--team"])[0];
+  const owners = (flagValue(args, "--owner") ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "");
+  if (!team || owners.length === 0) {
+    usageError(deps, json, "team add", "Name the new team and who owns it", "rt team add <team> --owner <username>[,<username>] [--json]");
+  }
+  try {
+    const org = resolveTeamSlug(args, "team add");
+    const result = addTeam(deps.probes, { org, team, owners }, deps.addTeamSeams ?? realAddTeamSeams());
+    if (json) {
+      deps.print(JSON.stringify(envelope(result)));
+      return;
+    }
+    out.print(
+      out.line("done", `Added the ${team} team`, `owned by ${owners.join(", ")}`),
+      out.callout("next", [`Put people on it with `, out.cmd(`rt team members set <username> --teams ${team}`)]),
+    );
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, "team add", deps);
+    throw err;
+  }
+}
+
+function realAddTeamSeams(): AddTeamSeams {
+  return {
+    writeOrgSetting: (key, value) => setSetting(key, value, "org"),
+    engineDescription: (engine) => {
+      try { return loadStepSource(engine, resolvePluginRoots()).description; }
+      catch { return null; }
+    },
+  };
+}
+
 export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
   const others = args.includes("--others");
   const remote = flagValue(args, "--remote") ?? null;
   const createRepoOwner = flagValue(args, "--create-repo");
-  let name = positional(args, ["--remote", "--create-repo"])[0];
+  const firstTeam = flagValue(args, "--first-team");
+  let name = positional(args, ["--remote", "--create-repo", "--first-team"])[0];
 
   if (!name) {
     if (process.stdin.isTTY && !json && !process.env.RT_BATCH) {
@@ -166,20 +223,21 @@ export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps
       name = await textInput({ message: "Team name", placeholder: "Platform Team" });
       if (!name) process.exit(0);
     } else {
-      usageError(deps, json, "team create", "What should the team be called?", "rt team create <name> (--remote <url> | --create-repo <owner>) [--others] [--json]");
+      usageError(deps, json, "team create", "What should the team be called?", "rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]");
     }
   }
 
   try {
-    const result = await createTeam(deps.probes, { name, remote, createRepoOwner, others }, deps.ageKeySeam);
+    const result = await createTeam(deps.probes, { name, remote, createRepoOwner, others, firstTeam }, deps.ageKeySeam, { forgeLogin, forgeToken: deps.forgeToken ?? storedForgeToken });
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
     }
     out.print(
       result.created
-        ? out.line("done", `Created the ${result.slug} team`, result.remote)
-        : out.line("skipped", `The ${result.slug} team is already set up`, result.remote),
+        ? out.line("done", `Created the ${result.slug} org`, result.remote)
+        : out.line("skipped", `The ${result.slug} org is already set up`, result.remote),
+      ...(result.rolesDeferred ? [out.callout("next", "Connect your forge account in Setup so rt can make you this org's admin")] : []),
     );
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, "team create", deps);
@@ -292,7 +350,7 @@ function joinStatus(result: JoinResult): RenderStatus {
 }
 
 export function joinBlocks(result: JoinResult): Block[] {
-  return [out.line(joinStatus(result), result.message)];
+  return [out.line(joinStatus(result), result.message), ...(result.teams.length > 0 ? [out.kv("teams", result.teams.join(", "))] : [])];
 }
 
 export function membersSyncBlocks(result: MembersSyncResult): Block[] {
@@ -320,22 +378,23 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
   const handle = flagValue(args, "--handle");
 
   if (!handle) {
-    usageError(deps, json, "team invite", "Who is the invite for?", "rt team invite --handle <h> [--team <slug>] [--require-peering] [--json]");
+    usageError(deps, json, "team invite", "Who is the invite for?", "rt team invite --handle <h> [--teams <team>[,<team>]] [--team <org>] [--require-peering] [--json]");
   }
 
   try {
     const slug = resolveTeamSlug(args, "team invite");
 
     const local = readTeamLocal(deps.probes, slug);
-    if (local.joinedByRt) {
-      throw new UserActionableError("team-pull-only", `This Mac joined the ${slug} team by invite, so its copy is pull-only and cannot invite anyone.`, {}, {
-        why: `Ask the team's owner to invite ${handle}.`,
+    if (roleFor(deps.probes, slug).kind !== "admin") {
+      const admins = rolesFor(deps.probes, slug).admins;
+      throw new UserActionableError("team-pull-only", "Only an org admin invites", {}, {
+        why: admins.length > 0 ? `Ask ${admins.join(" or ")} to invite ${handle}.` : "This org names no admins yet.",
       });
     }
+    const named = (flagValue(args, "--teams") ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "");
+    const own = activeTeamFor(deps.probes, slug).team;
+    const teams = named.length > 0 ? named : own ? [own] : [];
 
-    // Asked here, not inside mintInvite: the mint POSTs to the relay before it
-    // reaches the roster, so a question answered later would arrive after the
-    // world had already changed.
     const gate = deps.interactive ?? (await import("../lib/ui/gate.ts")).interactive;
     if (!json && local.createdByRt && !local.rtMayManageMembership && gate()) {
       const ask = deps.confirm ?? (async (message: string) => (await import("../lib/ui/prompts.ts")).confirm({ message }));
@@ -345,10 +404,10 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
     }
 
     const relay = createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env));
-    const result = await mintInvite(
+    const result = await (deps.mintInvite ?? mintInvite)(
       deps.probes,
       relay,
-      { slug, handle, now: deps.probes.now(), requirePeering: args.includes("--require-peering") },
+      { slug, handle, teams, now: deps.probes.now(), requirePeering: args.includes("--require-peering") },
       { ...realMintInviteSeams(), ...deps.mintInviteSeams },
     );
 
@@ -513,6 +572,43 @@ function rosterHandles(args: string[]): string[] {
   }
 }
 
+function readOrgRosterNames(p: Probes, slug: string): string[] {
+  const file = orgStoreFile(p.home, slug);
+  const raw = p.readFile(file);
+  return raw === null ? [] : rosterFrom(parseStoreText(file, raw)).map((member) => member.username);
+}
+
+export async function teamMembersSet(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  let handle = positional(args, ["--teams", "--team"])[0];
+  const teamsFlag = flagValue(args, "--teams");
+  try {
+    const slug = resolveTeamSlug(args, "team members set");
+    if (!handle && process.stdin.isTTY && !json && !process.env.RT_BATCH) {
+      const candidates = readOrgRosterNames(deps.probes, slug);
+      if (candidates.length > 0) {
+        const { filterableSelect } = await import("../lib/pick-wrappers.ts");
+        const picked = await filterableSelect({ message: "Whose teams?", options: candidates.map((name) => ({ value: name, label: name })), stderr: true });
+        if (!picked) process.exit(0);
+        handle = picked;
+      }
+    }
+    if (!handle || teamsFlag === undefined) {
+      usageError(deps, json, "team members set", "Say whose teams, and which", "rt team members set <username> --teams <team>[,<team>] [--team <org>] [--json]");
+    }
+    const teams = teamsFlag.split(",").map((team) => team.trim()).filter((team) => team !== "");
+    const result = membersSetTeams(deps.probes, deps.membersSeams ?? realMembersSeams(), slug, handle, teams);
+    if (json) {
+      deps.print(JSON.stringify(envelope(result)));
+      return;
+    }
+    out.print(out.line("done", `${result.username} is on ${result.teams.length > 0 ? result.teams.join(", ") : "no team"}`, result.previous.length > 0 ? `was on ${result.previous.join(", ")}` : undefined));
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, "team members set", deps);
+    throw err;
+  }
+}
+
 export async function teamMembersRemove(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
   const json = args.includes("--json");
   let handle = positional(args, ["--team", "--key"])[0];
@@ -621,7 +717,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
   try {
     if (!flagValue(args, "--team") && listOrgs().length === 0) {
-      const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[] };
+      const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[], role: null, activeTeam: null, teams: [] as never[], orgTeams: [] as never[] };
       if (json) deps.print(JSON.stringify(envelope(result)));
       else out.print(out.line("off", "No team on this Mac", "just you"));
       return;
@@ -637,7 +733,18 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     const snapshot = readTeamSnapshot(deps.probes, slug, { read, warn: () => {} });
     const title = read<string>("board.title");
     const name = title && title.length > 0 ? title : slug;
-    const members = toRosterMembers(read<unknown>("mattstack.roster"), (skipped) =>
+    const active = activeTeamFor(deps.probes, slug);
+    const role = roleFor(deps.probes, slug).kind;
+    const teamsDir = join(dir, "mattstack", "teams");
+    const orgTeams = deps.probes.readDir(teamsDir)
+      .filter((team) => TEAM_NAME_RE.test(team) && deps.probes.exists(join(teamsDir, team, "settings.team.jsonc")))
+      .sort();
+    const rosterValue = read<unknown>("mattstack.roster");
+    const everyone = Array.isArray(rosterValue) ? rosterValue : [];
+    const onTeam = active.team === null ? everyone : everyone.filter((member) =>
+      Array.isArray((member as { teams?: unknown } | null)?.teams) && (member as { teams: unknown[] }).teams.includes(active.team),
+    );
+    const members = toRosterMembers(onTeam, (skipped) =>
       warn("team", `skipped ${skipped} malformed mattstack.roster entr${skipped === 1 ? "y" : "ies"} (missing or non-string username)`, {
         show: { title: "Some team members could not be read", hint: `${skipped} left out` },
       }),
@@ -650,7 +757,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
     const { reachable, ...sync } = await readTeamSyncFields(deps, slug);
 
-    const result = { slug, name, remote, lastPush, members, ...sync };
+    const result = { slug, name, remote, lastPush, members, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
@@ -667,12 +774,105 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
         out.kv("remote", result.remote ?? "none"),
         out.kv("last push", lastPush ?? "never"),
         out.kv("members", String(members.length)),
+        out.kv("your team", active.team ?? "none"),
+        out.kv("your role", role === "admin" ? "org admin" : role === "owner" ? "team owner" : role === "member" ? "member" : "unknown"),
         out.kv("sync", syncState, syncNotes.length > 0 ? syncNotes.join("; ") : undefined),
         ...(sync.conflicted !== null ? [out.line("needs-you", "The team has changes that clash with yours", sync.conflicted.detail)] : []),
       ),
     );
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, "team status", deps);
+    throw err;
+  }
+}
+
+export async function realUseTeamSeams(deps: TeamDeps): Promise<UseTeamSeams> {
+  const { bundledToolPath, resolveTool } = await import("../lib/deps/resolve.ts");
+  const { claudeConfigDirs } = await import("../lib/setup/tools-install.ts");
+  const { PACK_EXEC_TIMEOUT_MS } = await import("../lib/setup/pack-cache.ts");
+  return {
+    activeTeam: () => {
+      const before = activeTeam();
+      if (before.org === null) return before;
+      const decision = decideActiveTeam({
+        username: before.username,
+        roster: getSetting<RosterEntry[]>("mattstack.roster").value ?? [],
+        setting: getSetting<string>("mattstack.activeTeam").value,
+        teamFolders: () => deps.probes.readDir(join(deps.probes.home, ".mattstack", "teams", before.org!, "mattstack", "teams")),
+      });
+      return { ...before, ...decision };
+    },
+    writeUserSetting: (key, value) => { setSetting(key, value, "user"); },
+    installPack: async () => {
+      const { createApplyContext } = await import("../lib/setup/apply.ts");
+      const { installPlugins } = await import("../lib/setup/steps/plugins.ts");
+      const { materializeSkills } = await import("../lib/setup/skills-materialize.ts");
+      const { createRealSecretsExecSeam } = await import("../lib/secrets/store.ts");
+      const { realSecretPresence } = await import("../lib/setup/plan.ts");
+      const ctx = await createApplyContext({
+        probes: deps.probes,
+        emit: () => {},
+        secrets: deps.secrets ?? { ageKeySeam: deps.ageKeySeam ?? createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() },
+        relay: createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env)),
+        secretPresence: deps.secretPresence ?? realSecretPresence(),
+        flags: { nonInteractive: true, teamOfOne: false, ci: false, update: true },
+      });
+      const plugins = await installPlugins(ctx);
+      if (plugins.state === "failed") return { ok: false, detail: plugins.detail };
+      if (plugins.state === "skipped") await materializeSkills(ctx.p, {});
+      return { ok: plugins.state === "done", detail: plugins.detail ?? "The packs are installed" };
+    },
+    setPackEnabled: async (id, enabled) => {
+      const claude = resolveTool(deps.probes, "claude");
+      if (claude.exec === null) return false;
+      let ok = true;
+      for (const dir of claudeConfigDirs(deps.probes, [])) {
+        const res = await deps.probes.exec([...claude.exec, "plugin", enabled ? "enable" : "disable", id], { env: { CLAUDE_CONFIG_DIR: dir }, timeoutMs: PACK_EXEC_TIMEOUT_MS });
+        if (res.code !== 0 && !(enabled ? /already enabled/i : /already disabled/i).test(res.stderr)) ok = false;
+      }
+      return ok;
+    },
+    marketplace: (org) => {
+      const raw = deps.probes.readFile(join(deps.probes.home, ".mattstack", "teams", org, ".claude-plugin", "marketplace.json"));
+      if (raw !== null) {
+        try {
+          const parsed: unknown = JSON.parse(raw);
+          if (parsed !== null && typeof parsed === "object" && "name" in parsed && typeof parsed.name === "string" && parsed.name.length > 0) return parsed.name;
+        } catch {}
+      }
+      return org;
+    },
+    restartApp: async (app) => {
+      const deck = deps.deckPath ? deps.deckPath(deps.probes) : bundledToolPath(deps.probes, "deck");
+      return deck !== null && (await deps.probes.exec([deck, "restart", app])).code === 0;
+    },
+  };
+}
+
+export async function teamUse(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
+  let team = positional(args, [])[0];
+  try {
+    const seams = deps.useTeamSeams ?? await realUseTeamSeams(deps);
+    if (!team) {
+      const choices = seams.activeTeam().listedOn;
+      if (choices.length > 0 && (deps.interactive?.() ?? process.stdin.isTTY) && !json && !process.env.RT_BATCH) {
+        const { filterableSelect } = await import("../lib/pick-wrappers.ts");
+        const picked = deps.selectTeam ? await deps.selectTeam(choices) : await filterableSelect({ message: "Which team?", options: choices.map((name) => ({ value: name, label: name })), stderr: true });
+        if (!picked) process.exit(0);
+        team = picked;
+      } else usageError(deps, json, "team use", "Which team do you want to work as?", "rt team use <team> [--json]");
+    }
+    const result = await useTeam(team, seams);
+    if (json) { deps.print(JSON.stringify(envelope(result))); return; }
+    out.print(
+      out.line("done", `You are working as the ${result.team} team`, result.previous && result.previous !== result.team ? `was ${result.previous}` : undefined),
+      result.pack.enabled ? out.line("done", `The ${result.team} pack is on`) : out.line("needs-you", `The ${result.team} pack is not on yet`, result.pack.detail),
+      result.pack.enabled ? out.callout("next", "Restart Claude Code sessions to pick up the new pack") : out.callout("next", out.cmd("rt setup pack")),
+    );
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, "team use", deps);
     throw err;
   }
 }

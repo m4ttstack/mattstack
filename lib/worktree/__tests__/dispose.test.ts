@@ -1,6 +1,6 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { execSync } from "child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, realpathSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { setSetting } from "../../settings/write.ts";
@@ -15,7 +15,7 @@ import {
   STATUS_FAILED_BLOCKER,
   type DisposeDeps,
 } from "../dispose.ts";
-import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
+import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 
 const GIT_ID = "-c user.email=t@t -c user.name=t";
 
@@ -54,9 +54,7 @@ const IDENTITY = "test/acme";
  */
 function seedIdentity(originUrl: string): void {
   setSetting("rt.repoIdentityOverrides", { [originUrl]: IDENTITY }, "machine");
-  const teamPath = sharedStorePath("acme");
-  mkdirSync(dirname(teamPath), { recursive: true });
-  writeFileSync(teamPath, "// team store\n{}\n");
+  seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
 }
 
 /** Add a worktree on a fresh branch cut from `base`, and return its (canonical) path. */
@@ -109,6 +107,18 @@ function writeLease(filename: string, body: unknown): void {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, filename), typeof body === "string" ? body : JSON.stringify(body));
 }
+
+let priorHome: string | undefined;
+beforeEach(() => {
+  priorHome = process.env.HOME;
+  closeStateDb();
+});
+afterEach(() => {
+  const fixtureHome = process.env.HOME;
+  closeStateDb();
+  process.env.HOME = priorHome;
+  if (fixtureHome && fixtureHome !== priorHome) rmSync(fixtureHome, { recursive: true, force: true });
+});
 
 describe("hasFreshAttendantLease", () => {
   beforeEach(() => {

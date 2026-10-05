@@ -246,6 +246,7 @@ function stubDeps(overrides: Partial<InitDeps> = {}): InitDeps {
     promptZone: async () => { throw new Error("promptZone should not be called"); },
     createZone: async () => { throw new Error("createZone should not be called"); },
     activeTeam: () => null,
+    mayWrite: () => null,
     declareClaim: () => {},
     engineDescription: () => "engine description",
     claude: async () => ({ code: 0, stdout: "", stderr: "" }),

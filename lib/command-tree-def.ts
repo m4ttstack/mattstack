@@ -2822,13 +2822,35 @@ export const TREE: Record<string, CommandNode> = {
   team: {
     description: "Team repo: create, join, invite, publish, members",
     subcommands: {
+      use: {
+        description: "Switch which of your teams you work as",
+        module: "./commands/team.ts",
+        fn: "teamUse",
+        omitBehavior: "picker",
+        args: [
+          { name: "Team", type: "text", placeholder: "gadgets", hint: "One of the teams the org put you on" },
+          SETUP_JSON_ARG,
+        ],
+      },
+      add: {
+        description: "Add a team to your org, with its owners",
+        module: "./commands/team.ts",
+        fn: "teamAdd",
+        omitBehavior: { exempt: "a new team's name cannot be listed" },
+        args: [
+          { name: "Team", type: "text", placeholder: "gadgets", hint: "The new team's name: lowercase letters, digits and dashes" },
+          { name: "Owner", flag: "--owner", type: "text", placeholder: "dev2", hint: "Forge usernames who may change this team's settings and pack, comma separated" },
+          SETUP_JSON_ARG,
+        ],
+      },
       create: {
-        description: "Scaffold a fresh team zone (~/.mattstack/teams/<slug>) and set its remote — Install pushes it",
+        description: "Start an org for your team, with its first team inside",
         module: "./commands/team.ts",
         fn: "teamCreate",
         omitBehavior: "prompt",
         args: [
-          { name: "Name", type: "text", placeholder: "Acme", hint: "Team display name — slugified for the on-disk directory" },
+          { name: "Name", type: "text", placeholder: "Acme", hint: "The org's display name; its folder name is made from it" },
+          { name: "First team", flag: "--first-team", type: "text", placeholder: "widgets", hint: "The first team's name; the org's own name when left out" },
           { name: "Remote", flag: "--remote", type: "text", placeholder: "https://github.com/acme/mattstack-team-acme.git", hint: "An existing empty repo's URL" },
           { name: "Create repo", flag: "--create-repo", type: "text", placeholder: "acme", hint: "Owner (user or org) to create <owner>/mattstack-team-<slug> under via gh, instead of pasting --remote" },
           { name: "Others", flag: "--others", type: "boolean", default: false, hint: "Mark the team as having members beyond you" },
@@ -2840,18 +2862,19 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/team.ts",
         fn: "teamPublish",
         args: [
-          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which cloned team to publish; omit when only one is cloned" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
           { name: "Remote", flag: "--remote", type: "text", placeholder: "https://github.com/acme/mattstack-team-acme.git", hint: "Set (or change) the remote before pushing" },
           SETUP_JSON_ARG,
         ],
       },
       invite: {
-        description: "Mint an opaque invite code for a handle, granting forge read access where mattstack manages membership",
+        description: "Invite someone to your org and put them on a team",
         module: "./commands/team.ts",
         fn: "teamInvite",
         args: [
           { name: "Handle", flag: "--handle", type: "text", placeholder: "octocat", hint: "The invitee's forge username" },
-          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which cloned team to invite into; omit when only one is cloned" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
+          { name: "Teams", flag: "--teams", type: "text", placeholder: "widgets", hint: "The teams to put them on, comma separated; your own team when left out" },
           { name: "Require peering", flag: "--require-peering", type: "boolean", default: false, hint: "Refuse to mint an invite that cannot carry the invitee's board token" },
           SETUP_JSON_ARG,
         ],
@@ -2863,7 +2886,7 @@ export const TREE: Record<string, CommandNode> = {
         omitBehavior: "list",
         args: [
           { name: "State", type: "select", optional: true, hint: "Omit to show the current state", options: [{ value: "on", label: "on", hint: "invites grant forge read access" }, { value: "off", label: "off", hint: "invites print manual steps" }] },
-          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which cloned team; omit when only one is cloned" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
           SETUP_JSON_ARG,
         ],
       },
@@ -2877,14 +2900,26 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       members: {
-        description: "Roster: collect invitee keys / remove a member",
+        description: "Members: collect keys, change teams, remove someone",
         subcommands: {
+          set: {
+            description: "Change which teams someone is on",
+            module: "./commands/team.ts",
+            fn: "teamMembersSet",
+            omitBehavior: "picker",
+            args: [
+              { name: "Username", type: "text", placeholder: "dev2", hint: "The member's forge username" },
+              { name: "Teams", flag: "--teams", type: "text", placeholder: "widgets,gadgets", hint: "Their teams, comma separated; the first is the one they start on" },
+              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
+              SETUP_JSON_ARG,
+            ],
+          },
           sync: {
             description: "Collect every outstanding invite's reply key and add it as a sops recipient",
             module: "./commands/team.ts",
             fn: "teamMembersSync",
             args: [
-              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which cloned team to sync; omit when only one is cloned" },
+              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
               SETUP_JSON_ARG,
             ],
           },
@@ -2896,7 +2931,7 @@ export const TREE: Record<string, CommandNode> = {
             args: [
               { name: "Handle", type: "text", placeholder: "octocat", hint: "The member's forge username" },
               { name: "Key", flag: "--key", type: "text", placeholder: "age1...", hint: "The recipient to remove, if it isn't recorded on the roster (a hand-edited store, a suspect entry)" },
-              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which cloned team to remove from; omit when only one is cloned" },
+              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
               SETUP_JSON_ARG,
             ],
           },
@@ -2908,7 +2943,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "teamStatus",
         agentSafe: true,
         args: [
-          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which cloned team to summarize; omit when only one is cloned" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
           SETUP_JSON_ARG,
         ],
       },
@@ -2917,7 +2952,7 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/team.ts",
         fn: "teamPull",
         args: [
-          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which cloned team to pull; omit when only one is cloned" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
           SETUP_JSON_ARG,
         ],
       },

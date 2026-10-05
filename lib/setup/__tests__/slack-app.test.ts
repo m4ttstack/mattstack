@@ -205,6 +205,7 @@ describe("setupSlackCreateApp", () => {
       seedOrg({
         org: "acme",
         username: "dev1",
+        roles: { admins: ["dev1"], teams: {} },
         roster: [{ username: "dev1", teams: ["widgets"] }],
         settings: { "mattstack.integrations": { forge: { host: "github.com", provider: "github" } } },
         teams: { widgets: { "mattstack.integrations": { linear: { teamKey: "WID" } } } },
