@@ -3,7 +3,14 @@
     off the status line so the tab and the row can never disagree; the rest
     is the seat's standing relationship to the MR (author or assigned
     reviewer), which the status line only shows when nothing hotter is on. */
-import { hasChangesRequested } from '../../data.ts';
+import {
+  ALL_TURN,
+  authorTurn,
+  reviewerTurn,
+  type AuthorSignal,
+  type ReviewerSignal,
+  type TurnConfig,
+} from '../../turn.ts';
 import type { BoardMRWithReview } from '../types.ts';
 import { rowStatus, type Verb } from './row-status.ts';
 
@@ -56,45 +63,38 @@ function lineNeed(
   return 'unstick';
 }
 
-function authorNeed(mr: BoardMRWithReview): Need | null {
-  const b = mr.blockers;
-  if ((mr.threadSummary?.awaiting ?? 0) > 0 || hasChangesRequested(mr))
-    return 'respond';
-  if (b.hasConflicts || b.needsRebase || b.pipelineFailing) return 'fix';
-  if (mr.reviews.isApproved && !b.any) return 'merge';
-  return null;
-}
+const AUTHOR_NEED: Record<AuthorSignal, Need> = {
+  threads: 'respond',
+  changesRequested: 'respond',
+  conflicts: 'fix',
+  rebase: 'fix',
+  ciFailing: 'fix',
+  readyToMerge: 'merge',
+};
 
-/** Only an assigned reviewer has a move on someone else's MR: a review not
-    started or left mid-way, an approval GitLab reset on a new push, or
-    threads of theirs the author has answered or resolved (a re-review).
-    Their own thread still awaiting the author is the author's move. */
-function reviewerNeed(mr: BoardMRWithReview, self: string): Need | null {
-  const me = mr.reviews.reviewers.find(r => r.username === self);
-  if (!me) return null;
-  const state = me.reviewState;
-  if (state === 'APPROVED') return null;
-  if (state === 'UNAPPROVED') return 're-review';
-  const mine = mr.myThreads;
-  if (mine && mine.awaiting > 0) return null;
-  if (mine && mine.replied + mine.resolved > 0) return 're-review';
-  if (state === 'UNREVIEWED' || state === 'REVIEW_STARTED') return 'review';
-  return null;
-}
+const REVIEWER_NEED: Record<ReviewerSignal, Need> = {
+  assigned: 'review',
+  approvalReset: 're-review',
+  repliedThreads: 're-review',
+};
 
 export function needOf(
   mr: BoardMRWithReview,
   self: string,
   now: number,
-  resolved: Resolved
+  resolved: Resolved,
+  cfg: TurnConfig = ALL_TURN
 ): Need | null {
   // A merge in flight spins like an agent's run, but it is the seat's own
   // move: the row keeps its place in the merge group until it leaves.
   if (mr.mergeButton.loading && mr.author.username === self) return 'merge';
   const fromLine = lineNeed(mr, now, resolved, self);
   if (fromLine === 'busy') return null;
-  return (
-    fromLine ??
-    (mr.author.username === self ? authorNeed(mr) : reviewerNeed(mr, self))
-  );
+  if (fromLine) return fromLine;
+  if (mr.author.username === self) {
+    const s = authorTurn(mr, cfg);
+    return s && AUTHOR_NEED[s];
+  }
+  const s = reviewerTurn(mr, self, cfg);
+  return s && REVIEWER_NEED[s];
 }

@@ -295,6 +295,41 @@
       "additionalProperties": {}
     }
   },
+  "board.turn": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "author": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "threads",
+              "changesRequested",
+              "conflicts",
+              "rebase",
+              "ciFailing",
+              "readyToMerge"
+            ]
+          }
+        },
+        "reviewer": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "assigned",
+              "approvalReset",
+              "repliedThreads"
+            ]
+          }
+        }
+      },
+      "additionalProperties": {}
+    }
+  },
   "board.workspaces": {
     "storeVersion": 1,
     "schema": {

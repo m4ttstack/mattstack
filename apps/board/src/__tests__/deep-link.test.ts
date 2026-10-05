@@ -169,7 +169,7 @@ describe('viewStateForMr', () => {
 
   test('clears a posted-only slack filter that would hide the row', () => {
     const mrs = [mr({ iid: 5, slack: { posted: false } })];
-    const state = { ...DEFAULT_VIEW, tab: 'team', slack: 'posted' as const };
+    const state = { ...DEFAULT_VIEW, tab: 'team', off: ['notPosted' as const] };
     const result = viewStateForMr(
       state,
       mrs,
@@ -177,12 +177,12 @@ describe('viewStateForMr', () => {
       new Set(['bob']),
       byIid(5)
     );
-    expect(result.slack).toBe('all');
+    expect(result.off).toEqual([]);
   });
 
   test('clears a drafts-hide filter that would hide the row', () => {
     const mrs = [mr({ iid: 5, isDraft: true } as Partial<GateLinkMR>)];
-    const state = { ...DEFAULT_VIEW, tab: 'team', drafts: 'hide' as const };
+    const state = { ...DEFAULT_VIEW, tab: 'team', off: ['myDrafts' as const] };
     const result = viewStateForMr(
       state,
       mrs,
@@ -190,7 +190,32 @@ describe('viewStateForMr', () => {
       new Set(['bob']),
       byIid(5)
     );
-    expect(result.drafts).toBe('all');
+    expect(result.off).toEqual([]);
+  });
+
+  test('reads Waiting on author through the board turn config', () => {
+    const mrs = [
+      mr({
+        iid: 5,
+        blockers: { any: true, hasConflicts: true },
+        reviews: { isApproved: false, reviewers: [] },
+      } as unknown as Partial<GateLinkMR>),
+    ];
+    const state = {
+      ...DEFAULT_VIEW,
+      tab: 'team',
+      off: ['authorTurn' as const],
+    };
+    const roster = new Set(['bob']);
+    expect(viewStateForMr(state, mrs, [teamTab], roster, byIid(5)).off).toEqual(
+      []
+    );
+    expect(
+      viewStateForMr(state, mrs, [teamTab], roster, byIid(5), {
+        author: [],
+        reviewer: [],
+      }).off
+    ).toEqual(['authorTurn']);
   });
 
   test('returns state unchanged when no row matches', () => {
