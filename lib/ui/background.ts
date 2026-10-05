@@ -18,13 +18,11 @@ let isTTY = realTTY;
 let cached: BackgroundSetting | undefined;
 let resolved: Resolved | undefined;
 // A terminal that did not answer once will not answer the next step either.
-let settleTried = false;
+let settling: Promise<void> | undefined;
 
-/** True the first time a process asks to settle auto; false after, answer or not. */
-export function claimSettle(): boolean {
-  if (settleTried) return false;
-  settleTried = true;
-  return true;
+/** Every caller waits for the same settlement, whether or not it gets an answer. */
+export function settleOnce(run: () => Promise<void>): Promise<void> {
+  return settling ??= run();
 }
 
 /** Read once per process: every print would otherwise reread the stores. */
@@ -78,7 +76,7 @@ export const __test__ = {
   reset(): void {
     cached = undefined;
     resolved = undefined;
-    settleTried = false;
+    settling = undefined;
     read = readSetting;
     isTTY = realTTY;
   },

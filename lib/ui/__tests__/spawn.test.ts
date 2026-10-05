@@ -1,5 +1,6 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { createServer, type Socket } from "node:net";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { BackNavigation } from "../../back-navigation.ts";
@@ -152,4 +153,48 @@ test("settles at most once when no answer comes", async () => {
     }
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("concurrent background settling callers wait for the same query", async () => {
+  const fake = join(dir, "controlled-rt-ui.ts");
+  const socketPath = join(dir, "query.sock");
+  let connected!: (socket: Socket) => void;
+  const connection = new Promise<Socket>((resolve) => { connected = resolve; });
+  const server = createServer(connected);
+  await new Promise<void>((resolve) => { server.listen(socketPath, resolve); });
+  writeFileSync(fake, `#!/usr/bin/env bun
+import { appendFileSync } from "node:fs";
+import { createConnection } from "node:net";
+appendFileSync(${JSON.stringify(record)}, await Bun.stdin.text());
+const socket = createConnection(${JSON.stringify(socketPath)});
+socket.once("data", () => process.exit(0));
+`);
+  chmodSync(fake, 0o755);
+  const savedNoQuery = process.env.RT_UI_NO_TERMINAL_QUERY;
+  process.env.RT_UI_BIN = fake;
+  delete process.env.RT_UI_NO_TERMINAL_QUERY;
+  bg.__test__.reset();
+  bg.__test__.setRead(() => "auto");
+  bg.__test__.setTTY(() => true);
+  let firstResolved = false;
+  let secondResolved = false;
+  const first = settleBackground().then(() => { firstResolved = true; });
+  const socket = await connection;
+  const second = settleBackground().then(() => { secondResolved = true; });
+  try {
+    await new Promise<void>((resolve) => { setImmediate(resolve); });
+    expect(firstResolved).toBe(false);
+    expect(secondResolved).toBe(false);
+  } finally {
+    socket.end("release");
+    await Promise.all([first, second]);
+    server.close();
+    bg.__test__.reset();
+    if (savedNoQuery === undefined) delete process.env.RT_UI_NO_TERMINAL_QUERY;
+    else process.env.RT_UI_NO_TERMINAL_QUERY = savedNoQuery;
+  }
+  expect(firstResolved).toBe(true);
+  expect(secondResolved).toBe(true);
+  const hellos = readFileSync(record, "utf8").trim().split("\n").filter((line) => JSON.parse(line).t === "hello");
+  expect(hellos).toHaveLength(1);
 });
