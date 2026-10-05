@@ -46,8 +46,11 @@ The existing agent/pane handlers remain dispatch entry points.
 
 F1 is executed from its own plan,
 [2026-10-05-harness-integrations-0-gate-spike.md](2026-10-05-harness-integrations-0-gate-spike.md).
-Its exit report gives a verdict per open question (G1 to G7). F2 to F6 below
-are provisional and are re-planned to bite-sized tasks from that report.
+It reuses the October 4 evidence and tests only the remaining questions
+(G1 to G7) using regular HOME and owned workers on existing services. Shared
+daemon restart is deferred acceptance work. Its exit report combines prior
+and new evidence; F2 to F6 below remain provisional and are re-planned to
+bite-sized tasks from that report.
 
 ### F2: Register integrations and admit workflows by capability
 

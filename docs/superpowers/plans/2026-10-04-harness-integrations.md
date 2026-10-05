@@ -24,7 +24,7 @@
 - No new production service, runtime UI framework in rt, or alternate worktree manager. No dependency additions are planned. Use repository-pinned tools; spike versions are evidence, not declared minimum versions.
 - Implementation starts in an isolated worktree using the worktree skill, after plan review and execution-method selection. This plan does not authorize publication or deployment.
 - Frozen bytes include `commands/__tests__/fixtures/chat-bytes.json`, `agent-verbs-bytes.json` (`gate`, `events`, `ci`, `runs`), `herd-pane-agent-bytes.json` and `herd-pane-agent-supplement-bytes.json`. Never regenerate one to make a change pass; a deliberate change is a named contract migration.
-- Every live run uses an isolated rt daemon (its own HOME, `RT_SKIP_SETUP=1`, `RT_GH_TOKEN_FALLBACK=off`) and an isolated Herdr session. Only the agent processes may use the real HOME and authentication.
+- F1 uses the regular HOME, existing authentication/services and disposable owned workers, per Matt’s 2026-10-05 instruction. No alternate-home lab or credential copy. Existing rt access is read-only; shared daemon restarts are deferred. Later destructive acceptance cases need an explicitly scoped environment or agreed disruption window during re-planning; do not run them against shared services by default.
 - A test that reads source as text, or spawns `cli.ts`, is named `no-*.test.ts` so the PR scope selector runs it.
 
 ## Review Focus
@@ -46,8 +46,10 @@ new Linear tickets.
 
 **F1 is a gate, and the four package plans are provisional.** F1 runs as its
 own [gating spike plan](2026-10-05-harness-integrations-0-gate-spike.md) and
-produces a verdict per open runtime question. Its exit report decides which
-interfaces below survive. After F1, each package plan is re-planned to
+reuses the October 4 spike and produces a verdict for each remaining runtime
+question. Previously proven cases run again only as necessary controls. Native
+daemon restart is explicitly unobserved in the regular-home follow-up and
+remains acceptance work. Its exit report decides which interfaces below survive. After F1, each package plan is re-planned to
 bite-sized tasks with concrete code, starting with plan 1. Do not execute any
 F2+ task from these provisional plans.
 
@@ -276,6 +278,8 @@ acceptance matrix after integration. S9 specifies the live evidence artifact
 and release gate. Record failures as gaps; do not mark a task complete merely
 because the interface exists or a fake passes.
 
-**Planning status:** reviewed 2026-10-05. The F1 gating spike plan is ready
-for execution. F2 onward is provisional and is re-planned from F1's exit
-report; implementation and acceptance tasks are all unchecked.
+**Planning status:** F1 revised 2026-10-05 at Matt's request to reuse prior
+evidence, investigate only remaining gaps and use his regular HOME. Execution
+remains deferred until he says go. G1/G2/G3/G5 gate re-planning; G7 restart
+evidence remains deferred acceptance work. F2 onward is provisional and is
+re-planned from F1's exit report; implementation and acceptance tasks are unchecked.
