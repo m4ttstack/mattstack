@@ -136,13 +136,13 @@ describe("withProgress", () => {
     expect(r).toEqual({ value: 4, tail: ["after the helper died"] });
   });
 
-  test("a task that throws still clears its step", async () => {
+  test("a task that throws clears its step as failed", async () => {
     await expect(
       __test__.withProgress("Connecting to Acme QA", true, async () => {
         throw new Error("boom");
       }),
     ).rejects.toThrow("boom");
-    expect(sent().at(-1)).toEqual({ t: "done", title: "Connecting to Acme QA", clear: true });
+    expect(sent().at(-1)).toEqual({ t: "done", title: "Connecting to Acme QA", status: "failed", clear: true });
   });
 });
 

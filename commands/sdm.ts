@@ -105,10 +105,14 @@ async function withProgress<T>(label: string, draw: boolean, task: (onLine: (lin
     if (tail.length > TAIL_KEPT) tail.shift();
     step?.sub(line);
   };
+  let thrown = false;
   try {
     return { value: await task(onLine), tail };
+  } catch (err) {
+    thrown = true;
+    throw err;
   } finally {
-    await step?.clear();
+    await step?.clear({ thrown });
   }
 }
 
