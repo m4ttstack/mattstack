@@ -35,9 +35,20 @@ test("agent_status blocked maps to blocked", () => {
 });
 
 test("no resolvable pane is gone", () => {
-  const [v] = computeView({ ...base, agents: [agent()], panes: [] }, 10);
+  const [v] = computeView({ ...base, agents: [agent({ paneId: "w1:p1" })], panes: [] }, 10);
   expect(v!.state).toBe("gone");
   expect(v!.paneRef).toBeNull();
+});
+
+test("an agent still launching its pane reads unknown, not gone", () => {
+  const [v] = computeView({ ...base, agents: [agent({ createdAt: 1_000 })], panes: [] }, 5_000);
+  expect(v!.state).toBe("unknown");
+  expect(v!.paneRef).toBeNull();
+});
+
+test("an agent that never recorded a pane reads gone once the launch window passes", () => {
+  const [v] = computeView({ ...base, agents: [agent({ createdAt: 1_000 })], panes: [] }, 1_000 + 10 * 60_000);
+  expect(v!.state).toBe("gone");
 });
 
 test("herdr unreachable is unknown, never gone", () => {
