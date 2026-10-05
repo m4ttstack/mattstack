@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { setWarningLog, __test__ as warningTest } from "../../ui/warn.ts";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -157,7 +158,9 @@ test("a pre-existing intercepts.json is imported on first read and renamed to .m
 test("corrupt intercepts.json warns and is left in place; loadInterceptRules reads as empty", () => {
   const dir = mkdtempSync(join(tmpdir(), "shim-test-corrupt-home-"));
   const origHome = process.env.HOME;
-  const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+  warningTest.reset();
+  const warnings: Array<{ module: string; message: string }> = [];
+  setWarningLog((module, message) => warnings.push({ module, message }));
   process.env.HOME = dir;
   closeStateDb();
   try {
@@ -167,9 +170,11 @@ test("corrupt intercepts.json warns and is left in place; loadInterceptRules rea
     expect(loadInterceptRules()).toEqual([]);
     expect(existsSync(interceptsPath())).toBe(true);
     expect(existsSync(`${interceptsPath()}.migrated`)).toBe(false);
-    expect(warnSpy).toHaveBeenCalled();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.module).toBe("state");
+    expect(warnings[0]?.message).toContain("is not valid JSON, left in place:");
   } finally {
-    warnSpy.mockRestore();
+    warningTest.reset();
     process.env.HOME = origHome;
     closeStateDb();
     rmSync(dir, { recursive: true, force: true });

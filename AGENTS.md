@@ -487,6 +487,10 @@ is a one-line pointer. Something rt leaves alone because it did not create
 it is worded the same everywhere: rt did not make it, so rt left it alone.
 
 A daemon handler that declines by policy returns `failure: { code, message }` beside its `error` (`CommandResult`), and the CLI maps known codes to `refused` notes; the `error` string itself never changes, since hooks and the daemon's own retries match on it.
+Warnings under `lib/state/` go through `warn`: logged always, shown only
+where 5a's warnings table or the phase 6 scoping rows say so, and once per
+process. The daemon sets no warning log, so it still files the plain
+`rt: <message>` line from its stderr capture.
 
 A table rt-ui cannot fit without cutting a leading column stacks instead: each row's first cell on its own line, the other cells under it, every cell led by its column header. A value longer than the pane wraps, an unbroken one cut between characters. On a pane 26 columns or wider no cell value is clipped; narrower than that, each stacked line is clipped to the pane. Trees still clip a leading column to keep their branches aligned.
 

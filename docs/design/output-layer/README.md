@@ -38,6 +38,7 @@ on a dark and a light terminal background.
 | `6g-git-skills-dark.png`, `6g-git-skills-light.png` | phase 6 git and skills fixes: a kept stash, a credentialed remote, skills init's failures and refusals, a link conflict, an expand usage failure, the missing-Claude note, a surface apply, a rebase conflict with its files, an escalation timeout |
 | `6g-diagnostics-dark.png`, `6g-diagnostics-light.png` | phase 6 review fixes: written files after an init remedy, failed push output, expand drift and lint diagnostics, and a single lint diagnostic |
 | `6j-chat-dark.png`, `6j-chat-light.png` | `rt chat read` with local times and gaps, the three daemon refusals drawn as refused, and a daemon failure. Off a terminal chat prints what it printed before |
+| `6e-state-dark.png`, `6e-state-light.png` | `rt state` at 100 columns: a backup with sizes, the not-set-up failure and its tip, the local fallback, the restore refusal and a restore, `state backup init`'s stages and summary, `state backup status`, and the damaged-state warning |
 
 The light pages above the phase 5g section were rendered with
 `COLORFGBG=0;15`, which is how a light terminal that reports its background
