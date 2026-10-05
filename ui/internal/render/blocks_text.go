@@ -64,7 +64,11 @@ func (r *renderer) copy(b protocol.Block) {
 
 func (r *renderer) verbatim(b protocol.Block) {
 	if b.Caption == "why" {
-		r.calloutLines(r.p.tones.Quiet, "why", textLines(b.Lines))
+		body := textLines(b.Lines)
+		for _, line := range body {
+			line[0].Text = cleanCode(line[0].Text)
+		}
+		r.calloutLines(r.p.tones.Quiet, "why", body)
 		return
 	}
 	r.caption(b.Caption)

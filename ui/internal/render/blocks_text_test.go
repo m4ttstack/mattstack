@@ -259,3 +259,26 @@ func TestABlockAfterACopyBlockStartsAfterOneBlankRow(t *testing.T) {
 		t.Fatalf("a copy left a trailing blank row: %q", got)
 	}
 }
+
+func TestAVerbatimWhyKeepsTabIndentationAndLineBreaks(t *testing.T) {
+	want := "    ▌ why     root\n" +
+		"    ▌     " + strings.Repeat(" ", 8) + "child\n" +
+		"    ▌         end\n" +
+		"    ▌         final\n"
+	for _, lines := range [][]string{
+		{"\troot\r\n\t\tch\x1b[2Jild\n\tend\u202e", "\tfinal"},
+		{"\troot", "\t\tch\x1b[2Jild", "\tend\u202e", "\tfinal"},
+	} {
+		original := append([]string(nil), lines...)
+		got := plainAt(40, protocol.Block{T: "verbatim", Caption: "why", Lines: lines})
+		checkWidth(t, got, 40)
+		if got != want {
+			t.Errorf("got\n%q\nwant\n%q", got, want)
+		}
+		for i, line := range lines {
+			if line != original[i] {
+				t.Errorf("input line %d changed from %q to %q", i, original[i], line)
+			}
+		}
+	}
+}
