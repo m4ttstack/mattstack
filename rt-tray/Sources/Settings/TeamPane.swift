@@ -15,7 +15,9 @@ struct TeamPane: View {
             onCreateTeam: env.onCreateTeam,
             onJoin: env.onJoinAnotherTeam,
             onUseTeam: { team in Task { await model.useTeam(team) } },
-            onInvite: { handle, team in Task { await model.mintInvite(handle: handle, team: team) } }
+            onInvite: { handle, team in Task { await model.mintInvite(handle: handle, team: team) } },
+            isSwitchingTeam: model.isSwitchingTeam,
+            packNotice: model.packNotice
         )
         .task { await model.load() }
     }
@@ -32,6 +34,8 @@ struct TeamPaneForm: View {
     let onJoin: () -> Void
     let onUseTeam: (String) -> Void
     let onInvite: (_ handle: String, _ team: String?) -> Void
+    var isSwitchingTeam = false
+    var packNotice: String? = nil
 
     @State private var handle = ""
     @State private var inviteTeam = ""
@@ -69,6 +73,11 @@ struct TeamPaneForm: View {
                                 .accessibilityIdentifier(AXID.settingsTeamCopyRemote) }
                     }
                     LabeledContent("Backup") { Text(info?.lastPush.map { "last push \($0)" } ?? "no push recorded") }
+                    if isSwitchingTeam {
+                        ProgressView("Switching your team…")
+                            .controlSize(.small)
+                            .accessibilityLabel("Switching your team")
+                    }
                 }
                 Section(info?.activeTeam.map { "Members of \($0)" } ?? "Members") {
                     if let m = info?.members, !m.isEmpty { ForEach(m, id: \.username) { Text($0.username) } }
@@ -78,6 +87,14 @@ struct TeamPaneForm: View {
                 Section {
                     Button("Rejoin this org…", action: onJoin).accessibilityIdentifier(AXID.settingsTeamJoinAnother)
                     Text("Use a new invite from your org admin. This Mac holds one org.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if let notice = packNotice {
+                Section {
+                    Label { Text(notice) } icon: { Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange) }
+                    LabeledContent("Next") {
+                        Text("rt setup pack").font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                    }
                 }
             }
             if let e = error { Text(e).font(.caption).foregroundStyle(.red) }
@@ -97,6 +114,8 @@ struct TeamPaneForm: View {
                 ForEach(info?.myTeams ?? [], id: \.self) { Text($0).tag($0) }
             }
             .labelsHidden()
+            .disabled(isSwitchingTeam)
+            .accessibilityHint(isSwitchingTeam ? "Wait for your team to finish switching." : "Choose one of your teams.")
             .accessibilityIdentifier(AXID.settingsTeamYourTeam)
         } else {
             Text(info?.activeTeam ?? "None yet").accessibilityIdentifier(AXID.settingsTeamYourTeam)

@@ -32,6 +32,8 @@ public final class TeamSettingsModel: ObservableObject {
     @Published public private(set) var invite: InviteResult?
     @Published public private(set) var uninstallPlan: UninstallPlan?
     @Published public private(set) var error: String?
+    @Published public private(set) var isSwitchingTeam = false
+    @Published public private(set) var packNotice: String?
     private let rt: RtRunning
     private let needs: NeedBroker
     public init(rt: RtRunning, needs: NeedBroker) { self.rt = rt; self.needs = needs }
@@ -47,8 +49,16 @@ public final class TeamSettingsModel: ObservableObject {
     }
 
     public func useTeam(_ team: String) async {
-        struct Switched: Decodable { var team: String }
-        guard await runJSON(["team", "use", team, "--json"], verb: "team use", as: Switched.self) != nil else { return }
+        guard !isSwitchingTeam else { return }
+        isSwitchingTeam = true
+        defer { isSwitchingTeam = false }
+        struct Switched: Decodable {
+            struct Pack: Decodable { var enabled: Bool }
+            var team: String
+            var pack: Pack?
+        }
+        guard let switched = await runJSON(["team", "use", team, "--json"], verb: "team use", as: Switched.self) else { return }
+        packNotice = switched.pack?.enabled == false ? "The team pack is not ready. Finish setting it up." : nil
         await load()
     }
 

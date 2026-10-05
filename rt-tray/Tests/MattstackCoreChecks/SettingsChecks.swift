@@ -62,7 +62,138 @@ private final class GatedRt: RtRunning, @unchecked Sendable {
     }
 }
 
+private actor GatedTeamRt: RtRunning {
+    struct Call: Sendable { let args: [String]; let stdin: Data? }
+    let mutationGate: AsyncGate
+    let reloadGate: AsyncGate
+    private(set) var calls: [Call] = []
+    private var mutations = 0
+    private var statuses = 0
+
+    init(mutationGate: AsyncGate, reloadGate: AsyncGate) {
+        self.mutationGate = mutationGate
+        self.reloadGate = reloadGate
+    }
+
+    func run(_ args: [String], stdin: Data?) async throws -> RtResult {
+        calls.append(Call(args: args, stdin: stdin))
+        let json: String
+        if args.starts(with: ["team", "use"]) {
+            mutations += 1
+            guard mutations == 1 else { return RtResult(exitCode: 1, stdout: Data(), stderr: Data()) }
+            await mutationGate.arrive()
+            json = #"{"contract":1,"team":"gadgets"}"#
+        } else {
+            statuses += 1
+            if statuses == 2 { await reloadGate.arrive() }
+            json = statuses == 1
+                ? #"{"contract":1,"activeTeam":"widgets","teams":["widgets","gadgets"]}"#
+                : #"{"contract":1,"activeTeam":"gadgets","teams":["widgets","gadgets"]}"#
+        }
+        return RtResult(exitCode: 0, stdout: Data(json.utf8), stderr: Data())
+    }
+
+    nonisolated func stream(_ args: [String], stdin: Data?) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+}
+
 let settingsChecks: [Check] = [
+    Check("team switch ignores another selection during the mutation and status reload") { c in
+        let mutation = AsyncGate(), reload = AsyncGate()
+        let rt = GatedTeamRt(mutationGate: mutation, reloadGate: reload)
+        let m = await MainActor.run { makeTeamSettings(rt).0 }
+        await m.load()
+        let first = Task { await m.useTeam("gadgets") }
+        await mutation.waitForArrival()
+        c.expect(await MainActor.run { m.isSwitchingTeam })
+        await m.useTeam("widgets")
+        c.expectEqual(await rt.calls.map(\.args), [["team", "status", "--json"], ["team", "use", "gadgets", "--json"]])
+        await mutation.release()
+        await reload.waitForArrival()
+        c.expect(await MainActor.run { m.isSwitchingTeam })
+        await m.useTeam("widgets")
+        c.expectEqual(await rt.calls.map(\.args), [["team", "status", "--json"], ["team", "use", "gadgets", "--json"], ["team", "status", "--json"]])
+        await reload.release()
+        await first.value
+        c.expect(await MainActor.run { !m.isSwitchingTeam })
+        c.expectEqual(await MainActor.run { m.info?.activeTeam }, "gadgets")
+        await m.useTeam("widgets")
+        c.expectEqual(await rt.calls.map(\.args), [["team", "status", "--json"], ["team", "use", "gadgets", "--json"], ["team", "status", "--json"], ["team", "use", "widgets", "--json"]])
+        c.expect(await rt.calls.allSatisfy { $0.stdin == nil })
+    },
+    Check("team switch releases its busy state after nonzero, malformed and reload failures so you can retry") { c in
+        for answer in [(Int32(1), ""), (Int32(0), "not json"), (Int32(0), #"{"contract":1}"#), (Int32(0), #"{"contract":1,"team":"gadgets"}"#)] {
+            let rt = ScriptedRt()
+            rt.answers["team status"] = (0, #"{"contract":1,"activeTeam":"widgets"}"#)
+            rt.answers["team use"] = answer
+            let m = await MainActor.run { makeTeamSettings(rt).0 }
+            await m.load()
+            rt.answers["team status"] = (1, "")
+            await m.useTeam("gadgets")
+            await MainActor.run {
+                c.expect(!m.isSwitchingTeam)
+                c.expect(m.error != nil)
+                c.expectEqual(m.info?.activeTeam, "widgets")
+            }
+            rt.answers["team use"] = (0, #"{"contract":1,"team":"gadgets"}"#)
+            rt.answers["team status"] = (0, #"{"contract":1,"activeTeam":"gadgets"}"#)
+            await m.useTeam("gadgets")
+            await MainActor.run {
+                c.expect(!m.isSwitchingTeam)
+                c.expectEqual(m.error, nil)
+                c.expectEqual(m.info?.activeTeam, "gadgets")
+            }
+            c.expect(rt.calls.allSatisfy { $0.stdin == nil })
+        }
+    },
+    Check("team switch reloads a partial pack outcome and keeps nonfatal guidance until a successful retry") { c in
+        for installed in [false, true] {
+            for retryPack in [#", "pack":{"installed":true,"enabled":true,"detail":""}"#, ""] {
+                let rt = ScriptedRt()
+                rt.answers["team status"] = (0, #"{"contract":1,"activeTeam":"widgets"}"#)
+                rt.answers["team use gadgets"] = (0, "{\"contract\":1,\"team\":\"gadgets\",\"pack\":{\"installed\":\(installed),\"enabled\":false,\"detail\":\"raw installer diagnostic\"}}")
+                let m = await MainActor.run { makeTeamSettings(rt).0 }
+                await m.load()
+                rt.answers["team status"] = (0, #"{"contract":1,"activeTeam":"gadgets"}"#)
+                await m.useTeam("gadgets")
+                await MainActor.run {
+                    c.expectEqual(m.info?.activeTeam, "gadgets")
+                    c.expectEqual(m.error, nil)
+                    c.expect(m.packNotice != nil)
+                    c.expect(!(m.packNotice ?? "").contains("raw installer diagnostic"))
+                    c.expect(!(m.packNotice ?? "").contains("rt setup pack"))
+                    c.expect(!m.isSwitchingTeam)
+                }
+                c.expectEqual(rt.calls.map(\.args), [["team", "status", "--json"], ["team", "use", "gadgets", "--json"], ["team", "status", "--json"]])
+                rt.answers["team use gadgets"] = (0, "{\"contract\":1,\"team\":\"gadgets\"\(retryPack)}")
+                await m.useTeam("gadgets")
+                await MainActor.run {
+                    c.expectEqual(m.packNotice, nil)
+                    c.expectEqual(m.error, nil)
+                    c.expectEqual(m.info?.activeTeam, "gadgets")
+                }
+                c.expect(rt.calls.allSatisfy { $0.stdin == nil })
+            }
+        }
+    },
+    Check("team switch keeps partial pack guidance and the reload error when the actual team cannot be refreshed") { c in
+        let rt = ScriptedRt()
+        rt.answers["team status"] = (0, #"{"contract":1,"activeTeam":"widgets"}"#)
+        rt.answers["team use gadgets"] = (0, #"{"contract":1,"team":"gadgets","pack":{"installed":true,"enabled":false,"detail":"raw installer diagnostic"}}"#)
+        let m = await MainActor.run { makeTeamSettings(rt).0 }
+        await m.load()
+        rt.answers["team status"] = (1, "")
+        await m.useTeam("gadgets")
+        await MainActor.run {
+            c.expectEqual(m.info?.activeTeam, "widgets")
+            c.expectEqual(m.error, "rt team status failed (exit 1).")
+            c.expect(m.packNotice != nil)
+            c.expect(!(m.packNotice ?? "").contains("changed"))
+            c.expect(!m.isSwitchingTeam)
+        }
+        c.expectEqual(rt.calls.map(\.args), [["team", "status", "--json"], ["team", "use", "gadgets", "--json"], ["team", "status", "--json"]])
+    },
     Check("TeamSettingsInfo decodes role, activeTeam and teams, and reads nil from an rt that predates them") { c in
         let new = try JSONDecoder().decode(TeamSettingsInfo.self, from: Data(#"{"contract":1,"name":"Acme","slug":"acme","remote":null,"lastPush":null,"members":[{"username":"dev1"}],"role":"admin","activeTeam":"widgets","teams":["widgets","gadgets"],"orgTeams":["gadgets","widgets"]}"#.utf8))
         c.expectEqual(new.role, "admin")
