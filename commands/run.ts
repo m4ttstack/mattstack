@@ -33,7 +33,8 @@ import {
   saveVariation,
   variationKey,
 } from "../lib/variations.ts";
-import { bold, dim, reset, yellow, green } from "../lib/tui.ts";
+import * as out from "../lib/ui/out.ts";
+import { clearScreen } from "../lib/ui/screen.ts";
 import {
   launchFallback,
   type LaunchItem,
@@ -327,25 +328,23 @@ type SaveOutcome =
   | { ok: false; reason: "no-identity" }
   | { ok: false; reason: "write-failed"; message: string };
 
-/**
- * Prints the truth about a save: a checkmark only when it actually landed,
- * one honest line otherwise. `savePreset`/`saveVariation` no-op or refuse
- * rather than throw (best-effort I/O), so this is the only place that ever
- * tells the user whether their save happened.
- */
-function reportSave(kind: string, label: string, result: SaveOutcome, repoLabel: string): void {
-  if (result.ok) {
-    process.stderr.write(`  ${green}✓${reset} ${dim}saved ${kind} "${label}"${reset}\n`);
-    return;
+function reportSaveBlocks(kind: string, label: string, result: SaveOutcome): Block[] {
+  if (result.ok) return [out.line("done", `Saved the ${kind} ${label}`)];
+  if (result.reason === "no-identity") {
+    return [
+      out.line("warn", `The ${kind} was not saved`, "rt cannot tell which repo this is"),
+      out.callout("next", out.cmd("rt settings set rt.repoIdentityOverrides")),
+    ];
   }
-  const detail = result.reason === "no-identity"
-    ? `no repo identity for ${repoLabel}; pin one with \`rt settings set rt.repoIdentityOverrides\``
-    : result.message;
-  process.stderr.write(`  ${yellow}⚠${reset} ${dim}not saved — ${detail}${reset}\n`);
+  return [out.line("warn", `The ${kind} was not saved`, result.message)];
+}
+
+function reportSave(kind: string, label: string, result: SaveOutcome): void {
+  out.print(...reportSaveBlocks(kind, label, result));
 }
 
 export const __test__ = {
-  reportSave,
+  reportSaveBlocks,
   queueRow,
   launchAllRow,
   savePresetRow,
@@ -430,7 +429,7 @@ async function selectPackageAndScript(
       if (cwdMatch) {
         packagePath = cwdMatch.abs;
         packageLabel = cwdMatch.p.name;
-        process.stderr.write(`  ↳ package: ${packageLabel} (from cwd)\n`);
+        out.print(out.line("done", `Package ${packageLabel}`, "picked from where you are"));
       } else {
         // Manual package picker
         const rootScripts = getPackageJsonScripts(worktreePath);
@@ -559,8 +558,7 @@ async function selectPackageAndScript(
                 command: qi.variationName ? qi.command : undefined,
               })),
             });
-            reportSave("preset", name, result, label || worktreePath);
-            process.stderr.write("\n");
+            reportSave("preset", name, result);
             const runNow = await confirm({
               message: `Run "${name}" now?`,
               initialValue: true,
@@ -594,9 +592,7 @@ async function selectPackageAndScript(
 
     const scripts = getPackageJsonScripts(packagePath);
     if (scripts.length === 0) {
-      process.stderr.write(
-        `No scripts found in ${packagePath}/package.json.\n`,
-      );
+      out.fail({ title: "This package has no scripts", hint: packageLabel });
       throw new RunAborted(1);
     }
 
@@ -761,7 +757,6 @@ async function selectPackageAndScript(
             "variation",
             name,
             saveVariation(repoIdentity, worktreePath, packagePath, scriptName, { name, command }),
-            label || worktreePath,
           );
 
           // Tab or Enter-with-queue: queue the new variation
@@ -878,7 +873,7 @@ export async function launchPreset(preset: Preset, worktreePath: string, ctx: Co
     await runSeededBoard(seed, ctx);
   } else {
     // The board never opens on this path, so the echo is the only cue of what launched.
-    process.stderr.write(`\n  preset ${bold}${preset.name}${reset}\n\n`);
+    out.print(out.line("running", `Running the ${preset.name} preset`));
     const items: LaunchItem[] = preset.entries.map((e) => ({
       label: launchLabel(e.packageLabel, e.script, e.variationName),
       command: e.command ?? `${detectPackageManager(join(worktreePath, e.packageRelPath))} run ${e.script}`,
@@ -963,9 +958,7 @@ export async function resolveRun(
       // ── Full picker chain: repo → worktree → package → script ──────────────
       const knownRepos = getKnownRepos();
       if (knownRepos.length === 0) {
-        process.stderr.write(
-          "No known repos. Run rt from inside a git repo to register it.\n",
-        );
+        out.fail({ title: "rt does not know any repos yet", next: "Run rt once from inside a git repo, so it learns where that repo is" });
         throw new RunAborted(1);
       }
 
@@ -1014,9 +1007,7 @@ export async function resolveRun(
           existsSync(wt.path),
         );
         if (worktrees.length === 0) {
-          process.stderr.write(
-            `No accessible worktrees for ${repoLabel(selectedRepo.repoName)}.\n`,
-          );
+          out.fail({ title: `${repoLabel(selectedRepo.repoName)} has no worktree rt can open` });
           throw new RunAborted(1);
         }
 
@@ -1053,7 +1044,7 @@ export async function resolveRun(
             });
             if (!wtResult) throw new RunAborted(1);
             if (wtResult.key === "ctrl-up") {
-              process.stderr.write("\x1b[2J\x1b[H");
+              clearScreen();
               selectedRepo = undefined;
               break worktreeLoop;
             }
@@ -1078,7 +1069,7 @@ export async function resolveRun(
             }
             if (sel && "seed" in sel) return { kind: "seed", entries: sel.seed };
             if (!sel) {
-              process.stderr.write("\x1b[2J\x1b[H");
+              clearScreen();
               if (worktrees.length > 1) break; // re-show worktree picker
               // Only 1 worktree — propagate up to repo
               selectedRepo = undefined;
@@ -1118,6 +1109,7 @@ export async function runCommand(
   args: string[],
   ctx: CommandContext,
 ): Promise<void> {
+  out.payloadOnStdout();
   const resolveOnly = args.includes("--resolve-only");
 
   // Best-effort: ensure the shell history hook is installed so up-arrow
@@ -1131,13 +1123,13 @@ export async function runCommand(
   if (res.kind === "launched") return;
   if (res.kind === "cancelled") process.exit(res.code);
   if (res.kind === "seed") {
-    process.stdout.write(JSON.stringify({ seed: res.entries }) + "\n");
+    out.json({ seed: res.entries });
     return;
   }
   const result = res.result;
 
   if (resolveOnly) {
-    process.stdout.write(JSON.stringify(result) + "\n");
+    out.json(result);
     return;
   }
 
@@ -1148,8 +1140,7 @@ export async function runCommand(
   const selectedScript = result.script;
   const cmd = result.commandTemplate;
 
-  process.stderr.write(`\nRunning: ${cmd}\n`);
-  process.stderr.write(`  in: ${packagePath}\n\n`);
+  out.print(out.line("running", `Running ${cmd}`, packagePath));
 
   // Write the resolved command so a shell precmd hook can inject it into
   // shell history — pressing up arrow replays e.g. "cd packages/web && npm run test"
@@ -1211,14 +1202,10 @@ export async function runAgainCommand(
   _args: string[],
   _ctx: CommandContext,
 ): Promise<void> {
-  const { entries, totalRepos } = loadAllRunHistory();
+  out.payloadOnStdout();
+  const { entries } = loadAllRunHistory();
   if (entries.length === 0) {
-    process.stderr.write(
-      `\n  ${dim}No run history yet${totalRepos > 0 ? "" : " — no repos registered"}.${reset}\n`,
-    );
-    process.stderr.write(
-      `  ${dim}Run ${reset}${bold}rt run${reset}${dim} from a repo first — entries will show up here.${reset}\n\n`,
-    );
+    out.print(out.line("skipped", "No run history yet"), out.callout("next", out.cmd("rt run")));
     process.exit(0);
   }
 
@@ -1241,14 +1228,11 @@ export async function runAgainCommand(
   const { entry, repoName } = picked;
 
   if (!existsSync(entry.cwd)) {
-    process.stderr.write(
-      `\n  ${yellow}skipping — directory no longer exists:${reset} ${entry.cwd}\n\n`,
-    );
+    out.fail({ title: "That folder is gone", hint: entry.cwd });
     process.exit(1);
   }
 
-  process.stderr.write(`\nRunning: ${entry.cmd}\n`);
-  process.stderr.write(`  in: ${entry.cwd}\n\n`);
+  out.print(out.line("running", `Running ${entry.cmd}`, entry.cwd));
 
   // Write the resolved command so a shell precmd hook can inject it into
   // shell history — pressing up arrow replays the actual command.

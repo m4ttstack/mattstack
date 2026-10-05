@@ -1,6 +1,5 @@
 [
   "commands/glitter.ts",
-  "commands/run.ts",
   "commands/runner.ts",
   "lib/runner/runner.ts"
 ]
