@@ -53,6 +53,7 @@ import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
 import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { publishTeam } from "../lib/team/publish.ts";
+import { packShareBlocks, sharePack } from "../lib/team/share-pack.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient } from "../lib/team/relay-client.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
@@ -185,12 +186,14 @@ export async function teamAdd(args: string[], _ctx: CommandContext = {}, deps: T
   try {
     const org = resolveTeamSlug(args, "team add");
     const result = addTeam(deps.probes, { org, team, owners }, deps.addTeamSeams ?? realAddTeamSeams());
+    const published = await sharePack(deps.probes, org, team, [`mattstack/teams/${team}`, ".claude-plugin/marketplace.json"], deps.forgeToken ?? storedForgeToken);
     if (json) {
-      deps.print(JSON.stringify(envelope(result)));
+      deps.print(JSON.stringify(envelope({ ...result, published })));
       return;
     }
     out.print(
       out.line("done", `Added the ${team} team`, `owned by ${owners.join(", ")}`),
+      ...packShareBlocks(team, published),
       out.callout("next", [`Put people on it with `, out.cmd(`rt team members set <username> --teams ${team}`)]),
     );
   } catch (err) {

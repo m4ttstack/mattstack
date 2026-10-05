@@ -15,6 +15,7 @@ import type { Probes } from "../../lib/setup/probes.ts";
 import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { joinLink, joinLinkBase, pasteBlock } from "../../lib/team/invite.ts";
 import { readTeamLocal, writeTeamLocal, teamLocalPath, type TeamLocalRecord } from "../../lib/team/team-local.ts";
+import { cleanupOrgWorlds, orgWorld } from "../../lib/team/__tests__/org-world.ts";
 
 const FAKE_PUBLIC_KEY = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
 const FAKE_PRIVATE_KEY = "AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ";
@@ -727,9 +728,50 @@ describe("teamAdd", () => {
     expect(deps.lines).toHaveLength(1);
     const { at, ...body } = JSON.parse(deps.lines[0]!);
     expect(typeof at).toBe("string");
-    expect(body).toEqual({ contract: 1, org: "acme", team: "gadgets", dir: `${ZONE_DIR}/mattstack/teams/gadgets`, owners: ["dev2", "dev1"], wrote: expect.any(Array) });
+    expect(body).toEqual({ contract: 1, org: "acme", team: "gadgets", dir: `${ZONE_DIR}/mattstack/teams/gadgets`, owners: ["dev2", "dev1"], wrote: expect.any(Array), published: { pushed: false, reason: expect.any(String), next: "rt team publish" } });
     expect(deps.probes.exists(`${body.dir}/packs/gadgets/pack/skills.jsonc`)).toBe(true);
     expect(deps.writes).toHaveLength(1);
+  });
+
+  describe("against a real org clone", () => {
+    afterEach(cleanupOrgWorlds);
+    const realSeams = { writeOrgSetting: () => {}, engineDescription: () => "Use when running a unit of work." };
+
+    test("the new pack folder and its marketplace entry reach origin in one push", async () => {
+      const w = orgWorld();
+      const deps = baseDeps({ probes: w.p, addTeamSeams: realSeams, forgeToken: async () => null });
+      await teamAdd(["gadgets", "--owner", "dev2", "--team", "acme", "--json"], {}, deps);
+      expect(JSON.parse(deps.lines[0]!).published).toEqual({ pushed: true, remote: w.remote });
+      expect(w.pushes).toHaveLength(1);
+      const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
+      expect(files).toContain(".claude-plugin/marketplace.json");
+      expect(files).toContain("mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc");
+      expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([expect.objectContaining({ name: "gadgets" })]);
+    });
+
+    test("a failed push still adds the team and names the publish command", async () => {
+      const w = orgWorld();
+      w.git("remote", "set-url", "origin", join(w.home, "missing.git"));
+      const deps = baseDeps({ probes: w.p, addTeamSeams: realSeams, forgeToken: async () => null });
+      const captured = captureOut();
+      try {
+        await teamAdd(["gadgets", "--owner", "dev2", "--team", "acme"], {}, deps);
+        expect(captured.stdout()).toContain("Added the gadgets team");
+        expect(captured.stdout()).toContain("The gadgets pack is not shared with your org yet");
+        expect(captured.stdout()).toContain("rt team publish");
+      } finally { captured.restore(); }
+      expect(w.p.exists(join(w.root, "mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc"))).toBe(true);
+      expect(w.atOrigin("log", "--format=%s", "main").trim()).toBe("seed");
+    });
+
+    test("a member's Mac refuses before writing or pushing anything", async () => {
+      const w = orgWorld("dev2");
+      const deps = baseDeps({ probes: w.p, addTeamSeams: realSeams, forgeToken: async () => null });
+      expect(await runExpectingProcessExit(() => teamAdd(["gadgets", "--owner", "dev2", "--team", "acme", "--json"], {}, deps))).toBe(2);
+      expect(JSON.parse(deps.lines[0]!).error.code).toBe("team-pull-only");
+      expect(w.pushes).toEqual([]);
+      expect(w.p.exists(join(w.root, "mattstack/teams/gadgets"))).toBe(false);
+    });
   });
 
   test("missing owners exits with usage without writing", async () => {

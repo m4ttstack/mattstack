@@ -4,7 +4,8 @@
  * Scaffolds a zero-fill team pack named after its team folder (roster
  * `work` only, every domain slot unbound), adds the repo to the team's claim,
  * materializes, compiles, checks, and installs the pack plugin on this
- * machine. Never commits; never changes a pack that has compiled output.
+ * machine, then commits the new pack with its marketplace entry and pushes
+ * the org clone. Never changes a pack that has compiled output.
  */
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
@@ -23,6 +24,7 @@ import { failureFor, logFailureDetail, UserActionableError, userErrorPayload } f
 import { createRealProbes } from "../lib/setup/probes.ts";
 import { materializeSkills, packVerdict, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { createTeam } from "../lib/team/create.ts";
+import { packShareBlocks, sharePack } from "../lib/team/share-pack.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import { initPack, NEEDS_YOU_REFUSALS, POLICY_REFUSALS, type InitDeps, type InitOutcome, type InitRemedy } from "../lib/skills/init.ts";
 import { loadStepSource, resolvePluginRoots } from "../lib/skills/sources.ts";
@@ -62,6 +64,7 @@ export function initOutcomeBlocks(o: Extract<InitOutcome, { ok: true }>): Block[
     ui.kv("Marketplace", o.pack.marketplace),
     ui.kv("Installed", `${o.installed.plugin} ${o.installed.version}`),
     ui.kv("Repo bindings", o.repo.manifest),
+    ...packShareBlocks(o.pack.name, o.published),
     ui.callout("next", ["Run ", ui.cmd("/reload-plugins"), " in your Claude session, then try ", ui.cmd(o.tryNext)]),
   ];
 }
@@ -226,6 +229,7 @@ function realDeps(opts: { json: boolean }): InitDeps {
         return { drift: true };
       }
     },
+    sharePack: (zone, paths) => sharePack(p, zone.org, zone.team, paths),
   };
 }
 

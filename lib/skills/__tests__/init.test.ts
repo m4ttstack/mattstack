@@ -1,4 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
+import { afterEach, describe, expect, test } from "bun:test";
+import { cleanupOrgWorlds, orgWorld } from "../../team/__tests__/org-world.ts";
+import { sharePack } from "../../team/share-pack.ts";
 import { chooseZone, packIsCompiled, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, zoneTeamConfigReads, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, readOrgSlugs, type InitDeps, type RunResult } from "../init.ts";
 import { UserActionableError } from "../../errors.ts";
 import { stripJsonc } from "../sources.ts";
@@ -291,7 +295,7 @@ describe("addMarketplacePlugin", () => {
   });
 });
 
-type Calls = { claude: string[][]; registered: string[]; materialized: string[]; compiled: string[]; checked: string[]; claims: [string, string[]][] };
+type Calls = { claude: string[][]; registered: string[]; materialized: string[]; compiled: string[]; checked: string[]; claims: [string, string[]][]; shared: [string, string[]][] };
 
 const ok = (stdout: string): RunResult => ({ code: 0, stdout, stderr: "" });
 const REPO = "/work/api";
@@ -300,7 +304,7 @@ const ACME_PACK = `${TEAM_DIR("acme")}/packs/acme`;
 const GITLAB = { "board.gitlabHost": "gitlab.com" };
 
 function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; marketplaces?: string[]; noOrg?: boolean } = {}) {
-  const calls: Calls = { claude: [], registered: [], materialized: [], compiled: [], checked: [], claims: [] };
+  const calls: Calls = { claude: [], registered: [], materialized: [], compiled: [], checked: [], claims: [], shared: [] };
   const files: Record<string, string> = {
     ...(overrides.noOrg ? {} : orgFiles("acme", GITLAB, { acme: {} })),
     ...(overrides.files ?? {}),
@@ -334,6 +338,7 @@ function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; 
     },
     compile: async (dir) => { calls.compiled.push(dir); return { ok: true, errors: [] }; },
     check: async (dir) => { calls.checked.push(dir); return { drift: false }; },
+    sharePack: async (zone, paths) => { calls.shared.push([zone.slug, paths]); return { pushed: true, remote: "https://gitlab.example.com/acme/org.git" }; },
     ...overrides,
   };
   return { deps, calls, fs };
@@ -352,6 +357,7 @@ describe("initPack", () => {
     expect(await initPack({ repoDir: REPO, zone: null, team: null }, deps)).toMatchObject({ refused: true, code: "not-yours" });
     expect(calls.claims).toEqual([]);
     expect(fs.mkdirped.size).toBe(0);
+    expect(calls.shared).toEqual([]);
   });
 
   test("an existing marketplace entry needs only the team's own folder", async () => {
@@ -379,6 +385,27 @@ describe("initPack", () => {
     expect(out.repo).toEqual({ slug: "gitlab.com-acme-api", manifest: `${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme/skills.jsonc` });
     expect(out.tryNext).toBe("/acme:work <ticket>");
     expect(out.restartNeeded).toBe(true);
+    expect(calls.shared).toEqual([["acme/acme", ["mattstack/teams/acme/packs/acme", "mattstack/teams/acme/settings.team.jsonc", ".claude-plugin/marketplace.json"]]]);
+    expect(out.published).toEqual({ pushed: true, remote: "https://gitlab.example.com/acme/org.git" });
+  });
+
+  test("an owner whose marketplace entry is already there shares only the team's own files", async () => {
+    const { deps, calls } = world({ files: { [`${ORG_ROOT("acme")}/.claude-plugin/marketplace.json`]: '{ "name": "acme-market", "plugins": [{ "name": "acme", "source": "./mattstack/teams/acme/packs/acme" }] }' } });
+    expect((await initPack({ repoDir: REPO, zone: null, team: null }, deps)).ok).toBe(true);
+    expect(calls.shared).toEqual([["acme/acme", ["mattstack/teams/acme/packs/acme", "mattstack/teams/acme/settings.team.jsonc"]]]);
+  });
+
+  test("a pack that could not be shared is still created, and says what to run", async () => {
+    const { deps, fs } = world({ sharePack: async () => ({ pushed: false, reason: "rt could not push the team repo", next: "rt team publish" }) });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: true, published: { pushed: false, reason: "rt could not push the team repo", next: "rt team publish" } });
+    expect(fs.exists(`${ACME_PACK}/pack/stubs.jsonc`)).toBe(true);
+  });
+
+  test("a pack that did not compile is never shared", async () => {
+    const { deps, calls } = world({ compile: async () => ({ ok: false, errors: ["boom"] }) });
+    expect((await initPack({ repoDir: REPO, zone: null, team: null }, deps)).ok).toBe(false);
+    expect(calls.shared).toEqual([]);
   });
 
   test("a new claim is the team's resolved list plus the new repo, never the new repo alone", async () => {
@@ -419,6 +446,7 @@ describe("initPack", () => {
       },
       compile: async () => ({ ok: true, errors: [] }),
       check: async () => ({ drift: false }),
+      sharePack: async () => ({ pushed: true, remote: "https://gitlab.example.com/acme/org.git" }),
     };
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out.ok).toBe(true);
@@ -818,4 +846,48 @@ describe("initPack", () => {
 test("refusal titles name no path or config file", async () => {
   const notRepo = await initPack({ repoDir: REPO, zone: null, team: null }, world({ gitRemote: async () => ({ kind: "not-a-repo" }) }).deps);
   expect(notRepo).toMatchObject({ refused: true, detail: "This folder is not a git repo" });
+});
+
+describe("initPack against a real org clone", () => {
+  afterEach(cleanupOrgWorlds);
+
+  test("the new pack folder and its marketplace entry reach origin in one push", async () => {
+    const w = orgWorld("dev1", { settings: { "board.gitlabHost": "gitlab.com" } });
+    const realFs: InitFs = {
+      exists: (path) => existsSync(path),
+      readFile: (path) => (existsSync(path) ? readFileSync(path, "utf8") : null),
+      writeFile: (path, text) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text); },
+      mkdirp: (path) => { mkdirSync(path, { recursive: true }); },
+      readDir: (path) => (existsSync(path) ? readdirSync(path) : []),
+    };
+    const manifest = join(w.home, ".mattstack", "repos", "gitlab.com-acme-api", "packs", "widgets", "skills.jsonc");
+    const deps: InitDeps = {
+      fs: realFs,
+      home: w.home,
+      gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }),
+      isTTY: false,
+      promptZone: async () => { throw new Error("must not prompt"); },
+      createZone: async () => { throw new Error("must not create"); },
+      activeTeam: () => "widgets",
+      currentOrg: () => "acme",
+      mayWrite: () => null,
+      declareClaim: (zone, projects) => realFs.writeFile(join(zone.dir, "settings.team.jsonc"), JSON.stringify({ "board.title": "widgets", "board.projects": projects })),
+      engineDescription: () => "Use when running a unit of work.",
+      claude: async (args) => (args[2] === "list" ? ok("[]") : ok("")),
+      registerRepo: async () => "gitlab.com/acme/api",
+      materialize: async () => { realFs.writeFile(manifest, "{}"); return { ok: true, detail: "merged" }; },
+      compile: async (packDir) => { realFs.writeFile(join(packDir, "skills", "work", "SKILL.md"), "compiled\n"); return { ok: true, errors: [] }; },
+      check: async () => ({ drift: false }),
+      sharePack: (zone, paths) => sharePack(w.p, zone.org, zone.team, paths, async () => null),
+    };
+    const out = await initPack({ repoDir: REPO, zone: null, team: "widgets" }, deps);
+    expect(out).toMatchObject({ ok: true, published: { pushed: true, remote: w.remote } });
+    expect(w.pushes).toHaveLength(1);
+    const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
+    expect(files).toContain(".claude-plugin/marketplace.json");
+    expect(files).toContain("mattstack/teams/widgets/packs/widgets/pack/skills.jsonc");
+    expect(files).toContain("mattstack/teams/widgets/packs/widgets/skills/work/SKILL.md");
+    expect(files).toContain("mattstack/teams/widgets/settings.team.jsonc");
+    expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([expect.objectContaining({ name: "widgets", source: "./mattstack/teams/widgets/packs/widgets" })]);
+  });
 });

@@ -7,6 +7,7 @@ import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { FragmentError, parseFragment } from "./manifest-merge.ts";
 import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
+import type { PackShare } from "../team/share-pack.ts";
 
 /** Strips only the userinfo (scheme://user:pass@) so the rest of a rejected remote URL stays in the message; withoutUrls's full-URL redaction would leave nothing readable here. */
 function withoutCredentials(message: string): string {
@@ -302,6 +303,8 @@ export type InitDeps = {
   materialize(repoName: string, pack: string): Promise<{ ok: boolean; detail: string }>;
   compile(packDir: string, manifestPath: string): Promise<{ ok: boolean; errors: string[] }>;
   check(packDir: string, manifestPath: string): Promise<{ drift: boolean }>;
+  /** `paths` are relative to the org clone. */
+  sharePack(zone: ZoneInfo, paths: string[]): Promise<PackShare>;
 };
 
 export type InitRefusalCode =
@@ -322,6 +325,7 @@ export type InitOutcome =
       installed: { plugin: string; version: string };
       restartNeeded: true;
       tryNext: string;
+      published: PackShare;
     }
   | { ok: false; refused: true; code: InitRefusalCode; detail: string; next?: string; why?: string }
   | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy; why?: string; next?: string };
@@ -517,6 +521,14 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
     return failed("install-failed", `Installing ${pluginId} in Claude Code failed (exit ${installed.value.code}): ${installed.value.stderr.trim() || installed.value.stdout.trim()}`);
   }
 
+  const teamRel = `mattstack/teams/${zone.team}`;
+  const sharePaths = [
+    `${teamRel}/packs/${pack}`,
+    ...(wrote.includes(join(zone.dir, "settings.team.jsonc")) ? [`${teamRel}/settings.team.jsonc`] : []),
+    ...(wrote.includes(join(zone.orgDir, ".claude-plugin", "marketplace.json")) ? [".claude-plugin/marketplace.json"] : []),
+  ];
+  const published = await deps.sharePack(zone, sharePaths);
+
   return {
     ok: true,
     pack: { name: pack, dir: packDir, zone: zone.slug, marketplace },
@@ -525,5 +537,6 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
     installed: { plugin: pluginId, version: "0.1.0" },
     restartNeeded: true,
     tryNext: `/${pack}:work <ticket>`,
+    published,
   };
 }

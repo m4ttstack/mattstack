@@ -118,9 +118,12 @@ The team instance differs from the home one in four ways:
   `mattstack/teams/<team>/packs/`, and `mattstack/packs/` on a clone not yet
   converted) is a standing claimed zone (owner `skills-publish`): a pack is
   published by its own commit (the `mattstack:editing-skills` flow,
-  `rt skills sync`), so a watch never commits a half-made pack edit. The janitor still commits a pack left dirty past
-  `janitorThresholdHours`. A claim on the same path in the clone's own
-  `snapshot-owners.jsonc` wins over the standing one.
+  `rt skills sync`), so a watch never commits a half-made pack edit. A new
+  pack goes up with its marketplace entry in one commit and push, made by
+  `rt team add` or `rt skills init` itself; when that push fails, the command
+  says so and names `rt team publish`. The janitor still commits a pack left
+  dirty past `janitorThresholdHours`. A claim on the same path in the clone's
+  own `snapshot-owners.jsonc` wins over the standing one.
 - **Pull.** Before every push, at daemon boot and every `pullIntervalSec`, it
   fetches `origin` with rt's stored forge token (env, never argv) and either
   fast-forwards or rebases its own commits onto the remote. A rebase that stops

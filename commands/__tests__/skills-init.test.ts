@@ -38,6 +38,7 @@ describe("init outcome", () => {
     installed: { plugin: "acme@acme", version: "0.1.0" },
     restartNeeded: true as const,
     tryNext: "/acme:work <ticket>",
+    published: { pushed: true as const, remote: "https://gitlab.example.com/acme/org.git" },
   } satisfies InitOutcome;
 
   test("success names the pack, where things are, and what to try next", () => {
@@ -45,8 +46,16 @@ describe("init outcome", () => {
     expect(text.split("\n")[0]).toBe(`[ok] Created the ${okOutcome.pack.name} pack  ${okOutcome.pack.dir}`);
     expect(text).toContain(`Zone: ${okOutcome.pack.zone}\n`);
     expect(text).toContain(`Installed: ${okOutcome.installed.plugin} ${okOutcome.installed.version}\n`);
+    expect(text).toContain("[ok] Shared the acme pack with your org  https://gitlab.example.com/acme/org.git\n");
     expect(text).toContain(`  next: Run /reload-plugins in your Claude session, then try ${okOutcome.tryNext}\n`);
     expect(text).not.toContain("restart");
+  });
+
+  test("a pack that is not shared yet says so and names the publish command", () => {
+    const text = renderPlain(initOutcomeBlocks({ ...okOutcome, published: { pushed: false, reason: "rt could not push the team repo", next: "rt team publish" } }));
+    expect(text.split("\n")[0]).toBe(`[ok] Created the ${okOutcome.pack.name} pack  ${okOutcome.pack.dir}`);
+    expect(text).toContain("[not yet] The acme pack is not shared with your org yet  rt could not push the team repo\n");
+    expect(text).toContain("  next: Share it with rt team publish\n");
   });
 
   test("a policy refusal is a refused line, with its command as next", () => {
@@ -255,6 +264,7 @@ function stubDeps(overrides: Partial<InitDeps> = {}): InitDeps {
     materialize: async () => ({ ok: true, detail: "materialized" }),
     compile: async () => ({ ok: true, errors: [] }),
     check: async () => ({ drift: false }),
+    sharePack: async () => ({ pushed: true, remote: "https://gitlab.example.com/acme/org.git" }),
     ...overrides,
   };
 }
@@ -422,6 +432,33 @@ describe("skillsInit", () => {
     expect(printed.error.code).toBe("usage");
     expect(printed.error.message).toMatch(/--zone needs a value/);
     expect(process.exitCode).toBe(2);
+  });
+
+  test("--json: success carries the share outcome beside the existing keys", async () => {
+    const HOME = "/h";
+    const fs = memFs({
+      [`${HOME}/.mattstack/teams/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com", "board.projects": [] }`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
+      [`${HOME}/.mattstack/teams/acme/.claude-plugin/marketplace.json`]: `{ "name": "acme-market", "owner": { "name": "acme" }, "plugins": [] }`,
+    });
+    await skillsInit(["--json"], {}, stubDeps({
+      fs,
+      home: HOME,
+      gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }),
+      engineDescription: (e) => (e === "work" ? "Use when running a unit of work." : null),
+      registerRepo: async () => "gitlab.com/acme/api",
+      materialize: async () => {
+        fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme/skills.jsonc`, "{}");
+        return { ok: true, detail: "merged" };
+      },
+      sharePack: async () => ({ pushed: false, reason: "rt could not push the team repo", next: "rt team publish" }),
+    }));
+    const printed = JSON.parse(io.lines()[0]!);
+    expect(printed.ok).toBe(true);
+    expect(printed.tryNext).toBe("/acme:work <ticket>");
+    expect(printed.published).toEqual({ pushed: false, reason: "rt could not push the team repo", next: "rt team publish" });
+    expect(process.exitCode).toBe(0);
   });
 
   test("--json: a post-write compile failure envelope carries the wrote list", async () => {

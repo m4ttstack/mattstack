@@ -86,7 +86,7 @@ async function creatorUsername(p: Probes, slug: string, remote: string, seams: C
   return seams.forgeLogin(p, forge.provider, forge.host, await seams.forgeToken(p, remote));
 }
 
-async function commitFiles(p: Probes, slug: string, paths: string[], message: string): Promise<void> {
+export async function commitFiles(p: Probes, slug: string, paths: string[], message: string): Promise<void> {
   const cwd = join(p.home, ".mattstack", "teams", slug);
   const add = await p.exec(["git", "add", "--", ...paths], { cwd });
   if (add.code !== 0) throw gitStepError("git-add-failed", "git add", add);
