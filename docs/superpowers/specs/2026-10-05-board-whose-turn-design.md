@@ -118,6 +118,26 @@ actions moved out of it:
 - **Showing N of M ▾** opens the Show menu. M is the rows on the current tab
   after the member filter; N is what is left after the Show menu.
 
+### Turn summary line
+
+The header's subtitle ("N awaiting review · pick one, it opens in gitlab") is
+replaced by a whose-turn summary of the current tab, after the member filter
+and before the Show menu:
+
+> ● **2** need you · ● **12** need a reviewer · ● **17** waiting on author · ● **5** ready to merge · synced 14:43
+
+- **need you:** rows where `needOf(mr, self, …)` is non-null, so it matches
+  the Needs me tab. It links to that tab. Left out on a board with no seat.
+- **waiting on author:** `authorTurn` fires with any signal except
+  `readyToMerge`.
+- **ready to merge:** `authorTurn` fires with `readyToMerge`.
+- **need a reviewer:** every other row.
+- Each count is its own bucket, so the four add up to the row count. A row
+  counts once, in the first bucket that matches, in the order listed above.
+- **synced HH:MM** is `dataAgeLabel`, moved up from the footer. The stale
+  freshness banner is unchanged.
+- Zero counts are left out. The line reads "nothing open" when all are zero.
+
 ### Show menu
 
 Titled "Show on the board". Every item is a checkbox, and checked means those
