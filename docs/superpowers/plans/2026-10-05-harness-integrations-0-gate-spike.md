@@ -28,8 +28,8 @@
 1. A server request id is per connection (the spike saw `id: 0`): after a reconnect the same question can arrive under a different id. Correlate questions by `threadId` + `turnId` + `itemId`, never by request id alone (Task 6 tests this in `judgeQuestionRecovery`).
 2. A worker whose command runs inside the shared Codex daemon inherits the daemon's `HERDR_PANE_ID`, not its pane's. The lab starts the daemon with a deliberately wrong `HERDR_PANE_ID=lab-controller` so the bug is visible (Task 5 asserts it is detected, not silently passed).
 3. A hook that is configured but not loaded looks exactly like a hook that allowed everything. Task 7 reads `hooks/list` before trusting any policy result.
-4. An MCP server shared by two threads can answer both correctly while still being unable to tell them apart. Task 5's verdict requires a per-call thread identity, not just two successful calls.
-5. A failed probe run must still clean up the copied credential and stop the lab daemons. Task 3 tests that `stop()` removes `auth.json` even after a start failure.
+4. An MCP server shared by two threads can answer both correctly while still being unable to tell them apart. Task 5's verdict requires a per-call thread identity at one named `_meta` field (or per-thread process env), not just two successful calls or a thread id appearing somewhere in `_meta`.
+5. A failed probe run must still clean up the copied credential and stop the lab daemons. `startLab` calls `stop()` on any start failure, and the runner's pre-cleanup pane reads go through `collectPaneTails`, which never throws (Task 6 tests a failing read).
 
 ## Questions and exit criteria
 
@@ -731,7 +731,7 @@ git commit -m "test: add isolated rt, Herdr and Codex lab for the harness gate s
 - Test: `scripts/probes/harness/__tests__/recorders.test.ts`
 
 **Interfaces:**
-- Produces: `ENV_KEYS: readonly string[]` and `envSnapshot(env: Record<string, string | undefined>): Record<string, string>` (in `probe-cli.ts`); `handleMcpMessage(state: { init?: unknown }, msg: any, record: (row: unknown) => void, env: Record<string, string | undefined>): any | undefined` (in `probe-mcp.ts`, returns the response or `undefined` for a notification); `decideHook(event: string, payload: any, policy: { block?: string[]; blockOnce?: boolean; style: "exit2" | "json" }): { exitCode: number; stdout: string; stderr: string; consumeOnce: boolean }` and `toolNameOf(payload: any): string | undefined` (in `probe-hook.ts`).
+- Produces: `ENV_KEYS: readonly string[]` and `envSnapshot(env: Record<string, string | undefined>): Record<string, string>` (in `probe-cli.ts`); `handleMcpMessage(state: { init?: unknown }, msg: any, record: (row: unknown) => void, env: Record<string, string | undefined>): any | undefined` (in `probe-mcp.ts`, returns the response or `undefined` for a notification); `decideHook(event: string, payload: any, policy: { block?: string[]; blockOnce?: boolean; style: "exit2" | "json" }): { exitCode: number; stdout: string; stderr: string; consumeOnce: boolean }`, `toolNameOf(payload: any): string | undefined` and `hookRow(event: string, payload: unknown, decision: unknown, env: Record<string, string | undefined>): unknown` (in `probe-hook.ts`). Every recorder row passes through `redactDeep` before it is written.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -740,7 +740,9 @@ git commit -m "test: add isolated rt, Herdr and Codex lab for the harness gate s
 import { describe, expect, test } from "bun:test";
 import { envSnapshot } from "../probe-cli.ts";
 import { handleMcpMessage } from "../probe-mcp.ts";
-import { decideHook, toolNameOf } from "../probe-hook.ts";
+import { decideHook, hookRow, toolNameOf } from "../probe-hook.ts";
+
+const TOKEN_URL = "https://x.test/?private_token=glpat-abcdefghijklmnopqrst";
 
 describe("probe-cli", () => {
   test("snapshots only allowlisted keys", () => {
@@ -765,6 +767,14 @@ describe("probe-mcp", () => {
     expect(row).toMatchObject({ meta: { threadId: "t9" }, env: { CODEX_THREAD_ID: "t9" }, init: { clientInfo: { name: "codex" } } });
     expect(typeof row.pid).toBe("number");
   });
+
+  test("redacts credentials in _meta and initialize params before recording", () => {
+    const rows: any[] = [];
+    const state: { init?: unknown } = {};
+    handleMcpMessage(state, { jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { url: TOKEN_URL } } }, (r) => rows.push(r), {});
+    handleMcpMessage(state, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "probe_whoami", arguments: { marker: "m" }, _meta: { link: TOKEN_URL } } }, (r) => rows.push(r), {});
+    expect(JSON.stringify(rows)).not.toContain("glpat-abcdefghijklmnopqrst");
+  });
 });
 
 describe("probe-hook", () => {
@@ -781,6 +791,11 @@ describe("probe-hook", () => {
     expect(json.exitCode).toBe(0);
     expect(JSON.parse(json.stdout)).toMatchObject({ decision: "block" });
     expect(decideHook("PreToolUse", { tool_name: "shell" }, { block: ["request_user_input"], style: "exit2" })).toMatchObject({ exitCode: 0, stdout: "" });
+  });
+
+  test("hook rows are redacted", () => {
+    const row = hookRow("PreToolUse", { tool_input: { command: `curl ${TOKEN_URL}` } }, { exitCode: 0 }, {});
+    expect(JSON.stringify(row)).not.toContain("glpat-abcdefghijklmnopqrst");
   });
 
   test("blocks a stop once, then allows", () => {
@@ -801,6 +816,7 @@ Expected: FAIL, cannot resolve the three modules.
 ```ts
 // scripts/probes/harness/probe-cli.ts
 import { appendFileSync } from "node:fs";
+import { redactDeep } from "../../../lib/mcp/redact.ts";
 
 export const ENV_KEYS = [
   "CODEX_THREAD_ID", "CODEX_SESSION_ID", "HERDR_PANE_ID", "HERDR_SOCKET_PATH",
@@ -830,8 +846,9 @@ if (import.meta.main) {
   };
   if (verb === "sleep") await Bun.sleep(Math.min(Number(marker) || 0, 60) * 1000);
   if (verb === "rt-ping") row.rt = await rtPing(sock);
-  appendFileSync(file, JSON.stringify(row) + "\n");
-  process.stdout.write(`${JSON.stringify(row)}\n`);
+  const safe = JSON.stringify(redactDeep(row));
+  appendFileSync(file, safe + "\n");
+  process.stdout.write(`${safe}\n`);
 }
 ```
 
@@ -842,6 +859,7 @@ Usage the cases rely on: `bun probe-cli.ts record <file> <marker>`, `bun probe-c
 ```ts
 // scripts/probes/harness/probe-mcp.ts
 import { appendFileSync } from "node:fs";
+import { redactDeep } from "../../../lib/mcp/redact.ts";
 import { envSnapshot } from "./probe-cli.ts";
 
 const TOOLS = [
@@ -852,14 +870,14 @@ const TOOLS = [
 export function handleMcpMessage(state: { init?: unknown }, msg: any, record: (row: unknown) => void, env: Record<string, string | undefined>): any | undefined {
   if (msg.id === undefined) return undefined;
   if (msg.method === "initialize") {
-    state.init = msg.params;
-    record({ kind: "initialize", pid: process.pid, env: envSnapshot(env), init: msg.params });
+    state.init = redactDeep(msg.params);
+    record(redactDeep({ kind: "initialize", pid: process.pid, env: envSnapshot(env), init: msg.params }));
     return { jsonrpc: "2.0", id: msg.id, result: { protocolVersion: msg.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "probe", version: "0.0.0" } } };
   }
   if (msg.method === "tools/list") return { jsonrpc: "2.0", id: msg.id, result: { tools: TOOLS } };
   if (msg.method === "tools/call") {
     const args = msg.params?.arguments ?? {};
-    const row = { kind: "call", tool: msg.params?.name, marker: args.marker, pid: process.pid, env: envSnapshot(env), meta: msg.params?._meta ?? null, init: state.init ?? null };
+    const row = redactDeep({ kind: "call", tool: msg.params?.name, marker: args.marker, pid: process.pid, env: envSnapshot(env), meta: msg.params?._meta ?? null, init: state.init ?? null });
     record(row);
     return { jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: JSON.stringify(row) }] } };
   }
@@ -891,7 +909,7 @@ if (import.meta.main) {
       let reply = handleMcpMessage(state, msg, record, process.env);
       if (reply && msg.params?.name === "probe_rt_ping") {
         const ping = await pingFrom(msg.params.arguments.sock);
-        record({ kind: "rt-ping", marker: msg.params.arguments.marker, pid: process.pid, ping });
+        record(redactDeep({ kind: "rt-ping", marker: msg.params.arguments.marker, pid: process.pid, ping }));
         reply = { ...reply, result: { content: [{ type: "text", text: JSON.stringify(ping) }] } };
       }
       if (reply) process.stdout.write(JSON.stringify(reply) + "\n");
@@ -906,12 +924,17 @@ if (import.meta.main) {
 // scripts/probes/harness/probe-hook.ts
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { redactDeep } from "../../../lib/mcp/redact.ts";
 import { envSnapshot } from "./probe-cli.ts";
 
 type Policy = { block?: string[]; blockOnce?: boolean; style: "exit2" | "json" };
 
 export function toolNameOf(payload: any): string | undefined {
   return payload?.tool_name ?? payload?.toolName ?? payload?.tool?.name ?? undefined;
+}
+
+export function hookRow(event: string, payload: unknown, decision: unknown, env: Record<string, string | undefined>): unknown {
+  return redactDeep({ at: Date.now(), event, pid: process.pid, env: envSnapshot(env), payload, decision });
 }
 
 export function decideHook(event: string, payload: any, policy: Policy): { exitCode: number; stdout: string; stderr: string; consumeOnce: boolean } {
@@ -931,7 +954,7 @@ if (import.meta.main) {
   const policy: Policy = existsSync(policyFile) ? JSON.parse(readFileSync(policyFile, "utf8")) : { style: "exit2" };
   const decision = decideHook(event, payload, policy);
   if (decision.consumeOnce) writeFileSync(policyFile, JSON.stringify({ ...policy, blockOnce: false }));
-  appendFileSync(file, JSON.stringify({ at: Date.now(), event, pid: process.pid, env: envSnapshot(process.env), payload, decision }) + "\n");
+  appendFileSync(file, JSON.stringify(hookRow(event, payload, decision, process.env)) + "\n");
   if (decision.stdout) process.stdout.write(decision.stdout);
   if (decision.stderr) process.stderr.write(decision.stderr);
   process.exit(decision.exitCode);
@@ -941,7 +964,7 @@ if (import.meta.main) {
 - [ ] **Step 6: Run the test to verify it passes**
 
 Run: `bun test scripts/probes/harness/__tests__/recorders.test.ts`
-Expected: PASS, 5 tests.
+Expected: PASS, 7 tests.
 
 - [ ] **Step 7: Commit**
 
@@ -960,7 +983,7 @@ git commit -m "test: add CLI, MCP and hook recorders for the harness gate spike"
 - Consumes: `CaseResult` (Task 2), `Worker` (Task 3), recorder rows (Task 4).
 - Produces:
   - `judgeCliAttribution(workers: Worker[], cliRows: any[]): CaseResult` (G1)
-  - `judgeMcpAttribution(workers: Worker[], mcpRows: any[]): CaseResult` (G2)
+  - `judgeMcpAttribution(workers: Worker[], mcpRows: any[]): CaseResult` (G2; proven by `_meta` only when one key path holds each caller's own thread and no other worker's thread appears, and its consequence names that path), helper `pathsTo(value: unknown, target: string): string[]`
   - `judgeQuestionRecovery(obs: { firstRequest?: QuestionRef; replayed?: QuestionRef; flagsAfterReconnect: string[]; answeredAfterReconnect: boolean; finalMentionsAnswer: boolean }): CaseResult` (G3), with `QuestionRef = { requestId: number | string; threadId: string; turnId: string; itemId: string }`
   - `judgeAsyncQuestion(obs: { sawNativeRequest: boolean; itemCompletedAfterResponse: boolean; wokeOnlyBySteer: boolean }): CaseResult` (G4)
   - `judgePolicy(obs: { hooksListed: number; toolBlocked: boolean; toolRanAnyway: boolean; stopBlocked: boolean; styleUsed: string }): CaseResult` (G5)
@@ -1005,12 +1028,28 @@ describe("G1 CLI attribution", () => {
 });
 
 describe("G2 MCP attribution", () => {
-  test("proven by per-call _meta thread ids from one shared process", () => {
+  test("proven by one named _meta field holding each caller's thread, and the field is reported", () => {
     const rows = [
-      { kind: "call", marker: "w1-mcp", pid: 10, env: {}, meta: { threadId: "T1" } },
-      { kind: "call", marker: "w2-mcp", pid: 10, env: {}, meta: { threadId: "T2" } },
+      { kind: "call", marker: "w1-mcp", pid: 10, env: {}, meta: { codex: { threadId: "T1" } } },
+      { kind: "call", marker: "w2-mcp", pid: 10, env: {}, meta: { codex: { threadId: "T2" } } },
     ];
-    expect(judgeMcpAttribution(workers, rows).verdict).toBe("proven");
+    const r = judgeMcpAttribution(workers, rows);
+    expect(r.verdict).toBe("proven");
+    expect(r.consequence).toContain("_meta.codex.threadId");
+  });
+  test("not proven when _meta lists every thread, even though it contains the caller's", () => {
+    const rows = [
+      { kind: "call", marker: "w1-mcp", pid: 10, env: {}, meta: { loaded: ["T1", "T2"] } },
+      { kind: "call", marker: "w2-mcp", pid: 10, env: {}, meta: { loaded: ["T1", "T2"] } },
+    ];
+    expect(judgeMcpAttribution(workers, rows).verdict).toBe("partial");
+  });
+  test("not proven when the caller's id sits under different keys in different calls", () => {
+    const rows = [
+      { kind: "call", marker: "w1-mcp", pid: 10, env: {}, meta: { a: "T1" } },
+      { kind: "call", marker: "w2-mcp", pid: 10, env: {}, meta: { b: "T2" } },
+    ];
+    expect(judgeMcpAttribution(workers, rows).verdict).toBe("partial");
   });
   test("proven by per-thread processes whose env names the thread", () => {
     const rows = [
@@ -1097,18 +1136,32 @@ export function judgeCliAttribution(workers: Worker[], cliRows: any[]): CaseResu
     : { question: "G1", verdict: "proven", observations, consequence: "F4 binds CLI callers by CODEX_THREAD_ID; Herdr variables stay hints only." };
 }
 
+/** Key paths (dot-joined) whose value is exactly `target`. */
+export function pathsTo(value: unknown, target: string, prefix = ""): string[] {
+  if (value === target) return [prefix];
+  if (value === null || typeof value !== "object") return [];
+  return Object.entries(value as Record<string, unknown>).flatMap(([k, v]) => pathsTo(v, target, prefix ? `${prefix}.${k}` : k));
+}
+
 export function judgeMcpAttribution(workers: Worker[], mcpRows: any[]): CaseResult {
   const observations: string[] = [];
   const calls = workers.map((w) => ({ w, row: mcpRows.find((r) => r.kind === "call" && r.marker === `${w.name}-mcp`) }));
   if (calls.some((c) => !c.row)) return { question: "G2", verdict: "not-run", observations: ["a worker made no MCP call"], consequence: "Re-run G2." };
-  const viaMeta = calls.every(({ w, row }) => JSON.stringify(row.meta ?? {}).includes(w.threadId));
+  // A _meta field counts only if the same key holds the caller's own thread in every call
+  // and no call's _meta mentions another worker's thread anywhere.
+  const perCall = calls.map(({ w, row }) => pathsTo(row.meta ?? {}, w.threadId));
+  const sharedPaths = perCall.reduce((acc, paths) => acc.filter((p) => paths.includes(p)));
+  const leaksOther = calls.some(({ w, row }) => workers.some((o) => o !== w && JSON.stringify(row.meta ?? {}).includes(o.threadId)));
+  const metaField = !leaksOther && sharedPaths.length === 1 ? sharedPaths[0] : undefined;
+  const viaMeta = metaField !== undefined;
+  observations.push(`_meta paths naming the caller: ${sharedPaths.join(", ") || "none"}; other threads present: ${leaksOther}`);
   const viaEnv = calls.every(({ w, row }) => row.env?.CODEX_THREAD_ID === w.threadId)
     && new Set(calls.map((c) => c.row.pid)).size === calls.length;
   observations.push(`MCP processes: ${[...new Set(calls.map((c) => c.row.pid))].join(", ")}`);
-  observations.push(`per-call _meta carries the thread: ${viaMeta}`);
+  observations.push(`per-call _meta field carries the thread: ${metaField ?? "no"}`);
   observations.push(`per-thread process env carries the thread: ${viaEnv}`);
   if (viaMeta || viaEnv) {
-    return { question: "G2", verdict: "proven", observations, consequence: viaMeta ? "F4 reads the caller thread from request _meta." : "F4 binds each MCP process to its thread at startup." };
+    return { question: "G2", verdict: "proven", observations, consequence: viaMeta ? `F4 reads the caller thread from request _meta.${metaField}.` : "F4 binds each MCP process to its thread at startup." };
   }
   return { question: "G2", verdict: "partial", observations, consequence: "Calls work but cannot be attributed; F4 needs a per-thread MCP launch or the spec is revised." };
 }
@@ -1165,7 +1218,7 @@ export function judgeDelivery(obs: { consumedClientIdSeen: boolean; queuedAfterR
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `bun test scripts/probes/harness/__tests__/verdicts.test.ts`
-Expected: PASS, 13 tests.
+Expected: PASS, 15 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1182,14 +1235,14 @@ git commit -m "test: add verdict judges for the harness gate spike"
 
 **Interfaces:**
 - Consumes: everything in Tasks 1 to 5.
-- Produces: `parseArgs(argv: string[]): { live: boolean; cases: QuestionId[]; out?: string; model?: string }`; each case module exports `run(lab: Lab, ev: Evidence): Promise<CaseResult[]>`; `common.ts` exports `drive(ctl: CodexControl, threadId: string, text: string, timeoutMs: number): Promise<Inbound[]>` (resume, start a turn, collect that thread's messages until `turn/completed`), `kit(lab: Lab): { cli: string; bun: string }`.
+- Produces: `parseArgs(argv: string[]): { live: boolean; cases: QuestionId[]; out?: string; model?: string }`; `collectPaneTails(lab, ev): Promise<void>` (never throws, so `lab.stop()` always runs); each case module exports `run(lab: Lab, ev: Evidence): Promise<CaseResult[]>`; `common.ts` exports `drive(ctl: CodexControl, threadId: string, text: string, timeoutMs: number): Promise<Inbound[]>` (resume, start a turn, collect that thread's messages until `turn/completed`), `kit(lab: Lab): { cli: string; bun: string }`.
 
 - [ ] **Step 1: Write the failing test (argument parsing only; live cases are not unit-tested)**
 
 ```ts
 // scripts/probes/harness/__tests__/run.test.ts
 import { describe, expect, test } from "bun:test";
-import { parseArgs } from "../run.ts";
+import { collectPaneTails, parseArgs } from "../run.ts";
 
 describe("run.ts arguments", () => {
   test("defaults to every question and requires nothing else", () => {
@@ -1200,6 +1253,18 @@ describe("run.ts arguments", () => {
   });
   test("rejects an unknown question id", () => {
     expect(() => parseArgs(["--cases", "G9"])).toThrow("G9");
+  });
+});
+
+describe("collectPaneTails", () => {
+  test("a failed pane read is recorded and does not throw, so cleanup still runs", async () => {
+    const cleanup: any[] = [];
+    const lab = {
+      workers: [{ name: "w1", pane: "w1:p0", cwd: "/c", threadId: "T1" }],
+      herdr: async () => { throw new Error("herdr gone"); },
+    };
+    await collectPaneTails(lab, { record: () => {}, addCleanup: (r) => cleanup.push(r) });
+    expect(cleanup).toEqual([{ resource: "pane tail w1", ok: false, detail: "herdr gone" }]);
   });
 });
 ```
@@ -1507,8 +1572,8 @@ export async function run(lab: Lab, ev: Evidence): Promise<CaseResult[]> {
 ```ts
 // scripts/probes/harness/run.ts
 import { copyFileSync } from "node:fs";
-import { createEvidence, requireLive, type QuestionId } from "./evidence.ts";
-import { startLab } from "./lab.ts";
+import { createEvidence, requireLive, type Evidence, type QuestionId } from "./evidence.ts";
+import { startLab, type Lab } from "./lab.ts";
 
 const ALL: QuestionId[] = ["G1", "G2", "G3", "G4", "G5", "G6", "G7"];
 const GROUPS: { ids: QuestionId[]; load: () => Promise<{ run: (lab: any, ev: any) => Promise<any[]> }> }[] = [
@@ -1518,6 +1583,17 @@ const GROUPS: { ids: QuestionId[]; load: () => Promise<{ run: (lab: any, ev: any
   { ids: ["G6"], load: () => import("./cases/sockets.ts") },
   { ids: ["G7"], load: () => import("./cases/delivery.ts") },
 ];
+
+/** Records each worker's last pane lines; never throws, so cleanup always runs after it. */
+export async function collectPaneTails(lab: Pick<Lab, "workers" | "herdr">, ev: Pick<Evidence, "record" | "addCleanup">): Promise<void> {
+  for (const w of lab.workers) {
+    try {
+      ev.record("pane tail", { worker: w.name, read: await lab.herdr("pane", "read", w.pane, "--source", "recent-unwrapped", "--lines", "60") });
+    } catch (err) {
+      ev.addCleanup({ resource: `pane tail ${w.name}`, ok: false, detail: (err as Error).message });
+    }
+  }
+}
 
 export function parseArgs(argv: string[]): { live: boolean; cases: QuestionId[]; out?: string; model?: string } {
   const value = (flag: string) => { const i = argv.indexOf(flag); return i >= 0 ? argv[i + 1] : undefined; };
@@ -1553,9 +1629,7 @@ if (import.meta.main) {
       }
     }
   } finally {
-    for (const w of lab.workers) {
-      ev.record("pane tail", { worker: w.name, read: await lab.herdr("pane", "read", w.pane, "--source", "recent-unwrapped", "--lines", "60") });
-    }
+    await collectPaneTails(lab, ev);
     for (const row of await lab.stop()) ev.addCleanup(row);
     const report = ev.write();
     if (args.out) copyFileSync(report, args.out);
@@ -1567,7 +1641,7 @@ if (import.meta.main) {
 - [ ] **Step 10: Run the unit tests**
 
 Run: `bun test scripts/probes/harness`
-Expected: PASS, 31 tests across 6 files (Tasks 1 to 6). Then `bun run typecheck` and fix any type errors in the new files only.
+Expected: PASS, 36 tests across 6 files (Tasks 1 to 6). Then `bun run typecheck` and fix any type errors in the new files only.
 
 - [ ] **Step 11: Commit**
 
