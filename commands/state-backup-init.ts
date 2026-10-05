@@ -86,7 +86,7 @@ export async function stateBackupInit(_args: string[], _ctx: CommandContext = {}
     if (result.errors.length) throw new Error(result.errors.join("\n"));
     return result;
   }, result => `${result.backed.map(b => `${b.app}: ${b.sizeBytes < 1048576 ? `${Math.round(b.sizeBytes / 1024)} KB` : `${(b.sizeBytes / 1048576).toFixed(1)} MB`}`).join(", ")}`);
-  await stage("Checking a backup can be decrypted", "A backup decrypts", "A backup could not be decrypted", async () => {
+  await stage("Checking a backup can be decrypted", () => result.backed.length ? "A backup decrypts" : "No backup to check yet", "A backup could not be decrypted", async () => {
     const first = result.backed[0];
     if (!first) return;
     const verifyDir = await mkdtemp(join(tmpdir(), "backup-verify-"));

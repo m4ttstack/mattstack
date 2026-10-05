@@ -126,11 +126,18 @@ describe("state backup init", () => {
         } else {
           await stateBackupInit([], {});
           const text = io.stdout();
-          const ordered = ["age, zstd and git-lfs are here", "Git LFS is set up", "This Mac can decrypt your backups", `Backed up ${scenario === "no sources" ? 0 : 1} source(s)`, "A backup decrypts", scenario === "success" ? "Git LFS stores the encrypted files" : "Finished checking Git LFS", "Encrypted backup is set up"];
+          const ordered = ["age, zstd and git-lfs are here", "Git LFS is set up", "This Mac can decrypt your backups", `Backed up ${scenario === "no sources" ? 0 : 1} source(s)`, scenario === "no sources" ? "No backup to check yet" : "A backup decrypts", scenario === "success" ? "Git LFS stores the encrypted files" : "Finished checking Git LFS", "Encrypted backup is set up"];
           let previous = -1;
           for (const title of ordered) { const position = text.indexOf(title); expect(position).toBeGreaterThan(previous); previous = position; }
           expect(events).toEqual(scenario === "no sources" ? ["install", "key", "backup"] : ["install", "key", "backup", "read", "decrypt", "check"]);
-          if (scenario === "no sources") { expect(read).not.toHaveBeenCalled(); expect(text).toContain("nothing to check yet"); }
+          if (scenario === "no sources") {
+            expect(read).not.toHaveBeenCalled();
+            expect(text).toContain("[ok] No backup to check yet  nothing to check yet\n");
+            expect(text).not.toContain("A backup decrypts");
+          } else {
+            expect(text).toContain("[ok] A backup decrypts\n");
+            expect(text).not.toContain("No backup to check yet");
+          }
           if (scenario !== "success") {
             expect(text).toContain("[ok] Finished checking Git LFS  not confirmed yet\n");
             expect(text).not.toContain("Git LFS stores the encrypted files");
