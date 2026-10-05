@@ -79,6 +79,14 @@ export function gateAgentId(gate: GateRow, agents: AgentRecord[], panes: LivePan
   return directMatch(gate, agents);
 }
 
+/** agent:start records the agent before its launch creates the pane and
+    stamps paneId, a window of seconds a sweep can land in. */
+const LAUNCH_GRACE_MS = 2 * 60_000;
+
+function launching(rec: AgentRecord, now: number): boolean {
+  return rec.paneId === undefined && now - rec.createdAt < LAUNCH_GRACE_MS;
+}
+
 export function computeView(input: ViewInput, now: number): ExecutorView[] {
   const { agents, panes, openGates, clearedAgentIds, visibleWorkspaceIds } = input;
 
@@ -102,7 +110,7 @@ export function computeView(input: ViewInput, now: number): ExecutorView[] {
     } else {
       const pane = resolveLivePane({ paneId: rec.paneId, sessionId: rec.sessionId, worktree: rec.cwd }, panes);
       if (!pane) {
-        state = "gone";
+        state = launching(rec, now) ? "unknown" : "gone";
       } else {
         paneRef = pane.paneRef;
         if (pane.agentStatus === "blocked") {
