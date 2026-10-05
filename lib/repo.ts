@@ -20,7 +20,7 @@ export { updateRepoIndex, getKnownRepos, getKnownReposCached, findKnownRepo, rep
 
 import { getRepoRoot, getRemoteUrl } from "./git.ts";
 import { updateRepoIndex, getKnownRepos, findKnownRepo, repoOption, repoOptions, repoFromOptionValue, pickerWorktrees, type KnownRepo } from "./repo-index.ts";
-import { repoLabel } from "./repo-label.ts";
+import { repoLabel, repoLabelFull } from "./repo-label.ts";
 import * as out from "./ui/out.ts";
 import { groupWorktrees } from "./worktree-groups.ts";
 import type { PickRow } from "./ui/protocol.ts";
@@ -31,7 +31,7 @@ export function missingRepoFailure(r: KnownRepo): out.FailureInput {
   return {
     title: `${repoLabel(r.repoName)} is no longer where rt last saw it`,
     ...(gone ? { why: `It was at ${gone}.` } : {}),
-    next: out.cmd(`rt repos locate <new-path> --repo ${r.repoName}`),
+    next: out.cmd(`rt repos locate <new-path> --repo ${repoLabelFull(r.repoName)}`),
   };
 }
 

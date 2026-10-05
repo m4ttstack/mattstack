@@ -65,6 +65,11 @@ describe("missingRepoFailure", () => {
     });
   });
 
+  test("missingRepoFailure names a remote repo by the label --repo resolves", () => {
+    const f = missingRepoFailure({ repoName: "remote:gitlab.example.com%2Facme%2Fapp", worktrees: [] } as never);
+    expect(f.next).toEqual({ text: "rt repos locate <new-path> --repo gitlab.example.com/acme/app", role: "command" });
+  });
+
   test("a row with no path leaves the why out", () => {
     expect(missingRepoFailure({ ...moved, worktrees: [] }).why).toBeUndefined();
   });

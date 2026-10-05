@@ -955,13 +955,13 @@ export async function worktreeReadyApprove(args: string[], _ctx: unknown): Promi
           "approving needs a terminal, so rt can show you the steps first",
           out.cmd(`rt worktree ready-approve ${shellQuote(repoName)}`),
         ),
-        out.callout("note", ["From a script: ", out.cmd(`rt settings set rt.worktreeReadyApproval '"${info.hash}"' --scope user --repo ${shellQuote(repoName)}`)]),
+        out.callout("note", ["From a script: ", out.cmd(`rt settings set rt.worktreeReadyApproval '"${info.hash}"' --scope user --repo ${shellQuote(repoLabelFull(repoName))}`)]),
       );
       process.exit(1);
     }
     failText(
       json,
-      `team \`ready\` steps for ${repoLabel(repoName)} need approval (hash ${info.hash}). Re-run in a TTY, or: rt settings set rt.worktreeReadyApproval '"${info.hash}"' --scope user --repo ${shellQuote(repoName)}`,
+      `team \`ready\` steps for ${repoLabel(repoName)} need approval (hash ${info.hash}). Re-run in a TTY, or: rt settings set rt.worktreeReadyApproval '"${info.hash}"' --scope user --repo ${shellQuote(repoLabelFull(repoName))}`,
     );
   }
 
