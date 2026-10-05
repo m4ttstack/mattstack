@@ -3377,7 +3377,7 @@ a.tui-id-card-ref:focus-visible {
    seam on the page. */
 .tui-tab:hover {
   color: var(--text-1);
-  background: var(--surface-wash-fg-4-card);
+  background: color-mix(in srgb, var(--fg) 9%, var(--card));
 }
 .tui-tab.active {
   color: var(--text-1);
