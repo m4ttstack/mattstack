@@ -971,14 +971,25 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       lastPushError = "rt could not check your pending changes";
       return false;
     }
-    const diff = await deps.exec(["git", "diff", "--name-only", "-z", `refs/remotes/origin/${branch.stdout.trim()}`, "HEAD"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
-    const current = authorization();
-    if (diff.exitCode !== 0) {
+    const history = await deps.exec(["git", "rev-list", `refs/remotes/origin/${branch.stdout.trim()}..HEAD`], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+    const commits = history.stdout.trim().split("\n").filter(Boolean);
+    const paths = new Set<string>();
+    const inspectionFailed = () => {
       pushPending = true;
       lastPushError = "rt could not check your pending changes";
       return false;
+    };
+    if (history.exitCode !== 0 || commits.some((sha) => !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sha))) return inspectionFailed();
+    for (const sha of commits) {
+      // Every unpublished commit matters, even when later commits cancel it.
+      // Per-parent merge diffs include merge-produced paths; disabling rename
+      // detection inventories both source deletion and destination addition.
+      const changed = await deps.exec(["git", "diff-tree", "--root", "-m", "--no-commit-id", "--name-only", "-r", "-z", "--no-renames", sha], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+      if (changed.exitCode !== 0 || (changed.stdout !== "" && !changed.stdout.endsWith("\0"))) return inspectionFailed();
+      for (const path of changed.stdout.split("\0").filter(Boolean)) paths.add(path);
     }
-    if (current.pullOnly || diff.stdout.split("\0").filter(Boolean).some((path) => !(current.scope?.(path) ?? true))) {
+    const current = authorization();
+    if (current.pullOnly || [...paths].some((path) => !(current.scope?.(path) ?? true))) {
       pushPending = true;
       lastPushError = "Your role no longer owns these pending changes. Ask an org admin before publishing them";
       return false;
