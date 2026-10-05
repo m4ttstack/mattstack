@@ -463,10 +463,10 @@ export function renderListRow(s: ListedSetting): CellInput[] {
     labels.push(def ? (migratedNote(def) as string) : "reads legacy");
   }
   if (s.expandError) labels.push(`a variable in it could not be filled: ${s.expandError}`);
-  for (const inv of s.invalid ?? []) labels.push(`${SCOPE_WORDS[inv.scope]} has a value that is not valid: ${inv.reason}`);
-  for (const nc of s.nonconforming ?? []) labels.push(`${SCOPE_WORDS[nc.scope]} has a value of the wrong shape: ${firstIssueText(nc.issues)}`);
+  for (const inv of s.invalid ?? []) labels.push(`${SCOPE_WORDS[inv.scope]}: value is not valid: ${inv.reason}`);
+  for (const nc of s.nonconforming ?? []) labels.push(`${SCOPE_WORDS[nc.scope]}: value has the wrong shape: ${firstIssueText(nc.issues)}`);
   if (s.mergedIssues && s.mergedIssues.length > 0) labels.push(`the combined value has a problem: ${firstIssueText(s.mergedIssues)}`);
-  for (const d of s.diverged ?? []) labels.push(`${SCOPE_WORDS[d.scope]} holds two copies that disagree`);
+  for (const d of s.diverged ?? []) labels.push(`${SCOPE_WORDS[d.scope]}: two copies disagree`);
   if (s.newer) labels.push("from a newer rt");
 
   const value: Array<string | Segment> = [formatValueInline(s.value)];
