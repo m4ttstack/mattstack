@@ -83,10 +83,10 @@
  * through `JSON.stringify` — that's what keeps comments alive.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { applyEdits, modify, parse, parseTree, type JSONPath, type Node, type ParseError } from "jsonc-parser";
 import { randomBytes } from "crypto";
-import { basename, dirname, join, relative, resolve, sep } from "path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { isDeepStrictEqual } from "util";
 import { assertNotRealStoreInTest } from "../test-isolation.ts";
 import { baselinesOf, baselinesToRecord, currentStoreName, MIGRATED_PROP, olderStoreNames, readSection } from "./migrate.ts";
@@ -631,6 +631,14 @@ export type SectionRename = "moved" | "already" | "none" | "refused";
  * proves both landed. A write that throws comes back as `refused`, so one
  * store's failure never stops a caller walking the others.
  */
+function realPathOf(path: string): string {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
 export function renameRepoSection(
   storePath: string,
   oldId: string,
@@ -650,15 +658,10 @@ export function renameRepoSection(
   const interrupted = newSection !== undefined && isDeepStrictEqual(oldSection, newSection);
   if (newSection !== undefined && !interrupted) return { status: "refused", keys, detail: "both populated" };
   try {
-    const [org, folder, scope, team] = relative(teamsDir(), storePath).split(sep);
-    if (org && org !== ".." && folder === "mattstack") {
-      if (
-        resolve(storePath) === orgSettingsPath(org) ||
-        (scope === "teams" && team && TEAM_NAME_RE.test(team) && resolve(storePath) === teamSettingsPath(org, team))
-      ) {
-        refuseUnlessOwned(org, storePath);
-      }
-    }
+    // Any spelling of a path inside an org clone (a symlinked HOME, an
+    // unnormalized path) has to reach the role check.
+    const [org, ...rest] = relative(realPathOf(teamsDir()), realPathOf(storePath)).split(sep);
+    if (org && org !== ".." && !isAbsolute(org) && rest.length > 0) refuseUnlessOwned(org, join(orgDir(org), ...rest));
     if (opts.dryRun) return { status: "moved", keys };
     if (!interrupted) writeIntoStore(storePath, () => [{ path: ["repos", newId], value: oldSection }], false);
     removeFromStore(storePath, () => [["repos", oldId]]);

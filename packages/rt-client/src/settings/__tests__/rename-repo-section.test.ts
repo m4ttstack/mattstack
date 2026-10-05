@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { seedOrg } from "../../../test/org-fixture.ts";
 import { readStore } from "../stores.ts";
 import { renameRepoSection } from "../write.ts";
 
@@ -71,5 +72,48 @@ describe("renameRepoSection", () => {
     const file = store(`{ "repos": { "${OLD}": { "x": 1 } } }\n`);
     expect(renameRepoSection(file, OLD, NEW, { dryRun: true })).toEqual({ status: "moved", keys: 1 });
     expect(readStore(file).repos[OLD]).toEqual({ x: 1 });
+  });
+
+  describe("a shared store under another spelling", () => {
+    const origHome = process.env.HOME;
+    afterEach(() => {
+      process.env.HOME = origHome;
+    });
+
+    function seedMember(): { orgStore: string; teamStore: string; home: string } {
+      const home = join(dir, "home");
+      mkdirSync(home);
+      process.env.HOME = home;
+      const section = { repos: { [OLD]: { x: 1 } } };
+      const seeded = seedOrg({
+        org: "acme",
+        username: "dev4",
+        roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } },
+        settings: section,
+        teams: { widgets: section },
+      });
+      return { orgStore: seeded.orgStore, teamStore: seeded.teamStores.widgets!, home };
+    }
+
+    test("is refused for a member through a symlinked home", () => {
+      const { orgStore, teamStore, home } = seedMember();
+      const link = join(dir, "home-link");
+      symlinkSync(home, link);
+      for (const real of [orgStore, teamStore]) {
+        const before = readFileSync(real, "utf8");
+        const r = renameRepoSection(join(link, real.slice(home.length)), OLD, NEW);
+        expect(r.status).toBe("refused");
+        expect(readFileSync(real, "utf8")).toBe(before);
+      }
+    });
+
+    test("is refused for a member through an unnormalized path", () => {
+      const { orgStore } = seedMember();
+      const before = readFileSync(orgStore, "utf8");
+      const spelled = orgStore.replace("/mattstack/org/", "/mattstack/./teams/../org/");
+      expect(spelled).not.toBe(orgStore);
+      expect(renameRepoSection(spelled, OLD, NEW).status).toBe("refused");
+      expect(readFileSync(orgStore, "utf8")).toBe(before);
+    });
   });
 });
