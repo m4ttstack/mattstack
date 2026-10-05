@@ -386,3 +386,21 @@ describe("the two writers agent-only verbs use", () => {
     });
   }
 });
+
+describe("holdStdout", () => {
+  test("until released, stdout writes and human text go to stderr; a payload after release is stdout's alone", () => {
+    const io = captureOut();
+    out.__test__.setHuman(() => false);
+    try {
+      const release = out.holdStdout();
+      process.stdout.write("picker chrome\n");
+      out.print(out.line("done", "Installed"));
+      release();
+      out.payload("/code/sample-app\n");
+      expect(io.stdout()).toBe("/code/sample-app\n");
+      expect(io.stderr()).toBe("picker chrome\n[ok] Installed\n");
+    } finally {
+      io.restore();
+    }
+  });
+});

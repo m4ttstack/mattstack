@@ -1,3 +1,4 @@
+import { warn } from "../ui/warn.ts";
 /**
  * The runner's brain. Owns every entry, every herdr call, and the poll
  * timers; the view owns nothing but pixels. Every dependency is injected so
@@ -210,7 +211,7 @@ export class Runner {
     try {
       res = await this.deps.resolve();
     } catch (err) {
-      process.stderr.write(`  rt runner: picker failed (${err instanceof Error ? err.message : String(err)})\n`);
+      warn("runner", `picker failed: ${err instanceof Error ? err.message : String(err)}`);
       await this.openBoard();
       return;
     }
@@ -387,9 +388,7 @@ export class Runner {
       try {
         await this.deps.engine.closeWorkspace(this.workspaceId);
       } catch (err) {
-        process.stderr.write(
-          `  rt runner: could not close workspace ${this.workspaceId} (${err instanceof Error ? err.message : String(err)})\n`,
-        );
+        warn("runner", `could not close workspace ${this.workspaceId}: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
         // A herdr close failure still drops ownership: the next launch's
         // reconcile prunes any workspace left with no registry record.

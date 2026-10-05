@@ -417,15 +417,10 @@ describe("pickFromAllRepos refusals", () => {
     expect(io.stderr()).toContain("  next: rt repos locate <new-path> --repo moved");
   });
 
-  test("with the stderr flag rt cd passes, the refusals print as today", async () => {
+  test("with the stderr flag rt cd passes, no known repo uses the shared failure", async () => {
     const { pickFromAllRepos } = await import("../pickers.ts");
-    const errSpy = spyOn(console, "error").mockImplementation(() => {});
     await expect(pickFromAllRepos([], { stderr: true })).rejects.toThrow("process.exit sentinel");
-    expect(errSpy).toHaveBeenCalledTimes(1);
-    const [line] = errSpy.mock.calls[0] as [string];
-    expect(line).toStartWith("\n  no known repos found ");
-    expect(line).toEndWith(" run rt from inside a git repo first\n");
     expect(io.stdout()).toBe("");
-    expect(io.stderr()).toBe("");
+    expect(io.stderr()).toBe("rt does not know any repos yet\n  next: Run rt once from inside a git repo, so it learns where that repo is\n");
   });
 });

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 /**
- * rt cd — Context-aware worktree/repo directory picker.
+ * rt cd - Context-aware worktree/repo directory picker.
  *
  * Prints the selected path to stdout so a shell function can cd into it.
  *
@@ -21,8 +21,9 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { yellow, green, reset } from "../lib/tui.ts";
-import { getRepoIdentity, getKnownRepos, getKnownReposCached, findKnownRepo, repoCarriesWorktree, getWorkspacePackages, repoFromOptionValue, missingRepoRefusal, ghostPathRefusal, type KnownRepo } from "../lib/repo.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { getRepoIdentity, getKnownRepos, getKnownReposCached, findKnownRepo, repoCarriesWorktree, getWorkspacePackages, repoFromOptionValue, missingRepoFailure, type KnownRepo } from "../lib/repo.ts";
 import { writeRepoCache } from "../lib/repo-cache.ts";
 import { isTrashPath } from "../lib/worktree/trash.ts";
 import {
@@ -67,16 +68,36 @@ export const SHELL_FUNCTION = [
   `}`,
 ].join("\n");
 
+function wrapperNotes(rcLabel: string, flags: { funcnest: boolean; preRehash: boolean; noNav: boolean; worktreeNav: boolean; hashCache: boolean; oldWrapper: boolean; legacyRtcd: boolean }): Block {
+  const reason = flags.funcnest
+    ? "it can loop forever in zsh"
+    : flags.preRehash
+      ? "it does not rehash after a dev mode switch"
+      : flags.noNav
+        ? "it cannot cd for rt nav"
+        : flags.worktreeNav
+          ? "it still jumps on rt worktree"
+          : flags.hashCache
+            ? "it finds the dev app's rt by name, not by path"
+            : flags.oldWrapper
+              ? "it does not follow rt x"
+              : flags.legacyRtcd
+                ? "it is the old rtcd function"
+                : null;
+  return reason ? out.line("warn", "Your rt shell function is out of date", reason) : out.line("needs-you", "rt cd needs a shell function to change your directory", rcLabel);
+}
+
 async function ensureShellFunction(): Promise<void> {
   const shell = detectShell();
-  const rcFile = shellRcPath(shell) ?? join(homedir(), ".zshrc");
+  const home = process.env.HOME ?? homedir();
+  const rcFile = shellRcPath(shell) ?? join(home, ".zshrc");
   let rcContent = "";
   try {
     rcContent = readFileSync(rcFile, "utf8");
   } catch { /* no rc file yet */ }
 
   // Latest version marker: whence -p / type -P PATH-only lookup (fixes FUNCNEST
-  // recursion), and NO bare `rt worktree` cd-jump — that hijacked the subcommand
+  // recursion), and NO bare `rt worktree` cd-jump - that hijacked the subcommand
   // picker, so a wrapper still carrying it is stale and gets rewritten below.
   if (
     rcContent.includes('rt() {') &&
@@ -85,79 +106,62 @@ async function ensureShellFunction(): Promise<void> {
     !rcContent.includes('"$1" = "worktree"')
   ) return;
 
-  // Redirect stdout → stderr before showing prompts
-  const origWrite = process.stdout.write.bind(process.stdout);
-  process.stdout.write = process.stderr.write.bind(process.stderr) as typeof process.stdout.write;
+  const release = out.holdStdout();
+  try {
+    const { confirm } = await import("../lib/rt-render.ts");
+    const hasLegacyRtcd = rcContent.includes("rtcd()");
+    const hasOldRtWrapper = rcContent.includes("rt() {") && rcContent.includes("command rt cd") && !rcContent.includes(".last-cwd");
+    const hasPreRehashWrapper = rcContent.includes("rt() {") && rcContent.includes(".last-cwd") && !rcContent.includes("hash -r");
+    const hasNoNav = rcContent.includes("rt() {") && rcContent.includes("command rt cd") && !rcContent.includes("command rt nav") && !rcContent.includes('"$rt_bin" nav');
+    // Function exists but uses `command rt` everywhere - vulnerable to the stale
+    // zsh hash-table issue. Anything pre-absolute-path version qualifies.
+    const hasHashCacheBug = rcContent.includes("rt() {") && rcContent.includes("command rt cd") && !rcContent.includes("local rt_bin");
+    // Uses command -v which returns the function name in zsh, causing infinite recursion
+    const hasFuncnestBug = rcContent.includes("rt() {") && rcContent.includes("command -v rt") && !rcContent.includes("whence -p rt");
+    // Function still carries the bare `rt worktree` cd-jump - strip it so
+    // `rt worktree` reaches its subcommand picker like every other group.
+    const hasWorktreeNav = rcContent.includes("rt() {") && rcContent.includes('"$1" = "worktree"');
+    const hasOldFunction = hasLegacyRtcd || hasOldRtWrapper || hasPreRehashWrapper || hasHashCacheBug || hasFuncnestBug || hasWorktreeNav;
 
-  const { confirm } = await import("../lib/rt-render.ts");
-  const hasLegacyRtcd = rcContent.includes("rtcd()");
-  const hasOldRtWrapper = rcContent.includes("rt() {") && rcContent.includes("command rt cd") && !rcContent.includes(".last-cwd");
-  const hasPreRehashWrapper = rcContent.includes("rt() {") && rcContent.includes(".last-cwd") && !rcContent.includes("hash -r");
-  const hasNoNav = rcContent.includes("rt() {") && rcContent.includes("command rt cd") && !rcContent.includes("command rt nav") && !rcContent.includes('"$rt_bin" nav');
-  // Function exists but uses `command rt` everywhere — vulnerable to the stale
-  // zsh hash-table issue. Anything pre-absolute-path version qualifies.
-  const hasHashCacheBug = rcContent.includes("rt() {") && rcContent.includes("command rt cd") && !rcContent.includes("local rt_bin");
-  // Uses command -v which returns the function name in zsh, causing infinite recursion
-  const hasFuncnestBug = rcContent.includes("rt() {") && rcContent.includes("command -v rt") && !rcContent.includes("whence -p rt");
-  // Function still carries the bare `rt worktree` cd-jump — strip it so
-  // `rt worktree` reaches its subcommand picker like every other group.
-  const hasWorktreeNav = rcContent.includes("rt() {") && rcContent.includes('"$1" = "worktree"');
-  const hasOldFunction = hasLegacyRtcd || hasOldRtWrapper || hasPreRehashWrapper || hasHashCacheBug || hasFuncnestBug || hasWorktreeNav;
+    const hasOldFunction2 = hasOldFunction || hasNoNav;
+    const rcLabel = rcFile.replace(home, "~");
+    out.print(wrapperNotes(rcLabel, {
+      funcnest: hasFuncnestBug, preRehash: hasPreRehashWrapper, noNav: hasNoNav,
+      worktreeNav: hasWorktreeNav, hashCache: hasHashCacheBug,
+      oldWrapper: hasOldRtWrapper, legacyRtcd: hasLegacyRtcd,
+    }));
+    const install = await confirm({
+      message: hasOldFunction2
+        ? `Upgrade rt shell wrapper in ${rcLabel}?`
+        : `Add rt cd support to ${rcLabel}?`,
+      initialValue: true,
+      stderr: true,
+    });
 
-  if (hasFuncnestBug) {
-    console.error(`\n  ${yellow}Upgrading rt shell wrapper: fix FUNCNEST recursion in zsh${reset}`);
-  } else if (hasPreRehashWrapper) {
-    console.error(`\n  ${yellow}Upgrading rt shell wrapper: auto-rehash after dev-mode toggle${reset}`);
-  } else if (hasNoNav) {
-    console.error(`\n  ${yellow}Upgrading rt shell wrapper: adding rt nav cd support${reset}`);
-  } else if (hasWorktreeNav) {
-    console.error(`\n  ${yellow}Upgrading rt shell wrapper: removing rt worktree cd-jump${reset}`);
-  } else if (hasHashCacheBug) {
-    console.error(`\n  ${yellow}Upgrading rt shell wrapper: resolve dev-mode binary by absolute path${reset}`);
-  } else if (hasOldRtWrapper) {
-    console.error(`\n  ${yellow}Upgrading rt shell wrapper: adding rt x auto-cd support${reset}`);
-  } else if (hasLegacyRtcd) {
-    console.error(`\n  ${yellow}Upgrading shell function: rtcd → rt cd (native)${reset}`);
-  } else {
-    console.error(`\n  ${yellow}rt cd needs a shell function to change your directory.${reset}`);
+    if (!install) {
+      out.print(out.copy(SHELL_FUNCTION, "add this to your shell config"));
+      release();
+      process.exit(0);
+    }
+
+    if (hasOldRtWrapper || hasPreRehashWrapper || hasNoNav || hasHashCacheBug || hasFuncnestBug || hasWorktreeNav) {
+      rcContent = rcContent
+        .replace(/\n?# rt (?:\u2014|-) shell wrapper \(enables rt cd to change directory\)\n?/g, "")
+        .replace(/\n?rt\(\) \{[\s\S]*?\n\}\n?/g, "\n");
+      writeFileSync(rcFile, rcContent);
+    } else if (hasLegacyRtcd) {
+      rcContent = rcContent
+        .replace(/\n?# rt (?:\u2014|-) worktree\/repo directory picker\n?/g, "")
+        .replace(/\n?rtcd\(\)[^\n]*\n?/g, "\n");
+      writeFileSync(rcFile, rcContent);
+    }
+
+    const line = `\n# rt - shell wrapper (enables rt cd to change directory)\n${SHELL_FUNCTION}\n`;
+    appendFileSync(rcFile, line);
+    out.print(out.line("done", "Installed the rt shell function", rcLabel), out.callout("next", out.cmd(`source ${rcLabel}`)));
+  } finally {
+    release();
   }
-
-  const hasOldFunction2 = hasOldFunction || hasNoNav;
-
-  const rcLabel = rcFile.replace(homedir(), "~");
-  const install = await confirm({
-    message: hasOldFunction2
-      ? `Upgrade rt shell wrapper in ${rcLabel}?`
-      : `Add rt cd support to ${rcLabel}?`,
-    initialValue: true,
-    stderr: true,
-  });
-
-  if (!install) {
-    console.error(`\n  Add this to your shell config manually:\n`);
-    console.error(SHELL_FUNCTION);
-    process.stdout.write = origWrite;
-    process.exit(0);
-  }
-
-  if (hasOldRtWrapper || hasPreRehashWrapper || hasNoNav || hasHashCacheBug || hasFuncnestBug || hasWorktreeNav) {
-    rcContent = rcContent
-      .replace(/\n?# rt — shell wrapper \(enables rt cd to change directory\)\n?/g, "")
-      .replace(/\n?rt\(\) \{[\s\S]*?\n\}\n?/g, "\n");
-    writeFileSync(rcFile, rcContent);
-  } else if (hasLegacyRtcd) {
-    rcContent = rcContent
-      .replace(/\n?# rt — worktree\/repo directory picker\n?/g, "")
-      .replace(/\n?rtcd\(\)[^\n]*\n?/g, "\n");
-    writeFileSync(rcFile, rcContent);
-  }
-
-  const line = `\n# rt — shell wrapper (enables rt cd to change directory)\n${SHELL_FUNCTION}\n`;
-  appendFileSync(rcFile, line);
-  console.error(`  ${green}✓ Installed rt shell wrapper in ${rcLabel}${reset}`);
-  console.error(`  Restart your terminal or run: source ${rcLabel}`);
-
-  process.stdout.write = origWrite;
 }
 
 // ─── Cache read path ─────────────────────────────────────────────────────────
@@ -186,10 +190,10 @@ export function resolveReposForIdentity(
 /**
  * The cd-cache rebuilds on a timer, so its rows can carry a worktree disposed
  * (trashed) since the last refresh; served verbatim, that row becomes a picker
- * entry whose selection dead-ends in ghostPathRefusal. Linked rows are
+ * entry whose selection dead-ends in the gone-folder failure. Linked rows are
  * re-checked against disk before any picker sees them. The lead row stays even
  * when missing: that is the repo-level lost-path case, which must remain
- * pickable so it gets missingRepoRefusal instead of vanishing.
+ * pickable so it gets missingRepoFailure instead of vanishing.
  */
 export function dropGhostWorktrees(
   repos: KnownRepo[],
@@ -222,134 +226,123 @@ function reloadRepos(): KnownRepo[] {
 export async function worktreePicker(args: string[]): Promise<void> {
   await ensureShellFunction();
 
-  // Redirect stdout → stderr so TUI prompts don’t contaminate the path output
-  const realStdoutWrite = process.stdout.write.bind(process.stdout);
-  process.stdout.write = process.stderr.write.bind(process.stderr) as typeof process.stdout.write;
-  if (!process.stdout.columns && process.stderr.columns) {
-    Object.defineProperty(process.stdout, "columns", { value: process.stderr.columns, configurable: true });
-  }
+  const release = out.holdStdout();
+  try {
+    // ── Parse flags ─────────────────────────────────────────────────────────────────────
+    const forceRepo    = args.includes("--repo");
+    const wtIdx        = args.indexOf("--worktree");
+    const wtBranch     = wtIdx !== -1 ? args[wtIdx + 1] : undefined;
 
-  // After any picker exits (ESC or selection), cursor is just below the 2-line
-  // header. Erase it so the terminal is clean — but only on success: error
-  // paths exit(1) after printing a message ("no worktree found matching …"),
-  // and the erase would wipe exactly those two lines.
-  process.once("exit", (code) => {
-    if (code === 0) process.stderr.write("\x1b[2A\x1b[0J");
-  });
+    // getRepoIdentity() registers the current repo in the index (via
+    // updateRepoIndex) as a side effect, so it MUST run before the repo list is
+    // read. Otherwise a repo you just entered (especially a local-only repo
+    // seen for the first time) is absent from `repos`, currentRepo resolves to
+    // null, and rt cd wrongly falls through to the global all-repos picker
+    // instead of recognizing where you are.
+    //
+    // includeMissing: true so a lost repo still renders (dimmed, via repoOption)
+    // in every picker built from `repos` - pickFromAllRepos's missing guard is
+    // otherwise dead code, since a bare getKnownRepos() never hands it one.
+    //
+    // `repos` reads the cd cache (fast path). resolveReposForIdentity re-reads
+    // live when the cache predates the repo the identity just resolved, so the
+    // repo you are standing in is never invisible to its own cd invocation.
+    const identity     = getRepoIdentity();
+    const cachedRepos  = getKnownReposCached({ includeMissing: true });
+    const repos        = dropGhostWorktrees(resolveReposForIdentity(identity, cachedRepos));
+    const currentRepo  = identity
+      ? findKnownRepo(repos, identity) ?? null
+      : null;
 
-  // ── Parse flags ─────────────────────────────────────────────────────────────────────
-  const forceRepo    = args.includes("--repo");
-  const wtIdx        = args.indexOf("--worktree");
-  const wtBranch     = wtIdx !== -1 ? args[wtIdx + 1] : undefined;
+    let selectedPath: string;
 
-  // getRepoIdentity() registers the current repo in the index (via
-  // updateRepoIndex) as a side effect, so it MUST run before the repo list is
-  // read. Otherwise a repo you just entered (especially a local-only repo
-  // seen for the first time) is absent from `repos`, currentRepo resolves to
-  // null, and rt cd wrongly falls through to the global all-repos picker
-  // instead of recognizing where you are.
-  //
-  // includeMissing: true so a lost repo still renders (dimmed, via repoOption)
-  // in every picker built from `repos` — pickFromAllRepos's missing guard is
-  // otherwise dead code, since a bare getKnownRepos() never hands it one.
-  //
-  // `repos` reads the cd cache (fast path). resolveReposForIdentity re-reads
-  // live when the cache predates the repo the identity just resolved, so the
-  // repo you are standing in is never invisible to its own cd invocation.
-  const identity     = getRepoIdentity();
-  const cachedRepos  = getKnownReposCached({ includeMissing: true });
-  const repos        = dropGhostWorktrees(resolveReposForIdentity(identity, cachedRepos));
-  const currentRepo  = identity
-    ? findKnownRepo(repos, identity) ?? null
-    : null;
+    // The dispatcher header is suppressed for `rt cd` (command-tree-def.ts
+    // `fullscreen: true`) -- every picker below carries this instead, per
+    // Cd.dc.html/Enrichment.dc.html.
+    const CD_BREADCRUMB = ["rt", "cd"];
 
-  let selectedPath: string;
-
-  // The dispatcher header is suppressed for `rt cd` (command-tree-def.ts
-  // `fullscreen: true`) -- every picker below carries this instead, per
-  // Cd.dc.html/Enrichment.dc.html.
-  const CD_BREADCRUMB = ["rt", "cd"];
-
-  /** After resolving a worktree, drill into its packages when it's a monorepo. */
-  async function maybeDrillPackages(repo: KnownRepo, wtPath: string): Promise<string> {
-    const packages = getWorkspacePackages(wtPath);
-    if (packages.length > 0) {
-      return pickPackageWithEscape(repo, wtPath, repos, { stderr: true, breadcrumb: CD_BREADCRUMB });
-    }
-    return wtPath;
-  }
-
-  // ── --repo flag: always go to repo picker ────────────────────────────────────
-  if (forceRepo) {
-    if (wtBranch) {
-      // Pick repo first, then jump to the matching worktree (or show picker).
-      // A missing row must be pickable here so it gets the clean
-      // missingRepoRefusal below instead of resolving via branch name against
-      // a dead path.
-      const pickedRepoName = repos.length === 1
-        ? repos[0]!.repoName
-        : await pickRepo(repos, { onReload: reloadRepos, breadcrumb: CD_BREADCRUMB });
-      if (!pickedRepoName) process.exit(0); // Esc on repo picker
-      const pickedRepo = repoFromOptionValue(repos, pickedRepoName)!;
-      if (pickedRepo.missing) {
-        console.error(`\n  ${missingRepoRefusal(pickedRepo)}\n`);
-        process.exit(1);
+    /** After resolving a worktree, drill into its packages when it's a monorepo. */
+    async function maybeDrillPackages(repo: KnownRepo, wtPath: string): Promise<string> {
+      const packages = getWorkspacePackages(wtPath);
+      if (packages.length > 0) {
+        return pickPackageWithEscape(repo, wtPath, repos, { stderr: true, breadcrumb: CD_BREADCRUMB });
       }
+      return wtPath;
+    }
 
-      // Try to resolve the worktree in that repo; fall back to picker
-      const lower = wtBranch.toLowerCase();
-      const hit = pickedRepo.worktrees.filter((wt) => wt.branch.toLowerCase().startsWith(lower));
-      if (hit.length === 1) {
-        selectedPath = await maybeDrillPackages(pickedRepo, hit[0]!.path);
+    // ── --repo flag: always go to repo picker ────────────────────────────────────
+    if (forceRepo) {
+      if (wtBranch) {
+        // Pick repo first, then jump to the matching worktree (or show picker).
+        // A missing row must be pickable here so it gets the clean
+        // missingRepoFailure below instead of resolving via branch name against
+        // a dead path.
+        const pickedRepoName = repos.length === 1
+          ? repos[0]!.repoName
+          : await pickRepo(repos, { onReload: reloadRepos, breadcrumb: CD_BREADCRUMB });
+        if (!pickedRepoName) process.exit(0); // Esc on repo picker
+        const pickedRepo = repoFromOptionValue(repos, pickedRepoName)!;
+        if (pickedRepo.missing) {
+          out.fail(missingRepoFailure(pickedRepo));
+          process.exit(1);
+        }
+
+        // Try to resolve the worktree in that repo; fall back to picker
+        const lower = wtBranch.toLowerCase();
+        const hit = pickedRepo.worktrees.filter((wt) => wt.branch.toLowerCase().startsWith(lower));
+        if (hit.length === 1) {
+          selectedPath = await maybeDrillPackages(pickedRepo, hit[0]!.path);
+        } else {
+          const wtPath = await resolveWorktreeByBranch(wtBranch, [pickedRepo], { stderr: true, breadcrumb: CD_BREADCRUMB });
+          selectedPath = await maybeDrillPackages(pickedRepo, wtPath);
+        }
       } else {
-        const wtPath = await resolveWorktreeByBranch(wtBranch, [pickedRepo], { stderr: true, breadcrumb: CD_BREADCRUMB });
-        selectedPath = await maybeDrillPackages(pickedRepo, wtPath);
+        selectedPath = await pickFromAllRepos(repos, { stderr: true, includePackages: true, onReload: reloadRepos, breadcrumb: CD_BREADCRUMB });
       }
+
+    // ── --worktree flag only: resolve branch in current repo (then all repos) ──
+    } else if (wtBranch) {
+      const searchRepos = currentRepo ? [currentRepo] : repos;
+      const lower = wtBranch.toLowerCase();
+      const inCurrent = currentRepo?.worktrees.filter((wt) => wt.branch.toLowerCase().startsWith(lower)) ?? [];
+      // If not found in current repo, broaden to all repos
+      const finalRepos = inCurrent.length > 0 ? searchRepos : repos;
+      const wtPath = await resolveWorktreeByBranch(wtBranch, finalRepos, { stderr: true, breadcrumb: CD_BREADCRUMB });
+      const wtRepo = currentRepo ?? repos.find(r => r.worktrees.some(w => w.path === wtPath)) ?? null;
+      selectedPath = wtRepo ? await maybeDrillPackages(wtRepo, wtPath) : wtPath;
+
+    // ── In a multi-worktree repo: worktree picker ────────────────────────────
+    } else if (currentRepo && currentRepo.worktrees.length > 1) {
+      // pickWorktreeWithSwitch exits internally on cancel (its abort line rides
+      // the shared lib/pickers.ts cancel path), so result is never falsy here.
+      const result = await pickWorktreeWithSwitch(currentRepo, identity!.repoRoot, { stderr: true, breadcrumb: CD_BREADCRUMB });
+      if (isSwitchRepo(result)) {
+        selectedPath = await pickFromAllRepos(repos, { stderr: true, includePackages: true, onReload: reloadRepos, breadcrumb: CD_BREADCRUMB });
+      } else {
+        selectedPath = await maybeDrillPackages(currentRepo, result);
+      }
+
+    // ── In a monorepo (single worktree): package picker ─────────────────────
+    } else if (currentRepo && getWorkspacePackages(identity!.repoRoot).length > 0) {
+      selectedPath = await pickPackageWithEscape(currentRepo, identity!.repoRoot, repos, { stderr: true, breadcrumb: CD_BREADCRUMB });
+
+    // ── Not in a tracked repo or single-worktree: repo picker ───────────────
     } else {
       selectedPath = await pickFromAllRepos(repos, { stderr: true, includePackages: true, onReload: reloadRepos, breadcrumb: CD_BREADCRUMB });
     }
 
-  // ── --worktree flag only: resolve branch in current repo (then all repos) ──
-  } else if (wtBranch) {
-    const searchRepos = currentRepo ? [currentRepo] : repos;
-    const lower = wtBranch.toLowerCase();
-    const inCurrent = currentRepo?.worktrees.filter((wt) => wt.branch.toLowerCase().startsWith(lower)) ?? [];
-    // If not found in current repo, broaden to all repos
-    const finalRepos = inCurrent.length > 0 ? searchRepos : repos;
-    const wtPath = await resolveWorktreeByBranch(wtBranch, finalRepos, { stderr: true, breadcrumb: CD_BREADCRUMB });
-    const wtRepo = currentRepo ?? repos.find(r => r.worktrees.some(w => w.path === wtPath)) ?? null;
-    selectedPath = wtRepo ? await maybeDrillPackages(wtRepo, wtPath) : wtPath;
+    release();
 
-  // ── In a multi-worktree repo: worktree picker ────────────────────────────
-  } else if (currentRepo && currentRepo.worktrees.length > 1) {
-    // pickWorktreeWithSwitch exits internally on cancel (its abort line rides
-    // the shared lib/pickers.ts cancel path), so result is never falsy here.
-    const result = await pickWorktreeWithSwitch(currentRepo, identity!.repoRoot, { stderr: true, breadcrumb: CD_BREADCRUMB });
-    if (isSwitchRepo(result)) {
-      selectedPath = await pickFromAllRepos(repos, { stderr: true, includePackages: true, onReload: reloadRepos, breadcrumb: CD_BREADCRUMB });
-    } else {
-      selectedPath = await maybeDrillPackages(currentRepo, result);
+    // Ghost guard: the cache (or a picker built from it) can hand back a path
+    // that no longer exists on disk. Refuse rather than print a dead path...
+    // the shell wrapper `cd`s into whatever stdout prints, no questions asked.
+    if (!existsSync(selectedPath)) {
+      out.fail({ title: "That folder is gone", hint: selectedPath, why: "rt's list of folders was out of date.", next: out.cmd("rt repos prune") });
+      process.exit(1);
     }
 
-  // ── In a monorepo (single worktree): package picker ─────────────────────
-  } else if (currentRepo && getWorkspacePackages(identity!.repoRoot).length > 0) {
-    selectedPath = await pickPackageWithEscape(currentRepo, identity!.repoRoot, repos, { stderr: true, breadcrumb: CD_BREADCRUMB });
-
-  // ── Not in a tracked repo or single-worktree: repo picker ───────────────
-  } else {
-    selectedPath = await pickFromAllRepos(repos, { stderr: true, includePackages: true, onReload: reloadRepos, breadcrumb: CD_BREADCRUMB });
+    out.payload(selectedPath + "\n");
+  } finally {
+    release();
   }
-
-  // Restore stdout and print just the path
-  process.stdout.write = realStdoutWrite;
-
-  // Ghost guard: the cache (or a picker built from it) can hand back a path
-  // that no longer exists on disk. Refuse rather than print a dead path...
-  // the shell wrapper `cd`s into whatever stdout prints, no questions asked.
-  if (!existsSync(selectedPath)) {
-    console.error(`\n  ${ghostPathRefusal(selectedPath)}\n`);
-    process.exit(1);
-  }
-
-  realStdoutWrite(selectedPath + "\n");
 }

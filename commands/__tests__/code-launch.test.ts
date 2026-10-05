@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { launchEditorDetached } from "../code.ts";
+import { __test__, launchEditorDetached } from "../code.ts";
 
 const dirs: string[] = [];
 
@@ -47,5 +47,22 @@ describe("launchEditorDetached", () => {
 
   test("the default fallback has nothing for a command that is not a known editor", async () => {
     expect(await launchEditorDetached("false", "/r/a.ts")).toBe(false);
+  });
+});
+
+describe("launchEditor", () => {
+  test("hands the target over as one literal argument", () => {
+    const editor = recorder();
+    const target = "/tmp/a b/it's \"q\" $HOME `id` [x]#!.txt";
+    expect(__test__.launchEditor(editor.command, target)).toBe(editor.command);
+    expect(editor.recorded()).toBe(target);
+  });
+
+  test("a target that looks like a command never runs", () => {
+    const dir = mkdtempSync(join(tmpdir(), "rt-launch-"));
+    dirs.push(dir);
+    const marker = join(dir, "touched");
+    expect(__test__.launchEditor("true", `$(touch '${marker}')`)).toBe("true");
+    expect(existsSync(marker)).toBe(false);
   });
 });

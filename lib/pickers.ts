@@ -9,7 +9,7 @@ import { execSync } from "child_process";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { groupWorktrees } from "./worktree-groups.ts";
-import { pickWorktreeFromRepo, getWorkspacePackages, repoOptions, repoFromOptionValue, missingRepoRefusal, missingRepoFailure, pickerWorktrees, type KnownRepo } from "./repo.ts";
+import { pickWorktreeFromRepo, getWorkspacePackages, repoOptions, repoFromOptionValue, missingRepoFailure, pickerWorktrees, type KnownRepo } from "./repo.ts";
 import { enrichBranches, formatBranchSegments, type EnrichedBranch } from "./enrich.ts";
 import { repoLabel } from "./repo-label.ts";
 import * as out from "./ui/out.ts";
@@ -167,20 +167,14 @@ export async function pickFromAllRepos(
     breadcrumb?: string[];
   },
 ): Promise<string> {
-  // rt cd passes stderr; its refusals must keep their exact bytes, since the shell wrapper reads its stdout.
-  const legacyCd = opts?.stderr === true;
-
   if (repos.length === 0) {
-    const msg = opts?.errorMessage || "no known repos found — run rt from inside a git repo first";
-    if (legacyCd) console.error(`\n  ${msg}\n`);
-    else out.fail({ title: "rt does not know any repos yet", next: "Run rt once from inside a git repo, so it learns where that repo is" });
+    out.fail({ title: "rt does not know any repos yet", next: "Run rt once from inside a git repo, so it learns where that repo is" });
     process.exit(1);
   }
 
   /** Refusing before the picker loads keeps a lost-repo-only index off the picker path entirely. */
   const refuse = (repo: KnownRepo): never => {
-    if (legacyCd) console.error(`\n  ${missingRepoRefusal(repo)}\n`);
-    else out.fail(missingRepoFailure(repo));
+    out.fail(missingRepoFailure(repo));
     process.exit(1);
   };
   if (repos.length === 1 && repos[0]!.missing) refuse(repos[0]!);
@@ -413,8 +407,7 @@ export async function resolveWorktreeByBranch(
   }
 
   if (matches.length === 0) {
-    const writer = opts?.stderr ? process.stderr : process.stdout;
-    writer.write(`\n  no worktree found matching branch: "${branch}"\n\n`);
+    out.fail({ title: `No worktree has a branch starting with ${branch}`, next: out.cmd("rt worktree list") });
     process.exit(1);
   }
 

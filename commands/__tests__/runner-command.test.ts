@@ -1,3 +1,5 @@
+import * as out from "../../lib/ui/out.ts";
+import { setWarningLog, __test__ as warnings } from "../../lib/ui/warn.ts";
 import { test, expect, afterEach, spyOn } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -23,6 +25,8 @@ const REAL_PATH = process.env.PATH ?? "";
 const REAL_HOME = process.env.HOME;
 
 afterEach(() => {
+  out.__test__.reset();
+  warnings.reset();
   gate.setInteractive(undefined);
   spawnTest.setExit(undefined);
   delete process.env.HERDR_SOCKET_PATH;
@@ -60,7 +64,7 @@ test("with --herdr and the rt daemon unreachable the command says so and exits 1
   } finally {
     process.stderr.write = real;
   }
-  expect(errs.join("")).toContain("the rt daemon is required for --herdr mode; start it and retry");
+  expect(errs.join("")).toStartWith("The herdr board needs the rt daemon");
   expect(exits).toEqual([1]);
 });
 
@@ -78,7 +82,7 @@ test("with no backend flag and tmux off PATH the command names it and exits 1 wi
     process.stderr.write = real;
   }
   expect(exits).toEqual([1]);
-  expect(errs.join("")).toContain("tmux on PATH");
+  expect(errs.join("")).toStartWith("rt runner needs tmux");
 });
 
 // Both branches run against a PATH this test builds. Asserting the true case
@@ -214,7 +218,10 @@ test("acquireBgSocket surfaces a bgEnsure failure by rejecting", async () => {
   await expect(acquireBgSocket("runner:123", fakeDeps)).rejects.toThrow("rt daemon unreachable");
 });
 
-test("acquireBgSocket's release surfaces a non-daemon-down bgRelease failure to stderr, and swallows a daemon-down one", async () => {
+test("bg release failures are logged without printing over the board", async () => {
+  warnings.reset();
+  const logged: Array<{ module: string; message: string }> = [];
+  setWarningLog((module, message) => logged.push({ module, message }));
   const errs: string[] = [];
   const real = process.stderr.write;
   process.stderr.write = ((c: string | Uint8Array) => { errs.push(String(c)); return true; }) as typeof process.stderr.write;
@@ -224,7 +231,8 @@ test("acquireBgSocket's release surfaces a non-daemon-down bgRelease failure to 
       bgRelease: async () => ({ ok: false, error: "bg server has live claims: herd:x" }),
     });
     await releaseOther();
-    expect(errs.join("")).toContain("bg server has live claims");
+    expect(errs).toEqual([]);
+    expect(logged).toEqual([{ module: "runner", message: "bg release failed: bg server has live claims: herd:x" }]);
 
     errs.length = 0;
     const { release: releaseDown } = await acquireBgSocket("runner:2", {
@@ -275,7 +283,7 @@ test("runSeededBoard exits 1 with one line when tmux is off PATH (its default ba
   }
   expect(exits).toEqual([1]);
   expect(errs).toHaveLength(1);
-  expect(errs[0]).toContain("tmux on PATH");
+  expect(errs[0]).toStartWith("rt runner needs tmux");
 });
 
 // ─── --seed-file: a host hands rt runner the rows rt run --resolve-only printed ───
@@ -421,7 +429,7 @@ test("runnerCommand with a missing --seed-file exits 1 with a message, before ch
     process.stderr.write = real;
   }
   expect(exits).toEqual([1]);
-  expect(errs.join("")).toContain("/nope/seed.json");
+  expect(errs.join("")).toStartWith("cannot read /nope/seed.json");
   expect(errs.join("")).not.toContain("interactive terminal");
 });
 
@@ -443,7 +451,7 @@ test("runnerCommand with a valid --seed-file reaches the normal backend gate (tm
     rmSync(dir, { recursive: true, force: true });
   }
   expect(exits).toEqual([1]);
-  expect(errs.join("")).toContain("tmux on PATH");
+  expect(errs.join("")).toStartWith("rt runner needs tmux");
 });
 
 // The review's Important finding: the test above exits the same way whether

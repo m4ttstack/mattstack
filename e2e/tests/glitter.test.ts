@@ -21,7 +21,7 @@ describe("rt glitter", () => {
       const result = await rt(["glitter"], { home, env: { RT_BATCH: "1" } });
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain(
-        "rt glitter needs an interactive terminal (it drives a live board from the one you are in)",
+        "rt glitter needs an interactive terminal",
       );
     } finally {
       cleanup();
