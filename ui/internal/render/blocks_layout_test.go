@@ -149,14 +149,6 @@ func TestATableLastColumnWrapsInsideItsColumnOnANarrowPane(t *testing.T) {
 	checkWidth(t, got, 40)
 }
 
-func TestATableClipsALeadingColumnWhenTheLastHasNoRoom(t *testing.T) {
-	got := plainAt(30, protocol.Block{T: "table", Rows: []protocol.TableRow{cells("feature/a-very-long-branch-name", "ok")}})
-	if got != "  feature/a-very-long-bra…  ok\n" {
-		t.Fatalf("got %q", got)
-	}
-	checkWidth(t, got, 30)
-}
-
 func TestATableOnTheNarrowestPaneStaysInsideIt(t *testing.T) {
 	got := plainAt(20, protocol.Block{T: "table", Headers: []string{"BRANCH", "REPO", "STATE"}, Rows: []protocol.TableRow{
 		{Group: "a group label that is much wider than the pane"},
@@ -197,5 +189,63 @@ func TestATreeWithALongRootStaysInsideTheNarrowestPane(t *testing.T) {
 	checkWidth(t, got, 20)
 	if !strings.Contains(rows(got)[0], "…") {
 		t.Fatalf("the root was not clipped:\n%s", got)
+	}
+}
+
+func TestANarrowTableStacksAndLosesNothing(t *testing.T) {
+	b := protocol.Block{T: "table", Headers: []string{"KEY", "VALUE", "SOURCE"}, Rows: []protocol.TableRow{
+		cells("rt.worktreeApp", "/Applications/A Long Application Name.app", "user"),
+		cells("rt.ui.background", "auto", "default"),
+	}}
+	got := plainAt(48, b)
+	checkWidth(t, got, 48)
+	if strings.Contains(got, "…") {
+		t.Fatalf("a cell was clipped:\n%s", got)
+	}
+	for _, want := range []string{"rt.worktreeApp", "/Applications/A Long Application Name.app", "user", "rt.ui.background", "auto", "default"} {
+		if !strings.Contains(flat(got), flat(want)) {
+			t.Fatalf("%q is missing:\n%s", want, got)
+		}
+	}
+	if !strings.HasPrefix(rows(got)[0], "  KEY  rt.worktreeApp") {
+		t.Fatalf("a stacked row starts with its first cell, led by its header:\n%s", got)
+	}
+}
+
+func TestAnUnbrokenValueInAStackedTableWrapsAndIsNeverClipped(t *testing.T) {
+	long := strings.Repeat("a1b2c3d4", 8)
+	got := plainAt(48, protocol.Block{T: "table", Headers: []string{"KEY", "VALUE", "SOURCE"}, Rows: []protocol.TableRow{cells("rt.worktreeApp", long, "user")}})
+	checkWidth(t, got, 48)
+	if strings.Contains(got, "…") || !strings.Contains(flat(got), long) {
+		t.Fatalf("the unbroken value lost characters:\n%s", got)
+	}
+}
+
+func TestATableThatFitsDoesNotStack(t *testing.T) {
+	got := plainAt(100, protocol.Block{T: "table", Rows: []protocol.TableRow{cells("feature/a-very-long-branch-name", "ok")}})
+	if got != "  feature/a-very-long-branch-name  ok\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestAStackedTableWithoutHeadersStillShowsEveryCell(t *testing.T) {
+	got := plainAt(30, protocol.Block{T: "table", Rows: []protocol.TableRow{cells("feature/a-very-long-branch-name", "ok")}})
+	checkWidth(t, got, 30)
+	if strings.Contains(got, "…") || !strings.Contains(got, "ok") || !strings.Contains(flat(got), "feature/a-very-long-branch-name") {
+		t.Fatalf("got\n%s", got)
+	}
+}
+
+func flat(s string) string { return strings.Join(strings.Fields(s), "") }
+
+func TestAStackedCellIsStillCleaned(t *testing.T) {
+	got := plainAt(30, protocol.Block{T: "table", Rows: []protocol.TableRow{cells("feature/a-very-long-branch-name", "x\x1b[2Jy\n[ok] forged")}})
+	if strings.Contains(got, "\x1b") {
+		t.Fatalf("an escape survived:\n%q", got)
+	}
+	for _, r := range rows(got) {
+		if strings.HasPrefix(r, "[ok]") {
+			t.Fatalf("a forged row at column 0:\n%s", got)
+		}
 	}
 }

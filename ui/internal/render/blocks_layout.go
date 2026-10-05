@@ -117,8 +117,15 @@ func (r *renderer) table(b protocol.Block) {
 	}
 	widths := make([]int, cols)
 	r.measure(append([][]protocol.Cell{header}, rows...), widths)
+	measured := append([]int(nil), widths...)
 	avail := r.width - len(indent)
 	widths = fitColumns(widths, avail)
+	for i := 0; i < cols-1; i++ {
+		if widths[i] < measured[i] {
+			r.stackedTable(b, header, avail)
+			return
+		}
+	}
 
 	if len(header) > 0 {
 		for _, l := range r.rowLines(header, widths, avail) {
@@ -139,6 +146,43 @@ func (r *renderer) table(b protocol.Block) {
 			r.emit(indent + l)
 		}
 	}
+}
+
+func (r *renderer) stackedTable(b protocol.Block, header []protocol.Cell, avail int) {
+	under := indent + "    "
+	for _, row := range b.Rows {
+		if row.Group != "" {
+			r.emit(indent + r.fitLine(r.p.dim.Render(Clean(row.Group)), avail))
+			continue
+		}
+		if len(row.Cells) == 0 {
+			continue
+		}
+		first := row.Cells[0]
+		if len(header) > 0 {
+			first = append(append(protocol.Cell{}, header[0]...), append(protocol.Cell{{Text: "  "}}, first...)...)
+		}
+		for _, l := range r.stackedLines(first, avail) {
+			r.emit(indent + l)
+		}
+		for i, c := range row.Cells[1:] {
+			cell := c
+			if i+1 < len(header) {
+				cell = append(append(protocol.Cell{}, header[i+1]...), append(protocol.Cell{{Text: "  "}}, c...)...)
+			}
+			for _, l := range r.stackedLines(cell, avail-4) {
+				r.emit(under + l)
+			}
+		}
+	}
+}
+
+func (r *renderer) stackedLines(c protocol.Cell, w int) []string {
+	var out []string
+	for _, l := range wrapCell(c, w) {
+		out = append(out, r.fitLine(r.cell(l), max(1, w)))
+	}
+	return out
 }
 
 func (r *renderer) tree(b protocol.Block) {
