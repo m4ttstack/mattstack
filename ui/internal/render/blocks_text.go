@@ -63,6 +63,14 @@ func (r *renderer) copy(b protocol.Block) {
 }
 
 func (r *renderer) verbatim(b protocol.Block) {
+	if b.Caption == "why" {
+		body := textLines(b.Lines)
+		for _, line := range body {
+			line[0].Text = cleanCode(line[0].Text)
+		}
+		r.calloutLines(r.p.tones.Quiet, "why", body)
+		return
+	}
 	r.caption(b.Caption)
 	rail := calloutIndent + r.p.rule.Render("│") + " "
 	w := r.width - lipgloss.Width(rail)
@@ -73,6 +81,16 @@ func (r *renderer) verbatim(b protocol.Block) {
 			}
 		}
 	}
+}
+
+func textLines(lines []string) []protocol.Cell {
+	var body []protocol.Cell
+	for _, line := range lines {
+		for _, text := range splitLines(line) {
+			body = append(body, protocol.Cell{{Text: text}})
+		}
+	}
+	return body
 }
 
 // codeRows wraps a literal line at its spaces, and a word too wide for the

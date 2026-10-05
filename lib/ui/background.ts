@@ -17,6 +17,13 @@ let read = readSetting;
 let isTTY = realTTY;
 let cached: BackgroundSetting | undefined;
 let resolved: Resolved | undefined;
+// A terminal that did not answer once will not answer the next step either.
+let settling: Promise<void> | undefined;
+
+/** Every caller waits for the same settlement, whether or not it gets an answer. */
+export function settleOnce(run: () => Promise<void>): Promise<void> {
+  return settling ??= run();
+}
 
 /** Read once per process: every print would otherwise reread the stores. */
 export function backgroundSetting(): BackgroundSetting {
@@ -69,6 +76,7 @@ export const __test__ = {
   reset(): void {
     cached = undefined;
     resolved = undefined;
+    settling = undefined;
     read = readSetting;
     isTTY = realTTY;
   },
