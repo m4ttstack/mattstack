@@ -42,8 +42,10 @@ digraph create_pack {
     "Envelope?" [shape=diamond];
     "published.pushed?" [shape=diamond];
     "Relay published.reason" [shape=box];
-    "rt team publish --team <org>" [shape=plaintext];
-    "Publish result?" [shape=diamond];
+    "rt team publish --team <org> --json" [shape=plaintext];
+    "Publish envelope?" [shape=diamond];
+    "Pulled for this share already?" [shape=diamond];
+    "rt team pull --team <org> --json" [shape=plaintext];
     "Gate: share did not land" [shape=box];
     "Relay error.message verbatim" [shape=box];
     "Refusal code?" [shape=diamond];
@@ -99,11 +101,15 @@ digraph create_pack {
     "Envelope?" -> "published.pushed?" [label="ok: true"];
     "published.pushed?" -> "In a herdr pane?" [label="true"];
     "published.pushed?" -> "Relay published.reason" [label="false"];
-    "Relay published.reason" -> "rt team publish --team <org>";
-    "rt team publish --team <org>" -> "Publish result?";
-    "Publish result?" -> "In a herdr pane?" [label="pushed"];
-    "Publish result?" -> "Gate: share did not land" [label="failed or refused"];
-    "Gate: share did not land" -> "rt team publish --team <org>" [label="retry: author fixed it"];
+    "Relay published.reason" -> "rt team publish --team <org> --json";
+    "rt team publish --team <org> --json" -> "Publish envelope?";
+    "Publish envelope?" -> "In a herdr pane?" [label="pushed: true"];
+    "Publish envelope?" -> "Pulled for this share already?" [label="error.code org-moved"];
+    "Publish envelope?" -> "Gate: share did not land" [label="any other error.code"];
+    "Pulled for this share already?" -> "rt team pull --team <org> --json" [label="no"];
+    "Pulled for this share already?" -> "Gate: share did not land" [label="yes"];
+    "rt team pull --team <org> --json" -> "rt team publish --team <org> --json";
+    "Gate: share did not land" -> "rt team publish --team <org> --json" [label="retry: author fixed it"];
     "Gate: share did not land" -> "Handed to the author" [label="author takes over"];
     "Envelope?" -> "Relay error.message verbatim" [label="refused: true"];
     "Envelope?" -> "Relay error.message and error.wrote" [label="refused: false, after a write"];
@@ -125,7 +131,7 @@ digraph create_pack {
     "Gate: write failed after cleanup" -> "Handed to the author" [label="author takes over"];
     "Remove the pack dir" -> "rt skills init --json --team <team> --repo <repo-path>";
     "Follow the printed remedy" -> "The remedy completed the pack?";
-    "The remedy completed the pack?" -> "rt team publish --team <org>" [label="yes"];
+    "The remedy completed the pack?" -> "rt team publish --team <org> --json" [label="yes"];
     "The remedy completed the pack?" -> "Gate: remedy did not complete the pack" [label="no"];
     "Gate: remedy did not complete the pack" -> "Follow the printed remedy" [label="retry with their note"];
     "Gate: remedy did not complete the pack" -> "Handed to the author" [label="author takes over"];
@@ -200,19 +206,21 @@ stop until the folder exists.
 
 `published` is `{ "pushed": false, "reason", "next" }` when the commit or
 the push failed. The pack is installed on this Mac but not shared yet. Say
-so, relay `published.reason`, and run `published.next` on Bash, which is
-`rt team publish --team <org>`: it makes the commit init could not, then
-pushes. When the org repo moved on, `published.next` is
-`rt team pull --team <org>` and `published.thenRun` is the publish: run
-both, in that order.
+so, relay `published.reason`, and run the publish on Bash:
+`rt team publish --team <org> --json` makes the commit init could not, then
+pushes. Read its envelope, never its text: `{ "pushed": true, ... }` means
+the pack is shared; a failure exits 2 with `{ "error": { "code", "message" } }`.
+`org-moved` means someone else pushed first: pull with
+`rt team pull --team <org> --json`, then publish again, once.
 
 ### Gate: share did not land
 
-Quote the `rt team publish` output and propose the next move: a refusal
-means this Mac may not write the team's files (an org admin or the team's
-owner finishes it); a failure that names `rt team pull --team <org>` means
-pull first, then publish. Never force. Retry: the author fixed it; run `rt team publish --team <org>`
-again. Takes over: the pack stays on this Mac for the author to share.
+Quote the publish envelope's `error.code` and `error.message` and propose
+the next move: `team-pull-only` means this Mac may not write the team's
+files (an org admin or the team's owner finishes it); `org-moved` after a
+pull means the org repo moved again. Never force. Retry: the author fixed
+it; run `rt team publish --team <org> --json` again. Takes over: the pack
+stays on this Mac for the author to share.
 
 ### Relay error.message verbatim
 
@@ -249,7 +257,8 @@ nothing else in the org clone.
 
 Do exactly what the printed remedy says. Never re-run init on a written
 pack. Once the pack compiles and installs, the remedy's last step is
-`rt team publish --team <org>`, which shares the pack with its entry.
+`rt team publish --team <org>`, which shares the pack with its entry; run
+it with `--json` and read its envelope as `Relay published.reason` says.
 
 ### End the turn
 
