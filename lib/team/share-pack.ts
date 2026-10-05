@@ -11,16 +11,22 @@ import { assertMayWrite } from "./roles.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { readTeamLocal, updateTeamLocal, type PendingPackShare } from "./team-local.ts";
 
-export type PackShare = { pushed: true; remote: string } | { pushed: false; reason: string; next: string };
+export type PackShare = { pushed: true; remote: string } | { pushed: false; reason: string; next: string; thenRun?: string };
 
 function notShared(org: string, err: unknown, fallback: string): PackShare {
   if (err instanceof UserActionableError) logFailureDetail(err);
   const reason = err instanceof UserActionableError && !err.code.startsWith("git-") ? err.message : fallback;
+  if (err instanceof UserActionableError && err.next && err.thenRun) return { pushed: false, reason, next: err.next, thenRun: err.thenRun };
   return { pushed: false, reason, next: `rt team publish --team ${org}` };
 }
 
 function setPending(p: Probes, org: string, shares: PendingPackShare[]): void {
   updateTeamLocal(p, org, { pendingPackShares: shares.length > 0 ? shares : undefined });
+}
+
+/** Remembers that `pack` still has to be committed with `paths`, so `rt team publish` can finish its share. */
+export function rememberPackShare(p: Probes, org: string, pack: string, paths: string[]): void {
+  setPending(p, org, [...(readTeamLocal(p, org).pendingPackShares ?? []).filter((share) => share.pack !== pack), { pack, paths }]);
 }
 
 /**
@@ -35,7 +41,7 @@ export async function sharePack(p: Probes, org: string, pack: string, paths: str
   try {
     await commitFiles(p, org, paths, `skills: new ${pack} pack`);
   } catch (err) {
-    setPending(p, org, [...(readTeamLocal(p, org).pendingPackShares ?? []).filter((share) => share.pack !== pack), { pack, paths }]);
+    rememberPackShare(p, org, pack, paths);
     return notShared(org, err, `rt could not commit the ${pack} pack`);
   }
   const before = readTeamLocal(p, org).pendingPackShares ?? [];
@@ -75,6 +81,6 @@ export function packShareBlocks(pack: string, share: PackShare): Block[] {
   if (share.pushed) return [out.line("done", `Shared the ${pack} pack with your org`, share.remote)];
   return [
     out.line("pending", `The ${pack} pack is not shared with your org yet`, share.reason),
-    out.callout("next", ["Share it with ", out.cmd(share.next)]),
+    out.callout("next", share.thenRun ? ["Run ", out.cmd(share.next), ", then share it with ", out.cmd(share.thenRun)] : ["Share it with ", out.cmd(share.next)]),
   ];
 }

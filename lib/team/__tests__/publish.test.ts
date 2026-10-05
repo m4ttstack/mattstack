@@ -237,8 +237,9 @@ describe("publishTeam", () => {
     await expect(publishTeam(p, "acme", null)).rejects.toMatchObject({
       code: "org-moved",
       message: "The org repo has changes this Mac does not have yet",
-      why: "Someone else pushed first. Pull, then try again.",
-      next: "rt team pull",
+      why: "Someone else pushed first, so pull their changes before you publish again.",
+      next: "rt team pull --team acme",
+      thenRun: "rt team publish --team acme",
     });
   });
 

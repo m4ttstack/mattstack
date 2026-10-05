@@ -8,7 +8,8 @@ import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { Probes } from "../../setup/probes.ts";
 import { addTeam } from "../add.ts";
 import { publishTeam } from "../publish.ts";
-import { commitPendingPackShares, sharePack } from "../share-pack.ts";
+import { renderPlain } from "../../ui/out-plain.ts";
+import { commitPendingPackShares, packShareBlocks, sharePack } from "../share-pack.ts";
 import { readTeamLocal, teamLocalPath, updateTeamLocal } from "../team-local.ts";
 import { cleanupOrgWorlds, orgWorld } from "./org-world.ts";
 
@@ -107,6 +108,12 @@ describe("sharePack", () => {
     expect(w.atOrigin("show", "main:mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc").length).toBeGreaterThan(0);
     expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([expect.objectContaining({ name: "gadgets" })]);
   }, 15_000);
+
+  test("a share the moved org repo rejected tells a person to pull first, then publish", () => {
+    const text = renderPlain(packShareBlocks("gadgets", { pushed: false, reason: "The org repo has changes this Mac does not have yet", next: "rt team pull --team acme", thenRun: "rt team publish --team acme" }));
+    expect(text).toContain("The gadgets pack is not shared with your org yet");
+    expect(text).toMatch(/Run rt team pull --team acme, then share it with rt team publish --team acme/);
+  });
 
   test("a member's Mac never commits or pushes", async () => {
     const calls: string[][] = [];

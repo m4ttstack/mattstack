@@ -103,8 +103,9 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     const text = `${push.stdout}\n${push.stderr}`;
     if (REJECTED_PATTERN.test(text) && (await p.exec(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"], { cwd: dir })).code === 0) {
       throw new UserActionableError("org-moved", "The org repo has changes this Mac does not have yet", {}, {
-        why: "Someone else pushed first. Pull, then try again.",
-        next: "rt team pull",
+        why: "Someone else pushed first, so pull their changes before you publish again.",
+        next: `rt team pull --team ${slug}`,
+        thenRun: `rt team publish --team ${slug}`,
         log: withoutUrls(text.trim()),
       });
     }

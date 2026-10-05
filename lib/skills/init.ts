@@ -305,7 +305,14 @@ export type InitDeps = {
   check(packDir: string, manifestPath: string): Promise<{ drift: boolean }>;
   /** `paths` are relative to the org clone. */
   sharePack(zone: ZoneInfo, paths: string[]): Promise<PackShare>;
+  /** Remembers a share for `rt team publish` to finish if init stops before its own share. */
+  rememberShare(zone: ZoneInfo, paths: string[]): void;
 };
+
+/** The pack folder plus every other file init wrote, relative to the org clone. */
+function sharePathsFor(zone: ZoneInfo, packDir: string, wrote: string[]): string[] {
+  return [packDir, ...wrote.filter((path) => !path.startsWith(`${packDir}/`))].map((path) => relative(zone.orgDir, path));
+}
 
 export type InitRefusalCode =
   | "not-yours" | "other-org"
@@ -436,13 +443,14 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
 
   const wrote: string[] = [];
 
+  const share = `rt team publish --team ${zone.org}`;
   const remedyFor = (code: FailureCode): InitRemedy => {
     if (code === "write-failed") return { commands: ["rt skills init"], folder: packDir };
-    if (code === "materialize-failed") return { commands: [`rt skills materialize --dir ${opts.repoDir}`] };
+    if (code === "materialize-failed") return { commands: [`rt skills materialize --dir ${opts.repoDir}`, share] };
     if (code === "compile-failed" || code === "check-drift") {
-      return { commands: [`rt skills compile --pack-dir ${packDir}`, `rt skills check --pack-dir ${packDir}`] };
+      return { commands: [`rt skills compile --pack-dir ${packDir}`, `rt skills check --pack-dir ${packDir}`, share] };
     }
-    return { commands: [`claude plugin marketplace add ${zone.orgDir}`, `claude plugin install ${pluginId}`] };
+    return { commands: [`claude plugin marketplace add ${zone.orgDir}`, `claude plugin install ${pluginId}`, share] };
   };
 
   const failed = (code: FailureCode, detail: string, from?: { why?: string; next?: string }): InitOutcome => ({
@@ -485,6 +493,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
       deps.fs.writeFile(marketPath, marketAfter);
       wrote.push(marketPath);
     }
+    deps.rememberShare(zone, sharePathsFor(zone, packDir, wrote));
   } catch (err) {
     return failed("write-failed", err instanceof Error ? err.message : String(err));
   }
@@ -521,8 +530,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
     return failed("install-failed", `Installing ${pluginId} in Claude Code failed (exit ${installed.value.code}): ${installed.value.stderr.trim() || installed.value.stdout.trim()}`);
   }
 
-  const sharePaths = [packDir, ...wrote.filter((path) => !path.startsWith(`${packDir}/`))].map((path) => relative(zone.orgDir, path));
-  const published = await deps.sharePack(zone, sharePaths);
+  const published = await deps.sharePack(zone, sharePathsFor(zone, packDir, wrote));
 
   return {
     ok: true,

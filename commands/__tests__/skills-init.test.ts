@@ -265,6 +265,7 @@ function stubDeps(overrides: Partial<InitDeps> = {}): InitDeps {
     compile: async () => ({ ok: true, errors: [] }),
     check: async () => ({ drift: false }),
     sharePack: async () => ({ pushed: true, remote: "https://gitlab.example.com/acme/org.git" }),
+    rememberShare: () => {},
     ...overrides,
   };
 }

@@ -24,7 +24,7 @@ import { failureFor, logFailureDetail, UserActionableError, userErrorPayload } f
 import { createRealProbes } from "../lib/setup/probes.ts";
 import { materializeSkills, packVerdict, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { createTeam } from "../lib/team/create.ts";
-import { packShareBlocks, sharePack } from "../lib/team/share-pack.ts";
+import { packShareBlocks, rememberPackShare, sharePack } from "../lib/team/share-pack.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import { initPack, NEEDS_YOU_REFUSALS, POLICY_REFUSALS, type InitDeps, type InitOutcome, type InitRemedy } from "../lib/skills/init.ts";
 import { loadStepSource, resolvePluginRoots } from "../lib/skills/sources.ts";
@@ -230,6 +230,7 @@ function realDeps(opts: { json: boolean }): InitDeps {
       }
     },
     sharePack: (zone, paths) => sharePack(p, zone.org, zone.team, paths),
+    rememberShare: (zone, paths) => rememberPackShare(p, zone.org, zone.team, paths),
   };
 }
 

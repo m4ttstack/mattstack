@@ -2,7 +2,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join } from "path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanupOrgWorlds, orgWorld } from "../../team/__tests__/org-world.ts";
-import { sharePack } from "../../team/share-pack.ts";
+import { rememberPackShare, sharePack } from "../../team/share-pack.ts";
+import { readTeamLocal } from "../../team/team-local.ts";
+import { teamPublish } from "../../../commands/team.ts";
 import { chooseZone, packIsCompiled, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, zoneTeamConfigReads, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, readOrgSlugs, type InitDeps, type RunResult } from "../init.ts";
 import { UserActionableError } from "../../errors.ts";
 import { stripJsonc } from "../sources.ts";
@@ -295,7 +297,7 @@ describe("addMarketplacePlugin", () => {
   });
 });
 
-type Calls = { claude: string[][]; registered: string[]; materialized: string[]; compiled: string[]; checked: string[]; claims: [string, string[]][]; shared: [string, string[]][] };
+type Calls = { claude: string[][]; registered: string[]; materialized: string[]; compiled: string[]; checked: string[]; claims: [string, string[]][]; shared: [string, string[]][]; remembered: [string, string[]][] };
 
 const ok = (stdout: string): RunResult => ({ code: 0, stdout, stderr: "" });
 const REPO = "/work/api";
@@ -304,7 +306,7 @@ const ACME_PACK = `${TEAM_DIR("acme")}/packs/acme`;
 const GITLAB = { "board.gitlabHost": "gitlab.com" };
 
 function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; marketplaces?: string[]; noOrg?: boolean } = {}) {
-  const calls: Calls = { claude: [], registered: [], materialized: [], compiled: [], checked: [], claims: [], shared: [] };
+  const calls: Calls = { claude: [], registered: [], materialized: [], compiled: [], checked: [], claims: [], shared: [], remembered: [] };
   const files: Record<string, string> = {
     ...(overrides.noOrg ? {} : orgFiles("acme", GITLAB, { acme: {} })),
     ...(overrides.files ?? {}),
@@ -339,6 +341,7 @@ function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; 
     compile: async (dir) => { calls.compiled.push(dir); return { ok: true, errors: [] }; },
     check: async (dir) => { calls.checked.push(dir); return { drift: false }; },
     sharePack: async (zone, paths) => { calls.shared.push([zone.slug, paths]); return { pushed: true, remote: "https://gitlab.example.com/acme/org.git" }; },
+    rememberShare: (zone, paths) => { calls.remembered.push([zone.slug, paths]); },
     ...overrides,
   };
   return { deps, calls, fs };
@@ -447,6 +450,7 @@ describe("initPack", () => {
       compile: async () => ({ ok: true, errors: [] }),
       check: async () => ({ drift: false }),
       sharePack: async () => ({ pushed: true, remote: "https://gitlab.example.com/acme/org.git" }),
+      rememberShare: () => {},
     };
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out.ok).toBe(true);
@@ -792,10 +796,35 @@ describe("initPack", () => {
     expect(out.wrote).toContain(`${ACME_PACK}/pack/stubs.jsonc`);
   });
 
+  test("the share is remembered once the files are written, so a later failure ends with rt team publish", async () => {
+    const { deps, calls } = world({ compile: async () => ({ ok: false, errors: ["boom"] }) });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: false, code: "compile-failed" });
+    if (out.ok || out.refused) return;
+    expect(calls.remembered).toHaveLength(1);
+    expect(calls.remembered[0]![1][0]).toBe("mattstack/teams/acme/packs/acme");
+    expect(calls.remembered[0]![1]).toContain(".claude-plugin/marketplace.json");
+    expect(out.remedy?.commands.at(-1)).toBe("rt team publish --team acme");
+    expect(calls.shared).toEqual([]);
+  });
+
+  test("a write failure remembers no share", async () => {
+    const { deps, calls } = world();
+    const originalWriteFile = deps.fs.writeFile;
+    let writes = 0;
+    deps.fs.writeFile = (p, text) => {
+      writes++;
+      if (writes === 2) throw new Error("disk full");
+      originalWriteFile(p, text);
+    };
+    expect(await initPack({ repoDir: REPO, zone: null, team: null }, deps)).toMatchObject({ code: "write-failed" });
+    expect(calls.remembered).toEqual([]);
+  });
+
   test("materialize that leaves no manifest is materialize-failed", async () => {
     const { deps } = world({ materialize: async () => ({ ok: false, detail: "no team declares" }) });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
-    expect(out).toMatchObject({ ok: false, refused: false, code: "materialize-failed", remedy: { commands: [`rt skills materialize --dir ${REPO}`] } });
+    expect(out).toMatchObject({ ok: false, refused: false, code: "materialize-failed", remedy: { commands: [`rt skills materialize --dir ${REPO}`, "rt team publish --team acme"] } });
   });
 
   test("a step that throws keeps the error's why and next", async () => {
@@ -851,8 +880,7 @@ test("refusal titles name no path or config file", async () => {
 describe("initPack against a real org clone", () => {
   afterEach(cleanupOrgWorlds);
 
-  test("the new pack folder and its marketplace entry reach origin in one push", async () => {
-    const w = orgWorld("dev1", { settings: { "board.gitlabHost": "gitlab.com" } });
+  function realCloneDeps(w: ReturnType<typeof orgWorld>, overrides: Partial<InitDeps> = {}): InitDeps {
     const realFs: InitFs = {
       exists: (path) => existsSync(path),
       readFile: (path) => (existsSync(path) ? readFileSync(path, "utf8") : null),
@@ -861,7 +889,7 @@ describe("initPack against a real org clone", () => {
       readDir: (path) => (existsSync(path) ? readdirSync(path) : []),
     };
     const manifest = join(w.home, ".mattstack", "repos", "gitlab.com-acme-api", "packs", "widgets", "skills.jsonc");
-    const deps: InitDeps = {
+    return {
       fs: realFs,
       home: w.home,
       gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }),
@@ -879,9 +907,35 @@ describe("initPack against a real org clone", () => {
       compile: async (packDir) => { realFs.writeFile(join(packDir, "skills", "work", "SKILL.md"), "compiled\n"); return { ok: true, errors: [] }; },
       check: async () => ({ drift: false }),
       sharePack: (zone, paths) => sharePack(w.p, zone.org, zone.team, paths, async () => null),
+      rememberShare: (zone, paths) => rememberPackShare(w.p, zone.org, zone.team, paths),
+      ...overrides,
     };
-    const out = await initPack({ repoDir: REPO, zone: null, team: "widgets" }, deps);
+  }
+
+  test("a compile failure, then the remedy's last command, rt team publish, puts the pack and its entry on origin", async () => {
+    const w = orgWorld("dev1", { settings: { "board.gitlabHost": "gitlab.com" } });
+    const out = await initPack({ repoDir: REPO, zone: null, team: "widgets" }, realCloneDeps(w, { compile: async () => ({ ok: false, errors: ["skills/work: bad slot"] }) }));
+    expect(out).toMatchObject({ ok: false, refused: false, code: "compile-failed" });
+    if (out.ok || out.refused) return;
+    expect(w.pushes).toEqual([]);
+    const next = out.remedy!.commands.at(-1)!;
+    expect(next).toBe("rt team publish --team acme");
+
+    const [, , , ...args] = next.split(" ");
+    await teamPublish(args, {}, { probes: w.p, print: () => {}, exit: () => { throw new Error("exit"); }, forgeToken: async () => null });
+
+    const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
+    expect(files).toContain("mattstack/teams/widgets/packs/widgets/pack/skills.jsonc");
+    expect(files).toContain(".claude-plugin/marketplace.json");
+    expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([expect.objectContaining({ name: "widgets" })]);
+    expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
+  });
+
+  test("the new pack folder and its marketplace entry reach origin in one push", async () => {
+    const w = orgWorld("dev1", { settings: { "board.gitlabHost": "gitlab.com" } });
+    const out = await initPack({ repoDir: REPO, zone: null, team: "widgets" }, realCloneDeps(w));
     expect(out).toMatchObject({ ok: true, published: { pushed: true, remote: w.remote } });
+    expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
     expect(w.pushes).toHaveLength(1);
     const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
     expect(files).toContain(".claude-plugin/marketplace.json");

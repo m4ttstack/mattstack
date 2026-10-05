@@ -2,7 +2,9 @@ import * as teamActions from "../team.ts";
 import type { MembersSeams } from "../../lib/team/members.ts";
 import type { InviteResult, MintInviteOpts } from "../../lib/team/invite.ts";
 import { afterEach, beforeEach, describe, test, expect, spyOn } from "bun:test";
+import { execFileSync } from "child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { childEnv } from "../../lib/subprocess.ts";
 import { tmpdir } from "os";
 import { join } from "path";
 import * as ui from "../../lib/ui/out.ts";
@@ -794,6 +796,40 @@ describe("teamAdd", () => {
       expect(files).not.toContain("mattstack/teams/widgets/settings.team.jsonc");
       expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([expect.objectContaining({ name: "gadgets" })]);
       expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
+    });
+
+    /** Someone else pushes to origin, so this clone's next push is not a fast-forward. */
+    function moveOrigin(w: ReturnType<typeof orgWorld>): void {
+      const other = join(w.home, "other");
+      execFileSync("git", ["clone", "-q", w.remote, other], { env: childEnv() });
+      writeFileSync(join(other, "README.md"), "moved\n");
+      execFileSync("git", ["add", "README.md"], { cwd: other, env: childEnv() });
+      execFileSync("git", ["-c", "user.name=dev2", "-c", "user.email=dev2@example.test", "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "elsewhere"], { cwd: other, env: childEnv() });
+      execFileSync("git", ["push", "-q", "origin", "main"], { cwd: other, env: childEnv() });
+      w.git("fetch", "-q", "origin");
+    }
+
+    test("a push the moved org repo rejects names rt team pull first, then rt team publish", async () => {
+      const w = orgWorld();
+      moveOrigin(w);
+      const deps = baseDeps({ probes: w.p, addTeamSeams: realSeams, forgeToken: async () => null });
+      await teamAdd(["gadgets", "--owner", "dev2", "--team", "acme", "--json"], {}, deps);
+      expect(JSON.parse(deps.lines[0]!).published).toEqual({
+        pushed: false,
+        reason: "The org repo has changes this Mac does not have yet",
+        next: "rt team pull --team acme",
+        thenRun: "rt team publish --team acme",
+      });
+
+      const captured = captureOut();
+      try {
+        expect(await runExpectingProcessExit(() => teamPublish(["--team", "acme"], {}, baseDeps({ probes: w.p, forgeToken: async () => null })))).toBe(2);
+        const err = captured.stderr();
+        expect(err).toContain("The org repo has changes this Mac does not have yet");
+        expect(err).toContain("rt team pull --team acme");
+        expect(err).toContain("rt team publish --team acme");
+        expect(err.indexOf("rt team pull --team acme")).toBeLessThan(err.indexOf("rt team publish --team acme"));
+      } finally { captured.restore(); }
     });
 
     test("a failed push is finished by the next command it names", async () => {
