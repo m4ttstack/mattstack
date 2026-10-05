@@ -126,9 +126,9 @@ for (const errors of [[], ["rt: damaged copy"]]) {
   });
 }
 
-test("unconfigured status pins today's sentence", async () => {
+test("state backup status --json with nothing set up is {configured:false} (Matt's ruling)", async () => {
   await stateBackupStatus(["--json"], {});
-  expect(io.stdout()).toBe("State backup is not configured. Run `rt state backup init` to set up.\n");
+  expect(io.stdout()).toBe('{"configured":false}\n');
   expect(io.stderr()).toBe("");
   expect(process.exitCode).toBe(0);
 });

@@ -1,3 +1,4 @@
+import { warn } from "../ui/warn.ts";
 import { basename, dirname, join } from "path";
 import { existsSync, readdirSync, mkdirSync, renameSync, rmSync, copyFileSync } from "fs";
 import { mkdtemp } from "fs/promises";
@@ -156,7 +157,9 @@ export async function pullHomeRepo(): Promise<{ pullOk: boolean; lfsOk: boolean 
     env: { ...process.env },
   });
   if (proc.exitCode !== 0) {
-    console.error(`git pull failed (exit ${proc.exitCode}), continuing with local backups`);
+    warn("state", `git pull failed (exit ${proc.exitCode}); restoring from local backups`, {
+      show: { title: "rt could not pull the latest backups", hint: "restoring from the copies on this Mac" },
+    });
     result.pullOk = false;
   }
 
@@ -169,7 +172,9 @@ export async function pullHomeRepo(): Promise<{ pullOk: boolean; lfsOk: boolean 
       env: { ...process.env },
     });
     if (proc.exitCode !== 0) {
-      console.error(`git lfs pull failed (exit ${proc.exitCode}), continuing with local backups`);
+      warn("state", `git lfs pull failed (exit ${proc.exitCode}); restoring from local backups`, {
+        show: { title: "rt could not pull the latest backups", hint: "restoring from the copies on this Mac" },
+      });
       result.lfsOk = false;
     }
   }

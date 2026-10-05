@@ -1,3 +1,4 @@
+import { setWarningLog, __test__ as warnings } from "../../ui/warn.ts";
 /**
  * lib/state/branch-cache.ts — the single-owner branch-cache store.
  * See docs/superpowers/specs/2026-08-20-rt-statedb.md ("Tables (v1)"
@@ -516,17 +517,19 @@ describe("getBranchCacheStore — singleton behavior", () => {
 describe("rekeyBranchCacheTable", () => {
   const origHome = process.env.HOME;
   let home: string;
-  let warnSpy: ReturnType<typeof spyOn<Console, "warn">>;
+  let logged: string[];
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "rt-branch-cache-rekey-"));
     process.env.HOME = home;
     closeStateDb();
-    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    warnings.reset();
+    logged = [];
+    setWarningLog((_module, message) => logged.push(message));
   });
 
   afterEach(() => {
-    warnSpy.mockRestore();
+    warnings.reset();
     process.env.HOME = origHome;
     closeStateDb();
     rmSync(home, { recursive: true, force: true });
@@ -548,7 +551,7 @@ describe("rekeyBranchCacheTable", () => {
     const row = getStateDb().query("SELECT repo FROM branch_cache WHERE branch = ?;")
       .get(composeKey("ghost-repo", "feature/y")) as { repo: string };
     expect(row.repo).toBe("ghost-repo");
-    expect(warnSpy).toHaveBeenCalled();
+    expect(logged).toContain("could not re-key branch_cache.repo=ghost-repo to an identity; left in place");
   });
 
   test("a NULL repo column is skipped, not treated as a legacy key", async () => {
@@ -570,7 +573,7 @@ describe("rekeyBranchCacheTable: composite primary key repair", () => {
   const WIRE = "remote:gitlab.com%2Fg%2Fr";
   const OTHER = "remote:gitlab.com%2Fg%2Fother";
   let home: string;
-  let warnSpy: ReturnType<typeof spyOn<Console, "warn">>;
+  let logged: string[];
 
   function insertRaw(branch: string, repo: string | null, linearId = "L-1", fetchedAt = 1000): void {
     getStateDb()
@@ -587,11 +590,13 @@ describe("rekeyBranchCacheTable: composite primary key repair", () => {
     home = mkdtempSync(join(tmpdir(), "rt-branch-cache-pk-"));
     process.env.HOME = home;
     closeStateDb();
-    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    warnings.reset();
+    logged = [];
+    setWarningLog((_module, message) => logged.push(message));
   });
 
   afterEach(() => {
-    warnSpy.mockRestore();
+    warnings.reset();
     process.env.HOME = origHome;
     closeStateDb();
     rmSync(home, { recursive: true, force: true });

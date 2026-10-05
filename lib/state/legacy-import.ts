@@ -1,3 +1,4 @@
+import { warn } from "../ui/warn.ts";
 /**
  * lib/state/legacy-import.ts — shared migrate-on-read mechanics for the
  * per-store legacy JSON files Phase 2 left un-imported (RT-48 fix round).
@@ -51,7 +52,7 @@ export interface ImportLegacyJsonFileOptions {
 
 function defaultOnCorrupt(legacyPath: string): (err: unknown) => void {
   return (err) => {
-    console.warn(`rt: legacy state file ${legacyPath} is corrupt JSON, leaving in place: ${(err as Error).message}`);
+    warn("state", `legacy state file ${legacyPath} is not valid JSON, left in place: ${(err as Error).message}`);
   };
 }
 
@@ -85,14 +86,14 @@ export function importLegacyJsonFile<T>(
   const value = apply(json);
 
   if (!opts.verifyPersisted()) {
-    console.warn(`rt: imported legacy state file ${legacyPath} but the write did not land (db busy?) — leaving it in place to retry on the next read`);
+    warn("state", `imported legacy state file ${legacyPath}, but the write did not land; left in place to retry`);
     return { imported: true, value };
   }
 
   try {
     renameSync(legacyPath, `${legacyPath}.migrated`);
   } catch (err) {
-    console.warn(`rt: imported legacy state file ${legacyPath} but could not rename it to .migrated: ${(err as Error).message}`);
+    warn("state", `imported legacy state file ${legacyPath}, but could not rename it: ${(err as Error).message}`);
   }
   return { imported: true, value };
 }

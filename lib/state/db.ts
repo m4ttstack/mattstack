@@ -1,3 +1,5 @@
+import { cmd } from "../ui/out.ts";
+import { warn } from "../ui/warn.ts";
 /**
  * lib/state/db.ts — state.db: one SQLite state store for rt (RT-48).
  *
@@ -531,7 +533,10 @@ function tightenFileMode(path: string): void {
 function quarantine(path: string): void {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const quarantinedPath = `${path}.corrupt-${stamp}`;
-  console.warn(`rt: state db ${path} could not be opened (corrupt), quarantining to ${quarantinedPath} and recreating empty`);
+  warn("state", `state db ${path} could not be opened (corrupt); quarantined to ${quarantinedPath} and recreated empty`, {
+    context: { path, quarantinedPath },
+    show: { title: "rt's saved state was damaged and has been reset", hint: "the damaged file was kept beside it", next: cmd("rt daemon logs") },
+  });
   // Sidecars before the main file (S103): if a sidecar rename fails partway
   // through, the main file is still at `path` and the next attempt retries
   // cleanly, instead of a -wal that belongs to the already-renamed main file
@@ -579,7 +584,7 @@ function importLegacyStores(db: Database, dir: string): string[] {
     try {
       json = JSON.parse(readFileSync(path, "utf8"));
     } catch (err) {
-      console.warn(`rt: legacy state file ${path} is corrupt JSON, skipping import: ${(err as Error).message}`);
+      warn("state", `legacy state file ${path} is not valid JSON, import skipped: ${(err as Error).message}`);
       consumed.push(path);
       continue;
     }
@@ -589,7 +594,7 @@ function importLegacyStores(db: Database, dir: string): string[] {
       db.exec("RELEASE legacy_import;");
     } catch (err) {
       db.exec("ROLLBACK TO legacy_import; RELEASE legacy_import;");
-      console.warn(`rt: legacy import failed for ${path}, skipping (file will still be renamed): ${(err as Error).message}`);
+      warn("state", `legacy import failed for ${path}, skipped (the file is still renamed): ${(err as Error).message}`);
     }
     consumed.push(path);
   }
@@ -664,7 +669,7 @@ function runMigrations(db: Database, dir: string): void {
     try {
       renameSync(path, `${path}.migrated`);
     } catch (err) {
-      console.warn(`rt: imported legacy state file ${path} but could not rename it to .migrated: ${(err as Error).message}`);
+      warn("state", `imported legacy state file ${path}, but could not rename it: ${(err as Error).message}`);
     }
   }
 }
