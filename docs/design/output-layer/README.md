@@ -33,6 +33,7 @@ on a dark and a light terminal background.
 | `6b-herd-pane-agent-dark.png`, `6b-herd-pane-agent-light.png` | `rt herd list`, `status` (a healthy job and every problem line) and `gates`, `rt pane list` with a background pane, and `rt agent list`. Off a terminal these verbs print exactly what they printed before |
 | `6d-services-dark.png`, `6d-services-light.png` | the hidden service verbs at 100 columns: services and apps tables, a flavor takeover, bg and reconciler status, the bg stop refusal, two endpoint lookups, a cron install, the post-install notes, the apps refusal and an endpoint setting warning |
 | `6h-copy-dark.png`, `6h-copy-light.png` | phase 6 copy polish: settings list labels, an unset get, the extension failure, the logins header, an unreadable tool version, members remove, a prune duplicate and a kept repo, a port row with no pid, a refused bundled link, and intercept's left-alone line |
+| `6g-git-skills-dark.png`, `6g-git-skills-light.png` | phase 6 git and skills fixes: a kept stash, a credentialed remote, skills init's failures and refusals, a link conflict, an expand usage failure, the missing-Claude note, a surface apply, a rebase conflict with its files, an escalation timeout |
 
 The light pages above the phase 5g section were rendered with
 `COLORFGBG=0;15`, which is how a light terminal that reports its background
@@ -116,3 +117,20 @@ Two accent tones, chosen by the terminal's background: static output takes `them
 | `6c-daemon-dark.png`, `6c-daemon-light.png` | `rt daemon` at 100 columns: every status state (running with health reasons, degraded, parked, not answering, not running, not installed, and the two failures), the version row and a flavor warning, the stop mismatch, still shutting down, the tracking table, a log level, the login-items approval and the uninstall refusal |
 
 What reads wrong in the palette pages: on dark, the app's coral makes the `✗` glyph and the `PRODUCTION` banner a bright salmon red that holds its own beside mint, peach and lavender, though it reads softer than an alarm red; the link is a clear blue. Hints, captions and the `why` label in the dark quiet tone read clearly and stay a step below body text; the rails and tree branches in the dark rule tone sit dimmer still. The dark peach `#FFB77A` still reads apricot, so `next`, `fix` and the `◆` glyph carry less urgency than the light set's orange. On light, mint words (`listening`, `connected`, `standing access`) sit at 3:1 and read lighter than the body text, though still clearly. The unknown page (the light set on dark) is sober but reads fine. In `5g-callouts-*.png` the backup ref moved out to the bar breaks the note's text column mid-note, so for a moment it reads like the start of another callout.
+
+## Phase 6g: git and skills fixes
+
+The two pages render at 100 columns with `COLORTERM=truecolor`,
+`TERM=xterm-256color`, `NO_COLOR` unset, and `RT_UI_BACKGROUND` explicitly
+set to dark or light. The credentialed remote prints as `REMOTE`. The
+compile excerpt and conflicted files sit under their captions on thin
+rails. Claude Code missing and the link conflict use the peach or orange
+`needs-you` mark, while failures alone use coral. No title names a path or
+a flag. The not-a-repo and invalid-namespace outcomes draw as failures,
+as the command does, because they are outside its policy-refusal set.
+
+What reads wrong: the compile remedy wraps after "then", leaving the second
+command on the next row; it remains whole and readable. On dark, the file
+lists and their rails are quieter than body text but still readable. The
+conflict backup ref in the `why` callout wraps onto its own row without
+splitting. No source change was needed for these renders.
