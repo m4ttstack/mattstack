@@ -46,7 +46,8 @@ zones in `user/snapshot-owners.jsonc` excluded; `rt home claim|release`), so
 every store write becomes a `snapshot:` commit within ~80s — by design.
 The same engine runs one instance per team clone under `~/.mattstack/teams/`
 (`rt.teamSnapshot`, machine scope): it commits only `mattstack/`, `.sops.yaml`
-and `.claude-plugin/`, pulls (fast-forward or rebase) at boot, every
+and `.claude-plugin/` (leaving `mattstack/packs/` to the janitor, since packs
+publish through their own commit), pulls (fast-forward or rebase) at boot, every
 `pullIntervalSec` and before every push, and surfaces a rebase conflict as
 the `team.sync` checklist row instead of resolving it. So a `--scope team`
 write or a `members sync` reaches every member's machine without a hand

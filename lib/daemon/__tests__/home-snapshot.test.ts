@@ -2113,6 +2113,88 @@ describe("teamSnapshotSpec", () => {
     expect(existsSync(legacyPath)).toBe(true);
     handle.stop();
   });
+
+  test("packs are janitor-only: a watch commits the rest of the store and leaves a dirty pack for its own publish", async () => {
+    const p = { ...fakeProbes({ home: "/h" }) };
+    const { fn, calls } = makeFakeExec(defaultResponders({ statusZ: "?? mattstack/packs/acme/skills/x/SKILL.md\0?? mattstack/settings.team.jsonc\0" }));
+    const { deps } = baseDeps({ exec: fn });
+    const { repoDir: _repoDir, ...specDeps } = deps;
+    const handle = startSnapshot(teamSnapshotSpec("acme", FAKE_REPO_DIR, { pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: p, readToken: async () => "glpat-x" }), specDeps);
+    await handle.ready;
+    const result = await handle.runNow("watch");
+    expect(result.paths).toEqual(["mattstack/settings.team.jsonc"]);
+    expect(calls.find((c) => gitVerb(c) === "add")).toEqual(["git", "add", "-A", "--", "mattstack/settings.team.jsonc", ":(exclude)mattstack/packs/"]);
+    expect(handle.status().claimedZones).toContain("mattstack/packs/");
+    handle.stop();
+  });
+
+  test("real git: a watch commit takes the store change and leaves a new pack file untracked", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-team-snapshot-packs-")));
+    const repoDir = join(root, "acme");
+    const db = openStateDb(join(root, "state.db"), "cli");
+    try {
+      execFileSync("git", ["init", "-q", "-b", "main", repoDir]);
+      execFileSync("git", ["config", "user.email", "rt@example.test"], { cwd: repoDir });
+      execFileSync("git", ["config", "user.name", "rt test"], { cwd: repoDir });
+      mkdirSync(join(repoDir, "mattstack", "packs", "acme"), { recursive: true });
+      writeFileSync(join(repoDir, "mattstack", "settings.team.jsonc"), "{}\n");
+      execFileSync("git", ["add", "-A"], { cwd: repoDir });
+      execFileSync("git", ["commit", "-q", "-m", "seed"], { cwd: repoDir });
+
+      writeFileSync(join(repoDir, "mattstack", "settings.team.jsonc"), "{ \"a\": 1 }\n");
+      writeFileSync(join(repoDir, "mattstack", "packs", "acme", "SKILL.md"), "mid-edit\n");
+
+      const p = { ...fakeProbes({ home: "/h" }) };
+      const spec = teamSnapshotSpec("acme", repoDir, { pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: p, readToken: async () => null });
+      const handle = startSnapshot(spec, { log: fakeLog(), broadcast: () => {}, db, readSettings: () => DEFAULT_SETTINGS, readOwners: () => NO_OWNERS });
+      await handle.ready;
+      const result = await handle.runNow("watch");
+      expect(result.committed).toBe(true);
+
+      const committed = execFileSync("git", ["show", "--name-only", "--format=", "HEAD"], { cwd: repoDir }).toString().trim();
+      expect(committed).toBe("mattstack/settings.team.jsonc");
+      const status = execFileSync("git", ["status", "--porcelain", "-uall"], { cwd: repoDir }).toString();
+      expect(status).toContain("?? mattstack/packs/acme/SKILL.md");
+      handle.stop();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  test("a pack left dirty past the janitor threshold is still committed, so an abandoned edit is not lost", async () => {
+    const p = { ...fakeProbes({ home: "/h" }) };
+    const db = freshDb();
+    db.query("INSERT INTO kv (ns, k, v, updated_at) VALUES ('team-snapshot:acme', 'state', ?, 0);")
+      .run(JSON.stringify({ firstSeenDirty: { "mattstack/packs/": 0 } }));
+    const { fn, calls } = makeFakeExec(defaultResponders({ statusZ: "?? mattstack/packs/acme/skills/x/SKILL.md\0" }));
+    const { deps } = baseDeps({ exec: fn, db, now: () => 10_000_000 });
+    const { repoDir: _repoDir, ...specDeps } = deps;
+    const handle = startSnapshot(teamSnapshotSpec("acme", FAKE_REPO_DIR, { pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: p, readToken: async () => "glpat-x" }), specDeps);
+    await handle.ready;
+    expect((await handle.runNow("watch")).committed).toBe(false);
+    const result = await handle.runNow("janitor");
+    expect(result.committed).toBe(true);
+    expect(calls).toContainEqual([
+      "git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "snapshot (janitor): mattstack/packs/ dirty >2h, owner skills-publish", "--", "mattstack/packs/",
+    ]);
+    handle.stop();
+  });
+
+  test("a claim in the clone's owners file outranks the standing pack zone", async () => {
+    const p = { ...fakeProbes({ home: "/h" }) };
+    const owners: Owners = { zones: { "mattstack/packs/": { owner: "matt", claimedAt: "2026-01-01T00:00:00.000Z" } } };
+    const db = freshDb();
+    db.query("INSERT INTO kv (ns, k, v, updated_at) VALUES ('team-snapshot:acme', 'state', ?, 0);")
+      .run(JSON.stringify({ firstSeenDirty: { "mattstack/packs/": 0 } }));
+    const { fn, calls } = makeFakeExec(defaultResponders({ statusZ: "?? mattstack/packs/acme/a.md\0" }));
+    const { deps } = baseDeps({ exec: fn, db, readOwners: () => owners, now: () => 10_000_000 });
+    const { repoDir: _repoDir, ...specDeps } = deps;
+    const handle = startSnapshot(teamSnapshotSpec("acme", FAKE_REPO_DIR, { pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: p, readToken: async () => "glpat-x" }), specDeps);
+    await handle.ready;
+    await handle.runNow("janitor");
+    expect(calls.find((c) => gitVerb(c) === "commit")).toContain("snapshot (janitor): mattstack/packs/ dirty >2h, owner matt");
+    handle.stop();
+  });
 });
 
 function teamSpecFor(tokenValue: string | null = "glpat-team") {
