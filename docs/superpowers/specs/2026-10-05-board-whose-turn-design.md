@@ -1,4 +1,4 @@
-# Board: whose turn is it
+# Board: whose turn is it, and a Show menu
 
 ## Problem
 
@@ -21,9 +21,11 @@ where the author answered your thread but you are not an assigned reviewer
 
 - One definition of "whose turn" drives both the team view and Needs me.
 - A team can set which signals count; a person can override it for themselves.
-- Reviewers can hide every author's-turn MR with one toggle.
-- With the setting unset and the toggle off, nothing on the board changes
-  except the Needs me fix below.
+- Reviewers can take every author's-turn MR off the board with one checkbox.
+- The toolbar says what is on screen in positive terms ("show", never
+  "hide"), with labeled group and sort controls.
+- With the setting unset and every Show item checked, the same rows show as
+  today. The only behaviour change is the Needs me fix below.
 
 ## Non-goals
 
@@ -98,17 +100,59 @@ as it is.
 The server reads `getSetting('board.turn')` and ships the resolved config in
 `/data.json`, next to `staleAfterDays`.
 
-## The "Waiting on author" toggle
+## The toolbar (option B)
 
-- `ViewState` gains `authorTurn: 'all' | 'hide'`. It is stored in
-  localStorage and the URL like `slack` and `drafts`. The default is `'all'`.
-- The toggle sits next to the Slack and drafts filters.
-- `filterByAuthorTurn` in `view.ts` runs after `filterByDraft` in the
-  `boardView` pipeline.
-- `authorTurnHidden` is counted like `draftsHidden`. The hidden-rows copy
-  reads "N waiting on author", and clicking it sets the toggle back to `'all'`.
-- It applies on authors tabs and codeowners tabs, and does nothing on Needs
-  me, which is already turn-based.
+Design: `docs/apps/design/board/board.pen`, frame "Toolbar redesign ·
+filters, group, sort", Option B, light and dark.
+
+The header's toolbar becomes one line of three labeled menu buttons, with the
+actions moved out of it:
+
+- **Actions** (refresh, theme) sit as quiet icon buttons in the title row's
+  top-right corner.
+- The "copy summary for Slack" (copy every row) button is removed. Copying
+  selected rows from the selection bar stays.
+- **Group: <value> ▾** opens today's group choices (age, author, status, my
+  reviews).
+- **Sort: <value> ▾** opens today's sort choices (oldest, progress).
+- **Showing N of M ▾** opens the Show menu. M is the rows on the current tab
+  after the member filter; N is what is left after the Show menu.
+
+### Show menu
+
+Titled "Show on the board". Every item is a checkbox, and checked means those
+rows are on the board. Each item has a one-line description and a count of
+the rows it covers on the current tab.
+
+| Item | Description | Rows |
+|---|---|---|
+| Posted to #<channel> | announced for review | `slack.posted` |
+| Not Posted | not posted to #<channel> yet | `!slack.posted` |
+| Waiting on author | comments, red CI, conflicts, ready to merge | `authorTurn(mr, cfg) !== null` |
+| My drafts | your own draft MRs | `isDraft` |
+
+`<channel>` is the MR's resolved `slackChannel` (the tab's `slackChannel`,
+else `slack.channel`). The two Slack items only appear when Slack is enabled.
+A row is shown when every item that matches it is checked. The menu's footer
+links to the "Whose turn" settings section.
+
+Below the menu buttons, an **Also show** line lists each unchecked item as a
+`+ <item> <count>` pill. Clicking a pill checks that item, and "show everything"
+checks them all. The line is absent when everything is checked.
+
+### View state
+
+- `ViewState.slack` and `ViewState.drafts` are replaced by `show`, the set of
+  unchecked items (`notPosted`, `posted`, `authorTurn`, `myDrafts`). An empty
+  set is the default.
+- The URL and localStorage keep reading the old values once: `slack=posted`
+  maps to unchecking Not Posted, and `drafts=hide` to unchecking My drafts.
+- `filterBySlack` and `filterByDraft` become one `filterByShow` in `view.ts`.
+  It returns the rows plus a per-item count, which replaces `slackHidden` and
+  `draftsHidden`. The bottom-of-list "N items hidden" copy goes away, since
+  the Also show line now says it.
+- The Show menu applies on authors and codeowners tabs. On Needs me, the
+  Waiting on author item is left out, since that tab is already turn-based.
 
 ## Editing the setting
 
@@ -125,8 +169,12 @@ same way `board.tabs` does. A per-person override is set from the shell with
 - `needs-me` tests: with the setting unset, existing cases keep their
   `Need`. The new case is an unassigned reviewer with a replied thread, which
   maps to `re-review`.
-- `view.test.ts`: `filterByAuthorTurn`, the hidden count and copy, and
-  `ViewState` parse and serialize round trip for the new field.
-- A Storybook story for the toggle and hidden-rows copy, with invented data.
-- Visual check on `localhost:11006` in Fast Browser, light and dark, with the
-  toggle on and off. Then `bun run capture:compare`.
+- `view.test.ts`: `filterByShow` for each item and combinations, per-item
+  counts, `ViewState` parse and serialize round trip for `show`, and the
+  legacy `slack=posted` / `drafts=hide` mapping.
+- Storybook stories for the toolbar, the open Show menu and the Also show
+  line, with invented data.
+- Visual check on `localhost:11006` in Fast Browser, light and dark, with
+  everything shown and with items unchecked. The toolbar change is
+  intentional, so re-run `bun run capture:baseline` after review, then
+  `bun run capture:compare`.
