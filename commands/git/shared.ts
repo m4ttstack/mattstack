@@ -66,9 +66,9 @@ export function refusalNote(f: out.FailureInput): Block[] {
   ];
 }
 
-export function drawFailure(f: out.FailureInput, refused?: boolean): void {
-  if (refused) out.note(...refusalNote(f));
-  else out.fail(f);
+export function drawFailure(f: out.FailureInput, refused?: boolean, after: Block[] = []): void {
+  if (refused) out.note(...refusalNote(f), ...after);
+  else out.fail(f, ...after);
 }
 
 export const NOT_ON_A_BRANCH: out.FailureInput = { title: "You are not on a branch", why: "This needs a branch, and HEAD is detached right now." };

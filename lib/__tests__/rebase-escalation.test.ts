@@ -284,8 +284,38 @@ describe("runEscalationFlow (agent path)", () => {
     expect(calls).toContainEqual(["pane", "read", "p1", "--source", "recent"]);
     expect(io.errLines()[0]).toBe("The agent did not finish in 10 minutes");
     expect(io.errLines()[1]).toBe("  why: Nothing was pushed.");
-    expect(io.errLines()[2]).toBe("  Pane p1 is still open.");
+    expect(io.errLines()[2]).toBe("pane: p1");
+    expect(io.errLines()[3]).toBe(`backup: ${result.backupBranch}`);
+    expect(io.stderr()).toBe(`The agent did not finish in 10 minutes\n  why: Nothing was pushed.\npane: p1\nbackup: ${result.backupBranch}\nthe end of the pane:\n  last pane output\n`);
     expect(io.stderr()).toEndWith("the end of the pane:\n  last pane output\n");
+  }, 20_000);
+
+  test("an agent that gives up lists its pane and backup before the excerpt", async () => {
+    const repo = makeConflictRepo();
+    const result = await pausedConflict(repo);
+    sh("git rebase --abort", repo);
+    const { runner } = scriptedHerdr({ "pane read": { stdout: "agent gave up" } });
+    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: false, herdrRunner: runner });
+    expect(code).toBe(1);
+    expect(io.stderr()).toBe(`The agent gave up and undid the rebase\npane: p1\nbackup: ${result.backupBranch}\nthe end of the pane:\n  agent gave up\n`);
+  }, 20_000);
+
+  test("an unfinished rebase lists its pane and backup before the excerpt", async () => {
+    const repo = makeConflictRepo();
+    const result = await pausedConflict(repo);
+    const { runner } = scriptedHerdr({ "pane read": { stdout: "agent stopped" } });
+    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: false, herdrRunner: runner });
+    expect(code).toBe(1);
+    expect(io.stderr()).toBe(`The agent stopped, but the rebase is not finished\n  why: The rebase is still paused.\npane: p1\nbackup: ${result.backupBranch}\nthe end of the pane:\n  agent stopped\n`);
+  }, 20_000);
+
+  test("agent failures with no backup still name the pane and omit the backup row", async () => {
+    const repo = makeConflictRepo();
+    const result = { ...await pausedConflict(repo), backupBranch: null };
+    const { runner } = scriptedHerdr({ "agent wait": { stdout: "", exitCode: 1 } });
+    const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: false, herdrRunner: runner });
+    expect(code).toBe(1);
+    expect(io.stderr()).toBe("The agent did not finish in 10 minutes\n  why: Nothing was pushed.\npane: p1\n");
   }, 20_000);
 
   test("an existing rebase tab is focused, not waited on: no wait against an empty pane id", async () => {

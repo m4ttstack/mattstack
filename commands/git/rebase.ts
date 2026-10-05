@@ -116,9 +116,12 @@ const PUT_BACK = "rt put the branch back the way it was.";
 export function conflictFailure(result: Pick<RebaseResult, "unresolvedFiles" | "backupBranch">): out.FailureInput {
   return {
     title: `The rebase stopped on conflicts in ${plural(result.unresolvedFiles.length, "file")}`,
-    why: PUT_BACK,
-    details: [...result.unresolvedFiles, ...(result.backupBranch ? [`A backup is at ${result.backupBranch}`] : [])].join("\n"),
+    why: result.backupBranch ? `${PUT_BACK} Your branch as it was is saved as ${result.backupBranch}.` : PUT_BACK,
   };
+}
+
+export function conflictFilesBlock(files: string[]): Block {
+  return out.verbatim(files, "files with conflicts");
 }
 
 /**
@@ -549,7 +552,7 @@ async function runRebaseWithEscalation(
 
   if (result.status === "conflict") {
     if (mode === "off" || !result.rebaseInProgress) {
-      if (result.failure) out.fail(result.failure);
+      if (result.failure) out.fail(result.failure, ...(result.unresolvedFiles.length > 0 ? [conflictFilesBlock(result.unresolvedFiles)] : []));
       process.exit(1);
     }
     const exitCode = await runEscalationFlow({

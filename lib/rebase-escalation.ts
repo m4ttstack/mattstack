@@ -215,7 +215,7 @@ export async function runEscalationFlow(opts: {
 }): Promise<number> {
   const { cwd, result } = opts;
   const bundle = buildConflictBundle(result, cwd);
-  const backupNote = bundle.backupBranch ? `A backup is at ${bundle.backupBranch}` : undefined;
+  const backupNote = bundle.backupBranch ? `your branch as it was is saved as ${bundle.backupBranch}` : undefined;
 
   if (opts.mode === "json") {
     syncLog.phase("escalation", { mode: "json", files: bundle.unresolvedFiles });
@@ -301,7 +301,9 @@ export async function runEscalationFlow(opts: {
 
     if (!settled) {
       out.fail(
-        { title: "The agent did not finish in 10 minutes", why: "Nothing was pushed.", details: [`Pane ${launched.paneId} is still open.`, ...(backupNote ? [backupNote] : [])].join("\n") },
+        { title: "The agent did not finish in 10 minutes", why: "Nothing was pushed." },
+        out.kv("pane", launched.paneId),
+        ...(bundle.backupBranch ? [out.kv("backup", bundle.backupBranch)] : []),
         ...(await paneTail(runner, launched.paneId)),
       );
       syncLog.phase("escalation-verdict", { verdict: "timeout" });
@@ -330,7 +332,12 @@ export async function runEscalationFlow(opts: {
     }
 
     if (verdict === "agent-aborted") {
-      out.fail({ title: "The agent gave up and undid the rebase", ...(backupNote ? { details: backupNote } : {}) }, ...(await paneTail(runner, launched.paneId)));
+      out.fail(
+        { title: "The agent gave up and undid the rebase" },
+        out.kv("pane", launched.paneId),
+        ...(bundle.backupBranch ? [out.kv("backup", bundle.backupBranch)] : []),
+        ...(await paneTail(runner, launched.paneId)),
+      );
       return 1;
     }
 
@@ -338,8 +345,9 @@ export async function runEscalationFlow(opts: {
       {
         title: "The agent stopped, but the rebase is not finished",
         why: UNFINISHED[verdict],
-        details: [`Nothing was pushed. Look at pane ${launched.paneId}.`, ...(backupNote ? [backupNote] : [])].join("\n"),
       },
+      out.kv("pane", launched.paneId),
+      ...(bundle.backupBranch ? [out.kv("backup", bundle.backupBranch)] : []),
       ...(await paneTail(runner, launched.paneId)),
     );
     return 1;
