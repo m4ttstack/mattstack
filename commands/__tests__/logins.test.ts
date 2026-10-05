@@ -38,6 +38,20 @@ function deps(over: Partial<LoginsDeps> = {}) {
 }
 
 describe("rt logins", () => {
+  test("the logins table has a header", async () => {
+    const t = deps({ readStdin: async () => ({ email: "dev@example.com", password: "x" }) });
+    await loginsAdd(["https://login.example.com", "--json"], {}, t.d);
+    const io = capturePlain();
+    try {
+      await loginsList([], {}, t.d);
+      const rows = io.stdout().split("\n");
+      expect(rows[0]).toMatch(/^Login page +Signed in as$/);
+      expect(rows.some((r) => r.startsWith("https://login.example.com"))).toBe(true);
+    } finally {
+      io.restore();
+    }
+  });
+
   test("add --json reads the values from stdin verbatim and list never prints the password", async () => {
     const t = deps({ readStdin: async () => ({ email: "dev@example.com", password: CANARY }) });
     await loginsAdd(["https://login.example.com", "--json"], {}, t.d);

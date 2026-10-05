@@ -43,6 +43,12 @@ describe("rt settings get / list / explain", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
+  test("an unset key prints no value on stdout", async () => {
+    await settingsGet(["board.title"]);
+    expect(cap.stdout()).toBe("");
+    expect(cap.stderr()).toContain("not set anywhere");
+  });
+
   test("the value is the payload on stdout and the notes go to stderr", async () => {
     setSetting("rt.logLevel", "debug", "user");
     await settingsGet(["rt.logLevel"]);

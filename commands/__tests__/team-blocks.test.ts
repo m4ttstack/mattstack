@@ -84,10 +84,10 @@ test("members remove names the member, what is left to do by hand, and a next st
   expect(text).toBe(
     "[ok] Removed alice from the team  forge access: skipped\n" +
       "  fix: alice can still see the team repo. Remove them there too: mattstack does not manage who can see this repo.\n" +
-      "  next: Removed members keep any secrets they already opened. Rotate those values to shut them out.\n" +
-      "        rt secrets rotate --team acme <domain> <key>\n",
+      "  note: Removed members keep any secrets they already opened. Rotate those values to shut them out.\n" +
+      "  next: rt secrets rotate --team acme <domain> <key>\n",
   );
   expect(renderPlain(membersRemoveBlocks("alice", "acme", { forgeAccess: "revoked", manualSteps: [], reencrypted: [], rosterRemoved: false, residueNote: "n" }))).toBe(
-    "[skipped] alice was not on the team list  forge access: revoked\n  next: n\n        rt secrets rotate --team acme <domain> <key>\n",
+    "[skipped] alice was not on the team list  forge access: revoked\n  note: n\n  next: rt secrets rotate --team acme <domain> <key>\n",
   );
 });

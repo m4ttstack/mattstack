@@ -7,6 +7,7 @@
 import { statSync } from "fs";
 import { deriveRepoIdentity, parseIdentity, serializeIdentity } from "./settings/identity.ts";
 import { loadRepoIndex } from "./repo-index.ts";
+import { repoLabelFull } from "./repo-label.ts";
 import { reverseLookupByName } from "./repo-name-lookup.ts";
 import { getRepoIdentity, identityForRootReadOnly } from "./repo.ts";
 import { getRepoRoot } from "./git.ts";
@@ -59,6 +60,8 @@ export async function tryResolveRepoArg(arg: string): Promise<RepoArgResolution>
   }
 
   const index = loadRepoIndex();
+  const byLabel = Object.keys(index).filter((id) => parseIdentity(id) !== null && repoLabelFull(id) === arg);
+  if (byLabel.length === 1) return { kind: "resolved", identity: byLabel[0]! };
 
   const collapsed = reverseLookupByName(arg, index);
   if (collapsed.length === 1) return { kind: "resolved", identity: collapsed[0]![0] };

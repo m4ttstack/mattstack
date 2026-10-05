@@ -91,7 +91,7 @@ export async function loginsList(args: string[], _ctx: CommandContext = {}, over
     const rows = await listLogins(d.backend());
     if (json) return d.json(rows);
     if (rows.length === 0) return out.print(out.line("pending", "No dev logins saved yet"), out.callout("next", out.cmd("rt logins add <origin>")));
-    out.print(out.table(rows.map((r) => [r.origin, r.email])));
+    out.print(out.table(rows.map((r) => [r.origin, r.email]), ["Login page", "Signed in as"]));
   } catch (err) {
     fail(json, d, err);
   }

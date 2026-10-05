@@ -292,7 +292,7 @@ export function installBlocks(result: { installed: string[]; current: string[]; 
   const blocks: Block[] = [];
   if (result.installed.length > 0) blocks.push(out.line("done", "Installed", result.installed.join(", ")));
   if (result.current.length > 0) blocks.push(out.line("done", "Already current", result.current.join(", ")));
-  if (result.skipped.length > 0) blocks.push(out.line("refused", "Left alone, because rt did not make them", result.skipped.join(", ")));
+  if (result.skipped.length > 0) blocks.push(out.line("refused", "rt did not make these, so rt left them alone", result.skipped.join(", ")));
   if (blocks.length === 0) blocks.push(out.line("skipped", "No commands to intercept"));
   blocks.push(out.kv("Rules", String(result.rules)));
   return blocks;

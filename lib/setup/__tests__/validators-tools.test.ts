@@ -1113,9 +1113,27 @@ describe("toolRows — team-declared tool.team.<name>", () => {
 describe("toolRows: a tool that prints no version", () => {
   const silent = (name: string): ExecScript => (argv) => (argv[0] === name && argv[1] === "--version" ? ok("") : ok());
 
-  test("herdr below the floor names the floor with no gap where the version would be", async () => {
+  test("an unreadable version says so, with the status unchanged", async () => {
     const r = await pickRow(toolRows(fakeProbes({ exec: silent("herdr") }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
-    expect(r.detail).toBe("herdr is older than 0.7.5");
+    expect(r.detail).toBe("rt could not read herdr's version (it needs 0.7.5 or newer)");
+    expect(r.status).toBe("invalid");
+  });
+
+  test("nonnumeric herdr output says its version could not be read", async () => {
+    const exec: ExecScript = (argv) => (argv[0] === "herdr" && argv[1] === "--version" ? ok("  development build\n") : ok());
+    const r = await pickRow(toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.herdr");
+    expect(r.detail).toBe("rt could not read herdr's version (it needs 0.7.5 or newer)");
+    expect(r.status).toBe("invalid");
+    expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "herdr", via: "brew" });
+  });
+
+  test("nonnumeric team tool output says its version could not be read", async () => {
+    const reqs: PackRequirements[] = [{ pack: "somepack", integrations: [], tools: [{ name: "widget", why: "does widget things", floor: "3.0.0", install: { brew: "widget" } }] }];
+    const exec: ExecScript = (argv) => (argv[0] === "widget" && argv[1] === "--version" ? ok("  development build\n") : ok());
+    const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
+    expect(r.detail).toBe("rt could not read widget's version (it needs 3.0.0 or newer)");
+    expect(r.status).toBe("invalid");
+    expect(r.action).toEqual({ type: "install", label: "Upgrade", tool: "widget", via: "brew" });
   });
 
   test("Claude Code signed in reads without a dangling comma", async () => {
@@ -1144,7 +1162,8 @@ describe("toolRows: a tool that prints no version", () => {
     const withVersion = await pickRow(toolRows(fakeProbes({ exec: versioned }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
     expect(withVersion.detail).toBe("widget 2.0.0 is older than 3.0.0");
     const without = await pickRow(toolRows(fakeProbes({ exec: silent("widget") }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "tool.team.widget");
-    expect(without.detail).toBe("widget is older than 3.0.0");
+    expect(without.detail).toBe("rt could not read widget's version (it needs 3.0.0 or newer)");
+    expect(without.status).toBe("invalid");
   });
 
   test("a team tool with no floor is ready under its bare name", async () => {

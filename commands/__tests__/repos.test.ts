@@ -158,7 +158,7 @@ describe("reposRegister", () => {
 
     expect(code).toBe(2);
     expect(deps.lines.some((l) => l.includes("registered"))).toBe(false);
-    expect(stderr).toStartWith(`rt could not move ${basename(repoPath)} to ${repoPath}: `);
+    expect(stderr).toStartWith("rt could not move this repo's records\n");
     expect(stderr).toContain("  why: rt knows it at a folder that is gone, and moving its records did not finish.\n");
     expect(loadRepoIndex()[identity]).toBe(gone);
   });
@@ -199,15 +199,16 @@ describe("reposRegister", () => {
       const { code, stderr } = await human(() => reposRegister([repoPath], {}, testDeps()));
       expect(code).toBe(2);
       expect(stderr).toBe(
-        `rt could not move ${basename(repoPath)} to ${repoPath}: the rt daemon is running but did not answer\n` +
-          "  why: rt knows it at a folder that is gone, and moving its records did not finish.\n" +
-          "  next: rt daemon status\n",
+        "rt could not move this repo's records\n" +
+          "  why: rt will not move the repo itself while the daemon holds its records: the two would race.\n" +
+          "  next: rt daemon status\n" +
+          "  the full output is in the rt log\n",
       );
 
       const deps = testDeps();
       expect(await runExpectingProcessExit(() => reposRegister([repoPath, "--json"], {}, deps))).toBe(2);
       const body = JSON.parse(deps.lines[0]!);
-      expect(body.error).toEqual({ code: "locate-failed", message: `rt could not move ${basename(repoPath)} to ${repoPath}: the rt daemon is running but did not answer` });
+      expect(body.error).toEqual({ code: "locate-failed", message: "rt could not move this repo's records" });
     } finally {
       rmSync(DAEMON_SOCK_PATH, { force: true });
     }
@@ -387,7 +388,7 @@ describe("reposPrune", () => {
     const { lines } = await human(() => reposPrune([], {}, testDeps()));
 
     expect(lines).toEqual([
-      `[ok] Removed widgets  ${widgets.replace(homedir(), "~")} · same folder as github.com/acme/widgets; carried 1 file to github.com/acme/widgets`,
+      `[ok] Removed widgets  ${widgets.replace(homedir(), "~")} · same folder as github.com/acme/widgets; carried 1 file there`,
     ]);
     expect(loadRepoIndexEntries().map((e) => e.repoName)).toEqual([identity]);
   });
@@ -439,4 +440,21 @@ describe("reposPrune", () => {
     expect(lines[1]).toBe("  next: rt repos locate <new-path> --repo moved-repo");
     expect(loadRepoIndex()["moved-repo"]).toBeDefined();
   });
+});
+
+test("a duplicate row names the kept repo once", () => {
+  const text = renderPlain(pruneBlocks([{ repoName: "remote:gitlab.example.com%2Facme%2Fold", path: "/code/app", reason: "duplicate", keptAs: "remote:gitlab.example.com%2Facme%2Fapp", data: { moved: ["a"], merged: [], refused: [], registry: "moved" } } as never], false));
+  expect(text.match(/gitlab\.example\.com\/acme\/app/g)).toHaveLength(1);
+  expect(text).toContain("carried 1 file there; moved its worktrees there");
+});
+
+test("a kept missing row's next names the repo as --repo resolves it", () => {
+  const text = renderPlain(pruneBlocks([{ repoName: "remote:gitlab.example.com%2Facme%2Fapp", path: "/code/gone", reason: "missing", retained: true, hint: "rt repos locate" } as never], false));
+  expect(text).toContain("next: rt repos locate <new-path> --repo gitlab.example.com/acme/app");
+});
+
+test("a missing path repo's locate command quotes spaces and a single quote", () => {
+  const repoName = serializeIdentity({ kind: "path", id: "/code/my 'app" });
+  const text = renderPlain(pruneBlocks([{ repoName, path: "/code/gone", reason: "missing", retained: true } as never], false));
+  expect(text).toContain(String.raw`next: rt repos locate <new-path> --repo '/code/my '\''app'`);
 });

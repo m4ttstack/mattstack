@@ -9,6 +9,8 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { execFileSync } from "child_process";
+import { deriveRepoIdentity, serializeIdentity } from "../settings/identity.ts";
 import { tmpdir } from "os";
 import { join } from "path";
 import { closeStateDb, setKvValue } from "../state/index.ts";
@@ -32,6 +34,27 @@ describe("tryResolveRepoArg", () => {
     process.env.HOME = origHome;
     closeStateDb();
     rmSync(home, { recursive: true, force: true });
+  });
+
+  test("a host/path label resolves through --repo", async () => {
+    setKvValue(REPO_INDEX_NS, RT_ID, "/repos/rt");
+    expect(await tryResolveRepoArg("github.com/m4ttstack/rt")).toEqual({ kind: "resolved", identity: RT_ID });
+    expect(await tryResolveRepoArg("github.com/m4ttstack/nope")).toEqual({ kind: "none" });
+  });
+
+  test("a live directory resolves to what it derives, even when a stored row's label is that path", async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-label-dir-")));
+    try {
+      execFileSync("git", ["init", "-q", dir]);
+      execFileSync("git", ["-C", dir, "remote", "add", "origin", "git@gitlab.example.com:acme/app.git"]);
+      const pathRow = serializeIdentity({ kind: "path", id: dir });
+      setKvValue(REPO_INDEX_NS, pathRow, dir);
+      const derived = serializeIdentity(await deriveRepoIdentity(dir));
+      expect(derived).not.toBe(pathRow);
+      expect(await tryResolveRepoArg(dir)).toEqual({ kind: "resolved", identity: derived });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("passes a serialized identity through untouched", async () => {

@@ -1,3 +1,4 @@
+import { runningRunDetail } from "../../lib/worktree/running-run.ts";
 /**
  * The worktree CLI is the SENDER side of the identity re-key — it must
  * serialize identities into daemon payloads and reverse-resolve `--repo`
@@ -934,6 +935,12 @@ describe("restore --list", () => {
 });
 
 describe("disposeReason", () => {
+  test("rt leaves trees it did not make alone", () => {
+    expect(worktreeTest.disposeReason("kind-external").words).toBe("rt did not make it, so rt left it alone");
+  });
+  test("the shared running-run detail supplies the remedy", () => {
+    expect(worktreeTest.disposeReason("running-run", runningRunDetail("run-42", "review"))).toEqual({ words: "a pipeline run is still working in it (run run-42, at review)", next: { text: "rt runs abandon run-42", role: "command" } });
+  });
   test("disposeReason covers every dispose code with words, never the code", () => {
     const codes = ["changed", "kind-main", "kind-golden", "kind-unmanaged", "dirty", "unpushed", "attended", "grace", "no-trash", "busy", "remove-failed", "unknown"];
     for (const code of codes) {

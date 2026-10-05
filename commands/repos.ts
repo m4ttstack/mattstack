@@ -13,11 +13,12 @@
  */
 
 import { execFileSync } from "child_process";
+import { shellQuote } from "../lib/herdr-launch.ts";
 import { realpathSync } from "fs";
 import { homedir } from "os";
 import { basename } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
-import { getKnownRepos, healErrorClause, pruneRepoIndex, updateRepoIndexAsync, type PrunedEntry } from "../lib/repo-index.ts";
+import { getKnownRepos, pruneRepoIndex, updateRepoIndexAsync, type PrunedEntry } from "../lib/repo-index.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../lib/settings/identity.ts";
 import { CACHE_KINDS, loadMachineRepoTrackingRaw, parseCachesArg, saveRepoTrackingRaw, type CacheKind, type TrackingMode } from "../lib/repo-tracking.ts";
 import { envelope } from "../lib/setup/contract.ts";
@@ -160,8 +161,9 @@ export async function reposRegister(args: string[], _ctx: CommandContext = {}, d
     const indexed = await updateRepoIndexAsync(identity, real);
     if (!indexed.ok) {
       exitUserError(
-        new UserActionableError("locate-failed", `rt could not move ${name} to ${real}: ${healErrorClause(indexed.error)}`, {}, {
-          why: "rt knows it at a folder that is gone, and moving its records did not finish.",
+        new UserActionableError("locate-failed", "rt could not move this repo's records", {}, {
+          why: indexed.why ?? "rt knows it at a folder that is gone, and moving its records did not finish.",
+          log: `${name} to ${real}: ${indexed.error}`,
           ...(indexed.next ? { next: indexed.next } : {}),
         }),
         json,
@@ -222,14 +224,13 @@ function describeReason(r: PrunedEntry): string {
 function describeDataMove(r: PrunedEntry, dryRun: boolean): string {
   const d = r.data;
   if (!d) return "";
-  const kept = repoLabelFull(r.keptAs ?? "");
   const carried = d.moved.length + d.merged.length;
   const parts: string[] = [];
-  if (carried > 0) parts.push(`${dryRun ? "would carry" : "carried"} ${carried} file${carried === 1 ? "" : "s"} to ${kept}`);
+  if (carried > 0) parts.push(`${dryRun ? "would carry" : "carried"} ${carried} file${carried === 1 ? "" : "s"} there`);
   if (d.merged.length > 0) parts.push(`merged ${d.merged.join(", ")}`);
-  if (d.registry === "moved") parts.push(`${dryRun ? "would move" : "moved"} its worktrees to ${kept}`);
-  if (d.registry === "merged") parts.push(`${dryRun ? "would merge" : "merged"} its worktrees into ${kept}'s`);
-  if (d.registry === "refused") parts.push(`${kept}'s worktrees could not be written, so both were kept`);
+  if (d.registry === "moved") parts.push(`${dryRun ? "would move" : "moved"} its worktrees there`);
+  if (d.registry === "merged") parts.push(`${dryRun ? "would merge" : "merged"} its worktrees into that one's`);
+  if (d.registry === "refused") parts.push("that one's worktrees could not be written, so both were kept");
   if (d.refused.length > 0) parts.push(`kept both copies of ${d.refused.join(", ")}`);
   return parts.length > 0 ? `; ${parts.join("; ")}` : "";
 }
@@ -250,7 +251,7 @@ export function pruneBlocks(removed: PrunedEntry[], dryRun: boolean): Block[] {
     } else {
       blocks.push(
         out.line("needs-you", `Kept ${label}`, `${where} · ${describeReason(r)}, but it still has worktrees on record`),
-        out.callout("next", out.cmd(`${r.hint ?? "rt repos locate"} <new-path> --repo ${r.repoName}`)),
+        out.callout("next", out.cmd(`${r.hint ?? "rt repos locate"} <new-path> --repo ${shellQuote(repoLabelFull(r.repoName))}`)),
       );
     }
   }
