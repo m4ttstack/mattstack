@@ -27,7 +27,7 @@
 - F1 uses the regular HOME, existing authentication/services and disposable owned workers, per Matt’s 2026-10-05 instruction. No alternate-home lab or credential copy. Existing rt access is read-only; shared daemon restarts are deferred. Later destructive acceptance cases need an explicitly scoped environment or agreed disruption window during re-planning; do not run them against shared services by default.
 - A test that reads source as text, or spawns `cli.ts`, is named `no-*.test.ts` so the PR scope selector runs it.
 
-**F1 result:** [Original exit report](../spikes/2026-10-05-harness-gate-spike-report.md) plus [focused hook follow-up](../spikes/2026-10-05-codex-hooks-followup.md) prove G1/G2/G3/G5. Re-plan before F2, incorporating the observed hook loading/trust lifecycle; G4 async completion and G7 restart remain explicit gaps.
+**F1 result:** [Original exit report](../spikes/2026-10-05-harness-gate-spike-report.md) plus [focused hook follow-up](../spikes/2026-10-05-codex-hooks-followup.md) prove G1/G2/G3/G5. The revised spec and plans incorporate the observed hook loading/trust lifecycle; G4 async completion and G7 restart remain explicit gaps.
 
 ## Review Focus
 
@@ -46,14 +46,12 @@ plan. The child plans inherit these constraints and the contract vocabulary.
 Task IDs are unique across the package; they are implementation tasks, not
 new Linear tickets.
 
-**F1 is a gate, and the four package plans are provisional.** F1 runs as its
-own [gating spike plan](2026-10-05-harness-integrations-0-gate-spike.md) and
-reuses the October 4 spike and produces a verdict for each remaining runtime
-question. Previously proven cases run again only as necessary controls. Native
-daemon restart is explicitly unobserved in the regular-home follow-up and
-remains acceptance work. Its exit report decides which interfaces below survive. After F1, each package plan is re-planned to
-bite-sized tasks with concrete code, starting with plan 1. Do not execute any
-F2+ task from these provisional plans.
+**F1's runtime gates are complete.** Read the [original exit report](../spikes/2026-10-05-harness-gate-spike-report.md)
+and [focused hook follow-up](../spikes/2026-10-05-codex-hooks-followup.md).
+The four plans below are revised from that evidence on 2026-10-05. They are
+implementation instructions awaiting the execution handoff, not completed work.
+Preserve original spike artifacts and verdict history; do not rerun feasibility
+cases merely to produce a newer timestamp.
 
 | Plan | Deliverable | Dependencies |
 | --- | --- | --- |
@@ -62,14 +60,31 @@ F2+ task from these provisional plans.
 | [3. Orchestration](2026-10-04-harness-integrations-3-orchestration.md) | Mixed workers, either shepherd harness, correct supervision and pipeline ownership | Foundation; messaging/policy contracts |
 | [4. Skills, setup, apps and release](2026-10-04-harness-integrations-4-adoption.md) | Host-adapted workflows, Codex-only lifecycle, app adoption and acceptance | Foundation; pulls early prerequisites forward; final acceptance follows all plans |
 
-Execute the F1 gating spike first and stop for its exit report and re-plan.
-Then F2–F6, S1, S2 and S3–S4 as needed to install the tested
-tool/policy paths and S11's question/wait fragments; M1–M6; H1–H6; S10/S12
-and the remaining app tasks; S9 last. S2 compiles fragments from S11, while
-M6 supplies enforcement. Neither depends on
-declaring the other fully supported: their integration tests pass together
-before gated Codex workflows are admitted. This order avoids postponing
-required authentication, skill availability, or socket access to release day.
+### Dependency order
+
+The suffixes below split the original task IDs at independent review boundaries;
+references to a parent ID include every subtask. Do not implement a later phase
+by silently stubbing a required capability.
+
+1. **Foundation:** F2 → F3 → F4 → F5a (native control) → F5b (Claude sessions)
+   → F5c (Codex sessions) → F5d (shared launch) → F6. Bootstrap launches have
+   no managed-work admission; they exist to bind/test native sessions.
+2. **Installation and artifacts:** S3 and S1 → S2/S11 together (compiler plus
+   its first real fragments) → S4a (tools/MCP) → S4b (reviewed native policy
+   configuration). S4b consumes the M6b hook executable/manifest; implement
+   and test M6a/M6b before final S4b verification. No trust writer lives in F5.
+3. **Messaging and gates:** M1 → M2 → M3; M4 → M5a/M5b; M6a (shared policy)
+   → M6b (Codex hook bridge) → M6c (session readiness and confinement).
+   F5d defines the optional policy seam up front; M6c activates it only after
+   S4b and M5 tests pass. Bootstrap capability is not full managed readiness.
+4. **Orchestration:** H1 → H2/H3; H4/H5 after F4 and M6c; H6 after S1/M1/M6c.
+5. **Adoption and lifecycle:** S5/S6/S7/S8/S10/S12 after their stated interfaces;
+   S9 is last and cannot waive blocked required scenarios.
+
+Test code may fake native transport or setup seams. Production admission must
+never accept those fixtures as evidence. Missing credentials/resources make a
+live scenario blocked, not passed. Shared-home daemon restart remains outside
+ordinary verification: run it only in the explicit S9 acceptance environment.
 
 Each task ends in a commit limited to its listed implementation, tests and
 required generated artifacts. Run the named test red before implementation
@@ -91,7 +106,7 @@ type HarnessId = string; // validated registered ID, not a Claude/Codex union
 type Mode = "herdr" | "headless";
 type Capability = "launch" | "resume" | "caller-context" | "observe"
   | "peer-idle" | "peer-working" | "questions-form" | "questions-wait"
-  | "question-recovery" | "gate-policy"
+  | "question-recovery" | "questions-async" | "gate-policy"
   | "continuation-policy" | "background-state" | "skills" | "worktrees";
 type FaultCode = "unsupported" | "not-ready" | "refused" | "transient"
   | "stale-binding" | "ambiguous" | "invalid";
@@ -128,21 +143,68 @@ type CapabilityReport = {
 type PeerInput = { id: string; body: string; sender: string; recipient: string };
 type DeliveryReceipt = {
   id: string; evidence: "submitted" | "queued" | "consumed";
-  nativeId?: string;
+  nativeId?: string; turnId?: string; itemId?: string;
 };
 type QuestionBinding = {
   gateId: string; sessionKey: string; generation: number;
-  nativeRequest?: string | number; nativeQuestions?: string[];
+  nativeThread?: string; nativeTurn?: string; nativeItem?: string;
+  nativeQuestions?: string[]; // durable question IDs, not connection-local RPC ids
   presentation: "form" | "wait";
 };
 ```
 
 `SessionBinding.identity` references the existing chat identity; it does not
 create a second display-name system. Unbound reservations are separate rows,
-not SessionBindings containing fake native IDs. `profile` identifies the
+not SessionBindings containing fake native IDs. A controller reconnect alone
+does not replace the session attachment or advance its generation; the native
+request connection handle changes independently. A new pane/process attachment
+or worker replacement does advance generation. `profile` identifies the
 installation/auth namespace without carrying a credential. `generation`
 fences an attachment; `attemptId` fences an assignment. All public operations
 return explicit outcomes rather than coercing unknown into success or death.
+
+Runtime-only types live in `lib/agent-integrations/contracts.ts`:
+
+```ts
+type WorkInput = { id: string; text: string };
+type LaunchRequest = {
+  reservationId: string; cwd: string; mode: Mode; selection: Selection;
+  required: readonly Capability[]; prompt?: string;
+  access: { readRoots: string[] };
+};
+type PreparedPolicy = {
+  id: string; harness: HarnessId; profile: string; cwd: string; revision: string;
+}; // opaque native preparation reference; no caller-controlled args or grants
+type PolicyProof = {
+  sessionKey: string; generation: number; revision: string;
+  verified: Capability[]; observedAt: number;
+};
+type ActiveQuestionHandle = {
+  connection: string; requestId: string | number;
+  threadId: string; turnId: string; itemId: string;
+}; // in-memory only; reconnect replaces it after matching the durable binding
+```
+
+`questions-form`/`question-recovery` initially describe synchronous Codex plan-mode
+forms. `questions-wait` describes Mattstack's gate wait/subscription contract.
+`questions-async` is absent for Codex until separately proved; consumers never
+infer it from `questions-form`. Capabilities are checked at the actual operation,
+including its native collaboration mode, not just the display metadata's Mode.
+
+`PolicyAdapter.prepare(request: LaunchRequest): Promise<Outcome<PreparedPolicy>>`
+is a read-only preflight, not a trust installer.
+`verify(binding: SessionBinding, prepared: PreparedPolicy): Promise<Outcome<PolicyProof>>`
+checks the actual session. The shared service records proof only for the current
+generation/revision; H1 activation and managed operations recheck it. Revision covers the native definition hashes, installed script artifact
+fingerprints, native version and profile. Native configuration and probe
+details stay inside the implementation.
+
+`launchBoundAgent` returns a prepared/verified binding without submitting work.
+Managed callers then activate H1's attempt and call `startBoundWork` with its
+active-attempt authorizer. The required sequence is reserve → create/resume →
+bind → verify policy → activate attempt → submit work. Activation failure sends
+no work. Ordinary callers use the same separate submission phase with their
+existing caller authorization; no public API accepts an authorization callback.
 
 `GateRow`, `GateAnswer`, `GateQuestion`, `StepDef`, `ApplyContext`,
 `CompileResult`, and `PluginListEntry` retain their existing definitions.
@@ -285,6 +347,34 @@ services. See the [exit report](../spikes/2026-10-05-harness-gate-spike-report.m
 and [original evidence](../spikes/2026-10-05-harness-gate-spike-evidence.json), plus
 the [focused hook follow-up](../spikes/2026-10-05-codex-hooks-followup.md) and its
 [evidence](../spikes/2026-10-05-codex-hooks-evidence.json). G1/G2/G3/G5/G6 are
-proven; G4/G7 are partial. Incorporate the proven scoped hook loading/trust
-lifecycle into the spec before package re-planning. G7 restart coverage remains
-deferred acceptance work. F2 onward is provisional and unexecuted.
+proven; G4/G7 are partial. The spec and revised package plans incorporate
+the proven hook loading/trust lifecycle and exact native protocol contracts. G7 restart coverage remains
+deferred acceptance work. F2 onward is revised and unexecuted; await the execution handoff.
+
+
+**Reference refresh limit (2026-10-05):** The available authenticated Linear
+connection did not resolve the three governing document links in
+`docs/architecture.md`, including after paginated document lookup. This re-plan
+preserves the approved suite boundaries and existing RT-384 ticket mapping;
+it makes no claim to have refreshed those external documents or ticket states,
+and makes no Linear edits. Reconcile externally changed scope before implementing
+a task that overlaps it; repository/spec/spike evidence drives this revision.
+
+
+## Re-plan review and verification — 2026-10-05
+
+The existing plan reviewer re-read the revised spec, this index and all four
+package plans. Round 1 identified an activation race: a worker could receive
+its prompt before H1 established assignment authority. The corrected contract
+separates bound-session preparation from work submission, orders policy proof
+and activation before submission, and tests both failed activation and an
+immediate worker report. Round 2 returned **Status: Approved**, with no
+remaining issues. The external-reference refresh limitation above remains an
+explicit handoff obligation, not a claim of refreshed Linear state.
+
+Self-review checked specification coverage, interface/type consistency, task
+steps and the Review Focus tests. Document checks passed: local relative links,
+balanced fences, unique task IDs, file/interface/checklist sections for all
+implementation tasks, and A01–A28 mapping. `git diff --check` passed. This
+revision changes documents only; runtime tests were not rerun and no F2+
+implementation or acceptance scenario was executed.

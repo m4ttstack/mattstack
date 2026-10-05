@@ -20,8 +20,8 @@ Follow `docs/repo-identity.md`, `docs/settings-architecture.md`, and the root
 AGENTS schema rules. Claim the next state schema version at execution time;
 the planning checkout has version 15, which must not be assumed still free.
 
-**Provisional:** F2 to F6 are re-planned from the F1 gating spike's exit
-report before execution. `rt agent` and `rt pane` output is pinned by
+**Re-planned 2026-10-05:** F1 plus the focused hook follow-up determine the
+contracts below. This is an execution handoff, not a claim that F2–F6 ran. `rt agent` and `rt pane` output is pinned by
 `herd-pane-agent-bytes.json` and its supplement; F5 and F6 keep those bytes.
 
 ## Review Focus
@@ -44,13 +44,14 @@ The existing agent/pane handlers remain dispatch entry points.
 
 ### F1: Gating spike (separate plan)
 
-F1 is executed from its own plan,
+F1 was executed from its own plan,
 [2026-10-05-harness-integrations-0-gate-spike.md](2026-10-05-harness-integrations-0-gate-spike.md).
-It reuses the October 4 evidence and tests only the remaining questions
+It reused the October 4 evidence and tested only the remaining questions
 (G1 to G7) using regular HOME and owned workers on existing services. Shared
 daemon restart is deferred acceptance work. Its exit report combines prior
-and new evidence; F2 to F6 below remain provisional and are re-planned to
-bite-sized tasks from that report.
+and new evidence. G1/G2/G3/G5 are proven; G4/G7 remain partial. F5 is split
+below so native transport, each session implementation and shared admission
+can be reviewed independently.
 
 ### F2: Register integrations and admit workflows by capability
 
@@ -78,17 +79,24 @@ interfaces defined in M1/M4/M6/S1/S4/S10/S12:
 `loadSkills(): Promise<SkillAdapter>`, and
 `loadInstall(): Promise<InstallAdapter>`.
 Absent factories cannot advertise the corresponding capabilities. Declare
-each adapter interface with the operations F1's evidence supports, as a
-minimal shape; the task that implements an adapter (M1, M4, M6, S1, S4, S10,
-S12) extends it in the same commit as its first implementation and test. Do
-not freeze shapes that no test exercises yet.
+the adapter interfaces with the exact operations in the parent vocabulary
+and M1/M4/M6/S1/S4. Type-only imports may refer to contracts declared here;
+never import a runtime setup module to satisfy a type. Initially omit unbuilt
+factories and their capabilities instead of supplying throwing stubs. Test a
+fixture implementation of each declared operation when adding its factory.
+
 
 `SessionAdapter` has `launch(request: LaunchRequest): Promise<Outcome<NativeLaunch>>`,
 `resume(ref: NativeSessionRef, request: LaunchRequest): Promise<Outcome<NativeLaunch>>`,
 `discover(): Promise<NativeLaunch[]>`, and
-`observe(binding: SessionBinding): Promise<Outcome<Observation>>`.
+`observe(binding: SessionBinding): Promise<Outcome<Observation>>`, and
+`startWork(binding: SessionBinding, input: WorkInput): Promise<Outcome<DeliveryReceipt>>`.
+`WorkInput` is `{ id: string; text: string }`; its stable ID identifies this
+initial work submission across acknowledgement ambiguity, not native deduplication.
 `LaunchRequest` contains `reservationId`, `cwd`, `mode`, `selection`, optional
-`prompt`, and validated `access: { readRoots: string[] }`.
+`prompt`, `required: readonly Capability[]`, and validated
+`access: { readRoots: string[] }`. Use the parent definition verbatim; prompt
+is deferred work and must not be submitted inside native launch/resume.
 `NativeLaunch` contains a verified `native` reference and `attachment` without
 generation; the shared store assigns the generation. A launch that cannot
 yet establish a native reference returns an ambiguous outcome, not a fake ID.
@@ -172,50 +180,161 @@ tool execution context; do not change public tool arguments to accept authority.
   and a matching working directory.
 - [ ] Run `bun test lib/agent-integrations/__tests__/context.test.ts lib/mcp/__tests__/whoami-tool.test.ts`;
   expect attribution tests red.
-- [ ] Implement the F1-proven correlation path and one resolver shared by CLI
-  and MCP. Preserve supported explicit CLI session lookup; reject ambiguous
+- [ ] Implement Codex CLI extraction from `CODEX_THREAD_ID` and MCP extraction
+  from `request.params._meta.threadId` in `commands/mcp.ts`, before dispatch.
+  Supply transport-owned profile/connection provenance separately; never copy
+  `arguments.threadId` into that evidence. A shared MCP environment has no
+  per-call Codex session ID. Resolve both through F3's native tuple and current
+  generation/assignment. Preserve metadata through the pinned SDK handler;
+  do not trust an arbitrary caller merely because it supplies an `_meta` key.
+  Add fixtures for missing/foreign-profile metadata, zero/empty IDs, conflicting
+  env/metadata and a caller-supplied lookalike. Keep compatibility branches in
+  native extractors, not generic tools. Preserve supported explicit CLI session lookup; reject ambiguous
   raw IDs. Bind per-process stdio only when F1 proves it represents one native
   session; otherwise use proven per-request metadata or an isolated supported
   launch/MCP configuration. Stop if neither is possible. Migrate
   `requireWorkerEnv`/`requireChatHandle` consumers to resolved context, keeping
   compatibility wrappers only while their callers migrate.
 - [ ] Run context, whoami, and `bun test lib/mcp/__tests__/chat-tools.test.ts lib/mcp/__tests__/herd-tools.test.ts`.
-  Repeat F1's simultaneous real CLI/MCP attribution case; both must pass.
+  Repeat only the simultaneous CLI/MCP attribution acceptance against the
+  implemented server; compare each exact native ID and reject a cross-worker
+  ownership attempt. Prior spike success does not validate new server code.
 - [ ] Stage task files and commit `refactor: resolve agent callers through session bindings`.
 
-### F5: Adapt launch, resume and native observations
+### F5a: Own the native Codex control connection
+
+**Files:** Create `lib/agent-integrations/codex/control.ts`,
+`lib/agent-integrations/codex/protocol.ts`,
+`lib/agent-integrations/__tests__/codex-control.test.ts`.
+
+**Interfaces:** `connectCodexControl(options: { socketPath: string; profile: string }): Promise<CodexControl>`.
+`CodexControl.request(method: string, params: unknown): Promise<unknown>`;
+`subscribe(listener: (event: CodexEvent) => void): () => void`;
+`respond(handle: ActiveQuestionHandle, answers: Record<string,{answers:string[]}>): Outcome<void>`;
+`close(): void`. `CodexEvent` is the validated native union for the methods
+used by F5c/M1/M5b/M6b; it stays private to `codex/`. Dependencies inject a
+socket factory and clock; production discovers the existing native endpoint.
+
+- [ ] Write `buffers early owned events`, `request zero survives`,
+  `old connection cannot answer replay`, `foreign events never escape`, and
+  `method allowlist cannot be bypassed by adding threadId`. Assert no listener
+  receives a foreign thread event and `respond(oldHandle,answer).ok === false`.
+  A pending request must reject on close/timeout; a duplicate response refuses.
+- [ ] Run `bun test lib/agent-integrations/__tests__/codex-control.test.ts`; expect red.
+- [ ] Adapt the spike's initialize/initialized, buffering, request correlation
+  and disconnect cleanup into production types. Keep an explicit operation
+  allowlist: read discovery, owned-cwd thread creation and owned-thread methods
+  actually needed by these tasks. A separate owned launch reservation tracks a
+  new thread before its first turn. Reject malformed events and unsupported
+  fields required by an operation; negotiate experimental queue capability.
+  Filter before recording, do not log full messages, and never start/restart
+  the shared native daemon implicitly. Inspect the installed schema against
+  saved sanitized fixtures for the release version.
+- [ ] Rerun the suite; expect green and all socket/timer resources closed.
+- [ ] Commit `feat: add owned Codex control transport`.
+
+### F5b: Extract the existing Claude session behavior
 
 **Files:** Create `lib/agent-integrations/claude/sessions.ts`,
-`lib/agent-integrations/codex/sessions.ts`,
-`lib/agent-integrations/launch.ts`,
-`lib/agent-integrations/__tests__/sessions.test.ts`;
-modify `lib/agent-argv/index.ts`, `lib/daemon/handlers/agent.ts`,
-`commands/agent-fallback.ts`, `lib/daemon/agent-status-poller.ts`.
+`lib/agent-integrations/__tests__/claude-sessions.test.ts`;
+modify `lib/agent-argv/index.ts`, `lib/daemon/agent-status-poller.ts`.
 
-**Interfaces:** `createClaudeSessions(): SessionAdapter`,
-`createCodexSessions(): SessionAdapter`, and
-`launchBoundAgent(request: LaunchRequest): Promise<Outcome<SessionBinding>>`.
-Consumes F2 registry/F3 store. Native adapters return observations; only the
-shared launch service reserves/binds identity and changes store ownership.
+**Interfaces:** `createClaudeSessions(): SessionAdapter` from F2. Native argv,
+registry discovery, trust-dialog handling and screen/process parsing stay here;
+normalized observations carry current generation, source and timestamp.
 
-- [ ] Write `launch timeout reconciles without duplicate spawn`,
-  `resume reapplies persisted options`, and `disconnect does not mean dead`.
-  Assert a timed-out native bind causes `spawnCount === 1`, subsequent discovery
-  binds that process, changed defaults do not alter resumed `yolo`, and
-  disconnected observations retain `execution:'unknown'` unless death is proven.
-- [ ] Run `bun test lib/agent-integrations/__tests__/sessions.test.ts lib/daemon/__tests__/agent-handlers.test.ts`;
-  expect new assertions red.
-- [ ] Extract existing argv, registry, trust-dialog and observation mechanics
-  into adapters; reuse current utilities. Implement Codex identity/observation
-  using F1's evidence. Integrate interactive/headless paths with reservations;
-  headless IDs come from validated events. Persist launch correlation before
-  spawn. Daemon-down fallback may keep its existing limited launch behavior but
-  must disclose unavailable managed capabilities and never impersonate a bound
-  herd worker. No native parser remains in generic watchdog consumers.
-- [ ] Run the named tests and
-  `bun test lib/__tests__/agent-argv.test.ts lib/__tests__/agent-argv-codex.test.ts commands/__tests__/agent-fallback.test.ts`; execute live start/resume in both
-  supported modes. Readiness remains capability-specific, not full-support.
-- [ ] Stage task files and commit `refactor: launch and observe agents through integrations`.
+- [ ] Characterize fresh/resume/headless argv and current observation fixtures.
+  Assert persisted model/account/effort/yolo options survive changed defaults;
+  a disconnected transport does not produce `execution: 'dead'`.
+- [ ] Run `bun test lib/agent-integrations/__tests__/claude-sessions.test.ts lib/__tests__/agent-argv.test.ts`;
+  expect new adapter assertions red.
+- [ ] Wrap the current mechanisms without changing their semantics. Keep
+  compatibility exports until F5d moves their consumers; do not add another
+  registry or a dependency on the future Claude mod API.
+- [ ] Rerun the named suites and existing status-poller tests; expect green.
+- [ ] Commit `refactor: extract Claude session integration`.
+
+### F5c: Implement Codex session creation, resume and observations
+
+**Files:** Create `lib/agent-integrations/codex/sessions.ts`,
+`lib/agent-integrations/__tests__/codex-sessions.test.ts`;
+modify `lib/agent-argv/codex.ts`.
+
+**Interfaces:** `createCodexSessions(control: CodexControl): SessionAdapter`.
+Consumes F5a and returns F2 `NativeLaunch`; this adapter never assigns a herd
+job or mutates shared session generations.
+
+- [ ] Write `create thread before remote attach`, `remote resume omits permission overrides`,
+  `ready history is not user work`, and `resume cannot silently replace a thread`.
+  Assert the returned native ID is exactly `thread/start.thread.id`; capture
+  cwd/runtime roots/sandbox at creation. Assert remote resume argv has neither
+  `--add-dir`, `-s` nor `-a`; no second startup prompt is submitted by the TUI.
+  An async-form event must not advertise synchronous request completion.
+- [ ] Run `bun test lib/agent-integrations/__tests__/codex-sessions.test.ts lib/__tests__/agent-argv-codex.test.ts`;
+  expect red.
+- [ ] Configure permissions at `thread/start`, preserve the selected native
+  approval/sandbox settings, persist one harmless initialization turn to make
+  the new thread resumable, then attach Herdr with explicit remote resume.
+  Use the same owned API thread without a terminal for headless mode. Reconcile
+  a launch timeout against its reservation; never spawn a second worker to
+  repair an unknown result. Resume the exact persisted thread and options;
+  changed policy readiness is handled by M6c, not a new conversation.
+  Map native turn/status/background events to observations; missing channels
+  remain unknown. An `agentMessage` saying DONE cannot mark execution idle or
+  a job complete; require native turn/status evidence.
+- [ ] Rerun the suites. Live-check fresh/resume in both modes with the actual
+  sandbox response and, for Herdr, a captured interactive prompt/history.
+  A folder trust prompt is blocked attachment, not successful launch readiness.
+- [ ] Commit `feat: implement bound Codex sessions`.
+
+### F5d: Route the shared launcher through reservation and readiness
+
+**Files:** Create `lib/agent-integrations/launch.ts`,
+`lib/agent-integrations/__tests__/launch.test.ts`;
+modify `lib/daemon/handlers/agent.ts`, `commands/agent-fallback.ts`,
+`lib/agent-argv/index.ts`, `lib/daemon/agent-status-poller.ts`,
+`lib/state/db.ts`, `lib/agent-integrations/session-store.ts`.
+
+**Interfaces:** `launchBoundAgent(request: LaunchRequest): Promise<Outcome<SessionBinding>>`;
+`startBoundWork(binding: SessionBinding, input: WorkInput, authorize: () => Promise<Outcome<void>>): Promise<Outcome<DeliveryReceipt>>`.
+The authorization callback is trusted server code, never a public tool argument.
+For managed work H1 supplies an active-attempt check; for ordinary launches the
+agent handler supplies its existing caller authorization. No callback means
+no submission. `launchBoundAgent` prepares a binding only; it never sends work.
+Consumes F2/F3/F5b/F5c. Optional policy factories are invoked only when the
+request requires gate/continuation policy; no absent factory can satisfy that
+requirement. M6c implements this seam's native readiness proof.
+
+- [ ] Write `timeout reconciles without duplicate spawn`, `failed policy does not activate assignment`,
+  and `resume preserves selection`. Assert `spawnCount === 1` after a bind
+  timeout and reconciliation, and no work prompt is submitted before readiness.
+  Add `activation fails without sending work` and `immediate report sees active attempt`:
+  failed activation/authorization gives `startWorkCalls === 0`; a synchronous
+  test report from inside the submission sees the active binding/attempt.
+  Missing policy factories refuse managed requests while ordinary launch works.
+- [ ] Run `bun test lib/agent-integrations/__tests__/launch.test.ts lib/daemon/__tests__/agent-handlers.test.ts`;
+  expect red.
+- [ ] Persist the reservation before native creation. If required, prepare
+  installed policy read-only; create/resume through the selected session
+  adapter; bind the native result; verify required policy on that binding;
+  only then return a ready binding. For managed work the caller must activate
+  the reserved attempt through H1, then call `startBoundWork`; that operation
+  rechecks the current generation/proof and invokes the mandatory authorization
+  callback immediately before native submission. Ordinary agent handlers also
+  use this explicit submission phase. Persist the work input ID and outcome;
+  an ambiguous send is reconciled, never used to spawn or blindly submit twice.
+  Add `agent_work_submissions` in state.db keyed by binding/generation/input ID,
+  with attempt ID, state (`pending | submitting | submitted | queued | consumed |
+  ambiguous | refused`), native correlation IDs and timestamps. Persist
+  `submitting` before the native side effect; crash recovery treats that state
+  as ambiguous, not safely unsent. Reconcile against native evidence before
+  any retry. Keep failed
+  verification bound but unready for recovery; never activate a herd attempt.
+  Generation changes invalidate proof. Daemon-down fallback retains its
+  limited existing behavior and cannot impersonate a managed bound worker.
+- [ ] Rerun the named tests plus `bun test commands/__tests__/agent-fallback.test.ts`
+  and agent frozen-byte fixtures. Expect no native parsing in generic callers.
+- [ ] Commit `refactor: route agent launches through verified integrations`.
 
 ### F6: Expose integrations and migrate pane discovery
 

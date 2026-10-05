@@ -4,11 +4,14 @@ Date: 2026-10-04
 
 Status: approved for implementation planning on 2026-10-04. The user approved
 the written specification by requesting the implementation plan. Implementation
-has not started.
+has not started. Updated 2026-10-05 after the approved F1 and focused hook
+spikes; the user requested the corresponding spec and package re-plan.
 
 Implementation tasks are in the [plan index](../plans/2026-10-04-harness-integrations.md).
 The [F1 gating spike](../plans/2026-10-05-harness-integrations-0-gate-spike.md)
-runs first; the four package plans are provisional until it reports.
+is complete. Its runtime gates pass with the focused hook follow-up; the
+revised package plans incorporate that evidence and retain release acceptance
+gaps. This revision does not authorize implementing those packages.
 
 ## Purpose and success criteria
 
@@ -45,6 +48,26 @@ dependency areas. The [runtime spike](../spikes/2026-10-04-codex-compatibility-s
 and its [evidence](../spikes/2026-10-04-codex-compatibility-evidence.json)
 establish feasibility for specific delivery, question, chat, and resume paths.
 They do not establish production readiness or complete behavioral coverage.
+
+### Evidence adopted on October 5
+
+The [F1 report](../spikes/2026-10-05-harness-gate-spike-report.md) and
+[hook follow-up](../spikes/2026-10-05-codex-hooks-followup.md) supplement,
+rather than replace, the October 4 evidence. Tested Codex CLI/server 0.160.0
+is one evidence point, not a supported version range.
+
+| Boundary | Contract the implementation may rely on | Remaining acceptance |
+| --- | --- | --- |
+| Caller identity | CLI `CODEX_THREAD_ID`; MCP host `tools/call.params._meta.threadId`, scoped by native profile and resolved against a binding | Reject argument-supplied authority, wrong-profile metadata and stale attachments; host metadata is not a cryptographic credential |
+| Synchronous questions | `item/tool/requestUserInput` with thread/turn/item identity; replay after controller reconnect, answer on the current connection, then `serverRequest/resolved` | Multiple questions, competing answer surfaces, cancellation and disconnect after response; all-client and service restart recovery |
+| Hook policy | Trusted project PreToolUse can refuse `request_user_input`; Stop exit 2 can cause same-turn continuation, followed by an allowed stop | Actual Mattstack policy, failure/timeout paths, trust lifecycle, tampering and every admitted launch mode |
+| Consumption | `thread/queue/add.clientUserMessageId` matches consumed `userMessage.clientId` plus thread/turn/item | Native restart survival, queue deduplication and replay; consumption is not completed work |
+| Socket access | Host MCP reaches rt while worker remains workspaceWrite with network disabled | Real rt MCP grants and confinement, distributed setup and supported permission modes |
+
+The original F1 terminals were not verified attached; their evidence describes
+API-driven threads. The follow-up verified explicit remote CLI attachment.
+Ordinary default-CLI equivalence remains acceptance work. Native async question
+emission was observed, but no correlated answer-completion path was proved.
 
 This design extends the existing
 [agent provider design](2026-09-15-rt-agent-codex-provider-design.md) beyond
@@ -159,6 +182,14 @@ enforcing unattended gates, and resuming a session are distinct capabilities.
 Interactive and headless modes may expose different capabilities. Model and
 account choices are scoped to an integration; a harness is not a model vendor.
 
+Host readiness and session readiness are separate. Inspecting an enabled,
+trusted hook inventory is preflight evidence only. Managed launch holds the
+assignment inactive until the actual bound session has exercised the required
+hook entry points and produced correlated readiness evidence. A changed hook
+revision, native version/profile or attachment invalidates that evidence.
+Runtime policy errors withdraw readiness; they do not silently grant workflow
+authority. Interactive unmanaged use may remain available with fewer capabilities.
+
 Each workflow declares its required capabilities. Admission checks them
 before launch or assignment, and operations recheck transient readiness.
 An unsupported optional native feature is reported as such. Missing a required
@@ -225,7 +256,10 @@ Manually started sessions can discover and sign into Mattstack through their
 integration without inheriting a managed assignment.
 
 The Codex spike observed correct thread IDs with incorrect inherited pane
-variables. Per-request CLI and MCP attribution under shared-server execution
+variables. Codex CLI correlation uses `CODEX_THREAD_ID`; the MCP adapter reads
+host `_meta.threadId` at the server request boundary, never from tool arguments
+or the shared MCP process environment. Both references require profile scope
+and a current binding. A metadata string alone is not assignment authority. Per-request CLI and MCP attribution under shared-server execution
 is therefore a mandatory integration test. The implementation must establish
 the binding through supported session/transport correlation before enabling
 assignment-sensitive tools. This spec does not treat an environment-variable
@@ -301,6 +335,22 @@ succeeded. An idle or working pane is not sent Escape. Self-answers do not
 create redundant notifications. Notifications instruct agents to read the
 gate store; they do not substitute a copied answer as authority.
 
+Codex initially advertises synchronous native form completion only in the
+tested collaboration mode (plan mode). Unattended workflows use Mattstack
+gates and their existing wait/subscription path. Default-mode native async
+forms are not a substitute for that path and do not advertise form/recovery
+capabilities until separately proved. This optional native limitation does
+not waive any required Mattstack gate workflow.
+
+For a synchronous form, persist thread/turn/item and question IDs with the
+gate binding. Keep the current connection and inbound request handle in
+memory. On reconnect, resume the same thread and match the replay by durable
+identity before replacing the transient handle. A numeric request ID is
+connection-local, may be zero or reused, and is never sufficient to select
+an answer target. A matched `serverRequest/resolved` confirms that request
+resolved, not which surface won an answer race; keep answer provenance and
+report a conflict rather than overwrite an authoritative gate answer.
+
 Codex can complete a correlated native question with the stored answer when
 that question mechanism supports it. A steering message that wakes an async
 wait is not proof that the native question was completed or dismissed. Each
@@ -320,6 +370,50 @@ supported mechanisms. Required checks must be enforced at the appropriate
 tool or state-transition boundary; prompting the model to obey them is not
 sufficient. If an integration cannot enforce a required rule, that workflow
 is unavailable and the full-support acceptance profile has not passed.
+
+### Policy loading, enforcement and readiness
+
+Native installation belongs to the integration. The proven Codex arrangement
+uses hooks in an active trusted project `.codex` layer and separately trusted
+exact hook hashes. Production uses the real project's native trust boundary;
+it never creates a nested Git repository to make trust work. If that boundary
+would require broader trust than the operator approved, setup reports not-ready.
+User/plugin hook loading may be adopted only with equivalent acceptance evidence;
+it is not inferred from the project-hook result.
+
+Setup presents the exact project boundary, definitions and native hashes for
+review. Runtime launch never grants trust, changes global sandbox policy or
+restarts a shared daemon. Install/update/restore owns only its exact entries;
+user edits and unrelated settings are preserved. A changed native hook hash
+requires review again. Stable versioned executable paths and an owned artifact
+fingerprint additionally detect script-content changes the native definition
+hash may not cover. Native trust is not a general anti-tampering guarantee.
+
+A fresh worker after installation is the proven loading path. Resume alone
+was insufficient in the follow-up. New managed launches prepare configuration,
+create the native thread with its intended sandbox, bind it without activating
+the job, exercise correlated hook checks, activate the reserved assignment, and
+only then submit actual work. Failed activation submits nothing; work submission
+rechecks the current assignment immediately before its native side effect.
+Existing sessions that cannot establish current policy readiness stay
+unavailable for managed work; never silently replace their conversation.
+
+Native hooks translate tool/event names and exact session/turn context into
+shared policy decisions. Shared gate/run state determines whether a native
+question is allowed and whether a running pipeline may stop. Preserve current
+Claude cases: an owned running/open stage requests continuation; a current
+hold or armed gate wait permits the turn to end without completing the run;
+no owned running pipeline is not a continuation obligation. Extract the actual
+fork-check rules rather than replacing them with a blanket ban on all questions.
+
+Characterize current Claude failure and timeout escape paths and retain them.
+An unavailable policy service must not trap an interactive agent forever, but
+an allowed native stop caused by failure is not a successful workflow result.
+Withdraw managed readiness and retain pending run/gate state with a recoverable
+attention reason. A final-looking message is never completion evidence: observe
+native turn completion and then apply existing Mattstack result checks. Test
+repeated Stop refusals and cancellation explicitly before advertising continuation
+policy; the one-shot spike does not establish loop limits or tamper resistance.
 
 ## Shepherdr and workflow supervision
 
@@ -529,13 +623,14 @@ Click through the relevant app flows, including external gate answers, rather
 than treating a successful daemon call as UI verification. Validate supported
 headless operations separately from Herdr interactive sessions.
 
-The spike already demonstrated basic native delivery, externally stored gate
-answers, one synchronous native question completion, chat reading, same-thread
-resume, Claude inbox delivery, and isolated rt gate durability. It did not
-prove native question replay/ownership after reconnect, async question
-completion, shared-server MCP context isolation, native-service restart,
-production mixed-herd supervision, complete UI behavior, or clean-machine
-installation. These remain required acceptance cases.
+The October 4/5 evidence proves the specific native boundaries listed above,
+including concurrent caller attribution, synchronous controller reconnect and
+synthetic question/Stop enforcement. It does not prove production policy,
+all-consumer disconnect, native-service restart, async answer completion,
+mixed-herd supervision, complete UI behavior or clean-machine installation.
+Required product workflows retain those acceptance obligations; unsupported
+optional native async forms stay explicitly unavailable. Source tests or a
+synthetic hook success never substitute for the distributed workflow matrix.
 
 Tests that redirect HOME keep the repository's isolation rules. Live harness
 tests may use the user's normal authenticated home, as authorized for the
@@ -573,11 +668,11 @@ The implementation plan must assign every audit row to a package and test,
 specify concrete interface/schema changes and compatibility removals, and
 reconcile the existing Linear work. It must resolve the remaining runtime
 questions through explicit probes or failing acceptance cases before enabling
-dependent workflows. A gating spike runs first and answers the open runtime
-questions (caller attribution, question recovery, enforceable policy hooks,
-socket access, consumption evidence, service restart). The package plans are
-finalized from its evidence; until then their interfaces are provisional. If evidence requires changing the agreed behavior or
+dependent workflows. The completed gating spike and hook follow-up settle the native
+caller, synchronous recovery and policy mechanism choices. The revised plans
+use those contracts explicitly. Native restart and async answer completion
+remain unproved and must not be described as completed spike results. If evidence requires changing the agreed behavior or
 boundaries, revise this design for review rather than silently reducing scope.
 
-The next step after written-spec approval is implementation planning. This
+The revised implementation plans remain a separate execution handoff. This
 document authorizes no implementation, deployment, or external publication.

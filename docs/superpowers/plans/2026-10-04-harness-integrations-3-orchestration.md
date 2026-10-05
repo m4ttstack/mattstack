@@ -17,8 +17,8 @@ types. “Shepherdr may choose each worker's harness from the user's enabled,
 ready integrations. An explicit user assignment wins.” “Retries and resumes
 retain that selection.” “Unknown state must remain unknown.” Required gate
 and continuation policy must pass M6 before managed Codex workflows are enabled.
-**Provisional:** re-planned from the F1 gating spike's exit report before
-execution. `rt herd` output is pinned by `herd-pane-agent-bytes.json` and its
+**Re-planned 2026-10-05:** use the revised F4/F5 and M5/M6 contracts;
+managed assignments require session-specific policy proof, not inventory alone. `rt herd` output is pinned by `herd-pane-agent-bytes.json` and its
 supplement; `rt runs` and `rt ci` by `agent-verbs-bytes.json`.
 
 ## Review Focus
@@ -52,15 +52,25 @@ optional `replaces`. `reconcileJobAttempts(): Promise<void>` repairs interrupted
   bind/activate sequences without launching another worker.
 
 - [ ] Write `replacement rejects old report` and `crash before activation grants no ownership`.
+  Include `activation failure sends no work` and `first worker call sees active ownership`.
+  Assert native submission count stays zero after activation failure and an
+  immediate report from the submitted worker is authorized by the active attempt.
   Assert the predecessor receives `error.code === 'stale-binding'`, the
   replacement keeps the stored worker handle, and only matching active attempt
-  plus binding authorizes a report. Close/reopen both stores between each step
+  plus binding authorizes a report. A current M6c proof must precede activation;
+  `expect(activateWithoutProof.ok).toBe(false)` even if hooks/list is trusted. Close/reopen both stores between each step
   of reserve/bind/activate and assert recovery creates no duplicate attempt.
 - [ ] Run `bun test lib/daemon/__tests__/herd-attempts.test.ts lib/daemon/__tests__/herd-store.test.ts`;
   expect new attempt tests red.
 - [ ] Add the attempt table with one active attempt per `(herd,job)` and an
   atomic compare-and-replace transition in herds.db. Reserve before launch;
-  activate only after the verified binding exists. Authorization checks both
+  activate only after the verified binding and required M6c policy proof exist.
+  Call F5d `launchBoundAgent` to prepare the binding, `activateJobAttempt` to
+  commit authority, then `startBoundWork` with an authorizer that rechecks the
+  exact active attempt/generation. Never send the work prompt before activation.
+  An activation failure retains an unready/unassigned session for reconciliation
+  without running the job; an ambiguous submission retains the active attempt
+  and stable work input ID rather than spawning a replacement. Authorization checks both
   stores; a partial cross-store update grants neither the old nor provisional
   replacement extra authority. Preserve historical rows and worker identities.
   Resuming the same attempt refreshes its recorded binding generation through
@@ -119,8 +129,12 @@ cannot declare the current worker dead.
 - [ ] Write `non-Claude is not dead`, `background activity preserves liveness`,
   `stale observation cannot kill replacement`, and `lost transport remains unknown`.
   Assert `expect(classifyJobObservation(job,disconnected,now)).toBe('unknown')`
-  and idle foreground plus active background returns active. Verify native
-  confirmed death still triggers the existing recovery action.
+  and idle foreground plus active background returns active. Add the actual
+  Codex sequence DONE → blocked Stop → CONTINUED → allowed Stop → turn complete;
+  neither DONE nor a hook error can mark the job completed. Job completion still
+  requires its authorized report and existing pipeline/result checks. Verify native
+  confirmed death still triggers the existing recovery action. Unsupported
+  async questions create attention/unknown state, never an inferred gate answer.
 - [ ] Run `bun test lib/daemon/__tests__/herd-harness-observation.test.ts lib/daemon/__tests__/herd-watchdog.test.ts`;
   expect new cases red.
 - [ ] Replace provider-name checks and generic Claude screen parsing with
@@ -165,8 +179,9 @@ read-only discovery may keep a separately named directory search.
   leave the existing Claude hook as its native adapter entry point. Update
   canonical pipeline skill fragments through S2, not generated copies.
 - [ ] Run `bun test lib/runs lib/mcp/__tests__/run-tools.test.ts` and a live
-  pipeline with each harness, including pause/gate/restart/resume and attempted
-  premature stop. All required state transitions must match current behavior.
+  pipeline with each harness, including pause/gate/owned-rt-restart/resume and attempted
+  premature stop. Keep native-daemon restart in S9's explicit acceptance
+  environment, never restart a shared service for this test. All required state transitions must match current behavior.
 - [ ] Stage task files and required plugin artifacts and commit `refactor: bind pipeline ownership to harness sessions`.
 
 ### H5: Preserve CI lease ownership across integrations
@@ -216,6 +231,8 @@ the selected policy adapter before launch/relocation.
   expect native-neutral cases red.
 - [ ] Extract Claude hooks, add the Codex mechanism supported by F1/native
   inspection, and route relocation through integration messaging/context.
+  The spike did not prove Codex native worktree hooks: select the explicit rt
+  lifecycle path initially rather than inventing native events.
   Preserve pool claims, repo identity, hydrate stamps and volume rules. If a
   native hook is unavailable, use the shared explicit rt worktree operation
   in the Codex workflow and test that path; do not emulate unverified events.

@@ -12,8 +12,9 @@
 
 ## Global Constraints
 
-Inherit the [parent plan](2026-10-04-harness-integrations.md). **Provisional:**
-re-planned from the F1 gating spike's exit report before execution. “Claude is
+Inherit the [parent plan](2026-10-04-harness-integrations.md). **Re-planned
+2026-10-05** with exact project trust, hook-hash lifecycle and session readiness
+from the focused follow-up. “Claude is
 optional on a Codex installation.” “Canonical sources remain authoritative.”
 “Existing installations retain their configured behavior.” Settings use the
 suite registry/resolver; generated skills never become source copies. Read
@@ -21,7 +22,7 @@ the settings skill before registry edits, writing-skills before skill edits,
 app AGENTS/UI authoring before UI changes, SwiftUI guidance before SwiftUI
 edits, and release/distribution docs before bundle/VM edits.
 
-S1/S2/S3/S4 and the necessary S11 fragments are early prerequisites, not work
+S1/S2/S3/S4a/S4b and the necessary S11 fragments are early prerequisites, not work
 to postpone until after runtime tests. S9 is last regardless of numbering.
 S10 and S12 are separate lifecycle and maintenance tasks so they can be
 reviewed independently of initial setup and compilation.
@@ -152,7 +153,7 @@ empty list is valid and enables none. Registration and readiness stay separate.
   inspect any schema diff before committing the lock.
 - [ ] Stage task files and registry lock artifacts and commit `feat: configure enabled harness integrations`.
 
-### S4: Install the selected integrations on a clean machine
+### S4a: Install selected native tools, skills and MCP
 
 **Files:** Create `lib/agent-integrations/claude/install.ts`,
 `lib/agent-integrations/codex/install.ts`,
@@ -167,7 +168,8 @@ modify `lib/setup/validators/tools.ts`, `lib/setup/tools-install.ts`,
 `verify(): Promise<Outcome<Readiness>>` and
 `createIntegrationSteps(enabled: HarnessId[]): StepDef[]`.
 Each adapter supplies host-specific tool/auth/plugin/MCP/skill/policy operations
-through existing setup result types. Shared ordering and required/finish-gated
+through existing setup result types. S4a verification reports tools/MCP/skills
+readiness only, not gate/continuation policy. S4b/M6c supply those. Shared ordering and required/finish-gated
 rules remain in the setup framework.
 
 - [ ] Write `Codex-only setup has no Claude prerequisite or spawn`:
@@ -177,7 +179,8 @@ rules remain in the setup framework.
   permission field changes.
 - [ ] Run `bun test lib/setup/__tests__/agent-integrations.test.ts`; expect red.
 - [ ] Extract Claude install steps and implement Codex's supported plugin/MCP
-  configuration and policy bindings. Select Fast Browser/Herdr host setup by
+  configuration. M6b supplies policy artifacts; S4b separately owns their
+  project configuration and exact-definition trust lifecycle. Select Fast Browser/Herdr host setup by
   integration rather than hardcoded Claude. Include writing-style resolution
   and required external tools. Use existing ownership state; do not set a
   global sandbox bypass to gain socket access. Verify the configured CLI/MCP
@@ -187,6 +190,51 @@ rules remain in the setup framework.
   using the existing VM framework. Verify tool discovery and a real rt MCP
   call; Claude executable/config/cache must be absent from this profile.
 - [ ] Stage task files and setup fixtures and commit `feat: install Mattstack for selected harnesses`.
+
+### S4b: Install reviewed Codex policy at the actual project boundary
+
+**Files:** Create `lib/agent-integrations/codex/policy-install.ts`,
+`lib/setup/__tests__/codex-policy-install.test.ts`;
+modify `lib/agent-integrations/codex/install.ts`, `lib/setup/state.ts`,
+`lib/setup/steps/agent-integrations.ts`.
+
+**Interfaces:** `planCodexPolicyInstall(input: { cwd: string; profile: string }): Promise<Outcome<PolicyInstallPlan>>`;
+`applyCodexPolicyInstall(plan: PolicyInstallPlan, reviewed: readonly string[]): Promise<Outcome<void>>`.
+`PolicyInstallPlan` contains the actual native project boundary, exact file/key
+patches with before-fingerprints, M6b's artifact revision, native hook keys/hashes,
+and review IDs. `reviewed` contains IDs from this plan only, supplied by the
+existing human setup flow, never by a model-written tool argument. Host-native
+configuration is an installer-owned projection; preferences remain suite settings.
+
+- [ ] Write `nested worktree trust uses actual boundary`, `existing hook entries survive`,
+  `new hash requires fresh review`, `concurrent config edit refuses patch`,
+  and `trust does not hot-reload an old worker`.
+  Assert no `git init`, no parent trust expansion, no trust bypass, no blanket
+  hooks replacement and no shared daemon restart. Trusting just a nested cwd
+  cannot be reported ready when hooks/list omits the project hooks. Reject
+  stale review IDs and changed script artifacts even if the native hash is unchanged.
+- [ ] Run `bun test lib/setup/__tests__/codex-policy-install.test.ts`; expect red.
+- [ ] Implement the proven project-layer arrangement at the actual boundary
+  Codex reports for the working repository/worktree. Merge only owned entries
+  into its active `.codex/hooks.json` (or existing inline representation; never
+  install duplicate handlers in both). Do not invent a nested repository as in
+  the disposable spike. Discover native keys/current hashes through hooks/list;
+  present the exact boundary, commands and hashes in setup's existing review
+  surface. Persist only approved exact trust entries with compare-before-write
+  protection and ownership metadata. If project trust must precede discovery,
+  use two review stages; approval of the folder is not approval of unknown hooks.
+  Existing identical trusted user entries can be used but never adopted for deletion.
+- [ ] Keep installation readiness separate from M6c's actual-session proof.
+  A fresh owned worker is the proven loading route. For a loaded old thread,
+  report not-ready/recovery needed; never terminate or replace it automatically.
+  Updates keep a still-loaded old artifact available until no active session
+  relies on it, but admit new work only against the selected reviewed revision.
+- [ ] Rerun tests. In a clean acceptance-owned repo and an actual rt worktree,
+  perform review/install/verify with the intended sandbox, exercise the real
+  M6b bridge and confirm native question/Stop enforcement. Without this real
+  worktree acceptance, the synthetic nested-repo spike is insufficient to
+  mark production setup ready. Verify denied review leaves managed work blocked.
+- [ ] Commit `feat: install reviewed Codex project policy without broad trust`.
 
 ### S5: Adopt integrations in Board workflows
 
@@ -314,6 +362,9 @@ resource; compare current content before replacing an owned value.
 
 - [ ] Write `update preserves user-disabled plugin`, `restore without Claude`,
   and `uninstall preserves unrelated configuration`.
+  Add exact project/hook trust ownership fixtures: user-owned trust survives,
+  only unchanged installer-owned entries may be removed, changed definitions
+  require review, and a partial install can resume without adopting other keys.
   Assert `expect(userEditedValue).toEqual(before)` after all lifecycle modes;
   Codex-only restore invokes no Claude command and completes writing-style/
   team skill materialization. Re-running each mode must have no further edits.
@@ -323,7 +374,11 @@ resource; compare current content before replacing an owned value.
   migrate known Claude ownership records without adopting unrelated files.
   Use resolver-owned settings and existing update-safe restrictions. Disabling
   excludes new assignments while active session bindings continue to reconcile;
-  do not kill sessions. Restore resolves the selected target's plugin sources
+  do not kill sessions. Retain hook executable revisions used by active
+  bindings; uninstall marks new managed launches unavailable and defers artifact
+  deletion until those bindings end. Never silently remove enforcement from
+  an active managed worker. Native trust removal and configuration edits use
+  the recorded exact ownership/fingerprint checks from S4b. Restore resolves the selected target's plugin sources
   rather than assuming the Claude cache is the source of truth.
 - [ ] Run the named tests and setup/materialization suites, then clean-room
   update, interrupted-update retry, restore and uninstall for all profiles.
@@ -355,6 +410,12 @@ every remaining native-tool dependency in the audit; shared prose stays shared.
   changes a shared decision rule and both targets must include that change.
 - [ ] Run `bun test lib/skills/__tests__/harness-workflow-artifacts.test.ts`; expect red.
 - [ ] Extract native instruction fragments, preserving shared decision rules.
+  Codex `questions` uses synchronous native forms only when plan-mode form
+  capability is verified; default mode and unattended flows use existing
+  Mattstack gate open/wait/subscription. Do not emit `request_user_input_async`
+  as an authoritative gate answer path, nor claim an emitted async item means
+  an answer completed. This is not a ban on optional informational async text.
+  Keep native model/effort choices validated by the selected host inventory.
   Follow writing-skills behavioral checks for changed instructions. Regenerate
   harness-neutral MCP descriptions; native action instructions belong in the
   selected fragments or context-aware results, not hardcoded global tool prose.
@@ -411,13 +472,23 @@ modify `scripts/build-apps.ts`, `scripts/release/marketplace.sh`, `rt-tray/build
 **Interfaces:** `runHarnessAcceptance(options: { profile: 'claude-only' | 'codex-only' | 'mixed'; evidence: string }): Promise<void>`.
 `verifyHarnessAcceptance(evidence: string): Outcome<void>` checks the completed
 matrix; the CLI exposes it as `--verify --evidence`.
-Evidence records artifact commit/version, actual native versions, scenario,
+Evidence records artifact commit/version, actual native versions, profile,
+permission mode, hook revision/trust/proof, managed/manual launch provenance, scenario,
 audit IDs, outcome `passed | failed | blocked`, and sanitized evidence paths.
-Missing required scenarios are failures. Local auth-dependent runs are opt-in;
+Missing required scenarios are failures. Optional unsupported native async
+form scenarios are recorded separately as unsupported; all required Mattstack
+gate workflows must still pass through synchronous forms or gate open/wait. Local auth-dependent runs are opt-in;
 unit/conformance CI does not pretend missing credentials are a pass.
 
 - [ ] Write `matrix refuses incomplete evidence`, `fake third integration needs no core branch`,
   and `Codex-only artifact never executes Claude`.
+  Require scenario IDs `hook-trust-fresh`, `hook-trust-changed`,
+  `hook-script-tampered`, `hook-timeout`, `hook-repeated-stop`,
+  `question-controller-reconnect`, `question-answer-race`,
+  `all-clients-disconnect`, `rt-restart-after-answer`, `native-restart-pending-question`,
+  `native-restart-queued-input`, `consumption-client-id`, and `default-cli-adoption`.
+  Record native-form limitations separately from required gate workflow results;
+  an unsupported form cannot turn a blocked required workflow into a pass.
   Assert `expect(missingScenarioResult.ok).toBe(false)` and the fixture
   integration can register, bind, deliver, complete a gate and be selected by
   shepherdr without modifying consumers. Test malformed native events,
@@ -427,7 +498,15 @@ unit/conformance CI does not pretend missing credentials are a pass.
   migration exceptions. This complements, rather than replaces, behavior tests.
 - [ ] Run `bun test scripts/acceptance/__tests__/harnesses.test.ts`; expect red.
 - [ ] Implement the acceptance runner using existing VM/e2e infrastructure;
-  add artifact selection for S2's generated targets to bundle setup without
+  each disruptive case creates or targets an explicitly acceptance-owned
+  service/environment and records its service identity before any stop. User
+  regular HOME/auth can be used for nondisruptive owned workers; do not switch
+  HOME/CODEX_HOME or restart shared services implicitly. If no authorized
+  isolated service/VM is available, record blocked. Preserve sanitized before/
+  after pending state and native IDs so restart tests prove the original
+  operation's fate, not merely success of a replacement turn. Replayed or
+  lost native input remains explicit; logical retry IDs do not prove native
+  deduplication. Then add artifact selection for S2's generated targets to bundle setup without
   changing the served-app catalog. Record an explicit tested version matrix;
   do not derive ranges from one working version. Extend existing CI jobs and
   release checks rather than introducing a plugin-specific root unit shard.
@@ -439,10 +518,10 @@ unit/conformance CI does not pretend missing credentials are a pass.
   updates its own profile in the shared evidence file:
 
   ```bash
-  bun scripts/acceptance/harnesses.ts --profile claude-only --evidence /tmp/harness-acceptance.json
-  bun scripts/acceptance/harnesses.ts --profile codex-only --evidence /tmp/harness-acceptance.json
-  bun scripts/acceptance/harnesses.ts --profile mixed --evidence /tmp/harness-acceptance.json
-  bun scripts/acceptance/harnesses.ts --verify --evidence /tmp/harness-acceptance.json
+  bun scripts/acceptance/harnesses.ts --profile claude-only --evidence docs/superpowers/evidence/harness-integrations-acceptance.json
+  bun scripts/acceptance/harnesses.ts --profile codex-only --evidence docs/superpowers/evidence/harness-integrations-acceptance.json
+  bun scripts/acceptance/harnesses.ts --profile mixed --evidence docs/superpowers/evidence/harness-integrations-acceptance.json
+  bun scripts/acceptance/harnesses.ts --verify --evidence docs/superpowers/evidence/harness-integrations-acceptance.json
   ```
 
   Verification must exit 0 only for a complete passing matrix. The
