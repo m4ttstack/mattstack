@@ -4,8 +4,11 @@ import type { BoardMR } from '../data.ts';
 import {
   ALL_TURN,
   authorTurn,
+  AUTHOR_SIGNALS,
+  REVIEWER_SIGNALS,
   resolveTurnConfig,
   reviewerTurn,
+  toggleTurnSignal,
   type TurnConfig,
 } from '../turn.ts';
 
@@ -133,5 +136,38 @@ describe('reviewerTurn', () => {
   test('signals switched off', () => {
     const cfg: TurnConfig = { ...ALL_TURN, reviewer: [] };
     expect(reviewerTurn(asReviewer('UNREVIEWED'), 'me', cfg)).toBeNull();
+  });
+});
+
+describe('toggleTurnSignal', () => {
+  test('uncheck then recheck saves the canonical order', () => {
+    const off = toggleTurnSignal({}, 'author', AUTHOR_SIGNALS, 'conflicts');
+    expect(off.author).toEqual(
+      AUTHOR_SIGNALS.filter(s => s !== 'conflicts')
+    );
+    const back = toggleTurnSignal(off, 'author', AUTHOR_SIGNALS, 'conflicts');
+    expect(back.author).toEqual([...AUTHOR_SIGNALS]);
+  });
+  test('writes only the touched side and keeps other stored keys', () => {
+    const next = toggleTurnSignal(
+      { extra: 1 },
+      'reviewer',
+      REVIEWER_SIGNALS,
+      'assigned'
+    );
+    expect(next).toEqual({
+      extra: 1,
+      reviewer: ['approvalReset', 'repliedThreads'],
+    });
+    expect('author' in next).toBe(false);
+  });
+  test('a stored side is kept when the other side flips', () => {
+    const next = toggleTurnSignal(
+      { author: ['threads'] },
+      'reviewer',
+      REVIEWER_SIGNALS,
+      'assigned'
+    );
+    expect(next.author).toEqual(['threads']);
   });
 });

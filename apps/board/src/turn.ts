@@ -34,6 +34,26 @@ function pick<T extends string>(v: unknown, all: readonly T[]): T[] {
   return known.length > 0 ? known : [...all];
 }
 
+/** The board.turn value after flipping one signal. Only the touched side is
+    written, in canonical order; an untouched side and any other stored key
+    stay as they were, so an unset side still means every signal. */
+export function toggleTurnSignal<T extends string>(
+  raw: unknown,
+  side: 'author' | 'reviewer',
+  all: readonly T[],
+  signal: T
+): Record<string, unknown> {
+  const stored =
+    typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const current: readonly string[] = resolveTurnConfig(raw)[side];
+  const next = all.filter(x =>
+    x === signal ? !current.includes(signal) : current.includes(x)
+  );
+  return { ...stored, [side]: next };
+}
+
 /** board.turn as stored. A list that is absent, not an array, or non-empty
     with no known signal name falls open to every signal, so a bad team write
     can never empty the board; only an explicit `[]` means none. */

@@ -14,9 +14,9 @@ import {
   AUTHOR_SIGNALS,
   REVIEWER_SIGNALS,
   resolveTurnConfig,
+  toggleTurnSignal,
   type AuthorSignal,
   type ReviewerSignal,
-  type TurnConfig,
 } from '../../turn.ts';
 import { postAction } from '../api.ts';
 import {
@@ -1033,22 +1033,14 @@ function TurnControl({
 }: {
   value: unknown;
   busy: boolean;
-  onSave: (next: TurnConfig) => void;
+  onSave: (next: Record<string, unknown>) => void;
 }) {
   const cfg = resolveTurnConfig(value);
-  const flip = <K extends 'author' | 'reviewer'>(
-    side: K,
-    s: TurnConfig[K][number]
-  ) => {
-    const list = cfg[side] as string[];
-    const next = list.includes(s) ? list.filter(x => x !== s) : [...list, s];
-    onSave({ ...cfg, [side]: next });
-  };
-  const group = <K extends 'author' | 'reviewer'>(
-    side: K,
+  const group = <T extends string>(
+    side: 'author' | 'reviewer',
     title: string,
-    all: readonly TurnConfig[K][number][],
-    labels: Record<string, string>
+    all: readonly T[],
+    labels: Record<T, string>
   ) => (
     <fieldset className="tui-config-turn" disabled={busy}>
       <legend>{title}</legend>
@@ -1056,8 +1048,8 @@ function TurnControl({
         <label key={s}>
           <input
             type="checkbox"
-            checked={(cfg[side] as string[]).includes(s)}
-            onChange={() => flip(side, s)}
+            checked={(cfg[side] as readonly string[]).includes(s)}
+            onChange={() => onSave(toggleTurnSignal(value, side, all, s))}
           />{' '}
           {labels[s]}
         </label>
