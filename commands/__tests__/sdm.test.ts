@@ -262,18 +262,18 @@ describe("sdm blocks", () => {
 
   test("enrichment shows the file and how many connections have a label", () => {
     expect(renderPlain(__test__.enrichmentBlocks("/x/enrichment.jsonc", 0, 2))).toBe(
-      "labels file: /x/enrichment.jsonc\n[not yet] 0 of 2 connections have a label  the rest show their StrongDM names\n",
+      "labels file: /x/enrichment.jsonc\n[not yet] Labels on 0 of 2 connections  the rest show their StrongDM names\n",
     );
-    expect(renderPlain(__test__.enrichmentBlocks("/x/enrichment.jsonc", 2, 2))).toBe("labels file: /x/enrichment.jsonc\n[ok] 2 of 2 connections have a label\n");
+    expect(renderPlain(__test__.enrichmentBlocks("/x/enrichment.jsonc", 2, 2))).toBe("labels file: /x/enrichment.jsonc\n[ok] Labels on all 2 connections\n");
     expect(renderPlain(__test__.enrichmentBlocks("/x/enrichment.jsonc", 0, 0))).toBe("labels file: /x/enrichment.jsonc\n[skipped] StrongDM shows no connections to label\n");
   });
 
-  test("enrichment counts read as English for one connection and for many", () => {
-    const counted = (enriched: number, total: number): string => renderPlain(__test__.enrichmentBlocks("/x/e.jsonc", enriched, total)).split("\n")[1]!;
-    expect(counted(1, 1)).toBe("[ok] 1 of 1 connection has a label");
-    expect(counted(1, 3)).toBe("[not yet] 1 of 3 connections has a label  the rest show their StrongDM names");
-    expect(counted(2, 3)).toBe("[not yet] 2 of 3 connections have a label  the rest show their StrongDM names");
-    expect(counted(0, 1)).toBe("[not yet] 0 of 1 connection have a label  the rest show their StrongDM names");
+  test("the label count reads right for every count", () => {
+    const line = (e: number, t: number) => renderPlain(__test__.enrichmentBlocks("/x/labels.json", e, t)).split("\n")[1];
+    expect(line(0, 1)).toBe("[not yet] Labels on 0 of 1 connection  the rest show their StrongDM names");
+    expect(line(1, 3)).toBe("[not yet] Labels on 1 of 3 connections  the rest show their StrongDM names");
+    expect(line(3, 3)).toBe("[ok] Labels on all 3 connections");
+    expect(line(1, 1)).toBe("[ok] Labels on the 1 connection");
   });
 
   test("a health or login failure keeps every line of its reason, since no excerpt follows it", () => {

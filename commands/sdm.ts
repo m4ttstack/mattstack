@@ -253,9 +253,9 @@ function refreshBlocks(count: number, error?: string): Block[] {
 
 function enrichmentBlocks(path: string, enriched: number, total: number): Block[] {
   if (total === 0) return [out.kv("labels file", path), out.line("skipped", "StrongDM shows no connections to label")];
-  const all = enriched === total;
-  const counted = `${total === 1 ? "connection" : "connections"} ${enriched === 1 ? "has" : "have"}`;
-  return [out.kv("labels file", path), out.line(all ? "done" : "pending", `${enriched} of ${total} ${counted} a label`, all ? undefined : "the rest show their StrongDM names")];
+  const noun = total === 1 ? "connection" : "connections";
+  if (enriched === total) return [out.kv("labels file", path), out.line("done", total === 1 ? "Labels on the 1 connection" : `Labels on all ${total} ${noun}`)];
+  return [out.kv("labels file", path), out.line("pending", `Labels on ${enriched} of ${total} ${noun}`, "the rest show their StrongDM names")];
 }
 
 // ── Guided flow wiring (real prompts, real sdm) ──────────────────────────────

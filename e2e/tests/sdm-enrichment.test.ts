@@ -42,7 +42,7 @@ describe("sdm enrichment", () => {
     const res = await rt(["sdm", "enrichment"], { home, env: { RT_SDM_BIN: fakeSdm } });
     expect(res.exitCode).toBe(0);
     expect(res.stdout).toContain(enrichmentPath);
-    expect(res.stdout).toContain("0 of 2 connections have a label");
+    expect(res.stdout).toContain("Labels on 0 of 2 connections");
   });
 
   test("init scaffolds the enrichment file with one key per scanned resource", async () => {
