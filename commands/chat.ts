@@ -200,8 +200,29 @@ function requireValidSessionId(id: string): void {
   if (!isValidSessionId(id)) fail(SESSION_ID_INVALID);
 }
 
+const CHAT_REFUSALS: Record<string, () => Block[]> = {
+  "not-holder": () => [
+    out.line("refused", "rt chat will not release a claim you do not hold"),
+    out.callout("why", "Only the agent holding a claim, or the one who posted the message, can release it."),
+  ],
+  "identity-held": () => [
+    out.line("refused", "Another session is using that identity"),
+    out.callout("why", "Another session signed in as it, so this one no longer speaks for it."),
+    out.callout("next", out.cmd("rt chat sign-in")),
+  ],
+  "identity-fixed": () => [
+    out.line("refused", "rt chat keeps that identity for the human or the herd"),
+    out.callout("why", "Agents sign in under names of their own."),
+    out.callout("next", out.cmd("rt chat sign-in")),
+  ],
+};
+
 function unwrap<T>(res: RtResponse<T>, label: string): T {
-  if (!res.ok || res.data === undefined) fail({ title: res.error ?? `The chat ${label} did not go through` });
+  if (!res.ok || res.data === undefined) {
+    const refusal = res.failure && Object.hasOwn(CHAT_REFUSALS, res.failure.code) ? CHAT_REFUSALS[res.failure.code] : undefined;
+    if (refusal) refuse(...refusal());
+    fail({ title: res.error ?? `The chat ${label} did not go through` });
+  }
   return res.data;
 }
 
@@ -1457,6 +1478,7 @@ export async function chat(args: string[]): Promise<void> {
 // ─── test seam ───────────────────────────────────────────────────────────────
 
 export const __test__ = {
+  CHAT_REFUSALS,
   resolveSignInRequest,
   slugify,
   findGitRoot,

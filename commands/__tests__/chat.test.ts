@@ -424,7 +424,7 @@ describe("rt chat CLI — additional verb behavior", () => {
     await runChat(["claim", String(id), "--as", "b"]);
     const refused = await runChatRaw(["release", String(id), "--as", "c"]);
     expect(refused.code).toBe(1);
-    expect(refused.stderr).toContain("neither the holder");
+    expect(refused.stderr).toContain("[refused] rt chat will not release a claim you do not hold");
     expect(await runChat(["release", String(id), "--as", "b"])).toBe(`released #${id} (was held by b)`);
     await runChat(["claim", String(id), "--as", "c"]);
     expect(await runChat(["release", String(id), "--as", "asker"])).toBe(`released #${id} (was held by c)`);
@@ -791,13 +791,13 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     expect(stderr).toContain("\n  next: rt chat sign-in --session <id>");
   });
 
-  test("--as naming an id live in another session is refused with the reclaimed wording, and writes no session file", async () => {
+  test("--as naming an id live in another session is refused with the sign-in command, and writes no session file", async () => {
     await runChat(["sign-in", "--name", "remy", "--session", "s1", "--no-room"]);
     const s1Handle = JSON.parse(readFileSync(join(home, ".mattstack", "rt", "chat", "sessions", "s1.json"), "utf8")).handle;
 
     const { code, stderr } = await runChatRaw(["sign-in", "--as", s1Handle, "--session", "s2", "--no-room"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("handle reclaimed");
+    expect(stderr).toContain("[refused] Another session is using that identity");
     expect(existsSync(join(home, ".mattstack", "rt", "chat", "sessions", "s2.json"))).toBe(false);
   });
 
@@ -805,7 +805,7 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     setSetting("chat.humanHandle", "matt", "user");
     const { code, stderr } = await runChatRaw(["sign-in", "--as", "matt", "--session", "s1", "--no-room"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("matt");
+    expect(stderr).toContain("[refused] rt chat keeps that identity for the human or the herd");
   });
 
   test("sign-out --json reports a daemonError field rather than a bare {ok:true} when the daemon leg failed", async () => {
@@ -1658,4 +1658,50 @@ describe("rt chat stdout off a terminal (frozen for agents)", () => {
     }
     expect(got).toEqual(JSON.parse(readFileSync(BYTES_FIXTURE, "utf8")));
   }, 60_000);
+});
+
+
+describe("daemon refusals by policy", () => {
+  test("release of a claim you do not hold is a refusal", async () => {
+    canned = { "chat:release": { ok: false, error: "you are neither the holder of #1 nor its author", failure: { code: "not-holder", message: "you are neither the holder of #1 nor its author" } } };
+    for (const flags of [[], ["--json"]]) {
+      const r = await runChatRaw(["release", "1", "--as", "b", ...flags]);
+      expect(r.code).toBe(1);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toBe("[refused] rt chat will not release a claim you do not hold\n  why: Only the agent holding a claim, or the one who posted the message, can release it.");
+    }
+  });
+
+  test.each([
+    ["identity-held", "Another session is using that identity", "Another session signed in as it, so this one no longer speaks for it."],
+    ["identity-fixed", "rt chat keeps that identity for the human or the herd", "Agents sign in under names of their own."],
+  ])("%s is a refusal with the sign-in command", async (code, title, why) => {
+    canned = { "chat:sign-in": { ok: false, error: "daemon wording", failure: { code, message: "daemon wording" } } };
+    for (const flags of [[], ["--json"]]) {
+      const r = await runChatRaw(["sign-in", "--as", "remy.1", "--no-room", "--session", "s9", ...flags]);
+      expect(r.code).toBe(1);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toBe(`[refused] ${title}\n  why: ${why}\n  next: rt chat sign-in`);
+    }
+  });
+
+  test.each(["something-new", "toString", "__proto__"])("unknown code %s is a failure in the daemon's words", async (code) => {
+    canned = { "chat:release": { ok: false, error: "no message #9", failure: { code, message: "different failure message" } } };
+    for (const flags of [[], ["--json"]]) {
+      const r = await runChatRaw(["release", "9", "--as", "b", ...flags]);
+      expect(r.code).toBe(1);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toBe("no message #9");
+    }
+  });
+
+  test("sign-out cleans up locally when the daemon returns a coded refusal", async () => {
+    await signInInProcess({ as: "x", session: "s1", noRoom: true });
+    canned = { "chat:sign-out": { ok: false, error: "handle reclaimed", failure: { code: "identity-held", message: "handle reclaimed" } } };
+    const r = await runChatRaw(["sign-out", "--session", "s1", "--json"]);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual({ ok: true, daemonError: "handle reclaimed" });
+    expect(r.stderr).toContain("[warning] Signed out here, but the daemon did not hear it");
+    expect(existsSync(join(home, ".mattstack", "rt", "chat", "sessions", "s1.json"))).toBe(false);
+  });
 });
