@@ -663,6 +663,12 @@ function readTeamSnapshotSettings(): TeamSnapshotSettings | undefined {
   return getSetting<TeamSnapshotSettings>("rt.teamSnapshot").value;
 }
 
+export async function readTeamSnapshotStatus(p: Probes): Promise<TeamSnapshotEntry[] | null> {
+  const res = await p.daemon("team:snapshot-status");
+  if (!res || !res.ok) return null;
+  return res.data as TeamSnapshotEntry[];
+}
+
 export async function rtHealthRows(
   p: Probes,
   opts: { ci: boolean },
@@ -678,11 +684,7 @@ export async function rtHealthRows(
     const settings = readSnapshotSettings();
     teamSync = await teamSyncRow(
       slugs,
-      async () => {
-        const res = await p.daemon("team:snapshot-status");
-        if (!res || !res.ok) return null;
-        return res.data as TeamSnapshotEntry[];
-      },
+      () => readTeamSnapshotStatus(p),
       () => p.now().getTime(),
       settings?.pullIntervalSec ?? PULL_INTERVAL_FALLBACK_SEC,
       settings?.enabled !== false,

@@ -438,13 +438,16 @@ describe("integrationConnect: forge token scopes", () => {
     expect(body.detail).toBe("This token is missing api (needs api for the home-repo push and members sync)");
   });
 
-  test("no intent (after Install): the owner of a team rt did not join is held to the owner's scopes", async () => {
-    const probes = fakeProbes({ fetch: gitlabWithScopes(["read_api", "read_user"]) });
+  test("no intent (after Install): an org admin is held to the owner's scopes", async () => {
+    const probes = fakeProbes({ fetch: gitlabWithScopes(["read_api", "read_user"]), files: {
+      "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ forgeUsername: "dev1", joinedByRt: true }),
+    } });
     const deps = baseDeps({
       probes,
       stdin: async () => ({ token: "glpat-x" }),
       writer: { storeReady: async () => false, write: neverCalled("writer.write") },
-      teamSnapshot: () => ({ ...slackTeamSnapshot(), integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }),
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }),
     });
 
     await integrationConnect("gitlab", ["--json"], deps);
@@ -452,6 +455,25 @@ describe("integrationConnect: forge token scopes", () => {
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("invalid");
     expect(body.detail).toBe("This token is missing api (needs api for the home-repo push and members sync)");
+  });
+
+  test("no intent (after Install): a member is held to member scopes regardless of joinedByRt", async () => {
+    const probes = fakeProbes({ fetch: gitlabWithScopes(["read_api", "read_user"]), files: {
+      "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ forgeUsername: "dev9", joinedByRt: false }),
+    } });
+    const deps = baseDeps({
+      probes,
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }),
+    });
+
+    await integrationConnect("gitlab", ["--json"], deps);
+
+    const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
+    expect(body.status).toBe("invalid");
+    expect(body.detail).toBe("This token is missing api (needs api to post board review comments)");
   });
 
   test("a gh session token short of a scope is refused with the gh command that widens it", async () => {
