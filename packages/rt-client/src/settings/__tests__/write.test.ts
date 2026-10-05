@@ -530,6 +530,23 @@ describe("settings/write", () => {
         expect(() => setSetting("rt.repoRoots", [1], "machine")).toThrow(/\[0\]: expected string/);
       });
     });
+
+    test("an org write that breaks another team's merge is refused before the org store changes", () => {
+      const roles = { type: "object", properties: { a: { type: "string" }, b: { type: "number" } }, required: ["a"] };
+      withSchema("rt.roles", roles, () => {
+        const { orgStore } = seedOrg({
+          org: "acme",
+          username: "dev1",
+          roles: ADMIN_ROLES,
+          roster: [{ username: "dev1", teams: ["widgets"] }],
+          settings: { repos: { [IDENTITY]: { "rt.roles": { a: "o" } } } },
+          teams: { widgets: { repos: { [IDENTITY]: { "rt.roles": { a: "w" } } } }, gadgets: { repos: { [IDENTITY]: { "rt.roles": { b: 2 } } } } },
+        });
+        const before = readFileSync(orgStore, "utf8");
+        expect(() => setSetting("rt.roles", { b: 1 }, "org", { repoIdentity: IDENTITY })).toThrow(/in team gadgets would fail/);
+        expect(readFileSync(orgStore, "utf8")).toBe(before);
+      });
+    });
   });
 
   // ─── sanity: teamsDir is honored ────────────────────────────────────────────

@@ -190,6 +190,69 @@ describe("settings/validate-write", () => {
     });
   });
 
+  test("an org write is refused when it breaks another team's merge, naming that team", () => {
+    withSchema("rt.roles", ROLES, () => {
+      const def = getDef("rt.roles")!;
+      seedOrg({
+        org: TEAM,
+        username: "dev1",
+        roster: [{ username: "dev1", teams: ["widgets"] }],
+        settings: { "rt.roles": { a: "o" } },
+        teams: { widgets: { "rt.roles": { a: "w" } }, gadgets: { "rt.roles": { b: 2 } } },
+      });
+      // The writer's own widgets view still has "a"; gadgets' only "a" came from the org.
+      const r = validateWrite(def, { b: 1 }, { scope: "org" });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toBe('merged value for team gadgets would fail: a: required property "a" is missing');
+    });
+  });
+
+  test("an org write is refused when it breaks the merge of members on no team", () => {
+    withSchema("rt.roles", ROLES, () => {
+      const def = getDef("rt.roles")!;
+      seedOrg({
+        org: TEAM,
+        username: "dev1",
+        roster: [{ username: "dev1", teams: ["widgets"] }],
+        settings: { "rt.roles": { a: "o" } },
+        teams: { widgets: { "rt.roles": { a: "w" } } },
+      });
+      const r = validateWrite(def, { b: 1 }, { scope: "org" });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toBe('merged value for members on no team would fail: a: required property "a" is missing');
+      expect(validateWrite(def, { a: "p" }, { scope: "org" })).toEqual({ ok: true });
+    });
+  });
+
+  test("an org write of a repo-scoped key checks the repo sections of every team", () => {
+    withSchema("rt.worktrees", NAMED_WORKTREES, () => {
+      const def = getDef("rt.worktrees")!;
+      seedOrg({
+        org: TEAM,
+        username: "dev1",
+        roster: [{ username: "dev1", teams: ["widgets"] }],
+        teams: { widgets: {}, gadgets: { repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 2 } } } } },
+      });
+      const r = validateWrite(def, { name: "x" }, { scope: "org" });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toBe(`merged value for ${IDENTITY} in team gadgets would fail: onDeck: must be <= 1`);
+    });
+  });
+
+  test("an org write that every team view already fails still lands", () => {
+    withSchema("rt.roles", ROLES, () => {
+      const def = getDef("rt.roles")!;
+      seedOrg({
+        org: TEAM,
+        username: "dev1",
+        roster: [{ username: "dev1", teams: ["widgets"] }],
+        settings: { "rt.roles": { b: 5 } },
+        teams: { widgets: { "rt.roles": { b: 3 } }, gadgets: { "rt.roles": { b: 2 } } },
+      });
+      expect(validateWrite(def, { b: 1 }, { scope: "org" })).toEqual({ ok: true });
+    });
+  });
+
   test("a team write with no local team store has no merge to check and leaves the refusal to setSetting", () => {
     expect(validateWrite(getDef("rt.roles")!, { backend: {} }, { scope: "team", repoIdentity: IDENTITY })).toEqual({ ok: true });
     expect(validateWrite(getDef("rt.roles")!, { backend: {} }, { scope: "team", repoIdentity: IDENTITY, team: "ghost-team" })).toEqual({ ok: true });

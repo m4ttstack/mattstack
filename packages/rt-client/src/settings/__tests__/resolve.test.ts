@@ -351,6 +351,25 @@ describe("settings/resolve", () => {
       expect(got.items).toBeUndefined();
     });
 
+    test("items are expanded the same way as the value", () => {
+      seedOrg({ org: ORG, username: "dev1", roster, settings: { "claude.marketplaces": ["${team:widgets}/market"] } });
+      writeUser({ "claude.marketplaces": ["${home}/market"] });
+      const expected = [join(teamsDir(), "widgets", "market"), join(home, "market")];
+      const got = getSetting<string[]>("claude.marketplaces");
+      expect(got.value).toEqual(expected);
+      expect(got.items!.map((i) => i.value)).toEqual(expected);
+      const listed = listSettings().find((s) => s.key === "claude.marketplaces")!;
+      expect(listed.items!.map((i) => i.value)).toEqual(expected);
+      expect(getSetting<string[]>("claude.marketplaces", { expand: false }).items!.map((i) => i.value)).toEqual(["${team:widgets}/market", "${home}/market"]);
+    });
+
+    test("list leaves items raw beside a value it could not expand", () => {
+      writeUser({ "claude.marketplaces": ["${repoRoot}/market"] });
+      const listed = listSettings().find((s) => s.key === "claude.marketplaces")!;
+      expect(listed.expandError).toBeDefined();
+      expect(listed.items!.map((i) => i.value)).toEqual(["${repoRoot}/market"]);
+    });
+
     test("a replace key carries no items", () => {
       writeOrg({ "board.title": "Acme" });
       expect(getSetting<string>("board.title").items).toBeUndefined();

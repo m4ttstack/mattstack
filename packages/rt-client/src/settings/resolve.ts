@@ -16,9 +16,9 @@
  *    weakest-first — a scope whose every field was overridden is NOT listed
  *    (same honesty rule that makes `replace` provenance length 1).
  *  - `add`: array values concatenate walking weakest → strongest, duplicates
- *    dropped, and nothing subtracts an inherited item. `items`
- *    carries each resolved item with every layer that lists it; provenance
- *    lists every scope that contributed at least one item.
+ *    dropped, and nothing subtracts an inherited item. `items` carries each
+ *    resolved item, expanded like the value, with every layer that lists it;
+ *    provenance lists every scope that contributed at least one item.
  *
  * Degrade rules (teammates run version-skewed binaries; one unknown key in the
  * team store must never brick resolution):
@@ -329,9 +329,9 @@ function sharedStores(stores: StoreBundle): StoreFile[] {
   return [stores.org, stores.team].filter((s): s is StoreFile => s !== null);
 }
 
-/** Every repo identity that has a `repos.<id>` section in any store. */
-export function listStoreRepoIdentities(): string[] {
-  const stores = readStores();
+/** Every repo identity that has a `repos.<id>` section in any store, read as `view.team` (the active team when left out). */
+export function listStoreRepoIdentities(view: { team?: string | null } = {}): string[] {
+  const stores = readStores(view);
   const ids = new Set<string>();
   for (const store of [stores.user, stores.machine, ...sharedStores(stores)]) for (const id of Object.keys(store.repos)) ids.add(id);
   return [...ids].sort();
@@ -761,12 +761,17 @@ export function getSetting<T>(key: string, opts: ResolveOpts = {}): Resolved<T> 
   for (const entry of resolution.invalid) warnInvalid(key, entry);
 
   const shouldExpand = opts.expand ?? true;
-  const value =
-    shouldExpand && resolution.value !== undefined
-      ? expandVariables(resolution.value, expandCtxFrom(opts))
-      : resolution.value;
+  if (!shouldExpand || resolution.value === undefined) {
+    return { value: resolution.value as T, provenance: resolution.provenance, ...(resolution.items ? { items: resolution.items } : {}) };
+  }
+  const ctx = expandCtxFrom(opts);
+  const value = expandVariables(resolution.value, ctx);
+  const items = resolution.items ? expandItems(resolution.items, ctx) : undefined;
+  return { value: value as T, provenance: resolution.provenance, ...(items ? { items } : {}) };
+}
 
-  return { value: value as T, provenance: resolution.provenance, ...(resolution.items ? { items: resolution.items } : {}) };
+function expandItems(items: ItemSource[], ctx: ExpandCtx): ItemSource[] {
+  return items.map((item) => ({ ...item, value: expandVariables(item.value, ctx) }));
 }
 
 /**
@@ -806,6 +811,7 @@ export function listSettings(opts: ResolveOpts = {}): ListedSetting[] {
     if (shouldExpand && resolution.value !== undefined) {
       try {
         listed.value = expandVariables(resolution.value, ctx);
+        if (resolution.items) listed.items = expandItems(resolution.items, ctx);
       } catch (err) {
         listed.expandError = (err as Error).message;
         emitSettingsWarning(`rt: showing "${def.key}" unexpanded — ${listed.expandError}`);

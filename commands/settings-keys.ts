@@ -226,6 +226,7 @@ export async function settingsGet(args: string[]): Promise<void> {
       provenance: resolved.provenance,
       migrated: isMigrated(def),
       ...(isMigrated(def) ? {} : { legacyFile: def.legacyFile ?? null }),
+      ...(resolved.items ? { items: resolved.items } : {}),
     });
     return;
   }

@@ -8,6 +8,7 @@
 import { checkSchema, firstIssueText, hasSchema, type SchemaIssue } from "./schema.ts";
 import { validateValue, type SettingDef, type SettingScope } from "./registry-machinery.ts";
 import { currentMergedValue, listStoreRepoIdentities, mergedValueWith } from "./resolve.ts";
+import { currentOrg, listTeamFolders } from "./stores.ts";
 
 export type WriteRefusalKind = "repoOnly" | "type" | "pathGuard" | "schema";
 export type WriteVerdict = { ok: true } | { ok: false; kind: WriteRefusalKind; reason: string; issues: SchemaIssue[] };
@@ -27,21 +28,39 @@ export function validateWrite(def: SettingDef, value: unknown, opts: { scope: Se
   const layerIssues = checkSchema(def, value, { layer: true });
   if (layerIssues.length > 0) return { ok: false, kind: "schema", reason: firstIssueText(layerIssues), issues: layerIssues };
 
-  const contexts: (string | null)[] =
-    opts.repoIdentity !== undefined ? [opts.repoIdentity] : def.repoScoped ? [null, ...listStoreRepoIdentities()] : [null];
-  for (const repoIdentity of contexts) {
-    const after = mergedValueWith(def, { scope: opts.scope, repoIdentity: opts.repoIdentity, team: opts.team, value }, { repoIdentity, expand: false });
-    // A shared write with no store to land in patches nothing, so `after` is the current merge,
-    // undefined only when nothing is set anywhere; setSetting refuses that write afterwards.
-    if (after === undefined) continue;
-    const afterIssues = checkSchema(def, after, { layer: false });
-    if (afterIssues.length === 0) continue;
-    const view = opts.scope === "team" && opts.team !== undefined ? { team: opts.team } : {};
-    const before = currentMergedValue(def, { repoIdentity, expand: false, ...view });
-    if (before === undefined || checkSchema(def, before, { layer: false }).length === 0) {
-      const where = repoIdentity ? ` for ${repoIdentity}` : "";
-      return { ok: false, kind: "schema", reason: `merged value${where} would fail: ${firstIssueText(afterIssues)}`, issues: afterIssues };
+  for (const team of viewsToCheck(opts.scope)) {
+    const contexts: (string | null)[] =
+      opts.repoIdentity !== undefined ? [opts.repoIdentity] : def.repoScoped ? [null, ...listStoreRepoIdentities({ team })] : [null];
+    for (const repoIdentity of contexts) {
+      const after = mergedValueWith(def, { scope: opts.scope, repoIdentity: opts.repoIdentity, team: opts.team, value }, { repoIdentity, expand: false, team });
+      // A shared write with no store to land in patches nothing, so `after` is the current merge,
+      // undefined only when nothing is set anywhere; setSetting refuses that write afterwards.
+      if (after === undefined) continue;
+      const afterIssues = checkSchema(def, after, { layer: false });
+      if (afterIssues.length === 0) continue;
+      const view = opts.scope === "team" && opts.team !== undefined ? opts.team : team;
+      const before = currentMergedValue(def, { repoIdentity, expand: false, team: view });
+      if (before === undefined || checkSchema(def, before, { layer: false }).length === 0) {
+        return { ok: false, kind: "schema", reason: `merged value${whereText(repoIdentity, team)} would fail: ${firstIssueText(afterIssues)}`, issues: afterIssues };
+      }
     }
   }
   return { ok: true };
+}
+
+/**
+ * The team views a write is judged in; undefined is the active team. An org
+ * write lands under every team, so it is judged in each team folder's view
+ * and in the view of members on no team.
+ */
+function viewsToCheck(scope: SettingScope): (string | null | undefined)[] {
+  const org = scope === "org" ? currentOrg() : null;
+  return org === null ? [undefined] : [...listTeamFolders(org), null];
+}
+
+function whereText(repoIdentity: string | null, team: string | null | undefined): string {
+  const repo = repoIdentity ? ` for ${repoIdentity}` : "";
+  if (team === undefined) return repo;
+  const who = team === null ? "members on no team" : `team ${team}`;
+  return repoIdentity ? `${repo} in ${who}` : ` for ${who}`;
 }

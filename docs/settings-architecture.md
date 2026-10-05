@@ -110,9 +110,11 @@ A key's merge mode says how its layers combine:
 - `deep` (objects only): fields merge across layers, with per-field provenance.
 - `add` (arrays only): every layer's list is concatenated weakest first, user
   and machine layers included, and duplicates are dropped. Nothing subtracts
-  an inherited item. `getSetting` also returns `items`: each item with every
-  layer that lists it, which is how setup tells a plugin you chose from one
-  only the org or a team listed. `claude.plugins` and `claude.marketplaces`
+  an inherited item. `getSetting` also returns `items`: each item, expanded
+  like the value, with every layer that lists it, which is how setup tells a
+  plugin you chose from one only the org or a team listed. `rt settings get
+  --json` and `rt settings list --json` carry `items` too. `claude.plugins`
+  and `claude.marketplaces`
   use it; another list opts in by setting `merge: "add"` on its registry row.
 
 Apps read IN-PROCESS via rt-client (deck boots before the daemon, so daemon
@@ -184,7 +186,10 @@ path formatted `[0].pattern` or `emoji.looking`.
   otherwise), then the merged result against the full schema. The merged
   check refuses only a write that makes a passing merge fail, so a layer
   already broken elsewhere never blocks an unrelated edit. A team write
-  names one team and merges only that team's store. A global write of a
+  names one team and merges only that team's store. An org write lands
+  under every team, so it is checked in each team folder's view and in the
+  view of members on no team, and the refusal names the view it breaks. A
+  global write of a
   repo-scoped key checks the merge with no repo and once per repo that has a
   section in any store; a repo-only key refuses a global write first.
 - **Reads are lenient.** `validateValue` alone is the resolver's skip rule
