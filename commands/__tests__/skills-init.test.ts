@@ -111,17 +111,18 @@ describe("init outcome", () => {
   });
 
   test("a write failure says to delete the folder it started, then run init again", () => {
-    const failure = initFailure({
+    const outcome: Extract<InitOutcome, { ok: false; refused: false }> = {
       ok: false,
       refused: false,
       code: "write-failed",
       detail: "disk full",
       wrote: ["/z/mattstack/packs/acme/.claude-plugin/plugin.json"],
       remedy: { commands: ["rt skills init"], folder: "/z/mattstack/packs/acme" },
-    });
-    expect(renderPlain([ui.failure(failure)])).toBe(
-      "disk full\n  next: Delete the pack folder it started, then run rt skills init\n  Pack folder: /z/mattstack/packs/acme\n  Written so far:\n  /z/mattstack/packs/acme/.claude-plugin/plugin.json\n",
+    };
+    expect(renderPlain([ui.failure(initFailure(outcome))])).toBe(
+      "disk full\n  next: Delete the pack folder it started, then run rt skills init\n  Pack folder: /z/mattstack/packs/acme\n",
     );
+    expect(initFailureAfter(outcome)).toEqual([ui.verbatim(outcome.wrote, "written so far")]);
   });
 
   test("with no remedy, the next step is the general one", () => {
@@ -151,6 +152,54 @@ test("a compile failure is one title and its next, then every error under a capt
   } finally {
     io.restore();
   }
+});
+
+test("a noncompile failure prints every written path after its remedy and ordinary details", () => {
+  const outcome: Extract<InitOutcome, { ok: false; refused: false }> = {
+    ok: false,
+    refused: false,
+    code: "write-failed",
+    detail: "The pack could not be written\ndisk full\nno space left",
+    why: "This disk has no space left",
+    wrote: Array.from({ length: 8 }, (_, i) => `/z/packs/acme/skills/file-${i}.md`),
+    remedy: { commands: ["rt skills init"], folder: "/z/packs/acme" },
+  };
+  const failure = initFailure(outcome);
+  const io = captureOut();
+  io.reset();
+  ui.__test__.setHuman(() => false);
+  try {
+    ui.fail(failure, ...initFailureAfter(outcome));
+    expect(io.stdout()).toBe("");
+    expect(io.stderr()).toBe(
+      "The pack could not be written\n  why: This disk has no space left\n  next: Delete the pack folder it started, then run rt skills init\n  disk full\n  no space left\n  Pack folder: /z/packs/acme\nwritten so far:\n" + outcome.wrote.map((path) => `  ${path}\n`).join(""),
+    );
+  } finally {
+    io.restore();
+  }
+  expect(failure).toEqual({
+    title: "The pack could not be written",
+    why: "This disk has no space left",
+    next: ["Delete the pack folder it started, then run ", ui.cmd("rt skills init")],
+    details: "disk full\nno space left\nPack folder: /z/packs/acme",
+  });
+  expect(initFailureAfter(outcome)).toEqual([ui.verbatim(outcome.wrote, "written so far")]);
+});
+
+test("a noncompile failure with no written paths has no trailing block", () => {
+  const outcome: Extract<InitOutcome, { ok: false; refused: false }> = { ok: false, refused: false, code: "write-failed", detail: "disk full", wrote: [] };
+  expect(initFailureAfter(outcome)).toEqual([]);
+  expect(renderPlain([ui.failure(initFailure(outcome)), ...initFailureAfter(outcome)])).toBe(
+    "disk full\n  next: Fix it, then run rt skills compile and rt skills check\n",
+  );
+});
+
+test("a refusal has no trailing written-path block", () => {
+  const outcome: Extract<InitOutcome, { ok: false; refused: true }> = { ok: false, refused: true, code: "no-remote", detail: "This repo has no git remote", next: "git remote add origin <url>" };
+  expect(initFailureAfter(outcome)).toEqual([]);
+  expect(renderPlain([ui.failure(initFailure(outcome)), ...initFailureAfter(outcome)])).toBe(
+    "This repo has no git remote\n  next: git remote add origin <url>\n",
+  );
 });
 
 test("a refusal keeps its reason in the failure and refusal blocks", () => {

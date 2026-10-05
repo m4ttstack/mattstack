@@ -79,7 +79,7 @@ export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureI
     };
   }
   const [title = o.detail, ...rest] = o.detail.split("\n");
-  const details = [...rest, ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
+  const details = [...rest, ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : [])];
   return {
     title,
     ...(o.why ? { why: o.why } : {}),
@@ -89,7 +89,8 @@ export function initFailure(o: Extract<InitOutcome, { ok: false }>): ui.FailureI
 }
 
 export function initFailureAfter(o: Extract<InitOutcome, { ok: false }>): Block[] {
-  if (o.refused || o.code !== "compile-failed") return [];
+  if (o.refused) return [];
+  if (o.code !== "compile-failed") return o.wrote.length > 0 ? [ui.verbatim(o.wrote, "written so far")] : [];
   const lines = [...o.detail.split("\n"), ...(o.remedy?.folder ? [`Pack folder: ${o.remedy.folder}`] : []), ...(o.wrote.length > 0 ? ["Written so far:", ...o.wrote] : [])];
   return [ui.verbatim(lines, "what did not compile")];
 }
