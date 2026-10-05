@@ -34,6 +34,7 @@ on a dark and a light terminal background.
 | `6d-services-dark.png`, `6d-services-light.png` | the hidden service verbs at 100 columns: services and apps tables, a flavor takeover, bg and reconciler status, the bg stop refusal, two endpoint lookups, a cron install, the post-install notes, the apps refusal and an endpoint setting warning |
 | `6h-copy-dark.png`, `6h-copy-light.png` | phase 6 copy polish: settings list labels, an unset get, the extension failure, the logins header, an unreadable tool version, members remove, a prune duplicate and a kept repo, a port row with no pid, a refused bundled link, and intercept's left-alone line |
 | `6g-git-skills-dark.png`, `6g-git-skills-light.png` | phase 6 git and skills fixes: a kept stash, a credentialed remote, skills init's failures and refusals, a link conflict, an expand usage failure, the missing-Claude note, a surface apply, a rebase conflict with its files, an escalation timeout |
+| `6g-diagnostics-dark.png`, `6g-diagnostics-light.png` | phase 6 review fixes: written files after an init remedy, failed push output, expand drift and lint diagnostics, and a single lint diagnostic |
 
 The light pages above the phase 5g section were rendered with
 `COLORFGBG=0;15`, which is how a light terminal that reports its background
@@ -134,3 +135,9 @@ command on the next row; it remains whole and readable. On dark, the file
 lists and their rails are quieter than body text but still readable. The
 conflict backup ref in the `why` callout wraps onto its own row without
 splitting. No source change was needed for these renders.
+
+The diagnostic pages show the review fixes at the same 100-column width.
+Each file or diagnostic list follows its failure and remedy under a caption,
+including a single lint hit. Dark and light captions and rails stay readable.
+The expand command exceeds its callout column and moves intact to column 0;
+the long lint message wraps at spaces. No text is clipped.
