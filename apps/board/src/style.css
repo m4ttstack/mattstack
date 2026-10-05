@@ -128,11 +128,6 @@ body {
 .tui-sub {
   margin: 0.15rem 0 0;
 }
-.tui-comment {
-  color: var(--text-3);
-  font-size: 0.78rem;
-  opacity: 0.9;
-}
 .tui-controls {
   display: flex;
   gap: 0.6rem;
@@ -2730,19 +2725,6 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-triage-done-action {
   margin-top: 0.5rem;
-}
-/* The header's slack filter glyph (Controls.tsx's SlackPostedMark); rows
-   carry their own `.tui-mark` marks instead. */
-.tui-slack-posted {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  line-height: 1;
-}
-.tui-slack-posted svg {
-  display: block;
 }
 /* held-draft drawer: the verbatim note text plus the post/dismiss gate */
 .tui-draft-modal {
