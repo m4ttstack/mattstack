@@ -242,7 +242,7 @@ export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: 
       out.print(out.line(copy.status, copy.title(slug), res.data.detail ?? undefined));
     } else {
       const hint = res.data.detail ? `outcome: ${outcome}, ${res.data.detail}` : `outcome: ${outcome}`;
-      out.print(out.line("warn", `The ${slug} team pull ended in a way rt does not recognise`, hint));
+      out.print(out.line("warn", `The ${slug} team pull ended in a way rt does not recognize`, hint));
     }
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, "team pull", deps);
@@ -310,7 +310,8 @@ export function membersRemoveBlocks(handle: string, slug: string, result: Member
       ? out.line("done", `Removed ${handle} from the team`, `forge access: ${result.forgeAccess}`)
       : out.line("skipped", `${handle} was not on the team list`, `forge access: ${result.forgeAccess}`),
     ...(result.manualSteps.length > 0 ? [out.callout("fix", ...result.manualSteps)] : []),
-    out.callout("next", result.residueNote, out.cmd(`rt secrets rotate --team ${slug} <domain> <key>`)),
+    out.callout("note", result.residueNote),
+    out.callout("next", out.cmd(`rt secrets rotate --team ${slug} <domain> <key>`)),
   ];
 }
 

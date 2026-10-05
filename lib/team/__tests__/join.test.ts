@@ -1430,6 +1430,7 @@ describe("joinRedeem", () => {
     expect((caught as UserActionableError).message).not.toContain("localdev");
     expect((caught as UserActionableError).message).toContain("has not been used yet");
     expect((caught as UserActionableError).message).toBe("rt could not tell who you are on GitHub. The invite has not been used yet.");
+    expect((caught as UserActionableError).why).toBe("rt reads your username from the gh command line tool, which is not signed in. The invite still works once you are.");
     expect((caught as UserActionableError).next).toBe("gh auth login");
     // The team WAS cloned (identity resolution needs the just-cloned settings), but
     // relay.redeem must never have run — the invite is still valid for a retry.
