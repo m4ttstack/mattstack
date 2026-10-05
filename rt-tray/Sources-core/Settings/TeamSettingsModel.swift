@@ -9,6 +9,21 @@ public struct TeamSettingsInfo: Codable, Equatable, Sendable {
     public var lastPush: String?
     public var members: [Member]?
     public var mode: String?
+    public var role: String?
+    public var activeTeam: String?
+    public var teams: [String]?
+    public var orgTeams: [String]?
+}
+
+extension TeamSettingsInfo {
+    /// An rt that reports no role predates orgs; the pane keeps what it showed then.
+    public var isAdmin: Bool { role == nil || role == "admin" }
+    public var myTeams: [String] { teams ?? [] }
+    public var canSwitchTeam: Bool { myTeams.count > 1 }
+    public var inviteTeamChoices: [String] {
+        guard let all = orgTeams, all.count > 1 else { return [] }
+        return all
+    }
 }
 
 @MainActor
@@ -17,19 +32,39 @@ public final class TeamSettingsModel: ObservableObject {
     @Published public private(set) var invite: InviteResult?
     @Published public private(set) var uninstallPlan: UninstallPlan?
     @Published public private(set) var error: String?
+    @Published public private(set) var isSwitchingTeam = false
+    @Published public private(set) var packNotice: String?
     private let rt: RtRunning
     private let needs: NeedBroker
     public init(rt: RtRunning, needs: NeedBroker) { self.rt = rt; self.needs = needs }
 
     public var maskedRemote: String { info?.remote.map(RemoteMasker.mask) ?? "—" }
     public var isSolo: Bool { info?.mode == "solo" }
+    public var isAdmin: Bool { info?.isAdmin ?? true }
+    public var canSwitchTeam: Bool { info?.canSwitchTeam ?? false }
+    public var inviteTeamChoices: [String] { info?.inviteTeamChoices ?? [] }
 
     public func load() async {
         if let decoded = await runJSON(["team", "status", "--json"], verb: "team status", as: TeamSettingsInfo.self) { info = decoded }
     }
 
-    public func mintInvite(handle: String) async {
-        if let decoded = await runJSON(["team", "invite", "--handle", handle, "--json"], verb: "team invite", as: InviteResult.self) { invite = decoded }
+    public func useTeam(_ team: String) async {
+        guard !isSwitchingTeam else { return }
+        isSwitchingTeam = true
+        defer { isSwitchingTeam = false }
+        struct Switched: Decodable {
+            struct Pack: Decodable { var enabled: Bool }
+            var team: String
+            var pack: Pack?
+        }
+        guard let switched = await runJSON(["team", "use", team, "--json"], verb: "team use", as: Switched.self) else { return }
+        packNotice = switched.pack?.enabled == false ? "The team pack is not ready. Finish setting it up." : nil
+        await load()
+    }
+
+    public func mintInvite(handle: String, team: String?) async {
+        let args = ["team", "invite", "--handle", handle] + (team.map { ["--teams", $0] } ?? []) + ["--json"]
+        if let decoded = await runJSON(args, verb: "team invite", as: InviteResult.self) { invite = decoded }
     }
 
     public func loadUninstallPlan() async {
