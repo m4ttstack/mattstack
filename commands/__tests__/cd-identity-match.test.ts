@@ -89,7 +89,7 @@ describe("resolveReposForIdentity", () => {
 
 // The cd-cache is rebuilt on a timer, so a row can carry a worktree disposed
 // (trashed) since the last refresh. Rows are validated at pick time; the lead
-// worktree stays even when missing so the repo-level missingRepoRefusal path
+// worktree stays even when missing so the repo-level missingRepoFailure path
 // still gets its row.
 describe("dropGhostWorktrees", () => {
   function multiRepo(paths: string[]): KnownRepo {
