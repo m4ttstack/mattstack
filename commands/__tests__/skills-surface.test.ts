@@ -1120,3 +1120,34 @@ test("surface apply moves print in one call", async () => {
     out.__test__.setHuman(() => false);
   }
 });
+
+for (const json of [false, true]) {
+  test(`surface apply preserves completed move output before a later rename fails${json ? " under json" : ""}`, async () => {
+    const packDir = makePackDir();
+    writeStubs(packDir, {});
+    writeFile(join(packDir, "surface.jsonc"), '{ "public": ["alpha", "beta"] }\n');
+    for (const name of ["alpha", "beta"]) writeFile(join(packDir, "attachments", name, "SKILL.md"), `---\nname: ${name}\n---\nbody\n`);
+    writeFile(join(packDir, "skills", "beta"), "blocks the directory rename\n");
+
+    let failure: unknown;
+    try {
+      await skillsSurface(["apply", "--pack", "acme", "--pack-dir", packDir, ...(json ? ["--json"] : [])]);
+    } catch (err) {
+      failure = err;
+      expect(io.stdout()).toBe(json ? "" : "[ok] alpha  moved attachments/ -> skills/ (this pack is not a git repo, so no git history follows it)\n");
+      expect(io.stderr()).toBe("");
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).toMatchObject({
+      code: "ENOTDIR",
+      syscall: "rename",
+      path: join(packDir, "attachments", "beta"),
+      dest: join(packDir, "skills", "beta"),
+    });
+    expect(existsSync(join(packDir, "skills", "alpha", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(packDir, "attachments", "alpha"))).toBe(false);
+    expect(existsSync(join(packDir, "attachments", "beta", "SKILL.md"))).toBe(true);
+    expect(readFileSync(join(packDir, "skills", "beta"), "utf8")).toBe("blocks the directory rename\n");
+  });
+}

@@ -2334,7 +2334,13 @@ async function runApply(flags: SurfaceFlags): Promise<ApplyResult> {
       continue;
     }
 
-    const note = moveHandAuthoredDir(packDir, move);
+    let note: string | null;
+    try {
+      note = moveHandAuthoredDir(packDir, move);
+    } catch (err) {
+      if (!flags.json && blocks.length > 0) out.print(...blocks);
+      throw err;
+    }
     if (!flags.json) blocks.push(out.line("done", name, `moved ${route}${note ? ` (${note})` : ""}`));
   }
 
