@@ -79,6 +79,7 @@ describe("reconcileSkillLinks", () => {
     mkdirSync(join(claudeDir, "rt:settings"), { recursive: true });
     const result = reconcileSkillLinks({ skillsDir, claudeSkillsDir: claudeDir });
     expect(kinds(result)).toEqual({ "rt:settings": "conflict" });
+    expect(result.actions[0]!.detail).toBe("a file or folder already has this name, and rt did not make it");
     expect(lstatSync(join(claudeDir, "rt:settings")).isDirectory()).toBe(true);
   });
 

@@ -123,7 +123,7 @@ export function reconcileSkillLinks(opts: {
       continue;
     }
     if (!st.isSymbolicLink()) {
-      actions.push({ kind: "conflict", name, link, target: dir, detail: "a file or folder rt did not make has this name" });
+      actions.push({ kind: "conflict", name, link, target: dir, detail: "a file or folder already has this name, and rt did not make it" });
       continue;
     }
     const raw = readlinkSync(link);

@@ -480,6 +480,12 @@ routes them to the log by that prefix.
 
 A command a person can run to fix something names its subject in a form the verb resolves: `rt repos locate --repo` takes a repo's `host/path` label, so printed commands use that (`repoLabelFull`), never the stored identity.
 
+A list that belongs to a failure (the files a rebase stopped on, the lines
+a child printed) is a `verbatim` block with a caption passed after the
+failure (`out.fail(f, ...after)`), never the failure's `details`, which
+is a one-line pointer. Something rt leaves alone because it did not create
+it is worded the same everywhere: rt did not make it, so rt left it alone.
+
 ## The TypeScript CLI is UI-free
 
 The rt TS CLI (`commands/`, `lib/`, `cli.ts`, `scripts/`) is pure Bun/TypeScript

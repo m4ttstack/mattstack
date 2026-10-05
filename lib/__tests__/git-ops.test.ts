@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { execSync } from "child_process";
-import { mkdtempSync, realpathSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { getPullRebase, getRemoteDefaultBranch } from "../git-ops.ts";
@@ -145,4 +145,24 @@ describe("getPullRebase", () => {
     execSync("git config pull.rebase merges", { cwd: repo, shell: "/bin/zsh" });
     expect(getPullRebase(repo)).toBe(false);
   });
+});
+
+test("a remote that looks like an option is refused before git runs", () => {
+  const repo = makeRepo();
+  const marker = join(repo, "upload-pack-ran");
+  expect(getRemoteDefaultBranch(repo, `--upload-pack=touch ${marker}`, { preferRemote: true })).toBeNull();
+  expect(existsSync(marker)).toBe(false);
+});
+
+test("a remote with shell syntax runs no shell", () => {
+  const repo = makeRepo();
+  const marker = join(repo, "pwned");
+  getRemoteDefaultBranch(repo, `x;touch ${marker}`, { preferRemote: true });
+  expect(existsSync(marker)).toBe(false);
+});
+
+test("git-ops and git-backup call git with argv only", () => {
+  for (const f of ["git-ops.ts", "git-backup.ts"]) {
+    expect(readFileSync(join(import.meta.dir, "..", f), "utf8")).not.toMatch(/\bexecSync\(/);
+  }
 });

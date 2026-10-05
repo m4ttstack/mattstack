@@ -4,8 +4,10 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import * as out from "../../../lib/ui/out.ts";
+import { renderPlain } from "../../../lib/ui/out-plain.ts";
+import { drawFailure } from "../shared.ts";
 import { captureOut, type CapturedOut } from "../../../lib/ui/__tests__/capture-out.ts";
-import { conflictFailure, ontoCommand, rebaseCommand, rebaseOnto } from "../rebase.ts";
+import { conflictFailure, conflictFilesBlock, ontoCommand, rebaseCommand, rebaseOnto } from "../rebase.ts";
 import { ctxFor, exitCodeOf, git, makeRepo, trapExit } from "./helpers.ts";
 
 let root: string;
@@ -83,15 +85,14 @@ test("an undone conflict prints nothing of its own and hands the caller the fail
   expect(io.lines()).toHaveLength(2);
   expect(io.stderr()).toBe("");
   expect(result.failure?.title).toBe("The rebase stopped on conflicts in 1 file");
-  expect(result.failure?.why).toBe("rt put the branch back the way it was.");
-  expect(result.failure?.details).toMatch(/^a\.txt\nA backup is at rt-backup\/rebase\/feature\//);
+  expect(result.failure?.why).toBe(`rt put the branch back the way it was. Your branch as it was is saved as ${result.backupBranch}.`);
+  expect(result.failure?.details).toBeUndefined();
 });
 
 test("conflictFailure counts the files and leaves the backup line out when there is none", () => {
   expect(conflictFailure({ unresolvedFiles: ["a.ts", "b.ts"], backupBranch: null })).toEqual({
     title: "The rebase stopped on conflicts in 2 files",
     why: "rt put the branch back the way it was.",
-    details: "a.ts\nb.ts",
   });
 });
 
@@ -175,4 +176,30 @@ test("a failed fetch draws one failure, and git's own words print once, in it", 
   expect(io.stderr()).toStartWith("Could not fetch from origin\n  Command failed: git fetch origin\n");
   expect(io.stderr().split("Could not fetch").length - 1).toBe(1);
   expect(io.stderr().split("Command failed").length - 1).toBe(1);
+});
+
+test("a conflict failure lists its files under a caption", () => {
+  const f = conflictFailure({ unresolvedFiles: ["src/a.ts", "src/b.ts"], backupBranch: "rt-backup/rebase/x/2026" });
+  expect(f.details).toBeUndefined();
+  expect(f.why).toBe("rt put the branch back the way it was. Your branch as it was is saved as rt-backup/rebase/x/2026.");
+  expect(renderPlain([out.failure(f), conflictFilesBlock(["src/a.ts", "src/b.ts"])])).toBe(
+    "The rebase stopped on conflicts in 2 files\n  why: rt put the branch back the way it was. Your branch as it was is saved as rt-backup/rebase/x/2026.\nfiles with conflicts:\n  src/a.ts\n  src/b.ts\n",
+  );
+});
+
+test("the handler prints undone conflict files under a caption, exit 1", async () => {
+  const repo = conflictRepo();
+  const origin = join(root, "origin.git");
+  execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin], { stdio: "pipe" });
+  git(repo, "remote", "add", "origin", origin);
+  git(repo, "push", "-q", "origin", "main");
+  expect(await exitCodeOf(() => ontoCommand(["main"], ctxFor(repo)))).toBe(1);
+  expect(io.stderr()).toMatch(/^The rebase stopped on conflicts in 1 file\n  why: rt put the branch back the way it was\. Your branch as it was is saved as rt-backup\/rebase\/feature\/[^\n]+\.\nfiles with conflicts:\n  a\.txt\n$/);
+});
+
+test("drawFailure keeps the trailing blocks after a failure or a refused note", () => {
+  drawFailure({ title: "Stopped" }, false, [out.kv("pane", "p1")]);
+  expect(io.stderr()).toBe("Stopped\npane: p1\n");
+  drawFailure({ title: "Left alone" }, true, [out.kv("pane", "p2")]);
+  expect(io.stderr()).toBe("Stopped\npane: p1\n[refused] Left alone\npane: p2\n");
 });

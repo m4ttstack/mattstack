@@ -1,5 +1,6 @@
 import { join, relative, resolve } from "path";
 import { applyEdits, modify } from "jsonc-parser";
+import { logFailureDetail, UserActionableError } from "../errors.ts";
 import { FragmentError, parseFragment } from "./manifest-merge.ts";
 import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
@@ -281,14 +282,14 @@ export type InitOutcome =
       restartNeeded: true;
       tryNext: string;
     }
-  | { ok: false; refused: true; code: InitRefusalCode; detail: string; next?: string }
-  | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy };
+  | { ok: false; refused: true; code: InitRefusalCode; detail: string; next?: string; why?: string }
+  | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy; why?: string; next?: string };
 
 /** rt declining by rule, drawn as refused; every other refusal code is a missing prerequisite or a usage slip, drawn as a failure. */
 export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["pack-exists", "zone-has-pack", "zone-mismatch"]);
 
-function refuse(code: InitRefusalCode, detail: string, next?: string): InitOutcome {
-  return { ok: false, refused: true, code, detail, ...(next ? { next } : {}) };
+function refuse(code: InitRefusalCode, detail: string, next?: string, why?: string): InitOutcome {
+  return { ok: false, refused: true, code, detail, ...(next ? { next } : {}), ...(why ? { why } : {}) };
 }
 
 /** Anchored to the CLI's own "already ..." phrasings so a failing call that merely mentions the word does not read as success. */
@@ -310,8 +311,8 @@ async function marketplaceNames(claude: NonNullable<InitDeps["claude"]>): Promis
 
 export async function initPack(opts: { repoDir: string; zone: string | null }, deps: InitDeps): Promise<InitOutcome> {
   const remote = await deps.gitRemote(opts.repoDir);
-  if (remote.kind === "not-a-repo") return refuse("not-a-repo", `${opts.repoDir} is not a git repo`);
-  if (remote.kind === "no-remote") return refuse("no-remote", `${opts.repoDir} has no git remote. Add one, so the team zone can name this repo`);
+  if (remote.kind === "not-a-repo") return refuse("not-a-repo", "This folder is not a git repo");
+  if (remote.kind === "no-remote") return refuse("no-remote", "This repo has no git remote", "git remote add origin <url>");
   const repo = parseRemote(remote.url);
   if (!repo) return refuse("no-remote", `rt could not read a host and path from the remote ${withoutCredentials(remote.url)}`);
 
@@ -348,7 +349,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
   const zone = choice.zone;
   const pack = zone.namespace;
   if (!isValidNamespace(pack, zone.dir)) {
-    return refuse("invalid-namespace", `The ${zone.slug} zone's namespace, ${pack}, is not a valid pack name. Fix it in the zone's mattstack/mattstack.jsonc`);
+    return refuse("invalid-namespace", `The ${zone.slug} zone's name cannot be a pack name`, undefined, `Pack names use lowercase letters, digits and dashes; this one is ${pack}.`);
   }
   const packDir = join(zone.dir, "mattstack", "packs", pack);
   if (zone.hasPack || deps.fs.exists(packDir)) {
@@ -368,14 +369,21 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
     return { commands: [`claude plugin marketplace add ${zone.dir}`, `claude plugin install ${pluginId}`] };
   };
 
-  const failed = (code: FailureCode, detail: string): InitOutcome =>
-    ({ ok: false, refused: false, code, detail, wrote, remedy: remedyFor(code) });
+  const failed = (code: FailureCode, detail: string, from?: { why?: string; next?: string }): InitOutcome => ({
+    ok: false, refused: false, code, detail, wrote, remedy: remedyFor(code),
+    ...(from?.why ? { why: from.why } : {}),
+    ...(from?.next ? { next: from.next } : {}),
+  });
 
   /** A daemon-backed dep can throw instead of returning a failure shape; the throw must still carry `wrote` forward, same as a returned failure. */
   const attempt = async <T>(code: FailureCode, fn: () => Promise<T>): Promise<{ value: T } | { outcome: InitOutcome }> => {
     try {
       return { value: await fn() };
     } catch (err) {
+      if (err instanceof UserActionableError) {
+        logFailureDetail(err);
+        return { outcome: failed(code, err.message, { why: err.why, next: err.next }) };
+      }
       return { outcome: failed(code, err instanceof Error ? err.message : String(err)) };
     }
   };
