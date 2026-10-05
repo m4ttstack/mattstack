@@ -2,21 +2,22 @@
 # The two propagation paths team-propagate.sh does not reach: a joiner whose own
 # held commit is rebased onto the owner's daemon push, and a same-key edit on
 # both sides that surfaces as the team.sync needs-you row and clears after a
-# reset to origin. Every commit, push, pull and rebase is the daemon's; this
-# script only writes settings and reads verbs back.
-# Usage: team-rebase.sh <owner-vm> <joiner-vm> [--slug vmtest] [--rt <dist/rt>] [--logs <dir>]
+# reset to origin.
+# Usage: team-rebase.sh <owner-vm> <joiner-vm> [--slug vmtest] [--team <name>] [--rt <dist/rt>] [--logs <dir>]
 #
-# The joiner account needs push rights on the team repo (GitLab Developer, 30)
-# AND an unprotected default branch: multi-writer is the design, a Reporter
+# The joiner starts as an ordinary member with a recorded forge identity. The
+# admin grants ownership of its active team (or --team) before the rebase cases.
+# It also needs push rights on the org repo (GitLab Developer, 30)
+# AND an unprotected default branch: a Reporter
 # joiner fails scenario A with "not allowed to push code to this project", and
 # a protected `main` (GitLab's default for a new project, Maintainers only)
 # fails it with "not allowed to push code to protected branches".
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; source "$HERE/../../lib/common.sh"
 OWNER="${1:?owner vm}"; JOINER="${2:?joiner vm}"; shift 2
-SLUG=vmtest; RT_BIN="$VM_ROOT/../../dist/rt"; LOGS="$PWD"
+SLUG=vmtest; TEAM_NAME=""; RT_BIN="$VM_ROOT/../../dist/rt"; LOGS="$PWD"
 while [ $# -gt 0 ]; do case "$1" in
-  --slug) SLUG="$2"; shift 2;; --rt) RT_BIN="$2"; shift 2;; --logs) LOGS="$2"; shift 2;;
+  --slug) SLUG="$2"; shift 2;; --team) TEAM_NAME="$2"; shift 2;; --rt) RT_BIN="$2"; shift 2;; --logs) LOGS="$2"; shift 2;;
   *) vm_die "unknown arg $1";; esac; done
 [ -x "$RT_BIN" ] || vm_die "no compiled rt at $RT_BIN (bun build --compile ./cli.ts --outfile dist/rt --no-compile-autoload-bunfig --no-compile-autoload-dotenv)"
 mkdir -p "$LOGS"
@@ -66,6 +67,88 @@ GUEST
 vm_scp "$VM_TESTER_USER" "$OWNER" "$RT_BIN" /tmp/rt-new
 vm_scp "$VM_TESTER_USER" "$JOINER" "$RT_BIN" /tmp/rt-new
 
+JOINER_FACTS=$(vm_ssh "$VM_TESTER_USER" "$JOINER" "SLUG='$SLUG' bash -s" <<'GUEST'
+set -euo pipefail
+export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
+RT=/tmp/rt-new; chmod +x "$RT"
+LOCAL="$HOME/.mattstack/rt/teams/$SLUG.json"
+if [ ! -f "$LOCAL" ]; then echo "Joiner has no recorded forge identity; connect its forge account in Setup" >&2; exit 1; fi
+USERNAME=$(jq -er '.forgeUsername | select(type == "string" and length > 0)' "$LOCAL") \
+  || { echo "Joiner has no recorded forge identity; connect its forge account in Setup" >&2; exit 1; }
+STATUS=$("$RT" team status --team "$SLUG" --json)
+jq -cn --arg username "$USERNAME" --argjson status "$STATUS" '{username: $username, status: $status}'
+GUEST
+)
+JOINER_USERNAME=$(printf '%s' "$JOINER_FACTS" | jq -er '.username | select(test("^[A-Za-z0-9_.-]+$"))') \
+  || vm_die "joiner's recorded forge username is missing or not a safe handle"
+if [ -z "$TEAM_NAME" ]; then
+  TEAM_NAME=$(printf '%s' "$JOINER_FACTS" | jq -er '.status.activeTeam // empty') \
+    || vm_die "joiner has no active team; choose an existing team folder with --team"
+fi
+[[ "$TEAM_NAME" =~ ^[a-z][a-z0-9-]*$ ]] || vm_die "choose an existing team folder with --team"
+printf '%s' "$JOINER_FACTS" | jq -e --arg team "$TEAM_NAME" \
+  '.status.role == "member" and (.status.teams | index($team) != null) and (.status.orgTeams | index($team) != null)' >/dev/null \
+  || vm_die "joiner must start as an ordinary member listed on the selected team"
+
+guest "$JOINER" p1-member-refusal "SLUG='$SLUG' TEAM_NAME='$TEAM_NAME'" <<'GUEST'
+set -euo pipefail
+export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
+RT=/tmp/rt-new
+STORE="$HOME/.mattstack/teams/$SLUG/mattstack/teams/$TEAM_NAME/settings.team.jsonc"
+[ -f "$STORE" ]
+BEFORE=$(shasum -a 256 "$STORE")
+set +e
+REFUSAL=$("$RT" settings set board.title '"member"' --scope team --team "$TEAM_NAME" 2>&1)
+RC=$?
+set -e
+if [ "$RC" -ne 0 ] && [ "$(shasum -a 256 "$STORE")" = "$BEFORE" ] \
+  && printf '%s' "$REFUSAL" | grep -qF "The $TEAM_NAME team's files belong to its owners"; then
+  echo "TEAM ok   ordinary member cannot write shared settings"
+else
+  echo "TEAM FAIL ordinary member write: exit=$RC, refusal=$REFUSAL"
+  exit 1
+fi
+GUEST
+if grep -q '^TEAM FAIL' "$LOGS/rebase-p1-member-refusal.log"; then vm_die "ordinary-member refusal prerequisite failed"; fi
+
+guest "$OWNER" p2-owner-grant \
+  "SLUG='$SLUG' TEAM_NAME='$TEAM_NAME' JOINER_USERNAME='$JOINER_USERNAME' VM_TESTER_PASS='$VM_TESTER_PASS'" <<'GUEST'
+set -euo pipefail
+export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
+RT=/tmp/rt-new
+security unlock-keychain -p "$VM_TESTER_PASS" "$HOME/Library/Keychains/login.keychain-db"
+LOCAL="$HOME/.mattstack/rt/teams/$SLUG.json"
+jq -e '.forgeUsername | type == "string" and length > 0' "$LOCAL" >/dev/null \
+  || { echo "TEAM FAIL admin has no recorded forge identity; connect its forge account in Setup"; exit 1; }
+"$RT" team status --team "$SLUG" --json | jq -e --arg team "$TEAM_NAME" \
+  '.role == "admin" and (.teams | index($team) != null)' >/dev/null
+[ -f "$HOME/.mattstack/teams/$SLUG/mattstack/teams/$TEAM_NAME/settings.team.jsonc" ]
+"$RT" settings set mattstack.activeTeam "\"$TEAM_NAME\"" --scope user
+"$RT" team status --team "$SLUG" --json | jq -e --arg team "$TEAM_NAME" '.activeTeam == $team' >/dev/null
+ROLES=$("$RT" settings get mattstack.org --json | jq -ce --arg team "$TEAM_NAME" --arg username "$JOINER_USERNAME" \
+  '.value | select(.teams[$team] != null) | .teams[$team].owners |= (. + [$username] | unique)')
+"$RT" settings set mattstack.org "$ROLES" --scope org
+"$RT" team publish --team "$SLUG" --json
+echo "TEAM ok   admin granted ownership of the selected team to the recorded joiner"
+GUEST
+if grep -q '^TEAM FAIL' "$LOGS/rebase-p2-owner-grant.log"; then vm_die "team-owner grant prerequisite failed"; fi
+
+guest "$JOINER" p3-owner-pull \
+  "SLUG='$SLUG' TEAM_NAME='$TEAM_NAME' JOINER_USERNAME='$JOINER_USERNAME' VM_TESTER_PASS='$VM_TESTER_PASS'" <<'GUEST'
+set -euo pipefail
+export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
+RT=/tmp/rt-new
+security unlock-keychain -p "$VM_TESTER_PASS" "$HOME/Library/Keychains/login.keychain-db"
+"$RT" team pull --team "$SLUG" --json
+"$RT" settings get mattstack.org --json | jq -e --arg team "$TEAM_NAME" --arg username "$JOINER_USERNAME" \
+  '.value.teams[$team].owners | index($username) != null' >/dev/null
+[ -f "$HOME/.mattstack/teams/$SLUG/mattstack/teams/$TEAM_NAME/settings.team.jsonc" ]
+"$RT" settings set mattstack.activeTeam "\"$TEAM_NAME\"" --scope user
+"$RT" team status --team "$SLUG" --json | jq -e --arg team "$TEAM_NAME" '.role == "owner" and .activeTeam == $team' >/dev/null
+echo "TEAM ok   joiner owns and reads the selected team"
+GUEST
+if grep -q '^TEAM FAIL' "$LOGS/rebase-p3-owner-pull.log"; then vm_die "team-owner pull prerequisite failed"; fi
+
 # ── shared guest blocks ─────────────────────────────────────────────────────
 
 # Hold the joiner's pushes, write one team-scope key, wait for the daemon's
@@ -79,7 +162,7 @@ security unlock-keychain -p "$VM_TESTER_PASS" "$HOME/Library/Keychains/login.key
 TEAM="$HOME/.mattstack/teams/$SLUG"
 
 "$RT" settings set rt.teamSnapshot '{"pushDelaySec": 900}' --scope machine
-"$RT" settings set "$KEY" "$VALUE" --scope team --team "$SLUG"
+"$RT" settings set "$KEY" "$VALUE" --scope team --team "$TEAM_NAME"
 
 elapsed=0; AHEAD=""
 while [ "$elapsed" -lt 90 ]; do
@@ -109,7 +192,7 @@ RT=/tmp/rt-new; chmod +x "$RT"
 security unlock-keychain -p "$VM_TESTER_PASS" "$HOME/Library/Keychains/login.keychain-db"
 
 BEFORE=$("$RT" team status --team "$SLUG" --json 2>/dev/null | tail -1 | jq -r '.lastPushAt // empty' 2>/dev/null) || BEFORE=""
-"$RT" settings set board.title "$VALUE" --scope team --team "$SLUG"
+"$RT" settings set board.title "$VALUE" --scope team --team "$TEAM_NAME"
 
 elapsed=0; PUSHED=""; STATUS_JSON=""
 while [ "$elapsed" -lt 180 ]; do
@@ -132,15 +215,15 @@ GUEST
 
 trap restore_hold EXIT
 guest "$JOINER" a1-joiner-hold \
-  "SLUG='$SLUG' VM_TESTER_PASS='$VM_TESTER_PASS' KEY='board.ticketPrefixes' VALUE='[\"$JOIN_PREFIX\"]' ROW='joiner committed locally, push held'" \
+  "SLUG='$SLUG' TEAM_NAME='$TEAM_NAME' VM_TESTER_PASS='$VM_TESTER_PASS' KEY='board.ticketPrefixes' VALUE='[\"$JOIN_PREFIX\"]' ROW='joiner committed locally, push held'" \
   <<<"$HOLD_AND_WRITE"
 
 guest "$OWNER" a2-owner-push \
-  "SLUG='$SLUG' VM_TESTER_PASS='$VM_TESTER_PASS' VALUE='\"$OWNER_TITLE\"' ROW='owner daemon pushed'" \
+  "SLUG='$SLUG' TEAM_NAME='$TEAM_NAME' VM_TESTER_PASS='$VM_TESTER_PASS' VALUE='\"$OWNER_TITLE\"' ROW='owner daemon pushed'" \
   <<<"$OWNER_WRITE"
 
 guest "$JOINER" a3-joiner-rebase \
-  "SLUG='$SLUG' VM_TESTER_PASS='$VM_TESTER_PASS' OWNER_TITLE='$OWNER_TITLE'" <<'GUEST'
+  "SLUG='$SLUG' TEAM_NAME='$TEAM_NAME' VM_TESTER_PASS='$VM_TESTER_PASS' OWNER_TITLE='$OWNER_TITLE'" <<'GUEST'
 set -euo pipefail
 export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
 RT=/tmp/rt-new; chmod +x "$RT"
@@ -159,7 +242,7 @@ git -C "$TEAM" show HEAD --stat --format='  %h %s' 2>/dev/null | head -5 || true
 # -U0: both edits live under mattstack/teams, so a default diff's
 # context lines would report the owner's board.title as touched by the
 # joiner's own commit.
-TOUCHED=$(git -C "$TEAM" show HEAD -U0 --format= -- mattstack/teams 2>/dev/null | grep -c '^[+-].*board\.title') || TOUCHED=0
+TOUCHED=$(git -C "$TEAM" show HEAD -U0 --format= -- "mattstack/teams/$TEAM_NAME" 2>/dev/null | grep -c '^[+-].*board\.title') || TOUCHED=0
 TITLE_NOW=$("$RT" settings get board.title --json 2>/dev/null | tail -1 | jq -r '.value // empty' 2>/dev/null) || TITLE_NOW=""
 
 if [ "$OUTCOME" = "rebased" ] && [ "${AHEAD:-}" = "1" ] && [ "${TOUCHED:-0}" -eq 0 ] && [ "$TITLE_NOW" = "$OWNER_TITLE" ]; then
@@ -202,7 +285,7 @@ fi
 GUEST
 
 guest "$OWNER" a5-owner-sees \
-  "SLUG='$SLUG' VM_TESTER_PASS='$VM_TESTER_PASS' JOIN_PREFIX='$JOIN_PREFIX'" <<'GUEST'
+  "SLUG='$SLUG' TEAM_NAME='$TEAM_NAME' VM_TESTER_PASS='$VM_TESTER_PASS' JOIN_PREFIX='$JOIN_PREFIX'" <<'GUEST'
 set -euo pipefail
 export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
 RT=/tmp/rt-new; chmod +x "$RT"
@@ -228,11 +311,11 @@ GUEST
 # ── scenario B: same-key edits, the needs-you row, and the recovery ─────────
 
 guest "$JOINER" b1-joiner-hold \
-  "SLUG='$SLUG' VM_TESTER_PASS='$VM_TESTER_PASS' KEY='board.title' VALUE='\"$JOINER_TITLE\"' ROW='joiner committed a conflicting title, push held'" \
+  "SLUG='$SLUG' TEAM_NAME='$TEAM_NAME' VM_TESTER_PASS='$VM_TESTER_PASS' KEY='board.title' VALUE='\"$JOINER_TITLE\"' ROW='joiner committed a conflicting title, push held'" \
   <<<"$HOLD_AND_WRITE"
 
 guest "$OWNER" b2-owner-push \
-  "SLUG='$SLUG' VM_TESTER_PASS='$VM_TESTER_PASS' VALUE='\"$OWNER2_TITLE\"' ROW='owner daemon pushed the competing title'" \
+  "SLUG='$SLUG' TEAM_NAME='$TEAM_NAME' VM_TESTER_PASS='$VM_TESTER_PASS' VALUE='\"$OWNER2_TITLE\"' ROW='owner daemon pushed the competing title'" \
   <<<"$OWNER_WRITE"
 
 guest "$JOINER" b3-joiner-conflict \
@@ -278,7 +361,7 @@ fi
 GUEST
 
 guest "$JOINER" b4-joiner-recover \
-  "SLUG='$SLUG' VM_TESTER_PASS='$VM_TESTER_PASS' OWNER2_TITLE='$OWNER2_TITLE'" <<'GUEST'
+  "SLUG='$SLUG' TEAM_NAME='$TEAM_NAME' VM_TESTER_PASS='$VM_TESTER_PASS' OWNER2_TITLE='$OWNER2_TITLE'" <<'GUEST'
 set -euo pipefail
 export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
 RT=/tmp/rt-new; chmod +x "$RT"
