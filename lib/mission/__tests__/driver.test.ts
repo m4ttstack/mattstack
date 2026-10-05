@@ -187,7 +187,7 @@ function makeFakeClient(overrides: {
     stashes: async () => [],
     stashPush: async () => ({ created: false }),
     stashApply: async () => {},
-    stashPop: async () => {},
+    stashPop: async () => ({ kept: false }),
     stashDrop: async () => {},
     desktopStashes: async () => [],
     lastDesktopStashEntryForBranch: async () => null,

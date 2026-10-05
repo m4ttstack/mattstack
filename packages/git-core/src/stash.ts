@@ -38,8 +38,15 @@ export async function stashApply(ctx: ClientContext, index: number): Promise<voi
   await ctx.git.stash(["apply", `stash@{${index}}`]);
 }
 
-export async function stashPop(ctx: ClientContext, index: number): Promise<void> {
-  await ctx.git.stash(["pop", `stash@{${index}}`]);
+export async function stashPop(ctx: ClientContext, index: number): Promise<{ kept: boolean }> {
+  const before = (await ctx.git.stashList()).total;
+  try {
+    await ctx.git.stash(["pop", `stash@{${index}}`]);
+  } catch (err) {
+    if (!/CONFLICT/.test(err instanceof Error ? err.message : String(err))) throw err;
+  }
+  const after = (await ctx.git.stashList()).total;
+  return { kept: after === before };
 }
 
 export async function stashDrop(ctx: ClientContext, index: number): Promise<void> {

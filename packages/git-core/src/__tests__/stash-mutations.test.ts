@@ -93,3 +93,33 @@ describe("stashApply / stashPop / stashDrop", () => {
     }
   });
 });
+
+describe("stashPop on a conflict", () => {
+  it("a conflicting pop reports kept and leaves the stash", async () => {
+    const sb = await seeded();
+    try {
+      const client = createGitClient(sb.dir);
+      await sb.write("a.txt", "stashed\n");
+      await client.stashPush({ message: "mine" });
+      await sb.write("a.txt", "committed\n");
+      await sb.commitAll("theirs");
+      expect(await client.stashPop(0)).toEqual({ kept: true });
+      expect((await client.stashes()).length).toBe(1);
+      expect(await Bun.file(`${sb.dir}/a.txt`).text()).toContain("<<<<<<<");
+    } finally {
+      await sb.cleanup();
+    }
+  });
+
+  it("a clean pop reports not kept", async () => {
+    const sb = await seeded();
+    try {
+      const client = createGitClient(sb.dir);
+      await sb.write("a.txt", "two\n");
+      await client.stashPush({ message: "x" });
+      expect(await client.stashPop(0)).toEqual({ kept: false });
+    } finally {
+      await sb.cleanup();
+    }
+  });
+});

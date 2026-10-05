@@ -135,11 +135,7 @@ export async function stashPopCommand(args: string[]): Promise<void> {
   const client = createGitClient(process.cwd());
   let kept = false;
   try {
-    // A pop that conflicts keeps the stash and does not throw. Not counted
-    // under --json, so a failure's error string stays the pop's own.
-    const before = json ? null : (await client.stashes()).length;
-    await client.stashPop(index);
-    if (before !== null) kept = (await client.stashes()).length === before;
+    kept = (await client.stashPop(index)).kept;
   } catch (err) {
     failPlain(json, "Could not bring that stash back", errText(err));
   }
