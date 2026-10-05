@@ -197,6 +197,59 @@ describe("team.identity", () => {
     expect(readTeamLocal(p, "acme").forgeUsername).toBe("dev1");
   });
 
+  test("on a clone that is not converted yet, the old store's declared forge decides, so a self-hosted host is not read as no forge", async () => {
+    const p = fakeProbes({
+      home: HOME,
+      dirs: TEAMS_DIR,
+      env: { USER: "localdev" },
+      files: {
+        [`${CLONE}/.git/config`]: gitConfig("https://git.example.com/acme/org.git"),
+        [`${CLONE}/mattstack/settings.team.jsonc`]: `// team settings\n${JSON.stringify({ "mattstack.integrations": { forge: { host: "git.example.com", provider: "gitlab" } } })}`,
+      },
+    });
+    const seen: unknown[][] = [];
+    const { ctx } = makeCtx(p, {
+      identity: {
+        token: async (_ctx, host) => {
+          seen.push(["token for", host]);
+          return "stored-token";
+        },
+        login: async (_p, provider, host, token) => {
+          seen.push([provider, host, token]);
+          return "dev1";
+        },
+      },
+    });
+    expect(await teamIdentityStep.run(ctx)).toEqual({ state: "done", detail: "You are dev1" });
+    expect(seen).toEqual([
+      ["token for", "git.example.com"],
+      ["gitlab", "git.example.com", "stored-token"],
+    ]);
+    expect(readTeamLocal(p, "acme").forgeUsername).toBe("dev1");
+  });
+
+  test("on a clone that is not converted yet, an old store with no usable forge falls back to the remote", async () => {
+    for (const declared of [{}, { forge: { host: 7, provider: "gitlab" } }, { forge: { host: "git.example.com", provider: "bitbucket" } }]) {
+      const p = fakeProbes({
+        home: HOME,
+        dirs: TEAMS_DIR,
+        env: { USER: "localdev" },
+        files: {
+          [`${CLONE}/.git/config`]: gitConfig("https://git.example.com/acme/org.git"),
+          [`${CLONE}/mattstack/settings.team.jsonc`]: JSON.stringify({ "mattstack.integrations": declared }),
+        },
+      });
+      const { ctx } = makeCtx(p, {
+        identity: {
+          login: async () => {
+            throw new Error("must not ask");
+          },
+        },
+      });
+      expect(await teamIdentityStep.run(ctx)).toEqual({ state: "done", detail: "You are localdev" });
+    }
+  });
+
   test("on a clone that is not converted yet, the stored token for the clone's own host reaches the lookup", async () => {
     const p = fakeProbes({
       home: HOME,

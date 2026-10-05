@@ -5,7 +5,7 @@ import { forgeLogin } from "../../team/forge.ts";
 import { readTeamLocal, updateTeamLocal } from "../../team/team-local.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import type { Probes } from "../probes.ts";
-import { discoverOrgs, forgeFromRemote, parseOriginUrl, probeUserSettingsReader } from "../team-settings.ts";
+import { discoverOrgs, forgeFromRemote, legacyDeclaredForge, parseOriginUrl, probeUserSettingsReader } from "../team-settings.ts";
 import { trustedForgeTokenFor } from "./forge-token.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
@@ -85,7 +85,7 @@ async function teamIdentityRun(ctx: ApplyContext): Promise<StepOutcome> {
   if (slug === "") return { state: "skipped", detail: "No org on this Mac" };
 
   const remote = cloneOrigin(ctx.p, slug);
-  const declared = ctx.snapshot?.integrations.forge ?? (remote ? forgeFromRemote(remote) : null);
+  const declared = ctx.snapshot?.integrations.forge ?? legacyDeclaredForge(ctx.p, slug) ?? (remote ? forgeFromRemote(remote) : null);
   const record = readTeamLocal(ctx.p, slug);
   const wanted = declared !== null && (!record.forgeUsername || record.creatorPending !== undefined);
   const token = wanted ? await (ctx.identity?.token ?? storedTokenFor)(ctx, declared.host) : null;

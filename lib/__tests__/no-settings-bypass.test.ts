@@ -74,7 +74,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "lib/team/publish.ts": { count: 2, reason: "names the org store for the initial and pre-push fresh-role refusals when the recorded role owns no managed root" },
     "lib/team/add.ts": { count: 1, reason: "bootstraps a new team store through Probes after admin authorization; existing org roles are written through setSetting" },
     "lib/team/create.ts": { count: 2, reason: "scaffolds the org and first team stores; creator edits and the isolation guard use orgStoreFile" },
-    "lib/setup/team-settings.ts": { count: 2, reason: "discovers org clones and reads injected HOME user host confirmation for trusted forge tokens and creation links" },
+    "lib/setup/team-settings.ts": { count: 3, reason: "discovers org clones, reads injected HOME user host confirmation for trusted forge tokens and creation links, and reads an unconverted clone's declared forge through Probes" },
     "lib/skills/init.ts": { count: 4, reason: "reads each org clone's team folders through the InitFs seam; getSetting reads only this Mac's org from HOME" },
     "lib/team/active-team.ts": { count: 1, reason: "decides the active team through the Probes seam; setup and the daemon run it under fake probes, where getSetting would read the ambient HOME" },
     "lib/team/org-store.ts": { count: 1, reason: "the one Probes-seamed path to the org store, shared by the active-team and role readers" },

@@ -93,6 +93,19 @@ export function discoverOrgs(p: Probes): string[] {
   return p.readDir(dir).filter((name) => p.exists(join(dir, name, "mattstack", "org", "settings.org.jsonc")));
 }
 
+/** The forge an unconverted clone's own store declares. Its org layer is not readable yet, so the snapshot has none. */
+export function legacyDeclaredForge(p: Pick<Probes, "home" | "readFile">, slug: string): TeamIntegrations["forge"] | null {
+  const file = join(p.home, ".mattstack", "teams", slug, "mattstack", "settings.team.jsonc");
+  const raw = p.readFile(file);
+  if (raw === null) return null;
+  const integrations = parseStoreText(file, raw).global["mattstack.integrations"] as { forge?: unknown } | undefined;
+  const forge = integrations?.forge;
+  if (forge === null || typeof forge !== "object" || Array.isArray(forge)) return null;
+  const { host, provider } = forge as Record<string, unknown>;
+  if (typeof host !== "string" || host.trim() === "" || (provider !== "github" && provider !== "gitlab")) return null;
+  return { host, provider };
+}
+
 export function readTeamSnapshot(p: Probes, slug: string, opts: { read?: SettingsReader; warn?: (message: string) => void } = {}): TeamSnapshot {
   const warn = opts.warn ?? defaultWarn;
   const read = opts.read ?? defaultReader(warn);
