@@ -36,6 +36,7 @@ import {
   freshnessBanner,
   GROUP_KEYS,
   groupMRs,
+  groupOnLeavingSeat,
   isOwnMr,
   NEEDS_ME_TAB,
   nestStacks,
@@ -46,6 +47,7 @@ import {
 } from '../../view.ts';
 import type {
   DraftFilter,
+  GroupKey,
   SlackFilter,
   StackNode,
   ViewState,
@@ -128,6 +130,7 @@ declare global {
 
 const THEME_KEY = 'mrs-theme';
 const STATE_KEY = 'mrs-view-state';
+const GROUP_BEFORE_SEAT_KEY = 'mrs-group-before-seat';
 const PANEL_COLLAPSED_KEY = 'mrs-panel-collapsed';
 
 /** Drops `title` from the folded-panel set tui-kit's Panel persists under
@@ -144,6 +147,23 @@ function unfoldPanel(title: string): void {
     );
   } catch {
     // Unreadable or blocked storage leaves the panel as the user folded it.
+  }
+}
+
+/** Keeps the grouping you had before the seat tab, so leaving it can hand it
+    back. Blocked storage costs only that memory, never the tab switch. */
+function rememberGroupBeforeSeat(group: GroupKey): void {
+  if (group === 'needs') return;
+  try {
+    localStorage.setItem(GROUP_BEFORE_SEAT_KEY, group);
+  } catch {}
+}
+
+function groupBeforeSeat(): string | null {
+  try {
+    return localStorage.getItem(GROUP_BEFORE_SEAT_KEY);
+  } catch {
+    return null;
   }
 }
 
@@ -271,19 +291,22 @@ export function Board() {
     // in view), so a member picked on one tab usually does not exist on the
     // next: carrying it over would land on an empty board. The seat tab's
     // whole point is its grouping by need, so it opens grouped that way and
-    // leaves that grouping behind on the way out.
+    // hands back the grouping you had before on the way out.
     const entersSeat = patch.tab === NEEDS_ME_TAB.id && state.tab !== patch.tab;
     const leavesSeat =
       patch.tab !== undefined &&
       patch.tab !== NEEDS_ME_TAB.id &&
       state.tab === NEEDS_ME_TAB.id;
+    if (entersSeat && !patch.group) rememberGroupBeforeSeat(state.group);
     const next = {
       ...state,
       ...patch,
       ...(clearsSelection ? { member: 'all' } : {}),
       ...(entersSeat && !patch.group ? { group: 'needs' as const } : {}),
       ...(leavesSeat && state.group === 'needs'
-        ? { group: 'age' as const }
+        ? {
+            group: groupOnLeavingSeat(groupBeforeSeat()),
+          }
         : {}),
     };
     localStorage.setItem(STATE_KEY, JSON.stringify(next));
@@ -375,8 +398,10 @@ export function Board() {
       if (
         resolved.tab === NEEDS_ME_TAB.id &&
         !new URLSearchParams(location.search).has('group')
-      )
+      ) {
+        rememberGroupBeforeSeat(resolved.group);
         resolved = { ...resolved, group: 'needs' };
+      }
       setState(resolved);
     } else {
       // Validated against the ACTIVE TAB's roster: a codeowners tab's is
