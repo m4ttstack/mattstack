@@ -96,7 +96,7 @@ export async function stateBackupInit(_args: string[], _ctx: CommandContext = {}
       await restorePipelineFromStdin(first.path, join(verifyDir, "verify.db"), key.key);
     } finally { rmSync(verifyDir, { recursive: true, force: true }); }
   }, () => result.backed.length ? undefined : "nothing to check yet");
-  const confirmed = await stage("Checking Git LFS took the backup", "Git LFS stores the encrypted files", "Git LFS could not be checked", async () => {
+  const confirmed = await stage("Checking Git LFS took the backup", confirmed => confirmed ? "Git LFS stores the encrypted files" : "Finished checking Git LFS", "Git LFS could not be checked", async () => {
     const first = result.backed[0];
     if (!first) return false;
     const checked = Bun.spawnSync(["git", "check-attr", "filter", "--", first.path], { cwd: homeRepo, env: childEnv() });

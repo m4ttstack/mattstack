@@ -82,7 +82,7 @@ describe("state backup init", () => {
 
   }
 
-  for (const scenario of ["success", "no sources", "LFS unconfirmed", "backup errors", "verification errors"] as const) {
+  for (const scenario of ["success", "no sources", "LFS unconfirmed", "LFS check failed", "backup errors", "verification errors"] as const) {
     it(`runs safe fake stages: ${scenario}`, async () => {
       const tools = await import("../../lib/state/backup-tools.ts");
       const age = await import("../../lib/home/age-key.ts");
@@ -93,7 +93,7 @@ describe("state backup init", () => {
       const found = spyOn(tools, "findBackupTool").mockReturnValue("/usr/bin/true");
       const spawn = spyOn(Bun, "spawnSync").mockImplementation((args: any) => {
         events.push(args[0] === "git" ? "check" : "install");
-        return { exitCode: 0, stdout: Buffer.from(scenario === "LFS unconfirmed" ? "filter: unspecified" : "filter: lfs"), stderr: Buffer.from("") } as never;
+        return { exitCode: args[0] === "git" && scenario === "LFS check failed" ? 1 : 0, stdout: Buffer.from(scenario === "LFS unconfirmed" ? "filter: unspecified" : "filter: lfs"), stderr: Buffer.from("") } as never;
       });
       const filters = spyOn(lfs, "writeLfsFilterConfig").mockReturnValue({ changed: [] } as never);
       const seam = spyOn(age, "createRealAgeKeySeam").mockReturnValue({ run: async () => { throw new Error("no real keychain"); } });
@@ -126,12 +126,21 @@ describe("state backup init", () => {
         } else {
           await stateBackupInit([], {});
           const text = io.stdout();
-          const ordered = ["age, zstd and git-lfs are here", "Git LFS is set up", "This Mac can decrypt your backups", `Backed up ${scenario === "no sources" ? 0 : 1} source(s)`, "A backup decrypts", "Git LFS stores the encrypted files", "Encrypted backup is set up"];
+          const ordered = ["age, zstd and git-lfs are here", "Git LFS is set up", "This Mac can decrypt your backups", `Backed up ${scenario === "no sources" ? 0 : 1} source(s)`, "A backup decrypts", scenario === "success" ? "Git LFS stores the encrypted files" : "Finished checking Git LFS", "Encrypted backup is set up"];
           let previous = -1;
           for (const title of ordered) { const position = text.indexOf(title); expect(position).toBeGreaterThan(previous); previous = position; }
           expect(events).toEqual(scenario === "no sources" ? ["install", "key", "backup"] : ["install", "key", "backup", "read", "decrypt", "check"]);
           if (scenario === "no sources") { expect(read).not.toHaveBeenCalled(); expect(text).toContain("nothing to check yet"); }
-          if (scenario !== "success") { expect(text).toContain("not confirmed yet"); expect(text).toContain("rt state backup status"); }
+          if (scenario !== "success") {
+            expect(text).toContain("[ok] Finished checking Git LFS  not confirmed yet\n");
+            expect(text).not.toContain("Git LFS stores the encrypted files");
+            expect(text).toContain("[warning] Git LFS has not taken the encrypted files yet\n  next: rt state backup status\n");
+          } else {
+            expect(text).toContain("[ok] Git LFS stores the encrypted files\n");
+            expect(text).not.toContain("Finished checking Git LFS");
+            expect(text).not.toContain("not confirmed yet");
+          }
+          expect(exit).not.toHaveBeenCalled();
           expect(io.stderr()).toBe("");
         }
       } finally {
