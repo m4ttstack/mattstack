@@ -326,51 +326,66 @@ describe("startTeamSnapshots", () => {
     h.cleanup();
   });
 
-  describe("pull-only mode", () => {
-    test("a joined clone starts pull-only", async () => {
-      const h = harness();
+  describe("the role decides the mode", () => {
+    const ROLES = { "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } };
+    function orgWith(h: ReturnType<typeof harness>, username: string | null): void {
       clone(h.root, "acme");
-      writeTeamLocal(h.deps.probes, "acme", { createdByRt: false, joinedByRt: true, rtMayManageMembership: false });
+      h.deps.probes.writeFile(join(h.root, ".mattstack", "teams", "acme", "mattstack", "org", "settings.org.jsonc"), JSON.stringify(ROLES));
+      if (username) writeTeamLocal(h.deps.probes, "acme", { createdByRt: false, joinedByRt: true, rtMayManageMembership: false, forgeUsername: username });
+    }
+    async function specFor(username: string | null): Promise<SnapshotSpec> {
+      const h = harness();
+      orgWith(h, username);
       const handle = startTeamSnapshots(h.deps);
       await handle.ready;
-      expect(h.startedSpecs().find((s) => s.id === "team:acme")?.pullOnly).toBe(true);
+      const spec = h.startedSpecs().find((s) => s.id === "team:acme")!;
       handle.stop();
       h.cleanup();
+      return spec;
+    }
+    test("an admin pushes everything rt manages, even on a Mac that joined by invite", async () => {
+      const spec = await specFor("dev1");
+      expect(spec.pullOnly).toBe(false);
+      expect(spec.scope!(".claude-plugin/marketplace.json")).toBe(true);
+      expect(spec.scope!("mattstack/teams/gadgets/settings.team.jsonc")).toBe(true);
     });
-
-    test("an owner clone is not pull-only", async () => {
+    test("an owner pushes only their team folder, and the engine still watches the rest", async () => {
+      const spec = await specFor("dev2");
+      expect(spec.pullOnly).toBe(false);
+      expect(spec.scope!("mattstack/teams/widgets/settings.team.jsonc")).toBe(true);
+      expect(spec.scope!("mattstack/org/settings.org.jsonc")).toBe(false);
+      expect(spec.watch!("mattstack/org/settings.org.jsonc")).toBe(true);
+    });
+    test("a member only pulls, and so does a Mac rt cannot identify yet", async () => {
+      expect((await specFor("dev9")).pullOnly).toBe(true);
+      expect((await specFor(null)).pullOnly).toBe(true);
+    });
+    test("a role that changes under a running daemon restarts the instance in the new mode", async () => {
       const h = harness();
-      clone(h.root, "acme");
-      writeTeamLocal(h.deps.probes, "acme", { createdByRt: true, joinedByRt: false, rtMayManageMembership: false });
+      orgWith(h, "dev9");
       const handle = startTeamSnapshots(h.deps);
       await handle.ready;
-      expect(h.startedSpecs().find((s) => s.id === "team:acme")?.pullOnly).toBeFalsy();
-      handle.stop();
-      h.cleanup();
-    });
-
-    test("a clone with no record at all keeps pushing, so nothing existing goes inert", async () => {
-      const h = harness();
-      clone(h.root, "acme");
-      const handle = startTeamSnapshots(h.deps);
-      await handle.ready;
-      expect(h.startedSpecs().find((s) => s.id === "team:acme")?.pullOnly).toBeFalsy();
-      handle.stop();
-      h.cleanup();
-    });
-
-    test("a record that changes under a running daemon restarts the instance in the new mode", async () => {
-      const h = harness();
-      clone(h.root, "acme");
-      const handle = startTeamSnapshots(h.deps);
-      await handle.ready;
-      expect(h.startedSpecs().at(-1)?.pullOnly).toBeFalsy();
-
-      writeTeamLocal(h.deps.probes, "acme", { createdByRt: false, joinedByRt: true, rtMayManageMembership: false });
-      await handle.rescan();
-
       expect(h.startedSpecs().at(-1)?.pullOnly).toBe(true);
+      writeTeamLocal(h.deps.probes, "acme", { createdByRt: false, joinedByRt: true, rtMayManageMembership: false, forgeUsername: "dev2" });
+      await handle.rescan();
+      expect(h.startedSpecs().at(-1)?.pullOnly).toBe(false);
       expect(h.stoppedIds()).toContain("team:acme");
+      handle.stop();
+      h.cleanup();
+    });
+    test("changing the owned team restarts even when both roles push", async () => {
+      const h = harness();
+      orgWith(h, "dev2");
+      const handle = startTeamSnapshots(h.deps);
+      await handle.ready;
+      h.deps.probes.writeFile(join(h.root, ".mattstack", "teams", "acme", "mattstack", "org", "settings.org.jsonc"), JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { gadgets: { owners: ["dev2"] } } } }));
+      await handle.rescan();
+      expect(h.startedSpecs()).toHaveLength(2);
+      expect(h.startedSpecs().at(-1)?.scope!("mattstack/teams/gadgets/settings.team.jsonc")).toBe(true);
+      expect(h.startedSpecs().at(-1)?.scope!("mattstack/teams/widgets/settings.team.jsonc")).toBe(false);
+      expect(h.stoppedIds()).toEqual(["team:acme"]);
+      await handle.rescan();
+      expect(h.startedSpecs()).toHaveLength(2);
       handle.stop();
       h.cleanup();
     });

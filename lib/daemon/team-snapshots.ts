@@ -16,7 +16,8 @@ import { createRealProbes, type Probes } from "../setup/probes.ts";
 import { convergePackCache } from "../setup/pack-cache.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
 import { UserActionableError } from "../errors.ts";
-import { readTeamLocal } from "../team/team-local.ts";
+import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { roleFor } from "../team/roles.ts";
 import {
   startSnapshot,
   teamSnapshotSpec,
@@ -79,7 +80,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
   const clearTimer = rawDeps.clearTimeout ?? ((h: ReturnType<typeof setTimeout>) => clearTimeout(h));
   const readSettings = rawDeps.readSettings ?? (() => getSetting<TeamSnapshotSettings>("rt.teamSnapshot").value);
   const converge = rawDeps.converge ?? convergePackCache;
-  const instances = new Map<string, { handle: SnapshotHandle; dir: string; pullOnly: boolean }>();
+  const instances = new Map<string, { handle: SnapshotHandle; dir: string; owned: string }>();
   const skippedNoRemote = new Set<string>();
   let watcher: { close(): void } | null = null;
   let debounce: ReturnType<typeof setTimeout> | null = null;
@@ -130,9 +131,8 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
     return rest;
   }
 
-  /** A clone that arrived by redeeming an invite does not write the remote. Absent record means false, so nothing that predates the field changes behavior. */
-  function pullOnlyFor(slug: string): boolean {
-    return readTeamLocal(probes, slug).joinedByRt;
+  function ownedFor(slug: string): string[] {
+    return ownedRoots(roleFor(probes, slug));
   }
 
   async function rescan(): Promise<void> {
@@ -149,16 +149,14 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
         const dir = join(teamsDir, slug);
         if (!existsSync(join(dir, ".git"))) continue;
         present.add(slug);
-        const pullOnly = pullOnlyFor(slug);
+        const roots = ownedFor(slug);
+        const owned = roots.join("\n");
         const running = instances.get(slug);
         if (running) {
-          // The mode is a fact about the machine, and the record can change
-          // under a running daemon (a join, a hand edit). Re-spec rather than
-          // leaving a member pushing until someone restarts the daemon.
-          if (running.pullOnly === pullOnly) continue;
+          if (running.owned === owned) continue;
           running.handle.stop();
           instances.delete(slug);
-          rawDeps.log.info({ slug, pullOnly }, "team-snapshots: mode changed; restarting");
+          rawDeps.log.info({ slug, ownedRoots: roots }, "team-snapshots: ownership changed; restarting");
         }
         const originUrl = originOf(dir);
         if (!originUrl) {
@@ -173,7 +171,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
           pullIntervalSec: clampPullIntervalSec(s.pullIntervalSec),
           originUrl,
           probes,
-          pullOnly,
+          ownedRoots: roots,
           onPulled: async () => {
             try {
               await converge(probes, slug, rawDeps.log.child({ team: slug }));
@@ -192,7 +190,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
           db: rawDeps.db,
           readSettings: () => snapshotSettings(settings()),
         });
-        instances.set(slug, { handle, dir, pullOnly });
+        instances.set(slug, { handle, dir, owned });
         rawDeps.log.info({ slug }, "team-snapshots: watching");
       }
     }

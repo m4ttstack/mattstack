@@ -1,3 +1,4 @@
+import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
 /**
  * `rt team members sync|remove` — the owner side of the invite loop: sync
  * turns each outstanding invite record with a posted reply into a sops
@@ -36,7 +37,9 @@ import { parseOriginUrl } from "../setup/team-settings.ts";
 import { revokeRead, type RevokeAccess } from "./forge.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { scrub } from "./redact.ts";
-import { assertCurrentOrg, assertNotJoined, readTeamLocal } from "./team-local.ts";
+import { assertMayWrite } from "./roles.ts";
+import { assertTeamFolders } from "./team-names.ts";
+import { assertCurrentOrg, readTeamLocal } from "./team-local.ts";
 import { openReply } from "./invite-crypto.ts";
 import { readInviteRecords, removeInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
@@ -137,13 +140,20 @@ function readRoster(seams: MembersSeams, slug: string): RosterMember[] {
   return Array.isArray(store["mattstack.roster"]) ? (store["mattstack.roster"] as RosterMember[]) : [];
 }
 
+export function withRosterKey(roster: RosterMember[], handle: string, agePublicKey: string): RosterMember[] {
+  return roster.some((m) => sameUser(m.username, handle))
+    ? roster.map((m) => (sameUser(m.username, handle) ? { ...m, agePublicKey } : m))
+    : [...roster, { username: handle, agePublicKey }];
+}
+
+export function withoutMember(roster: RosterMember[], handle: string): { roster: RosterMember[]; removed: RosterMember | null } {
+  const removed = roster.find((m) => sameUser(m.username, handle)) ?? null;
+  return { roster: removed ? roster.filter((m) => !sameUser(m.username, handle)) : roster, removed };
+}
+
 /** Sets (or overwrites) one roster entry's `agePublicKey`: the sync-time record of which sops recipient a handle maps to, so `membersRemove` can find it later without a `--key` argument. */
 function recordRosterKey(seams: MembersSeams, slug: string, handle: string, agePublicKey: string): void {
-  const existing = readRoster(seams, slug);
-  const updated = existing.some((m) => m.username === handle)
-    ? existing.map((m) => (m.username === handle ? { ...m, agePublicKey } : m))
-    : [...existing, { username: handle, agePublicKey }];
-  seams.writeSetting("mattstack.roster", updated, "org");
+  seams.writeSetting("mattstack.roster", withRosterKey(readRoster(seams, slug), handle, agePublicKey), "org");
 }
 
 export interface MembersSeams {
@@ -176,6 +186,28 @@ export function realMembersSeams(): MembersSeams {
 export function teamRemote(p: Probes, slug: string): string | null {
   const raw = p.readFile(`${p.home}/.mattstack/teams/${slug}/.git/config`);
   return raw !== null ? parseOriginUrl(raw) : null;
+}
+
+export interface MembersSetResult {
+  username: string;
+  teams: string[];
+  previous: string[];
+}
+
+export function membersSetTeams(p: Probes, seams: MembersSeams, slug: string, handle: string, teams: string[]): MembersSetResult {
+  assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
+  assertCurrentOrg(slug, seams.currentOrg(), "team members set");
+  assertTeamFolders(p, slug, teams);
+  const roster = readRoster(seams, slug);
+  const entry = roster.find((member) => sameUser(member.username, handle));
+  if (!entry) {
+    throw new UserActionableError("not-a-member", `${handle} is not in this org yet`, {}, { next: `rt team invite --handle ${handle} --teams <team>` });
+  }
+  const previous = Array.isArray(entry.teams) ? entry.teams.filter((team): team is string => typeof team === "string") : [];
+  const next = [...new Set(teams)];
+  assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
+  seams.writeSetting("mattstack.roster", roster.map((member) => member === entry ? { ...member, teams: next } : member), "org");
+  return { username: entry.username, teams: next, previous };
 }
 
 export interface MembersSyncResult {
@@ -236,7 +268,7 @@ export async function membersSync(
   slug: string,
   seams: MembersSeams = realMembersSeams(),
 ): Promise<MembersSyncResult> {
-  assertNotJoined(p, slug);
+  assertMayWrite(p, slug, ".sops.yaml");
   assertCurrentOrg(slug, seams.currentOrg(), "team members sync");
 
   const added: string[] = [];
@@ -347,7 +379,7 @@ export async function membersRemove(
   agePublicKey?: string,
   seams: MembersSeams = realMembersSeams(),
 ): Promise<MembersRemoveResult> {
-  assertNotJoined(p, slug);
+  assertMayWrite(p, slug, ".sops.yaml");
 
   if (agePublicKey !== undefined && !isValidAgePublicKey(agePublicKey)) {
     throw new UserActionableError("invalid-age-key", "That is not a valid age key", {}, {
@@ -364,7 +396,7 @@ export async function membersRemove(
   const recordedKeys = [
     ...new Set(
       roster
-        .filter((m) => m.username === handle)
+        .filter((m) => sameUser(m.username, handle))
         .map((m) => m.agePublicKey)
         .filter((k): k is string => typeof k === "string"),
     ),
@@ -399,14 +431,9 @@ export async function membersRemove(
               : [`${handle} can still see the team repo. Remove them there too: mattstack does not manage who can see this repo.`],
         };
 
-  const rosterRemoved = roster.some((m) => m.username === handle);
-  if (rosterRemoved) {
-    seams.writeSetting(
-      "mattstack.roster",
-      roster.filter((m) => m.username !== handle),
-      "org",
-    );
-  }
+  const removal = withoutMember(roster, handle);
+  const rosterRemoved = removal.removed !== null;
+  if (rosterRemoved) seams.writeSetting("mattstack.roster", removal.roster, "org");
 
   let reencrypted: string[] = [];
   for (const key of keysToRemove) {

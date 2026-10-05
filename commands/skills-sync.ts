@@ -12,10 +12,13 @@
  */
 
 import { homedir } from "os";
-import { join } from "path";
+import { join, relative, isAbsolute, sep } from "path";
+import { realpathSync } from "fs";
+import { currentOrg } from "../lib/settings/stores.ts";
+import { orgDir } from "../lib/rt-paths.ts";
+import { currentRole, mayWritePath } from "../packages/rt-client/src/settings/org-roles.ts";
 import { discoverPacks, packFromDir, solePack, type PackInfo } from "../lib/skills/packs.ts";
 import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts";
-import { realpathSync } from "fs";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import { syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
 import { SIGNATURE_RE } from "../lib/skills/changes.ts";
@@ -220,7 +223,16 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
     else fail(`which pack? pass --pack <name> (discovered: ${names})`, usageFailure("Which pack?", "rt skills sync --pack <name>", `There is more than one: ${names}.`));
   }
   const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+  const org = currentOrg();
+  const role = org === null ? null : currentRole(org);
+  const canonical = (dir: string): string => { try { return realpathSync(dir); } catch { return dir; } };
   const deps: SyncDeps = overrides?.deps ?? {
+    mayCompile: (name) => {
+      const dir = packs.find(p => p.name === name)?.dir;
+      if (org === null || role === null || dir === undefined) return true;
+      const rel = relative(canonical(orgDir(org)), canonical(dir));
+      return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel) || mayWritePath(role, rel.split(sep).join("/"));
+    },
     run: async (cmd, cmdArgs, opts) => {
       const proc = Bun.spawn([cmd, ...cmdArgs], { cwd: opts?.cwd, env: childEnv(), stdout: "pipe", stderr: "pipe" });
       const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);

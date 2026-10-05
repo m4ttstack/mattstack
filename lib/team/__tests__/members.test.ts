@@ -1,6 +1,12 @@
-import { describe, test, expect } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { closeStateDb } from "../../state/index.ts";
+import * as memberActions from "../members.ts";
+import { withRosterKey, withoutMember } from "../members.ts";
+import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
+import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import { join } from "path";
-import { fakeProbes } from "../../setup/__tests__/fakes.ts";
+import { fakeProbes as rawFakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { readTeamRecipients, teamSecretsFile, writeTeamRecipients } from "../../secrets/team-store.ts";
 import type { SecretsExecResult, SecretsExecSeam, SecretsSeams } from "../../secrets/store.ts";
@@ -12,6 +18,21 @@ import { membersRemove, membersSync, MembersSyncAbortedError, type MembersSeams 
 import { teamLocalPath } from "../team-local.ts";
 import type { RelayClient } from "../relay-client.ts";
 
+let fixtureHome: string;
+let priorHome: string | undefined;
+beforeEach(() => {
+  priorHome = process.env.HOME;
+  closeStateDb();
+  fixtureHome = realpathSync(mkdtempSync(`${tmpdir()}/rt-org-fixture-`));
+  process.env.HOME = fixtureHome;
+  seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
+});
+afterEach(() => {
+  closeStateDb();
+  process.env.HOME = priorHome;
+  rmSync(fixtureHome, { recursive: true, force: true });
+});
+
 const HOME = "/home/x";
 const SLUG = "acme";
 const OWNER_PUBLIC_KEY = "age19gmvtjcupd0gq46003yh9tepvlj4fr97pfg4zh024fpq0kqfqyys5ftxdh";
@@ -20,15 +41,23 @@ const ID_HEX = "0102030405060708090a0b0c0d0e0f10";
 const KEY = new Uint8Array(32).fill(9);
 const CREATOR_SECRET = "creator-secret-alice";
 
+function fakeProbes(opts: Parameters<typeof rawFakeProbes>[0] = {}) {
+  const home = opts.home ?? HOME;
+  return rawFakeProbes({ ...opts, files: {
+    [`${home}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+    [teamLocalPath(home, "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
+    ...opts.files,
+  } });
+}
+
 function teamCloneRootFor(slug: string): string {
   return join(teamsDir(), slug);
 }
 
-/** A machine that redeemed an invite for `slug` (the local record read by `assertNotJoined`), unrelated to any file in the team clone itself. */
-function probesWithJoinedTeam(slug = SLUG) {
+function probesWithJoinedTeam(slug = SLUG, username = "dev2") {
   return fakeProbes({
     home: HOME,
-    files: { [teamLocalPath(HOME, slug)]: JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false }) },
+    files: { [teamLocalPath(HOME, slug)]: JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false, forgeUsername: username }) },
   });
 }
 
@@ -529,7 +558,7 @@ describe("membersSync", () => {
     const { seams } = fakeMembersSeams();
     const relay = fakeRelay();
 
-    await expect(membersSync(p, relay, secrets, SLUG, seams)).rejects.toThrow(/pull-only/);
+    await expect(membersSync(p, relay, secrets, SLUG, seams)).rejects.toMatchObject({ code: "team-pull-only", message: "The org's shared files belong to its admins" });
   });
 });
 
@@ -826,6 +855,127 @@ describe("membersRemove", () => {
     const { secrets } = seamsWithClone();
     const { seams } = fakeMembersSeams();
 
-    await expect(membersRemove(p, secrets, SLUG, "zaphod", undefined, seams)).rejects.toThrow(/pull-only/);
+    await expect(membersRemove(p, secrets, SLUG, "zaphod", undefined, seams)).rejects.toMatchObject({ code: "team-pull-only", message: "The org's shared files belong to its admins" });
+  });
+});
+
+
+test("an invited admin may sync members", async () => {
+  const { secrets } = seamsWithClone();
+  const { seams } = fakeMembersSeams();
+  await expect(membersSync(probesWithJoinedTeam(SLUG, "dev1"), fakeRelay(), secrets, SLUG, seams)).resolves.toBeDefined();
+});
+
+
+test("an invited admin may remove a roster member", async () => {
+  const { secrets } = seamsWithClone();
+  const { seams, writes } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": [{ username: "dev3" }] }) });
+  await membersRemove(probesWithJoinedTeam(SLUG, "dev1"), secrets, SLUG, "dev3", undefined, seams);
+  expect(writes.find(w => w.key === "mattstack.roster")).toMatchObject({ value: [] });
+});
+
+describe("roster edits compare usernames without case", () => {
+  const roster = [{ username: "Dev2", name: "Z", teams: ["widgets"] }, { username: "dev1" }];
+
+  test("recording a key for a member already listed in another case updates that entry", () => {
+    expect(withRosterKey(roster, "dev2", "age1zzz")).toEqual([{ username: "Dev2", name: "Z", teams: ["widgets"], agePublicKey: "age1zzz" }, { username: "dev1" }]);
+  });
+  test("recording a key for someone new adds an entry", () => {
+    expect(withRosterKey(roster, "dev3", "age1fff").at(-1)).toEqual({ username: "dev3", agePublicKey: "age1fff" });
+  });
+  test("removing finds the member in any case and hands back what it removed", () => {
+    expect(withoutMember(roster, "DEV2")).toEqual({ roster: [{ username: "dev1" }], removed: roster[0]! });
+    expect(withoutMember(roster, "dev3")).toEqual({ roster, removed: null });
+  });
+});
+
+test("removing mixed-case duplicate rows revokes every recorded key and preserves unrelated order", async () => {
+  const secondKey = "age1dxgc42vutd4a6q5zqkdg6q4jccysl8q9lqg7j5r78cd9y5m2usqq3kmajq";
+  const p = fakeProbes({ home: HOME });
+  const { execSeam, secrets } = seamsWithClone();
+  writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY, secondKey], secrets);
+  execSeam.writeFile(teamSecretsFile(SLUG, "board"), JSON.stringify({ data: "opaque", sops: {} }));
+  const roster = [
+    { username: "dev1", teams: ["widgets"] },
+    { username: "Dev2", agePublicKey: ALICE_PUBLIC_KEY },
+    { username: "dev3", teams: ["gadgets"] },
+    { username: "DEV2", agePublicKey: secondKey },
+  ];
+  const { seams, writes } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": roster }) });
+  const result = await membersRemove(p, secrets, SLUG, "dev2", undefined, seams);
+  expect(result.rosterRemoved).toBe(true);
+  expect(writes).toEqual([{ key: "mattstack.roster", value: [roster[0]!, roster[2]!], scope: "org", opts: undefined }]);
+  expect(readTeamRecipients(SLUG, secrets)).toEqual([OWNER_PUBLIC_KEY]);
+  expect(result.reencrypted).toEqual([teamSecretsFile(SLUG, "board")]);
+  expect(execSeam.calls.filter((call) => call.cmd[0] === "sops" && call.cmd[1] === "updatekeys")).toHaveLength(2);
+});
+
+
+describe("membersSetTeams", () => {
+  const roster = [
+    { username: "dev1", teams: ["widgets"] },
+    { username: "Dev2", name: "Dev Two", agePublicKey: "age1...", extra: { keep: true }, teams: ["widgets"] },
+  ];
+
+  function world(username = "dev1", currentOrg: string | null = "acme") {
+    const p = fakeProbes({ home: HOME, files: {
+      [teamLocalPath(HOME, "acme")]: JSON.stringify({ forgeUsername: username }),
+      [`${HOME}/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc`]: "{}",
+      [`${HOME}/.mattstack/teams/acme/mattstack/teams/gadgets/settings.team.jsonc`]: "{}",
+    } });
+    return { p, ...fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": roster }), currentOrg: () => currentOrg }) };
+  }
+
+  test("replaces ordered teams case insensitively while preserving roster order and metadata", () => {
+    const { p, seams, writes } = world("DEV1");
+    expect(memberActions.membersSetTeams(p, seams, "acme", "dev2", ["gadgets", "widgets", "gadgets"])).toEqual({ username: "Dev2", teams: ["gadgets", "widgets"], previous: ["widgets"] });
+    expect(writes).toEqual([{ key: "mattstack.roster", value: [roster[0], { ...roster[1], teams: ["gadgets", "widgets"] }], scope: "org", opts: undefined }]);
+    expect(roster[1]!.teams).toEqual(["widgets"]);
+  });
+
+  test.each(["dev2", "stranger", ""])("refuses non-admin %s before any roster read or write", (username) => {
+    const { p, seams, writes } = world(username);
+    seams.readTeamStore = () => { throw new Error("must not read roster"); };
+    expect(() => memberActions.membersSetTeams(p, seams, "acme", "dev1", ["gadgets"])).toThrow(UserActionableError);
+    expect(writes).toEqual([]);
+  });
+
+  test.each([null, "gadgets"])("refuses a resolver org mismatch %s before writing", (currentOrg) => {
+    const { p, seams, writes } = world("dev1", currentOrg);
+    expect(() => memberActions.membersSetTeams(p, seams, "acme", "dev2", ["gadgets"])).toThrow("roster can't change here");
+    expect(writes).toEqual([]);
+  });
+
+  test.each([
+    ["stranger", ["widgets"], "stranger is not in this org yet"],
+    ["dev2", ["sprockets"], "This org has no sprockets team"],
+    ["dev2", ["../x"], "cannot be a team name"],
+    ["dev2", ["widgets", "../x"], "cannot be a team name"],
+  ] as [string, string[], string][])("refuses %s with %j without writing", (handle, teams, message) => {
+    const { p, seams, writes } = world();
+    expect(() => memberActions.membersSetTeams(p, seams, "acme", handle, teams)).toThrow(message);
+    expect(writes).toEqual([]);
+  });
+
+  test("an empty list leaves the member in the org with no team", () => {
+    const { p, seams, writes } = world();
+    expect(memberActions.membersSetTeams(p, seams, "acme", "dev2", [])).toEqual({ username: "Dev2", teams: [], previous: ["widgets"] });
+    expect(writes[0]!.value).toEqual([roster[0], { ...roster[1], teams: [] }]);
+  });
+
+  test("checks admin ownership again immediately before writing", () => {
+    const { p, seams, writes } = world();
+    seams.readTeamStore = () => {
+      p.writeFile(teamLocalPath(HOME, "acme"), JSON.stringify({ forgeUsername: "dev2" }));
+      return { "mattstack.roster": roster };
+    };
+    expect(() => memberActions.membersSetTeams(p, seams, "acme", "dev2", ["widgets"])).toThrow("The org's shared files belong to its admins");
+    expect(writes).toEqual([]);
+  });
+
+  test("an old roster entry with no teams reports an empty previous list", () => {
+    const { p, seams } = world();
+    seams.readTeamStore = () => ({ "mattstack.roster": [{ username: "dev2", name: "Dev Two" }] });
+    expect(memberActions.membersSetTeams(p, seams, "acme", "dev2", ["widgets"])).toEqual({ username: "dev2", teams: ["widgets"], previous: [] });
   });
 });

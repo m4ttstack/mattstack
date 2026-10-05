@@ -55,6 +55,8 @@ export interface TeamLocalRecord {
    * may spawn a forge CLI.
    */
   forgeUsername?: string;
+  /** This Mac's creator roles still need a forge login or a commit. */
+  creatorPending?: { team: string; agePublicKey?: string };
 }
 
 const RECORD_MODE = 0o600;
@@ -77,6 +79,9 @@ export function readTeamLocal(p: Pick<Probes, "readFile" | "home">, slug: string
       joinedByRt: parsed.joinedByRt === true,
       rtMayManageMembership: parsed.rtMayManageMembership === true,
       ...(typeof parsed.agePublicKey === "string" && parsed.agePublicKey.startsWith("age1") ? { agePublicKey: parsed.agePublicKey } : {}),
+      ...(parsed.creatorPending && typeof parsed.creatorPending.team === "string" ? {
+        creatorPending: { team: parsed.creatorPending.team, ...(typeof parsed.creatorPending.agePublicKey === "string" ? { agePublicKey: parsed.creatorPending.agePublicKey } : {}) },
+      } : {}),
       ...(typeof parsed.forgeUsername === "string" && parsed.forgeUsername.trim() !== "" ? { forgeUsername: parsed.forgeUsername.trim() } : {}),
     };
   } catch {
@@ -94,12 +99,6 @@ export function writeTeamLocal(
   p.chmod(dirname(path), RECORD_DIR_MODE);
   p.writeFile(path, `${JSON.stringify(record, null, 2)}\n`);
   p.chmod(path, RECORD_MODE);
-}
-
-/** The one refusal every owner-shaped team verb raises on a joined machine, so the wording cannot drift between them. */
-export function assertNotJoined(p: Pick<Probes, "readFile" | "home">, slug: string): void {
-  if (!readTeamLocal(p, slug).joinedByRt) return;
-  throw new UserActionableError("team-pull-only", `This Mac joined the ${slug} team by invite, so its copy is pull-only.`, {}, { why: "Ask the team's owner to make this change." });
 }
 
 /** A roster write lands in the org this Mac reads settings from, so a verb named for any other org would read one store and write another. */

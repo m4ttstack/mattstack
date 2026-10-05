@@ -1,3 +1,4 @@
+import { seedOrg as seedRoleOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "fs";
@@ -3240,4 +3241,60 @@ describe("skillsDiscard renames", () => {
     expect(d.discarded).toEqual([]);
     expect(porcelain(repoRoot)).toBe("R  NOTES.md -> packs/acme/pack/NOTES.md\n");
   });
+});
+
+
+describe("pack role refusals", () => {
+  for (const username of ["dev4", "dev2"]) for (const target of ["team", "root", "..pack"]) for (const json of [[], ["--json"]]) {
+    if (username === "dev2" && target === "team") continue;
+    test(`${username} writes to ${target} are refused ${json.length ? "as JSON" : "for a person"}`, async () => {
+      const savedHome = process.env.HOME;
+      process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-pack-role-")));
+      try {
+        seedRoleOrg({ org: "acme", username, roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
+        const orgRoot = join(process.env.HOME!, ".mattstack", "teams", "acme");
+        const packDir = target === "root" ? orgRoot : target === "..pack" ? join(orgRoot, "..pack") : join(orgRoot, "mattstack", "teams", "widgets", "packs", "widgets");
+        writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
+        const title = target === "team" ? "The widgets team's files belong to its owners" : "The org's shared files belong to its admins";
+        const refusal = `${title}. ${target === "team" ? "Ask dev2 (the team's owner) or dev1 (an org admin) to make this change." : "Ask dev1 (an org admin) to make this change."}`;
+
+      writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+      const mattstackDir = makeMattstackDir();
+      const manifestPath = makeManifest();
+      const flags = ["--pack-dir", packDir, "--manifest", manifestPath, "--mattstack-dir", mattstackDir, ...json];
+      const result = await runExpectingCleanExit(() => skillsCompile(flags));
+      expect(result.exitCode).toBe(2);
+      if (json.length) expect(JSON.parse(io.lines().at(-1)!)).toEqual({ pack: "widgets", packDir, manifestPath, repoKey: dirname(manifestPath).split("/").at(-1), written: false, verbs: [{ name: "watch-ci", status: "errored", files: [], warnings: [], errors: [refusal], side: "skills" }], misplaced: [] });
+      else expect(io.stderr()).toStartWith(`[refused] ${title}`);
+      expect(readFileSync(join(packDir, "pack", "stubs.jsonc"), "utf8")).toBe(STUBS_JSONC);
+      expect(readFileSync(join(packDir, ".claude-plugin", "plugin.json"), "utf8")).toBe('{"name":"widgets","version":"1.0.0"}');
+      expect((await compilePackAll({ packDir, manifest: manifestPath, mattstackDir })).errors).toEqual([refusal]);
+      expect((await runExpectingCleanExit(() => skillsCompile([...flags, "--dry-run"]))).exitCode).toBeUndefined();
+      expect(existsSync(join(packDir, "skills", "watch-ci", "SKILL.md"))).toBe(false);
+
+      } finally { process.env.HOME = savedHome; }
+    });
+  }
+});
+
+
+test("a zero-target JSON compile refusal keeps its report and explains why on stderr", async () => {
+  const savedHome = process.env.HOME;
+  process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-empty-pack-role-")));
+  try {
+    seedRoleOrg({ org: "acme", username: "dev4", roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
+    const packDir = join(process.env.HOME!, ".mattstack", "teams", "acme", "mattstack", "teams", "widgets", "packs", "widgets");
+    const stubs = join(packDir, "pack", "stubs.jsonc");
+    writeFile(stubs, '{"verbs":{}}');
+    writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
+    const mattstackDir = makeMattstackDir();
+    const manifestPath = makeManifest();
+    const result = await runExpectingCleanExit(() => skillsCompile(["--pack-dir", packDir, "--manifest", manifestPath, "--mattstack-dir", mattstackDir, "--json"]));
+    expect(result.exitCode).toBe(2);
+    expect(JSON.parse(io.stdout())).toEqual({ pack: "widgets", packDir, manifestPath: null, repoKey: "", written: false, verbs: [], misplaced: [] });
+    expect(io.stderr()).toStartWith("[refused] The widgets team's files belong to its owners");
+    expect(io.stderr()).toContain("Ask dev2 (the team's owner) or dev1 (an org admin) to make this change.");
+    expect(readFileSync(stubs, "utf8")).toBe('{"verbs":{}}');
+    expect(readdirSync(packDir).sort()).toEqual([".claude-plugin", "pack"]);
+  } finally { process.env.HOME = savedHome; }
 });

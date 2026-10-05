@@ -8,6 +8,7 @@ import { installedVersionFor, type PluginListEntry } from "./sources.ts";
 export type RunResult = { code: number; stdout: string; stderr: string };
 
 export type SyncDeps = {
+  mayCompile(packName: string): boolean;
   run: (cmd: string, args: string[], opts?: { cwd?: string }) => Promise<RunResult>;
   claudeBin: string | null;
   checkPack: (packName: string) => Promise<{ drift: boolean; lintHits: number; strict: boolean }>;
@@ -341,6 +342,8 @@ function chosenEntryVersion(list: PluginListEntry[], id: string, scope: string |
 }
 
 export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDeps, opts: SyncOptions = {}): Promise<SyncReport> {
+  const mayWritePack = deps.mayCompile(pack.name);
+  const NOT_YOURS = "This pack is out of date, but only its team's owners recompile it";
   const steps: SyncStep[] = [];
   const warnings: string[] = [];
   const sameCheckout = pack.dir === engine.dir;
@@ -438,6 +441,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       const packStatus = await deps.run("git", statusArgs, { cwd: pack.dir });
       if (packStatus.code !== 0) return failed(`git status failed in ${pack.dir}: ${packStatus.stderr.trim()}`);
       if (packStatus.stdout.trim() !== "") {
+        if (!mayWritePack) return refused("This pack has changes, but only its team's owners can commit them");
         if (!opts.commitPending) return refused(`The pack checkout at ${pack.dir} has uncommitted changes (${packStatus.stdout.trim()}). Commit or stash them, then run this again`);
         // The status covers the whole repo, so a dirty file beside a pack
         // that sits in a subdirectory still refuses rather than riding along
@@ -624,8 +628,10 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   const rebuild = drift || published;
   const noOp = !rebuild && installedPackBefore === packSourceVersion;
   if (noOp) return finish();
+  const mine = !rebuild || mayWritePack;
 
   const bump = await tryStep(async () => {
+    if (!mine) return skipped(NOT_YOURS);
     if (!rebuild) return skipped("nothing changed, so the version stays");
     if (packInTree) {
       return refused(
@@ -642,6 +648,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   if (stops(bump)) return finish();
 
   const compile = await tryStep(async () => {
+    if (!mine) return skipped(NOT_YOURS);
     if (!rebuild) return skipped("nothing changed, so there is nothing to recompile");
     const result = await deps.compilePack(pack.name);
     if (!result.ok) {
@@ -665,6 +672,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   if (stops(compile)) return finish();
 
   const recheck = await tryStep(async () => {
+    if (!mine) return skipped(NOT_YOURS);
     if (!rebuild) return skipped("nothing changed, so there is nothing to check again");
     const result = await deps.checkPack(pack.name);
     if (result.drift) {
@@ -790,6 +798,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   const unseenLead = (unseen: string[]) => `The index in ${pack.dir} holds changes rt did not stage: ${unseen.join(", ")}`;
 
   const commitPush = await tryStep(async () => {
+    if (!mine) return skipped(NOT_YOURS);
     if (!rebuild) return skipped("nothing changed, so there is nothing to commit");
     const stop = (what: string, versionStaged: string[], pushed = false): Promise<Outcome> => abandon(what, [], versionStaged, failed, "Run this again once that is sorted", pushed);
     /** The build is already in the worktree, so a read that throws must still go through abandon. */
@@ -870,8 +879,9 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
 
   // Reached only when rebuild is true, or the installed pack lags the source
   // (the noOp return above already exited the other case) -- an update is
-  // always due here, so there is no further skip to check.
+  // due unless a member's drifted source already matches its installed copy.
   const updatePack = await tryStep(async () => {
+    if (!mine && installedPackBefore === packSourceVersion) return skipped("the installed copy already matches the source");
     const id = pluginId(pack);
     const res = await deps.run(deps.claudeBin!, ["plugin", "update", id]);
     if (res.code !== 0) return failed(`Updating ${id} failed: ${res.stderr.trim()}`);

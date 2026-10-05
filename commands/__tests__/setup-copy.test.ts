@@ -8,6 +8,9 @@ import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { closeStateDb } from "../../lib/state/index.ts";
+import { createApplyContext, runApplyWith } from "../../lib/setup/apply.ts";
+import { STEPS } from "../../lib/setup/steps/index.ts";
+import type { ApplyEvent } from "../../lib/setup/contract.ts";
 import { composePlan } from "../../lib/setup/plan.ts";
 import type { Plan, Row } from "../../lib/setup/contract.ts";
 import { fakeProbes, ok } from "../../lib/setup/__tests__/fakes.ts";
@@ -89,6 +92,49 @@ describe("the setup plan's shape and copy", () => {
     else process.env.CI = origCi;
     closeStateDb();
     rmSync(home, { recursive: true, force: true });
+  });
+
+  test("apply emits the org pull and identity titles after a join", async () => {
+    const events: ApplyEvent[] = [];
+    const ctx = await createApplyContext({
+      probes: fakeProbes(),
+      emit: (event) => events.push(event),
+      snapshotRead: () => undefined,
+      secrets: {
+        ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+        execSeam: {
+          run: async () => ({ code: 0, stdout: "", stderr: "" }),
+          fileExists: () => false,
+          statFile: () => null,
+          readFile: () => "",
+          writeFile: () => {},
+          ensureDir: () => {},
+          chmod: () => {},
+          fsyncAndRename: () => {},
+          removeFile: () => {},
+        },
+      },
+      relay: {
+        create: async () => ({ id: "", creatorSecret: "" }),
+        fetch: async () => "gone",
+        redeem: async () => "already",
+        reply: async () => {},
+        readReply: async () => "none",
+        delete: async () => {},
+      },
+      secretPresence: secrets,
+      flags: { nonInteractive: true, teamOfOne: false, ci: false },
+    });
+    await runApplyWith(
+      STEPS.map((step) => ({ ...step, applies: () => true, run: async () => ({ state: "skipped", detail: "fixture" }) as const })),
+      ctx,
+      { only: "org.pull" },
+    );
+    const event = events.find((event) => event.event === "plan");
+    if (!event || event.event !== "plan") throw new Error("missing apply plan");
+    const at = event.steps.findIndex((step) => step.id === "team.join");
+    expect(event.steps.slice(at, at + 3).map((step) => step.id)).toEqual(["team.join", "org.pull", "team.identity"]);
+    expect(event.steps.slice(at + 1, at + 3).map((step) => ({ id: step.id, title: step.title }))).toMatchSnapshot();
   });
 
   for (const mode of ["plan", "status"] as const) {

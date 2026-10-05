@@ -206,3 +206,39 @@ describe("setup plan --json bytes", () => {
     }
   });
 });
+
+describe("org access in the setup accounts group", () => {
+  test("only cloned orgs get identity rows, never invented pack rows", async () => {
+    for (const mode of ["plan", "status"] as const) {
+      const plan = await composePlan({ p: fakeProbes(), secrets: fakeSecrets(), ci: true, mode, orgs: ["acme"], waived: [] });
+      const row = plan.groups.find((g) => g.id === "accounts")!.rows.find((r) => r.id === "team.identity");
+      expect(row).toMatchObject({ kind: "access", required: false, status: "needs-you" });
+      expect(row!.finishGated).toBeUndefined();
+      expect(plan.groups.flatMap((g) => g.rows).some((r) => r.id.startsWith("pack."))).toBe(false);
+    }
+    const solo = await composePlan({ p: fakeProbes(), secrets: fakeSecrets(), ci: true, mode: "plan", orgs: [], waived: [] });
+    expect(solo.groups.flatMap((g) => g.rows).some((r) => r.id === "team.identity")).toBe(false);
+  });
+
+  test("origin forge fallback supplies connect and a refused daemon push supplies the access row", async () => {
+    const p = fakeProbes({ files: {
+      "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }),
+      "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      "/fake-home/.mattstack/teams/acme/.git/config": '[remote "origin"]\nurl = https://github.com/acme/org.git\n',
+    }, daemon: async (command) => command === "team:snapshot-status" ? { ok: true, data: [{ slug: "acme", lastPushError: "remote: Write access to repository not granted." }] } : null });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: true, mode: "status", orgs: ["acme"], waived: [] });
+    const rows = plan.groups.find((g) => g.id === "accounts")!.rows;
+    expect(rows.find((r) => r.id === "team.push-access")?.action).toMatchObject({ type: "connect", integration: "github" });
+    expect(rows.find((r) => r.id === "team.none")?.required).toBe(false);
+    expect(p.calls.writes).toEqual({});
+  });
+
+  test("an org status read throwing degrades to the accounts error row", async () => {
+    const p = fakeProbes({ files: {
+      "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }),
+      "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+    }, daemon: async (command) => { if (command === "team:snapshot-status") throw new Error("status unavailable"); return null; } });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: true, mode: "plan", orgs: ["acme"], waived: [] });
+    expect(plan.groups.find((g) => g.id === "accounts")!.rows).toMatchObject([{ id: "accounts.group-error", status: "error", required: true, detail: "status unavailable" }]);
+  });
+});

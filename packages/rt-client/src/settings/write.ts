@@ -54,6 +54,8 @@
  * Neither store is ever created by a write: both live in the org repo, which
  * needs a commit and push to reach anyone, so conjuring one here would
  * produce an uncommitted, unshared file masquerading as shared state.
+ * A shared store is written only by a role that owns it (see org-roles.ts);
+ * the refusal names who can. User and machine writes are never guarded.
  *
  * A successful write or removal prints nothing unless the daemon cannot sync
  * the user or org repo on its own; then one tip line says what to do
@@ -84,16 +86,17 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { applyEdits, modify, parse, parseTree, type JSONPath, type Node, type ParseError } from "jsonc-parser";
 import { randomBytes } from "crypto";
-import { basename, dirname, join, resolve } from "path";
+import { basename, dirname, join, relative, resolve, sep } from "path";
 import { isDeepStrictEqual } from "util";
 import { assertNotRealStoreInTest } from "../test-isolation.ts";
 import { baselinesOf, baselinesToRecord, currentStoreName, MIGRATED_PROP, olderStoreNames, readSection } from "./migrate.ts";
-import { activeTeam } from "./active-team.ts";
-import { machineSettingsPath, orgDir, orgSettingsPath, teamSettingsPath, userSettingsPath } from "./paths.ts";
+import { activeTeam, readOrgRoles } from "./active-team.ts";
+import { machineSettingsPath, orgDir, orgSettingsPath, teamSettingsPath, teamsDir, userSettingsPath } from "./paths.ts";
 import { getDef, isMigrated, isRetiredKey, type SettingDef, type SettingScope } from "./registry-machinery.ts";
+import { roleOf, writeRefusalFor } from "./org-roles.ts";
 import { getSetting } from "./resolve.ts";
 import { currentOrg, readStore, TEAM_NAME_RE } from "./stores.ts";
-import { isJoinedTeam } from "./team-local-read.ts";
+import { readForgeUsername } from "./team-local-read.ts";
 import { validateWrite } from "./validate-write.ts";
 
 export interface SetSettingOpts {
@@ -227,7 +230,7 @@ function notify(notice: SettingsNotice): void {
  * their own, so a write normally needs no follow-up and prints nothing. A tip
  * prints only when that sync cannot happen: the repo has no origin, or
  * rt.homeSnapshot / rt.teamSnapshot is disabled (a read failure counts as
- * enabled, as the daemon treats it). A pull-only (joined) org clone never
+ * enabled, as the daemon treats it). A role that does not own the store never
  * gets here: resolveStorePath refuses the write. It assumes the daemon is
  * running; nothing here checks.
  */
@@ -361,17 +364,12 @@ function migratedFalseMessage(key: string, def: SettingDef): string {
   return `"${key}" is not writable through the settings resolver yet${legacyPart}`;
 }
 
-/**
- * A clone that arrived by redeeming an invite is pull-only, so a write here
- * would never reach the org AND would leave a tracked file dirty, which is
- * enough on its own to make the daemon's fast-forward pull fail.
- */
-function refuseIfJoined(org: string): void {
-  if (isJoinedTeam(org)) {
-    refuse(
-      `this Mac joined "${org}" by invite, so its clone is pull-only and shared settings cannot be written here. Ask an org admin to make this change.`,
-    );
-  }
+/** A shared store is written only by a role that owns its file: an org admin, or the team's owner for a team folder. */
+function refuseUnlessOwned(org: string, storePath: string): void {
+  const relPath = relative(orgDir(org), storePath).split(sep).join("/");
+  const roles = readOrgRoles(org);
+  const refusal = writeRefusalFor(roleOf(readForgeUsername(org), roles), roles, relPath);
+  if (refusal) refuse(`${refusal.message.replace(/^rt /, "")}. ${refusal.why}`);
 }
 
 function requireOrg(): string {
@@ -395,7 +393,7 @@ function resolveStorePath(scope: SettingScope, opts: SetSettingOpts): string {
   if (scope === "machine") return machineSettingsPath();
   const { org, path, label } = sharedStoreTarget(scope, opts);
   if (!existsSync(path)) refuse(`${label} has no settings file on this Mac (${path}); pull the org before writing to it`);
-  refuseIfJoined(org);
+  refuseUnlessOwned(org, path);
   return path;
 }
 
@@ -407,7 +405,7 @@ function resolveStorePathForUnset(scope: SettingScope, opts: SetSettingOpts): st
   if (scope === "team" && opts.team === undefined && activeTeam().team === null) return null;
   const { org, path } = sharedStoreTarget(scope, opts);
   if (!existsSync(path)) return null;
-  refuseIfJoined(org);
+  refuseUnlessOwned(org, path);
   return path;
 }
 
@@ -651,8 +649,17 @@ export function renameRepoSection(
   // writes leaves behind; only the removal is left to do.
   const interrupted = newSection !== undefined && isDeepStrictEqual(oldSection, newSection);
   if (newSection !== undefined && !interrupted) return { status: "refused", keys, detail: "both populated" };
-  if (opts.dryRun) return { status: "moved", keys };
   try {
+    const [org, folder, scope, team] = relative(teamsDir(), storePath).split(sep);
+    if (org && org !== ".." && folder === "mattstack") {
+      if (
+        resolve(storePath) === orgSettingsPath(org) ||
+        (scope === "teams" && team && TEAM_NAME_RE.test(team) && resolve(storePath) === teamSettingsPath(org, team))
+      ) {
+        refuseUnlessOwned(org, storePath);
+      }
+    }
+    if (opts.dryRun) return { status: "moved", keys };
     if (!interrupted) writeIntoStore(storePath, () => [{ path: ["repos", newId], value: oldSection }], false);
     removeFromStore(storePath, () => [["repos", oldId]]);
   } catch (err) {

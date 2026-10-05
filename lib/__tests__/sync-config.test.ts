@@ -1,18 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { dirname, join } from "path";
+import { join } from "path";
 import { setSetting } from "../settings/write.ts";
 import { loadSyncConfig } from "../sync-config.ts";
-import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
+import { seedOrg, sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 
 const IDENTITY = "gitlab.com/acme/test-repo";
 
 /** setSetting(..., "org", ...) refuses without an org store. */
 function seedTeam(): void {
-  const path = sharedStorePath("acme");
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, "// team store\n{}\n");
+  seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
 }
 
 describe("loadSyncConfig over the settings resolver", () => {

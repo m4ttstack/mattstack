@@ -8,7 +8,11 @@ const DIR = "/home/x/.mattstack/teams/acme";
 
 /** publishTeam prechecks the zone exists (finding 7) — every test that means to reach the git steps must seed the dir. */
 function probesWithZone(overrides: Parameters<typeof fakeProbes>[0] = {}) {
-  return fakeProbes({ dirs: { [DIR]: [] }, ...overrides });
+  return fakeProbes({ home: "/home/x", dirs: { [DIR]: [] }, ...overrides, files: {
+    [`${DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+    [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
+    ...overrides.files,
+  } });
 }
 
 describe("publishTeam", () => {
@@ -66,7 +70,7 @@ describe("publishTeam", () => {
   });
 
   test("no zone for the slug: typed no-team-zone error, no exec calls at all", async () => {
-    const p = fakeProbes({ home: "/home/x" }); // DIR deliberately not seeded
+    const p = probesWithZone({ dirs: {} }); // DIR deliberately not seeded
 
     let thrown: unknown;
     try {
@@ -80,23 +84,18 @@ describe("publishTeam", () => {
     expect(p.calls.exec).toEqual([]);
   });
 
-  test("publish refuses on a joined clone", async () => {
-    const p = probesWithZone({
-      home: "/home/x",
-      files: { [teamLocalPath("/home/x", "acme")]: JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false }) },
-    });
-
-    let thrown: unknown;
-    try {
-      await publishTeam(p, "acme", null);
-    } catch (err) {
-      thrown = err;
+  test("a member or unknown Mac refuses to publish; invited owners and admins may publish", async () => {
+    for (const username of ["dev9", null, "dev1", "dev2"]) {
+      const p = probesWithZone({ files: {
+        [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: username, joinedByRt: true }),
+        [`${DIR}/.git/config`]: '[remote "origin"]\n\turl = https://github.com/acme/widgets.git\n',
+      } });
+      if (username === "dev1" || username === "dev2") await expect(publishTeam(p, "acme", null)).resolves.toMatchObject({ pushed: true });
+      else {
+        await expect(publishTeam(p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
+        expect(p.calls.exec).toEqual([]);
+      }
     }
-
-    expect(thrown).toBeInstanceOf(UserActionableError);
-    expect((thrown as UserActionableError).code).toBe("team-pull-only");
-    expect((thrown as UserActionableError).message).toMatch(/pull-only/);
-    expect(p.calls.exec).toEqual([]);
   });
 
   test("an unvalidated --team never resolves outside teamsDir()", async () => {
@@ -147,7 +146,7 @@ describe("publishTeam", () => {
       exec: (argv) =>
         argv[0] === "git" && argv[1] === "push"
           ? { code: 1, stdout: "", stderr: "! [rejected]        main -> main (fetch first)\nerror: failed to push some refs" }
-          : { code: 0, stdout: "", stderr: "" },
+          : { code: argv[1] === "rev-parse" ? 1 : 0, stdout: "", stderr: "" },
     });
 
     let thrown: unknown;
@@ -216,3 +215,19 @@ describe("publishTeam", () => {
     expect(result.detail).not.toContain("SECRET");
   });
 });
+
+  test("a rejected push on an org that has been pushed before says the org moved, never that the repo is not empty", async () => {
+    const p = probesWithZone({
+      home: "/home/x",
+      exec: (argv) =>
+        argv[0] === "git" && argv.includes("push")
+          ? { code: 1, stdout: "", stderr: "! [rejected]        main -> main (fetch first)\nerror: failed to push some refs" }
+          : { code: 0, stdout: "", stderr: "" },
+    });
+    await expect(publishTeam(p, "acme", null)).rejects.toMatchObject({
+      code: "org-moved",
+      message: "The org repo has changes this Mac does not have yet",
+      why: "Someone else pushed first. Pull, then try again.",
+      next: "rt team pull",
+    });
+  });

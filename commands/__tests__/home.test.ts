@@ -1849,7 +1849,7 @@ describe("homeSnapshot", () => {
     lastPushError: null,
     lastPullAt: 0,
     lastPullError: null,
-    lastPullSkipped: null,
+    lastPullSkipped: null, unownedDirty: [],
     conflicted: null,
     pullOnly: false,
     claimedZones: ["prefs/"],

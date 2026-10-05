@@ -12,7 +12,8 @@ import { UserActionableError } from "../errors.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
 import { parseOriginUrl, stripUserinfo } from "../setup/team-settings.ts";
 import { withoutUrls } from "./redact.ts";
-import { assertNotJoined } from "./team-local.ts";
+import { assertMayWrite, roleFor } from "./roles.ts";
+import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
 
 export interface PublishTeamResult {
   remote: string;
@@ -56,7 +57,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     // to a directory outside teamsDir() and run git there.
     throw new UserActionableError("invalid-team-slug", "That is not a team name rt can use", {}, { log: err instanceof Error ? err.message : String(err) });
   }
-  assertNotJoined(p, slug);
+  if (ownedRoots(roleFor(p, slug)).length === 0) assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
 
   const dir = join(p.home, ".mattstack", "teams", slug);
   if (!p.exists(dir)) {
@@ -79,7 +80,17 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   const cmd = gitWithToken(["push", "-u", "origin", "main"], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
   const push = await p.exec(cmd.argv, { cwd: dir, env: cmd.env });
 
-  if (push.code !== 0) throw classifyPushFailure(push);
+  if (push.code !== 0) {
+    const text = `${push.stdout}\n${push.stderr}`;
+    if (REJECTED_PATTERN.test(text) && (await p.exec(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"], { cwd: dir })).code === 0) {
+      throw new UserActionableError("org-moved", "The org repo has changes this Mac does not have yet", {}, {
+        why: "Someone else pushed first. Pull, then try again.",
+        next: "rt team pull",
+        log: withoutUrls(text.trim()),
+      });
+    }
+    throw classifyPushFailure(push);
+  }
 
   const publicRemote = stripUserinfo(activeRemote);
   const stdout = push.stdout.trim();

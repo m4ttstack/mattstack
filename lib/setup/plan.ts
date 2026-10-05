@@ -24,7 +24,8 @@ import { accessRows } from "./validators/access.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
 import { macRows } from "./validators/mac.ts";
 import { repoRootRow } from "./validators/repo-root.ts";
-import { rtHealthRows } from "./validators/rt-health.ts";
+import { orgRows } from "./validators/org.ts";
+import { readTeamSnapshotStatus, rtHealthRows } from "./validators/rt-health.ts";
 import { INSTALLED_BY_INSTALL_NOTE, toolRows } from "./validators/tools.ts";
 
 export interface PlanInputs {
@@ -149,6 +150,12 @@ export function applyInstallSatisfiedFlip(groups: Group[], mode: "plan" | "statu
   }));
 }
 
+export function pendingJoinTeam(intent: SetupIntent | null, orgs: string[]): string | null | undefined {
+  const pointer = intent?.mode === "join" ? intent.join?.pointer : undefined;
+  if (!pointer || orgs.includes(pointer.team)) return undefined;
+  return Array.isArray(pointer.teams) && typeof pointer.teams[0] === "string" ? pointer.teams[0] : null;
+}
+
 export async function composePlan(i: PlanInputs): Promise<Plan> {
   const intent = readIntent(i.p);
   const team = resolveTeam(intent, i.orgs, i.teamOverride);
@@ -163,11 +170,18 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
       const [permReply, tccRes, macList] = await Promise.all([fetchPermissions(i.p.tray), i.p.daemon("tcc:check"), macRows(i.p)]);
       return [...permissionRows(permReply, tccSummary(tccRes)), ...macList];
     }),
-    buildGroup("accounts", () => accountRows(i.p, snapshot, reqs, i.secrets, intent, userOverrides, solo)),
+    buildGroup("accounts", async () => {
+      const accounts = await accountRows(i.p, snapshot, reqs, i.secrets, intent, userOverrides, solo);
+      const org = i.orgs.includes(team.slug) ? await orgRows(i.p, team.slug, {
+        forge: snapshot.integrations.forge ?? (snapshot.remote ? forgeFromRemote(snapshot.remote) : null),
+        readStatus: () => readTeamSnapshotStatus(i.p),
+      }) : [];
+      return [...accounts, ...org];
+    }),
     buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets, solo)),
     buildGroup("tools", async () => {
       const [hasBrew, healthRows] = await Promise.all([detectHasBrew(i.p), rtHealthRows(i.p, { ci: i.ci })]);
-      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo });
+      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo, activeTeam: pendingJoinTeam(intent, i.orgs) });
       const repoRoot = repoRootRow(i.p, team, snapshot);
       return [...tools, ...(repoRoot ? [repoRoot] : []), ...healthRows];
     }),

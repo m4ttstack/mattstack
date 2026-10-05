@@ -315,6 +315,7 @@ function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; 
     promptZone: async () => { throw new Error("must not prompt"); },
     createZone: async () => { throw new Error("must not create"); },
     activeTeam: () => "acme",
+    mayWrite: () => null,
     declareClaim: (zone, projects) => { calls.claims.push([zone.slug, projects]); },
     engineDescription: (e) => (e === "work" ? "Use when running a unit of work." : null),
     claude: async (args) => {
@@ -338,6 +339,27 @@ function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; 
 }
 
 describe("initPack", () => {
+  test("an owner missing a marketplace entry is refused before files or claims", async () => {
+    const { deps, calls, fs } = world({ mayWrite: (_zone, relPath) => relPath === ".claude-plugin/marketplace.json" ? { message: "The org's shared files belong to its admins", why: "Ask dev1 (an org admin) to make this change." } : null });
+    expect(await initPack({ repoDir: REPO, zone: null, team: null }, deps)).toMatchObject({ ok: false, refused: true, code: "not-yours", detail: "The org's shared files belong to its admins. Ask dev1 (an org admin) to make this change." });
+    expect(calls.claims).toEqual([]);
+    expect(fs.exists(`${ACME_PACK}/pack/stubs.jsonc`)).toBe(false);
+  });
+
+  test("a member is refused before any pack files or claims", async () => {
+    const { deps, calls, fs } = world({ mayWrite: () => ({ message: "The acme team's files belong to its owners", why: "Ask dev2 to make this change." }) });
+    expect(await initPack({ repoDir: REPO, zone: null, team: null }, deps)).toMatchObject({ refused: true, code: "not-yours" });
+    expect(calls.claims).toEqual([]);
+    expect(fs.mkdirped.size).toBe(0);
+  });
+
+  test("an existing marketplace entry needs only the team's own folder", async () => {
+    const asked: string[] = [];
+    const { deps } = world({ files: { [`${ORG_ROOT("acme")}/.claude-plugin/marketplace.json`]: '{ "name": "acme-market", "plugins": [{ "name": "acme", "source": "./mattstack/teams/acme/packs/acme" }] }' }, mayWrite: (_zone, relPath) => { asked.push(relPath); return null; } });
+    expect((await initPack({ repoDir: REPO, zone: null, team: null }, deps)).ok).toBe(true);
+    expect(asked).toEqual(["mattstack/teams/acme"]);
+  });
+
   test("happy path writes the pack named after the team, claims the repo, installs, and reports", async () => {
     const { deps, calls, fs } = world();
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
@@ -383,6 +405,7 @@ describe("initPack", () => {
       promptZone: async () => { throw new Error("must not prompt"); },
       createZone: async () => { throw new Error("must not create"); },
       activeTeam: () => "acme",
+    mayWrite: () => null,
       declareClaim: () => {},
       engineDescription: (e) => (e === "work" ? "Use when running a unit of work." : null),
       claude: async (args) => (args[1] === "marketplace" && args[2] === "list" ? ok("[]") : ok("")),

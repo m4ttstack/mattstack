@@ -1,3 +1,10 @@
+import { join, relative } from "path";
+import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
+import { assertTeamFolders } from "./team-names.ts";
+import { orgStoreFile } from "./org-store.ts";
+import { gitWithToken } from "./git-credential.ts";
+import { withoutUrls } from "./redact.ts";
+import { publishTeam } from "./publish.ts";
 /**
  * `rt team invite` — mints an opaque relay invite for a handle: pointer
  * (team/name/remote/owner/forge) sealed under a fresh key and a
@@ -16,7 +23,7 @@ import { createRealSecretsExecSeam, readSecret } from "../secrets/store.ts";
 import { currentOrg, readStore } from "../settings/stores.ts";
 import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 import { UserActionableError } from "../errors.ts";
-import type { InvitePointer } from "../setup/intent.ts";
+import { INVITE_POINTER_VERSION, type InvitePointer } from "../setup/intent.ts";
 import type { Probes } from "../setup/probes.ts";
 import { forgeFromRemote, readTeamSnapshot, type SettingsReader } from "../setup/team-settings.ts";
 import { getSetting } from "../settings/resolve.ts";
@@ -33,7 +40,7 @@ import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
 export const INVITE_TTL_DAYS = 7;
 
 /** Forge usernames only (letters, digits, `.`, `_`, `-`; must start alphanumeric). This handle also becomes a `mattstack.roster` entry and a mint-record key, so it is checked before anything downstream trusts it. */
-const HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/;
+export const HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/;
 
 export const DEFAULT_JOIN_BASE_URL = "https://mattstack.dev/join";
 
@@ -103,12 +110,15 @@ export interface InviteResult {
 export interface MintInviteOpts {
   slug: string;
   handle: string;
+  teams: string[];
   now: Date;
   /** Refuse, before anything is minted, an invite that will carry no board token, including on a Mac with no admin token. */
   requirePeering?: boolean;
 }
 
 export interface MintInviteSeams {
+  pullOrg: (p: Probes, slug: string, remote: string, token: string | null) => Promise<void>;
+  publishRoster: (p: Probes, slug: string, handle: string, remote: string, token: string | null) => Promise<void>;
   read: SettingsReader;
   /** The org store's own top-level keys, unmerged with the active team's: `addToRoster` read-modify-writes the org layer. */
   readTeamStore: (slug: string) => Record<string, unknown>;
@@ -149,6 +159,26 @@ function defaultWarn(message: string, shown?: ShownWarning): void {
 export function realMintInviteSeams(): MintInviteSeams {
   return {
     read: defaultRead(),
+    pullOrg: async (p, slug, remote, token) => {
+      const dir = join(p.home, ".mattstack", "teams", slug);
+      const known = await p.exec(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"], { cwd: dir });
+      if (known.code !== 0) return;
+      const pull = gitWithToken(["pull", "--rebase", "--autostash", "origin", "main"], token, { GIT_TERMINAL_PROMPT: "0" }, { remote });
+      const res = await p.exec(pull.argv, { cwd: dir, env: pull.env });
+      if (res.code !== 0) throw new Error(withoutUrls(`${res.stdout}\n${res.stderr}`.trim()) || `git pull exited ${res.code}`);
+    },
+    publishRoster: async (p, slug, handle, remote, token) => {
+      const dir = join(p.home, ".mattstack", "teams", slug);
+      const file = relative(dir, orgStoreFile(p.home, slug));
+      const add = await p.exec(["git", "add", "--", file], { cwd: dir });
+      if (add.code !== 0) throw new UserActionableError("git-add-failed", "rt could not stage the roster change", {}, { log: add.stderr });
+      const commit = await p.exec(["git", "commit", "-m", `team: invite ${handle}`, "--", file], { cwd: dir });
+      if (commit.code !== 0 && !/nothing to commit|no changes added/i.test(`${commit.stdout}\n${commit.stderr}`)) {
+        throw new UserActionableError("git-commit-failed", "rt could not commit the roster change", {}, { log: commit.stderr });
+      }
+      await publishTeam(p, slug, null, { token, tokenRemote: remote });
+    },
+
     readTeamStore: defaultReadTeamStore,
     writeSetting: setSetting,
     currentOrg,
@@ -166,12 +196,18 @@ interface RosterEntryLike {
   [key: string]: unknown;
 }
 
-/** Adds the handle to the org roster unless it is already there. */
-function addToRoster(seams: MintInviteSeams, slug: string, handle: string): void {
+function addToRoster(seams: MintInviteSeams, slug: string, handle: string, teams: string[]): void {
   const store = seams.readTeamStore(slug);
-  const existing = Array.isArray(store["mattstack.roster"]) ? (store["mattstack.roster"] as RosterEntryLike[]) : [];
-  if (existing.some((m) => m.username === handle)) return;
-  seams.writeSetting("mattstack.roster", [...existing, { username: handle }], "org");
+  const roster = Array.isArray(store["mattstack.roster"]) ? (store["mattstack.roster"] as RosterEntryLike[]) : [];
+  const existing = roster.find((m) => typeof m.username === "string" && sameUser(m.username, handle));
+  if (!existing) {
+    seams.writeSetting("mattstack.roster", [...roster, { username: handle, teams }], "org");
+    return;
+  }
+  const had = Array.isArray(existing.teams) ? (existing.teams as unknown[]).filter((t): t is string => typeof t === "string") : [];
+  const next = [...had, ...teams.filter((t) => !had.includes(t))];
+  if (next.length === had.length) return;
+  seams.writeSetting("mattstack.roster", roster.map((m) => (m === existing ? { ...m, teams: next } : m)), "org");
 }
 
 function assertValidHandle(handle: string): void {
@@ -222,6 +258,11 @@ async function resolveForgeAccess(
 
 export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInviteOpts, seams: MintInviteSeams = realMintInviteSeams()): Promise<InviteResult> {
   assertValidHandle(opts.handle);
+  if (opts.teams.length === 0) {
+    throw new UserActionableError("invite-needs-team", "Say which team the invite is for", {}, { next: "rt team invite --handle <username> --teams <team>" });
+  }
+  assertTeamFolders(p, opts.slug, opts.teams);
+  const teams = [...new Set(opts.teams)];
   assertCurrentOrg(opts.slug, seams.currentOrg(), `team invite ${opts.handle}`);
 
   const snapshot = readTeamSnapshot(p, opts.slug, { read: seams.read, warn: seams.warn });
@@ -235,7 +276,9 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
 
   const title = seams.read<string>("board.title");
   const pointer: InvitePointer = {
-    v: 1,
+    v: INVITE_POINTER_VERSION,
+    username: opts.handle,
+    teams,
     team: opts.slug,
     name: title && title.length > 0 ? title : opts.slug,
     remote,
@@ -303,6 +346,24 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   // Captured before this handle's new record is minted — replace-on-mint's revoke of THIS value runs last, after the new invite is safely live (finding: create-before-destroy).
   const priorRecord = readInviteRecords(p, opts.slug)[opts.handle];
 
+  try {
+    await seams.pullOrg(p, opts.slug, remote, token);
+  } catch (err) {
+    throw new UserActionableError("org-not-current", "rt could not bring the org repo up to date, so it made no invite", {}, {
+      why: err instanceof Error ? err.message : String(err),
+      next: "rt team status",
+    });
+  }
+  addToRoster(seams, opts.slug, opts.handle, teams);
+  try {
+    await seams.publishRoster(p, opts.slug, opts.handle, remote, token);
+  } catch (err) {
+    throw new UserActionableError("roster-not-published", `rt could not push ${opts.handle}'s roster entry, so it made no invite`, {}, {
+      why: err instanceof Error ? err.message : String(err),
+      next: "rt team pull",
+    });
+  }
+
   const key = generateKey();
   const idHex = generateId();
   const ciphertext = await seal(pointer, key, idHex);
@@ -335,7 +396,6 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   // neither fact is derivable from the remote URL alone.
   const { access: forgeAccess, manualSteps } = await resolveForgeAccess(p, seams, opts.slug, remote, opts.handle, token);
 
-  addToRoster(seams, opts.slug, opts.handle);
 
   if (priorRecord) {
     try {
