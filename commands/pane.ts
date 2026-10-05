@@ -14,6 +14,8 @@
 import type { ChatPane, PaneSendResult, RtResponse } from "../packages/rt-client/src/index.ts";
 import { BG_PREFIX, paneAccounts as paneAccountsRt, paneDirectories as paneDirectoriesRt, paneFocus as paneFocusRt, paneList as paneListRt, panePeek as panePeekRt, paneSend as paneSendRt, paneSpawn as paneSpawnRt } from "../packages/rt-client/src/index.ts";
 import { selfPaneRef } from "../lib/self-pane.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block, Segment } from "../lib/ui/protocol.ts";
 
 const FLAGS_WITH_VALUES = new Set(["--lines", "--cwd", "--account", "--model", "--effort", "--prompt", "--workspace", "--q", "--sock", "--text", "--then"]);
 
@@ -35,7 +37,7 @@ function flagValue(args: string[], flag: string): string | undefined {
 }
 
 function fail(msg: string): never {
-  console.error(`rt pane: ${msg}`);
+  out.diagnostic(`rt pane: ${msg}\n`);
   process.exit(1);
 }
 
@@ -49,6 +51,41 @@ function opts(args: string[]) {
   return sockPath ? { sockPath } : {};
 }
 
+/** One line an agent may be reading: stdout, byte for byte. */
+function say(text: string): void {
+  out.payload(`${text}\n`);
+}
+
+/** Blocks for a person at a terminal; the frozen text for every other reader. */
+function show(blocks: () => Block[], frozen: () => string): void {
+  if (out.isHuman()) out.print(...blocks());
+  else say(frozen());
+}
+
+const PANE_STATUS: Record<ChatPane["agentStatus"], { word: string; role: Segment["role"] }> = {
+  working: { word: "working", role: "running" },
+  idle: { word: "idle", role: "pending" },
+  blocked: { word: "waiting on you", role: "needs-you" },
+  done: { word: "done", role: "done" },
+  unknown: { word: "unknown", role: "skipped" },
+};
+
+function paneRow(p: ChatPane): out.CellInput[] {
+  const name = p.presence ? (p.presence.name ?? p.presence.handle) : undefined;
+  const status = PANE_STATUS[p.agentStatus] ?? PANE_STATUS.unknown;
+  const where = [p.workspace, p.title && p.title !== name ? p.title : undefined].filter(Boolean).join(" · ");
+  const repo = [p.repo, p.branch].filter(Boolean).join(" · ");
+  const rooms = p.presence?.rooms.length ? `#${p.presence.rooms.join(" #")}` : "";
+  return [out.strong(p.paneId), { text: status.word, role: status.role }, name ?? out.dim("not signed in"), out.dim(where), out.dim(repo), out.dim(rooms)];
+}
+
+export function paneListBlocks(panes: ChatPane[]): Block[] {
+  if (panes.length === 0) return [out.line("skipped", "No Claude panes")];
+  const visible = panes.filter((p) => !p.paneId.startsWith(BG_PREFIX)).map(paneRow);
+  const bg = panes.filter((p) => p.paneId.startsWith(BG_PREFIX)).map(paneRow);
+  return [out.table(bg.length > 0 ? [...visible, { group: "background" }, ...bg] : visible)];
+}
+
 function renderPane(p: ChatPane, idWidth: number): string {
   const name = p.presence ? (p.presence.name ?? p.presence.handle) : undefined;
   const who = p.presence ? `${name} (${p.presence.status})` : "not signed in";
@@ -60,18 +97,23 @@ function renderPane(p: ChatPane, idWidth: number): string {
 
 export async function paneList(args: string[]): Promise<void> {
   const data = unwrap(await paneListRt(opts(args)), "pane list");
-  if (args.includes("--json")) return void console.log(JSON.stringify({ ok: true, panes: data.panes }));
-  if (data.panes.length === 0) return void console.log("no claude panes");
-  const idWidth = Math.max(...data.panes.map((p) => p.paneId.length));
-  const visible = data.panes.filter((p) => !p.paneId.startsWith(BG_PREFIX));
-  const bg = data.panes.filter((p) => p.paneId.startsWith(BG_PREFIX));
-  const lines = visible.map((p) => renderPane(p, idWidth));
-  if (bg.length > 0) {
-    if (lines.length > 0) lines.push("");
-    lines.push("background:");
-    lines.push(...bg.map((p) => renderPane(p, idWidth)));
-  }
-  console.log(lines.join("\n"));
+  if (args.includes("--json")) return void out.json({ ok: true, panes: data.panes });
+  show(
+    () => paneListBlocks(data.panes),
+    () => {
+      if (data.panes.length === 0) return "no claude panes";
+      const idWidth = Math.max(...data.panes.map((p) => p.paneId.length));
+      const visible = data.panes.filter((p) => !p.paneId.startsWith(BG_PREFIX));
+      const bg = data.panes.filter((p) => p.paneId.startsWith(BG_PREFIX));
+      const lines = visible.map((p) => renderPane(p, idWidth));
+      if (bg.length > 0) {
+        if (lines.length > 0) lines.push("");
+        lines.push("background:");
+        lines.push(...bg.map((p) => renderPane(p, idWidth)));
+      }
+      return lines.join("\n");
+    },
+  );
 }
 
 export async function panePeek(args: string[]): Promise<void> {
@@ -84,8 +126,8 @@ export async function panePeek(args: string[]): Promise<void> {
     if (!Number.isInteger(lines) || lines <= 0) fail(`--lines must be a positive integer (got "${linesRaw}")`);
   }
   const data = unwrap(await panePeekRt({ paneId, lines }, opts(args)), "pane peek");
-  if (args.includes("--json")) return void console.log(JSON.stringify({ ok: true, ...data }));
-  console.log(data.lines.join("\n"));
+  if (args.includes("--json")) return void out.json({ ok: true, ...data });
+  say(data.lines.join("\n"));
 }
 
 export async function paneSpawn(args: string[]): Promise<void> {
@@ -98,8 +140,8 @@ export async function paneSpawn(args: string[]): Promise<void> {
     ),
     "pane spawn",
   );
-  if (args.includes("--json")) return void console.log(JSON.stringify({ ok: true, ...data }));
-  console.log(`${data.ready ? "ready" : "not ready"}  ${renderPane(data.pane, data.pane.paneId.length)}`);
+  if (args.includes("--json")) return void out.json({ ok: true, ...data });
+  say(`${data.ready ? "ready" : "not ready"}  ${renderPane(data.pane, data.pane.paneId.length)}`);
 }
 
 const SELF_TARGET = "self";
@@ -123,9 +165,9 @@ export async function paneSend(args: string[]): Promise<void> {
     "pane send",
   );
   const { continuation: then, ...first } = data;
-  if (args.includes("--json")) return void console.log(JSON.stringify({ ok: true, ...first, ...(then ? { then } : {}) }));
-  console.log(renderDelivery(first));
-  if (then) console.log(`then: ${first.paneId} ${then.delivered}`);
+  if (args.includes("--json")) return void out.json({ ok: true, ...first, ...(then ? { then } : {}) });
+  say(renderDelivery(first));
+  if (then) say(`then: ${first.paneId} ${then.delivered}`);
 }
 
 function renderDelivery(d: Pick<PaneSendResult, "paneId" | "delivered" | "reason">): string {
@@ -142,19 +184,19 @@ export async function paneFocus(args: string[]): Promise<void> {
   if (!paneId) fail("usage: rt pane focus <pane>");
   const callerWorkspace = process.env.HERDR_WORKSPACE_ID;
   const data = unwrap(await paneFocusRt({ paneId, ...(callerWorkspace ? { callerWorkspace } : {}) }, opts(args)), "pane focus");
-  if (args.includes("--json")) return void console.log(JSON.stringify({ ok: true, ...data }));
-  console.log(renderPaneFocus(data));
+  if (args.includes("--json")) return void out.json({ ok: true, ...data });
+  say(renderPaneFocus(data));
 }
 
 export async function paneAccounts(args: string[]): Promise<void> {
   const data = unwrap(await paneAccountsRt(opts(args)), "pane accounts");
-  if (args.includes("--json")) return void console.log(JSON.stringify({ ok: true, accounts: data.accounts }));
-  if (data.accounts.length === 0) return void console.log("no cswap accounts");
-  console.log(data.accounts.map((a) => `${String(a.slot).padStart(2)}: ${a.alias ?? a.email}${a.alias ? `  ${a.email}` : ""}${a.headroom ? `  ${a.headroom}` : ""}`).join("\n"));
+  if (args.includes("--json")) return void out.json({ ok: true, accounts: data.accounts });
+  if (data.accounts.length === 0) return void say("no cswap accounts");
+  say(data.accounts.map((a) => `${String(a.slot).padStart(2)}: ${a.alias ?? a.email}${a.alias ? `  ${a.email}` : ""}${a.headroom ? `  ${a.headroom}` : ""}`).join("\n"));
 }
 
 export async function paneDirectories(args: string[]): Promise<void> {
   const data = unwrap(await paneDirectoriesRt({ q: flagValue(args, "--q") }, opts(args)), "pane directories");
-  if (args.includes("--json")) return void console.log(JSON.stringify({ ok: true, directories: data.directories }));
-  console.log(data.directories.map((d) => `${d.path}  ${d.repo}${d.branch ? ` · ${d.branch}` : ""}`).join("\n"));
+  if (args.includes("--json")) return void out.json({ ok: true, directories: data.directories });
+  say(data.directories.map((d) => `${d.path}  ${d.repo}${d.branch ? ` · ${d.branch}` : ""}`).join("\n"));
 }

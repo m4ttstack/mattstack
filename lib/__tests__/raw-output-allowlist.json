@@ -1,5 +1,4 @@
 [
-  "commands/agent.ts",
   "commands/apps.ts",
   "commands/bg.ts",
   "commands/cd.ts",
@@ -8,9 +7,7 @@
   "commands/endpoint.ts",
   "commands/flavor.ts",
   "commands/glitter.ts",
-  "commands/herd.ts",
   "commands/nav.ts",
-  "commands/pane.ts",
   "commands/post-install.ts",
   "commands/reconciler.ts",
   "commands/run.ts",
