@@ -250,6 +250,36 @@ export function staleIntercepts(): { stale: boolean; reason?: string } {
   return { stale: true, reason: `${newer.join(", ")} newer than the cached intercept rules` };
 }
 
+function ruleKey(rules: InterceptRule[]): string {
+  return JSON.stringify(rules.map((r) => JSON.stringify(r)).sort());
+}
+
+/**
+ * staleIntercepts, confirmed by content: the settings stores hold every user
+ * setting, so a newer store usually means some unrelated key was written. Only
+ * then are the rules rebuilt (one git spawn per registered repo) and compared
+ * with the cache, so an unchanged store keeps the cheap timestamp path.
+ */
+export async function interceptsOutOfDate(build: () => Promise<InterceptRule[]> = buildInterceptRules): Promise<{ stale: boolean; reason?: string }> {
+  const probe = staleIntercepts();
+  if (!probe.stale) return probe;
+  const fresh = await build();
+  const cached = readRulesFile();
+  if (!cached || ruleKey(fresh) !== ruleKey(sanitizeRules(cached.rules))) return probe;
+  // Stamped to the newest source rather than now, so a store written while the
+  // rules were rebuilding still reads as newer next time.
+  let newest = cached.generatedAt;
+  for (const file of interceptSourceFiles()) {
+    try {
+      newest = Math.max(newest, statSync(file).mtimeMs);
+    } catch {
+      // absent source
+    }
+  }
+  setKvValue(INTERCEPTS_NS, INTERCEPTS_KEY, { ...cached, generatedAt: newest });
+  return { stale: false };
+}
+
 // ─── shim render + path ──────────────────────────────────────────────────────
 
 /** `~/.local/bin`, resolved at call time so tests can fake HOME. */

@@ -18,7 +18,7 @@ import { clampPullIntervalSec, PULL_INTERVAL_FALLBACK_SEC } from "../../daemon/s
 import { isDevModeWrapperContent } from "../../dev-mode.ts";
 import { processFlavor } from "../../flavor.ts";
 import { appBundlePath, linkPath } from "../../deps/resolve.ts";
-import { localBinDir, shimReport, staleIntercepts } from "../../endpoint/shim.ts";
+import { interceptsOutOfDate, localBinDir, shimReport } from "../../endpoint/shim.ts";
 import { DEV_TRAY_APP_BUNDLE, legacyDirsPresent, legacyTrayAppPaths, RT_DIR_LABEL, TRAY_APP_BUNDLE } from "../../rt-paths.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { detectShellFrom, END_MARKER, MARKER, shellRcPathFor } from "../../shell-integration.ts";
@@ -175,7 +175,7 @@ function legacyDirsRow(): Row {
   return row({ ...base, status: "ready", detail: `State lives only in ${RT_DIR_LABEL}` });
 }
 
-function interceptsRow(p: Probes): Row {
+async function interceptsRow(p: Probes): Promise<Row> {
   const base = {
     id: "tool.intercepts",
     kind: "tool" as const,
@@ -186,10 +186,10 @@ function interceptsRow(p: Probes): Row {
   };
 
   let report: ReturnType<typeof shimReport>;
-  let staleRules: ReturnType<typeof staleIntercepts>;
+  let staleRules: Awaited<ReturnType<typeof interceptsOutOfDate>>;
   try {
     report = shimReport();
-    staleRules = staleIntercepts();
+    staleRules = await interceptsOutOfDate();
   } catch (err) {
     return row({ ...base, status: "error", detail: `The check failed: ${(err as Error).message}` });
   }
@@ -685,7 +685,7 @@ export async function rtHealthRows(
     await rtRow(p),
     rtLinkRow(p),
     legacyDirsRow(),
-    interceptsRow(p),
+    await interceptsRow(p),
     await appRow(p),
     vsixRow(p),
     extensionRow(p),
