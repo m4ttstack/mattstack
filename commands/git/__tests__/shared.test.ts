@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { holdsCredentialToken } from "../../../lib/team/redact.ts";
 import * as out from "../../../lib/ui/out.ts";
 import { captureOut, type CapturedOut } from "../../../lib/ui/__tests__/capture-out.ts";
 import { asError, asRefusal, drawFailure, errText, failPlain, failUsage, failWith, NOT_ON_A_BRANCH, plural, printable, readFlag, refuseWith, uncommittedChanges } from "../shared.ts";
@@ -128,4 +131,22 @@ test("printable turns a value that still holds a token shape into REMOTE", () =>
 test("printable prints REMOTE when it cannot tell where the userinfo ends", () => {
   expect(printable("https://user:pa/ss@example.test/x.git")).toBe("REMOTE");
   expect(printable("https://u:p@ss/x@example.test/x.git")).toBe("REMOTE");
+});
+
+test("a remote carrying a credential in its query prints as REMOTE", () => {
+  expect(printable("https://gitlab.example.com/acme/app.git?private_token=abc123")).toBe("REMOTE");
+  expect(printable("https://gitlab.example.com/acme/app.git?ref=main")).toBe("https://gitlab.example.com/acme/app.git?ref=main");
+});
+
+test("commands/git/shared.ts keeps no token pattern of its own", () => {
+  expect(readFileSync(join(import.meta.dir, "..", "shared.ts"), "utf8")).not.toContain("ghp_");
+});
+
+test("printable and the team redactor agree on token shapes", () => {
+  for (const t of ["ghp_abcdefABCDEF123456", "glpat-abcdefABCDEF123456", "xoxb-1234-abcd", "sk-ant-abcdefABCDEF"]) {
+    expect(printable(`https://host/${t}/repo.git`)).toBe("REMOTE");
+    expect(holdsCredentialToken(t)).toBe(true);
+    expect(holdsCredentialToken(t)).toBe(true);
+  }
+  expect(holdsCredentialToken("origin")).toBe(false);
 });

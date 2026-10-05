@@ -2,7 +2,8 @@ import { flagValue } from "../../lib/cli-args.ts";
 import * as out from "../../lib/ui/out.ts";
 import type { Block } from "../../lib/ui/protocol.ts";
 import { usageFailure } from "../../lib/ui/usage.ts";
-import { hasUrlCredentials } from "../../lib/team/redact.ts";
+import { hasUrlCredentials, holdsCredentialToken } from "../../lib/team/redact.ts";
+import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 
 /**
  * The one exit for a git verb that cannot go on. Under --json the envelope
@@ -85,8 +86,6 @@ export function errText(err: unknown): string {
 }
 
 const SCHEME_RE = /^([a-z][a-z0-9+.-]*:\/\/)(.*)$/is;
-// Parity: the prefixes in CREDENTIAL_TOKEN_RE (lib/team/redact.ts).
-const TOKEN_SHAPE_RE = /\b(?:ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|glpat-|xox[abpsr]-|sk-ant-)[A-Za-z0-9_-]+/;
 // A colon in the first segment after `://` with an `@` anywhere after it: a password, even one holding a raw `/` or `@`.
 const PASSWORD_SHAPE_RE = /:\/\/[^/@\s]*:[^\s]*@/;
 
@@ -107,5 +106,5 @@ export function printable(remote: string): string {
     shown = m[1] + m[2]!.slice(at + 1);
     if (holdsCredentials(shown) || shown.includes("@")) return "REMOTE";
   }
-  return TOKEN_SHAPE_RE.test(shown) ? "REMOTE" : shown;
+  return holdsCredentialToken(shown) || redactCredentials(shown) !== shown ? "REMOTE" : shown;
 }
