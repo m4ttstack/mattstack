@@ -9,6 +9,21 @@ public struct TeamSettingsInfo: Codable, Equatable, Sendable {
     public var lastPush: String?
     public var members: [Member]?
     public var mode: String?
+    public var role: String?
+    public var activeTeam: String?
+    public var teams: [String]?
+    public var orgTeams: [String]?
+}
+
+extension TeamSettingsInfo {
+    /// An rt that reports no role predates orgs; the pane keeps what it showed then.
+    public var isAdmin: Bool { role == nil || role == "admin" }
+    public var myTeams: [String] { teams ?? [] }
+    public var canSwitchTeam: Bool { myTeams.count > 1 }
+    public var inviteTeamChoices: [String] {
+        guard let all = orgTeams, all.count > 1 else { return [] }
+        return all
+    }
 }
 
 @MainActor
@@ -23,13 +38,23 @@ public final class TeamSettingsModel: ObservableObject {
 
     public var maskedRemote: String { info?.remote.map(RemoteMasker.mask) ?? "—" }
     public var isSolo: Bool { info?.mode == "solo" }
+    public var isAdmin: Bool { info?.isAdmin ?? true }
+    public var canSwitchTeam: Bool { info?.canSwitchTeam ?? false }
+    public var inviteTeamChoices: [String] { info?.inviteTeamChoices ?? [] }
 
     public func load() async {
         if let decoded = await runJSON(["team", "status", "--json"], verb: "team status", as: TeamSettingsInfo.self) { info = decoded }
     }
 
-    public func mintInvite(handle: String) async {
-        if let decoded = await runJSON(["team", "invite", "--handle", handle, "--json"], verb: "team invite", as: InviteResult.self) { invite = decoded }
+    public func useTeam(_ team: String) async {
+        struct Switched: Decodable { var team: String }
+        guard await runJSON(["team", "use", team, "--json"], verb: "team use", as: Switched.self) != nil else { return }
+        await load()
+    }
+
+    public func mintInvite(handle: String, team: String?) async {
+        let args = ["team", "invite", "--handle", handle] + (team.map { ["--teams", $0] } ?? []) + ["--json"]
+        if let decoded = await runJSON(args, verb: "team invite", as: InviteResult.self) { invite = decoded }
     }
 
     public func loadUninstallPlan() async {

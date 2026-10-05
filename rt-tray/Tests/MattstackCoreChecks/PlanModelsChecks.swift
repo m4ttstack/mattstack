@@ -27,6 +27,27 @@ let samplePlanJSON = """
 """
 
 let planModelsChecks: [Check] = [
+    Check("the org rows decode, and only team.none routes to the Done screen") { c in
+        let json = Data(#"""
+        { "contract": 1, "at": "2026-10-01T00:00:00Z", "team": { "slug": "acme", "name": "Acme", "mode": "none" },
+          "groups": [ { "id": "accounts", "title": "Accounts", "rows": [
+            { "id": "team.none", "kind": "access", "title": "Your team", "why": "w", "required": false, "optionalNote": null, "status": "needs-you",
+              "detail": "No team lists dev9 yet, so you only get the org's shared settings",
+              "action": { "type": "steps", "label": "Show steps…", "steps": ["Ask an org admin (dev1) to put dev9 on a team: rt team members set dev9 --teams <team>", "Then run: rt team pull"] }, "recheck": "on-activate" },
+            { "id": "team.identity", "kind": "access", "title": "Who you are", "why": "w", "required": false, "optionalNote": null, "status": "needs-you", "detail": "d",
+              "action": { "type": "connect", "label": "Connect", "integration": "github", "fields": [ { "name": "token", "label": "GitHub token", "secret": true, "hint": "repo, read:org" } ] }, "recheck": "on-activate" },
+            { "id": "team.push-access", "kind": "access", "title": "Push access", "why": "w", "required": false, "optionalNote": null, "status": "needs-you", "detail": "d",
+              "action": { "type": "connect", "label": "Connect", "integration": "github", "fields": [], "create": { "label": "Create a token on GitHub…", "url": "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg" } }, "recheck": "on-activate" } ] } ],
+          "canInstall": true, "requiredMissing": [] }
+        """#.utf8)
+        let plan = try JSONDecoder().decode(Plan.self, from: json)
+        let rows = plan.groups[0].rows
+        try c.requireEqual(rows.map(\.id), ["team.none", "team.identity", "team.push-access"])
+        c.expectEqual(rows[0].action.flatMap(DoneActions.route), .steps(["Ask an org admin (dev1) to put dev9 on a team: rt team members set dev9 --teams <team>", "Then run: rt team pull"]))
+        c.expectEqual(rows[1].action.flatMap(DoneActions.route), nil)
+        c.expectEqual(rows[2].action.flatMap(DoneActions.route), nil)
+        c.expectEqual(rows[2].action?.create?.url, "https://github.com/settings/tokens/new?description=mattstack&scopes=repo%2Cread%3Aorg")
+    },
     Check("Plan decodes the contract sample") { c in
         let plan = try JSONDecoder().decode(Plan.self, from: Data(samplePlanJSON.utf8))
         c.expectEqual(plan.contract, 1)
