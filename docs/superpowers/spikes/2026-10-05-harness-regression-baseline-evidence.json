@@ -1,11 +1,13 @@
 {
   "referenceCommit": "10d4cdc366b54a35b7af487a77a16dfaff2372fb",
   "productionBase": "bbd55bae1e41699047b2b7114ad0962810de4214",
-  "status": "incomplete",
+  "status": "automated-green-admission-blocked",
   "toolVersions": {
     "bun": "1.4.2",
     "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
-    "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\nTarget: arm64-apple-macosx26.0\nswift-driver version: 1.168.6"
+    "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\nTarget: arm64-apple-macosx26.0\nswift-driver version: 1.168.6",
+    "claude": "2.1.289",
+    "mattstackClaudePlugin": "0.30.18"
   },
   "frozenFixtureSha256": {
     "commands/__tests__/fixtures/herd-pane-agent-supplement-bytes.json": "6d88c9f24fe1af8842a39714a73635796082ce0ec334aa97a393f472d82addaf",
@@ -386,6 +388,245 @@
       "finishedAt": "2026-10-05T18:15:37.665663+00:00",
       "logSha256": "f823925e7064329979c614daca15dfba35b2a67edba0f71faa8837423a9b4486",
       "evidence": ".harness-spike/baseline-01/swift.json"
+    },
+    {
+      "command": [
+        "bun",
+        "run",
+        "test"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-05T19:21:15.214661+00:00",
+      "commit": "310ee445dcc436c1462df2d2f3cf3aacaf62325c",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 1,
+      "elapsedSeconds": 1272.12,
+      "finishedAt": "2026-10-05T19:42:27.371282+00:00",
+      "logSha256": "f87688c6d51a6fa677ce348a4d6e3a8bc9cd04ef2418bbec9103e17e550bc830",
+      "evidence": ".harness-spike/baseline-01/root-tests-02.json"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "--preload",
+        "./.harness-spike/baseline-02/delayed-local-fetch.ts",
+        "commands/__tests__/setup-connect.test.ts",
+        "--test-name-pattern",
+        "mismatched state rejects"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-05T19:44:11.733553+00:00",
+      "commit": "e1eb613365904c25bd583b9abda9cd0f74e91bc1",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 1,
+      "elapsedSeconds": 0.35,
+      "finishedAt": "2026-10-05T19:44:12.096857+00:00",
+      "logSha256": "99efcd31f8375a4d7db033c90c4672ebd8c4e0fb8a85819d01fcc84ab5539c2c",
+      "evidence": ".harness-spike/baseline-01/oauth-delayed-red.json"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "--preload",
+        "./.harness-spike/baseline-02/delayed-local-fetch.ts",
+        "commands/__tests__/setup-connect.test.ts",
+        "--test-name-pattern",
+        "mismatched state rejects"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-05T19:44:31.132867+00:00",
+      "commit": "e1eb613365904c25bd583b9abda9cd0f74e91bc1",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 0.26,
+      "finishedAt": "2026-10-05T19:44:31.407596+00:00",
+      "logSha256": "83d235d3a7108a84bedfa2467b1b23e09fd11249a53d8aec7d71e75813b7dbca",
+      "evidence": ".harness-spike/baseline-01/oauth-delayed-green.json"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "commands/__tests__/setup-connect.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-05T19:44:31.440337+00:00",
+      "commit": "e1eb613365904c25bd583b9abda9cd0f74e91bc1",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 0.17,
+      "finishedAt": "2026-10-05T19:44:31.630667+00:00",
+      "logSha256": "1bbd211cbdf4207ae6bf5d9ec6e1a880a8b2c22e0034685e152edecf1e4ccec7",
+      "evidence": ".harness-spike/baseline-01/oauth-focused-green.json"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "commands/__tests__/flavor-takeover.test.ts",
+        "commands/__tests__/setup-connect.test.ts",
+        "lib/runs/__tests__/liveness.test.ts",
+        "lib/daemon/__tests__/herd-handlers.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-05T19:50:25.778082+00:00",
+      "commit": "e1eb613365904c25bd583b9abda9cd0f74e91bc1",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 23.42,
+      "finishedAt": "2026-10-05T19:50:49.271595+00:00",
+      "logSha256": "f6dd5192c25d7cb9b42560a90ebb2a73b2598a3d7b4264140ef6b17ecacc9aa7",
+      "evidence": ".harness-spike/baseline-01/prerequisite-final.json"
+    },
+    {
+      "command": [
+        "bun",
+        "run",
+        "test"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-05T19:55:13.447323+00:00",
+      "commit": "2ca7537836f09a3f238ad48240aa94b8fe934d33",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 1,
+      "elapsedSeconds": 1266.9,
+      "finishedAt": "2026-10-05T20:16:20.425700+00:00",
+      "logSha256": "b01170393e5b960b916efafc74c34415bf02d599d03f6d8b0e2ff1f628b1d677",
+      "evidence": ".harness-spike/baseline-01/root-tests-03.json"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "lib/__tests__/dev-mode-wrapper.test.ts",
+        "commands/__tests__/settings-dev-mode-store.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-05T20:23:05.071819+00:00",
+      "commit": "2ca7537836f09a3f238ad48240aa94b8fe934d33",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 5.96,
+      "finishedAt": "2026-10-05T20:23:11.058336+00:00",
+      "logSha256": "ad7de8350ca4cbf5ab39dc0bc9e83b528c339390c71fffcdd2ec8063c1e1d329",
+      "evidence": ".harness-spike/baseline-01/preload-home-final.json"
+    },
+    {
+      "command": [
+        "env",
+        "GIT_TRACE2_EVENT=/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan/.harness-spike/baseline-02/root04-git-trace.jsonl",
+        "GIT_TRACE2_CONFIG_PARAMS=core.fsmonitor,core.hooksPath,init.templateDir",
+        "GIT_TRACE2_ENV_VARS=HOME,XDG_CONFIG_HOME,GIT_CONFIG_GLOBAL,GIT_CONFIG_SYSTEM,GIT_CONFIG_NOSYSTEM,GIT_TEMPLATE_DIR",
+        "bun",
+        "run",
+        "test"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-05T20:23:29.183947+00:00",
+      "commit": "ec8a48d42b2fd719f256cd8aaf160e21495528d9",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": -2,
+      "elapsedSeconds": 520.52,
+      "finishedAt": "2026-10-05T20:32:09.723198+00:00",
+      "logSha256": "9fd50060c264baed0acdea7a2ad53a505801dfafe7d9c4cb44f2abec0ccef91f",
+      "evidence": ".harness-spike/baseline-01/root-tests-04.json",
+      "disposition": "Interrupted after traced failures and discovery of a competing full suite; partial diagnostic, not a completed baseline."
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "lib/worktree/__tests__/hydrate.test.ts",
+        "lib/daemon/__tests__/worktree-handlers.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-05T20:45:50.964292+00:00",
+      "commit": "ec8a48d42b2fd719f256cd8aaf160e21495528d9",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 68.52,
+      "finishedAt": "2026-10-05T20:46:59.523789+00:00",
+      "logSha256": "3286d97d63b53a43f7ad5baf854a5faad731845437d5abc5da7945e61b43f4f8",
+      "evidence": ".harness-spike/baseline-01/hydration-lifetime-final.json"
+    },
+    {
+      "command": [
+        "bun",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-05T20:49:25.677334+00:00",
+      "commit": "ec8a48d42b2fd719f256cd8aaf160e21495528d9",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 19.28,
+      "finishedAt": "2026-10-05T20:49:45.000414+00:00",
+      "logSha256": "0a7cbec9e31e5ab1dc3f62bf0e9994201b491a121c31235f27316f5151281817",
+      "evidence": ".harness-spike/baseline-01/hydration-lifetime-typecheck.json"
+    },
+    {
+      "command": [
+        "bun",
+        "run",
+        "test"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-05T20:50:38.164496+00:00",
+      "commit": "ec8a48d42b2fd719f256cd8aaf160e21495528d9",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 1224.21,
+      "finishedAt": "2026-10-05T21:11:02.459767+00:00",
+      "logSha256": "e2d3f2b27644f60053f78976a32280a551d252cc3ac7a856e7ac0270df9de365",
+      "evidence": ".harness-spike/baseline-01/root-tests-05.json"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "--preload",
+        "./e2e/setup.ts",
+        "--timeout",
+        "60000",
+        "e2e/tests/agent.test.ts",
+        "e2e/tests/chat-inbox-delivery.test.ts",
+        "e2e/tests/chat-presence-roster.test.ts",
+        "e2e/tests/gate-ask-cli.test.ts",
+        "e2e/tests/gate-answer.test.ts",
+        "e2e/tests/gate-fork-check-cli.test.ts",
+        "e2e/tests/herd.test.ts",
+        "e2e/tests/herd-watchdog.test.ts",
+        "e2e/tests/runs.test.ts",
+        "e2e/tests/relocation-announce.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-05T21:14:04.242368+00:00",
+      "commit": "ec8a48d42b2fd719f256cd8aaf160e21495528d9",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 27.4,
+      "finishedAt": "2026-10-05T21:14:31.667189+00:00",
+      "logSha256": "1590bb93d15badac6a1255f5fcc4cf96409ba637fba49f7ee86bc5f03a968ed9",
+      "evidence": ".harness-spike/baseline-01/cli-e2e-final.json"
+    },
+    {
+      "command": [
+        "bun",
+        "run",
+        "check"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-05T21:14:50.857649+00:00",
+      "commit": "ec8a48d42b2fd719f256cd8aaf160e21495528d9",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 42.47,
+      "finishedAt": "2026-10-05T21:15:33.364084+00:00",
+      "logSha256": "75ca5eeae8ce624deb214834b49b6de5f79cb7cc79257a07d398536f340edcac",
+      "evidence": ".harness-spike/baseline-01/static-check-final.json"
     }
   ],
   "characterizationFileSha256": {
@@ -396,9 +637,9 @@
     "apps/gitq/tests/no-agent-action-lifecycle.test.ts": "f8dde61c9611a942b459c2fb17e8d4af6cfc7f4dd7a6c8cd37821a74795f334e",
     "apps/gitq/tests/fixtures/agent-action-lifecycle.ts": "850dc3b1b03a977cb4d40bdad98495303a53a9c167c7aa0467248aed5560cf92"
   },
-  "workingTreeNote": "Initial root run used unchanged production code and existing tests at referenceCommit. Later runs include test-only additions and fixture corrections in the containing commit. Final characterization hashes are recorded; original failed type-check logs remain retained.",
+  "workingTreeNote": "Initial baseline used unchanged production. Characterization additions were committed in 310ee445d. Separately reviewed prerequisite fixes are e1eb61336 and 2ca753783. Run metadata records starting HEAD; prerequisite-final ran the 2ca753783 content before that commit was created.",
   "rawLogsCommitted": false,
-  "baselineDecision": "Blocked: full root failures, source-format failures, and native reference gaps remain; distributed lifecycle is pending S9.",
+  "baselineDecision": "Current root, compiled and static commands GREEN. Admission BLOCKED by unresolved original triggers for historical deadline-only failures; no exception granted. Independent document reviewer approved this blocked report in round 2.",
   "sourceFormatFailures": [
     "apps/board/src/__tests__/agent-command.test.ts",
     "apps/board/src/__tests__/agent-states.test.ts",
@@ -585,5 +826,514 @@
     "apps/deck/src/services/tool-resolve.test.ts",
     "apps/deck/test/e2e.smoke.test.ts"
   ],
-  "sourceFormatProvenance": "All 184 warning files are unchanged in the worktree and byte-identical to the production merge-base; this is source equality, not a base/control execution."
+  "sourceFormatProvenance": "All 184 warning files are unchanged in the worktree and byte-identical to the production merge-base; this is source equality, not a base/control execution.",
+  "sourceFormatDiagnosticCorrection": {
+    "canonicalCommand": "bun run format:check",
+    "uncachedCommand": "node node_modules/prettier/bin/prettier.cjs --check .",
+    "canonicalOutcome": "pass after ignoring only /.harness-spike/",
+    "historicalWarningList": "sourceFormatFailures is retained historical output from noncanonical Bun invocation; not canonical source failures",
+    "cause": "Sort-imports plugin classifies builtin imports differently under Bun and Node."
+  },
+  "prerequisiteCommits": [
+    "e1eb613365904c25bd583b9abda9cd0f74e91bc1",
+    "2ca7537836f09a3f238ad48240aa94b8fe934d33",
+    "ec8a48d42b2fd719f256cd8aaf160e21495528d9",
+    "af1c9ecd08ffa00ea28616e2af2831dc720a04ed"
+  ],
+  "nativeReference": {
+    "claudeVersion": "2.1.289",
+    "pluginVersion": "0.30.18",
+    "home": "/Users/matt",
+    "sharedDaemonRevision": "9612dc825d9e01e138b9311498195da2726974c9",
+    "nativeStopBlockCapObserved": 9,
+    "childEffortEnforced": false,
+    "artifactManifest": [
+      {
+        "path": ".harness-spike/baseline-02/native-before-resume.json",
+        "sha256": "3815bef64f0aceb8329c4927614f2a9827ed343f393b47367e06c4bde40b09f3"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-blocked-dm.json",
+        "sha256": "613cee3ba64fc490379e555a2fb0e1542b98269bbce02de62b6a1b4bcf974b21"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-blocked-screen.json",
+        "sha256": "e6e5104833960c5947089b664e8a1f48a370a21991fb52f66ee03c2c97a5095e"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-busy-dm.json",
+        "sha256": "7da70c7fd11eecdce0da1b2591e0bd96bd56be013122bf27986c92281e428e44"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-busy-prompt.json",
+        "sha256": "0fd6211b5aa5d95eb9deb2cc6c79891417198f5d005c47e267a11fe5f3c537ea"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-busy-registry.json",
+        "sha256": "a7d1c7319f83774dd802aeaa872e76ec76af73d572b39bdfb24871926c0ebed0"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-busy-result.json",
+        "sha256": "7e2e4186ca24c32abf9daf7b23eb77bb099191752cd6fd43f34ff01d9cc3706a"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-cap-corrected-prompt.json",
+        "sha256": "7681293d8268126831ced267297bc117d7e8d0ca47e52822101b9256ecf00d1a"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-cap-corrected-setup.json",
+        "sha256": "1929277fa25fc278a3daef8b77572c67653eaf4dbf9a1dba5e4f1c6fe4e22b8a"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-cap-hook-events.json",
+        "sha256": "4264f4909d667c6c87f43143294532acb5e8ed15ab5eab38469f316b8569aa45"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-cap-isolated-progress.json",
+        "sha256": "8ac78caeb81095b49b6fba84c99bbbd527849157cde424aeb4b262514940023e"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-cap-progress.json",
+        "sha256": "c3f9d0cc10e2360518d7160aa8a567f44f1d626d83337d531777b53b15dd2d19"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-cap-prompt.json",
+        "sha256": "966ffef533af356f6fea93685678cfb8a02ae3031e2df0f4fadbf2cc2518d56f"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-cap-stabilize.json",
+        "sha256": "22471fe66f0c26ddeff7e8b3f3fd3b57489e3af938b1c2ccbb5d28f0a707f08e"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-cap-start.json",
+        "sha256": "7a995289786e8cc252c7d01a893f5ca3df649e1217386d1f74dc3164ce6aa87e"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-cap-valid-result.json",
+        "sha256": "98488339e5e79727c6f51246f3ce4d003fba40e6aa3a81394bf8867765ff7e58"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-cleanup-actions.json",
+        "sha256": "0c8cae1a8723910d56424f69c54b2a2b10e9af7163e8321a52be8bc786720c6c"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-cleanup-after.json",
+        "sha256": "ec70222ea4ea469cd237978381d0d76ece347d319fa6cda35a9b5b3afe7c5a64"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-cleanup-before.json",
+        "sha256": "fbe06fd6adae42d0b6ab4844ed3d32ee602e1d1e9cf09afa0ed9ab09ffce65a1"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-cleanup-residuals.json",
+        "sha256": "964edcd442440507b137c278fa01bbad33ebd960219e2bf00a40992770a429bf"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-daemon.json",
+        "sha256": "8eb5a32cae1ae6d1da2f0178d1c1c30eb8263f2ba8b1011018ec54ff90155cf3"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-delegation-invocation.json",
+        "sha256": "7b4d788e2271c19b9185579a2c684555fe2b47b47b8b4080bdd05ab7cc0138ce"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-delegation-progress.json",
+        "sha256": "76fbb658b34bafc3188fd1c527808b12ebadfcbdf7524ee8ae83e6140adb8d6a"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-delegation-prompt.json",
+        "sha256": "342c75d3101380fdb1a22f5df9696a792128101ceeec0136b5d4e3ba2254a64c"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-environment.json",
+        "sha256": "efc3493849b412f8edb1ce16302c12f3fbc829326e8b48d5be5b0cbab4897a64"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-external-answer.json",
+        "sha256": "3e9e32707d6c32007bb3dd63a153ea6b251a98b00a4fa81c898f6123137899f9"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-fork-prompt.json",
+        "sha256": "fdfbff0e52066afef08a1f7561e086420ed03402be6e954af8246ff2aff311d3"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-fork-result.json",
+        "sha256": "6869ab738e8de9ff1147fb5c9607046ff976e756d84b59d8b1b852145b0fe74e"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-gate-consumed.json",
+        "sha256": "0dc44e76c6bddac909105b3f38aad098a31d5cac3c00c71dc16951cbd6848785"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-gate-list.json",
+        "sha256": "a3b6cf5c548669776cad4144317581d44b2b0a74ddac0c905110eb5d038776e5"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-gate-open.json",
+        "sha256": "2256867cff4c7e1c4c34dc9cb1a8628fd83887a5be601ec4d97d35a2f6105e9f"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-gate-prompt.json",
+        "sha256": "9d8ba146fc33c744970bbd423e93034fe431d6524b5428704a46016822f7030e"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-gate-result.json",
+        "sha256": "6dc95474116416f2458a7c9fa0c4f7cbf574bb47eff66b486c601c3220da4e94"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-herd-progress.json",
+        "sha256": "d417cf126701369b01e9af88f322adff1c1c41dcd5925dfb73dae7575ec6641e"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-herd-prompt.json",
+        "sha256": "dd34f18b76669e9f6f8e1ecbe727d260586b93ded42a384e1ba5888d23a3f6cc"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-herd-status-02.json",
+        "sha256": "a82ecb5175a6556cebaa33acf810f160d57661ed9387029ad09b73de3bb2ec86"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-herd-status.json",
+        "sha256": "8f8c25d4c97c10009596eff21d88297ee0580a4bbf303ff70e45d603a391a231"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-idle-dm-02.json",
+        "sha256": "76fff28a2d97a8d09b8fe66409f2744015d2719806427d822d2ec5a4addecc73"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-idle-dm.json",
+        "sha256": "3bfab9d283e72bec902505eaa55436c2c4c57f89903fbb96c47badec039b29ac"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-idle-result.json",
+        "sha256": "1bba8c007423c4207025588b2fb41460c7fa0729b4d1231ac948d738169aa4f4"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-initial.json",
+        "sha256": "728404c978fbe511831b46261af4cc8e7460e6a2637b81b7f2517ae31a5ce832"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-managed-ready.json",
+        "sha256": "e9d7bae6657f00c5c5f1f87ee56902ef4573219c886dd47c4c08a2df04018d49"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-managed-resume.json",
+        "sha256": "38a3b3a22ff602eb96337df13d0b5e35d984995d170d37eacd9743cb17e7f12d"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-managed-start.json",
+        "sha256": "19519deab2a16018501d38835aa863a5908ec089d754d88636309c7f134e1dd7"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-pause-result.json",
+        "sha256": "9f0c9323679c691494df59323511e63b80bc7037dd0141001673d48c17c64d95"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-race-source-provenance.json",
+        "sha256": "0fafa73113389d81da360de3633a6f7bb083f4eba5929ee9125f5e9f5023fe14"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-resume-exit.json",
+        "sha256": "e3075eab8cdd36bf71820f3862a8b435868bbca4e7c217b6e14ea4a9d929a096"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-resumed-ready-02.json",
+        "sha256": "6efb649d63ac293aee0fd2d15bfa31ef3ff85aa690c6c6dd6db4d3de87647d1f"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-resumed-ready.json",
+        "sha256": "a535ea0393acd122221512b80c070e6d5e81a9f4f39943a4fa1d939a25532035"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-signin-prompt.json",
+        "sha256": "5c2fb69d337617d578f0f8a9bfe7cf3ca9d9578c6d106a1953acf064e9f9b55a"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-signin-result.json",
+        "sha256": "a5b3e48007bfdb25a0ffe093fd4c8e432cd53c364fa761da69bc9ed3ed846579"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-source-comparison.json",
+        "sha256": "c549cdca8a523597be5852b4598a2858a89f49d7ba427d15b9de9748f9da7e72"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-stop-prompt.json",
+        "sha256": "b78bc46c89ffe8c69ded89bd46c02c9520966f9c9966dc747fc001fafb51682e"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-stop-result.json",
+        "sha256": "c4b11d35e3edddda49687093215323602740edced1a75d4a466538b2a438adae"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-wait-answer.json",
+        "sha256": "f10f77c2bf481523ddb121425cd6d82b17ae6e992432eda3f88160352c598f27"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-wait-armed.json",
+        "sha256": "7715acf2fcb4501cf7a61e26114b5a896815e5d1e1d7314353c59488ea0821ac"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-wait-gate.json",
+        "sha256": "ab5ff80714d662eedea939a402e8c5b69a09c507b9af39cca0acb0e07d5fdd41"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-wait-prompt.json",
+        "sha256": "30c6f7d3a7ac81b9cf24f3eabd5ce52516d201df4be9976e2e3d45e2fbd066f1"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-wait-result.json",
+        "sha256": "04212348b730b431f5becebcdad68f07f0abf24e309f20607520d47e8f708d7d"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-worker-record.json",
+        "sha256": "fbb4df740d62f719253a0417552a9c90b3cef909c4021f4e4ca0bbcb6e50179f"
+      }
+    ]
+  },
+  "sourceFormatFailuresValid": false,
+  "nativeHerdCorrection": {
+    "commit": "2ca7537836f09a3f238ad48240aa94b8fe934d33",
+    "outcome": "passed",
+    "nativeRaceWindowExercised": true,
+    "reportBeforeSpawnReturnedMs": 2462.55,
+    "jobStatus": "done",
+    "cleanupVerified": true,
+    "harnessExit": 130,
+    "exitExplanation": "Captured independent native success before interrupting an overly strict separator-whitespace waiter; process exit is not claimed green.",
+    "artifacts": [
+      {
+        "path": ".harness-spike/baseline-02/native-herd-isolated-e9930f89a52d/native-result.json",
+        "sha256": "73cc2f4559d049d6a60f20dc13408ad857ec8996f4c7c215fff7cf23d50f0f8a"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-herd-isolated-e9930f89a52d/manifest.json",
+        "sha256": "bc34f71451752d2dc2e11e2ed947f1dff19c08618fcb8b0428b88ee33a7f3efe"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-herd-isolated-e9930f89a52d/events.jsonl",
+        "sha256": "0bce5d9d3e696eb2d37bd1d61fbc7d99efe0e0e2a93468a2d8cd7b5cfeed1b06"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-herd-isolated-e9930f89a52d/cleanup-verification.json",
+        "sha256": "e0ccb4c350f54ab521ea55703687515f67191a61c4a2cac1e17dbf18307c50d5"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-herd-isolated-e9930f89a52d/herd-before-cleanup.json",
+        "sha256": "cfdc1b143c60844e86edc2c9531f5794b96d961e7943673ae55c289dde0e17e0"
+      },
+      {
+        "path": ".harness-spike/baseline-02/native-herd-isolated-e9930f89a52d/owned-agents-before-cleanup.json",
+        "sha256": "21616f9c145adf16f6cd678473e393417703ac087aabff6d48fc01895fe76b50"
+      }
+    ]
+  },
+  "prerequisiteFileSha256": {
+    "commands/__tests__/daemon-logdy-config.test.ts": "c0b6a56a417008bf8b51fdb87c30b4f924835ce8c57c1b99023a80f2207927a4",
+    "commands/__tests__/flavor-takeover.test.ts": "1c6ba79e2ff4bdfa509e1bbf6fe79ab9a14a965afcb1bf2aa3915efc7b89bf55",
+    "commands/__tests__/settings-dev-mode-store.test.ts": "abe9de8d25093c8825486503358db91522d6c899eda015778c734e95c456969b",
+    "commands/__tests__/setup-connect.test.ts": "6906da3c9f0e5e1b792b98e72b9eba470bc8293eeb47bd47f8acb59b1eef9dd8",
+    "commands/daemon.ts": "83e7a4b36c83286f4741e0f37d0020569e2daaadff02a8d576ea7b936833a3c4",
+    "commands/flavor.ts": "280923c21a9fd1c436be3fd005b543873645dd39aca0089b2aad1e283784cf70",
+    "commands/settings.ts": "c7d7ba04d21369bdd3e7374a05898690b9861dd88dc9d47df80da605e3fd1dde",
+    "lib/__tests__/dev-mode-wrapper.test.ts": "77741f155a6dde1329f1aae9280b4fa809fc748f1eabfaeb70cecd6c275f009d",
+    "lib/daemon/__tests__/herd-handlers.test.ts": "692f03202837e5f8a41c2f9aa23afc89c93cbf50fb022d4de62fdc150140a0a1",
+    "lib/daemon/__tests__/worktree-handlers.test.ts": "d9c53377bd257ba74e417a0eceb598f2268c8c244d21f6e340f4b60e439be119",
+    "lib/daemon/handlers/herd.ts": "9476ea7d2739697f4bb41f8e0ef5f43887027d3787243f92220d1f026390ac3c",
+    "lib/daemon/reconciler/__tests__/reconcile.test.ts": "3384a9488de786f5cba53d698bc49c9b76e3bb579b75f75551a26e89f7edbb46",
+    "lib/runs/__tests__/liveness.test.ts": "253d010996d5efdd486ce20db0d8b6755d7d21fadd51bbadcb822d101f5b2b2b",
+    "lib/worktree/__tests__/create.test.ts": "990f79204c04f5c92653e780c3889cfd8b3d974299cf03a39c5662163299606b",
+    "lib/worktree/__tests__/hydrate.test.ts": "f2956b27a75bc93fb3a51714d67a691dfe5b1107b63b69418b3e24ef34821075"
+  },
+  "prerequisiteDiagnostics": [
+    {
+      "path": ".harness-spike/baseline-02/preload-home-green.json",
+      "sha256": "6d49b024a020e5773111a8b04d9127280abd49b2c3072920eb46c395467b05c4"
+    },
+    {
+      "path": ".harness-spike/baseline-02/preload-home-red.json",
+      "sha256": "23657fe4e7289fd75a256def0194e275bc8602ec3a20a7fa1becd0a2246010a2"
+    },
+    {
+      "path": ".harness-spike/baseline-02/worktree-spillover-diagnostic.json",
+      "sha256": "c5e4e3fc2167956addb97216c3dd90f2becb40f656cf59a4904689117eb4540e"
+    },
+    {
+      "path": ".harness-spike/baseline-02/worktree-spillover-drained-control.json",
+      "sha256": "318db3d4b77d740b90cb26215516ec1c1da73a94adb035ebc1c1996e42f87029"
+    },
+    {
+      "path": ".harness-spike/baseline-02/worktree-spillover-overlap.json",
+      "sha256": "9e9512019ace42716a5daacdbd660071e1d9491dfe6132f26835d33c1fe76853"
+    },
+    {
+      "path": ".harness-spike/baseline-02/fixture-lifetime-diagnostic.json",
+      "sha256": "0cd0d9ebc1f11e4b7ef41e5c0207027debbbf7345a82612f6e8bf1f560726090"
+    },
+    {
+      "path": ".harness-spike/baseline-02/fixture-lifetime-owned-body.json",
+      "sha256": "27b31433df18c7210cf6150d7c483c8c8f6e75a1bc2f3dd186faac869b4d8925"
+    },
+    {
+      "path": ".harness-spike/baseline-02/fixture-lifetime-owned-hook-timeout.json",
+      "sha256": "533ac2a962b4dfc6995fbeb056fec88011ba59d277888b93acf2fe45b36f9fb6"
+    },
+    {
+      "path": ".harness-spike/baseline-02/fixture-lifetime-undrained.json",
+      "sha256": "64642547a1fe657d1ceaeaea51fa9a6d0ca910b02071777bee1f00a0a877e8b3"
+    },
+    {
+      "path": ".harness-spike/baseline-02/git-timing-worktree-lifetime-fixed.json",
+      "sha256": "831a5d46bdb0da10d7d8f244824c708d44f09a3f65811cde272efdc5f396e370"
+    },
+    {
+      "path": ".harness-spike/baseline-02/root04-concurrent-suite.json",
+      "sha256": "5e6788ff5736c3310fb0403f402588847536d62455a05330d9436c11d96a9ead"
+    },
+    {
+      "path": ".harness-spike/baseline-02/root04-hydrate-timeout-analysis.json",
+      "sha256": "8f977d938331788a3ebe1846fc0b2d8405d4d2939a2f93210848298f21b7c038"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-setup-control.json",
+      "sha256": "9a6861ecb02ad351d6eb825aec5b161f1b111bb3970cf298420bd1efe6d75d0a"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-setup-02-red.json",
+      "sha256": "5375d12692382162d232499ad494cef9f7333bc2f280b074a064a07feb3358ac"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-setup-02-green.json",
+      "sha256": "01acf667b1b2b88f80e71cf679800cee4c6a6254e980e88a9448a8b8ce81fdd9"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-setup-timeout-preload.ts",
+      "sha256": "ee7caddd022753c1c65dcdfa10d9d5077b6ca9899fb699274985ecc19daae255"
+    },
+    {
+      "path": ".harness-spike/baseline-02/run-hydrate-setup-control.py",
+      "sha256": "65685730a60a9650316cdb6d37744855618cfab6f5add88ef70d9eff283dde5e"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-review-meta.json",
+      "sha256": "eaa88288bba015433a0aba9d0625f8c4b494e4d4d8ea2cfbfcd29ce01d196de3"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-review-result.json",
+      "sha256": "3a9606066457182c3c8597ff11204c77d2cb8d9de79b6e95a83eaa66bfff5072"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-review-prompt.txt",
+      "sha256": "a44ca973fc650ff6c9916aa4f4aea681b63fa41c096b034e71766b41c9558c0d"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-review.diff",
+      "sha256": "9f018e2f085286ae007d2da0b35d4a87d085b10d45838b423ac43421c1858e3c"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-body-control.json",
+      "sha256": "1a2f77fcd99dc176d47fb6df6b0dda7a91f0a00fbf002d51331343d92119d1fb"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-body-01-red.json",
+      "sha256": "a82edb1beb7bc37d0c3814f49b388679eefe8e83ec07a050dfa68c17ddf2d6d2"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-body-01-green.json",
+      "sha256": "33a25cbe07cc381429d75c8ee95303581cb5ae75eab99d3ddf075e9f80c6f041"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-body-timeout-preload.ts",
+      "sha256": "6b210194b6f8c5c6d7aae22341f3d89935bb683a848a34eb016d8cecfac39908"
+    },
+    {
+      "path": ".harness-spike/baseline-02/run-hydrate-body-control.py",
+      "sha256": "745eea4df24b7065e8b0ec2027105b7d483343a0a6a456a69ef79125273ace05"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-setup-control-03.json",
+      "sha256": "69c767710b1602d70242ab9231857aed88a87813f42ee965acbc9f4968eb5dd4"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-setup-03-red.json",
+      "sha256": "686e7edef1c81150daf09eab27c01cc4135a5ee4f620d97e0649d3552ee2b8e7"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-setup-03-green.json",
+      "sha256": "876d5ef8a8e1764275dfc5faa22a0b52d27af70ec8419e119d9287db4a9a660c"
+    },
+    {
+      "path": ".harness-spike/baseline-02/run-hydrate-setup-control-03.py",
+      "sha256": "f38af4be44f31cc3b66285c2374d7a149a8b1e86cfd28b66da433bb0bc72b3b5"
+    },
+    {
+      "path": ".harness-spike/baseline-02/root-failure-comparison.json",
+      "sha256": "6779262f9e808406637fd0ab483bcf7ecacef8afc666ba038b5af23303886a82"
+    },
+    {
+      "path": ".harness-spike/baseline-02/root-tests-05-concurrency.json",
+      "sha256": "b6a4325c06c5c2dca7095aee609589c5eff9650e0a711c2d9d1f5335c4f3ce27"
+    },
+    {
+      "path": ".harness-spike/baseline-02/root-tests-05-concurrency.jsonl",
+      "sha256": "5fa1206aea4b2b3f438e017295975fe682ac7e8559cdf35a9a17b5f71a723e29"
+    },
+    {
+      "path": ".harness-spike/baseline-02/root-tests-05-concurrency-corrected.json",
+      "sha256": "66efe07a906e23ae9d3f8bba1a3593422f8c19ad51fdb1a414aba07eca984ca0"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-review-round2-prompt.txt",
+      "sha256": "adbcc47786ae7b0a06ecff95be3116d65e8f89cf0cd27dc8cc3e88081ccc2b95"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-review-round2-meta.json",
+      "sha256": "12da84d7cb3fdd4609d63d36f48e4698686dcc560b798aedc2586986021c2ae0"
+    },
+    {
+      "path": ".harness-spike/baseline-02/hydrate-review-round2-result.json",
+      "sha256": "bf1726ad5196a71b301474d9dffa0316c26c485ec86b6861f4e6a1d3e64abfc9"
+    },
+    {
+      "path": ".harness-spike/baseline-02/baseline-doc-review-prompt.txt",
+      "sha256": "144031cecb91a4929537fe63d04cc33a96be8d75e5edfd5d0e030f5f8b8385f9"
+    },
+    {
+      "path": ".harness-spike/baseline-02/baseline-doc-review-meta.json",
+      "sha256": "bfa33b3d947817f6a7aa28179ed1db69238874f6593035c736ca7b634f05aa61"
+    },
+    {
+      "path": ".harness-spike/baseline-02/baseline-doc-review-result.json",
+      "sha256": "094a9bcd068f6540d3a007a7ed385737efd5bc401a5f69957904492b6d2684ef"
+    },
+    {
+      "path": ".harness-spike/baseline-02/baseline-doc-review-round2-prompt.txt",
+      "sha256": "644197075f45bc68f63f4592f10cc0b5edf9ffb45199e5ec62953226787e0c71"
+    },
+    {
+      "path": ".harness-spike/baseline-02/baseline-doc-review-round2-meta.json",
+      "sha256": "dfc7aa8ae96b59cc4e7ba2d37ffeba3b9bfe1155d351b2b4a8dca2d67b1164f4"
+    },
+    {
+      "path": ".harness-spike/baseline-02/baseline-doc-review-round2-result.json",
+      "sha256": "7141b3240d86cd85cf04dd016993898dcbd5e6192960ac0c235b02ea15f4838a"
+    }
+  ],
+  "hydrationLifetimeVerification": {
+    "status": "verified-and-approved",
+    "focusedTests": 77,
+    "assertions": 289,
+    "controlledTimeoutRetained": true,
+    "control": ".harness-spike/baseline-02/hydrate-setup-control.json",
+    "review": "Same native read-only reviewer: Status Approved in round 2; no remaining code findings. B0 admission explicitly outside that code review.",
+    "bodyTimeoutControlled": true,
+    "strictSetupPauseControlled": true,
+    "commit": "af1c9ecd08ffa00ea28616e2af2831dc720a04ed"
+  },
+  "finalDocumentReview": {
+    "status": "Approved",
+    "round": 2,
+    "sessionId": "2413bac7-ba1b-4253-8abd-d5bf668a6059",
+    "scope": "Report consistency, completeness and alignment with B0; not an admission exception",
+    "evidence": ".harness-spike/baseline-02/baseline-doc-review-round2-result.json"
+  }
 }

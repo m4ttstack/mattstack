@@ -32,7 +32,7 @@ Run suites sequentially to avoid test load contaminating timing evidence. First 
 - [x] Record the initial results without changing timeouts, assertions or production behavior.
 - [ ] Diagnose every failure: exact file/assertion, standalone reproduction, relevant source/test equality with the production merge-base, and base/control execution where necessary to establish provenance. Unchanged source alone is not proof of a pre-existing test failure.
 - [ ] A passing rerun does not erase a flaky full-suite failure. Document and resolve affected instability before granting GREEN. Do not mark a failed command green because unrelated assertions passed.
-- [ ] Fix confirmed test infrastructure defects in a separately reviewed change. Production bugs discovered by B0 stay explicit blockers for the affected extraction until a separate reviewed fix is green. Never fold an unreviewed behavior change into characterization.
+- [x] Fix confirmed test infrastructure defects in a separately reviewed change. Production bugs discovered by B0 stay explicit blockers for the affected extraction until a separate reviewed fix is green. Never fold an unreviewed behavior change into characterization.
 
 ## B0.3 — Close gaps in current-behavior protection
 
@@ -47,10 +47,10 @@ Read the assertion inventory before adding tests. Add only meaningful missing co
 
 ## B0.4 — Native reference and exit decision
 
-- [ ] Record an owned Claude reference workflow for chat delivery/continuation, native gate question and external answer, Stop/continuation policy, shepherd/worker reporting and skill delegation/model/account selection. Use the regular authenticated HOME only for owned live workers; never disable unit-test HOME isolation. Reuse prior evidence only when it demonstrates the exact scenario against the relevant code/artifact version.
+- [x] Record an owned Claude reference workflow for chat delivery/continuation, native gate question and external answer, Stop/continuation policy, shepherd/worker reporting and skill delegation/model/account selection. Use the regular authenticated HOME only for owned live workers; never disable unit-test HOME isolation. Reuse prior evidence only when it demonstrates the exact scenario against the relevant code/artifact version.
 - [ ] Actual native execution and distributed setup/update/restore/uninstall cannot be replaced by mocks or certification. Prepare reproducible acceptance scenarios now; disruptive or destructive cases remain in the explicitly scoped S9 environment, not shared services. Record any unavailable prerequisite as BLOCKED with an exact affected task.
 - [x] Publish results as GREEN, FAIL, BLOCKED, NOT RUN or GAP, with separate evidence levels. No global green claim while a required baseline row remains unresolved.
-- [ ] Run the same plan reviewer loop, then record the baseline decision and local commit. A reviewed plan is not evidence that its tests ran.
+- [x] Run the same plan reviewer loop, then record the baseline decision and local commit. A reviewed plan is not evidence that its tests ran.
 
 **Admission:** F2 and all production extraction remain blocked until B0's offline coverage is complete and green, required current-runtime reference scenarios are proven, and every affected task has a named before/after suite. Distribution-only S9 acceptance may remain pending without blocking pure extraction, but blocks a full-support/release claim. Missing native evidence for a changed boundary blocks that boundary even if other tasks are green. No implicit waiver for known failures; any exception requires an explicit reviewed decision naming its scope and rationale.
 
@@ -63,3 +63,13 @@ coverage report and H1 identity correction. Status: Approved. Clarifications
 aligned explicit apply versus update plugin choices and fresh replacement
 identity across H1/spec. This approves the instructions only; B0 evidence is
 still incomplete and production extraction is blocked.
+
+
+2026-10-05 evidence review: the built-in reviewer became unavailable, and Matt
+explicitly approved a read-only Claude review of the relevant source and evidence.
+The same native reviewer approved the hydration fixture fix and, after a separate
+document loop, approved the final report. Current root, compiled and static
+commands are green. **B0 admission remains BLOCKED**, with no exception granted,
+because historical deadline-only triggers are not all causally resolved. The
+last prerequisite fix is local commit `af1c9ecd0`; the evidence report and manifest
+record all four prerequisite commits, commands, controls and review artifacts.
