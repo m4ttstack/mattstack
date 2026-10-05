@@ -23,8 +23,8 @@ import { usageFailure } from "../lib/ui/usage.ts";
 
 type Flags = { src: string; out: string; mattstackDir: string | null; check: boolean; strict: boolean; dryRun: boolean; json: boolean };
 
-function fail(failure: out.FailureInput): never {
-  out.fail(failure);
+function fail(failure: out.FailureInput, ...after: Block[]): never {
+  out.fail(failure, ...after);
   process.exit(1);
 }
 
@@ -121,8 +121,7 @@ export async function skillsExpand(args: string[]): Promise<void> {
       fail({
         title: drift.length > 0 ? "The expanded skills are out of date" : `The expanded skills have ${hits(lint.length)}`,
         ...(drift.length > 0 ? { next: out.cmd(`rt skills expand --src ${flags.src} --out ${flags.out}${flags.mattstackDir ? ` --mattstack-dir ${flags.mattstackDir}` : ""}`) } : {}),
-        details: [...drift.map((d) => `${d.skill}: ${d.causes.join(", ")}`), ...lint].join("\n"),
-      });
+      }, out.verbatim([...drift.map((d) => `${d.skill}: ${d.causes.join(", ")}`), ...lint], "diagnostics"));
     }
     return;
   }
@@ -138,5 +137,5 @@ export async function skillsExpand(args: string[]): Promise<void> {
     ...result.removed.map((name) => ({ op: "-" as const, name, ...(flags.dryRun ? { hint: "would remove" } : {}) })),
   ];
   emit(flags, { ok: lint.length === 0, mode: "expand", skills: result.written, removed: result.removed, drift: [], lint }, rows.length > 0 ? [out.changes(rows)] : []);
-  if (lint.length > 0) fail({ title: `${hits(lint.length)} in the expanded skills`, details: lint.join("\n") });
+  if (lint.length > 0) fail({ title: `${hits(lint.length)} in the expanded skills` }, out.verbatim(lint, "lint"));
 }
