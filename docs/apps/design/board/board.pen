@@ -130958,6 +130958,25 @@
                             },
                             {
                               "type": "frame",
+                              "id": "Tgdqt",
+                              "name": "Copy summary",
+                              "cornerRadius": 6,
+                              "padding": 7,
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "JtUFj",
+                                  "name": "clipboard-copy",
+                                  "width": 14,
+                                  "height": 14,
+                                  "icon": "clipboard-copy",
+                                  "library": "lucide",
+                                  "fill": "$dim"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
                               "id": "w98IE",
                               "name": "Theme",
                               "cornerRadius": 6,
@@ -130969,9 +130988,9 @@
                                   "name": "sun-moon",
                                   "width": 14,
                                   "height": 14,
-                                  "icon": "monitor",
+                                  "icon": "sun-moon",
                                   "library": "lucide",
-                                  "fill": "$accent"
+                                  "fill": "$dim"
                                 }
                               ]
                             }
@@ -131125,7 +131144,7 @@
                             {
                               "type": "frame",
                               "id": "MX4dZ",
-                              "name": "Not Posted",
+                              "name": "Unposted",
                               "height": 28,
                               "fill": "#00000000",
                               "cornerRadius": 14,
@@ -131154,7 +131173,7 @@
                                   "id": "s8sOK",
                                   "name": "Label",
                                   "fill": "$muted",
-                                  "content": "Not Posted",
+                                  "content": "Unposted",
                                   "fontFamily": "$font-sans",
                                   "fontSize": 12,
                                   "fontWeight": "normal"
@@ -131534,171 +131553,14 @@
                               "fontWeight": "700"
                             },
                             {
-                              "type": "frame",
-                              "id": "iGkBX",
-                              "name": "Turn summary",
-                              "gap": 12,
-                              "alignItems": "center",
-                              "children": [
-                                {
-                                  "type": "frame",
-                                  "id": "D9PzI",
-                                  "name": "need you",
-                                  "gap": 5,
-                                  "alignItems": "center",
-                                  "children": [
-                                    {
-                                      "type": "ellipse",
-                                      "id": "b1NOHC",
-                                      "name": "Dot",
-                                      "fill": "$accent",
-                                      "width": 7,
-                                      "height": 7
-                                    },
-                                    {
-                                      "type": "text",
-                                      "id": "Po4aW",
-                                      "name": "N",
-                                      "fill": "$fg",
-                                      "content": "2",
-                                      "fontFamily": "$font-sans",
-                                      "fontSize": 13,
-                                      "fontWeight": "600"
-                                    },
-                                    {
-                                      "type": "text",
-                                      "id": "uG1jB",
-                                      "name": "T",
-                                      "fill": "$accent-text",
-                                      "content": "need you",
-                                      "fontFamily": "$font-sans",
-                                      "fontSize": 13,
-                                      "fontWeight": "normal"
-                                    }
-                                  ]
-                                },
-                                {
-                                  "type": "frame",
-                                  "id": "K7UGH",
-                                  "name": "need a reviewer",
-                                  "gap": 5,
-                                  "alignItems": "center",
-                                  "children": [
-                                    {
-                                      "type": "ellipse",
-                                      "id": "B49irr",
-                                      "name": "Dot",
-                                      "fill": "$dot-warn",
-                                      "width": 7,
-                                      "height": 7
-                                    },
-                                    {
-                                      "type": "text",
-                                      "id": "U2mob",
-                                      "name": "N",
-                                      "fill": "$fg",
-                                      "content": "12",
-                                      "fontFamily": "$font-sans",
-                                      "fontSize": 13,
-                                      "fontWeight": "600"
-                                    },
-                                    {
-                                      "type": "text",
-                                      "id": "L99Fg",
-                                      "name": "T",
-                                      "fill": "$muted",
-                                      "content": "need a reviewer",
-                                      "fontFamily": "$font-sans",
-                                      "fontSize": 13,
-                                      "fontWeight": "normal"
-                                    }
-                                  ]
-                                },
-                                {
-                                  "type": "frame",
-                                  "id": "t1qrk",
-                                  "name": "waiting on author",
-                                  "gap": 5,
-                                  "alignItems": "center",
-                                  "children": [
-                                    {
-                                      "type": "ellipse",
-                                      "id": "nqmKg",
-                                      "name": "Dot",
-                                      "fill": "$dim",
-                                      "width": 7,
-                                      "height": 7
-                                    },
-                                    {
-                                      "type": "text",
-                                      "id": "V6eC5n",
-                                      "name": "N",
-                                      "fill": "$fg",
-                                      "content": "17",
-                                      "fontFamily": "$font-sans",
-                                      "fontSize": 13,
-                                      "fontWeight": "600"
-                                    },
-                                    {
-                                      "type": "text",
-                                      "id": "IWZlc",
-                                      "name": "T",
-                                      "fill": "$muted",
-                                      "content": "waiting on author",
-                                      "fontFamily": "$font-sans",
-                                      "fontSize": 13,
-                                      "fontWeight": "normal"
-                                    }
-                                  ]
-                                },
-                                {
-                                  "type": "frame",
-                                  "id": "JGMrF",
-                                  "name": "ready to merge",
-                                  "gap": 5,
-                                  "alignItems": "center",
-                                  "children": [
-                                    {
-                                      "type": "ellipse",
-                                      "id": "KzTU1",
-                                      "name": "Dot",
-                                      "fill": "$dot-ok",
-                                      "width": 7,
-                                      "height": 7
-                                    },
-                                    {
-                                      "type": "text",
-                                      "id": "ebgzw",
-                                      "name": "N",
-                                      "fill": "$fg",
-                                      "content": "5",
-                                      "fontFamily": "$font-sans",
-                                      "fontSize": 13,
-                                      "fontWeight": "600"
-                                    },
-                                    {
-                                      "type": "text",
-                                      "id": "F7lf9",
-                                      "name": "T",
-                                      "fill": "$muted",
-                                      "content": "ready to merge",
-                                      "fontFamily": "$font-sans",
-                                      "fontSize": 13,
-                                      "fontWeight": "normal"
-                                    }
-                                  ]
-                                },
-                                {
-                                  "type": "text",
-                                  "id": "AVSVE",
-                                  "name": "Synced",
-                                  "fill": "$dim",
-                                  "content": "· synced 14:43",
-                                  "fontFamily": "$font-sans",
-                                  "fontSize": 12,
-                                  "fontWeight": "normal"
-                                }
-                              ]
+                              "type": "text",
+                              "id": "RfxDX",
+                              "name": "Sub",
+                              "fill": "$muted",
+                              "content": "21 awaiting review · pick one, it opens in gitlab",
+                              "fontFamily": "$font-sans",
+                              "fontSize": 13,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -131730,6 +131592,25 @@
                             },
                             {
                               "type": "frame",
+                              "id": "ulD4G",
+                              "name": "Copy summary",
+                              "cornerRadius": 6,
+                              "padding": 7,
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "JFbnS",
+                                  "name": "clipboard-copy",
+                                  "width": 14,
+                                  "height": 14,
+                                  "icon": "clipboard-copy",
+                                  "library": "lucide",
+                                  "fill": "$dim"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
                               "id": "IccOR",
                               "name": "Theme",
                               "cornerRadius": 6,
@@ -131741,9 +131622,9 @@
                                   "name": "sun-moon",
                                   "width": 14,
                                   "height": 14,
-                                  "icon": "monitor",
+                                  "icon": "sun-moon",
                                   "library": "lucide",
-                                  "fill": "$accent"
+                                  "fill": "$dim"
                                 }
                               ]
                             }
@@ -131996,7 +131877,7 @@
                             {
                               "type": "frame",
                               "id": "m5Ol6k",
-                              "name": "Not Posted",
+                              "name": "Unposted",
                               "cornerRadius": 12,
                               "stroke": "$border",
                               "strokeWidth": 1,
@@ -132025,7 +131906,7 @@
                                   "id": "Qadtr",
                                   "name": "L",
                                   "fill": "$accent-text",
-                                  "content": "Not Posted",
+                                  "content": "Unposted",
                                   "fontFamily": "$font-sans",
                                   "fontSize": 11,
                                   "fontWeight": "500"
@@ -132248,7 +132129,7 @@
                     {
                       "type": "frame",
                       "id": "QLV94",
-                      "name": "Not Posted",
+                      "name": "Unposted",
                       "width": "fill_container",
                       "fill": "#00000000",
                       "cornerRadius": 6,
@@ -132285,7 +132166,7 @@
                               "id": "w297x",
                               "name": "L",
                               "fill": "$muted",
-                              "content": "Not Posted",
+                              "content": "Unposted",
                               "fontFamily": "$font-sans",
                               "fontSize": 12,
                               "fontWeight": "500"
@@ -132626,6 +132507,25 @@
                             },
                             {
                               "type": "frame",
+                              "id": "bu8fm",
+                              "name": "Copy summary",
+                              "cornerRadius": 6,
+                              "padding": 7,
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "FvqNs",
+                                  "name": "clipboard-copy",
+                                  "width": 14,
+                                  "height": 14,
+                                  "icon": "clipboard-copy",
+                                  "library": "lucide",
+                                  "fill": "$dim"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
                               "id": "FxB86",
                               "name": "Theme",
                               "cornerRadius": 6,
@@ -132637,9 +132537,9 @@
                                   "name": "sun-moon",
                                   "width": 14,
                                   "height": 14,
-                                  "icon": "monitor",
+                                  "icon": "sun-moon",
                                   "library": "lucide",
-                                  "fill": "$accent"
+                                  "fill": "$dim"
                                 }
                               ]
                             }
@@ -134334,6 +134234,25 @@
                                 },
                                 {
                                   "type": "frame",
+                                  "id": "v2k6hL",
+                                  "name": "Copy summary",
+                                  "cornerRadius": 6,
+                                  "padding": 7,
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "g2bInR",
+                                      "name": "clipboard-copy",
+                                      "width": 14,
+                                      "height": 14,
+                                      "icon": "clipboard-copy",
+                                      "library": "lucide",
+                                      "fill": "$dim"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
                                   "id": "br3zA",
                                   "name": "Theme",
                                   "cornerRadius": 6,
@@ -134345,9 +134264,9 @@
                                       "name": "sun-moon",
                                       "width": 14,
                                       "height": 14,
-                                      "icon": "monitor",
+                                      "icon": "sun-moon",
                                       "library": "lucide",
-                                      "fill": "$accent"
+                                      "fill": "$dim"
                                     }
                                   ]
                                 }
@@ -134501,7 +134420,7 @@
                                 {
                                   "type": "frame",
                                   "id": "mTp5C",
-                                  "name": "Not Posted",
+                                  "name": "Unposted",
                                   "height": 28,
                                   "fill": "#00000000",
                                   "cornerRadius": 14,
@@ -134530,7 +134449,7 @@
                                       "id": "n7u9zI",
                                       "name": "Label",
                                       "fill": "$muted",
-                                      "content": "Not Posted",
+                                      "content": "Unposted",
                                       "fontFamily": "$font-sans",
                                       "fontSize": 12,
                                       "fontWeight": "normal"
@@ -134910,171 +134829,14 @@
                                   "fontWeight": "700"
                                 },
                                 {
-                                  "type": "frame",
-                                  "id": "f9Z1N",
-                                  "name": "Turn summary",
-                                  "gap": 12,
-                                  "alignItems": "center",
-                                  "children": [
-                                    {
-                                      "type": "frame",
-                                      "id": "V93EjS",
-                                      "name": "need you",
-                                      "gap": 5,
-                                      "alignItems": "center",
-                                      "children": [
-                                        {
-                                          "type": "ellipse",
-                                          "id": "V0n4c",
-                                          "name": "Dot",
-                                          "fill": "$accent",
-                                          "width": 7,
-                                          "height": 7
-                                        },
-                                        {
-                                          "type": "text",
-                                          "id": "sZF62",
-                                          "name": "N",
-                                          "fill": "$fg",
-                                          "content": "2",
-                                          "fontFamily": "$font-sans",
-                                          "fontSize": 13,
-                                          "fontWeight": "600"
-                                        },
-                                        {
-                                          "type": "text",
-                                          "id": "EeLgR",
-                                          "name": "T",
-                                          "fill": "$accent-text",
-                                          "content": "need you",
-                                          "fontFamily": "$font-sans",
-                                          "fontSize": 13,
-                                          "fontWeight": "normal"
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "type": "frame",
-                                      "id": "n5ZFu9",
-                                      "name": "need a reviewer",
-                                      "gap": 5,
-                                      "alignItems": "center",
-                                      "children": [
-                                        {
-                                          "type": "ellipse",
-                                          "id": "xzoqE",
-                                          "name": "Dot",
-                                          "fill": "$dot-warn",
-                                          "width": 7,
-                                          "height": 7
-                                        },
-                                        {
-                                          "type": "text",
-                                          "id": "F6Y25v",
-                                          "name": "N",
-                                          "fill": "$fg",
-                                          "content": "12",
-                                          "fontFamily": "$font-sans",
-                                          "fontSize": 13,
-                                          "fontWeight": "600"
-                                        },
-                                        {
-                                          "type": "text",
-                                          "id": "E0eb9",
-                                          "name": "T",
-                                          "fill": "$muted",
-                                          "content": "need a reviewer",
-                                          "fontFamily": "$font-sans",
-                                          "fontSize": 13,
-                                          "fontWeight": "normal"
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "type": "frame",
-                                      "id": "C38eyF",
-                                      "name": "waiting on author",
-                                      "gap": 5,
-                                      "alignItems": "center",
-                                      "children": [
-                                        {
-                                          "type": "ellipse",
-                                          "id": "rypAj",
-                                          "name": "Dot",
-                                          "fill": "$dim",
-                                          "width": 7,
-                                          "height": 7
-                                        },
-                                        {
-                                          "type": "text",
-                                          "id": "eApYh",
-                                          "name": "N",
-                                          "fill": "$fg",
-                                          "content": "17",
-                                          "fontFamily": "$font-sans",
-                                          "fontSize": 13,
-                                          "fontWeight": "600"
-                                        },
-                                        {
-                                          "type": "text",
-                                          "id": "OxcVc",
-                                          "name": "T",
-                                          "fill": "$muted",
-                                          "content": "waiting on author",
-                                          "fontFamily": "$font-sans",
-                                          "fontSize": 13,
-                                          "fontWeight": "normal"
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "type": "frame",
-                                      "id": "Bpyvj",
-                                      "name": "ready to merge",
-                                      "gap": 5,
-                                      "alignItems": "center",
-                                      "children": [
-                                        {
-                                          "type": "ellipse",
-                                          "id": "EG6hV",
-                                          "name": "Dot",
-                                          "fill": "$dot-ok",
-                                          "width": 7,
-                                          "height": 7
-                                        },
-                                        {
-                                          "type": "text",
-                                          "id": "pZNl8",
-                                          "name": "N",
-                                          "fill": "$fg",
-                                          "content": "5",
-                                          "fontFamily": "$font-sans",
-                                          "fontSize": 13,
-                                          "fontWeight": "600"
-                                        },
-                                        {
-                                          "type": "text",
-                                          "id": "N3wXy",
-                                          "name": "T",
-                                          "fill": "$muted",
-                                          "content": "ready to merge",
-                                          "fontFamily": "$font-sans",
-                                          "fontSize": 13,
-                                          "fontWeight": "normal"
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "type": "text",
-                                      "id": "KxPe9",
-                                      "name": "Synced",
-                                      "fill": "$dim",
-                                      "content": "· synced 14:43",
-                                      "fontFamily": "$font-sans",
-                                      "fontSize": 12,
-                                      "fontWeight": "normal"
-                                    }
-                                  ]
+                                  "type": "text",
+                                  "id": "a9SQfZ",
+                                  "name": "Sub",
+                                  "fill": "$muted",
+                                  "content": "21 awaiting review · pick one, it opens in gitlab",
+                                  "fontFamily": "$font-sans",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             },
@@ -135106,6 +134868,25 @@
                                 },
                                 {
                                   "type": "frame",
+                                  "id": "Op6yv",
+                                  "name": "Copy summary",
+                                  "cornerRadius": 6,
+                                  "padding": 7,
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "e1xP5T",
+                                      "name": "clipboard-copy",
+                                      "width": 14,
+                                      "height": 14,
+                                      "icon": "clipboard-copy",
+                                      "library": "lucide",
+                                      "fill": "$dim"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
                                   "id": "XvdFn",
                                   "name": "Theme",
                                   "cornerRadius": 6,
@@ -135117,9 +134898,9 @@
                                       "name": "sun-moon",
                                       "width": 14,
                                       "height": 14,
-                                      "icon": "monitor",
+                                      "icon": "sun-moon",
                                       "library": "lucide",
-                                      "fill": "$accent"
+                                      "fill": "$dim"
                                     }
                                   ]
                                 }
@@ -135372,7 +135153,7 @@
                                 {
                                   "type": "frame",
                                   "id": "ZxSIZ",
-                                  "name": "Not Posted",
+                                  "name": "Unposted",
                                   "cornerRadius": 12,
                                   "stroke": "$border",
                                   "strokeWidth": 1,
@@ -135401,7 +135182,7 @@
                                       "id": "q2s6SV",
                                       "name": "L",
                                       "fill": "$accent-text",
-                                      "content": "Not Posted",
+                                      "content": "Unposted",
                                       "fontFamily": "$font-sans",
                                       "fontSize": 11,
                                       "fontWeight": "500"
@@ -135624,7 +135405,7 @@
                         {
                           "type": "frame",
                           "id": "xRzZk",
-                          "name": "Not Posted",
+                          "name": "Unposted",
                           "width": "fill_container",
                           "fill": "#00000000",
                           "cornerRadius": 6,
@@ -135661,7 +135442,7 @@
                                   "id": "RX3o3",
                                   "name": "L",
                                   "fill": "$muted",
-                                  "content": "Not Posted",
+                                  "content": "Unposted",
                                   "fontFamily": "$font-sans",
                                   "fontSize": 12,
                                   "fontWeight": "500"
@@ -136002,6 +135783,25 @@
                                 },
                                 {
                                   "type": "frame",
+                                  "id": "i3MMdb",
+                                  "name": "Copy summary",
+                                  "cornerRadius": 6,
+                                  "padding": 7,
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "M1q5B",
+                                      "name": "clipboard-copy",
+                                      "width": 14,
+                                      "height": 14,
+                                      "icon": "clipboard-copy",
+                                      "library": "lucide",
+                                      "fill": "$dim"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
                                   "id": "kSo5z",
                                   "name": "Theme",
                                   "cornerRadius": 6,
@@ -136013,9 +135813,9 @@
                                       "name": "sun-moon",
                                       "width": 14,
                                       "height": 14,
-                                      "icon": "monitor",
+                                      "icon": "sun-moon",
                                       "library": "lucide",
-                                      "fill": "$accent"
+                                      "fill": "$dim"
                                     }
                                   ]
                                 }

@@ -10,6 +10,14 @@ import {
 import { Modal } from '@mattstack/tui-kit';
 import type { TabConfig } from '../../config.ts';
 import { sectionStatus } from '../../sections.ts';
+import {
+  AUTHOR_SIGNALS,
+  resolveTurnConfig,
+  REVIEWER_SIGNALS,
+  toggleTurnSignal,
+  type AuthorSignal,
+  type ReviewerSignal,
+} from '../../turn.ts';
 import { postAction } from '../api.ts';
 import {
   addToList,
@@ -1004,23 +1012,82 @@ const ROW_HINTS: Record<string, string> = {
     'A new section\'s MRs land once rt has backfilled it; the tab shows "syncing" until then. A section must match a CODEOWNERS header exactly; the field suggests the headers rt has seen.',
 };
 
+const AUTHOR_LABEL: Record<AuthorSignal, string> = {
+  threads: 'unanswered comments',
+  changesRequested: 'changes requested',
+  conflicts: 'merge conflicts',
+  rebase: 'needs a rebase',
+  ciFailing: 'CI failing',
+  readyToMerge: 'approved, ready to merge',
+};
+const REVIEWER_LABEL: Record<ReviewerSignal, string> = {
+  assigned: "assigned and haven't finished",
+  approvalReset: 'a push reset my approval',
+  repliedThreads: 'the author answered my comment',
+};
+
+function TurnControl({
+  value,
+  busy,
+  onSave,
+}: {
+  value: unknown;
+  busy: boolean;
+  onSave: (next: Record<string, unknown>) => void;
+}) {
+  const cfg = resolveTurnConfig(value);
+  const group = <T extends string>(
+    side: 'author' | 'reviewer',
+    title: string,
+    all: readonly T[],
+    labels: Record<T, string>
+  ) => (
+    <fieldset className="tui-config-turn" disabled={busy}>
+      <legend>{title}</legend>
+      {all.map(s => (
+        <label key={s}>
+          <input
+            type="checkbox"
+            checked={(cfg[side] as readonly string[]).includes(s)}
+            onChange={() => onSave(toggleTurnSignal(value, side, all, s))}
+          />{' '}
+          {labels[s]}
+        </label>
+      ))}
+    </fieldset>
+  );
+  return (
+    <div className="tui-config-turns">
+      {group('author', "Author's turn when", AUTHOR_SIGNALS, AUTHOR_LABEL)}
+      {group(
+        'reviewer',
+        'My turn as a reviewer when',
+        REVIEWER_SIGNALS,
+        REVIEWER_LABEL
+      )}
+    </div>
+  );
+}
+
 const OPEN_ROWS_KEY = 'board.config.openRows';
 
 /** Which composite rows are expanded, remembered per browser so the modal
     reopens the way it was left. Storage is a convenience only: any failure
     reads as "all collapsed". */
-function useOpenRows(): [Set<string>, (key: string) => void] {
+function useOpenRows(focusKey?: string): [Set<string>, (key: string) => void] {
   const [open, setOpen] = useState<Set<string>>(() => {
     try {
       const raw = localStorage.getItem(OPEN_ROWS_KEY);
       const parsed: unknown = raw ? JSON.parse(raw) : [];
-      return new Set(
+      const keys = new Set(
         Array.isArray(parsed)
           ? parsed.filter((k): k is string => typeof k === 'string')
           : []
       );
+      if (focusKey) keys.add(focusKey);
+      return keys;
     } catch {
-      return new Set();
+      return new Set(focusKey ? [focusKey] : []);
     }
   });
   const toggle = (key: string) => {
@@ -1050,7 +1117,7 @@ function SettingRow({
   open,
   onToggle,
   onOpenRoster,
-  onTabsSaved,
+  onSaved,
 }: {
   def: ConfigDef;
   store: SettingsScopeState;
@@ -1062,7 +1129,7 @@ function SettingRow({
   open: boolean;
   onToggle: () => void;
   onOpenRoster: () => void;
-  onTabsSaved: () => void;
+  onSaved: () => void;
 }) {
   const kind = rowKind(def);
   const row = useRowSave(store, def);
@@ -1077,7 +1144,19 @@ function SettingRow({
 
   let control;
   let keyname: string = def.key;
-  if (kind === 'tabs' && !malformed) {
+  if (kind === 'turn' && !malformed) {
+    control = (
+      <TurnControl
+        value={value}
+        busy={row.busy}
+        onSave={next =>
+          void row.save(next).then(ok => {
+            if (ok) onSaved();
+          })
+        }
+      />
+    );
+  } else if (kind === 'tabs' && !malformed) {
     const channel = getLeaf(
       store.defs.find(d => d.key === 'board.slack')?.effective.value,
       'channel'
@@ -1091,7 +1170,7 @@ function SettingRow({
         knownSections={knownSections}
         onSaved={() => {
           store.refresh();
-          onTabsSaved();
+          onSaved();
         }}
       />
     );
@@ -1251,22 +1330,37 @@ function ConfigModal({
   knownSections,
   onClose,
   onOpenRoster,
-  onTabsSaved,
+  onSaved,
+  focusKey,
 }: {
+  /** A row to open and scroll to when the modal appears. */
+  focusKey?: string;
   /** Effective tabs from /data.json: the editor's base whichever side owns them. */
   tabs: TabConfig[];
   /** Section headers rt saw in the projects' CODEOWNERS; null when rt did not report them. */
   knownSections: string[] | null;
   onClose: () => void;
   onOpenRoster: () => void;
-  /** Reload board data so the new tab strip lands without waiting for a poll. */
-  onTabsSaved: () => void;
+  /** Reload board data so a saved tab strip or turn config lands without waiting for a poll. */
+  onSaved: () => void;
 }) {
   const store = useSettingsScope('board.');
   const rosterKey = useSettingKey('mattstack.roster');
   const [query, setQuery] = useState('');
-  const [openRows, toggleRow] = useOpenRows();
+  const [openRows, toggleRow] = useOpenRows(focusKey);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const focused = useRef(false);
   const groups = groupByScope(filterDefs(store.defs, query));
+
+  useEffect(() => {
+    if (!focusKey || focused.current || store.loading) return;
+    const row = bodyRef.current?.querySelector(
+      `[data-key="${CSS.escape(focusKey)}"]`
+    );
+    if (!row) return;
+    focused.current = true;
+    row.scrollIntoView({ block: 'center' });
+  }, [focusKey, store.loading, store.defs]);
 
   return (
     <Modal
@@ -1292,7 +1386,7 @@ function ConfigModal({
       />
       {store.loading && <p className="tui-modal-sub">loading…</p>}
       {store.error && <p className="tui-config-error">{store.error}</p>}
-      <div className="tui-config-body">
+      <div className="tui-config-body" ref={bodyRef}>
         {groups.map(g => (
           <section key={g.scope}>
             <h3 className="tui-config-group">{g.scope}</h3>
@@ -1308,7 +1402,7 @@ function ConfigModal({
                   open={openRows.has(def.key)}
                   onToggle={() => toggleRow(def.key)}
                   onOpenRoster={onOpenRoster}
-                  onTabsSaved={onTabsSaved}
+                  onSaved={onSaved}
                 />
               ))}
             </ul>

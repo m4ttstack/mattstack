@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
+import { ALL_TURN, type TurnConfig } from '../../../turn.ts';
 import type { BoardMRWithReview } from '../../types.ts';
 import { needOf } from '../needs-me.ts';
 
@@ -194,5 +195,31 @@ describe("needOf: someone else's MR", () => {
         })
       )
     ).toBeNull();
+  });
+});
+
+describe('needOf: driven by board.turn', () => {
+  test('unassigned reviewer whose thread the author answered: re-review', () => {
+    expect(
+      need(mr({ myThreads: { awaiting: 0, replied: 1, resolved: 2 } }))
+    ).toBe('re-review');
+  });
+  test('unassigned reviewer with only resolved threads: nothing', () => {
+    expect(
+      need(mr({ myThreads: { awaiting: 0, replied: 0, resolved: 2 } }))
+    ).toBeNull();
+  });
+  test('ciFailing switched off: my red-CI MR is not a fix', () => {
+    const cfg: TurnConfig = {
+      ...ALL_TURN,
+      author: ALL_TURN.author.filter(s => s !== 'ciFailing'),
+    };
+    const m = own({ blockers: { any: true, pipelineFailing: true } });
+    expect(needOf(m, ME, NOW, NONE)).toBe('fix');
+    expect(needOf(m, ME, NOW, NONE, cfg)).toBeNull();
+  });
+  test('assigned switched off: an unstarted review is not mine', () => {
+    const cfg: TurnConfig = { ...ALL_TURN, reviewer: [] };
+    expect(needOf(reviewing('UNREVIEWED'), ME, NOW, NONE, cfg)).toBeNull();
   });
 });

@@ -491,6 +491,13 @@ export const REGISTRY: readonly SettingDef[] = [
     merge: "replace",
     description: "Board tabs ({id, label, source, slackChannel?, reviewSkill?, pack?}), editable from the board's settings modal; pack picks which team pack's bindings a launch from that tab uses. source.kind 'authors' is the classic roster board; 'codeowners' lists any author's open MRs carrying a CODE_OWNER rule for the section, until merge/close. Absent = one implicit authors tab (fallback lives in the board reader, never here).",
   },
+  {
+    key: "board.turn",
+    type: "object",
+    scopes: ["team", "user"],
+    merge: "replace",
+    description: "What makes an open MR someone's turn. author: blockers that make it the author's move (the board's 'Waiting on author' Show item, Needs me respond/fix/merge). reviewer: what puts it in a reviewer's Needs me queue. An absent list means every signal (fallback lives in the board reader).",
+  },
 
   // --- board (user) ----------------------------------------------------------
   {

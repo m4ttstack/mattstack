@@ -1,7 +1,7 @@
-/** DOM-level test for the empty-queue copy in Board.tsx: a real happy-dom
-    document and a real Board render. The slack-filter-on empty state has to
-    name the filter (not read as "this queue has no work"), because the
-    posted-in-slack pick persists across tabs — including Needs me. */
+/** DOM-level test for the board's toolbar, Also show line, turn summary and
+    empty-queue copy: a real happy-dom document and a real Board render. The
+    Show picks persist across tabs, including Needs me, so an empty view they
+    caused has to say so rather than read as "this queue has no work". */
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import {
@@ -33,10 +33,15 @@ class FakeEventSource {
 
 const BOARD_DATA = {
   title: 'MRs ready for review',
-  defaultMember: 'matt',
-  members: [{ username: 'matt', name: 'Matthew Goodwin', count: 0 }],
+  defaultMember: 'robin-example',
+  members: [{ username: 'robin-example', name: 'Robin Example', count: 0 }],
   allMembers: [
-    { username: 'matt', name: 'Matthew Goodwin', hidden: false, count: 0 },
+    {
+      username: 'robin-example',
+      name: 'Robin Example',
+      hidden: false,
+      count: 0,
+    },
   ],
   mrs: [],
   fetchedAt: 1755600000000,
@@ -68,13 +73,29 @@ let Board: typeof import('../Board.tsx').Board;
 
 const realFetch = globalThis.fetch;
 let servedData: Record<string, unknown> = BOARD_DATA;
+let posts: string[] = [];
+let dataLoads = 0;
+
+const TURN_DEF = {
+  key: 'board.turn',
+  type: 'object',
+  scopes: ['user'],
+  merge: 'replace',
+  secret: false,
+  teamLocked: false,
+  repoScoped: false,
+  writable: true,
+  description: 'whose turn',
+  hasDefault: false,
+  effective: { scope: null, value: undefined },
+};
 
 function needsMeMr(iid: number) {
   return {
     iid,
     title: `mr ${iid}`,
     webUrl: `https://gitlab.example.com/g/p/-/merge_requests/${iid}`,
-    author: { username: 'matt', name: 'Matthew Goodwin' },
+    author: { username: 'robin-example', name: 'Robin Example' },
     sourceBranch: `b${iid}`,
     targetBranch: 'main',
     updatedAt: '2026-08-19T00:00:00Z',
@@ -97,10 +118,29 @@ function needsMeMr(iid: number) {
 
 beforeAll(async () => {
   setSystemTime(NOW);
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
+    if (init?.method === 'POST') posts.push(url);
     if (url.startsWith('/data.json')) {
+      dataLoads += 1;
       return new Response(JSON.stringify(servedData), { status: 200 });
+    }
+    if (url.startsWith('/api/settings/defs')) {
+      return new Response(JSON.stringify({ defs: [TURN_DEF] }), {
+        status: 200,
+      });
+    }
+    if (url.startsWith('/api/settings/explain/')) {
+      return new Response(JSON.stringify({ def: null, rows: [] }), {
+        status: 200,
+      });
+    }
+    if (url === '/api/settings/set') {
+      const { value } = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({ effective: { scope: 'user', value } }),
+        { status: 200 }
+      );
     }
     return new Response('{}', { status: 200 });
   }) as typeof fetch;
@@ -112,6 +152,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   servedData = BOARD_DATA;
+  posts = [];
+  dataLoads = 0;
   localStorage.clear();
   history.replaceState(null, '', '/');
 });
@@ -148,31 +190,64 @@ function emptyCopy(container: HTMLElement): string {
   return container.querySelector('.tui-empty')?.textContent?.trim() ?? '';
 }
 
-test('an empty Needs me queue without the slack filter says nothing is waiting', async () => {
+function withRows(mrs: unknown[]) {
+  return {
+    ...BOARD_DATA,
+    members: [
+      { username: 'robin-example', name: 'Robin Example', count: mrs.length },
+    ],
+    allMembers: [
+      {
+        username: 'robin-example',
+        name: 'Robin Example',
+        hidden: false,
+        count: mrs.length,
+      },
+    ],
+    mrs,
+  };
+}
+
+function alsoShow(container: HTMLElement): string[] {
+  return [...container.querySelectorAll('.tui-also-show-pill')].map(
+    el => el.textContent?.replace(/\s+/g, ' ').trim() ?? ''
+  );
+}
+
+function showButton(container: HTMLElement): HTMLButtonElement {
+  const btn = [
+    ...container.querySelectorAll<HTMLButtonElement>('.tui-menu-button'),
+  ].find(b => b.textContent?.includes('Showing'));
+  if (!btn) throw new Error('Showing button not found');
+  return btn;
+}
+
+async function mount(fn: (container: HTMLElement) => Promise<void>) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = await renderBoard(container);
   try {
+    await fn(container);
+  } finally {
+    await React.act(async () => root.unmount());
+    container.remove();
+  }
+}
+
+test('an empty Needs me queue with everything shown says nothing is waiting', async () => {
+  await mount(async container => {
     await openNeedsMe(container);
     expect(emptyCopy(container)).toBe('nothing waiting on review ✓');
-  } finally {
-    await React.act(async () => root.unmount());
-    container.remove();
-  }
+  });
 });
 
-test('an empty Needs me queue with the slack filter on names the filter', async () => {
+test('an empty queue the picks did not empty keeps the nothing-waiting copy', async () => {
   history.replaceState(null, '', '?slack=posted');
-  const container = document.createElement('div');
-  document.body.appendChild(container);
-  const root = await renderBoard(container);
-  try {
+  await mount(async container => {
     await openNeedsMe(container);
-    expect(emptyCopy(container)).toBe('Nothing found in slack');
-  } finally {
-    await React.act(async () => root.unmount());
-    container.remove();
-  }
+    expect(emptyCopy(container)).toBe('nothing waiting on review ✓');
+    expect(alsoShow(container)).toEqual([]);
+  });
 });
 
 test('a red freshness banner suppresses the empty-queue check mark', async () => {
@@ -188,100 +263,194 @@ test('a red freshness banner suppresses the empty-queue check mark', async () =>
       projects: 1,
     },
   };
-  const container = document.createElement('div');
-  document.body.appendChild(container);
-  const root = await renderBoard(container);
-  try {
+  await mount(async container => {
     const el = container.querySelector<HTMLElement>(
       '.tui-banner[role="status"]'
     );
     expect(el?.dataset.intent).toBe('bad');
     expect(container.querySelector('.tui-empty')).toBeNull();
-  } finally {
-    await React.act(async () => root.unmount());
-    container.remove();
-  }
+  });
 });
 
-test('a slack-filtered Needs me queue says how many items it hid', async () => {
-  servedData = {
-    ...BOARD_DATA,
-    members: [{ username: 'matt', name: 'Matthew Goodwin', count: 2 }],
-    allMembers: [
-      { username: 'matt', name: 'Matthew Goodwin', hidden: false, count: 2 },
-    ],
-    mrs: [needsMeMr(1), needsMeMr(2)],
-  };
+test('a queue the Show picks emptied says so and offers the rows back', async () => {
+  servedData = withRows([needsMeMr(1), needsMeMr(2)]);
   history.replaceState(null, '', '?slack=posted');
-  const container = document.createElement('div');
-  document.body.appendChild(container);
-  const root = await renderBoard(container);
-  try {
+  await mount(async container => {
     await openNeedsMe(container);
-    expect(emptyCopy(container)).toBe(
-      'Nothing found in slack · 2 items hidden'
-    );
-  } finally {
-    await React.act(async () => root.unmount());
-    container.remove();
-  }
+    expect(emptyCopy(container)).toBe('nothing to show with these picks');
+    expect(alsoShow(container)).toEqual(['+ Not Posted 2']);
+  });
 });
 
-test('a list the drafts chip trimmed says how many drafts it hid', async () => {
-  servedData = {
-    ...BOARD_DATA,
-    members: [{ username: 'matt', name: 'Matthew Goodwin', count: 3 }],
-    allMembers: [
-      { username: 'matt', name: 'Matthew Goodwin', hidden: false, count: 3 },
-    ],
-    mrs: [
-      needsMeMr(1),
-      { ...needsMeMr(2), isDraft: true },
-      { ...needsMeMr(3), isDraft: true },
-    ],
-  };
+test('unchecked drafts land on the Also show line, with no hidden-items note or footer', async () => {
+  servedData = withRows([
+    needsMeMr(1),
+    { ...needsMeMr(2), isDraft: true },
+    { ...needsMeMr(3), isDraft: true },
+  ]);
   history.replaceState(null, '', '?drafts=hide');
-  const container = document.createElement('div');
-  document.body.appendChild(container);
-  const root = await renderBoard(container);
-  try {
+  await mount(async container => {
     expect(container.querySelector('.tui-empty')).toBeNull();
-    expect(
-      container.querySelector('.tui-hidden-note')?.textContent?.trim()
-    ).toBe('2 drafts hidden');
-  } finally {
-    await React.act(async () => root.unmount());
-    container.remove();
-  }
+    expect(alsoShow(container)).toEqual(['+ My drafts 2']);
+    expect(container.querySelector('.tui-hidden-note')).toBeNull();
+    expect(container.querySelector('footer')).toBeNull();
+    expect(showButton(container).textContent).toContain('1 of 3');
+  });
 });
 
-test('a list both chips trimmed names each count on one line', async () => {
-  servedData = {
-    ...BOARD_DATA,
-    members: [{ username: 'matt', name: 'Matthew Goodwin', count: 3 }],
-    allMembers: [
-      { username: 'matt', name: 'Matthew Goodwin', hidden: false, count: 3 },
-    ],
-    mrs: [
-      { ...needsMeMr(1), slack: { posted: true, reactions: [] } },
-      needsMeMr(2),
-      {
-        ...needsMeMr(3),
-        isDraft: true,
-        slack: { posted: true, reactions: [] },
-      },
-    ],
-  };
+test('show everything checks every item again', async () => {
+  servedData = withRows([
+    { ...needsMeMr(1), slack: { posted: true, reactions: [] } },
+    needsMeMr(2),
+    { ...needsMeMr(3), isDraft: true },
+  ]);
   history.replaceState(null, '', '?slack=posted&drafts=hide');
-  const container = document.createElement('div');
-  document.body.appendChild(container);
-  const root = await renderBoard(container);
-  try {
+  await mount(async container => {
+    expect(alsoShow(container)).toEqual(['+ Not Posted 2', '+ My drafts 1']);
+    const everything = [
+      ...container.querySelectorAll<HTMLButtonElement>('.tui-also-show button'),
+    ].find(b => b.textContent === 'show everything')!;
+    await React.act(async () => everything.click());
+    expect(container.querySelector('.tui-also-show')).toBeNull();
+    expect(showButton(container).textContent).toContain('3 of 3');
+  });
+});
+
+test('the turn summary replaces the subtitle and links need you to Needs me', async () => {
+  servedData = withRows([needsMeMr(1)]);
+  await mount(async container => {
+    const line = container.querySelector('.tui-turn-summary');
+    expect(line?.textContent?.replace(/\s+/g, ' ')).toContain('1 need you');
+    expect(container.textContent).not.toContain('awaiting review');
+    expect(line?.querySelector('.tui-turn-synced')?.textContent).toMatch(
+      /^synced \d{1,2}:\d{2}$/
+    );
+    expect(line?.textContent).not.toContain('·');
+    const link = [...(line?.querySelectorAll('button') ?? [])].find(
+      b => b.textContent === 'need you'
+    )!;
+    await React.act(async () => link.click());
     expect(
-      container.querySelector('.tui-hidden-note')?.textContent?.trim()
-    ).toBe('1 item hidden · 1 draft hidden');
-  } finally {
-    await React.act(async () => root.unmount());
-    container.remove();
-  }
+      container.querySelector('[role="tab"][aria-selected="true"]')?.textContent
+    ).toContain('Needs me');
+  });
+});
+
+test('the Show menu lists its items checked and taking Not Posted off re-checks Slack', async () => {
+  servedData = withRows([
+    { ...needsMeMr(1), slackChannel: 'team-reviews' },
+    { ...needsMeMr(2), slackChannel: 'team-reviews' },
+  ]);
+  await mount(async container => {
+    await React.act(async () => showButton(container).click());
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain(
+      'Posted to #team-reviews'
+    );
+    const items = () => [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitemcheckbox"]'
+      ),
+    ];
+    expect(items().map(i => i.getAttribute('aria-checked'))).toEqual([
+      'true',
+      'true',
+      'true',
+      'true',
+    ]);
+    const notPosted = () =>
+      items().find(i => i.textContent?.includes('Not Posted'))!;
+    await React.act(async () => notPosted().click());
+    await React.act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    expect(notPosted().getAttribute('aria-checked')).toBe('false');
+    expect(posts).toEqual(['/slack/refresh']);
+    await React.act(async () => notPosted().click());
+    expect(notPosted().getAttribute('aria-checked')).toBe('true');
+    expect(posts).toEqual(['/slack/refresh']);
+  });
+});
+
+test('with no channel known the Slack items name the team channel', async () => {
+  servedData = withRows([needsMeMr(1)]);
+  await mount(async container => {
+    await React.act(async () => showButton(container).click());
+    const menu = document.querySelector('[role="menu"]')?.textContent ?? '';
+    expect(menu).toContain('Posted to team channel');
+    expect(menu).toContain('not posted to team channel yet');
+  });
+});
+
+test('the toolbar drops the copy-summary button and the old filter chips', async () => {
+  servedData = withRows([needsMeMr(1)]);
+  await mount(async container => {
+    const header = container.querySelector('.tui-controls-header')!;
+    expect(header.querySelector('[title="copy summary for Slack"]')).toBeNull();
+    expect(header.querySelector('.tui-slack-filter')).toBeNull();
+    expect(
+      [...header.querySelectorAll('.tui-menu-button-label')].map(
+        l => l.textContent
+      )
+    ).toEqual(['Group', 'Sort', 'Showing']);
+  });
+});
+
+function rowCount(container: HTMLElement): number {
+  return container.querySelectorAll('[data-mr-iid]').length;
+}
+
+test('a stored Not Posted pick hides nothing on a board without Slack', async () => {
+  servedData = {
+    ...withRows([needsMeMr(1), needsMeMr(2)]),
+    slackEnabled: false,
+  };
+  localStorage.setItem(
+    'mrs-view-state',
+    JSON.stringify({ off: ['notPosted'] })
+  );
+  await mount(async container => {
+    expect(rowCount(container)).toBe(2);
+    expect(container.querySelector('.tui-also-show')).toBeNull();
+  });
+});
+
+test('Needs me keeps its rows under a stored Waiting on author pick and offers no such item', async () => {
+  servedData = withRows([needsMeMr(1), needsMeMr(2)]);
+  localStorage.setItem(
+    'mrs-view-state',
+    JSON.stringify({ off: ['authorTurn'] })
+  );
+  await mount(async container => {
+    await openNeedsMe(container);
+    expect(rowCount(container)).toBe(2);
+    await React.act(async () => showButton(container).click());
+    const menu = document.querySelector('[role="menu"]')?.textContent ?? '';
+    expect(menu).toContain('Not Posted');
+    expect(menu).not.toContain('Waiting on author');
+  });
+});
+
+test('saving a Whose turn signal reloads the board', async () => {
+  servedData = withRows([needsMeMr(1)]);
+  await mount(async container => {
+    await React.act(async () => showButton(container).click());
+    const link = [
+      ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    ].find(i => i.textContent === 'Whose turn settings…')!;
+    await React.act(async () => link.click());
+    await React.act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    const box = [
+      ...document.querySelectorAll<HTMLLabelElement>('.tui-config-turn label'),
+    ]
+      .find(l => l.textContent?.includes('merge conflicts'))!
+      .querySelector('input')!;
+    const before = dataLoads;
+    await React.act(async () => box.click());
+    await React.act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    expect(dataLoads).toBe(before + 1);
+  });
 });

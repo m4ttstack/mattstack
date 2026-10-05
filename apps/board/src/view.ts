@@ -5,12 +5,12 @@ import type { BoardMR, BoardSyncError } from './data.ts';
 import { hasChangesRequested } from './data.ts';
 import { canonicalUsername } from './peer/envelope.ts';
 import { projectKeyOf } from './triage/stack.ts';
+import { authorTurn, type TurnConfig } from './turn.ts';
 
 export type GroupKey = 'age' | 'author' | 'status' | 'review' | 'needs';
 export type SortKey = 'oldest' | 'progress';
 
-export type SlackFilter = 'all' | 'posted';
-export type DraftFilter = 'all' | 'hide';
+export type ShowItem = 'posted' | 'notPosted' | 'authorTurn' | 'myDrafts';
 
 export const GROUP_KEYS: readonly GroupKey[] = [
   'age',
@@ -20,8 +20,12 @@ export const GROUP_KEYS: readonly GroupKey[] = [
   'needs',
 ];
 export const SORT_KEYS: readonly SortKey[] = ['oldest', 'progress'];
-export const SLACK_FILTER_KEYS: readonly SlackFilter[] = ['all', 'posted'];
-export const DRAFT_FILTER_KEYS: readonly DraftFilter[] = ['all', 'hide'];
+export const SHOW_ITEMS: readonly ShowItem[] = [
+  'posted',
+  'notPosted',
+  'authorTurn',
+  'myDrafts',
+];
 
 /** Sentinel that sorts after any ISO date, so null timestamps land last. */
 const LATEST = '9999';
@@ -70,14 +74,16 @@ function clockLabel(at: number): string {
 export function dataAgeLabel(
   dataSyncedAt: number | null,
   now: number
-): { text: string; stale: boolean } {
+): { text: string; clock: string | null; stale: boolean } {
   // <= 0 covers a cold shell record's syncedAt (no daemon read has landed
   // yet) -- epoch zero is not a real sync time, and rendering it as
   // "data as of 1:00" (local-timezone midnight) is misleading, not stale-but-honest.
   if (dataSyncedAt === null || dataSyncedAt <= 0)
-    return { text: 'data age unknown', stale: true };
+    return { text: 'data age unknown', clock: null, stale: true };
+  const clock = clockLabel(dataSyncedAt);
   return {
-    text: `data as of ${clockLabel(dataSyncedAt)}`,
+    text: `data as of ${clock}`,
+    clock,
     stale: now - dataSyncedAt > STALE_AFTER_MS,
   };
 }
@@ -427,22 +433,52 @@ export function filterByMember<M extends BoardMR>(
   return member === 'all' ? mrs : mrs.filter(m => m.author.username === member);
 }
 
-/** Same predicate as the "posted in slack" chip, so the filtered view is
-    exactly the rows carrying it. */
-export function filterBySlack<
-  T extends { webUrl?: string | null; slack?: { posted?: boolean } | null },
->(mrs: T[], filter: SlackFilter): T[] {
-  return filter === 'all' ? mrs : mrs.filter(m => !!m.slack?.posted);
+/** `slack` rides on the client row type, not BoardMR. */
+type ShowRow = BoardMR & { slack?: { posted?: boolean } | null };
+
+export function matchesShowItem(
+  mr: ShowRow,
+  item: ShowItem,
+  cfg: TurnConfig
+): boolean {
+  switch (item) {
+    case 'posted':
+      return !!mr.slack?.posted;
+    case 'notPosted':
+      return !mr.slack?.posted;
+    case 'authorTurn':
+      return authorTurn(mr, cfg) !== null;
+    case 'myDrafts':
+      return !!mr.isDraft;
+  }
 }
 
-/** Same "your own drafts only" rows the DRAFT chip marks -- drafts from
-    anyone else never reach the board (see buildBoard), so this is exactly
-    the show/hide toggle for that chip. */
-export function filterByDraft<T extends { isDraft?: boolean }>(
+/** `offered` is what the toolbar renders on this board: a stored "off" for
+    an item that isn't offered (Slack disabled, seatless board) must not hide
+    rows behind a control nobody can see. */
+export function filterByShow<T extends ShowRow>(
   mrs: T[],
-  filter: DraftFilter
-): T[] {
-  return filter === 'all' ? mrs : mrs.filter(m => !m.isDraft);
+  off: readonly ShowItem[],
+  offered: readonly ShowItem[],
+  cfg: TurnConfig
+): { rows: T[]; counts: Record<ShowItem, number> } {
+  const counts: Record<ShowItem, number> = {
+    posted: 0,
+    notPosted: 0,
+    authorTurn: 0,
+    myDrafts: 0,
+  };
+  const active = off.filter(i => offered.includes(i));
+  const rows = mrs.filter(mr => {
+    let shown = true;
+    for (const item of SHOW_ITEMS) {
+      if (!matchesShowItem(mr, item, cfg)) continue;
+      counts[item]++;
+      if (active.includes(item)) shown = false;
+    }
+    return shown;
+  });
+  return { rows, counts };
 }
 
 /** Usernames the member filter may legitimately hold on a given tab. An
@@ -732,8 +768,7 @@ export interface ViewState {
   group: GroupKey;
   sort: SortKey;
   tab: string;
-  slack: SlackFilter;
-  drafts: DraftFilter;
+  off: ShowItem[];
 }
 
 export const DEFAULT_VIEW: ViewState = {
@@ -741,8 +776,7 @@ export const DEFAULT_VIEW: ViewState = {
   group: 'status',
   sort: 'oldest',
   tab: '',
-  slack: 'all',
-  drafts: 'all',
+  off: [],
 };
 
 /** The grouping a tab other than the seat tab opens with, given the one you
@@ -753,6 +787,24 @@ export function groupOnLeavingSeat(prior: string | null): GroupKey {
     : DEFAULT_VIEW.group;
 }
 
+function resolveOff(
+  params: URLSearchParams,
+  stored: (Partial<ViewState> & { slack?: unknown; drafts?: unknown }) | null
+): ShowItem[] {
+  const canon = (items: readonly unknown[]) =>
+    SHOW_ITEMS.filter(i => items.includes(i));
+  const fromUrl = params.get('off');
+  if (fromUrl !== null) return canon(fromUrl.split(','));
+  const legacyUrl = params.has('slack') || params.has('drafts');
+  if (!legacyUrl && Array.isArray(stored?.off)) return canon(stored.off);
+  const slack = params.get('slack') ?? stored?.slack;
+  const drafts = params.get('drafts') ?? stored?.drafts;
+  const off: ShowItem[] = [];
+  if (slack === 'posted') off.push('notPosted');
+  if (drafts === 'hide') off.push('myDrafts');
+  return off;
+}
+
 /** URL query params win, then stored localStorage values, then defaults. Invalid
     values are dropped. `validTabs` mirrors `validMembers`: an unknown or empty
     tab (including "no tabs known yet", the state before /data.json's first
@@ -760,7 +812,7 @@ export function groupOnLeavingSeat(prior: string | null): GroupKey {
     validTabs is empty. */
 export function parseViewState(
   search: string,
-  stored: Partial<ViewState> | null,
+  stored: (Partial<ViewState> & { slack?: unknown; drafts?: unknown }) | null,
   validMembers: string[],
   defaultMember: string = 'all',
   validTabs: string[] = []
@@ -789,8 +841,7 @@ export function parseViewState(
     group: resolve('group', GROUP_KEYS, DEFAULT_VIEW.group),
     sort: resolve('sort', SORT_KEYS, 'oldest'),
     tab: resolve('tab', validTabs, validTabs[0] ?? ''),
-    slack: resolve('slack', SLACK_FILTER_KEYS, 'all'),
-    drafts: resolve('drafts', DRAFT_FILTER_KEYS, 'all'),
+    off: resolveOff(params, stored),
   };
 }
 
@@ -863,8 +914,8 @@ export function serializeViewState(v: ViewState): string {
   if (v.group !== DEFAULT_VIEW.group) params.set('group', v.group);
   if (v.sort !== DEFAULT_VIEW.sort) params.set('sort', v.sort);
   if (v.tab !== DEFAULT_VIEW.tab) params.set('tab', v.tab);
-  if (v.slack !== DEFAULT_VIEW.slack) params.set('slack', v.slack);
-  if (v.drafts !== DEFAULT_VIEW.drafts) params.set('drafts', v.drafts);
+  const off = SHOW_ITEMS.filter(i => v.off.includes(i));
+  if (off.length > 0) params.set('off', off.join(','));
   const s = params.toString();
   return s ? `?${s}` : '';
 }

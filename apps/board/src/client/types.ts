@@ -6,6 +6,7 @@ import type { BoardMR, BoardSyncError } from '../data.ts';
 import type { GateRow } from '../gates/store.ts';
 import type { RespondStatus } from '../respond-outcome.ts';
 import type { SlackTemplates } from '../template.ts';
+import type { TurnConfig } from '../turn.ts';
 
 export interface RosterMember {
   username: string;
@@ -229,6 +230,9 @@ export interface BoardData {
       against `scopeWindowDays` -- a board asking for more history than rt
       syncs. null when unset: the board then follows rt's window. */
   staleAfterDays: number | null;
+  /** Resolved board.turn. Absent from an older server: read it as
+      `data.turn ?? ALL_TURN`. */
+  turn?: TurnConfig;
   /** Whether this board can hand out peer-board invites: local request, and the
       board holds the switchboard admin credential. */
   canInvite: boolean;
