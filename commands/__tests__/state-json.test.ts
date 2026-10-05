@@ -180,6 +180,33 @@ test("local restore while daemon runs has no JSON payload and exits 1", async ()
     "[refused] rt will not restore while the daemon is running  it shares this data with rt\n  next: rt daemon stop\n  note: To restore anyway: rt state restore copy.db --force\n");
 });
 
+for (const name of ["My backup.db", "Matt's.db", "$HOME.db", "$(printf harmless).db", "copy;printf harmless.db"]) {
+  test(`forced restore remedy preserves literal copy ${name} as one shell argument`, async () => {
+    spies.push(spyOn(daemon, "isDaemonRunning").mockResolvedValue(true));
+    const copy = join(home, name);
+    const sentinel = new Error("captured process.exit");
+    const exit = spyOn(process, "exit").mockImplementation(() => { throw sentinel; });
+    spies.push(exit);
+    await expect(stateRestore([copy, "--json"])).rejects.toBe(sentinel);
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(io.stdout()).toBe("");
+    const command = io.stderr().split("To restore anyway: ")[1]?.trim();
+    expect(command).toBeDefined();
+    const shell = Bun.spawnSync(["/bin/sh", "-c", `rt() { printf '%s\\0' "$@"; }; ${command}`], {
+      cwd: home, env: { HOME: home, PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe",
+    });
+    expect(shell.exitCode).toBe(0);
+    expect(shell.stderr.toString()).toBe("");
+    expect(shell.stdout.toString().split("\0")).toEqual(["state", "restore", copy, "--force", ""]);
+  });
+}
+
+test("daemon refusal keeps the instructional copy placeholder unquoted", async () => {
+  spies.push(spyOn(daemon, "isDaemonRunning").mockResolvedValue(true));
+  await expectExit(() => stateRestore(["--json"]),
+    "[refused] rt will not restore while the daemon is running  it shares this data with rt\n  next: rt daemon stop\n  note: To restore anyway: rt state restore <copy> --force\n");
+});
+
 test("encrypted restore while daemon runs has no JSON payload and exits 1", async () => {
   spies.push(spyOn(daemon, "isDaemonRunning").mockResolvedValue(true));
   await expectExit(() => stateRestore(["--from-backup", "--json"]),

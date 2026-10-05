@@ -6,6 +6,30 @@ import { startInteractive } from "../interactive.ts";
 
 const RT_UI_BIN = join(import.meta.dir, "../../ui/dist/rt-ui");
 
+function assertRenderedFailure(screen: string): void {
+  const rows = screen.split("\n").map((row) => row.trim());
+  const failed = rows.filter((row) => row.startsWith("✗ Git LFS did not install in your home repo"));
+  expect(failed).toEqual([
+    "✗ Git LFS did not install in your home repo  hooks-locked",
+    "✗ Git LFS did not install in your home repo",
+  ]);
+  const final = rows.indexOf("✗ Git LFS did not install in your home repo");
+  expect(rows[final + 1]).toBe("hooks-locked");
+  expect(screen).not.toContain("rt could not draw a progress line");
+}
+
+const renderedFailure = "  ✓ age, zstd and git-lfs are here\n  ✗ Git LFS did not install in your home repo  hooks-locked\n  ✗ Git LFS did not install in your home repo\n    hooks-locked\n";
+
+test("PTY evidence rejects a missing retained stage, missing final failure and helper fallback", () => {
+  for (const screen of [
+    renderedFailure.replace("  ✗ Git LFS did not install in your home repo  hooks-locked\n", ""),
+    renderedFailure.replace("  ✗ Git LFS did not install in your home repo\n    hooks-locked\n", ""),
+    renderedFailure + "rt could not draw a progress line\n",
+  ]) {
+    expect(() => assertRenderedFailure(screen)).toThrow();
+  }
+});
+
 test("backup init retains the failed LFS stage after tools finish and never reaches the key stage", async () => {
   const home = createTestHome();
   let session: Awaited<ReturnType<typeof startInteractive>> | undefined;
@@ -30,8 +54,7 @@ test("backup init retains the failed LFS stage after tools finish and never reac
     const screen = await session.screen();
 
     expect(screen).toContain("age, zstd and git-lfs are here");
-    expect(screen).toContain("Git LFS did not install in your home repo");
-    expect(screen).toContain("hooks-locked");
+    assertRenderedFailure(screen);
     expect(screen).toContain("__rt_exit=1");
     expect(screen).not.toContain("Adding this Mac's key");
     expect(screen).not.toContain("Encrypted backup is set up");

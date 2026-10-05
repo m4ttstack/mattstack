@@ -23,6 +23,7 @@ import { copyFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
 import { basename, dirname, join } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { isDaemonRunning } from "../lib/daemon-client.ts";
+import { shellQuote } from "../lib/herdr-launch.ts";
 import { flagValue } from "../lib/cli-args.ts";
 import { mattstackHome } from "../lib/rt-paths.ts";
 import {
@@ -248,7 +249,8 @@ export async function stateRestore(args: string[], _ctx: CommandContext = {}): P
   // refusal, never an interactive prompt, so non-TTY/agent callers get a
   // clean nonzero exit instead of a hang.
   if (!force && (await isDaemonRunning())) {
-    refuseWhileDaemonRuns(`rt state restore ${copyArg(args) ?? "<copy>"} --force`);
+    const copy = copyArg(args);
+    refuseWhileDaemonRuns(`rt state restore ${copy === undefined ? "<copy>" : shellQuote(copy)} --force`);
   }
 
   const copy = await requireCopy(args);
