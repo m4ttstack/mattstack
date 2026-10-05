@@ -98,13 +98,18 @@ const CHAT_COMMANDS = [
   "chat:dm-open",
 ] as const;
 
-/** Collapses the repeated try/catch every presence-assertion call site needs into one line: null on success, the refusal's message on throw. */
-function assertionError(fn: () => void): string | null {
+function failureFrom(err: unknown): { ok: false; error: string; failure?: { code: string; message: string } } {
+  const error = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? { ok: false, error, failure: { code, message: error } } : { ok: false, error };
+}
+
+function assertionError(fn: () => void): ReturnType<typeof failureFrom> | null {
   try {
     fn();
     return null;
   } catch (err) {
-    return err instanceof Error ? err.message : String(err);
+    return failureFrom(err);
   }
 }
 
@@ -926,7 +931,7 @@ export function createChatHandlers(opts: {
         const data = joinRoom({ room, handle, wakeOn, cwd, pane }, db);
         return { ok: true, data: { ...data, name: identityName(data.handle, db) } };
       } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        return failureFrom(err);
       }
     },
 
@@ -1047,7 +1052,7 @@ export function createChatHandlers(opts: {
           "not-claimed": `#${id} is not claimed`,
           "not-holder": `you are neither the holder of #${id} nor its author`,
         }[res.reason];
-        return { ok: false, error: why };
+        return res.reason === "not-holder" ? { ok: false, error: why, failure: { code: "not-holder", message: why } } : { ok: false, error: why };
       }
       return { ok: true, data: { holder: res.holder, holderName: identityName(res.holder, db) } };
     },
@@ -1218,7 +1223,7 @@ export function createChatHandlers(opts: {
           data = signInWith({ baseHandle: getIdentity(continueId, db)?.baseName ?? baseOfHandle(continueId) });
         }
       } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        return failureFrom(err);
       }
       // signIn retries a busy write, but still reports undefined once its
       // retry budget is exhausted.
@@ -1285,16 +1290,16 @@ export function createChatHandlers(opts: {
 
     "chat:away": async (rawPayload: unknown): Promise<CommandResult<"chat:away">> => {
       const payload = rawPayload as Commands["chat:away"]["payload"];
-      const err = assertionError(() => assertSessionSignedIn(payload.sessionId, db));
-      if (err) return { ok: false, error: err };
+      const refused = assertionError(() => assertSessionSignedIn(payload.sessionId, db));
+      if (refused) return refused;
       setAway(payload.sessionId, payload.text, db);
       return { ok: true, data: {} };
     },
 
     "chat:back": async (rawPayload: unknown): Promise<CommandResult<"chat:back">> => {
       const payload = rawPayload as Commands["chat:back"]["payload"];
-      const err = assertionError(() => assertSessionSignedIn(payload.sessionId, db));
-      if (err) return { ok: false, error: err };
+      const refused = assertionError(() => assertSessionSignedIn(payload.sessionId, db));
+      if (refused) return refused;
       setAway(payload.sessionId, null, db);
       return { ok: true, data: {} };
     },
@@ -1311,8 +1316,8 @@ export function createChatHandlers(opts: {
       if (!isValidBody(body)) return { ok: false, error: `body must be a non-empty string under ${MAX_BODY_BYTES} bytes` };
       const fromId = resolveHandle(from, db);
       const toId = resolveHandle(to, db);
-      const err = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db));
-      if (err) return { ok: false, error: err };
+      const refused = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db));
+      if (refused) return refused;
       const humanHandle = getSetting<string>("chat.humanHandle").value;
       if (!isValidChatName(humanHandle)) {
         return { ok: false, error: `chat: chat.humanHandle setting is empty or invalid ("${humanHandle}")` };
@@ -1352,7 +1357,7 @@ export function createChatHandlers(opts: {
       try {
         return { ok: true, data: archiveRoom(room, archived, db) };
       } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        return failureFrom(err);
       }
     },
 
@@ -1363,8 +1368,8 @@ export function createChatHandlers(opts: {
       if (!isValidChatName(to)) return { ok: false, error: `invalid handle "${to}"` };
       const fromId = resolveHandle(from, db);
       const toId = resolveHandle(to, db);
-      const err = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db));
-      if (err) return { ok: false, error: err };
+      const refused = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db));
+      if (refused) return refused;
       const humanHandle = getSetting<string>("chat.humanHandle").value;
       if (!isValidChatName(humanHandle)) {
         return { ok: false, error: `chat: chat.humanHandle setting is empty or invalid ("${humanHandle}")` };

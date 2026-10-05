@@ -35,6 +35,7 @@ on a dark and a light terminal background.
 | `6h-copy-dark.png`, `6h-copy-light.png` | phase 6 copy polish: settings list labels, an unset get, the extension failure, the logins header, an unreadable tool version, members remove, a prune duplicate and a kept repo, a port row with no pid, a refused bundled link, and intercept's left-alone line |
 | `6g-git-skills-dark.png`, `6g-git-skills-light.png` | phase 6 git and skills fixes: a kept stash, a credentialed remote, skills init's failures and refusals, a link conflict, an expand usage failure, the missing-Claude note, a surface apply, a rebase conflict with its files, an escalation timeout |
 | `6g-diagnostics-dark.png`, `6g-diagnostics-light.png` | phase 6 review fixes: written files after an init remedy, failed push output, expand drift and lint diagnostics, and a single lint diagnostic |
+| `6j-chat-dark.png`, `6j-chat-light.png` | `rt chat read` with local times and gaps, the three daemon refusals drawn as refused, and a daemon failure. Off a terminal chat prints what it printed before |
 
 The light pages above the phase 5g section were rendered with
 `COLORFGBG=0;15`, which is how a light terminal that reports its background
@@ -141,3 +142,18 @@ Each file or diagnostic list follows its failure and remedy under a caption,
 including a single lint hit. Dark and light captions and rails stay readable.
 The expand command exceeds its callout column and moves intact to column 0;
 the long lint message wraps at spaces. No text is clipped.
+
+## Phase 6j: chat refusal codes and read
+
+The two pages render real chat builders at 100 columns with
+`COLORTERM=truecolor`, `TERM=xterm-256color`, `NO_COLOR` unset, and
+`RT_UI_BACKGROUND` explicitly set to dark or light. The machine's local
+clock shows `12:04 CDT`, `12:05 CDT` and `12:06 CDT` beside the authors.
+
+What reads wrong: the release refusal's explanation wraps onto a second
+row at this width, but stays readable under its `why` label. On both
+backgrounds the three refusals use quiet neutral marks and visibly differ
+from the coral failure. The times and zones remain quieter than the names.
+Blank rows separate messages, while each header stays with its body; the
+first message also retains its own paragraph gap. No source change was
+needed for these renders.

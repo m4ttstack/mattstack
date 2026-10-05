@@ -707,3 +707,32 @@ test("the pane-pin API is gone from the state barrel", async () => {
   expect("paneHandleFor" in barrel).toBe(false);
   expect("rememberPaneHandle" in barrel).toBe(false);
 });
+
+test("held identity assertions carry identity-held with unchanged words", () => {
+  const db = fresh();
+  const { handle } = mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db);
+  for (const [fn, message] of [
+    [() => assertSessionOwnsHandle(handle, "s2", db), `chat: handle reclaimed: "${handle}" is now held by another session; sign in again`],
+    [() => assertSessionSignedIn("ghost", db), "chat: handle reclaimed while you were away; sign in again"],
+  ] as const) {
+    try {
+      fn();
+      throw new Error("did not throw");
+    } catch (err) {
+      expect((err as Error).message).toBe(message);
+      expect((err as Error & { code?: string }).code).toBe("identity-held");
+    }
+  }
+});
+
+test("fixed identities carry identity-fixed with unchanged words", () => {
+  for (const [handle, reason] of [["matt", "that handle speaks for the human"], ["herdr", "that handle is the herd's system poster"]]) {
+    try {
+      signIn({ sessionId: "s1", continueId: handle, now }, fresh(), NO_BINDING);
+      throw new Error("did not throw");
+    } catch (err) {
+      expect((err as Error).message).toBe(`chat: may not continue "${handle}": ${reason}`);
+      expect((err as Error & { code?: string }).code).toBe("identity-fixed");
+    }
+  }
+});

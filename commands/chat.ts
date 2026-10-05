@@ -200,8 +200,29 @@ function requireValidSessionId(id: string): void {
   if (!isValidSessionId(id)) fail(SESSION_ID_INVALID);
 }
 
+const CHAT_REFUSALS: Record<string, () => Block[]> = {
+  "not-holder": () => [
+    out.line("refused", "rt chat will not release a claim you do not hold"),
+    out.callout("why", "Only the agent holding a claim, or the one who posted the message, can release it."),
+  ],
+  "identity-held": () => [
+    out.line("refused", "This session cannot use that identity"),
+    out.callout("why", "This session is not signed in, or another session now holds its identity."),
+    out.callout("next", out.cmd("rt chat sign-in")),
+  ],
+  "identity-fixed": () => [
+    out.line("refused", "rt chat keeps that identity for the human or the herd"),
+    out.callout("why", "Agents sign in under names of their own."),
+    out.callout("next", out.cmd("rt chat sign-in")),
+  ],
+};
+
 function unwrap<T>(res: RtResponse<T>, label: string): T {
-  if (!res.ok || res.data === undefined) fail({ title: res.error ?? `The chat ${label} did not go through` });
+  if (!res.ok || res.data === undefined) {
+    const refusal = res.failure && Object.hasOwn(CHAT_REFUSALS, res.failure.code) ? CHAT_REFUSALS[res.failure.code] : undefined;
+    if (refusal) refuse(...refusal());
+    fail({ title: res.error ?? `The chat ${label} did not go through` });
+  }
   return res.data;
 }
 
@@ -645,14 +666,22 @@ function indentBody(body: string): string {
     .join("\n");
 }
 
-function readBlocks(rooms: { room: string; messages: ChatMessage[] }[], full: boolean, headingFor: (room: string) => string): Block[] {
+/** A person's clock: local time with its zone. The frozen read line keeps UTC for agents. */
+function localClock(ms: number, timeZone?: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZoneName: "short", ...(timeZone ? { timeZone } : {}) }).formatToParts(ms);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("hour")}:${part("minute")} ${part("timeZoneName")}`;
+}
+
+function readBlocks(rooms: { room: string; messages: ChatMessage[] }[], full: boolean, headingFor: (room: string) => string, clock: (ms: number) => string = localClock): Block[] {
   if (rooms.length === 0) return [out.line("skipped", "Nothing unread")];
   return rooms.map((r) =>
     out.section(
       headingFor(r.room),
       undefined,
-      ...r.messages.flatMap((m) => [
-        out.table([[out.strong(m.name ?? m.handle), out.dim(new Date(m.postedAt).toISOString().slice(11, 16))]]),
+      ...r.messages.flatMap((m, i) => [
+        ...(i > 0 ? [out.blank()] : []),
+        out.table([[out.strong(m.name ?? m.handle), out.dim(clock(m.postedAt))]]),
         out.paragraph(indentBody(full ? m.body : truncate(m.body, 200))),
       ]),
     ),
@@ -1457,6 +1486,7 @@ export async function chat(args: string[]): Promise<void> {
 // ─── test seam ───────────────────────────────────────────────────────────────
 
 export const __test__ = {
+  CHAT_REFUSALS,
   resolveSignInRequest,
   slugify,
   findGitRoot,
@@ -1468,6 +1498,7 @@ export const __test__ = {
   roomForIdentity,
   deriveRoomForCwd,
   roomsBlocks,
+  localClock,
   readBlocks,
   whoBlocks,
   buddiesBlocks,

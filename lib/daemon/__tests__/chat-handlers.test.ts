@@ -1160,6 +1160,7 @@ test("chat:dm refuses a reclaimed sender", async () => {
   expect(res.ok).toBe(false);
   if (res.ok) throw new Error("unreachable");
   expect(res.error).toContain("handle reclaimed");
+  expect(res.failure).toEqual({ code: "identity-held", message: res.error });
 });
 
 test("chat:dm refuses when chat.humanHandle is empty, naming the setting rather than inserting a blank silent member", async () => {
@@ -1441,6 +1442,8 @@ test("chat:dm-open refuses a reclaimed sender the same way chat:dm does", async 
   await h["chat:sign-in"]({ sessionId: "s2", continue: "a" });
   const res = await h["chat:dm-open"]({ from: "a", to: "b", sessionId: "s1" });
   expect(res.ok).toBe(false);
+  if (res.ok) throw new Error("unreachable");
+  expect(res.failure).toEqual({ code: "identity-held", message: res.error });
 });
 
 test("chat:post warns through the injected logger (ctx.log), not a module-private lazyChildLogger (C6)", async () => {
@@ -1641,4 +1644,65 @@ test("chat:invite attributes the note to the inviter's name, never its id", asyn
   await h["chat:invite"]({ paneId: "w1:p1", room: "build", from: remy.data.handle, note: "you own vite" });
   const prompt = seen.find((s) => s.method === "agent.prompt")!;
   expect(prompt.params.text).toBe("/chat:join build note from remy: you own vite");
+});
+
+test("a held identity carries its code and keeps its wording", async () => {
+  const h = freshHandlers();
+  const a = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  if (!a.ok) throw new Error(a.error);
+  const b = await h["chat:sign-in"]({ sessionId: "s2", continue: a.data.handle });
+  expect(b.ok).toBe(false);
+  if (b.ok) throw new Error("unreachable");
+  expect(b.error).toBe(`chat: handle reclaimed: "${a.data.handle}" is now held by another session; sign in again`);
+  expect(b.failure).toEqual({ code: "identity-held", message: b.error });
+});
+
+test("fixed identity sign-in carries identity-fixed", async () => {
+  const h = freshHandlers();
+  for (const handle of ["matt", "herdr"]) {
+    const res = await h["chat:sign-in"]({ sessionId: "s1", continue: handle });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.error).toStartWith(`chat: may not continue "${handle}":`);
+    expect(res.failure).toEqual({ code: "identity-fixed", message: res.error });
+  }
+});
+
+test("away and back carry identity-held for a missing session", async () => {
+  const h = freshHandlers();
+  for (const verb of ["chat:away", "chat:back"] as const) {
+    const res = await h[verb]({ sessionId: "ghost" });
+    expect(res).toEqual({ ok: false, error: "chat: handle reclaimed while you were away; sign in again", failure: { code: "identity-held", message: "chat: handle reclaimed while you were away; sign in again" } });
+  }
+});
+
+test("a release by neither holder nor author carries not-holder", async () => {
+  const h = freshHandlers();
+  for (const handle of ["remy", "kai", "eli"]) await h["chat:join"]({ room: "build", handle });
+  const posted = await h["chat:post"]({ room: "build", handle: "kai", body: "who takes this?", mentions: ["remy"] });
+  if (!posted.ok) throw new Error(posted.error);
+  const claimed = await h["chat:claim"]({ id: posted.data.id, handle: "remy" });
+  if (!claimed.ok) throw new Error(claimed.error);
+  const res = await h["chat:release"]({ id: posted.data.id, handle: "eli" });
+  const message = `you are neither the holder of #${posted.data.id} nor its author`;
+  expect(res).toEqual({ ok: false, error: message, failure: { code: "not-holder", message } });
+});
+
+test("release and assertion errors without codes keep their old shape", async () => {
+  const h = freshHandlers();
+  expect(await h["chat:release"]({ id: 9, handle: "a" })).toEqual({ ok: false, error: "no message #9" });
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "a" });
+  await h["chat:sign-out"]({ sessionId: "s1" });
+  expect(await h["chat:away"]({ sessionId: "s1" })).toEqual({ ok: false, error: "chat: session s1 is not signed in" });
+});
+
+test("archive preserves unknown SQLite codes and uncoded errors", async () => {
+  const h = freshHandlers();
+  expect(await h["chat:archive"]({ room: "missing", handle: "a", archived: true })).toEqual({ ok: false, error: 'chat: no such room "missing"' });
+  h.db.run("DROP TABLE chat_rooms");
+  const res = await h["chat:archive"]({ room: "missing", handle: "a", archived: true });
+  expect(res.ok).toBe(false);
+  if (res.ok) throw new Error("unreachable");
+  expect(res.error).toBe("no such table: chat_rooms");
+  expect(res.failure).toEqual({ code: "SQLITE_ERROR", message: res.error });
 });
