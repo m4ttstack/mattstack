@@ -1,10 +1,14 @@
-A patch for new and existing team members: team tools behind an intercept (doppler) now pass the setup check from the app, and the intercepts row stops flipping back to a warning. Board peer asks no longer wait forever.
+A patch for new and existing team members: team tools behind an intercept (doppler) now pass the setup check from the app, the intercepts row stops flipping back to a warning, and deck clears stale portless badges. Board peer asks no longer wait forever.
 
 ### Setup
 
 - a team tool behind an intercept shim is found in the Homebrew folders when the app's launch PATH has none, so the doppler row no longer blocks Install with "Could not run doppler (exit 1)" (#690)
 - the intercept shims row reports out of date only when the rules a newer settings file builds actually changed, not after any settings save (#690)
 - a tool whose version rt cannot read says so, instead of calling it older than the minimum (#684)
+
+### Deck
+
+- a "portless sync failed" badge left on a bundled app from an earlier failed sync clears on the next deck start, once the sync succeeds (#693)
 
 ### Board
 
