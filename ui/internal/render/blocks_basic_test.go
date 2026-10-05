@@ -765,3 +765,26 @@ func TestMultilineWhyWrapsAndKeepsExplicitLines(t *testing.T) {
 		}
 	}
 }
+
+func TestAColumnZeroCommandSeparatesTheNextCalloutBodyRow(t *testing.T) {
+	long := "rt secrets rotate --team acme-platform-engineering <domain> <key>"
+	got := plainAt(40,
+		protocol.Block{T: "callout", Label: "next", Body: []protocol.Cell{cmd(long), text("Then check the status")}},
+		protocol.Block{T: "line", Status: "done", Title: "Finished"},
+	)
+	want := "    ▌ next\n" + long + "\n\n" +
+		"    ▌      Then check the status\n" +
+		"  ✓ Finished\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestAFailureColumnZeroCommandKeepsItsDetailsAttached(t *testing.T) {
+	long := "rt secrets rotate --team acme-platform-engineering <domain> <key>"
+	got := plainAt(40, protocol.Block{T: "failure", Title: "Could not continue", Next: cmd(long), Details: "Check the details"})
+	want := "  ✗ Could not continue\n    ▌ next\n" + long + "\n    Check the details\n"
+	if got != want {
+		t.Fatalf("got\n%q\nwant\n%q", got, want)
+	}
+}

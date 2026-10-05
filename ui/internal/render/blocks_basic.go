@@ -109,6 +109,10 @@ func (r *renderer) calloutLines(c color.Color, label string, body []protocol.Cel
 	first := true
 	for _, line := range body {
 		for _, row := range calloutRows(line, w) {
+			if r.afterCopy {
+				r.gap()
+				r.afterCopy = false
+			}
 			lead := cont
 			if first {
 				lead = bar + fg(c).Render(label) + " "
