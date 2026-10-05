@@ -193,6 +193,31 @@ describe('viewStateForMr', () => {
     expect(result.off).toEqual([]);
   });
 
+  test('reads Waiting on author through the board turn config', () => {
+    const mrs = [
+      mr({
+        iid: 5,
+        blockers: { any: true, hasConflicts: true },
+        reviews: { isApproved: false, reviewers: [] },
+      } as unknown as Partial<GateLinkMR>),
+    ];
+    const state = {
+      ...DEFAULT_VIEW,
+      tab: 'team',
+      off: ['authorTurn' as const],
+    };
+    const roster = new Set(['bob']);
+    expect(viewStateForMr(state, mrs, [teamTab], roster, byIid(5)).off).toEqual(
+      []
+    );
+    expect(
+      viewStateForMr(state, mrs, [teamTab], roster, byIid(5), {
+        author: [],
+        reviewer: [],
+      }).off
+    ).toEqual(['authorTurn']);
+  });
+
   test('returns state unchanged when no row matches', () => {
     const mrs = [mr({ iid: 6 })];
     const state = { ...DEFAULT_VIEW, tab: 'team', member: 'bob' };

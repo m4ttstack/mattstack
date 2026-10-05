@@ -3,7 +3,7 @@
 
 import type { TabConfig } from '../../config.ts';
 import type { BoardMR } from '../../data.ts';
-import { ALL_TURN } from '../../turn.ts';
+import { ALL_TURN, type TurnConfig } from '../../turn.ts';
 import { filterByTab, matchesShowItem, SHOW_ITEMS } from '../../view.ts';
 import type { ShowItem, ViewState } from '../../view.ts';
 
@@ -47,7 +47,8 @@ export function viewStateForMr<
   mrs: T[],
   tabs: TabConfig[],
   rosterUsernames: Set<string>,
-  isLinked: (mr: T) => boolean
+  isLinked: (mr: T) => boolean,
+  turn: TurnConfig = ALL_TURN
 ): ViewState {
   const mr = mrs.find(isLinked);
   if (!mr) return state;
@@ -63,7 +64,7 @@ export function viewStateForMr<
   }
 
   const hiding = (item: ShowItem) =>
-    next.off.includes(item) && matchesShowItem(mr, item, ALL_TURN);
+    next.off.includes(item) && matchesShowItem(mr, item, turn);
   const hidingItems = SHOW_ITEMS.filter(hiding);
   if (hidingItems.length > 0) {
     next = { ...next, off: next.off.filter(i => !hidingItems.includes(i)) };
