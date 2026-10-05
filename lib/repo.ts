@@ -8,6 +8,7 @@
 import { execSync } from "child_process";
 import { existsSync, readdirSync, readFileSync, mkdirSync, realpathSync } from "fs";
 import { basename, join, resolve } from "path";
+import { shellQuote } from "./herdr-launch.ts";
 import { repoDataDir } from "./rt-paths.ts";
 import { identityFromRemote, serializeIdentity } from "./settings/identity.ts";
 
@@ -31,7 +32,7 @@ export function missingRepoFailure(r: KnownRepo): out.FailureInput {
   return {
     title: `${repoLabel(r.repoName)} is no longer where rt last saw it`,
     ...(gone ? { why: `It was at ${gone}.` } : {}),
-    next: out.cmd(`rt repos locate <new-path> --repo ${repoLabelFull(r.repoName)}`),
+    next: out.cmd(`rt repos locate <new-path> --repo ${shellQuote(repoLabelFull(r.repoName))}`),
   };
 }
 

@@ -452,3 +452,9 @@ test("a kept missing row's next names the repo as --repo resolves it", () => {
   const text = renderPlain(pruneBlocks([{ repoName: "remote:gitlab.example.com%2Facme%2Fapp", path: "/code/gone", reason: "missing", retained: true, hint: "rt repos locate" } as never], false));
   expect(text).toContain("next: rt repos locate <new-path> --repo gitlab.example.com/acme/app");
 });
+
+test("a missing path repo's locate command quotes spaces and a single quote", () => {
+  const repoName = serializeIdentity({ kind: "path", id: "/code/my 'app" });
+  const text = renderPlain(pruneBlocks([{ repoName, path: "/code/gone", reason: "missing", retained: true } as never], false));
+  expect(text).toContain(String.raw`next: rt repos locate <new-path> --repo '/code/my '\''app'`);
+});

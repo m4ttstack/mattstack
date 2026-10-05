@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { execSync } from "child_process";
 import * as cp from "child_process";
+import { serializeIdentity } from "../settings/identity.ts";
 import { missingRepoFailure, type KnownRepo } from "../repo.ts";
 
 describe("getRepoIdentity identity field", () => {
@@ -68,6 +69,12 @@ describe("missingRepoFailure", () => {
   test("missingRepoFailure names a remote repo by the label --repo resolves", () => {
     const f = missingRepoFailure({ repoName: "remote:gitlab.example.com%2Facme%2Fapp", worktrees: [] } as never);
     expect(f.next).toEqual({ text: "rt repos locate <new-path> --repo gitlab.example.com/acme/app", role: "command" });
+  });
+
+  test("a missing path repo's locate command quotes spaces and a single quote", () => {
+    const repoName = serializeIdentity({ kind: "path", id: "/code/my 'app" });
+    const f = missingRepoFailure({ repoName, worktrees: [] } as never);
+    expect(f.next).toEqual({ text: String.raw`rt repos locate <new-path> --repo '/code/my '\''app'`, role: "command" });
   });
 
   test("a row with no path leaves the why out", () => {

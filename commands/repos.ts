@@ -13,6 +13,7 @@
  */
 
 import { execFileSync } from "child_process";
+import { shellQuote } from "../lib/herdr-launch.ts";
 import { realpathSync } from "fs";
 import { homedir } from "os";
 import { basename } from "path";
@@ -250,7 +251,7 @@ export function pruneBlocks(removed: PrunedEntry[], dryRun: boolean): Block[] {
     } else {
       blocks.push(
         out.line("needs-you", `Kept ${label}`, `${where} · ${describeReason(r)}, but it still has worktrees on record`),
-        out.callout("next", out.cmd(`${r.hint ?? "rt repos locate"} <new-path> --repo ${repoLabelFull(r.repoName)}`)),
+        out.callout("next", out.cmd(`${r.hint ?? "rt repos locate"} <new-path> --repo ${shellQuote(repoLabelFull(r.repoName))}`)),
       );
     }
   }
