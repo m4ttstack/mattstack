@@ -3,6 +3,7 @@
  * the gate and the wiring; the loop and state machine live in
  * lib/mission/driver.ts and the view paints in the bundled Go rt-ui helper.
  */
+import * as out from "../lib/ui/out.ts";
 import { existsSync } from "fs";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { createFileActions } from "../lib/file-actions.ts";
@@ -35,7 +36,7 @@ async function pickRepoRoot(): Promise<PickResult> {
 
 export async function glitterCommand(_args: string[], _ctx: CommandContext): Promise<void> {
   if (!interactive()) {
-    process.stderr.write("rt glitter needs an interactive terminal (it drives a live board from the one you are in)\n");
+    out.fail({ title: "rt glitter needs an interactive terminal", why: "It draws a live board in the terminal you are in." });
     return exit(1);
   }
 
@@ -48,7 +49,7 @@ export async function glitterCommand(_args: string[], _ctx: CommandContext): Pro
   });
   if (start.kind === "cancelled") return exit(0);
   if (start.kind === "no-repos") {
-    process.stderr.write("rt glitter: not in a git repo and no repos found under your repo roots\n");
+    out.fail({ title: "You are not in a git repo, and rt does not know any repos yet", next: "Run rt once from inside a git repo, so it learns where that repo is" });
     return exit(1);
   }
 
@@ -100,7 +101,7 @@ export async function glitterCommand(_args: string[], _ctx: CommandContext): Pro
     await driver.run();
   } catch (err) {
     if (err instanceof SessionDied) {
-      process.stderr.write(`\n  ${err.message}; the workspace was closed\n\n`);
+      out.fail({ title: "The board's terminal session ended", why: `${err.message}. Its workspace was closed.` });
       return exit(1);
     }
     throw err;
