@@ -2858,7 +2858,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       publish: {
-        description: "Push the local team zone to its remote (or a new one)",
+        description: "Push your org changes, and any new pack not shared yet, to the org repo",
         module: "./commands/team.ts",
         fn: "teamPublish",
         args: [

@@ -53,7 +53,7 @@ import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
 import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { publishTeam } from "../lib/team/publish.ts";
-import { packShareBlocks, sharePack } from "../lib/team/share-pack.ts";
+import { commitPendingPackShares, packShareBlocks, sharePack } from "../lib/team/share-pack.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient } from "../lib/team/relay-client.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
@@ -318,13 +318,17 @@ export async function teamPublish(args: string[], _ctx: CommandContext = {}, dep
   try {
     const slug = resolveTeamSlug(args, "team publish");
     const target = remote ?? teamRemote(deps.probes, slug);
+    const packs = await commitPendingPackShares(deps.probes, slug);
     const token = target ? await (deps.forgeToken ?? storedForgeToken)(deps.probes, target) : null;
     const result = await publishTeam(deps.probes, slug, remote, { token, tokenRemote: target });
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
     }
-    out.print(out.line("done", `Pushed the ${slug} team`, result.remote));
+    out.print(
+      out.line("done", `Pushed the ${slug} team`, result.remote),
+      ...packs.map((pack) => out.line("done", `Shared the ${pack} pack with your org`)),
+    );
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;

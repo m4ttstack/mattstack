@@ -2,7 +2,7 @@ import * as teamActions from "../team.ts";
 import type { MembersSeams } from "../../lib/team/members.ts";
 import type { InviteResult, MintInviteOpts } from "../../lib/team/invite.ts";
 import { afterEach, beforeEach, describe, test, expect, spyOn } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import * as ui from "../../lib/ui/out.ts";
@@ -14,7 +14,7 @@ import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
 import type { Probes } from "../../lib/setup/probes.ts";
 import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { joinLink, joinLinkBase, pasteBlock } from "../../lib/team/invite.ts";
-import { readTeamLocal, writeTeamLocal, teamLocalPath, type TeamLocalRecord } from "../../lib/team/team-local.ts";
+import { readTeamLocal, writeTeamLocal, teamLocalPath, updateTeamLocal, type TeamLocalRecord } from "../../lib/team/team-local.ts";
 import { cleanupOrgWorlds, orgWorld } from "../../lib/team/__tests__/org-world.ts";
 
 const FAKE_PUBLIC_KEY = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
@@ -728,7 +728,7 @@ describe("teamAdd", () => {
     expect(deps.lines).toHaveLength(1);
     const { at, ...body } = JSON.parse(deps.lines[0]!);
     expect(typeof at).toBe("string");
-    expect(body).toEqual({ contract: 1, org: "acme", team: "gadgets", dir: `${ZONE_DIR}/mattstack/teams/gadgets`, owners: ["dev2", "dev1"], wrote: expect.any(Array), published: { pushed: false, reason: expect.any(String), next: "rt team publish" } });
+    expect(body).toEqual({ contract: 1, org: "acme", team: "gadgets", dir: `${ZONE_DIR}/mattstack/teams/gadgets`, owners: ["dev2", "dev1"], wrote: expect.any(Array), published: { pushed: false, reason: expect.any(String), next: "rt team publish --team acme" } });
     expect(deps.probes.exists(`${body.dir}/packs/gadgets/pack/skills.jsonc`)).toBe(true);
     expect(deps.writes).toHaveLength(1);
   });
@@ -762,6 +762,67 @@ describe("teamAdd", () => {
       } finally { captured.restore(); }
       expect(w.p.exists(join(w.root, "mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc"))).toBe(true);
       expect(w.atOrigin("log", "--format=%s", "main").trim()).toBe("seed");
+    });
+
+    /** Runs the `next` a failed share printed, as the person would type it. */
+    async function runNext(next: string, deps: TeamDeps): Promise<void> {
+      const [rt, verb, sub, ...args] = next.split(" ");
+      expect([rt, verb, sub]).toEqual(["rt", "team", "publish"]);
+      await teamPublish(args, {}, deps);
+    }
+
+    test("a failed commit is finished by the next command it names, with nothing unrelated in the commit", async () => {
+      const w = orgWorld();
+      writeFileSync(join(w.root, ".git", "index.lock"), "");
+      const deps = baseDeps({ probes: w.p, addTeamSeams: realSeams, forgeToken: async () => null });
+      await teamAdd(["gadgets", "--owner", "dev2", "--team", "acme", "--json"], {}, deps);
+      const published = JSON.parse(deps.lines[0]!).published;
+      expect(published).toMatchObject({ pushed: false, next: "rt team publish --team acme" });
+      expect(w.git("log", "--format=%s").trim()).toBe("seed");
+      rmSync(join(w.root, ".git", "index.lock"));
+      writeFileSync(join(w.root, "notes.txt"), "scratch\n");
+      writeFileSync(join(w.root, "mattstack/teams/widgets/settings.team.jsonc"), "{ \"board.title\": \"edited\" }\n");
+
+      const later = baseDeps({ probes: w.p, forgeToken: async () => null });
+      await runNext(published.next, later);
+
+      expect(w.atOrigin("log", "--format=%s", "main").trim().split("\n")).toEqual(["skills: new gadgets pack", "seed"]);
+      const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
+      expect(files).toContain("mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc");
+      expect(files).toContain(".claude-plugin/marketplace.json");
+      expect(files).not.toContain("notes.txt");
+      expect(files).not.toContain("mattstack/teams/widgets/settings.team.jsonc");
+      expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([expect.objectContaining({ name: "gadgets" })]);
+      expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
+    });
+
+    test("a failed push is finished by the next command it names", async () => {
+      const w = orgWorld();
+      w.git("remote", "set-url", "origin", join(w.home, "missing.git"));
+      const deps = baseDeps({ probes: w.p, addTeamSeams: realSeams, forgeToken: async () => null });
+      await teamAdd(["gadgets", "--owner", "dev2", "--team", "acme", "--json"], {}, deps);
+      const published = JSON.parse(deps.lines[0]!).published;
+      expect(published).toMatchObject({ pushed: false, next: "rt team publish --team acme" });
+      w.git("remote", "set-url", "origin", w.remote);
+
+      await runNext(published.next, baseDeps({ probes: w.p, forgeToken: async () => null }));
+
+      expect(w.atOrigin("log", "--format=%s", "main").trim().split("\n")).toEqual(["skills: new gadgets pack", "seed"]);
+      const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
+      expect(files).toContain("mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc");
+      expect(files).toContain(".claude-plugin/marketplace.json");
+    });
+
+    test("a member's Mac never commits a remembered share", async () => {
+      const w = orgWorld("dev3");
+      mkdirSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets"), { recursive: true });
+      writeFileSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets/README.md"), "gadgets\n");
+      updateTeamLocal(w.p, "acme", { pendingPackShares: [{ pack: "gadgets", paths: ["mattstack/teams/gadgets"] }] });
+      const deps = baseDeps({ probes: w.p, forgeToken: async () => null });
+      expect(await runExpectingProcessExit(() => teamPublish(["--team", "acme", "--json"], {}, deps))).toBe(2);
+      expect(JSON.parse(deps.lines[0]!).error.code).toBe("team-pull-only");
+      expect(w.git("log", "--format=%s").trim()).toBe("seed");
+      expect(w.pushes).toEqual([]);
     });
 
     test("a member's Mac refuses before writing or pushing anything", async () => {

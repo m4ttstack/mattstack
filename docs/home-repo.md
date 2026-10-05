@@ -120,8 +120,10 @@ The team instance differs from the home one in four ways:
   published by its own commit (the `mattstack:editing-skills` flow,
   `rt skills sync`), so a watch never commits a half-made pack edit. A new
   pack goes up with its marketplace entry in one commit and push, made by
-  `rt team add` or `rt skills init` itself; when that push fails, the command
-  says so and names `rt team publish`. The janitor still commits a pack left
+  `rt team add` or `rt skills init` itself; when that commit or push fails,
+  the command says so and names `rt team publish --team <org>`, which makes
+  the commit this Mac still owes (rt remembers it on this Mac) and pushes it.
+  The janitor still commits a pack left
   dirty past `janitorThresholdHours`. A claim on the same path in the clone's
   own `snapshot-owners.jsonc` wins over the standing one.
 - **Pull.** Before every push, at daemon boot and every `pullIntervalSec`, it

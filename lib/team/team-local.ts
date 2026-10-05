@@ -57,6 +57,19 @@ export interface TeamLocalRecord {
   forgeUsername?: string;
   /** This Mac's creator roles still need a forge login or a commit. */
   creatorPending?: { team: string; agePublicKey?: string };
+  /** New packs (with their org-relative paths) whose share commit has not landed; `rt team publish` commits them. */
+  pendingPackShares?: PendingPackShare[];
+}
+
+export interface PendingPackShare {
+  pack: string;
+  paths: string[];
+}
+
+function pendingPackShares(raw: unknown): PendingPackShare[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((entry): entry is PendingPackShare =>
+    typeof entry?.pack === "string" && Array.isArray(entry.paths) && entry.paths.length > 0 && entry.paths.every((path: unknown) => typeof path === "string"));
 }
 
 const RECORD_MODE = 0o600;
@@ -83,6 +96,7 @@ export function readTeamLocal(p: Pick<Probes, "readFile" | "home">, slug: string
         creatorPending: { team: parsed.creatorPending.team, ...(typeof parsed.creatorPending.agePublicKey === "string" ? { agePublicKey: parsed.creatorPending.agePublicKey } : {}) },
       } : {}),
       ...(typeof parsed.forgeUsername === "string" && parsed.forgeUsername.trim() !== "" ? { forgeUsername: parsed.forgeUsername.trim() } : {}),
+      ...(pendingPackShares(parsed.pendingPackShares).length > 0 ? { pendingPackShares: pendingPackShares(parsed.pendingPackShares) } : {}),
     };
   } catch {
     return { ...EMPTY };
