@@ -468,6 +468,16 @@ stdout, `out.diagnostic` on stderr), pinned by
 list`, `herd status`, `herd gates`, `pane list` and `agent list` draw
 blocks, and only when a person is at the terminal.
 
+The service verbs (`services`, `apps`, `flavor takeover`, `bg`, `cron`,
+`reconciler`, `endpoint`) draw everything a person reads with blocks and
+keep their `--json` envelopes unchanged. `services`, `apps` and
+`flavor takeover` keep an envelope seam that writes through `out.payload`;
+`bg`, `cron`, `reconciler` and `endpoint` write theirs through `out.json`.
+Human failures go to stderr; the envelopes the tray reads did not change.
+`rt intercept run`'s passthrough notes are plain sentences; only its debug
+traces keep the `rt-intercept:` prefix, because `commands/intercept.ts`
+routes them to the log by that prefix.
+
 ## The TypeScript CLI is UI-free
 
 The rt TS CLI (`commands/`, `lib/`, `cli.ts`, `scripts/`) is pure Bun/TypeScript

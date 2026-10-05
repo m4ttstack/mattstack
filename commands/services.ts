@@ -1,13 +1,16 @@
 /**
- * rt services list|register|restart — thin facade over tray.sock's
+ * rt services list|register|restart: thin facade over tray.sock's
  * /services routes (mattstack.app's LaunchAgent registrar). Used standalone
  * and by the apply engine's services.register step.
  *
  *   rt services list [--json]
- *   rt services register [--plist <name>]… [--json]
+ *   rt services register [--plist <name>]... [--json]
  *   rt services restart <label> [--json]
  */
 
+import * as out from "../lib/ui/out.ts";
+import type { Block, Segment } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { flagValues } from "../lib/cli-args.ts";
 import { processFlavor } from "../lib/flavor.ts";
@@ -19,14 +22,14 @@ import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 export interface ServicesDeps {
   probes: Probes;
   print: (s: string) => void;
-  /** Diagnostics that must never land on stdout (would corrupt --json output) — real default is console.error. */
+  /** Notices must not land inside a JSON envelope on stdout. */
   warn: (s: string) => void;
-  /** Unused by exitUserError, which always calls the real process.exit (repo-wide convention, see commands/team.ts) — this seam only covers the ok:false paths this module controls directly. */
+  /** exitUserError owns its exit; this seam covers result failures. */
   exit?: (code: number) => never;
 }
 
 export function realServicesDeps(): ServicesDeps {
-  return { probes: createRealProbes(), print: (s) => console.log(s), warn: (s) => console.error(s), exit: process.exit };
+  return { probes: createRealProbes(), print: (s) => out.payload(`${s}\n`), warn: (s) => out.note(out.line("warn", s)), exit: process.exit };
 }
 
 interface ServiceAgent {
@@ -40,7 +43,7 @@ interface RegisterReply {
 }
 
 function appNotRunning(json: boolean, verb: string, deps: ServicesDeps): never {
-  exitUserError(new UserActionableError("app-not-running", "mattstack.app is not running — open it, then retry"), json, verb, deps.print);
+  exitUserError(new UserActionableError("app-not-running", "mattstack.app is not open", {}, { why: "rt asks it to manage background services.", next: "open -a mattstack" }), json, verb, deps.print);
 }
 
 function exitWith(deps: ServicesDeps, code: number): never {
@@ -56,7 +59,7 @@ export async function servicesList(args: string[], _ctx: CommandContext = {}, de
   const agents = res.status === 200 ? res.json?.agents : undefined;
   if (!Array.isArray(agents)) {
     exitUserError(
-      new UserActionableError("services-list-failed", `mattstack.app returned an unexpected /services response (status ${res.status})`),
+      new UserActionableError("services-list-failed", "mattstack.app gave an answer rt could not read", {}, { log: `status ${res.status}` }),
       json,
       "services list",
       deps.print,
@@ -67,11 +70,7 @@ export async function servicesList(args: string[], _ctx: CommandContext = {}, de
     deps.print(JSON.stringify(envelope({ agents })));
     return;
   }
-  if (agents.length === 0) {
-    deps.print("rt services list: no registered agents");
-    return;
-  }
-  for (const agent of agents) deps.print(`${agent.label}: ${agent.status}`);
+  out.print(...servicesListBlocks(agents));
 }
 
 export async function servicesRegister(args: string[], _ctx: CommandContext = {}, deps: ServicesDeps = realServicesDeps()): Promise<void> {
@@ -83,7 +82,7 @@ export async function servicesRegister(args: string[], _ctx: CommandContext = {}
   } else {
     const defaults = servicePlists(processFlavor(), deps.probes);
     plists = defaults.plists;
-    if (defaults.deckOmitted) deps.warn("deck not bundled yet — only the daemon is registered");
+    if (defaults.deckOmitted) deps.warn("Only the daemon was registered: this app does not carry deck yet");
   }
 
   const res = await deps.probes.tray<RegisterReply>("/services/register", { method: "POST", body: { plists } });
@@ -95,7 +94,8 @@ export async function servicesRegister(args: string[], _ctx: CommandContext = {}
     if (!ok) exitWith(deps, 1);
     return;
   }
-  deps.print(`rt services register: ${ok ? "ok" : "failed"} (${plists.join(", ")})`);
+  if (ok) out.print(out.line("done", `Registered ${plists.length} background service${plists.length === 1 ? "" : "s"}`, plists.join(", ")));
+  else out.fail({ title: "mattstack.app did not register them", hint: plists.join(", ") });
   if (!ok) exitWith(deps, 1);
 }
 
@@ -120,6 +120,10 @@ export async function servicesRestart(args: string[], _ctx: CommandContext = {},
       if (!picked) process.exit(0);
       label = picked;
     } else {
+      if (!json) {
+        out.fail(usageFailure("Which service?", "rt services restart <label>"));
+        return exitWith(deps, 2);
+      }
       exitUserError(new UserActionableError("usage", "usage: rt services restart <label> [--json]"), json, "services restart", deps.print);
     }
   }
@@ -133,6 +137,24 @@ export async function servicesRestart(args: string[], _ctx: CommandContext = {},
     if (!ok) exitWith(deps, 1);
     return;
   }
-  deps.print(`rt services restart: ${label} — ${ok ? "ok" : "failed"}`);
+  if (ok) out.print(out.line("done", `Restarted ${label}`));
+  else out.fail({ title: `mattstack.app did not restart ${label}` });
   if (!ok) exitWith(deps, 1);
+}
+
+const SERVICE_STATUS: Record<string, { word: string; role: Segment["role"] }> = {
+  enabled: { word: "enabled", role: "running" },
+  requiresApproval: { word: "waiting for your approval", role: "needs-you" },
+  notRegistered: { word: "not registered", role: "off" },
+  notFound: { word: "not found", role: "off" },
+};
+
+export function servicesListBlocks(agents: ServiceAgent[]): Block[] {
+  if (agents.length === 0) return [out.line("skipped", "No background services are registered")];
+  return [out.table(agents.map((a) => {
+    const status = Object.hasOwn(SERVICE_STATUS, a.status)
+      ? SERVICE_STATUS[a.status]!
+      : { word: a.status, role: "skipped" as const };
+    return [out.strong(a.label), { text: status.word, role: status.role }];
+  }))];
 }

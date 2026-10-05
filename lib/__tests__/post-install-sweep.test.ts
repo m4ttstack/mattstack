@@ -34,7 +34,8 @@ import type { ApplyDeps } from "../../commands/setup.ts";
 import type { StepDef } from "../setup/apply.ts";
 import { fakeProbes } from "../setup/__tests__/fakes.ts";
 import { capturePlain } from "../../commands/__tests__/helpers/json-line.ts";
-import type { CapturedOut } from "../ui/__tests__/capture-out.ts";
+import { captureOut, type CapturedOut } from "../ui/__tests__/capture-out.ts";
+import * as ui from "../ui/out.ts";
 import type { RelayClient } from "../team/relay-client.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
 
@@ -58,8 +59,7 @@ const STALE_MATTSTACK = join(HOME, "Applications", "mattstack.app");
 let fakeBinDir = "";
 let logPath = "";
 let originalPath = "";
-let stderrLines: string[] = [];
-let originalConsoleError: typeof console.error;
+let io: CapturedOut | undefined;
 
 function writeFake(name: string, body: string): void {
   const p = join(fakeBinDir, name);
@@ -87,13 +87,13 @@ function setUpFakes(): void {
   originalPath = process.env.PATH ?? "";
   process.env.PATH = `${fakeBinDir}:${originalPath}`;
 
-  stderrLines = [];
-  originalConsoleError = console.error;
-  console.error = (...args: unknown[]) => { stderrLines.push(args.map(String).join(" ")); };
+  io = captureOut({ console: true });
+  ui.__test__.setHuman(() => false);
 }
 
 function tearDownFakes(): void {
-  console.error = originalConsoleError;
+  io?.restore();
+  io = undefined;
   process.env.PATH = originalPath;
   try { rmSync(fakeBinDir, { recursive: true, force: true }); } catch { /* absent */ }
 }
@@ -104,8 +104,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  quiet.restore();
   tearDownFakes();
+  quiet.restore();
   try { rmSync(LEGACY_RT_TRAY, { recursive: true, force: true }); } catch { /* absent */ }
   try { rmSync(STALE_MATTSTACK, { recursive: true, force: true }); } catch { /* absent */ }
 });
@@ -180,7 +180,7 @@ describe("runPostInstall — legacy migration sweep", () => {
     const log = readLog();
     expect(log).toHaveLength(1);
     expect(log[0]).toBe(`launchctl bootout gui/${process.getuid?.() ?? 0}/com.rt.daemon`);
-    expect(stderrLines.join("\n")).not.toContain("NOTE: notification");
+    expect(io!.stderr()).not.toContain("Grant notifications and Full Disk Access to mattstack.app again");
     expect(deps.exitCodes).toEqual([]); // apply ran (a no-op with steps:[]), never refused
   }, 20_000);
 
@@ -200,7 +200,7 @@ describe("runPostInstall — legacy migration sweep", () => {
     expect(log[3]).toContain(LEGACY_RT_TRAY);
     expect(existsSync(LEGACY_RT_TRAY)).toBe(false); // the fake rm really deletes
 
-    expect(stderrLines.join("\n")).toContain("NOTE: notification + full-disk-access permissions must be re-granted");
+    expect(io!.stderr()).toContain("Grant notifications and Full Disk Access to mattstack.app again");
   }, 20_000);
 
   test("stale ~/Applications/mattstack.app, root elsewhere: quit -> bootout com.mattstack.daemon -> rm, no rt-tray leg", async () => {
@@ -258,7 +258,7 @@ describe("runPostInstall — transient app root refusal", () => {
 
     expect(deps.exitCodes).toEqual([2]);
     expect(deps.lines).toEqual([]); // setupApply's own NDJSON/human output never fired
-    expect(stderrLines.join("\n")).toContain("drag mattstack.app to /Applications");
+    expect(io!.stderr()).toContain("Run this from the installed app");
     // The refusal ran before the sweep — not even the unconditional
     // com.rt.daemon bootout fired, and nothing on disk was touched.
     expect(readLog()).toEqual([]);

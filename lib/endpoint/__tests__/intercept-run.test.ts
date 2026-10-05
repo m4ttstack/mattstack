@@ -94,8 +94,28 @@ describe("runInterception", () => {
   test("daemon down (claim → null) → warn once and exec real untouched", async () => {
     const { deps, calls } = harness({ claim: async () => null });
     await run(deps, ["run", "serve"]);
-    expect(calls.warned.some((w) => w.includes("passthrough"))).toBe(true);
+    expect(calls.warned.some((w) => w.includes("ran without an rt port"))).toBe(true);
     expect(calls.exec!.args).toEqual(["run", "serve"]);
+  });
+  test("a passthrough note is one plain sentence; debug traces keep their prefix", async () => {
+    const { deps, calls } = harness({ claim: async () => null });
+    await run(deps, ["run", "serve"]);
+    expect(calls.warned).toContain("fakecmd ran without an rt port: rt could not reserve one for the web role");
+    expect(calls.warned.every((w) => !w.startsWith("rt-intercept:"))).toBe(true);
+    const traced = harness({ claim: async () => null });
+    await run(traced.deps, ["run", "serve"], { RT_INTERCEPT_DEBUG: "1" });
+    expect(traced.calls.warned.some((w) => w.startsWith("rt-intercept: match "))).toBe(true);
+  });
+  test("a missing role names the repo label in its passthrough note", async () => {
+    const { deps, calls } = harness();
+    deps.rules[0]!.matches[0]!.role = "missing";
+    await run(deps, ["run", "serve"]);
+    expect(calls.warned).toEqual(["fakecmd ran without an rt port: r1 has no missing role"]);
+  });
+  test("a malformed claim names the setup failure in its passthrough note", async () => {
+    const { deps, calls } = harness({ claim: async () => ({ ok: true, data: {} }) });
+    await run(deps, ["run", "serve"]);
+    expect(calls.warned).toEqual(["fakecmd ran without an rt port: setting up the web role failed (claim envelope missing port/refs: {})"]);
   });
   test("real binary unresolvable → hard error (never exec the shim recursively)", async () => {
     const { deps } = harness({ resolveRealBinary: () => null });
@@ -115,7 +135,7 @@ describe("runInterception", () => {
   test("malformed ok:true claim envelope → warn and exec real untouched (fails open)", async () => {
     const { deps, calls } = harness({ claim: async () => ({ ok: true, data: {} }) });
     await run(deps, ["run", "serve"], { KEEP_ME: "1" });
-    expect(calls.warned.some((w) => w.includes("passthrough"))).toBe(true);
+    expect(calls.warned.some((w) => w.includes("ran without an rt port"))).toBe(true);
     expect(calls.exec!.args).toEqual(["run", "serve"]); // no argInject spliced
     expect(calls.exec!.env.PORT).toBeUndefined(); // no rendered role env
   });

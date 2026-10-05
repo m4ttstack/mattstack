@@ -15,7 +15,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { flavorTakeover, type TakeoverSeams } from "../flavor.ts";
+import { flavorTakeover, takeoverBlocks, type TakeoverSeams } from "../flavor.ts";
+import type { FailureInput } from "../../lib/ui/out.ts";
+import type { Block } from "../../lib/ui/protocol.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { TRAY_SOCK_PATH } from "../../lib/daemon-config.ts";
 import { DEV_TRAY_APP_NAME, TRAY_APP_BUNDLE, TRAY_APP_NAME } from "../../lib/rt-paths.ts";
 import { deleteKvValue, getKvValue, hasKvValue } from "../../lib/state/index.ts";
@@ -131,18 +134,20 @@ function devSource(): string {
 
 interface Run {
   out: string[];
-  err: string[];
+  printed: Block[];
+  failures: FailureInput[];
   exitCode: number | null;
 }
 
 async function run(args: string[], seams: Partial<TakeoverSeams> = {}): Promise<Run> {
-  const r: Run = { out: [], err: [], exitCode: null };
+  const r: Run = { out: [], printed: [], failures: [], exitCode: null };
   await flavorTakeover(args, {}, {
     exists: isolatedExists,
     resolveSourcePath: () => null,
     ownProdBundle: () => null,
     log: (l) => r.out.push(l),
-    error: (l) => r.err.push(l),
+    print: (...blocks) => r.printed.push(...blocks),
+    fail: (failure) => r.failures.push(failure),
     exit: ((code: number) => { r.exitCode = code; }) as unknown as (code: number) => never,
     ...seams,
   });
@@ -163,6 +168,46 @@ afterEach(() => {
 });
 
 describe("rt flavor takeover", () => {
+  test("the takeover result is one line with what changed under it", () => {
+    expect(renderPlain(takeoverBlocks("dev", ["~/.local/bin/rt runs the source at /code/rt", "booted out com.mattstack.daemon"]))).toBe(
+      "[ok] This Mac now runs the dev app\nwhat changed:\n  ~/.local/bin/rt runs the source at /code/rt\n  booted out com.mattstack.daemon\n",
+    );
+  });
+
+  test("a takeover with nothing changed has only its result line", () => {
+    expect(renderPlain(takeoverBlocks("prod", []))).toBe("[ok] This Mac now runs the prod app\n");
+  });
+
+  test("dev with no source checkout has a plain failure and a next command", async () => {
+    setUpFakes([]);
+    const r = await run(["dev"]);
+    expect(r.exitCode).toBe(2);
+    expect(r.failures[0]?.title).toBe("rt does not know where your rt source is");
+    expect(r.failures[0]?.next).toEqual({ text: "rt settings source-path <path>", role: "command" });
+    expect(r.out).toEqual([]);
+    expect(steps()).toEqual([]);
+  });
+
+  test("a local write failure explains why the app could not be switched", async () => {
+    setUpFakes([]);
+    const src = devSource();
+    const localBin = dirname(WRAPPER_PATH);
+    mkdirSync(dirname(localBin), { recursive: true });
+    rmSync(localBin, { recursive: true, force: true });
+    writeFileSync(localBin, "not a directory");
+    try {
+      const r = await run(["dev"], { resolveSourcePath: () => src });
+      expect(r.exitCode).toBe(2);
+      expect(r.failures[0]?.title).toBe("rt could not switch this Mac to the dev app");
+      expect(r.failures[0]?.why).toContain("EEXIST");
+      expect(r.failures[0]?.why).toContain(localBin);
+      expect(r.out).toEqual([]);
+      expect(steps()).toEqual([]);
+    } finally {
+      rmSync(localBin, { force: true });
+    }
+  });
+
   test("dev over a running prod app: retire, quit by prod's names, then the source wrapper; nothing is opened", async () => {
     setUpFakes(["com.mattstack.daemon"]);
     serveTray("prod");
@@ -179,6 +224,9 @@ describe("rt flavor takeover", () => {
     const wrapper = readFileSync(WRAPPER_PATH, "utf8");
     expect(wrapper).toContain("export MATTSTACK_FLAVOR=dev");
     expect(wrapper).toContain(`"${src}/cli.ts"`);
+    expect(renderPlain(r.printed)).toStartWith("[ok] This Mac now runs the dev app\nwhat changed:\n");
+    expect(renderPlain(r.printed)).toContain(`  ${WRAPPER_PATH} runs the source at ${src}\n`);
+    expect(r.out).toEqual([]);
     expect(getKvValue<{ sourcePath?: string }>("dev-mode", "config", {}).sourcePath).toBe(src);
   }, 15_000);
 
@@ -201,6 +249,8 @@ describe("rt flavor takeover", () => {
     expect(lstatSync(WRAPPER_PATH).isSymbolicLink()).toBe(true);
     expect(readlinkSync(WRAPPER_PATH)).toBe(FAKE_PROD_RT);
     expect(existsSync(PRELOAD)).toBe(false);
+    expect(renderPlain(r.printed)).toStartWith("[ok] This Mac now runs the prod app\nwhat changed:\n");
+    expect(r.out).toEqual([]);
   }, 15_000);
 
   test("the other app not running: its still-loaded jobs are booted out, and no quit is sent to it by AppleScript", async () => {
@@ -298,6 +348,9 @@ describe("rt flavor takeover", () => {
     expect(r.exitCode).toBe(2);
     expect(steps()).toEqual([]);
     expect(readFileSync(WRAPPER_PATH, "utf8")).toContain("mattstack-dev-mode");
+    expect(r.failures[0]?.title).toBe(`${TRAY_APP_BUNDLE} is not installed`);
+    expect(r.failures[0]?.why).toBe("The prod app carries the rt this Mac would run.");
+    expect(r.out).toEqual([]);
   }, 15_000);
 
   test("prod over a standalone rt 2.5.x machine: its markerless source wrapper is replaced, and no dev-mode.json is read", async () => {
@@ -371,8 +424,12 @@ describe("rt flavor takeover", () => {
 
   test("a missing or unknown target is a usage error", async () => {
     setUpFakes([]);
-    expect((await run([])).exitCode).toBe(2);
-    expect((await run(["staging"])).exitCode).toBe(2);
+    for (const args of [[], ["staging"]]) {
+      const r = await run(args);
+      expect(r.exitCode).toBe(2);
+      expect(r.failures[0]?.title).toBe("Which app should this Mac run?");
+      expect(r.out).toEqual([]);
+    }
     expect(steps()).toEqual([]);
   });
 
@@ -408,5 +465,7 @@ describe("rt flavor takeover", () => {
 
     const body = JSON.parse(r.out.join("\n"));
     expect(body).toMatchObject({ ok: true, flavor: "dev", retired: true, rt: WRAPPER_PATH });
+    expect(r.printed).toEqual([]);
+    expect(r.failures).toEqual([]);
   }, 15_000);
 });

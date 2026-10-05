@@ -232,7 +232,7 @@ describe("rt intercept, read by a person", () => {
       expect(warned.filter(isDebugTrace)).toEqual([warned[0]!, warned[1]!]);
       expect(warned[0]).toStartWith("rt-intercept: match ");
       expect(warned[1]).toStartWith("rt-intercept: claim result=");
-      expect(warned[2]).toContain("passthrough");
+      expect(warned[2]).toContain("ran without an rt port");
       expect(isDebugTrace(warned[2]!)).toBe(false);
     });
   });

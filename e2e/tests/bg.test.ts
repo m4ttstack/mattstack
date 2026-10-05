@@ -8,10 +8,8 @@
  * path and answers the herdr JSON-RPC methods the daemon needs (see
  * docs/superpowers/specs/2026-09-09-background-server-design.md).
  *
- * There is no `rt bg` CLI verb (spec: "no compatibility shims beyond
- * bare-ref backcompat"), so the claim-gated stop scenario drives `bg:stop`
- * / `bg:release` through the rt-client wrappers directly against the
- * daemon's own socket, the same transport `rt` itself uses.
+ * The claim-gated stop scenario exercises both the CLI output and the
+ * rt-client wrappers against the isolated daemon socket.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
@@ -305,6 +303,11 @@ describe("rt background server (e2e)", () => {
   });
 
   test("bg lifecycle: ensure via --bg, peek/send/focus, claim-gated stop", async () => {
+    const initialStatus = await finished(runRt(["bg", "status"], home));
+    expect(initialStatus.exitCode).toBe(0);
+    expect(initialStatus.stdout).toBe("[off] The background server is stopped\n[skipped] No live claims\n");
+    expect(initialStatus.stderr).toBe("");
+
     const repo = join(home, "repo");
     mkdirSync(repo, { recursive: true });
 
@@ -318,6 +321,14 @@ describe("rt background server (e2e)", () => {
     const agentId = startData.agent.id;
     const bgRef = formatPaneRef("w1:p1", "bg");
     expect(startData.agent.paneId).toBe(bgRef);
+
+    const runningStatus = await finished(runRt(["bg", "status"], home));
+    expect(runningStatus.exitCode).toBe(0);
+    expect(runningStatus.stdout).toStartWith("[running] The background server is running\n");
+    expect(runningStatus.stdout).toContain("Live claims");
+    expect(runningStatus.stdout).toMatch(new RegExp(`agent:${agentId} +${bgRef} +[0-9]+s`));
+    expect(runningStatus.stdout).not.toContain("herdr.sock");
+    expect(runningStatus.stderr).toBe("");
 
     // The spawn's env is the login-shell probe result, not the PATH the
     // daemon itself runs under.
@@ -378,14 +389,16 @@ describe("rt background server (e2e)", () => {
     expect(journalAfterFocus).toContain("--takeover");
 
     // --- 4: bg:stop is refused while the agent's claim lives, naming it;
-    // release clears it, then stop succeeds. No `rt bg` CLI verb exists
-    // (spec: no shims beyond bare-ref backcompat), so this drives the
-    // daemon socket directly through the same rt-client wrappers `rt`
-    // itself is built on. ---
+    // release clears it, then stop succeeds. ---
     const rtSock = join(home, ".mattstack", "rt", "rt.sock");
     const refused = await bgStop({ sockPath: rtSock });
     expect(refused.ok).toBe(false);
     expect(refused.error).toContain(`agent:${agentId}`);
+
+    const refusedCli = await finished(runRt(["bg", "stop"], home));
+    expect(refusedCli.exitCode).toBe(1);
+    expect(refusedCli.stdout).toBe("");
+    expect(refusedCli.stderr).toBe(`[refused] Left the background server running  it still has live claims: agent:${agentId}\n  next: rt bg release agent:${agentId}\n`);
 
     const released = await bgRelease({ claim: `agent:${agentId}` }, { sockPath: rtSock });
     expect(released.ok).toBe(true);
@@ -394,5 +407,10 @@ describe("rt background server (e2e)", () => {
     const stopped = await bgStop({ sockPath: rtSock });
     expect(stopped.ok).toBe(true);
     expect(stopped.data?.stopped).toBe(true);
+
+    const stoppedCli = await finished(runRt(["bg", "stop"], home));
+    expect(stoppedCli.exitCode).toBe(0);
+    expect(stoppedCli.stdout).toBe("[ok] Stopped the background server\n");
+    expect(stoppedCli.stderr).toBe("");
   }, 60_000);
 });

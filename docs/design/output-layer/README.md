@@ -31,6 +31,7 @@ on a dark and a light terminal background.
 | `repos-dark.png`, `repos-light.png` | `rt repos` at 100 columns: the status tree, register, prune (a gone folder, a duplicate, a kept row), a locate plan, three refused locates (a second copy, the wrong repo, a repo with no remote and its register command), nothing missing, a locate with no terminal and the folders it could be, an unknown repo, a reidentify report and a refused one, a usage failure and a setting warning |
 | `6a-hook-dark.png`, `6a-hook-light.png` | `rt worktree hook install`, `uninstall` and `status` at 100 columns, the missing-binary and not-on-PATH failures, and the two hook-offer warnings. The agent-only verbs (`gate`, `events`, `ci`, `runs`, `mcp`, `claude-hook`) print exactly what they printed before |
 | `6b-herd-pane-agent-dark.png`, `6b-herd-pane-agent-light.png` | `rt herd list`, `status` (a healthy job and every problem line) and `gates`, `rt pane list` with a background pane, and `rt agent list`. Off a terminal these verbs print exactly what they printed before |
+| `6d-services-dark.png`, `6d-services-light.png` | the hidden service verbs at 100 columns: services and apps tables, a flavor takeover, bg and reconciler status, the bg stop refusal, two endpoint lookups, a cron install, the post-install notes, the apps refusal and an endpoint setting warning |
 
 The light pages above the phase 5g section were rendered with
 `COLORFGBG=0;15`, which is how a light terminal that reports its background

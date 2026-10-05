@@ -7,10 +7,13 @@
  *   rt reconciler clear <agentId> [--json]   clear one agent's reconciler state
  */
 import { reconcilerClear as clientClear, reconcilerStatus as clientStatus } from "../packages/rt-client/src/index.ts";
-import type { Commands, RtResponse } from "../packages/rt-client/src/index.ts";
+import type { Commands, ExecutorState, RtResponse } from "../packages/rt-client/src/index.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block, Segment } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 
 function fail(msg: string): never {
-  console.error(`rt reconciler: ${msg}`);
+  out.fail({ title: msg });
   process.exit(1);
 }
 
@@ -26,36 +29,41 @@ function unwrap<T>(res: RtResponse<T>, label: string): T {
   return res.data;
 }
 
-export function renderStatus(data: Commands["reconciler:status"]["data"]): string {
-  const lines = [
-    `swept: ${data.sweptAt > 0 ? new Date(data.sweptAt).toISOString() : "never"}`,
-    `herdr: ${data.herdrReachable ? "reachable" : "unreachable"}`,
-    "",
+const EXECUTOR: Record<ExecutorState, { word: string; role: Segment["role"] }> = {
+  live: { word: "live", role: "running" },
+  blocked: { word: "waiting on you", role: "needs-you" },
+  hidden: { word: "hidden", role: "off" },
+  gone: { word: "gone", role: "warn" },
+  cleared: { word: "cleared", role: "skipped" },
+  unknown: { word: "unknown", role: "skipped" },
+};
+
+export function reconcilerStatusBlocks(data: Commands["reconciler:status"]["data"]): Block[] {
+  const blocks: Block[] = [
+    out.kv("last sweep", data.sweptAt > 0 ? new Date(data.sweptAt).toLocaleString() : "never"),
+    data.herdrReachable ? out.line("done", "herdr is reachable") : out.line("warn", "herdr is not reachable"),
   ];
-  if (data.executors.length === 0) {
-    lines.push("no known executors");
-  } else {
-    lines.push("executors:");
-    const idWidth = Math.max(...data.executors.map((e) => e.agentId.length));
-    for (const e of data.executors) {
-      lines.push(`  ${e.agentId.padEnd(idWidth)}  ${e.state.padEnd(9)}  ${e.paneRef ?? "-"}`);
-    }
-  }
-  return lines.join("\n");
+  if (data.executors.length === 0) return [...blocks, out.line("skipped", "No known executors")];
+  const rows = data.executors.map((e) => {
+    const state = Object.hasOwn(EXECUTOR, e.state) ? EXECUTOR[e.state] : EXECUTOR.unknown;
+    return [out.strong(e.agentId), { text: state.word, role: state.role }, out.dim(e.paneRef ?? "-")];
+  });
+  return [...blocks, out.table(rows)];
 }
 
 export async function reconcilerStatus(args: string[]): Promise<void> {
   const data = unwrap(await clientStatus(), "status");
-  if (args.includes("--json")) return void console.log(JSON.stringify({ ok: true, ...data }));
-  console.log(renderStatus(data));
+  if (args.includes("--json")) return void out.json({ ok: true, ...data });
+  out.print(...reconcilerStatusBlocks(data));
 }
-
-const CLEAR_USAGE = "usage: rt reconciler clear <agentId> [--json]";
 
 export async function reconcilerClear(args: string[]): Promise<void> {
   const agentId = positional(args);
-  if (!agentId) fail(CLEAR_USAGE);
+  if (!agentId) {
+    out.fail(usageFailure("Which agent?", "rt reconciler clear <agentId>"));
+    process.exit(1);
+  }
   const data = unwrap(await clientClear({ agentId }), "clear");
-  if (args.includes("--json")) return void console.log(JSON.stringify({ ok: true, ...data }));
-  console.log(`cleared ${agentId}`);
+  if (args.includes("--json")) return void out.json({ ok: true, ...data });
+  out.print(out.line("done", `Cleared ${agentId}`));
 }

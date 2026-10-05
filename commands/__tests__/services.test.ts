@@ -1,6 +1,16 @@
-import { afterEach, describe, test, expect, spyOn } from "bun:test";
-import { servicesList, servicesRegister, servicesRestart, type ServicesDeps } from "../services.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
+import { beforeEach, afterEach, describe, test, expect, spyOn } from "bun:test";
+import { servicesListBlocks, servicesList, servicesRegister, servicesRestart, type ServicesDeps } from "../services.ts";
 import { fakeProbes, fakeTray } from "../../lib/setup/__tests__/fakes.ts";
+
+let io: CapturedOut;
+beforeEach(() => {
+  io = captureOut();
+  ui.__test__.setHuman(() => false);
+});
+afterEach(() => io.restore());
 
 function baseDeps(overrides: Partial<ServicesDeps> = {}): ServicesDeps & { lines: string[]; warnings: string[]; exitCodes: number[] } {
   const lines: string[] = [];
@@ -48,13 +58,14 @@ describe("servicesList", () => {
     expect(body).toEqual({ contract: 1, agents });
   });
 
-  test("human output lists label: status per agent", async () => {
+  test("human output lists each service and its status in a table", async () => {
     const agents = [{ label: "com.mattstack.daemon", status: "enabled" }];
     const deps = baseDeps({ probes: fakeProbes({ home: "/home/x", tray: fakeTray({ "GET /services": () => ({ status: 200, json: { agents } }) }) }) });
 
     await servicesList([], {}, deps);
 
-    expect(deps.lines).toEqual(["com.mattstack.daemon: enabled"]);
+    expect(io.stdout()).toBe(renderPlain(servicesListBlocks(agents)));
+    expect(deps.lines).toEqual([]);
   });
 
   test("a real 200 with an empty agents array is honestly empty, not an error", async () => {
@@ -62,7 +73,7 @@ describe("servicesList", () => {
 
     await servicesList([], {}, deps);
 
-    expect(deps.lines).toEqual(["rt services list: no registered agents"]);
+    expect(io.stdout()).toBe("[skipped] No background services are registered\n");
   });
 
   test("tray unreachable (status 0) exits 2 with app-not-running", async () => {
@@ -140,7 +151,7 @@ describe("servicesRegister", () => {
     const body = JSON.parse(deps.lines[0]!);
     expect(body.ok).toBe(true);
     expect(body.plists).toEqual(["com.mattstack.daemon.plist"]);
-    expect(deps.warnings).toEqual(["deck not bundled yet — only the daemon is registered"]);
+    expect(deps.warnings).toEqual(["Only the daemon was registered: this app does not carry deck yet"]);
   });
 
   test("explicit --plist (repeatable, space form) overrides the default set and suppresses the warning", async () => {
@@ -262,4 +273,30 @@ describe("servicesRestart", () => {
     const body = JSON.parse(deps.lines[0]!);
     expect(body.error.code).toBe("app-not-running");
   });
+});
+
+test("services list gives approval and stopped services their own states", () => {
+  const blocks = servicesListBlocks([
+    { label: "daemon", status: "enabled" },
+    { label: "deck", status: "requiresApproval" },
+    { label: "other", status: "notRegistered" },
+  ]);
+  expect(renderPlain(blocks)).toMatch(/daemon +enabled\ndeck +waiting for your approval\nother +not registered\n/);
+  expect(JSON.stringify(blocks)).toContain('"role":"needs-you"');
+});
+
+test("unknown service statuses keep their own words and use skipped", () => {
+  const blocks = servicesListBlocks([
+    { label: "a", status: "futureState" },
+    { label: "b", status: "constructor" },
+    { label: "c", status: "__proto__" },
+  ]);
+  expect(renderPlain(blocks)).toBe("a  futureState\nb  constructor\nc  __proto__\n");
+  expect(blocks).toMatchObject([{
+    rows: [
+      { cells: [[{ text: "a" }], [{ text: "futureState", role: "skipped" }]] },
+      { cells: [[{ text: "b" }], [{ text: "constructor", role: "skipped" }]] },
+      { cells: [[{ text: "c" }], [{ text: "__proto__", role: "skipped" }]] },
+    ],
+  }]);
 });
