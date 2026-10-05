@@ -29,11 +29,14 @@ export const ALL_TURN: TurnConfig = {
 
 function pick<T extends string>(v: unknown, all: readonly T[]): T[] {
   if (!Array.isArray(v)) return [...all];
-  return all.filter(s => v.includes(s));
+  if (v.length === 0) return [];
+  const known = all.filter(s => v.includes(s));
+  return known.length > 0 ? known : [...all];
 }
 
-/** board.turn as stored; anything malformed falls open to every signal so a
-    bad team write can never empty the board. */
+/** board.turn as stored. A list that is absent, not an array, or non-empty
+    with no known signal name falls open to every signal, so a bad team write
+    can never empty the board; only an explicit `[]` means none. */
 export function resolveTurnConfig(raw: unknown): TurnConfig {
   const r =
     typeof raw === 'object' && raw !== null && !Array.isArray(raw)
@@ -46,6 +49,7 @@ export function resolveTurnConfig(raw: unknown): TurnConfig {
 }
 
 export function authorTurn(mr: BoardMR, cfg: TurnConfig): AuthorSignal | null {
+  if (mr.mergeButton?.loading) return null;
   const on = (s: AuthorSignal) => cfg.author.includes(s);
   const b = mr.blockers;
   if (on('threads') && (mr.threadSummary?.awaiting ?? 0) > 0) return 'threads';

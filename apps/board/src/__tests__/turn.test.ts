@@ -48,6 +48,10 @@ describe('resolveTurnConfig', () => {
     expect(resolveTurnConfig({ author: [] }).author).toEqual([]);
     expect(resolveTurnConfig({ author: [] }).reviewer).toEqual(ALL_TURN.reviewer);
   });
+  test('a non-empty list of only unknown names falls open to every signal', () => {
+    expect(resolveTurnConfig({ author: ['bogus'] }).author).toEqual(ALL_TURN.author);
+    expect(resolveTurnConfig({ reviewer: ['x', 'y'] }).reviewer).toEqual(ALL_TURN.reviewer);
+  });
   test('unknown names are dropped, order follows the canonical list', () => {
     expect(resolveTurnConfig({ author: ['ciFailing', 'bogus', 'threads'] }).author)
       .toEqual(['threads', 'ciFailing']);
@@ -55,6 +59,14 @@ describe('resolveTurnConfig', () => {
 });
 
 describe('authorTurn', () => {
+  test('a merge in flight is nobody\'s turn', () => {
+    const m = mr({
+      mergeButton: { visible: true, disabled: false, loading: true },
+      reviews: { isApproved: true, required: 1, given: 1, reviewers: [] },
+      blockers: { ...NO_BLOCKERS, hasConflicts: true },
+    });
+    expect(authorTurn(m, ALL_TURN)).toBeNull();
+  });
   test('each signal fires on its own', () => {
     expect(authorTurn(mr({ threadSummary: { awaiting: 1, replied: 0, resolved: 0 } }), ALL_TURN)).toBe('threads');
     expect(authorTurn(blocked({ hasConflicts: true }), ALL_TURN)).toBe('conflicts');
