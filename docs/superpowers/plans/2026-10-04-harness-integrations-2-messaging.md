@@ -13,7 +13,9 @@
 ## Global Constraints
 
 Inherit the [parent plan](2026-10-04-harness-integrations.md), its types and
-F1–F6. “Current Claude behavior is the compatibility reference, particularly
+F1–F6. **Provisional:** re-planned from the F1 gating spike's exit report
+before execution. M1 and M3 absorb RT-408's delivery router as the Claude
+messaging mechanism; there is one delivery path per harness. “Current Claude behavior is the compatibility reference, particularly
 for chat and gates.” “Transport submission is not proof of consumption or
 action.” “Neither integration promises exactly-once model action.”
 Read the root AGENTS chat/gate instructions and referenced identity, delivery
@@ -117,7 +119,8 @@ constituent IDs rather than replacing them with a new logical identity.
 `marketplace/plugins/chat/hooks/hooks.json`;
 create `lib/daemon/__tests__/chat-harness-continuity.test.ts`.
 
-**Interfaces:** Consume F4 `resolveCallerContext` and M2 `deliverPeerInput`.
+**Interfaces:** Consume F4 `resolveCallerContext` (which already moved the
+`chat_post`/`chat_dm` tools in `lib/mcp/tools.ts` onto it) and M2 `deliverPeerInput`.
 Produce `applySessionPresence(binding: SessionBinding, event: 'start' | 'resume' | 'compact' | 'end'): Promise<void>`
 in `lib/agent-integrations/presence.ts` (create). Sign-in still uses the
 existing chat identity store and authorized continuation paths.
