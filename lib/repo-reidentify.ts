@@ -32,7 +32,7 @@ export interface ReidentifyReport {
   to: IdentityPair;
   dryRun: boolean;
   stores: StoreReport[];
-  /** True when no store is refused. */
+  /** True when no store is refused; a skipped store does not count against it. */
   ok: boolean;
 }
 

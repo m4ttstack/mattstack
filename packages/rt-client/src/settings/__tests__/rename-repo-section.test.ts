@@ -95,24 +95,24 @@ describe("renameRepoSection", () => {
       return { orgStore: seeded.orgStore, teamStore: seeded.teamStores.widgets!, home };
     }
 
-    test("is refused for a member through a symlinked home", () => {
+    test("is not changed by a member through a symlinked home", () => {
       const { orgStore, teamStore, home } = seedMember();
       const link = join(dir, "home-link");
       symlinkSync(home, link);
       for (const real of [orgStore, teamStore]) {
         const before = readFileSync(real, "utf8");
         const r = renameRepoSection(join(link, real.slice(home.length)), OLD, NEW);
-        expect(r.status).toBe("refused");
+        expect(r.status).toBe("skipped");
         expect(readFileSync(real, "utf8")).toBe(before);
       }
     });
 
-    test("is refused for a member through an unnormalized path", () => {
+    test("is not changed by a member through an unnormalized path", () => {
       const { orgStore } = seedMember();
       const before = readFileSync(orgStore, "utf8");
       const spelled = orgStore.replace("/mattstack/org/", "/mattstack/./teams/../org/");
       expect(spelled).not.toBe(orgStore);
-      expect(renameRepoSection(spelled, OLD, NEW).status).toBe("refused");
+      expect(renameRepoSection(spelled, OLD, NEW).status).toBe("skipped");
       expect(readFileSync(orgStore, "utf8")).toBe(before);
     });
   });

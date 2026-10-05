@@ -93,7 +93,7 @@ import { baselinesOf, baselinesToRecord, currentStoreName, MIGRATED_PROP, olderS
 import { activeTeam, readOrgRoles } from "./active-team.ts";
 import { machineSettingsPath, orgDir, orgSettingsPath, teamSettingsPath, teamsDir, userSettingsPath } from "./paths.ts";
 import { getDef, isMigrated, isRetiredKey, type SettingDef, type SettingScope } from "./registry-machinery.ts";
-import { roleOf, writeRefusalFor } from "./org-roles.ts";
+import { roleOf, writeRefusalFor, type OrgRole } from "./org-roles.ts";
 import { getSetting } from "./resolve.ts";
 import { currentOrg, readStore, TEAM_NAME_RE } from "./stores.ts";
 import { readForgeUsername } from "./team-local-read.ts";
@@ -365,10 +365,15 @@ function migratedFalseMessage(key: string, def: SettingDef): string {
 }
 
 /** A shared store is written only by a role that owns its file: an org admin, or the team's owner for a team folder. */
-function refuseUnlessOwned(org: string, storePath: string): void {
+function ownershipRefusal(org: string, storePath: string): { role: OrgRole; refusal: { message: string; why: string } | null } {
   const relPath = relative(orgDir(org), storePath).split(sep).join("/");
   const roles = readOrgRoles(org);
-  const refusal = writeRefusalFor(roleOf(readForgeUsername(org), roles), roles, relPath);
+  const role = roleOf(readForgeUsername(org), roles);
+  return { role, refusal: writeRefusalFor(role, roles, relPath) };
+}
+
+function refuseUnlessOwned(org: string, storePath: string): void {
+  const { refusal } = ownershipRefusal(org, storePath);
   if (refusal) refuse(`${refusal.message.replace(/^rt /, "")}. ${refusal.why}`);
 }
 
@@ -622,7 +627,7 @@ export function storeUnparseable(storePath: string): boolean {
   }
 }
 
-export type SectionRename = "moved" | "already" | "none" | "refused";
+export type SectionRename = "moved" | "already" | "none" | "refused" | "skipped";
 
 /**
  * Moves one `repos.<oldId>` section onto `repos.<newId>` in a single store
@@ -661,7 +666,16 @@ export function renameRepoSection(
     // Any spelling of a path inside an org clone (a symlinked HOME, an
     // unnormalized path) has to reach the role check.
     const [org, ...rest] = relative(realPathOf(teamsDir()), realPathOf(storePath)).split(sep);
-    if (org && org !== ".." && !isAbsolute(org) && rest.length > 0) refuseUnlessOwned(org, join(orgDir(org), ...rest));
+    if (org && org !== ".." && !isAbsolute(org) && rest.length > 0) {
+      const inOrg = join(orgDir(org), ...rest);
+      const { role, refusal } = ownershipRefusal(org, inOrg);
+      // A member or owner is never meant to change another layer's shared
+      // file, so that is not a failure of the rename; an unknown role is.
+      if (refusal && (role.kind === "member" || role.kind === "owner")) {
+        return { status: "skipped", keys, detail: `Not yours to change. ${refusal.message}. ${refusal.why}` };
+      }
+      refuseUnlessOwned(org, inOrg);
+    }
     if (opts.dryRun) return { status: "moved", keys };
     if (!interrupted) writeIntoStore(storePath, () => [{ path: ["repos", newId], value: oldSection }], false);
     removeFromStore(storePath, () => [["repos", oldId]]);

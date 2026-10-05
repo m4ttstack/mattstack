@@ -141,17 +141,17 @@ describe("reidentify", () => {
       const before = paths.map((path) => readFileSync(path, "utf8"));
       const r = await reidentify(OLD_RAW, NEW_RAW);
       if ("error" in r) throw new Error(r.error);
-      expect(r.ok).toBe(username === "dev1");
+      expect(r.ok).toBe(username !== undefined);
       for (const [i, path] of paths.entries()) {
         const owns = username === "dev1" || (username === "dev2" && i === 1);
         const label = `settings:shared:${path.slice(teamsDir().length + 1)}`;
-        expect(r.stores.find((store) => store.store === label)?.status).toBe(owns ? "moved" : "refused");
+        expect(r.stores.find((store) => store.store === label)?.status).toBe(owns ? "moved" : username === undefined ? "refused" : "skipped");
         if (owns) {
           expect(readStore(path).repos[NEW_RAW]).toEqual(section.repos[OLD_RAW]);
           expect(readStore(path).repos[OLD_RAW]).toBeUndefined();
         } else {
           expect(readFileSync(path, "utf8")).toBe(before[i]!);
-          if (i === 0 && username === "dev4") expect(r.stores.find(store => store.store === label)?.detail).toBe("The org's shared files belong to its admins. Ask dev1 (an org admin) to make this change.");
+          if (i === 0 && username === "dev4") expect(r.stores.find(store => store.store === label)?.detail).toBe("Not yours to change. The org's shared files belong to its admins. Ask dev1 (an org admin) to make this change.");
         }
       }
       expect(r.stores.find((store) => store.store === "settings:user")?.status).toBe("moved");
