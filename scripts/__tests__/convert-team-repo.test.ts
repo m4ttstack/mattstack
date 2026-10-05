@@ -7,6 +7,7 @@ import { machineSettingsPath } from "../../lib/rt-paths.ts";
 import { childEnv } from "../../lib/subprocess.ts";
 import { readZonesFrom, type InitFs } from "../../lib/skills/init.ts";
 import { parse } from "jsonc-parser";
+import { parse as parseYaml } from "yaml";
 import { planConversion, type ConvertInput } from "../lib/convert-team-repo.ts";
 
 const SHARED = "gitlab.example.com/acme/widgets";
@@ -167,6 +168,65 @@ describe("planConversion", () => {
     expect(plan.moves).toContainEqual(["mattstack/secrets", "mattstack/org/secrets"]);
     expect(plan.writes[".sops.yaml"]).toBe("creation_rules:\n  - path_regex: mattstack/org/secrets/.*\n    age: age1aaa,age1bbb\n");
     expect(plan.writes[".gitignore"]).toBe("mattstack/org/secrets/*.tmp\n.DS_Store\n");
+  });
+
+  test("a comment cannot hide an actual anchored secrets rule with a nonliteral suffix", () => {
+    const sops = "# Old standard rule: mattstack/secrets/.*\ncreation_rules:\n  - path_regex: '^mattstack/secrets/[^/]+$'\n    age: age1aaa,age1bbb # preserve recipients\n";
+    const plan = run(oldClone({ ".sops.yaml": sops }));
+    const rewritten = plan.writes[".sops.yaml"]!;
+    const rule = parseYaml(rewritten).creation_rules[0];
+    expect(rule.path_regex).toBe("^mattstack/org/secrets/[^/]+$");
+    expect(new RegExp(rule.path_regex).test("mattstack/org/secrets/rt.json")).toBe(true);
+    expect(rule.age).toBe("age1aaa,age1bbb");
+    expect(rewritten).toContain("# Old standard rule: mattstack/secrets/.*");
+    expect(rewritten).toContain("# preserve recipients");
+    expect(plan.report.filter(line => line.includes(".sops.yaml"))).toEqual([]);
+  });
+
+  test("a comment-only standard path never qualifies an unmatched creation rule", () => {
+    const sops = "# Old standard rule: mattstack/secrets/.*\ncreation_rules:\n  - path_regex: other/secrets/.*\n    age: age1aaa,age1bbb\n";
+    const plan = run(oldClone({ ".sops.yaml": sops }));
+    expect(plan.writes[".sops.yaml"]).toBeUndefined();
+    expect(plan.report.join("\n")).toContain("fix its path_regex by hand");
+  });
+
+  test("every literal old-path branch in a supported creation rule follows the secrets move", () => {
+    const sops = "creation_rules:\n  - path_regex: ^mattstack/secrets/rt.json$|^mattstack/secrets/forge.json$\n    age: age1aaa,age1bbb\n";
+    const plan = run(oldClone({ ".sops.yaml": sops }));
+    const rule = parseYaml(plan.writes[".sops.yaml"]!).creation_rules[0];
+    expect(rule.path_regex).toBe("^mattstack/org/secrets/rt.json$|^mattstack/org/secrets/forge.json$");
+    expect(new RegExp(rule.path_regex).test("mattstack/org/secrets/forge.json")).toBe(true);
+    expect(rule.age).toBe("age1aaa,age1bbb");
+  });
+
+  test("moving secrets without a sops file names the missing creation rule", () => {
+    const input = oldClone();
+    delete input.files[".sops.yaml"];
+    const plan = run(input);
+    expect(plan.moves).toContainEqual(["mattstack/secrets", "mattstack/org/secrets"]);
+    expect(plan.writes[".sops.yaml"]).toBeUndefined();
+    expect(plan.report.join("\n")).toContain(".sops.yaml");
+    expect(plan.report.join("\n")).toContain("missing");
+  });
+
+  test("a genuinely unmatched or unsupported rule stays unchanged and requires manual review", () => {
+    for (const pattern of ["other/secrets/.*", "^mattstack/(secrets)/.*"]) {
+      const sops = `creation_rules:\n  - path_regex: ${pattern}\n    age: age1aaa,age1bbb\n`;
+      const plan = run(oldClone({ ".sops.yaml": sops }));
+      expect(plan.writes[".sops.yaml"]).toBeUndefined();
+      expect(plan.report.join("\n")).toContain("fix its path_regex by hand");
+    }
+  });
+
+  test("only creation rule paths change, while comments, recipients and unrelated rules remain", () => {
+    const sops = "# mattstack/secrets/.* stays in this comment\ncreation_rules:\n  - path_regex: mattstack/secrets/.* # rule comment\n    age: age1aaa,age1bbb\n  - path_regex: other/secrets/.*\n    age: age1ccc\nmetadata: mattstack/secrets/.*\n";
+    const plan = run(oldClone({ ".sops.yaml": sops }));
+    const rewritten = plan.writes[".sops.yaml"]!;
+    const doc = parseYaml(rewritten);
+    expect(doc.creation_rules).toEqual([{ path_regex: "mattstack/org/secrets/.*", age: "age1aaa,age1bbb" }, { path_regex: "other/secrets/.*", age: "age1ccc" }]);
+    expect(doc.metadata).toBe("mattstack/secrets/.*");
+    expect(rewritten).toContain("# mattstack/secrets/.* stays in this comment");
+    expect(rewritten).toContain("# rule comment");
   });
 
   test("the pack moves into its team folder, the base into the org, the marketplace follows and the version is bumped", () => {
