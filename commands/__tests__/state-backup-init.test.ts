@@ -56,26 +56,31 @@ describe("state backup init", () => {
     }
   });
 
-  it("init stops at the stage that failed and says so", async () => {
-    const tools = await import("../../lib/state/backup-tools.ts");
-    const ageKey = await import("../../lib/home/age-key.ts");
-    const found = spyOn(tools, "findBackupTool").mockReturnValue("/usr/bin/true");
-    const spawn = spyOn(Bun, "spawnSync").mockReturnValue({ exitCode: 1, stdout: Buffer.from(""), stderr: Buffer.from("lfs: hooks are locked") } as never);
-    const keychain = spyOn(ageKey, "ensureAgeKey").mockImplementation(async () => { throw new Error("the keychain must not be touched"); });
-    mkdirSync(join(home, ".mattstack", "user", ".git"));
-    const io = captureOut({ console: true });
-    ui.__test__.setHuman(() => false);
-    const exit = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit 1"); });
-    try {
-      const { stateBackupInit } = await import("../state-backup-init.ts");
-      await expect(stateBackupInit([], {})).rejects.toThrow("exit 1");
-      expect(io.stdout()).toContain("[ok] age, zstd and git-lfs are here");
-      expect(io.stdout()).toContain("[failed] Git LFS did not install");
-      expect(io.stderr()).toContain("Git LFS did not install in your home repo");
-      expect(io.stderr()).toContain("lfs: hooks are locked");
-      expect(keychain).not.toHaveBeenCalled();
-    } finally { exit.mockRestore(); keychain.mockRestore(); spawn.mockRestore(); found.mockRestore(); io.restore(); }
-  });
+  for (const childOutput of ["lfs: hooks are locked", "lfs: hooks are locked\nsecond child line"]) {
+    it(`init stops at the failed LFS stage and captions ${childOutput.split("\n").length} child lines`, async () => {
+      const tools = await import("../../lib/state/backup-tools.ts");
+      const ageKey = await import("../../lib/home/age-key.ts");
+      const found = spyOn(tools, "findBackupTool").mockReturnValue("/usr/bin/true");
+      const spawn = spyOn(Bun, "spawnSync").mockReturnValue({ exitCode: 1, stdout: Buffer.from(""), stderr: Buffer.from(childOutput) } as never);
+      const keychain = spyOn(ageKey, "ensureAgeKey").mockImplementation(async () => { throw new Error("the keychain must not be touched"); });
+      mkdirSync(join(home, ".mattstack", "user", ".git"));
+      const io = captureOut({ console: true });
+      ui.__test__.setHuman(() => false);
+      const exit = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit 1"); });
+      try {
+        const { stateBackupInit } = await import("../state-backup-init.ts");
+        await expect(stateBackupInit([], {})).rejects.toThrow("exit 1");
+        expect(io.stdout()).toContain("[ok] age, zstd and git-lfs are here");
+        expect(io.stdout()).toContain("[failed] Git LFS did not install");
+        expect(io.stderr()).toContain("Git LFS did not install in your home repo");
+        expect(io.stdout()).toContain("[failed] Git LFS did not install in your home repo  lfs: hooks are locked\n");
+        expect(io.stderr()).toBe(`Git LFS did not install in your home repo\nwhat failed:\n${childOutput.split("\n").map(line => `  ${line}`).join("\n")}\n`);
+        expect(exit).toHaveBeenCalledWith(1);
+        expect(keychain).not.toHaveBeenCalled();
+      } finally { exit.mockRestore(); keychain.mockRestore(); spawn.mockRestore(); found.mockRestore(); io.restore(); }
+    });
+
+  }
 
   for (const scenario of ["success", "no sources", "LFS unconfirmed", "backup errors", "verification errors"] as const) {
     it(`runs safe fake stages: ${scenario}`, async () => {
@@ -96,7 +101,7 @@ describe("state backup init", () => {
       const read = spyOn(age, "readAgeKey").mockImplementation(async () => { events.push("read"); return { key: "fake private key" } as never; });
       const full = spyOn(backup, "runFullBackup").mockImplementation(async () => {
         events.push("backup");
-        return { backed: scenario === "no sources" ? [] : [{ app: "rt", sizeBytes: 2048, path: join(home, "copy.age") }], errors: scenario === "backup errors" ? ["snapshot failed"] : [] } as never;
+        return { backed: scenario === "no sources" ? [] : [{ app: "rt", sizeBytes: 2048, path: join(home, "copy.age") }], errors: scenario === "backup errors" ? ["snapshot failed\nfirst source details", "second source failed"] : [] } as never;
       });
       const restore = spyOn(pipeline, "restorePipelineFromStdin").mockImplementation(async () => { events.push("decrypt"); if (scenario === "verification errors") throw new Error("decrypt failed"); });
       mkdirSync(join(home, ".mattstack", "user", ".git"));
@@ -111,6 +116,13 @@ describe("state backup init", () => {
           expect(io.stderr()).toContain(scenario === "backup errors" ? "The first backup did not finish" : "A backup could not be decrypted");
           expect(events).toEqual(scenario === "backup errors" ? ["install", "key", "backup"] : ["install", "key", "backup", "read", "decrypt"]);
           expect(io.stdout()).not.toContain("Encrypted backup is set up");
+          if (scenario === "backup errors") {
+            expect(io.stderr()).toBe("The first backup did not finish\nwhat failed:\n  snapshot failed\n  first source details\n  second source failed\n");
+            expect(io.stdout()).toContain("[failed] The first backup did not finish  snapshot failed\n");
+          } else {
+            expect(io.stderr()).toBe("A backup could not be decrypted\nwhat failed:\n  decrypt failed\n");
+          }
+          expect(exit).toHaveBeenCalledWith(1);
         } else {
           await stateBackupInit([], {});
           const text = io.stdout();

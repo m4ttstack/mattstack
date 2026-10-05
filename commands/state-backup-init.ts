@@ -58,7 +58,7 @@ export async function stateBackupInit(_args: string[], _ctx: CommandContext = {}
         }
       }, opts);
     } catch (err) {
-      out.fail({ title: failure, details: err instanceof Error ? err.message : String(err) });
+      out.fail({ title: failure }, out.verbatim((err instanceof Error ? err.message : String(err)).split("\n"), "what failed"));
       process.exit(1);
     }
   }
@@ -83,7 +83,7 @@ export async function stateBackupInit(_args: string[], _ctx: CommandContext = {}
   });
   const result = await stage("Backing up for the first time", result => `Backed up ${result.backed.length} source(s)`, "The first backup did not finish", async () => {
     const result = await runFullBackup();
-    if (result.errors.length) throw new Error(result.errors.join(", "));
+    if (result.errors.length) throw new Error(result.errors.join("\n"));
     return result;
   }, result => `${result.backed.map(b => `${b.app}: ${b.sizeBytes < 1048576 ? `${Math.round(b.sizeBytes / 1024)} KB` : `${(b.sizeBytes / 1048576).toFixed(1)} MB`}`).join(", ")}`);
   await stage("Checking a backup can be decrypted", "A backup decrypts", "A backup could not be decrypted", async () => {

@@ -105,7 +105,7 @@ test("local restore pins ok, restored and from", async () => {
   expectJson({ ok: true, restored: stateDbPath(), from: source });
 });
 
-for (const errors of [[], ["rt: damaged copy"]]) {
+for (const errors of [[], ["rt: damaged copy"], ["board: damaged\nchecksum mismatch", "console: busy"]]) {
   test(`encrypted dry-run restore pins result and exit code with ${errors.length} errors`, async () => {
     const result = { restored: [{ app: "rt", targetPath: "/t/state.db" }], skipped: ["chat"], errors };
     spies.push(spyOn(restore, "restoreFromBackup").mockResolvedValue(result));
@@ -264,12 +264,12 @@ for (const thrown of [false, true]) {
 for (const dryRun of [false, true]) {
   test(`human encrypted restore shows ${dryRun ? "proposed" : "restored"} rows, skips and errors`, async () => {
     spies.push(spyOn(restore, "pullHomeRepo").mockResolvedValue({ pullOk: true, lfsOk: true }));
-    spies.push(spyOn(restore, "restoreFromBackup").mockResolvedValue({ restored: [{ app: "rt", targetPath: "/t/state.db" }], skipped: ["chat: no backup"], errors: ["board: damaged", "console: busy"] }));
+    spies.push(spyOn(restore, "restoreFromBackup").mockResolvedValue({ restored: [{ app: "rt", targetPath: "/t/state.db" }], skipped: ["chat: no backup"], errors: ["board: damaged\nchecksum mismatch", "console: busy"] }));
     await stateRestore(["--from-backup", "--identity", identity(), "--force", ...(dryRun ? ["--dry-run"] : [])]);
     expect(io.stdout()).toContain(dryRun ? "Would restore\n" : "Restored\n");
     expect(io.stdout()).toContain("/t/state.db");
     expect(io.stdout()).toContain("[skipped] chat: no backup\n");
-    expect(io.stderr()).toBe("Some backups were not restored\n  board: damaged\n  console: busy\n");
+    expect(io.stderr()).toBe("Some backups were not restored\nwhat failed:\n  board: damaged\n  checksum mismatch\n  console: busy\n");
     expect(process.exitCode).toBe(1);
     process.exitCode = 0;
   });

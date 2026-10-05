@@ -228,7 +228,7 @@ async function stateRestoreFromBackup(args: string[]): Promise<void> {
   for (const skipped of result.skipped) blocks.push(out.line("skipped", skipped));
   if (blocks.length > 0) out.print(...blocks);
   if (result.errors.length > 0) {
-    out.fail({ title: "Some backups were not restored", details: result.errors.join("\n") });
+    out.fail({ title: "Some backups were not restored" }, out.verbatim(result.errors, "what failed"));
     process.exitCode = 1;
   }
 }

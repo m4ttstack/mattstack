@@ -14,16 +14,17 @@ function assertRenderedFailure(screen: string): void {
     "✗ Git LFS did not install in your home repo",
   ]);
   const final = rows.indexOf("✗ Git LFS did not install in your home repo");
-  expect(rows[final + 1]).toBe("hooks-locked");
+  expect(rows[final + 1]).toBe("what failed");
+  expect(rows[final + 2]).toBe("│ hooks-locked");
   expect(screen).not.toContain("rt could not draw a progress line");
 }
 
-const renderedFailure = "  ✓ age, zstd and git-lfs are here\n  ✗ Git LFS did not install in your home repo  hooks-locked\n  ✗ Git LFS did not install in your home repo\n    hooks-locked\n";
+const renderedFailure = "  ✓ age, zstd and git-lfs are here\n  ✗ Git LFS did not install in your home repo  hooks-locked\n  ✗ Git LFS did not install in your home repo\n    what failed\n    │ hooks-locked\n";
 
 test("PTY evidence rejects a missing retained stage, missing final failure and helper fallback", () => {
   for (const screen of [
     renderedFailure.replace("  ✗ Git LFS did not install in your home repo  hooks-locked\n", ""),
-    renderedFailure.replace("  ✗ Git LFS did not install in your home repo\n    hooks-locked\n", ""),
+    renderedFailure.replace("  ✗ Git LFS did not install in your home repo\n    what failed\n    │ hooks-locked\n", ""),
     renderedFailure + "rt could not draw a progress line\n",
   ]) {
     expect(() => assertRenderedFailure(screen)).toThrow();
