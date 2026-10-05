@@ -278,12 +278,14 @@ converted failure is the team secrets file a Mac's age key cannot open
 goes to the log, never the screen.
 
 `lib/__tests__/no-raw-output.test.ts` fails a PR that adds `console.log`,
-`console.error`, `console.warn` or `console.info`, any
-use of `process.stdout` or `process.stderr` beyond reading `isTTY`,
-`columns`, `rows` or `fd` and attaching listeners, a raw escape or a color
-import in `cli.ts` or under `commands/` or `lib/`. Its allowlist
-(`raw-output-allowlist.json`) names the files not yet converted and only
-shrinks: converting a file means deleting its line.
+`console.error`, `console.warn` or `console.info`, any use of
+`process.stdout` or `process.stderr` beyond reading `isTTY`, `columns`,
+`rows` or `fd` and attaching listeners, a raw escape or a color import, in
+`cli.ts` or under `commands/` or `lib/` outside `lib/ui/`. There is no
+allowlist: every print goes through the layer. A file that must touch a
+stream directly (a logger, an escape parser) is listed in
+`lib/__tests__/raw-output-exemptions.json` with its reason and its exact
+count of raw lines; the guard fails if the count moves either way.
 
 `out.note(...blocks)` prints for a person on stderr whatever the verb: use it
 for a notice that fires before the verb is known or under any verb, since

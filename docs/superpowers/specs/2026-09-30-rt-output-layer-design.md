@@ -2,6 +2,8 @@
 
 Ticket: RT-369. Date: 2026-09-30.
 
+Status: done. Every phase shipped; the raw-output allowlist is gone and the color modules are deleted (phase 6k).
+
 ## Problem
 
 A person running rt at a terminal sees output that reads as broken when it is not.
@@ -198,7 +200,7 @@ It fails when a file under `commands/` or `lib/` does any of:
 - contain a raw `\x1b[` literal;
 - call `console.log`, `console.error`, `console.warn`, `process.stdout.write` or `process.stderr.write`.
 
-The test starts with an allowlist of every current offender. Each phase removes the files it converts. The project is done when the allowlist is empty, at which point `lib/ansi.ts`, the `lib/tui.ts` shim and any unused part of `lib/tui/palette.ts` are deleted.
+The test starts with an allowlist of every current offender. Each phase removes the files it converts. The project is done when the allowlist is empty, at which point `lib/ansi.ts`, the `lib/tui.ts` shim and any unused part of `lib/tui/palette.ts` are deleted. Done in phase 6k; three logging and parsing seams remain on the exemption list.
 
 Some offenders never print for a person: agent-only verbs (`commands/gate.ts`, `events.ts`, `mcp.ts`), logging seams (`lib/daemon-logger.ts`, `lib/cli-logger.ts`) and protocol writers. They leave the allowlist one of two ways, decided by the phase that reaches them (phase 6 takes whatever is left):
 
