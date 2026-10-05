@@ -17,6 +17,15 @@ let read = readSetting;
 let isTTY = realTTY;
 let cached: BackgroundSetting | undefined;
 let resolved: Resolved | undefined;
+// A terminal that did not answer once will not answer the next step either.
+let settleTried = false;
+
+/** True the first time a process asks to settle auto; false after, answer or not. */
+export function claimSettle(): boolean {
+  if (settleTried) return false;
+  settleTried = true;
+  return true;
+}
 
 /** Read once per process: every print would otherwise reread the stores. */
 export function backgroundSetting(): BackgroundSetting {
@@ -69,6 +78,7 @@ export const __test__ = {
   reset(): void {
     cached = undefined;
     resolved = undefined;
+    settleTried = false;
     read = readSetting;
     isTTY = realTTY;
   },
