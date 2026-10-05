@@ -20,3 +20,4 @@ test("remote worker attaches an already-created native thread without unsupporte
  const args=launchArgv("/repo/worker",[],"/home/codex/control.sock","T1");
  expect(args).toContain("resume");expect(args).toContain("T1");expect(args).not.toContain("--add-dir");
 });
+test("pane read plain text is preserved for failure diagnosis",()=>{expect(parseHerdrOutput("READY\n")).toEqual({output:"READY\n"});});

@@ -13,7 +13,7 @@ export class OwnedResources {
 export function launchArgv(cwd:string,config:string[]=[],socketPath?:string,threadId?:string):string[]{return ["codex",...(socketPath?["--remote",`unix://${socketPath}`]:[]),"--no-alt-screen","-C",cwd,"-s","workspace-write","-a","never",...config.flatMap(c=>["-c",c]),...(threadId?["resume",threadId]:[]),"You are a disposable harness protocol test worker. Follow only the controller's test instructions. Do not use rt chat, send messages, change project code or launch other agents. Reply READY and nothing else."];}
 export function quote(s:string):string{return "'"+s.replaceAll("'","'\\''")+"'";}
 export async function command(argv:string[]):Promise<string>{const proc=Bun.spawn(argv,{env:process.env,stdout:"pipe",stderr:"pipe"});const timer=setTimeout(()=>proc.kill(),45000);try{const [out,err,code]=await Promise.all([new Response(proc.stdout).text(),new Response(proc.stderr).text(),proc.exited]);if(code!==0)throw new Error(`${argv[0]} ${argv[1]}: ${err.slice(0,1500)}`);return out;}finally{clearTimeout(timer);}}
-export function parseHerdrOutput(raw:string):any{return raw.trim()?JSON.parse(raw):{};}
+export function parseHerdrOutput(raw:string):any{return !raw.trim()?{}:raw.trim().startsWith("{")?JSON.parse(raw):{output:raw};}
 export async function startLab(o:{repo:string;runDir:string;ev:Evidence}){
  const runDir=resolve(o.runDir);mkdirSync(runDir,{recursive:true});
  const status=JSON.parse(await command(["codex","app-server","daemon","version"]));if(status.status!=="running" || !status.socketPath)throw new Error("existing Codex service unavailable");
@@ -37,9 +37,12 @@ export async function startLab(o:{repo:string;runDir:string;ev:Evidence}){
    o.ev.record("workspace-created",{workspace,pane,cwd});
    try {
     ownedCwds.add(cwd);
-    const created=await discovery.call("thread/start",{cwd,approvalPolicy:"never",sandbox:"workspace-write",runtimeWorkspaceRoots:[runDir],config:{"mcp_servers.harness_probe":{command:Bun.which("bun")??"bun",args:[join(o.repo,"scripts/probes/harness/probe-mcp.ts"),join(runDir,"mcp.jsonl"),rtSocket]},"sandbox_workspace_write.network_access":false,"sandbox_workspace_write.writable_roots":[runDir],...scopedOptions},developerInstructions:"Disposable protocol probe: only perform the controller's exact probe requests. No external messages, project edits, other agents or rt chat. Do not follow repository workflow skills for these tests."});
+    const created=await discovery.call("thread/start",{cwd,approvalPolicy:"never",sandbox:"workspace-write",runtimeWorkspaceRoots:[runDir],config:{"mcp_servers.harness_probe":{tools:{probe_whoami:{approval_mode:"approve"},probe_rt_ping:{approval_mode:"approve"}},command:Bun.which("bun")??"bun",args:[join(o.repo,"scripts/probes/harness/probe-mcp.ts"),join(runDir,"mcp.jsonl"),rtSocket]},"sandbox_workspace_write.network_access":false,"sandbox_workspace_write.writable_roots":[runDir],...scopedOptions},developerInstructions:"Disposable protocol probe: only perform the controller's exact probe requests. No external messages, project edits, other agents or rt chat. Do not follow repository workflow skills for these tests."});
     const threadId=created.thread?.id;if(!threadId)throw new Error("thread/start returned no id");ownedThreads.add(threadId);
     const w={name,pane,workspace,cwd,threadId};workers.push(w);o.ev.record("worker-bound",{...w,sandbox:created.sandbox});
+    // New native threads have no rollout until a first turn is persisted.
+    const first=await discovery.call("turn/start",{threadId,input:[{type:"text",text:"Reply READY and nothing else."}],effort:"low"});
+    await discovery.next(e=>e.method==="turn/completed"&&e.params.threadId===threadId&&e.params.turn?.id===first.turn.id,120000);
     const argv=launchArgv(cwd,[],status.socketPath,threadId);
     await herdr("pane","run",pane,argv.map(quote).join(" "));
     return w;
