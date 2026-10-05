@@ -1,7 +1,5 @@
 [
-  "commands/code.ts",
   "commands/glitter.ts",
-  "commands/nav.ts",
   "commands/run.ts",
   "commands/runner.ts",
   "lib/runner/runner.ts"

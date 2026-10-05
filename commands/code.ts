@@ -14,13 +14,12 @@
  * to the app bundle when the CLI shim is missing or broken.
  */
 
-import { execSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 import { existsSync, readdirSync } from "fs";
 import { basename, join } from "path";
 import { homedir } from "os";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
-import { dim, green, red, reset } from "../lib/tui.ts";
 import * as out from "../lib/ui/out.ts";
 import { warn } from "../lib/ui/warn.ts";
 import { getRepoIdentity, getKnownRepos, findKnownRepo } from "../lib/repo.ts";
@@ -73,7 +72,10 @@ function savePrefs(prefs: Prefs): void {
   }
 }
 
-export const __test__ = { loadPrefs, savePrefs, savedEditor, editorLabelFor };
+export const __test__ = {
+  loadPrefs, savePrefs, savedEditor, editorLabelFor, launchEditor,
+  setDetectEditors(fn: (() => EditorOption[]) | undefined): void { detectOverride = fn; },
+};
 
 // ─── Editor detection ────────────────────────────────────────────────────────
 
@@ -106,7 +108,10 @@ const KNOWN_APPS: EditorOption[] = [
   { command: 'open -a "WebStorm"', label: "WebStorm" },
 ];
 
+let detectOverride: (() => EditorOption[]) | undefined;
+
 function detectInstalledEditors(): EditorOption[] {
+  if (detectOverride) return detectOverride();
   const { existsSync } = require("fs");
   const { homedir } = require("os");
   const home = homedir();
@@ -230,13 +235,6 @@ export function resolveWorkspaceSync(dirPath: string, prefs: Prefs): string | nu
 
 // ─── Async resolvers (with pickers) ─────────────────────────────────────────
 
-/** rt nav's path: its bytes must not change. */
-function noEditorAsToday(): never {
-  console.log(`\n  ${red}No supported editor CLI found.${reset}`);
-  console.log(`  ${dim}Install one of: code, cursor, zed, codium, subl${reset}\n`);
-  process.exit(1);
-}
-
 function noEditorFailure(): never {
   out.fail({
     title: "rt could not find an editor it can open",
@@ -359,19 +357,11 @@ export function appBundleFallback(editorCommand: string): string | null {
  * actually opened the editor, or null if every attempt failed.
  */
 function launchEditor(editor: string, target: string): string | null {
-  try {
-    execSync(`${editor} "${target}"`, { stdio: "inherit" });
-    return editor;
-  } catch {
-    const fallback = appBundleFallback(editor);
-    if (!fallback) return null;
-    try {
-      execSync(`${fallback} "${target}"`, { stdio: "inherit" });
-      return fallback;
-    } catch {
-      return null;
-    }
-  }
+  const attempt = (command: string): boolean =>
+    spawnSync("/bin/sh", ["-c", `${command} "$1"`, "sh", target], { stdio: ["inherit", 2, "inherit"], env: childEnv() }).status === 0;
+  if (attempt(editor)) return editor;
+  const fallback = appBundleFallback(editor);
+  return fallback && attempt(fallback) ? fallback : null;
 }
 
 export interface ResolvedEditor {
@@ -415,16 +405,16 @@ export async function openDirectoryInEditor(dirPath: string): Promise<void> {
   const prefs = loadPrefs();
   const basename = dirPath.split("/").pop() || "unknown";
   const repoKey = editorPrefKey(dirPath);
-  const editor = await ensureEditor(prefs, repoKey, [basename], noEditorAsToday);
+  const editor = await ensureEditor(prefs, repoKey, [basename], noEditorFailure);
   const editorLabel = editorLabelFor(editor);
   const target = await resolveWorkspaceTarget(dirPath, prefs);
 
   const used = launchEditor(editor, target);
   if (used) {
     if (used !== editor) { prefs.editors[repoKey] = used; savePrefs(prefs); }
-    console.error(`\n  ${green}✓${reset} Opened ${dirPath.split("/").pop()} in ${editorLabel}`);
+    out.print(out.line("done", `Opened ${basename} in ${editorLabel}`));
   } else {
-    console.error(`\n  ${red}Failed to open ${editorLabel}. Is '${editor}' CLI installed?${reset}`);
+    out.fail({ title: `${editorLabel} did not open`, why: `Its shell command, ${editor}, failed. Check that it is installed.` });
     process.exit(1);
   }
 }
