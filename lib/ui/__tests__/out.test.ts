@@ -387,7 +387,7 @@ describe("the two writers agent-only verbs use", () => {
   }
 });
 
- describe("holdStdout", () => {
+describe("holdStdout", () => {
   test("until released, stdout writes and human text go to stderr; a payload after release is stdout's alone", () => {
     const io = captureOut();
     out.__test__.setHuman(() => false);

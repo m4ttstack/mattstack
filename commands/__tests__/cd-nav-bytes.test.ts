@@ -14,6 +14,8 @@ const FAKE_UI = resolve(import.meta.dir, "..", "..", "lib", "ui", "__tests__", "
 import { execFileSync } from "child_process";
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
 import { __test__ as pickImplTest, type PickImpl } from "../../lib/ui/pick.ts";
+import { writeRepoCache } from "../../lib/repo-cache.ts";
+import { serializeIdentity } from "../../lib/settings/identity.ts";
 import { worktreePicker } from "../cd.ts";
 import { navigate } from "../nav.ts";
 
@@ -144,6 +146,26 @@ describe("rt cd and rt nav stdout (frozen for the shell wrapper)", () => {
     expect(r.stdout).toBe("");
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("rt repos locate");
+  });
+
+  test("a missing identity uses the host/path locate command", async () => {
+    const identity = serializeIdentity({ kind: "remote", id: "github.com/acme/sample-app" });
+    setKvValue("repo-index", identity, join(scratch, "gone-away"));
+    const r = await run(() => worktreePicker(["--repo", "--worktree", "anybranch"]));
+    expect(r.stdout).toBe("");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("next: rt repos locate <new-path> --repo github.com/acme/sample-app");
+    expect(r.stderr).not.toContain(identity);
+  });
+
+  test("a vanished cached folder fails without printing a path", async () => {
+    const gone = join(scratch, "gone-away");
+    writeRepoCache([{ repoName: "moved", worktrees: [{ path: gone, branch: "main", isBare: false }], dataDir: join(scratch, "data") }]);
+    const r = await run(() => worktreePicker([]));
+    expect(r.stdout).toBe("");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toStartWith("That folder is gone");
+    expect(r.stderr).toContain("next: rt repos prune");
   });
 
   test("nav: esc prints nothing on stdout", async () => {

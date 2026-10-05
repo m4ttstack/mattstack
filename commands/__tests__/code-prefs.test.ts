@@ -5,6 +5,7 @@ import { dirname, join } from "path";
 import { machineSettingsPath } from "../../lib/rt-paths.ts";
 import { getSetting } from "../../lib/settings/resolve.ts";
 import { setSetting } from "../../lib/settings/write.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { setWarningLog, __test__ as warnings } from "../../lib/ui/warn.ts";
 import { __test__, resolveEditorSync } from "../code.ts";
 
@@ -87,6 +88,7 @@ describe("workspace prefs through the settings resolver", () => {
 
   test("savePrefs warns and does not throw when the machine store is malformed (duplicate key anywhere in the document)", () => {
     warnings.reset();
+    const io = captureOut();
     const logged: Array<{ module: string; message: string }> = [];
     setWarningLog((module, message) => logged.push({ module, message }));
     const path = machineSettingsPath();
@@ -98,7 +100,11 @@ describe("workspace prefs through the settings resolver", () => {
       expect(logged).toHaveLength(1);
       expect(logged[0]).toMatchObject({ module: "code" });
       expect(logged[0]!.message).toStartWith("could not save workspace prefs: ");
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toStartWith("[warning] rt could not remember your editor choice");
+      expect(io.stderr()).toContain("next: rt settings check");
     } finally {
+      io.restore();
       warnings.reset();
     }
   });

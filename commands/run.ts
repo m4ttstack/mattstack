@@ -44,7 +44,7 @@ import { findPreset, loadPresets, savePreset, type Preset } from "../lib/run-pre
 import { deriveRepoIdentity } from "../lib/settings/identity.ts";
 import { repoLabel } from "../lib/repo-arg.ts";
 import { runPick } from "../lib/ui/pick.ts";
-import type { PickAction, PickRow, PickSegment } from "../lib/ui/protocol.ts";
+import type { Block, PickAction, PickRow, PickSegment } from "../lib/ui/protocol.ts";
 import { runSeededBoard, tmuxAvailable, type SeedEntry } from "./runner.ts";
 import { childEnv } from "../lib/subprocess.ts";
 

@@ -257,7 +257,7 @@ test("runCommand with a preset arg and --resolve-only prints the seed envelope t
 
   expect(boardCalled).toBe(false);
   expect(outs).toHaveLength(1);
-  expect(outs[0]).toBe(`${JSON.stringify(JSON.parse(outs[0]!))}\n`);
+  expect(outs[0]).toBe(`${JSON.stringify({ seed: [{ name: "dev", command: "npm run dev", cwd: join(root, "apps/web"), pkg: "web", repo: "fixture" }] })}\n`);
   expect(JSON.parse(outs[0]!)).toEqual({
     seed: presetToSeed(
       { name: "resolve-only-preset", entries: [{ packageRelPath: "apps/web", packageLabel: "web", script: "dev" }] },
@@ -290,7 +290,7 @@ test("runCommand with --resolve-only on a single script still prints RunResolveR
   }
 
   expect(outs).toHaveLength(1);
-  expect(outs[0]).toBe(`${JSON.stringify(JSON.parse(outs[0]!))}\n`);
+  expect(outs[0]).toBe(`${JSON.stringify({ targetDir: root, packageLabel: "root", worktree: root, branch: "", commandTemplate: "npm run dev", script: "dev" })}\n`);
   const printed = JSON.parse(outs[0]!);
   expect(printed.seed).toBeUndefined();
   expect(printed).toMatchObject({

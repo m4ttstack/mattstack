@@ -167,7 +167,6 @@ export async function pickFromAllRepos(
     breadcrumb?: string[];
   },
 ): Promise<string> {
-
   if (repos.length === 0) {
     out.fail({ title: "rt does not know any repos yet", next: "Run rt once from inside a git repo, so it learns where that repo is" });
     process.exit(1);
