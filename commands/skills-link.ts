@@ -72,7 +72,7 @@ export async function skillsLink(args: string[]): Promise<void> {
       case "--json": json = true; break;
       case "--from": {
         const value = args[++i];
-        if (value === undefined) fail("Which folder should the links come from?", "rt skills link --from <folder>");
+        if (value === undefined || value.startsWith("--")) fail("Which folder should the links come from?", "rt skills link --from <folder>");
         from = value;
         break;
       }

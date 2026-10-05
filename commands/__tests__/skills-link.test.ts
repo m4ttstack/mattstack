@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
@@ -130,6 +130,23 @@ describe("rt skills link", () => {
     expect(r.exitCode).toBe(1);
     expect(r.errors).toEqual(["Which folder should the links come from?", "  next: rt skills link --from <folder>"]);
     expect(io.stdout()).toBe("");
+  });
+
+  test.each(["--dry-run", "--json"])("--from rejects %s as a missing folder without creating links", async (option) => {
+    const source = join(root, option, "alpha");
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "SKILL.md"), "---\nname: alpha\ndescription: alpha\n---\n");
+    const previousCwd = process.cwd();
+    process.chdir(root);
+    try {
+      const r = await runExpectingCleanExit(() => skillsLink(["--from", option]));
+      expect(r.exitCode).toBe(1);
+      expect(r.errors).toEqual(["Which folder should the links come from?", "  next: rt skills link --from <folder>"]);
+      expect(io.stdout()).toBe("");
+      expect(readdirSync(root)).toEqual([option]);
+    } finally {
+      process.chdir(previousCwd);
+    }
   });
 
   test("an unknown option is a hint under a plain title", async () => {
