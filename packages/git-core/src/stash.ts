@@ -39,14 +39,14 @@ export async function stashApply(ctx: ClientContext, index: number): Promise<voi
 }
 
 export async function stashPop(ctx: ClientContext, index: number): Promise<{ kept: boolean }> {
-  const before = (await ctx.git.stashList()).total;
+  const selectedHash = (await ctx.git.stashList()).all[index]?.hash;
   try {
     await ctx.git.stash(["pop", `stash@{${index}}`]);
   } catch (err) {
     if (!/^CONFLICT \([^)]+\): /m.test(err instanceof Error ? err.message : String(err))) throw err;
   }
-  const after = (await ctx.git.stashList()).total;
-  return { kept: after === before };
+  const after = await ctx.git.stashList();
+  return { kept: after.all.some((entry) => entry.hash === selectedHash) };
 }
 
 export async function stashDrop(ctx: ClientContext, index: number): Promise<void> {

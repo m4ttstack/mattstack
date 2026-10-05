@@ -1,4 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import { simpleGit } from "simple-git";
+import type { ClientContext } from "../client.ts";
+import { stashPop } from "../stash.ts";
 import { makeSandbox } from "../../test-support/sandbox.ts";
 import { createGitClient } from "../index.ts";
 
@@ -83,6 +86,56 @@ describe("stashApply / stashPop / stashDrop", () => {
     }
   });
 
+  for (const index of [0, 1]) {
+    it(`pop at index ${index} reports not kept when another stash replaces its count`, async () => {
+      const sb = await seeded();
+      try {
+        await sb.write("b.txt", "base\n");
+        await sb.commitAll("add second file");
+        const client = createGitClient(sb.dir);
+        await sb.write("a.txt", "selected\n");
+        await client.stashPush({ message: "selected" });
+        const selectedHash = (await sb.git(["rev-parse", "stash@{0}"])).trim();
+        if (index === 1) {
+          await sb.write("b.txt", "newer\n");
+          await client.stashPush({ message: "newer" });
+        }
+
+        await sb.write("b.txt", "unrelated\n");
+        const unrelatedHash = (await sb.git(["stash", "create", "unrelated"])).trim();
+        await sb.git(["checkout", "--", "b.txt"]);
+        const git = simpleGit({ baseDir: sb.dir });
+        let lists = 0;
+        const ctx: ClientContext = {
+          dir: sb.dir,
+          git: new Proxy(git, {
+            get(target, property) {
+              if (property === "stashList") {
+                return async () => {
+                  if (++lists === 2) await sb.git(["stash", "store", "-m", "unrelated", unrelatedHash]);
+                  return target.stashList();
+                };
+              }
+              const value = Reflect.get(target, property);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          }),
+        };
+
+        expect(await stashPop(ctx, index)).toEqual({ kept: false });
+        expect(await Bun.file(`${sb.dir}/a.txt`).text()).toBe("selected\n");
+        expect(await Bun.file(`${sb.dir}/b.txt`).text()).toBe("base\n");
+        const hashes = (await sb.git(["stash", "list", "--format=%H"])).trim().split("\n");
+        expect(hashes).toHaveLength(index + 1);
+        expect(hashes).not.toContain(selectedHash);
+        expect(hashes).toContain(unrelatedHash);
+        if (index === 1) expect((await client.stashes()).map((entry) => entry.message)).toEqual(["unrelated", "newer"]);
+      } finally {
+        await sb.cleanup();
+      }
+    });
+  }
+
   it("pop rejects a local-edit collision with a filename containing CONFLICT", async () => {
     const sb = await seeded();
     try {
@@ -97,6 +150,22 @@ describe("stashApply / stashPop / stashDrop", () => {
       expect(await Bun.file(`${sb.dir}/CONFLICT.txt`).text()).toBe("local\n");
       expect((await client.stashes()).length).toBe(1);
       expect(await sb.git(["diff", "--name-only", "--diff-filter=U"])).toBe("");
+    } finally {
+      await sb.cleanup();
+    }
+  });
+
+  it("pop at an invalid index rejects without changing an existing stash", async () => {
+    const sb = await seeded();
+    try {
+      const client = createGitClient(sb.dir);
+      await sb.write("a.txt", "stashed\n");
+      await client.stashPush({ message: "mine" });
+      const before = await client.stashes();
+
+      await expect(client.stashPop(5)).rejects.toThrow(/only has 1 entries/);
+      expect(await client.stashes()).toEqual(before);
+      expect(await Bun.file(`${sb.dir}/a.txt`).text()).toBe("one\n");
     } finally {
       await sb.cleanup();
     }
