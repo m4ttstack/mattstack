@@ -5,6 +5,7 @@
  */
 
 import { appBundlePath } from "../deps/resolve.ts";
+import type { forgeLogin } from "../team/forge.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
 import { setSettingsNoticeSink } from "../settings/write.ts";
 import { createRealTeamSecretsSeams } from "../secrets/team-store.ts";
@@ -21,7 +22,7 @@ import { readPackRequirements, type PackRequirements } from "./requirements.ts";
 import { STEPS } from "./steps/index.ts";
 import { MIGRATIONS, migrationEventId, type MigrationDef } from "./migrations/index.ts";
 import { readSetupState, setupStatePath, storedVersion, updateSetupState } from "./state.ts";
-import { discoverOrgs, readTeamSnapshot, type TeamSnapshot } from "./team-settings.ts";
+import { discoverOrgs, readTeamSnapshot, type TeamSnapshot, type SettingsReader } from "./team-settings.ts";
 import type { SecretPresence } from "./validators/accounts.ts";
 
 export type StepOutcome =
@@ -52,6 +53,7 @@ export interface ApplyContext {
   reloadTeam?: () => void;
   /** Test seam: the active team's name. Production reads it from the org's roster through `p`. */
   activeTeam?: () => string | null;
+  identity?: { login?: typeof forgeLogin; token?: (ctx: ApplyContext, host: string) => Promise<string | null> };
   nonInteractive: boolean;
   /** Set only for `rt setup update`: a step must not re-assert anything the member undid since rt put it there (a disabled or removed plugin, an editor rt never installed into). */
   update?: true;
@@ -432,6 +434,7 @@ export async function runUpdate(ctx: ApplyContext): Promise<UpdateRunResult> {
 }
 
 export interface CreateApplyContextDeps {
+  snapshotRead?: SettingsReader;
   probes: Probes;
   emit: Emit;
   tip?: (id: EventId, line: string) => void;
@@ -487,7 +490,7 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
 
   const intent = readIntent(p);
   const team = orgRefFromIntent(intent, discoverOrgs(p));
-  const snapshot = team.slug ? readTeamSnapshot(p, team.slug) : null;
+  const snapshot = team.slug ? readTeamSnapshot(p, team.slug, { read: deps.snapshotRead }) : null;
   const reqs = team.slug ? readPackRequirements(p, team.slug) : [];
   const appPath = appBundlePath(p);
 
@@ -511,8 +514,9 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
     snapshot,
     reqs,
     reloadTeam() {
+      if (!ctx.team.slug) ctx.team = orgRefFromIntent(ctx.intent, discoverOrgs(p));
       if (!ctx.team.slug) return;
-      ctx.snapshot = readTeamSnapshot(p, ctx.team.slug);
+      ctx.snapshot = readTeamSnapshot(p, ctx.team.slug, { read: deps.snapshotRead });
       ctx.reqs = readPackRequirements(p, ctx.team.slug);
     },
     nonInteractive: flags.nonInteractive,
