@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { seedOrg } from "../../../test/org-fixture.ts";
+import { machineSettingsPath, orgDir, userSettingsPath } from "../paths.ts";
 import { readStore } from "../stores.ts";
 import { renameRepoSection } from "../write.ts";
 
@@ -80,14 +81,14 @@ describe("renameRepoSection", () => {
       process.env.HOME = origHome;
     });
 
-    function seedMember(): { orgStore: string; teamStore: string; home: string } {
+    function seedMember(username = "dev4"): { orgStore: string; teamStore: string; home: string } {
       const home = join(dir, "home");
       mkdirSync(home);
       process.env.HOME = home;
       const section = { repos: { [OLD]: { x: 1 } } };
       const seeded = seedOrg({
         org: "acme",
-        username: "dev4",
+        username,
         roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } },
         settings: section,
         teams: { widgets: section },
@@ -114,6 +115,45 @@ describe("renameRepoSection", () => {
       expect(spelled).not.toBe(orgStore);
       expect(renameRepoSection(spelled, OLD, NEW).status).toBe("skipped");
       expect(readFileSync(orgStore, "utf8")).toBe(before);
+    });
+
+    function symlinkClone(username: string): { linked: string[]; real: string[] } {
+      const { orgStore, teamStore } = seedMember(username);
+      const clone = orgDir("acme");
+      const moved = join(dir, "acme-clone");
+      renameSync(clone, moved);
+      symlinkSync(moved, clone);
+      const linked = [orgStore, teamStore];
+      return { linked, real: linked.map((p) => join(moved, p.slice(clone.length))) };
+    }
+
+    test("is not changed by a member when the org clone is a symlink, through either spelling", () => {
+      const { linked, real } = symlinkClone("dev4");
+      for (const [i, path] of [...linked, ...real].entries()) {
+        const file = real[i % 2]!;
+        const before = readFileSync(file, "utf8");
+        const r = renameRepoSection(path, OLD, NEW);
+        expect(r.status).toBe("skipped");
+        expect(readFileSync(file, "utf8")).toBe(before);
+      }
+    });
+
+    test("is renamed by an admin when the org clone is a symlink", () => {
+      const { linked, real } = symlinkClone("dev1");
+      expect(renameRepoSection(linked[0]!, OLD, NEW).status).toBe("moved");
+      expect(readStore(real[0]!).repos[NEW]).toEqual({ x: 1 });
+      expect(renameRepoSection(real[1]!, OLD, NEW).status).toBe("moved");
+      expect(readStore(real[1]!).repos[NEW]).toEqual({ x: 1 });
+    });
+
+    test("leaves a member's own user and machine stores renamable beside a symlinked clone", () => {
+      symlinkClone("dev4");
+      for (const file of [userSettingsPath(), machineSettingsPath()]) {
+        mkdirSync(join(file, ".."), { recursive: true });
+        writeFileSync(file, `{ "repos": { "${OLD}": { "x": 1 } } }\n`);
+        expect(renameRepoSection(file, OLD, NEW).status).toBe("moved");
+        expect(readStore(file).repos[NEW]).toEqual({ x: 1 });
+      }
     });
   });
 });

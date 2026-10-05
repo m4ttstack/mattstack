@@ -83,7 +83,7 @@
  * through `JSON.stringify` — that's what keeps comments alive.
  */
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { applyEdits, modify, parse, parseTree, type JSONPath, type Node, type ParseError } from "jsonc-parser";
 import { randomBytes } from "crypto";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "path";
@@ -629,13 +629,6 @@ export function storeUnparseable(storePath: string): boolean {
 
 export type SectionRename = "moved" | "already" | "none" | "refused" | "skipped";
 
-/**
- * Moves one `repos.<oldId>` section onto `repos.<newId>` in a single store
- * file, keeping every other key and comment. The rename is two edits on the
- * same jsonc document (set the new section, remove the old), then a re-read
- * proves both landed. A write that throws comes back as `refused`, so one
- * store's failure never stops a caller walking the others.
- */
 function realPathOf(path: string): string {
   try {
     return realpathSync.native(path);
@@ -644,6 +637,30 @@ function realPathOf(path: string): string {
   }
 }
 
+/** The org clone a store file sits in, by real path, so a symlinked clone and every spelling through it are found. */
+function orgHolding(storePath: string): { org: string; rest: string[] } | null {
+  let names: string[];
+  try {
+    names = readdirSync(teamsDir());
+  } catch {
+    return null;
+  }
+  const real = realPathOf(storePath);
+  for (const org of names.sort()) {
+    const rel = relative(realPathOf(orgDir(org)), real);
+    if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue;
+    return { org, rest: rel.split(sep) };
+  }
+  return null;
+}
+
+/**
+ * Moves one `repos.<oldId>` section onto `repos.<newId>` in a single store
+ * file, keeping every other key and comment. The rename is two edits on the
+ * same jsonc document (set the new section, remove the old), then a re-read
+ * proves both landed. A write that throws comes back as `refused`, so one
+ * store's failure never stops a caller walking the others.
+ */
 export function renameRepoSection(
   storePath: string,
   oldId: string,
@@ -663,11 +680,10 @@ export function renameRepoSection(
   const interrupted = newSection !== undefined && isDeepStrictEqual(oldSection, newSection);
   if (newSection !== undefined && !interrupted) return { status: "refused", keys, detail: "both populated" };
   try {
-    // Any spelling of a path inside an org clone (a symlinked HOME, an
-    // unnormalized path) has to reach the role check.
-    const [org, ...rest] = relative(realPathOf(teamsDir()), realPathOf(storePath)).split(sep);
-    if (org && org !== ".." && !isAbsolute(org) && rest.length > 0) {
-      const inOrg = join(orgDir(org), ...rest);
+    const held = orgHolding(storePath);
+    if (held !== null) {
+      const { org } = held;
+      const inOrg = join(orgDir(org), ...held.rest);
       const { role, refusal } = ownershipRefusal(org, inOrg);
       // A member or owner is never meant to change another layer's shared
       // file, so that is not a failure of the rename; an unknown role is.
