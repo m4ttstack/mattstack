@@ -2,9 +2,12 @@
 
 Date: 2026-10-04
 
-Status: draft for written-spec review. The architectural direction and the
-sections below were agreed during brainstorming. This document has not yet
-been approved as a written specification. Implementation has not started.
+Status: approved for implementation planning on 2026-10-04. The user approved
+the written specification by requesting the implementation plan. Implementation
+has not started.
+
+Implementation tasks are in the [plan index](../plans/2026-10-04-harness-integrations.md)
+and its four linked plans, pending plan review and execution-method selection.
 
 ## Purpose and success criteria
 
