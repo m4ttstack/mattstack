@@ -63,6 +63,184 @@ private final class GatedRt: RtRunning, @unchecked Sendable {
 }
 
 let settingsChecks: [Check] = [
+    Check("TeamSettingsInfo decodes role, activeTeam and teams, and reads nil from an rt that predates them") { c in
+        let new = try JSONDecoder().decode(TeamSettingsInfo.self, from: Data(#"{"contract":1,"name":"Acme","slug":"acme","remote":null,"lastPush":null,"members":[{"username":"dev1"}],"role":"admin","activeTeam":"widgets","teams":["widgets","gadgets"],"orgTeams":["gadgets","widgets"]}"#.utf8))
+        c.expectEqual(new.role, "admin")
+        c.expectEqual(new.activeTeam, "widgets")
+        c.expectEqual(new.teams, ["widgets", "gadgets"])
+        c.expectEqual(new.orgTeams, ["gadgets", "widgets"])
+        let old = try JSONDecoder().decode(TeamSettingsInfo.self, from: Data(#"{"contract":1,"name":"Acme","slug":"acme","remote":null,"lastPush":null,"members":[]}"#.utf8))
+        c.expectEqual(old.role, nil)
+        c.expectEqual(old.activeTeam, nil)
+        c.expectEqual(old.teams, nil)
+        c.expectEqual(old.orgTeams, nil)
+        c.expectEqual(old.myTeams, [])
+        c.expect(!old.canSwitchTeam)
+    },
+    Check("an admin with two teams can switch and gets a team picker on invite; a member sees neither") { c in
+        let rt = ScriptedRt()
+        rt.answers["team status"] = (0, #"{"contract":1,"name":"Acme","slug":"acme","remote":null,"lastPush":null,"members":[],"role":"admin","activeTeam":"widgets","teams":["widgets","gadgets"],"orgTeams":["gadgets","widgets"]}"#)
+        let m = await MainActor.run { makeTeamSettings(rt).0 }
+        await m.load()
+        await MainActor.run {
+            c.expect(m.isAdmin)
+            c.expect(m.canSwitchTeam)
+            c.expectEqual(m.inviteTeamChoices, ["gadgets", "widgets"])
+        }
+        rt.answers["team status"] = (0, #"{"contract":1,"name":"Acme","slug":"acme","remote":null,"lastPush":null,"members":[],"role":"member","activeTeam":"widgets","teams":["widgets"],"orgTeams":["gadgets","widgets"]}"#)
+        await m.load()
+        await MainActor.run {
+            c.expect(!m.isAdmin)
+            c.expect(!m.canSwitchTeam)
+        }
+    },
+    Check("an rt that reports no role keeps the Invite section, as the app showed before") { c in
+        let rt = ScriptedRt()
+        rt.answers["team status"] = (0, #"{"contract":1,"name":"Acme","slug":"acme","remote":null,"lastPush":null,"members":[]}"#)
+        let m = await MainActor.run { makeTeamSettings(rt).0 }
+        await m.load()
+        await MainActor.run {
+            c.expect(m.isAdmin)
+            c.expectEqual(m.inviteTeamChoices, [])
+        }
+    },
+    Check("useTeam runs rt team use and reloads; mintInvite passes --teams only when a team was picked") { c in
+        let rt = ScriptedRt()
+        rt.answers["team status"] = (0, #"{"contract":1,"name":"Acme","slug":"acme","remote":null,"lastPush":null,"members":[],"role":"admin","activeTeam":"widgets","teams":["widgets","gadgets"],"orgTeams":["gadgets","widgets"]}"#)
+        rt.answers["team use gadgets"] = (0, #"{"contract":1,"team":"gadgets","previous":"widgets","pack":{"installed":true,"enabled":true,"detail":""},"disabled":"widgets@acme","restarted":["board"]}"#)
+        rt.answers["team invite"] = (0, #"{"contract":1,"code":"ABCD","expiresAt":"2026-10-08T00:00:00Z","pasteBlock":"x","forgeAccess":"skipped"}"#)
+        let m = await MainActor.run { makeTeamSettings(rt).0 }
+        await m.load()
+        await m.useTeam("gadgets")
+        try c.requireEqual(rt.calls.count, 3)
+        c.expectEqual(rt.calls[1].args, ["team", "use", "gadgets", "--json"])
+        c.expectEqual(rt.calls[2].args, ["team", "status", "--json"])
+        await m.mintInvite(handle: "dev2", team: "gadgets")
+        try c.requireEqual(rt.calls.count, 4)
+        c.expectEqual(rt.calls[3].args, ["team", "invite", "--handle", "dev2", "--teams", "gadgets", "--json"])
+        await m.mintInvite(handle: "dev2", team: nil)
+        try c.requireEqual(rt.calls.count, 5)
+        c.expectEqual(rt.calls[4].args, ["team", "invite", "--handle", "dev2", "--json"])
+    },
+    Check("a refused team switch shows rt's message and leaves the pane on the old team") { c in
+        let rt = ScriptedRt()
+        rt.answers["team status"] = (0, #"{"contract":1,"name":"Acme","slug":"acme","remote":null,"lastPush":null,"members":[],"role":"member","activeTeam":"widgets","teams":["widgets","gadgets"],"orgTeams":["gadgets","widgets"]}"#)
+        rt.answers["team use"] = (2, #"{"contract":1,"ok":false,"error":{"code":"not-on-team","message":"The roster does not list you on the sprockets team"}}"#)
+        let m = await MainActor.run { makeTeamSettings(rt).0 }
+        await m.load()
+        await m.useTeam("sprockets")
+        c.expectEqual(rt.calls.map(\.args), [["team", "status", "--json"], ["team", "use", "sprockets", "--json"]])
+        await MainActor.run {
+            c.expectEqual(m.error, "The roster does not list you on the sprockets team")
+            c.expectEqual(m.info?.activeTeam, "widgets")
+        }
+    },
+    Check("owner, member and unknown roles never gain Invite from forge access, and membership alone controls switching") { c in
+        for role in ["owner", "member", "unknown"] {
+            let json = "{\"contract\":1,\"role\":\"\(role)\",\"activeTeam\":\"widgets\",\"teams\":[\"widgets\",\"gadgets\"],\"orgTeams\":[\"gadgets\",\"widgets\"],\"forgeAccess\":\"granted\"}"
+            let info = try JSONDecoder().decode(TeamSettingsInfo.self, from: Data(json.utf8))
+            c.expect(!info.isAdmin, "\(role) is not an org admin")
+            c.expectEqual(info.myTeams, ["widgets", "gadgets"])
+            c.expect(info.canSwitchTeam, "\(role) can choose among their own teams")
+            c.expectEqual(info.inviteTeamChoices, ["gadgets", "widgets"])
+            let rt = ScriptedRt()
+            rt.answers["team status"] = (0, json)
+            let m = await MainActor.run { makeTeamSettings(rt).0 }
+            await m.load()
+            await MainActor.run {
+                c.expect(!m.isAdmin)
+                c.expect(m.canSwitchTeam)
+            }
+        }
+    },
+    Check("null status fields keep legacy defaults and a single org team needs no invite picker") { c in
+        let info = try JSONDecoder().decode(TeamSettingsInfo.self, from: Data(#"{"contract":1,"role":null,"activeTeam":null,"teams":null,"orgTeams":null}"#.utf8))
+        c.expect(info.isAdmin)
+        c.expectEqual(info.myTeams, [])
+        c.expect(!info.canSwitchTeam)
+        c.expectEqual(info.inviteTeamChoices, [])
+        for teams in ["[]", "[\"widgets\"]"] {
+            let one = try JSONDecoder().decode(TeamSettingsInfo.self, from: Data("{\"contract\":1,\"role\":\"admin\",\"teams\":\(teams),\"orgTeams\":\(teams)}".utf8))
+            c.expect(!one.canSwitchTeam)
+            c.expectEqual(one.inviteTeamChoices, [])
+        }
+        let m = await MainActor.run { makeTeamSettings(ScriptedRt()).0 }
+        await MainActor.run {
+            c.expect(m.isAdmin)
+            c.expect(!m.canSwitchTeam)
+            c.expectEqual(m.inviteTeamChoices, [])
+        }
+    },
+    Check("a successful switch replaces status from the reload and clears an earlier refusal") { c in
+        let rt = ScriptedRt()
+        rt.answers["team status"] = (0, #"{"contract":1,"role":"member","activeTeam":"widgets","teams":["widgets","gadgets"]}"#)
+        rt.answers["team use"] = (2, #"{"contract":1,"error":{"code":"not-on-team","message":"Choose a team that lists you"}}"#)
+        let m = await MainActor.run { makeTeamSettings(rt).0 }
+        await m.load()
+        await m.useTeam("sprockets")
+        c.expectEqual(await MainActor.run { m.error }, "Choose a team that lists you")
+        rt.answers["team use gadgets"] = (0, #"{"contract":1,"team":"gadgets","previous":"widgets","pack":{"installed":true,"enabled":true,"detail":""},"disabled":"widgets@acme","restarted":["board","boxscore"]}"#)
+        rt.answers["team status"] = (0, #"{"contract":1,"role":"owner","activeTeam":"gadgets","teams":["widgets","gadgets"],"orgTeams":["gadgets","widgets"]}"#)
+        await m.useTeam("gadgets")
+        await MainActor.run {
+            c.expectEqual(m.error, nil)
+            c.expectEqual(m.info?.activeTeam, "gadgets")
+            c.expectEqual(m.info?.role, "owner")
+            c.expect(!m.isAdmin)
+        }
+        c.expectEqual(rt.calls.map(\.args), [["team", "status", "--json"], ["team", "use", "sprockets", "--json"], ["team", "use", "gadgets", "--json"], ["team", "status", "--json"]])
+        c.expect(rt.calls.allSatisfy { $0.stdin == nil })
+    },
+    Check("failed or malformed switches keep old status without reloading, and a failed reload surfaces its own error") { c in
+        for answer in [(Int32(1), ""), (Int32(0), "not json"), (Int32(0), #"{"contract":1}"#)] {
+            let rt = ScriptedRt()
+            rt.answers["team status"] = (0, #"{"contract":1,"role":"member","activeTeam":"widgets"}"#)
+            rt.answers["team use"] = answer
+            let m = await MainActor.run { makeTeamSettings(rt).0 }
+            await m.load()
+            await m.useTeam("gadgets")
+            await MainActor.run {
+                c.expect(m.error != nil)
+                c.expectEqual(m.info?.activeTeam, "widgets")
+            }
+            c.expectEqual(rt.calls.map(\.args), [["team", "status", "--json"], ["team", "use", "gadgets", "--json"]])
+        }
+        let rt = ScriptedRt()
+        rt.answers["team status"] = (0, #"{"contract":1,"activeTeam":"widgets"}"#)
+        rt.answers["team use gadgets"] = (0, #"{"contract":1,"team":"gadgets"}"#)
+        let m = await MainActor.run { makeTeamSettings(rt).0 }
+        await m.load()
+        rt.answers["team status"] = (1, "")
+        await m.useTeam("gadgets")
+        await MainActor.run {
+            c.expectEqual(m.error, "rt team status failed (exit 1).")
+            c.expectEqual(m.info?.activeTeam, "widgets")
+        }
+        c.expectEqual(rt.calls.map(\.args), [["team", "status", "--json"], ["team", "use", "gadgets", "--json"], ["team", "status", "--json"]])
+    },
+    Check("a failed invite preserves its previous result and rt's error until a successful retry") { c in
+        let rt = ScriptedRt()
+        rt.answers["team invite"] = (0, #"{"contract":1,"code":"ABCD","expiresAt":"2026-10-08T00:00:00Z","pasteBlock":"x","forgeAccess":"skipped"}"#)
+        let m = await MainActor.run { makeTeamSettings(rt).0 }
+        await m.mintInvite(handle: "dev2", team: "gadgets")
+        for answer in [(Int32(2), #"{"contract":1,"error":{"code":"not-admin","message":"Only an org admin invites"}}"#), (Int32(1), ""), (Int32(0), "not json")] {
+            rt.answers["team invite"] = answer
+            await m.mintInvite(handle: "dev2", team: "gadgets")
+            await MainActor.run {
+                c.expect(m.error != nil)
+                c.expectEqual(m.invite?.code, "ABCD")
+                if answer.0 == 2 { c.expectEqual(m.error, "Only an org admin invites") }
+            }
+        }
+        rt.answers["team invite"] = (0, #"{"contract":1,"code":"EFGH","expiresAt":"2026-10-08T00:00:00Z","pasteBlock":"y","forgeAccess":"skipped"}"#)
+        await m.mintInvite(handle: "dev2", team: nil)
+        await MainActor.run {
+            c.expectEqual(m.error, nil)
+            c.expectEqual(m.invite?.code, "EFGH")
+        }
+        c.expectEqual(rt.calls.count, 5)
+        c.expect(rt.calls.allSatisfy { $0.stdin == nil })
+    },
     Check("RemoteMasker shows host + repo only, and never leaks stripped credentials on a path-less fallback") { c in
         c.expectEqual(RemoteMasker.mask("git@gitlab.example.com:tools/mattstack-team.git"), "gitlab.example.com/tools/mattstack-team")
         c.expectEqual(RemoteMasker.mask("https://user:token@github.com/m4ttheweric/mattstack-home.git"), "github.com/m4ttheweric/mattstack-home")
@@ -87,7 +265,7 @@ let settingsChecks: [Check] = [
         c.expectEqual(rt.calls[0].args, ["team", "status", "--json"])
         c.expectEqual(rt.calls[0].stdin, nil)
 
-        await m.mintInvite(handle: "bob")
+        await m.mintInvite(handle: "bob", team: nil)
         await MainActor.run { c.expectEqual(m.invite?.code, "ABCD") }
         c.expectEqual(await MainActor.run { m.invite?.link }, "https://mattstack.dev/join#ABCD")
         try c.require(rt.calls.count >= 2, "expected team status then team invite, got \(rt.calls.map(\.args))")
@@ -178,11 +356,11 @@ let settingsChecks: [Check] = [
         rt.answers["team invite --handle carol"] = (0, #"{"contract":1,"code":"EFGH","expiresAt":"2026-08-28T00:00:00Z","pasteBlock":"p","forgeAccess":"skipped","manualSteps":[]}"#)
         let m = await MainActor.run { makeTeamSettings(rt).0 }
 
-        await m.mintInvite(handle: "bob")
+        await m.mintInvite(handle: "bob", team: nil)
         c.expectEqual(await MainActor.run { m.invite?.peering }, "missing")
         c.expectEqual(await MainActor.run { m.invite?.peeringWarning }, "board peering was not embedded in this invite (no admin token)")
 
-        await m.mintInvite(handle: "carol")
+        await m.mintInvite(handle: "carol", team: nil)
         c.expectEqual(await MainActor.run { m.invite?.code }, "EFGH")
         c.expect(await MainActor.run { m.invite?.peeringWarning == nil }, "an older CLI's reply carries no warning")
     },
