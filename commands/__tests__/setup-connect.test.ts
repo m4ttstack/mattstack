@@ -339,6 +339,34 @@ describe("integrationConnect: forge token scopes", () => {
     await integrationConnect("gitlab", ["--json"], deps);
     expect(readTeamLocal(probes, "acme").forgeUsername).toBeUndefined();
   });
+
+  for (const scenario of [
+    { name: "matching origin", origin: "forge.example.com", declared: undefined, valid: true, username: "dev1" },
+    { name: "different origin", origin: "other.example.com", declared: undefined, valid: true, username: undefined },
+    { name: "different declared provider", origin: "forge.example.com", declared: { host: "forge.example.com", provider: "github" as const }, valid: true, username: undefined },
+    { name: "rejected credential", origin: "forge.example.com", declared: undefined, valid: false, username: undefined },
+  ]) {
+    test(`explicit custom GitLab connect for an unconverted clone: ${scenario.name}`, async () => {
+      const probes = fakeProbes({
+        fetch: scenario.valid ? gitlabWithScopes(["api", "read_user"]) : gitlabUserRejected,
+        dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+        files: { "/fake-home/.mattstack/teams/acme/.git/config": `[remote "origin"]\nurl = https://${scenario.origin}/acme/org.git\n` },
+      });
+      const asked: unknown[][] = [];
+      const deps = baseDeps({
+        probes,
+        stdin: async () => ({ token: "glpat-x" }),
+        writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+        writeSetting: () => {},
+        teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "", remote: null, integrations: scenario.declared ? { forge: scenario.declared } : {} }),
+        forgeLogin: async (...args: unknown[]) => { asked.push(args.slice(1)); return "dev1"; },
+      });
+      await integrationConnect("gitlab", ["--host", "forge.example.com", "--json"], deps);
+      expect(readTeamLocal(probes, "acme").forgeUsername).toBe(scenario.username);
+      expect(asked).toEqual(scenario.username ? [["gitlab", "forge.example.com", "glpat-x"]] : []);
+      expect(JSON.parse(deps.lines[0]!).status).toBe(scenario.valid ? "ready" : "invalid");
+    });
+  }
   test("a forge connect retries pending roles for a stored username and reports a failed publish", async () => {
     let fail = true;
     const probes = fakeProbes({
