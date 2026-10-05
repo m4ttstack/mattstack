@@ -466,6 +466,18 @@ describe('moveTargets', () => {
     expect(at({ scope: 'machine.repo', file: '/m', value: 'x' })).toEqual([]);
     expect(at({ scope: null, file: null })).toEqual([]);
   });
+  it('offers nothing for a list that adds up across layers', () => {
+    expect(
+      moveTargets({
+        ...base,
+        key: 'claude.plugins',
+        type: 'array',
+        merge: 'add',
+        scopes: ['org', 'team', 'user', 'machine'],
+        effective: { scope: 'user', file: '/u', value: ['mine@other'] },
+      })
+    ).toEqual([]);
+  });
 });
 
 describe('org layer', () => {

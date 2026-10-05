@@ -348,8 +348,10 @@ export function cancelOnEscape(cancel: () => void) {
 
 /** Where the value in effect may move. settings-kit moves global layers
     only, and a move re-sets the value at its target, which would reject a
-    value rt already refused. */
+    value rt already refused. An add-merged list never moves: a set at the
+    target would replace that layer's own items. */
 export function moveTargets(def: SettingDefWire): StoreScope[] {
+  if (def.merge === 'add') return [];
   const from = def.effective.scope;
   const base = rungBase(from);
   const stored =
