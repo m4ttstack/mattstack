@@ -108,8 +108,8 @@ filters, group, sort", Option B, light and dark.
 The header's toolbar becomes one line of three labeled menu buttons, with the
 actions moved out of it:
 
-- **Actions** (refresh, theme) sit as quiet icon buttons in the title row's
-  top-right corner.
+- **Actions:** refresh sits as a quiet icon button in the title row's
+  top-right corner, next to the existing theme control, which is unchanged.
 - The "copy summary for Slack" (copy every row) button is removed. Copying
   selected rows from the selection bar stays.
 - **Group: <value> ▾** opens today's group choices (age, author, status, my
