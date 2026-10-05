@@ -30,6 +30,7 @@ writeFileSync(
   JSON.stringify({
     'board.gitlabHost': 'https://gitlab.example.com',
     'board.projects': ['g/p'],
+    'mattstack.org': { admins: ['dev1'], teams: {} },
     'mattstack.roster': [{ username: 'ann' }, { username: 'bo' }],
   })
 );
@@ -44,6 +45,12 @@ writeFileSync(
 const rtDir = join(fakeHome, '.mattstack', 'rt');
 mkdirSync(rtDir, { recursive: true });
 writeFileSync(join(rtDir, 'api-token'), 'fake-token\n');
+const localTeams = join(rtDir, 'teams');
+mkdirSync(localTeams, { recursive: true });
+writeFileSync(
+  join(localTeams, 'testteam.json'),
+  JSON.stringify({ forgeUsername: 'dev1' })
+);
 
 const PORT = 47951;
 const proc = Bun.spawn(
