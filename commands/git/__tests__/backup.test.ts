@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { deleteBackup } from "../../../lib/git-backup.ts";
 import * as out from "../../../lib/ui/out.ts";
 import { captureOut, type CapturedOut } from "../../../lib/ui/__tests__/capture-out.ts";
 import { renderPlain } from "../../../lib/ui/out-plain.ts";
@@ -68,4 +69,10 @@ test("restoring onto a detached HEAD says detached HEAD", () => {
   expect(renderPlain(pending).split("\n")[0]).toBe("[not yet] Reset detached HEAD to feature-a's backup 0123abcd  rebase backup from 2h ago");
   expect(renderPlain(pending)).toContain("  note: This moves HEAD to that backup, and throws away every change here that is not in it.\n");
   expect(renderPlain([done])).toBe("[ok] Reset detached HEAD to feature-a's backup  rt-backup/rebase/feature-a/2026-09-30T10-00-00\n");
+});
+
+test("a backup ref with shell syntax is passed as one argument", () => {
+  const marker = join(repo, "pwned");
+  expect(() => deleteBackup(`rt-backup/x/$(touch ${marker})`, repo)).toThrow();
+  expect(existsSync(marker)).toBe(false);
 });
