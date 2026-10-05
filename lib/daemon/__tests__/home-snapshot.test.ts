@@ -2050,9 +2050,9 @@ describe("startSnapshot: spec", () => {
     const result = await handle.runNow("manual");
     expect(result.paths).toEqual(["mattstack/settings.team.jsonc", ".sops.yaml"]);
     const add = calls.find((c) => gitVerb(c) === "add")!;
-    expect(add).toEqual(["git", "add", "-A", "--", "mattstack/settings.team.jsonc", ".sops.yaml"]);
+    expect(add).toEqual(["git", "add", "-A", "--", ":(literal)mattstack/settings.team.jsonc", ":(literal).sops.yaml"]);
     const commit = calls.find((c) => gitVerb(c) === "commit")!;
-    expect(commit.slice(-3)).toEqual(["--", "mattstack/settings.team.jsonc", ".sops.yaml"]);
+    expect(commit.slice(-3)).toEqual(["--", ":(literal)mattstack/settings.team.jsonc", ":(literal).sops.yaml"]);
     handle.stop();
   });
 
@@ -2067,8 +2067,8 @@ describe("startSnapshot: spec", () => {
     await handle.ready;
     const result = await handle.runNow("manual");
     expect(result.paths).toEqual(["mattstack/foo.ts"]);
-    expect(calls.find((c) => gitVerb(c) === "add")).toEqual(["git", "add", "-A", "--", "mattstack/foo.ts"]);
-    expect(calls.find((c) => gitVerb(c) === "commit")!.slice(-2)).toEqual(["--", "mattstack/foo.ts"]);
+    expect(calls.find((c) => gitVerb(c) === "add")).toEqual(["git", "add", "-A", "--", ":(literal)mattstack/foo.ts"]);
+    expect(calls.find((c) => gitVerb(c) === "commit")!.slice(-2)).toEqual(["--", ":(literal)mattstack/foo.ts"]);
     handle.stop();
   });
 
@@ -2083,7 +2083,7 @@ describe("startSnapshot: spec", () => {
     expect(result.committed).toBe(true);
     expect(result.paths).toEqual(["mattstack/foo.ts"]);
     expect(calls.some((c) => gitVerb(c) === "add")).toBe(false);
-    expect(calls.find((c) => gitVerb(c) === "commit")!.slice(-2)).toEqual(["--", "mattstack/foo.ts"]);
+    expect(calls.find((c) => gitVerb(c) === "commit")!.slice(-2)).toEqual(["--", ":(literal)mattstack/foo.ts"]);
     handle.stop();
   });
 });
@@ -2190,7 +2190,7 @@ describe("teamSnapshotSpec", () => {
     expect(result.paths).toEqual(["mattstack/teams/widgets/settings.team.jsonc"]);
     const excludes = [":(exclude)mattstack/packs/", ":(exclude)mattstack/org/packs/", `:(exclude)${WIDGETS_PACK}`];
     const add = calls.find((c) => gitVerb(c) === "add")!;
-    expect(add).toEqual(["git", "add", "-A", "--", "mattstack/teams/widgets/settings.team.jsonc"]);
+    expect(add).toEqual(["git", "add", "-A", "--", ":(literal)mattstack/teams/widgets/settings.team.jsonc"]);
     const commit = calls.find((c) => gitVerb(c) === "commit")!;
     expect(commit.some((arg) => arg.includes("/packs/") && !arg.startsWith(":(exclude)"))).toBe(false);
     expect(commit).toEqual(expect.arrayContaining(excludes));
@@ -2225,17 +2225,17 @@ describe("teamSnapshotSpec", () => {
       const watch = await handle.runNow("watch");
       expect(watch.paths).toEqual(["mattstack/teams/widgets/settings.team.jsonc"]);
       const watchAdd = calls.find((c) => gitVerb(c) === "add")!;
-      expect(watchAdd).toEqual(["git", "add", "-A", "--", "mattstack/teams/widgets/settings.team.jsonc"]);
+      expect(watchAdd).toEqual(["git", "add", "-A", "--", ":(literal)mattstack/teams/widgets/settings.team.jsonc"]);
       expect(calls.find((c) => gitVerb(c) === "commit")).toContain(`:(exclude)${WIDGETS_PACK}`);
 
       calls.length = 0;
       const janitor = await handle.runNow("janitor");
       expect(janitor.committed).toBe(true);
-      const staged = calls.filter((c) => gitVerb(c) === "add" || gitVerb(c) === "commit").flatMap((c) => c.slice(c.indexOf("--") + 1));
+      const staged = calls.filter((c) => gitVerb(c) === "add" || gitVerb(c) === "commit").flatMap((c) => c.slice(c.indexOf("--") + 1)).map((arg) => arg.replace(/^:\(literal\)/, ""));
       expect(staged).toContain(widgetsPackFile);
       expect(staged.some((arg) => arg.startsWith("mattstack/teams/gadgets/"))).toBe(false);
       expect(calls).toContainEqual([
-        "git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", `snapshot (janitor): ${WIDGETS_PACK} dirty >2h, owner skills-publish`, "--", widgetsPackFile,
+        "git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", `snapshot (janitor): ${WIDGETS_PACK} dirty >2h, owner skills-publish`, "--", `:(literal)${widgetsPackFile}`,
       ]);
       handle.stop();
     } finally {
@@ -2322,6 +2322,37 @@ describe("teamSnapshotSpec", () => {
     }
   }, 15_000);
 
+  test("real git: a file named like a glob stages only itself, never a claimed pack file it would match", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-team-snapshot-glob-")));
+    const repoDir = join(root, "acme");
+    const db = openStateDb(join(root, "state.db"), "cli");
+    try {
+      execFileSync("git", ["init", "-q", "-b", "main", repoDir]);
+      execFileSync("git", ["config", "user.email", "rt@example.test"], { cwd: repoDir });
+      execFileSync("git", ["config", "user.name", "rt test"], { cwd: repoDir });
+      mkdirSync(join(repoDir, "mattstack", "teams", "widgets", "packs", "widgets"), { recursive: true });
+      writeFileSync(join(repoDir, "mattstack", "teams", "widgets", "settings.team.jsonc"), "{}\n");
+      execFileSync("git", ["add", "-A"], { cwd: repoDir });
+      execFileSync("git", ["commit", "-q", "-m", "seed"], { cwd: repoDir });
+
+      writeFileSync(join(repoDir, "mattstack", "teams", "widgets", "pa*"), "odd name\n");
+      writeFileSync(join(repoDir, "mattstack", "teams", "widgets", "packs", "widgets", "skill.md"), "mid-edit\n");
+
+      const spec = teamSnapshotSpec("acme", repoDir, { ownedRoots: ADMIN_ROOTS, pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: adminProbes(), readToken: async () => null });
+      const handle = startSnapshot(spec, { log: fakeLog(), broadcast: () => {}, db, readSettings: () => DEFAULT_SETTINGS, readOwners: () => NO_OWNERS });
+      await handle.ready;
+      expect((await handle.runNow("watch")).committed).toBe(true);
+
+      const committed = execFileSync("git", ["show", "--name-only", "--format=", "HEAD"], { cwd: repoDir }).toString().trim();
+      expect(committed).toBe("mattstack/teams/widgets/pa*");
+      const status = execFileSync("git", ["status", "--porcelain", "-uall"], { cwd: repoDir }).toString();
+      expect(status).toContain("?? mattstack/teams/widgets/packs/widgets/skill.md");
+      handle.stop();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   test("real git: a new team folder's settings file is committed while its untracked pack stays out", async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-team-snapshot-newteam-")));
     const repoDir = join(root, "acme");
@@ -2368,7 +2399,7 @@ describe("teamSnapshotSpec", () => {
     const result = await handle.runNow("janitor");
     expect(result.committed).toBe(true);
     expect(calls).toContainEqual([
-      "git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", `snapshot (janitor): ${WIDGETS_PACK} dirty >2h, owner skills-publish`, "--", "mattstack/teams/widgets/packs/widgets/skills/x/SKILL.md",
+      "git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", `snapshot (janitor): ${WIDGETS_PACK} dirty >2h, owner skills-publish`, "--", ":(literal)mattstack/teams/widgets/packs/widgets/skills/x/SKILL.md",
     ]);
     handle.stop();
   }));

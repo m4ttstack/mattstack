@@ -394,6 +394,11 @@ function teamStandingZones(repoDir: string): Owners["zones"] {
 
 const MARKETPLACE_PATH = ".claude-plugin/marketplace.json";
 
+/** Names read off disk go to git as literal pathspecs: a file named `pa*` would otherwise stage every path it matches. */
+function literal(paths: string[]): string[] {
+  return paths.map((path) => `:(literal)${path}`);
+}
+
 /**
  * A new pack whose share commit failed must reach origin with its marketplace
  * entry, never after it, so the entry waits for `rt team publish`. The hold
@@ -1319,7 +1324,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       const autoAddArgs = stageScope ? addScopeArgs.filter(outsideClaims) : addScopeArgs;
       if (!mayWrite(autoArgs, rawEntries)) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
       const addResult = autoAddArgs.length > 0
-        ? await deps.exec(["git", "add", "-A", "--", ...autoAddArgs, ...(stageScope ? [] : excludeArgs)], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" })
+        ? await deps.exec(["git", "add", "-A", "--", ...(stageScope ? literal(autoAddArgs) : [...autoAddArgs, ...excludeArgs])], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" })
         : { exitCode: 0, stderr: "" };
       if (addResult.exitCode !== 0) {
         const addSkipped: SkipReason = addResult.stderr.toLowerCase().includes("index.lock") ? "index-locked" : "add-failed";
@@ -1347,7 +1352,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       // is confirmed once, above, before either commit site runs.)
       const message = reason === "manual" ? plan.message!.replace(/^snapshot:/, "snapshot (manual):") : plan.message!;
       if (!mayWrite(autoArgs, rawEntries)) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
-      const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", ...autoArgs, ...excludeArgs], {
+      const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", ...(stageScope ? literal(autoArgs) : autoArgs), ...excludeArgs], {
         cwd: deps.repoDir,
         timeoutMs: GIT_TIMEOUT_MS,
         stderr: "pipe",
@@ -1379,7 +1384,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
         const message = `snapshot (janitor): ${jz.zone} dirty >${dirtyHours}h, owner ${jz.owner}`;
         if (!mayWrite(commitPaths, rawEntries)) continue;
         const addResult = addPaths.length > 0
-          ? await deps.exec(["git", "add", "-A", "--", ...addPaths], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" })
+          ? await deps.exec(["git", "add", "-A", "--", ...(spec.scope ? literal(addPaths) : addPaths)], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" })
           : { exitCode: 0, stderr: "" };
         if (addResult.exitCode !== 0) {
           deps.log.warn({ stderr: addResult.stderr, zone: jz.zone }, `${label}: janitor add failed; skipping this zone this cycle`);
@@ -1387,7 +1392,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
         }
         // Same self-contained-commit and unsigned-commit reasoning as the auto commit above.
         if (!mayWrite(commitPaths, rawEntries)) continue;
-        const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", ...commitPaths], {
+        const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", ...(spec.scope ? literal(commitPaths) : commitPaths)], {
           cwd: deps.repoDir,
           timeoutMs: GIT_TIMEOUT_MS,
           stderr: "pipe",
