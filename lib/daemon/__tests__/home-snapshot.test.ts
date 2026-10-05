@@ -3074,10 +3074,18 @@ describe("current snapshot authorization", () => {
     } finally { handle.stop(); }
   });
 
-  test("a pending-path read error keeps the pending work and does not report revoked ownership", async () => {
+  for (const failure of ["history", "commit", "malformed-history", "malformed-paths"] as const) test(`${failure}: a pending-path read error keeps the pending work and does not report revoked ownership`, async () => {
     const { spec } = world();
     const exec = makeFakeExec([
-      (argv) => gitVerb(argv) === "diff" ? { stdout: "", stderr: "fatal: unknown remote ref", exitCode: 128 } : undefined,
+      (argv) => {
+        if (gitVerb(argv) === "rev-list" && !argv.includes("--count")) return {
+          stdout: failure === "malformed-history" ? "unknown permission\n" : failure === "history" ? "" : `${"a".repeat(40)}\n`,
+          stderr: failure === "history" ? "fatal: unknown remote ref" : "",
+          exitCode: failure === "history" ? 128 : 0,
+        };
+        if (gitVerb(argv) === "diff-tree") return { stdout: failure === "malformed-paths" ? "truncated-path" : "", stderr: "unreadable commit", exitCode: failure === "commit" ? 128 : 0 };
+        return undefined;
+      },
       ...pullResponders({ behind: 0, ahead: 1 }),
       ...defaultResponders({ statusZ: " M mattstack/teams/widgets/settings.team.jsonc\0" }),
     ]);
@@ -3101,7 +3109,7 @@ describe("current snapshot authorization", () => {
     let revokeOnFetch = false;
     const exec = makeFakeExec([
       (argv) => { if (revokeOnFetch && gitVerb(argv) === "fetch") roots = ["mattstack/teams/gadgets"]; return undefined; },
-      (argv) => gitVerb(argv) === "diff" ? { stdout: "mattstack/teams/widgets/settings.team.jsonc\0", stderr: "", exitCode: 0 } : undefined,
+      (argv) => gitVerb(argv) === "rev-list" && !argv.includes("--count") ? { stdout: `${"a".repeat(40)}\n`, stderr: "", exitCode: 0 } : gitVerb(argv) === "diff-tree" ? { stdout: "mattstack/teams/widgets/settings.team.jsonc\0", stderr: "", exitCode: 0 } : undefined,
       ...pullResponders({ behind: 0, ahead: 1 }),
       ...defaultResponders({ statusZ: " M mattstack/teams/widgets/settings.team.jsonc\0" }),
     ]);
@@ -3118,6 +3126,68 @@ describe("current snapshot authorization", () => {
       expect(handle.status()).toMatchObject({ pullOnly: false, pushPending: true, lastPushError: expect.stringContaining("Your role no longer owns"), unownedDirty: ["mattstack/teams/widgets/settings.team.jsonc"] });
     } finally { handle.stop(); }
   });
+
+  for (const history of ["canceled", "rename", "owned", "merge"] as const) {
+    test(`unpublished history: ${history} paths are authorized without losing local bytes`, async () => {
+      const { spec } = world();
+      const repoDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-pending-history-")));
+      const widget = "mattstack/teams/widgets/source.txt";
+      const gadget = "mattstack/teams/gadgets/destination\nwith-tab\t.txt";
+      const unrelated = "unrelated.txt";
+      const git = (...args: string[]) => execFileSync("git", args, { cwd: repoDir, env: childEnv(), encoding: "utf8" });
+      for (const path of [widget, ...(history === "rename" ? [] : [gadget]), unrelated]) { mkdirSync(dirname(join(repoDir, path)), { recursive: true }); writeFileSync(join(repoDir, path), path === gadget ? "destination before\n" : "seed\n"); }
+      git("init", "-q", "-b", "main");
+      git("config", "user.name", "dev2"); git("config", "user.email", "dev2@example.test");
+      git("add", "."); git("commit", "-q", "-m", "seed");
+      git("update-ref", "refs/remotes/origin/main", "HEAD");
+      if (history === "rename") {
+        mkdirSync(dirname(join(repoDir, gadget)), { recursive: true }); git("mv", "--", widget, gadget); git("commit", "-q", "-m", "rename across teams");
+      } else if (history === "merge") {
+        git("checkout", "-q", "-b", "pending-side");
+        writeFileSync(join(repoDir, gadget), "side\n"); git("add", "--", gadget); git("commit", "-q", "-m", "side");
+        git("checkout", "-q", "main");
+        git("merge", "--no-ff", "--no-commit", "pending-side");
+        writeFileSync(join(repoDir, widget), "merge-produced\n"); git("add", "--", widget); git("commit", "-q", "-m", "merge resolution");
+      } else {
+        if (history === "canceled") {
+          writeFileSync(join(repoDir, widget), "intermediate\n"); git("add", "--", widget); git("commit", "-q", "-m", "widgets edit");
+          writeFileSync(join(repoDir, widget), "seed\n");
+        }
+        writeFileSync(join(repoDir, gadget), "allowed\n"); git("add", "."); git("commit", "-q", "-m", "owned edit and restore");
+      }
+      writeFileSync(join(repoDir, unrelated), "staged\n"); git("add", "--", unrelated);
+      writeFileSync(join(repoDir, unrelated), "working\n");
+      const head = git("rev-parse", "HEAD");
+      const pending = git("rev-list", "refs/remotes/origin/main..HEAD");
+      const index = readFileSync(join(repoDir, ".git/index"));
+      let pushes = 0;
+      let inspectedFetch = false;
+      spec.readAuthorization = () => ({ pullOnly: false, scope: (path) => path.startsWith("mattstack/teams/gadgets/") });
+      const { deps, timers } = baseDeps({ repoDir, exec: async (argv, opts) => {
+        if (gitVerb(argv) === "remote") return { stdout: "origin\n", stderr: "", exitCode: 0 };
+        if (gitVerb(argv) === "fetch") { inspectedFetch = true; return { stdout: "", stderr: "", exitCode: 0 }; }
+        if (gitVerb(argv) === "push") { pushes++; return { stdout: "", stderr: "", exitCode: 0 }; }
+        return runCapture(argv, opts);
+      } });
+      const { repoDir: _r, ...rest } = deps;
+      const handle = startSnapshot({ ...spec, repoDir }, rest);
+      try {
+        await handle.ready;
+        await handle.runNow("manual");
+        timers.fire((timer) => timer.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+        // Real Git subprocesses need completion, not only a microtask flush.
+        for (let i = 0; i < 200 && handle.status().lastPushError === null && pushes === 0; i++) await Bun.sleep(10);
+        expect(inspectedFetch).toBe(true);
+        expect(pushes).toBe(history === "owned" ? 1 : 0);
+        expect(handle.status()).toMatchObject(history === "owned" ? { pushPending: false, lastPushError: null } : { pushPending: true, lastPushError: expect.stringContaining("Your role no longer owns") });
+        expect(git("rev-parse", "HEAD")).toBe(head);
+        expect(git("rev-list", "refs/remotes/origin/main..HEAD")).toBe(pending);
+        expect(readFileSync(join(repoDir, ".git/index"))).toEqual(index);
+        expect(git("show", `:${unrelated}`)).toBe("staged\n");
+        expect(readFileSync(join(repoDir, unrelated), "utf8")).toBe("working\n");
+      } finally { handle.stop(); rmSync(repoDir, { recursive: true, force: true }); }
+    });
+  }
 
   for (const boundary of ["planned", "staged"] as const) {
     test(`${boundary}: real git keeps revoked paths and existing index bytes without a commit`, async () => {
