@@ -1,4 +1,9 @@
-import { describe, test, expect } from "bun:test";
+import { execFileSync } from "child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
+import { tmpdir } from "os";
+import { childEnv, runCapture } from "../../subprocess.ts";
+import { afterEach, describe, test, expect } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { publishTeam } from "../publish.ts";
 import { teamLocalPath } from "../team-local.ts";
@@ -8,7 +13,16 @@ const DIR = "/home/x/.mattstack/teams/acme";
 
 /** publishTeam prechecks the zone exists (finding 7) — every test that means to reach the git steps must seed the dir. */
 function probesWithZone(overrides: Parameters<typeof fakeProbes>[0] = {}) {
-  return fakeProbes({ dirs: { [DIR]: [] }, ...overrides });
+  return fakeProbes({ home: "/home/x", dirs: { [DIR]: [] }, ...overrides,
+    exec: (argv, opts) => {
+      if (argv.includes("get-url")) return { code: 0, stdout: "https://github.com/acme/repo.git\n", stderr: "" };
+      if (argv.includes("ls-remote") || argv.includes("rev-list")) return { code: 0, stdout: "", stderr: "" };
+      return overrides.exec?.(argv, opts) ?? { code: 0, stdout: "", stderr: "" };
+    }, files: {
+    [`${DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+    [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
+    ...overrides.files,
+  } });
 }
 
 describe("publishTeam", () => {
@@ -16,7 +30,7 @@ describe("publishTeam", () => {
     const p = probesWithZone({ home: "/home/x" });
     const result = await publishTeam(p, "acme", "https://github.com/acme/repo.git");
 
-    expect(p.calls.exec).toEqual([
+    expect(p.calls.exec.filter((argv) => !argv.includes("get-url") && !argv.includes("ls-remote") && !argv.includes("rev-list"))).toEqual([
       ["git", "remote", "set-url", "origin", "https://github.com/acme/repo.git"],
       ["git", "push", "-u", "origin", "main"],
     ]);
@@ -30,7 +44,7 @@ describe("publishTeam", () => {
     const seen: { argv: string[]; env?: Record<string, string> }[] = [];
     p.exec = async (argv, opts) => {
       seen.push({ argv, env: opts?.env });
-      return { code: 0, stdout: "", stderr: "" };
+      return { code: 0, stdout: argv.includes("get-url") ? "https://github.com/acme/repo.git\n" : "", stderr: "" };
     };
     const result = await publishTeam(p, "acme", "https://github.com/acme/repo.git", { token: "ghp_secret" });
     const push = seen.find((c) => c.argv.includes("push"))!;
@@ -47,7 +61,7 @@ describe("publishTeam", () => {
     });
     await publishTeam(p, "acme", "https://github.com/acme/repo.git");
 
-    expect(p.calls.exec).toEqual([
+    expect(p.calls.exec.filter((argv) => !argv.includes("get-url") && !argv.includes("ls-remote") && !argv.includes("rev-list"))).toEqual([
       ["git", "remote", "set-url", "origin", "https://github.com/acme/repo.git"],
       ["git", "remote", "add", "origin", "https://github.com/acme/repo.git"],
       ["git", "push", "-u", "origin", "main"],
@@ -61,12 +75,12 @@ describe("publishTeam", () => {
     });
     const result = await publishTeam(p, "acme", null);
 
-    expect(p.calls.exec).toEqual([["git", "push", "-u", "origin", "main"]]);
+    expect(p.calls.exec.filter((argv) => !argv.includes("get-url") && !argv.includes("ls-remote") && !argv.includes("rev-list"))).toEqual([["git", "push", "-u", "origin", "main"]]);
     expect(result.remote).toBe("https://github.com/acme/repo.git");
   });
 
   test("no zone for the slug: typed no-team-zone error, no exec calls at all", async () => {
-    const p = fakeProbes({ home: "/home/x" }); // DIR deliberately not seeded
+    const p = probesWithZone({ dirs: {} }); // DIR deliberately not seeded
 
     let thrown: unknown;
     try {
@@ -80,23 +94,18 @@ describe("publishTeam", () => {
     expect(p.calls.exec).toEqual([]);
   });
 
-  test("publish refuses on a joined clone", async () => {
-    const p = probesWithZone({
-      home: "/home/x",
-      files: { [teamLocalPath("/home/x", "acme")]: JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false }) },
-    });
-
-    let thrown: unknown;
-    try {
-      await publishTeam(p, "acme", null);
-    } catch (err) {
-      thrown = err;
+  test("a member or unknown Mac refuses to publish; invited owners and admins may publish", async () => {
+    for (const username of ["dev9", null, "dev1", "dev2"]) {
+      const p = probesWithZone({ files: {
+        [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: username, joinedByRt: true }),
+        [`${DIR}/.git/config`]: '[remote "origin"]\n\turl = https://github.com/acme/widgets.git\n',
+      } });
+      if (username === "dev1" || username === "dev2") await expect(publishTeam(p, "acme", null)).resolves.toMatchObject({ pushed: true });
+      else {
+        await expect(publishTeam(p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
+        expect(p.calls.exec).toEqual([]);
+      }
     }
-
-    expect(thrown).toBeInstanceOf(UserActionableError);
-    expect((thrown as UserActionableError).code).toBe("team-pull-only");
-    expect((thrown as UserActionableError).message).toMatch(/pull-only/);
-    expect(p.calls.exec).toEqual([]);
   });
 
   test("an unvalidated --team never resolves outside teamsDir()", async () => {
@@ -147,7 +156,7 @@ describe("publishTeam", () => {
       exec: (argv) =>
         argv[0] === "git" && argv[1] === "push"
           ? { code: 1, stdout: "", stderr: "! [rejected]        main -> main (fetch first)\nerror: failed to push some refs" }
-          : { code: 0, stdout: "", stderr: "" },
+          : { code: argv[1] === "rev-parse" ? 1 : 0, stdout: "", stderr: "" },
     });
 
     let thrown: unknown;
@@ -215,4 +224,138 @@ describe("publishTeam", () => {
     expect(result.remote).toBe("https://github.com/acme/repo.git");
     expect(result.detail).not.toContain("SECRET");
   });
+});
+
+  test("a rejected push on an org that has been pushed before says the org moved, never that the repo is not empty", async () => {
+    const p = probesWithZone({
+      home: "/home/x",
+      exec: (argv) =>
+        argv[0] === "git" && argv.includes("push")
+          ? { code: 1, stdout: "", stderr: "! [rejected]        main -> main (fetch first)\nerror: failed to push some refs" }
+          : { code: 0, stdout: "", stderr: "" },
+    });
+    await expect(publishTeam(p, "acme", null)).rejects.toMatchObject({
+      code: "org-moved",
+      message: "The org repo has changes this Mac does not have yet",
+      why: "Someone else pushed first. Pull, then try again.",
+      next: "rt team pull",
+    });
+  });
+
+const publishHomes: string[] = [];
+afterEach(() => { for (const home of publishHomes.splice(0)) rmSync(home, { recursive: true, force: true }); });
+
+function historyWorld(initial = false) {
+  const home = mkdtempSync(join(tmpdir(), "rt-publish-history-"));
+  publishHomes.push(home);
+  const dir = join(home, ".mattstack", "teams", "acme");
+  const remote = join(home, "remote.git");
+  mkdirSync(dir, { recursive: true });
+  const git = (...args: string[]) => execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], { cwd: dir, env: childEnv(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const write = (path: string, body: string) => { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), body); };
+  const store = "mattstack/org/settings.org.jsonc";
+  const roles = (teams: string[], username = "dev2") => {
+    write(store, JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: Object.fromEntries(teams.map((team) => [team, { owners: ["dev2"] }])) } }));
+    const local = teamLocalPath(home, "acme"); mkdirSync(dirname(local), { recursive: true }); writeFileSync(local, JSON.stringify({ forgeUsername: username }));
+  };
+  roles(["widgets", "gadgets"]);
+  write(".gitignore", "*.tmp\n");
+  write("mattstack/teams/widgets/source.txt", "seed\n");
+  write("mattstack/teams/gadgets/destination.txt", "seed\n");
+  git("init", "-q", "-b", "main"); git("config", "user.name", "dev2"); git("config", "user.email", "dev2@example.test");
+  git("add", "--", ".gitignore", "mattstack"); git("commit", "-q", "-m", "scaffold");
+  if (initial) git("init", "--bare", "-q", remote);
+  else git("clone", "--bare", "-q", dir, remote);
+  git("remote", "add", "origin", remote);
+  const base = git("rev-parse", "HEAD").trim();
+  if (!initial) git("update-ref", "refs/remotes/origin/main", base);
+  let pushes = 0;
+  let fail: string | null = null;
+  let onInspect: (() => void) | null = null;
+  const p = fakeProbes({ home });
+  p.exists = existsSync;
+  p.readFile = (file) => existsSync(file) ? readFileSync(file, "utf8") : null;
+  p.exec = async (argv, opts) => {
+    if (argv.includes("push")) { pushes++; return { code: 0, stdout: "", stderr: "" }; }
+    if (fail && argv.includes(fail)) return { code: 128, stdout: "", stderr: "inspection failed" };
+    const r = await runCapture([argv[0]!, "-c", "core.hooksPath=/dev/null", ...argv.slice(1)], { cwd: opts?.cwd, env: { ...childEnv(), ...opts?.env }, timeoutMs: 5000 });
+    if (argv.includes("diff-tree")) onInspect?.();
+    return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };
+  };
+  const commit = (path: string, body: string) => { write(path, body); git("add", "--", path); git("commit", "-q", "-m", "pending"); };
+  return { p, dir, remote, git, write, roles, commit, base, pushes: () => pushes, fail: (verb: string) => { fail = verb; }, onInspect: (fn: () => void) => { onInspect = fn; } };
+}
+
+describe("publication authorizes the actual main history and destination", () => {
+  for (const history of ["revoked", "reverted", "rename", "merge"] as const) test(`${history} unowned pending history refuses before push`, async () => {
+    const w = historyWorld();
+    const widget = "mattstack/teams/widgets/source.txt";
+    const gadget = "mattstack/teams/gadgets/destination.txt";
+    if (history === "rename") { w.git("mv", widget, "mattstack/teams/gadgets/moved.txt"); w.git("commit", "-q", "-m", "rename"); }
+    else if (history === "merge") {
+      w.git("checkout", "-q", "-b", "side"); w.commit(gadget, "side\n"); w.git("checkout", "-q", "main"); w.git("merge", "--no-ff", "--no-commit", "side");
+      w.write(widget, "merge-produced\n"); w.git("add", "--", widget); w.git("commit", "-q", "-m", "merge resolution");
+    } else { w.commit(widget, "pending\n"); if (history === "reverted") w.git("revert", "--no-edit", "HEAD"); }
+    w.roles(["gadgets"]);
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
+    expect(w.pushes()).toBe(0);
+  });
+
+  test("an owner may publish only its owned main changes, even without tracking refs", async () => {
+    const w = historyWorld(); w.commit("mattstack/teams/gadgets/destination.txt", "owned\n"); w.roles(["gadgets"]); w.git("update-ref", "-d", "refs/remotes/origin/main");
+    await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true }); expect(w.pushes()).toBe(1);
+  });
+
+  test("authorization reads the role after history inspection", async () => {
+    const w = historyWorld(); w.commit("mattstack/teams/widgets/source.txt", "pending\n"); w.onInspect(() => w.roles(["gadgets"]));
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" }); expect(w.pushes()).toBe(0);
+  });
+
+  for (const failure of ["rev-list", "diff-tree", "ls-remote"] as const) test(`${failure} failure refuses rather than sending uninspected history`, async () => {
+    const w = historyWorld(); w.commit("mattstack/teams/widgets/source.txt", "pending\n"); w.fail(failure);
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" }); expect(w.pushes()).toBe(0);
+  });
+
+  for (const mainUnowned of [false, true]) test(`a different checked-out branch does not replace selected main (${mainUnowned})`, async () => {
+    const w = historyWorld();
+    w.commit(mainUnowned ? "mattstack/teams/widgets/source.txt" : "mattstack/teams/gadgets/destination.txt", "main pending\n");
+    w.git("checkout", "-q", "-b", "other", w.base); w.commit(mainUnowned ? "mattstack/teams/gadgets/destination.txt" : "mattstack/teams/widgets/source.txt", "other pending\n"); w.roles(["gadgets"]);
+    if (mainUnowned) await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
+    else await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true });
+    expect(w.pushes()).toBe(mainUnowned ? 0 : 1);
+  });
+
+  for (const destination of ["explicit", "pushurl"] as const) test(`a changed ${destination} cannot reuse the old origin baseline`, async () => {
+    const w = historyWorld(); w.commit("mattstack/teams/gadgets/destination.txt", "owned\n"); w.roles(["gadgets"]);
+    const empty = join(dirname(w.remote), "empty.git"); w.git("init", "--bare", "-q", empty);
+    if (destination === "pushurl") w.git("config", "remote.origin.pushurl", empty);
+    await expect(publishTeam(w.p, "acme", destination === "explicit" ? empty : null)).rejects.toMatchObject({ code: "team-pull-only" }); expect(w.pushes()).toBe(0);
+  });
+
+  for (const initial of [false, true]) test(`admin publication preserves scaffold/recovery, initial=${initial}`, async () => {
+    const w = historyWorld(initial); w.roles(["widgets", "gadgets"], "dev1");
+    if (!initial) w.commit(".gitignore", "*.tmp\n.DS_Store\n");
+    await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true }); expect(w.pushes()).toBe(1);
+  });
+
+  for (const username of ["dev9", null]) test(`real pending history cannot be published by ${username ?? "unknown"}`, async () => {
+    const w = historyWorld(); w.roles(["gadgets"], username as unknown as string);
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" }); expect(w.pushes()).toBe(0);
+  });
+});
+
+for (const blocked of ["commits", "paths", "multiple-urls", "missing-main", "missing-object", "malformed-tip"] as const) test(`${blocked} publication inspection fails closed before push`, async () => {
+  const w = historyWorld(); w.commit("mattstack/teams/gadgets/destination.txt", "pending\n");
+  const exec = w.p.exec;
+  w.p.exec = async (argv, opts) => {
+    if (blocked === "multiple-urls" && argv.includes("get-url")) return { code: 0, stdout: `${w.remote}\n${w.remote}-other\n`, stderr: "" };
+    if (blocked === "missing-main" && argv.includes("rev-list")) return { code: 128, stdout: "", stderr: "unknown main" };
+    if (blocked === "missing-object" && argv.includes("ls-remote")) return { code: 0, stdout: `${"b".repeat(40)}\trefs/heads/main\n`, stderr: "" };
+    if (blocked === "malformed-tip" && argv.includes("ls-remote")) return { code: 0, stdout: "not-a-sha\trefs/heads/main\n", stderr: "" };
+    if (blocked === "commits" && argv.includes("rev-list")) return { code: 0, stdout: `${"a".repeat(40)}\n`.repeat(1001), stderr: "" };
+    if (blocked === "paths" && argv.includes("diff-tree")) return { code: 0, stdout: Array.from({ length: 10001 }, (_, i) => `mattstack/teams/gadgets/${i}\0`).join(""), stderr: "" };
+    return exec(argv, opts);
+  };
+  await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
+  expect(w.pushes()).toBe(0);
 });

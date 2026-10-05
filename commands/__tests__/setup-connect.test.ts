@@ -6,7 +6,7 @@ import type { Probes } from "../../lib/setup/probes.ts";
 import type { TeamSnapshot } from "../../lib/setup/team-settings.ts";
 import { DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError } from "../../lib/setup/slack-app.ts";
 import { slackWaitCliMessage } from "../../lib/setup/team-slack-secret.ts";
-import { teamLocalPath } from "../../lib/team/team-local.ts";
+import { readTeamLocal, teamLocalPath } from "../../lib/team/team-local.ts";
 import { capturePlain, expectOneJsonLine, realJson } from "./helpers/json-line.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 
@@ -15,6 +15,35 @@ beforeEach(() => {
   cap = capturePlain();
 });
 afterEach(() => cap.restore());
+
+function pendingRolePublication(argv: string[]) {
+  const remote = "https://gitlab.com/acme/org.git";
+  const pendingMain = "a".repeat(40);
+  const publishedMain = "b".repeat(40);
+  if (argv[1] === "remote" && argv[2] === "get-url") {
+    expect(argv).toEqual(["git", "remote", "get-url", "--push", "--all", "origin"]);
+    return ok(`${remote}\n`);
+  }
+  if (argv.includes("ls-remote")) {
+    expect(argv.slice(-3)).toEqual(["--", remote, "refs/heads/main"]);
+    return ok(`${publishedMain}\trefs/heads/main\n`);
+  }
+  if (argv[1] === "rev-list") {
+    expect(argv).toEqual(["git", "rev-list", "--max-count=1001", `${publishedMain}..refs/heads/main`]);
+    return ok(`${pendingMain}\n`);
+  }
+  if (argv[1] === "diff-tree") {
+    expect(argv.at(-1)).toBe(pendingMain);
+    return ok("mattstack/org/settings.org.jsonc\0");
+  }
+  return null;
+}
+
+function expectPublicationInspection(calls: string[][]) {
+  const pushIndex = calls.findIndex((argv) => argv.includes("push"));
+  expect(pushIndex).toBeGreaterThan(3);
+  expect(calls.slice(pushIndex - 4, pushIndex).map((argv) => argv.find((arg) => ["remote", "ls-remote", "rev-list", "diff-tree"].includes(arg)))).toEqual(["remote", "ls-remote", "rev-list", "diff-tree"]);
+}
 
 function neverCalled<T extends unknown[], R>(name: string) {
   return async (..._args: T): Promise<R> => {
@@ -35,6 +64,7 @@ function baseDeps(overrides: Partial<ConnectDeps> & { probes?: Probes } = {}): C
   const exitCodes: number[] = [];
   return {
     probes: fakeProbes(),
+    userIntegrationOverrides: () => ({}),
     secrets: fakeSecrets(),
     json: (v) => lines.push(JSON.stringify(v)),
     exit: (code: number) => {
@@ -246,9 +276,201 @@ describe("integrationConnect — gitlab (generic token flow)", () => {
 describe("integrationConnect: forge token scopes", () => {
   const gitlabWithScopes = (scopes: string[]): Probes["fetch"] => async (url) => {
     if (url.includes("personal_access_tokens/self")) return { status: 200, body: JSON.stringify({ scopes }), headers: {} };
-    if (url.includes("/api/v4/user")) return { status: 200, body: "{}", headers: {} };
+    if (url.includes("/api/v4/user") || url.includes("/api/v4/projects/")) return { status: 200, body: "{}", headers: {} };
     return { status: 0, body: "", headers: {} };
   };
+  test("connecting the org's forge records who you are, so the team.identity row clears without waiting for an update run", async () => {
+    const probes = fakeProbes({
+      fetch: gitlabWithScopes(["api", "read_user"]),
+      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+      files: { "/fake-home/.mattstack/teams/acme/.git/config": `[remote "origin"]\n\turl = https://gitlab.com/acme/org.git\n` },
+    });
+    const asked: unknown[][] = [];
+    const deps = baseDeps({
+      probes,
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      writeSetting: () => {},
+      userIntegrationOverrides: () => ({ forgeHost: "gitlab.com" }),
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", remote: "https://gitlab.com/acme/org.git", integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }),
+      forgeLogin: async (...args: unknown[]) => {
+        asked.push(args.slice(1));
+        return "dev2";
+      },
+    });
+
+    await integrationConnect("gitlab", ["--json"], deps);
+
+    expect((JSON.parse(deps.lines[0]!) as { status: string }).status).toBe("ready");
+    expect(asked).toEqual([["gitlab", "gitlab.com", "glpat-x"]]);
+    expect(readTeamLocal(probes, "acme").forgeUsername).toBe("dev2");
+  });
+
+  test("a connect never replaces a stored username, and a different forge than the org's records nothing", async () => {
+    const stored = fakeProbes({
+      fetch: gitlabWithScopes(["api", "read_user"]),
+      files: { "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }) },
+    });
+    const deps = baseDeps({
+      probes: stored,
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      writeSetting: () => {},
+      userIntegrationOverrides: () => ({ forgeHost: "gitlab.com" }),
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }),
+      forgeLogin: neverCalled("forgeLogin"),
+    });
+    await integrationConnect("gitlab", ["--json"], deps);
+    expect(readTeamLocal(stored, "acme").forgeUsername).toBe("dev1");
+
+    const github = baseDeps({
+      probes: fakeProbes({ fetch: gitlabWithScopes(["api", "read_user"]) }),
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      writeSetting: () => {},
+      userIntegrationOverrides: () => ({ forgeHost: "gitlab.com" }),
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", integrations: { forge: { host: "github.com", provider: "github" } } }),
+      forgeLogin: neverCalled("forgeLogin"),
+    });
+    await integrationConnect("gitlab", ["--json"], github);
+    expect(readTeamLocal(github.probes, "acme").forgeUsername).toBeUndefined();
+  });
+  test("a clone that is not converted yet is identified from its origin, since it has no settings to read", async () => {
+    const probes = fakeProbes({
+      fetch: gitlabWithScopes(["api", "read_user"]),
+      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+      files: { "/fake-home/.mattstack/teams/acme/.git/config": `[remote "origin"]\n\turl = https://gitlab.com/acme/org.git\n` },
+    });
+    const deps = baseDeps({
+      probes,
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      writeSetting: () => {},
+      userIntegrationOverrides: () => ({ forgeHost: "gitlab.com" }),
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "", remote: null, integrations: {} }),
+      forgeLogin: async () => "dev1",
+    });
+    await integrationConnect("gitlab", ["--json"], deps);
+    expect(readTeamLocal(probes, "acme").forgeUsername).toBe("dev1");
+  });
+
+  test("the org's forge is matched by host as well as provider", async () => {
+    const probes = fakeProbes({ fetch: gitlabWithScopes(["api", "read_user"]) });
+    const deps = baseDeps({
+      probes,
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      writeSetting: () => {},
+      userIntegrationOverrides: () => ({ forgeHost: "gitlab.com" }),
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", integrations: { forge: { host: "gitlab.example.com", provider: "gitlab" } } }),
+      forgeLogin: neverCalled("forgeLogin"),
+    });
+    await integrationConnect("gitlab", ["--json"], deps);
+    expect(readTeamLocal(probes, "acme").forgeUsername).toBeUndefined();
+  });
+
+  for (const scenario of [
+    { name: "matching origin", origin: "forge.example.com", declared: undefined, valid: true, username: "dev1" },
+    { name: "different origin", origin: "other.example.com", declared: undefined, valid: true, username: undefined },
+    { name: "different declared provider", origin: "forge.example.com", declared: { host: "forge.example.com", provider: "github" as const }, valid: true, username: undefined },
+    { name: "rejected credential", origin: "forge.example.com", declared: undefined, valid: false, username: undefined },
+  ]) {
+    test(`explicit custom GitLab connect for an unconverted clone: ${scenario.name}`, async () => {
+      const probes = fakeProbes({
+        fetch: scenario.valid ? gitlabWithScopes(["api", "read_user"]) : gitlabUserRejected,
+        dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+        files: { "/fake-home/.mattstack/teams/acme/.git/config": `[remote "origin"]\nurl = https://${scenario.origin}/acme/org.git\n` },
+      });
+      const asked: unknown[][] = [];
+      const deps = baseDeps({
+        probes,
+        stdin: async () => ({ token: "glpat-x" }),
+        writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+        writeSetting: () => {},
+        teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "", remote: null, integrations: scenario.declared ? { forge: scenario.declared } : {} }),
+        forgeLogin: async (...args: unknown[]) => { asked.push(args.slice(1)); return "dev1"; },
+      });
+      await integrationConnect("gitlab", ["--host", "forge.example.com", "--json"], deps);
+      expect(readTeamLocal(probes, "acme").forgeUsername).toBe(scenario.username);
+      expect(asked).toEqual(scenario.username ? [["gitlab", "forge.example.com", "glpat-x"]] : []);
+      expect(JSON.parse(deps.lines[0]!).status).toBe(scenario.valid ? "ready" : "invalid");
+    });
+  }
+  test("a forge connect retries pending roles for a stored username and reports a failed publish", async () => {
+    let fail = true;
+    const probes = fakeProbes({
+      fetch: gitlabWithScopes(["api"]),
+      dirs: { "/fake-home/.mattstack/teams/acme": [] },
+      files: {
+        "/fake-home/.mattstack/teams/acme/.git/config": '[remote "origin"]\nurl = https://gitlab.com/acme/org.git\n',
+        "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}",
+        [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ forgeUsername: "dev1", creatorPending: { team: "widgets" } }),
+      },
+      exec: (argv) => pendingRolePublication(argv) ?? ({ code: argv[1] === "diff" ? 1 : argv.includes("push") && fail ? 128 : 0, stdout: "", stderr: argv.includes("push") && fail ? "denied" : "" }),
+    });
+    const deps = baseDeps({
+      probes,
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      writeSetting: () => {},
+      userIntegrationOverrides: () => ({ forgeHost: "gitlab.com" }),
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }),
+      forgeLogin: neverCalled("forgeLogin"),
+    });
+    await integrationConnect("gitlab", ["--json"], deps);
+    const first = JSON.parse(deps.lines[0]!);
+    expect(first.status).toBe("ready");
+    expect(first.detail).toContain("rt could not push");
+    expect(first.detail.endsWith("Run rt team publish")).toBe(true);
+    expect(readTeamLocal(probes, "acme").creatorPending).toBeUndefined();
+    fail = false;
+    await integrationConnect("gitlab", ["--json"], deps);
+    expect(JSON.parse(deps.lines[1]!).status).toBe("ready");
+    expect(probes.calls.exec.filter((argv) => argv.includes("push"))).toHaveLength(1);
+    expectPublicationInspection(probes.calls.exec);
+  });
+
+  for (const verb of ["add", "commit"])
+    test(`forge connect reports a failed local role ${verb} and retries it without another identity lookup`, async () => {
+      let fail = true;
+      let lookups = 0;
+      const probes = fakeProbes({
+        fetch: gitlabWithScopes(["api"]),
+        dirs: { "/fake-home/.mattstack/teams/acme": [] },
+        files: {
+          "/fake-home/.mattstack/teams/acme/.git/config": '[remote "origin"]\nurl = https://gitlab.com/acme/org.git\n',
+          "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}",
+          [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ creatorPending: { team: "widgets" } }),
+        },
+        exec: (argv) => pendingRolePublication(argv) ?? ({ code: argv[1] === "diff" ? 1 : argv[1] === verb && fail ? 128 : 0, stdout: "", stderr: "denied" }),
+      });
+      const deps = baseDeps({
+        probes,
+        stdin: async () => ({ token: "glpat-x" }),
+        writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+        writeSetting: () => {},
+        userIntegrationOverrides: () => ({ forgeHost: "gitlab.com" }),
+        teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }),
+        forgeLogin: async () => {
+          lookups++;
+          return "dev1";
+        },
+      });
+      await integrationConnect("gitlab", ["--json"], deps);
+      const first = JSON.parse(deps.lines[0]!);
+      expect(first.status).toBe("ready");
+      expect(first.detail).toBe("You are dev1 and this org's admin now, but rt could not save that. Run rt setup apply --only team.identity");
+      expect(readTeamLocal(probes, "acme").creatorPending?.team).toBe("widgets");
+      expect(probes.calls.exec.some((argv) => argv.includes("push"))).toBe(false);
+      fail = false;
+      await integrationConnect("gitlab", ["--json"], deps);
+      expect(JSON.parse(deps.lines[1]!).status).toBe("ready");
+      expect(readTeamLocal(probes, "acme").creatorPending).toBeUndefined();
+      expect(probes.calls.exec.some((argv) => argv.includes("push"))).toBe(true);
+      expect(lookups).toBe(1);
+      expectPublicationInspection(probes.calls.exec);
+    });
+
   const CREATE_INTENT = JSON.stringify({ v: 1, at: "2026-09-24T00:00:00.000Z", mode: "create", team: { slug: "acme", name: "Acme", remote: "https://gitlab.com/acme/mattstack.git", others: false } });
 
   test("a member's gitlab token that validates but lacks api is refused before storage, naming the scope and why", async () => {
@@ -275,13 +497,16 @@ describe("integrationConnect: forge token scopes", () => {
     expect(body.detail).toBe("This token is missing api (needs api for the home-repo push and members sync)");
   });
 
-  test("no intent (after Install): the owner of a team rt did not join is held to the owner's scopes", async () => {
-    const probes = fakeProbes({ fetch: gitlabWithScopes(["read_api", "read_user"]) });
+  test("no intent (after Install): an org admin is held to the owner's scopes", async () => {
+    const probes = fakeProbes({ fetch: gitlabWithScopes(["read_api", "read_user"]), files: {
+      "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ forgeUsername: "dev1", joinedByRt: true }),
+    } });
     const deps = baseDeps({
       probes,
       stdin: async () => ({ token: "glpat-x" }),
       writer: { storeReady: async () => false, write: neverCalled("writer.write") },
-      teamSnapshot: () => ({ ...slackTeamSnapshot(), integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }),
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }),
     });
 
     await integrationConnect("gitlab", ["--json"], deps);
@@ -289,6 +514,25 @@ describe("integrationConnect: forge token scopes", () => {
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("invalid");
     expect(body.detail).toBe("This token is missing api (needs api for the home-repo push and members sync)");
+  });
+
+  test("no intent (after Install): a member is held to member scopes regardless of joinedByRt", async () => {
+    const probes = fakeProbes({ fetch: gitlabWithScopes(["read_api", "read_user"]), files: {
+      "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ forgeUsername: "dev9", joinedByRt: false }),
+    } });
+    const deps = baseDeps({
+      probes,
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }),
+    });
+
+    await integrationConnect("gitlab", ["--json"], deps);
+
+    const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
+    expect(body.status).toBe("invalid");
+    expect(body.detail).toBe("This token is missing api (needs api to post board review comments)");
   });
 
   test("a gh session token short of a scope is refused with the gh command that widens it", async () => {
@@ -487,7 +731,7 @@ describe("integrationConnect — slack (OAuth flow)", () => {
   describe("a joined member the owner has not accepted yet", () => {
     const MINE = "age1mine0000000000000000000000000000000000000000000000000000000";
     const OWNER = "age1owner000000000000000000000000000000000000000000000000000000";
-    const BOARD = "/fake-home/.mattstack/teams/acme/mattstack/secrets/board.json";
+    const BOARD = "/fake-home/.mattstack/teams/acme/mattstack/org/secrets/board.json";
 
     function memberProbes(recipients: string[], unreadable: string[] = []) {
       return fakeProbes({
@@ -821,18 +1065,13 @@ const skipRealOAuth = process.env.CI === "true" && process.env.RUN_REAL_OAUTH !=
 describe.skipIf(skipRealOAuth)("realOAuthListen (real Bun.serve, no fakes — this is the seam being pinned)", () => {
   test("a mismatched state rejects instead of resolving with the code", async () => {
     const port = 18765;
-    const promise = realOAuthListen(port, "expected-state");
+    const result = realOAuthListen(port, "expected-state").then(
+      (code) => ({ code, error: undefined }),
+      (error: unknown) => ({ code: undefined, error }),
+    );
     const res = await fetch(`http://127.0.0.1:${port}/callback?code=abc&state=WRONG`);
     expect(res.status).toBe(200);
-    // Plain try/catch, not `expect(promise).rejects` — under bun:test, that matcher combined with an
-    // awaited round-trip to an in-process Bun.serve handler reports the rejection as a hard test
-    // failure regardless of whether it's later caught, rather than as a normal assertion.
-    let caught: unknown;
-    try {
-      await promise;
-    } catch (err) {
-      caught = err;
-    }
+    const { error: caught } = await result;
     expect(caught).toBeInstanceOf(Error);
     expect((caught as Error).message).toMatch(/state/i);
   });

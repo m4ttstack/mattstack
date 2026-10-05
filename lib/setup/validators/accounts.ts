@@ -26,6 +26,7 @@ import type { PackRequirements } from "../requirements.ts";
 import type { TeamSnapshot, UserIntegrationOverrides } from "../team-settings.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
+import { roleFor } from "../../team/roles.ts";
 import { boardEnvHas, boardPeering } from "../../team/board-token.ts";
 import { slackSecretWait, slackWaitRowDetail, type SlackSecretWait } from "../team-slack-secret.ts";
 
@@ -321,8 +322,8 @@ async function genericRow(p: Probes, base: Omit<Row, "status" | "detail" | "acti
 
 function forgeConnectFor(p: Probes, id: Integration, ctx: ValidateCtx, intent: SetupIntent | null, team: TeamSnapshot): ForgeConnect | undefined {
   if (id !== "github" && id !== "gitlab") return undefined;
-  const joinedByRt = team.slug ? readTeamLocal(p, team.slug).joinedByRt : false;
-  const role = forgeRole({ intentMode: intent?.mode ?? null, joinedByRt, hasTeam: team.slug !== "" });
+  const orgRole = team.slug ? roleFor(p, team.slug).kind : null;
+  const role = forgeRole({ intentMode: intent?.mode ?? null, role: orgRole, hasTeam: team.slug !== "" });
   const linkHost = id === "github" ? null : (ctx.host ?? (!ctx.declaredHost || ctx.declaredHost === "gitlab.com" ? "gitlab.com" : null));
   const create = id === "github" || linkHost !== null ? tokenCreateLink(id, role, linkHost) : null;
   return { provider: id, role, create };

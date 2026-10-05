@@ -199,9 +199,11 @@ export { REGISTRY } from "./settings/registry-defs.ts";
 export { NOTIFICATION_EVENT_KEYS, NOTIFICATION_DEFAULTS } from "./settings/notification-events.ts";
 
 export { readStore, parseStoreText, listOrgs, currentOrg, listTeamFolders, sharedStoreFiles, TEAM_NAME_RE } from "./settings/stores.ts";
-export { activeTeam, activeTeamRoster, decideActiveTeam, readOrgRoles, readOrgRoster, sameUser } from "./settings/active-team.ts";
+export { activeTeam, activeTeamPack, activeTeamRoster, decideActiveTeam, mergeTeamRoster, readOrgRoles, readOrgRoster, sameUser } from "./settings/active-team.ts";
 export type { ActiveTeam, ActiveTeamReason, OrgRoles, RosterEntry } from "./settings/active-team.ts";
 export { readForgeUsername } from "./settings/team-local-read.ts";
+export { currentRole, mayWritePath, ORG_MANAGED_ROOTS, ownedRoots, roleOf, writeRefusalFor } from "./settings/org-roles.ts";
+export type { OrgRole } from "./settings/org-roles.ts";
 export type { StoreFile } from "./settings/stores.ts";
 
 export {

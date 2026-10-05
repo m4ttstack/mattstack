@@ -1109,11 +1109,11 @@ describe('SettingRow', () => {
   it('an external row summarises and names its owner', () => {
     renderWithProviders(
       <SettingRow
-        def={def('board.members', {
+        def={def('board.hiddenMembers', {
           type: 'array',
-          scopes: ['team'],
+          scopes: ['user'],
           writable: false,
-          effective: { scope: 'team', file: '/t', value: [{}, {}, {}] },
+          effective: { scope: 'user', file: '/u', value: ['a', 'b', 'c'] },
         })}
         store={store()}
         subhead={null}

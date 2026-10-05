@@ -1,3 +1,4 @@
+import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
 /**
  * `rt team members sync|remove` — the owner side of the invite loop: sync
  * turns each outstanding invite record with a posted reply into a sops
@@ -36,7 +37,9 @@ import { parseOriginUrl } from "../setup/team-settings.ts";
 import { revokeRead, type RevokeAccess } from "./forge.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { scrub } from "./redact.ts";
-import { assertCurrentOrg, assertNotJoined, readTeamLocal } from "./team-local.ts";
+import { assertMayWrite } from "./roles.ts";
+import { assertTeamFolders } from "./team-names.ts";
+import { assertCurrentOrg, readTeamLocal } from "./team-local.ts";
 import { openReply } from "./invite-crypto.ts";
 import { readInviteRecords, removeInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
@@ -132,32 +135,25 @@ interface RosterMember {
   [key: string]: unknown;
 }
 
-/** The two roster keys a membership change touches: board.members is the board's own list, mattstack.roster the cross-app successor, mirroring invite.ts's addToRoster. */
-const ROSTER_KEYS = ["board.members", "mattstack.roster"] as const;
-type RosterKey = (typeof ROSTER_KEYS)[number];
-
-function readRoster(seams: MembersSeams, slug: string, key: RosterKey = "board.members"): RosterMember[] {
+function readRoster(seams: MembersSeams, slug: string): RosterMember[] {
   const store = seams.readTeamStore(slug);
-  return Array.isArray(store[key]) ? (store[key] as RosterMember[]) : [];
+  return Array.isArray(store["mattstack.roster"]) ? (store["mattstack.roster"] as RosterMember[]) : [];
 }
 
-/** The read-side roster: mattstack.roster is the cross-app key the suite apps read; board.members remains only as the fallback for stores minted before the successor key existed. Writers keep dual-writing both. */
-export function preferredRoster(store: Record<string, unknown>): RosterMember[] {
-  const next = store["mattstack.roster"];
-  if (Array.isArray(next)) return next as RosterMember[];
-  const legacy = store["board.members"];
-  return Array.isArray(legacy) ? (legacy as RosterMember[]) : [];
+export function withRosterKey(roster: RosterMember[], handle: string, agePublicKey: string): RosterMember[] {
+  return roster.some((m) => sameUser(m.username, handle))
+    ? roster.map((m) => (sameUser(m.username, handle) ? { ...m, agePublicKey } : m))
+    : [...roster, { username: handle, agePublicKey }];
 }
 
-/** Sets (or overwrites) one roster entry's `agePublicKey` on both roster keys: the sync-time record of which sops recipient a handle maps to, so `membersRemove` can find it later without a `--key` argument. Each key is read and written on its own contents, matching `addToRoster` in invite.ts. */
+export function withoutMember(roster: RosterMember[], handle: string): { roster: RosterMember[]; removed: RosterMember | null } {
+  const removed = roster.find((m) => sameUser(m.username, handle)) ?? null;
+  return { roster: removed ? roster.filter((m) => !sameUser(m.username, handle)) : roster, removed };
+}
+
+/** Sets (or overwrites) one roster entry's `agePublicKey`: the sync-time record of which sops recipient a handle maps to, so `membersRemove` can find it later without a `--key` argument. */
 function recordRosterKey(seams: MembersSeams, slug: string, handle: string, agePublicKey: string): void {
-  for (const key of ROSTER_KEYS) {
-    const existing = readRoster(seams, slug, key);
-    const updated = existing.some((m) => m.username === handle)
-      ? existing.map((m) => (m.username === handle ? { ...m, agePublicKey } : m))
-      : [...existing, { username: handle, agePublicKey }];
-    seams.writeSetting(key, updated, "org");
-  }
+  seams.writeSetting("mattstack.roster", withRosterKey(readRoster(seams, slug), handle, agePublicKey), "org");
 }
 
 export interface MembersSeams {
@@ -190,6 +186,28 @@ export function realMembersSeams(): MembersSeams {
 export function teamRemote(p: Probes, slug: string): string | null {
   const raw = p.readFile(`${p.home}/.mattstack/teams/${slug}/.git/config`);
   return raw !== null ? parseOriginUrl(raw) : null;
+}
+
+export interface MembersSetResult {
+  username: string;
+  teams: string[];
+  previous: string[];
+}
+
+export function membersSetTeams(p: Probes, seams: MembersSeams, slug: string, handle: string, teams: string[]): MembersSetResult {
+  assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
+  assertCurrentOrg(slug, seams.currentOrg(), "team members set");
+  assertTeamFolders(p, slug, teams);
+  const roster = readRoster(seams, slug);
+  const entry = roster.find((member) => sameUser(member.username, handle));
+  if (!entry) {
+    throw new UserActionableError("not-a-member", `${handle} is not in this org yet`, {}, { next: `rt team invite --handle ${handle} --teams <team>` });
+  }
+  const previous = Array.isArray(entry.teams) ? entry.teams.filter((team): team is string => typeof team === "string") : [];
+  const next = [...new Set(teams)];
+  assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
+  seams.writeSetting("mattstack.roster", roster.map((member) => member === entry ? { ...member, teams: next } : member), "org");
+  return { username: entry.username, teams: next, previous };
 }
 
 export interface MembersSyncResult {
@@ -250,7 +268,7 @@ export async function membersSync(
   slug: string,
   seams: MembersSeams = realMembersSeams(),
 ): Promise<MembersSyncResult> {
-  assertNotJoined(p, slug);
+  assertMayWrite(p, slug, ".sops.yaml");
   assertCurrentOrg(slug, seams.currentOrg(), "team members sync");
 
   const added: string[] = [];
@@ -361,7 +379,7 @@ export async function membersRemove(
   agePublicKey?: string,
   seams: MembersSeams = realMembersSeams(),
 ): Promise<MembersRemoveResult> {
-  assertNotJoined(p, slug);
+  assertMayWrite(p, slug, ".sops.yaml");
 
   if (agePublicKey !== undefined && !isValidAgePublicKey(agePublicKey)) {
     throw new UserActionableError("invalid-age-key", "That is not a valid age key", {}, {
@@ -372,15 +390,13 @@ export async function membersRemove(
   }
   assertCurrentOrg(slug, seams.currentOrg(), `team members remove ${handle}`);
 
-  const boardRoster = readRoster(seams, slug, "board.members");
-  const crossAppRoster = readRoster(seams, slug, "mattstack.roster");
-  // The two rosters can diverge (dual-write is best-effort), so EVERY key
-  // recorded for the handle on either one is revoked: leaving any behind
-  // keeps the removed member able to decrypt team secrets.
+  const roster = readRoster(seams, slug);
+  // Every key recorded for the handle is revoked: leaving any behind keeps
+  // the removed member able to decrypt team secrets.
   const recordedKeys = [
     ...new Set(
-      [...crossAppRoster, ...boardRoster]
-        .filter((m) => m.username === handle)
+      roster
+        .filter((m) => sameUser(m.username, handle))
         .map((m) => m.agePublicKey)
         .filter((k): k is string => typeof k === "string"),
     ),
@@ -415,27 +431,9 @@ export async function membersRemove(
               : [`${handle} can still see the team repo. Remove them there too: mattstack does not manage who can see this repo.`],
         };
 
-  // Each key is removed on its own contents (a store can carry either roster
-  // alone), never by writing one key's rows onto the other; removal from
-  // either counts as a roster removal.
-  const boardHad = boardRoster.some((m) => m.username === handle);
-  if (boardHad) {
-    seams.writeSetting(
-      "board.members",
-      boardRoster.filter((m) => m.username !== handle),
-      "org",
-    );
-  }
-
-  const crossAppHad = crossAppRoster.some((m) => m.username === handle);
-  if (crossAppHad) {
-    seams.writeSetting(
-      "mattstack.roster",
-      crossAppRoster.filter((m) => m.username !== handle),
-      "org",
-    );
-  }
-  const rosterRemoved = boardHad || crossAppHad;
+  const removal = withoutMember(roster, handle);
+  const rosterRemoved = removal.removed !== null;
+  if (rosterRemoved) seams.writeSetting("mattstack.roster", removal.roster, "org");
 
   let reencrypted: string[] = [];
   for (const key of keysToRemove) {

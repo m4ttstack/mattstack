@@ -145,10 +145,12 @@ async function render() {
     createRoot(container).render(
       <ConfigModal
         tabs={[]}
+        members={[]}
         knownSections={null}
         onClose={noop}
         onOpenRoster={noop}
         onSaved={noop}
+        onRosterSaved={noop}
       />
     );
   });

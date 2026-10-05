@@ -4,7 +4,6 @@ import {
   useSettingKey,
   useSettingsScope,
   type ExplainRowWire,
-  type SettingKeyState,
   type SettingsScopeState,
 } from '@mattstack/settings-kit/react';
 import { Modal } from '@mattstack/tui-kit';
@@ -19,6 +18,7 @@ import {
   type ReviewerSignal,
 } from '../../turn.ts';
 import { postAction } from '../api.ts';
+import type { ConfigMember } from '../types.ts';
 import {
   addToList,
   filterDefs,
@@ -31,6 +31,7 @@ import {
   ownValue,
   parseScalar,
   rosterSummary,
+  rowHelp,
   rowKind,
   scopeLabel,
   shapeOf,
@@ -940,7 +941,7 @@ function TabsControl({
                 <span>pack</span>
                 <TextField
                   value={tab.pack ?? ''}
-                  placeholder="inherits board.defaultPack"
+                  placeholder="your team's pack"
                   ariaLabel={`pack for tab ${tab.id}`}
                   disabled={busy}
                   onCommit={text =>
@@ -1004,14 +1005,6 @@ function TabsControl({
     </div>
   );
 }
-
-/** Control-specific caveats the registry description cannot know, shown in
-    the same info tip as the description. */
-const ROW_HINTS: Record<string, string> = {
-  'board.members': "A new teammate's MRs land once rt has synced them.",
-  'board.tabs':
-    'A new section\'s MRs land once rt has backfilled it; the tab shows "syncing" until then. A section must match a CODEOWNERS header exactly; the field suggests the headers rt has seen.',
-};
 
 function TurnControl({
   value,
@@ -1098,18 +1091,19 @@ function useOpenRows(focusKey?: string): [Set<string>, (key: string) => void] {
 function SettingRow({
   def,
   store,
-  rosterKey,
+  members,
   tabs,
   knownSections,
   open,
   onToggle,
   onOpenRoster,
   onSaved,
+  onRosterSaved,
 }: {
   def: ConfigDef;
   store: SettingsScopeState;
-  /** mattstack.roster, fetched separately since it isn't board.-prefixed. */
-  rosterKey: SettingKeyState;
+  /** The active team's members as the server resolved them, which is the list POST /roster edits. */
+  members: ConfigMember[];
   tabs: TabConfig[];
   knownSections: string[] | null;
   /** Expanded, for a collapsible row; ignored otherwise. */
@@ -1117,6 +1111,7 @@ function SettingRow({
   onToggle: () => void;
   onOpenRoster: () => void;
   onSaved: () => void;
+  onRosterSaved: () => void;
 }) {
   const kind = rowKind(def);
   const row = useRowSave(store, def);
@@ -1131,6 +1126,7 @@ function SettingRow({
 
   let control;
   let keyname: string = def.key;
+  let badge = def.secret ? 'secret' : scopeLabel(row.scope);
   if (kind === 'turn' && !malformed) {
     control = (
       <TurnControl
@@ -1162,43 +1158,24 @@ function SettingRow({
       />
     );
   } else if (kind === 'roster') {
-    const boardMembers = store.defs.find(d => d.key === 'board.members')
-      ?.effective.value;
-    // Must follow the server's own key precedence (config.ts ROSTER_KEYS)
-    // or the editor shows a list POST /roster is not actually writing to.
-    const mattstackRoster = rosterKey.def?.effective.value;
-    const members = Array.isArray(mattstackRoster)
-      ? mattstackRoster
-      : boardMembers;
-    if (Array.isArray(mattstackRoster)) {
-      keyname = 'mattstack.roster';
-    }
+    keyname = 'mattstack.roster';
+    badge = scopeLabel('org');
     const hidden = store.defs.find(d => d.key === 'board.hiddenMembers')
       ?.effective.value;
     const self = store.defs.find(d => d.key === 'board.defaultMember')
       ?.effective.value;
-    control =
-      def.key === 'board.members' ? (
-        <RosterControl
-          members={members}
-          hidden={hidden}
-          self={typeof self === 'string' ? self : null}
-          onSaved={() => {
-            store.refresh();
-            rosterKey.refresh();
-          }}
-          onOpenRoster={onOpenRoster}
-        />
-      ) : (
-        <>
-          <span className="tui-config-value">
-            {rosterSummary(members, hidden)}
-          </span>
-          <button className="tui-config-link" onClick={onOpenRoster}>
-            check people in/out →
-          </button>
-        </>
-      );
+    control = (
+      <RosterControl
+        members={members}
+        hidden={hidden}
+        self={typeof self === 'string' ? self : null}
+        onSaved={() => {
+          store.refresh();
+          onRosterSaved();
+        }}
+        onOpenRoster={onOpenRoster}
+      />
+    );
   } else if (def.secret) {
     control = (
       <span className="tui-config-value">
@@ -1224,9 +1201,7 @@ function SettingRow({
     );
   }
 
-  const help = [def.description, ROW_HINTS[def.key]]
-    .filter(Boolean)
-    .join('\n\n');
+  const help = rowHelp(def);
   // Only rows whose control is a block of fields collapse; a single input,
   // a readonly value, or the hidden-members pointer is already one line.
   const collapsible =
@@ -1260,9 +1235,7 @@ function SettingRow({
       <span onClick={stop} onKeyDown={stop} className="tui-config-tip">
         <InfoTip text={help} about={def.key} />
       </span>
-      <span className="tui-config-badge">
-        {def.secret ? 'secret' : scopeLabel(row.scope)}
-      </span>
+      <span className="tui-config-badge">{badge}</span>
       {set && kind !== 'roster' && kind !== 'tabs' && (
         <button
           className="tui-config-clear"
@@ -1314,25 +1287,30 @@ function SettingRow({
     read-only. */
 function ConfigModal({
   tabs,
+  members,
   knownSections,
   onClose,
   onOpenRoster,
   onSaved,
+  onRosterSaved,
   focusKey,
 }: {
   /** A row to open and scroll to when the modal appears. */
   focusKey?: string;
   /** Effective tabs from /data.json: the editor's base whichever side owns them. */
   tabs: TabConfig[];
+  /** The active team's members from /data.json. */
+  members: ConfigMember[];
   /** Section headers rt saw in the projects' CODEOWNERS; null when rt did not report them. */
   knownSections: string[] | null;
   onClose: () => void;
   onOpenRoster: () => void;
   /** Reload board data so a saved tab strip or turn config lands without waiting for a poll. */
   onSaved: () => void;
+  /** Reload board data so the edited roster lands without waiting for a poll. */
+  onRosterSaved: () => void;
 }) {
   const store = useSettingsScope('board.');
-  const rosterKey = useSettingKey('mattstack.roster');
   const [query, setQuery] = useState('');
   const [openRows, toggleRow] = useOpenRows(focusKey);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -1383,13 +1361,14 @@ function ConfigModal({
                   key={def.key}
                   def={def}
                   store={store}
-                  rosterKey={rosterKey}
+                  members={members}
                   tabs={tabs}
                   knownSections={knownSections}
                   open={openRows.has(def.key)}
                   onToggle={() => toggleRow(def.key)}
                   onOpenRoster={onOpenRoster}
                   onSaved={onSaved}
+                  onRosterSaved={onRosterSaved}
                 />
               ))}
             </ul>

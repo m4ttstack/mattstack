@@ -3,7 +3,7 @@ import { join as pathJoin } from "path";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { teamJoin, type TeamDeps } from "../team.ts";
-import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
+import { fakeProbes as baseFakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import { encodeCode, seal } from "../../lib/team/invite-crypto.ts";
 import { SWITCHBOARD_URL } from "../../packages/rt-client/src/switchboard.ts";
@@ -19,7 +19,7 @@ const CODE = encodeCode(ID_HEX, KEY);
 const REMOTE = "git@github.com:acme/widgets.git";
 
 const POINTER: InvitePointer = {
-  v: 1,
+  v: 2, username: "dev2", teams: ["widgets"],
   team: "acme",
   name: "Acme",
   remote: REMOTE,
@@ -27,6 +27,11 @@ const POINTER: InvitePointer = {
   forge: "github.com",
   createdAt: "2026-08-01T00:00:00.000Z",
 };
+
+function fakeProbes(opts: Parameters<typeof baseFakeProbes>[0] = {}): ReturnType<typeof baseFakeProbes> {
+  const home = opts?.home ?? HOME;
+  return baseFakeProbes({ ...opts, files: { [`${home}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.roster": [{ username: "dev2", teams: ["widgets"] }] }), ...opts?.files } });
+}
 
 const FAKE_PUBLIC_KEY = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
 
@@ -61,10 +66,11 @@ function fakeJoinRedeemSeams(overrides: Partial<JoinRedeemSeams> = {}): JoinRede
     ageKeySeam: new FakeAgeKeySeam(),
     read: fakeRead(),
     readTeamSecret: async () => null,
-    forgeLogin: async () => "zaphod",
+    forgeLogin: async () => "dev2",
     forgeToken: async () => null,
     localStoreReady: async () => true,
     writeLocalSecret: async () => {},
+    writeUserSetting: () => {},
     warn: () => {},
     ...overrides,
   };
@@ -111,6 +117,21 @@ function relayFetch(): Probes["fetch"] {
 }
 
 describe("teamJoin", () => {
+  test("an older invite exits 2 with invite-outdated and writes no intent", async () => {
+    const probes = fakeProbes({
+      home: HOME,
+      fetch: async () => ({ status: 200, body: JSON.stringify({ ciphertext: await seal({ ...POINTER, v: 1 } as unknown as InvitePointer, KEY, ID_HEX) }), headers: {} }),
+    });
+    const deps = baseDeps({ probes });
+
+    const code = await runExpectingProcessExit(() => teamJoin(["--dry-run", "--json"], {}, deps));
+
+    expect(code).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error).toMatchObject({ code: "invite-outdated", message: "That invite was made by an older mattstack. Ask for a new invite." });
+    expect(probes.calls.writes[pathJoin(HOME, ".mattstack", "rt", "setup-intent.json")]).toBeUndefined();
+    expect(probes.calls.exec).toEqual([]);
+  });
+
   test("an invite code passed as an argument exits 2 with code-on-argv, before touching the relay", async () => {
     const fetchCalls: string[] = [];
     const deps = baseDeps({
@@ -175,6 +196,7 @@ describe("teamJoin", () => {
     expect(body).toEqual({
       contract: 1,
       team: { slug: "acme", name: "Acme", owner: "matt" },
+      teams: ["widgets"],
       access: "ok",
       peering: "idle",
       message: "Joining Acme, owned by matt.",
@@ -197,7 +219,8 @@ describe("teamJoin", () => {
     ui.__test__.setHuman(() => false);
     try {
       await teamJoin(["--dry-run"], {}, deps);
-      expect(io.lines()).toHaveLength(1);
+      expect(io.lines()).toHaveLength(2);
+      expect(io.lines()[1]).toBe("teams: widgets");
       expect(io.lines()[0]).toStartWith("[needs you] ");
       expect(io.lines()[0]).toContain("Ask matt or your org admin");
       expect(io.lines()[0]).not.toContain("http");
@@ -275,11 +298,7 @@ describe("teamJoin", () => {
 
     const { at, ...body } = JSON.parse(deps.lines[0]!);
     expect(typeof at).toBe("string");
-    expect(body.contract).toBe(1);
-    expect(body.team).toEqual({ slug: "acme", name: "Acme", owner: "matt" });
-    expect(body.access).toBe("ok");
-    expect(body.peering).toBe("idle"); // no admin token in this test's team secrets
-    expect(body.message).toBe("Joined Acme, owned by matt.");
+    expect(body).toEqual({ contract: 1, team: { slug: "acme", name: "Acme", owner: "matt" }, teams: ["widgets"], access: "ok", peering: "idle", message: "Joined Acme, owned by matt.", intent: "written" });
 
     const dir = pathJoin(HOME, ".mattstack", "teams", "acme");
     expect(probes.calls.exec).toContainEqual(["git", "clone", REMOTE, dir]);

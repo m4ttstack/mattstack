@@ -1,4 +1,5 @@
 import * as shimModule from "../../endpoint/shim.ts";
+import { readIntent } from "../intent.ts";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { execSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
@@ -8,6 +9,8 @@ import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { HELPERS_DIR, RT_BUNDLE_PATH, __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
 import { DAEMON_SOCK_PATH } from "../../daemon-config.ts";
 import { logsDir, rtDir } from "../../rt-paths.ts";
+import { seedOrg, writeSharedStore } from "../../../packages/rt-client/test/org-fixture.ts";
+import { orgSettingsPath } from "../../rt-paths.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import { closeStateDb, getKvValue, setKvValue } from "../../state/index.ts";
@@ -18,7 +21,7 @@ import { createRealProbes } from "../probes.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import type { SecretsExecResult, SecretsExecSeam, SecretsSeams } from "../../secrets/store.ts";
 import { readTeamSecret, teamSopsYamlPath } from "../../secrets/team-store.ts";
-import { teamLocalPath, writeTeamLocal } from "../../team/team-local.ts";
+import { readTeamLocal, teamLocalPath, writeTeamLocal } from "../../team/team-local.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import { runApplyWith } from "../apply.ts";
@@ -330,6 +333,7 @@ describe("home.restore", () => {
 function gitExecFor(remote: string, pushResult: ExecResult = ok("main -> main")): Probes["exec"] {
   return async (argv) => {
     const [bin, sub] = argv;
+    if (bin === "git" && sub === "remote" && argv[2] === "get-url") return ok(`${remote}\n`);
     if (bin === "git" && sub === "init") return ok();
     if (bin === "git" && sub === "remote" && argv[2] === "add") return ok();
     if (bin === "git" && sub === "add") return ok();
@@ -342,22 +346,75 @@ function gitExecFor(remote: string, pushResult: ExecResult = ok("main -> main"))
 }
 
 describe("team.create", () => {
+  test("team.create keeps the first team named in its intent", async () => {
+    const remote = "https://github.com/acme/repo.git";
+    const p = fakeProbes({ home: "/fake-home", exec: async (argv, opts) => argv[0] === "gh" ? ok(JSON.stringify({ login: "dev1" })) : gitExecFor(remote)(argv, opts) });
+    const { ctx } = makeCtx(p, { intent: { v: 1, at: "", mode: "create", team: { slug: "acme", name: "Acme", remote, others: false, firstTeam: "widgets" } } });
+    expect((await teamCreateStep.run(ctx)).state).toBe("done");
+    expect(p.exists("/fake-home/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc")).toBe(true);
+    expect(readIntent(p)?.team?.firstTeam).toBe("widgets");
+  });
+
+  test("team.create writes the creator's roles under the forge login the run resolves", async () => {
+    const remote = "https://github.com/acme/mattstack-team-personal.git";
+    const p = fakeProbes({ home: "/fake-home", env: { RT_TEAM_REMOTE: remote }, exec: async (argv, opts) => argv[0] === "gh" ? ok(JSON.stringify({ login: "dev1" })) : gitExecFor(remote)(argv, opts) });
+    const { ctx } = makeCtx(p, { teamOfOne: true, intent: null, team: { slug: "", name: "", mode: "none" } });
+
+    expect((await teamCreateStep.run(ctx)).state).toBe("done");
+    expect(readTeamLocal(p, "personal").forgeUsername).toBe("dev1");
+    const org = JSON.parse(p.readFile("/fake-home/.mattstack/teams/personal/mattstack/org/settings.org.jsonc")!.split("\n").filter((l) => !l.startsWith("//")).join("\n"));
+    expect(org["mattstack.org"].admins).toEqual(["dev1"]);
+  });
+
+  test("with no forge login yet, team.create ends partial and does not push", async () => {
+    const remote = "https://github.com/acme/mattstack-team-personal.git";
+    const pushes: string[][] = [];
+    const base = gitExecFor(remote);
+    const p = fakeProbes({
+      home: "/fake-home",
+      env: { RT_TEAM_REMOTE: remote, USER: "dev2" },
+      exec: async (argv, opts) => {
+        if (argv[0] === "gh") return { code: 1, stdout: "", stderr: "not logged in" };
+        if (argv[0] === "git" && argv[1] === "push") pushes.push(argv);
+        return base(argv, opts);
+      },
+    });
+    const { ctx } = makeCtx(p, { teamOfOne: true, intent: null, team: { slug: "", name: "", mode: "none" } });
+
+    expect(await teamCreateStep.run(ctx)).toEqual({
+      state: "partial",
+      detail: "The org is created, but rt could not read your forge login, so it has no admin yet",
+      remedy: "Connect your forge account in Setup, then Retry",
+    });
+    expect(pushes).toEqual([]);
+    expect(readTeamLocal(p, "personal").forgeUsername).toBeUndefined();
+  });
+
+  function adminProbes(opts: Parameters<typeof fakeProbes>[0] = {}) {
+    return fakeProbes({ ...opts, files: {
+      "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      "/fake-home/.mattstack/teams/personal/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
+      [teamLocalPath("/fake-home", "personal")]: JSON.stringify({ forgeUsername: "dev1" }),
+      ...opts.files,
+    } });
+  }
   test("applies: explicit create intent, or team-of-one with no intent and no discovered team", () => {
-    const { ctx: viaIntent } = makeCtx(fakeProbes(), { intent: { v: 1, at: "", mode: "create", team: { slug: "acme", name: "Acme", remote: "https://github.com/acme/x.git", others: false } } });
+    const { ctx: viaIntent } = makeCtx(adminProbes(), { intent: { v: 1, at: "", mode: "create", team: { slug: "acme", name: "Acme", remote: "https://github.com/acme/x.git", others: false } } });
     expect(teamCreateStep.applies(viaIntent)).toBe(true);
 
-    const { ctx: teamOfOneFresh } = makeCtx(fakeProbes(), { teamOfOne: true, intent: null, team: { slug: "", name: "", mode: "none" } });
+    const { ctx: teamOfOneFresh } = makeCtx(adminProbes(), { teamOfOne: true, intent: null, team: { slug: "", name: "", mode: "none" } });
     expect(teamCreateStep.applies(teamOfOneFresh)).toBe(true);
 
-    const { ctx: teamOfOneWithTeam } = makeCtx(fakeProbes(), { teamOfOne: true, intent: null, team: { slug: "acme", name: "Acme", mode: "none" } });
+    const { ctx: teamOfOneWithTeam } = makeCtx(adminProbes(), { teamOfOne: true, intent: null, team: { slug: "acme", name: "Acme", mode: "none" } });
     expect(teamCreateStep.applies(teamOfOneWithTeam)).toBe(false);
 
-    const { ctx: notTeamOfOne } = makeCtx(fakeProbes());
+    const { ctx: notTeamOfOne } = makeCtx(adminProbes());
     expect(teamCreateStep.applies(notTeamOfOne)).toBe(false);
   });
 
   test("team-of-one, no RT_TEAM_REMOTE, gh unauthenticated -> honest skip (never throws remote-required)", async () => {
-    const p = fakeProbes({
+    const p = adminProbes({
       home: "/fake-home",
       env: {},
       exec: async (argv) => (argv[0] === "gh" ? { code: 1, stdout: "", stderr: "not logged in" } : ok()),
@@ -370,7 +427,7 @@ describe("team.create", () => {
 
   test("team-of-one with RT_TEAM_REMOTE -> creates and publishes the zone", async () => {
     const remote = "https://github.com/acme/mattstack-team-personal.git";
-    const p = fakeProbes({ home: "/fake-home", env: { RT_TEAM_REMOTE: remote }, exec: gitExecFor(remote) });
+    const p = adminProbes({ home: "/fake-home", env: { RT_TEAM_REMOTE: remote }, exec: gitExecFor(remote) });
     const { ctx } = makeCtx(p, { teamOfOne: true, intent: null, team: { slug: "", name: "", mode: "none" } });
 
     const outcome = await teamCreateStep.run(ctx);
@@ -385,7 +442,7 @@ describe("team.create", () => {
     const remote = "https://github.com/acme/mattstack-team-personal.git";
     const seen: { argv: string[]; env?: Record<string, string> }[] = [];
     const base = gitExecFor(remote);
-    const p = fakeProbes({
+    const p = adminProbes({
       home: "/fake-home",
       env: { RT_TEAM_REMOTE: remote },
       exec: async (argv, opts) => {
@@ -406,7 +463,7 @@ describe("team.create", () => {
 
   test("idempotent re-run: a zone with a real matching clone on disk skips re-scaffolding entirely — proven by which exec calls the second run does NOT make", async () => {
     const remote = "https://github.com/acme/mattstack-team-personal.git";
-    const p = fakeProbes({ home: "/fake-home", env: { RT_TEAM_REMOTE: remote }, exec: gitExecFor(remote) });
+    const p = adminProbes({ home: "/fake-home", env: { RT_TEAM_REMOTE: remote }, exec: gitExecFor(remote) });
     const { ctx } = makeCtx(p, { teamOfOne: true, intent: null, team: { slug: "", name: "", mode: "none" } });
 
     expect((await teamCreateStep.run(ctx)).state).toBe("done");
@@ -425,17 +482,25 @@ describe("team.create", () => {
     const second = await teamCreateStep.run(secondCtx);
 
     expect(second.state).toBe("done");
-    // createTeam's early return means the ONLY exec call left for the second
-    // run is publishTeam's own `git push` — never another
-    // init/remote-add/add/commit, which real idempotency depends on skipping.
-    expect(p.calls.exec.slice(execCallsBefore)).toEqual([["git", "push", "-u", "origin", "main"]]);
+    expect(p.calls.exec.slice(execCallsBefore)).toEqual([
+      ["git", "cat-file", "-e", "HEAD:mattstack/mattstack.jsonc"],
+      ["git", "cat-file", "-e", "HEAD:mattstack/org/settings.org.jsonc"],
+      ["git", "cat-file", "-e", "HEAD:mattstack/teams/personal/settings.team.jsonc"],
+      ["git", "cat-file", "-e", "HEAD:.claude-plugin/marketplace.json"],
+      ["git", "cat-file", "-e", "HEAD:.sops.yaml"],
+      ["git", "cat-file", "-e", "HEAD:.gitignore"],
+      ["git", "remote", "get-url", "--push", "--all", "origin"],
+      ["git", "ls-remote", "--refs", "--", remote, "refs/heads/main"],
+      ["git", "rev-list", "--max-count=1001", "refs/heads/main"],
+      ["git", "push", "-u", "origin", "main"],
+    ]);
   });
 
   test("push-denied -> failed with a credentials remedy, from an explicit create intent", async () => {
     const remote = "https://github.com/acme/mattstack-team-acme.git";
     const denied: ExecResult = { code: 128, stdout: "", stderr: "remote: Permission denied (publickey)." };
     expect(AUTH_FAILURE_PATTERN.test(denied.stderr)).toBe(true);
-    const p = fakeProbes({ home: "/fake-home", exec: gitExecFor(remote, denied) });
+    const p = adminProbes({ home: "/fake-home", exec: gitExecFor(remote, denied) });
     const { ctx } = makeCtx(p, {
       intent: { v: 1, at: "", mode: "create", team: { slug: "acme", name: "Acme", remote, others: false } },
     });
@@ -446,7 +511,7 @@ describe("team.create", () => {
   });
 
   test("a solo intent never makes team-of-one create a team", () => {
-    const { ctx } = makeCtx(fakeProbes(), { teamOfOne: true, intent: { v: 1, at: "", mode: "solo" }, team: { slug: "", name: "", mode: "none" } });
+    const { ctx } = makeCtx(adminProbes(), { teamOfOne: true, intent: { v: 1, at: "", mode: "solo" }, team: { slug: "", name: "", mode: "none" } });
     expect(teamCreateStep.applies(ctx)).toBe(false);
     expect(teamJoinStep.applies(ctx)).toBe(false);
   });
@@ -454,12 +519,12 @@ describe("team.create", () => {
 
 // ─── team.join ───────────────────────────────────────────────────────────────
 
-const joinPointer = { v: 1 as const, team: "acme", name: "Acme", remote: "https://github.com/acme/mattstack-team-acme.git", owner: "bob", forge: "github", createdAt: "2026-01-01T00:00:00Z" };
+const joinPointer = { v: 2 as const, username: "dev2", teams: ["widgets"], team: "acme", name: "Acme", remote: "https://github.com/acme/mattstack-team-acme.git", owner: "bob", forge: "github", createdAt: "2026-01-01T00:00:00Z" };
 const joinIntent: SetupIntent = { v: 1, at: "", mode: "join", join: { id: "a".repeat(32), keyB64: Buffer.from(new Uint8Array(32).fill(7)).toString("base64"), pointer: joinPointer } };
 
 /** joinRedeem reads its resume state straight off `p` (readIntent(p)), not off `ctx.intent` — every fake probe below must carry the intent file too, not just the ApplyContext field. */
 function intentFile(home: string, intent: SetupIntent): Record<string, string> {
-  return { [intentPath(home)]: JSON.stringify(intent) };
+  return { [intentPath(home)]: JSON.stringify(intent), ...(intent.mode === "join" ? { [`${home}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.roster": [{ username: "dev2", teams: ["widgets"] }] }) } : {}) };
 }
 
 describe("team.join", () => {
@@ -476,7 +541,7 @@ describe("team.join", () => {
       files: intentFile("/fake-home", joinIntent),
       exec: async (argv) => {
         if (argv[0] === "git" && argv[1] === "clone") return ok();
-        if (argv[0] === "gh" && argv[1] === "api") return ok(JSON.stringify({ login: "carol" }));
+        if (argv[0] === "gh" && argv[1] === "api") return ok(JSON.stringify({ login: "dev2" }));
         return ok();
       },
     });
@@ -498,7 +563,7 @@ describe("team.join", () => {
         [`${dir}/.git/config`]: `[remote "origin"]\n\turl = ${joinPointer.remote}\n`,
         ...intentFile("/fake-home", joinIntent),
       },
-      exec: async (argv) => (argv[0] === "gh" && argv[1] === "api" ? ok(JSON.stringify({ login: "carol" })) : ok()),
+      exec: async (argv) => (argv[0] === "gh" && argv[1] === "api" ? ok(JSON.stringify({ login: "dev2" })) : ok()),
     });
     const relay: RelayClient = { ...fakeRelay, redeem: async () => "already", reply: async () => {} };
     const { ctx } = makeCtx(p, { intent: joinIntent, relay, secrets: fakeSecrets(fakeAgeKeySeamWithKey()) });
@@ -535,7 +600,7 @@ describe("team.join", () => {
       files: intentFile("/fake-home", joinIntent),
       exec: async (argv) => {
         if (argv[0] === "git" && argv[1] === "clone") return ok();
-        if (argv[0] === "gh" && argv[1] === "api") return ok(JSON.stringify({ login: "carol" }));
+        if (argv[0] === "gh" && argv[1] === "api") return ok(JSON.stringify({ login: "dev2" }));
         return ok();
       },
     });
@@ -562,7 +627,7 @@ describe("team.join", () => {
 });
 
 describe("team.join outcomes", () => {
-  const joined: JoinResult = { team: { slug: "acme", name: "Acme", owner: "bob" }, access: "ok", peering: "applied", message: "Joined Acme (owner bob)", intent: "written" };
+  const joined: JoinResult = { teams: ["widgets"], team: { slug: "acme", name: "Acme", owner: "bob" }, access: "ok", peering: "applied", message: "Joined Acme (owner bob)", intent: "written" };
 
   test("a join that peered, or had nothing to peer, is done", () => {
     expect(outcomeFromJoin(joined)).toEqual({ state: "done", detail: "Joined Acme (owner bob)" });
@@ -614,6 +679,20 @@ describe("team.join after the join itself finished", () => {
 // ─── secrets.write ───────────────────────────────────────────────────────────
 
 describe("secrets.write", () => {
+  let priorHome: string | undefined;
+  let fixtureHome: string;
+  beforeEach(() => {
+    priorHome = process.env.HOME;
+    closeStateDb();
+    fixtureHome = realpathSync(mkdtempSync(join(tmpdir(), "rt-secrets-step-")));
+    process.env.HOME = fixtureHome;
+    seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
+  });
+  afterEach(() => {
+    closeStateDb();
+    process.env.HOME = priorHome;
+    rmSync(fixtureHome, { recursive: true, force: true });
+  });
   function stagedProbes(staged: Record<string, Record<string, string>>, extraFiles: Record<string, string> = {}): ReturnType<typeof fakeProbes> {
     const dir = stagingDir("/fake-home");
     const files: Record<string, string> = { ...extraFiles };
@@ -640,7 +719,7 @@ describe("secrets.write", () => {
     const teamSeams = fakeSecrets();
     (teamSeams.execSeam as FakeSecretsExecSeam).files.set(
       teamSopsYamlPath(slug),
-      "creation_rules:\n  - path_regex: mattstack/secrets/.*\n    age: age1testrecipient\n",
+      "creation_rules:\n  - path_regex: mattstack/org/secrets/.*\n    age: age1testrecipient\n",
     );
     const p = stagedProbes({ "team-acme-board": { slackWebhook: "https://hooks.example/x" } });
     const { ctx } = makeCtx(p, { teamSecrets: () => teamSeams });
@@ -698,7 +777,7 @@ describe("secrets.write", () => {
       }
     }
     const execSeam = new UndecryptableSeam();
-    execSeam.files.set(teamSopsYamlPath(slug), "creation_rules:\n  - path_regex: mattstack/secrets/.*\n    age: age1testrecipient\n");
+    execSeam.files.set(teamSopsYamlPath(slug), "creation_rules:\n  - path_regex: mattstack/org/secrets/.*\n    age: age1testrecipient\n");
     const teamSeams: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey(), execSeam };
     const p = stagedProbes({ "team-acme-board": { slackWebhook: "https://hooks.example/x" } });
     const { ctx } = makeCtx(p, { teamSecrets: () => teamSeams });
@@ -717,7 +796,8 @@ describe("secrets.write", () => {
     // this test plants can't leak the "joined" state into any other test here.
     const slug = "steps-a-joined-guard";
     const probes = createRealProbes();
-    writeTeamLocal(probes, slug, { createdByRt: false, joinedByRt: true, rtMayManageMembership: false });
+    writeSharedStore(slug, { "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } });
+    writeTeamLocal(probes, slug, { createdByRt: false, joinedByRt: true, rtMayManageMembership: false, forgeUsername: "dev2" });
 
     try {
       const p = stagedProbes({ [`team-${slug}-board`]: { x: "y" } });
@@ -725,9 +805,10 @@ describe("secrets.write", () => {
 
       const outcome = await secretsWriteStep.run(ctx);
       expect(outcome.state).toBe("skipped");
-      expect((outcome as { detail: string }).detail).toContain("pull-only");
+      expect((outcome as { detail: string }).detail).toContain("The org's shared files belong to its admins");
     } finally {
       probes.removeFile(teamLocalPath(probes.home, slug));
+      probes.removeFile(orgSettingsPath(slug));
     }
   });
 
@@ -1451,5 +1532,17 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     reachable = true;
     expect(await runApplyWith(steps, makeCtx(fakeProbes({ home })).ctx, { only: "repos.clone" })).toEqual({ ok: true });
     expect(readFileSync(shimPath("fakecmd-late"), "utf8")).toBe(renderInterceptShim("fakecmd-late"));
+  });
+});
+
+
+describe("join refusal outcomes", () => {
+  test("a login mismatch names both logins and gives its remedy", () => {
+    const err = new UserActionableError("invite-login-mismatch", "This invite is for dev2; you're signed in as dev1.", {}, { why: "Ask for an invite for dev1, or connect dev2's token." });
+    expect(outcomeFromJoinError(err)).toEqual({ state: "failed", detail: "This invite is for dev2; you're signed in as dev1.", remedy: "Ask for an invite for dev1, or connect dev2's token." });
+  });
+  test("a delayed roster needs a retry without a new code", () => {
+    const message = "Your admin's roster change has not reached the org repo yet; try again in a minute";
+    expect(outcomeFromJoinError(new UserActionableError("roster-not-ready", message))).toEqual({ state: "failed", detail: message, remedy: "Retry in a minute. You do not need a new code" });
   });
 });

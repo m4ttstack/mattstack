@@ -560,11 +560,19 @@ export async function teamSyncRow(
       problems.push(`${slug}: not watched (it has no origin remote)`);
       continue;
     }
+    const stray = e.unownedDirty ?? [];
+    if (stray.length > 0) {
+      const files = stray.join(", ");
+      problems.push(e.lastPullSkipped
+        ? `${slug}: a pull stopped on a change that is not yours to push: ${files}. Undo the change, then pull again`
+        : `${slug}: changed on this Mac but not yours to push: ${files}. Undo the change, or ask who owns it to make it`);
+      continue;
+    }
     if (e.conflicted) {
       // A pull-only clone cannot publish, so telling one to "rt team publish by hand" is an
       // instruction it will refuse (team-pull-only) the moment it tries. `=== true` rather than
       // truthy: a fixture or a pre-Task-6 entry missing the field must read as a pushing clone.
-      const remedy = e.pullOnly === true ? "reset it to origin or ask the team's owner" : "rebase it and run rt team publish";
+      const remedy = e.pullOnly === true ? "reset it to origin or ask an org admin" : "rebase it and run rt team publish";
       problems.push(`${slug}: a rebase conflict (${e.conflicted.detail}); ${remedy}`);
       continue;
     }
@@ -578,14 +586,14 @@ export async function teamSyncRow(
     // into lastPullSkipped. Without this, a revoked token reads as "cannot fast-forward, reset
     // it to origin", which is both the wrong diagnosis and advice that cannot help.
     if (e.pullOnly === true && e.lastPullError == null && e.lastPullSkipped) {
-      problems.push(`${slug}: cannot fast-forward (${e.lastPullSkipped}); reset it to origin or ask the team's owner`);
+      problems.push(`${slug}: cannot fast-forward (${e.lastPullSkipped}); reset it to origin or ask an org admin`);
       continue;
     }
     // Both fields come off the same redactCredentials(stderr) shape in the
     // engine, so "" is reachable for either; tested against null/undefined,
     // never a truthiness check `""` would fail past.
     //
-    // A pull-only clone (joined, not created) never pushes, so it has no push to fail; skip only
+    // A pull-only clone never pushes, so it has no push to fail; skip only
     // THIS check for it. Every check below (fetch failure, never-pulled, staleness) still applies
     // to a pull-only clone exactly as much as a pushing one: it fetches on the same timer, and a
     // broken fetch (expired token, revoked access) must not read as "ready" just because the
@@ -655,6 +663,12 @@ function readTeamSnapshotSettings(): TeamSnapshotSettings | undefined {
   return getSetting<TeamSnapshotSettings>("rt.teamSnapshot").value;
 }
 
+export async function readTeamSnapshotStatus(p: Probes): Promise<TeamSnapshotEntry[] | null> {
+  const res = await p.daemon("team:snapshot-status");
+  if (!res || !res.ok) return null;
+  return res.data as TeamSnapshotEntry[];
+}
+
 export async function rtHealthRows(
   p: Probes,
   opts: { ci: boolean },
@@ -670,11 +684,7 @@ export async function rtHealthRows(
     const settings = readSnapshotSettings();
     teamSync = await teamSyncRow(
       slugs,
-      async () => {
-        const res = await p.daemon("team:snapshot-status");
-        if (!res || !res.ok) return null;
-        return res.data as TeamSnapshotEntry[];
-      },
+      () => readTeamSnapshotStatus(p),
       () => p.now().getTime(),
       settings?.pullIntervalSec ?? PULL_INTERVAL_FALLBACK_SEC,
       settings?.enabled !== false,

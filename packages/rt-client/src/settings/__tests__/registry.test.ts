@@ -321,7 +321,6 @@ describe("settings/registry", () => {
         "deck.platform",
         "board.gitlabHost",
         "board.projects",
-        "board.members",
         "board.title",
         "board.botUsernames",
         "board.ticketPrefixes",
@@ -333,7 +332,6 @@ describe("settings/registry", () => {
         "board.gateGraceMinutes",
         "board.workspaces",
         "board.defaultMember",
-        "board.defaultPack",
         "board.hiddenMembers",
         "board.triage",
         "board.reReview",
@@ -392,7 +390,7 @@ describe("settings/registry", () => {
         "herd.watchdog.midRunTrustAccept",
         "panes.relocationAutoAccept",
       ];
-      expect(suiteKeys).toHaveLength(84);
+      expect(suiteKeys).toHaveLength(82);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),
@@ -430,18 +428,20 @@ describe("settings/registry", () => {
       expect(triageDoctorSkill?.description).toContain("sibling");
     });
 
-    test("board.hiddenMembers is a user-scope overlay, distinct from the team-scope board.members roster", () => {
+    test("board.hiddenMembers is a user-scope overlay over the roster", () => {
       const hiddenMembers = getDef("board.hiddenMembers");
-      const members = getDef("board.members");
 
       expect(hiddenMembers?.scopes).toEqual(["user"]);
       expect(hiddenMembers?.type).toBe("array");
       expect(hiddenMembers?.merge).toBe("replace");
-      expect(hiddenMembers?.description).toContain("board.members");
-      // The ruling this pins: board.members stays team-only array/replace —
-      // widening it to user scope would let a personal store shadow the
-      // whole team roster instead of just hiding entries from it.
-      expect(members?.scopes).toEqual(["team", "org"]);
+      expect(hiddenMembers?.description).toContain("authors tab's roster");
+    });
+
+    test("board.defaultPack and board.members are retired: gone from the registry, still removable from a store", () => {
+      expect(getDef("board.defaultPack")).toBeUndefined();
+      expect(getDef("board.members")).toBeUndefined();
+      expect(isRetiredKey("board.defaultPack")).toBe(true);
+      expect(isRetiredKey("board.members")).toBe(true);
     });
 
     test("scope spot-checks: deck.access is user-only, board.gitlabHost is team-only, gitq.forges is user-only, mattstack.appPath is machine-only", () => {

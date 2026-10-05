@@ -2,12 +2,16 @@ import { readFileSync, renameSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
 import {
+  activeTeam,
+  activeTeamPack,
   getSetting,
   identityFromRemote,
+  mergeTeamRoster,
   serializeIdentity,
   setSetting,
   switchboardUrl,
   type RepoIdentity,
+  type RosterEntry,
 } from '@mattstack/rt-client';
 import { APP_ROOT } from './app-root.ts';
 import {
@@ -134,7 +138,7 @@ export interface TabConfig {
   slackChannel?: string;
   /** Overrides review-launch skill resolution for this tab. Empty/absent = normal resolution. */
   reviewSkill?: string;
-  /** Which team pack's bindings a launch from this tab uses; empty/absent = board.defaultPack. */
+  /** Which team pack's bindings a launch from this tab uses; empty/absent = the active team's pack. */
   pack?: string;
 }
 
@@ -203,8 +207,8 @@ export interface BoardConfig {
   claudeCommand: string;
   /** Domain skill the doctor wrapper delegates to. Empty = generic. */
   doctorSkill: string;
-  /** Pack for launches whose tab names none. Empty = mattstack's generic skills. */
-  defaultPack: string;
+  /** The active team's pack; a launch from a tab that names no pack uses it. "" when this Mac has no team pack. */
+  teamPack: string;
   /** Extra bot accounts whose general MR comments to hide (username or display
       name, case-insensitive). Additive to the built-in heuristic — for named
       integration bots that don't match a bot-username pattern. */
@@ -351,9 +355,6 @@ export function parseConfig(raw: string, source = 'config.json'): BoardConfig {
   if (cfg.doctorSkill !== undefined && typeof cfg.doctorSkill !== 'string') {
     throw new Error(`${source} "doctorSkill" must be a string (a skill name)`);
   }
-  if (cfg.defaultPack !== undefined && typeof cfg.defaultPack !== 'string') {
-    throw new Error(`${source} "defaultPack" must be a string (a pack name)`);
-  }
   if (cfg.botUsernames !== undefined) {
     if (
       !Array.isArray(cfg.botUsernames) ||
@@ -393,7 +394,7 @@ export function parseConfig(raw: string, source = 'config.json'): BoardConfig {
     doctorsWorkspace: cfg.doctorsWorkspace ?? 'doctors',
     claudeCommand: cfg.claudeCommand ?? '',
     doctorSkill: cfg.doctorSkill ?? '',
-    defaultPack: cfg.defaultPack ?? '',
+    teamPack: '',
     botUsernames: (cfg.botUsernames ?? []).map(b => b.trim()),
     rtRepos: deriveRtRepos(cfg.gitlabHost!, cfg.projects!, rtRepos),
     rtRepoOverrides: rtRepos,
@@ -628,26 +629,37 @@ function agentCommand(resolve: GetSettingFn): string | undefined {
   return composeAgentCommand(loadAgentSettings(resolve)) || undefined;
 }
 
-/** Roster store keys, strongest first. `mattstack.roster` is the suite-wide
-    roster every mattstack app reads; `board.members` is the board's own
-    pre-migration list, kept for installs whose team store still carries it.
-    An unregistered key on a stale rt-client copy resolves undefined through
-    storeValue's catch, so an old copy simply keeps using board.members. */
-const ROSTER_KEYS = ['mattstack.roster', 'board.members'] as const;
+/** What this Mac's active team contributes to the board's config. Tests replace the fields; production reads rt-client. */
+export const teamView: {
+  pack: () => string | null;
+  team: () => string | null;
+} = {
+  pack: activeTeamPack,
+  team: () => activeTeam().team,
+};
+
+const ROSTER_KEYS = ['mattstack.roster'] as const;
 
 type RosterStoreKey = (typeof ROSTER_KEYS)[number];
 
-/** The owning roster key and its value, or null when the store owns neither.
-    One helper for both sides of the latch: the reader and the writer must
-    never disagree about which key holds the roster. */
+type StoredMember = Member & { teams?: string[] };
+
+/** The roster the store owns, narrowed to the active team. A Mac on no team,
+    and a team nobody is listed on, see everyone: an empty member list fails
+    parseConfig's required-field check and would take the whole board down. */
 function rosterFromStore(
   resolve: GetSettingFn
-): { key: RosterStoreKey; members: Member[] } | null {
-  for (const key of ROSTER_KEYS) {
-    const members = storeValue<Member[]>(key, resolve);
-    if (members !== undefined) return { key, members };
-  }
-  return null;
+): { key: RosterStoreKey; members: Member[]; team: string | null } | null {
+  const all = storeValue<StoredMember[]>('mattstack.roster', resolve);
+  if (all === undefined) return null;
+  const team = teamView.team();
+  const onTeam =
+    team === null ? [] : all.filter(m => (m.teams ?? []).includes(team));
+  // `team` is the team the list is narrowed to, null when it is everyone: a
+  // save from the everyone view must never put the whole org on one team.
+  return onTeam.length > 0
+    ? { key: 'mattstack.roster', members: onTeam, team }
+    : { key: 'mattstack.roster', members: all, team: null };
 }
 
 /**
@@ -660,8 +672,8 @@ function rosterFromStore(
  * store-wins is per SUB-field there so setting one doesn't blank the other
  * two back to their zero value. `rtRepos` is derived from `board.gitlabHost`
  * and `board.projects` (see deriveRtRepos), with config.json's entries as
- * per-project overrides; there is no store key for it. The roster comes from
- * the first owning key in ROSTER_KEYS, and overlays `board.hiddenMembers`
+ * per-project overrides; there is no store key for it. The roster is the
+ * active team's members of `mattstack.roster`, and overlays `board.hiddenMembers`
  * (user-scope usernames) onto that roster's `hidden` flags by username,
  * replacing whatever `hidden` flags the roster source carried inline:
  * post-migration, hidden state lives only in the user key, never on the
@@ -739,8 +751,6 @@ function withBoardStoreFallback(
     doctorsWorkspace: workspaces?.doctors ?? fileConfig.doctorsWorkspace,
     defaultMember:
       storeValue('board.defaultMember', resolve) ?? fileConfig.defaultMember,
-    defaultPack:
-      storeValue('board.defaultPack', resolve) ?? fileConfig.defaultPack,
     claudeCommand: agentCommand(resolve) ?? fileConfig.claudeCommand,
     reviewCwd: cwds?.review ?? fileConfig.reviewCwd,
     respondCwd: cwds?.respond ?? fileConfig.respondCwd,
@@ -751,10 +761,11 @@ function withBoardStoreFallback(
     tabs: storeValue('board.tabs', resolve) ?? fileConfig.tabs,
   };
 
-  return parseConfig(
+  const parsed = parseConfig(
     JSON.stringify(merged),
     'a board.* team settings-store value'
   );
+  return { ...parsed, teamPack: teamView.pack() ?? '' };
 }
 
 /** Structurally satisfies parseConfig's required-field check without being a
@@ -922,27 +933,32 @@ export function applyRosterEdit(
 }
 
 /**
- * Replace the roster wholesale: a store-owned roster is written back to the
- * key that owns it (see ROSTER_KEYS), otherwise to config.json. Callers own
+ * Replace the roster wholesale: a store-owned roster is merged into
+ * `mattstack.roster` at org, otherwise written to config.json. Callers own
  * validation (duplicate, unknown) and pass the full next list; this only
  * persists it and hands back the reloaded config so the server can swap its
- * in-memory copy. Hidden flags ride along only on `board.members`;
- * `mattstack.roster` is shared with every suite app and carries no hidden
- * field.
+ * in-memory copy. Against the store, `next` changes only membership and
+ * display names (mergeTeamRoster), and `viewed` names the members the list
+ * started from, so an entry written after it was read is kept; it defaults
+ * to the roster as resolved now. `mattstack.roster` carries no hidden field.
  */
 export function saveRosterMembers(
   next: Member[],
   path: string = CONFIG_PATH,
   resolve: GetSettingFn = getSetting,
-  write: SetSettingFn = setSetting
+  write: SetSettingFn = setSetting,
+  viewed?: string[]
 ): BoardConfig {
   const owner = rosterFromStore(resolve);
   if (owner) {
-    const value =
-      owner.key === 'mattstack.roster'
-        ? next.map(({ hidden: _hidden, ...rest }) => rest)
-        : next;
-    write(owner.key, value, owner.key === 'mattstack.roster' ? 'org' : 'team');
+    const edited = next.map(({ hidden: _hidden, ...rest }) => rest);
+    const full = storeValue<RosterEntry[]>('mattstack.roster', resolve) ?? [];
+    const shown = viewed ?? owner.members.map(m => m.username);
+    write(
+      'mattstack.roster',
+      mergeTeamRoster(full, owner.team, edited, shown),
+      'org'
+    );
   } else {
     let raw: string;
     try {
@@ -1001,7 +1017,7 @@ export function saveTabs(
 /**
  * Persist `username`'s hidden flag and return the reload. Unowned overlay:
  * the roster's own ownership decides the writer, not config.json's mere
- * existence. A store-owned roster (`mattstack.roster` or `board.members`)
+ * existence. A store-owned roster (`mattstack.roster`)
  * means withBoardStoreFallback derives hidden state from that roster's
  * inline flags alone, so config.json's `members[].hidden` is never read back
  * even when the file exists -- writing there would be a dead write and

@@ -13,14 +13,13 @@
  * (docs/superpowers/specs/2026-08-20-suite-settings-migration.md's key
  * disposition table: a branch template is a repo convention, not a personal
  * preference, same reasoning as `rt.sync`/`rt.variations`). A machine with no
- * org clone can't take a `scope: "org"` write: `setSetting` refuses, which
- * this treats as any other import failure: warn, leave the legacy file in
- * place, serve the value from it this run.
+ * org clone or an org write role keeps reading the legacy file without
+ * importing it. Other import failures warn and leave the legacy file in place.
  */
 
 import { existsSync, readFileSync, renameSync } from "fs";
 import { join } from "path";
-import { getSetting, setSetting } from "@mattstack/rt-client";
+import { currentOrg, currentRole, getSetting, mayWritePath, setSetting } from "@mattstack/rt-client";
 
 export interface BranchNamingConfig {
   template: string;
@@ -56,10 +55,12 @@ function probeStore(repoIdentity: string | null): { owned: boolean; value: Branc
  * verifies the import actually landed (a fresh `getSetting` read — the
  * resolver never memoizes) before renaming the file. Never unlinks: a write
  * that silently failed to persist must leave the only copy of the template
- * on disk. `setSetting` writes the one org per Mac; a Mac with no org
- * refuses, caught below like any other import failure.
+ * on disk. A Mac that cannot write the org store leaves the legacy file
+ * untouched and keeps reading it.
  */
 function migrateLegacyFile(legacyPath: string, repoIdentity: string, config: BranchNamingConfig): void {
+  const org = currentOrg();
+  if (org === null || !mayWritePath(currentRole(org), "mattstack/org")) return;
   try {
     setSetting(SETTING_KEY, { template: config.template }, "org", { repoIdentity });
   } catch (err) {

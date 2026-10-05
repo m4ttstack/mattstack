@@ -1652,6 +1652,7 @@ const TEAM_CLONE = "/fake-home/.mattstack/teams/acme";
 async function toolRowsFor(opts: {
   servedPacks?: { id: string; name: string; servedVersion: string | null }[];
   servedError?: string;
+  activeTeam?: string | null;
   pluginList: unknown[];
 }): Promise<Row[]> {
   const packs = opts.servedPacks ?? [];
@@ -1676,11 +1677,12 @@ async function toolRowsFor(opts: {
     files,
     exec: async (argv) => (argv.includes("list") ? { code: 0, stdout: JSON.stringify(opts.pluginList), stderr: "" } : { code: 0, stdout: "", stderr: "" }),
   });
-  return toolRows(p, [], { hasBrew: false, secrets: NO_SECRETS, teamSlug: "acme" }, NOOP_SEAMS);
+  return toolRows(p, [], { hasBrew: false, secrets: NO_SECRETS, teamSlug: "acme", activeTeam: opts.activeTeam ?? null }, NOOP_SEAMS);
 }
 
 test("a team-served pack gets a row even with no requirements.jsonc, naming its version", async () => {
   const rows = await toolRowsFor({
+    activeTeam: "acme-skills",
     servedPacks: [{ id: "acme-skills@acme-market", name: "acme-skills", servedVersion: "0.5.28" }],
     pluginList: [{ id: "acme-skills@acme-market", version: "0.5.28", enabled: false }],
   });
@@ -1692,6 +1694,7 @@ test("a team-served pack gets a row even with no requirements.jsonc, naming its 
 
 test("a stale pack is needs-you and names both versions, with no restart caveat", async () => {
   const rows = await toolRowsFor({
+    activeTeam: "acme-skills",
     servedPacks: [{ id: "acme-skills@acme-market", name: "acme-skills", servedVersion: "0.5.28" }],
     pluginList: [{ id: "acme-skills@acme-market", version: "0.5.18", enabled: false }],
   });
@@ -1704,6 +1707,7 @@ test("a stale pack is needs-you and names both versions, with no restart caveat"
 
 test("the restart caveat sits on the converged row, where the cache has already moved", async () => {
   const rows = await toolRowsFor({
+    activeTeam: "acme-skills",
     servedPacks: [{ id: "acme-skills@acme-market", name: "acme-skills", servedVersion: "0.5.28" }],
     pluginList: [{ id: "acme-skills@acme-market", version: "0.5.28", enabled: true }],
   });
@@ -1712,12 +1716,23 @@ test("the restart caveat sits on the converged row, where the cache has already 
 
 test("an object-form pack that is not installed says rt does not manage it, never 'installed by Install'", async () => {
   const rows = await toolRowsFor({
+    activeTeam: "remote",
     servedPacks: [{ id: "remote@acme-market", name: "remote", servedVersion: null }],
     pluginList: [],
   });
   const row = rows.find((r) => r.id === "pack.remote")!;
   expect(row.status).toBe("skipped");
   expect(row.detail).toContain("rt does not track this source");
+});
+
+test("of two served packs only the active team's gets a row, and a Mac on no team gets none", async () => {
+  const servedPacks = [
+    { id: "widgets@acme-market", name: "widgets", servedVersion: "1.0.0" },
+    { id: "gadgets@acme-market", name: "gadgets", servedVersion: "2.0.0" },
+  ];
+  const packIds = (rows: Row[]) => rows.filter((r) => r.id.startsWith("pack.")).map((r) => r.id);
+  expect(packIds(await toolRowsFor({ servedPacks, activeTeam: "widgets", pluginList: [] }))).toEqual(["pack.widgets"]);
+  expect(packIds(await toolRowsFor({ servedPacks, activeTeam: null, pluginList: [] }))).toEqual([]);
 });
 
 test("an unparsable marketplace.json renders one error row, outside the pack namespace", async () => {

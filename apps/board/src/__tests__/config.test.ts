@@ -252,15 +252,10 @@ describe('parseConfig', () => {
     ).toThrow(/"tabs\[0\]\.pack" must be a string/);
   });
 
-  test('defaultPack defaults to "" and refuses a non-string', () => {
-    expect(parseConfig(JSON.stringify(base)).defaultPack).toBe('');
+  test('a legacy defaultPack in config.json is ignored', () => {
     expect(
-      parseConfig(JSON.stringify({ ...base, defaultPack: 'widgets' }))
-        .defaultPack
-    ).toBe('widgets');
-    expect(() =>
-      parseConfig(JSON.stringify({ ...base, defaultPack: 3 }))
-    ).toThrow(/"defaultPack" must be a string/);
+      parseConfig(JSON.stringify({ ...base, defaultPack: 'widgets' })).teamPack
+    ).toBe('');
   });
 
   test('port, host, reviewSkill, respondSkill, teamClone are gone from the parsed shape', () => {

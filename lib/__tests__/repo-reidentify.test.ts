@@ -13,6 +13,7 @@ import { setSetting } from "../settings/write.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../worktree/registry.ts";
 import { machineSettingsPath, teamsDir, userSettingsPath } from "../../packages/rt-client/src/settings/paths.ts";
 import { readStore } from "../../packages/rt-client/src/settings/stores.ts";
+import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { normalizeIdentityArg, reidentify } from "../repo-reidentify.ts";
 
 const OLD_RAW = "github.com/acme/old";
@@ -124,6 +125,43 @@ describe("reidentify", () => {
     expect(readStore(machineSettingsPath()).repos[NEW_RAW]).toEqual({ "rt.worktrees": { onDeck: 1 } });
     expect(readStore(userSettingsPath()).repos[NEW_RAW]).toEqual({ "rt.mr": { a: 1 } });
   });
+
+  for (const username of ["dev1", "dev2", "dev4", undefined]) {
+    test(`shared stores follow the role of ${username ?? "an unknown Mac"}`, async () => {
+      seedAll(OLD, OLD_RAW);
+      const section = { repos: { [OLD_RAW]: { "rt.branchNaming": { template: "${identifier}" } } } };
+      const seeded = seedOrg({
+        org: "acme",
+        username,
+        roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] }, gadgets: { owners: [] } } },
+        settings: section,
+        teams: { widgets: section, gadgets: section },
+      });
+      const paths = [seeded.orgStore, seeded.teamStores.widgets!, seeded.teamStores.gadgets!];
+      const before = paths.map((path) => readFileSync(path, "utf8"));
+      const r = await reidentify(OLD_RAW, NEW_RAW);
+      if ("error" in r) throw new Error(r.error);
+      expect(r.ok).toBe(username === "dev1");
+      for (const [i, path] of paths.entries()) {
+        const owns = username === "dev1" || (username === "dev2" && i === 1);
+        const label = `settings:shared:${path.slice(teamsDir().length + 1)}`;
+        expect(r.stores.find((store) => store.store === label)?.status).toBe(owns ? "moved" : "refused");
+        if (owns) {
+          expect(readStore(path).repos[NEW_RAW]).toEqual(section.repos[OLD_RAW]);
+          expect(readStore(path).repos[OLD_RAW]).toBeUndefined();
+        } else {
+          expect(readFileSync(path, "utf8")).toBe(before[i]!);
+          if (i === 0 && username === "dev4") expect(r.stores.find(store => store.store === label)?.detail).toBe("The org's shared files belong to its admins. Ask dev1 (an org admin) to make this change.");
+        }
+      }
+      expect(r.stores.find((store) => store.store === "settings:user")?.status).toBe("moved");
+      expect(r.stores.find((store) => store.store === "settings:machine")?.status).toBe("moved");
+      expect(readStore(userSettingsPath()).repos[NEW_RAW]).toEqual({ "rt.mr": { a: 1 } });
+      expect(readStore(userSettingsPath()).repos[OLD_RAW]).toBeUndefined();
+      expect(readStore(machineSettingsPath()).repos[NEW_RAW]).toEqual({ "rt.worktrees": { onDeck: 1 } });
+      expect(readStore(machineSettingsPath()).repos[OLD_RAW]).toBeUndefined();
+    });
+  }
 
   test("a second run is already or none everywhere and still ok", async () => {
     seedAll(OLD, OLD_RAW);

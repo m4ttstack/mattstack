@@ -9,11 +9,17 @@ import * as ui from "../../lib/ui/out.ts";
 import { captureSkills } from "../../lib/skills/__tests__/helpers.ts";
 
 describe("parseInitArgs", () => {
-  test("defaults: cwd repo, no zone, human output", () => {
-    expect(parseInitArgs([])).toEqual({ repo: process.cwd(), zone: null, json: false });
+  test("defaults: cwd repo, no zone, no team, human output", () => {
+    expect(parseInitArgs([])).toEqual({ repo: process.cwd(), zone: null, team: null, json: false });
   });
   test("reads every flag", () => {
-    expect(parseInitArgs(["--repo", "/r", "--zone", "z", "--json"])).toEqual({ repo: "/r", zone: "z", json: true });
+    expect(parseInitArgs(["--repo", "/r", "--zone", "z", "--team", "t", "--json"])).toEqual({ repo: "/r", zone: "z", team: "t", json: true });
+  });
+  test("--team names a team folder and --zone the clone", () => {
+    expect(parseInitArgs(["--team", "gadgets", "--zone", "acme"])).toMatchObject({ team: "gadgets", zone: "acme" });
+  });
+  test("--team without a value throws a usage error", () => {
+    expect(() => parseInitArgs(["--team"])).toThrow(/--team needs a value/);
   });
   test("a flag without a value throws a usage error", () => {
     expect(() => parseInitArgs(["--zone"])).toThrow(/--zone needs a value/);
@@ -49,19 +55,19 @@ describe("init outcome", () => {
         initRefusalBlocks({
           ok: false,
           refused: true,
-          code: "zone-has-pack",
-          detail: "The acme team already has a pack, and a team holds only one",
-          next: "rt team create <name> --remote <url>",
+          code: "pack-exists",
+          detail: "This team already has a pack, and rt never changes an existing pack. To add to it, use the mattstack:extending-a-pack skill",
+          next: "rt skills init --team <name>",
         }),
       ),
     ).toBe(
-      "[refused] The acme team already has a pack, and a team holds only one\n  next: rt team create <name> --remote <url>\n",
+      "[refused] This team already has a pack, and rt never changes an existing pack. To add to it, use the mattstack:extending-a-pack skill\n  next: rt skills init --team <name>\n",
     );
   });
 
   test("a refusal that is not a policy one is a failure, its command as next", () => {
-    const failure = initFailure({ ok: false, refused: true, code: "zone-ambiguous", detail: "More than one team could hold this pack: acme, beta", next: "rt skills init --zone <slug>" });
-    expect(renderPlain([ui.failure(failure)])).toBe("More than one team could hold this pack: acme, beta\n  next: rt skills init --zone <slug>\n");
+    const failure = initFailure({ ok: false, refused: true, code: "zone-ambiguous", detail: "More than one team could hold this pack: acme, beta", next: "rt skills init --team <name>" });
+    expect(renderPlain([ui.failure(failure)])).toBe("More than one team could hold this pack: acme, beta\n  next: rt skills init --team <name>\n");
   });
 
   test("the failure prefers the error's next to the generic remedy", () => {
@@ -239,6 +245,8 @@ function stubDeps(overrides: Partial<InitDeps> = {}): InitDeps {
     isTTY: false,
     promptZone: async () => { throw new Error("promptZone should not be called"); },
     createZone: async () => { throw new Error("createZone should not be called"); },
+    activeTeam: () => null,
+    mayWrite: () => null,
     declareClaim: () => {},
     engineDescription: () => "engine description",
     claude: async () => ({ code: 0, stdout: "", stderr: "" }),
@@ -303,11 +311,29 @@ describe("skillsInit", () => {
       [`${HOME}/.mattstack/teams/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
       [`${HOME}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com", "board.projects": ["acme/api"] }`,
       [`${HOME}/.mattstack/teams/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
-      [`${HOME}/.mattstack/teams/acme/mattstack/teams/acme/packs/acme/pack/stubs.jsonc`]: "{}",
+      [`${HOME}/.mattstack/teams/acme/mattstack/teams/acme/packs/acme/pack/skills.jsonc`]: "{}",
+      [`${HOME}/.mattstack/teams/acme/mattstack/teams/acme/packs/acme/skills/work/SKILL.md`]: "compiled",
     });
     await skillsInit([], {}, stubDeps({ fs, home: HOME, gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }) }));
     expect(io.stdout()).toBe("");
     expect(io.errLines()[0]).toStartWith("[refused] This team already has a pack");
+    expect(io.stderr()).not.toContain("[failed]");
+    expect(process.exitCode).toBe(2);
+  });
+
+  test("a team with no forge host is a needs-you note on stderr with the fixing command as next, exit 2", async () => {
+    const HOME = "/h";
+    const fs = memFs({
+      [`${HOME}/.mattstack/teams/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: `{}`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
+    });
+    await skillsInit([], {}, stubDeps({ fs, home: HOME, gitRemote: async () => ({ kind: "ok", url: "git@gitlab.example.com:acme/api.git" }) }));
+    expect(io.stdout()).toBe("");
+    expect(io.stderr()).toBe(
+      "[needs you] The acme team has no forge host set, so rt cannot tell which host this repo is on\n" +
+        `  next: rt settings set board.gitlabHost '"gitlab.example.com"' --scope team --team acme\n`,
+    );
     expect(io.stderr()).not.toContain("[failed]");
     expect(process.exitCode).toBe(2);
   });

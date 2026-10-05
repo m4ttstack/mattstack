@@ -1624,9 +1624,11 @@ export function Board() {
         {showConfig && (
           <ConfigModal
             tabs={data.tabs}
+            members={data.allMembers}
             knownSections={data.scopeKnownSections}
             focusKey={configFocus}
             onSaved={() => load()}
+            onRosterSaved={() => load()}
             onClose={() => setShowConfig(false)}
             onOpenRoster={() => {
               setShowConfig(false);

@@ -54,13 +54,13 @@ const LEGACY_FILES = [
   'server/env.ts',
 ];
 
-/** Board entries win on name; legacy usernames missing from the board are appended, nameless. */
+/** Existing roster entries win on name; legacy usernames missing from the roster are appended, nameless. */
 export function mergeRoster(
-  board: RosterEntry[],
+  existing: RosterEntry[],
   legacyUsernames: string[]
 ): RosterEntry[] {
-  const seen = new Set(board.map(m => m.username));
-  const merged = [...board];
+  const seen = new Set(existing.map(m => m.username));
+  const merged = [...existing];
   for (const username of legacyUsernames) {
     if (seen.has(username)) continue;
     seen.add(username);
@@ -148,13 +148,13 @@ async function main(): Promise<void> {
 
   await checkSecretsPresent();
 
-  const board =
-    getSetting<RosterEntry[] | undefined>('board.members').value ?? [];
+  const existing =
+    getSetting<RosterEntry[] | undefined>('mattstack.roster').value ?? [];
 
   const writes: PlannedWrite[] = [
     {
       key: 'mattstack.roster',
-      value: mergeRoster(board, settingsJson.users),
+      value: mergeRoster(existing, settingsJson.users),
       scope: 'org',
     },
     {

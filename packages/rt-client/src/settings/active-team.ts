@@ -4,8 +4,11 @@
  * team layer, so going through the resolver would recurse.
  */
 
+import { readFileSync } from "fs";
+import { join } from "path";
+import { parse, type ParseError } from "jsonc-parser";
 import { readSection } from "./migrate.ts";
-import { orgSettingsPath, userSettingsPath } from "./paths.ts";
+import { orgSettingsPath, teamPackDir, userSettingsPath } from "./paths.ts";
 import { getDef } from "./registry-machinery.ts";
 import { currentOrg, listTeamFolders, readStore, TEAM_NAME_RE, type StoreFile } from "./stores.ts";
 import { readForgeUsername } from "./team-local-read.ts";
@@ -122,4 +125,55 @@ export function activeTeamRoster(): RosterEntry[] {
   const { team } = activeTeamFrom(org, orgStore, readStore(userSettingsPath()));
   const roster = rosterFrom(orgStore);
   return team === null ? roster : roster.filter((e) => strings(e.teams).includes(team));
+}
+
+/** The active team's pack: the team's own name when its folder holds a pack that is not a base; else null. */
+export function activeTeamPack(): string | null {
+  const { org, team } = activeTeam();
+  if (org === null || team === null) return null;
+  try {
+    const errors: ParseError[] = [];
+    const fragment: unknown = parse(readFileSync(join(teamPackDir(org, team), "pack", "skills.jsonc"), "utf8"), errors, { allowTrailingComma: true });
+    if (errors.length > 0 || fragment === null || typeof fragment !== "object" || Array.isArray(fragment)) return null;
+    return (fragment as { base?: unknown }).base === true ? null : team;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The full roster after an edit made in one view of it: the active team's
+ * members, or everyone when `team` is null. The view changes only membership
+ * (of `team`, or of the org when `team` is null) and the display `name`; every
+ * other field comes from `full`, the store's current roster. `viewed` names
+ * the members the view showed before the edit (default: `full`'s members of
+ * the view), so an entry the view never showed is kept as it is.
+ */
+export function mergeTeamRoster(full: RosterEntry[], team: string | null, edited: RosterEntry[], viewed?: string[]): RosterEntry[] {
+  const shown = viewed ?? full.filter((e) => team === null || strings(e.teams).includes(team)).map((e) => e.username);
+  const wasShown = (username: string) => shown.some((v) => sameUser(v, username));
+  const editOf = (username: string) => edited.find((e) => sameUser(e.username, username));
+  const nameOf = (entry: RosterEntry) => (typeof entry.name === "string" && entry.name !== "" ? entry.name : undefined);
+  const out: RosterEntry[] = [];
+  for (const entry of full) {
+    const edit = editOf(entry.username);
+    const teams = strings(entry.teams);
+    if (!edit) {
+      if (!wasShown(entry.username)) out.push(entry);
+      else if (team !== null) out.push(teams.includes(team) ? { ...entry, teams: teams.filter((t) => t !== team) } : entry);
+      continue;
+    }
+    const next: RosterEntry = { ...entry };
+    const name = nameOf(edit);
+    if (name !== undefined) next.name = name;
+    else if (wasShown(entry.username)) delete next.name;
+    if (team !== null && !teams.includes(team)) next.teams = [...teams, team];
+    out.push(next);
+  }
+  for (const added of edited) {
+    if (full.some((entry) => sameUser(entry.username, added.username))) continue;
+    const name = nameOf(added);
+    out.push({ username: added.username, ...(name !== undefined ? { name } : {}), ...(team !== null ? { teams: [team] } : {}) });
+  }
+  return out;
 }

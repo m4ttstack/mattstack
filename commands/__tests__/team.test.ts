@@ -1,20 +1,28 @@
+import * as teamActions from "../team.ts";
+import type { MembersSeams } from "../../lib/team/members.ts";
+import type { InviteResult, MintInviteOpts } from "../../lib/team/invite.ts";
 import { afterEach, beforeEach, describe, test, expect, spyOn } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { realTeamDeps, teamCreate, teamInvite, teamManageMembership, teamPublish, teamPull, teamStatus, type TeamDeps } from "../team.ts";
+import { realTeamDeps, teamAdd, teamCreate, teamInvite, teamManageMembership, teamPublish, teamPull, teamStatus, type TeamDeps } from "../team.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
 import type { Probes } from "../../lib/setup/probes.ts";
+import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { joinLink, joinLinkBase, pasteBlock } from "../../lib/team/invite.ts";
-import { readTeamLocal, writeTeamLocal, type TeamLocalRecord } from "../../lib/team/team-local.ts";
+import { readTeamLocal, writeTeamLocal, teamLocalPath, type TeamLocalRecord } from "../../lib/team/team-local.ts";
 
 const FAKE_PUBLIC_KEY = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
 const FAKE_PRIVATE_KEY = "AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ";
 const ZONE_DIR = "/home/x/.mattstack/teams/acme";
+const adminFiles = {
+  [`${ZONE_DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+  [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
+};
 
 class FakeAgeKeySeam implements AgeKeySeam {
   async run(cmd: string[]): Promise<AgeExecResult> {
@@ -28,7 +36,7 @@ function baseDeps(overrides: Partial<TeamDeps> = {}): TeamDeps & { lines: string
   const lines: string[] = [];
   const exitCodes: number[] = [];
   return {
-    probes: fakeProbes({ home: "/home/x" }),
+    probes: fakeProbes({ home: "/home/x", files: adminFiles }),
     print: (s: string) => lines.push(s),
     exit: (code: number) => {
       exitCodes.push(code);
@@ -43,7 +51,7 @@ function baseDeps(overrides: Partial<TeamDeps> = {}): TeamDeps & { lines: string
 
 /** `publishTeam` prechecks the zone exists — every teamPublish test that means to reach the git steps needs it seeded. */
 function depsWithZone(overrides: Partial<TeamDeps> = {}) {
-  return baseDeps({ probes: fakeProbes({ home: "/home/x", dirs: { [ZONE_DIR]: [] } }), ...overrides });
+  return baseDeps({ probes: fakeProbes({ home: "/home/x", files: adminFiles, dirs: { [ZONE_DIR]: [] }, exec: (argv) => ({ code: 0, stdout: argv.includes("get-url") ? "https://github.com/acme/repo.git\n" : "", stderr: "" }) }), ...overrides });
 }
 
 /** Every exit path (usage refusals included, now that they route through `exitUserError`) calls the real `process.exit(2)`, never `deps.exit` — `deps.exit` stays only as a defensive sentinel that would fail a test loudly if some future path called it unexpectedly. */
@@ -62,6 +70,12 @@ async function runExpectingProcessExit(fn: () => Promise<void>): Promise<number 
 }
 
 describe("teamCreate", () => {
+  test("--first-team names the team without becoming a name positional", async () => {
+    const deps = baseDeps();
+    await teamCreate(["--first-team", "widgets", "Acme", "--remote", "https://github.com/acme/repo.git", "--json"], {}, deps);
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ slug: "acme", name: "Acme", team: "widgets" });
+  });
+
   test("--json prints the exact contract envelope shape", async () => {
     const deps = baseDeps();
     await teamCreate(["Acme", "--remote", "https://github.com/acme/mattstack-team-acme.git", "--json"], {}, deps);
@@ -131,7 +145,7 @@ describe("teamCreate", () => {
       const code = await runExpectingProcessExit(() => teamCreate(["--remote", "https://github.com/acme/repo.git"], {}, deps));
       expect(code).toBe(2);
       expect(deps.lines).toEqual([]);
-      expect(io.stderr()).toBe("What should the team be called?\n  next: rt team create <name> (--remote <url> | --create-repo <owner>) [--others] [--json]\n");
+      expect(io.stderr()).toBe("What should the team be called?\n  next: rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]\n");
     } finally {
       io.restore();
     }
@@ -143,7 +157,7 @@ describe("teamCreate", () => {
     ui.__test__.setHuman(() => false);
     try {
       await teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git"], {}, deps);
-      expect(io.stdout()).toBe("[ok] Created the acme team  https://github.com/acme/repo.git\n");
+      expect(io.stdout()).toBe("[ok] Created the acme org  https://github.com/acme/repo.git\n");
       expect(deps.lines).toEqual([]);
     } finally {
       io.restore();
@@ -193,10 +207,11 @@ describe("teamPublish", () => {
     const seen: { argv: string[]; env?: Record<string, string> }[] = [];
     const probes = fakeProbes({
       home: "/home/x",
+      files: adminFiles,
       dirs: { [ZONE_DIR]: [] },
       exec: (argv, opts) => {
         seen.push({ argv, env: opts?.env });
-        return { code: 0, stdout: "", stderr: "" };
+        return { code: 0, stdout: argv.includes("get-url") ? "https://github.com/acme/repo.git\n" : "", stderr: "" };
       },
     });
     const deps = baseDeps({ probes, forgeToken: async (_p, remote) => (remote.includes("acme/repo") ? "ghp-secret" : null) });
@@ -210,12 +225,20 @@ describe("teamPublish", () => {
   });
 
   test("no --team and no local team clone exits 2 with no-team", async () => {
-    const deps = baseDeps();
-    const code = await runExpectingProcessExit(() => teamPublish(["--remote", "https://github.com/acme/repo.git", "--json"], {}, deps));
+    const priorHome = process.env.HOME;
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-no-org-")));
+    process.env.HOME = home;
+    try {
+      const deps = baseDeps();
+      const code = await runExpectingProcessExit(() => teamPublish(["--remote", "https://github.com/acme/repo.git", "--json"], {}, deps));
 
-    expect(code).toBe(2);
-    const body = JSON.parse(deps.lines[0]!);
-    expect(body.error.code).toBe("no-team");
+      expect(code).toBe(2);
+      const body = JSON.parse(deps.lines[0]!);
+      expect(body.error.code).toBe("no-team");
+    } finally {
+      process.env.HOME = priorHome;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("--team given but no zone on disk exits 2 with no-team-zone", async () => {
@@ -245,8 +268,7 @@ describe("teamInvite", () => {
     process.env.HOME = home;
 
     teamDir = join(home, ".mattstack", "teams", "acme");
-    mkdirSync(join(teamDir, "mattstack", "org"), { recursive: true });
-    writeFileSync(join(teamDir, "mattstack", "org", "settings.org.jsonc"), `${JSON.stringify({ "board.title": "Acme Team" }, null, 2)}\n`);
+    seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} }, settings: { "board.title": "Acme Team" }, roster: [{ username: "dev1", teams: ["widgets"] }], teams: { widgets: {} } });
     mkdirSync(join(teamDir, ".git"), { recursive: true });
   });
 
@@ -278,8 +300,19 @@ describe("teamInvite", () => {
   function inviteDeps(overrides: { exec?: ExecScript; record?: Partial<TeamLocalRecord>; onRelay?: () => void; adminToken?: string } = {}): TeamDeps & { lines: string[]; exitCodes: number[] } {
     const probes = fakeProbes({
       home,
-      files: { [join(teamDir, ".git", "config")]: GIT_CONFIG },
-      exec: overrides.exec ?? ghExec(),
+      dirs: { [teamDir]: [], [join(teamDir, "mattstack", "teams")]: ["widgets"] },
+      files: {
+        [join(teamDir, ".git", "config")]: GIT_CONFIG,
+        [join(teamDir, "mattstack", "org", "settings.org.jsonc")]: JSON.stringify({
+          "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } },
+          "mattstack.roster": [{ username: "dev1", teams: ["widgets"] }],
+        }),
+        [join(teamDir, "mattstack", "teams", "widgets", "settings.team.jsonc")]: "{}",
+        [teamLocalPath(home, "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
+      },
+      exec: (argv) => argv.includes("get-url")
+        ? { code: 0, stdout: "git@github.com:acme/widgets.git\n", stderr: "" }
+        : (overrides.exec ?? ghExec())(argv),
       fetch: (url, init) => {
         if (url.endsWith("/boards")) return Promise.resolve({ status: 401, body: "", headers: {} });
         overrides.onRelay?.();
@@ -287,7 +320,7 @@ describe("teamInvite", () => {
       },
     });
     if (overrides.record) {
-      writeTeamLocal(probes, "acme", { createdByRt: false, joinedByRt: false, rtMayManageMembership: false, ...overrides.record });
+      writeTeamLocal(probes, "acme", { createdByRt: false, joinedByRt: false, rtMayManageMembership: false, forgeUsername: "dev1", ...overrides.record });
     }
     const deps = baseDeps({ probes });
     return overrides.adminToken === undefined ? deps : { ...deps, mintInviteSeams: { readLocalSecret: async () => overrides.adminToken! } };
@@ -360,29 +393,57 @@ describe("teamInvite", () => {
     });
   });
 
-  test("a joined machine refuses before the relay is ever touched", async () => {
-    let relayCalls = 0;
-    const deps = inviteDeps({ record: { joinedByRt: true }, onRelay: () => { relayCalls++; } });
+  describe("who may invite, and to which team", () => {
+    const MINTED = { code: "C", expiresAt: "2026-01-08T00:00:00.000Z", pasteBlock: "x", forgeAccess: "skipped", manualSteps: [], link: "l", peering: "none" } as unknown as InviteResult;
 
-    const code = await runExpectingProcessExit(() => teamInvite(["--handle", "zaphod", "--team", "acme", "--json"], {}, deps));
+    function orgDeps(username: string, minted: MintInviteOpts[]): TeamDeps & { lines: string[]; exitCodes: number[] } {
+      const probes = fakeProbes({
+        home,
+        dirs: { [join(teamDir, "mattstack", "teams")]: ["widgets", "gadgets"] },
+        files: {
+          [join(teamDir, ".git", "config")]: GIT_CONFIG,
+          [join(teamDir, "mattstack", "org", "settings.org.jsonc")]: JSON.stringify({
+            "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } },
+            "mattstack.roster": [{ username: "dev1", teams: ["widgets"] }, { username: "dev2", teams: ["widgets"] }],
+          }),
+          [teamLocalPath(home, "acme")]: JSON.stringify({ forgeUsername: username }),
+        },
+      });
+      return baseDeps({ probes, mintInvite: async (_p, _relay, opts) => { minted.push(opts); return MINTED; } });
+    }
 
-    expect(relayCalls).toBe(0);
-    expect(code).toBe(2);
-    expect(JSON.parse(deps.lines[0]!).error.code).toBe("team-pull-only");
+    test("only an org admin invites; an owner is told who can", async () => {
+      const minted: MintInviteOpts[] = [];
+      const deps = orgDeps("dev2", minted);
+      const code = await runExpectingProcessExit(() => teamInvite(["--handle", "dev3", "--team", "acme", "--json"], {}, deps));
+      expect(code).toBe(2);
+      expect(JSON.parse(deps.lines[0]!).error).toMatchObject({ code: "team-pull-only", message: "Only an org admin invites" });
+      expect(minted).toEqual([]);
+    });
+
+    test("with no --teams the invite is for the inviter's own team, so the app's Invite button needs no new flag", async () => {
+      const minted: MintInviteOpts[] = [];
+      await teamInvite(["--handle", "dev3", "--team", "acme", "--json"], {}, orgDeps("dev1", minted));
+      expect(minted[0]).toMatchObject({ slug: "acme", handle: "dev3", teams: ["widgets"] });
+    });
+
+    test("--teams names the team folders, in order", async () => {
+      const minted: MintInviteOpts[] = [];
+      await teamInvite(["--handle", "dev3", "--team", "acme", "--teams", "gadgets,widgets", "--json"], {}, orgDeps("dev1", minted));
+      expect(minted[0]!.teams).toEqual(["gadgets", "widgets"]);
+    });
   });
 
-  test("human mode: a pull-only clone refuses to invite, as a refused line", async () => {
-    const deps = inviteDeps({ record: { joinedByRt: true } });
+  test("human mode: an owner is refused before minting", async () => {
+    const deps = inviteDeps({ record: { forgeUsername: "dev2" } });
     const io = captureOut();
     ui.__test__.setHuman(() => false);
     try {
-      const code = await runExpectingProcessExit(() => teamInvite(["--handle", "zaphod", "--team", "acme"], {}, deps));
+      const code = await runExpectingProcessExit(() => teamInvite(["--handle", "dev3", "--team", "acme"], {}, deps));
       expect(code).toBe(2);
-      expect(io.stderr()).toBe("[refused] This Mac joined the acme team by invite, so its copy is pull-only and cannot invite anyone.\n  why: Ask the team's owner to invite zaphod.\n");
+      expect(io.stderr()).toBe("[refused] Only an org admin invites\n  why: Ask dev1 to invite dev3.\n");
       expect(io.stdout()).toBe("");
-    } finally {
-      io.restore();
-    }
+    } finally { io.restore(); }
   });
 
   test("on a TTY, accepting the offer writes the permission before minting", async () => {
@@ -428,7 +489,7 @@ describe("teamInvite", () => {
       const code = await runExpectingProcessExit(() => teamInvite([], {}, deps));
       expect(code).toBe(2);
       expect(deps.lines).toEqual([]);
-      expect(io.stderr()).toBe("Who is the invite for?\n  next: rt team invite --handle <h> [--team <slug>] [--require-peering] [--json]\n");
+      expect(io.stderr()).toBe("Who is the invite for?\n  next: rt team invite --handle <h> [--teams <team>[,<team>]] [--team <org>] [--require-peering] [--json]\n");
     } finally {
       io.restore();
     }
@@ -644,4 +705,277 @@ test("teamStatus --json carries the daemon's sync fields, null when the daemon i
   expect(body.lastPull).toBe(new Date(1_700_000_000_000).toISOString());
   expect(body.lastPushAt).toBeNull();
   expect(body.conflicted).toBeNull();
+});
+
+
+describe("teamAdd", () => {
+  function addDeps(username = "dev1") {
+    const deps = baseDeps({ probes: fakeProbes({ home: "/home/x", files: {
+      ...adminFiles,
+      [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: username }),
+    } }) });
+    const writes: [string, unknown][] = [];
+    return { ...deps, writes, addTeamSeams: {
+      writeOrgSetting: (key: string, value: unknown) => { writes.push([key, value]); },
+      engineDescription: () => "Use when running a unit of work.",
+    } };
+  }
+
+  test("actual add parses flags and prints a flat JSON result", async () => {
+    const deps = addDeps();
+    await teamAdd(["--owner", " dev2, dev1 ", "--team", "acme", "gadgets", "--json"], {}, deps);
+    expect(deps.lines).toHaveLength(1);
+    const { at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(typeof at).toBe("string");
+    expect(body).toEqual({ contract: 1, org: "acme", team: "gadgets", dir: `${ZONE_DIR}/mattstack/teams/gadgets`, owners: ["dev2", "dev1"], wrote: expect.any(Array) });
+    expect(deps.probes.exists(`${body.dir}/packs/gadgets/pack/skills.jsonc`)).toBe(true);
+    expect(deps.writes).toHaveLength(1);
+  });
+
+  test("missing owners exits with usage without writing", async () => {
+    const deps = addDeps();
+    expect(await runExpectingProcessExit(() => teamAdd(["gadgets", "--team", "acme", "--json"], {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error.code).toBe("usage");
+    expect(deps.writes).toEqual([]);
+  });
+
+  test("member JSON refuses before shared writes", async () => {
+    const deps = addDeps("dev2");
+    expect(await runExpectingProcessExit(() => teamAdd(["gadgets", "--owner", "dev2", "--team", "acme", "--json"], {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!).error.code).toBe("team-pull-only");
+    expect(deps.probes.exists(`${ZONE_DIR}/mattstack/teams/gadgets`)).toBe(false);
+    expect(deps.writes).toEqual([]);
+  });
+
+  test("human success uses output and leaves the envelope seam empty", async () => {
+    const deps = addDeps();
+    const captured = captureOut();
+    try {
+      await teamAdd(["gadgets", "--owner", "dev2", "--team", "acme"], {}, deps);
+      expect(captured.stdout()).toContain("Added the gadgets team");
+      expect(captured.stdout()).toContain("rt team members set <username> --teams gadgets");
+      expect(deps.lines).toEqual([]);
+    } finally { captured.restore(); }
+  });
+});
+
+
+describe("teamMembersSet", () => {
+  function world(username = "dev1", ownsTeam = true) {
+    const roster = [{ username: "dev1", teams: ["widgets"] }, { username: "Dev2", name: "Dev Two", teams: ["widgets"] }];
+    const writes: { key: string; value: unknown; scope: string }[] = [];
+    const membersSeams: MembersSeams = {
+      readTeamStore: () => ({ "mattstack.roster": roster }),
+      writeSetting: ((key: string, value: unknown, scope: string) => { writes.push({ key, value, scope }); }) as MembersSeams["writeSetting"],
+      currentOrg: () => "acme",
+      revokeRead: async () => { throw new Error("must not revoke access"); },
+      readTeamLocal: () => { throw new Error("must not read membership permissions"); },
+      forgeToken: async () => { throw new Error("must not read secrets"); },
+      warn: () => { throw new Error("must not warn"); },
+    };
+    const deps = baseDeps({ membersSeams, probes: fakeProbes({ home: "/home/x", files: {
+      ...adminFiles,
+      [`${ZONE_DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ownsTeam ? ["dev2"] : [] } } } }),
+      [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: username }),
+      [`${ZONE_DIR}/mattstack/teams/widgets/settings.team.jsonc`]: "{}",
+      [`${ZONE_DIR}/mattstack/teams/gadgets/settings.team.jsonc`]: "{}",
+    } }) });
+    return { deps, writes };
+  }
+
+  test("runs the real roster mutation and emits one flat JSON envelope", async () => {
+    const { deps, writes } = world();
+    await teamActions.teamMembersSet(["--teams", " gadgets, widgets, gadgets, ", "--team", "acme", "dev2", "--json"], {}, deps);
+    expect(deps.lines).toHaveLength(1);
+    const { at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(typeof at).toBe("string");
+    expect(body).toEqual({ contract: 1, username: "Dev2", teams: ["gadgets", "widgets"], previous: ["widgets"] });
+    expect(writes).toEqual([{ key: "mattstack.roster", value: [{ username: "dev1", teams: ["widgets"] }, { username: "Dev2", name: "Dev Two", teams: ["gadgets", "widgets"] }], scope: "org" }]);
+  });
+
+  test("empty teams clears membership and human output shows the previous team", async () => {
+    const { deps, writes } = world();
+    const captured = captureOut();
+    try {
+      await teamActions.teamMembersSet(["dev2", "--teams", "", "--team", "acme"], {}, deps);
+      expect(captured.stdout()).toContain("Dev2 is on no team");
+      expect(captured.stdout()).toContain("was on widgets");
+    } finally { captured.restore(); }
+    expect(deps.lines).toEqual([]);
+    expect((writes[0]!.value as { teams: string[] }[])[1]!.teams).toEqual([]);
+  });
+
+  test.each([
+    [["dev2", "--team", "acme", "--json"]],
+    [["--teams", "widgets", "--team", "acme", "--json"]],
+  ])("missing required arguments exits 2 without writing: %j", async (args) => {
+    const { deps, writes } = world();
+    expect(await runExpectingProcessExit(() => teamActions.teamMembersSet(args, {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ contract: 1, error: { code: "usage" } });
+    expect(writes).toEqual([]);
+  });
+
+  test.each([["team owner", true], ["member", false]] as const)("a %s gets the flat refusal envelope and no write", async (_role, ownsTeam) => {
+    const { deps, writes } = world("dev2", ownsTeam);
+    expect(await runExpectingProcessExit(() => teamActions.teamMembersSet(["dev1", "--teams", "gadgets", "--team", "acme", "--json"], {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ contract: 1, error: { code: "team-pull-only" } });
+    expect(writes).toEqual([]);
+  });
+
+  test("policy refusal is drawn as refused for a person", async () => {
+    const { deps, writes } = world("dev2");
+    const captured = captureOut();
+    try {
+      expect(await runExpectingProcessExit(() => teamActions.teamMembersSet(["dev1", "--teams", "gadgets", "--team", "acme"], {}, deps))).toBe(2);
+      expect(captured.stderr()).toContain("[refused]");
+      expect(captured.stderr()).not.toContain("[failed]");
+    } finally { captured.restore(); }
+    expect(writes).toEqual([]);
+  });
+});
+
+describe("teamUse", () => {
+  function world(overrides: Partial<TeamDeps> = {}) {
+    const effects: string[] = [];
+    const deps = baseDeps({
+      useTeamSeams: {
+        activeTeam: () => ({ org: "acme", team: "widgets", reason: "first-team", username: "dev2", listedOn: ["widgets", "gadgets"] }),
+        writeUserSetting: (key, value) => { effects.push(`${key}=${value}`); },
+        installPack: async () => ({ ok: true, detail: "1 pack" }),
+        setPackEnabled: async () => true,
+        marketplace: () => "acme-market",
+        restartApp: async () => true,
+      },
+      ...overrides,
+    });
+    return { deps, effects };
+  }
+  test("prints a flat success envelope", async () => {
+    const { deps, effects } = world();
+    await teamActions.teamUse(["gadgets", "--json"], {}, deps);
+    const { at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(typeof at).toBe("string");
+    expect(body).toEqual({ contract: 1, team: "gadgets", previous: "widgets", pack: { installed: true, enabled: true, detail: "1 pack" }, disabled: "widgets@acme-market", restarted: ["board", "boxscore"] });
+    expect(effects).toEqual(["mattstack.activeTeam=gadgets"]);
+  });
+  test("missing team under JSON exits 2 without opening the picker", async () => {
+    const { deps, effects } = world({ interactive: () => true, selectTeam: async () => { throw new Error("must not pick"); } });
+    expect(await runExpectingProcessExit(() => teamActions.teamUse(["--json"], {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ error: { code: "usage" } });
+    expect(effects).toEqual([]);
+  });
+  test("human usage asks which team", async () => {
+    const { deps, effects } = world({ interactive: () => false });
+    const captured = captureOut();
+    try {
+      expect(await runExpectingProcessExit(() => teamActions.teamUse([], {}, deps))).toBe(2);
+      expect(captured.stderr()).toContain("Which team do you want to work as?");
+    } finally { captured.restore(); }
+    expect(effects).toEqual([]);
+  });
+  test("membership refusal has no effects and draws a refused note", async () => {
+    const { deps, effects } = world();
+    const captured = captureOut();
+    try {
+      expect(await runExpectingProcessExit(() => teamActions.teamUse(["sprockets"], {}, deps))).toBe(2);
+      expect(captured.stderr()).toContain("[refused] The roster does not list you on the sprockets team");
+    } finally { captured.restore(); }
+    expect(effects).toEqual([]);
+  });
+  test("picker offers only memberships in roster order and uses the selection", async () => {
+    const oldBatch = process.env.RT_BATCH;
+    delete process.env.RT_BATCH;
+    try {
+      const { deps, effects } = world({ interactive: () => true, selectTeam: async (choices) => { expect(choices).toEqual(["widgets", "gadgets"]); return "gadgets"; } });
+      const captured = captureOut();
+      try {
+        await teamActions.teamUse([], {}, deps);
+        expect(captured.stdout()).toContain("You are working as the gadgets team");
+      } finally { captured.restore(); }
+      expect(effects).toEqual(["mattstack.activeTeam=gadgets"]);
+    } finally { if (oldBatch === undefined) delete process.env.RT_BATCH; else process.env.RT_BATCH = oldBatch; }
+  });
+  test("canceling the picker exits successfully without effects", async () => {
+    const oldBatch = process.env.RT_BATCH;
+    delete process.env.RT_BATCH;
+    try {
+      const { deps, effects } = world({ interactive: () => true, selectTeam: async () => null });
+      expect(await runExpectingProcessExit(() => teamActions.teamUse([], {}, deps))).toBe(0);
+      expect(effects).toEqual([]);
+    } finally { if (oldBatch === undefined) delete process.env.RT_BATCH; else process.env.RT_BATCH = oldBatch; }
+  });
+});
+
+describe("realUseTeamSeams", () => {
+  test("reads the chosen team through the resolver rather than the raw user global", async () => {
+    const active = await import("../../packages/rt-client/src/settings/active-team.ts");
+    const settings = await import("../../lib/settings/resolve.ts");
+    const activeSpy = spyOn(active, "activeTeam").mockReturnValue({ org: "acme", team: "widgets", reason: "chosen", username: "dev2", listedOn: ["widgets", "gadgets"] });
+    const settingSpy = spyOn(settings, "getSetting").mockImplementation(<T>(key: string) => ({ value: (key === "mattstack.activeTeam" ? "gadgets" : [{ username: "dev2", teams: ["widgets", "gadgets"] }]) as T, provenance: [] }));
+    try {
+      const seams = await teamActions.realUseTeamSeams(baseDeps({ deckPath: () => null }));
+      expect(seams.activeTeam()).toMatchObject({ team: "gadgets", reason: "chosen", listedOn: ["widgets", "gadgets"] });
+      expect(settingSpy.mock.calls.map((a) => a[0])).toContain("mattstack.activeTeam");
+    } finally { activeSpy.mockRestore(); settingSpy.mockRestore(); }
+  });
+
+  test("real update installation preserves a disabled selected pack until explicit enable, then disables the hand-enabled previous pack", async () => {
+    const apply = await import("../../lib/setup/apply.ts");
+    const original = apply.createApplyContext;
+    const forbidden = (): never => { throw new Error("must not access secrets"); };
+    const secrets = { ageKeySeam: new FakeAgeKeySeam(), execSeam: { run: forbidden, fileExists: forbidden, statFile: forbidden, readFile: forbidden, writeFile: forbidden, ensureDir: forbidden, chmod: forbidden, fsyncAndRename: forbidden, removeFile: forbidden } };
+    const presence = { has: async () => { throw new Error("must not inspect credentials"); } };
+    const enabled: Record<string, boolean> = { "widgets@acme-market": true, "gadgets@acme-market": false };
+    const home = "/home/x";
+    const p = fakeProbes({ home, env: { PATH: "/fixture/bin", CLAUDE_CONFIG_DIR: "/fixture/config" },
+      dirs: { [`${home}/.mattstack/teams`]: ["acme"] },
+      files: { ...adminFiles, "/fixture/bin/claude": "bin", [`${ZONE_DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["gadgets", "widgets"] }] }), [`${ZONE_DIR}/.claude-plugin/marketplace.json`]: JSON.stringify({ name: "acme-market", plugins: [{ name: "widgets" }, { name: "gadgets" }] }) },
+      exec: async (argv, opts) => {
+        if (argv[0] === "/fixture/deck") return { code: 0, stdout: "", stderr: "" };
+        expect(argv[0]).toBe("/fixture/bin/claude");
+        expect(opts?.env?.CLAUDE_CONFIG_DIR).toBe("/fixture/config");
+        const [, , verb, id] = argv;
+        if (verb === "list") return { code: 0, stdout: JSON.stringify(Object.entries(enabled).map(([id, enabled]) => ({ id, enabled, version: "1" }))), stderr: "" };
+        if (verb === "install" || verb === "enable") enabled[id!] = true;
+        if (verb === "disable") enabled[id!] = false;
+        if (verb === "uninstall" || verb === "remove") throw new Error("must not remove packs");
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    const contextSpy = spyOn(apply, "createApplyContext").mockImplementation(async (deps) => {
+      expect(deps.secrets).toBe(secrets);
+      expect(deps.secretPresence).toBe(presence);
+      expect(deps.flags.update).toBe(true);
+      return original(deps);
+    });
+    try {
+      const seams = await teamActions.realUseTeamSeams(baseDeps({ probes: p, secrets, secretPresence: presence, deckPath: () => "/fixture/deck" }));
+      expect(seams.marketplace("acme")).toBe("acme-market");
+      expect((await seams.installPack()).ok).toBe(true);
+      expect(enabled["gadgets@acme-market"]).toBe(false);
+      expect(enabled["widgets@acme-market"]).toBe(true);
+      expect(p.calls.exec.some((a) => a[2] === "update" && a[3] === "gadgets@acme-market")).toBe(true);
+      expect(await seams.setPackEnabled("gadgets@acme-market", true)).toBe(true);
+      expect(await seams.setPackEnabled("widgets@acme-market", false)).toBe(true);
+      expect(enabled["gadgets@acme-market"]).toBe(true);
+      expect(enabled["widgets@acme-market"]).toBe(false);
+      expect(await seams.restartApp("board")).toBe(true);
+      expect(p.calls.exec.at(-1)).toEqual(["/fixture/deck", "restart", "board"]);
+      expect(contextSpy.mock.calls).toHaveLength(1);
+    } finally { contextSpy.mockRestore(); }
+  });
+
+  test("missing tools and invalid marketplace are reported without external calls", async () => {
+    const p = fakeProbes({ home: "/home/x", files: { [`${ZONE_DIR}/.claude-plugin/marketplace.json`]: "{" } });
+    const seams = await teamActions.realUseTeamSeams(baseDeps({ probes: p, deckPath: () => null }));
+    expect(seams.marketplace("acme")).toBe("acme");
+    expect(await seams.setPackEnabled("gadgets@acme", true)).toBe(false);
+    expect(await seams.restartApp("boxscore")).toBe(false);
+    expect(p.calls.exec).toEqual([]);
+  });
+  test.each([true, false])("Claude already in the requested state succeeds: %s", async (enabled) => {
+    const p = fakeProbes({ home: "/home/x", env: { PATH: "/fixture/bin" }, files: { "/fixture/bin/claude": "bin" }, exec: async () => ({ code: 1, stdout: "", stderr: `is already ${enabled ? "enabled" : "disabled"}` }) });
+    const seams = await teamActions.realUseTeamSeams(baseDeps({ probes: p, deckPath: () => null }));
+    expect(await seams.setPackEnabled("gadgets@acme", enabled)).toBe(true);
+  });
 });

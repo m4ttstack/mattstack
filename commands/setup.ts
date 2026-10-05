@@ -42,7 +42,11 @@ import { isValidHostname } from "../lib/setup/host-validate.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";
 import { clearIntent, readIntent, orgRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
+import type { forgeLogin } from "../lib/team/forge.ts";
+import { cloneSlugs, cloneOrigin, recordForgeIdentity } from "../lib/setup/steps/org.ts";
+import { forgeFromRemote, hostFromRemote } from "../lib/setup/team-settings.ts";
 import { readTeamLocal } from "../lib/team/team-local.ts";
+import { roleFor } from "../lib/team/roles.ts";
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
 import { planBlocks, rowTitles } from "../lib/setup/plan-blocks.ts";
 import { composePlan, enrichSnapshotForge, realSecretPresence } from "../lib/setup/plan.ts";
@@ -828,7 +832,7 @@ export function realSecretWriter(): SecretWriter {
 /**
  * Team-scoped secrets (Slack's client/signing secret, a future shared service
  * token). Backed by the real N-recipient team store (lib/secrets/team-store.ts):
- * `teams/<slug>/mattstack/secrets/<domain>.json`, encrypted to every team
+ * `teams/<slug>/mattstack/org/secrets/<domain>.json`, encrypted to every team
  * member's age key via `teams/<slug>/.sops.yaml`. `write` mirrors
  * `storeCredential`'s own age-key-gated fallback (stage when there's no key
  * yet) so a team secret written before `rt home init` still lands somewhere
@@ -891,6 +895,7 @@ export function realTeamSecrets(p: Probes): TeamSecrets {
 }
 
 export interface ConnectDeps extends SetupDeps {
+  forgeLogin?: typeof forgeLogin;
   exit: (code: number) => never;
   /** Reads the full stdin body: valid JSON parses to its value; anything else (a bare token line) comes back as the trimmed raw string; empty stdin is null. Never throws. */
   stdin: () => Promise<unknown>;
@@ -1305,8 +1310,8 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
   // A token the forge accepts can still lack what the owner's push or the members API needs later, so the shortfall is named here, at the paste, not at the clone.
   if (id === "github" || id === "gitlab") {
     const team = snapshotFor(deps);
-    const joinedByRt = team.slug ? readTeamLocal(deps.probes, team.slug).joinedByRt : false;
-    const role = forgeRole({ intentMode: readIntent(deps.probes)?.mode ?? null, joinedByRt, hasTeam: team.slug !== "" });
+    const orgRole = team.slug ? roleFor(deps.probes, team.slug).kind : null;
+    const role = forgeRole({ intentMode: readIntent(deps.probes)?.mode ?? null, role: orgRole, hasTeam: team.slug !== "" });
     const missing = missingScopes(id, role, result.scopesSeen);
     if (missing.length > 0) {
       const how = sourceDetail === GH_SOURCE_DETAIL ? ` (run: gh auth refresh -s ${missing.join(",")})` : "";
@@ -1335,11 +1340,29 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
     staged = (await storeCredential(deps, def.secret.domain, def.secret.key, value)).staged;
   }
 
-  const detail = staged
+  let identityDetail: string | null = null;
+  if (id === "github" || id === "gitlab") {
+    const team = snapshotFor(deps);
+    const slug = team.slug || cloneSlugs(deps.probes)[0] || "";
+    const origin = slug ? cloneOrigin(deps.probes, slug) : null;
+    const remote = team.remote ?? origin;
+    const forge = team.integrations.forge ?? (remote ? forgeFromRemote(remote) : null);
+    const host = id === "github" ? "github.com" : (ctx.host ?? "gitlab.com");
+    const explicitlyMatched = team.integrations.forge === undefined && id === "gitlab" && hostFlag !== undefined && origin !== null && hostFromRemote(origin) === host;
+    if (slug && ((forge?.provider === id && forge.host === host) || explicitlyMatched)) {
+      const identity = await recordForgeIdentity(deps.probes, slug, { provider: id, host }, value, deps.forgeLogin);
+      if (identity.admin?.claimed && !identity.admin.published) {
+        const pending = readTeamLocal(deps.probes, slug).creatorPending !== undefined;
+        identityDetail = `You are ${identity.username} and this org's admin now, but rt could not ${pending ? "save" : "push"} that. ${pending ? "Run rt setup apply --only team.identity" : "Run rt team publish"}`;
+      }
+    }
+  }
+
+  const detail = identityDetail ?? (staged
     ? sourceDetail
       ? `${sourceDetail}. Saved for now; Install stores it once your key exists`
       : "Saved for now; Install stores it once your key exists"
-    : (sourceDetail ?? result.detail);
+    : (sourceDetail ?? result.detail));
 
   printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "ready", detail, scopesSeen: result.scopesSeen });
 }
