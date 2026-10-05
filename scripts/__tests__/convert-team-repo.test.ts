@@ -581,6 +581,24 @@ describe("the wrapper", () => {
     expect(readFileSync(join(dir, "untracked.txt"), "utf8")).toBe("keep me");
   });
 
+  test("untracked and ignored files are seen even when git hides untracked files", () => {
+    ready();
+    const dir = tempClone();
+    execFileSync("git", ["-C", dir, "config", "status.showUntrackedFiles", "no"], { env: childEnv() });
+    writeFileSync(join(dir, "mattstack", "secrets", "new.json"), "keep me");
+    const untracked = runScript(dir, "--write", "--roster-confirmed");
+    expect(untracked.exitCode).toBe(2);
+    expect(untracked.stderr.toString()).toContain("The clone has uncommitted changes");
+    expect(readFileSync(join(dir, "mattstack", "secrets", "new.json"), "utf8")).toBe("keep me");
+    rmSync(join(dir, "mattstack", "secrets", "new.json"));
+    writeFileSync(join(dir, "mattstack", "secrets", "draft.tmp"), "keep me too");
+    const ignored = runScript(dir, "--write", "--roster-confirmed");
+    expect(ignored.exitCode).toBe(2);
+    expect(ignored.stderr.toString()).toContain("The clone has ignored files in its managed folders");
+    expect(readFileSync(join(dir, "mattstack", "secrets", "draft.tmp"), "utf8")).toBe("keep me too");
+    expect(existsSync(join(dir, "mattstack", "org"))).toBe(false);
+  });
+
   test("without --write it prints the split and changes nothing", () => {
     const dir = tempClone();
     const out = runScript(dir);

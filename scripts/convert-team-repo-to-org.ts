@@ -93,8 +93,8 @@ function main(): void {
     const connect = forge?.provider === "gitlab" && typeof forge.host === "string" ? `rt setup gitlab connect --host ${forge.host}` : forge?.provider === "github" ? "rt setup github connect" : "rt setup apply --only team.identity";
     refuse(recorded === null ? "This Mac has no recorded forge username" : `This Mac is recorded as ${recorded}`, `The recorded username must match ${admin} so you can publish as this org's admin.`, recorded === null ? connect : USAGE);
   }
-  if (git("status", "--porcelain").trim() !== "") refuse("The clone has uncommitted changes", "Commit or discard them before converting.");
-  if (git("status", "--porcelain", "--ignored", "--", "mattstack", ".claude-plugin", ".sops.yaml", ".gitignore").trim() !== "") refuse("The clone has ignored files in its managed folders", "Move them aside before converting so a failed conversion can restore the clean start.");
+  if (git("status", "--porcelain", "--untracked-files=all").trim() !== "") refuse("The clone has uncommitted changes", "Commit or discard them before converting.");
+  if (git("status", "--porcelain", "--untracked-files=all", "--ignored", "--", "mattstack", ".claude-plugin", ".sops.yaml", ".gitignore").trim() !== "") refuse("The clone has ignored files in its managed folders", "Move them aside before converting so a failed conversion can restore the clean start.");
   const targets = [...plan.moves.map(([, to]) => to), ...Object.keys(plan.writes)];
   const newTargets = new Set([...plan.moves.map(([, to]) => to), ...Object.keys(plan.writes).filter((rel) => files[rel] === undefined)]);
   const createdRoots = new Set<string>();
