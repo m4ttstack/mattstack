@@ -497,6 +497,13 @@ A table rt-ui cannot fit without cutting a leading column stacks instead: each r
 
 A failure's multiline `why` keeps each reason on its own callout row. A `verbatim` block captioned `why` draws those reasons with the same thick callout bar; other verbatim captions keep the thin rail.
 
+`rt cd` and `rt nav` print a path for the shell wrapper. They call
+`out.holdStdout()` while their pickers run, which sends any stray write and
+all human text to stderr, then release it and write the path with
+`out.payload`. A child they start gets the terminal on stdout through
+stderr's descriptor (`stdio: ["inherit", 2, "inherit"]`), never the
+wrapper's pipe. Neither erases rows on exit.
+
 ## The TypeScript CLI is UI-free
 
 The rt TS CLI (`commands/`, `lib/`, `cli.ts`, `scripts/`) is pure Bun/TypeScript

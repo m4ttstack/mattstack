@@ -1,7 +1,7 @@
 /**
  * The `--repo --worktree <branch>` combo picks a repo via its own inline
  * picker (not lib/pickers.ts's pickFromAllRepos), so a `missing: true` row
- * needs its own guard: refuse via missingRepoRefusal before ever falling
+ * needs its own guard: refuse via missingRepoFailure before ever falling
  * into branch resolution against a dead path.
  */
 
@@ -11,6 +11,8 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
+import * as out from "../../lib/ui/out.ts";
 import { worktreePicker } from "../cd.ts";
 import { __test__ as pickImplTest, type PickImpl } from "../../lib/ui/pick.ts";
 
@@ -57,12 +59,13 @@ describe("rt cd --repo --worktree with a missing repo", () => {
     rmSync(scratch, { recursive: true, force: true });
   });
 
-  test("refuses with missingRepoRefusal instead of falling into branch resolution", async () => {
+  test("refuses with missingRepoFailure instead of falling into branch resolution", async () => {
     setKvValue("repo-index", "moved", join(scratch, "gone-away"));
 
     const originalStdoutWrite = process.stdout.write;
     const chdirSpy = spyOn(process, "chdir").mockImplementation(() => {});
-    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const io = captureOut();
+    out.__test__.setHuman(() => false);
     const exitSpy = spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit sentinel");
     });
@@ -73,11 +76,11 @@ describe("rt cd --repo --worktree with a missing repo", () => {
       );
       expect(chdirSpy).not.toHaveBeenCalled();
       expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
-      expect(errSpy.mock.calls.flat().join(" ")).toContain("rt repos locate");
+      expect(io.stderr()).toContain("rt repos locate");
     } finally {
       process.stdout.write = originalStdoutWrite;
       chdirSpy.mockRestore();
-      errSpy.mockRestore();
+      io.restore();
       exitSpy.mockRestore();
     }
   });
@@ -87,7 +90,7 @@ describe("rt cd --repo --worktree with a missing repo", () => {
  * The plain `rt cd` picker (no --repo/--worktree flags) reaches
  * pickFromAllRepos through commands/cd.ts's own `getKnownRepos()` call — a
  * bare call there excludes missing rows, so a lost repo would silently vanish
- * from the picker instead of hitting the missingRepoRefusal guard
+ * from the picker instead of hitting the missingRepoFailure guard
  * pickFromAllRepos already carries.
  */
 describe("rt cd default picker with a missing repo", () => {
@@ -123,7 +126,8 @@ describe("rt cd default picker with a missing repo", () => {
 
     const originalStdoutWrite = process.stdout.write;
     const chdirSpy = spyOn(process, "chdir").mockImplementation(() => {});
-    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const io = captureOut();
+    out.__test__.setHuman(() => false);
     const exitSpy = spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit sentinel");
     });
@@ -132,11 +136,11 @@ describe("rt cd default picker with a missing repo", () => {
       await expect(worktreePicker([])).rejects.toThrow("process.exit sentinel");
       expect(chdirSpy).not.toHaveBeenCalled();
       expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
-      expect(errSpy.mock.calls.flat().join(" ")).toContain("rt repos locate");
+      expect(io.stderr()).toContain("rt repos locate");
     } finally {
       process.stdout.write = originalStdoutWrite;
       chdirSpy.mockRestore();
-      errSpy.mockRestore();
+      io.restore();
       exitSpy.mockRestore();
     }
   });

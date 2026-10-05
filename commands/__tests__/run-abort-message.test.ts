@@ -9,6 +9,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { closeStateDb } from "../../lib/state/index.ts";
 import { runCommand } from "../run.ts";
+import * as out from "../../lib/ui/out.ts";
 import type { CommandContext } from "../../lib/command-tree.ts";
 
 // Satisfies ensureHistoryHook's idempotency marker so runCommand's best-effort
@@ -22,6 +23,8 @@ let home: string;
 let scratch: string;
 
 beforeEach(() => {
+  out.__test__.reset();
+  out.__test__.setHuman(() => false);
   home = realpathSync(mkdtempSync(join(tmpdir(), "rt-run-abort-home-")));
   scratch = realpathSync(mkdtempSync(join(tmpdir(), "rt-run-abort-scratch-")));
   process.env.HOME = home;
@@ -34,6 +37,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  out.__test__.reset();
   process.chdir(origCwd);
   process.env.HOME = origHome;
   process.env.SHELL = origShell;
@@ -76,7 +80,7 @@ test("a no-known-repos cancellation exits 1 with only the reason on stderr, even
   const result = await runCapturingExit(true, () => runCommand([], ctx));
 
   expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain("No known repos");
+  expect(result.stderr).toStartWith("rt does not know any repos yet");
   expect(result.stderr).not.toContain("aborted");
 });
 
@@ -85,6 +89,6 @@ test("the same cancellation reads the same off a TTY", async () => {
   const result = await runCapturingExit(false, () => runCommand([], ctx));
 
   expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain("No known repos");
+  expect(result.stderr).toStartWith("rt does not know any repos yet");
   expect(result.stderr).not.toContain("aborted");
 });

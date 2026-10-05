@@ -4,6 +4,8 @@
  * gate and the wiring; the loop lives in lib/runner/runner.ts and the two
  * backends in lib/runner/engine.ts (herdr) and lib/runner/tmux-engine.ts.
  */
+import * as out from "../lib/ui/out.ts";
+import { warn } from "../lib/ui/warn.ts";
 import { spawnSync } from "child_process";
 import { randomBytes } from "crypto";
 import { readFileSync } from "fs";
@@ -151,7 +153,7 @@ export async function acquireBgSocket(
   const release = async () => {
     const r = await deps.bgRelease({ claim });
     if (!r.ok && !isDaemonUnreachable(r.error)) {
-      process.stderr.write(`  rt runner: bg release failed (${r.error})\n`);
+      warn("runner", `bg release failed: ${r.error}`);
     }
   };
   return { sock, release };
@@ -235,7 +237,7 @@ export async function reconcileRunnerWorkspaces(sock: string): Promise<void> {
       unregisterWorkspace(id);
     }
   } catch (err) {
-    process.stderr.write(`  rt runner: orphan reconcile failed (${err instanceof Error ? err.message : String(err)})\n`);
+    warn("runner", `orphan reconcile failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -252,14 +254,14 @@ export async function reconcileTmuxWorkspaces(): Promise<void> {
     for (const socket of plan.killSocketIds) await killTmuxServer(socket);
     for (const id of plan.removeIds) unregisterWorkspace(id, "tmux");
   } catch (err) {
-    process.stderr.write(`  rt runner: tmux orphan reconcile failed (${err instanceof Error ? err.message : String(err)})\n`);
+    warn("runner", `tmux orphan reconcile failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
 /** Gate + build + run, shared by the args-driven command and the seeded entry point. `args` feeds the resolve closure and, on the herdr path, selects the backend; the seeded caller has no CLI args, so it always passes `[]` and gets the tmux default. */
 async function gateAndRun(ctx: CommandContext, args: string[], seed?: SeedEntry[]): Promise<void> {
   if (!interactive()) {
-    process.stderr.write("rt runner needs an interactive terminal (it drives a live board from the one you are in)\n");
+    out.fail({ title: "rt runner needs an interactive terminal", why: "It draws a live board in the terminal you are in." });
     return exit(1);
   }
 
@@ -282,15 +284,15 @@ async function gateAndRun(ctx: CommandContext, args: string[], seed?: SeedEntry[
       await releaseBgSocket?.();
       const message = err instanceof Error ? err.message : String(err);
       if (isDaemonUnreachable(message)) {
-        process.stderr.write("the rt daemon is required for --herdr mode; start it and retry\n");
+        out.fail({ title: "The herdr board needs the rt daemon", next: out.cmd("rt daemon start") });
       } else {
-        process.stderr.write(`  rt runner: ${message}\n`);
+        out.fail({ title: message });
       }
       return exit(1);
     }
   } else {
     if (!tmuxAvailable()) {
-      process.stderr.write("rt runner needs tmux on PATH (or pass --herdr to use herdr panes)\n");
+      out.fail({ title: "rt runner needs tmux", next: out.cmd("rt runner --herdr") });
       return exit(1);
     }
     await reconcileTmuxWorkspaces();
@@ -314,7 +316,7 @@ async function gateAndRun(ctx: CommandContext, args: string[], seed?: SeedEntry[
     await runner.run();
   } catch (err) {
     if (err instanceof SessionDied) {
-      process.stderr.write(`\n  ${err.message}; the workspace was closed\n\n`);
+      out.fail({ title: "The board's terminal session ended", why: `${err.message}. Its workspace was closed.` });
       return exit(1);
     }
     throw err;
@@ -334,7 +336,7 @@ export async function runnerCommand(
 ): Promise<void> {
   const resolved = resolveSeedFileArg(args);
   if (resolved.error) {
-    process.stderr.write(`rt runner: ${resolved.error}\n`);
+    out.fail({ title: resolved.error });
     return exit(1);
   }
   return run(ctx, resolved.cleanArgs, resolved.seed);

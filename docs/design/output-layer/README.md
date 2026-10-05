@@ -38,6 +38,7 @@ on a dark and a light terminal background.
 | `6g-git-skills-dark.png`, `6g-git-skills-light.png` | phase 6 git and skills fixes: a kept stash, a credentialed remote, skills init's failures and refusals, a link conflict, an expand usage failure, the missing-Claude note, a surface apply, a rebase conflict with its files, an escalation timeout |
 | `6g-diagnostics-dark.png`, `6g-diagnostics-light.png` | phase 6 review fixes: written files after an init remedy, failed push output, expand drift and lint diagnostics, and a single lint diagnostic |
 | `6j-chat-dark.png`, `6j-chat-light.png` | `rt chat read` with local times and gaps, the three daemon refusals drawn as refused, and a daemon failure. Off a terminal chat prints what it printed before |
+| `6f-cd-nav-run-dark.png`, `6f-cd-nav-run-light.png` | what `rt cd`, `rt nav` and `rt run` print beside their pickers: the shell function notes, the failures, Quick Look, the editor lines, the run lines, and the runner and glitter preflight failures. The pickers and boards themselves are unchanged |
 | `6e-state-dark.png`, `6e-state-light.png` | `rt state` at 100 columns: a backup with sizes, the not-set-up failure and its tip, the local fallback, the restore refusal and a restore, `state backup init`'s stages and summary, `state backup status`, and the damaged-state warning |
 
 The light pages above the phase 5g section were rendered with
@@ -160,3 +161,17 @@ from the coral failure. The times and zones remain quieter than the names.
 Blank rows separate messages, while each header stays with its body; the
 first message also retains its own paragraph gap. No source change was
 needed for these renders.
+
+## Phase 6f: cd, nav and session output
+
+The two pages render at 100 columns with `COLORTERM=truecolor`,
+`TERM=xterm-256color`, `NO_COLOR` unset, and `RT_UI_BACKGROUND` explicitly
+set to dark or light. The shell function is a copy block at column 0 without
+rails. Its warning and the unsaved preset use peach or orange; only real
+failures use coral. The missing-repo remedy names the repo as `host/path`.
+
+What reads wrong: the no-editor explanation wraps onto a second row at this
+width, but stays readable under its `why` label. Nothing is clipped on either
+background. Body text follows each terminal's foreground; hints and rails
+remain readable. No renderer change was needed. Matt must still check
+`rt cd` and `rt nav` by hand in a real terminal before this PR merges.

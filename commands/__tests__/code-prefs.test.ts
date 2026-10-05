@@ -1,10 +1,12 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { machineSettingsPath } from "../../lib/rt-paths.ts";
 import { getSetting } from "../../lib/settings/resolve.ts";
 import { setSetting } from "../../lib/settings/write.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
+import { setWarningLog, __test__ as warnings } from "../../lib/ui/warn.ts";
 import { __test__, resolveEditorSync } from "../code.ts";
 
 describe("workspace prefs through the settings resolver", () => {
@@ -85,15 +87,40 @@ describe("workspace prefs through the settings resolver", () => {
   });
 
   test("savePrefs warns and does not throw when the machine store is malformed (duplicate key anywhere in the document)", () => {
-    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    warnings.reset();
+    const io = captureOut();
+    const logged: Array<{ module: string; message: string }> = [];
+    setWarningLog((module, message) => logged.push({ module, message }));
     const path = machineSettingsPath();
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, `{\n  "rt.other": { "x": 1 },\n  "rt.other": { "x": 2 }\n}\n`);
 
-    expect(() => __test__.savePrefs({ editors: { myrepo: "cursor" }, workspaces: {} })).not.toThrow();
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy.mock.calls[0]?.[0]).toContain("rt: could not save workspace prefs");
-
-    warnSpy.mockRestore();
+    try {
+      expect(() => __test__.savePrefs({ editors: { myrepo: "cursor" }, workspaces: {} })).not.toThrow();
+      expect(logged).toHaveLength(1);
+      expect(logged[0]).toMatchObject({ module: "code" });
+      expect(logged[0]!.message).toStartWith("could not save workspace prefs: ");
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toStartWith("[warning] rt could not remember your editor choice");
+      expect(io.stderr()).toContain("next: rt settings check");
+    } finally {
+      io.restore();
+      warnings.reset();
+    }
   });
+});
+
+test("saving prefs without a default editor remembers the editor choice", () => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-code-save-")));
+  const origHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    __test__.savePrefs({ editors: { myrepo: "zed" }, workspaces: {}, defaultEditor: undefined });
+    const stored = getSetting<{ editors: Record<string, string>; defaultEditor?: string }>("rt.workspacePrefs").value;
+    expect(stored?.editors).toEqual({ myrepo: "zed" });
+    expect(stored && "defaultEditor" in stored).toBe(false);
+  } finally {
+    process.env.HOME = origHome;
+    rmSync(home, { recursive: true, force: true });
+  }
 });

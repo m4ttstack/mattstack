@@ -180,7 +180,7 @@ describe("missing index rows", () => {
     const exitSpy = spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit sentinel");
     });
-    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const io = captureOut();
     try {
       await pickFromAllRepos(
         [{ repoName: "moved", worktrees: [{ path: "/x/gone", branch: "", isBare: false }], dataDir: "/d", missing: true }],
@@ -190,9 +190,9 @@ describe("missing index rows", () => {
     } catch (err) {
       expect((err as Error).message).toBe("process.exit sentinel");
       expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
-      expect(errSpy.mock.calls.flat().join(" ")).toContain("rt repos locate");
+      expect(io.stderr()).toContain("rt repos locate");
     } finally {
-      errSpy.mockRestore();
+      io.restore();
       exitSpy.mockRestore();
     }
   });

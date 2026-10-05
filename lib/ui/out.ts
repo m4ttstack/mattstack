@@ -122,6 +122,22 @@ export function payloadOnStdout(): void {
   humanStream = "stderr";
 }
 
+/** Stdout is held for a path payload; picker chrome must reach stderr. */
+export function holdStdout(): () => void {
+  payloadOnStdout();
+  const real = process.stdout.write;
+  if (!process.stdout.columns && process.stderr.columns) {
+    Object.defineProperty(process.stdout, "columns", { value: process.stderr.columns, configurable: true });
+  }
+  process.stdout.write = process.stderr.write.bind(process.stderr) as typeof process.stdout.write;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    process.stdout.write = real;
+  };
+}
+
 function write(stream: Stream, text: string): void {
   (stream === "stdout" ? process.stdout : process.stderr).write(text);
 }

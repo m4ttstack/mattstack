@@ -1,0 +1,176 @@
+/**
+ * The rt() shell wrapper runs dir="$(rt cd ...)" and cds into whatever stdout
+ * holds. Pinned before the output layer touches cd and nav: stdout is the
+ * chosen path and a newline, or empty; exit codes as today.
+ */
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join, resolve } from "path";
+import * as out from "../../lib/ui/out.ts";
+import { __test__ as gate } from "../../lib/ui/gate.ts";
+import { __test__ as spawnTest } from "../../lib/ui/spawn.ts";
+const FAKE_UI = resolve(import.meta.dir, "..", "..", "lib", "ui", "__tests__", "fake-rt-ui.ts");
+import { execFileSync } from "child_process";
+import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
+import { __test__ as pickImplTest, type PickImpl } from "../../lib/ui/pick.ts";
+import { writeRepoCache } from "../../lib/repo-cache.ts";
+import { serializeIdentity } from "../../lib/settings/identity.ts";
+import { worktreePicker } from "../cd.ts";
+import { navigate } from "../nav.ts";
+
+const UP_TO_DATE_RC = 'rt() {\n  whence -p rt\n  "$rt_bin" nav\n}\n';
+const origHome = process.env.HOME;
+const origShell = process.env.SHELL;
+const origCwd = process.cwd();
+let home: string;
+let scratch: string;
+
+beforeEach(() => {
+  out.__test__.reset();
+  home = realpathSync(mkdtempSync(join(tmpdir(), "rt-cdnav-home-")));
+  scratch = realpathSync(mkdtempSync(join(tmpdir(), "rt-cdnav-repos-")));
+  process.env.HOME = home;
+  process.env.SHELL = "/bin/zsh";
+  writeFileSync(join(home, ".zshrc"), UP_TO_DATE_RC);
+  closeStateDb();
+  process.chdir(scratch);
+});
+
+afterEach(() => {
+  out.__test__.reset();
+  process.chdir(origCwd);
+  process.env.HOME = origHome;
+  process.env.SHELL = origShell;
+  pickImplTest.setImpl(undefined);
+  closeStateDb();
+  rmSync(home, { recursive: true, force: true });
+  rmSync(scratch, { recursive: true, force: true });
+});
+
+/** The handle shape of `cd.test.ts`'s `installCancelPick`: a `select` with a value, or a cancel. */
+function installPick(value: string | null): void {
+  const impl: PickImpl = () => ({
+    update() {},
+    modal: async () => null,
+    result: Promise.resolve(
+      value === null
+        ? { t: "result", action: "cancel", value: null, query: "" }
+        : { t: "result", action: "select", value, query: "" },
+    ),
+  });
+  pickImplTest.setImpl(impl);
+}
+
+function gitRepo(name: string): string {
+  const dir = join(scratch, name);
+  mkdirSync(dir);
+  execFileSync("git", ["init", "-q", dir]);
+  return dir;
+}
+
+async function run(fn: () => Promise<void>): Promise<{ code: number | undefined; stdout: string; stderr: string }> {
+  const outChunks: string[] = [];
+  const errChunks: string[] = [];
+  const realOut = process.stdout.write;
+  const realErr = process.stderr.write;
+  process.stdout.write = ((c: string | Uint8Array) => (outChunks.push(String(c)), true)) as typeof process.stdout.write;
+  process.stderr.write = ((c: string | Uint8Array) => (errChunks.push(String(c)), true)) as typeof process.stderr.write;
+  const log = spyOn(console, "log").mockImplementation((...a: unknown[]) => void outChunks.push(`${a.join(" ")}\n`));
+  const err = spyOn(console, "error").mockImplementation((...a: unknown[]) => void errChunks.push(`${a.join(" ")}\n`));
+  const exit = spyOn(process, "exit").mockImplementation(((c?: number) => {
+    throw new Error(`exit ${c}`);
+  }) as unknown as typeof process.exit);
+  let code: number | undefined;
+  try {
+    await fn();
+  } catch (e) {
+    const m = /^exit (\d+)$/.exec((e as Error).message);
+    if (!m) throw e;
+    code = Number(m[1]);
+  } finally {
+    process.stdout.write = realOut;
+    process.stderr.write = realErr;
+    log.mockRestore();
+    err.mockRestore();
+    exit.mockRestore();
+  }
+  return { code, stdout: outChunks.join(""), stderr: errChunks.join("") };
+}
+
+describe("rt cd and rt nav stdout (frozen for the shell wrapper)", () => {
+  test("rt cd registers no exit-time erase", async () => {
+    const before = process.listenerCount("exit");
+    setKvValue("repo-index", "sample-app", gitRepo("sample-app"));
+    installPick(null);
+    await run(() => worktreePicker([]));
+    expect(process.listenerCount("exit")).toBe(before);
+  });
+
+  test("the wrapper upgrade notes go to stderr and leave stdout empty", async () => {
+    writeFileSync(join(home, ".zshrc"), 'rt() {\n  command rt cd\n}\n');
+    const wt = gitRepo("sample-app");
+    setKvValue("repo-index", "sample-app", wt);
+    installPick(wt);
+    process.env.RT_UI_BIN = FAKE_UI;
+    process.env.RT_UI_FAKE = JSON.stringify({ answer: { ok: false } });
+    gate.setInteractive(() => true);
+    spawnTest.setExit((code) => {
+      throw new Error(`exit ${code}`);
+    });
+    try {
+      const r = await run(() => worktreePicker([]));
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toContain("Your rt shell function is out of date");
+      expect(r.stderr).toContain("add this to your shell config:");
+      expect(r.code).toBe(0);
+    } finally {
+      delete process.env.RT_UI_BIN;
+      delete process.env.RT_UI_FAKE;
+      gate.setInteractive(undefined);
+      spawnTest.setExit(undefined);
+    }
+  });
+  test("a chosen worktree is the path and a newline on stdout, nothing else", async () => {
+    const wt = gitRepo("sample-app");
+    setKvValue("repo-index", "sample-app", wt);
+    installPick(wt);
+    const r = await run(() => worktreePicker([]));
+    expect(r.stdout).toBe(`${wt}\n`);
+    expect(r.code).toBeUndefined();
+  });
+
+  test("a missing repo is a failure with the locate command; stdout stays empty", async () => {
+    setKvValue("repo-index", "moved", join(scratch, "gone-away"));
+    const r = await run(() => worktreePicker(["--repo", "--worktree", "anybranch"]));
+    expect(r.stdout).toBe("");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("rt repos locate");
+  });
+
+  test("a missing identity uses the host/path locate command", async () => {
+    const identity = serializeIdentity({ kind: "remote", id: "github.com/acme/sample-app" });
+    setKvValue("repo-index", identity, join(scratch, "gone-away"));
+    const r = await run(() => worktreePicker(["--repo", "--worktree", "anybranch"]));
+    expect(r.stdout).toBe("");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("next: rt repos locate <new-path> --repo github.com/acme/sample-app");
+    expect(r.stderr).not.toContain(identity);
+  });
+
+  test("a vanished cached folder fails without printing a path", async () => {
+    const gone = join(scratch, "gone-away");
+    writeRepoCache([{ repoName: "moved", worktrees: [{ path: gone, branch: "main", isBare: false }], dataDir: join(scratch, "data") }]);
+    const r = await run(() => worktreePicker([]));
+    expect(r.stdout).toBe("");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toStartWith("That folder is gone");
+    expect(r.stderr).toContain("next: rt repos prune");
+  });
+
+  test("nav: esc prints nothing on stdout", async () => {
+    installPick(null);
+    const r = await run(() => navigate([scratch]));
+    expect(r.stdout).toBe("");
+  });
+});

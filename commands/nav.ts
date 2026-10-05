@@ -32,6 +32,7 @@
  */
 
 import { join, dirname, resolve } from "path";
+import * as out from "../lib/ui/out.ts";
 import { spawnSync as realSpawnSync } from "child_process";
 import { homedir } from "os";
 import { openDirectoryInEditor as realOpenDirectoryInEditor } from "./code.ts";
@@ -199,7 +200,7 @@ async function pickOpenWith(target: string, kind: ItemKind, deps: NavDeps): Prom
   // ctrl-up is always in the expect set and means "back" everywhere in rt, so
   // treat it as cancel here, not as accepting the highlighted row.
   if (!result || !result.value || result.key === "ctrl-up") return false;
-  deps.spawnSync(result.value, [target], { stdio: "inherit" });
+  deps.spawnSync(result.value, [target], { stdio: ["inherit", 2, "inherit"] });
   return true;
 }
 
@@ -356,14 +357,14 @@ async function runNavSession(state: SessionState, deps: NavDeps): Promise<Sessio
         // qlmanage blocks until the preview window is dismissed, and the
         // picker has already torn down by the time it runs, so without this
         // line the terminal just sits empty with nothing to explain the wait.
-        console.error(`  Quick Look: ${name}  (close the preview to return)`);
+        out.print(out.line("running", `Quick Look: ${name}`, "close the preview to come back"));
         const r = deps.spawnSync("qlmanage", ["-p", target], {
           stdio: ["ignore", "pipe", "pipe"],
           encoding: "utf8",
         });
         if (r.error || (r.status !== null && r.status !== 0)) {
           const detail = r.error?.message ?? (r.stderr || r.stdout || "").trim() ?? "";
-          console.error(`  Quick Look failed${detail ? `: ${detail.split("\n")[0]}` : ` (exit ${r.status})`}`);
+          out.fail({ title: "Quick Look did not open", why: detail ? detail.split("\n")[0] : `it exited ${r.status}` });
         }
       }
       return { type: "resume", cwd, showHidden, sort, resumeValue: result.value ?? undefined, initialQuery: result.query || undefined };
@@ -374,7 +375,7 @@ async function runNavSession(state: SessionState, deps: NavDeps): Promise<Sessio
         const { kind, target } = targetOf(cwd, result.value);
         const shellCwd = kind === "folder" ? target : dirname(target);
         const shell = process.env.SHELL || "/bin/zsh";
-        deps.spawnSync(shell, [], { cwd: shellCwd, stdio: "inherit" });
+        deps.spawnSync(shell, [], { cwd: shellCwd, stdio: ["inherit", 2, "inherit"] });
         return { type: "quit" };
       }
       return { type: "quit" };
@@ -399,14 +400,10 @@ async function runNavSession(state: SessionState, deps: NavDeps): Promise<Sessio
 export async function navigate(args: string[], depsOverride: Partial<NavDeps> = {}): Promise<void> {
   const deps: NavDeps = { ...defaultDeps, ...depsOverride };
 
-  // Redirect stdout → stderr so the picker's own chrome never contaminates
-  // the path output a shell wrapper reads.
-  const realStdoutWrite = process.stdout.write.bind(process.stdout);
-  process.stdout.write = process.stderr.write.bind(process.stderr) as typeof process.stdout.write;
-
+  const release = out.holdStdout();
   const cdAndExit = (path: string) => {
-    process.stdout.write = realStdoutWrite;
-    realStdoutWrite(path + "\n");
+    release();
+    out.payload(path + "\n");
   };
 
   let state: SessionState = {
@@ -426,6 +423,6 @@ export async function navigate(args: string[], depsOverride: Partial<NavDeps> = 
       state = outcome;
     }
   } finally {
-    process.stdout.write = realStdoutWrite;
+    release();
   }
 }

@@ -573,3 +573,27 @@ describe("rt nav: terminal-owning exits re-invoke with resume", () => {
     rmSync(root, { recursive: true, force: true });
   });
 });
+
+  test("the shell nav opens writes to the terminal, never to the path pipe", async () => {
+    const root = mkdtempSync(join(tmpdir(), "nav-test-"));
+    mkdirSync(join(root, "sub"));
+    const seq = installSequentialFakePick([[resultStep("terminal", "d:sub", "")]]);
+    const spawn = fakeSpawnSync();
+    await withRealStdoutRestore(() => navigate([root], baseDeps({ spawnSync: spawn.fn })));
+    const shell = spawn.calls.find((c) => (c.opts as { cwd?: string }).cwd === join(root, "sub"));
+    expect((shell?.opts as { stdio?: unknown }).stdio).toEqual(["inherit", 2, "inherit"]);
+    seq.restore();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("an app picked in open-with writes to the terminal, never to the path pipe", async () => {
+    const root = mkdtempSync(join(tmpdir(), "nav-test-"));
+    writeFileSync(join(root, "notes.txt"), "x");
+    const seq = installSequentialFakePick([[resultStep("open-with", "f:notes.txt", "")], [resultStep("enter", "nvim")]]);
+    const spawn = fakeSpawnSync();
+    await withRealStdoutRestore(() => navigate([root], baseDeps({ spawnSync: spawn.fn })));
+    const app = spawn.calls.find((c) => c.cmd === "nvim");
+    expect((app?.opts as { stdio?: unknown }).stdio).toEqual(["inherit", 2, "inherit"]);
+    seq.restore();
+    rmSync(root, { recursive: true, force: true });
+  });

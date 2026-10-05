@@ -5,7 +5,7 @@ import { tmpdir } from "os";
 import { basename, join } from "path";
 import { setSetting } from "../../lib/settings/write.ts";
 import { closeStateDb } from "../../lib/state/index.ts";
-import { openDirectoryInEditor, openInEditor } from "../code.ts";
+import { __test__, openDirectoryInEditor, openInEditor } from "../code.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 
@@ -65,18 +65,36 @@ describe("rt code: what a person reads", () => {
     }
   });
 
-  test("the opener rt nav calls prints as it does today", async () => {
+  test("the opener rt nav calls writes its line on stderr", async () => {
     setSetting("rt.workspacePrefs", { editors: { [basename(folder)]: "true" } }, "machine");
-    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const release = ui.holdStdout();
     try {
       await openDirectoryInEditor(folder);
-      expect(errSpy).toHaveBeenCalledTimes(1);
-      expect(String(errSpy.mock.calls[0]![0])).toStartWith("\n  ");
-      expect(String(errSpy.mock.calls[0]![0])).toContain(`Opened ${basename(folder)} in true`);
-      expect(io.stdout()).toBe("");
-      expect(io.stderr()).toBe("");
     } finally {
-      errSpy.mockRestore();
+      release();
+    }
+    expect(io.stdout()).toBe("");
+    expect(io.stderr()).toBe(`[ok] Opened ${basename(folder)} in true\n`);
+  });
+
+  test("no editor under rt nav leaves stdout empty", async () => {
+    __test__.setDetectEditors(() => []);
+    const origPath = process.env.PATH;
+    process.env.PATH = "";
+    const release = ui.holdStdout();
+    const exitSpy = spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit sentinel");
+    }) as never);
+    try {
+      await expect(openDirectoryInEditor(folder)).rejects.toThrow("process.exit sentinel");
+      expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toStartWith("rt could not find an editor it can open");
+    } finally {
+      release();
+      exitSpy.mockRestore();
+      process.env.PATH = origPath;
+      __test__.setDetectEditors(undefined);
     }
   });
 });

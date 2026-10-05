@@ -1,3 +1,4 @@
+import { setWarningLog, __test__ as warnings } from "../../ui/warn.ts";
 import { test, expect } from "bun:test";
 import { Runner, type RunnerDeps, __test__ } from "../runner.ts";
 import type { Engine, ProcessInfo } from "../engine.ts";
@@ -314,6 +315,9 @@ test("a session that ends with reason error is treated as died", async () => {
 test("a picker that throws reopens the board unchanged and warns", async () => {
   const first = new FakeSession([{ t: "intent", name: "add" }]);
   const second = new FakeSession([{ t: "intent", name: "quit" }]);
+  warnings.reset();
+  const logged: Array<{ module: string; message: string }> = [];
+  setWarningLog((module, message) => logged.push({ module, message }));
   const errs: string[] = [];
   const real = process.stderr.write;
   process.stderr.write = ((c: string | Uint8Array) => { errs.push(String(c)); return true; }) as typeof process.stderr.write;
@@ -322,10 +326,12 @@ test("a picker that throws reopens the board unchanged and warns", async () => {
     const r = new Runner(d);
     await r.run();
     expect(r.entries).toEqual([]);
+    expect(errs).toEqual([]);
+    expect(logged).toEqual([{ module: "runner", message: "picker failed: picker exploded" }]);
   } finally {
     process.stderr.write = real;
+    warnings.reset();
   }
-  expect(errs.join("")).toContain("picker exploded");
 });
 
 test("a session that dies tears the workspace down", async () => {
