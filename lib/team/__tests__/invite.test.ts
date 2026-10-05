@@ -873,9 +873,10 @@ describe("real invite git seams", () => {
     p.exec = async (argv, opts) => { seen.push({ argv, env: opts?.env }); return { code: 0, stdout: "", stderr: "" }; };
     await realMintInviteSeams().pullOrg(p, SLUG, "https://github.com/acme/widgets.git", "private-token");
     expect(seen[0]!.argv).toEqual(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"]);
-    expect(seen[1]!.argv.slice(-5)).toEqual(["pull", "--rebase", "--autostash", "origin", "main"]);
+    const pull = seen.find((call) => call.argv.includes("pull"))!;
+    expect(pull.argv.slice(-5)).toEqual(["pull", "--rebase", "--autostash", "origin", "main"]);
     expect(JSON.stringify(seen.map((call) => call.argv))).not.toContain("private-token");
-    expect(seen[1]!.env).toMatchObject({ GIT_TERMINAL_PROMPT: "0", RT_GIT_TOKEN: "private-token", RT_GIT_HOST: "github.com" });
+    expect(pull.env).toMatchObject({ GIT_TERMINAL_PROMPT: "0", RT_GIT_TOKEN: "private-token", RT_GIT_HOST: "github.com" });
   });
 
   test("a never-published org has nothing to pull", async () => {
@@ -895,9 +896,10 @@ describe("real invite git seams", () => {
 
   test("a stopped rebase that will not abort says how to undo it by hand", async () => {
     const p = probesWithRemote(REMOTE, { "/home/.mattstack/teams/acme/.git/rebase-merge": "" });
+    let pulled = false;
     p.exec = async (argv) => {
-      if (argv.includes("pull")) return { code: 1, stdout: "", stderr: "CONFLICT (content)" };
-      if (argv.includes("--git-path")) return { code: 0, stdout: `.git/${argv.at(-1)}\n`, stderr: "" };
+      if (argv.includes("pull")) { pulled = true; return { code: 1, stdout: "", stderr: "CONFLICT (content)" }; }
+      if (argv.includes("--git-path")) return { code: 0, stdout: `.git/${pulled ? argv.at(-1) : "absent"}\n`, stderr: "" };
       if (argv.includes("--abort")) return { code: 128, stdout: "", stderr: "fatal: could not abort" };
       return { code: 0, stdout: "", stderr: "" };
     };
@@ -905,6 +907,80 @@ describe("real invite git seams", () => {
       code: "org-mid-rebase",
       next: "git -C /home/.mattstack/teams/acme rebase --abort",
     });
+  });
+
+  for (const [state, marker] of [["rebase", "rebase-merge"], ["rebase", "rebase-apply"], ["merge", "MERGE_HEAD"]] as const) {
+    test(`a ${state} already in progress (${marker}) is refused before any pull and left alone`, async () => {
+      const p = probesWithRemote(REMOTE, { [`/home/.mattstack/teams/acme/.git/${marker}`]: "" });
+      const seen: string[][] = [];
+      p.exec = async (argv) => {
+        seen.push(argv);
+        if (argv.includes("--git-path")) return { code: 0, stdout: `.git/${argv.at(-1)}\n`, stderr: "" };
+        return { code: 0, stdout: "", stderr: "" };
+      };
+      await expect(realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null)).rejects.toMatchObject({
+        code: `org-mid-${state}`,
+        message: `Your copy of the org is part way through a git ${state}, so rt made no invite`,
+        next: "git -C /home/.mattstack/teams/acme status",
+      });
+      expect(seen.some((argv) => argv.includes("pull") || argv.includes("--abort"))).toBe(false);
+    });
+  }
+});
+
+describe("a rebase someone else started in the org clone", () => {
+  test("is refused before the pull and kept exactly as it was", async () => {
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-invite-busy-")));
+    const env = { ...childEnv(), HOME: home, GIT_AUTHOR_NAME: "dev1", GIT_AUTHOR_EMAIL: "dev1@example.com", GIT_COMMITTER_NAME: "dev1", GIT_COMMITTER_EMAIL: "dev1@example.com", GIT_CONFIG_NOSYSTEM: "1" };
+    const run = (cwd: string, args: string[]) => Bun.spawnSync(["git", ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
+    const git = (cwd: string, args: string[]) => {
+      const res = run(cwd, args);
+      expect(res.exitCode).toBe(0);
+      return res.stdout.toString();
+    };
+    try {
+      const remote = join(home, "remote.git");
+      const other = join(home, "other");
+      const dir = join(home, ".mattstack", "teams", "acme");
+      git(home, ["init", "--bare", "-b", "main", remote]);
+      git(home, ["clone", remote, other]);
+      writeFileSync(join(other, "notes.txt"), "original\n");
+      git(other, ["add", "--", "notes.txt"]);
+      git(other, ["commit", "-m", "fixture"]);
+      git(other, ["push", "origin", "main"]);
+      mkdirSync(join(home, ".mattstack", "teams"), { recursive: true });
+      git(home, ["clone", remote, dir]);
+
+      writeFileSync(join(other, "notes.txt"), "theirs\n");
+      git(other, ["commit", "-am", "their edit"]);
+      git(other, ["push", "origin", "main"]);
+
+      writeFileSync(join(dir, "notes.txt"), "mine\n");
+      git(dir, ["commit", "-am", "my edit"]);
+      git(dir, ["fetch", "origin"]);
+      expect(run(dir, ["rebase", "origin/main"]).exitCode).not.toBe(0);
+      writeFileSync(join(dir, "notes.txt"), "half resolved\n");
+      const rebaseDir = join(dir, ".git", "rebase-merge");
+      expect(existsSync(rebaseDir)).toBe(true);
+      const headName = readFileSync(join(rebaseDir, "head-name"), "utf8");
+      const head = git(dir, ["rev-parse", "HEAD"]);
+
+      const p = { ...createRealProbes(), home, env };
+      const seen: string[][] = [];
+      p.exec = async (argv, opts) => {
+        seen.push(argv);
+        const res = Bun.spawnSync(argv, { cwd: opts?.cwd, env: { ...env, ...opts?.env }, stdout: "pipe", stderr: "pipe" });
+        return { code: res.exitCode, stdout: res.stdout.toString(), stderr: res.stderr.toString() };
+      };
+      const err = await realMintInviteSeams().pullOrg(p, "acme", remote, null).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(UserActionableError);
+      expect(err).toMatchObject({ code: "org-mid-rebase", next: `git -C ${dir} status` });
+      expect(seen.some((argv) => argv.includes("pull") || argv.includes("--abort"))).toBe(false);
+
+      expect(readFileSync(join(rebaseDir, "head-name"), "utf8")).toBe(headName);
+      expect(git(dir, ["rev-parse", "HEAD"])).toBe(head);
+      expect(readFileSync(join(dir, "notes.txt"), "utf8")).toBe("half resolved\n");
+    } finally { rmSync(home, { recursive: true, force: true }); }
   });
 });
 

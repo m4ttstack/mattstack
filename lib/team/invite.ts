@@ -156,14 +156,31 @@ function defaultWarn(message: string, shown?: ShownWarning): void {
   warnLine("team", message, { show: shown ?? { title: message } });
 }
 
+function shellQuote(s: string): string {
+  return /^[\w./:@=-]+$/.test(s) ? s : `'${s.replaceAll("'", "'\\''")}'`;
+}
+
+async function gitPathExists(p: Probes, dir: string, name: string): Promise<boolean> {
+  const res = await p.exec(["git", "rev-parse", "--git-path", name], { cwd: dir });
+  if (res.code !== 0) return false;
+  const path = res.stdout.trim();
+  return path !== "" && p.exists(isAbsolute(path) ? path : join(dir, path));
+}
+
 async function rebaseStopped(p: Probes, dir: string): Promise<boolean> {
   for (const name of ["rebase-merge", "rebase-apply"]) {
-    const res = await p.exec(["git", "rev-parse", "--git-path", name], { cwd: dir });
-    if (res.code !== 0) continue;
-    const path = res.stdout.trim();
-    if (path && p.exists(isAbsolute(path) ? path : join(dir, path))) return true;
+    if (await gitPathExists(p, dir, name)) return true;
   }
   return false;
+}
+
+async function refuseIfBusy(p: Probes, dir: string): Promise<void> {
+  const state = (await rebaseStopped(p, dir)) ? "rebase" : (await gitPathExists(p, dir, "MERGE_HEAD")) ? "merge" : null;
+  if (state === null) return;
+  throw new UserActionableError(`org-mid-${state}`, `Your copy of the org is part way through a git ${state}, so rt made no invite`, {}, {
+    why: `rt leaves a ${state} it did not start alone. Finish it or undo it, then invite again.`,
+    next: `git -C ${shellQuote(dir)} status`,
+  });
 }
 
 /** `rebase --abort` reapplies the pull's autostash, and parks it in the stash list when it no longer applies cleanly, so uncommitted edits survive either way. */
@@ -173,7 +190,7 @@ async function abortRebase(p: Probes, dir: string, pullOutput: string): Promise<
   if (abort.code !== 0) {
     throw new UserActionableError("org-mid-rebase", "rt could not put your copy of the org back after a failed pull, so it made no invite", {}, {
       why: "Your copy of the org is part way through a git rebase. Undo it, then invite again.",
-      next: `git -C ${dir} rebase --abort`,
+      next: `git -C ${shellQuote(dir)} rebase --abort`,
       log,
     });
   }
@@ -194,6 +211,7 @@ export function realMintInviteSeams(): MintInviteSeams {
       const dir = join(p.home, ".mattstack", "teams", slug);
       const known = await p.exec(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"], { cwd: dir });
       if (known.code !== 0) return;
+      await refuseIfBusy(p, dir);
       const pull = gitWithToken(["pull", "--rebase", "--autostash", "origin", "main"], token, { GIT_TERMINAL_PROMPT: "0" }, { remote });
       const res = await p.exec(pull.argv, { cwd: dir, env: pull.env });
       if (res.code === 0) return;
