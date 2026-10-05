@@ -13,12 +13,13 @@ export class OwnedResources {
 export function launchArgv(cwd:string,config:string[]=[]):string[]{return ["codex","--no-alt-screen","-C",cwd,"-s","workspace-write","-a","never",...config.flatMap(c=>["-c",c]),"You are a disposable harness protocol test worker. Follow only the controller's test instructions. Do not use rt chat, send messages, change project code or launch other agents. Reply READY and nothing else."];}
 export function quote(s:string):string{return "'"+s.replaceAll("'","'\\''")+"'";}
 export async function command(argv:string[]):Promise<string>{const proc=Bun.spawn(argv,{env:process.env,stdout:"pipe",stderr:"pipe"});const timer=setTimeout(()=>proc.kill(),45000);try{const [out,err,code]=await Promise.all([new Response(proc.stdout).text(),new Response(proc.stderr).text(),proc.exited]);if(code!==0)throw new Error(`${argv[0]} ${argv[1]}: ${err.slice(0,1500)}`);return out;}finally{clearTimeout(timer);}}
+export function parseHerdrOutput(raw:string):any{return raw.trim()?JSON.parse(raw):{};}
 export async function startLab(o:{repo:string;runDir:string;ev:Evidence}){
  const runDir=resolve(o.runDir);mkdirSync(runDir,{recursive:true});
  const status=JSON.parse(await command(["codex","app-server","daemon","version"]));if(status.status!=="running" || !status.socketPath)throw new Error("existing Codex service unavailable");
  const rtSocket=join(process.env.HOME!,".mattstack","rt","rt.sock");
  const workers:Worker[]=[];const ownedThreads=new Set<string>();
- const herdr=async(...args:string[])=>JSON.parse(await command(["herdr",...args]));
+ const herdr=async(...args:string[])=>parseHerdrOutput(await command(["herdr",...args]));
  const resources=new OwnedResources(async id=>{await herdr("workspace","close",id);});
  const clients=new Set<CodexControl>();
  const connect=async()=>{const c=await CodexControl.connect({socketPath:status.socketPath,ownedThreads,experimentalApi:true,record:m=>o.ev.record("native",m)});clients.add(c);return c;};
