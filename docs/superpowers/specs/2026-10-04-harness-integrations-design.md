@@ -69,6 +69,13 @@ into the shared session store and caller-context resolver, and its delivery
 router is a Claude messaging mechanism. There is one session registry and one
 caller-context record in the daemon, owned by the shared services here. The
 mods tickets are rescoped to say so before either project implements them.
+The same rule covers the project's other tickets that implement a shared
+contract on Claude (the session state feed, tool-call policy, gate form,
+wait gates, presence, run tracking, relocation and board status): the
+daemon-side feed, store or policy is shared, and the mod is the Claude producer
+or enforcer behind it. Claude adapters first wrap today's mechanisms, so this
+project never waits on the early-access mods API. The plan index carries the
+ticket-by-ticket mapping.
 
 The scope includes first-party runtime code, bundled skills, setup and
 maintenance, application entry points, and release verification. Required
