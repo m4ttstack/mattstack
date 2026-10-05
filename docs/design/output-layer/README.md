@@ -32,6 +32,7 @@ on a dark and a light terminal background.
 | `6a-hook-dark.png`, `6a-hook-light.png` | `rt worktree hook install`, `uninstall` and `status` at 100 columns, the missing-binary and not-on-PATH failures, and the two hook-offer warnings. The agent-only verbs (`gate`, `events`, `ci`, `runs`, `mcp`, `claude-hook`) print exactly what they printed before |
 | `6b-herd-pane-agent-dark.png`, `6b-herd-pane-agent-light.png` | `rt herd list`, `status` (a healthy job and every problem line) and `gates`, `rt pane list` with a background pane, and `rt agent list`. Off a terminal these verbs print exactly what they printed before |
 | `6d-services-dark.png`, `6d-services-light.png` | the hidden service verbs at 100 columns: services and apps tables, a flavor takeover, bg and reconciler status, the bg stop refusal, two endpoint lookups, a cron install, the post-install notes, the apps refusal and an endpoint setting warning |
+| `6h-copy-dark.png`, `6h-copy-light.png` | phase 6 copy polish: settings list labels, an unset get, the extension failure, the logins header, an unreadable tool version, members remove, a prune duplicate and a kept repo, a port row with no pid, a refused bundled link, and intercept's left-alone line |
 
 The light pages above the phase 5g section were rendered with
 `COLORFGBG=0;15`, which is how a light terminal that reports its background
