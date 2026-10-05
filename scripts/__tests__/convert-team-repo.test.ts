@@ -218,6 +218,36 @@ describe("planConversion", () => {
     }
   });
 
+  for (const fallback of [
+    { old: "^mattstack/secrets/[^/]+$", moved: "^mattstack/org/secrets/[^/]+$" },
+    { old: "mattstack/secrets/.*", moved: "mattstack/org/secrets/.*" },
+  ]) {
+    test(`an unresolved specialized rule still warns when the supported fallback is ${fallback.old}`, () => {
+      const sops = `# preserve specialized recipient selection\ncreation_rules:\n  - path_regex: ^mattstack/(secrets)/forge.json$\n    age: age1special\n  - path_regex: ${fallback.old}\n    age: age1general\n`;
+      const firstRecipient = (rules: Array<{ path_regex: string; age: string }>, file: string) => rules.find(rule => new RegExp(rule.path_regex).test(file))?.age;
+      expect(firstRecipient(parseYaml(sops).creation_rules, "mattstack/secrets/forge.json")).toBe("age1special");
+      const plan = run(oldClone({ ".sops.yaml": sops }));
+      const rewritten = plan.writes[".sops.yaml"]!;
+      const rules = parseYaml(rewritten).creation_rules;
+      expect(rules).toEqual([{ path_regex: "^mattstack/(secrets)/forge.json$", age: "age1special" }, { path_regex: fallback.moved, age: "age1general" }]);
+      expect(firstRecipient(rules, "mattstack/org/secrets/forge.json")).toBe("age1general");
+      expect(plan.report.join("\n")).toContain(".sops.yaml");
+      expect(plan.report.join("\n")).toContain("fix its path_regex by hand");
+      expect(rewritten).toContain("# preserve specialized recipient selection");
+    });
+  }
+
+  test("wholly supported multiple rules preserve recipient selection without a review warning", () => {
+    const sops = "# keep rule order\ncreation_rules:\n  - path_regex: ^mattstack/secrets/forge.json$\n    age: age1special\n  - path_regex: ^mattstack/secrets/[^/]+$\n    age: age1general\n";
+    const plan = run(oldClone({ ".sops.yaml": sops }));
+    const rewritten = plan.writes[".sops.yaml"]!;
+    const rules = parseYaml(rewritten).creation_rules;
+    expect(rules).toEqual([{ path_regex: "^mattstack/org/secrets/forge.json$", age: "age1special" }, { path_regex: "^mattstack/org/secrets/[^/]+$", age: "age1general" }]);
+    expect(rules.find((rule: { path_regex: string }) => new RegExp(rule.path_regex).test("mattstack/org/secrets/forge.json")).age).toBe("age1special");
+    expect(plan.report.filter(line => line.includes(".sops.yaml"))).toEqual([]);
+    expect(rewritten).toContain("# keep rule order");
+  });
+
   test("only creation rule paths change, while comments, recipients and unrelated rules remain", () => {
     const sops = "# mattstack/secrets/.* stays in this comment\ncreation_rules:\n  - path_regex: mattstack/secrets/.* # rule comment\n    age: age1aaa,age1bbb\n  - path_regex: other/secrets/.*\n    age: age1ccc\nmetadata: mattstack/secrets/.*\n";
     const plan = run(oldClone({ ".sops.yaml": sops }));
