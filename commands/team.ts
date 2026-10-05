@@ -181,7 +181,7 @@ export async function teamAdd(args: string[], _ctx: CommandContext = {}, deps: T
   const team = positional(args, ["--owner", "--team"])[0];
   const owners = (flagValue(args, "--owner") ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "");
   if (!team || owners.length === 0) {
-    usageError(deps, json, "team add", "Name the new team and who owns it", "rt team add <team> --owner <username>[,<username>] [--json]");
+    usageError(deps, json, "Name the new team and who owns it", "rt team add <team> --owner <username>[,<username>] [--json]");
   }
   try {
     const org = resolveTeamSlug(args, "team add");
@@ -197,7 +197,7 @@ export async function teamAdd(args: string[], _ctx: CommandContext = {}, deps: T
       out.callout("next", [`Put people on it with `, out.cmd(`rt team members set <username> --teams ${team}`)]),
     );
   } catch (err) {
-    if (err instanceof UserActionableError) exitTeamError(err, json, "team add", deps);
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
   }
 }
@@ -606,7 +606,7 @@ export async function teamMembersSet(args: string[], _ctx: CommandContext = {}, 
       }
     }
     if (!handle || teamsFlag === undefined) {
-      usageError(deps, json, "team members set", "Say whose teams, and which", "rt team members set <username> --teams <team>[,<team>] [--team <org>] [--json]");
+      usageError(deps, json, "Say whose teams, and which", "rt team members set <username> --teams <team>[,<team>] [--team <org>] [--json]");
     }
     const teams = teamsFlag.split(",").map((team) => team.trim()).filter((team) => team !== "");
     const result = membersSetTeams(deps.probes, deps.membersSeams ?? realMembersSeams(), slug, handle, teams);
@@ -616,7 +616,7 @@ export async function teamMembersSet(args: string[], _ctx: CommandContext = {}, 
     }
     out.print(out.line("done", `${result.username} is on ${result.teams.length > 0 ? result.teams.join(", ") : "no team"}`, result.previous.length > 0 ? `was on ${result.previous.join(", ")}` : undefined));
   } catch (err) {
-    if (err instanceof UserActionableError) exitTeamError(err, json, "team members set", deps);
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
   }
 }
@@ -883,7 +883,7 @@ export async function teamUse(args: string[], _ctx: CommandContext = {}, deps: T
         const picked = deps.selectTeam ? await deps.selectTeam(choices) : await filterableSelect({ message: "Which team?", options: choices.map((name) => ({ value: name, label: name })), stderr: true });
         if (!picked) process.exit(0);
         team = picked;
-      } else usageError(deps, json, "team use", "Which team do you want to work as?", "rt team use <team> [--json]");
+      } else usageError(deps, json, "Which team do you want to work as?", "rt team use <team> [--json]");
     }
     const result = await useTeam(team, seams);
     if (json) { deps.print(JSON.stringify(envelope(result))); return; }
@@ -893,7 +893,7 @@ export async function teamUse(args: string[], _ctx: CommandContext = {}, deps: T
       result.pack.enabled ? out.callout("next", "Restart Claude Code sessions to pick up the new pack") : out.callout("next", out.cmd("rt setup pack")),
     );
   } catch (err) {
-    if (err instanceof UserActionableError) exitTeamError(err, json, "team use", deps);
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
   }
 }
