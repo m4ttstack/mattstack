@@ -278,8 +278,9 @@ acceptance matrix after integration. S9 specifies the live evidence artifact
 and release gate. Record failures as gaps; do not mark a task complete merely
 because the interface exists or a fake passes.
 
-**Planning status:** F1 revised 2026-10-05 at Matt's request to reuse prior
-evidence, investigate only remaining gaps and use his regular HOME. Execution
-remains deferred until he says go. G1/G2/G3/G5 gate re-planning; G7 restart
-evidence remains deferred acceptance work. F2 onward is provisional and is
-re-planned from F1's exit report; implementation and acceptance tasks are unchecked.
+**Planning status:** F1 executed on 2026-10-05 with regular HOME and existing
+services. See the [exit report](../spikes/2026-10-05-harness-gate-spike-report.md)
+and [evidence](../spikes/2026-10-05-harness-gate-spike-evidence.json). G1/G2/G3/G6
+are proven; G4/G7 are partial; G5 is blocked at scoped hook loading. Revise the
+spec before package re-planning. G7 restart coverage remains deferred acceptance
+work. F2 onward is provisional and unexecuted.

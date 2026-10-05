@@ -10,7 +10,7 @@
 
 **Spec:** [Harness integrations design](../specs/2026-10-04-harness-integrations-design.md). Parent: [plan index](2026-10-04-harness-integrations.md).
 
-**Status:** Revised at Matt's request on 2026-10-05 to reuse prior evidence and use his regular HOME. Execution remains deferred until he says go. F2 and later remain provisional.
+**Status:** Executed after Matt's 2026-10-05 go-ahead. See the [exit report](../spikes/2026-10-05-harness-gate-spike-report.md): G5 remains blocked; revise the spec before re-planning. F2 and later remain provisional and unexecuted. The original task checklist below is retained as the execution contract; the report records completed work and unproven observations.
 
 ## Global Constraints
 

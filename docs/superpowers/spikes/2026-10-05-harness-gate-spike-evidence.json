@@ -1,0 +1,1305 @@
+{
+  "baseline": "2026-10-04-codex-compatibility-evidence.json",
+  "decision": "G5 blocks progression; revise spec before re-planning F2+",
+  "selectedResults": [
+    {
+      "question": "G1",
+      "verdict": "proven",
+      "observations": [
+        "w1: native id matches=true; pane hint=wMP:p0",
+        "w2: native id matches=true; pane hint=wMP:p0"
+      ],
+      "consequence": "F4 can bind CLI callers by native thread; pane hints are not identity",
+      "evidenceRefs": [
+        "#/observations/G1"
+      ],
+      "sourceRun": "attribution-05"
+    },
+    {
+      "question": "G2",
+      "verdict": "proven",
+      "observations": [
+        "distinct MCP pids: 2",
+        "host metadata path: threadId",
+        "per-thread env: false",
+        "Rejudged existing raw calls after identifying host _meta.threadId; no additional live run"
+      ],
+      "consequence": "F4 uses _meta.threadId",
+      "evidenceRefs": [
+        "#/observations/G2"
+      ],
+      "sourceRun": "attribution-06"
+    },
+    {
+      "question": "G3",
+      "verdict": "proven",
+      "observations": [
+        "same thread/turn/item: true",
+        "request id changed: false",
+        "completed: true; answer observed: true"
+      ],
+      "consequence": "M5 correlates by thread/turn/item across connections",
+      "evidenceRefs": [
+        "#/observations/G3"
+      ],
+      "sourceRun": "questions-01"
+    },
+    {
+      "question": "G4",
+      "verdict": "partial",
+      "observations": [
+        "Async agentMessage emitted with delivery=async and questions; no answerable server request observed within 90 seconds",
+        "Emission item completed before an answer; native answer completion unproven"
+      ],
+      "consequence": "Do not enable unattended async gates",
+      "evidenceRefs": [
+        "#/observations/G4"
+      ],
+      "sourceRun": "questions-01"
+    },
+    {
+      "question": "G5",
+      "verdict": "blocked",
+      "observations": [
+        "relevant loaded hooks: 0",
+        "tool refused: false; forbidden action ran: false",
+        "stop continued: false"
+      ],
+      "consequence": "Revise policy enforcement before enabling managed Codex",
+      "evidenceRefs": [
+        "#/observations/G5"
+      ],
+      "sourceRun": "policy-01"
+    },
+    {
+      "question": "G6",
+      "verdict": "proven",
+      "observations": [
+        "MCP ping: true; restricted sandbox verified: true"
+      ],
+      "consequence": "S4 can route rt through MCP without widening sandbox",
+      "evidenceRefs": [
+        "#/observations/G6"
+      ],
+      "sourceRun": "attribution-06"
+    },
+    {
+      "question": "G7",
+      "verdict": "partial",
+      "observations": [
+        "exact consumed client/thread/item: true",
+        "daemon restart: unobserved; queue/question survival: unobserved"
+      ],
+      "consequence": "M1 can report observed consumption; restart remains acceptance work",
+      "evidenceRefs": [
+        "#/observations/G7"
+      ],
+      "sourceRun": "questions-01"
+    }
+  ],
+  "runs": {
+    "attribution-01": {
+      "runId": "6020dacb-6d97-409b-827c-4495c68f4df8",
+      "startedAt": "2026-10-05T14:50:21.719Z",
+      "versions": {
+        "codex": "codex-cli 0.160.0",
+        "herdr": "herdr 0.9.3",
+        "bun": "1.4.2",
+        "commit": "f4ab84f55ea3d77221ad549a7f1d74fba594865e"
+      },
+      "baseline": "2026-10-04-codex-compatibility-evidence.json",
+      "cases": [
+        {
+          "question": "G1",
+          "verdict": "not-run",
+          "observations": [
+            "SyntaxError: JSON Parse error: Unexpected EOF"
+          ],
+          "consequence": "Verify probe setup and repeat affected case",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        },
+        {
+          "question": "G2",
+          "verdict": "not-run",
+          "observations": [
+            "SyntaxError: JSON Parse error: Unexpected EOF"
+          ],
+          "consequence": "Verify probe setup and repeat affected case",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        },
+        {
+          "question": "G6",
+          "verdict": "not-run",
+          "observations": [
+            "SyntaxError: JSON Parse error: Unexpected EOF"
+          ],
+          "consequence": "Verify probe setup and repeat affected case",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        }
+      ],
+      "cleanup": [
+        {
+          "resource": "wTA",
+          "ok": true
+        },
+        {
+          "resource": "wT9",
+          "ok": true
+        }
+      ]
+    },
+    "attribution-02": {
+      "runId": "867f7367-8e5d-4615-887a-e3c9cf64bf2a",
+      "startedAt": "2026-10-05T14:51:43.401Z",
+      "versions": {
+        "codex": "codex-cli 0.160.0",
+        "herdr": "herdr 0.9.3",
+        "bun": "1.4.2",
+        "commit": "6e01f926ef7a3839ea2ce0479e6ffd61daa7d08e"
+      },
+      "baseline": "2026-10-04-codex-compatibility-evidence.json",
+      "cases": [
+        {
+          "question": "G1",
+          "verdict": "not-run",
+          "observations": [
+            "Error: worker did not bind to an existing daemon thread"
+          ],
+          "consequence": "Verify probe setup and repeat affected case",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        },
+        {
+          "question": "G2",
+          "verdict": "not-run",
+          "observations": [
+            "Error: worker did not bind to an existing daemon thread"
+          ],
+          "consequence": "Verify probe setup and repeat affected case",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        },
+        {
+          "question": "G6",
+          "verdict": "not-run",
+          "observations": [
+            "Error: worker did not bind to an existing daemon thread"
+          ],
+          "consequence": "Verify probe setup and repeat affected case",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        }
+      ],
+      "cleanup": [
+        {
+          "resource": "wTC",
+          "ok": true
+        },
+        {
+          "resource": "wTB",
+          "ok": true
+        }
+      ]
+    },
+    "attribution-03": {
+      "runId": "fcf06930-46bb-4261-9412-9dce49a842d1",
+      "startedAt": "2026-10-05T14:54:37.716Z",
+      "versions": {
+        "codex": "codex-cli 0.160.0",
+        "herdr": "herdr 0.9.3",
+        "bun": "1.4.2",
+        "commit": "0f4b21055dfae4c93f8697ecc9536fdf00edecd8"
+      },
+      "baseline": "2026-10-04-codex-compatibility-evidence.json",
+      "cases": [
+        {
+          "question": "G1",
+          "verdict": "not-run",
+          "observations": [
+            "Error: -32603: failed to read thread: thread-store internal error: failed to read session metadata <codex-home>/sessions/2026/10/05/rollout-2026-10-05T09-54-55-01a10c8f-877c-70c2-87c1-32f6639957fc.jsonl: rollout at <codex-home>/sessions/2026/10/05/rollout-2026-10-05T09-54-55-01a10c8f-877c-70c2-87c1-32f6639957fc.jsonl is empty"
+          ],
+          "consequence": "Verify probe setup and repeat affected case",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        },
+        {
+          "question": "G2",
+          "verdict": "not-run",
+          "observations": [
+            "Error: -32603: failed to read thread: thread-store internal error: failed to read session metadata <codex-home>/sessions/2026/10/05/rollout-2026-10-05T09-54-55-01a10c8f-877c-70c2-87c1-32f6639957fc.jsonl: rollout at <codex-home>/sessions/2026/10/05/rollout-2026-10-05T09-54-55-01a10c8f-877c-70c2-87c1-32f6639957fc.jsonl is empty"
+          ],
+          "consequence": "Verify probe setup and repeat affected case",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        },
+        {
+          "question": "G6",
+          "verdict": "not-run",
+          "observations": [
+            "Error: -32603: failed to read thread: thread-store internal error: failed to read session metadata <codex-home>/sessions/2026/10/05/rollout-2026-10-05T09-56-05-01a10c90-9a21-7420-9be3-327c6e4cf6e4.jsonl: rollout at <codex-home>/sessions/2026/10/05/rollout-2026-10-05T09-56-05-01a10c90-9a21-7420-9be3-327c6e4cf6e4.jsonl is empty"
+          ],
+          "consequence": "Verify probe setup and repeat affected case",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        }
+      ],
+      "cleanup": [
+        {
+          "resource": "wTE",
+          "ok": true
+        },
+        {
+          "resource": "wTD",
+          "ok": true
+        }
+      ]
+    },
+    "attribution-04": {
+      "runId": "1d4a97ae-6b0d-47a2-b9cb-ba3c5ca523d8",
+      "startedAt": "2026-10-05T14:57:15.106Z",
+      "versions": {
+        "codex": "codex-cli 0.160.0",
+        "herdr": "herdr 0.9.3",
+        "bun": "1.4.2",
+        "commit": "24bb9993515a27fcd40fb7be279f57b22d7457c2"
+      },
+      "baseline": "2026-10-04-codex-compatibility-evidence.json",
+      "cases": [
+        {
+          "question": "G1",
+          "verdict": "not-run",
+          "observations": [
+            "Error: -32600: no rollout found for thread id 01a10c91-abb7-77d2-961e-90dd91883e59"
+          ],
+          "consequence": "Verify probe setup and repeat affected case",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        },
+        {
+          "question": "G2",
+          "verdict": "not-run",
+          "observations": [
+            "Error: -32600: no rollout found for thread id 01a10c91-abb7-77d2-961e-90dd91883e59"
+          ],
+          "consequence": "Verify probe setup and repeat affected case",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        },
+        {
+          "question": "G6",
+          "verdict": "not-run",
+          "observations": [
+            "Error: -32600: no rollout found for thread id 01a10c91-abb7-77d2-961e-90dd91883e59"
+          ],
+          "consequence": "Verify probe setup and repeat affected case",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        }
+      ],
+      "cleanup": [
+        {
+          "resource": "pane-tail w1",
+          "ok": false,
+          "detail": "SyntaxError: JSON Parse error: Single quotes (') are not allowed in JSON"
+        },
+        {
+          "resource": "pane-tail w2",
+          "ok": false,
+          "detail": "SyntaxError: JSON Parse error: Single quotes (') are not allowed in JSON"
+        },
+        {
+          "resource": "wTG",
+          "ok": true
+        },
+        {
+          "resource": "wTF",
+          "ok": true
+        }
+      ]
+    },
+    "attribution-05": {
+      "runId": "1f627292-c78b-4fae-9c88-3385c2a4fc37",
+      "startedAt": "2026-10-05T14:58:45.948Z",
+      "versions": {
+        "codex": "codex-cli 0.160.0",
+        "herdr": "herdr 0.9.3",
+        "bun": "1.4.2",
+        "commit": "24bb9993515a27fcd40fb7be279f57b22d7457c2"
+      },
+      "baseline": "2026-10-04-codex-compatibility-evidence.json",
+      "cases": [
+        {
+          "question": "G1",
+          "verdict": "proven",
+          "observations": [
+            "w1: native id matches=true; pane hint=wMP:p0",
+            "w2: native id matches=true; pane hint=wMP:p0"
+          ],
+          "consequence": "F4 can bind CLI callers by native thread; pane hints are not identity",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        },
+        {
+          "question": "G2",
+          "verdict": "not-run",
+          "observations": [
+            "missing MCP call"
+          ],
+          "consequence": "Repair the probe and repeat G2",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        },
+        {
+          "question": "G6",
+          "verdict": "not-run",
+          "observations": [
+            "MCP ping: unobserved; restricted sandbox verified: true"
+          ],
+          "consequence": "S4 needs a verified socket arrangement",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        }
+      ],
+      "cleanup": [
+        {
+          "resource": "wTJ",
+          "ok": true
+        },
+        {
+          "resource": "wTH",
+          "ok": true
+        }
+      ]
+    },
+    "attribution-06": {
+      "runId": "5c7e3b90-566c-4a3a-81a1-da6a69a19ec4",
+      "startedAt": "2026-10-05T15:00:15.138Z",
+      "versions": {
+        "codex": "codex-cli 0.160.0",
+        "herdr": "herdr 0.9.3",
+        "bun": "1.4.2",
+        "commit": "c2bccb2dbd93750b88f52b4b73647461a982bc49"
+      },
+      "baseline": "2026-10-04-codex-compatibility-evidence.json",
+      "cases": [
+        {
+          "question": "G2",
+          "verdict": "partial",
+          "observations": [
+            "distinct MCP pids: 2",
+            "host metadata path: unproven",
+            "per-thread env: false"
+          ],
+          "consequence": "MCP calls worked without verified caller identity; revise F4",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        },
+        {
+          "question": "G6",
+          "verdict": "proven",
+          "observations": [
+            "MCP ping: true; restricted sandbox verified: true"
+          ],
+          "consequence": "S4 can route rt through MCP without widening sandbox",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        }
+      ],
+      "cleanup": [
+        {
+          "resource": "wTM",
+          "ok": true
+        },
+        {
+          "resource": "wTK",
+          "ok": true
+        }
+      ]
+    },
+    "policy-01": {
+      "runId": "c3a32016-09ff-4c45-b9ab-7110825210cf",
+      "startedAt": "2026-10-05T15:05:11.124Z",
+      "versions": {
+        "codex": "codex-cli 0.160.0",
+        "herdr": "herdr 0.9.3",
+        "bun": "1.4.2",
+        "commit": "633c217a94db2fbb3dec0c871ea9e42a33dce3c2"
+      },
+      "baseline": "2026-10-04-codex-compatibility-evidence.json",
+      "cases": [
+        {
+          "question": "G5",
+          "verdict": "blocked",
+          "observations": [
+            "relevant loaded hooks: 0",
+            "tool refused: false; forbidden action ran: false",
+            "stop continued: false"
+          ],
+          "consequence": "Revise policy enforcement before enabling managed Codex",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        }
+      ],
+      "cleanup": [
+        {
+          "resource": "wTQ",
+          "ok": true
+        }
+      ]
+    },
+    "questions-01": {
+      "runId": "d6f67f08-4754-4a3b-908e-16a61b263397",
+      "startedAt": "2026-10-05T15:04:54.705Z",
+      "versions": {
+        "codex": "codex-cli 0.160.0",
+        "herdr": "herdr 0.9.3",
+        "bun": "1.4.2",
+        "commit": "633c217a94db2fbb3dec0c871ea9e42a33dce3c2"
+      },
+      "baseline": "2026-10-04-codex-compatibility-evidence.json",
+      "cases": [
+        {
+          "question": "G3",
+          "verdict": "proven",
+          "observations": [
+            "same thread/turn/item: true",
+            "request id changed: false",
+            "completed: true; answer observed: true"
+          ],
+          "consequence": "M5 correlates by thread/turn/item across connections",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        },
+        {
+          "question": "G4",
+          "verdict": "partial",
+          "observations": [
+            "native async request: false; exact item completion: false"
+          ],
+          "consequence": "Do not enable unattended async gates",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        },
+        {
+          "question": "G7",
+          "verdict": "partial",
+          "observations": [
+            "exact consumed client/thread/item: true",
+            "daemon restart: unobserved; queue/question survival: unobserved"
+          ],
+          "consequence": "M1 can report observed consumption; restart remains acceptance work",
+          "evidenceRefs": [
+            "events.jsonl"
+          ]
+        }
+      ],
+      "cleanup": [
+        {
+          "resource": "wTR",
+          "ok": true
+        },
+        {
+          "resource": "wTP",
+          "ok": true
+        },
+        {
+          "resource": "wTN",
+          "ok": true
+        },
+        {
+          "resource": "turn 01a10c9a-53fb-76f2-b493-8f8e79a3fb75/01a10c9a-6475-71c2-9293-4b292ff7e7a7",
+          "ok": true
+        }
+      ]
+    }
+  },
+  "observations": {
+    "G1": {
+      "workers": [
+        {
+          "name": "w1",
+          "pane": "wTH:p1",
+          "workspace": "wTH",
+          "cwd": "<worktree>/.harness-spike/attribution-05/w1",
+          "threadId": "01a10c93-0cc0-7622-960f-0dca06e65e5d",
+          "sandbox": {
+            "type": "workspaceWrite",
+            "writableRoots": [
+              "<worktree>/.harness-spike/attribution-05",
+              "/private/tmp",
+              "/private/var/folders/45/l51y5l597397wlm3ct7t7r_h0000gn/T"
+            ],
+            "networkAccess": false,
+            "excludeTmpdirEnvVar": false,
+            "excludeSlashTmp": false
+          }
+        },
+        {
+          "name": "w2",
+          "pane": "wTJ:p1",
+          "workspace": "wTJ",
+          "cwd": "<worktree>/.harness-spike/attribution-05/w2",
+          "threadId": "01a10c93-1ecb-76e0-8924-e663656ee232",
+          "sandbox": {
+            "type": "workspaceWrite",
+            "writableRoots": [
+              "<worktree>/.harness-spike/attribution-05",
+              "/private/tmp",
+              "/private/var/folders/45/l51y5l597397wlm3ct7t7r_h0000gn/T"
+            ],
+            "networkAccess": false,
+            "excludeTmpdirEnvVar": false,
+            "excludeSlashTmp": false
+          }
+        }
+      ],
+      "cli": [
+        {
+          "at": 1791212341575,
+          "marker": "w2-cli",
+          "pid": 18477,
+          "env": {
+            "CODEX_THREAD_ID": "01a10c93-1ecb-76e0-8924-e663656ee232",
+            "CODEX_SESSION_ID": "01a10c93-1ecb-76e0-8924-e663656ee232",
+            "HERDR_PANE_ID": "wMP:p0",
+            "HERDR_SOCKET_PATH": "<herdr-socket>",
+            "HERDR_ENV": "1",
+            "HERDR_WORKSPACE_ID": "wMP"
+          }
+        },
+        {
+          "at": 1791212342727,
+          "marker": "w1-cli",
+          "pid": 18546,
+          "env": {
+            "CODEX_THREAD_ID": "01a10c93-0cc0-7622-960f-0dca06e65e5d",
+            "CODEX_SESSION_ID": "01a10c93-0cc0-7622-960f-0dca06e65e5d",
+            "HERDR_PANE_ID": "wMP:p0",
+            "HERDR_SOCKET_PATH": "<herdr-socket>",
+            "HERDR_ENV": "1",
+            "HERDR_WORKSPACE_ID": "wMP"
+          }
+        }
+      ]
+    },
+    "G2": {
+      "workers": [
+        {
+          "name": "w1",
+          "pane": "wTK:p1",
+          "workspace": "wTK",
+          "cwd": "<worktree>/.harness-spike/attribution-06/w1",
+          "threadId": "01a10c94-690c-79a3-981b-885a681a4a7e",
+          "sandbox": {
+            "type": "workspaceWrite",
+            "writableRoots": [
+              "<worktree>/.harness-spike/attribution-06",
+              "/private/tmp",
+              "/private/var/folders/45/l51y5l597397wlm3ct7t7r_h0000gn/T"
+            ],
+            "networkAccess": false,
+            "excludeTmpdirEnvVar": false,
+            "excludeSlashTmp": false
+          }
+        },
+        {
+          "name": "w2",
+          "pane": "wTM:p1",
+          "workspace": "wTM",
+          "cwd": "<worktree>/.harness-spike/attribution-06/w2",
+          "threadId": "01a10c94-820e-73b2-bef0-3bed5fbe66e2",
+          "sandbox": {
+            "type": "workspaceWrite",
+            "writableRoots": [
+              "<worktree>/.harness-spike/attribution-06",
+              "/private/tmp",
+              "/private/var/folders/45/l51y5l597397wlm3ct7t7r_h0000gn/T"
+            ],
+            "networkAccess": false,
+            "excludeTmpdirEnvVar": false,
+            "excludeSlashTmp": false
+          }
+        }
+      ],
+      "provenance": "MCP tools/call params._meta recorded directly by stdio server; inputSchema permits only marker. Native item/completed independently names thread/tool/arguments. Exact metadata key threadId matches each controlled thread/start ID.",
+      "calls": [
+        {
+          "kind": "call",
+          "tool": "probe_whoami",
+          "marker": "w1-mcp",
+          "pid": 23899,
+          "env": {},
+          "meta": {
+            "callId": "exec-d0a6c96f-1745-4649-a161-596366a6b16a",
+            "threadId": "01a10c94-690c-79a3-981b-885a681a4a7e",
+            "sessionId": "01a10c94-690c-79a3-981b-885a681a4a7e",
+            "windowId": "01a10c94-690c-79a3-981b-885a681a4a7e:0",
+            "itemId": "ctc_05b2c6dc6befaba7016ac3bb8d852c87d19698099aad90768d"
+          }
+        },
+        {
+          "kind": "call",
+          "tool": "probe_whoami",
+          "marker": "w2-mcp",
+          "pid": 24762,
+          "env": {},
+          "meta": {
+            "callId": "exec-ba4f668d-21b1-414f-bc21-ce52ee36d40a",
+            "threadId": "01a10c94-820e-73b2-bef0-3bed5fbe66e2",
+            "sessionId": "01a10c94-820e-73b2-bef0-3bed5fbe66e2",
+            "windowId": "01a10c94-820e-73b2-bef0-3bed5fbe66e2:0",
+            "itemId": "ctc_0fe34d967971f23a016ac3bb8de92487d1bf48bc696fcaeb0d"
+          }
+        }
+      ],
+      "nativeToolCalls": [
+        {
+          "threadId": "01a10c94-690c-79a3-981b-885a681a4a7e",
+          "turnId": "01a10c94-95dd-7c70-a3dd-a454887d8299",
+          "item": {
+            "type": "mcpToolCall",
+            "id": "exec-d0a6c96f-1745-4649-a161-596366a6b16a",
+            "server": "harness_probe",
+            "tool": "probe_whoami",
+            "status": "completed",
+            "arguments": {
+              "marker": "w1-mcp"
+            },
+            "appContext": null,
+            "mcpAppUi": null,
+            "pluginId": null,
+            "readOnlyHint": null,
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"kind\":\"call\",\"tool\":\"probe_whoami\",\"marker\":\"w1-mcp\",\"pid\":23899,\"env\":{},\"meta\":{\"callId\":\"exec-d0a6c96f-1745-4649-a161-596366a6b16a\",\"x-codex-turn-metadata\":{\"session_id\":\"01a10c94-690c-79a3-981b-885a681a4a7e\",\"thread_id\":\"01a10c94-690c-79a3-981b-885a681a4a7e\",\"reasoning_effort\":\"low\",\"turn_id\":\"01a10c94-95dd-7c70-a3dd-a454887d8299\",\"model\":\"gpt-6.1-sol\",\"sandbox\":\"seatbelt\",\"sandbox_mode\":\"workspace-write\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":true,\"node_repl_disabled\":false,\"workspaces\":{\"<worktree>\":{\"associated_remote_urls\":{\"origin\":\"https://github.com/m4ttstack/mattstack.git\",\"scrub\":\"/private/tmp/claude-501/-Users-matt-Documents-GitHub-repo-tools/8c6a8515-af39-4794-9476-74f04bcf9c16/scratchpad/purity/scratch2\"},\"latest_git_commit_hash\":\"c2bccb2dbd93750b88f52b4b73647461a982bc49\",\"has_changes\":false}},\"turn_started_at_unix_ms\":1791212426722,\"codex_version\":\"0.160.0\"},\"threadId\":\"01a10c94-690c-79a3-981b-885a681a4a7e\",\"sessionId\":\"01a10c94-690c-79a3-981b-885a681a4a7e\",\"windowId\":\"01a10c94-690c-79a3-981b-885a681a4a7e:0\",\"itemId\":\"ctc_05b2c6dc6befaba7016ac3bb8d852c87d19698099aad90768d\",\"progressToken\":1},\"init\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"experimental\":{\"codex/auth-change\":{}},\"elicitation\":{\"form\":{},\"url\":{}}},\"clientInfo\":{\"name\":\"codex-mcp-client\",\"title\":\"Codex\",\"version\":\"0.160.0\"}}}"
+                }
+              ],
+              "structuredContent": null,
+              "_meta": null
+            },
+            "error": null,
+            "durationMs": 0
+          }
+        },
+        {
+          "threadId": "01a10c94-820e-73b2-bef0-3bed5fbe66e2",
+          "turnId": "01a10c94-95e0-7c53-959d-0610274ff069",
+          "item": {
+            "type": "mcpToolCall",
+            "id": "exec-ba4f668d-21b1-414f-bc21-ce52ee36d40a",
+            "server": "harness_probe",
+            "tool": "probe_whoami",
+            "status": "completed",
+            "arguments": {
+              "marker": "w2-mcp"
+            },
+            "appContext": null,
+            "mcpAppUi": null,
+            "pluginId": null,
+            "readOnlyHint": null,
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"kind\":\"call\",\"tool\":\"probe_whoami\",\"marker\":\"w2-mcp\",\"pid\":24762,\"env\":{},\"meta\":{\"callId\":\"exec-ba4f668d-21b1-414f-bc21-ce52ee36d40a\",\"x-codex-turn-metadata\":{\"session_id\":\"01a10c94-820e-73b2-bef0-3bed5fbe66e2\",\"thread_id\":\"01a10c94-820e-73b2-bef0-3bed5fbe66e2\",\"reasoning_effort\":\"low\",\"turn_id\":\"01a10c94-95e0-7c53-959d-0610274ff069\",\"model\":\"gpt-6.1-sol\",\"sandbox\":\"seatbelt\",\"sandbox_mode\":\"workspace-write\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":true,\"node_repl_disabled\":false,\"workspaces\":{\"<worktree>\":{\"associated_remote_urls\":{\"origin\":\"https://github.com/m4ttstack/mattstack.git\",\"scrub\":\"/private/tmp/claude-501/-Users-matt-Documents-GitHub-repo-tools/8c6a8515-af39-4794-9476-74f04bcf9c16/scratchpad/purity/scratch2\"},\"latest_git_commit_hash\":\"c2bccb2dbd93750b88f52b4b73647461a982bc49\",\"has_changes\":false}},\"turn_started_at_unix_ms\":1791212426736,\"codex_version\":\"0.160.0\"},\"threadId\":\"01a10c94-820e-73b2-bef0-3bed5fbe66e2\",\"sessionId\":\"01a10c94-820e-73b2-bef0-3bed5fbe66e2\",\"windowId\":\"01a10c94-820e-73b2-bef0-3bed5fbe66e2:0\",\"itemId\":\"ctc_0fe34d967971f23a016ac3bb8de92487d1bf48bc696fcaeb0d\",\"progressToken\":1},\"init\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"experimental\":{\"codex/auth-change\":{}},\"elicitation\":{\"form\":{},\"url\":{}}},\"clientInfo\":{\"name\":\"codex-mcp-client\",\"title\":\"Codex\",\"version\":\"0.160.0\"}}}"
+                }
+              ],
+              "structuredContent": null,
+              "_meta": null
+            },
+            "error": null,
+            "durationMs": 0
+          }
+        },
+        {
+          "threadId": "01a10c94-690c-79a3-981b-885a681a4a7e",
+          "turnId": "01a10c94-b605-7cc1-87e3-f5655ba8b4e6",
+          "item": {
+            "type": "mcpToolCall",
+            "id": "exec-3462d7f3-ab1b-474c-843e-db8dda095f2b",
+            "server": "harness_probe",
+            "tool": "probe_rt_ping",
+            "status": "completed",
+            "arguments": {
+              "marker": "G6"
+            },
+            "appContext": null,
+            "mcpAppUi": null,
+            "pluginId": null,
+            "readOnlyHint": null,
+            "result": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"ok\":true,\"uptime\":237929986,\"pid\":44579,\"flavor\":\"dev\",\"version\":\"source\",\"sourceRev\":\"2e4e0b543\",\"startedAt\":1790974510025,\"health\":\"ok\",\"eventLoop\":{\"maxLagMs\":8,\"lastStallAt\":1790978291869,\"lastStallCmd\":null,\"stalls\":5},\"heartbeatSeq\":117968,\"supervision\":{\"bootAttempts\":509,\"lastReadyAt\":1790974510330,\"recentFailures\":[],\"lastExit\":{\"at\":1790974502544,\"kind\":\"signal\",\"code\":1}}}"
+                }
+              ],
+              "structuredContent": null,
+              "_meta": null
+            },
+            "error": null,
+            "durationMs": 1
+          }
+        }
+      ]
+    },
+    "G3": {
+      "first": {
+        "kind": "request",
+        "id": 1,
+        "method": "item/tool/requestUserInput",
+        "params": {
+          "threadId": "01a10c98-ad34-75f3-a2d2-e00500d32a26",
+          "turnId": "01a10c98-c750-7a52-af57-d315f0c95a84",
+          "itemId": "call_r56tltMXSJ8bJ2DzuAAYjq4C",
+          "questions": [
+            {
+              "id": "choice",
+              "header": "Choice",
+              "question": "Choose Alpha or Beta",
+              "isOther": true,
+              "isSecret": false,
+              "options": [
+                {
+                  "label": "Alpha",
+                  "description": "Choose Alpha."
+                },
+                {
+                  "label": "Beta",
+                  "description": "Choose Beta."
+                }
+              ]
+            }
+          ],
+          "isBlocking": true,
+          "autoResolutionMs": null
+        },
+        "connection": "f3b88ac2-32c4-417b-8a38-acb0f3253e24"
+      },
+      "reconnect": {
+        "request": {
+          "kind": "request",
+          "id": 1,
+          "method": "item/tool/requestUserInput",
+          "params": {
+            "threadId": "01a10c98-ad34-75f3-a2d2-e00500d32a26",
+            "turnId": "01a10c98-c750-7a52-af57-d315f0c95a84",
+            "itemId": "call_r56tltMXSJ8bJ2DzuAAYjq4C",
+            "questions": [
+              {
+                "id": "choice",
+                "header": "Choice",
+                "question": "Choose Alpha or Beta",
+                "isOther": true,
+                "isSecret": false,
+                "options": [
+                  {
+                    "label": "Alpha",
+                    "description": "Choose Alpha."
+                  },
+                  {
+                    "label": "Beta",
+                    "description": "Choose Beta."
+                  }
+                ]
+              }
+            ],
+            "isBlocking": true,
+            "autoResolutionMs": null
+          },
+          "connection": "0c8001bb-ffda-4111-8dc4-a59c60508031"
+        },
+        "status": {
+          "type": "active",
+          "activeFlags": [
+            "waitingOnUserInput"
+          ]
+        }
+      },
+      "resolution": [
+        {
+          "kind": "notification",
+          "method": "serverRequest/resolved",
+          "params": {
+            "threadId": "01a10c98-ad34-75f3-a2d2-e00500d32a26",
+            "requestId": 1
+          },
+          "connection": "b76ff6fc-5f3f-47f2-b5f4-22a97aa98017"
+        },
+        {
+          "kind": "notification",
+          "method": "serverRequest/resolved",
+          "params": {
+            "threadId": "01a10c98-ad34-75f3-a2d2-e00500d32a26",
+            "requestId": 1
+          },
+          "connection": "0c8001bb-ffda-4111-8dc4-a59c60508031"
+        }
+      ],
+      "answer": [
+        {
+          "kind": "notification",
+          "method": "item/completed",
+          "params": {
+            "item": {
+              "type": "agentMessage",
+              "id": "msg_054c7510766cb05d016ac3bca31b0c87d18c1d9756a650cf6a",
+              "text": "Beta",
+              "phase": "final_answer",
+              "memoryCitation": null,
+              "delivery": null,
+              "questions": null
+            },
+            "threadId": "01a10c98-ad34-75f3-a2d2-e00500d32a26",
+            "turnId": "01a10c98-c750-7a52-af57-d315f0c95a84",
+            "completedAtMs": 1791212707249
+          },
+          "connection": "0c8001bb-ffda-4111-8dc4-a59c60508031"
+        },
+        {
+          "kind": "notification",
+          "method": "item/completed",
+          "params": {
+            "item": {
+              "type": "agentMessage",
+              "id": "msg_054c7510766cb05d016ac3bca31b0c87d18c1d9756a650cf6a",
+              "text": "Beta",
+              "phase": "final_answer",
+              "memoryCitation": null,
+              "delivery": null,
+              "questions": null
+            },
+            "threadId": "01a10c98-ad34-75f3-a2d2-e00500d32a26",
+            "turnId": "01a10c98-c750-7a52-af57-d315f0c95a84",
+            "completedAtMs": 1791212707249
+          },
+          "connection": "b76ff6fc-5f3f-47f2-b5f4-22a97aa98017"
+        }
+      ],
+      "completion": [
+        {
+          "kind": "notification",
+          "method": "turn/completed",
+          "params": {
+            "threadId": "01a10c98-ad34-75f3-a2d2-e00500d32a26",
+            "turn": {
+              "id": "01a10c98-c750-7a52-af57-d315f0c95a84",
+              "items": [
+                {
+                  "type": "agentMessage",
+                  "id": "msg_054c7510766cb05d016ac3bca31b0c87d18c1d9756a650cf6a",
+                  "text": "Beta",
+                  "phase": "final_answer",
+                  "memoryCitation": null,
+                  "delivery": null,
+                  "questions": null
+                }
+              ],
+              "itemsView": "summary",
+              "status": "completed",
+              "error": null,
+              "startedAt": 1791212701,
+              "completedAt": 1791212707,
+              "durationMs": 5791
+            }
+          },
+          "connection": "b76ff6fc-5f3f-47f2-b5f4-22a97aa98017"
+        },
+        {
+          "kind": "notification",
+          "method": "turn/completed",
+          "params": {
+            "threadId": "01a10c98-ad34-75f3-a2d2-e00500d32a26",
+            "turn": {
+              "id": "01a10c98-c750-7a52-af57-d315f0c95a84",
+              "items": [
+                {
+                  "type": "agentMessage",
+                  "id": "msg_054c7510766cb05d016ac3bca31b0c87d18c1d9756a650cf6a",
+                  "text": "Beta",
+                  "phase": "final_answer",
+                  "memoryCitation": null,
+                  "delivery": null,
+                  "questions": null
+                }
+              ],
+              "itemsView": "summary",
+              "status": "completed",
+              "error": null,
+              "startedAt": 1791212701,
+              "completedAt": 1791212707,
+              "durationMs": 5791
+            }
+          },
+          "connection": "0c8001bb-ffda-4111-8dc4-a59c60508031"
+        }
+      ]
+    },
+    "G4": {
+      "asyncItems": [
+        {
+          "kind": "notification",
+          "method": "item/completed",
+          "params": {
+            "item": {
+              "type": "agentMessage",
+              "id": "call_0Q5xxxWnUCxAeCvUELzaRLwh",
+              "text": "Choose Alpha or Beta\n- Alpha\n- Beta",
+              "phase": "final_answer",
+              "memoryCitation": null,
+              "delivery": "async",
+              "questions": [
+                {
+                  "title": "Choose Alpha or Beta",
+                  "options": [
+                    "Alpha",
+                    "Beta"
+                  ]
+                }
+              ]
+            },
+            "threadId": "01a10c98-df0a-7883-bdfb-44407588bc1f",
+            "turnId": "01a10c98-f43c-71f2-9b27-7863ce378a11",
+            "completedAtMs": 1791212716727
+          },
+          "connection": "b90e858c-757a-4a01-9a8d-2c170600d4f4"
+        },
+        {
+          "kind": "notification",
+          "method": "item/completed",
+          "params": {
+            "item": {
+              "type": "agentMessage",
+              "id": "call_0Q5xxxWnUCxAeCvUELzaRLwh",
+              "text": "Choose Alpha or Beta\n- Alpha\n- Beta",
+              "phase": "final_answer",
+              "memoryCitation": null,
+              "delivery": "async",
+              "questions": [
+                {
+                  "title": "Choose Alpha or Beta",
+                  "options": [
+                    "Alpha",
+                    "Beta"
+                  ]
+                }
+              ]
+            },
+            "threadId": "01a10c98-df0a-7883-bdfb-44407588bc1f",
+            "turnId": "01a10c98-f43c-71f2-9b27-7863ce378a11",
+            "completedAtMs": 1791212716727
+          },
+          "connection": "b76ff6fc-5f3f-47f2-b5f4-22a97aa98017"
+        }
+      ],
+      "serverRequest": {
+        "request": "unobserved",
+        "turn": "01a10c98-f43c-71f2-9b27-7863ce378a11"
+      },
+      "protocolInspection": "Installed 0.160.0 ClientRequest schema has no dedicated question-answer client method; no pending request exposed for this async item. This is not proof that every native UI path is unavailable."
+    },
+    "G5": {
+      "worker": {
+        "name": "p1",
+        "pane": "wTQ:p1",
+        "workspace": "wTQ",
+        "cwd": "<worktree>/.harness-spike/policy-01/p1",
+        "threadId": "01a10c98-ef2f-7a70-b9ec-21200131ab0b",
+        "sandbox": {
+          "type": "workspaceWrite",
+          "writableRoots": [
+            "<worktree>/.harness-spike/policy-01",
+            "/private/tmp",
+            "/private/var/folders/45/l51y5l597397wlm3ct7t7r_h0000gn/T"
+          ],
+          "networkAccess": false,
+          "excludeTmpdirEnvVar": false,
+          "excludeSlashTmp": false
+        }
+      },
+      "inventory": {
+        "hooks": [],
+        "errors": []
+      },
+      "hookRows": [],
+      "allowedControl": [
+        {
+          "at": 1791212727259,
+          "marker": "allowed",
+          "pid": 47229,
+          "env": {
+            "CODEX_THREAD_ID": "01a10c98-ef2f-7a70-b9ec-21200131ab0b",
+            "CODEX_SESSION_ID": "01a10c98-ef2f-7a70-b9ec-21200131ab0b",
+            "HERDR_PANE_ID": "wMP:p0",
+            "HERDR_SOCKET_PATH": "<herdr-socket>",
+            "HERDR_ENV": "1",
+            "HERDR_WORKSPACE_ID": "wMP"
+          }
+        }
+      ],
+      "scope": "thread/start config keys features.hooks and hooks.PreToolUse/Stop/SessionStart. hooks/list takes cwd, not threadId, so inventory cannot by itself attest thread overrides. No probe hook recorder executed in actual worker turns. No bypass or persisted trust changes."
+    },
+    "G6": {
+      "effectiveSettings": [
+        {
+          "sandbox": {
+            "type": "workspaceWrite",
+            "writableRoots": [
+              "<worktree>/.harness-spike/attribution-06",
+              "/private/tmp",
+              "/private/var/folders/45/l51y5l597397wlm3ct7t7r_h0000gn/T"
+            ],
+            "networkAccess": false,
+            "excludeTmpdirEnvVar": false,
+            "excludeSlashTmp": false
+          },
+          "approvalPolicy": "never"
+        }
+      ],
+      "mcpPing": [
+        {
+          "kind": "rt-ping",
+          "marker": "G6",
+          "pid": 23899,
+          "ping": {
+            "ok": true,
+            "health": "ok"
+          }
+        }
+      ]
+    },
+    "G7": {
+      "submitted": {
+        "threadId": "01a10c9a-53fb-76f2-b493-8f8e79a3fb75",
+        "clientId": "f4428d02-4e4a-4db8-8d42-39c85e30c099",
+        "response": {
+          "queuedSubmission": {
+            "id": "01a10c9a-6470-7162-9fc1-8a3d08518c41",
+            "input": [
+              {
+                "type": "text",
+                "text": "Reply DELIVERED and nothing else.",
+                "text_elements": []
+              }
+            ],
+            "clientUserMessageId": "f4428d02-4e4a-4db8-8d42-39c85e30c099"
+          }
+        }
+      },
+      "consumed": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "01a10c9a-64b2-7a02-a6bc-46176a3b3eb7",
+            "clientId": "f4428d02-4e4a-4db8-8d42-39c85e30c099",
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply DELIVERED and nothing else.",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "01a10c9a-53fb-76f2-b493-8f8e79a3fb75",
+          "turnId": "01a10c9a-6475-71c2-9293-4b292ff7e7a7",
+          "startedAtMs": 1791212807348
+        },
+        "connection": "bb0222d3-ae57-4350-84b8-a8e08938fbe6"
+      },
+      "daemonRestart": "unobserved \u2014 shared daemon restart deferred",
+      "queueSurvival": "unobserved",
+      "pendingQuestionSurvival": "unobserved"
+    }
+  },
+  "cleanupAudit": [
+    {
+      "threadId": "01a10c94-690c-79a3-981b-885a681a4a7e",
+      "status": {
+        "type": "notLoaded"
+      }
+    },
+    {
+      "threadId": "01a10c94-820e-73b2-bef0-3bed5fbe66e2",
+      "status": {
+        "type": "notLoaded"
+      }
+    },
+    {
+      "threadId": "01a10c98-ef2f-7a70-b9ec-21200131ab0b",
+      "status": {
+        "type": "notLoaded"
+      }
+    },
+    {
+      "threadId": "01a10c98-ad34-75f3-a2d2-e00500d32a26",
+      "status": {
+        "type": "idle"
+      }
+    },
+    {
+      "threadId": "01a10c98-df0a-7883-bdfb-44407588bc1f",
+      "status": {
+        "type": "idle"
+      }
+    },
+    {
+      "threadId": "01a10c9a-53fb-76f2-b493-8f8e79a3fb75",
+      "status": {
+        "type": "idle"
+      }
+    },
+    {
+      "threadId": "01a10c91-abb7-77d2-961e-90dd91883e59",
+      "error": "Error: -32600: thread not loaded: 01a10c91-abb7-77d2-961e-90dd91883e59"
+    },
+    {
+      "threadId": "01a10c91-ac9f-7972-9d0d-ef26bbc5b679",
+      "error": "Error: -32600: thread not loaded: 01a10c91-ac9f-7972-9d0d-ef26bbc5b679"
+    },
+    {
+      "threadId": "01a10c93-0cc0-7622-960f-0dca06e65e5d",
+      "status": {
+        "type": "notLoaded"
+      }
+    },
+    {
+      "threadId": "01a10c93-1ecb-76e0-8924-e663656ee232",
+      "status": {
+        "type": "notLoaded"
+      }
+    },
+    {
+      "threadId": "01a10c8c-c062-74d1-8978-5b78033726d7",
+      "status": {
+        "type": "notLoaded"
+      }
+    },
+    {
+      "workspace": "wT9",
+      "present": false
+    },
+    {
+      "workspace": "wTA",
+      "present": false
+    },
+    {
+      "workspace": "wTK",
+      "present": false
+    },
+    {
+      "workspace": "wTM",
+      "present": false
+    },
+    {
+      "workspace": "wTQ",
+      "present": false
+    },
+    {
+      "workspace": "wTN",
+      "present": false
+    },
+    {
+      "workspace": "wTP",
+      "present": false
+    },
+    {
+      "workspace": "wTR",
+      "present": false
+    },
+    {
+      "workspace": "wTD",
+      "present": false
+    },
+    {
+      "workspace": "wTE",
+      "present": false
+    },
+    {
+      "workspace": "wTF",
+      "present": false
+    },
+    {
+      "workspace": "wTG",
+      "present": false
+    },
+    {
+      "workspace": "wTH",
+      "present": false
+    },
+    {
+      "workspace": "wTJ",
+      "present": false
+    },
+    {
+      "workspace": "wTB",
+      "present": false
+    },
+    {
+      "workspace": "wTC",
+      "present": false
+    }
+  ],
+  "scope": {
+    "home": "regular user HOME; CODEX_HOME inherited/unset",
+    "services": "existing Codex control, rt and Herdr sockets; no lifecycle changes",
+    "workerConfig": {
+      "approvalPolicy": "never",
+      "sandbox": "workspace-write",
+      "networkAccess": false,
+      "writableRoots": [
+        "<run-dir>"
+      ],
+      "mcpTools": {
+        "probe_whoami": "approve",
+        "probe_rt_ping": "approve"
+      },
+      "mcpScope": "thread/start config; host stdio child, not worker sandbox child"
+    },
+    "restart": "deferred"
+  },
+  "artifactHashes": {
+    "attribution-01/events.jsonl": "4bf3815e168b16d0d947c690872bdd9c1e994e32420908476024b776676002c9",
+    "attribution-06/events.jsonl": "e0df7ebd6588cbacc3191f148fded8d18d3301b77682d74104299779a3ab4cf3",
+    "attribution-06/mcp.jsonl": "16826d28e4b2cbd60ceacf2c671dda78f8d2c9e2140007b6c9309b0d7c0c6767",
+    "policy-01/policy-cli.jsonl": "e5a49637f63f8e69b42294feb1f605413d86adcfbea63e153452fc3c0279e327",
+    "policy-01/events.jsonl": "1a885608ae33c117097e9401864bef9bb03740ad9f1a9b17d1be537a1f55803f",
+    "policy-01/mcp.jsonl": "07a0a23c6b3964dc014af04e7f0db823e4acd1110bb8210f5ec858aca7a65321",
+    "questions-01/events.jsonl": "d077032d8caae2c0f2a76a26391a678c9e9996cba2903735f09f2f6fc486ad0d",
+    "questions-01/mcp.jsonl": "d10e0ce899cb4b015b7407e3384f93bd2c210234fd8ce4115454e738a53e17ea",
+    "attribution-03/events.jsonl": "044fb05e35c28af480e96b4a6c28dd3ea08d29d63130465d4bdf5ce0ec95e06a",
+    "attribution-04/events.jsonl": "c403604493df9d7eb707422099a55a369009d04ad7ee09d5f7b7e4cf27a0a878",
+    "attribution-04/mcp.jsonl": "922a03e452e9b923b4cd919baf427209bdc95dd51d443b98ac47701c3636aa50",
+    "attribution-05/events.jsonl": "a096d92f62814881736abfc1f1e7fb8f3d0f90505faa0eea361e472ed6a4bcab",
+    "attribution-05/cli.jsonl": "1443364f92122c8ada1ea6dfb3b11bb7f0ec6daa5c7c68774073d5417b8c57ae",
+    "attribution-05/mcp.jsonl": "092517eda47423bf26903f0dcb05fc361e49e8ed1fa448e1761b452cf5994174",
+    "attribution-02/events.jsonl": "c3c26dbf456125a6068412b8f6bbc6602b5859eac1fe0ced9c7f94c081453f18",
+    "attribution-02/mcp.jsonl": "76ad01f7f9754f0b7ba28af84eb660c78758e6eadb3794ed49753aa438b783b3"
+  }
+}
