@@ -823,3 +823,149 @@ describe("teamMembersSet", () => {
     expect(writes).toEqual([]);
   });
 });
+
+describe("teamUse", () => {
+  function world(overrides: Partial<TeamDeps> = {}) {
+    const effects: string[] = [];
+    const deps = baseDeps({
+      useTeamSeams: {
+        activeTeam: () => ({ org: "acme", team: "widgets", reason: "first-team", username: "dev2", listedOn: ["widgets", "gadgets"] }),
+        writeUserSetting: (key, value) => { effects.push(`${key}=${value}`); },
+        installPack: async () => ({ ok: true, detail: "1 pack" }),
+        setPackEnabled: async () => true,
+        marketplace: () => "acme-market",
+        restartApp: async () => true,
+      },
+      ...overrides,
+    });
+    return { deps, effects };
+  }
+  test("prints a flat success envelope", async () => {
+    const { deps, effects } = world();
+    await teamActions.teamUse(["gadgets", "--json"], {}, deps);
+    const { at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(typeof at).toBe("string");
+    expect(body).toEqual({ contract: 1, team: "gadgets", previous: "widgets", pack: { installed: true, enabled: true, detail: "1 pack" }, disabled: "widgets@acme-market", restarted: ["board", "boxscore"] });
+    expect(effects).toEqual(["mattstack.activeTeam=gadgets"]);
+  });
+  test("missing team under JSON exits 2 without opening the picker", async () => {
+    const { deps, effects } = world({ interactive: () => true, selectTeam: async () => { throw new Error("must not pick"); } });
+    expect(await runExpectingProcessExit(() => teamActions.teamUse(["--json"], {}, deps))).toBe(2);
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ error: { code: "usage" } });
+    expect(effects).toEqual([]);
+  });
+  test("human usage asks which team", async () => {
+    const { deps, effects } = world({ interactive: () => false });
+    const captured = captureOut();
+    try {
+      expect(await runExpectingProcessExit(() => teamActions.teamUse([], {}, deps))).toBe(2);
+      expect(captured.stderr()).toContain("Which team do you want to work as?");
+    } finally { captured.restore(); }
+    expect(effects).toEqual([]);
+  });
+  test("membership refusal has no effects and draws a refused note", async () => {
+    const { deps, effects } = world();
+    const captured = captureOut();
+    try {
+      expect(await runExpectingProcessExit(() => teamActions.teamUse(["sprockets"], {}, deps))).toBe(2);
+      expect(captured.stderr()).toContain("[refused] The roster does not list you on the sprockets team");
+    } finally { captured.restore(); }
+    expect(effects).toEqual([]);
+  });
+  test("picker offers only memberships in roster order and uses the selection", async () => {
+    const oldBatch = process.env.RT_BATCH;
+    delete process.env.RT_BATCH;
+    try {
+      const { deps, effects } = world({ interactive: () => true, selectTeam: async (choices) => { expect(choices).toEqual(["widgets", "gadgets"]); return "gadgets"; } });
+      const captured = captureOut();
+      try {
+        await teamActions.teamUse([], {}, deps);
+        expect(captured.stdout()).toContain("You are working as the gadgets team");
+      } finally { captured.restore(); }
+      expect(effects).toEqual(["mattstack.activeTeam=gadgets"]);
+    } finally { if (oldBatch === undefined) delete process.env.RT_BATCH; else process.env.RT_BATCH = oldBatch; }
+  });
+  test("canceling the picker exits successfully without effects", async () => {
+    const oldBatch = process.env.RT_BATCH;
+    delete process.env.RT_BATCH;
+    try {
+      const { deps, effects } = world({ interactive: () => true, selectTeam: async () => null });
+      expect(await runExpectingProcessExit(() => teamActions.teamUse([], {}, deps))).toBe(0);
+      expect(effects).toEqual([]);
+    } finally { if (oldBatch === undefined) delete process.env.RT_BATCH; else process.env.RT_BATCH = oldBatch; }
+  });
+});
+
+describe("realUseTeamSeams", () => {
+  test("reads the chosen team through the resolver rather than the raw user global", async () => {
+    const active = await import("../../packages/rt-client/src/settings/active-team.ts");
+    const settings = await import("../../lib/settings/resolve.ts");
+    const activeSpy = spyOn(active, "activeTeam").mockReturnValue({ org: "acme", team: "widgets", reason: "chosen", username: "dev2", listedOn: ["widgets", "gadgets"] });
+    const settingSpy = spyOn(settings, "getSetting").mockImplementation(<T>(key: string) => ({ value: (key === "mattstack.activeTeam" ? "gadgets" : [{ username: "dev2", teams: ["widgets", "gadgets"] }]) as T, provenance: [] }));
+    try {
+      const seams = await teamActions.realUseTeamSeams(baseDeps({ deckPath: () => null }));
+      expect(seams.activeTeam()).toMatchObject({ team: "gadgets", reason: "chosen", listedOn: ["widgets", "gadgets"] });
+      expect(settingSpy.mock.calls.map((a) => a[0])).toContain("mattstack.activeTeam");
+    } finally { activeSpy.mockRestore(); settingSpy.mockRestore(); }
+  });
+
+  test("real update installation preserves a disabled selected pack until explicit enable, then disables the hand-enabled previous pack", async () => {
+    const apply = await import("../../lib/setup/apply.ts");
+    const original = apply.createApplyContext;
+    const forbidden = (): never => { throw new Error("must not access secrets"); };
+    const secrets = { ageKeySeam: new FakeAgeKeySeam(), execSeam: { run: forbidden, fileExists: forbidden, statFile: forbidden, readFile: forbidden, writeFile: forbidden, ensureDir: forbidden, chmod: forbidden, fsyncAndRename: forbidden, removeFile: forbidden } };
+    const presence = { has: async () => { throw new Error("must not inspect credentials"); } };
+    const enabled: Record<string, boolean> = { "widgets@acme-market": true, "gadgets@acme-market": false };
+    const home = "/home/x";
+    const p = fakeProbes({ home, env: { PATH: "/fixture/bin", CLAUDE_CONFIG_DIR: "/fixture/config" },
+      dirs: { [`${home}/.mattstack/teams`]: ["acme"] },
+      files: { ...adminFiles, "/fixture/bin/claude": "bin", [`${ZONE_DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["gadgets", "widgets"] }] }), [`${ZONE_DIR}/.claude-plugin/marketplace.json`]: JSON.stringify({ name: "acme-market", plugins: [{ name: "widgets" }, { name: "gadgets" }] }) },
+      exec: async (argv, opts) => {
+        if (argv[0] === "/fixture/deck") return { code: 0, stdout: "", stderr: "" };
+        expect(argv[0]).toBe("/fixture/bin/claude");
+        expect(opts?.env?.CLAUDE_CONFIG_DIR).toBe("/fixture/config");
+        const [, , verb, id] = argv;
+        if (verb === "list") return { code: 0, stdout: JSON.stringify(Object.entries(enabled).map(([id, enabled]) => ({ id, enabled, version: "1" }))), stderr: "" };
+        if (verb === "install" || verb === "enable") enabled[id!] = true;
+        if (verb === "disable") enabled[id!] = false;
+        if (verb === "uninstall" || verb === "remove") throw new Error("must not remove packs");
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    const contextSpy = spyOn(apply, "createApplyContext").mockImplementation(async (deps) => {
+      expect(deps.secrets).toBe(secrets);
+      expect(deps.secretPresence).toBe(presence);
+      expect(deps.flags.update).toBe(true);
+      return original(deps);
+    });
+    try {
+      const seams = await teamActions.realUseTeamSeams(baseDeps({ probes: p, secrets, secretPresence: presence, deckPath: () => "/fixture/deck" }));
+      expect(seams.marketplace("acme")).toBe("acme-market");
+      expect((await seams.installPack()).ok).toBe(true);
+      expect(enabled["gadgets@acme-market"]).toBe(false);
+      expect(enabled["widgets@acme-market"]).toBe(true);
+      expect(p.calls.exec.some((a) => a[2] === "update" && a[3] === "gadgets@acme-market")).toBe(true);
+      expect(await seams.setPackEnabled("gadgets@acme-market", true)).toBe(true);
+      expect(await seams.setPackEnabled("widgets@acme-market", false)).toBe(true);
+      expect(enabled["gadgets@acme-market"]).toBe(true);
+      expect(enabled["widgets@acme-market"]).toBe(false);
+      expect(await seams.restartApp("board")).toBe(true);
+      expect(p.calls.exec.at(-1)).toEqual(["/fixture/deck", "restart", "board"]);
+      expect(contextSpy.mock.calls).toHaveLength(1);
+    } finally { contextSpy.mockRestore(); }
+  });
+
+  test("missing tools and invalid marketplace are reported without external calls", async () => {
+    const p = fakeProbes({ home: "/home/x", files: { [`${ZONE_DIR}/.claude-plugin/marketplace.json`]: "{" } });
+    const seams = await teamActions.realUseTeamSeams(baseDeps({ probes: p, deckPath: () => null }));
+    expect(seams.marketplace("acme")).toBe("acme");
+    expect(await seams.setPackEnabled("gadgets@acme", true)).toBe(false);
+    expect(await seams.restartApp("boxscore")).toBe(false);
+    expect(p.calls.exec).toEqual([]);
+  });
+  test.each([true, false])("Claude already in the requested state succeeds: %s", async (enabled) => {
+    const p = fakeProbes({ home: "/home/x", env: { PATH: "/fixture/bin" }, files: { "/fixture/bin/claude": "bin" }, exec: async () => ({ code: 1, stdout: "", stderr: `is already ${enabled ? "enabled" : "disabled"}` }) });
+    const seams = await teamActions.realUseTeamSeams(baseDeps({ probes: p, deckPath: () => null }));
+    expect(await seams.setPackEnabled("gadgets@acme", enabled)).toBe(true);
+  });
+});
