@@ -114,7 +114,7 @@ async function herdrRow(p: Probes, opts: { hasBrew: boolean }): Promise<Row> {
 
   const version = extractVersion(versionRes.stdout);
   if (!atLeast(version, HERDR_FLOOR)) {
-    return row({ ...base, status: "invalid", detail: `${named("herdr", version)} is older than ${HERDR_FLOOR}`, action: provisionedInstallAction("herdr", opts.hasBrew, "Upgrade") });
+    return row({ ...base, status: "invalid", detail: version ? `${named("herdr", version)} is older than ${HERDR_FLOOR}` : `rt could not read herdr's version (it needs ${HERDR_FLOOR} or newer)`, action: provisionedInstallAction("herdr", opts.hasBrew, "Upgrade") });
   }
 
   const integrationRes = await exec(p, ["herdr", "integration", "status"]);
@@ -519,7 +519,7 @@ async function teamToolRow(p: Probes, req: ToolRequirement, hasBrew: boolean): P
 
   const version = extractVersion(res.stdout);
   if (req.floor && !atLeast(version, req.floor)) {
-    return row({ ...base, status: "invalid", detail: `${named(req.name, version)} is older than ${req.floor}`, action: teamToolRemedyAction(req, hasBrew, "Upgrade") });
+    return row({ ...base, status: "invalid", detail: version ? `${named(req.name, version)} is older than ${req.floor}` : `rt could not read ${req.name}'s version (it needs ${req.floor} or newer)`, action: teamToolRemedyAction(req, hasBrew, "Upgrade") });
   }
   return row({ ...base, status: "ready", detail: named(req.name, version) });
 }

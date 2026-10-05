@@ -218,6 +218,19 @@ describe("installTool — vendor security (R-T21): team-authored URLs are never 
 });
 
 describe("installTool — bundled-link", () => {
+  for (const reason of ["user-copy", "dev-mode-owns-rt", "occupied", "no-bundle"] as const) {
+    test(`bundled link preserves ${reason} internally`, async () => {
+      const p = fakeProbes();
+      const result = await installTool(p, "gh", [], {
+        ...NOOP_SEAMS,
+        bundledToolExec: () => ["/bundle/Contents/Helpers/gh"],
+        link: () => ({ ok: false, reason, detail: "left alone" }),
+      });
+      expect(result).toEqual({ via: "bundled-link", ok: false, detail: "left alone", reason });
+      expect(p.calls.exec).toEqual([]);
+    });
+  }
+
   test("gh -> link via bundled-link", async () => {
     const seams: ToolsInstallSeams = {
       ...NOOP_SEAMS,
@@ -239,7 +252,7 @@ describe("installTool — bundled-link", () => {
     };
     const p = fakeProbes();
     const result = await installTool(p, "gh", [], seams);
-    expect(result).toEqual({ via: "bundled-link", ok: false, detail: "already occupied" });
+    expect(result).toEqual({ via: "bundled-link", ok: false, detail: "already occupied", reason: "occupied" });
   });
 });
 
