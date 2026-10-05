@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { machineSettingsPath, userSettingsPath } from "../../rt-paths.ts";
+import { setSettingsNoticeSink } from "../../settings/write.ts";
 import { runUpdateWith, type ApplyContext } from "../apply.ts";
 import { MIGRATIONS } from "../migrations/index.ts";
 import { readSetupState } from "../state.ts";
@@ -11,15 +12,20 @@ import { fakeProbes } from "./fakes.ts";
 describe("2026-10-01-unset-board-default-pack", () => {
   const origHome = process.env.HOME;
   let home: string;
+  let notices: string[];
+  let previousNoticeSink: ReturnType<typeof setSettingsNoticeSink>;
   const migration = MIGRATIONS.find((m) => m.id === "2026-10-01-unset-board-default-pack")!;
   const ctx = {} as ApplyContext;
 
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-migration-")));
     process.env.HOME = home;
+    notices = [];
+    previousNoticeSink = setSettingsNoticeSink((line) => { notices.push(line); });
   });
 
   afterEach(() => {
+    setSettingsNoticeSink(previousNoticeSink);
     process.env.HOME = origHome;
     rmSync(home, { recursive: true, force: true });
   });
