@@ -1256,5 +1256,34 @@
     "attribution-05/mcp.jsonl": "092517eda47423bf26903f0dcb05fc361e49e8ed1fa448e1761b452cf5994174",
     "attribution-02/events.jsonl": "c3c26dbf456125a6068412b8f6bbc6602b5859eac1fe0ced9c7f94c081453f18",
     "attribution-02/mcp.jsonl": "76ad01f7f9754f0b7ba28af84eb660c78758e6eadb3794ed49753aa438b783b3"
+  },
+  "verification": {
+    "probeTests": {
+      "passed": 24,
+      "failed": 0,
+      "assertions": 78
+    },
+    "typecheck": "passed",
+    "purity": "passed",
+    "diffCheck": "passed",
+    "rootTests": {
+      "exitCode": 1,
+      "passed": 14356,
+      "skipped": 3,
+      "failed": 13,
+      "errors": 5,
+      "files": 877,
+      "durationSeconds": 1536.91,
+      "baselineComparison": "not performed",
+      "localLog": ".harness-spike/verification/root-tests.log"
+    },
+    "review": {
+      "reviewer": "fresh GPT-6 Astra",
+      "critical": 0,
+      "important": 3,
+      "minor": 0,
+      "importantFixed": "all three regressions observed RED then GREEN; no further live runs",
+      "fixCommit": "dbccb16fa"
+    }
   }
 }

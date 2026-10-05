@@ -96,7 +96,7 @@ Normal native session history and ignored run artifacts remain for inspection. E
 
 ## Verification and decision
 
-Probe unit tests: **24 passed, 0 failed**. TypeScript check and repository purity check passed. The full root test suite is being recorded separately; final outcome will be appended before handoff. No production source or dependency changed.
+Probe unit tests: **24 passed, 0 failed**. TypeScript check and repository purity check passed. The full root suite (`bun run test`) exited 1: **14,356 passed, 3 skipped, 13 failed, 5 errors**, across 877 files. It ran 14,372 tests in 1,536.91 seconds. Failures were in untouched worktree reconciler (3), worktree triage (1), flavor takeover (5), logdy cleanup (1), extension installation (1), rebase (1), and rebase output (1) suites. Six failures were test timeouts; the other seven were assertions. No baseline comparison established whether these failures predate this branch. The separate final probe run includes all three newly added review regressions and passes 24/24. Full-suite output is retained locally at `.harness-spike/verification/root-tests.log`; this spike does not certify a green full repository suite. No production source or dependency changed.
 
 G1/G2/G3 passed; **G5 did not pass**. Revise the spec's **Capabilities and compatibility**, **Questions and gates**, **Setup and application adoption**, and **Verification and release criteria** to make the supported scoped policy-loading/trust mechanism and its enforcement proof explicit. M6/S4 require that evidence before managed Codex can satisfy the full workflow profile. G4's async limitation and G7's restart gaps must remain explicit in the next planning pass. F2 and later remain provisional and unexecuted.
 
