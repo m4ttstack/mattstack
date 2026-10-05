@@ -30,7 +30,7 @@ import { logCliEvent } from "../lib/cli-logger.ts";
 import { redactCredentials } from "../packages/rt-client/src/redact.ts";
 import { daemonQuery } from "../lib/daemon-client.ts";
 import { runCapture } from "../lib/subprocess.ts";
-import { GENERATED_MARKER, loadInterceptRules, shimPath, shimReport, installShims, staleIntercepts, uninstallShims } from "../lib/endpoint/shim.ts";
+import { GENERATED_MARKER, loadInterceptRules, shimPath, shimReport, installShims, interceptsOutOfDate, uninstallShims } from "../lib/endpoint/shim.ts";
 import { runInterception, type RunDeps } from "../lib/endpoint/run.ts";
 
 function toStringEnv(env: Record<string, string | undefined>): Record<string, string> {
@@ -281,7 +281,7 @@ export async function interceptStatus(args: string[]): Promise<void> {
   for (const rule of rules) rulesByRepo[rule.repo] = (rulesByRepo[rule.repo] ?? 0) + 1;
 
   const daemonUp = (await daemonQuery("endpoint:status", {}, 5_000)) !== null;
-  const stale = staleIntercepts();
+  const stale = await interceptsOutOfDate();
 
   if (json) {
     out.json({ ok: true, shims: report, rulesByRepo, daemonUp, stale });
