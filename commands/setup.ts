@@ -42,6 +42,9 @@ import { isValidHostname } from "../lib/setup/host-validate.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";
 import { clearIntent, readIntent, orgRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
+import type { forgeLogin } from "../lib/team/forge.ts";
+import { cloneSlugs, cloneOrigin, recordForgeIdentity } from "../lib/setup/steps/org.ts";
+import { forgeFromRemote } from "../lib/setup/team-settings.ts";
 import { readTeamLocal } from "../lib/team/team-local.ts";
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
 import { planBlocks, rowTitles } from "../lib/setup/plan-blocks.ts";
@@ -891,6 +894,7 @@ export function realTeamSecrets(p: Probes): TeamSecrets {
 }
 
 export interface ConnectDeps extends SetupDeps {
+  forgeLogin?: typeof forgeLogin;
   exit: (code: number) => never;
   /** Reads the full stdin body: valid JSON parses to its value; anything else (a bare token line) comes back as the trimmed raw string; empty stdin is null. Never throws. */
   stdin: () => Promise<unknown>;
@@ -1335,11 +1339,27 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
     staged = (await storeCredential(deps, def.secret.domain, def.secret.key, value)).staged;
   }
 
-  const detail = staged
+  let identityDetail: string | null = null;
+  if (id === "github" || id === "gitlab") {
+    const team = snapshotFor(deps);
+    const slug = team.slug || cloneSlugs(deps.probes)[0] || "";
+    const remote = team.remote ?? (slug ? cloneOrigin(deps.probes, slug) : null);
+    const forge = team.integrations.forge ?? (remote ? forgeFromRemote(remote) : null);
+    const host = id === "github" ? "github.com" : (ctx.host ?? "gitlab.com");
+    if (slug && forge?.provider === id && forge.host === host) {
+      const identity = await recordForgeIdentity(deps.probes, slug, { provider: id, host }, value, deps.forgeLogin);
+      if (identity.admin?.claimed && !identity.admin.published) {
+        const pending = readTeamLocal(deps.probes, slug).creatorPending !== undefined;
+        identityDetail = `You are ${identity.username} and this org's admin now, but rt could not ${pending ? "save" : "push"} that. ${pending ? "Run rt setup apply --only team.identity" : "Run rt team publish"}`;
+      }
+    }
+  }
+
+  const detail = identityDetail ?? (staged
     ? sourceDetail
       ? `${sourceDetail}. Saved for now; Install stores it once your key exists`
       : "Saved for now; Install stores it once your key exists"
-    : (sourceDetail ?? result.detail);
+    : (sourceDetail ?? result.detail));
 
   printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "ready", detail, scopesSeen: result.scopesSeen });
 }

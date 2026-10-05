@@ -63,6 +63,7 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "lib/skills/init.ts": { count: 2, reason: "reads each org clone's team folders through the InitFs seam; getSetting reads only this Mac's org from HOME" },
   },
   "store file": {
+    "lib/setup/steps/org.ts": { count: 1, reason: "reads only injected HOME user host confirmation before the trusted forge token gate" },
     "commands/team.ts": { count: 1, reason: "lists valid team folders with settings through Probes for status; getSetting cannot enumerate org teams" },
     "lib/team/members.ts": { count: 2, reason: "checks org roster ownership before validation and immediately before writing" },
     "lib/team/team-names.ts": { count: 1, reason: "checks named team folders exist before an org roster write" },
