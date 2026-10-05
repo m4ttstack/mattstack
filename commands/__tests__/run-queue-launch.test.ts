@@ -1,9 +1,10 @@
-import { afterEach, test, expect, mock } from "bun:test";
+import { afterEach, beforeEach, test, expect, mock } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { queueToSeed, launchQueue, runCommand, __test__ } from "../run.ts";
 import { __test__ as gate } from "../../lib/ui/gate.ts";
+import * as out from "../../lib/ui/out.ts";
 import { installSequentialPick } from "../../lib/ui/pick-fake.ts";
 
 /** A real git repo with a neutral remote (so deriveRepoIdentity yields a
@@ -33,7 +34,10 @@ const realRunner = { ...(await import("../runner.ts")) };
 const realHerdrLaunch = { ...(await import("../../lib/herdr-launch.ts")) };
 const realRtRender = { ...(await import("../../lib/rt-render.ts")) };
 
+beforeEach(() => out.__test__.reset());
+
 afterEach(() => {
+  out.__test__.reset();
   gate.setInteractive(undefined);
   mock.module("../runner.ts", () => realRunner);
   mock.module("../../lib/herdr-launch.ts", () => realHerdrLaunch);

@@ -1,4 +1,4 @@
-import { afterEach, test, expect, mock } from "bun:test";
+import { afterEach, beforeEach, test, expect, mock } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -6,6 +6,7 @@ import { presetToSeed, launchPreset, resolveRun, runCommand } from "../run.ts";
 import { savePreset, type Preset } from "../../lib/run-presets.ts";
 import { deriveRepoIdentity } from "../../lib/settings/identity.ts";
 import { __test__ as gate } from "../../lib/ui/gate.ts";
+import * as out from "../../lib/ui/out.ts";
 
 /** A real repo with a neutral remote, so deriveRepoIdentity yields a remote
     identity presets can be saved under (savePreset(null) refuses). */
@@ -43,7 +44,10 @@ const realHerdrClient = { ...(await import("../../lib/herdr/client.ts")) };
 const realHerdrLaunch = { ...(await import("../../lib/herdr-launch.ts")) };
 const realRunner = { ...(await import("../runner.ts")) };
 
+beforeEach(() => out.__test__.reset());
+
 afterEach(() => {
+  out.__test__.reset();
   gate.setInteractive(undefined);
   mock.module("../../lib/herdr/client.ts", () => realHerdrClient);
   mock.module("../../lib/herdr-launch.ts", () => realHerdrLaunch);
