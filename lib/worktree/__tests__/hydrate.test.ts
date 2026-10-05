@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, spyOn } from "bun:test";
+import { describe, test as bunTest, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { execSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -87,7 +87,7 @@ const inProcessClone: CloneRunner = async (src, dst) => {
 };
 
 describe("parseIgnoredPaths", () => {
-  test("keeps !! records, strips trailing slash, drops logs and .git", () => {
+  bunTest("keeps !! records, strips trailing slash, drops logs and .git", () => {
     const out = [
       "!! node_modules/",
       "!! apps/backend/generated/",
@@ -104,7 +104,7 @@ describe("parseIgnoredPaths", () => {
     ]);
   });
 
-  test("a path with a space survives verbatim (porcelain v1 would C-quote it)", () => {
+  bunTest("a path with a space survives verbatim (porcelain v1 would C-quote it)", () => {
     expect(parseIgnoredPaths("!! apps/my app/generated/\0")).toEqual(["apps/my app/generated"]);
   });
 });
@@ -115,25 +115,72 @@ describe("hydrateTree", () => {
   let events: Array<{ type: string; data: unknown }>;
   let golden: TreeRecord;
 
-  beforeEach(async () => {
-    process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rthydrate-home-")));
-    closeStateDb();
-    repo = makeRepo();
-    addBareOrigin(repo);
-    repoName = "acme";
-    events = [];
-    writeFileSync(join(repo, ".gitignore"), "node_modules/\ngenerated/\n*.log\n");
-    execSync("git add .gitignore && git -c user.email=t@t -c user.name=t commit -qm gitignore && git push -q origin HEAD", { cwd: repo, shell: "/bin/zsh" });
-    await declareWorktrees(repo, repoName, { onDeck: 1, root: join(repo, ".worktrees"), ready: [{ run: "touch .ready-ran" }] });
-    const made = await createTree({ ...makeDeps(repoName, repo, events), target: "golden" });
-    if (!made.ok) throw new Error("golden create failed");
-    golden = made.tree;
-    mkdirSync(join(golden.path, "node_modules", "pkg"), { recursive: true });
-    writeFileSync(join(golden.path, "node_modules", "pkg", "index.js"), "module.exports = 1;\n");
-    mkdirSync(join(golden.path, "generated"));
-    writeFileSync(join(golden.path, "generated", "types.ts"), "export type T = 1;\n");
-    writeFileSync(join(golden.path, "debug.log"), "noise\n");
+  type FixtureLifetime = {
+    incomingHome?: string;
+    home?: string;
+    setupSettled: Promise<void>;
+    bodySettled: Promise<void>;
+    cleanup: Promise<void> | null;
+  };
+  let fixture: FixtureLifetime | null = null;
+
+  function cleanup(owned: FixtureLifetime): Promise<void> {
+    return owned.cleanup ??= (async () => {
+      // A timed-out beforeEach still owns async create work. Its body must
+      // finish before another fixture changes HOME or the shared database.
+      await owned.setupSettled;
+      await owned.bodySettled;
+      if (!owned.home) return;
+      closeStateDb();
+      if (owned.incomingHome === undefined) delete process.env.HOME;
+      else process.env.HOME = owned.incomingHome;
+    })();
+  }
+
+  function test(name: string, body: () => unknown): void {
+    bunTest(name, () => {
+      const owned = fixture!;
+      const running = Promise.resolve().then(body);
+      owned.bodySettled = running.then(() => {}, () => {});
+      return running;
+    });
+  }
+
+  beforeEach(() => {
+    const previous = fixture;
+    const owned: FixtureLifetime = {
+      setupSettled: Promise.resolve(), bodySettled: Promise.resolve(), cleanup: null,
+    };
+    // Publish ownership before awaiting the prior cleanup, so this hook's
+    // own timeout cannot leave an untracked setup continuation behind.
+    fixture = owned;
+    const setup = Promise.resolve().then(async () => {
+      if (previous) await cleanup(previous);
+      owned.incomingHome = process.env.HOME;
+      owned.home = realpathSync(mkdtempSync(join(tmpdir(), "rthydrate-home-")));
+      process.env.HOME = owned.home;
+      closeStateDb();
+      repo = makeRepo();
+      addBareOrigin(repo);
+      repoName = "acme";
+      events = [];
+      writeFileSync(join(repo, ".gitignore"), "node_modules/\ngenerated/\n*.log\n");
+      execSync("git add .gitignore && git -c user.email=t@t -c user.name=t commit -qm gitignore && git push -q origin HEAD", { cwd: repo, shell: "/bin/zsh" });
+      await declareWorktrees(repo, repoName, { onDeck: 1, root: join(repo, ".worktrees"), ready: [{ run: "touch .ready-ran" }] });
+      const made = await createTree({ ...makeDeps(repoName, repo, events), target: "golden" });
+      if (!made.ok) throw new Error("golden create failed");
+      golden = made.tree;
+      mkdirSync(join(golden.path, "node_modules", "pkg"), { recursive: true });
+      writeFileSync(join(golden.path, "node_modules", "pkg", "index.js"), "module.exports = 1;\n");
+      mkdirSync(join(golden.path, "generated"));
+      writeFileSync(join(golden.path, "generated", "types.ts"), "export type T = 1;\n");
+      writeFileSync(join(golden.path, "debug.log"), "noise\n");
+    });
+    owned.setupSettled = setup.then(() => {}, () => {});
+    return setup;
   });
+
+  afterEach(() => fixture ? cleanup(fixture) : undefined);
 
   test("listIgnoredPaths on the golden returns its artifact set", async () => {
     const paths = await listIgnoredPaths(golden.path);
