@@ -53,7 +53,7 @@ const COUNTS: Record<ShowItem, number> = {
   authorTurn: 7,
   myDrafts: 1,
 };
-const SYNCED = { text: 'data as of 9:41', stale: false };
+const SYNCED = { text: 'data as of 9:41', clock: '9:41', stale: false };
 
 function model(
   off: ShowItem[],
@@ -159,7 +159,7 @@ export const SummaryWithStaleSync: Story = {
         waitingOnAuthor: 5,
         readyToMerge: 0,
       }}
-      synced={{ text: 'data as of 8:05', stale: true }}
+      synced={{ text: 'data as of 8:05', clock: '8:05', stale: true }}
       onNeedsMe={null}
     />
   ),

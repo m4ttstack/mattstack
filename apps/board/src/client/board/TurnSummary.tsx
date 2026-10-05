@@ -13,7 +13,7 @@ export function TurnSummary({
   onNeedsMe,
 }: {
   counts: Record<TurnBucket, number>;
-  synced: { text: string; stale: boolean };
+  synced: { text: string; clock: string | null; stale: boolean };
   onNeedsMe: (() => void) | null;
 }) {
   const parts = ORDER.filter(o => counts[o.key] > 0);
@@ -40,7 +40,7 @@ export function TurnSummary({
         </span>
       ))}
       <span className="tui-turn-synced" data-stale={synced.stale || undefined}>
-        · {synced.text.replace(/^data as of /, 'synced ')}
+        {synced.clock ? `synced ${synced.clock}` : synced.text}
       </span>
     </p>
   );

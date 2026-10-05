@@ -35,7 +35,7 @@ export interface ShowMenuModel {
 }
 
 const slackPlace = (channel: string | null) =>
-  channel ? `#${channel}` : 'Slack';
+  channel ? `#${channel}` : 'team channel';
 
 export function showLabel(item: ShowItem, channel: string | null): string {
   switch (item) {
@@ -132,9 +132,12 @@ function MenuButton({
 export function ShowMenuItems({
   show,
   onOpenTurnSettings,
+  close,
 }: {
   show: ShowMenuModel;
   onOpenTurnSettings?: () => void;
+  /** Kit items never close the menu on click; the settings link must. */
+  close?: () => void;
 }) {
   return (
     <>
@@ -175,7 +178,10 @@ export function ShowMenuItems({
           <ContextMenu.Item
             className="tui-show-settings"
             label="What counts as “waiting on author”…"
-            onClick={onOpenTurnSettings}
+            onClick={() => {
+              close?.();
+              onOpenTurnSettings();
+            }}
           />
         </>
       )}
@@ -342,10 +348,11 @@ function Controls({
           value={`${show.shown} of ${show.total}`}
           ariaLabel="show on the board"
         >
-          {() => (
+          {close => (
             <ShowMenuItems
               show={show}
               onOpenTurnSettings={onOpenTurnSettings}
+              close={close}
             />
           )}
         </MenuButton>

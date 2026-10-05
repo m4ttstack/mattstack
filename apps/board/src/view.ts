@@ -74,14 +74,16 @@ function clockLabel(at: number): string {
 export function dataAgeLabel(
   dataSyncedAt: number | null,
   now: number
-): { text: string; stale: boolean } {
+): { text: string; clock: string | null; stale: boolean } {
   // <= 0 covers a cold shell record's syncedAt (no daemon read has landed
   // yet) -- epoch zero is not a real sync time, and rendering it as
   // "data as of 1:00" (local-timezone midnight) is misleading, not stale-but-honest.
   if (dataSyncedAt === null || dataSyncedAt <= 0)
-    return { text: 'data age unknown', stale: true };
+    return { text: 'data age unknown', clock: null, stale: true };
+  const clock = clockLabel(dataSyncedAt);
   return {
-    text: `data as of ${clockLabel(dataSyncedAt)}`,
+    text: `data as of ${clock}`,
+    clock,
     stale: now - dataSyncedAt > STALE_AFTER_MS,
   };
 }

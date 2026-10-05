@@ -665,7 +665,17 @@ test('dataAgeLabel: fresh, stale, unknown', () => {
   expect(dataAgeLabel(now - 11 * 60_000, now).stale).toBe(true);
   expect(dataAgeLabel(null, now)).toEqual({
     text: 'data age unknown',
+    clock: null,
     stale: true,
+  });
+});
+
+test('dataAgeLabel: exposes the sync clock on its own', () => {
+  const at = new Date(2026, 6, 29, 9, 5).getTime();
+  expect(dataAgeLabel(at, at)).toEqual({
+    text: 'data as of 9:05',
+    clock: '9:05',
+    stale: false,
   });
 });
 
@@ -673,6 +683,7 @@ test('dataAgeLabel: epoch-zero syncedAt (cold shell record) reads as unknown, no
   const now = Date.parse('2026-07-29T15:00:00Z');
   expect(dataAgeLabel(0, now)).toEqual({
     text: 'data age unknown',
+    clock: null,
     stale: true,
   });
 });

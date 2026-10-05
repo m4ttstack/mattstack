@@ -33,10 +33,15 @@ class FakeEventSource {
 
 const BOARD_DATA = {
   title: 'MRs ready for review',
-  defaultMember: 'matt',
-  members: [{ username: 'matt', name: 'Matthew Goodwin', count: 0 }],
+  defaultMember: 'robin-example',
+  members: [{ username: 'robin-example', name: 'Robin Example', count: 0 }],
   allMembers: [
-    { username: 'matt', name: 'Matthew Goodwin', hidden: false, count: 0 },
+    {
+      username: 'robin-example',
+      name: 'Robin Example',
+      hidden: false,
+      count: 0,
+    },
   ],
   mrs: [],
   fetchedAt: 1755600000000,
@@ -75,7 +80,7 @@ function needsMeMr(iid: number) {
     iid,
     title: `mr ${iid}`,
     webUrl: `https://gitlab.example.com/g/p/-/merge_requests/${iid}`,
-    author: { username: 'matt', name: 'Matthew Goodwin' },
+    author: { username: 'robin-example', name: 'Robin Example' },
     sourceBranch: `b${iid}`,
     targetBranch: 'main',
     updatedAt: '2026-08-19T00:00:00Z',
@@ -154,11 +159,13 @@ function emptyCopy(container: HTMLElement): string {
 function withRows(mrs: unknown[]) {
   return {
     ...BOARD_DATA,
-    members: [{ username: 'matt', name: 'Matthew Goodwin', count: mrs.length }],
+    members: [
+      { username: 'robin-example', name: 'Robin Example', count: mrs.length },
+    ],
     allMembers: [
       {
-        username: 'matt',
-        name: 'Matthew Goodwin',
+        username: 'robin-example',
+        name: 'Robin Example',
         hidden: false,
         count: mrs.length,
       },
@@ -282,8 +289,9 @@ test('the turn summary replaces the subtitle and links need you to Needs me', as
     expect(line?.textContent?.replace(/\s+/g, ' ')).toContain('1 need you');
     expect(container.textContent).not.toContain('awaiting review');
     expect(line?.querySelector('.tui-turn-synced')?.textContent).toMatch(
-      /^· synced /
+      /^synced \d{1,2}:\d{2}$/
     );
+    expect(line?.textContent).not.toContain('·');
     const link = [...(line?.querySelectorAll('button') ?? [])].find(
       b => b.textContent === 'need you'
     )!;
@@ -326,6 +334,16 @@ test('the Show menu lists its items checked and taking Not Posted off re-checks 
     await React.act(async () => notPosted().click());
     expect(notPosted().getAttribute('aria-checked')).toBe('true');
     expect(posts).toEqual(['/slack/refresh']);
+  });
+});
+
+test('with no channel known the Slack items name the team channel', async () => {
+  servedData = withRows([needsMeMr(1)]);
+  await mount(async container => {
+    await React.act(async () => showButton(container).click());
+    const menu = document.querySelector('[role="menu"]')?.textContent ?? '';
+    expect(menu).toContain('Posted to team channel');
+    expect(menu).toContain('not posted to team channel yet');
   });
 });
 
