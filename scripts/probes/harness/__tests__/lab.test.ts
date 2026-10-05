@@ -21,3 +21,15 @@ test("remote worker attaches an already-created native thread without unsupporte
  expect(args).toContain("resume");expect(args).toContain("T1");expect(args).not.toContain("--add-dir");
 });
 test("pane read plain text is preserved for failure diagnosis",()=>{expect(parseHerdrOutput("READY\n")).toEqual({output:"READY\n"});});
+
+test("attached worker does not submit a second unsolicited startup turn",()=>{expect(launchArgv("/worker",[],"/control","T1").at(-1)).toBe("T1");});
+test("owned active turns are interrupted independently during cleanup",async()=>{
+ const {OwnedTurns}=await import("../lab");const calls:string[]=[];
+ const turns=new OwnedTurns(new Set(["T1","T2"]));
+ turns.observe({method:"turn/started",params:{threadId:"foreign",turn:{id:"bad"}}});
+ turns.observe({method:"turn/started",params:{threadId:"T1",turn:{id:"A"}}});
+ turns.observe({method:"turn/started",params:{threadId:"T2",turn:{id:"B"}}});
+ turns.observe({method:"turn/completed",params:{threadId:"T1",turn:{id:"old"}}});
+ const rows=await turns.stop(async(t,id)=>{calls.push(`${t}/${id}`);if(t==="T1")throw Error("failed");});
+ expect(calls).toEqual(["T1/A","T2/B"]);expect(rows.map(r=>r.ok)).toEqual([false,true]);
+});

@@ -10,7 +10,13 @@ export class OwnedResources {
  require(id:string):void{if(!this.ids.has(id))throw new Error("resource is not owned");}
  async stop():Promise<CleanupRow[]>{const rows:CleanupRow[]=[];for(const id of [...this.ids].reverse()){try{await this.close(id);this.ids.delete(id);rows.push({resource:id,ok:true});}catch(e){rows.push({resource:id,ok:false,detail:String(e)});}}return rows;}
 }
-export function launchArgv(cwd:string,config:string[]=[],socketPath?:string,threadId?:string):string[]{return ["codex",...(socketPath?["--remote",`unix://${socketPath}`]:[]),"--no-alt-screen","-C",cwd,"-s","workspace-write","-a","never",...config.flatMap(c=>["-c",c]),...(threadId?["resume",threadId]:[]),"You are a disposable harness protocol test worker. Follow only the controller's test instructions. Do not use rt chat, send messages, change project code or launch other agents. Reply READY and nothing else."];}
+export class OwnedTurns {
+ private active=new Map<string,string>();
+ constructor(private owned:Set<string>){}
+ observe(e:any):void{const p=e.params;if(!this.owned.has(p?.threadId))return;if(e.method==="turn/started")this.active.set(p.threadId,p.turn.id);if(e.method==="turn/completed"&&this.active.get(p.threadId)===p.turn.id)this.active.delete(p.threadId);}
+ async stop(interrupt:(thread:string,turn:string)=>Promise<unknown>):Promise<CleanupRow[]>{const rows:CleanupRow[]=[];for(const [thread,turn] of this.active){try{await interrupt(thread,turn);rows.push({resource:`turn ${thread}/${turn}`,ok:true});}catch(e){rows.push({resource:`turn ${thread}/${turn}`,ok:false,detail:String(e)});}}return rows;}
+}
+export function launchArgv(cwd:string,config:string[]=[],socketPath?:string,threadId?:string):string[]{return ["codex",...(socketPath?["--remote",`unix://${socketPath}`]:[]),"--no-alt-screen","-C",cwd,"-s","workspace-write","-a","never",...config.flatMap(c=>["-c",c]),...(threadId?["resume",threadId]:["Reply READY and nothing else."])];}
 export function quote(s:string):string{return "'"+s.replaceAll("'","'\\''")+"'";}
 export async function command(argv:string[]):Promise<string>{const proc=Bun.spawn(argv,{env:process.env,stdout:"pipe",stderr:"pipe"});const timer=setTimeout(()=>proc.kill(),45000);try{const [out,err,code]=await Promise.all([new Response(proc.stdout).text(),new Response(proc.stderr).text(),proc.exited]);if(code!==0)throw new Error(`${argv[0]} ${argv[1]}: ${err.slice(0,1500)}`);return out;}finally{clearTimeout(timer);}}
 export function parseHerdrOutput(raw:string):any{return !raw.trim()?{}:raw.trim().startsWith("{")?JSON.parse(raw):{output:raw};}
@@ -21,8 +27,8 @@ export async function startLab(o:{repo:string;runDir:string;ev:Evidence}){
  const workers:Worker[]=[];const ownedThreads=new Set<string>();const ownedCwds=new Set<string>();
  const herdr=async(...args:string[])=>parseHerdrOutput(await command(["herdr",...args]));
  const resources=new OwnedResources(async id=>{await herdr("workspace","close",id);});
- const clients=new Set<CodexControl>();
- const connect=async()=>{const c=await CodexControl.connect({socketPath:status.socketPath,ownedThreads,ownedCwds,experimentalApi:true,record:m=>o.ev.record("native",m)});clients.add(c);return c;};
+ const clients=new Set<CodexControl>();const turns=new OwnedTurns(ownedThreads);
+ const connect=async()=>{const c=await CodexControl.connect({socketPath:status.socketPath,ownedThreads,ownedCwds,experimentalApi:true,record:m=>{turns.observe(m);o.ev.record("native",m);}});clients.add(c);return c;};
  const discovery=await connect();
  const lab={runDir,repo:o.repo,workers,ownedThreads,rtSocket,connect,herdr,
  async rtPing(){return (await fetch("http://localhost/ping",{unix:rtSocket,method:"POST",body:"{}"})).json();},
@@ -48,7 +54,7 @@ export async function startLab(o:{repo:string;runDir:string;ev:Evidence}){
     return w;
    }catch(e){o.ev.record("worker-launch-failed",{name,error:String(e)});throw e;}
  },
- async stop(){for(const c of clients)c.close();return resources.stop();}
+ async stop(){const rows=await resources.stop();try{rows.push(...await turns.stop((threadId,turnId)=>discovery.call("turn/interrupt",{threadId,turnId})));}finally{for(const c of clients)c.close();}return rows;}
  };
  return lab;
 }
