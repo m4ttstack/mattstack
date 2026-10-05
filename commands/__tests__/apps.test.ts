@@ -1,7 +1,20 @@
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { join } from "path";
-import { appsDisable, appsEnable, appsList, type AppsDeps } from "../apps.ts";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { logsDir } from "../../lib/rt-paths.ts";
+import { appsListBlocks, appsDisable, appsEnable, appsList, type AppsDeps } from "../apps.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
+
+let io: CapturedOut;
+beforeEach(() => {
+  io = captureOut();
+  ui.__test__.setHuman(() => false);
+});
+afterEach(() => io.restore());
 
 const ROWS = [
   { name: "board", managedBy: "rt", displayName: "Board", description: "Open MRs ready for review.", enabled: false, requiresTeam: true },
@@ -9,7 +22,7 @@ const ROWS = [
   { name: "mine", managedBy: "user", displayName: "mine", enabled: true, requiresTeam: false },
 ];
 
-function deps(overrides: { patchStatus?: number; running?: boolean; listBody?: string } = {}): AppsDeps & { out: string[]; patches: string[] } {
+function deps(overrides: { patchStatus?: number; running?: boolean; listBody?: string; listStatus?: number } = {}): AppsDeps & { out: string[]; patches: string[] } {
   const home = "/fake-home";
   const running = overrides.running ?? true;
   const out: string[] = [];
@@ -19,7 +32,7 @@ function deps(overrides: { patchStatus?: number; running?: boolean; listBody?: s
     files: running ? { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) } : {},
     fetch: async (url, init) => {
       if (url.endsWith("/healthz")) return { status: 200, body: "ok", headers: {} };
-      if (url.endsWith("/api/v1/apps")) return { status: 200, body: overrides.listBody ?? JSON.stringify({ apps: ROWS }), headers: {} };
+      if (url.endsWith("/api/v1/apps")) return { status: overrides.listStatus ?? 200, body: overrides.listBody ?? JSON.stringify({ apps: ROWS }), headers: {} };
       if (init?.method === "PATCH") {
         patches.push(`${url} ${init.body} ${init.headers?.["x-local-caller"]}`);
         return { status: overrides.patchStatus ?? 200, body: "{}", headers: {} };
@@ -65,7 +78,7 @@ describe("rt apps", () => {
     await expect(appsEnable(["mine", "--json"], {}, d409)).rejects.toThrow(/exit 2/);
     expect(JSON.parse(d409.out[0]!).error).toMatchObject({
       code: "not-managed",
-      message: "mine is not a mattstack app; rt manages only the apps mattstack ships, and user apps and deck itself are always served",
+      message: "mine is not one of the apps mattstack ships",
     });
   });
 
@@ -80,14 +93,15 @@ describe("rt apps", () => {
       const d = deps({ listBody });
       await expect(appsList(["--json"], {}, d)).rejects.toThrow(/exit 2/);
       expect(d.out).toHaveLength(1);
-      expect(JSON.parse(d.out[0]!).error).toMatchObject({ code: "deck-error", message: "deck answered an unreadable app list" });
+      expect(JSON.parse(d.out[0]!).error).toMatchObject({ code: "deck-error", message: "deck gave an answer rt could not read" });
     }
   });
 
   test("text list with no rt-managed rows says so in one line", async () => {
     const d = deps({ listBody: JSON.stringify({ apps: [ROWS[2]] }) });
     await appsList([], {}, d);
-    expect(d.out).toEqual(["no mattstack apps registered"]);
+    expect(io.stdout()).toBe(renderPlain(appsListBlocks([])));
+    expect(io.stdout()).toBe("[skipped] No mattstack apps are registered\n");
   });
 
   describe("enable with no name", () => {
@@ -117,21 +131,90 @@ describe("rt apps", () => {
       setTTY(true);
       const d = deps();
       await expect(appsEnable([], {}, d)).rejects.toThrow(/exit 2/);
-      expect(d.out).toHaveLength(3);
-      expect(d.out[2]).toBe("rt apps enable: usage: rt apps enable <name> [--json]");
+      expect(io.stdout()).toContain("Board");
+      expect(io.stderr()).toBe("Which app?\n  next: rt apps enable <name>\n");
+      expect(d.out).toEqual([]);
     });
 
-    test("text without a TTY, or under RT_BATCH, prints only the usage line", async () => {
+    test("text without a TTY prints only the usage line", async () => {
       setTTY(false);
       const noTty = deps();
       await expect(appsEnable([], {}, noTty)).rejects.toThrow(/exit 2/);
-      expect(noTty.out).toEqual(["rt apps enable: usage: rt apps enable <name> [--json]"]);
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toBe("Which app?\n  next: rt apps enable <name>\n");
+    });
 
+    test("text under RT_BATCH prints only the usage line", async () => {
       setTTY(true);
       process.env.RT_BATCH = "1";
       const batch = deps();
       await expect(appsEnable([], {}, batch)).rejects.toThrow(/exit 2/);
-      expect(batch.out).toEqual(["rt apps enable: usage: rt apps enable <name> [--json]"]);
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toBe("Which app?\n  next: rt apps enable <name>\n");
     });
   });
 });
+
+test("apps list shows on, off and needs a team", () => {
+  const blocks = appsListBlocks([
+    { name: "board", displayName: "Board", enabled: true, requiresTeam: true },
+    { name: "chat", displayName: "Chat", enabled: false, requiresTeam: false },
+  ]);
+  expect(renderPlain(blocks)).toMatch(/^on +board +Board +needs a team\noff +chat +Chat *\n$/);
+});
+
+test("an unmanaged app is a refusal on stderr", async () => {
+  const d = deps({ patchStatus: 409 });
+  await expect(appsEnable(["deck"], {}, d)).rejects.toThrow("exit 2");
+  expect(io.stdout()).toBe("");
+  expect(d.out).toEqual([]);
+  expect(io.stderr()).toBe("[refused] rt leaves deck alone  it is not one of the apps mattstack ships\n");
+});
+
+for (const json of [false, true]) {
+  for (const scenario of [
+    { name: "HTTP list failure", overrides: { listStatus: 503 }, detail: "deck answered 503 listing apps", run: appsList, args: [] },
+    { name: "unreadable list", overrides: { listBody: "not json" }, detail: "deck answered an unreadable app list", run: appsList, args: [] },
+    { name: "HTTP PATCH failure", overrides: { patchStatus: 502 }, detail: "deck answered 502", run: appsEnable, args: ["board"] },
+  ]) {
+    test(`${scenario.name} persists its detail before ${json ? "JSON" : "human"} output and exit`, async () => {
+      const savedHome = process.env.HOME;
+      const home = mkdtempSync(join(tmpdir(), "rt-apps-failure-"));
+      process.env.HOME = home;
+      try {
+        const d = deps(scenario.overrides);
+        const now = new Date("2026-10-04T12:34:56.000Z");
+        d.probes.now = () => now;
+        const logs = () => existsSync(logsDir())
+          ? readdirSync(logsDir()).filter((f) => f.startsWith("cli.") && f.endsWith(".log"))
+            .flatMap((f) => readFileSync(join(logsDir(), f), "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)))
+          : [];
+        // Both the envelope writer and exit observe the persisted detail.
+        d.print = (s) => {
+          expect(logs()).toContainEqual(expect.objectContaining({ level: "warn", module: "errors", code: "deck-error", detail: scenario.detail }));
+          d.out.push(s);
+        };
+        d.exit = (c) => {
+          expect(logs()).toContainEqual(expect.objectContaining({ level: "warn", module: "errors", code: "deck-error", detail: scenario.detail }));
+          throw new Error(`exit ${c}`);
+        };
+        await expect(scenario.run([...scenario.args, ...(json ? ["--json"] : [])], {}, d)).rejects.toThrow("exit 2");
+        const details = logs().filter((line) => line.detail === scenario.detail);
+        expect(details).toHaveLength(1);
+        expect(details[0].msg).toBe("deck gave an answer rt could not read");
+        expect(io.stdout()).toBe("");
+        if (json) {
+          expect(d.out).toEqual(['{"contract":1,"at":"2026-10-04T12:34:56.000Z","error":{"code":"deck-error","message":"deck gave an answer rt could not read"}}']);
+          expect(io.stderr()).toBe("");
+        } else {
+          expect(d.out).toEqual([]);
+          expect(io.stderr()).toBe("deck gave an answer rt could not read\n  the full output is in the rt log\n");
+        }
+      } finally {
+        if (savedHome === undefined) delete process.env.HOME;
+        else process.env.HOME = savedHome;
+        rmSync(home, { recursive: true, force: true });
+      }
+    });
+  }
+}

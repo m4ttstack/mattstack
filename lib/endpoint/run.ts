@@ -28,6 +28,7 @@ import type { HookInput, ResolvedAllocation } from "./env.ts";
 import { applyArgInject, collectPreservedKeys, renderEnvTemplates, runRoleHook } from "./env.ts";
 import { loadEndpointConfig } from "./config.ts";
 import { identityFromRemote } from "../settings/identity.ts";
+import { repoLabel } from "../repo-label.ts";
 import { matchInvocation, type InterceptRule } from "./shim.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -99,7 +100,7 @@ export async function runInterception(
   const repoCfg = loadEndpointConfig({ repoIdentity, repoName: rule.repo });
   const roleCfg = repoCfg.roles[match.role];
   if (!roleCfg) {
-    deps.warn(`rt-intercept: passthrough — role "${match.role}" is not declared for repo "${rule.repo}"`);
+    deps.warn(`${command} ran without an rt port: ${repoLabel(rule.repo)} has no ${match.role} role`);
     return execUntouched();
   }
 
@@ -112,7 +113,7 @@ export async function runInterception(
   }
 
   if (!claimRes || !claimRes.ok) {
-    deps.warn(`rt-intercept: passthrough — daemon unavailable or claim failed for role "${match.role}"`);
+    deps.warn(`${command} ran without an rt port: rt could not reserve one for the ${match.role} role`);
     return execUntouched();
   }
 
@@ -152,7 +153,7 @@ export async function runInterception(
     childEnv = { ...baseEnv, ...rendered, ...hookEnv };
     finalArgs = applyArgInject(args, match.argInject, envKeys);
   } catch (err) {
-    deps.warn(`rt-intercept: passthrough — applying the claim for role "${match.role}" failed: ${(err as Error).message}`);
+    deps.warn(`${command} ran without an rt port: setting up the ${match.role} role failed (${(err as Error).message})`);
     return execUntouched();
   }
 

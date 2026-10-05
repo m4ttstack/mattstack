@@ -43,6 +43,9 @@
  */
 
 import { loadRepoIndex } from "../repo-index.ts";
+import { repoLabel } from "../repo-label.ts";
+import { cmd } from "../ui/out.ts";
+import { warn } from "../ui/warn.ts";
 import { getSetting, type ResolveOpts } from "../settings/resolve.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -232,7 +235,14 @@ function resolveKey(key: string, repoName: string, opts: ResolveOpts): unknown {
   try {
     return getSetting<unknown>(key, opts).value;
   } catch (err) {
-    console.warn(`rt: ignoring "${key}" for repo "${repoName}" — ${(err as Error).message}`);
+    const message = (err as Error).message;
+    warn("endpoint", `ignoring ${key} for ${repoName}: ${message}`, {
+      show: {
+        title: `An endpoint setting for ${repoLabel(repoName)} is being ignored`,
+        hint: message.split("\n")[0],
+        next: cmd("rt settings check"),
+      },
+    });
     return undefined;
   }
 }

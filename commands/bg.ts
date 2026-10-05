@@ -10,9 +10,12 @@
  */
 import { bgRelease as clientRelease, bgStatus as clientStatus, bgStop as clientStop } from "../packages/rt-client/src/index.ts";
 import type { Commands, RtResponse } from "../packages/rt-client/src/index.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
 
 function fail(msg: string): never {
-  console.error(`rt bg: ${msg}`);
+  out.fail({ title: msg });
   process.exit(1);
 }
 
@@ -30,29 +33,18 @@ function unwrap<T>(res: RtResponse<T>, label: string): T {
 
 type ClaimRow = Commands["bg:status"]["data"]["claims"][number];
 
-export function renderStatus(data: Commands["bg:status"]["data"]): string {
-  const lines = [`server: ${data.up ? "up" : "down"}`, `socket: ${data.socket}`, ""];
-  if (data.claims.length === 0) {
-    lines.push("no live claims");
-  } else {
-    lines.push("claims:");
-    const ownerWidth = Math.max(...data.claims.map((c) => c.owner.length));
-    const now = Date.now();
-    for (const c of data.claims) {
-      const age = Math.max(0, Math.round((now - c.createdAt) / 1000));
-      lines.push(`  ${c.owner.padEnd(ownerWidth)}  ${c.pane ?? "-"}  ${age}s`);
-    }
-  }
-  return lines.join("\n");
+export function bgStatusBlocks(data: Commands["bg:status"]["data"], now: number): Block[] {
+  const head = data.up ? out.line("running", "The background server is running") : out.line("off", "The background server is stopped");
+  if (data.claims.length === 0) return [head, out.line("skipped", "No live claims")];
+  const rows = data.claims.map((c) => [out.strong(c.owner), out.dim(c.pane ?? "-"), `${Math.max(0, Math.round((now - c.createdAt) / 1000))}s`]);
+  return [head, out.section("Live claims", undefined, out.table(rows))];
 }
 
 export async function bgStatus(args: string[]): Promise<void> {
   const data = unwrap(await clientStatus(), "status");
-  if (args.includes("--json")) return void console.log(JSON.stringify({ ok: true, ...data }));
-  console.log(renderStatus(data));
+  if (args.includes("--json")) return void out.json({ ok: true, ...data });
+  out.print(...bgStatusBlocks(data, Date.now()));
 }
-
-const RELEASE_USAGE = "usage: rt bg release [<owner>] [--json]";
 
 async function fetchClaimOwnersForPicker(): Promise<ClaimRow[]> {
   const res = await clientStatus();
@@ -77,18 +69,32 @@ export async function bgRelease(args: string[]): Promise<void> {
     const claims = process.stdin.isTTY && !json && !process.env.RT_BATCH
       ? await fetchClaimOwnersForPicker()
       : [];
-    if (claims.length === 0) fail(RELEASE_USAGE);
+    if (claims.length === 0) {
+      out.fail(usageFailure("Which claim?", "rt bg release <owner>"));
+      process.exit(1);
+    }
     const picked = await pickClaimOwner(claims);
     if (!picked) process.exit(0);
     owner = picked;
   }
   const data = unwrap(await clientRelease({ claim: owner }), "release");
-  if (json) return void console.log(JSON.stringify({ ok: true, ...data }));
-  console.log(data.released ? `released ${owner}` : `${owner} was not claimed`);
+  if (json) return void out.json({ ok: true, ...data });
+  out.print(data.released ? out.line("done", `Released ${owner}`) : out.line("skipped", `${owner} was not claimed`));
 }
 
+const LIVE_CLAIMS = "bg server has live claims: ";
+
 export async function bgStop(args: string[]): Promise<void> {
-  const data = unwrap(await clientStop(), "stop");
-  if (args.includes("--json")) return void console.log(JSON.stringify({ ok: true, ...data }));
-  console.log(data.stopped ? "stopped" : "not stopped");
+  const res = await clientStop();
+  if (!res.ok && res.error?.startsWith(LIVE_CLAIMS)) {
+    const owners = res.error.slice(LIVE_CLAIMS.length);
+    out.note(
+      out.line("refused", "Left the background server running", `it still has live claims: ${owners}`),
+      out.callout("next", out.cmd(`rt bg release ${owners.split(", ")[0]}`)),
+    );
+    process.exit(1);
+  }
+  const data = unwrap(res, "stop");
+  if (args.includes("--json")) return void out.json({ ok: true, ...data });
+  out.print(out.line("done", "Stopped the background server"));
 }

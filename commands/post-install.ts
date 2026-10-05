@@ -1,5 +1,5 @@
 /**
- * rt --post-install — the headless installer entry. Not auto-triggered:
+ * rt --post-install: the headless installer entry. Not auto-triggered:
  * an `rt` invocation without a daemon.json prints a setup hint (cli.ts)
  * and leaves running this to the user or the app. A Sparkle update does not
  * re-run this: the app owns download/install/restart, and runs rt setup
@@ -7,23 +7,23 @@
  *
  * Three things happen, in order:
  *   1. A refusal if the running app is at a transient location (a mounted
- *      DMG, or a Gatekeeper-translocated copy) — that path can vanish out
+ *      DMG, or a Gatekeeper-translocated copy): that path can vanish out
  *      from under an install the moment it's ejected. Checked FIRST, before
  *      anything below can delete a single file: a refusal that has already
  *      destroyed the user's prior install is the worst outcome in this flow.
  *   2. A one-shot legacy migration sweep (idempotent, safe to run every
  *      time): retires the pre-app-shell `com.rt.daemon` launchd label, any
- *      leftover rt-tray.app bundle, and — once a different root is the one
- *      actually running — a stale ~/Applications/mattstack.app copy left
+ *      leftover rt-tray.app bundle, and, once a different root is running,
+ *      a stale ~/Applications/mattstack.app copy left
  *      over from the phase-1 install location.
  *   3. `rt setup apply --non-interactive --team-of-one`, which does
  *      everything else: linking `rt` onto PATH, shell integration, the
  *      daemon, extensions, and the rest of the 22-step install. Only once
  *      that has actually run does a swept migration get its outcome report
- *      — reporting on the daemon's health before apply has had a chance to
+ *      because reporting on the daemon's health before apply has a chance to
  *      (re-)register it would verify nothing.
  *
- * All console output here goes to stderr — this entry point forwards
+ * All notes here go to stderr: this entry point forwards
  * whatever args it was given straight into `setupApply`, and a `--json`
  * caller's stdout must carry nothing but that verb's NDJSON stream.
  */
@@ -31,9 +31,10 @@
 import { spawnSync } from "child_process";
 import { existsSync } from "fs";
 import { bundleRootFromExec } from "../lib/bundle-layout.ts";
-import { legacyTrayAppPaths, legacyUserAppPath, TRAY_APP_BUNDLE, TRAY_APP_NAME } from "../lib/rt-paths.ts";
+import { legacyTrayAppPaths, legacyUserAppPath, TRAY_APP_NAME } from "../lib/rt-paths.ts";
 import { isTransientAppRoot } from "../lib/setup/steps/settings.ts";
 import { setupApply, type ApplyDeps } from "./setup.ts";
+import * as out from "../lib/ui/out.ts";
 
 export interface PostInstallOptions {
   /** Test override for `bundleRootFromExec()`; production passes nothing. */
@@ -54,15 +55,15 @@ function quitApp(name: string): void {
 /**
  * Idempotent, and must run on EVERY post-install BEFORE anything else
  * launches or registers:
- *   - `com.rt.daemon` is booted out unconditionally — the pre-app-shell
+ *   - `com.rt.daemon` is booted out unconditionally: the pre-app-shell
  *     daemon label, fully superseded by `com.mattstack.daemon`; safe and a
  *     no-op on a machine that never had it.
  *   - every `legacyTrayAppPaths()` candidate that exists is quit (by its own
  *     never-changing "rt-tray" identity) and removed.
  *   - a stale `~/Applications/mattstack.app` (the phase-1 install location)
  *     is quit, its OWN old daemon registration booted out (its
- *     BundleProgram points into the bundle about to be deleted — `setup
- *     apply`'s services.register re-registers), and removed — but only when
+ *     BundleProgram points into the bundle about to be deleted: `setup
+ *     apply`'s services.register re-registers), and removed only when
  *     `root` names a DIFFERENT install; a machine still running from that
  *     exact location has nothing stale to sweep.
  * Returns whether anything was actually swept, so the caller knows whether
@@ -91,34 +92,40 @@ function runLegacySweep(root: string | null): boolean {
   return swept;
 }
 
-/** A DMG mount or a Gatekeeper-translocated copy — `root` from either can vanish out from under an install the moment it's ejected. `root === null` (e.g. a bare `dist/rt` outside any bundle) is never transient — there's no bundle location to refuse. */
+/** A DMG mount or a Gatekeeper-translocated copy: `root` from either can vanish out from under an install the moment it's ejected. `root === null` (e.g. a bare `dist/rt` outside any bundle) is never transient: there's no bundle location to refuse. */
 function appPathIsTransient(root: string | null): boolean {
   return root !== null && isTransientAppRoot(root);
 }
 
-/** Loud, not a silent "should work": confirms the new registration actually came up, and reminds the operator that notification/full-disk-access permissions must be re-granted since the bundle id changed. Only worth checking when the sweep actually swept something — and only AFTER `setup apply` has run, or there is nothing yet to verify (services.register/services.start are steps inside that run, not the sweep). */
+/** Loud, not a silent "should work": confirms the new registration actually came up, and reminds the operator that notification/full-disk-access permissions must be re-granted since the bundle id changed. Only worth checking when the sweep actually swept something, and only AFTER `setup apply` has run, or there is nothing yet to verify (services.register/services.start are steps inside that run, not the sweep). */
 async function reportMigrationOutcome(): Promise<void> {
   const { isDaemonRunning } = await import("../lib/daemon-client.ts");
   if (await isDaemonRunning()) {
-    console.error("  ✓ migration: daemon healthy under the new registration");
+    out.note(out.line("done", "The daemon came back after the move to the new app"));
   } else {
-    console.error("  ✗ migration: daemon did not come up under the new registration yet");
-    console.error("    Check: rt daemon status   /   rt verify");
+    out.note(
+      out.line("warn", "The daemon has not come back yet after the move"),
+      out.callout("next", out.cmd("rt daemon status")),
+    );
   }
-  console.error(`  NOTE: notification + full-disk-access permissions must be re-granted for ${TRAY_APP_BUNDLE} — the bundle id changed as part of this migration.`);
+  out.note(out.line("needs-you", "Grant notifications and Full Disk Access to mattstack.app again", "the app's identity changed in this update"));
 }
 
 export async function runPostInstall(args: string[], opts: PostInstallOptions = {}): Promise<void> {
   const root = opts.bundleRoot !== undefined ? opts.bundleRoot : bundleRootFromExec();
   const exit = opts.applyDeps?.exit ?? process.exit;
 
-  // Refuse BEFORE sweeping — the sweep deletes files (a legacy rt-tray.app,
+  // Refuse BEFORE sweeping: the sweep deletes files (a legacy rt-tray.app,
   // a stale ~/Applications/mattstack.app), and a transient root means this
   // process might not even be the real install: destroying the prior
   // install and then refusing to replace it is strictly worse than doing
   // nothing and refusing.
   if (appPathIsTransient(root)) {
-    console.error(`  rt: running from ${root} — drag mattstack.app to /Applications and run this again`);
+    out.fail({
+      title: "Run this from the installed app",
+      why: "rt is running from a disk image or a moved copy, which can disappear mid-install.",
+      next: "Drag mattstack.app to Applications, then run rt --post-install again",
+    });
     return exit(2);
   }
 
@@ -127,7 +134,7 @@ export async function runPostInstall(args: string[], opts: PostInstallOptions = 
   await setupApply(["--non-interactive", "--team-of-one", ...args], {}, opts.applyDeps);
 
   // Only reached once apply has actually run (a failed/bug exit above
-  // returns or throws first) — the daemon this checks is one of apply's own
+  // returns or throws first): the daemon this checks is one of apply's own
   // steps, so checking any earlier would verify nothing.
   if (swept) await reportMigrationOutcome();
 }

@@ -7,13 +7,16 @@
  * preload HOME would silently outrank these tests' own fixtures.
  */
 
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { machineSettingsPath, teamSettingsPath, teamsDir, userSettingsPath } from "../../rt-paths.ts";
 import { closeStateDb, setKvValue } from "../../state/index.ts";
 import { loadEndpointConfig } from "../config.ts";
+import { captureOut } from "../../ui/__tests__/capture-out.ts";
+import * as out from "../../ui/out.ts";
+import { setWarningLog, __test__ as warnings } from "../../ui/warn.ts";
 
 const IDENTITY = "gitlab.com/fake/endpoint-repo";
 const TEAM = "acme";
@@ -21,19 +24,23 @@ const TEAM = "acme";
 describe("loadEndpointConfig", () => {
   const origHome = process.env.HOME;
   let home: string;
-  let warnSpy: ReturnType<typeof spyOn<Console, "warn">>;
+  let io: ReturnType<typeof captureOut>;
+  let logged: Array<{ module: string; message: string }>;
 
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-endpoint-config-")));
     process.env.HOME = home;
     closeStateDb();
-    // "warn + degrade" is the specified behaviour for an unsatisfiable
-    // variable, so the spy is both the quiet-run trick and the assertion.
-    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    io = captureOut();
+    out.__test__.setHuman(() => false);
+    warnings.reset();
+    logged = [];
+    setWarningLog((module, message) => logged.push({ module, message }));
   });
 
   afterEach(() => {
-    warnSpy.mockRestore();
+    warnings.reset();
+    io.restore();
     process.env.HOME = origHome;
     closeStateDb();
     rmSync(home, { recursive: true, force: true });
@@ -225,7 +232,23 @@ describe("loadEndpointConfig", () => {
       cfg = loadEndpointConfig({ repoIdentity: IDENTITY, repoName: "not-registered" });
     }).not.toThrow();
     expect(cfg.roles).toEqual({});
-    expect(warnSpy.mock.calls.flat().join(" ")).toContain("repoRoot");
+    expect(logged[0]?.message).toContain("repoRoot");
+  });
+
+  test("an unresolvable endpoint setting warns once through warn", () => {
+    write(machineSettingsPath(), {
+      repos: { [IDENTITY]: { "rt.roles": { web: { hook: "bun ${repoRoot}/hook.ts" } } } },
+    });
+    const args = { repoIdentity: IDENTITY, repoName: "remote:gitlab.com%2Ffake%2Fendpoint-repo" };
+    expect(loadEndpointConfig(args).roles).toEqual({});
+    expect(loadEndpointConfig(args).roles).toEqual({});
+    expect(logged).toHaveLength(2);
+    expect(logged.map((entry) => entry.module)).toEqual(["endpoint", "endpoint"]);
+    expect(logged[0]?.message).toContain(`ignoring rt.roles for ${args.repoName}:`);
+    expect(io.errLines().filter((line) => line.startsWith("[warning]"))).toHaveLength(1);
+    expect(io.stderr()).toContain("An endpoint setting for endpoint-repo is being ignored");
+    expect(io.stderr()).toContain("  next: rt settings check\n");
+    expect(io.stdout()).toBe("");
   });
 
   test("a null identity makes repo store sections unreachable, even when one is authored", () => {
