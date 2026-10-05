@@ -1369,22 +1369,30 @@ describe("rt chat at a terminal", () => {
     expect(renderPlain(__test__.roomsBlocks([]))).toBe("[skipped] You are not in any room yet\n  next: rt chat join <room>\n");
   });
 
-  test("read is a section per room: each message a name, a time and its body as written", () => {
-    const text = renderPlain(__test__.readBlocks([{ room: "build", messages: [message({ body: "the lede\n\n- one point" }), message({ id: 2, name: "bo", body: "ok" })] }], false, heading));
-    expect(text).toBe("#build\nana  12:04\n    the lede\n  \n    - one point\nbo  12:04\n    ok\n");
+  test("read is a section per room: each message a name, a time and its body, with a blank row between messages", () => {
+    const clock = () => "12:04 CDT";
+    const text = renderPlain(__test__.readBlocks([{ room: "build", messages: [message({ body: "the lede\n\n- one point" }), message({ id: 2, name: "bo", body: "ok" })] }], false, heading, clock));
+    expect(text).toBe("#build\nana  12:04 CDT\n    the lede\n  \n    - one point\n\nbo  12:04 CDT\n    ok\n");
     expect(renderPlain(__test__.readBlocks([], false, heading))).toBe("[skipped] Nothing unread\n");
+  });
+
+  test("the human clock is local time with its zone", () => {
+    expect(__test__.localClock(Date.UTC(2026, 6, 1, 17, 4), "America/Chicago")).toBe("12:04 CDT");
+    expect(__test__.localClock(Date.UTC(2026, 0, 1, 18, 4), "America/Chicago")).toBe("12:04 CST");
+    expect(__test__.localClock(Date.UTC(2026, 0, 1, 0, 30), "UTC")).toBe("00:30 UTC");
   });
 
   test("a long body is cut at 200 characters unless the person asks for all of it", () => {
     const long = "x".repeat(300);
-    const cut = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ body: long })] }], false, heading));
+    const clock = () => "12:04";
+    const cut = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ body: long })] }], false, heading, clock));
     expect(cut).toBe(`#r\nana  12:04\n    ${"x".repeat(199)}…\n`);
-    const whole = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ body: long })] }], true, heading));
+    const whole = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ body: long })] }], true, heading, clock));
     expect(whole).toBe(`#r\nana  12:04\n    ${long}\n`);
   });
 
   test("a message body cannot repaint the screen or forge a row", () => {
-    const text = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ name: "mal", body: "hi\x1b[2Jthere\n[ok] forged" })] }], true, heading));
+    const text = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ name: "mal", body: "hi\x1b[2Jthere\n[ok] forged" })] }], true, heading, () => "12:04"));
     expect(text).toBe("#r\nmal  12:04\n    hithere\n    [ok] forged\n");
   });
 

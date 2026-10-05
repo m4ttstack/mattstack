@@ -666,14 +666,22 @@ function indentBody(body: string): string {
     .join("\n");
 }
 
-function readBlocks(rooms: { room: string; messages: ChatMessage[] }[], full: boolean, headingFor: (room: string) => string): Block[] {
+/** A person's clock: local time with its zone. The frozen read line keeps UTC for agents. */
+function localClock(ms: number, timeZone?: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZoneName: "short", ...(timeZone ? { timeZone } : {}) }).formatToParts(ms);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("hour")}:${part("minute")} ${part("timeZoneName")}`;
+}
+
+function readBlocks(rooms: { room: string; messages: ChatMessage[] }[], full: boolean, headingFor: (room: string) => string, clock: (ms: number) => string = localClock): Block[] {
   if (rooms.length === 0) return [out.line("skipped", "Nothing unread")];
   return rooms.map((r) =>
     out.section(
       headingFor(r.room),
       undefined,
-      ...r.messages.flatMap((m) => [
-        out.table([[out.strong(m.name ?? m.handle), out.dim(new Date(m.postedAt).toISOString().slice(11, 16))]]),
+      ...r.messages.flatMap((m, i) => [
+        ...(i > 0 ? [out.blank()] : []),
+        out.table([[out.strong(m.name ?? m.handle), out.dim(clock(m.postedAt))]]),
         out.paragraph(indentBody(full ? m.body : truncate(m.body, 200))),
       ]),
     ),
@@ -1490,6 +1498,7 @@ export const __test__ = {
   roomForIdentity,
   deriveRoomForCwd,
   roomsBlocks,
+  localClock,
   readBlocks,
   whoBlocks,
   buddiesBlocks,
