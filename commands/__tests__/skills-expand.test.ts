@@ -106,7 +106,27 @@ describe("rt skills expand", () => {
   test("--mattstack-dir with no value is a usage error", async () => {
     const r = await runExpectingCleanExit(() => skillsExpand(["--src", join(root, "src"), "--out", join(root, "out"), "--mattstack-dir"]));
     expect(r.exitCode).toBe(1);
-    expect(r.errors.join("\n")).toContain("--mattstack-dir needs a value");
+    expect(r.errors).toEqual(["Which mattstack folder?", "  next: rt skills expand --mattstack-dir <dir>"]);
+  });
+
+  test.each([
+    ["--src", undefined, "Which folder holds the skills to expand?"],
+    ["--src", "--check", "Which folder holds the skills to expand?"],
+    ["--out", undefined, "Which folder should the expanded skills go in?"],
+    ["--out", "--check", "Which folder should the expanded skills go in?"],
+  ])("%s with next argument %s asks for its folder", async (flag, next, title) => {
+    const args = next === undefined ? [flag] : [flag, next];
+    const r = await runExpectingCleanExit(() => skillsExpand(args));
+    expect(r.exitCode).toBe(1);
+    expect(r.errors).toEqual([title, "  next: rt skills expand --src <dir> --out <dir>"]);
+    expect(io.stdout()).toBe("");
+  });
+
+  test("an unknown option is a hint under a plain title", async () => {
+    const r = await runExpectingCleanExit(() => skillsExpand(["--unknown"]));
+    expect(r.exitCode).toBe(1);
+    expect(r.errors).toEqual(["rt skills expand does not take that option  --unknown"]);
+    expect(io.stdout()).toBe("");
   });
 
   test("--strict fails on a shell form in the expanded output, dry run included", async () => {

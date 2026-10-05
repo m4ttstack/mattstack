@@ -28,8 +28,14 @@ function fail(failure: out.FailureInput): never {
   process.exit(1);
 }
 
+const MISSING_VALUE: Record<string, out.FailureInput> = {
+  "--src": usageFailure("Which folder holds the skills to expand?", "rt skills expand --src <dir> --out <dir>"),
+  "--out": usageFailure("Which folder should the expanded skills go in?", "rt skills expand --src <dir> --out <dir>"),
+  "--mattstack-dir": usageFailure("Which mattstack folder?", "rt skills expand --mattstack-dir <dir>"),
+};
+
 function requireFlagValue(flag: string, value: string | undefined): string {
-  if (!value || value.startsWith("--")) fail({ title: `${flag} needs a value` });
+  if (!value || value.startsWith("--")) fail(MISSING_VALUE[flag]!);
   return value;
 }
 
@@ -45,7 +51,7 @@ function parseFlags(args: string[]): Flags {
       case "--strict": flags.strict = true; break;
       case "--dry-run": flags.dryRun = true; break;
       case "--json": flags.json = true; break;
-      default: fail({ title: `rt skills expand does not take ${a}` });
+      default: fail({ title: "rt skills expand does not take that option", hint: a });
     }
   }
   if (!flags.src) fail(usageFailure("Which folder holds the skills to expand?", "rt skills expand --src <dir> --out <dir>"));
