@@ -85,13 +85,15 @@ launched review starts (👀) or lands (💬 or ✅).
 
 ## Filtering to what has been posted
 
-The Slack mark button in the header, next to refresh, narrows the board to MRs
-whose review request the board has found in the channel: the same rows that
-carry the ✓ chip. An author posting their own MR is often the signal it is
-ready for eyes, so this is a quick "what is actually asking for review" view.
-The state lives in the URL as `?slack=posted`.
+The Show menu in the header carries two Slack items: "Posted to #channel"
+(MRs whose review request the board has found in the channel, the same rows
+that carry the ✓ chip) and "Not Posted" (the rest). Unchecking Not Posted
+narrows the board to what is actually asking for review, since an author
+posting their own MR is often the signal it is ready for eyes. The state
+lives in the URL as `?off=notPosted`; an older `?slack=posted` link still
+reads the same way.
 
-Switching it on re-checks every unresolved MR against a fresh channel index
-(one history call per channel, not one per MR), so a request posted since the
-last sweep shows up right away. The same sweep otherwise runs every
+Unchecking Not Posted re-checks every unresolved MR against a fresh channel
+index (one history call per channel, not one per MR), so a request posted
+since the last sweep shows up right away. The same sweep otherwise runs every
 `slack.autoResolveIntervalMinutes`.

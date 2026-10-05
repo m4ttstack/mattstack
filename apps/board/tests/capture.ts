@@ -168,14 +168,14 @@ try {
     // rows view, desktop
     let page = await newPage(1280, theme);
     await shoot(page, `rows-${theme}`);
-    // a row under the pointer: the checkbox swaps in, the secondary verbs and
-    // the tools appear left of the primary verb, which must not move
+    // a row under the pointer: the checkbox swaps in, the secondary verbs
+    // appear left of the primary verb, which must not move
     await page.locator('.tui-row').first().hover();
-    await page.waitForSelector('.tui-row:hover .tui-status-tools');
+    await page.waitForSelector('.tui-row:hover');
     await shoot(page, `rowhover-${theme}`);
     await page.mouse.move(0, 0);
     // the row's note (B10): the band at rest, then the same row with its
-    // editor open -- the note tool is the first of the row's hover tools.
+    // editor open.
     const noted = await required(
       page.locator('.tui-row[data-note]').first(),
       'a row with a note'
@@ -186,14 +186,9 @@ try {
       await noted.locator('.tui-row-note').hover();
       await page.waitForSelector('.tui-row[data-note] .tui-row-note');
       await shoot(page, `note-${theme}`);
-      // This file has no DOM lib (see `shoot`), so the row is cast to the
-      // shape this click needs rather than typed as an element.
-      await noted.evaluate(row => {
-        const el = row as unknown as {
-          querySelector: (sel: string) => { click: () => void } | null;
-        };
-        el.querySelector('.tui-status-tools button')?.click();
-      });
+      // The band itself is the edit affordance now; click its left end, clear
+      // of the dismiss verb.
+      await noted.locator('.tui-row-note').click({ position: { x: 20, y: 8 } });
       await page.waitForSelector('.tui-row-note[data-editing]');
       await shoot(page, `noteedit-${theme}`);
       await page.keyboard.press('Escape');

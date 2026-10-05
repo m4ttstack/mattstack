@@ -334,6 +334,7 @@ import {
   writeStandDown,
 } from './triage/memory-store.ts';
 import { manualDoctorFields, resolveDispatchIdentity } from './triage/run.ts';
+import { readTurnConfig } from './turn-setting.ts';
 import { effectiveSeat, isOwnMr, resolveStandDownTarget } from './view.ts';
 
 /** Capture-harness mode: boot from a committed fixture dir instead of live
@@ -1541,6 +1542,7 @@ const httpServer = Bun.serve({
             scopeUncoveredSections: snapshot.scopeUncoveredSections,
             scopeKnownSections: snapshot.scopeKnownSections,
             staleAfterDays: config.staleAfterDays,
+            turn: readTurnConfig(),
             tabs: config.tabs,
           }),
           { headers: { 'content-type': 'application/json' } }

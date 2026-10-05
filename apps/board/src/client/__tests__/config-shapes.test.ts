@@ -421,3 +421,23 @@ describe('leafWrite', () => {
     expect(leafWrite(rows, 'team', 'emoji.looking', undefined)).toEqual({});
   });
 });
+
+describe('board.turn row', () => {
+  const turnDef = {
+    key: 'board.turn',
+    type: 'object',
+    schema: {},
+    writable: true,
+    secret: false,
+  } as never;
+  test('gets the board-owned turn editor', () => {
+    expect(shapeOf(turnDef)).toEqual({ kind: 'turn' });
+    expect(rowKind(turnDef)).toBe('turn');
+  });
+  test('any object value matches; arrays and strings do not', () => {
+    expect(matchesShape({ kind: 'turn' }, {})).toBe(true);
+    expect(matchesShape({ kind: 'turn' }, { author: ['threads'] })).toBe(true);
+    expect(matchesShape({ kind: 'turn' }, ['threads'])).toBe(false);
+    expect(matchesShape({ kind: 'turn' }, 'threads')).toBe(false);
+  });
+});
