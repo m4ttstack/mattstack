@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { homedir } from "os";
 import { dirname, resolve } from "path";
 import { activeTeam, readOrgRoles } from "../packages/rt-client/src/settings/active-team.ts";
+import { currentOrg } from "../lib/settings/stores.ts";
 import { readForgeUsername } from "../packages/rt-client/src/settings/team-local-read.ts";
 import { roleOf, writeRefusalFor } from "../packages/rt-client/src/settings/org-roles.ts";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
@@ -174,6 +175,7 @@ function realDeps(opts: { json: boolean }): InitDeps {
     },
     isTTY: Boolean(process.stdin.isTTY) && !opts.json && !process.env.RT_BATCH,
     activeTeam: () => activeTeam().team,
+    currentOrg: () => currentOrg(),
     mayWrite: (zone, relPath) => {
       const roles = readOrgRoles(zone.org);
       return writeRefusalFor(roleOf(readForgeUsername(zone.org), roles), roles, relPath);
@@ -262,7 +264,7 @@ export async function skillsInit(args: string[], _ctx: CommandContext = {}, deps
   }
   if (parsed.json) {
     if (out.ok) ui.json(envelope(out));
-    else if (out.refused) ui.json(userErrorPayload(new UserActionableError(out.code, out.next ? `${out.detail}. Run ${out.next}` : out.detail, { refused: true })));
+    else if (out.refused) ui.json(userErrorPayload(new UserActionableError(out.code, [out.detail, out.why, out.next ? `Run ${out.next}` : undefined].filter(Boolean).join(". "), { refused: true })));
     else ui.json(userErrorPayload(new UserActionableError(out.code, out.detail, { refused: false, wrote: out.wrote })));
   } else if (out.ok) {
     ui.print(...initOutcomeBlocks(out));

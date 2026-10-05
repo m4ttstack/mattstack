@@ -246,6 +246,7 @@ function stubDeps(overrides: Partial<InitDeps> = {}): InitDeps {
     promptZone: async () => { throw new Error("promptZone should not be called"); },
     createZone: async () => { throw new Error("createZone should not be called"); },
     activeTeam: () => null,
+    currentOrg: () => "acme",
     mayWrite: () => null,
     declareClaim: () => {},
     engineDescription: () => "engine description",
@@ -319,6 +320,36 @@ describe("skillsInit", () => {
     expect(io.errLines()[0]).toStartWith("[refused] This team already has a pack");
     expect(io.stderr()).not.toContain("[failed]");
     expect(process.exitCode).toBe(2);
+  });
+
+  for (const json of [false, true]) test(`--zone naming the Mac's other org refuses ${json ? "as JSON" : "for a person"} and names the org it uses`, async () => {
+    const HOME = "/h";
+    const org = (slug: string) => ({
+      [`${HOME}/.mattstack/teams/${slug}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "${slug}" }`,
+      [`${HOME}/.mattstack/teams/${slug}/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com" }`,
+      [`${HOME}/.mattstack/teams/${slug}/mattstack/teams/widgets/settings.team.jsonc`]: `{}`,
+    });
+    const fs = memFs({ ...org("acme"), ...org("beta") });
+    await skillsInit(["--zone", "beta", "--team", "widgets", ...(json ? ["--json"] : [])], {}, stubDeps({ fs, home: HOME, gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }) }));
+    if (json) {
+      const printed = JSON.parse(io.lines()[0]!);
+      expect(printed.error).toEqual({ code: "other-org", message: "The beta org is not the one this Mac uses. rt works with one org per Mac, and this Mac uses acme", refused: true });
+    } else {
+      expect(io.stdout()).toBe("");
+      expect(io.stderr()).toBe("[refused] The beta org is not the one this Mac uses\n  why: rt works with one org per Mac, and this Mac uses acme\n");
+    }
+    expect(process.exitCode).toBe(2);
+  });
+
+  test("--json: a refusal's why rides in the message before the command", async () => {
+    const HOME = "/h";
+    const fs = memFs({
+      [`${HOME}/.mattstack/teams/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com" }`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
+    });
+    await skillsInit(["--team", "widgets", "--json"], {}, stubDeps({ fs, home: HOME, gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }) }));
+    expect(JSON.parse(io.lines()[0]!).error.message).toBe("There is no team called widgets. Only an org admin can add a team. Run rt team add widgets --owner <username>");
   });
 
   test("a team with no forge host is a needs-you note on stderr with the fixing command as next, exit 2", async () => {

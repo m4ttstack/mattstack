@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chooseZone, packIsCompiled, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, zoneTeamConfigReads, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, type InitDeps, type RunResult } from "../init.ts";
+import { chooseZone, packIsCompiled, parseRemote, readZones, readZonesFrom, type InitFs, type ZoneInfo, addMarketplacePlugin, zoneTeamConfigReads, packDescription, PIPELINE_STAGES, renderPackFiles, initPack, readOrgSlugs, type InitDeps, type RunResult } from "../init.ts";
 import { UserActionableError } from "../../errors.ts";
 import { stripJsonc } from "../sources.ts";
 
@@ -315,6 +315,7 @@ function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; 
     promptZone: async () => { throw new Error("must not prompt"); },
     createZone: async () => { throw new Error("must not create"); },
     activeTeam: () => "acme",
+    currentOrg: () => readOrgSlugs(fs, HOME)[0] ?? null,
     mayWrite: () => null,
     declareClaim: (zone, projects) => { calls.claims.push([zone.slug, projects]); },
     engineDescription: (e) => (e === "work" ? "Use when running a unit of work." : null),
@@ -405,6 +406,7 @@ describe("initPack", () => {
       promptZone: async () => { throw new Error("must not prompt"); },
       createZone: async () => { throw new Error("must not create"); },
       activeTeam: () => "acme",
+      currentOrg: () => "acme",
     mayWrite: () => null,
       declareClaim: () => {},
       engineDescription: (e) => (e === "work" ? "Use when running a unit of work." : null),
@@ -558,7 +560,7 @@ describe("initPack", () => {
     const files = { [`${ORG_ROOT("acme")}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }` };
     const { deps } = world({ noOrg: true, files, isTTY: true });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
-    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", detail: "The acme org has no team folders yet, so there is no team to hold a pack", next: "rt team add <team>" });
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", detail: "The acme org has no team folders yet, so there is no team to hold a pack", why: "Only an org admin can add a team", next: "rt team add <team> --owner <username>" });
   });
 
   test("an uncompiled skeleton nobody claims is free: with no team and no active team it is carried on", async () => {
@@ -608,26 +610,82 @@ describe("initPack", () => {
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing" });
     if (out.ok || !out.refused) return;
-    expect(out.next).toBe("rt team add <team>");
+    expect(out.next).toBe("rt team add <team> --owner <username>");
+    expect(out.why).toBe("Only an org admin can add a team");
     expect(out.detail).toBe("No team on gitlab.example.com is free for a new pack");
   });
 
   test("a Mac with an org never prompts for a new one, even on a TTY", async () => {
     const { deps } = world({ gitRemote: async () => ({ kind: "ok", url: "git@gitlab.example.com:acme/api.git" }), isTTY: true, activeTeam: () => null });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
-    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", next: "rt team add <team>" });
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", next: "rt team add <team> --owner <username>" });
   });
 
   test("an unknown --team names rt team add", async () => {
     const { deps } = world();
     const out = await initPack({ repoDir: REPO, zone: null, team: "sprockets" }, deps);
-    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", detail: "There is no team called sprockets", next: "rt team add sprockets" });
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", detail: "There is no team called sprockets", why: "Only an org admin can add a team", next: "rt team add sprockets --owner <username>" });
   });
 
   test("a Mac with no org yet and no TTY points at rt team create", async () => {
     const { deps } = world({ noOrg: true });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
-    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", next: "rt team create <name> --remote <url>" });
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", next: "rt team create <name> --remote <url> --first-team <team>" });
+  });
+
+  test("a Mac with no org and a named team points at rt team create with that team first", async () => {
+    const { deps } = world({ noOrg: true });
+    const out = await initPack({ repoDir: REPO, zone: null, team: "widgets" }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", detail: "This Mac has no org yet, so there is no team to hold a pack", next: "rt team create <name> --remote <url> --first-team widgets" });
+  });
+
+  describe("a Mac with two org clones", () => {
+    const twoOrgs = (betaSettings: Record<string, unknown> = GITLAB) => ({
+      ...orgFiles("acme", GITLAB, { widgets: {} }),
+      ...orgFiles("beta", betaSettings, { widgets: {}, gadgets: {} }),
+    });
+    const fileSnapshot = (fs: InitFs) => {
+      const walk = (dir: string): string[] => fs.readDir(dir).flatMap((name) => {
+        const path = `${dir}/${name}`;
+        return fs.readFile(path) !== null ? [`${path}=${fs.readFile(path)}`] : walk(path);
+      });
+      return walk(`${HOME}/.mattstack/teams`).sort();
+    };
+
+    test("--zone naming the other org refuses and writes nothing in either org", async () => {
+      const { deps, calls, fs } = world({ files: twoOrgs(), noOrg: true, activeTeam: () => null });
+      const before = fileSnapshot(fs);
+      const out = await initPack({ repoDir: REPO, zone: "beta", team: "widgets" }, deps);
+      expect(out).toMatchObject({ ok: false, refused: true, code: "other-org", detail: "The beta org is not the one this Mac uses", why: "rt works with one org per Mac, and this Mac uses acme" });
+      expect(fileSnapshot(fs)).toEqual(before);
+      expect(fs.mkdirped.size).toBe(0);
+      expect(calls.claims).toEqual([]);
+      expect(calls.registered).toEqual([]);
+      expect(calls.claude).toEqual([]);
+    });
+
+    test("a repo only the other org claims never lands there", async () => {
+      const { deps, calls, fs } = world({ files: twoOrgs({ ...GITLAB, "board.projects": ["acme/api"] }), noOrg: true, activeTeam: () => null });
+      const before = fileSnapshot(fs);
+      const out = await initPack({ repoDir: REPO, zone: null, team: "gadgets" }, deps);
+      expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", detail: "There is no team called gadgets" });
+      expect(fileSnapshot(fs)).toEqual(before);
+      expect(calls.claims).toEqual([]);
+    });
+
+    test("the org this Mac uses still gets its pack", async () => {
+      const { deps, calls, fs } = world({ files: twoOrgs(), noOrg: true, activeTeam: () => null });
+      deps.materialize = async () => {
+        fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/widgets`);
+        fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/widgets/skills.jsonc`, "{}");
+        return { ok: true, detail: "merged" };
+      };
+      const out = await initPack({ repoDir: REPO, zone: "acme", team: "widgets" }, deps);
+      expect(out).toMatchObject({ ok: true });
+      expect(calls.claims).toEqual([["acme/widgets", ["acme/api"]]]);
+      expect(fs.exists(`${ORG_ROOT("acme")}/mattstack/teams/widgets/packs/widgets/pack/stubs.jsonc`)).toBe(true);
+      expect(fs.exists(`${ORG_ROOT("beta")}/mattstack/teams/widgets/packs`)).toBe(false);
+    });
   });
 
   test("zone-ambiguous names the teams by their own names", async () => {

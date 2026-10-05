@@ -3310,6 +3310,49 @@ describe("pack role refusals", () => {
 });
 
 
+describe("a Mac with two org clones", () => {
+  for (const json of [[], ["--json"]]) test(`a member's compile of the other org's pack is refused ${json.length ? "as JSON" : "for a person"}`, async () => {
+    const savedHome = process.env.HOME;
+    process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-two-orgs-")));
+    const seed = seedRoleOrg;
+    try {
+        const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } };
+        seed({ org: "acme", username: "dev4", roles, teams: { widgets: {} } });
+        seed({ org: "beta", username: "dev4", roles, teams: { widgets: {} } });
+        const packDir = join(process.env.HOME!, ".mattstack", "teams", "beta", "mattstack", "teams", "widgets", "packs", "widgets");
+        writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
+        const title = "This pack is in the beta org, not the one this Mac uses";
+        const refusal = `${title}. rt works with one org per Mac, and this Mac uses acme`;
+      writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+      const mattstackDir = makeMattstackDir();
+      const manifestPath = makeManifest();
+      const flags = ["--pack-dir", packDir, "--manifest", manifestPath, "--mattstack-dir", mattstackDir, ...json];
+      const result = await runExpectingCleanExit(() => skillsCompile(flags));
+      expect(result.exitCode).toBe(2);
+      if (json.length) expect(JSON.parse(io.lines().at(-1)!).verbs[0].errors).toEqual([refusal]);
+      else expect(io.stderr()).toBe(`[refused] ${title}\n  why: rt works with one org per Mac, and this Mac uses acme\n`);
+      expect(readFileSync(join(packDir, "pack", "stubs.jsonc"), "utf8")).toBe(STUBS_JSONC);
+      expect(existsSync(join(packDir, "skills", "watch-ci", "SKILL.md"))).toBe(false);
+    } finally { process.env.HOME = savedHome; }
+  });
+
+  test("an owner still compiles a pack in the org this Mac uses", async () => {
+    const savedHome = process.env.HOME;
+    process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-two-orgs-")));
+    try {
+      const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } };
+      seedRoleOrg({ org: "acme", username: "dev2", roles, teams: { widgets: {} } });
+      seedRoleOrg({ org: "beta", username: "dev2", roles, teams: { widgets: {} } });
+      const packDir = join(process.env.HOME!, ".mattstack", "teams", "acme", "mattstack", "teams", "widgets", "packs", "widgets");
+      writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
+      writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+      const result = await runExpectingCleanExit(() => skillsCompile(["--pack-dir", packDir, "--manifest", makeManifest(), "--mattstack-dir", makeMattstackDir()]));
+      expect(result.exitCode).toBeUndefined();
+      expect(existsSync(join(packDir, "skills", "watch-ci", "SKILL.md"))).toBe(true);
+    } finally { process.env.HOME = savedHome; }
+  });
+});
+
 test("a zero-target JSON compile refusal keeps its report and explains why on stderr", async () => {
   const savedHome = process.env.HOME;
   process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-empty-pack-role-")));

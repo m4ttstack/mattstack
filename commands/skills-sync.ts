@@ -12,10 +12,9 @@
  */
 
 import { homedir } from "os";
-import { join, relative, isAbsolute, sep } from "path";
+import { join } from "path";
 import { realpathSync } from "fs";
-import { currentOrg } from "../lib/settings/stores.ts";
-import { orgDir } from "../lib/rt-paths.ts";
+import { otherOrgRefusal, packOrg } from "../lib/skills/pack-org.ts";
 import { currentRole, mayWritePath } from "../packages/rt-client/src/settings/org-roles.ts";
 import { discoverPacks, packFromDir, solePack, type PackInfo } from "../lib/skills/packs.ts";
 import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts";
@@ -222,16 +221,21 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
     if (packFlag) fail(`no pack named "${packFlag}" (discovered: ${names})`, { title: `No pack is called ${packFlag}`, next: out.cmd("rt skills packs"), details: `Packs here: ${names}` });
     else fail(`which pack? pass --pack <name> (discovered: ${names})`, usageFailure("Which pack?", "rt skills sync --pack <name>", `There is more than one: ${names}.`));
   }
+  const owner = packOrg(pack!.dir);
+  if (owner.kind === "other") {
+    const { message, why } = otherOrgRefusal(owner.org, owner.current);
+    if (json) out.json({ ok: false, error: `${message}. ${why}` });
+    else out.note(out.line("refused", message), out.callout("why", why));
+    process.exit(2);
+  }
   const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
-  const org = currentOrg();
-  const role = org === null ? null : currentRole(org);
-  const canonical = (dir: string): string => { try { return realpathSync(dir); } catch { return dir; } };
   const deps: SyncDeps = overrides?.deps ?? {
     mayCompile: (name) => {
       const dir = packs.find(p => p.name === name)?.dir;
-      if (org === null || role === null || dir === undefined) return true;
-      const rel = relative(canonical(orgDir(org)), canonical(dir));
-      return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel) || mayWritePath(role, rel.split(sep).join("/"));
+      if (dir === undefined) return true;
+      const found = packOrg(dir);
+      if (found.kind === "outside") return true;
+      return found.kind === "current" && mayWritePath(currentRole(found.org), found.rel);
     },
     run: async (cmd, cmdArgs, opts) => {
       const proc = Bun.spawn([cmd, ...cmdArgs], { cwd: opts?.cwd, env: childEnv(), stdout: "pipe", stderr: "pipe" });

@@ -1,5 +1,5 @@
 import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
-import { captureSkills } from "../../lib/skills/__tests__/helpers.ts";
+import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
 import * as packsModule from "../../lib/skills/packs.ts";
 import * as syncModule from "../../lib/skills/sync.ts";
 import { describe, expect, test, spyOn } from "bun:test";
@@ -376,4 +376,65 @@ for (const target of ["root", "..pack"]) test(`member sync cannot commit ${targe
     process.env.HOME = savedHome; process.exitCode = savedExit ?? 0;
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+describe("a Mac with two org clones", () => {
+  for (const json of [[], ["--json"]]) test(`a member's sync of the other org's pack is refused before any git step ${json.length ? "as JSON" : "for a person"}`, async () => {
+    const savedHome = process.env.HOME;
+    const savedExit = process.exitCode;
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-sync-two-orgs-")));
+    process.env.HOME = home;
+    const io = captureSkills();
+    const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } };
+    seedOrg({ org: "acme", username: "dev4", roles, teams: { widgets: {} } });
+    seedOrg({ org: "beta", username: "dev4", roles, teams: { widgets: {} } });
+    const dir = join(home, ".mattstack", "teams", "beta", "mattstack", "teams", "widgets", "packs", "widgets");
+    mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+    const manifest = join(dir, ".claude-plugin", "plugin.json");
+    const before = '{"name":"widgets","version":"1.0.0"}\n';
+    writeFileSync(manifest, before);
+    const source = { ...pack("widgets"), dir, marketplace: "beta" };
+    const engine = { ...pack("mattstack"), installedCache: true, marketplace: "local" };
+    const discovery = spyOn(packsModule, "discoverPacks").mockReturnValue([source, engine]);
+    const seam = spyOn(syncModule, "syncPack").mockImplementation(async () => { throw new Error("a sync of another org's pack must not start"); });
+    try {
+      const result = await runExpectingCleanExit(() => skillsSync(["--pack", "widgets", "--commit-pending", ...json]));
+      expect(seam).not.toHaveBeenCalled();
+      expect(result.exitCode).toBe(2);
+      if (json.length) expect(JSON.parse(io.stdout())).toEqual({ ok: false, error: "This pack is in the beta org, not the one this Mac uses. rt works with one org per Mac, and this Mac uses acme" });
+      else expect(io.stderr()).toBe("[refused] This pack is in the beta org, not the one this Mac uses\n  why: rt works with one org per Mac, and this Mac uses acme\n");
+      expect(readFileSync(manifest, "utf8")).toBe(before);
+    } finally {
+      seam.mockRestore(); discovery.mockRestore(); io.restore();
+      process.env.HOME = savedHome; process.exitCode = savedExit ?? 0;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("mayCompile counts a pack under any org clone as org-owned", async () => {
+    const savedHome = process.env.HOME;
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-sync-two-orgs-")));
+    process.env.HOME = home;
+    const io = captureSkills();
+    const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } };
+    seedOrg({ org: "acme", username: "dev2", roles, teams: { widgets: {} } });
+    seedOrg({ org: "beta", username: "dev2", roles, teams: { widgets: {} } });
+    const teamPack = (org: string) => join(home, ".mattstack", "teams", org, "mattstack", "teams", "widgets", "packs", "widgets");
+    const packs = [{ ...pack("widgets"), dir: teamPack("acme") }, { ...pack("gadgets"), dir: teamPack("beta") }, { ...pack("mattstack"), dir: join(home, "elsewhere") }];
+    for (const p of packs) mkdirSync(p.dir, { recursive: true });
+    const discovery = spyOn(packsModule, "discoverPacks").mockReturnValue(packs);
+    const verdicts: Record<string, boolean> = {};
+    const seam = spyOn(syncModule, "syncPack").mockImplementation(async (p, _e, deps) => {
+      for (const name of ["widgets", "gadgets", "mattstack"]) verdicts[name] = deps.mayCompile(name);
+      return { ok: true, pack: p.name, steps: [], versions: {}, warnings: [], restartNeeded: false } as unknown as SyncReport;
+    });
+    try {
+      await skillsSync(["--pack", "widgets", "--json"]);
+      expect(verdicts).toEqual({ widgets: true, gadgets: false, mattstack: true });
+    } finally {
+      seam.mockRestore(); discovery.mockRestore(); io.restore();
+      process.env.HOME = savedHome; process.exitCode = 0;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });

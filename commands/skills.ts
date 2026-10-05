@@ -30,11 +30,11 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSy
 import { applyEdits, modify } from "jsonc-parser";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
-import { currentOrg } from "../lib/settings/stores.ts";
+import { otherOrgRefusal, packOrg } from "../lib/skills/pack-org.ts";
 import { readOrgRoles } from "../packages/rt-client/src/settings/active-team.ts";
 import { readForgeUsername } from "../packages/rt-client/src/settings/team-local-read.ts";
 import { roleOf, writeRefusalFor } from "../packages/rt-client/src/settings/org-roles.ts";
-import { mattstackHome, orgDir } from "../lib/rt-paths.ts";
+import { mattstackHome } from "../lib/rt-paths.ts";
 import { childEnv, runCapture } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import { insideCheckout } from "../lib/skills/sync.ts";
@@ -105,12 +105,14 @@ export class SkillsUsageError extends Error {
 export class SkillsRefusal extends SkillsUsageError {}
 
 function refuseUnlessPackOwned(packDir: string): void {
-  const org = currentOrg();
-  if (org === null) return;
-  const rel = relativePath(canonicalPath(orgDir(org)), canonicalPath(packDir));
-  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolutePath(rel)) return;
-  const roles = readOrgRoles(org);
-  const refusal = writeRefusalFor(roleOf(readForgeUsername(org), roles), roles, rel.split(sep).join("/"));
+  const owner = packOrg(packDir);
+  if (owner.kind === "outside") return;
+  if (owner.kind === "other") {
+    const { message, why } = otherOrgRefusal(owner.org, owner.current);
+    throw new SkillsRefusal(`${message}. ${why}`, { title: message, why });
+  }
+  const roles = readOrgRoles(owner.org);
+  const refusal = writeRefusalFor(roleOf(readForgeUsername(owner.org), roles), roles, owner.rel);
   if (refusal) throw new SkillsRefusal(`${refusal.message}. ${refusal.why}`, { title: refusal.message, why: refusal.why });
 }
 

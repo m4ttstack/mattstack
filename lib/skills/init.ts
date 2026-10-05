@@ -292,6 +292,7 @@ export type InitDeps = {
   gitRemote(repoDir: string): Promise<{ kind: "ok"; url: string } | { kind: "not-a-repo" } | { kind: "no-remote" }>;
   isTTY: boolean;
   activeTeam(): string | null;
+  currentOrg(): string | null;
   promptZone(): Promise<{ name: string; remote: string }>;
   createZone(name: string, remote: string): Promise<{ slug: string; team: string; dir: string }>;
   declareClaim(zone: ZoneInfo, projects: string[]): void;
@@ -304,7 +305,7 @@ export type InitDeps = {
 };
 
 export type InitRefusalCode =
-  | "not-yours"
+  | "not-yours" | "other-org"
   | "not-a-repo" | "no-remote" | "zone-ambiguous" | "zone-missing" | "zone-mismatch" | "zone-no-host"
   | "pack-exists" | "mattstack-missing" | "claude-missing";
 
@@ -326,7 +327,7 @@ export type InitOutcome =
   | { ok: false; refused: false; code: FailureCode; detail: string; wrote: string[]; remedy?: InitRemedy; why?: string; next?: string };
 
 /** rt declining by rule, drawn as refused; every other refusal code is a missing prerequisite or a usage slip, drawn as a failure. */
-export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["not-yours", "pack-exists", "zone-mismatch"]);
+export const POLICY_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["not-yours", "other-org", "pack-exists", "zone-mismatch"]);
 
 /** A missing setting only the user can supply: drawn as needs-you, never as a failure. */
 export const NEEDS_YOU_REFUSALS: ReadonlySet<InitRefusalCode> = new Set(["zone-no-host"]);
@@ -373,30 +374,37 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   if (opts.zone !== null && !orgs.includes(opts.zone)) {
     return refuse("zone-missing", `There is no org called ${opts.zone} on this Mac${orgs.length > 0 ? `. Orgs here: ${orgs.join(", ")}` : ""}`);
   }
+  let current = deps.currentOrg();
+  if (opts.zone !== null && current !== null && opts.zone !== current) {
+    return refuse("other-org", `The ${opts.zone} org is not the one this Mac uses`, undefined, `rt works with one org per Mac, and this Mac uses ${current}`);
+  }
   const activeRaw = deps.activeTeam();
   const active = activeRaw !== null && TEAM_NAME_RE.test(activeRaw) ? activeRaw : null;
   let wantedTeam = opts.team;
   const wanted = (): ZoneWanted => ({ org: opts.zone, team: wantedTeam, active });
-  let zones = readZones(deps.fs, deps.home);
+  const currentZones = () => readZones(deps.fs, deps.home).filter((z) => z.org === current);
+  let zones = currentZones();
   let choice = chooseZone(zones, repo, wanted());
-  if (choice.kind === "missing" && opts.team === null && orgs.length === 0) {
-    if (!deps.isTTY) {
-      return refuse("zone-missing", "This Mac has no org yet, so there is no team to hold a pack", "rt team create <name> --remote <url>");
+  if (choice.kind === "missing" && orgs.length === 0) {
+    if (!deps.isTTY || opts.team !== null) {
+      return refuse("zone-missing", "This Mac has no org yet, so there is no team to hold a pack", `rt team create <name> --remote <url> --first-team ${opts.team ?? "<team>"}`);
     }
     const answer = await deps.promptZone();
     const created = await deps.createZone(answer.name, answer.remote);
     wantedTeam = created.team;
     orgs = readOrgSlugs(deps.fs, deps.home);
-    zones = readZones(deps.fs, deps.home);
+    current = deps.currentOrg();
+    zones = currentZones();
     choice = chooseZone(zones, repo, wanted());
   }
+  const adminsOnly = "Only an org admin can add a team";
   if (choice.kind === "missing" && wantedTeam === null && zones.length === 0) {
-    return refuse("zone-missing", `${orgs.length === 1 ? `The ${orgs[0]} org has` : "Your orgs have"} no team folders yet, so there is no team to hold a pack`, "rt team add <team>");
+    return refuse("zone-missing", `The ${current ?? orgs[0]} org has no team folders yet, so there is no team to hold a pack`, "rt team add <team> --owner <username>", adminsOnly);
   }
   if (choice.kind === "missing") {
     return wantedTeam
-      ? refuse("zone-missing", `There is no team called ${wantedTeam}`, `rt team add ${wantedTeam}`)
-      : refuse("zone-missing", `No team on ${repo.host} is free for a new pack`, "rt team add <team>");
+      ? refuse("zone-missing", `There is no team called ${wantedTeam}`, `rt team add ${wantedTeam} --owner <username>`, adminsOnly)
+      : refuse("zone-missing", `No team on ${repo.host} is free for a new pack`, "rt team add <team> --owner <username>", adminsOnly);
   }
   if (choice.kind === "ambiguous") {
     return refuse("zone-ambiguous", `More than one team could hold this pack: ${choice.zones.map((z) => z.team).join(", ")}`, "rt skills init --team <name>");

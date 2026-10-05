@@ -2386,7 +2386,7 @@ export const TREE: Record<string, CommandNode> = {
         args: [
           { name: "Repo", flag: "--repo", type: "text", placeholder: "/path/to/repo", hint: "Repo to declare; defaults to the current directory" },
           { name: "Team", flag: "--team", type: "text", placeholder: "widgets", hint: "The team folder that gets the pack; your own team when left out" },
-          { name: "Zone", flag: "--zone", type: "text", placeholder: "acme", hint: "The org clone, when this Mac has more than one" },
+          { name: "Zone", flag: "--zone", type: "text", placeholder: "acme", hint: "The org, which must be the one this Mac uses" },
           SETUP_JSON_ARG,
         ],
       },
@@ -2833,7 +2833,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       add: {
-        description: "Add a team to your org, with its owners",
+        description: "As an org admin, add a team to your org with its owners",
         module: "./commands/team.ts",
         fn: "teamAdd",
         omitBehavior: { exempt: "a new team's name cannot be listed" },

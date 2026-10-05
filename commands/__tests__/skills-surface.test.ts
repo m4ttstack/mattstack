@@ -1186,3 +1186,32 @@ describe("pack role refusals", () => {
     });
   }
 });
+
+
+describe("a Mac with two org clones", () => {
+  for (const json of [[], ["--json"]]) test(`a member's surface change in the other org's pack is refused ${json.length ? "as JSON" : "for a person"}`, async () => {
+    const savedHome = process.env.HOME;
+    process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-two-orgs-")));
+    const seed = seedOrg;
+    try {
+        const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } };
+        seed({ org: "acme", username: "dev4", roles, teams: { widgets: {} } });
+        seed({ org: "beta", username: "dev4", roles, teams: { widgets: {} } });
+        const packDir = join(process.env.HOME!, ".mattstack", "teams", "beta", "mattstack", "teams", "widgets", "packs", "widgets");
+        writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
+        const title = "This pack is in the beta org, not the one this Mac uses";
+        const refusal = `${title}. rt works with one org per Mac, and this Mac uses acme`;
+      writeFile(join(packDir, "pack", "surface.jsonc"), '{"public":["helper"]}');
+      writeFile(join(packDir, "skills", "helper", "SKILL.md"), "---\nname: helper\ndescription: Help\n---\nHelp.\n");
+      const before = readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8");
+      for (const mode of [["set", "helper", "--internal"], ["apply"]]) {
+        const result = await runExpectingCleanExit(() => skillsSurface([...mode, "--pack-dir", packDir, ...json]));
+        expect(result.exitCode).toBe(2);
+        if (json.length) expect(JSON.parse(io.lines().at(-1)!).compileErrors).toEqual([refusal]);
+        else expect(io.stderr()).toStartWith(`[refused] ${title}\n  why: rt works with one org per Mac, and this Mac uses acme`);
+        expect(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8")).toBe(before);
+        expect(existsSync(join(packDir, "attachments", "helper", "SKILL.md"))).toBe(false);
+      }
+    } finally { process.env.HOME = savedHome; }
+  });
+});

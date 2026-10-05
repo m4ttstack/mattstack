@@ -1094,3 +1094,33 @@ describe("pack role refusals", () => {
     });
   }
 });
+
+
+describe("a Mac with two org clones", () => {
+  for (const json of [[], ["--json"]]) test(`a member's bind in the other org's pack is refused ${json.length ? "as JSON" : "for a person"}`, async () => {
+    const savedHome = process.env.HOME;
+    process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-two-orgs-")));
+    const seed = seedOrg;
+    try {
+        const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } };
+        seed({ org: "acme", username: "dev4", roles, teams: { widgets: {} } });
+        seed({ org: "beta", username: "dev4", roles, teams: { widgets: {} } });
+        const packDir = join(process.env.HOME!, ".mattstack", "teams", "beta", "mattstack", "teams", "widgets", "packs", "widgets");
+        writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
+        const title = "This pack is in the beta org, not the one this Mac uses";
+        const refusal = `${title}. rt works with one org per Mac, and this Mac uses acme`;
+      writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
+      const { mattstackDir, manifestPath } = makeEngineFixture();
+      const before = readFileSync(manifestPath, "utf8");
+      const fragmentPath = join(packDir, "pack", "skills.jsonc");
+      writeFile(fragmentPath, manifestText("acme:watch-ci-domain-v1"));
+      const fragmentBefore = readFileSync(fragmentPath, "utf8");
+      const result = await runExpectingCleanExit(() => skillsBind(["watch-ci", "domain", "acme:watch-ci-domain-v2", "--pack-dir", packDir, "--manifest", manifestPath, "--mattstack-dir", mattstackDir, ...json]));
+      expect(result.exitCode).toBe(2);
+      if (json.length) expect(JSON.parse(io.lines().at(-1)!).compileErrors).toEqual([refusal]);
+      else expect(io.stderr()).toStartWith(`[refused] ${title}\n  why: rt works with one org per Mac, and this Mac uses acme`);
+      expect(readFileSync(manifestPath, "utf8")).toBe(before);
+      expect(readFileSync(fragmentPath, "utf8")).toBe(fragmentBefore);
+    } finally { process.env.HOME = savedHome; }
+  });
+});
