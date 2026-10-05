@@ -187,11 +187,11 @@ describe("mintInvite", () => {
   });
 
   test("throws no-team-remote when the team has no git remote configured", async () => {
-    const p = fakeProbes({ home: HOME });
+    const p = fakeProbes({ home: HOME, files: { [`${HOME}/.mattstack/teams/${SLUG}/mattstack/teams/widgets/settings.team.jsonc`]: "{}" } });
     const { seams } = baseSeams();
     const relay = fakeRelayClient();
 
-    await expect(mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams)).rejects.toThrow(UserActionableError);
+    await expect(mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams)).rejects.toMatchObject({ code: "no-team-remote" });
   });
 
   test("posts only ciphertext to the relay — the pointer's plaintext AND the code's key never appear in the request", async () => {

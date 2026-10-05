@@ -1,5 +1,8 @@
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { closeStateDb } from "../../state/index.ts";
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
-import { beforeEach, describe, test, expect } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import {
   TEAM_PATH_REGEX,
   teamSecretsFile,
@@ -29,7 +32,20 @@ import { captureOut } from "../../ui/__tests__/capture-out.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { teamLocalPath } from "../../team/team-local.ts";
 
-beforeEach(() => { seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }); });
+let fixtureHome: string;
+let priorHome: string | undefined;
+beforeEach(() => {
+  priorHome = process.env.HOME;
+  closeStateDb();
+  fixtureHome = realpathSync(mkdtempSync(`${tmpdir()}/rt-org-fixture-`));
+  process.env.HOME = fixtureHome;
+  seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } });
+});
+afterEach(() => {
+  closeStateDb();
+  process.env.HOME = priorHome;
+  rmSync(fixtureHome, { recursive: true, force: true });
+});
 
 function teamCloneRootFor(slug: string): string {
   return join(teamsDir(), slug);

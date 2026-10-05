@@ -818,8 +818,8 @@ export async function realUseTeamSeams(deps: TeamDeps): Promise<UseTeamSeams> {
       });
       const plugins = await installPlugins(ctx);
       if (plugins.state === "failed") return { ok: false, detail: plugins.detail };
-      await materializeSkills(ctx.p, {});
-      return { ok: true, detail: plugins.detail ?? "The packs are installed" };
+      if (plugins.state === "skipped") await materializeSkills(ctx.p, {});
+      return { ok: plugins.state === "done", detail: plugins.detail ?? "The packs are installed" };
     },
     setPackEnabled: async (id, enabled) => {
       const claude = resolveTool(deps.probes, "claude");

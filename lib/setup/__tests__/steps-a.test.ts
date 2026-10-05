@@ -482,6 +482,11 @@ describe("team.create", () => {
     expect(second.state).toBe("done");
     expect(p.calls.exec.slice(execCallsBefore)).toEqual([
       ["git", "cat-file", "-e", "HEAD:mattstack/mattstack.jsonc"],
+      ["git", "cat-file", "-e", "HEAD:mattstack/org/settings.org.jsonc"],
+      ["git", "cat-file", "-e", "HEAD:mattstack/teams/personal/settings.team.jsonc"],
+      ["git", "cat-file", "-e", "HEAD:.claude-plugin/marketplace.json"],
+      ["git", "cat-file", "-e", "HEAD:.sops.yaml"],
+      ["git", "cat-file", "-e", "HEAD:.gitignore"],
       ["git", "push", "-u", "origin", "main"],
     ]);
   });
@@ -669,7 +674,20 @@ describe("team.join after the join itself finished", () => {
 // ─── secrets.write ───────────────────────────────────────────────────────────
 
 describe("secrets.write", () => {
-  beforeEach(() => { seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } }); });
+  let priorHome: string | undefined;
+  let fixtureHome: string;
+  beforeEach(() => {
+    priorHome = process.env.HOME;
+    closeStateDb();
+    fixtureHome = realpathSync(mkdtempSync(join(tmpdir(), "rt-secrets-step-")));
+    process.env.HOME = fixtureHome;
+    seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
+  });
+  afterEach(() => {
+    closeStateDb();
+    process.env.HOME = priorHome;
+    rmSync(fixtureHome, { recursive: true, force: true });
+  });
   function stagedProbes(staged: Record<string, Record<string, string>>, extraFiles: Record<string, string> = {}): ReturnType<typeof fakeProbes> {
     const dir = stagingDir("/fake-home");
     const files: Record<string, string> = { ...extraFiles };

@@ -115,9 +115,11 @@ export async function claimPendingAdmin(p: Probes, slug: string, username: strin
   }
   if (after !== before) p.writeFile(file, after);
   try {
+    const origin = readExistingOrigin(p, join(p.home, ".mattstack", "teams", slug));
+    if (!origin) throw new UserActionableError("no-team-remote", "Your org has no repo to publish to");
+    if (!(await scaffoldInHead(p, slug, pending.team))) await completeScaffold(p, slug, pending.team, readIntent(p)?.team?.name ?? slug, origin, pending.agePublicKey);
     await commitCreator(p, slug, username);
     updateTeamLocal(p, slug, { creatorPending: undefined });
-    const origin = readExistingOrigin(p, join(p.home, ".mattstack", "teams", slug));
     await publishTeam(p, slug, null, { token, tokenRemote: origin });
     return { claimed: true, published: true };
   } catch (err) {
@@ -159,6 +161,30 @@ export function scaffoldFiles(slug: string, name: string, remote: string, recipi
     ".sops.yaml": renderSopsYamlFor(TEAM_PATH_REGEX, recipients),
     ".gitignore": "mattstack/org/secrets/*.tmp\n.DS_Store\n",
   };
+}
+
+async function scaffoldInHead(p: Probes, slug: string, team: string): Promise<boolean> {
+  const cwd = join(p.home, ".mattstack", "teams", slug);
+  for (const path of Object.keys(scaffoldFiles(slug, slug, "", [], team))) {
+    if ((await p.exec(["git", "cat-file", "-e", `HEAD:${path}`], { cwd })).code !== 0) return false;
+  }
+  return true;
+}
+
+function writeScaffoldFiles(p: Probes, dir: string, files: Record<string, string>): void {
+  for (const [path, content] of Object.entries(files)) {
+    const file = join(dir, path);
+    if (p.exists(file)) continue;
+    p.mkdirp(dirname(file));
+    p.writeFile(file, content);
+  }
+}
+
+async function completeScaffold(p: Probes, slug: string, team: string, name: string, remote: string, publicKey?: string): Promise<void> {
+  const cwd = join(p.home, ".mattstack", "teams", slug);
+  const files = scaffoldFiles(slug, name, remote, publicKey ? [publicKey] : [], team);
+  writeScaffoldFiles(p, cwd, files);
+  await commitFiles(p, slug, Object.keys(files), `team: scaffold ${slug}`);
 }
 
 function readExistingOrigin(p: Probes, dir: string): string | null {
@@ -276,7 +302,7 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
   };
 
   const scaffolded = originConfigured !== null && p.exists(join(dir, SCAFFOLD_MARKER))
-    ? (await p.exec(["git", "cat-file", "-e", `HEAD:${SCAFFOLD_MARKER}`], { cwd: dir })).code === 0
+    ? await scaffoldInHead(p, slug, team)
     : false;
   if (originConfigured !== null && scaffolded) {
     const creator = await recordCreator(originConfigured);
@@ -302,15 +328,7 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
 
   const { publicKey } = await ensureAgeKey(ageKeySeam);
   const scaffold = scaffoldFiles(slug, opts.name, remote, [publicKey], team);
-  const paths = Object.keys(scaffold);
-  const writeScaffold = () => {
-    for (const [relPath, content] of Object.entries(scaffold)) {
-      const fullPath = join(dir, relPath);
-      if (p.exists(fullPath)) continue; // a resumed partial zone already has this file — never clobber real content with the scaffold's own placeholder
-      p.mkdirp(dirname(fullPath));
-      p.writeFile(fullPath, content);
-    }
-  };
+  const writeScaffold = () => writeScaffoldFiles(p, dir, scaffold);
   const recordIntent = () =>
     writeIntent(p, {
       v: 1,
@@ -342,7 +360,7 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
   writeScaffold();
   const creator = await recordCreator(remote);
 
-  await commitFiles(p, slug, paths, `team: scaffold ${slug}`);
+  await completeScaffold(p, slug, team, opts.name, remote, publicKey);
 
   const creatorLocal = readTeamLocal(p, slug);
   if (creatorLocal.forgeUsername && creatorLocal.creatorPending) updateTeamLocal(p, slug, { creatorPending: undefined });
