@@ -148,6 +148,27 @@ describe("planConversion", () => {
     expect(Object.keys(settings(plan.writes["mattstack/teams/widgets/settings.team.jsonc"]!).repos)).toEqual([OWN]);
   });
 
+  test("a team repo that names no repo section is refused, so a typo cannot send the team's section to the org", () => {
+    expect(() => run(oldClone(), { teamRepos: ["gitlab.example.com/acme/typo"] })).toThrow(
+      "The old store has no repo section named gitlab.example.com/acme/typo. Check the spelling of that team repo.",
+    );
+  });
+
+  test("retired keys stay out of both new stores, and the report names them", () => {
+    const old = settings(oldClone().files["mattstack/settings.team.jsonc"]!);
+    const plan = run(oldClone({
+      "mattstack/settings.team.jsonc": JSON.stringify({ ...old, "board.defaultPack": "widgets", "board.switchboardUrl": "https://switchboard.example.com", "mattstack.mode": "team" }),
+    }));
+    const org = settings(plan.writes["mattstack/org/settings.org.jsonc"]!);
+    const team = settings(plan.writes["mattstack/teams/widgets/settings.team.jsonc"]!);
+    for (const key of ["board.defaultPack", "board.switchboardUrl", "mattstack.mode", "board.members"]) {
+      expect(key in org).toBe(false);
+      expect(key in team).toBe(false);
+    }
+    expect(plan.report).toContain("board.defaultPack, board.switchboardUrl and mattstack.mode are retired; left out of the new stores");
+    expect(org["mattstack.roster"].map((entry: { username: string }) => entry.username)).toEqual(["dev1", "dev2", "dev3"]);
+  });
+
   test("the roster moves to the org with teams, takes what only board.members knew, gains the admin, and board.members goes", () => {
     const plan = run(oldClone(), { admin: "dev9" });
     const org = settings(plan.writes["mattstack/org/settings.org.jsonc"]!);

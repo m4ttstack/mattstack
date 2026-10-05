@@ -1,4 +1,5 @@
 import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
+import { isRetiredKey } from "../../packages/rt-client/src/settings/registry-machinery.ts";
 import { parse, parseTree, printParseErrorCode, type Node, type ParseError } from "jsonc-parser";
 import { isMap, isScalar, isSeq, parseDocument } from "yaml";
 
@@ -160,8 +161,12 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
 
   const org: Json = {};
   const teamStore: Json = {};
+  const retired: string[] = [];
   for (const [key, value] of Object.entries(global)) {
-    if (key === "board.members") continue;
+    if (isRetiredKey(key)) {
+      if (key !== "board.members") retired.push(key);
+      continue;
+    }
     if (key === "claude.plugins" && Array.isArray(value)) {
       const mine = value.filter((p) => p === ownPlugin);
       const shared = value.filter((p) => p !== ownPlugin);
@@ -178,6 +183,11 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
       continue;
     }
     (ORG_KEYS.has(key) ? org : teamStore)[key] = value;
+  }
+
+  if (retired.length > 0) {
+    const names = retired.length === 1 ? retired[0]! : `${retired.slice(0, -1).join(", ")} and ${retired.at(-1)}`;
+    report.push(`${names} ${retired.length === 1 ? "is" : "are"} retired; left out of the new stores`);
   }
 
   const roster: Json[] = (Array.isArray(global["mattstack.roster"]) ? (global["mattstack.roster"] as Json[]) : []).map((entry) => ({ ...entry, teams: [team] }));
@@ -202,6 +212,9 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
   org["mattstack.org"] = { admins: [opts.admin], teams: { [team]: { owners: [opts.admin] } } };
 
   const teamRepos = new Set(opts.teamRepos ?? []);
+  for (const identity of teamRepos) {
+    if (!Object.hasOwn(oldRepos ?? {}, identity)) throw new Error(`The old store has no repo section named ${identity}. Check the spelling of that team repo.`);
+  }
   const orgRepos: Json = {};
   const ownRepos: Json = {};
   for (const [identity, section] of Object.entries(oldRepos ?? {})) (teamRepos.has(identity) ? ownRepos : orgRepos)[identity] = section;
