@@ -50,8 +50,8 @@ func (r *renderer) gap() {
 	r.out.WriteByte('\n')
 }
 
-// blocks leads the block after a copy with a gap, since a copy carries no
-// rail to set it apart and must not end on a blank row.
+// blocks leads the block after a copy, or after a command placed at column 0,
+// with a gap: neither carries a rail to set it apart.
 func (r *renderer) blocks(bs []protocol.Block) {
 	for i := 0; i < len(bs); i++ {
 		if r.afterCopy && bs[i].T != "blank" {

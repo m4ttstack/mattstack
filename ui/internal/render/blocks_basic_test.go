@@ -727,3 +727,41 @@ func TestACommandWiderThanThePaneOverflowsWhole(t *testing.T) {
 		t.Fatalf("got\n%q\nwant\n%q", got, want)
 	}
 }
+
+func TestACommandMovedToColumnZeroIsFollowedByAGap(t *testing.T) {
+	long := "rt secrets rotate --team acme-platform-engineering <domain> <key>"
+	for _, next := range []protocol.Block{{T: "line", Status: "skipped", Title: "Nothing else to do"}, {T: "kv", Key: "Team", Value: "acme"}} {
+		got := rows(plainAt(40, protocol.Block{T: "line", Status: "done", Title: "Removed alice"}, protocol.Block{T: "callout", Label: "next", Body: []protocol.Cell{cmd(long)}}, next))
+		at := -1
+		for i, row := range got {
+			if row == long {
+				at = i
+			}
+		}
+		if at < 0 || at+2 >= len(got) || got[at+1] != "" || strings.TrimSpace(got[at+2]) == "" {
+			t.Fatalf("no gap after column-0 command:\n%s", strings.Join(got, "\n"))
+		}
+	}
+}
+
+func TestMultilineWhyUsesCalloutRows(t *testing.T) {
+	reasons := "First reason\r\nSecond\u202ereason\rThird reason"
+	want := "    ▌ why First reason\n    ▌     Secondreason\n    ▌     Third reason\n"
+	for _, block := range []protocol.Block{{T: "verbatim", Caption: "why", Lines: []string{reasons}}, {T: "failure", Title: "This daemon is degraded", Why: reasons}} {
+		got := plainAt(40, block)
+		if !strings.Contains(got, want) {
+			t.Errorf("why lost callout rows:\n%s", got)
+		}
+	}
+}
+
+func TestMultilineWhyWrapsAndKeepsExplicitLines(t *testing.T) {
+	reason := "This daemon has a reason that wraps across rows"
+	want := plainAt(30, protocol.Block{T: "callout", Label: "why", Body: []protocol.Cell{{{Text: reason}}, {{Text: ""}}, {{Text: "Final reason"}}}})
+	for _, block := range []protocol.Block{{T: "verbatim", Caption: "why", Lines: []string{reason + "\n\nFinal reason"}}, {T: "failure", Title: "Degraded", Why: reason + "\n\nFinal reason"}} {
+		got := plainAt(30, block)
+		if !strings.Contains(got, want) {
+			t.Errorf("why wrapping or explicit lines changed:\n%s\nwant:\n%s", got, want)
+		}
+	}
+}
