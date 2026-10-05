@@ -12,7 +12,8 @@
 
 ## Global Constraints
 
-Inherit the [parent plan](2026-10-04-harness-integrations.md). “Claude is
+Inherit the [parent plan](2026-10-04-harness-integrations.md). **Provisional:**
+re-planned from the F1 gating spike's exit report before execution. “Claude is
 optional on a Codex installation.” “Canonical sources remain authoritative.”
 “Existing installations retain their configured behavior.” Settings use the
 suite registry/resolver; generated skills never become source copies. Read
@@ -124,16 +125,22 @@ modify `packages/rt-client/src/settings/registry-defs.ts`,
 `lib/daemon/handlers/agent-integrations.ts`.
 
 **Interfaces:** `enabledIntegrations(): HarnessId[]` reads `agent.integrations`
-through the resolver, falling back only on absence to existing `agent.provider`.
+through the resolver. On absence it returns `["claude"]` plus the configured
+`agent.provider` when that differs, which is what the migration writes.
+A dated `MigrationDef` in `lib/setup/migrations/index.ts` writes that value
+once on existing installations.
 `validateIntegrationPreference(ids: string[]): Outcome<HarnessId[]>` validates
 registered IDs, rejects duplicates and retains the user's order. Explicit
 empty list is valid and enables none. Registration and readiness stay separate.
 
-- [ ] Write `absent preference preserves configured Codex`,
+- [ ] Write `upgrade keeps Claude and adds configured Codex`,
   `empty preference enables none`, and `installed binary does not enable itself`.
-  Assert `expect(enabledIntegrations()).toEqual(['codex'])` with absent list
-  and explicit Codex default, and `[]` with an explicit empty list even when
-  both executables are installed. Test machine scope overriding user scope.
+  Assert `expect(enabledIntegrations()).toEqual(['claude','codex'])` with an
+  absent list and `agent.provider` explicitly `codex`; `['claude']` with an
+  absent list and no provider set; and `[]` with an explicit empty list even
+  when both executables are installed. Assert the migration writes the same
+  value, is recorded `done`, and a second run changes nothing. Test machine
+  scope overriding user scope.
 - [ ] Run `bun test lib/agent-integrations/__tests__/preferences.test.ts`; expect red.
 - [ ] Register the parent plan's setting shape/scopes with no default and
   update metadata readiness. Preserve existing per-provider keys and the
@@ -253,7 +260,8 @@ job-status result contracts; do not introduce another launcher.
 - [ ] Write `gitq action uses configured harness` and `job status binds actual caller`.
   Assert `expect(launch.provider).toBe('codex')`, no direct `claude` command
   is spawned, and a foreign worker cannot report another job's result.
-- [ ] Run `bun test apps/gitq/tests/board-herdr.test.ts apps/gitq/tests/harness-job-status.test.ts apps/gitq/tests/install-skills.test.ts`;
+- [ ] Run `bun test tests/board-herdr.test.ts tests/harness-job-status.test.ts tests/install-skills.test.ts`
+  from `apps/gitq` (its own `bunfig.toml` only loads from that directory);
   expect new assertions red.
 - [ ] Replace direct command construction and Claude env lookup; install the
   selected generated skill target through existing distribution paths.
@@ -394,7 +402,7 @@ selection; it does not require Claude authentication for a Codex audit.
 **Files:** Create `scripts/acceptance/harnesses.ts`,
 `scripts/acceptance/__tests__/harnesses.test.ts`,
 `e2e/tests/harness-contract.test.ts`,
-`lib/__tests__/agent-integration-boundaries.test.ts`,
+`lib/__tests__/no-agent-integration-boundary-leaks.test.ts`,
 `docs/superpowers/evidence/harness-integrations-acceptance.json`;
 modify `scripts/build-apps.ts`, `scripts/release/marketplace.sh`, `rt-tray/build.sh`,
 `rt-tray/vm/run/guest/assert-team.sh`, `rt-tray/vm/run/guest/screens.sh`,

@@ -6,8 +6,9 @@ Status: approved for implementation planning on 2026-10-04. The user approved
 the written specification by requesting the implementation plan. Implementation
 has not started.
 
-Implementation tasks are in the [plan index](../plans/2026-10-04-harness-integrations.md)
-and its four linked plans, pending plan review and execution-method selection.
+Implementation tasks are in the [plan index](../plans/2026-10-04-harness-integrations.md).
+The [F1 gating spike](../plans/2026-10-05-harness-integrations-0-gate-spike.md)
+runs first; the four package plans are provisional until it reports.
 
 ## Purpose and success criteria
 
@@ -56,11 +57,18 @@ implementation take precedence over historical tail/Monitor instructions.
 The governing suite architecture remains in the documents linked from
 [architecture.md](../../architecture.md). This specification does not change
 rt's substrate role, suite distribution, the app catalog, or repo identity.
-It relates to the existing session work tracked in
-[RT-405](https://linear.app/mattstack/issue/RT-405),
-[RT-406](https://linear.app/mattstack/issue/RT-406), and
-[RT-408](https://linear.app/mattstack/issue/RT-408); implementation planning
-must reconcile these rather than create duplicate subsystems.
+The "Claude Code mods" project (RT-384) plans an in-session Claude Code mod
+with its own daemon link:
+[RT-405](https://linear.app/mattstack/issue/RT-405) (`session:*` daemon
+handlers), [RT-406](https://linear.app/mattstack/issue/RT-406) (a session
+context record) and [RT-408](https://linear.app/mattstack/issue/RT-408) (an
+incoming delivery router). Those are Claude-native mechanisms, not the
+harness-neutral services this design adds. The mod becomes part of the Claude
+integration: its daemon link reports Claude session bindings and attribution
+into the shared session store and caller-context resolver, and its delivery
+router is a Claude messaging mechanism. There is one session registry and one
+caller-context record in the daemon, owned by the shared services here. The
+mods tickets are rescoped to say so before either project implements them.
 
 The scope includes first-party runtime code, bundled skills, setup and
 maintenance, application entry points, and release verification. Required
@@ -123,7 +131,10 @@ daemon code. Existing modules can remain as forwarding facades during a
 bounded migration; each facade is removed after its callers migrate.
 
 Registration defines a stable harness identifier, display metadata, option
-validation, and implementations of the component contracts. The registry is
+validation, and implementations of the component contracts. Per-harness
+settings keys (today `agent.claude.*` and `agent.codex.*`) are part of
+registering a harness: a third harness adds its own registry rows, and no
+generic consumer reads them by name. The registry is
 the authority for available integrations; generic consumers must not keep a
 second exhaustive Claude/Codex switch. Provider-specific branching remains
 valid inside integrations, registration, and legacy-data migration.
@@ -150,7 +161,9 @@ full Mattstack workflow profile before full Codex support is released.
 
 Version checks combine a tested compatibility range with relevant runtime
 probes. Experimental APIs are contained in the integration and their use is
-reported in diagnostic metadata. The spike versions are evidence points,
+reported in diagnostic metadata. Codex delivery currently depends on the
+experimental `thread/queue/*` methods; that dependency is the largest release
+risk, and the version matrix must re-verify it on every supported version. The spike versions are evidence points,
 not a promised future support range. Selecting and testing release-supported
 versions is part of the acceptance work, not an assumption this spec makes.
 
@@ -381,7 +394,11 @@ The exact Codex arrangement must pass the CLI and MCP acceptance scenarios.
 Settings continue through the suite resolver and registry under the
 [settings architecture](../../settings-architecture.md). Preserve existing
 `agent.provider` and provider-specific configuration through registered
-migrations where shapes change. Team convention, user preference, and
+migrations where shapes change. `agent.provider` only chooses the `rt agent`
+default; on an existing installation Claude also runs herds, chat, gates and
+Board regardless of it. An upgrade therefore enables Claude plus the configured
+`agent.provider`, written once by a dated migration, never `agent.provider`
+alone. Team convention, user preference, and
 machine-specific intent retain their existing scope rules. Observed versions,
 session bindings, and readiness are runtime data, not synchronized settings.
 Secrets retain the suite's encrypted storage and existing auth ownership.
@@ -549,7 +566,10 @@ The implementation plan must assign every audit row to a package and test,
 specify concrete interface/schema changes and compatibility removals, and
 reconcile the existing Linear work. It must resolve the remaining runtime
 questions through explicit probes or failing acceptance cases before enabling
-dependent workflows. If evidence requires changing the agreed behavior or
+dependent workflows. A gating spike runs first and answers the open runtime
+questions (caller attribution, question recovery, enforceable policy hooks,
+socket access, consumption evidence, service restart). The package plans are
+finalized from its evidence; until then their interfaces are provisional. If evidence requires changing the agreed behavior or
 boundaries, revise this design for review rather than silently reducing scope.
 
 The next step after written-spec approval is implementation planning. This

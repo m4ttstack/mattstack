@@ -17,6 +17,9 @@ types. “Shepherdr may choose each worker's harness from the user's enabled,
 ready integrations. An explicit user assignment wins.” “Retries and resumes
 retain that selection.” “Unknown state must remain unknown.” Required gate
 and continuation policy must pass M6 before managed Codex workflows are enabled.
+**Provisional:** re-planned from the F1 gating spike's exit report before
+execution. `rt herd` output is pinned by `herd-pane-agent-bytes.json` and its
+supplement; `rt runs` and `rt ci` by `agent-verbs-bytes.json`.
 
 ## Review Focus
 
@@ -91,7 +94,9 @@ this function again.
   API extension, propagate verified shepherd context from F4, and route launch
   through F5/H1. Update canonical shepherdr instructions to inspect integration
   metadata and select valid models/options. Preserve cswap guidance only in
-  Claude fragments. Show harness/model in status using the output layer.
+  Claude fragments. Show harness/model in status using the output layer, only on the blocks
+  drawn for a person; the off-terminal bytes in `herd-pane-agent-bytes.json`
+  stay identical (add fields to `--json` additively).
   Regenerate skill/MCP references and bump the plugin version as S2 requires.
 - [ ] Run both suites and herd handler tests. Live-test Claude shepherd with
   mixed workers and Codex shepherd with mixed workers through report and close;
@@ -131,7 +136,8 @@ cannot declare the current worker dead.
 ### H4: Bind pipeline ownership and continuation to verified sessions
 
 **Files:** Modify `lib/runs/resolve-db.ts`, `lib/runs/store.ts`,
-`lib/runs/start.ts`, `lib/runs/attention.ts`, `lib/runs/liveness.ts`,
+`lib/runs/start.ts`, `lib/runs/identity.ts`, `lib/runs/write.ts`,
+`lib/runs/attention.ts`, `lib/runs/liveness.ts`,
 `lib/mcp/run-tools.ts`, `plugins/mattstack/hooks/pipeline-gate-stop.sh`;
 create `lib/runs/__tests__/harness-attribution.test.ts`.
 
@@ -140,6 +146,12 @@ in `resolve-db.ts`; `bindRunSession(db: string, binding: SessionBinding): void`
 in `store.ts`. Ownership-sensitive callers use these operations; existing
 read-only discovery may keep a separately named directory search.
 
+- [ ] Write `recordIdentity writes the bound session, not inherited env`:
+  `recordIdentity` (called from `start.ts` and `write.ts`) today writes
+  `claude-session` and `herdr-pane` straight from the environment, and the
+  spike saw a Codex worker inherit the controller's `HERDR_PANE_ID`. Under a
+  context whose binding names pane `w1:p2` while the env says `w9:p9`, assert
+  the stored `herdr-pane` is `w1:p2` and `session-key` is the binding key.
 - [ ] Write `two runs in one directory cannot borrow ownership`,
   `explicit database does not bypass ownership`, and `legacy Claude field migrates by provenance`.
   Assert unresolved ownership returns `ok:false` even if one run is newest;
@@ -173,6 +185,8 @@ through proven F3 aliases. Replacement does not silently acquire predecessor lea
   `expect(ownerAfterResume).toBe(ownerBeforeResume)` for the same attempt.
 - [ ] Run `bun test lib/mcp/__tests__/ci-harness-ownership.test.ts lib/mcp/__tests__/ci-tools.test.ts`;
   expect new ownership assertions red.
+- [ ] Run `bun test commands/__tests__/agent-verbs-bytes.test.ts`; the `ci-*`
+  cases stay byte-identical.
 - [ ] Replace Claude-env owner construction with F4 context, preserve
   existing lease state and explicit transfer/expiry rules, and expose useful
   stale-owner errors without logging secrets.

@@ -23,6 +23,9 @@
 - Preserve settings scope/version/ownership rules, serialized repo identities, frozen chat output, MCP grants, and file confinement. Read root AGENTS.md and each edited tree's instructions at execution time.
 - No new production service, runtime UI framework in rt, or alternate worktree manager. No dependency additions are planned. Use repository-pinned tools; spike versions are evidence, not declared minimum versions.
 - Implementation starts in an isolated worktree using the worktree skill, after plan review and execution-method selection. This plan does not authorize publication or deployment.
+- Frozen bytes include `commands/__tests__/fixtures/chat-bytes.json`, `agent-verbs-bytes.json` (`gate`, `events`, `ci`, `runs`), `herd-pane-agent-bytes.json` and `herd-pane-agent-supplement-bytes.json`. Never regenerate one to make a change pass; a deliberate change is a named contract migration.
+- Every live run uses an isolated rt daemon (its own HOME, `RT_SKIP_SETUP=1`, `RT_GH_TOKEN_FALLBACK=off`) and an isolated Herdr session. Only the agent processes may use the real HOME and authentication.
+- A test that reads source as text, or spawns `cli.ts`, is named `no-*.test.ts` so the PR scope selector runs it.
 
 ## Review Focus
 
@@ -41,6 +44,13 @@ plan. The child plans inherit these constraints and the contract vocabulary.
 Task IDs are unique across the package; they are implementation tasks, not
 new Linear tickets.
 
+**F1 is a gate, and the four package plans are provisional.** F1 runs as its
+own [gating spike plan](2026-10-05-harness-integrations-0-gate-spike.md) and
+produces a verdict per open runtime question. Its exit report decides which
+interfaces below survive. After F1, each package plan is re-planned to
+bite-sized tasks with concrete code, starting with plan 1. Do not execute any
+F2+ task from these provisional plans.
+
 | Plan | Deliverable | Dependencies |
 | --- | --- | --- |
 | [1. Foundation](2026-10-04-harness-integrations-1-foundation.md) | Registered launch/session integrations with verified identity and context | Existing `rt agent` seams; F1 native evidence |
@@ -48,7 +58,8 @@ new Linear tickets.
 | [3. Orchestration](2026-10-04-harness-integrations-3-orchestration.md) | Mixed workers, either shepherd harness, correct supervision and pipeline ownership | Foundation; messaging/policy contracts |
 | [4. Skills, setup, apps and release](2026-10-04-harness-integrations-4-adoption.md) | Host-adapted workflows, Codex-only lifecycle, app adoption and acceptance | Foundation; pulls early prerequisites forward; final acceptance follows all plans |
 
-Execute F1–F6 first. Then S1, S2 and S3–S4 as needed to install the tested
+Execute the F1 gating spike first and stop for its exit report and re-plan.
+Then F2–F6, S1, S2 and S3–S4 as needed to install the tested
 tool/policy paths and S11's question/wait fragments; M1–M6; H1–H6; S10/S12
 and the remaining app tasks; S9 last. S2 compiles fragments from S11, while
 M6 supplies enforcement. Neither depends on
@@ -152,10 +163,15 @@ introduce a general service container.
   migration resolver. Read-only discovery may show directory matches, but a
   directory match never authorizes a run write.
 - S3 adds `agent.integrations`, a replace-merged string-array preference at
-  user/machine scopes, with no registry default. When absent, an existing
-  installation enables its configured `agent.provider`; fresh setup writes
-  the chosen list and default. An explicit empty list enables none. Installed
-  binaries do not imply enablement. Existing provider option keys stay valid.
+  user/machine scopes, with no registry default. A dated `MigrationDef`
+  writes it once on an existing installation as `["claude"]` plus the
+  configured `agent.provider` when that differs (order kept, no duplicates).
+  `agent.provider` alone is never the enabled set: it only chooses the
+  `rt agent` default, while Claude runs herds, chat, gates and Board today.
+  Until the migration runs, an absent value reads as that same union. Fresh
+  setup writes the chosen list and default. An explicit empty list enables
+  none. Installed binaries do not imply enablement. Existing provider option
+  keys stay valid.
 - Extend wire types additively where permitted; use an explicit versioned
   operation where frozen output prevents extension. F6 defines a new
   `agent:integrations` read operation; apps do not query Claude's inventory.
@@ -195,13 +211,18 @@ introduce a general service container.
 
 ## Existing work and completion
 
-F3/F5 cover the existing RT-405 session-handler work; F4 covers RT-406 caller
-context; M1–M3 cover RT-408 delivery routing. These are provisional task
-associations from the spike's recovered work, not assertions of current
-ticket status. Before execution, read those tickets and the governing Linear
-documents linked from `docs/architecture.md`; fold in shipped code and update
-the task mapping without duplicating it. No Linear tickets are created by
-writing this plan.
+RT-405, RT-406 and RT-408 (Backlog, "Claude Code mods" project, parent
+RT-384) describe an in-session Claude Code mod with its own daemon link. They
+are Claude-native mechanisms, not the shared services. Decision (2026-10-05):
+the mod becomes part of the Claude integration. Its `session:*` handlers
+(RT-405) register Claude sessions into F3's session store rather than keeping a
+second registry; its session context record (RT-406) is the Claude side of
+F4's caller attribution, feeding the shared resolver; its delivery router
+(RT-408) is a Claude messaging mechanism behind M1's adapter. Before F3 is
+re-planned, rewrite those three tickets to say so (PM-shaped) and link them to
+this plan. Re-read them and the governing Linear documents linked from
+`docs/architecture.md` immediately before each re-plan. No new Linear tickets
+are created by writing this plan.
 
 Run focused checks after each task. Run `bun run check`, `bun run test`, the
 affected app/package checks, plugin certification, and the complete live
@@ -209,5 +230,6 @@ acceptance matrix after integration. S9 specifies the live evidence artifact
 and release gate. Record failures as gaps; do not mark a task complete merely
 because the interface exists or a fake passes.
 
-**Planning status:** written for review; implementation and acceptance tasks
-are all unchecked. Execution method has not been selected.
+**Planning status:** reviewed 2026-10-05. The F1 gating spike plan is ready
+for execution. F2 onward is provisional and is re-planned from F1's exit
+report; implementation and acceptance tasks are all unchecked.

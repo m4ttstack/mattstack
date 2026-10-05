@@ -20,10 +20,16 @@ Follow `docs/repo-identity.md`, `docs/settings-architecture.md`, and the root
 AGENTS schema rules. Claim the next state schema version at execution time;
 the planning checkout has version 15, which must not be assumed still free.
 
+**Provisional:** F2 to F6 are re-planned from the F1 gating spike's exit
+report before execution. `rt agent` and `rt pane` output is pinned by
+`herd-pane-agent-bytes.json` and its supplement; F5 and F6 keep those bytes.
+
 ## Review Focus
 
 - Wrong inherited pane environment must not misattribute a caller (F1, F4).
 - Equal raw IDs in two profiles must remain distinct (F3).
+- The Claude Code mod's daemon link (RT-405/406) registers into F3's store and
+  F4's resolver; there is never a second session registry (F3, F4).
 - Launch times out after spawning: reconciliation must not spawn a duplicate (F5).
 - Clear/fork invalidates old MCP context without silently borrowing another run (F4).
 - An old client opening new mixed state must refuse incompatible writes (F3).
@@ -36,38 +42,12 @@ separates contract, selection, caller attribution and persistence. Native
 modules live under `claude/` and `codex/`; runtime imports never load setup.
 The existing agent/pane handlers remain dispatch entry points.
 
-### F1: Reproduce native attribution and recovery constraints
+### F1: Gating spike (separate plan)
 
-**Files:** Create `scripts/probes/harness-integrations.ts`,
-`scripts/probes/__tests__/harness-integrations.test.ts`,
-`docs/superpowers/spikes/2026-10-04-harness-protocol-contracts.md`.
-
-**Interfaces:** Produce `runIntegrationProbe(options: { live: boolean; output: string }): Promise<void>`.
-The output is JSON with `versions`, `cases` (name, passed, observations), and
-`cleanup` outcomes. It is evidence, not a runtime capability advertisement.
-
-- [ ] Write test `probe requires explicit live mode` with
-  `expect(runIntegrationProbe({live:false,output:out})).rejects.toThrow()`;
-  assert no process launch or socket connection. Test the recorder redacts
-  credentials and records a failed observation as `passed:false`.
-- [ ] Run `bun test scripts/probes/__tests__/harness-integrations.test.ts`;
-  expect failure because the runner does not exist.
-- [ ] Implement the opt-in runner using the previous spike as a starting
-  point. Inspect the installed CLI schema/code before choosing native method
-  names. Exercise two concurrent Codex threads with intentionally conflicting
-  inherited pane variables, each calling CLI and MCP `whoami`; inspect which
-  per-request correlation data the supported transport actually supplies.
-  Exercise reconnect to an already-pending synchronous and asynchronous
-  question, rt restart, CLI replacement, and native-service restart in a
-  disposable service instance. Do not restart the user's production service.
-  Capture a transcript marker proving consumption, not only queue acceptance.
-- [ ] Run the unit test, then `bun scripts/probes/harness-integrations.ts --live --output /tmp/harness-protocol-evidence.json`.
-  Record observed API fields and limitations in the spike document. F4 and M5
-  require a demonstrated attribution/completion path. If a case fails, repair
-  the native binding approach and repeat that case; if no supported path can
-  meet the spec, report the blocker and revise the design rather than invent
-  a schema field. Cleanup must list only disposable resources.
-- [ ] Stage the three task files and commit `test: characterize harness identity and question recovery`.
+F1 is executed from its own plan,
+[2026-10-05-harness-integrations-0-gate-spike.md](2026-10-05-harness-integrations-0-gate-spike.md).
+Its exit report gives a verdict per open question (G1 to G7). F2 to F6 below
+are provisional and are re-planned to bite-sized tasks from that report.
 
 ### F2: Register integrations and admit workflows by capability
 
@@ -95,8 +75,10 @@ interfaces defined in M1/M4/M6/S1/S4/S10/S12:
 `loadSkills(): Promise<SkillAdapter>`, and
 `loadInstall(): Promise<InstallAdapter>`.
 Absent factories cannot advertise the corresponding capabilities. Declare
-the complete final interface shapes in this task so later tasks implement
-them without creating imports from nonexistent implementation files.
+each adapter interface with the operations F1's evidence supports, as a
+minimal shape; the task that implements an adapter (M1, M4, M6, S1, S4, S10,
+S12) extends it in the same commit as its first implementation and test. Do
+not freeze shapes that no test exercises yet.
 
 `SessionAdapter` has `launch(request: LaunchRequest): Promise<Outcome<NativeLaunch>>`,
 `resume(ref: NativeSessionRef, request: LaunchRequest): Promise<Outcome<NativeLaunch>>`,
@@ -164,7 +146,11 @@ uses stored aliases and provenance, not directory heuristics.
 **Files:** Create `lib/agent-integrations/context.ts`,
 `lib/agent-integrations/__tests__/context.test.ts`;
 modify `commands/mcp.ts`, `lib/mcp/redact.ts`, `lib/mcp/shared.ts`,
-`lib/mcp/whoami-tool.ts`, `lib/chat-session.ts`.
+`lib/mcp/whoami-tool.ts`, `lib/mcp/tools.ts`, `lib/chat-session.ts`.
+
+`lib/mcp/tools.ts` reads `CLAUDE_CODE_SESSION_ID` directly in `gate_ask`
+(session owner), `chat_post`, `chat_dm` and `herd_answer`; those four move to
+the resolved context in this task, not later.
 
 **Interfaces:** `resolveCallerContext(input: CallerEvidence): Promise<Outcome<CallerContext>>`.
 `CallerEvidence` contains optional native reference, connection-bound session
@@ -173,6 +159,9 @@ correlation is constructed at the server boundary, never from tool arguments.
 Add an optional `context` argument to the existing `callTool` dispatcher and
 tool execution context; do not change public tool arguments to accept authority.
 
+- [ ] Add `gate_ask, chat_post, chat_dm and herd_answer take the resolved session`:
+  under a fixture context with no `CLAUDE_CODE_SESSION_ID`, each sends the
+  bound session key's native reference, and an unresolved caller refuses.
 - [ ] Write `shared server resolves two callers independently`,
   `inherited pane is only a hint`, and `cleared session cannot reuse MCP owner`.
   Assert `expect(a.binding.key).not.toBe(b.binding.key)` and an uncorrelated
