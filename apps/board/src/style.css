@@ -133,34 +133,23 @@ body {
   flex-wrap: wrap;
   align-items: center;
 }
-/* Push the header toolbar to the right edge, even when it wraps below the
-   title. The toolbar itself stays one row -- `.tui-controls`'s own
-   flex-wrap would otherwise split it mid-row (e.g. the theme picker
-   stranded alone under everything else) once its buttons no longer fit
-   beside the title. `flex-shrink: 0` keeps `.tui-header`'s own wrap (title
-   moves above) as the first release valve, ahead of this row scrolling
-   itself; `flex-start` (rather than `flex-end`) is what makes any overflow
-   that remains spill off the end, the direction `overflow-x: auto` can
-   actually scroll to -- flex-end overflow spills off the *start* instead,
-   which is invisible with no way to reach it. */
+/* The menu buttons take their own row under the title. The row stays one
+   line and scrolls rather than wrapping: `flex-start` makes overflow spill
+   off the end, the direction `overflow-x: auto` can reach, and each
+   button's `flex-shrink: 0` keeps its label from being squeezed. The z-index
+   lifts the open menus over the MR panels below: the kit menu's fixed
+   wrapper is its own stacking context, so its z-index alone cannot. */
 .tui-controls-header {
-  margin-left: auto;
+  position: relative;
+  z-index: 3;
+  flex-basis: 100%;
   justify-content: flex-start;
-  flex-shrink: 0;
   flex-wrap: nowrap;
   overflow-x: auto;
   max-width: 100%;
 }
-/* Uniform control height: the text segmented (0.8em) and icon segmented would
-   otherwise differ by ~1px and read as misaligned. `flex-shrink: 0` is what
-   makes the nowrap/overflow-x pair above actually scroll instead of
-   squeezing each segmented's own text/icons down to an unreadable clip. */
 .tui-controls-header > * {
-  height: 28px;
   flex-shrink: 0;
-}
-.tui-controls-header [data-part='segmented-option'] {
-  height: 100%;
 }
 .tui-author {
   color: var(--text-purple);
@@ -171,10 +160,9 @@ body {
   height: 20px;
 }
 /* Board-domain button shell. The CopyButton recipe absorbed this shape for its
-   own instances (which no longer carry the class), but three plain board
-   buttons still borrow it: the header refresh, and the selection bar's post +
-   clear. `.tui-copy.copied` is gone with the recipe -- only CopyButton ever
-   flashed it, and it now stamps `data-copied` instead. */
+   own instances (which no longer carry the class), but the selection bar's
+   post + clear still borrow it. `.tui-copy.copied` is gone with the recipe --
+   only CopyButton ever flashed it, and it now stamps `data-copied` instead. */
 .tui-copy {
   display: inline-flex;
   align-items: center;
@@ -193,27 +181,15 @@ body {
 .tui-refresh:disabled {
   cursor: default;
   color: var(--text-accent-small);
-  border-color: var(--fill-accent);
 }
-/* Posted-to-slack and hide-drafts filters: off is a muted mono glyph like
-   their neighbours; on is the segmented control's active state (accent
-   fill, white glyph, the chip's checkmark badge kept). A label on a
-   saturated fill takes white for accent and purple, the dark neutral
-   #1c2024 for ok, warn, cyan and bad; the pick holds in both schemes since
-   a saturated fill does not lighten in light mode. The hover rule below
-   outranks `.tui-copy:hover`, which would otherwise flip the glyph to
-   --text-1 on accent. */
-.tui-slack-filter[data-active],
-.tui-draft-filter[data-active],
+/* A checked Show item in the drawer: the segmented control's active state. */
 .tui-drawer-action[data-active] {
   background: var(--fill-accent);
   border-color: var(--fill-accent);
-  color: #ffffff;
+  color: var(--on-fill-accent);
 }
-.tui-slack-filter[data-active]:hover,
-.tui-draft-filter[data-active]:hover,
 .tui-drawer-action[data-active]:hover {
-  color: #ffffff;
+  color: var(--on-fill-accent);
 }
 .tui-refresh.spinning svg {
   animation: tui-spin 0.8s linear infinite;
@@ -1426,29 +1402,10 @@ body {
   text-align: center;
   margin-top: 3.5rem;
 }
-.tui-hidden-note {
-  color: var(--text-2);
-  font: 500 0.82rem/1.5 var(--font-sans);
-  text-align: center;
-  margin-top: 1.2rem;
-}
 .tui-loading {
   color: var(--text-2);
   text-align: center;
   margin-top: 4rem;
-}
-.tui-footer {
-  color: var(--text-3);
-  font: 500 0.76rem/1.5 var(--font-sans);
-  text-align: center;
-  margin-top: 2.2rem;
-  opacity: 0.8;
-}
-/* Daemon data older than 10 minutes (or unknown) -- the warn hue, so "trust
-   this less" reads the same way everywhere the hue appears. */
-.tui-footer-stale {
-  color: var(--text-warn-vivid);
-  opacity: 1;
 }
 
 /* team sidebar layout */
@@ -1607,7 +1564,7 @@ body {
    controls row, which wraps below the corner and had to scroll for it. */
 .tui-header-title {
   min-width: 0;
-  padding-right: 3rem;
+  padding-right: 5.5rem;
 }
 /* The left drawer IS the burger menu, which only exists below 720px (see the
    media query below for the unhide). That is a BOARD LAYOUT decision, not a
@@ -1700,6 +1657,12 @@ body {
     align-items: center;
     gap: 10px;
     margin-bottom: 1.1rem;
+  }
+  /* The title wraps under the burger, clear of the corner controls, so it
+     takes the full row for the summary line. */
+  .tui-header-title {
+    flex-basis: 100%;
+    padding-right: 0;
   }
   [data-part='sidedrawer-overlay'][data-side='left'] {
     display: flex;
@@ -4897,4 +4860,180 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-ask-trail-foot {
   padding: 0 12px;
+}
+
+/* ── toolbar: Group, Sort and Show menus ──────────────────────────── */
+.tui-menu-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tui-menu-button:hover {
+  border-color: var(--fill-accent);
+}
+.tui-menu-button[data-open] {
+  border-color: var(--fill-accent);
+  background: color-mix(in srgb, var(--fill-accent) 12%, var(--card));
+}
+.tui-menu-button-label {
+  color: var(--text-2);
+}
+.tui-menu-button-value {
+  font-weight: 500;
+}
+.tui-menu-button-icon,
+.tui-menu-button-chevron {
+  color: var(--text-3);
+  display: inline-flex;
+}
+.tui-show-menu-item {
+  align-items: flex-start;
+}
+.tui-show-item {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+}
+.tui-show-check {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--on-fill-accent);
+}
+.tui-show-check svg {
+  width: 11px;
+  height: 11px;
+}
+.tui-show-check[data-on] {
+  background: var(--fill-accent);
+  border-color: var(--fill-accent);
+}
+.tui-show-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+.tui-show-label {
+  color: var(--text-2);
+}
+.tui-show-label[data-on] {
+  color: var(--text-1);
+}
+.tui-show-desc {
+  color: var(--text-3);
+  font-size: 11px;
+}
+.tui-show-count {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.tui-show-settings {
+  color: var(--text-accent-small);
+}
+
+/* ── Also show line ───────────────────────────────────────────────── */
+.tui-also-show {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+}
+.tui-also-show-lead {
+  color: var(--text-3);
+}
+.tui-also-show-pill {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 3px 9px 3px 7px;
+  background: transparent;
+  color: var(--text-accent-small);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.tui-also-show-pill:hover {
+  border-color: var(--fill-accent);
+}
+.tui-also-show .tui-also-show-all {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.tui-also-show .tui-also-show-all:hover {
+  color: var(--text-accent-small);
+}
+
+/* ── whose-turn summary ───────────────────────────────────────────── */
+.tui-turn-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  font-size: 13px;
+  margin-top: 0.3rem;
+}
+.tui-turn-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-2);
+}
+.tui-turn-part b {
+  color: var(--text-1);
+}
+.tui-turn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  color: var(--text-3);
+  background: currentColor;
+}
+.tui-turn-part[data-tone='accent'] .tui-turn-dot {
+  background: var(--fill-accent);
+}
+.tui-turn-part[data-tone='warn'] .tui-turn-dot {
+  background: var(--dot-warn);
+}
+.tui-turn-part[data-tone='ok'] .tui-turn-dot {
+  background: var(--dot-ok);
+}
+.tui-turn-summary .tui-turn-link {
+  font-size: inherit;
+}
+.tui-turn-synced {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.tui-turn-synced[data-stale] {
+  color: var(--text-warn-small);
+}
+
+/* The drawer's Show items stack under their label. */
+.tui-ctl-show {
+  align-items: flex-start;
+}
+.tui-ctl-show-items {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
