@@ -321,7 +321,7 @@ test("skillsSync sends the missing Claude Code note to stderr and keeps exit 1",
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-sync-missing-claude-")));
   const unexpected = async (): Promise<never> => { throw new Error("Missing Claude Code must stop before dependencies run"); };
   const deps: SyncDeps = {
-    claudeBin: null, run: unexpected, checkPack: unexpected, compilePack: unexpected,
+    mayCompile: () => true, claudeBin: null, run: unexpected, checkPack: unexpected, compilePack: unexpected,
     materialize: unexpected, configDir: join(dir, "config"), cswapSessionsDir: join(dir, "sessions"), inTreeRoot: null,
   };
   try {

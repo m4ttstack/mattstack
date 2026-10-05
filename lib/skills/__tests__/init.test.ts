@@ -721,7 +721,7 @@ describe("initPack", () => {
         });
       },
     });
-    const out = await initPack({ repoDir: REPO, zone: null }, deps);
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: false, why: "The rt daemon is not running.", next: "rt daemon start" });
   });
 
@@ -758,6 +758,6 @@ describe("initPack", () => {
 });
 
 test("refusal titles name no path or config file", async () => {
-  const notRepo = await initPack({ repoDir: REPO, zone: null }, world({ gitRemote: async () => ({ kind: "not-a-repo" }) }).deps);
+  const notRepo = await initPack({ repoDir: REPO, zone: null, team: null }, world({ gitRemote: async () => ({ kind: "not-a-repo" }) }).deps);
   expect(notRepo).toMatchObject({ refused: true, detail: "This folder is not a git repo" });
 });
