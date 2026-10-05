@@ -107,11 +107,17 @@ own instance of the same engine, supervised by the daemon (a clone created by
 clone with no remote is skipped until `rt team publish --remote` gives it one).
 A machine holds one team: `rt team join` and `rt team create` refuse a second
 zone while one exists, since every team store is folded into one settings view.
-The team instance differs from the home one in three ways:
+The team instance differs from the home one in four ways:
 
 - **Scope.** It stages only `mattstack/**`, `.sops.yaml` and
   `.claude-plugin/**`. A team clone that is also a working repo keeps its
   `src/` and `docs/` hand-committed.
+- **Packs are janitor-only.** `mattstack/packs/` is a standing claimed zone
+  (owner `skills-publish`): a pack is published by its own commit (the
+  `mattstack:editing-skills` flow, `rt skills sync`), so a watch never commits
+  a half-made pack edit. The janitor still commits a pack left dirty past
+  `janitorThresholdHours`. A claim on the same path in the clone's own
+  `snapshot-owners.jsonc` wins over the standing one.
 - **Pull.** Before every push, at daemon boot and every `pullIntervalSec`, it
   fetches `origin` with rt's stored forge token (env, never argv) and either
   fast-forwards or rebases its own commits onto the remote. A rebase that stops

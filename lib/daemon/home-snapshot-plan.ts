@@ -91,7 +91,7 @@ export function parsePorcelainZ(buffer: string): StatusEntry[] {
  * claimed file. The trailing slash on the stored key is what tells this
  * function which rule to apply.
  */
-function isUnderZone(path: string, zone: string): boolean {
+export function isUnderZone(path: string, zone: string): boolean {
   return zone.endsWith("/") ? path.startsWith(zone) : path === zone;
 }
 

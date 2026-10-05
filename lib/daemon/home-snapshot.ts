@@ -46,7 +46,7 @@ import { storedForgeToken } from "../team/stored-forge-token.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
 import { HOME_SNAPSHOT_NS, recordHomePush, type HomePushRecord } from "../home/push-record.ts";
-import { parsePorcelainZ, planSnapshot, scopeEntries } from "./home-snapshot-plan.ts";
+import { isUnderZone, parsePorcelainZ, planSnapshot, scopeEntries } from "./home-snapshot-plan.ts";
 
 export type SnapshotReason = "manual" | "watch" | "janitor";
 
@@ -147,6 +147,8 @@ export interface SnapshotSpec {
   eventPrefix: "home" | "team";
   /** Paths (relative to repoDir) the engine may stage; undefined = everything outside claimed zones. */
   scope?: (relPath: string) => boolean;
+  /** Zones claimed for as long as the spec runs, as if written to the owners file; a claim in the file wins over one here. */
+  standingZones?: Owners["zones"];
   /** Fetch + rebase policy; absent = never pull (the home repo is single-writer). */
   pull?: {
     intervalSec: number;
@@ -359,6 +361,16 @@ export function homeSnapshotSpec(repoDir: string = join(mattstackHome(), "user")
   };
 }
 
+/**
+ * Packs publish through their own commit (the editing-skills flow, `rt skills
+ * sync`), which a watch commit would preempt mid-edit and push under the
+ * generic message. The janitor still commits a pack left dirty past its
+ * threshold, so an abandoned edit is not lost.
+ */
+const TEAM_STANDING_ZONES: Owners["zones"] = {
+  "mattstack/packs/": { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" },
+};
+
 /** A team clone: no legacy state file (nothing predates it), and it pulls (multi-writer), unlike the home repo. */
 export function teamSnapshotSpec(
   slug: string,
@@ -379,6 +391,7 @@ export function teamSnapshotSpec(
     kvNamespace: `team-snapshot:${slug}`,
     eventPrefix: "team",
     scope: teamScope,
+    standingZones: TEAM_STANDING_ZONES,
     pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled },
     pullOnly: opts.pullOnly === true,
     tokenFor: () => readToken(opts.probes, opts.originUrl),
@@ -413,6 +426,10 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   };
 
   const ownersPath = ownersPathFor(deps.repoDir);
+  const readClaims = (): Owners => {
+    const owners = deps.readOwners(ownersPath);
+    return spec.standingZones ? { zones: { ...spec.standingZones, ...owners.zones } } : owners;
+  };
   const { label, settingsKey, missingRepo } = vocabOf(spec);
 
   let disabledReason: SkipReason | null = null;
@@ -1081,7 +1098,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
 
     let owners: Owners;
     try {
-      owners = deps.readOwners(ownersPath);
+      owners = readClaims();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message !== lastLoggedOwnersError) {
@@ -1166,7 +1183,10 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       // whatever changed on disk between the status read and this add/commit
       // pair is governed by the live pathspec, not by the stale path list.
       const excludeArgs = plan.excludedZones.map((zone) => `:(exclude)${zone}`);
-      const addResult = await deps.exec(["git", "add", "-A", "--", ...scopeArgs, ...excludeArgs], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+      // A scoped spec names each path; one inside a claimed zone would sit in
+      // the pathspec beside its own exclude, so it is dropped here instead.
+      const autoArgs = spec.scope ? scopeArgs.filter((path) => !plan.excludedZones.some((zone) => isUnderZone(path, zone))) : scopeArgs;
+      const addResult = await deps.exec(["git", "add", "-A", "--", ...autoArgs, ...excludeArgs], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
       if (addResult.exitCode !== 0) {
         const addSkipped: SkipReason = addResult.stderr.toLowerCase().includes("index.lock") ? "index-locked" : "add-failed";
         if (addResult.stderr !== lastLoggedAddError) {
@@ -1192,7 +1212,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       // about an unattended backup commit needs a signature. (Git identity
       // is confirmed once, above, before either commit site runs.)
       const message = reason === "manual" ? plan.message!.replace(/^snapshot:/, "snapshot (manual):") : plan.message!;
-      const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", ...scopeArgs, ...excludeArgs], {
+      const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", ...autoArgs, ...excludeArgs], {
         cwd: deps.repoDir,
         timeoutMs: GIT_TIMEOUT_MS,
         stderr: "pipe",
@@ -1284,7 +1304,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     let claimedZones: string[] = [];
     let ownersError: string | null = null;
     try {
-      claimedZones = Object.keys(deps.readOwners(ownersPath).zones);
+      claimedZones = Object.keys(readClaims().zones);
     } catch (err) {
       ownersError = err instanceof Error ? err.message : String(err);
     }
