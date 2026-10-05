@@ -4,7 +4,7 @@
  */
 import { BackNavigation } from "../back-navigation.ts";
 import { encodeLine, parsePromptResult, parseSessionLine, PROTOCOL_VERSION, type PromptResult, type PromptSpec, type RenderStatus, type SessionClosed, type SessionIntent, type StepLevel } from "./protocol.ts";
-import { noteBackgroundReport, rtUiEnv } from "./background.ts";
+import { settleOnce, noteBackgroundReport, rtUiEnv } from "./background.ts";
 import { interactive } from "./gate.ts";
 import { resolveRtUi } from "./resolve.ts";
 
@@ -39,17 +39,19 @@ function killLiveOnExit(): void {
 export async function settleBackground(): Promise<void> {
   const env = rtUiEnv();
   if (env.RT_UI_BACKGROUND !== "auto") return;
-  try {
-    const proc = Bun.spawn([resolveRtUi(), "render", "--report-background"], {
-      stdin: new TextEncoder().encode(encodeLine({ t: "hello", protocol: PROTOCOL_VERSION })),
-      stdout: "ignore",
-      stderr: "pipe",
-      env,
-      timeout: 2000,
-    });
-    const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
-    if (code === 0) noteBackgroundReport(stderr);
-  } catch { /* the steps helper resolves auto itself */ }
+  return settleOnce(async () => {
+    try {
+      const proc = Bun.spawn([resolveRtUi(), "render", "--report-background"], {
+        stdin: new TextEncoder().encode(encodeLine({ t: "hello", protocol: PROTOCOL_VERSION })),
+        stdout: "ignore",
+        stderr: "pipe",
+        env,
+        timeout: 2000,
+      });
+      const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+      if (code === 0) noteBackgroundReport(stderr);
+    } catch { /* the steps helper resolves auto itself */ }
+  });
 }
 
 function spawnVerb(verb: "prompt" | "steps" | "session", extra: string[] = []) {

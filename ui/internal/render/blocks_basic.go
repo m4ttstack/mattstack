@@ -31,6 +31,10 @@ func (r *renderer) lineRun(run []protocol.Block) {
 		}
 	}
 	for _, b := range run {
+		if r.afterCopy {
+			r.gap()
+			r.afterCopy = false
+		}
 		if b.T == "callout" {
 			r.callout(b)
 			continue
@@ -105,6 +109,10 @@ func (r *renderer) calloutLines(c color.Color, label string, body []protocol.Cel
 	first := true
 	for _, line := range body {
 		for _, row := range calloutRows(line, w) {
+			if r.afterCopy {
+				r.gap()
+				r.afterCopy = false
+			}
 			lead := cont
 			if first {
 				lead = bar + fg(c).Render(label) + " "
@@ -114,7 +122,11 @@ func (r *renderer) calloutLines(c color.Color, label string, body []protocol.Cel
 				if first {
 					r.emit(strings.TrimRight(lead, " "))
 				}
-				r.emit(outdent(bar, text, r.width))
+				placed := outdent(bar, text, r.width)
+				r.emit(placed)
+				if placed == text {
+					r.afterCopy = true
+				}
 			} else {
 				r.emit(lead + text)
 			}
@@ -291,7 +303,7 @@ func (r *renderer) failure(b protocol.Block) {
 		}
 	}
 	if b.Why != "" {
-		r.calloutLines(r.p.tones.Quiet, "why", []protocol.Cell{{{Text: b.Why}}})
+		r.calloutLines(r.p.tones.Quiet, "why", textLines([]string{b.Why}))
 	}
 	if len(b.Next) > 0 {
 		r.calloutLines(r.p.tones.Peach, "next", []protocol.Cell{b.Next})
@@ -303,5 +315,6 @@ func (r *renderer) failure(b protocol.Block) {
 				r.emit(calloutIndent + r.cell(row))
 			}
 		}
+		r.afterCopy = false
 	}
 }
