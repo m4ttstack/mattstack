@@ -797,7 +797,7 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
 
     const { code, stderr } = await runChatRaw(["sign-in", "--as", s1Handle, "--session", "s2", "--no-room"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("[refused] Another session is using that identity");
+    expect(stderr).toContain("[refused] This session cannot use that identity");
     expect(existsSync(join(home, ".mattstack", "rt", "chat", "sessions", "s2.json"))).toBe(false);
   });
 
@@ -1681,7 +1681,7 @@ describe("daemon refusals by policy", () => {
   });
 
   test.each([
-    ["identity-held", "Another session is using that identity", "Another session signed in as it, so this one no longer speaks for it."],
+    ["identity-held", "This session cannot use that identity", "This session is not signed in, or another session now holds its identity."],
     ["identity-fixed", "rt chat keeps that identity for the human or the herd", "Agents sign in under names of their own."],
   ])("%s is a refusal with the sign-in command", async (code, title, why) => {
     canned = { "chat:sign-in": { ok: false, error: "daemon wording", failure: { code, message: "daemon wording" } } };
@@ -1711,5 +1711,18 @@ describe("daemon refusals by policy", () => {
     expect(JSON.parse(r.stdout)).toEqual({ ok: true, daemonError: "handle reclaimed" });
     expect(r.stderr).toContain("[warning] Signed out here, but the daemon did not hear it");
     expect(existsSync(join(home, ".mattstack", "rt", "chat", "sessions", "s1.json"))).toBe(false);
+  });
+});
+
+
+describe("missing chat presence", () => {
+  test.each(["away", "back"])("%s explains that the session may not be signed in", async (verb) => {
+    for (const flags of [[], ["--json"]]) {
+      const args = verb === "away" ? [verb, "lunch"] : [verb];
+      const r = await runChatRaw([...args, "--session", "never-signed-in", ...flags]);
+      expect(r.code).toBe(1);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toBe("[refused] This session cannot use that identity\n  why: This session is not signed in, or another session now holds its identity.\n  next: rt chat sign-in");
+    }
   });
 });

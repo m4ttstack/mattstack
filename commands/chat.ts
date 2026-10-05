@@ -206,8 +206,8 @@ const CHAT_REFUSALS: Record<string, () => Block[]> = {
     out.callout("why", "Only the agent holding a claim, or the one who posted the message, can release it."),
   ],
   "identity-held": () => [
-    out.line("refused", "Another session is using that identity"),
-    out.callout("why", "Another session signed in as it, so this one no longer speaks for it."),
+    out.line("refused", "This session cannot use that identity"),
+    out.callout("why", "This session is not signed in, or another session now holds its identity."),
     out.callout("next", out.cmd("rt chat sign-in")),
   ],
   "identity-fixed": () => [
