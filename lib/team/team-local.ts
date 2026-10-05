@@ -103,16 +103,44 @@ export function readTeamLocal(p: Pick<Probes, "readFile" | "home">, slug: string
   }
 }
 
-export function writeTeamLocal(
-  p: Pick<Probes, "home" | "mkdirp" | "writeFile" | "chmod">,
-  slug: string,
-  record: TeamLocalRecord,
-): void {
+type RecordWriter = Pick<Probes, "home" | "mkdirp" | "writeFile" | "chmod" | "rename">;
+
+/** Written beside the record and renamed over it: the daemon reads this file every snapshot round, and a torn read would drop a pending share's hold. */
+export function writeTeamLocal(p: RecordWriter, slug: string, record: TeamLocalRecord): void {
   const path = teamLocalPath(p.home, slug);
+  const temp = `${path}.${process.pid}.tmp`;
   p.mkdirp(dirname(path));
   p.chmod(dirname(path), RECORD_DIR_MODE);
-  p.writeFile(path, `${JSON.stringify(record, null, 2)}\n`);
-  p.chmod(path, RECORD_MODE);
+  p.writeFile(temp, `${JSON.stringify(record, null, 2)}\n`, RECORD_MODE);
+  p.chmod(temp, RECORD_MODE);
+  p.rename(temp, path);
+}
+
+const LOCK_TRIES = 50;
+const LOCK_WAIT_MS = 20;
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** Several rt processes update one record (a share, setup, a publish); without the lock a read-modify-write can drop another's field. A lock still there after a second is a dead writer's, so it is taken over. */
+function withRecordLock<T>(p: RecordWriter & Pick<Probes, "mkdirExclusive" | "removeDir">, slug: string, fn: () => T): T {
+  const lock = `${teamLocalPath(p.home, slug)}.lock`;
+  p.mkdirp(dirname(lock));
+  let held = false;
+  for (let i = 0; i < LOCK_TRIES && !held; i++) {
+    held = p.mkdirExclusive(lock);
+    if (!held) sleepSync(LOCK_WAIT_MS);
+  }
+  if (!held) {
+    p.removeDir(lock);
+    held = p.mkdirExclusive(lock);
+  }
+  try {
+    return fn();
+  } finally {
+    if (held) p.removeDir(lock);
+  }
 }
 
 /** A roster write lands in the org this Mac reads settings from, so a verb named for any other org would read one store and write another. */
@@ -126,11 +154,23 @@ export function assertCurrentOrg(slug: string, current: string | null, verb: str
 
 /** Merges one field without clobbering the rest — callers set `createdByRt` and the operator sets the permission, at different times. */
 export function updateTeamLocal(
-  p: Pick<Probes, "readFile" | "home" | "mkdirp" | "writeFile" | "chmod">,
+  p: RecordWriter & Pick<Probes, "readFile" | "mkdirExclusive" | "removeDir">,
   slug: string,
   patch: Partial<TeamLocalRecord>,
 ): TeamLocalRecord {
-  const next = { ...readTeamLocal(p, slug), ...patch };
-  writeTeamLocal(p, slug, next);
-  return next;
+  return editTeamLocal(p, slug, () => patch);
+}
+
+/** Like updateTeamLocal, with the patch computed from the record as it stands under the lock. */
+export function editTeamLocal(
+  p: RecordWriter & Pick<Probes, "readFile" | "mkdirExclusive" | "removeDir">,
+  slug: string,
+  edit: (current: TeamLocalRecord) => Partial<TeamLocalRecord>,
+): TeamLocalRecord {
+  return withRecordLock(p, slug, () => {
+    const current = readTeamLocal(p, slug);
+    const next = { ...current, ...edit(current) };
+    writeTeamLocal(p, slug, next);
+    return next;
+  });
 }
