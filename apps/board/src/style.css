@@ -31,18 +31,26 @@ html {
   /* Radix amber, held under the --orange name: the conflicts flag and the
      doctor lane (row and menu) read amber, distinct from ci-running and
      decide, which read the warn hue via --text-warn-vivid. */
-  --orange: light-dark(#ab6400, #ffca16);
+  --orange: light-dark(#9e5c00, #ffca16);
 }
 body {
   font-size: 0.84375rem;
 }
 
 /* ── header ───────────────────────────────────────────────────────── */
-/* The header is a zone, not a card, so it takes --chrome and the soft border
-   rather than a card's fill. Flat, not a mix: --chrome sits BELOW --bg on the
-   near-white ramp, so an alpha wash reads as an arbitrary tint rather than the
-   lift it was under the old grey ground. The sidebar and tab strip paint the
-   same flat --chrome, which is what makes the three read as one frame. */
+/* The header, MR panels, selection bar and sidebar are --card surfaces, the
+   way deck's services table is. Inks inside them take the kit's on-card roles:
+   the plain roles are tuned for the page ground and fall short on --card. A
+   highlight on these surfaces is a colored wash, never --card, which would
+   vanish against them. */
+.tui-header,
+[data-part='panel'],
+.tui-selbar,
+.tui-sidebar {
+  --muted: var(--text-muted-on-card);
+  --border: var(--border-on-card);
+  --border-soft: var(--border-soft-on-card);
+}
 .tui-header {
   display: flex;
   justify-content: space-between;
@@ -53,16 +61,14 @@ body {
   padding: 0.7rem 0.9rem;
   border: 1px solid var(--border-soft);
   border-radius: 8px;
-  background: var(--chrome);
+  background: var(--card);
   position: relative;
 }
-/* One surface, not a patchwork. The MR groups are the kit's Panel recipe,
-   which paints its own near-white fill; on this ramp that landed between --bg
-   and --card and read as a third grey next to the header and sidebar. This
+/* The MR groups are the kit's Panel recipe, which paints its own fill. This
    file is unlayered, so it outranks the recipe's @layer soribashi rule without
    !important. */
 [data-part='panel'] {
-  background: var(--chrome);
+  background: var(--card);
 }
 /* The recipe's bottom padding left a sliver of panel under the last row, and
    a row's full-width footer band showed it. Rows run to the panel's own edge,
@@ -213,7 +219,7 @@ body {
   margin-bottom: 1rem;
   border: 1px solid var(--fill-accent);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--chrome) 94%, transparent);
+  background: color-mix(in srgb, var(--card) 94%, transparent);
   backdrop-filter: blur(6px);
 }
 .tui-selbar-head {
@@ -243,7 +249,7 @@ body {
   color: var(--text-1);
   line-height: 1.45;
   background: var(--card);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-control-on-card);
   border-radius: 6px;
   resize: none;
   overflow-y: auto;
@@ -1442,8 +1448,7 @@ body {
   min-width: 0;
 }
 /* The roster gets the same framed-panel backdrop as the MR groups -- bare
-   transparent buttons on the page grid disappear in dark mode. Item hover/
-   active fills step up to --card so they still read against it. */
+   transparent buttons on the page grid disappear in dark mode. */
 .tui-sidebar {
   display: flex;
   flex-direction: column;
@@ -1453,7 +1458,7 @@ body {
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--chrome);
+  background: var(--card);
 }
 /* Pending-decision callout above the roster: renders as the kit's filled
    accent button (Sidebar.tsx), the same accent blue the rest of the chrome
@@ -1490,7 +1495,7 @@ body {
   cursor: pointer;
 }
 .tui-side-gear:hover {
-  background: var(--card);
+  background: var(--surface-wash-fg-5);
   color: var(--text-1);
   border-color: var(--border);
 }
@@ -1510,11 +1515,11 @@ body {
   text-align: left;
 }
 .tui-side-item:hover {
-  background: var(--card);
+  background: var(--surface-wash-fg-5);
 }
 .tui-side-item.active {
-  border-color: var(--border);
-  background: var(--card);
+  border-color: var(--fill-accent);
+  background: var(--surface-wash-accent-14);
 }
 .tui-side-name {
   display: inline-flex;
@@ -3349,17 +3354,15 @@ a.tui-id-card-ref:focus-visible {
   border-bottom: 1px solid var(--border);
 }
 /* The buttons carry the surface, not the strip: a tab sitting straight on the
-   page's grid-paper background is hard to read. The fill is the fg tint
-   mixed OVER --bg, not over transparent: light's chrome was near-identical
-   to the page ground, and a translucent wash let the grid pattern show
-   through the pill. */
+   page's grid-paper background is hard to read. Opaque fills only: a
+   translucent wash lets the grid pattern show through the pill. */
 .tui-tab {
   padding: 7px 14px;
   border: 0;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   border-radius: 6px 6px 0 0;
-  background: color-mix(in srgb, var(--fg) 5%, var(--page));
+  background: var(--card);
   color: var(--text-3);
   font: inherit;
   font-size: 0.8125rem;
@@ -3374,7 +3377,7 @@ a.tui-id-card-ref:focus-visible {
    seam on the page. */
 .tui-tab:hover {
   color: var(--text-1);
-  background: color-mix(in srgb, var(--fg) 8%, var(--page));
+  background: var(--surface-wash-fg-4-card);
 }
 .tui-tab.active {
   color: var(--text-1);
@@ -4889,7 +4892,7 @@ a.tui-id-card-ref:focus-visible {
   gap: 6px;
   height: 30px;
   padding: 0 10px;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--border-control-on-card);
   border-radius: 7px;
   background: var(--card);
   color: var(--text-1);
