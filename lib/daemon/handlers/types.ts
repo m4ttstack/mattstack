@@ -97,7 +97,7 @@ import type { Commands, CommandName } from "../../../packages/rt-client/src/comm
 /** The daemon's reply envelope for one cataloged command. */
 export type CommandResult<K extends CommandName> =
   | { ok: true; data: Commands[K]["data"] }
-  | { ok: false; error: string };
+  | { ok: false; error: string; failure?: { code: string; message: string } };
 
 export type TypedHandlers = {
   [K in CommandName]: (payload: Commands[K]["payload"]) => Promise<CommandResult<K>>;

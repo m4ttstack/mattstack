@@ -486,6 +486,8 @@ failure (`out.fail(f, ...after)`), never the failure's `details`, which
 is a one-line pointer. Something rt leaves alone because it did not create
 it is worded the same everywhere: rt did not make it, so rt left it alone.
 
+A daemon handler that declines by policy returns `failure: { code, message }` beside its `error` (`CommandResult`), and the CLI maps known codes to `refused` notes; the `error` string itself never changes, since hooks and the daemon's own retries match on it.
+
 ## The TypeScript CLI is UI-free
 
 The rt TS CLI (`commands/`, `lib/`, `cli.ts`, `scripts/`) is pure Bun/TypeScript

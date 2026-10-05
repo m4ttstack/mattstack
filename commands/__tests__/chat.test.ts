@@ -424,7 +424,7 @@ describe("rt chat CLI — additional verb behavior", () => {
     await runChat(["claim", String(id), "--as", "b"]);
     const refused = await runChatRaw(["release", String(id), "--as", "c"]);
     expect(refused.code).toBe(1);
-    expect(refused.stderr).toContain("neither the holder");
+    expect(refused.stderr).toContain("[refused] rt chat will not release a claim you do not hold");
     expect(await runChat(["release", String(id), "--as", "b"])).toBe(`released #${id} (was held by b)`);
     await runChat(["claim", String(id), "--as", "c"]);
     expect(await runChat(["release", String(id), "--as", "asker"])).toBe(`released #${id} (was held by c)`);
@@ -791,13 +791,13 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     expect(stderr).toContain("\n  next: rt chat sign-in --session <id>");
   });
 
-  test("--as naming an id live in another session is refused with the reclaimed wording, and writes no session file", async () => {
+  test("--as naming an id live in another session is refused with the sign-in command, and writes no session file", async () => {
     await runChat(["sign-in", "--name", "remy", "--session", "s1", "--no-room"]);
     const s1Handle = JSON.parse(readFileSync(join(home, ".mattstack", "rt", "chat", "sessions", "s1.json"), "utf8")).handle;
 
     const { code, stderr } = await runChatRaw(["sign-in", "--as", s1Handle, "--session", "s2", "--no-room"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("handle reclaimed");
+    expect(stderr).toContain("[refused] This session cannot use that identity");
     expect(existsSync(join(home, ".mattstack", "rt", "chat", "sessions", "s2.json"))).toBe(false);
   });
 
@@ -805,7 +805,7 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     setSetting("chat.humanHandle", "matt", "user");
     const { code, stderr } = await runChatRaw(["sign-in", "--as", "matt", "--session", "s1", "--no-room"]);
     expect(code).not.toBe(0);
-    expect(stderr).toContain("matt");
+    expect(stderr).toContain("[refused] rt chat keeps that identity for the human or the herd");
   });
 
   test("sign-out --json reports a daemonError field rather than a bare {ok:true} when the daemon leg failed", async () => {
@@ -1369,22 +1369,30 @@ describe("rt chat at a terminal", () => {
     expect(renderPlain(__test__.roomsBlocks([]))).toBe("[skipped] You are not in any room yet\n  next: rt chat join <room>\n");
   });
 
-  test("read is a section per room: each message a name, a time and its body as written", () => {
-    const text = renderPlain(__test__.readBlocks([{ room: "build", messages: [message({ body: "the lede\n\n- one point" }), message({ id: 2, name: "bo", body: "ok" })] }], false, heading));
-    expect(text).toBe("#build\nana  12:04\n    the lede\n  \n    - one point\nbo  12:04\n    ok\n");
+  test("read is a section per room: each message a name, a time and its body, with a blank row between messages", () => {
+    const clock = () => "12:04 CDT";
+    const text = renderPlain(__test__.readBlocks([{ room: "build", messages: [message({ body: "the lede\n\n- one point" }), message({ id: 2, name: "bo", body: "ok" })] }], false, heading, clock));
+    expect(text).toBe("#build\nana  12:04 CDT\n    the lede\n  \n    - one point\n\nbo  12:04 CDT\n    ok\n");
     expect(renderPlain(__test__.readBlocks([], false, heading))).toBe("[skipped] Nothing unread\n");
+  });
+
+  test("the human clock is local time with its zone", () => {
+    expect(__test__.localClock(Date.UTC(2026, 6, 1, 17, 4), "America/Chicago")).toBe("12:04 CDT");
+    expect(__test__.localClock(Date.UTC(2026, 0, 1, 18, 4), "America/Chicago")).toBe("12:04 CST");
+    expect(__test__.localClock(Date.UTC(2026, 0, 1, 0, 30), "UTC")).toBe("00:30 UTC");
   });
 
   test("a long body is cut at 200 characters unless the person asks for all of it", () => {
     const long = "x".repeat(300);
-    const cut = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ body: long })] }], false, heading));
+    const clock = () => "12:04";
+    const cut = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ body: long })] }], false, heading, clock));
     expect(cut).toBe(`#r\nana  12:04\n    ${"x".repeat(199)}…\n`);
-    const whole = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ body: long })] }], true, heading));
+    const whole = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ body: long })] }], true, heading, clock));
     expect(whole).toBe(`#r\nana  12:04\n    ${long}\n`);
   });
 
   test("a message body cannot repaint the screen or forge a row", () => {
-    const text = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ name: "mal", body: "hi\x1b[2Jthere\n[ok] forged" })] }], true, heading));
+    const text = renderPlain(__test__.readBlocks([{ room: "r", messages: [message({ name: "mal", body: "hi\x1b[2Jthere\n[ok] forged" })] }], true, heading, () => "12:04"));
     expect(text).toBe("#r\nmal  12:04\n    hithere\n    [ok] forged\n");
   });
 
@@ -1658,4 +1666,63 @@ describe("rt chat stdout off a terminal (frozen for agents)", () => {
     }
     expect(got).toEqual(JSON.parse(readFileSync(BYTES_FIXTURE, "utf8")));
   }, 60_000);
+});
+
+
+describe("daemon refusals by policy", () => {
+  test("release of a claim you do not hold is a refusal", async () => {
+    canned = { "chat:release": { ok: false, error: "you are neither the holder of #1 nor its author", failure: { code: "not-holder", message: "you are neither the holder of #1 nor its author" } } };
+    for (const flags of [[], ["--json"]]) {
+      const r = await runChatRaw(["release", "1", "--as", "b", ...flags]);
+      expect(r.code).toBe(1);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toBe("[refused] rt chat will not release a claim you do not hold\n  why: Only the agent holding a claim, or the one who posted the message, can release it.");
+    }
+  });
+
+  test.each([
+    ["identity-held", "This session cannot use that identity", "This session is not signed in, or another session now holds its identity."],
+    ["identity-fixed", "rt chat keeps that identity for the human or the herd", "Agents sign in under names of their own."],
+  ])("%s is a refusal with the sign-in command", async (code, title, why) => {
+    canned = { "chat:sign-in": { ok: false, error: "daemon wording", failure: { code, message: "daemon wording" } } };
+    for (const flags of [[], ["--json"]]) {
+      const r = await runChatRaw(["sign-in", "--as", "remy.1", "--no-room", "--session", "s9", ...flags]);
+      expect(r.code).toBe(1);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toBe(`[refused] ${title}\n  why: ${why}\n  next: rt chat sign-in`);
+    }
+  });
+
+  test.each(["something-new", "toString", "__proto__"])("unknown code %s is a failure in the daemon's words", async (code) => {
+    canned = { "chat:release": { ok: false, error: "no message #9", failure: { code, message: "different failure message" } } };
+    for (const flags of [[], ["--json"]]) {
+      const r = await runChatRaw(["release", "9", "--as", "b", ...flags]);
+      expect(r.code).toBe(1);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toBe("no message #9");
+    }
+  });
+
+  test("sign-out cleans up locally when the daemon returns a coded refusal", async () => {
+    await signInInProcess({ as: "x", session: "s1", noRoom: true });
+    canned = { "chat:sign-out": { ok: false, error: "handle reclaimed", failure: { code: "identity-held", message: "handle reclaimed" } } };
+    const r = await runChatRaw(["sign-out", "--session", "s1", "--json"]);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual({ ok: true, daemonError: "handle reclaimed" });
+    expect(r.stderr).toContain("[warning] Signed out here, but the daemon did not hear it");
+    expect(existsSync(join(home, ".mattstack", "rt", "chat", "sessions", "s1.json"))).toBe(false);
+  });
+});
+
+
+describe("missing chat presence", () => {
+  test.each(["away", "back"])("%s explains that the session may not be signed in", async (verb) => {
+    for (const flags of [[], ["--json"]]) {
+      const args = verb === "away" ? [verb, "lunch"] : [verb];
+      const r = await runChatRaw([...args, "--session", "never-signed-in", ...flags]);
+      expect(r.code).toBe(1);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toBe("[refused] This session cannot use that identity\n  why: This session is not signed in, or another session now holds its identity.\n  next: rt chat sign-in");
+    }
+  });
 });
