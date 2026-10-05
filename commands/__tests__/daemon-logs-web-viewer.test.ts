@@ -1,3 +1,4 @@
+import type { Block } from "../../lib/ui/protocol.ts";
 /**
  * `rt daemon logs` is run by the tray under launchd's minimal PATH, and the
  * tray opens the viewer itself, so the command must find logdy without
@@ -13,7 +14,7 @@ class Exited extends Error {
 }
 
 function fakeSeams(over: Partial<WebViewerSeams> = {}) {
-  const calls = { opened: [] as string[], spawned: [] as { bin: string; args: string[] }[], errors: [] as string[], killed: 0 };
+  const calls = { opened: [] as string[], spawned: [] as { bin: string; args: string[] }[], printed: [] as Block[], failures: [] as out.FailureInput[], killed: 0 };
   const seams: WebViewerSeams = {
     findLogdy: () => "/Applications/mattstack.app/Contents/Helpers/logdy",
     materializeConfig: () => "/tmp/logdy.json",
@@ -25,8 +26,8 @@ function fakeSeams(over: Partial<WebViewerSeams> = {}) {
     openUrl: (url) => { calls.opened.push(url); },
     onSignal: () => {},
     exit: (code) => { throw new Exited(code); },
-    log: () => {},
-    error: (line) => { calls.errors.push(line); },
+    print: (...blocks) => { calls.printed.push(...blocks); },
+    fail: (f) => { calls.failures.push(f); },
     ...over,
   };
   return { seams, calls };
@@ -56,7 +57,7 @@ describe("runWebViewer", () => {
   test("missing logdy exits 1 with the reason as the first stderr line", async () => {
     const { seams, calls } = fakeSeams({ findLogdy: () => null });
     await expect(runWebViewer(["/logs/daemon.log"], { open: true }, seams)).rejects.toEqual(new Exited(1));
-    expect(calls.errors[0]).toMatch(/^logdy not found/);
+    expect(calls.failures[0]?.title).toMatch(/^rt could not find logdy/);
     expect(calls.spawned).toEqual([]);
     expect(calls.opened).toEqual([]);
   });
@@ -64,7 +65,7 @@ describe("runWebViewer", () => {
   test("logdy that never answers exits 1, kills it, and opens nothing", async () => {
     const { seams, calls } = fakeSeams({ waitForPort: async () => false });
     await expect(runWebViewer(["/logs/daemon.log"], { open: true }, seams)).rejects.toEqual(new Exited(1));
-    expect(calls.errors[0]).toMatch(/^logdy did not answer on :5544/);
+    expect(calls.failures[0]?.title).toMatch(/^The log viewer did not start in time/);
     expect(calls.killed).toBe(1);
     expect(calls.opened).toEqual([]);
   });
@@ -79,6 +80,32 @@ describe("runWebViewer", () => {
       },
     });
     await expect(runWebViewer(["/logs/daemon.log"], { open: true }, seams)).rejects.toEqual(new Exited(1));
-    expect(calls.errors[0]).toBe("logdy exited 1 before answering on :5544");
+    expect(calls.failures[0]?.title).toBe("The log viewer stopped before it opened");
+    expect(calls.failures[0]?.why).toBe("logdy exited 1.");
   });
+});
+
+import * as out from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
+
+test("the first stderr line of a missing logdy is the failure title alone", async () => {
+  const io = captureOut();
+  out.__test__.setHuman(() => false);
+  try {
+    const { seams } = fakeSeams({ findLogdy: () => null, fail: (f) => out.fail(f) });
+    await expect(runWebViewer(["/logs/daemon.log"], { open: true }, seams)).rejects.toThrow("exit 1");
+    expect(io.stderr()).toStartWith("rt could not find logdy\n");
+    expect(io.stdout()).toBe("");
+  } finally {
+    io.restore();
+  }
+});
+
+test("an early logdy exit and a slow logdy are failures the tray can show", async () => {
+  const early = fakeSeams({ spawnLogdy: (_b, _a) => ({ kill: () => {}, onExit: (cb) => cb(3) }), waitForPort: async () => false });
+  await expect(runWebViewer([], { open: false }, early.seams)).rejects.toThrow();
+  expect(early.calls.failures[0]?.title).toBe("The log viewer stopped before it opened");
+  const slow = fakeSeams({ waitForPort: async () => false });
+  await expect(runWebViewer([], { open: false }, slow.seams)).rejects.toThrow("exit 1");
+  expect(slow.calls.failures.at(-1)?.title).toBe("The log viewer did not start in time");
 });

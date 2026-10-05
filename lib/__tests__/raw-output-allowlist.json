@@ -5,7 +5,6 @@
   "commands/cd.ts",
   "commands/code.ts",
   "commands/cron.ts",
-  "commands/daemon.ts",
   "commands/endpoint.ts",
   "commands/flavor.ts",
   "commands/glitter.ts",

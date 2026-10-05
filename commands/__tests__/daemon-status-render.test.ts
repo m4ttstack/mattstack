@@ -1,5 +1,5 @@
 /**
- * statusLines rendering.
+ * statusBlocks rendering.
  *
  * The classifier is covered in lib/__tests__/daemon-status.test.ts; this pins
  * the text the operator actually reads — that a live-but-unreporting daemon is
@@ -7,18 +7,23 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { statusLines } from "../daemon.ts";
+import { statusBlocks } from "../daemon.ts";
+import { renderPlain } from "../../lib/ui/out-plain.ts";
+import * as ui from "../../lib/ui/out.ts";
 import type { DaemonStatusVerdict } from "../../lib/daemon-status.ts";
 
 const NOW = 1_785_000_000_000;
-const plain = (v: DaemonStatusVerdict) => statusLines(v, NOW).join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+const plain = (v: DaemonStatusVerdict) => {
+  const shown = statusBlocks(v, NOW);
+  return renderPlain([...shown.print, ...(shown.failure ? [ui.failure(shown.failure)] : [])]);
+};
 
-describe("statusLines", () => {
+describe("statusBlocks", () => {
   test("a daemon that answered with an error reads as running, and shows the error", () => {
     const out = plain({ state: "degraded", reason: "error", detail: "freshness store unreadable", pid: 89290 });
-    expect(out).toContain("running, but not reporting status");
+    expect(out).toContain("running but did not report its status");
     expect(out).toContain("freshness store unreadable");
-    expect(out).toContain("pid: 89290");
+    expect(out).toContain("pid 89290");
     // The regression: never claim it is down, never send them to `start`.
     expect(out).not.toContain("installed but not running");
     expect(out).not.toContain("rt daemon start");
@@ -26,7 +31,7 @@ describe("statusLines", () => {
 
   test("a timed-out status on a pingable daemon reads as running", () => {
     const out = plain({ state: "degraded", reason: "unresponsive", pid: 89290 });
-    expect(out).toContain("running, but not reporting status");
+    expect(out).toContain("running but did not report its status");
     expect(out).toContain("status timed out");
     expect(out).not.toContain("installed but not running");
     expect(out).not.toContain("rt daemon start");
@@ -35,7 +40,7 @@ describe("statusLines", () => {
   test("a genuinely dead daemon still reads as not running, with how to start it", () => {
     const out = plain({ state: "not-running", pid: 89290 });
     expect(out).toContain("installed but not running");
-    expect(out).toContain("last pid: 89290");
+    expect(out).toContain("last pid 89290");
     expect(out).toContain("rt daemon start");
   });
 
@@ -76,35 +81,34 @@ describe("statusLines", () => {
 
   test("a parked pid points at the flavor mismatch, not 'not running'", () => {
     const out = plain({ state: "parked", pid: 42, holderFlavor: "prod" });
-    expect(out).toContain("parked");
-    expect(out).toContain("pid 42");
-    expect(out).toContain("held by: prod");
+    expect(out).toContain("[off] This daemon is waiting");
+    expect(out).toContain("the prod daemon is running instead");
     expect(out).not.toContain("installed but not running");
   });
 
   test("alive-not-serving names the pid and the stuck detail", () => {
     const out = plain({ state: "alive-not-serving", pid: 42, detail: "booting" });
-    expect(out).toContain("process 42 is running but not answering rt.sock");
-    expect(out).toContain("still booting");
+    expect(out).toContain("The daemon is running but not answering  pid 42");
+    expect(out).toContain("still starting up");
     expect(out).not.toContain("installed but not running");
   });
 
   test("alive-not-serving wedged/quarantined get their own detail lines", () => {
-    expect(plain({ state: "alive-not-serving", pid: 1, detail: "wedged" })).toContain("deadlocked");
-    expect(plain({ state: "alive-not-serving", pid: 1, detail: "quarantined" })).toContain("recovered from a corrupt db");
+    expect(plain({ state: "alive-not-serving", pid: 1, detail: "wedged" })).toContain("may be stuck");
+    expect(plain({ state: "alive-not-serving", pid: 1, detail: "quarantined" })).toContain("reset a damaged database");
   });
 
   test("crash-looping surfaces the failure count and the last reason", () => {
     const out = plain({ state: "crash-looping", failures: 4, reason: "EADDRINUSE" });
-    expect(out).toContain("crash-looping");
+    expect(out).toContain("The daemon keeps crashing");
     expect(out).toContain("4 failures");
     expect(out).toContain("EADDRINUSE");
   });
 
   test("boot-failed surfaces the phase and reason, and points at rt daemon start", () => {
     const out = plain({ state: "boot-failed", reason: "EADDRINUSE", phase: "api" });
-    expect(out).toContain("boot failed");
-    expect(out).toContain("phase: api");
+    expect(out).toContain("The daemon failed to start");
+    expect(out).toContain("while api");
     expect(out).toContain("EADDRINUSE");
     expect(out).toContain("rt daemon start");
   });
