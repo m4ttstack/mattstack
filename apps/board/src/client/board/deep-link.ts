@@ -3,8 +3,9 @@
 
 import type { TabConfig } from '../../config.ts';
 import type { BoardMR } from '../../data.ts';
-import { filterByTab } from '../../view.ts';
-import type { ViewState } from '../../view.ts';
+import { ALL_TURN } from '../../turn.ts';
+import { filterByTab, matchesShowItem, SHOW_ITEMS } from '../../view.ts';
+import type { ShowItem, ViewState } from '../../view.ts';
 
 const LINK_PARAMS = ['gate', 'mr'];
 
@@ -61,12 +62,11 @@ export function viewStateForMr<
     if (winningTab) next = { ...next, tab: winningTab.id };
   }
 
-  if (next.slack !== 'all' && !mr.slack?.posted) {
-    next = { ...next, slack: 'all' };
-  }
-
-  if (next.drafts !== 'all' && mr.isDraft) {
-    next = { ...next, drafts: 'all' };
+  const hiding = (item: ShowItem) =>
+    next.off.includes(item) && matchesShowItem(mr, item, ALL_TURN);
+  const hidingItems = SHOW_ITEMS.filter(hiding);
+  if (hidingItems.length > 0) {
+    next = { ...next, off: next.off.filter(i => !hidingItems.includes(i)) };
   }
 
   return next;

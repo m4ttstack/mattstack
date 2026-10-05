@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import type { TabConfig } from '../config.ts';
 import type { BoardMR, BoardSyncError } from '../data.ts';
+import { ALL_TURN } from '../turn.ts';
 import {
   ageText,
   behindToken,
@@ -10,9 +11,8 @@ import {
   descendantsOf,
   dropPeer,
   effectiveSeat,
-  filterByDraft,
   filterByMember,
-  filterBySlack,
+  filterByShow,
   filterByTab,
   freshnessBanner,
   groupMRs,
@@ -83,38 +83,63 @@ describe('effectiveSeat', () => {
   });
 });
 
-describe('filterBySlack', () => {
+describe('filterByShow', () => {
   const posted = mr({
     iid: 1,
     slack: { status: 'found', reactions: [], posted: true },
   } as any);
-  const foundNoReply = mr({
+  const notPosted = mr({
     iid: 2,
     slack: { status: 'found', reactions: [], posted: false },
   } as any);
-  const notFound = mr({
-    iid: 3,
-    slack: { status: 'notfound', reactions: [], posted: false },
+  const unresolved = mr({ iid: 3 });
+  const draft = mr({
+    iid: 4,
+    isDraft: true,
+    slack: { status: 'found', reactions: [], posted: true },
   } as any);
-  const unresolved = mr({ iid: 4 });
-  const list = [posted, foundNoReply, notFound, unresolved];
-  test('all returns everything', () => {
-    expect(filterBySlack(list, 'all')).toHaveLength(4);
-  });
-  test('posted keeps only rows the posted-in-slack chip would mark', () => {
-    expect(filterBySlack(list, 'posted').map(m => m.iid)).toEqual([1]);
-  });
-});
+  const authorsTurn = mr({
+    iid: 5,
+    slack: { status: 'found', reactions: [], posted: true },
+    threadSummary: { awaiting: 2, replied: 0, resolved: 0 },
+  } as any);
+  const list = [posted, notPosted, unresolved, draft, authorsTurn];
+  const ALL = ['posted', 'notPosted', 'authorTurn', 'myDrafts'] as const;
 
-describe('filterByDraft', () => {
-  const draft = mr({ iid: 1, isDraft: true } as any);
-  const ready = mr({ iid: 2, isDraft: false } as any);
-  const list = [draft, ready];
-  test('all returns everything', () => {
-    expect(filterByDraft(list, 'all')).toHaveLength(2);
+  test('nothing off shows everything, and counts cover every row', () => {
+    const r = filterByShow(list, [], ALL, ALL_TURN);
+    expect(r.rows).toHaveLength(5);
+    expect(r.counts).toEqual({
+      posted: 3,
+      notPosted: 2,
+      authorTurn: 1,
+      myDrafts: 1,
+    });
   });
-  test('hide drops the draft-chip rows', () => {
-    expect(filterByDraft(list, 'hide').map(m => m.iid)).toEqual([2]);
+  test('Not Posted off keeps only posted rows (old slack=posted)', () => {
+    expect(
+      filterByShow(list, ['notPosted'], ALL, ALL_TURN).rows.map(m => m.iid)
+    ).toEqual([1, 4, 5]);
+  });
+  test('a row is dropped when any item that matches it is off', () => {
+    expect(
+      filterByShow(list, ['authorTurn'], ALL, ALL_TURN).rows.map(m => m.iid)
+    ).toEqual([1, 2, 3, 4]);
+    expect(
+      filterByShow(list, ['myDrafts', 'notPosted'], ALL, ALL_TURN).rows.map(
+        m => m.iid
+      )
+    ).toEqual([1, 5]);
+  });
+  test('an item that is not offered never filters, even if stored off', () => {
+    const offered = ['authorTurn', 'myDrafts'] as const;
+    expect(
+      filterByShow(list, ['notPosted'], offered, ALL_TURN).rows
+    ).toHaveLength(5);
+  });
+  test('waiting on author follows the turn config', () => {
+    const cfg = { ...ALL_TURN, author: [] };
+    expect(filterByShow(list, ['authorTurn'], ALL, cfg).rows).toHaveLength(5);
   });
 });
 
@@ -1121,8 +1146,7 @@ describe('parseViewState', () => {
       group: 'status',
       sort: 'progress',
       tab: '',
-      slack: 'all',
-      drafts: 'all',
+      off: [],
     });
   });
   test('ignores unknown member and invalid group/sort', () => {
@@ -1171,38 +1195,33 @@ describe('parseViewState', () => {
     expect(parseViewState('', null, members, 'all', ['t', 'q']).tab).toBe('t');
   });
 
-  test('slack filter defaults to all', () => {
-    expect(parseViewState('', null, members).slack).toBe('all');
+  test('off defaults to empty', () => {
+    expect(parseViewState('', null, members).off).toEqual([]);
   });
 
-  test('slack=posted from the URL', () => {
-    expect(parseViewState('?slack=posted', null, members).slack).toBe('posted');
+  test('off: url wins, unknown items dropped', () => {
+    expect(parseViewState('?off=notPosted,bogus', null, []).off).toEqual([
+      'notPosted',
+    ]);
   });
-
-  test('stored slack filter is honoured', () => {
-    expect(parseViewState('', { slack: 'posted' }, members).slack).toBe(
-      'posted'
-    );
+  test('legacy slack=posted and drafts=hide map onto off', () => {
+    expect(parseViewState('?slack=posted&drafts=hide', null, []).off).toEqual([
+      'notPosted',
+      'myDrafts',
+    ]);
+    expect(parseViewState('', { slack: 'posted' } as any, []).off).toEqual([
+      'notPosted',
+    ]);
   });
-
-  test('an unknown slack filter value falls back to all', () => {
-    expect(parseViewState('?slack=bogus', null, members).slack).toBe('all');
+  test('an explicit off param outranks legacy keys', () => {
+    expect(
+      parseViewState('?off=authorTurn&slack=posted', null, []).off
+    ).toEqual(['authorTurn']);
   });
-
-  test('drafts filter defaults to all', () => {
-    expect(parseViewState('', null, members).drafts).toBe('all');
-  });
-
-  test('drafts=hide from the URL', () => {
-    expect(parseViewState('?drafts=hide', null, members).drafts).toBe('hide');
-  });
-
-  test('stored drafts filter is honoured', () => {
-    expect(parseViewState('', { drafts: 'hide' }, members).drafts).toBe('hide');
-  });
-
-  test('an unknown drafts filter value falls back to all', () => {
-    expect(parseViewState('?drafts=bogus', null, members).drafts).toBe('all');
+  test('stored off is honoured', () => {
+    expect(parseViewState('', { off: ['myDrafts'] }, members).off).toEqual([
+      'myDrafts',
+    ]);
   });
 });
 
@@ -1237,8 +1256,7 @@ describe('serializeViewState', () => {
         group: 'age',
         sort: 'oldest',
         tab: '',
-        slack: 'all',
-        drafts: 'all',
+        off: [],
       })
     ).toBe('?member=bob&group=age');
   });
@@ -1249,20 +1267,15 @@ describe('serializeViewState', () => {
         group: 'status',
         sort: 'oldest',
         tab: 'team',
-        slack: 'all',
-        drafts: 'all',
+        off: [],
       })
     ).toBe('?tab=team');
   });
-  test('includes the slack filter when it is on', () => {
-    expect(serializeViewState({ ...DEFAULT_VIEW, slack: 'posted' })).toBe(
-      '?slack=posted'
-    );
-  });
-  test('includes the drafts filter when it is on', () => {
-    expect(serializeViewState({ ...DEFAULT_VIEW, drafts: 'hide' })).toBe(
-      '?drafts=hide'
-    );
+  test('off serializes in canonical order and drops when empty', () => {
+    expect(
+      serializeViewState({ ...DEFAULT_VIEW, off: ['myDrafts', 'notPosted'] })
+    ).toBe('?off=notPosted%2CmyDrafts');
+    expect(serializeViewState(DEFAULT_VIEW)).toBe('');
   });
 });
 

@@ -20,19 +20,18 @@ import type { BoardMR } from '../../data.ts';
 import { inferRoster } from '../../data.ts';
 import type { GateRow } from '../../gates/store.ts';
 import { sectionStatus } from '../../sections.ts';
-import { ALL_TURN } from '../../turn.ts';
 import {
   menuActsOnSelection,
   postableOf,
   selectionOf,
   tabChangeClearsSelection,
 } from '../../selection.ts';
+import { ALL_TURN } from '../../turn.ts';
 import {
   dataAgeLabel,
   effectiveSeat,
-  filterByDraft,
   filterByMember,
-  filterBySlack,
+  filterByShow,
   filterByTab,
   freshnessBanner,
   GROUP_KEYS,
@@ -46,13 +45,7 @@ import {
   serializeViewState,
   sortMRs,
 } from '../../view.ts';
-import type {
-  DraftFilter,
-  GroupKey,
-  SlackFilter,
-  StackNode,
-  ViewState,
-} from '../../view.ts';
+import type { GroupKey, ShowItem, StackNode, ViewState } from '../../view.ts';
 import { postAction, type ActionResult } from '../api.ts';
 import type {
   BoardData,
@@ -185,11 +178,20 @@ function boardTabs(d: Pick<BoardData, 'tabs' | 'defaultMember'>): TabConfig[] {
   return d.defaultMember === 'all' ? d.tabs : [...d.tabs, NEEDS_ME_TAB];
 }
 
+/* Transitional: the Slack and drafts toggles still read as two filters until
+   the Show control replaces them; both map onto ViewState.off. */
+type SlackFilter = 'all' | 'posted';
+type DraftFilter = 'all' | 'hide';
+
 /** Empty-list copy: the posted-in-slack and hide-drafts chips both persist
     across tabs, so an empty view has to name whichever is on — and how many
     rows it hid — rather than read as "this queue has no work". Slack wins
     when both are on at once; the two firing together to empty a queue is
     rare enough not to earn its own combined phrasing. */
+function toggleOff(off: ShowItem[], item: ShowItem): ShowItem[] {
+  return off.includes(item) ? off.filter(i => i !== item) : [...off, item];
+}
+
 function emptyQueueCopy(
   slackFilter: SlackFilter,
   slackHidden: number,
@@ -992,16 +994,29 @@ export function Board() {
     // A stored "posted" pick with slack unconfigured would hide every row
     // behind a control that isn't rendered, so the filter only bites when
     // there are refs to filter on.
-    const slackFilter = data.slackEnabled ? state.slack : 'all';
+    const slackFilter: SlackFilter =
+      data.slackEnabled && state.off.includes('notPosted') ? 'posted' : 'all';
     // Drafts never appear at all on an "all" board (buildBoard drops every
     // draft when there's no single defaultMember to own one), so the same
     // guard keeps a stored "hide" pick from doing anything on a board where
     // the chip isn't rendered.
     const draftFilter: DraftFilter =
-      data.defaultMember !== 'all' ? state.drafts : 'all';
+      data.defaultMember !== 'all' && state.off.includes('myDrafts')
+        ? 'hide'
+        : 'all';
     const memberFiltered = filterByMember(tabFiltered, state.member);
-    const slackFiltered = filterBySlack(memberFiltered, slackFilter);
-    const filtered = filterByDraft(slackFiltered, draftFilter);
+    const slackFiltered = filterByShow(
+      memberFiltered,
+      slackFilter === 'posted' ? ['notPosted'] : [],
+      ['notPosted'],
+      ALL_TURN
+    ).rows;
+    const filtered = filterByShow(
+      slackFiltered,
+      draftFilter === 'hide' ? ['myDrafts'] : [],
+      ['myDrafts'],
+      ALL_TURN
+    ).rows;
     const slackHidden = memberFiltered.length - slackFiltered.length;
     const draftsHidden = slackFiltered.length - filtered.length;
     const groups = groupMRs(
@@ -1309,9 +1324,9 @@ export function Board() {
   // board (forced sweep, server-side); the current data filters immediately
   // and newly found rows land on the reload.
   const toggleSlackFilter = () => {
-    const next = state.slack === 'posted' ? 'all' : 'posted';
-    update({ slack: next });
-    if (next !== 'posted' || !data.local) return;
+    const turningOn = !state.off.includes('notPosted');
+    update({ off: toggleOff(state.off, 'notPosted') });
+    if (!turningOn || !data.local) return;
     const toast = startToast('refreshing slack status…');
     postAction('/slack/refresh', {}).then(result => {
       if (!result.ok)
@@ -1323,7 +1338,7 @@ export function Board() {
   // No server refresh needed here: isDraft rides the regular poll, unlike
   // slack status which needs its own out-of-band check.
   const toggleDraftFilter = () => {
-    update({ drafts: state.drafts === 'hide' ? 'all' : 'hide' });
+    update({ off: toggleOff(state.off, 'myDrafts') });
   };
   const inferredNote = isCodeownersTab
     ? 'authors in this queue'
