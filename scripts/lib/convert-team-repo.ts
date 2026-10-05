@@ -94,20 +94,23 @@ function rewritePaths(value: unknown, swaps: [string, string][], note: (from: st
   return value;
 }
 
-function rewriteSopsRules(text: string): string | undefined {
+function rewriteSopsRules(text: string): { text?: string; needsReview: boolean } {
   const doc = parseDocument(text);
-  if (doc.errors.length > 0 || !isMap(doc.contents)) return undefined;
+  if (doc.errors.length > 0 || !isMap(doc.contents)) return { needsReview: true };
   const rules = doc.contents.get("creation_rules", true);
-  if (!isSeq(rules)) return undefined;
+  if (!isSeq(rules)) return { needsReview: true };
   let updated = false;
+  let needsReview = rules.items.length === 0;
   for (const rule of rules.items) {
-    if (!isMap(rule)) continue;
-    const path = rule.get("path_regex", true);
-    if (!isScalar(path) || typeof path.value !== "string" || !/^\^?mattstack\/secrets\//.test(path.value)) continue;
+    const path = isMap(rule) ? rule.get("path_regex", true) : undefined;
+    if (!isScalar(path) || typeof path.value !== "string" || !/^\^?mattstack\/secrets\//.test(path.value)) {
+      needsReview = true;
+      continue;
+    }
     path.value = path.value.replaceAll("mattstack/secrets/", "mattstack/org/secrets/");
     updated = true;
   }
-  return updated ? doc.toString() : undefined;
+  return { ...(updated ? { text: doc.toString() } : {}), needsReview };
 }
 
 export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertPlan {
@@ -246,8 +249,8 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
   const sops = input.files[".sops.yaml"];
   if (sops !== undefined) {
     const rewritten = rewriteSopsRules(sops);
-    if (rewritten !== undefined) writes[".sops.yaml"] = rewritten;
-    else report.push("warning: .sops.yaml has no supported old secrets creation rule; fix its path_regex by hand");
+    if (rewritten.text !== undefined) writes[".sops.yaml"] = rewritten.text;
+    if (rewritten.needsReview) report.push("warning: .sops.yaml contains unresolved creation rules; fix its path_regex by hand");
   } else if (input.hasSecrets) report.push("warning: .sops.yaml is missing; add its secrets creation rule before publishing");
   const ignore = input.files[".gitignore"];
   if (ignore?.includes("mattstack/secrets/")) writes[".gitignore"] = ignore.split("mattstack/secrets/").join("mattstack/org/secrets/");
