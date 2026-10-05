@@ -6,7 +6,5 @@
   "commands/run.ts",
   "commands/runner.ts",
   "lib/pickers.ts",
-  "lib/run-history.ts",
-  "lib/runner/runner.ts",
-  "lib/secrets/store.ts"
+  "lib/runner/runner.ts"
 ]

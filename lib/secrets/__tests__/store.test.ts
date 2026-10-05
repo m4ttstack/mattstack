@@ -1,3 +1,4 @@
+import { readFileSync } from "fs";
 import { describe, test, expect, beforeEach } from "bun:test";
 import {
   readSecret,
@@ -760,4 +761,16 @@ describe("a sops decrypt failure is typed", () => {
       "      | recipients: incorrect identity for recipient block.",
     ].join("\n"))).toBe(true);
   });
+});
+
+test("a secrets debug trace is logged, not printed", () => {
+  const src = readFileSync(join(import.meta.dir, "..", "store.ts"), "utf8");
+  const start = src.indexOf("function debugLog");
+  expect(start).toBeGreaterThanOrEqual(0);
+  const end = src.indexOf("\n}", start);
+  expect(end).toBeGreaterThan(start);
+  const body = src.slice(start, end + 2);
+  expect(body).toContain('if (!CLI_DEBUG) return;');
+  expect(body).toContain('logCliEvent("debug", "secrets", redactCredentials(formatDebugLine(cmd, { sensitive })))');
+  expect(body).not.toContain("console.");
 });
