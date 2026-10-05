@@ -8,7 +8,7 @@ A patch for new and existing team members: team tools behind an intercept (doppl
 
 ### Deck
 
-- a "portless sync failed" badge left on a bundled app from an earlier failed sync clears on the next deck start, once the sync succeeds (#693)
+- a "portless sync failed" badge left on a bundled app from an earlier failed sync clears on the next deck start when portless already routes the app (#693, 2560cb05a)
 
 ### Board
 
@@ -19,10 +19,12 @@ A patch for new and existing team members: team tools behind an intercept (doppl
 
 ### Output
 
-- RT-369 phase 6: agent verbs, daemon, herd and pane, services, git and skills, and chat commands print through the output layer; wording polished throughout (#681, #682, #683, #684, #686, #687, #689), and the renderer gets another round (#692)
+- RT-369 phase 6: agent verbs, daemon, herd and pane, services, git and skills, and chat commands print through the output layer; wording polished throughout (#681, #682, #683, #684, #686, #687, #689), state and session/cd/nav follow (#691, d52c7a00b), and the renderer gets another round (#692)
 
 ### Also
 
+- the menu bar app's notification tones respect the system "Play sound for notifications" switch (#697)
+- the team clone's snapshot leaves team packs to their own publish, so a half-made pack edit is never pushed under a snapshot message (#696)
 - glitter checks out a stacked branch again, and its refusals paint as a solid band (#676)
 - boxscore cards scroll (918621edf)
 
