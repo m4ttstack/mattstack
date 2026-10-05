@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { setWarningLog, __test__ as warningTest } from "../../ui/warn.ts";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -294,17 +295,19 @@ describe("refreshDiscussions (lifted)", () => {
 describe("rekeyDiscussionsTable", () => {
   const origHome = process.env.HOME;
   let home: string;
-  let warnSpy: ReturnType<typeof spyOn<Console, "warn">>;
+  let warnings: Array<{ module: string; message: string }>;
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "rt-disc-rekey-"));
     process.env.HOME = home;
     closeStateDb();
-    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    warningTest.reset();
+    warnings = [];
+    setWarningLog((module, message) => warnings.push({ module, message }));
   });
 
   afterEach(() => {
-    warnSpy.mockRestore();
+    warningTest.reset();
     process.env.HOME = origHome;
     closeStateDb();
     rmSync(home, { recursive: true, force: true });
@@ -327,6 +330,6 @@ describe("rekeyDiscussionsTable", () => {
     const report = await rekeyDiscussionsTable();
     expect(report.retained).toEqual(["ghost-repo"]);
     expect(store.read("ghost-repo", 5)!.discussions.length).toBe(1);
-    expect(warnSpy).toHaveBeenCalled();
+    expect(warnings).toContainEqual({ module: "state", message: "could not re-key discussions.repo=ghost-repo to an identity; left in place" });
   });
 });

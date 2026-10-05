@@ -1,3 +1,4 @@
+import { setWarningLog, __test__ as warningTest } from "../../ui/warn.ts";
 import { describe, test, expect, beforeEach, spyOn } from "bun:test";
 import { execSync } from "child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
@@ -702,15 +703,19 @@ describe("reactor state — state.db persistence", () => {
   test("a corrupt worktree-reactor-state.json warns and is left in place; loadReactorState reads as empty", () => {
     mkdirSync(rtDir(), { recursive: true });
     writeFileSync(__test__.reactorStatePath(), "{ not valid json");
-    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    warningTest.reset();
+    const warnings: Array<{ module: string; message: string }> = [];
+    setWarningLog((module, message) => warnings.push({ module, message }));
 
     try {
       expect(__test__.loadReactorState()).toEqual({ mrState: {}, fired: [] });
       expect(existsSync(__test__.reactorStatePath())).toBe(true);
       expect(existsSync(`${__test__.reactorStatePath()}.migrated`)).toBe(false);
-      expect(warnSpy).toHaveBeenCalled();
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]?.module).toBe("state");
+      expect(warnings[0]?.message).toContain("is not valid JSON, left in place:");
     } finally {
-      warnSpy.mockRestore();
+      warningTest.reset();
     }
   });
 });

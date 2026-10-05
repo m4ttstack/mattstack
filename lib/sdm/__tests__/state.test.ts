@@ -1,4 +1,5 @@
-import { describe, test, expect, spyOn } from "bun:test";
+import { setWarningLog, __test__ as warningTest } from "../../ui/warn.ts";
+import { describe, test, expect } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { tmpdir } from "os";
@@ -92,7 +93,9 @@ describe("loadSdmState — legacy import, real (HOME-faked) singleton", () => {
     home = mkdtempSync(join(tmpdir(), "rt-sdm-state-corrupt-home-"));
     process.env.HOME = home;
     closeStateDb();
-    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    warningTest.reset();
+    const warnings: Array<{ module: string; message: string }> = [];
+    setWarningLog((module, message) => warnings.push({ module, message }));
     try {
       const legacyPath = sdmStatePath();
       mkdirSync(dirname(legacyPath), { recursive: true });
@@ -101,9 +104,11 @@ describe("loadSdmState — legacy import, real (HOME-faked) singleton", () => {
       expect(loadSdmState()).toEqual({ version: 1, recents: [] });
       expect(existsSync(legacyPath)).toBe(true);
       expect(existsSync(`${legacyPath}.migrated`)).toBe(false);
-      expect(warnSpy).toHaveBeenCalled();
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]?.module).toBe("state");
+      expect(warnings[0]?.message).toContain("is not valid JSON, left in place:");
     } finally {
-      warnSpy.mockRestore();
+      warningTest.reset();
       process.env.HOME = origHome;
       closeStateDb();
       rmSync(home, { recursive: true, force: true });

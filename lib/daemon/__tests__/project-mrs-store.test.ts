@@ -5,7 +5,8 @@
  * test isolation. HOME isolation is handled by the repo-wide bun test
  * preload (test-setup.ts) — never removed here.
  */
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { setWarningLog, __test__ as warningTest } from "../../ui/warn.ts";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -616,17 +617,19 @@ describe("legacy import (project-mrs.json)", () => {
 describe("rekeyProjectMrsTable / rekeyProjectMrsMetaTable / rekeyProjectMrDemandsTable", () => {
   const origHome = process.env.HOME;
   let home: string;
-  let warnSpy: ReturnType<typeof spyOn<Console, "warn">>;
+  let warnings: Array<{ module: string; message: string }>;
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "rt-pmrs-rekey-"));
     process.env.HOME = home;
     closeStateDb();
-    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    warningTest.reset();
+    warnings = [];
+    setWarningLog((module, message) => warnings.push({ module, message }));
   });
 
   afterEach(() => {
-    warnSpy.mockRestore();
+    warningTest.reset();
     process.env.HOME = origHome;
     closeStateDb();
     rmSync(home, { recursive: true, force: true });
@@ -653,7 +656,7 @@ describe("rekeyProjectMrsTable / rekeyProjectMrsMetaTable / rekeyProjectMrDemand
     const report = await rekeyProjectMrDemandsTable();
     expect(report.retained).toEqual(["ghost-repo"]);
     expect(store.read("ghost-repo")!.demands!["board:1"]!.authors).toEqual(["alice"]);
-    expect(warnSpy).toHaveBeenCalled();
+    expect(warnings).toContainEqual({ module: "state", message: "could not re-key project_mr_demands.repo=ghost-repo to an identity; left in place" });
   });
 });
 

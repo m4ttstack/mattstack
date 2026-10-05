@@ -1,3 +1,4 @@
+import { warn } from "../ui/warn.ts";
 /**
  * lib/state/branch-cache.ts — the single-owner branch-cache store (RT-48).
  *
@@ -90,13 +91,13 @@ function repairCompositeKeys(): string[] {
       // The correct key is already taken, so this row is the stale
       // pre-migration copy, same drop policy as rekeyTableColumn's.
       db.query("DELETE FROM branch_cache WHERE rowid = ?;").run(id);
-      console.warn(`rt: branch_cache key ${branch} collided with an existing ${want} row; dropped the stale duplicate`);
+      warn("state", `branch_cache key ${branch} collided with an existing ${want} row; dropped the stale duplicate`);
     }
     // Verify-persisted, matching rekeyTableColumn: persistOrWarn swallows
     // SQLITE_BUSY, so a row still under its old key was NOT repaired, and
     // reporting it would have the boot runner reload a map that is still wrong.
     if (db.query("SELECT 1 FROM branch_cache WHERE branch = ? LIMIT 1;").get(branch)) {
-      console.warn(`rt: branch_cache key repair ${branch} -> ${want} did not persist, leaving it`);
+      warn("state", `branch_cache key repair ${branch} to ${want} did not persist; left in place`);
       continue;
     }
     repaired.push(branch);

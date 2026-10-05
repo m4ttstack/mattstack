@@ -1,3 +1,4 @@
+import { warn } from "../ui/warn.ts";
 import { join, basename } from "path";
 import { mkdirSync, existsSync, readdirSync, statSync, unlinkSync, rmSync, writeFileSync, readFileSync } from "fs";
 import { mkdtemp } from "fs/promises";
@@ -234,7 +235,7 @@ export async function pruneOldBackups(
       await proc.exited;
       clearTimeout(timeout);
       if (proc.exitCode !== 0 && stderr) {
-        console.error(`git lfs prune warning: ${stderr.slice(0, 200)}`);
+        warn("state", `git lfs prune warned: ${stderr.slice(0, 200)}`);
       }
     }
   }

@@ -8,30 +8,26 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { DAEMON_SOCK_PATH } from "../../lib/daemon-config.ts";
 import { closeStateDb, getStateDb, listStateBackups, stateDbPath } from "../../lib/state/index.ts";
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { stateBackup, stateRestore } from "../state.ts";
 
 async function runCapturingExit(fn: () => Promise<void>): Promise<{ exitCode: number | undefined; logs: string[]; errors: string[] }> {
-  const logs: string[] = [];
-  const errors: string[] = [];
+  const io = captureOut({ console: true });
+  ui.__test__.setHuman(() => false);
   const exitSpy = spyOn(process, "exit").mockImplementation(() => {
     throw new Error("process.exit sentinel");
   });
-  const logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-    logs.push(args.map(String).join(" "));
-  });
-  const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-    errors.push(args.map(String).join(" "));
-  });
+  const result = (exitCode: number | undefined) => ({ exitCode, logs: io.stdout().trimEnd().split("\n"), errors: io.stderr().trimEnd().split("\n") });
   try {
     await fn();
-    return { exitCode: undefined, logs, errors };
+    return result(undefined);
   } catch {
     const exitCode = exitSpy.mock.calls.at(-1)?.[0] as number | undefined;
-    return { exitCode, logs, errors };
+    return result(exitCode);
   } finally {
     exitSpy.mockRestore();
-    logSpy.mockRestore();
-    errorSpy.mockRestore();
+    io.restore();
   }
 }
 
@@ -55,17 +51,17 @@ describe("rt state backup/restore", () => {
   test("restore with no positional errors with usage and exit 1, same under --json", async () => {
     const plain = await runCapturingExit(() => stateRestore([]));
     expect(plain.exitCode).toBe(1);
-    expect(plain.errors.join("\n")).toContain("usage: rt state restore");
+    expect(plain.errors.join("\n")).toContain("Which backup?");
 
     const json = await runCapturingExit(() => stateRestore(["--json"]));
     expect(json.exitCode).toBe(1);
-    expect(json.errors.join("\n")).toContain("usage: rt state restore");
+    expect(json.errors.join("\n")).toContain("Which backup?");
   });
 
   test("restore with an unknown backup name errors and exits 1", async () => {
     const result = await runCapturingExit(() => stateRestore(["state-does-not-exist.db"]));
     expect(result.exitCode).toBe(1);
-    expect(result.errors.join("\n")).toContain("not found");
+    expect(result.errors.join("\n")).toContain("There is no backup called");
   });
 
   test("backup writes a stamped copy under the backups dir", async () => {
@@ -164,7 +160,13 @@ describe("rt state restore -- live daemon guard", () => {
 
     const refused = await runCapturingExit(() => stateRestore([name!]));
     expect(refused.exitCode).toBe(1);
-    expect(refused.errors.join("\n")).toContain("daemon is running");
+    expect(refused.errors.join("\n")).toContain("[refused] rt will not restore while the daemon is running");
+
+    expect(refused.errors.join("\n")).toContain("next: rt daemon stop");
+    expect(refused.errors.join("\n")).toContain(`note: To restore anyway: rt state restore ${name} --force`);
+    const jsonRefused = await runCapturingExit(() => stateRestore([name!, "--json"]));
+    expect(jsonRefused.exitCode).toBe(1);
+    expect(jsonRefused.logs.join("")).toBe("");
 
     const forced = await runCapturingExit(() => stateRestore([name!, "--force"]));
     expect(forced.exitCode).toBeUndefined();

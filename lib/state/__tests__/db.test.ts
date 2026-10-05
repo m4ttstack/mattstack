@@ -1,3 +1,5 @@
+import { setWarningLog, __test__ as warnings } from "../../ui/warn.ts";
+import { captureOut } from "../../ui/__tests__/capture-out.ts";
 /**
  * lib/state/db.ts — connection, pragmas, schema-versioned migrations, and
  * the legacy-JSON import seam. See docs/superpowers/specs/2026-08-20-rt-statedb.md
@@ -502,7 +504,9 @@ describe("legacy import seam", () => {
   });
 
   test("a throwing legacy importer is isolated: db reaches SCHEMA_VERSION, the other importer's rows land, and the offending file is still renamed", () => {
-    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    warnings.reset();
+    const logged: string[] = [];
+    setWarningLog((_module, message) => logged.push(message));
     try {
       const dbPath = join(dir, "state.db");
 
@@ -546,14 +550,12 @@ describe("legacy import seam", () => {
       expect(existsSync(discussionsPath)).toBe(false);
       expect(existsSync(`${discussionsPath}.migrated`)).toBe(true);
 
-      const warnedAboutOffender = warnSpy.mock.calls.some((call) =>
-        call.some((arg) => typeof arg === "string" && arg.includes("project-mrs.json")),
-      );
+      const warnedAboutOffender = logged.some((message) => message.includes("project-mrs.json"));
       expect(warnedAboutOffender).toBe(true);
 
       db.close();
     } finally {
-      warnSpy.mockRestore();
+      warnings.reset();
     }
   });
 });
@@ -648,6 +650,35 @@ describe("startup busy budget — open+migrate blocks, it does not throw", () =>
 });
 
 describe("corruption escape", () => {
+  test("a quarantined db is shown once and logged with both paths", () => {
+    warnings.reset();
+    const logged: Array<{ message: string; context: Record<string, unknown> }> = [];
+    setWarningLog((_module, message, context) => logged.push({ message, context }));
+    const io = captureOut();
+    try {
+      for (const name of ["a.db", "b.db"]) {
+        const dbPath = join(dir, name);
+        writeFileSync(dbPath, "definitely not a sqlite database, just bytes");
+        openStateDb(dbPath, "cli").close();
+      }
+      expect(logged.filter((l) => /^state db .+ could not be opened \(corrupt\)/.test(l.message))).toHaveLength(2);
+      expect(logged.every((l) => typeof l.context.path === "string" && typeof l.context.quarantinedPath === "string")).toBe(true);
+      expect(io.stderr().match(/rt's saved state was damaged and has been reset/g)).toHaveLength(1);
+    } finally { warnings.reset(); io.restore(); }
+  });
+
+  test("with no warning log set, a state warning is the plain stderr line", () => {
+    warnings.reset();
+    const io = captureOut();
+    try {
+      const dbPath = join(dir, "c.db");
+      writeFileSync(dbPath, "definitely not a sqlite database, just bytes");
+      openStateDb(dbPath, "cli").close();
+      expect(io.stderr()).toMatch(/^rt: state db .+ could not be opened \(corrupt\)/);
+      expect(io.stderr()).not.toContain("\x1b");
+    } finally { warnings.reset(); io.restore(); }
+  });
+
   test("a file that cannot be opened as sqlite is quarantined, then a fresh db is created at SCHEMA_VERSION", () => {
     const dbPath = join(dir, "state.db");
     writeFileSync(dbPath, "definitely not a sqlite database, just bytes");

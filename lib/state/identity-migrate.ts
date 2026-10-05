@@ -1,3 +1,4 @@
+import { warn } from "../ui/warn.ts";
 /**
  * lib/state/identity-migrate.ts — one-shot re-key harness.
  *
@@ -53,18 +54,18 @@ export async function rekeyKvNamespace(ns: string, opts: RekeyOpts = {}): Promis
     if (parseIdentity(key) !== null) continue;
     const identity = await resolve(key);
     if (identity === null) {
-      console.warn(`rt: could not re-key ${ns}/${key} to an identity — leaving it in place`);
+      warn("state", `could not re-key ${ns}/${key} to an identity; left in place`);
       report.retained.push(key);
       continue;
     }
     if (hasKvValue(ns, identity)) {
-      console.warn(`rt: ${ns}/${identity} already exists; leaving legacy ${key} in place`);
+      warn("state", `${ns}/${identity} already exists; legacy ${key} left in place`);
       report.retained.push(key);
       continue;
     }
     setKvValue(ns, identity, value);
     if (!hasKvValue(ns, identity)) {
-      console.warn(`rt: ${ns}/${identity} did not persist; leaving legacy ${key} in place`);
+      warn("state", `${ns}/${identity} did not persist; legacy ${key} left in place`);
       report.retained.push(key);
       continue;
     }
@@ -97,7 +98,7 @@ export async function rekeyTableColumn(table: string, col: string, opts: RekeyOp
     if (k == null || parseIdentity(k) !== null) continue;
     const identity = await resolve(k);
     if (identity === null) {
-      console.warn(`rt: could not re-key ${table}.${col}=${k} to an identity — leaving it`);
+      warn("state", `could not re-key ${table}.${col}=${k} to an identity; left in place`);
       report.retained.push(k);
       continue;
     }
@@ -111,8 +112,8 @@ export async function rekeyTableColumn(table: string, col: string, opts: RekeyOp
       } catch (err) {
         if (!(err as { code?: string } | undefined)?.code?.startsWith("SQLITE_CONSTRAINT")) throw err;
         db.query(`DELETE FROM ${table} WHERE rowid = ?;`).run(id);
-        console.warn(
-          `rt: ${table}.${col}=${k} (rowid ${id}) collided with an existing ${identity} row — dropped the stale legacy duplicate`,
+        warn("state",
+          `${table}.${col}=${k} (rowid ${id}) collided with an existing ${identity} row; dropped the stale legacy duplicate`,
         );
       }
     }
@@ -122,7 +123,7 @@ export async function rekeyTableColumn(table: string, col: string, opts: RekeyOp
     // itself never landed — either way the key isn't fully migrated yet.
     const remaining = db.query(`SELECT 1 FROM ${table} WHERE ${col} = ? LIMIT 1;`).get(k);
     if (remaining) {
-      console.warn(`rt: ${table}.${col} re-key to ${identity} did not fully persist — leaving remaining ${k} rows`);
+      warn("state", `${table}.${col} re-key to ${identity} did not fully persist; ${k} rows left`);
       report.retained.push(k);
       continue;
     }

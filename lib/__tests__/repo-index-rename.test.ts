@@ -11,12 +11,13 @@
  * time, so every test gets a fresh tree.
  */
 
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { execSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { setWarningLog, __test__ as warningTest } from "../ui/warn.ts";
 import { repoDataDir, rtDir } from "../rt-paths.ts";
 import { closeStateDb, getStateDb, listKvValues, setKvValue } from "../state/index.ts";
 import {
@@ -35,18 +36,20 @@ describe("repo-index — rename drift (RT-60)", () => {
   const origHome = process.env.HOME;
   let home: string;
   let scratch: string;
-  let warnSpy: ReturnType<typeof spyOn<Console, "warn">>;
+  let warnings: Array<{ module: string; message: string }>;
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "rt-rename-home-"));
     scratch = mkdtempSync(join(tmpdir(), "rt-rename-repos-"));
     process.env.HOME = home;
     closeStateDb();
-    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    warningTest.reset();
+    warnings = [];
+    setWarningLog((module, message) => warnings.push({ module, message }));
   });
 
   afterEach(() => {
-    warnSpy.mockRestore();
+    warningTest.reset();
     process.env.HOME = origHome;
     closeStateDb();
     rmSync(home, { recursive: true, force: true });
@@ -624,7 +627,7 @@ describe("repo-index — rename drift (RT-60)", () => {
       await ensureWorktreeRegistryRekeyed();
 
       expect(listKvValues(WT_NS)["never-indexed"]).toEqual(tree("/x/gone"));
-      expect(warnSpy).toHaveBeenCalled();
+      expect(warnings).toContainEqual({ module: "state", message: "could not re-key worktree-registry/never-indexed to an identity; left in place" });
     });
   });
 });

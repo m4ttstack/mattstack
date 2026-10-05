@@ -20,9 +20,10 @@
 
 import { Database } from "bun:sqlite";
 import { copyFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
-import { dirname, join } from "path";
+import { basename, dirname, join } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { isDaemonRunning } from "../lib/daemon-client.ts";
+import { shellQuote } from "../lib/herdr-launch.ts";
 import { flagValue } from "../lib/cli-args.ts";
 import { mattstackHome } from "../lib/rt-paths.ts";
 import {
@@ -40,9 +41,35 @@ import { isBackupConfigured, pruneOldBackups, runFullBackup } from "../lib/state
 import { pullHomeRepo, restoreFromBackup } from "../lib/state/backup-restore.ts";
 import { createRealAgeKeySeam, readAgeKey } from "../lib/home/age-key.ts";
 
-function fail(msg: string): never {
-  console.error(`rt state: ${msg}`);
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
+import { withTransientStep } from "../lib/ui/transient-step.ts";
+
+function fail(failure: Parameters<typeof out.fail>[0]): never {
+  out.fail(failure);
   process.exit(1);
+}
+
+function formatBytes(n: number): string {
+  return n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+function refuseWhileDaemonRuns(forceCommand: string): never {
+  out.note(
+    out.line("refused", "rt will not restore while the daemon is running", "it shares this data with rt"),
+    out.callout("next", out.cmd("rt daemon stop")),
+    out.callout("note", ["To restore anyway: ", out.cmd(forceCommand)]),
+  );
+  process.exit(1);
+}
+
+function localCopyBlocks(path: string, removed: string[]): Block[] {
+  return [out.line("done", "Saved a local copy of rt's state", basename(path)), ...(removed.length > 0 ? [out.line("done", `Removed ${plural(removed.length, "older copy", "older copies")}`)] : [])];
 }
 
 function copyArg(args: string[]): string | undefined {
@@ -52,14 +79,13 @@ function copyArg(args: string[]): string | undefined {
 async function pickBackup(names: readonly string[]): Promise<string | null> {
   const { filterableSelect } = await import("../lib/pick-wrappers.ts");
   return filterableSelect({
-    message: "Restore which state.db backup?",
+    message: "Restore which backup?",
     options: names.map((name) => ({ value: name, label: name })),
     stderr: true,
   });
 }
 
-/** The positional, or a TTY pick over existing stamped copies; the existing `fail` otherwise (no TTY, --json, RT_BATCH, or nothing to pick from). */
-async function requireCopy(args: string[], usage: string): Promise<string> {
+async function requireCopy(args: string[]): Promise<string> {
   const c = copyArg(args);
   if (c) return c;
   const names = listStateBackups();
@@ -68,11 +94,12 @@ async function requireCopy(args: string[], usage: string): Promise<string> {
     if (!picked) process.exit(0);
     return picked;
   }
-  fail(usage);
+  fail(usageFailure("Which backup?", "rt state restore <copy>"));
 }
 
 export async function stateBackup(args: string[], _ctx: CommandContext = {}): Promise<void> {
   const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
   const local = args.includes("--local");
 
   if (local) {
@@ -81,17 +108,16 @@ export async function stateBackup(args: string[], _ctx: CommandContext = {}): Pr
     const { removed } = pruneStateBackups();
 
     if (json) {
-      console.log(JSON.stringify({ ok: true, path, pruned: removed }));
+      out.json({ ok: true, path, pruned: removed });
       return;
     }
-    console.log(`rt state backup: wrote ${path}`);
-    if (removed.length > 0) console.log(`rt state backup: pruned ${removed.length} old backup(s)`);
+    out.print(...localCopyBlocks(path, removed));
     return;
   }
 
   if (!isBackupConfigured()) {
-    console.error("Backup not configured. Run `rt state backup init` to set up encrypted backup.");
-    console.error("Use --local for a local-only unencrypted backup.");
+    out.fail({ title: "Encrypted backup is not set up on this Mac", next: out.cmd("rt state backup init") });
+    out.note(out.callout("tip", ["For a copy on this Mac only: ", out.cmd("rt state backup --local")]));
     process.exit(1);
   }
 
@@ -99,15 +125,16 @@ export async function stateBackup(args: string[], _ctx: CommandContext = {}): Pr
     const result = await runFullBackup();
 
     if (result.backed.length === 0 && result.skipped.length === 0 && result.errors.length > 0) {
-      if (!json) {
-        console.error(`All sources failed: ${result.errors.join(", ")}`);
-        console.error("Falling back to local-only backup");
-      }
       const path = stampedBackupPath();
       backupTo(getStateDb(), path);
       const { removed } = pruneStateBackups();
+      if (!json) {
+        out.note(out.line("warn", "The encrypted backup failed, so rt saved a local copy instead"), out.verbatim(result.errors, "what failed"));
+      }
       if (json) {
-        console.log(JSON.stringify({ ok: true, fallback: "local", path, pruned: removed, errors: result.errors }));
+        out.json({ ok: true, fallback: "local", path, pruned: removed, errors: result.errors });
+      } else {
+        out.print(...localCopyBlocks(path, removed));
       }
       return;
     }
@@ -115,28 +142,26 @@ export async function stateBackup(args: string[], _ctx: CommandContext = {}): Pr
     const { removed } = await pruneOldBackups();
 
     if (json) {
-      console.log(JSON.stringify({ ...result, pruned: removed.length }));
+      out.json({ ...result, pruned: removed.length });
     } else {
-      for (const b of result.backed) {
-        console.log(`  ${b.app}: ${b.sizeBytes} bytes`);
-      }
-      if (result.errors.length > 0) {
-        console.error(`Errors: ${result.errors.join(", ")}`);
-      }
-      if (removed.length > 0) {
-        console.log(`Pruned ${removed.length} old backup(s)`);
-      }
+      out.print(
+        out.line("done", "Backed up rt's state", plural(result.backed.length, "source", "sources")),
+        out.table(result.backed.map((b) => [out.strong(b.app), formatBytes(b.sizeBytes)])),
+        ...(removed.length > 0 ? [out.line("done", `Removed ${plural(removed.length, "older backup", "older backups")}`)] : []),
+      );
+      if (result.errors.length > 0) out.note(out.line("warn", "Some sources were not backed up"), out.verbatim(result.errors));
     }
   } catch (err) {
-    if (!json) {
-      console.error(`Encrypted backup failed: ${err instanceof Error ? err.message : err}`);
-      console.error("Falling back to local-only backup");
-    }
     const path = stampedBackupPath();
     backupTo(getStateDb(), path);
     const { removed } = pruneStateBackups();
+    if (!json) {
+      out.note(out.line("warn", "The encrypted backup failed, so rt saved a local copy instead", String(err instanceof Error ? err.message : err).split("\n")[0]));
+    }
     if (json) {
-      console.log(JSON.stringify({ ok: true, fallback: "local", path, pruned: removed, error: String(err) }));
+      out.json({ ok: true, fallback: "local", path, pruned: removed, error: String(err) });
+    } else {
+      out.print(...localCopyBlocks(path, removed));
     }
   }
 }
@@ -149,6 +174,7 @@ export async function stateBackup(args: string[], _ctx: CommandContext = {}): Pr
  */
 async function stateRestoreFromBackup(args: string[]): Promise<void> {
   const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
   const force = args.includes("--force");
   const dryRun = args.includes("--dry-run");
   const only = flagValue(args, "--only");
@@ -159,7 +185,14 @@ async function stateRestoreFromBackup(args: string[]): Promise<void> {
     const daemonUp = await isDaemonRunning();
     const sockExists = existsSync(join(mattstackHome(), "rt", "rt.sock"));
     if (daemonUp || sockExists) {
-      fail("the daemon appears to be running (or its socket exists). Stop it first (rt daemon stop) or pass --force to override");
+      const retry = ["rt", "state", "restore", "--from-backup"];
+      if (dryRun) retry.push("--dry-run");
+      if (only !== undefined) retry.push("--only", only);
+      if (at !== undefined) retry.push("--at", at);
+      if (identityFlag !== undefined) retry.push("--identity", identityFlag);
+      if (json) retry.push("--json");
+      retry.push("--force");
+      refuseWhileDaemonRuns(retry.map(shellQuote).join(" "));
     }
   }
 
@@ -171,16 +204,13 @@ async function stateRestoreFromBackup(args: string[]): Promise<void> {
   } else {
     const keyResult = await readAgeKey(createRealAgeKeySeam());
     if (!("key" in keyResult)) {
-      console.error("rt state restore: no age key found in the keychain.");
-      console.error("On a new machine, pass --identity <path-to-team-key> to decrypt with the team key.");
-      process.exit(1);
+      fail({ title: "This Mac has no key to decrypt your backups", why: "On a new Mac, use the team key file.", next: out.cmd("rt state restore --from-backup --identity <key file>") });
     }
     identityKey = keyResult.key;
   }
 
   if (!dryRun) {
-    console.log("Pulling latest backups from home repo...");
-    await pullHomeRepo();
+    await withTransientStep("Pulling your latest backups", () => pullHomeRepo());
     closeStateDb();
   }
 
@@ -194,24 +224,30 @@ async function stateRestoreFromBackup(args: string[]): Promise<void> {
   });
 
   if (json) {
-    console.log(JSON.stringify({ ok: result.errors.length === 0, dryRun, ...result }));
+    out.json({ ok: result.errors.length === 0, dryRun, ...result });
     if (result.errors.length > 0) process.exitCode = 1;
     return;
   }
 
-  if (dryRun) console.log("Dry run. Would restore:");
-  for (const r of result.restored) console.log(`  ${r.app} -> ${r.targetPath}`);
-  for (const s of result.skipped) console.log(`  skipped: ${s}`);
-  for (const e of result.errors) console.error(`  error: ${e}`);
-  if (result.errors.length > 0) process.exitCode = 1;
+  const rows = result.restored.map((r) => [out.strong(r.app), out.dim(r.targetPath)]);
+  const blocks: Block[] = [];
+  if (rows.length > 0) blocks.push(out.section(dryRun ? "Would restore" : "Restored", undefined, out.table(rows)));
+  for (const skipped of result.skipped) blocks.push(out.line("skipped", skipped));
+  if (blocks.length > 0) out.print(...blocks);
+  if (result.errors.length > 0) {
+    out.fail({ title: "Some backups were not restored" }, out.verbatim(result.errors, "what failed"));
+    process.exitCode = 1;
+  }
 }
 
 export async function stateRestore(args: string[], _ctx: CommandContext = {}): Promise<void> {
+  if (args.includes("--json")) out.payloadOnStdout();
   if (args.includes("--from-backup")) {
     return stateRestoreFromBackup(args);
   }
 
   const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
   const force = args.includes("--force");
 
   // state.db is WAL-mode and shared live with the daemon: copyFileSync over
@@ -220,13 +256,14 @@ export async function stateRestore(args: string[], _ctx: CommandContext = {}): P
   // refusal, never an interactive prompt, so non-TTY/agent callers get a
   // clean nonzero exit instead of a hang.
   if (!force && (await isDaemonRunning())) {
-    fail("the daemon is running; state.db is shared with it. Stop it first (rt daemon stop) or pass --force to override");
+    const copy = copyArg(args);
+    refuseWhileDaemonRuns(`rt state restore ${copy === undefined ? "<copy>" : shellQuote(copy)} --force`);
   }
 
-  const copy = await requireCopy(args, "usage: rt state restore <copy> [--json]");
+  const copy = await requireCopy(args);
 
   const source = existsSync(copy) ? copy : join(stateBackupsDir(), copy);
-  if (!existsSync(source)) fail(`backup not found: ${copy}`);
+  if (!existsSync(source)) fail({ title: `There is no backup called ${copy}`, next: out.cmd("rt state restore") });
 
   const probe = new Database(source, { readonly: true });
   let problems: string[];
@@ -235,7 +272,7 @@ export async function stateRestore(args: string[], _ctx: CommandContext = {}): P
   } finally {
     probe.close();
   }
-  if (problems.length > 0) fail(`${source} fails integrity check: ${problems.join("; ")}`);
+  if (problems.length > 0) fail({ title: "That backup is damaged", why: problems.join("; "), details: source });
 
   closeStateDb();
   const dest = stateDbPath();
@@ -250,8 +287,8 @@ export async function stateRestore(args: string[], _ctx: CommandContext = {}): P
   }
 
   if (json) {
-    console.log(JSON.stringify({ ok: true, restored: dest, from: source }));
+    out.json({ ok: true, restored: dest, from: source });
     return;
   }
-  console.log(`rt state restore: restored state.db from ${source}`);
+  out.print(out.line("done", "Restored rt's state", basename(source)));
 }

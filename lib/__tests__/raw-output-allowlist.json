@@ -5,17 +5,6 @@
   "commands/nav.ts",
   "commands/run.ts",
   "commands/runner.ts",
-  "commands/state-backup-init.ts",
-  "commands/state-backup-status.ts",
-  "commands/state.ts",
   "lib/pickers.ts",
-  "lib/run-history.ts",
-  "lib/runner/runner.ts",
-  "lib/secrets/store.ts",
-  "lib/state/backup-orchestrator.ts",
-  "lib/state/backup-restore.ts",
-  "lib/state/branch-cache.ts",
-  "lib/state/db.ts",
-  "lib/state/identity-migrate.ts",
-  "lib/state/legacy-import.ts"
+  "lib/runner/runner.ts"
 ]
