@@ -16,6 +16,7 @@ import {
   filterByTab,
   freshnessBanner,
   groupMRs,
+  groupOnLeavingSeat,
   hasStackDescendants,
   isOwnMr,
   joinRowState,
@@ -1205,6 +1206,26 @@ describe('parseViewState', () => {
   });
 });
 
+describe('default grouping', () => {
+  test('a board with nothing stored groups by status', () => {
+    expect(parseViewState('', null, []).group).toBe('status');
+  });
+});
+
+describe('groupOnLeavingSeat', () => {
+  test('hands back the grouping you had before the seat tab', () => {
+    expect(groupOnLeavingSeat('author')).toBe('author');
+    expect(groupOnLeavingSeat('age')).toBe('age');
+  });
+  test('falls back to status with nothing remembered', () => {
+    expect(groupOnLeavingSeat(null)).toBe('status');
+  });
+  test('never hands back the seat grouping or an unknown one', () => {
+    expect(groupOnLeavingSeat('needs')).toBe('status');
+    expect(groupOnLeavingSeat('bogus')).toBe('status');
+  });
+});
+
 describe('serializeViewState', () => {
   test('omits defaults', () => {
     expect(serializeViewState(DEFAULT_VIEW)).toBe('');
@@ -1213,19 +1234,19 @@ describe('serializeViewState', () => {
     expect(
       serializeViewState({
         member: 'bob',
-        group: 'status',
+        group: 'age',
         sort: 'oldest',
         tab: '',
         slack: 'all',
         drafts: 'all',
       })
-    ).toBe('?member=bob&group=status');
+    ).toBe('?member=bob&group=age');
   });
   test('includes a set tab, even a first-tab id', () => {
     expect(
       serializeViewState({
         member: 'all',
-        group: 'age',
+        group: 'status',
         sort: 'oldest',
         tab: 'team',
         slack: 'all',

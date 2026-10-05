@@ -36,6 +36,7 @@ import {
   freshnessBanner,
   GROUP_KEYS,
   groupMRs,
+  groupOnLeavingSeat,
   isOwnMr,
   NEEDS_ME_TAB,
   nestStacks,
@@ -128,6 +129,7 @@ declare global {
 
 const THEME_KEY = 'mrs-theme';
 const STATE_KEY = 'mrs-view-state';
+const GROUP_BEFORE_SEAT_KEY = 'mrs-group-before-seat';
 const PANEL_COLLAPSED_KEY = 'mrs-panel-collapsed';
 
 /** Drops `title` from the folded-panel set tui-kit's Panel persists under
@@ -271,19 +273,25 @@ export function Board() {
     // in view), so a member picked on one tab usually does not exist on the
     // next: carrying it over would land on an empty board. The seat tab's
     // whole point is its grouping by need, so it opens grouped that way and
-    // leaves that grouping behind on the way out.
+    // hands back the grouping you had before on the way out.
     const entersSeat = patch.tab === NEEDS_ME_TAB.id && state.tab !== patch.tab;
     const leavesSeat =
       patch.tab !== undefined &&
       patch.tab !== NEEDS_ME_TAB.id &&
       state.tab === NEEDS_ME_TAB.id;
+    if (entersSeat && !patch.group && state.group !== 'needs')
+      localStorage.setItem(GROUP_BEFORE_SEAT_KEY, state.group);
     const next = {
       ...state,
       ...patch,
       ...(clearsSelection ? { member: 'all' } : {}),
       ...(entersSeat && !patch.group ? { group: 'needs' as const } : {}),
       ...(leavesSeat && state.group === 'needs'
-        ? { group: 'age' as const }
+        ? {
+            group: groupOnLeavingSeat(
+              localStorage.getItem(GROUP_BEFORE_SEAT_KEY)
+            ),
+          }
         : {}),
     };
     localStorage.setItem(STATE_KEY, JSON.stringify(next));
@@ -375,8 +383,11 @@ export function Board() {
       if (
         resolved.tab === NEEDS_ME_TAB.id &&
         !new URLSearchParams(location.search).has('group')
-      )
+      ) {
+        if (resolved.group !== 'needs')
+          localStorage.setItem(GROUP_BEFORE_SEAT_KEY, resolved.group);
         resolved = { ...resolved, group: 'needs' };
+      }
       setState(resolved);
     } else {
       // Validated against the ACTIVE TAB's roster: a codeowners tab's is

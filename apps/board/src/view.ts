@@ -738,12 +738,20 @@ export interface ViewState {
 
 export const DEFAULT_VIEW: ViewState = {
   member: 'all',
-  group: 'age',
+  group: 'status',
   sort: 'oldest',
   tab: '',
   slack: 'all',
   drafts: 'all',
 };
+
+/** The grouping a tab other than the seat tab opens with, given the one you
+    had before the seat tab switched you to `needs`. */
+export function groupOnLeavingSeat(prior: string | null): GroupKey {
+  return prior !== 'needs' && GROUP_KEYS.includes(prior as GroupKey)
+    ? (prior as GroupKey)
+    : DEFAULT_VIEW.group;
+}
 
 /** URL query params win, then stored localStorage values, then defaults. Invalid
     values are dropped. `validTabs` mirrors `validMembers`: an unknown or empty
@@ -778,7 +786,7 @@ export function parseViewState(
 
   return {
     member: resolve('member', members, memberFallback),
-    group: resolve('group', GROUP_KEYS, 'age'),
+    group: resolve('group', GROUP_KEYS, DEFAULT_VIEW.group),
     sort: resolve('sort', SORT_KEYS, 'oldest'),
     tab: resolve('tab', validTabs, validTabs[0] ?? ''),
     slack: resolve('slack', SLACK_FILTER_KEYS, 'all'),
