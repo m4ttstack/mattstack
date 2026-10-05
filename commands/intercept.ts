@@ -20,7 +20,9 @@
  */
 
 import { closeSync, openSync, readSync, realpathSync, statSync } from "fs";
+import { homedir } from "os";
 import { join } from "path";
+import { wellKnownBinDirs } from "../lib/bundled-tool.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
@@ -104,7 +106,7 @@ function looksLikeGeneratedShim(path: string): boolean {
  *
  * `RT_INTERCEPT_REAL` overrides the whole search (test/debug escape hatch).
  */
-export function resolveRealBinary(command: string): string | null {
+export function resolveRealBinary(command: string, fallbackDirs: string[] = wellKnownBinDirs(process.env.HOME ?? homedir())): string | null {
   if (process.env.RT_INTERCEPT_REAL) return process.env.RT_INTERCEPT_REAL;
 
   let ownShimPath: string | null = null;
@@ -122,8 +124,10 @@ export function resolveRealBinary(command: string): string | null {
     }
   }
 
+  // The app spawns rt with launchd's minimal PATH, which has no Homebrew dir,
+  // so a brew-installed command behind a shim resolves only through these.
   const pathVar = process.env.PATH ?? "";
-  for (const dir of pathVar.split(":")) {
+  for (const dir of [...pathVar.split(":"), ...fallbackDirs]) {
     if (!dir) continue;
     const candidate = join(dir, command);
     if (candidate === ownShimPath) continue;
