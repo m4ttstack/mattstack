@@ -1,0 +1,213 @@
+# Mattstack Harness Integrations Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Deliver full Codex support through harness-neutral contracts while preserving current Claude behavior.
+
+**Architecture:** Mattstack owns workflow state and policy; registered integrations implement native operations. Extract working Claude behavior and implement Codex against the same contracts, progressing through four coordinated plans. Integrations ship with Mattstack; Herdr remains the terminal surface.
+
+**Tech Stack:** Bun/TypeScript, bun:sqlite, existing MCP SDK, rt-client, existing React app stacks and Swift tray, native Claude/Codex transports, Herdr, Bun tests and app-specific Vitest tests.
+
+**Spec:** [Approved design](../specs/2026-10-04-harness-integrations-design.md).
+
+## Global Constraints
+
+- “Current Claude behavior is the compatibility reference, particularly for chat and gates.”
+- “Claude is optional on a Codex installation.”
+- “Shepherdr may choose each worker's harness from the user's enabled, ready integrations. An explicit user assignment wins.”
+- “Retries and resumes retain that selection.”
+- “Transport submission is not proof of consumption or action.”
+- “Unknown state must remain unknown.”
+- “Missing a required capability blocks that workflow with a useful reason; it does not silently weaken policy or select Claude.”
+- “Secrets retain the suite's encrypted storage and existing auth ownership.”
+- Preserve settings scope/version/ownership rules, serialized repo identities, frozen chat output, MCP grants, and file confinement. Read root AGENTS.md and each edited tree's instructions at execution time.
+- No new production service, runtime UI framework in rt, or alternate worktree manager. No dependency additions are planned. Use repository-pinned tools; spike versions are evidence, not declared minimum versions.
+- Implementation starts in an isolated worktree using the worktree skill, after plan review and execution-method selection. This plan does not authorize publication or deployment.
+
+## Review Focus
+
+These five failure classes receive explicit tests in the owning tasks:
+
+1. Shared native server supplies another pane's environment: CLI and MCP must resolve the actual caller or refuse (F1, F4).
+2. A disconnect follows a committed gate answer: recover native completion without losing the answer or completing a replacement's question (M4, M5).
+3. A replacement worker receives delayed predecessor events: old reports cannot complete the new attempt (F3, H1, H3).
+4. Upgrade finds explicit Codex settings, old Claude records, and ambiguous raw IDs together: preserve provenance and refuse guesses (F3, S3).
+5. A Codex-only restore has user-edited plugins and no Claude installation: restore owned configuration without requiring Claude or undoing user choices (S4, S9).
+
+## Reading order and dependency graph
+
+This is the entry point. Read the spec and this file, then the relevant child
+plan. The child plans inherit these constraints and the contract vocabulary.
+Task IDs are unique across the package; they are implementation tasks, not
+new Linear tickets.
+
+| Plan | Deliverable | Dependencies |
+| --- | --- | --- |
+| [1. Foundation](2026-10-04-harness-integrations-1-foundation.md) | Registered launch/session integrations with verified identity and context | Existing `rt agent` seams; F1 native evidence |
+| [2. Messaging and gates](2026-10-04-harness-integrations-2-messaging.md) | Current push behavior and authoritative gate completion through both integrations | F1–F6; S1/S2/S4 prerequisites as specified |
+| [3. Orchestration](2026-10-04-harness-integrations-3-orchestration.md) | Mixed workers, either shepherd harness, correct supervision and pipeline ownership | Foundation; messaging/policy contracts |
+| [4. Skills, setup, apps and release](2026-10-04-harness-integrations-4-adoption.md) | Host-adapted workflows, Codex-only lifecycle, app adoption and acceptance | Foundation; pulls early prerequisites forward; final acceptance follows all plans |
+
+Execute F1–F6 first. Then S1, S2 and S3–S4 as needed to install the tested
+tool/policy paths and S11's question/wait fragments; M1–M6; H1–H6; S10/S12
+and the remaining app tasks; S9 last. S2 compiles fragments from S11, while
+M6 supplies enforcement. Neither depends on
+declaring the other fully supported: their integration tests pass together
+before gated Codex workflows are admitted. This order avoids postponing
+required authentication, skill availability, or socket access to release day.
+
+Each task ends in a commit limited to its listed implementation, tests and
+required generated artifacts. Run the named test red before implementation
+and green after. Test snippets express required assertions; use existing
+repository fixtures, extending the test-local fixture with the inputs named
+in the task. Never satisfy a test by widening production permissions or
+loosening a frozen-output fixture.
+
+## Contract vocabulary
+
+F2 creates `packages/rt-client/src/agent-integrations.ts` for portable types,
+exports it from `src/index.ts`, and creates
+`lib/agent-integrations/contracts.ts` for runtime interfaces. Keep native
+protocol types private to the corresponding implementation. The following
+names and shapes are shared across all tasks:
+
+```ts
+type HarnessId = string; // validated registered ID, not a Claude/Codex union
+type Mode = "herdr" | "headless";
+type Capability = "launch" | "resume" | "caller-context" | "observe"
+  | "peer-idle" | "peer-working" | "questions-form" | "questions-wait"
+  | "question-recovery" | "gate-policy"
+  | "continuation-policy" | "background-state" | "skills" | "worktrees";
+type FaultCode = "unsupported" | "not-ready" | "refused" | "transient"
+  | "stale-binding" | "ambiguous" | "invalid";
+type Outcome<T> = { ok: true; data: T }
+  | { ok: false; error: { code: FaultCode; message: string } };
+type NativeSessionRef = {
+  harness: HarnessId; profile: string; kind: "id" | "path"; value: string;
+};
+type Attachment = {
+  generation: number; mode: Mode; pane?: string; socket?: string; pid?: number;
+};
+type SessionBinding = {
+  key: string; identity: string; native: NativeSessionRef;
+  attachment: Attachment; agentId?: string; attemptId?: string;
+};
+type CallerContext = {
+  binding: SessionBinding; assignment?: { herd: string; job: string; attemptId: string };
+};
+type Observation = {
+  connectivity: "connected" | "disconnected" | "unknown";
+  execution: "idle" | "working" | "blocked" | "dead" | "unknown";
+  background: "active" | "inactive" | "unknown";
+  observedAt: number; source: string; generation: number;
+};
+type AgentOptions = {
+  model?: string; effort?: string; account?: string; extraArgs?: string;
+  yolo?: boolean;
+};
+type Selection = { harness: HarnessId; options: AgentOptions };
+type Readiness = { ready: boolean; reason?: string; version?: string };
+type CapabilityReport = {
+  readiness: Readiness; supported: Capability[]; mode: Mode;
+};
+type PeerInput = { id: string; body: string; sender: string; recipient: string };
+type DeliveryReceipt = {
+  id: string; evidence: "submitted" | "queued" | "consumed";
+  nativeId?: string;
+};
+type QuestionBinding = {
+  gateId: string; sessionKey: string; generation: number;
+  nativeRequest?: string | number; nativeQuestions?: string[];
+  presentation: "form" | "wait";
+};
+```
+
+`SessionBinding.identity` references the existing chat identity; it does not
+create a second display-name system. Unbound reservations are separate rows,
+not SessionBindings containing fake native IDs. `profile` identifies the
+installation/auth namespace without carrying a credential. `generation`
+fences an attachment; `attemptId` fences an assignment. All public operations
+return explicit outcomes rather than coercing unknown into success or death.
+
+`GateRow`, `GateAnswer`, `GateQuestion`, `StepDef`, `ApplyContext`,
+`CompileResult`, and `PluginListEntry` retain their existing definitions.
+Tasks import them rather than invent lookalikes. Test dependencies are
+structural interfaces derived from the operations the task consumes; do not
+introduce a general service container.
+
+## Persistence and public compatibility decisions
+
+- F3 adds session reservation/binding/legacy-alias tables to existing
+  `state.db`, using the current additive schema convention. Bindings have a
+  unique native tuple and a monotonically increasing attachment generation.
+  Namespace serialization is internal; public legacy session fields keep
+  their bytes until a named wire migration changes them.
+- H1 adds a `herd_job_attempts` table to `herds.db`, including selected options,
+  binding reference, state and timestamps. The active attempt is selected
+  transactionally there. Cross-store writes reconcile after crashes; no code
+  assumes a transaction spans `state.db` and `herds.db`.
+- M4 adds native question bindings/completion outcomes to `gates.db` as
+  separate tables. Answer state and delivery/completion state remain distinct.
+- H4 adds a `session-key` run field. Read `claude-session` only through the
+  migration resolver. Read-only discovery may show directory matches, but a
+  directory match never authorizes a run write.
+- S3 adds `agent.integrations`, a replace-merged string-array preference at
+  user/machine scopes, with no registry default. When absent, an existing
+  installation enables its configured `agent.provider`; fresh setup writes
+  the chosen list and default. An explicit empty list enables none. Installed
+  binaries do not imply enablement. Existing provider option keys stay valid.
+- Extend wire types additively where permitted; use an explicit versioned
+  operation where frozen output prevents extension. F6 defines a new
+  `agent:integrations` read operation; apps do not query Claude's inventory.
+
+## Audit to task mapping
+
+| Audit | Implementation tasks |
+| --- | --- |
+| A01 agent abstraction | F2, F5, F6 |
+| A02 permissions/context | F1, F4, M6, S4 |
+| A03 shepherd ownership | F4, H1, H2 |
+| A04 herd persistence | H1, H2 |
+| A05 watchdog | H3 |
+| A06 background/recovery | F5, H3 |
+| A07 session identity | F1, F3, F4, F5 |
+| A08 chat continuity | F3, M3 |
+| A09 delivery | M1, M2, M3 |
+| A10 pane APIs | F6, S6 |
+| A11 gate presentation | M4, M5, S5 |
+| A12 gate enforcement | M6 |
+| A13 pipeline attribution | F4, H4 |
+| A14 continuation | M6, H4 |
+| A15 CI leases | H5 |
+| A16 file confinement | M6, S1 |
+| A17 skill compilation | S1, S2, S11 |
+| A18 skill maintenance | S1, S12 |
+| A19 delegation | S11, H2 |
+| A20 installation | S3, S4, S9 |
+| A21 external tools | M6, S4 |
+| A22 restore/uninstall | S3, S10, S9 |
+| A23 Board | S5 |
+| A24 Chat/Herdr chat | F6, S6 |
+| A25 gitq | S7 |
+| A26 Console/tray | S3, S6, S8 |
+| A27 worktrees | H6 |
+| A28 release | S9 |
+
+## Existing work and completion
+
+F3/F5 cover the existing RT-405 session-handler work; F4 covers RT-406 caller
+context; M1–M3 cover RT-408 delivery routing. These are provisional task
+associations from the spike's recovered work, not assertions of current
+ticket status. Before execution, read those tickets and the governing Linear
+documents linked from `docs/architecture.md`; fold in shipped code and update
+the task mapping without duplicating it. No Linear tickets are created by
+writing this plan.
+
+Run focused checks after each task. Run `bun run check`, `bun run test`, the
+affected app/package checks, plugin certification, and the complete live
+acceptance matrix after integration. S9 specifies the live evidence artifact
+and release gate. Record failures as gaps; do not mark a task complete merely
+because the interface exists or a fake passes.
+
+**Planning status:** written for review; implementation and acceptance tasks
+are all unchecked. Execution method has not been selected.
