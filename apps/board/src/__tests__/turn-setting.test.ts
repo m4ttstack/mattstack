@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 
-import { ALL_TURN } from '../turn.ts';
 import { readTurnConfig, resetTurnWarning } from '../turn-setting.ts';
+import { ALL_TURN } from '../turn.ts';
 
 const resolver = (value: unknown) =>
   ((key: string) => {
@@ -16,11 +16,15 @@ describe('readTurnConfig', () => {
     expect(readTurnConfig(resolver(undefined))).toEqual(ALL_TURN);
   });
   test('a stored value is resolved', () => {
-    expect(readTurnConfig(resolver({ author: ['threads'] })).author).toEqual(['threads']);
+    expect(readTurnConfig(resolver({ author: ['threads'] })).author).toEqual([
+      'threads',
+    ]);
   });
   test('a resolver that throws (unregistered key on an old pin) falls open', () => {
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
-    const throwing = (() => { throw new Error('unknown key'); }) as never;
+    const throwing = (() => {
+      throw new Error('unknown key');
+    }) as never;
     expect(readTurnConfig(throwing)).toEqual(ALL_TURN);
     warn.mockRestore();
   });
@@ -32,7 +36,9 @@ describe('readTurnConfig', () => {
   });
   test('a throwing resolver warns once across repeated reads', () => {
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
-    const throwing = (() => { throw new Error('unknown key'); }) as never;
+    const throwing = (() => {
+      throw new Error('unknown key');
+    }) as never;
     readTurnConfig(throwing);
     readTurnConfig(throwing);
     expect(warn).toHaveBeenCalledTimes(1);

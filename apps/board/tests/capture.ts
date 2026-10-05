@@ -188,9 +188,7 @@ try {
       await shoot(page, `note-${theme}`);
       // The band itself is the edit affordance now; click its left end, clear
       // of the dismiss verb.
-      await noted
-        .locator('.tui-row-note')
-        .click({ position: { x: 20, y: 8 } });
+      await noted.locator('.tui-row-note').click({ position: { x: 20, y: 8 } });
       await page.waitForSelector('.tui-row-note[data-editing]');
       await shoot(page, `noteedit-${theme}`);
       await page.keyboard.press('Escape');

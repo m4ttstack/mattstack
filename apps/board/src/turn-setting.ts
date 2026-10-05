@@ -1,5 +1,4 @@
 import { getSetting } from '@mattstack/rt-client';
-
 import { ALL_TURN, resolveTurnConfig, type TurnConfig } from './turn.ts';
 
 let warned = false;

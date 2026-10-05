@@ -3,10 +3,10 @@ import { describe, expect, test } from 'bun:test';
 import type { BoardMR } from '../data.ts';
 import {
   ALL_TURN,
-  authorTurn,
   AUTHOR_SIGNALS,
-  REVIEWER_SIGNALS,
+  authorTurn,
   resolveTurnConfig,
+  REVIEWER_SIGNALS,
   reviewerTurn,
   toggleTurnSignal,
   type TurnConfig,
@@ -38,8 +38,12 @@ function mr(over: Over = {}): BoardMR {
     ...over,
   } as unknown as BoardMR;
 }
-const blocked = (b: Over) => mr({ blockers: { ...NO_BLOCKERS, any: true, ...b } });
-const only = (author: TurnConfig['author']): TurnConfig => ({ ...ALL_TURN, author });
+const blocked = (b: Over) =>
+  mr({ blockers: { ...NO_BLOCKERS, any: true, ...b } });
+const only = (author: TurnConfig['author']): TurnConfig => ({
+  ...ALL_TURN,
+  author,
+});
 
 describe('resolveTurnConfig', () => {
   test('absent or malformed means every signal', () => {
@@ -49,20 +53,27 @@ describe('resolveTurnConfig', () => {
   });
   test('an explicit empty list means none', () => {
     expect(resolveTurnConfig({ author: [] }).author).toEqual([]);
-    expect(resolveTurnConfig({ author: [] }).reviewer).toEqual(ALL_TURN.reviewer);
+    expect(resolveTurnConfig({ author: [] }).reviewer).toEqual(
+      ALL_TURN.reviewer
+    );
   });
   test('a non-empty list of only unknown names falls open to every signal', () => {
-    expect(resolveTurnConfig({ author: ['bogus'] }).author).toEqual(ALL_TURN.author);
-    expect(resolveTurnConfig({ reviewer: ['x', 'y'] }).reviewer).toEqual(ALL_TURN.reviewer);
+    expect(resolveTurnConfig({ author: ['bogus'] }).author).toEqual(
+      ALL_TURN.author
+    );
+    expect(resolveTurnConfig({ reviewer: ['x', 'y'] }).reviewer).toEqual(
+      ALL_TURN.reviewer
+    );
   });
   test('unknown names are dropped, order follows the canonical list', () => {
-    expect(resolveTurnConfig({ author: ['ciFailing', 'bogus', 'threads'] }).author)
-      .toEqual(['threads', 'ciFailing']);
+    expect(
+      resolveTurnConfig({ author: ['ciFailing', 'bogus', 'threads'] }).author
+    ).toEqual(['threads', 'ciFailing']);
   });
 });
 
 describe('authorTurn', () => {
-  test('a merge in flight is nobody\'s turn', () => {
+  test("a merge in flight is nobody's turn", () => {
     const m = mr({
       mergeButton: { visible: true, disabled: false, loading: true },
       reviews: { isApproved: true, required: 1, given: 1, reviewers: [] },
@@ -71,35 +82,61 @@ describe('authorTurn', () => {
     expect(authorTurn(m, ALL_TURN)).toBeNull();
   });
   test('each signal fires on its own', () => {
-    expect(authorTurn(mr({ threadSummary: { awaiting: 1, replied: 0, resolved: 0 } }), ALL_TURN)).toBe('threads');
-    expect(authorTurn(blocked({ hasConflicts: true }), ALL_TURN)).toBe('conflicts');
+    expect(
+      authorTurn(
+        mr({ threadSummary: { awaiting: 1, replied: 0, resolved: 0 } }),
+        ALL_TURN
+      )
+    ).toBe('threads');
+    expect(authorTurn(blocked({ hasConflicts: true }), ALL_TURN)).toBe(
+      'conflicts'
+    );
     expect(authorTurn(blocked({ needsRebase: true }), ALL_TURN)).toBe('rebase');
-    expect(authorTurn(blocked({ pipelineFailing: true }), ALL_TURN)).toBe('ciFailing');
-    expect(authorTurn(mr({ reviews: { isApproved: true, required: 1, given: 1, reviewers: [] } }), ALL_TURN)).toBe('readyToMerge');
+    expect(authorTurn(blocked({ pipelineFailing: true }), ALL_TURN)).toBe(
+      'ciFailing'
+    );
+    expect(
+      authorTurn(
+        mr({
+          reviews: { isApproved: true, required: 1, given: 1, reviewers: [] },
+        }),
+        ALL_TURN
+      )
+    ).toBe('readyToMerge');
   });
   test('changes requested by a reviewer', () => {
     const m = mr({
       reviews: {
-        isApproved: false, required: 1, given: 0,
-        reviewers: [{ username: 'sam', name: 'Sam', reviewState: 'REQUESTED_CHANGES' }],
+        isApproved: false,
+        required: 1,
+        given: 0,
+        reviewers: [
+          { username: 'sam', name: 'Sam', reviewState: 'REQUESTED_CHANGES' },
+        ],
       },
     });
     expect(authorTurn(m, ALL_TURN)).toBe('changesRequested');
   });
   test('a signal switched off does not fire', () => {
-    expect(authorTurn(blocked({ pipelineFailing: true }), only(['threads']))).toBeNull();
+    expect(
+      authorTurn(blocked({ pipelineFailing: true }), only(['threads']))
+    ).toBeNull();
   });
   test('awaiting threads outrank changes requested', () => {
     const m = mr({
       threadSummary: { awaiting: 2, replied: 0, resolved: 0 },
       reviews: {
-        isApproved: false, required: 1, given: 0,
-        reviewers: [{ username: 'sam', name: 'Sam', reviewState: 'REQUESTED_CHANGES' }],
+        isApproved: false,
+        required: 1,
+        given: 0,
+        reviewers: [
+          { username: 'sam', name: 'Sam', reviewState: 'REQUESTED_CHANGES' },
+        ],
       },
     });
     expect(authorTurn(m, ALL_TURN)).toBe('threads');
   });
-  test('a running pipeline and an untouched MR are nobody\'s turn', () => {
+  test("a running pipeline and an untouched MR are nobody's turn", () => {
     expect(authorTurn(blocked({ pipelineRunning: true }), ALL_TURN)).toBeNull();
     expect(authorTurn(mr(), ALL_TURN)).toBeNull();
   });
@@ -116,44 +153,116 @@ describe('reviewerTurn', () => {
   const asReviewer = (reviewState: string, over: Over = {}) =>
     mr({
       reviews: {
-        isApproved: false, required: 1, given: 0,
+        isApproved: false,
+        required: 1,
+        given: 0,
         reviewers: [{ username: 'me', name: 'Me', reviewState }],
       },
       ...over,
     });
   test('assigned and not finished', () => {
-    expect(reviewerTurn(asReviewer('UNREVIEWED'), 'me', ALL_TURN)).toBe('assigned');
-    expect(reviewerTurn(asReviewer('REVIEW_STARTED'), 'me', ALL_TURN)).toBe('assigned');
+    expect(reviewerTurn(asReviewer('UNREVIEWED'), 'me', ALL_TURN)).toBe(
+      'assigned'
+    );
+    expect(reviewerTurn(asReviewer('REVIEW_STARTED'), 'me', ALL_TURN)).toBe(
+      'assigned'
+    );
   });
   test('approval reset by a push', () => {
-    expect(reviewerTurn(asReviewer('UNAPPROVED'), 'me', ALL_TURN)).toBe('approvalReset');
+    expect(reviewerTurn(asReviewer('UNAPPROVED'), 'me', ALL_TURN)).toBe(
+      'approvalReset'
+    );
   });
   test('already approved is never my turn', () => {
-    expect(reviewerTurn(asReviewer('APPROVED', { myThreads: { awaiting: 0, replied: 2, resolved: 0 } }), 'me', ALL_TURN)).toBeNull();
+    expect(
+      reviewerTurn(
+        asReviewer('APPROVED', {
+          myThreads: { awaiting: 0, replied: 2, resolved: 0 },
+        }),
+        'me',
+        ALL_TURN
+      )
+    ).toBeNull();
   });
-  test('my thread still awaiting the author is the author\'s turn', () => {
-    expect(reviewerTurn(asReviewer('REVIEWED', { myThreads: { awaiting: 1, replied: 1, resolved: 0 } }), 'me', ALL_TURN)).toBeNull();
+  test("my thread still awaiting the author is the author's turn", () => {
+    expect(
+      reviewerTurn(
+        asReviewer('REVIEWED', {
+          myThreads: { awaiting: 1, replied: 1, resolved: 0 },
+        }),
+        'me',
+        ALL_TURN
+      )
+    ).toBeNull();
   });
   test('assigned: replied or resolved threads mean re-review', () => {
-    expect(reviewerTurn(asReviewer('REVIEWED', { myThreads: { awaiting: 0, replied: 0, resolved: 2 } }), 'me', ALL_TURN)).toBe('repliedThreads');
+    expect(
+      reviewerTurn(
+        asReviewer('REVIEWED', {
+          myThreads: { awaiting: 0, replied: 0, resolved: 2 },
+        }),
+        'me',
+        ALL_TURN
+      )
+    ).toBe('repliedThreads');
   });
   test('unassigned: an answered thread is my turn', () => {
-    expect(reviewerTurn(mr({ myThreads: { awaiting: 0, replied: 1, resolved: 3 } }), 'me', ALL_TURN)).toBe('repliedThreads');
+    expect(
+      reviewerTurn(
+        mr({ myThreads: { awaiting: 0, replied: 1, resolved: 3 } }),
+        'me',
+        ALL_TURN
+      )
+    ).toBe('repliedThreads');
   });
   test('unassigned: only resolved threads are not my turn', () => {
-    expect(reviewerTurn(mr({ myThreads: { awaiting: 0, replied: 0, resolved: 3 } }), 'me', ALL_TURN)).toBeNull();
+    expect(
+      reviewerTurn(
+        mr({ myThreads: { awaiting: 0, replied: 0, resolved: 3 } }),
+        'me',
+        ALL_TURN
+      )
+    ).toBeNull();
   });
   test('with approvalReset off, an answered thread still brings a reset reviewer back', () => {
-    const cfg: TurnConfig = { ...ALL_TURN, reviewer: ['assigned', 'repliedThreads'] };
-    expect(reviewerTurn(asReviewer('UNAPPROVED', { myThreads: { awaiting: 0, replied: 1, resolved: 0 } }), 'me', cfg)).toBe('repliedThreads');
+    const cfg: TurnConfig = {
+      ...ALL_TURN,
+      reviewer: ['assigned', 'repliedThreads'],
+    };
+    expect(
+      reviewerTurn(
+        asReviewer('UNAPPROVED', {
+          myThreads: { awaiting: 0, replied: 1, resolved: 0 },
+        }),
+        'me',
+        cfg
+      )
+    ).toBe('repliedThreads');
     expect(reviewerTurn(asReviewer('UNAPPROVED'), 'me', cfg)).toBeNull();
   });
-  test('unassigned: my thread still awaiting the author is the author\'s turn', () => {
-    expect(reviewerTurn(mr({ myThreads: { awaiting: 1, replied: 2, resolved: 0 } }), 'me', ALL_TURN)).toBeNull();
+  test("unassigned: my thread still awaiting the author is the author's turn", () => {
+    expect(
+      reviewerTurn(
+        mr({ myThreads: { awaiting: 1, replied: 2, resolved: 0 } }),
+        'me',
+        ALL_TURN
+      )
+    ).toBeNull();
   });
   test('assigned with repliedThreads off still counts as assigned', () => {
-    const cfg: TurnConfig = { ...ALL_TURN, reviewer: ['assigned', 'approvalReset'] };
-    expect(reviewerTurn(asReviewer('UNREVIEWED', { myThreads: { awaiting: 0, replied: 2, resolved: 0 } }), 'me', cfg)).toBe('assigned');
+    const cfg: TurnConfig = {
+      ...ALL_TURN,
+      reviewer: ['assigned', 'approvalReset'],
+    };
+    expect(
+      reviewerTurn(
+        asReviewer('UNREVIEWED', {
+          myThreads: { awaiting: 0, replied: 2, resolved: 0 },
+        }),
+        'me',
+        cfg
+      )
+    ).toBe('assigned');
   });
   test('signals switched off', () => {
     const cfg: TurnConfig = { ...ALL_TURN, reviewer: [] };
@@ -164,9 +273,7 @@ describe('reviewerTurn', () => {
 describe('toggleTurnSignal', () => {
   test('uncheck then recheck saves the canonical order', () => {
     const off = toggleTurnSignal({}, 'author', AUTHOR_SIGNALS, 'conflicts');
-    expect(off.author).toEqual(
-      AUTHOR_SIGNALS.filter(s => s !== 'conflicts')
-    );
+    expect(off.author).toEqual(AUTHOR_SIGNALS.filter(s => s !== 'conflicts'));
     const back = toggleTurnSignal(off, 'author', AUTHOR_SIGNALS, 'conflicts');
     expect(back.author).toEqual([...AUTHOR_SIGNALS]);
   });

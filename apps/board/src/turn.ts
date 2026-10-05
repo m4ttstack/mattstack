@@ -73,11 +73,13 @@ export function authorTurn(mr: BoardMR, cfg: TurnConfig): AuthorSignal | null {
   const on = (s: AuthorSignal) => cfg.author.includes(s);
   const b = mr.blockers;
   if (on('threads') && (mr.threadSummary?.awaiting ?? 0) > 0) return 'threads';
-  if (on('changesRequested') && hasChangesRequested(mr)) return 'changesRequested';
+  if (on('changesRequested') && hasChangesRequested(mr))
+    return 'changesRequested';
   if (on('conflicts') && b.hasConflicts) return 'conflicts';
   if (on('rebase') && b.needsRebase) return 'rebase';
   if (on('ciFailing') && b.pipelineFailing) return 'ciFailing';
-  if (on('readyToMerge') && mr.reviews.isApproved && !b.any) return 'readyToMerge';
+  if (on('readyToMerge') && mr.reviews.isApproved && !b.any)
+    return 'readyToMerge';
   return null;
 }
 

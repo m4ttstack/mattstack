@@ -333,8 +333,8 @@ import {
   writeRefreshedIdentity,
   writeStandDown,
 } from './triage/memory-store.ts';
-import { readTurnConfig } from './turn-setting.ts';
 import { manualDoctorFields, resolveDispatchIdentity } from './triage/run.ts';
+import { readTurnConfig } from './turn-setting.ts';
 import { effectiveSeat, isOwnMr, resolveStandDownTarget } from './view.ts';
 
 /** Capture-harness mode: boot from a committed fixture dir instead of live

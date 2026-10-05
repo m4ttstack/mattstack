@@ -22,7 +22,12 @@ describe('turnSummary', () => {
   ];
   test('every row lands in exactly one bucket', () => {
     const s = turnSummary(rows, ALL_TURN, m => m.iid === 4);
-    expect(s).toEqual({ needYou: 1, waitingOnAuthor: 1, readyToMerge: 1, needReviewer: 1 });
+    expect(s).toEqual({
+      needYou: 1,
+      waitingOnAuthor: 1,
+      readyToMerge: 1,
+      needReviewer: 1,
+    });
   });
   test('need you wins over an author signal', () => {
     const s = turnSummary(rows, ALL_TURN, m => m.iid === 2);

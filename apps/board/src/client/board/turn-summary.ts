@@ -2,10 +2,7 @@ import type { BoardMR } from '../../data.ts';
 import { authorTurn, type TurnConfig } from '../../turn.ts';
 
 export type TurnBucket =
-  | 'needYou'
-  | 'waitingOnAuthor'
-  | 'readyToMerge'
-  | 'needReviewer';
+  'needYou' | 'waitingOnAuthor' | 'readyToMerge' | 'needReviewer';
 
 /** First matching bucket wins, in this order, so the four counts add up to
     the row count. */

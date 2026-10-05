@@ -12,8 +12,8 @@ import type { TabConfig } from '../../config.ts';
 import { sectionStatus } from '../../sections.ts';
 import {
   AUTHOR_SIGNALS,
-  REVIEWER_SIGNALS,
   resolveTurnConfig,
+  REVIEWER_SIGNALS,
   toggleTurnSignal,
   type AuthorSignal,
   type ReviewerSignal,
@@ -1074,9 +1074,7 @@ const OPEN_ROWS_KEY = 'board.config.openRows';
 /** Which composite rows are expanded, remembered per browser so the modal
     reopens the way it was left. Storage is a convenience only: any failure
     reads as "all collapsed". */
-function useOpenRows(
-  focusKey?: string
-): [Set<string>, (key: string) => void] {
+function useOpenRows(focusKey?: string): [Set<string>, (key: string) => void] {
   const [open, setOpen] = useState<Set<string>>(() => {
     try {
       const raw = localStorage.getItem(OPEN_ROWS_KEY);
