@@ -1,3 +1,5 @@
+import * as ui from "../../lib/ui/out.ts";
+import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 /**
  * `rt daemon uninstall`/`start` (the CLI-side liveness guards, Task 14,
  * S027/S030/S028-CLI). Fakes the tray over a real Bun.serve on
@@ -21,12 +23,11 @@ import {
 import { processFlavor } from "../../lib/flavor.ts";
 
 let servers: ReturnType<typeof Bun.serve>[] = [];
-let logs: string[] = [];
-const realLog = console.log;
+let io: CapturedOut;
 
 function captureLogs(): void {
-  logs = [];
-  console.log = (...args: unknown[]) => { logs.push(args.map(String).join(" ")); };
+  io = captureOut({ console: true });
+  ui.__test__.setHuman(() => false);
 }
 
 function serveTray(handlers: Record<string, () => Response>): void {
@@ -57,7 +58,7 @@ function serveDaemonPing(body?: Record<string, unknown>): void {
 }
 
 afterEach(() => {
-  console.log = realLog;
+  io.restore();
   for (const s of servers) { try { s.stop(true); } catch { /* already stopped */ } }
   servers = [];
   for (const p of [DAEMON_SOCK_PATH, DAEMON_PID_PATH, TRAY_SOCK_PATH, DAEMON_CONFIG_PATH]) {
@@ -77,7 +78,9 @@ describe("uninstall (liveness guard)", () => {
 
     expect(existsSync(DAEMON_PID_PATH)).toBe(true); // cleanupDaemonFiles did NOT run
     expect(JSON.parse(readFileSync(DAEMON_CONFIG_PATH, "utf8")).installed).toBe(true); // markDaemonUninstalled did NOT run
-    expect(logs.join("\n")).toContain("launchctl bootout");
+    expect(output()).toContain("launchctl bootout");
+    expect(io.stderr()).toContain("[refused] Left the daemon's files alone  it is still running");
+    expect(io.stdout()).not.toContain("refused");
   });
 
   test("leaves rt.sock/daemon.json when probeSocketHolder() finds a live holder (no rt.pid at all)", async () => {
@@ -89,7 +92,9 @@ describe("uninstall (liveness guard)", () => {
     await uninstall();
 
     expect(JSON.parse(readFileSync(DAEMON_CONFIG_PATH, "utf8")).installed).toBe(true);
-    expect(logs.join("\n")).toContain("launchctl bootout");
+    expect(output()).toContain("launchctl bootout");
+    expect(io.stderr()).toContain("[refused] Left the daemon's files alone  it is still running");
+    expect(io.stdout()).not.toContain("refused");
   });
 
   test("cleans up rt.sock/rt.pid/daemon.json when nothing is alive", async () => {
@@ -103,8 +108,8 @@ describe("uninstall (liveness guard)", () => {
 
     expect(existsSync(DAEMON_PID_PATH)).toBe(false);
     expect(JSON.parse(readFileSync(DAEMON_CONFIG_PATH, "utf8")).installed).toBe(false);
-    expect(logs.join("\n")).not.toContain("launchctl bootout");
-    expect(logs.join("\n")).toContain("daemon fully uninstalled");
+    expect(output()).not.toContain("launchctl bootout");
+    expect(output()).toContain("[ok] Uninstalled the daemon");
   });
 });
 
@@ -138,6 +143,8 @@ describe("start (kickstart escalation)", () => {
     captureLogs();
     await start();
 
-    expect(logs.join("\n")).toContain("daemon started");
+    expect(output()).toContain("[ok] The daemon started");
   }, 20_000);
 });
+
+function output(): string { return io.stdout() + io.stderr(); }

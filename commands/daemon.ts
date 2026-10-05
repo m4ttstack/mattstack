@@ -23,7 +23,12 @@ import { repoLabelQualified } from "../lib/repo-label.ts";
 import { basename, join } from "path";
 import { reverseLookupByName } from "../lib/repo-arg.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
-import { bold, dim, green, yellow, red, reset } from "../lib/tui.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { usageFailure } from "../lib/ui/usage.ts";
+import { withTransientStep } from "../lib/ui/transient-step.ts";
+import { logCliEvent } from "../lib/cli-logger.ts";
+
 import {
   isDaemonInstalled,
   isDaemonProcessRunning,
@@ -86,59 +91,31 @@ export function formatFreshnessParts(
   });
 }
 
-/** Null when coherent OR when no daemon answers: a down daemon is a liveness problem, not a flavor mismatch. */
-export function tupleWarning(t: FlavorTuple): string | null {
-  if (!t.daemon || t.daemon.flavor === t.cliFlavor) return null;
-  const pid = t.daemon.pid ? ` (pid ${t.daemon.pid})` : "";
-  return `a ${t.daemon.flavor} daemon${pid} answers this ${t.cliFlavor} CLI. Fix: open ${flavorHintPath(t.cliFlavor)} (quit it first if it is running)`;
-}
-
 /** Bundle to point an "open it" hint at for `flavor`. */
 export function flavorHintPath(flavor: Flavor): string {
   return flavor === "dev" ? devTrayAppPath() : trayAppHintPath();
 }
 
-/**
- * Shared copy for stop/start/restart's post-op flavor probe: the daemon that
- * answered on rt.sock isn't the flavor the operation targeted. `stop` wants
- * it gone; `start`/`restart` want their own flavor answering, so the verb
- * differs while the remedy doesn't.
- */
-export function flavorMismatchLines(
+export function flavorMismatchBlocks(
   op: "stop" | "start" | "restart",
   holder: { flavor: string; pid: number | null },
   flavor: Flavor,
-): [string, string] {
-  const pidPart = holder.pid ? ` (pid ${holder.pid})` : "";
-  const verb = op === "stop" ? "still holds" : "answered on";
-  return [
-    `a ${holder.flavor} daemon ${verb} rt.sock${pidPart}, not ${flavor}`,
-    `Fix: open ${flavorHintPath(flavor)} (quit it first if it is running)`,
-  ];
+): Block[] {
+  const pid = holder.pid ? `pid ${holder.pid}` : undefined;
+  const line = op === "stop"
+    ? out.line("warn", `A ${holder.flavor} daemon is still running`, [pid, `you stopped the ${flavor} one`].filter(Boolean).join("; "))
+    : out.line("warn", `A ${holder.flavor} daemon answered instead of the ${flavor} one`, pid);
+  return [line, out.callout("next", out.cmd(`open ${flavorHintPath(flavor)}`)), out.callout("note", "Quit it first if it is running.")];
 }
 
-/** stop's holder-still-present case when the holder is its OWN flavor: not a mismatch, just a slow shutdown. */
-export function stillShuttingDownLine(holder: { pid: number | null }): string {
-  return `still shutting down — give it a moment${holder.pid ? ` (pid ${holder.pid})` : ""}`;
+export function stillShuttingDownBlock(holder: { pid: number | null }): Block {
+  return out.line("pending", "The daemon is still shutting down", holder.pid ? `pid ${holder.pid}` : undefined);
 }
 
-/** Prints stop/start/restart's mismatch warning in the shared two-line shape. */
-function printFlavorMismatch(op: "stop" | "start" | "restart", holder: { flavor: string; pid: number | null }, flavor: Flavor): void {
-  const [headline, remedy] = flavorMismatchLines(op, holder, flavor);
-  console.log(`\n  ${yellow}⚠ ${headline}${reset}`);
-  console.log(`  ${dim}${remedy}${reset}\n`);
-}
-
-/**
- * start/restart's post-liveness flavor check. Any holder flavor other than
- * this CLI's is worth a warning, including "unknown flavor", since the
- * daemon that was just (re)started should be answering with real identity.
- * Returns true when it printed the warning, so the caller skips the plain ✓.
- */
 async function warnIfWrongFlavor(op: "start" | "restart", flavor: Flavor): Promise<boolean> {
   const holder = await probeSocketHolder();
   if (!holder || holder.flavor === flavor) return false;
-  printFlavorMismatch(op, holder, flavor);
+  out.print(...flavorMismatchBlocks(op, holder, flavor));
   return true;
 }
 
@@ -169,60 +146,57 @@ function cleanupLaunchdPlist(): boolean {
 
 export async function install(_args: string[] = []): Promise<void> {
   const flavor = processFlavor();
-  console.log(`  ${dim}registering the ${flavor} daemon${reset}`);
-
   // Persist the install marker so isDaemonInstalled() returns true and the
   // CLI will attempt to reach the daemon (rather than silently no-op).
   markDaemonInstalled();
-  console.log(`  ${green}✓${reset} saved config to ~/.mattstack/rt/daemon.json`);
+  out.print(out.line("done", "Turned the daemon on for this Mac"));
 
-  // Migrate away from any pre-SMAppService launchd plist.
   if (cleanupLaunchdPlist()) {
-    console.log(`  ${green}✓${reset} removed legacy launchd plist`);
+    out.print(out.line("done", "Removed a launch agent an older rt left behind"));
   }
 
-  // Ask the tray to register the daemon. If the tray isn't running yet, it
-  // will register on next launch.
   const trayResult = await trayQuery("/daemon/start", "POST");
   if (trayResult?.ok) {
-    console.log(`  ${green}✓${reset} tray app is registering daemon`);
+    out.print(out.line("done", `${TRAY_APP_NAME} is starting the daemon`));
   } else {
-    console.log(`  ${yellow}⚠${reset} ${TRAY_APP_NAME} not reachable — open it to finish setup`);
-    console.log(`  ${dim}  ${bold}open ${flavorHintPath(flavor)}${reset}`);
+    out.print(
+      out.line("needs-you", `${TRAY_APP_NAME} is not open`, "open it to finish"),
+      out.callout("next", out.cmd(`open ${flavorHintPath(flavor)}`)),
+    );
   }
 
-  // Wait for daemon to come online
-  let connected = false;
-  for (let i = 0; i < 12; i++) {
-    await Bun.sleep(250);
-    if (await isDaemonRunning()) { connected = true; break; }
-  }
+  const connected = await withTransientStep("Waiting for the daemon to answer", async () => {
+    for (let i = 0; i < 12; i++) {
+      await Bun.sleep(250);
+      if (await isDaemonRunning()) return true;
+    }
+    return false;
+  });
 
   if (connected) {
-    console.log(`  ${green}✓${reset} daemon is running`);
-    console.log(`\n  ${green}${bold}✓ installed${reset} ${dim}— managed by ${TRAY_APP_NAME} · launchd-supervised · TCC inherits from ${TRAY_APP_BUNDLE}${reset}\n`);
+    out.print(out.line("done", "Installed the daemon", `${TRAY_APP_NAME} keeps it running`));
   } else {
-    // Query the tray to find out WHY the daemon isn't responding
     const trayStatus = await trayQuery("/daemon/status", "GET");
     const smStatus = trayStatus?.ok ? (trayStatus as any).status : "unknown";
 
-    console.log(`  ${yellow}⚠${reset} daemon not yet responding`);
+    out.print(out.line("warn", "The daemon is not answering yet"));
 
     if (smStatus === "requiresApproval") {
-      console.log(`  ${dim}macOS requires approval to run the background service.${reset}`);
-      console.log(`  ${dim}Opening System Settings → Login Items — click ${bold}Allow${reset}${dim} next to ${TRAY_APP_NAME}.${reset}`);
-      console.log(`  ${dim}Then run: ${bold}rt daemon start${reset}\n`);
+      out.print(
+        out.line("needs-you", "macOS needs your approval to run it in the background", `System Settings is open at Login Items: allow ${TRAY_APP_NAME}`),
+        out.callout("next", out.cmd("rt daemon start")),
+      );
       try { execSync("open 'x-apple.systempreferences:com.apple.LoginItems-Settings.extension'", { stdio: "pipe" }); } catch { /* */ }
     } else if (smStatus === "notFound") {
-      console.log(`  ${red}✗${reset} daemon binary not found inside ${TRAY_APP_BUNDLE}`);
-      console.log(`  ${dim}Re-run: ${bold}rt --post-install${reset}${dim} to reinstall the tray app.${reset}\n`);
+      out.fail({
+        title: `The daemon is missing from ${TRAY_APP_NAME}`,
+        why: "The app install looks incomplete.",
+        next: out.cmd("rt --post-install"),
+      });
     } else if (smStatus === "enabled") {
-      // Registered + approved, but daemon is crashing on launch
-      console.log(`  ${dim}The agent is registered with launchd but the process keeps exiting.${reset}`);
-      console.log(`  ${dim}Check logs: ${bold}rt daemon logs${reset}\n`);
+      out.fail({ title: "The daemon stops right after it starts", next: out.cmd("rt daemon logs") });
     } else {
-      // notRegistered, unknown, or tray unreachable
-      console.log(`  ${dim}check logs: rt daemon logs${reset}\n`);
+      out.print(out.callout("next", out.cmd("rt daemon logs")));
     }
   }
 }
@@ -233,15 +207,15 @@ export async function uninstall(): Promise<void> {
   // 1. Ask tray to unregister the SMAppService agent (stops launchd supervision).
   const result = await trayQuery("/daemon/stop", "POST");
   if (result?.ok) {
-    console.log(`  ${green}✓${reset} daemon unregistered via tray`);
+    out.print(out.line("done", `Turned the daemon off in ${TRAY_APP_NAME}`));
     await Bun.sleep(500);
   } else {
-    console.log(`  ${dim}·${reset} tray not reachable — daemon may still be registered`);
+    out.print(out.line("warn", `${TRAY_APP_NAME} is not open`, "the daemon may still be turned on"));
   }
 
   // 2. Remove any legacy launchd plist.
   if (cleanupLaunchdPlist()) {
-    console.log(`  ${green}✓${reset} removed legacy launchd plist`);
+    out.print(out.line("done", "Removed a launch agent an older rt left behind"));
   }
 
   // 3. A failed/absent tray stop must never delete rt.sock/rt.pid/daemon.json
@@ -252,73 +226,55 @@ export async function uninstall(): Promise<void> {
   // matching rt.pid, e.g. after a crash-and-respawn under launchd).
   const stillAlive = isDaemonProcessRunning() || (await probeSocketHolder()) !== null;
   if (stillAlive) {
-    console.log(`\n  ${yellow}⚠${reset} daemon is still running, leaving rt.sock/rt.pid/daemon.json in place`);
-    console.log(`  ${dim}Fix: ${bold}launchctl bootout gui/$UID/${activeLaunchdLabel()}${reset}\n`);
+    out.note(
+      out.line("refused", "Left the daemon's files alone", "it is still running"),
+      out.callout("next", out.cmd(`launchctl bootout gui/$UID/${activeLaunchdLabel()}`)),
+    );
     return;
   }
 
   // 4. Clear install flag + sock/pid files.
   markDaemonUninstalled();
   cleanupDaemonFiles();
-  console.log(`  ${green}✓${reset} cleared install flag`);
-
-  console.log(`\n  ${dim}daemon fully uninstalled${reset}\n`);
+  out.print(out.line("done", "Uninstalled the daemon"));
 }
 
 // ─── Start / Stop / Restart ──────────────────────────────────────────────────
 
 export async function start(): Promise<void> {
   if (!isDaemonInstalled()) {
-    console.log(`\n  ${yellow}daemon is not installed${reset}`);
-    console.log(`  ${dim}run: rt daemon install${reset}\n`);
+    out.print(out.line("off", "The daemon is not installed"), out.callout("next", out.cmd("rt daemon install")));
     return;
   }
-
   const flavor = processFlavor();
-
   if (await isDaemonRunning()) {
-    if (!(await warnIfWrongFlavor("start", flavor))) {
-      console.log(`\n  ${green}daemon is already running${reset}\n`);
-    }
+    if (!(await warnIfWrongFlavor("start", flavor))) out.print(out.line("skipped", "The daemon is already running"));
     return;
   }
-
   const result = await trayQuery("/daemon/start", "POST");
   if (result && !result.ok) {
-    console.log(`\n  ${yellow}⚠ start failed in the tray${reset}`);
-    console.log(`  ${dim}check the tray log: rt daemon logs${reset}\n`);
+    out.fail({ title: `${TRAY_APP_NAME} could not start the daemon`, next: out.cmd("rt daemon logs") });
     return;
   }
   if (!result) {
-    console.log(`\n  ${yellow}${TRAY_APP_NAME} is not running${reset}`);
-    console.log(`  ${dim}open it: ${bold}open ${flavorHintPath(flavor)}${reset}\n`);
+    out.print(out.line("needs-you", `${TRAY_APP_NAME} is not open`), out.callout("next", out.cmd(`open ${flavorHintPath(flavor)}`)));
     return;
   }
-
-  console.log(`  ${dim}starting ${flavor} daemon via tray…${reset}`);
-  if (await pollForDaemonUp(flavor)) return;
-
-  // The tray acked /daemon/start, but SMAppService can register a job that
-  // never actually launches (still booting, crash-looping, etc.); kick it
-  // via /daemon/restart, which forces launchd to invoke it, rather than
-  // leaving the operator staring at "check logs" for something a retry fixes.
-  console.log(`  ${dim}not up yet, escalating to restart (kickstart)…${reset}`);
-  const restartResult = await trayQuery("/daemon/restart", "POST");
-  if (restartResult?.ok && (await pollForDaemonUp(flavor))) return;
-
-  console.log(`\n  ${yellow}daemon starting… check logs: rt daemon logs${reset}\n`);
+  const up = (await withTransientStep(`Starting the ${flavor} daemon`, pollForDaemonUp)) || (await withTransientStep("It has not answered yet; restarting it", async () => {
+    const restartResult = await trayQuery("/daemon/restart", "POST");
+    return Boolean(restartResult?.ok) && (await pollForDaemonUp());
+  }));
+  if (up) {
+    if (!(await warnIfWrongFlavor("start", flavor))) out.print(out.line("done", "The daemon started"));
+    return;
+  }
+  out.print(out.line("pending", "The daemon has not answered yet"), out.callout("next", out.cmd("rt daemon logs")));
 }
 
-/** Shared poll loop for start()'s initial wait and its kickstart escalation. */
-async function pollForDaemonUp(flavor: Flavor): Promise<boolean> {
+async function pollForDaemonUp(): Promise<boolean> {
   for (let i = 0; i < 12; i++) {
     await Bun.sleep(250);
-    if (await isDaemonRunning()) {
-      if (!(await warnIfWrongFlavor("start", flavor))) {
-        console.log(`\n  ${green}✓ daemon started${reset}\n`);
-      }
-      return true;
-    }
+    if (await isDaemonRunning()) return true;
   }
   return false;
 }
@@ -327,27 +283,22 @@ export async function stop(): Promise<void> {
   const flavor = processFlavor();
   const result = await trayQuery("/daemon/stop", "POST");
   if (result && !result.ok) {
-    console.log(`\n  ${yellow}⚠ stop failed in the tray — the daemon may still be registered${reset}`);
-    console.log(`  ${dim}check the tray log: rt daemon logs${reset}\n`);
+    out.fail({ title: `${TRAY_APP_NAME} could not stop the daemon`, why: "It may still be turned on.", next: out.cmd("rt daemon logs") });
     return;
   }
   if (result?.ok) {
     await Bun.sleep(500);
-    // The ack only proves the reached tray's OWN flavor was told to stop —
-    // rt.sock is shared, so a different-flavor daemon can still hold it.
+    // The ack only proves the reached tray's own flavor was told to stop.
     const holder = await probeSocketHolder();
     if (holder) {
-      if (holder.flavor === flavor) {
-        console.log(`\n  ${yellow}⚠ ${stillShuttingDownLine(holder)}${reset}\n`);
-        return;
-      }
-      printFlavorMismatch("stop", holder, flavor);
+      if (holder.flavor === flavor) out.print(stillShuttingDownBlock(holder));
+      else out.print(...flavorMismatchBlocks("stop", holder, flavor));
       return;
     }
-    console.log(`\n  ${green}✓ ${flavor} daemon stopped${reset}\n`);
+    out.print(out.line("done", `Stopped the ${flavor} daemon`));
     return;
   }
-  console.log(`\n  ${yellow}${TRAY_APP_NAME} is not running — nothing to stop${reset}\n`);
+  out.print(out.line("skipped", `${TRAY_APP_NAME} is not open, so nothing is running to stop`));
 }
 
 /** Test seam: the poll cadence for restart's pid-turnover wait. */
@@ -359,7 +310,7 @@ export async function restart(): Promise<void> {
   // liveness poll too, so "a daemon is up" proved nothing when the tray
   // silently dropped the op (2026-09-21: three restarts reported ✓ while
   // the pid never changed). A failed baseline probe with the socket file
-  // present is UNKNOWN, never "down" — the old daemon may just have missed
+  // present is UNKNOWN, never "down"; the old daemon may just have missed
   // one probe, and a pid seen later then proves nothing.
   const sockPresent = existsSync(DAEMON_SOCK_PATH);
   let before = sockPresent ? await probeSocketHolder() : null;
@@ -370,43 +321,43 @@ export async function restart(): Promise<void> {
   const baselineUnknown = sockPresent && !before?.pid;
   const result = await trayQuery("/daemon/restart", "POST");
   if (result && !result.ok) {
-    console.log(`\n  ${yellow}⚠ restart failed in the tray${reset}`);
-    console.log(`  ${dim}check the tray log: rt daemon logs${reset}\n`);
+    out.fail({ title: `${TRAY_APP_NAME} could not restart the daemon`, next: out.cmd("rt daemon logs") });
     return;
   }
   // The tray replies after the op completes, so a slow op can outlive the
   // request timeout. Its socket existing means the tray is there; the pid
-  // poll below still decides the truth. Only a missing socket means gone —
+  // poll below still decides the truth. Only a missing socket means gone;
   // the same TRAY_SOCK_PATH trayQuery itself gates on, so "no reply" and
   // "no tray" can never disagree about which socket they mean.
   if (!result && !existsSync(TRAY_SOCK_PATH)) {
-    console.log(`\n  ${yellow}${TRAY_APP_NAME} is not running${reset}`);
-    console.log(`  ${dim}open it: ${bold}open ${flavorHintPath(flavor)}${reset}\n`);
+    out.print(out.line("needs-you", `${TRAY_APP_NAME} is not open`), out.callout("next", out.cmd(`open ${flavorHintPath(flavor)}`)));
     return;
   }
-  console.log(`  ${dim}restarting ${flavor} daemon via tray…${reset}`);
-  for (let i = 0; i < RESTART_POLL.attempts; i++) {
-    await Bun.sleep(RESTART_POLL.intervalMs);
-    const now = await probeSocketHolder();
-    if (!now?.pid) continue;
-    if (before?.pid && now.pid === before.pid) continue;
-    if (baselineUnknown) {
-      console.log(`\n  ${yellow}⚠ a daemon answers as pid ${now.pid}, but the pre-restart pid could not be read — restart unverified${reset}`);
-      console.log(`  ${dim}check the tray log: rt daemon logs${reset}\n`);
-      return;
+  const polled = await withTransientStep(`Restarting the ${flavor} daemon`, async () => {
+    for (let i = 0; i < RESTART_POLL.attempts; i++) {
+      await Bun.sleep(RESTART_POLL.intervalMs);
+      const now = await probeSocketHolder();
+      if (!now?.pid) continue;
+      if (before?.pid && now.pid === before.pid) continue;
+      if (baselineUnknown) return { unverified: now.pid };
+      return { now };
     }
-    if (!(await warnIfWrongFlavor("restart", flavor))) {
-      console.log(`\n  ${green}✓ daemon restarted${reset} ${dim}(pid ${before?.pid ?? "down"} → ${now.pid})${reset}\n`);
-    }
+    return null;
+  });
+  if (polled?.unverified) {
+    out.print(out.line("warn", "A daemon is answering, but rt could not tell whether it restarted", `pid ${polled.unverified}`), out.callout("next", out.cmd("rt daemon logs")));
+    return;
+  }
+  if (polled?.now) {
+    if (!(await warnIfWrongFlavor("restart", flavor))) out.print(out.line("done", "The daemon restarted", `pid ${before?.pid ?? "down"} to ${polled.now.pid}`));
     return;
   }
   const still = await probeSocketHolder();
   if (before?.pid && still?.pid === before.pid) {
-    console.log(`\n  ${yellow}⚠ restart did not happen — the daemon still answers as pid ${still.pid}${reset}`);
-    console.log(`  ${dim}check the tray log: rt daemon logs${reset}\n`);
+    out.fail({ title: "The daemon did not restart", why: `It still answers as pid ${still.pid}.`, next: out.cmd("rt daemon logs") });
     return;
   }
-  console.log(`\n  ${yellow}daemon restarting… check logs: rt daemon logs${reset}\n`);
+  out.print(out.line("pending", "The daemon has not answered yet"), out.callout("next", out.cmd("rt daemon logs")));
 }
 
 // ─── Status ──────────────────────────────────────────────────────────────────
@@ -457,8 +408,8 @@ export async function showStatus(args: string[] = []): Promise<void> {
   const json = args.includes("--json");
 
   if (!isDaemonInstalled()) {
-    if (json) return void console.log(JSON.stringify({ ok: true, state: "not-installed" }));
-    console.log(`  ${dim}○${reset} not installed ${dim}(run rt daemon install)${reset}\n`);
+    if (json) return void out.json({ ok: true, state: "not-installed" });
+    out.print(...statusBlocks({ state: "not-installed" }, Date.now()).print);
     return;
   }
 
@@ -505,145 +456,99 @@ export async function showStatus(args: string[] = []): Promise<void> {
     pingEventLoop: (pingResp as any)?.eventLoop,
   });
 
-  if (json) return void console.log(JSON.stringify({ ok: true, ...verdict }));
+  if (json) return void out.json({ ok: true, ...verdict });
 
-  for (const line of statusLines(verdict, Date.now())) console.log(line);
-
+  const shown = statusBlocks(verdict, Date.now());
+  const extra: Block[] = [];
   if (verdict.state === "running") {
-    // `status`'s reply, already fetched above, carries `data.identity` — reuse
-    // it rather than a second probeSocketHolder() round-trip.
-    const identity = verdict.data.identity as
-      | { flavor: "dev" | "prod"; version: string; sourceRev: string | null }
-      | undefined;
-    if (identity) {
-      printFlavorInfo({ flavor: identity.flavor, version: identity.version, sourceRev: identity.sourceRev, pid: verdict.data.pid ?? null });
-    }
-    // S077: a declared pool this machine has never opted into (unowned default
-    // is now disabled) would otherwise build nothing with no visible reason.
+    const identity = verdict.data.identity as { flavor: "dev" | "prod"; version: string; sourceRev: string | null } | undefined;
+    if (identity) extra.push(...flavorInfoBlocks({ flavor: identity.flavor, version: identity.version, sourceRev: identity.sourceRev, pid: verdict.data.pid ?? null }, processFlavor()));
     const worktreePool = verdict.data.worktreePool as { dormant: boolean; message?: string } | undefined;
-    if (worktreePool?.dormant) {
-      console.log(`    ${dim}${worktreePool.message}${reset}`);
-    }
+    if (worktreePool?.dormant && worktreePool.message) extra.push(out.callout("note", worktreePool.message));
   } else if (verdict.state === "degraded") {
-    // `status` timed out or errored, but the daemon proved it's alive — the
-    // flavor cross-check matters most right here, so it earns its own ping.
-    printFlavorInfo(await probeSocketHolder());
+    extra.push(...flavorInfoBlocks(await probeSocketHolder(), processFlavor()));
   }
-
-  console.log(`    ${dim}config: ~/.mattstack/rt/daemon.json${reset}`);
-  console.log(`    ${dim}logs: ~/.mattstack/rt/logs/ ${reset}${dim}(view with: rt daemon logs)${reset}`);
-  console.log("");
+  if (shown.print.length + extra.length > 0) out.print(...shown.print, ...extra);
+  if (shown.failure) out.fail(shown.failure);
 }
 
-/** Renders from whatever identity the caller has on hand — full ping/status data, or just a probeSocketHolder() flavor+pid. */
-function printFlavorInfo(daemon: { flavor: string; pid: number | null; version?: string; sourceRev?: string | null } | null): void {
-  if (!daemon) return;
-  const rev = daemon.flavor === "dev" && daemon.sourceRev ? ` (${daemon.sourceRev})` : "";
-  const versionPart = daemon.version ? ` · ${daemon.version}${rev}` : "";
-  console.log(`    ${dim}${daemon.flavor}${versionPart}${reset}`);
-
-  const tuple: FlavorTuple = { cliFlavor: processFlavor(), daemon: { flavor: daemon.flavor, pid: daemon.pid } };
-  const warning = tupleWarning(tuple);
-  if (warning) console.log(`    ${yellow}⚠${reset} ${warning}`);
+export function tupleWarningBlocks(t: FlavorTuple): Block[] {
+  if (!t.daemon || t.daemon.flavor === t.cliFlavor) return [];
+  return [
+    out.line("warn", `A ${t.daemon.flavor} daemon is answering this ${t.cliFlavor} rt`, t.daemon.pid ? `pid ${t.daemon.pid}` : undefined),
+    out.callout("next", out.cmd(`open ${flavorHintPath(t.cliFlavor)}`)),
+    out.callout("note", "Quit it first if it is running."),
+  ];
 }
 
-/**
- * Render a verdict to the lines the operator reads. Pure — `now` is injected so
- * the freshness ages are deterministic under test.
- */
-export function statusLines(verdict: DaemonStatusVerdict, now: number): string[] {
-  if (verdict.state === "running") {
-    const { pid, uptime, watchedRepos, cacheEntries } = verdict.data;
-    const lines = [
-      `  ${green}●${reset} running ${dim}(SMAppService · pid ${pid} · uptime ${formatUptime(uptime)})${reset}`,
-      `    ${dim}watching: ${watchedRepos} repo${watchedRepos !== 1 ? "s" : ""}${reset}`,
-      `    ${dim}cache: ${cacheEntries} entries${reset}`,
-    ];
+export function flavorInfoBlocks(daemon: { flavor: string; pid: number | null; version?: string; sourceRev?: string | null } | null, cliFlavor: Flavor): Block[] {
+  if (!daemon) return [];
+  const rev = daemon.flavor === "dev" && daemon.sourceRev ? `, ${daemon.sourceRev}` : "";
+  const version = daemon.version ? `, ${daemon.version}${rev}` : "";
+  return [out.kv("version", `${daemon.flavor}${version}`), ...tupleWarningBlocks({ cliFlavor, daemon: { flavor: daemon.flavor, pid: daemon.pid } })];
+}
 
-    const freshness = verdict.data.freshness as
-      | Record<string, { state: string; lastSyncedAt: string | null }>
-      | undefined;
-    if (freshness && Object.keys(freshness).length > 0) {
-      lines.push(`    ${dim}events: ${formatFreshnessParts(freshness, now).join(" · ")}${reset}`);
+const NOT_SERVING: Record<"booting" | "wedged" | "quarantined", string> = {
+  booting: "It is still starting up.",
+  wedged: "It started, then stopped answering; it may be stuck.",
+  quarantined: "It reset a damaged database and has not answered since.",
+};
+
+export function statusBlocks(verdict: DaemonStatusVerdict, now: number): { print: Block[]; failure?: out.FailureInput } {
+  switch (verdict.state) {
+    case "running": {
+      const { pid, uptime, watchedRepos, cacheEntries } = verdict.data;
+      const blocks: Block[] = [
+        out.line("running", "The daemon is running", `pid ${pid}, up ${formatUptime(uptime)}`),
+        out.kv("watching", `${watchedRepos} repo${watchedRepos !== 1 ? "s" : ""}`),
+        out.kv("cache", `${cacheEntries} entries`),
+      ];
+      const freshness = verdict.data.freshness as Record<string, { state: string; lastSyncedAt: string | null }> | undefined;
+      if (freshness && Object.keys(freshness).length > 0) blocks.push(out.kv("events", formatFreshnessParts(freshness, now).join(" · ")));
+      const el = verdict.data.eventLoop as { maxLagMs: number } | undefined;
+      if (el && el.maxLagMs >= 500) blocks.push(out.kv("event loop", `slowest pause ${el.maxLagMs} ms`));
+      const health = verdict.data.health as { level: string; reasons: string[] } | undefined;
+      if (health && health.level !== "ok") {
+        blocks.push(out.line("warn", `The daemon reports it is ${health.level}`));
+        if (health.reasons.length > 0) blocks.push(out.verbatim(health.reasons, "why"));
+      }
+      return { print: blocks };
     }
-
-    const health = verdict.data.health as { level: string; reasons: string[] } | undefined;
-    if (health && health.level !== "ok") {
-      const dot = health.level === "unhealthy" ? red : yellow;
-      lines.push(`    ${dot}health: ${health.level}${reset}`);
-      for (const r of health.reasons) lines.push(`      ${dim}- ${r}${reset}`);
+    case "degraded": {
+      const why =
+        verdict.reason === "error"
+          ? `Its status command failed: ${verdict.detail ?? "unknown error"}`
+          : verdict.eventLoop && verdict.eventLoop.maxLagMs > 0
+            ? `It answered a ping, but status timed out; its slowest pause was ${verdict.eventLoop.maxLagMs} ms${verdict.eventLoop.lastStallCmd ? `, in ${verdict.eventLoop.lastStallCmd}` : ""}.`
+            : "It answered a ping, but status timed out, probably while it syncs.";
+      return {
+        print: [
+          out.line("warn", "The daemon is running but did not report its status", verdict.pid ? `pid ${verdict.pid}` : undefined),
+          out.callout("why", why),
+          out.callout("next", out.cmd("rt daemon logs")),
+        ],
+      };
     }
-    const el = verdict.data.eventLoop as { maxLagMs: number } | undefined;
-    if (el && el.maxLagMs >= 500) lines.push(`    ${dim}event loop: maxLag ${el.maxLagMs}ms${reset}`);
-    return lines;
-  }
-
-  if (verdict.state === "degraded") {
-    // Up, but `status` did not come back. Saying "not running" here would send
-    // the operator to `rt daemon start` against a daemon that is already up.
-    const lines = [`  ${yellow}●${reset} running, but not reporting status`];
-    if (verdict.pid) lines.push(`    ${dim}pid: ${verdict.pid}${reset}`);
-    if (verdict.reason === "error") {
-      lines.push(`    ${dim}status command failed: ${verdict.detail ?? "unknown error"}${reset}`);
-    } else if (verdict.eventLoop && verdict.eventLoop.maxLagMs > 0) {
-      const el = verdict.eventLoop;
-      lines.push(`    ${dim}answers ping, status timed out: event loop maxLag ${el.maxLagMs}ms${el.lastStallCmd ? ` (last stall in ${el.lastStallCmd})` : ""}${reset}`);
-    } else {
-      lines.push(`    ${dim}answers ping, but status timed out — likely mid-sync${reset}`);
+    case "parked":
+      return {
+        print: [
+          out.line("off", "This daemon is waiting", verdict.holderFlavor ? `the ${verdict.holderFlavor} daemon is running instead` : "another daemon is running instead"),
+          out.callout("next", out.cmd("rt daemon logs")),
+        ],
+      };
+    case "alive-not-serving": {
+      const why = verdict.detail === "stalled" ? `It has not checked in for ${Math.round((verdict.stalledForMs ?? 0) / 1000)} seconds.` : NOT_SERVING[verdict.detail];
+      return { print: [out.line("warn", "The daemon is running but not answering", `pid ${verdict.pid}`), out.callout("why", why), out.callout("next", out.cmd("rt daemon logs -t"))] };
     }
-    lines.push(`    ${dim}check: rt daemon logs${reset}`);
-    return lines;
+    case "crash-looping":
+      return { print: [], failure: { title: "The daemon keeps crashing", hint: `${verdict.failures} failures recently`, why: verdict.reason, next: out.cmd("rt daemon logs -t") } };
+    case "boot-failed":
+      return { print: [], failure: { title: "The daemon failed to start", hint: `while ${verdict.phase}`, why: verdict.reason, next: out.cmd("rt daemon start") } };
+    case "not-running":
+      return { print: [out.line("off", "The daemon is installed but not running", verdict.pid ? `last pid ${verdict.pid}` : undefined), out.callout("next", out.cmd("rt daemon start"))] };
+    case "not-installed":
+      return { print: [out.line("off", "The daemon is not installed"), out.callout("next", out.cmd("rt daemon install"))] };
   }
-
-  if (verdict.state === "parked") {
-    const lines = [`  ${yellow}◐${reset} parked ${dim}(pid ${verdict.pid}, another flavor owns rt.sock)${reset}`];
-    lines.push(
-      verdict.holderFlavor
-        ? `    ${dim}held by: ${verdict.holderFlavor}${reset}`
-        : `    ${dim}waiting for the other flavor's daemon to let go of rt.sock${reset}`,
-    );
-    lines.push(`    ${dim}check: rt daemon logs${reset}`);
-    return lines;
-  }
-
-  if (verdict.state === "alive-not-serving") {
-    const detailLine = {
-      booting: "still booting",
-      wedged: "reached ready but stopped answering (likely deadlocked)",
-      quarantined: "recovered from a corrupt db but still not answering",
-      stalled: `event loop stalled ${Math.round((verdict.stalledForMs ?? 0) / 1000)}s ago (no heartbeat)`,
-    }[verdict.detail];
-    return [
-      `  ${yellow}●${reset} process ${verdict.pid} is running but not answering rt.sock`,
-      `    ${dim}${detailLine}${reset}`,
-      `    ${dim}check: rt daemon logs -t${reset}`,
-    ];
-  }
-
-  if (verdict.state === "crash-looping") {
-    return [
-      `  ${red}●${reset} crash-looping ${dim}(${verdict.failures} failures recently)${reset}`,
-      `    ${dim}last reason: ${verdict.reason}${reset}`,
-      `    ${dim}check: rt daemon logs -t${reset}`,
-    ];
-  }
-
-  if (verdict.state === "boot-failed") {
-    return [
-      `  ${red}●${reset} boot failed ${dim}(phase: ${verdict.phase})${reset}`,
-      `    ${dim}reason: ${verdict.reason}${reset}`,
-      `    ${dim}run: rt daemon start${reset}`,
-    ];
-  }
-
-  if (verdict.state === "not-running") {
-    const lines = [`  ${red}●${reset} installed but not running`];
-    if (verdict.pid) lines.push(`    ${dim}last pid: ${verdict.pid}${reset}`);
-    lines.push(`    ${dim}run: rt daemon start${reset}`);
-    return lines;
-  }
-
-  return [];
 }
 
 // ─── Per-repo tracking (opt-in) ──────────────────────────────────────────────
@@ -662,6 +567,27 @@ function trackingLabel(serialized: string): string {
   const id = parseIdentity(serialized);
   if (!id) return serialized;
   return id.kind === "remote" ? (id.id.split("/").pop() ?? id.id) : basename(id.id);
+}
+
+export function trackListBlocks(repos: Record<string, string>, tracking: Record<string, RepoTrackingEntry>, freshness: Record<string, { state: string }>): Block[] {
+  const rows: out.CellInput[][] = [];
+  for (const identity of Object.keys(repos).sort()) {
+    const g = grants(tracking, identity);
+    const label = trackingLabel(identity);
+    if (g.mode === "off") {
+      rows.push([{ text: "off", role: "off" }, out.dim(label), ""]);
+      continue;
+    }
+    const watcher = g.mode === "live" ? [freshness[identity] ? `watcher ${freshness[identity]!.state}` : "watcher starting"] : [];
+    const detail = [...watcher, `caches ${[...g.caches].join(", ")}`, `window ${formatWindowLabel(tracking[identity]?.projectMrsWindowDays)}`].join(" · ");
+    rows.push([{ text: g.mode === "live" ? "live" : "every 5 minutes", role: "running" }, out.strong(label), out.dim(detail)]);
+  }
+  const blocks: Block[] = [out.section("Repo tracking", "what rt watches in the background", out.table(rows))];
+  for (const identity of Object.keys(tracking).filter((n) => !repos[n])) {
+    blocks.push(out.line("warn", `${trackingLabel(identity)} is tracked, but rt does not know where it is`), out.callout("next", out.cmd("rt repos register <path>")));
+  }
+  blocks.push(out.callout("next", out.cmd("rt daemon track <repo> live|poll|off")));
+  return blocks;
 }
 
 /**
@@ -710,24 +636,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
     const freshness = ((status?.ok ? status.data?.freshness : undefined) ?? {}) as
       Record<string, { state: string }>;
 
-    console.log(`\n  ${bold}repo tracking${reset} ${dim}(opt-in · rt.repoTracking · unlisted = off)${reset}\n`);
-    for (const identity of Object.keys(repos).sort()) {
-      const g = grants(tracking, identity);
-      const watcher = freshness[identity];
-      const label = trackingLabel(identity);
-      const marker = g.mode === "live" ? `${green}●${reset}` : g.mode === "poll" ? `${yellow}◐${reset}` : `${dim}○${reset}`;
-      const detail = g.mode === "live"
-        ? `live${watcher ? ` (${watcher.state})` : " (watcher starting)"}`
-        : g.mode === "poll" ? "poll" : "";
-      const suffix = g.mode === "off" ? "" : ` [${[...g.caches].join(", ")}] window ${formatWindowLabel(tracking[identity]?.projectMrsWindowDays)}`;
-      console.log(`  ${marker} ${g.mode === "off" ? `${dim}${label}${reset}` : label}${detail ? ` ${dim}${detail}${reset}` : ""}${suffix ? ` ${dim}${suffix}${reset}` : ""}`);
-    }
-    // Tracking entries that no longer match a registered repo do nothing;
-    // surface them so a rename or typo isn't silently inert.
-    for (const identity of Object.keys(tracking).filter((n) => !repos[n])) {
-      console.log(`  ${yellow}!${reset} ${trackingLabel(identity)} ${dim}(tracked but not in ~/.mattstack/rt/repos.json)${reset}`);
-    }
-    console.log(`\n  ${dim}set: rt daemon track <repo> live|poll|off [caches]   caches: ${[...CACHE_KINDS].join(",")} (default branches)${reset}\n`);
+    out.print(...trackListBlocks(repos, tracking, freshness));
     return;
   }
 
@@ -742,7 +651,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
   let interactiveWindowDays: number | null | undefined; // undefined = untouched, null = clear
   if (!levelArg) {
     if (!resolved) {
-      console.log(`\n  ${red}✗${reset} repo "${repoArg}" not registered in ~/.mattstack/rt/repos.json\n`);
+      out.fail({ title: `rt does not know a repo called ${repoArg}`, next: out.cmd("rt repos register <path>") });
       return;
     }
     const identity = resolved.identity;
@@ -753,18 +662,16 @@ export async function manageTracking(args: string[] = []): Promise<void> {
     const current = grants(displayTracking, identity);
     const modeHint = (m: string) => (current.mode === m ? "current" : undefined);
 
-    console.log(`\n  ${bold}${repoArg}${reset} ${dim}window ${formatWindowLabel(rawEntry?.projectMrsWindowDays)}${reset}`);
-    // Read-only: the store is written only by the daemon (deep sync,
-    // registerDemand), never by the CLI. CLI-side construction (spec
-    // "Store-by-store" item 2) — explicit cli-flavor db handle, since
-    // createProjectMRs' own default targets the daemon-flavor connection.
+    // Read demands from the CLI-flavor database; only the daemon writes them.
     const demands = createProjectMRs(getStateDb()).read(identity)?.demands;
+    const editorBlocks: Block[] = [];
     if (demands && Object.keys(demands).length > 0) {
-      console.log(`  ${dim}demands (read-only):${reset}`);
+      editorBlocks.push(out.line("skipped", "Read only: rt records these, you do not set them"));
       for (const [client, d] of Object.entries(demands)) {
-        console.log(`    ${dim}${client} · ${d.authors.length} author${d.authors.length === 1 ? "" : "s"} [${d.authors.join(", ")}] · last seen ${timeAgo(d.lastSeenAt)}${reset}`);
+        editorBlocks.push(out.kv(client, `${d.authors.length} author${d.authors.length === 1 ? "" : "s"}: ${d.authors.join(", ")}, last seen ${timeAgo(d.lastSeenAt)}`));
       }
     }
+    out.print(out.section(repoArg, `window ${formatWindowLabel(rawEntry?.projectMrsWindowDays)}`, ...(editorBlocks.length ? [out.section("demands", undefined, ...editorBlocks)] : [])));
 
     const picked = await filterableSelect({
       message: `${repoArg} tracking mode`,
@@ -778,7 +685,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
     interactiveLevel = picked;
     if (picked !== "off") {
       const selected = await filterableMultiselect({
-        message: `${repoArg} caches — space to toggle, enter to confirm`,
+        message: `${repoArg} caches: space to toggle, enter to confirm`,
         options: [
           { value: "branches",    label: "branches",    hint: "my branches: MR + Linear enrichment" },
           { value: "project-mrs", label: "project-mrs", hint: "team-wide open-MR list (boards)" },
@@ -788,7 +695,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
       });
       if (selected === null) return; // esc = no changes
       if (selected.length === 0) {
-        console.log(`\n  ${red}✗${reset} at least one cache is required ${dim}(use off to stop tracking)${reset}\n`);
+        out.fail({ title: "Pick at least one cache", why: "To stop tracking, choose off." });
         return;
       }
       interactiveCaches = selected as CacheKind[];
@@ -804,14 +711,14 @@ export async function manageTracking(args: string[] = []): Promise<void> {
         if (trimmed === "") { interactiveWindowDays = null; break; }
         const n = Number(trimmed);
         if (Number.isInteger(n) && n > 0) { interactiveWindowDays = n; break; }
-        console.log(`  ${red}✗${reset} enter a positive integer, or leave empty to clear`);
+        out.print(out.line("warn", "Enter a whole number of days, or leave it empty for the default"));
       }
     }
   }
 
   const level = interactiveLevel ?? levelArg;
   if (!level || !["live", "poll", "off"].includes(level)) {
-    console.log(`\n  usage: rt daemon track [<repo>] [live|poll|off [caches…]]\n         <repo> alone opens the interactive editor\n         caches: ${[...CACHE_KINDS].join(" ")} (space-separated; default branches)\n`);
+    out.fail(usageFailure("Which tracking mode?", "rt daemon track [<repo>] [live|poll|off [caches...]]", "Name a repo alone to choose in a menu."));
     return;
   }
   const levelArg2 = level;
@@ -823,7 +730,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
   if (!interactiveCaches && levelArg2 !== "off" && cachesArg !== undefined) {
     const parsed = parseCachesArg(cachesArg);
     if (!parsed) {
-      console.log(`\n  ${red}✗${reset} unknown cache name in "${args.slice(2).join(" ")}" ${dim}(valid: ${[...CACHE_KINDS].join(", ")})${reset}\n`);
+      out.fail({ title: `"${args.slice(2).join(" ")}" has a cache rt does not know`, why: `The caches are ${CACHE_KINDS[0]}, ${CACHE_KINDS[1]} and ${CACHE_KINDS[2]}.` });
       return;
     }
     caches = parsed;
@@ -832,7 +739,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
   if (levelArg2 !== "off") {
     const repoPath = resolved?.path ?? null;
     if (!repoPath) {
-      console.log(`\n  ${red}✗${reset} repo "${repoArg}" not registered in ~/.mattstack/rt/repos.json\n`);
+      out.fail({ title: `rt does not know a repo called ${repoArg}`, next: out.cmd("rt repos register <path>") });
       return;
     }
     if (levelArg2 === "live") {
@@ -845,7 +752,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
         }).trim();
       } catch { /* no origin remote */ }
       if (!isGitLabRemote(remoteUrl)) {
-        console.log(`\n  ${red}✗${reset} ${repoArg} has no GitLab remote ${dim}(${remoteUrl || "no origin"})${reset}; live watching is GitLab-only (use poll)\n`);
+        out.note(out.line("refused", `rt cannot watch ${repoArg} live`, "live watching needs a GitLab remote"), out.callout("next", out.cmd(`rt daemon track ${repoArg} poll`)));
         return;
       }
     }
@@ -894,9 +801,9 @@ export async function manageTracking(args: string[] = []): Promise<void> {
     rawTracking[writeKey] = newEntry;
   }
   saveRepoTrackingRaw(rawTracking);
-  console.log(`\n  ${green}✓${reset} ${repoArg} tracking: ${levelArg2}${levelArg2 === "off" ? "" : ` [${caches.join(", ")}] window ${formatWindowLabel(newEntry?.projectMrsWindowDays)}`}`);
+  out.print(levelArg2 === "off" ? out.line("done", `Stopped tracking ${repoArg}`) : out.line("done", `Tracking ${repoArg}: ${levelArg2 === "poll" ? "every 5 minutes" : "live"}`, `caches ${caches.join(", ")}, window ${formatWindowLabel(newEntry?.projectMrsWindowDays)}`));
   if (offMarker) {
-    console.log(`    ${dim}${repoArg} is still team-tracked — recorded as a local opt-out (rt daemon track ${repoArg} live to re-enable)${reset}`);
+    out.print(out.callout("note", "Your team still tracks it, so this is saved as your own opt-out."), out.callout("next", out.cmd(`rt daemon track ${repoArg} live`)));
   }
   // A write that omits the caches arg always resets to ["branches"] (see
   // default above). If the entry it replaced granted more than that, the
@@ -908,7 +815,7 @@ export async function manageTracking(args: string[] = []): Promise<void> {
     previousEntry &&
     previousEntry.caches.some((c) => c !== "branches")
   ) {
-    console.log(`    ${dim}note: caches reset to [branches] (was [${previousEntry.caches.join(", ")}]) — pass a caches list to keep grants${reset}`);
+    out.print(out.callout("note", `Its caches went back to branches only; they were ${previousEntry.caches.join(", ")}.`), out.callout("next", out.cmd(`rt daemon track ${repoArg} ${levelArg2} ${previousEntry.caches.join(" ")}`)));
   }
 
   // Watchers apply immediately; a fresh enrichment pass makes poll/live
@@ -916,11 +823,10 @@ export async function manageTracking(args: string[] = []): Promise<void> {
   const res = await daemonQuery("freshness:reconcile", undefined, 30_000);
   if (res?.ok) {
     const watching = Object.keys((res.data ?? {}) as Record<string, unknown>).map(trackingLabel).sort();
-    console.log(`    ${dim}live watchers: ${watching.length > 0 ? watching.join(", ") : "none"}${reset}`);
+    out.print(out.kv("live watchers", watching.length > 0 ? watching.join(", ") : "none"));
     if (levelArg2 !== "off") await daemonQuery("cache:refresh");
-    console.log("");
   } else {
-    console.log(`    ${dim}daemon not reachable; applies when it next starts or refreshes${reset}\n`);
+    out.print(out.line("pending", "The daemon did not apply this tracking change", "this applies when it next starts or refreshes"));
   }
 }
 
@@ -957,7 +863,7 @@ export async function showLogs(args: string[] = []): Promise<void> {
   const terminal = args.includes("--terminal") || args.includes("-t");
 
   if (!existsSync(LOG_DIR)) {
-    console.log(`\n  ${dim}no daemon logs yet... start the daemon first${reset}\n`);
+    out.print(out.line("skipped", "No daemon logs yet"), out.callout("next", out.cmd("rt daemon start")));
     return;
   }
 
@@ -975,15 +881,11 @@ export async function showLogs(args: string[] = []): Promise<void> {
         ping && (ping as any).ok && typeof (ping as any).startedAt === "number"
           ? ((ping as any).startedAt as number)
           : null;
-      const { show, header } = nativeStderrDisplay(mtimeMs, daemonStartedAt);
+      const { show } = nativeStderrDisplay(mtimeMs, daemonStartedAt);
       if (show) {
-        console.log(`\n  ${red}${bold}${header}${reset} ${dim}(${stderrPath})${reset}`);
-        for (const line of content.split("\n").slice(-20)) {
-          console.log(`  ${red}${line}${reset}`);
-        }
-        console.log("");
+        out.print(out.line("warn", daemonStartedAt === null ? "The daemon has captured native output" : "The daemon crashed since it last started", `captured ${new Date(mtimeMs).toLocaleString()}`), out.verbatim(content.split("\n").slice(-20), "what it printed"));
       } else {
-        console.log(`\n  ${dim}${header}${reset}\n`);
+        out.print(out.line("skipped", "No crash since this daemon started"));
       }
     }
   }
@@ -1002,7 +904,7 @@ export async function showLogs(args: string[] = []): Promise<void> {
     if (!prev || mtime > prev.mtime) newestPerSurface.set(surface, { f, mtime });
   }
   if (newestPerSurface.size === 0) {
-    console.log(`\n  ${dim}no log files in ${LOG_DIR}... start the daemon first${reset}\n`);
+    out.print(out.line("skipped", "No daemon logs yet"), out.callout("next", out.cmd("rt daemon start")));
     return;
   }
   const logPaths = [...newestPerSurface.values()]
@@ -1040,8 +942,7 @@ async function runTerminalViewer(logPaths: string[]): Promise<void> {
       stdio: "inherit",
     });
   } else {
-    console.log(`  ${dim}tailing ${logPaths.join(", ")} via pino-pretty (Ctrl-C to stop)${reset}`);
-    console.log(`  ${dim}for a nicer interactive view: ${bold}brew install lnav${reset}\n`);
+    out.print(out.line("running", "Following the daemon's logs", "Ctrl-C to stop"), out.callout("tip", ["For a richer view, install lnav: ", out.cmd("brew install lnav")]));
     // sh -c pipeline avoids Bun's stream-as-stdio limitation between two spawns.
     const quoted = logPaths.map(p => JSON.stringify(p)).join(" ");
     viewer = spawn("sh", ["-c", `tail -F ${quoted} | bunx pino-pretty`], {
@@ -1166,8 +1067,8 @@ export interface WebViewerSeams {
   openUrl(url: string): void;
   onSignal(signal: "SIGINT" | "SIGTERM", cb: () => void): void;
   exit(code: number): never;
-  log(line: string): void;
-  error(line: string): void;
+  print(...blocks: Block[]): void;
+  fail(f: out.FailureInput): void;
 }
 
 const REAL_WEB_VIEWER_SEAMS: WebViewerSeams = {
@@ -1184,8 +1085,8 @@ const REAL_WEB_VIEWER_SEAMS: WebViewerSeams = {
   openUrl: (url) => { spawnSync("open", [url]); },
   onSignal: (signal, cb) => { process.on(signal, cb); },
   exit: (code) => process.exit(code),
-  log: (line) => console.log(line),
-  error: (line) => console.error(line),
+  print: (...blocks) => out.print(...blocks),
+  fail: (f) => out.fail(f),
 };
 
 const LOGDY_PORT = 5544;
@@ -1204,16 +1105,15 @@ export async function runWebViewer(
 ): Promise<void> {
   const bin = seams.findLogdy();
   if (!bin) {
-    seams.error("logdy not found (checked mattstack.app, PATH, /opt/homebrew/bin, /usr/local/bin, ~/.local/bin)");
-    seams.error(`  ${dim}install: ${bold}brew install logdy${reset}${dim}, or use ${bold}rt daemon logs --terminal${reset}`);
+    seams.fail({ title: "rt could not find logdy", why: "It ships with the app, and it was not there or on your PATH.", next: [out.cmd("brew install logdy"), ", or ", out.cmd("rt daemon logs --terminal")] });
     return seams.exit(1);
   }
 
   const configPath = seams.materializeConfig();
 
   const url = `http://localhost:${LOGDY_PORT}`;
-  seams.log(`  ${green}●${reset} starting logdy on ${url}`);
-  seams.log(`  ${dim}tailing: ${logPaths.join(", ")}${reset}`);
+  seams.print(out.line("running", "Starting the log viewer", url));
+  logCliEvent("debug", "daemon", "logdy follows", { paths: logPaths });
 
   const logdy = seams.spawnLogdy(bin, [
     "follow", ...logPaths,
@@ -1238,18 +1138,18 @@ export async function runWebViewer(
   // whatever service answered on the port.
   let answered = false;
   logdy.onExit((code) => {
-    if (!answered) seams.error(`logdy exited ${code ?? "on a signal"} before answering on :${LOGDY_PORT}`);
+    if (!answered) seams.fail({ title: "The log viewer stopped before it opened", why: `logdy exited ${code ?? "on a signal"}.` });
     return stop(code ?? 0);
   });
 
   answered = await seams.waitForPort(LOGDY_PORT, LOGDY_ANSWER_TIMEOUT_MS);
   if (!answered) {
-    seams.error(`logdy did not answer on :${LOGDY_PORT} within ${LOGDY_ANSWER_TIMEOUT_MS / 1000}s`);
+    seams.fail({ title: "The log viewer did not start in time", why: `Nothing answered on port ${LOGDY_PORT} within ${LOGDY_ANSWER_TIMEOUT_MS / 1000} seconds.` });
     return stop(1);
   }
   if (opts.open) seams.openUrl(url);
 
-  seams.log(`  ${green}✓${reset} viewer running on ${url} ... ${dim}Ctrl-C to stop${reset}\n`);
+  seams.print(out.line("running", "The log viewer is open", `${url}, Ctrl-C to stop`));
 }
 
 /** Poll TCP connect until the port is accepting connections, up to timeoutMs. */
@@ -1271,18 +1171,24 @@ async function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
   return false;
 }
 
-/** Pure formatter for `daemon:log-level` results, shared by the CLI and its tests. */
-export function formatLogLevelResult(res: { ok: boolean; level?: string; error?: string }, wasSet: boolean): string {
-  if (!res.ok) return `  ${red}●${reset} ${res.error ?? "failed"}`;
-  return `  ${green}●${reset} daemon log level ${wasSet ? "set to" : "is"} ${res.level}`;
+export function logLevelBlocks(res: { ok: boolean; level?: string; error?: string }, wasSet: boolean): { print: Block[]; failure?: out.FailureInput } {
+  if (!res.ok) return { print: [], failure: { title: res.error ?? "The daemon did not change its log level" } };
+  return { print: [wasSet ? out.line("done", `Set the daemon's log level to ${res.level}`) : out.kv("log level", res.level)] };
 }
 
-/** Show (no arg) or set (level arg) the running daemon's live pino log level. */
 export async function setLogLevel(args: string[] = []): Promise<void> {
   const json = args.includes("--json");
   const level = args.find((a) => !a.startsWith("--"));
   const res = await daemonQuery("daemon:log-level", level ? { level } : {});
-  if (!res) { console.log(`  ${red}●${reset} daemon not reachable`); return; }
-  if (json) { console.log(JSON.stringify(res)); return; }
-  console.log(formatLogLevelResult(res as any, Boolean(level)));
+  if (!res) {
+    out.fail({ title: "The daemon did not answer the log level request", next: out.cmd("rt daemon status") });
+    return;
+  }
+  if (json) {
+    out.json(res);
+    return;
+  }
+  const shown = logLevelBlocks(res as { ok: boolean; level?: string; error?: string }, Boolean(level));
+  if (shown.failure) out.fail(shown.failure);
+  else out.print(...shown.print);
 }
