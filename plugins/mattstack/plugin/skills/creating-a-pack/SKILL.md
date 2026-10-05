@@ -15,7 +15,10 @@ team in the acme org has its pack at
 Walk this map to the end; a pack is not done until it is published. A
 successful init publishes the new pack itself: it commits the pack, the
 team's claim and the marketplace entry in one commit and pushes the org
-clone, and says how that went in the envelope's `published`.
+clone, and says how that went in the envelope's `published`. Whenever init
+stops short of that (a failed share, or a failure after it wrote the pack),
+`rt team publish --team <org>` finishes it: init remembered the share on
+this Mac before it compiled.
 
 ```dot
 digraph create_pack {
@@ -54,7 +57,6 @@ digraph create_pack {
     "STOP: never re-run init on a written pack" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Follow the printed remedy" [shape=box];
     "The remedy completed the pack?" [shape=diamond];
-    "Commit the pack in the org clone" [shape=box];
     "Gate: remedy did not complete the pack" [shape=box];
     "In a herdr pane?" [shape=diamond];
     "rt pane send self --text \"/reload-plugins\" --then \"Continue: <tryNext> with a small real ticket\"" [shape=plaintext];
@@ -69,9 +71,6 @@ digraph create_pack {
     "Rules written down?" [shape=diamond];
     "Hand each rule to extending-a-pack, one per round" [shape=box];
     "Say rules can be added any time" [shape=box];
-    "Push the org clone's default branch" [shape=box];
-    "Org push landed?" [shape=diamond];
-    "Gate: org push rejected" [shape=box];
     "Stopped at prerequisites" [shape=doublecircle];
     "Stopped: refusal relayed" [shape=doublecircle];
     "Handed to the author" [shape=doublecircle];
@@ -126,8 +125,7 @@ digraph create_pack {
     "Gate: write failed after cleanup" -> "Handed to the author" [label="author takes over"];
     "Remove the pack dir" -> "rt skills init --json --team <team> --repo <repo-path>";
     "Follow the printed remedy" -> "The remedy completed the pack?";
-    "The remedy completed the pack?" -> "Commit the pack in the org clone" [label="yes"];
-    "Commit the pack in the org clone" -> "Push the org clone's default branch";
+    "The remedy completed the pack?" -> "rt team publish --team <org>" [label="yes"];
     "The remedy completed the pack?" -> "Gate: remedy did not complete the pack" [label="no"];
     "Gate: remedy did not complete the pack" -> "Follow the printed remedy" [label="retry with their note"];
     "Gate: remedy did not complete the pack" -> "Handed to the author" [label="author takes over"];
@@ -147,11 +145,6 @@ digraph create_pack {
     "Rules written down?" -> "Say rules can be added any time" [label="no"];
     "Hand each rule to extending-a-pack, one per round" -> "Pack published";
     "Say rules can be added any time" -> "Pack published";
-    "Push the org clone's default branch" -> "Org push landed?";
-    "Org push landed?" -> "In a herdr pane?" [label="yes"];
-    "Org push landed?" -> "Gate: org push rejected" [label="no: quote the rejection"];
-    "Gate: org push rejected" -> "Push the org clone's default branch" [label="retry: author fixed it"];
-    "Gate: org push rejected" -> "Handed to the author" [label="author takes over"];
 }
 ```
 
@@ -209,14 +202,16 @@ stop until the folder exists.
 the push failed. The pack is installed on this Mac but not shared yet. Say
 so, relay `published.reason`, and run `published.next` on Bash, which is
 `rt team publish --team <org>`: it makes the commit init could not, then
-pushes.
+pushes. When the org repo moved on, `published.next` is
+`rt team pull --team <org>` and `published.thenRun` is the publish: run
+both, in that order.
 
 ### Gate: share did not land
 
 Quote the `rt team publish` output and propose the next move: a refusal
 means this Mac may not write the team's files (an org admin or the team's
-owner finishes it); when the org repo moved on, `rt team pull` comes first.
-Never force. Retry: the author fixed it; run `rt team publish --team <org>`
+owner finishes it); a failure that names `rt team pull --team <org>` means
+pull first, then publish. Never force. Retry: the author fixed it; run `rt team publish --team <org>`
 again. Takes over: the pack stays on this Mac for the author to share.
 
 ### Relay error.message verbatim
@@ -253,7 +248,8 @@ nothing else in the org clone.
 ### Follow the printed remedy
 
 Do exactly what the printed remedy says. Never re-run init on a written
-pack.
+pack. Once the pack compiles and installs, the remedy's last step is
+`rt team publish --team <org>`, which shares the pack with its entry.
 
 ### End the turn
 
@@ -306,23 +302,6 @@ Each yes is one round of `mattstack:extending-a-pack`, one rule per round.
 No is a complete answer. Say that rules can be added any time with
 `mattstack:extending-a-pack`.
 
-### Commit the pack in the org clone
-
-Init stopped before it shared anything, so the pack the remedy completed
-exists only on this Mac, and nothing commits it for you: the daemon's
-snapshot leaves pack folders to their own publish. In the org clone, stage
-the pack dir and each other `error.wrote` path by name (the team's
-`settings.team.jsonc`, `marketplace.json`), never everything, then commit
-them as `skills: new <pack> pack`.
-
-### Push the org clone's default branch
-
-From the org clone, a bare push (`git_push` refuses a default branch):
-
-`git push` <!-- mcp-lint: allow -->
-
-Never force.
-
 ### Gate: init budget spent
 
 Quote each init envelope's `error.message` and propose the next move: the
@@ -344,13 +323,6 @@ Retry: follow the remedy again with the author's note, and a remedy that
 still leaves the pack incomplete comes back here. Takes over: the pack stays
 as init and the remedy left it, for the author.
 
-### Gate: org push rejected
-
-Quote the rejection and propose the next move (bring in the remote change,
-fix the credentials). Never force. Retry: the author fixed it; push again,
-and a second rejection comes back here. Takes over: the commit stays local
-for the author to push.
-
 ## What the graph cannot show
 
 - Name the team and the app repo explicitly on init, never relying on the
@@ -363,11 +335,9 @@ for the author to push.
   unless the team sets its own), on the org's forge host. Init adds this
   repo to the team's list.
 - An ok envelope is `{ "ok": true, ... }` and carries `pack.name`,
-  `pack.dir`, `tryNext`, `restartNeeded` and `published`. `restartNeeded`
-  is always
-  true; the reload runs in place, never a restart.
-- Before the commit and the push, `cd ~/.mattstack/teams/<org>` as its own
-  Bash call.
+  `pack.dir`, `tryNext`, `restartNeeded` and `published`.
+  `restartNeeded` is always true; the reload runs in place, never a
+  restart.
 - At `Pack published`, say that the team's members receive the pack
   through `rt setup` (a Mac installs only its active team's pack). Every
   later change to the pack goes out through the pack's own publish in

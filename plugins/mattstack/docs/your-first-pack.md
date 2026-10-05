@@ -78,8 +78,9 @@ Two things about that pack:
   (step 3).
 - **Init publishes it.** Once the pack installs, init commits the new
   files in the org clone in one commit and pushes them, and its envelope
-  says so in `published`. When that commit or push fails, `published.next`
-  names `rt team publish --team acme`, which finishes it. The team's
+  says so in `published`. When init stops short of that (the share failed,
+  or a later step failed after it wrote the pack),
+  `rt team publish --team acme` finishes it. The team's
   members receive the pack through `rt setup`; a machine installs only its
   active team's pack. Later edits go out through the pack's own publish
   (step 3).
