@@ -274,6 +274,10 @@ export async function tagDeleteCommand(args: string[]): Promise<void> {
 
 const TAG_PUSH_USAGE = "usage: rt git tag push <name> [--remote <remote>] [--json]";
 
+export function tagPushEnvelope(name: string, remote: string): { ok: true; name: string; remote: string } {
+  return { ok: true, name, remote: printable(remote) };
+}
+
 export async function tagPushCommand(args: string[]): Promise<void> {
   const json = args.includes("--json");
   let name = firstPositional(args, new Set(["--remote"]));
@@ -287,6 +291,6 @@ export async function tagPushCommand(args: string[]): Promise<void> {
   } catch (err) {
     failPlain(json, "Could not push that tag", errText(err));
   }
-  if (json) out.json({ ok: true, name, remote });
+  if (json) out.json(tagPushEnvelope(name, remote));
   else out.print(out.line("done", `Pushed tag ${name}`, `to ${printable(remote)}`));
 }
