@@ -4,7 +4,8 @@ This is a stage of the rt:release skill; the `How every gate asks` section of it
 applies to every gate here. Every `rt release ...` command here runs on Bash: no `rt release`
 leaf is agent-safe, so `rt_verb` refuses them.
 
-Verify what release.yml published, deploy rt.cool, and bring this machine onto the release.
+Verify what release.yml published, deploy rt.cool, bring this machine onto the release, and close
+a team pack sync held on it.
 
 Verify reports rows, not a status; `Verify status?` reads them. Every row ok reads as `released`;
 only pending rows (the rest ok) read as `pending`; any stale row reads as `failed run`,
@@ -12,8 +13,9 @@ only pending rows (the rest ok) read as `pending`; any stale row reads as `faile
 release marked prerelease, a release body that does not match the committed notes, or
 releases/latest resolving another tag past the propagation window) reads as `release state
 wrong`. An `error` row (verify could not check,
-for example "rt could not reach GitHub") takes the `pending, or an error row` edge: verify reruns
-through `Verify reruns = 4?`.
+for example "rt could not reach GitHub") takes the `pending, or an error row other than the run
+row` edge: verify reruns through `Verify reruns = 4?`. A run row that errors with "no release.yml
+run found for a tag push" is confirmed first (`A tag-push run for <tag> listed?`).
 
 ```dot
 digraph publish_and_finish {
@@ -26,6 +28,8 @@ digraph publish_and_finish {
     "rt release verify <tag> --json" [shape=plaintext];
     "Verify status?" [shape=diamond];
     "Verify reruns = 4?" [shape=diamond];
+    "gh run list --workflow release.yml --event push --json databaseId,headBranch,status,conclusion" [shape=plaintext];
+    "A tag-push run for <tag> listed?" [shape=diamond];
     "rt release verify <tag> --json, rerun after the wait" [shape=plaintext];
     "Failure is the asset-upload 500 flake?" [shape=diamond];
     "Publish recoveries = 1?" [shape=diamond];
@@ -68,12 +72,22 @@ digraph publish_and_finish {
     "Shared checkout off main: gate rounds = 2?" [shape=diamond];
     "Off-script gate: update-machine leg halted" [shape=box];
     "Update-machine leg halted: gate rounds = 2?" [shape=diamond];
+    "Is a team pack sync held on this release?" [shape=diamond];
+    "Gate: have the team's members updated to <tag>?" [shape=box];
+    "rt_verb {args: [\"skills\", \"sync\", \"--pack\", \"<pack>\", \"--json\"]}" [shape=plaintext];
+    "Pack sync result?" [shape=diamond];
+    "Off-script gate: held pack sync refused" [shape=box];
+    "Held pack sync refused: gate rounds = 2?" [shape=diamond];
 
     "Trigger: the tag is pushed" -> "rt release verify <tag> --json";
     "rt release verify <tag> --json" -> "Verify status?";
     "rt release verify <tag> --json, rerun after the wait" -> "Verify status?";
     "Verify status?" -> "bash scripts/deploy-docs.sh" [label="released"];
-    "Verify status?" -> "Verify reruns = 4?" [label="pending, or an error row"];
+    "Verify status?" -> "Verify reruns = 4?" [label="pending, or an error row other than the run row"];
+    "Verify status?" -> "gh run list --workflow release.yml --event push --json databaseId,headBranch,status,conclusion" [label="the run row errors: no release.yml run found"];
+    "gh run list --workflow release.yml --event push --json databaseId,headBranch,status,conclusion" -> "A tag-push run for <tag> listed?";
+    "A tag-push run for <tag> listed?" -> "Verify reruns = 4?" [label="yes: verify misread it, rerun from the source checkout"];
+    "A tag-push run for <tag> listed?" -> "Verify reruns = 4?" [label="no: not started yet"];
     "Verify status?" -> "Failure is the asset-upload 500 flake?" [label="failed run"];
     "Verify status?" -> "Draft flips = 1?" [label="draft left behind"];
     "Off-script gate: assets missing" -> "rt release verify <tag> --json, rerun after the wait" [label="take: Matt hand-completed them with rt:mattstack-release"];
@@ -155,8 +169,8 @@ digraph publish_and_finish {
     "STOP: --yes runs only after Matt approves the plan" -> "Gate: approve the update-machine legs";
     "rt release update-machine --yes --json" -> "Update-machine summary?";
     "rt release update-machine --yes --json, rerun after the fix" -> "Update-machine summary?";
-    "Update-machine summary?" -> "Released and this machine updated" [label="every leg ok and the verify sweep clean"];
-    "Off-script gate: shared checkout off main" -> "Released and this machine updated" [label="take: Matt finished the halted legs himself"];
+    "Update-machine summary?" -> "Is a team pack sync held on this release?" [label="every leg ok and the verify sweep clean"];
+    "Off-script gate: shared checkout off main" -> "Is a team pack sync held on this release?" [label="take: Matt finished the halted legs himself"];
     "Off-script gate: shared checkout off main" -> "Shared checkout off main: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: shared checkout off main" -> "Held: release paused, resume point named" [label="hold"];
     "Off-script gate: shared checkout off main" -> "Handed back to Matt" [label="hand back"];
@@ -168,7 +182,7 @@ digraph publish_and_finish {
     "Update-machine summary?" -> "Update-machine runs = 2?" [label="any other leg halted"];
     "Update-machine runs = 2?" -> "Fix what the halted leg names" [label="no"];
     "Fix what the halted leg names" -> "rt release update-machine --yes --json, rerun after the fix";
-    "Off-script gate: update-machine leg halted" -> "Released and this machine updated" [label="take: Matt finished the halted legs himself"];
+    "Off-script gate: update-machine leg halted" -> "Is a team pack sync held on this release?" [label="take: Matt finished the halted legs himself"];
     "Off-script gate: update-machine leg halted" -> "Update-machine leg halted: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: update-machine leg halted" -> "Held: release paused, resume point named" [label="hold"];
     "Off-script gate: update-machine leg halted" -> "Handed back to Matt" [label="hand back"];
@@ -176,6 +190,20 @@ digraph publish_and_finish {
     "Update-machine leg halted: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Update-machine runs = 2?" -> "Off-script gate: update-machine leg halted" [label="yes: budget spent"];
     "Update-machine summary?" -> "Off-script gate: update-machine leg halted" [label="a halt only Matt can clear: the #rt announce failed or a sha256 mismatch"];
+    "Is a team pack sync held on this release?" -> "Released and this machine updated" [label="no"];
+    "Is a team pack sync held on this release?" -> "Gate: have the team's members updated to <tag>?" [label="yes"];
+    "Gate: have the team's members updated to <tag>?" -> "rt_verb {args: [\"skills\", \"sync\", \"--pack\", \"<pack>\", \"--json\"]}" [label="confirmed: every real member updated"];
+    "Gate: have the team's members updated to <tag>?" -> "Held: release paused, resume point named" [label="not yet: hold"];
+    "Gate: have the team's members updated to <tag>?" -> "Handed back to Matt" [label="hand back: Matt syncs it himself"];
+    "rt_verb {args: [\"skills\", \"sync\", \"--pack\", \"<pack>\", \"--json\"]}" -> "Pack sync result?";
+    "Pack sync result?" -> "Released and this machine updated" [label="synced"];
+    "Pack sync result?" -> "Off-script gate: held pack sync refused" [label="refused"];
+    "Off-script gate: held pack sync refused" -> "Released and this machine updated" [label="take: Matt synced it himself"];
+    "Off-script gate: held pack sync refused" -> "Held pack sync refused: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: held pack sync refused" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: held pack sync refused" -> "Handed back to Matt" [label="hand back"];
+    "Held pack sync refused: gate rounds = 2?" -> "rt_verb {args: [\"skills\", \"sync\", \"--pack\", \"<pack>\", \"--json\"]}" [label="no: retry"];
+    "Held pack sync refused: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
 }
 ```
 
@@ -199,6 +227,16 @@ yes after the fourth rerun. `Publish recoveries = 1?` counts delete-and-rerun pa
 counts every deploy run, the first included. `Update-machine runs = 2?` counts every `--yes` run
 in this release, the first included. Every `<origin>: gate rounds = 2?` counts the iterate
 answers received at that gate: it is yes once Matt has answered iterate twice.
+
+### A tag-push run for <tag> listed?
+
+The `rt` on the PATH has reported "no release.yml run found for a tag push" while the run
+existed, and the same verify from the source checkout reported it correctly. Before treating
+the row as real, read the `gh run list` output for a row whose `headBranch` is the tag. Listed:
+every verify rerun from here runs from the source checkout,
+`bun run cli.ts release verify <tag> --json`, still counted by `Verify reruns = 4?`. Not listed:
+the tag push may not have started a run yet; the reruns wait for it, and the publish-still-pending
+gate quotes this listing once they run out.
 
 ### Gate: approve the update-machine legs
 
@@ -299,3 +337,30 @@ update-machine runs again.
 Quote the `haltedAfter` leg and its `detail` from the envelope (the failed #rt announce, a sha256
 mismatch, or a leg still halting after the fix). Take: Matt finished the halted legs himself.
 Iterate: Matt fixed the cause, and update-machine runs again.
+
+### Is a team pack sync held on this release?
+
+Team packs normally sync any time, on their own schedule, independent of the app; a pack sync is
+never a standing step of a release. This question asks only whether one was held waiting on this
+release: Matt or the team recorded the hold because the pack's recompiled skills call an MCP tool
+or rt verb that only this release ships. Check the recorded hold's tool or verb against the range
+(`git log <previous-tag>..<tag>`). No such hold takes `no`, with nothing to do.
+
+### Gate: have the team's members updated to <tag>?
+
+A held sync closes the release only once the team's real members run the new app: a teammate's
+daemon pulls the team repo and installs the pack on its own, so a sync that lands before they
+update hands them skills that call a tool they lack. Name the pack, the tool or verb it waited
+for, and the members still to confirm. Confirmed recommends the sync; not yet holds, naming
+`Gate: have the team's members updated to <tag>?` as the resume point.
+
+### rt_verb {args: ["skills", "sync", "--pack", "<pack>", "--json"]}
+
+The sync itself is mattstack:editing-skills' to explain; this is its agent-safe call. A refusal
+(content drift, a failed recompile) goes to its gate; never edit the pack or the team repo by hand
+to get past it.
+
+### Off-script gate: held pack sync refused
+
+Quote the sync's refusal. Take: Matt synced it himself. Iterate: Matt fixed the cause, and the
+sync runs again.
