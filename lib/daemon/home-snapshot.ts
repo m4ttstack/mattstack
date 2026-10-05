@@ -47,7 +47,7 @@ import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
 import { roleFor } from "../team/roles.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
-import { readTeamLocal } from "../team/team-local.ts";
+import { readTeamLocal, type PendingPackShare } from "../team/team-local.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
 import { HOME_SNAPSHOT_NS, recordHomePush, type HomePushRecord } from "../home/push-record.ts";
@@ -109,6 +109,8 @@ export interface SnapshotStatus {
   pullOnly: boolean;
   /** Dirty managed paths this Mac may not push, as of the last pull cycle. */
   unownedDirty: string[];
+  /** Paths the last round left out on purpose (a marketplace waiting for its pack's share). Absent from a daemon that predates it. */
+  heldBack?: string[];
   claimedZones: string[];
   firstSeenDirty: Record<string, number>;
   /** Set (and cleared) each time status() re-reads the owners file — surfaces a fail-closed readOwners throw without hiding it behind a stale cache. */
@@ -156,8 +158,8 @@ export interface SnapshotSpec {
   scope?: (relPath: string) => boolean;
   /** Zones claimed for as long as the spec runs, as if written to the owners file; a claim in the file wins over one here. */
   standingZones?: (repoDir: string) => Owners["zones"];
-  /** `held` paths are in scope but not staged this round; they are not reported as unowned. */
-  readAuthorization?: () => { scope: (relPath: string) => boolean; pullOnly: boolean; held?: (relPath: string) => boolean };
+  /** `held` paths are in scope but not staged this round, given the round's dirty paths; they are not reported as unowned. */
+  readAuthorization?: () => { scope: (relPath: string) => boolean; pullOnly: boolean; held?: (relPath: string, dirty: readonly string[]) => boolean };
   /** Every managed path, including paths this Mac may not push. */
   watch?: (relPath: string) => boolean;
   /** Fetch + rebase policy; absent = never pull (the home repo is single-writer). */
@@ -392,9 +394,21 @@ function teamStandingZones(repoDir: string): Owners["zones"] {
 
 const MARKETPLACE_PATH = ".claude-plugin/marketplace.json";
 
-/** A new pack whose share commit failed must reach origin with its marketplace entry, never after it, so the entry waits for `rt team publish`. */
-function sharePending(p: Probes, slug: string): boolean {
-  return (readTeamLocal(p, slug).pendingPackShares?.length ?? 0) > 0;
+/**
+ * A new pack whose share commit failed must reach origin with its marketplace
+ * entry, never after it, so the entry waits for `rt team publish`. The hold
+ * lasts only while a share that names the marketplace still has its pack
+ * folder on disk with something under it uncommitted: once that folder is
+ * clean (the janitor or a hand commit got there), the same push carries pack
+ * and entry together. The record itself is only ever changed by the CLI.
+ */
+function marketplaceOwed(shares: PendingPackShare[], repoDir: string, dirty: readonly string[]): boolean {
+  return shares.some((share) => {
+    const folder = share.paths[0]!;
+    return share.paths.includes(MARKETPLACE_PATH)
+      && existsSync(join(repoDir, folder))
+      && dirty.some((path) => path === folder || path.startsWith(`${folder}/`));
+  });
 }
 
 /** A team clone: no legacy state file (nothing predates it), and it pulls (multi-writer), unlike the home repo. */
@@ -421,10 +435,11 @@ export function teamSnapshotSpec(
     standingZones: teamStandingZones,
     readAuthorization: () => {
       const roots = ownedRoots(roleFor(opts.probes, slug));
+      const shares = readTeamLocal(opts.probes, slug).pendingPackShares ?? [];
       return {
         scope: (path) => teamScope(path) && roots.some((root) => path === root || path.startsWith(`${root}/`)),
         pullOnly: roots.length === 0,
-        held: sharePending(opts.probes, slug) ? (path) => path === MARKETPLACE_PATH : undefined,
+        held: (path, dirty) => path === MARKETPLACE_PATH && marketplaceOwed(shares, repoDir, dirty),
       };
     },
     watch: teamScope,
@@ -491,6 +506,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   let lastPullAt = 0;
   let lastPullError: string | null = null;
   let unownedDirty: string[] = [];
+  let heldBack: string[] = [];
   let lastPullSkipped: string | null = null;
   let conflicted: { at: number; detail: string } | null = null;
   /** `spec.tokenFor` is a keychain read plus a sops decrypt, so it is resolved once per pull interval rather than per git call. */
@@ -1208,8 +1224,11 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     const current = authorization();
     reportUnowned(rawEntries, current.scope);
     if (current.pullOnly) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
+    const dirtyPaths = [...new Set(rawEntries.flatMap((entry) => (entry.origPath ? [entry.path, entry.origPath] : [entry.path])))];
+    const holds = (path: string) => current.held?.(path, dirtyPaths) ?? false;
+    heldBack = dirtyPaths.filter(holds).sort();
     const stageScope = current.held
-      ? (path: string) => (current.scope?.(path) ?? true) && !current.held!(path)
+      ? (path: string) => (current.scope?.(path) ?? true) && !holds(path)
       : current.scope;
     const entries = scopeEntries(rawEntries, stageScope);
     // A scoped spec's pathspec is the scoped entries' own paths, never the
@@ -1463,6 +1482,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       conflicted,
       pullOnly: current.pullOnly,
       unownedDirty: [...unownedDirty],
+      heldBack: [...heldBack],
       claimedZones,
       firstSeenDirty: { ...firstSeenDirty },
       ownersError,

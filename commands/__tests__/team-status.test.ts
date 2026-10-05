@@ -201,6 +201,28 @@ describe("teamStatus", () => {
     }
   });
 
+  test("a marketplace held for a new pack's share shows as pending with the publish to run, and stays out of --json", async () => {
+    const deps = clonedDeps({
+      exec: async () => ({ code: 0, stdout: "2026-08-21T10:00:00+00:00\n", stderr: "" }),
+    });
+    deps.daemon = async (verb) =>
+      verb === "team:snapshot-status"
+        ? { ok: true, data: [{ slug: SLUG, lastPullAt: 900_000, lastPushAt: 0, lastPullSkipped: null, conflicted: null, pullOnly: false, heldBack: [".claude-plugin/marketplace.json"] }] }
+        : null;
+
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamStatus(["--team", SLUG], {}, deps);
+      expect(io.stdout()).toContain("A new pack is not shared with your org yet");
+      expect(io.stdout()).toContain("rt team publish --team acme");
+    } finally {
+      io.restore();
+    }
+    await teamStatus(["--team", SLUG, "--json"], {}, deps);
+    expect(JSON.parse(deps.lines.at(-1)!).heldBack).toBeUndefined();
+  });
+
   test("no board.title -> name falls back to the slug", async () => {
     const deps = clonedDeps({ exec: async () => ({ code: 0, stdout: "2026-08-21T10:00:00+00:00\n", stderr: "" }) });
 

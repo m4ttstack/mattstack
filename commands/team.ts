@@ -318,7 +318,12 @@ export async function teamPublish(args: string[], _ctx: CommandContext = {}, dep
   try {
     const slug = resolveTeamSlug(args, "team publish");
     const target = remote ?? teamRemote(deps.probes, slug);
-    const packs = await commitPendingPackShares(deps.probes, slug);
+    const pending = await commitPendingPackShares(deps.probes, slug);
+    if (!json) {
+      for (const skip of pending.skipped) {
+        out.note(out.line("refused", `rt did not share the ${skip.pack} pack from this Mac`, skip.message), ...(skip.why ? [out.callout("why", skip.why)] : []));
+      }
+    }
     const token = target ? await (deps.forgeToken ?? storedForgeToken)(deps.probes, target) : null;
     const result = await publishTeam(deps.probes, slug, remote, { token, tokenRemote: target });
     if (json) {
@@ -327,7 +332,7 @@ export async function teamPublish(args: string[], _ctx: CommandContext = {}, dep
     }
     out.print(
       out.line("done", `Pushed the ${slug} team`, result.remote),
-      ...packs.map((pack) => out.line("done", `Shared the ${pack} pack with your org`)),
+      ...pending.committed.map((pack) => out.line("done", `Shared the ${pack} pack with your org`)),
     );
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
@@ -694,9 +699,11 @@ interface TeamSyncFields {
   pullOnly: boolean;
   /** True only when the daemon answered `team:snapshot-status` and named this slug; never leaked into the JSON envelope, only used to pick the human line's "ok"/"unknown". */
   reachable: boolean;
+  /** Paths the snapshot held back last round; human output only, like `reachable`. */
+  heldBack: string[];
 }
 
-const NO_SYNC: TeamSyncFields = { lastPull: null, lastPushAt: null, lastPullSkipped: null, conflicted: null, pullOnly: false, reachable: false };
+const NO_SYNC: TeamSyncFields = { lastPull: null, lastPushAt: null, lastPullSkipped: null, conflicted: null, pullOnly: false, reachable: false, heldBack: [] };
 
 /** `deps.daemon?.("team:snapshot-status", {})` round trip, reduced to the five fields `teamStatus` shows for `slug`. Any failure (daemon down, malformed response, slug absent from the list) collapses to `NO_SYNC` rather than throwing; sync state is a nicety on top of the local status, never a reason to fail the whole command. */
 async function readTeamSyncFields(deps: TeamDeps, slug: string): Promise<TeamSyncFields> {
@@ -713,6 +720,7 @@ async function readTeamSyncFields(deps: TeamDeps, slug: string): Promise<TeamSyn
       conflicted: entry.conflicted ? { at: new Date(entry.conflicted.at).toISOString(), detail: entry.conflicted.detail } : null,
       pullOnly: entry.pullOnly === true,
       reachable: true,
+      heldBack: entry.heldBack ?? [],
     };
   } catch {
     return NO_SYNC;
@@ -762,7 +770,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
     const remote = snapshot.remote !== null ? stripUserinfo(snapshot.remote) : null;
 
-    const { reachable, ...sync } = await readTeamSyncFields(deps, slug);
+    const { reachable, heldBack, ...sync } = await readTeamSyncFields(deps, slug);
 
     const result = { slug, name, remote, lastPush, members, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };
     if (json) {
@@ -786,6 +794,12 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
         out.kv("sync", syncState, syncNotes.length > 0 ? syncNotes.join("; ") : undefined),
         ...(sync.conflicted !== null ? [out.line("needs-you", "The team has changes that clash with yours", sync.conflicted.detail)] : []),
       ),
+      ...(heldBack.length > 0
+        ? [
+          out.line("pending", "A new pack is not shared with your org yet", "its marketplace entry stays on this Mac until then"),
+          out.callout("next", ["Share it with ", out.cmd(`rt team publish --team ${slug}`)]),
+        ]
+        : []),
     );
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);

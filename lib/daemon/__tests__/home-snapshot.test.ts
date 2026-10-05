@@ -2128,6 +2128,52 @@ describe("teamSnapshotSpec", () => {
     return run().finally(() => rmSync(join(FAKE_REPO_DIR, "mattstack"), { recursive: true, force: true }));
   }
 
+  describe("the marketplace hold while a new pack's share is owed", () => {
+    const MARKET = ".claude-plugin/marketplace.json";
+    const GADGETS = "mattstack/teams/gadgets/packs/gadgets";
+    function probesWithShare(paths: string[]) {
+      return fakeProbes({ home: "/h", files: {
+        "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1", pendingPackShares: [{ pack: "gadgets", paths }] }),
+        "/h/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+      } });
+    }
+    async function round(paths: string[], status: string[], packOnDisk: boolean) {
+      if (packOnDisk) mkdirSync(join(FAKE_REPO_DIR, GADGETS), { recursive: true });
+      try {
+        const statusZ = status.map((line) => `${line}\0`).join("");
+        const { fn, calls } = makeFakeExec(defaultResponders({ statusZ }));
+        const { deps } = baseDeps({ exec: fn });
+        const { repoDir: _repoDir, ...specDeps } = deps;
+        const handle = startSnapshot(teamSnapshotSpec("acme", FAKE_REPO_DIR, { ownedRoots: ADMIN_ROOTS, pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: probesWithShare(paths), readToken: async () => "glpat-x" }), specDeps);
+        await handle.ready;
+        await handle.runNow("watch");
+        const add = calls.find((c) => gitVerb(c) === "add") ?? [];
+        const status_ = handle.status();
+        handle.stop();
+        return { staged: add.some((arg) => arg.endsWith(MARKET)), heldBack: status_.heldBack };
+      } finally {
+        rmSync(join(FAKE_REPO_DIR, "mattstack"), { recursive: true, force: true });
+      }
+    }
+    const dirty = [` M ${MARKET}`, `?? ${GADGETS}/PACK.md`];
+
+    test("holds the marketplace while the recorded pack is on disk and not committed, and says so in status", async () => {
+      expect(await round([GADGETS, MARKET], dirty, true)).toEqual({ staged: false, heldBack: [MARKET] });
+    });
+
+    test("releases it once the pack folder is gone", async () => {
+      expect(await round([GADGETS, MARKET], [` M ${MARKET}`], false)).toEqual({ staged: true, heldBack: [] });
+    });
+
+    test("releases it once the pack is committed (nothing under its folder is dirty)", async () => {
+      expect(await round([GADGETS, MARKET], [` M ${MARKET}`], true)).toEqual({ staged: true, heldBack: [] });
+    });
+
+    test("never holds it for a record that does not name the marketplace", async () => {
+      expect(await round([GADGETS], dirty, true)).toEqual({ staged: true, heldBack: [] });
+    });
+  });
+
   test("packs are janitor-only: a watch commits the rest of the store and leaves a dirty pack for its own publish", () => withWidgetsFolder(async () => {
     const statusZ = [
       "?? mattstack/teams/widgets/packs/widgets/skills/x/SKILL.md",

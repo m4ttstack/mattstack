@@ -849,6 +849,27 @@ describe("teamAdd", () => {
       expect(files).toContain(".claude-plugin/marketplace.json");
     });
 
+    test("a remembered share this Mac's role can no longer write is skipped with a note, and the publish goes on", async () => {
+      const w = orgWorld("dev2");
+      mkdirSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets"), { recursive: true });
+      writeFileSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets/PACK.md"), "gadgets\n");
+      mkdirSync(join(w.root, "mattstack/teams/widgets/packs/widgets"), { recursive: true });
+      writeFileSync(join(w.root, "mattstack/teams/widgets/packs/widgets/PACK.md"), "widgets\n");
+      updateTeamLocal(w.p, "acme", { pendingPackShares: [
+        { pack: "gadgets", paths: ["mattstack/teams/gadgets", ".claude-plugin/marketplace.json"] },
+        { pack: "widgets", paths: ["mattstack/teams/widgets/packs/widgets"] },
+      ] });
+      const captured = captureOut();
+      try {
+        await teamPublish(["--team", "acme"], {}, baseDeps({ probes: w.p, forgeToken: async () => null }));
+        expect(captured.stderr()).toContain("rt did not share the gadgets pack from this Mac");
+        expect(captured.stdout()).toContain("Shared the widgets pack with your org");
+      } finally { captured.restore(); }
+      const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
+      expect(files).toEqual(["mattstack/teams/widgets/packs/widgets/PACK.md"]);
+      expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
+    });
+
     test("a member's Mac never commits a remembered share", async () => {
       const w = orgWorld("dev3");
       mkdirSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets"), { recursive: true });

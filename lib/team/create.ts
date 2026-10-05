@@ -92,9 +92,21 @@ export async function commitFiles(p: Probes, slug: string, paths: string[], mess
   if (add.code !== 0) throw gitStepError("git-add-failed", "git add", add);
   const diff = await p.exec(["git", "diff", "--cached", "--quiet", "--", ...paths], { cwd });
   if (diff.code === 0) return;
-  if (diff.code !== 1) throw gitStepError("git-commit-failed", "git diff", diff);
+  if (diff.code !== 1) {
+    await unstage(p, cwd, paths);
+    throw gitStepError("git-commit-failed", "git diff", diff);
+  }
   const commit = await p.exec(["git", "commit", "-m", message, "--", ...paths], { cwd });
-  if (commit.code !== 0) throw gitStepError("git-commit-failed", "git commit", commit);
+  if (commit.code !== 0) {
+    await unstage(p, cwd, paths);
+    throw gitStepError("git-commit-failed", "git commit", commit);
+  }
+}
+
+/** Staged files left behind make `rt skills sync` refuse on the clone; a clone with no commit yet has no HEAD to reset to. */
+async function unstage(p: Probes, cwd: string, paths: string[]): Promise<void> {
+  const reset = await p.exec(["git", "reset", "-q", "--", ...paths], { cwd });
+  if (reset.code !== 0) await p.exec(["git", "rm", "--cached", "-r", "-q", "--ignore-unmatch", "--", ...paths], { cwd });
 }
 
 function commitCreator(p: Probes, slug: string, username: string): Promise<void> {

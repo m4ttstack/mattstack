@@ -1,4 +1,4 @@
-import { rmSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { Logger } from "pino";
@@ -54,7 +54,7 @@ describe("sharePack", () => {
     expect(readTeamLocal(w.p, "acme").pendingPackShares).toEqual([{ pack: "gadgets", paths }]);
     rmSync(join(w.root, ".git", "index.lock"));
 
-    expect(await commitPendingPackShares(w.p, "acme")).toEqual(["gadgets"]);
+    expect(await commitPendingPackShares(w.p, "acme")).toEqual({ committed: ["gadgets"], skipped: [] });
     await publishTeam(w.p, "acme", null, { token: null, tokenRemote: w.remote });
 
     const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
@@ -64,10 +64,42 @@ describe("sharePack", () => {
     expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
   });
 
+  test("a later share first finishes an earlier one, so origin never names a pack it lacks", async () => {
+    const w = orgWorld();
+    addTeam(w.p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams);
+    writeFileSync(join(w.root, ".git", "index.lock"), "");
+    await sharePack(w.p, "acme", "gadgets", ["mattstack/teams/gadgets", ".claude-plugin/marketplace.json"], async () => null);
+    rmSync(join(w.root, ".git", "index.lock"));
+
+    addTeam(w.p, { org: "acme", team: "tools", owners: ["dev2"] }, seams);
+    expect(await sharePack(w.p, "acme", "tools", ["mattstack/teams/tools", ".claude-plugin/marketplace.json"], async () => null)).toMatchObject({ pushed: true });
+
+    const tree = w.atOrigin("ls-tree", "-r", "--name-only", "main");
+    const named = JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins.map((plugin: { name: string }) => plugin.name).sort();
+    expect(named).toEqual(["gadgets", "tools"]);
+    for (const name of named) expect(tree).toContain(`mattstack/teams/${name}/packs/${name}/pack/skills.jsonc`);
+    expect(w.pushes).toHaveLength(1);
+    expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
+  });
+
+  test("a commit that fails after its add leaves nothing staged", async () => {
+    const w = orgWorld();
+    addTeam(w.p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams);
+    const hooks = join(w.home, "hooks");
+    mkdirSync(hooks, { recursive: true });
+    writeFileSync(join(hooks, "pre-commit"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(hooks, "pre-commit"), 0o755);
+    w.git("config", "core.hooksPath", hooks);
+    const shared = await sharePack(w.p, "acme", "gadgets", ["mattstack/teams/gadgets", ".claude-plugin/marketplace.json"], async () => null);
+    expect(shared).toMatchObject({ pushed: false });
+    expect(w.git("diff", "--cached", "--name-only").trim()).toBe("");
+    expect(readTeamLocal(w.p, "acme").pendingPackShares).toEqual([{ pack: "gadgets", paths: ["mattstack/teams/gadgets", ".claude-plugin/marketplace.json"] }]);
+  });
+
   test("a remembered pack whose folder is gone is dropped, not committed", async () => {
     const w = orgWorld();
     updateTeamLocal(w.p, "acme", { pendingPackShares: [{ pack: "gadgets", paths: ["mattstack/teams/gadgets/packs/gadgets", ".claude-plugin/marketplace.json"] }] });
-    expect(await commitPendingPackShares(w.p, "acme")).toEqual([]);
+    expect(await commitPendingPackShares(w.p, "acme")).toEqual({ committed: [], skipped: [] });
     expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
     expect(w.git("log", "--format=%s").trim()).toBe("seed");
   });
@@ -103,7 +135,7 @@ describe("sharePack", () => {
     expect(snapshotFiles).not.toContain(".claude-plugin/marketplace.json");
     expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([]);
 
-    expect(await commitPendingPackShares(w.p, "acme")).toEqual(["gadgets"]);
+    expect(await commitPendingPackShares(w.p, "acme")).toEqual({ committed: ["gadgets"], skipped: [] });
     await publishTeam(w.p, "acme", null, { token: null, tokenRemote: w.remote });
     expect(w.atOrigin("show", "main:mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc").length).toBeGreaterThan(0);
     expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([expect.objectContaining({ name: "gadgets" })]);

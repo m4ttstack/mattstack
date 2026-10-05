@@ -9,7 +9,7 @@ import { teamRemote } from "./members.ts";
 import { publishTeam } from "./publish.ts";
 import { assertMayWrite } from "./roles.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
-import { readTeamLocal, updateTeamLocal, type PendingPackShare } from "./team-local.ts";
+import { editTeamLocal, readTeamLocal, type PendingPackShare } from "./team-local.ts";
 
 export type PackShare = { pushed: true; remote: string } | { pushed: false; reason: string; next: string; thenRun?: string };
 
@@ -20,13 +20,17 @@ function notShared(org: string, err: unknown, fallback: string): PackShare {
   return { pushed: false, reason, next: `rt team publish --team ${org}` };
 }
 
-function setPending(p: Probes, org: string, shares: PendingPackShare[]): void {
-  updateTeamLocal(p, org, { pendingPackShares: shares.length > 0 ? shares : undefined });
+function dropPending(p: Probes, org: string, packs: string[]): void {
+  if (packs.length === 0) return;
+  editTeamLocal(p, org, (current) => {
+    const left = (current.pendingPackShares ?? []).filter((share) => !packs.includes(share.pack));
+    return { pendingPackShares: left.length > 0 ? left : undefined };
+  });
 }
 
 /** Remembers that `pack` still has to be committed with `paths`, so `rt team publish` can finish its share. */
 export function rememberPackShare(p: Probes, org: string, pack: string, paths: string[]): void {
-  setPending(p, org, [...(readTeamLocal(p, org).pendingPackShares ?? []).filter((share) => share.pack !== pack), { pack, paths }]);
+  editTeamLocal(p, org, (current) => ({ pendingPackShares: [...(current.pendingPackShares ?? []).filter((share) => share.pack !== pack), { pack, paths }] }));
 }
 
 /**
@@ -39,13 +43,13 @@ export function rememberPackShare(p: Probes, org: string, pack: string, paths: s
 export async function sharePack(p: Probes, org: string, pack: string, paths: string[], readToken: (p: Probes, remote: string) => Promise<string | null> = storedForgeToken): Promise<PackShare> {
   for (const path of paths) assertMayWrite(p, org, path);
   try {
+    await commitPendingPackShares(p, org);
     await commitFiles(p, org, paths, `skills: new ${pack} pack`);
   } catch (err) {
     rememberPackShare(p, org, pack, paths);
     return notShared(org, err, `rt could not commit the ${pack} pack`);
   }
-  const before = readTeamLocal(p, org).pendingPackShares ?? [];
-  if (before.some((share) => share.pack === pack)) setPending(p, org, before.filter((share) => share.pack !== pack));
+  dropPending(p, org, [pack]);
   try {
     const remote = teamRemote(p, org);
     const token = remote ? await readToken(p, remote) : null;
@@ -56,25 +60,45 @@ export async function sharePack(p: Probes, org: string, pack: string, paths: str
   }
 }
 
-/** Commits each new pack a failed share left behind, scoped to its own paths, and returns the packs committed. */
-export async function commitPendingPackShares(p: Probes, org: string): Promise<string[]> {
+export interface PendingCommits {
+  committed: string[];
+  /** Shares this Mac's role may no longer write; they are dropped, since only someone who owns their files can finish them. */
+  skipped: { pack: string; message: string; why?: string }[];
+}
+
+/**
+ * Commits each new pack a failed share left behind, scoped to its own paths.
+ * Runs before any other share's commit too: the marketplace file names every
+ * pack, so a later share would otherwise push an earlier pack's entry ahead
+ * of that pack.
+ */
+export async function commitPendingPackShares(p: Probes, org: string): Promise<PendingCommits> {
+  const result: PendingCommits = { committed: [], skipped: [] };
   try {
     validateSlug(org);
   } catch {
-    return [];
+    return result;
   }
   const root = join(p.home, ".mattstack", "teams", org);
   const recorded = readTeamLocal(p, org).pendingPackShares ?? [];
-  const pending = recorded.filter((share) => p.exists(join(root, share.paths[0]!)));
-  if (pending.length !== recorded.length) setPending(p, org, pending);
-  for (const share of pending) for (const path of share.paths) assertMayWrite(p, org, path);
-  const committed: string[] = [];
+  dropPending(p, org, recorded.filter((share) => !p.exists(join(root, share.paths[0]!))).map((share) => share.pack));
+  const pending: PendingPackShare[] = [];
+  for (const share of recorded.filter((entry) => p.exists(join(root, entry.paths[0]!)))) {
+    try {
+      for (const path of share.paths) assertMayWrite(p, org, path);
+      pending.push(share);
+    } catch (err) {
+      if (!(err instanceof UserActionableError)) throw err;
+      result.skipped.push({ pack: share.pack, message: err.message, ...(err.why ? { why: err.why } : {}) });
+    }
+  }
+  dropPending(p, org, result.skipped.map((skip) => skip.pack));
   for (const share of pending) {
     await commitFiles(p, org, share.paths, `skills: new ${share.pack} pack`);
-    committed.push(share.pack);
-    setPending(p, org, pending.filter((other) => !committed.includes(other.pack)));
+    result.committed.push(share.pack);
+    dropPending(p, org, [share.pack]);
   }
-  return committed;
+  return result;
 }
 
 export function packShareBlocks(pack: string, share: PackShare): Block[] {

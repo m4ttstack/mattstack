@@ -620,6 +620,13 @@ export async function teamSyncRow(
     return row({ ...base, status: "needs-you", detail, action: RECHECK_ACTION });
   }
 
+  const held = slugs.filter((slug) => (entries.find((x) => x.slug === slug)?.heldBack ?? []).length > 0);
+  if (held.length > 0) {
+    const action: Action = { type: "steps", label: "Show steps…", steps: held.map((slug) => `Run: rt team publish --team ${slug}`) };
+    const detail = held.map((slug) => `${slug}: a new pack is not shared yet, so its marketplace entry stays on this Mac`).join("; ");
+    return row({ ...base, status: "needs-you", detail, action });
+  }
+
   // A pull skipped every tick (a dirty src/ refusing the rebase) is not a
   // failure, but it is why a member's store edits are not moving; say so
   // without changing the status.
