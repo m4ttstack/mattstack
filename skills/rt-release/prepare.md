@@ -30,11 +30,17 @@ digraph prepare_release {
     "Restore the curated notes" [shape=box];
     "Update the guides the range changed" [shape=box];
     "Write the release notes" [shape=box];
+    "Approved before in this release?" [shape=diamond];
     "Gate: approve the tag, notes and docs diff" [shape=box];
+    "Gate: re-approve the notes delta" [shape=box];
     "Approval answer?" [shape=diamond];
     "Notes revision rounds = 3?" [shape=diamond];
     "STOP: nothing commits, tags or deploys before the notes approval" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Release-day PRs merged?" [shape=diamond];
+    "git fetch origin, before the notes commit" [shape=plaintext];
+    "git log --oneline HEAD..origin/main" [shape=plaintext];
+    "Range grew since the approval?" [shape=diamond];
+    "Range growths after the approval = 3?" [shape=diamond];
     "git add website RELEASE_NOTES.md" [shape=plaintext];
     "git commit -m \"chore(release): docs and notes for <tag>\"" [shape=plaintext];
     "git rev-parse HEAD" [shape=plaintext];
@@ -93,8 +99,12 @@ digraph prepare_release {
     "Notes copied aside?" -> "Update the guides the range changed" [label="no"];
     "Restore the curated notes" -> "Update the guides the range changed";
     "Update the guides the range changed" -> "Write the release notes";
-    "Write the release notes" -> "Gate: approve the tag, notes and docs diff";
+    "Write the release notes" -> "Approved before in this release?";
+    "Approved before in this release?" -> "Gate: approve the tag, notes and docs diff" [label="no"];
+    "Approved before in this release?" -> "Gate: re-approve the notes delta" [label="yes: the notes gained or changed lines"];
+    "Approved before in this release?" -> "Release-day PRs merged?" [label="yes: the notes need no new line"];
     "Gate: approve the tag, notes and docs diff" -> "Approval answer?";
+    "Gate: re-approve the notes delta" -> "Approval answer?";
     "Approval answer?" -> "Release-day PRs merged?" [label="approve"];
     "Approval answer?" -> "Notes revision rounds = 3?" [label="revise"];
     "Approval answer?" -> "Held: release paused, resume point named" [label="hold"];
@@ -103,7 +113,13 @@ digraph prepare_release {
     "STOP: nothing commits, tags or deploys before the notes approval" -> "Gate: approve the tag, notes and docs diff";
     "Notes revision rounds = 3?" -> "Write the release notes" [label="no"];
     "Notes revision rounds = 3?" -> "Handed back to Matt" [label="yes: budget spent"];
-    "Release-day PRs merged?" -> "git add website RELEASE_NOTES.md" [label="yes"];
+    "Release-day PRs merged?" -> "git fetch origin, before the notes commit" [label="yes"];
+    "git fetch origin, before the notes commit" -> "git log --oneline HEAD..origin/main";
+    "git log --oneline HEAD..origin/main" -> "Range grew since the approval?";
+    "Range grew since the approval?" -> "git add website RELEASE_NOTES.md" [label="no"];
+    "Range grew since the approval?" -> "Range growths after the approval = 3?" [label="yes: commits landed after the approval"];
+    "Range growths after the approval = 3?" -> "git_pull {tree: <release checkout>}, after the release-day merges" [label="no: fold them in"];
+    "Range growths after the approval = 3?" -> "Held: release paused, resume point named" [label="yes: main will not hold still"];
     "Off-script gate: release-day PRs still open" -> "git add website RELEASE_NOTES.md" [label="take: Matt rules they ride the next release"];
     "Off-script gate: release-day PRs still open" -> "Release-day PRs still open: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: release-day PRs still open" -> "Held: release paused, resume point named" [label="hold"];
@@ -139,7 +155,9 @@ CI reads `RELEASE_NOTES.md` at the tagged commit as the release body, so the not
 tag target. This stage never tags: the tag comes after the rehearsal, at the exercised sha.
 
 Counters: `Notes revision rounds = 3?` counts the revise answers received at the approval gate
-so far. Every `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it
+so far. `Range growths after the approval = 3?` counts the growths already folded in during this
+release: yes once three have been, so a fourth sends the release to a hold whose resume point is
+`Release-day PRs merged?`. Every `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it
 is yes once Matt has answered iterate twice.
 
 ### Choose the version bump
@@ -169,6 +187,8 @@ A refusal goes straight to its gate. Never force, rebase or pull past it.
 coverage check, and scaffolds `RELEASE_NOTES.md` for `<last-tag>..HEAD` unconditionally,
 overwriting what is there. Curated notes exist when `git diff <last-tag> -- RELEASE_NOTES.md` is
 not empty (notes written early, or a rerun mid-release): copy the file into the scratchpad first.
+A re-prepare after a late addition always lands here, since the earlier notes commit carries the
+curated notes; skipping the copy loses Matt's approved wording to the scaffold.
 
 ### Restore the curated notes
 
@@ -203,6 +223,20 @@ versions" section naming each key and its new store name (`rt.roles@2`). Never r
 `rt settings migrate --write` on any machine before every app has moved to a build that reads the
 new name: writing `key@N` starts divergence for writers still on the old name.
 
+### Approved before in this release?
+
+Yes when Matt approved notes for this tag earlier in this release: at this gate in an earlier
+pass, or behind the notes commit a re-prepare started from. Compare the notes now with the ones
+he approved (the copy saved aside, or the earlier notes commit's `RELEASE_NOTES.md`). No line
+gained or changed keeps his approval, and the stage goes on to the commit.
+
+### Gate: re-approve the notes delta
+
+Ask only about what changed: quote the added and changed lines exactly as they will publish, name
+the commits they cover, and show `git diff HEAD --stat -- website RELEASE_NOTES.md`. Do not
+re-ask the whole body. The answers are the same as the full gate's (approve, revise, hold,
+abort), and a revise counts toward `Notes revision rounds = 3?`.
+
 ### Gate: approve the tag, notes and docs diff
 
 Print the proposed tag, the full `RELEASE_NOTES.md` body, and
@@ -211,6 +245,14 @@ already staged and the generated reference and notes it did not, where `--staged
 unstaged ones and a plain `git diff` hides the staged ones. A pre-authorized release covers the
 early main push only; these notes still need Matt's explicit approval. Revise applies his changes
 and asks again.
+
+### Range grew since the approval?
+
+A fix (or any commit) can land on origin/main between Matt's approval and the notes commit. It
+is in the range the tag will cover, so the stage folds it in rather than committing past it: the
+pull brings it into the checkout, update-docs and the notes run again on the grown range, and
+`Approved before in this release?` decides whether Matt sees a delta. Nothing listed by the
+`git log` takes `no`.
 
 ### Push main: the notes commit
 
