@@ -249,8 +249,19 @@ carrying the gate row; if the daemon adds it, both harnesses get it),
 SKILLS-96 (writing style at skill load; must not replace S12's resolver).
 
 Claude-only extras with no harness contract, left in the mods project as
-optional native features: RT-386, RT-388, RT-390, RT-392, RT-393, RT-399,
-RT-401, RT-404, RT-409, RT-410. RT-394 is a duplicate.
+optional native features: RT-386, RT-388, RT-392 (notes H2's harness and
+model per job), RT-393, RT-404, RT-409, RT-410. RT-394 is a duplicate.
+
+Punted on 2026-10-05, to revisit when the named task is re-planned:
+
+- RT-390 (M1): the per-delivery reply line has a shared half (who and how to
+  reply, with the sender's id) and a Claude-only half ("never SendMessage").
+  Trimming it must stay in Claude's delivery path so Codex deliveries keep the
+  shared half.
+- RT-399 (M6): the text guard could be a shared policy rule, enforced on Codex
+  through `preToolUse` hooks.
+- RT-401 (F5): Codex can compact or switch model natively over its control
+  socket, so self-commands could become an agent-neutral session operation.
 
 Sequencing: the Claude adapters first wrap today's outside-in mechanisms
 (Escape, screen reads, shell hooks), so harness work never waits on the
