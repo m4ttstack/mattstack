@@ -43,7 +43,7 @@ export async function stashPop(ctx: ClientContext, index: number): Promise<{ kep
   try {
     await ctx.git.stash(["pop", `stash@{${index}}`]);
   } catch (err) {
-    if (!/CONFLICT/.test(err instanceof Error ? err.message : String(err))) throw err;
+    if (!/^CONFLICT \([^)]+\): /m.test(err instanceof Error ? err.message : String(err))) throw err;
   }
   const after = (await ctx.git.stashList()).total;
   return { kept: after === before };

@@ -83,6 +83,25 @@ describe("stashApply / stashPop / stashDrop", () => {
     }
   });
 
+  it("pop rejects a local-edit collision with a filename containing CONFLICT", async () => {
+    const sb = await seeded();
+    try {
+      await sb.write("CONFLICT.txt", "base\n");
+      await sb.commitAll("add conflict filename");
+      const client = createGitClient(sb.dir);
+      await sb.write("CONFLICT.txt", "stashed\n");
+      await client.stashPush({ message: "mine" });
+      await sb.write("CONFLICT.txt", "local\n");
+
+      await expect(client.stashPop(0)).rejects.toThrow(/would be overwritten by merge/);
+      expect(await Bun.file(`${sb.dir}/CONFLICT.txt`).text()).toBe("local\n");
+      expect((await client.stashes()).length).toBe(1);
+      expect(await sb.git(["diff", "--name-only", "--diff-filter=U"])).toBe("");
+    } finally {
+      await sb.cleanup();
+    }
+  });
+
   it("pop on an empty stash list rejects with an error mentioning the ref", async () => {
     const sb = await seeded();
     try {
