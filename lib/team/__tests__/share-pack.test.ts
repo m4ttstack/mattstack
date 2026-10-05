@@ -1,6 +1,9 @@
 import { rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { afterEach, describe, expect, test } from "bun:test";
+import type { Logger } from "pino";
+import { startSnapshot, teamSnapshotSpec } from "../../daemon/home-snapshot.ts";
+import { openStateDb } from "../../state/db.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { Probes } from "../../setup/probes.ts";
 import { addTeam } from "../add.ts";
@@ -67,6 +70,43 @@ describe("sharePack", () => {
     expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
     expect(w.git("log", "--format=%s").trim()).toBe("seed");
   });
+
+  test("while a share is pending the team snapshot holds the marketplace entry back, and the publish sends both", async () => {
+    const w = orgWorld();
+    addTeam(w.p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams);
+    writeFileSync(join(w.root, ".git", "index.lock"), "");
+    await sharePack(w.p, "acme", "gadgets", ["mattstack/teams/gadgets/packs/gadgets", ".claude-plugin/marketplace.json"], async () => null);
+    rmSync(join(w.root, ".git", "index.lock"));
+    writeFileSync(join(w.root, "mattstack/teams/widgets/settings.team.jsonc"), "{ \"board.title\": \"edited\" }\n");
+
+    const quiet = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as unknown as Logger;
+    const spec = teamSnapshotSpec("acme", w.root, { ownedRoots: ["mattstack", ".sops.yaml", ".claude-plugin"], pullIntervalSec: 600, originUrl: w.remote, probes: w.p, readToken: async () => null });
+    const handle = startSnapshot(spec, {
+      log: quiet,
+      broadcast: () => {},
+      db: openStateDb(join(w.home, "state.db"), "cli"),
+      readSettings: () => ({ enabled: true, debounceSec: 5, pushDelaySec: 1, janitorThresholdHours: 1, janitorIntervalMin: 15 }),
+      readOwners: () => ({ zones: {} }),
+    });
+    try {
+      await handle.ready;
+      const round = await handle.runNow("manual");
+      expect(round.committed).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    } finally {
+      handle.stop();
+    }
+
+    const snapshotFiles = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
+    expect(snapshotFiles).toContain("mattstack/teams/widgets/settings.team.jsonc");
+    expect(snapshotFiles).not.toContain(".claude-plugin/marketplace.json");
+    expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([]);
+
+    expect(await commitPendingPackShares(w.p, "acme")).toEqual(["gadgets"]);
+    await publishTeam(w.p, "acme", null, { token: null, tokenRemote: w.remote });
+    expect(w.atOrigin("show", "main:mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc").length).toBeGreaterThan(0);
+    expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([expect.objectContaining({ name: "gadgets" })]);
+  }, 15_000);
 
   test("a member's Mac never commits or pushes", async () => {
     const calls: string[][] = [];

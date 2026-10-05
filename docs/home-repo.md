@@ -123,8 +123,9 @@ The team instance differs from the home one in four ways:
   `rt team add` or `rt skills init` itself; when that commit or push fails,
   the command says so and names `rt team publish --team <org>`, which makes
   the commit this Mac still owes (rt remembers it on this Mac) and pushes it.
-  The janitor still commits a pack left
-  dirty past `janitorThresholdHours`. A claim on the same path in the clone's
+  While that commit is owed, the snapshot leaves `marketplace.json` alone, so
+  the entry never reaches origin ahead of its pack. The janitor still commits
+  a pack left dirty past `janitorThresholdHours`. A claim on the same path in the clone's
   own `snapshot-owners.jsonc` wins over the standing one.
 - **Pull.** Before every push, at daemon boot and every `pullIntervalSec`, it
   fetches `origin` with rt's stored forge token (env, never argv) and either

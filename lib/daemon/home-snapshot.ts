@@ -47,6 +47,7 @@ import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
 import { roleFor } from "../team/roles.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
+import { readTeamLocal } from "../team/team-local.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
 import { HOME_SNAPSHOT_NS, recordHomePush, type HomePushRecord } from "../home/push-record.ts";
@@ -155,7 +156,8 @@ export interface SnapshotSpec {
   scope?: (relPath: string) => boolean;
   /** Zones claimed for as long as the spec runs, as if written to the owners file; a claim in the file wins over one here. */
   standingZones?: (repoDir: string) => Owners["zones"];
-  readAuthorization?: () => { scope: (relPath: string) => boolean; pullOnly: boolean };
+  /** `held` paths are in scope but not staged this round; they are not reported as unowned. */
+  readAuthorization?: () => { scope: (relPath: string) => boolean; pullOnly: boolean; held?: (relPath: string) => boolean };
   /** Every managed path, including paths this Mac may not push. */
   watch?: (relPath: string) => boolean;
   /** Fetch + rebase policy; absent = never pull (the home repo is single-writer). */
@@ -388,6 +390,13 @@ function teamStandingZones(repoDir: string): Owners["zones"] {
   return Object.fromEntries(zones.map((zone) => [zone, { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" }]));
 }
 
+const MARKETPLACE_PATH = ".claude-plugin/marketplace.json";
+
+/** A new pack whose share commit failed must reach origin with its marketplace entry, never after it, so the entry waits for `rt team publish`. */
+function sharePending(p: Probes, slug: string): boolean {
+  return (readTeamLocal(p, slug).pendingPackShares?.length ?? 0) > 0;
+}
+
 /** A team clone: no legacy state file (nothing predates it), and it pulls (multi-writer), unlike the home repo. */
 export function teamSnapshotSpec(
   slug: string,
@@ -415,6 +424,7 @@ export function teamSnapshotSpec(
       return {
         scope: (path) => teamScope(path) && roots.some((root) => path === root || path.startsWith(`${root}/`)),
         pullOnly: roots.length === 0,
+        held: sharePending(opts.probes, slug) ? (path) => path === MARKETPLACE_PATH : undefined,
       };
     },
     watch: teamScope,
@@ -976,7 +986,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   }
 
   function authorization() {
-    return spec.readAuthorization?.() ?? { scope: spec.scope, pullOnly: spec.pullOnly === true };
+    return spec.readAuthorization?.() ?? { scope: spec.scope, pullOnly: spec.pullOnly === true, held: undefined };
   }
 
   let observedEntries: ReturnType<typeof parsePorcelainZ> = [];
@@ -1198,7 +1208,10 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     const current = authorization();
     reportUnowned(rawEntries, current.scope);
     if (current.pullOnly) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
-    const entries = scopeEntries(rawEntries, current.scope);
+    const stageScope = current.held
+      ? (path: string) => (current.scope?.(path) ?? true) && !current.held!(path)
+      : current.scope;
+    const entries = scopeEntries(rawEntries, stageScope);
     // A scoped spec's pathspec is the scoped entries' own paths, never the
     // scope's roots: `git add -A -- mattstack .sops.yaml .claude-plugin`
     // exits 128 and stages nothing when any root is absent from both tree
@@ -1206,16 +1219,16 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // every cycle as add-failed. A rename's origPath rides along so the old
     // path's deletion lands in the same commit as the new path; scopeEntries
     // is what guarantees both halves are inside the scope.
-    const scopeArgs: string[] = current.scope
+    const scopeArgs: string[] = stageScope
       ? [...new Set(entries.flatMap((e) => (e.origPath ? [e.origPath, e.path] : [e.path])))]
       : ["."];
 
     // A staged deletion (including a rename source) is already absent from
     // the index, so git add rejects it. It still belongs in the commit.
-    const addScopeArgs = current.scope
+    const addScopeArgs = stageScope
       ? [...new Set(rawEntries.flatMap((entry) => [
-        ...(entry.origPath && entry.xy[0] !== "R" && current.scope!(entry.origPath) ? [entry.origPath] : []),
-        ...(entry.xy[0] !== "D" && current.scope!(entry.path) ? [entry.path] : []),
+        ...(entry.origPath && entry.xy[0] !== "R" && stageScope!(entry.origPath) ? [entry.origPath] : []),
+        ...(entry.xy[0] !== "D" && stageScope!(entry.path) ? [entry.path] : []),
       ]))]
       : scopeArgs;
 
@@ -1278,12 +1291,16 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       const excludeArgs = plan.excludedZones.map((zone) => `:(exclude)${zone}`);
       // A scoped spec names each path; one inside a claimed zone would sit in
       // the pathspec beside its own exclude, so it is dropped here instead.
+      // Its add then carries no excludes: given an exclude outside the named
+      // files' folders, git add silently skips an untracked file in a new
+      // folder (git 2.54), and the commit that names it fails. The commit
+      // still carries them.
       const outsideClaims = (path: string) => !plan.excludedZones.some((zone) => isUnderZone(path, zone));
-      const autoArgs = current.scope ? scopeArgs.filter(outsideClaims) : scopeArgs;
-      const autoAddArgs = current.scope ? addScopeArgs.filter(outsideClaims) : addScopeArgs;
+      const autoArgs = stageScope ? scopeArgs.filter(outsideClaims) : scopeArgs;
+      const autoAddArgs = stageScope ? addScopeArgs.filter(outsideClaims) : addScopeArgs;
       if (!mayWrite(autoArgs, rawEntries)) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
       const addResult = autoAddArgs.length > 0
-        ? await deps.exec(["git", "add", "-A", "--", ...autoAddArgs, ...excludeArgs], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" })
+        ? await deps.exec(["git", "add", "-A", "--", ...autoAddArgs, ...(stageScope ? [] : excludeArgs)], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" })
         : { exitCode: 0, stderr: "" };
       if (addResult.exitCode !== 0) {
         const addSkipped: SkipReason = addResult.stderr.toLowerCase().includes("index.lock") ? "index-locked" : "add-failed";
