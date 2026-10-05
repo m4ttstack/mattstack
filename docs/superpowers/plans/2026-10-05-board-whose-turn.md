@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Execution order:** Tasks 1-8, then 10, then 9.
+
 **Goal:** One configurable "whose turn" rule set (`board.turn`) drives a new
 Show menu on the board's toolbar, a whose-turn summary line in the header,
 and the Needs me tab.
@@ -31,6 +33,7 @@ filters, group, sort", Option B (light and dark).
 - Copy is positive: "Show on the board", "Showing N of M", "Also show", "show everything". Never "hide" in new UI copy.
 - Show item labels, verbatim: `Posted to #<channel>`, `Not Posted`, `Waiting on author`, `My drafts`.
 - Show item descriptions, verbatim: `announced for review`, `not posted to #<channel> yet`, `comments, red CI, conflicts, ready to merge`, `your own draft MRs`.
+- Surfaces (header, MR panels, sidebar, selection bar, tabs) use `--card` like deck's services table; highlights on them are washes, never white.
 - The theme control (`ThemeControl`) is unchanged. The header "copy summary for Slack" button is removed. The drawer keeps "post summary to slack".
 - Storybook stories and test fixtures use invented data only (the repo is public). No real names, channels or MR numbers.
 - Comments only state a constraint the code cannot show (repo clean-code rule).
@@ -68,7 +71,7 @@ filters, group, sort", Option B (light and dark).
 | `apps/board/src/client/board/Board.tsx` | wiring, removes hidden note, footer, copy button |
 | `apps/board/src/client/board/config-shapes.ts`, `ConfigModal.tsx` | "Whose turn" editor |
 | `apps/board/src/client/board/Toolbar.stories.tsx` (new) | stories |
-| `apps/board/src/style.css` | styles for the new pieces |
+| `apps/board/src/style.css` | styles for the new pieces; card surfaces and highlight washes (Task 10) |
 
 ---
 
@@ -1553,6 +1556,71 @@ Make the Show menu's "What counts as “waiting on author”…" item (Task 7, S
 git add apps/board/src/client apps/board/src/style.css
 git commit -m "board: Whose turn editor in settings"
 ```
+
+---
+
+### Task 10: Lighter surfaces, matching deck (run before Task 9)
+
+Board surfaces move from the grey `--chrome` to `--card`, the surface deck's
+services table uses (`apps/deck/core/board/board.css:274-291`). Any highlight
+that was "paint it `--card`" becomes a colored wash, because white on white
+disappears.
+
+**Files:**
+- Modify: `apps/board/src/style.css`
+
+**Interfaces:**
+- Consumes: kit tokens `--card`, `--text-muted-on-card`, `--border-on-card`, `--border-soft-on-card`, `--surface-wash-fg-5`, `--surface-wash-fg-4-card`, `--surface-wash-accent-14`, `--fill-accent` (all in `packages/tui-kit/src/generated/theme.css`)
+- Produces: no API; visual only
+
+- [ ] **Step 1: Swap the four surfaces and set on-card inks**
+
+Change `background: var(--chrome)` to `background: var(--card)` at the header (`style.css:56`), the MR group panels (`[data-part='panel']`, :65), the sidebar (:1499), and in the selection bar's mix (:240, `color-mix(in srgb, var(--card) 94%, transparent)`). Then add, once, a rule giving those containers deck's on-card inks:
+
+```css
+.tui-header,
+[data-part='panel'],
+.tui-selbar,
+.tui-sidebar {
+  --muted: var(--text-muted-on-card);
+  --border: var(--border-on-card);
+  --border-soft: var(--border-soft-on-card);
+}
+```
+
+Use the real selectors at those four line numbers (read them first), not the guesses above, if they differ.
+
+- [ ] **Step 2: Tabs**
+
+At `.tui-tab` (:3373): idle `background: var(--card)`. Hover: `background: var(--surface-wash-fg-4-card)`. Active keeps today's rule, accent underline plus `--text-1` and no lighter fill, per the comment above `.tui-tab:hover`.
+
+- [ ] **Step 3: Highlight audit**
+
+List every highlight that paints `var(--card)`:
+
+Run: `rg -n "background: var\(--card\)" apps/board/src/style.css`
+
+For each hit, read its selector and decide:
+- **Highlight on one of the five surfaces above** (`:hover`, `.active`, `[data-active]`, `[aria-selected]`, `[aria-checked]`, a selected row): hover becomes `var(--surface-wash-fg-5)`; active or selected becomes `var(--surface-wash-accent-14)` with `border-color: var(--fill-accent)`. The sidebar's `.tui-side-item:hover` (:1555) and `.tui-side-item.active` (:1558) are known cases.
+- **Floating layer** (menu, modal, popover, toast, drawer, tooltip, sheet): leave as `--card`.
+- **A card nested in a surface on purpose** (an inset callout): change to `var(--surface-wash-fg-4-card)` so it still reads as a separate box.
+
+Also re-check `--ask-base` (:4727), which mixes `--card` with `--chrome`. Change `var(--chrome)` there to `var(--surface-wash-fg-5)` only if the ask band no longer stands out against its row in Step 4. Otherwise leave it.
+
+Write the classification as a short list in the commit message body (selector → decision).
+
+- [ ] **Step 4: Look at it**
+
+On `http://localhost:11006` through the `fast-browser:browser-driver` agent, in light and then dark: hover and select a sidebar member, hover a tab and switch tabs, hover an MR row, select two rows (selection bar), open a row menu and the Show menu, and open the comments drawer. Take a screenshot of each state. Every highlight must be visible against its surface, and no text may read washed out. Name anything that looks wrong and fix it before moving on.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/board/src/style.css
+git commit -m "board: card surfaces like deck; highlights become washes"
+```
+
+Task 9's baseline refresh runs after this task, so the baselines are regenerated once.
 
 ---
 
