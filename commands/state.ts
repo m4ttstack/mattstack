@@ -185,7 +185,14 @@ async function stateRestoreFromBackup(args: string[]): Promise<void> {
     const daemonUp = await isDaemonRunning();
     const sockExists = existsSync(join(mattstackHome(), "rt", "rt.sock"));
     if (daemonUp || sockExists) {
-      refuseWhileDaemonRuns("rt state restore --from-backup --force");
+      const retry = ["rt", "state", "restore", "--from-backup"];
+      if (dryRun) retry.push("--dry-run");
+      if (only !== undefined) retry.push("--only", only);
+      if (at !== undefined) retry.push("--at", at);
+      if (identityFlag !== undefined) retry.push("--identity", identityFlag);
+      if (json) retry.push("--json");
+      retry.push("--force");
+      refuseWhileDaemonRuns(retry.map(shellQuote).join(" "));
     }
   }
 

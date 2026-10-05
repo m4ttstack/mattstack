@@ -210,8 +210,38 @@ test("daemon refusal keeps the instructional copy placeholder unquoted", async (
 test("encrypted restore while daemon runs has no JSON payload and exits 1", async () => {
   spies.push(spyOn(daemon, "isDaemonRunning").mockResolvedValue(true));
   await expectExit(() => stateRestore(["--from-backup", "--json"]),
-    "[refused] rt will not restore while the daemon is running  it shares this data with rt\n  next: rt daemon stop\n  note: To restore anyway: rt state restore --from-backup --force\n");
+    "[refused] rt will not restore while the daemon is running  it shares this data with rt\n  next: rt daemon stop\n  note: To restore anyway: rt state restore --from-backup --json --force\n");
 });
+
+for (const options of [
+  ["--dry-run"],
+  ["--only", "board"],
+  ["--at", "2026-10-05T12:00:00Z"],
+  ...["My key.txt", "Matt's.txt", "$HOME.txt", "$(printf harmless).txt", "key;printf harmless.txt"].map(name => ["--identity", name]),
+  ["--dry-run", "--only", "board", "--at", "2026-10-05T12:00:00Z", "--identity", "My key's $HOME;$(printf harmless).txt"],
+]) {
+  test(`encrypted forced retry retains scope and literal values ${JSON.stringify(options)}`, async () => {
+    spies.push(spyOn(daemon, "isDaemonRunning").mockResolvedValue(true));
+    const args = ["--from-backup", ...options, "--json"];
+    const sentinel = new Error("captured process.exit");
+    const exit = spyOn(process, "exit").mockImplementation(() => { throw sentinel; });
+    spies.push(exit);
+    const pipeline = spyOn(restore, "restoreFromBackup");
+    spies.push(pipeline);
+    await expect(stateRestore(args)).rejects.toBe(sentinel);
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(pipeline).not.toHaveBeenCalled();
+    expect(io.stdout()).toBe("");
+    const command = io.stderr().split("To restore anyway: ")[1]?.trim();
+    expect(command).toBeDefined();
+    const shell = Bun.spawnSync(["/bin/sh", "-c", `rt() { printf '%s\\0' "$@"; }; ${command}`], {
+      cwd: home, env: { HOME: home, PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe",
+    });
+    expect(shell.exitCode).toBe(0);
+    expect(shell.stderr.toString()).toBe("");
+    expect(shell.stdout.toString().split("\0")).toEqual(["state", "restore", ...args, "--force", ""]);
+  });
+}
 
 test("encrypted restore without a key has no JSON payload and exits 1", async () => {
   spies.push(spyOn(ageKey, "createRealAgeKeySeam").mockReturnValue({} as never));
