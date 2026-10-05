@@ -40,10 +40,19 @@ describe("useTeam", () => {
     expect((await actions.useTeam("gadgets", seams)).disabled).toBeNull();
     expect(log).toEqual(["set mattstack.activeTeam=gadgets", "install", "enable gadgets@acme-market", "restart board", "restart boxscore"]);
   });
-  test("failed install skips enabling but keeps the switch and disables the old pack", async () => {
-    const { seams, log } = world({}, { installPack: async () => ({ ok: false, detail: "Claude Code is missing" }), restartApp: async () => false });
-    expect(await actions.useTeam("gadgets", seams)).toEqual({ team: "gadgets", previous: "widgets", pack: { installed: false, enabled: false, detail: "Claude Code is missing" }, disabled: "widgets@acme-market", restarted: [] });
-    expect(log).toEqual(["set mattstack.activeTeam=gadgets", "disable widgets@acme-market"]);
+  test("failed install skips enabling and leaves the previous pack on", async () => {
+    const { seams, log, enabled } = world({}, { installPack: async () => ({ ok: false, detail: "Claude Code is missing" }), restartApp: async () => false });
+    expect(await actions.useTeam("gadgets", seams)).toEqual({ team: "gadgets", previous: "widgets", pack: { installed: false, enabled: false, detail: "Claude Code is missing" }, disabled: null, restarted: [] });
+    expect(log).toEqual(["set mattstack.activeTeam=gadgets"]);
+    expect([...enabled]).toEqual(["widgets@acme-market"]);
+  });
+  test("a failed enable leaves the previous pack on", async () => {
+    const { seams, log, enabled } = world({}, {
+      setPackEnabled: async (id, on) => { log.push(`${on ? "enable" : "disable"} ${id}`); if (!on) enabled.delete(id); return !on; },
+    });
+    expect(await actions.useTeam("gadgets", seams)).toEqual({ team: "gadgets", previous: "widgets", pack: { installed: true, enabled: false, detail: "1 pack" }, disabled: null, restarted: ["board", "boxscore"] });
+    expect(log).toEqual(["set mattstack.activeTeam=gadgets", "install", "enable gadgets@acme-market", "restart board", "restart boxscore"]);
+    expect([...enabled]).toEqual(["widgets@acme-market"]);
   });
   test("reports unsuccessful enable, disable and individual restarts", async () => {
     const { seams } = world({}, { setPackEnabled: async () => false, restartApp: async (app) => app === "boxscore" });

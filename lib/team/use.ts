@@ -29,7 +29,7 @@ export async function useTeam(team: string, seams: UseTeamSeams): Promise<UseTea
   const installed = await seams.installPack();
   const enabled = installed.ok ? await seams.setPackEnabled(`${team}@${marketplace}`, true) : false;
   let disabled: string | null = null;
-  if (before.team !== null && before.team !== team) {
+  if (enabled && before.team !== null && before.team !== team) {
     const id = `${before.team}@${marketplace}`;
     if (await seams.setPackEnabled(id, false)) disabled = id;
   }

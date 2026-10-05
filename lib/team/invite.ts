@@ -1,4 +1,4 @@
-import { join, relative } from "path";
+import { isAbsolute, join, relative } from "path";
 import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
 import { assertTeamFolders } from "./team-names.ts";
 import { orgStoreFile } from "./org-store.ts";
@@ -156,6 +156,37 @@ function defaultWarn(message: string, shown?: ShownWarning): void {
   warnLine("team", message, { show: shown ?? { title: message } });
 }
 
+async function rebaseStopped(p: Probes, dir: string): Promise<boolean> {
+  for (const name of ["rebase-merge", "rebase-apply"]) {
+    const res = await p.exec(["git", "rev-parse", "--git-path", name], { cwd: dir });
+    if (res.code !== 0) continue;
+    const path = res.stdout.trim();
+    if (path && p.exists(isAbsolute(path) ? path : join(dir, path))) return true;
+  }
+  return false;
+}
+
+/** `rebase --abort` reapplies the pull's autostash, and parks it in the stash list when it no longer applies cleanly, so uncommitted edits survive either way. */
+async function abortRebase(p: Probes, dir: string, pullOutput: string): Promise<never> {
+  const abort = await p.exec(["git", "rebase", "--abort"], { cwd: dir });
+  const log = `${pullOutput}\n${withoutUrls(`${abort.stdout}\n${abort.stderr}`.trim())}`.trim();
+  if (abort.code !== 0) {
+    throw new UserActionableError("org-mid-rebase", "rt could not put your copy of the org back after a failed pull, so it made no invite", {}, {
+      why: "Your copy of the org is part way through a git rebase. Undo it, then invite again.",
+      next: `git -C ${dir} rebase --abort`,
+      log,
+    });
+  }
+  const stashed = /safe in the stash/i.test(`${abort.stdout}\n${abort.stderr}`);
+  throw new UserActionableError("org-changed-concurrently", "Someone else changed the org at the same time, so rt made no invite", {}, {
+    why: stashed
+      ? "rt put your copy of the org back as it was and kept your unsaved edits there in git's stash. Pull their change, then invite again."
+      : "rt put your copy of the org back as it was. Pull their change, then invite again.",
+    next: "rt team pull",
+    log,
+  });
+}
+
 export function realMintInviteSeams(): MintInviteSeams {
   return {
     read: defaultRead(),
@@ -165,7 +196,10 @@ export function realMintInviteSeams(): MintInviteSeams {
       if (known.code !== 0) return;
       const pull = gitWithToken(["pull", "--rebase", "--autostash", "origin", "main"], token, { GIT_TERMINAL_PROMPT: "0" }, { remote });
       const res = await p.exec(pull.argv, { cwd: dir, env: pull.env });
-      if (res.code !== 0) throw new Error(withoutUrls(`${res.stdout}\n${res.stderr}`.trim()) || `git pull exited ${res.code}`);
+      if (res.code === 0) return;
+      const output = withoutUrls(`${res.stdout}\n${res.stderr}`.trim());
+      if (!(await rebaseStopped(p, dir))) throw new Error(output || `git pull exited ${res.code}`);
+      await abortRebase(p, dir, output);
     },
     publishRoster: async (p, slug, handle, remote, token) => {
       const dir = join(p.home, ".mattstack", "teams", slug);
@@ -349,6 +383,7 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   try {
     await seams.pullOrg(p, opts.slug, remote, token);
   } catch (err) {
+    if (err instanceof UserActionableError) throw err;
     throw new UserActionableError("org-not-current", "rt could not bring the org repo up to date, so it made no invite", {}, {
       why: err instanceof Error ? err.message : String(err),
       next: "rt team status",

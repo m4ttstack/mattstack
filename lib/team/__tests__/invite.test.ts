@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync, mkdirSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { childEnv } from "../../subprocess.ts";
@@ -826,6 +826,15 @@ describe("joinLinkBase refuses a base the code could be intercepted on", () => {
       expect(relay.createCalls).toEqual([]);
     });
 
+    test("a pull that clashes with someone else's change keeps its own plain refusal", async () => {
+      const relay = fakeRelayClient();
+      const clash = new UserActionableError("org-changed-concurrently", "Someone else changed the org at the same time, so rt made no invite", {}, { next: "rt team pull" });
+      const { seams, writeCalls } = baseSeams({ pullOrg: async () => { throw clash; } });
+      await expect(mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "dev2", teams: ["widgets"], now: NOW }, seams)).rejects.toBe(clash);
+      expect(writeCalls).toEqual([]);
+      expect(relay.createCalls).toEqual([]);
+    });
+
     test("a re-invite whose entry needs no change still pushes: an earlier write may never have left this Mac", async () => {
       let pushed = 0;
       const { seams, writeCalls } = baseSeams({
@@ -882,6 +891,77 @@ describe("real invite git seams", () => {
     const err = await realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null).catch((err: Error) => err);
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).not.toContain("private-token");
+  });
+
+  test("a stopped rebase that will not abort says how to undo it by hand", async () => {
+    const p = probesWithRemote(REMOTE, { "/home/.mattstack/teams/acme/.git/rebase-merge": "" });
+    p.exec = async (argv) => {
+      if (argv.includes("pull")) return { code: 1, stdout: "", stderr: "CONFLICT (content)" };
+      if (argv.includes("--git-path")) return { code: 0, stdout: `.git/${argv.at(-1)}\n`, stderr: "" };
+      if (argv.includes("--abort")) return { code: 128, stdout: "", stderr: "fatal: could not abort" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    await expect(realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null)).rejects.toMatchObject({
+      code: "org-mid-rebase",
+      next: "git -C /home/.mattstack/teams/acme rebase --abort",
+    });
+  });
+});
+
+describe("a pull that conflicts with another admin's roster change", () => {
+  test("puts the clone back where it was and refuses in plain words", async () => {
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-invite-pull-")));
+    const env = { ...childEnv(), HOME: home, GIT_AUTHOR_NAME: "dev1", GIT_AUTHOR_EMAIL: "dev1@example.com", GIT_COMMITTER_NAME: "dev1", GIT_COMMITTER_EMAIL: "dev1@example.com", GIT_CONFIG_NOSYSTEM: "1" };
+    const git = (cwd: string, args: string[]) => {
+      const res = Bun.spawnSync(["git", ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
+      expect(res.exitCode).toBe(0);
+      return res.stdout.toString();
+    };
+    const roster = (names: string[]) => JSON.stringify({ "mattstack.org": { admins: ["dev1", "dev2"], teams: {} }, "mattstack.roster": names.map((username) => ({ username, teams: ["widgets"] })) });
+    const store = join("mattstack", "org", "settings.org.jsonc");
+    try {
+      const remote = join(home, "remote.git");
+      const other = join(home, "other");
+      const dir = join(home, ".mattstack", "teams", "acme");
+      git(home, ["init", "--bare", "-b", "main", remote]);
+      git(home, ["clone", remote, other]);
+      mkdirSync(join(other, "mattstack", "org"), { recursive: true });
+      writeFileSync(join(other, store), roster(["dev1", "dev2"]));
+      writeFileSync(join(other, "notes.txt"), "original\n");
+      git(other, ["add", "--", store, "notes.txt"]);
+      git(other, ["commit", "-m", "fixture"]);
+      git(other, ["push", "origin", "main"]);
+      mkdirSync(join(home, ".mattstack", "teams"), { recursive: true });
+      git(home, ["clone", remote, dir]);
+
+      writeFileSync(join(other, store), roster(["dev1", "dev2", "dev3"]));
+      git(other, ["commit", "-am", "team: invite dev3"]);
+      git(other, ["push", "origin", "main"]);
+
+      const local = roster(["dev1", "dev2", "dev4"]);
+      writeFileSync(join(dir, store), local);
+      git(dir, ["commit", "-am", "team: invite dev4"]);
+      writeFileSync(join(dir, "notes.txt"), "uncommitted\n");
+      const head = git(dir, ["rev-parse", "HEAD"]);
+
+      const p = { ...createRealProbes(), home, env };
+      p.exec = async (argv, opts) => {
+        const res = Bun.spawnSync(argv, { cwd: opts?.cwd, env: { ...env, ...opts?.env }, stdout: "pipe", stderr: "pipe" });
+        return { code: res.exitCode, stdout: res.stdout.toString(), stderr: res.stderr.toString() };
+      };
+      const err = await realMintInviteSeams().pullOrg(p, "acme", remote, null).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(UserActionableError);
+      expect(err).toMatchObject({ code: "org-changed-concurrently", message: "Someone else changed the org at the same time, so rt made no invite", next: "rt team pull" });
+
+      expect(existsSync(join(dir, ".git", "rebase-merge"))).toBe(false);
+      expect(existsSync(join(dir, ".git", "rebase-apply"))).toBe(false);
+      expect(git(dir, ["symbolic-ref", "--short", "HEAD"]).trim()).toBe("main");
+      expect(git(dir, ["rev-parse", "HEAD"])).toBe(head);
+      expect(readFileSync(join(dir, store), "utf8")).toBe(local);
+      expect(readFileSync(join(dir, "notes.txt"), "utf8")).toBe("uncommitted\n");
+      expect(git(dir, ["stash", "list"])).toBe("");
+      expect(git(dir, ["status", "--porcelain"])).toBe(" M notes.txt\n");
+    } finally { rmSync(home, { recursive: true, force: true }); }
   });
 });
 
