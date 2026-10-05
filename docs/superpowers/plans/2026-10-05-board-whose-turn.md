@@ -1604,6 +1604,7 @@ For each hit, read its selector and decide:
 - **Highlight on one of the five surfaces above** (`:hover`, `.active`, `[data-active]`, `[aria-selected]`, `[aria-checked]`, a selected row): hover becomes `var(--surface-wash-fg-5)`; active or selected becomes `var(--surface-wash-accent-14)` with `border-color: var(--fill-accent)`. The sidebar's `.tui-side-item:hover` (:1555) and `.tui-side-item.active` (:1558) are known cases.
 - **Floating layer** (menu, modal, popover, toast, drawer, tooltip, sheet): leave as `--card`.
 - **A card nested in a surface on purpose** (an inset callout): change to `var(--surface-wash-fg-4-card)` so it still reads as a separate box.
+- **A control on a surface** (inputs and buttons, e.g. the selection bar's header input and its copy / actions / clear buttons): keep the fill, and make sure its border uses `--border-on-card` (or `--border-control-on-card` where the kit offers it) so the edge stays visible on white. Include the selection bar with a live selection in Step 4's screenshots.
 
 Also re-check `--ask-base` (:4727), which mixes `--card` with `--chrome`. Change `var(--chrome)` there to `var(--surface-wash-fg-5)` only if the ask band no longer stands out against its row in Step 4. Otherwise leave it.
 
