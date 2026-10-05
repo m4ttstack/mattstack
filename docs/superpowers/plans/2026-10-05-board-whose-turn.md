@@ -1606,6 +1606,8 @@ For each hit, read its selector and decide:
 - **A card nested in a surface on purpose** (an inset callout): change to `var(--surface-wash-fg-4-card)` so it still reads as a separate box.
 - **A control on a surface** (inputs and buttons, e.g. the selection bar's header input and its copy / actions / clear buttons): keep the fill, and make sure its border uses `--border-on-card` (or `--border-control-on-card` where the kit offers it) so the edge stays visible on white. Include the selection bar with a live selection in Step 4's screenshots.
 
+Then widen the audit past `var(--card)`: every control drawn inside one of the five surfaces was tuned for a grey ground. Run `rg -n "var\(--(panel|surface-overlay|surface-raised|chrome)\)|background: (#fff|white)" apps/board/src/style.css` and check each hit that sits inside a surface (`.tui-copy`, `.tui-drawer-action`, inputs, segmented controls, chips, pills, count badges, the selection bar's controls). A fill of `--panel` or `--surface-overlay` is `#f9f9fb` in light mode, which is invisible on white. Give such controls `--surface-wash-fg-4-card` or rely on an on-card border, whichever the kit's own controls do (match `packages/tui-kit` Button/Input on a card).
+
 Also re-check `--ask-base` (:4727), which mixes `--card` with `--chrome`. Change `var(--chrome)` there to `var(--surface-wash-fg-5)` only if the ask band no longer stands out against its row in Step 4. Otherwise leave it.
 
 Write the classification as a short list in the commit message body (selector â†’ decision).
@@ -1613,6 +1615,13 @@ Write the classification as a short list in the commit message body (selector â†
 - [ ] **Step 4: Look at it**
 
 On `http://localhost:11006` through the `fast-browser:browser-driver` agent, in light and then dark: hover and select a sidebar member, hover a tab and switch tabs, hover an MR row, select two rows (selection bar), open a row menu and the Show menu, and open the comments drawer. Take a screenshot of each state. Every highlight must be visible against its surface, and no text may read washed out. Name anything that looks wrong and fix it before moving on.
+
+Then run a contrast sweep in the same session, as one `browser_run_code_unsafe` script per scheme. For every `button`, `input`, `select`, `[role=tab]` and `[role=checkbox]` inside `.tui-header`, the sidebar, `[data-part='panel']`, the selection bar and `.tui-tabs`:
+- find the nearest ancestor with a non-transparent background (the surface);
+- compute the WCAG contrast of the control's background against the surface, of its border color against the surface, and of its text color against its own background (or the surface if transparent);
+- return only the failures: text below 4.5:1 (3:1 at 18px+ or 14px bold), or a control whose background *and* border are both below 1.3:1 against the surface (an invisible control).
+
+Expected: an empty failure list in both light and dark. Fix every failure, re-run until it's empty, and paste the final (empty) result into the task report.
 
 - [ ] **Step 5: Commit**
 
