@@ -36,6 +36,8 @@ digraph rt_release {
     "git fetch origin --tags" [shape=plaintext];
     "Find where this release stands" [shape=box];
     "Where does the release stand?" [shape=diamond];
+    "A rehearsal still running on the old notes commit?" [shape=diamond];
+    "gh run cancel <run-id>" [shape=plaintext];
     "rt release preflight --json" [shape=plaintext];
     "Preflight verdict?" [shape=diamond];
     "Preflight runs = 3?" [shape=diamond];
@@ -67,7 +69,10 @@ digraph rt_release {
     "Find where this release stands" -> "Where does the release stand?";
     "Where does the release stand?" -> "rt release preflight --json" [label="nothing started"];
     "Where does the release stand?" -> "Prove and tag (prove-and-tag.md)" [label="notes commit on origin/main, no fix recorded, no tag"];
-    "Where does the release stand?" -> "rt release preflight --json" [label="notes commit on origin/main, a fix for this release merged after it, no tag"];
+    "Where does the release stand?" -> "A rehearsal still running on the old notes commit?" [label="notes commit on origin/main, a fix for this release merged after it, no tag"];
+    "A rehearsal still running on the old notes commit?" -> "gh run cancel <run-id>" [label="yes"];
+    "A rehearsal still running on the old notes commit?" -> "rt release preflight --json" [label="no"];
+    "gh run cancel <run-id>" -> "rt release preflight --json";
     "Where does the release stand?" -> "Publish and finish (publish-and-finish.md)" [label="tag pushed"];
     "rt release preflight --json" -> "Preflight verdict?";
     "Preflight verdict?" -> "Audit the range for what set-up Macs miss" [label="every row current"];
@@ -149,14 +154,16 @@ lag origin/main), then take the first edge that matches:
    and the newest is the one in play. It names its `<tag>`; `git ls-remote --tags origin <tag>`
    says whether that tag is on origin.
 3. Whether the newest tag's publish verified: `rt release verify <newest-tag> --json --no-wait`.
+   A run row error here is confirmed the way `publish-and-finish.md` says before it counts.
 
 - `notes commit on origin/main, a fix for this release merged after it, no tag`: fact 2 matched,
   `ls-remote` printed nothing, and the earlier hold recorded "re-prepare on the new main" as its
-  resume point, in the turn's final message or in the answer to the gate that
-  recommended it, and that fix has merged. The evidence is that record, never a count of commits
+  resume point, in a message to Matt (the turn's final message, or the one a late addition
+  sends) or in the answer to the gate that recommended it, and that fix has merged. The evidence is that record, never a count of commits
   after the notes. A merged fix can change pins, the tree state or the diff gate, so preflight
   runs first and the release goes through Prepare again from there: its copy-aside keeps the
-  curated notes, and Matt re-approves the notes against the grown range.
+  curated notes, and Matt re-approves only the delta (`Approved before in this release?` in
+  `prepare.md`).
 - `notes commit on origin/main, no fix recorded, no tag`: fact 2 matched, `ls-remote` printed
   nothing, and no fix for this release merged after it. Unrelated commits after the notes commit do not count: Prove
   and tag reuses a dispatch run whose `headSha` is that notes commit and tags the exercised sha
@@ -166,6 +173,19 @@ lag origin/main), then take the first edge that matches:
   release stopped before rt.cool or update-machine.
 - `nothing started`: neither. A fast-path notes commit (`chore(release): notes for <tag>`)
   with no tag also lands here: `rt release apps` resumes its own steps.
+
+A late addition is the usual source of that record. When Matt adds a fix after the notes commit
+("get #N into this release"), it is his instruction, not a gate: record "re-prepare on the new
+main" as the resume point in a message to Matt before going further. If the fix has merged, re-enter at
+`git fetch origin --tags` now; if not, the release is `Held: release paused, resume point named`
+until it merges. One release can take several late additions; each one re-enters the same way.
+
+### A rehearsal still running on the old notes commit?
+
+`gh run list --workflow release.yml --event workflow_dispatch --json databaseId,headSha,status`
+shows it: a run not yet `completed` whose `headSha` is the older notes commit. It rehearses a sha
+the tag will no longer name, so cancel it rather than wait on it; Prove and tag dispatches a new
+one on the new notes commit.
 
 ### Gate: cut or hold each stale row
 
@@ -257,12 +277,20 @@ Three reads, in this order:
 | A settings-store key changes | preflight's schema lock and settings stores rows pass | never this step's: those rows own it |
 | Served-app, daemon or CLI behavior, or state a reader derives each time | the update itself | never a gap |
 
-A row whose middle column holds, by read 1, is covered and gets no line. The result is one
+A row whose middle column holds, by read 1, is covered, and a covered row still gets a proof
+line: the commit and the `file:line` or the list entry that carries it (`<step id>` at
+`lib/setup/__tests__/update-safe.test.ts:<line>`, the migration id in `MIGRATIONS`). A commit
+subject is never proof: "seed the config on update" says what the author meant, not what an
+update run does. A covered judgment with no proof line is an unfinished audit. The gaps are one
 line per uncovered row, in four parts: the commit, what a set-up Mac lacks after updating, the cut, and
 the read that proved it (`foo.seed is not in the pinned list`, `no migration names the old
 path`, `no verify row reads the scope`). A line with no proof is an unfinished audit, never a
-gate question. A gap Matt already held in this release is not a gap again. No lines takes the
-`no` edge.
+gate question. A gap Matt already held in this release is not a gap again. No gap lines takes
+the `no` edge.
+
+The audit is easy to get wrong from inside a long release session. Consider running it a second
+time as a fresh agent, given only the range and this section, and cross-check the two results:
+a commit one run calls covered and the other calls a gap is settled by its proof line.
 
 ### Gate: cut or hold each setup gap
 
@@ -307,13 +335,14 @@ Read `prepare.md` now and follow its graph; its sections are there.
 
 ### Prove and tag (prove-and-tag.md)
 
-Rehearse release.yml on the notes commit, walk its artifact through the local clean room, and tag
-the commit those runs exercised.
+Rehearse release.yml on the notes commit, walk its artifact through the four clean-room
+scenarios, and tag the commit those runs exercised.
 Read `prove-and-tag.md` now and follow its graph; its sections are there.
 
 ### Publish and finish (publish-and-finish.md)
 
-Verify what release.yml published, deploy rt.cool, and bring this machine onto the release.
+Verify what release.yml published, deploy rt.cool, bring this machine onto the release, and
+close a team pack sync held on it.
 Read `publish-and-finish.md` now and follow its graph; its sections are there.
 
 ## How every gate asks
@@ -348,4 +377,9 @@ answer.
 | "Matt is away, so I post the status in #rt and wait." | Status goes in the gate question. The only #rt post in a release is update-machine's own. |
 | "The checkout is on another branch, so I switch it." | Never switch it. Open the gate. |
 | "Preflight was all current, so the skill's check is satisfied." | Preflight reads pins and settings schemas. What this release changes about setup is the audit's, on every release. |
+| "Create passed, so the walkthrough is green." | Four scenarios: create, join, solo and the update leg. Each is green on its own phases. |
+| "That failure looks like the VM, so it does not count." | Only the expected-noise list is ignorable. A VM-looking failure reruns alone before any gate. |
+| "The commit subject says it seeds on update, so it is covered." | Covered needs a proof line from the code, never a subject. |
+| "Matt added a one-line fix, so his notes approval still covers it." | Re-prepare on the new main; Matt re-approves the delta, quoted. |
+| "The release is done, so the held pack sync can go now." | It waits for the team's real members to confirm they updated. |
 | "I noticed an upgrade hazard, so I'll mention it at the notes approval." | A noticed gap is a line for the setup-gap gate. Cut or hold is Matt's answer, never a remark. |
