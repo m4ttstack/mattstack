@@ -680,6 +680,20 @@ describe("org base pack roots", () => {
     expect(orgBasePackRoots(copy).map((r) => r.name)).toEqual(["acme-base"]);
   });
 
+  test("org marker slugs use the org domain, while pack names keep the team domain", () => {
+    const { root } = makeRoot();
+    const clone = join(root, "teams", "acme");
+    const pack = join(clone, "mattstack", "teams", "team-1acme", "packs", "team-1acme");
+    mkdirSync(pack, { recursive: true });
+    const marker = join(clone, "mattstack", "mattstack.jsonc");
+    writeFileSync(marker, JSON.stringify({ role: "org", org: "1acme" }));
+    expect(orgOfPackDir(pack)).toEqual({ org: "1acme", root: realpathSync(clone) });
+    for (const org of ["../acme", "a/b", "a\\b", "", "Upper", "a".repeat(41)]) {
+      writeFileSync(marker, JSON.stringify({ role: "org", org }));
+      expect(orgOfPackDir(pack)).toBeNull();
+    }
+  });
+
   test("orgOfPackDir stops at the nearest marker, and refuses one that is not a valid org", () => {
     const { root } = makeRoot();
     const nested = join(root, "teams", "acme", "mattstack", "teams", "widgets", "vendor");

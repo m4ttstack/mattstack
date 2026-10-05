@@ -53,6 +53,8 @@ function gitAwareFakeProbes(home: string, intercept?: Intercept) {
   const p = fakeProbes({
     home,
     exec: (argv, execOpts) => {
+      if (argv.includes("get-url")) return { code: 0, stdout: "https://github.com/acme/repo.git\n", stderr: "" };
+      if (argv.includes("ls-remote")) return { code: 0, stdout: "", stderr: "" };
       const override = intercept?.(argv, execOpts);
       if (override) return override;
 
@@ -569,9 +571,11 @@ describe("creator commits with an existing index", () => {
         };
         let failing = false;
         const realExec = p.exec;
+        let publishedBase: string | null = null;
         p.exec = async (argv, opts) => {
           if (argv[0] === "xcode-select") return { code: 0, stdout: "/fake-clt", stderr: "" };
           if (failing && argv[0] === "git" && argv[1] === mode.replace("rerun-", "")) return { code: 1, stdout: "", stderr: `fake ${mode} failure` };
+          if (argv.includes("ls-remote")) return { code: 0, stdout: publishedBase ? `${publishedBase}\trefs/heads/main\n` : "", stderr: "" };
           if (argv.includes("push")) return { code: 0, stdout: "", stderr: "" };
           return realExec(argv, opts);
         };
@@ -582,6 +586,7 @@ describe("creator commits with an existing index", () => {
         writeFileSync(join(created.dir, "unrelated.txt"), "original\n");
         run(["add", "--", "unrelated.txt"], created.dir);
         run(["commit", "-m", "fixture unrelated", "--", "unrelated.txt"], created.dir);
+        publishedBase = run(["rev-parse", "HEAD"], created.dir);
         writeFileSync(join(created.dir, "unrelated.txt"), "staged\n");
         run(["add", "--", "unrelated.txt"], created.dir);
         writeFileSync(join(created.dir, "unrelated.txt"), "working\n");
@@ -705,9 +710,11 @@ describe("forge identity scaffold failure recovery", () => {
           };
           let failing = true;
           const realExec = p.exec;
+          let publishedBase: string | null = null;
           p.exec = async (argv, opts) => {
             if (argv[0] === "xcode-select") return { code: 0, stdout: "/fake-clt", stderr: "" };
             if (failing && argv[0] === "git" && argv[1] === failure) return { code: 1, stdout: "", stderr: `fake initial ${failure} failure` };
+            if (argv.includes("ls-remote")) return { code: 0, stdout: publishedBase ? `${publishedBase}\trefs/heads/main\n` : "", stderr: "" };
             if (argv.includes("push")) {
               const paths = run(["ls-tree", "-r", "--name-only", "HEAD"]).split("\n");
               expect(paths.sort()).toEqual([".claude-plugin/marketplace.json", ".gitignore", ".sops.yaml", "mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/widgets/settings.team.jsonc", "unrelated.txt"].sort());
@@ -721,6 +728,7 @@ describe("forge identity scaffold failure recovery", () => {
           writeFileSync(join(dir, "unrelated.txt"), "original\n");
           run(["add", "--", "unrelated.txt"]);
           run(["commit", "-m", "fixture unrelated", "--", "unrelated.txt"]);
+          publishedBase = run(["rev-parse", "HEAD"]);
           writeFileSync(join(dir, "unrelated.txt"), "staged\n");
           run(["add", "--", "unrelated.txt"]);
           writeFileSync(join(dir, "unrelated.txt"), "working\n");

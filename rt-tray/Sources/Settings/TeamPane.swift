@@ -61,7 +61,7 @@ struct TeamPaneForm: View {
                 }
             } else {
                 Section("Org") {
-                    LabeledContent("Name") { Text(info?.name ?? "...") }
+                    LabeledContent("Name") { Text(info?.orgIdentity ?? "...") }
                     LabeledContent("Your team") { yourTeam }
                     LabeledContent("Remote") {
                         HStack { Text(maskedRemote).textSelection(.enabled)

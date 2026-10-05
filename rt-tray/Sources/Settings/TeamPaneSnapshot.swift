@@ -37,9 +37,10 @@ enum TeamPaneSnapshot {
     #if DEBUG
     // TeamSettingsInfo's memberwise initializer is internal to MattstackCore.
     private static let people: [(String, String)] = [
-        ("admin", #"{"contract":1,"name":"Acme","slug":"acme","remote":"https://github.com/acme/org.git","lastPush":"2026-10-01T10:00:00+00:00","members":[{"username":"dev1"},{"username":"dev4"}],"role":"admin","activeTeam":"widgets","teams":["widgets","gadgets"],"orgTeams":["gadgets","widgets"]}"#),
-        ("owner", #"{"contract":1,"name":"Acme","slug":"acme","remote":"https://github.com/acme/org.git","lastPush":"2026-10-01T10:00:00+00:00","members":[{"username":"dev1"},{"username":"dev2"}],"role":"owner","activeTeam":"gadgets","teams":["gadgets"],"orgTeams":["gadgets","widgets"]}"#),
-        ("member", #"{"contract":1,"name":"Acme","slug":"acme","remote":"https://github.com/acme/org.git","lastPush":null,"members":[{"username":"dev1"},{"username":"dev4"}],"role":"member","activeTeam":"widgets","teams":["widgets"],"orgTeams":["gadgets","widgets"]}"#),
+        ("admin", #"{"contract":1,"name":"Widgets","slug":"acme","remote":"https://github.com/acme/org.git","lastPush":"2026-10-01T10:00:00+00:00","members":[{"username":"dev1"},{"username":"dev4"}],"role":"admin","activeTeam":"widgets","teams":["widgets","gadgets"],"orgTeams":["gadgets","widgets"]}"#),
+        ("admin-switched", #"{"contract":1,"name":"Gadgets","slug":"acme","remote":"https://github.com/acme/org.git","lastPush":"2026-10-01T10:00:00+00:00","members":[{"username":"dev1"},{"username":"dev4"}],"role":"admin","activeTeam":"gadgets","teams":["widgets","gadgets"],"orgTeams":["gadgets","widgets"]}"#),
+        ("owner", #"{"contract":1,"name":"Gadgets","slug":"acme","remote":"https://github.com/acme/org.git","lastPush":"2026-10-01T10:00:00+00:00","members":[{"username":"dev1"},{"username":"dev2"}],"role":"owner","activeTeam":"gadgets","teams":["gadgets"],"orgTeams":["gadgets","widgets"]}"#),
+        ("member", #"{"contract":1,"name":"Widgets","slug":"acme","remote":"https://github.com/acme/org.git","lastPush":null,"members":[{"username":"dev1"},{"username":"dev4"}],"role":"member","activeTeam":"widgets","teams":["widgets"],"orgTeams":["gadgets","widgets"]}"#),
     ]
     #endif
 }
