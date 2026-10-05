@@ -274,3 +274,25 @@ func TestATableAtTheColumnFloorStacksBeforeClipping(t *testing.T) {
 		})
 	}
 }
+
+func TestAStackedTableKeepsConsecutiveEmptySeparatorRows(t *testing.T) {
+	b := protocol.Block{T: "table", Rows: []protocol.TableRow{
+		cells("abcdefgh", "ijklmnop", "qrstuvwx"),
+		{},
+		{},
+		cells("ABCDEFGH", "IJKLMNOP", "QRSTUVWX"),
+	}}
+	for _, tc := range []struct {
+		width int
+		want  string
+	}{
+		{30, "  abcdefgh  ijklmnop  qrstuvwx\n  \n  \n  ABCDEFGH  IJKLMNOP  QRSTUVWX\n"},
+		{26, "  abcdefgh\n      ijklmnop\n      qrstuvwx\n  \n  \n  ABCDEFGH\n      IJKLMNOP\n      QRSTUVWX\n"},
+	} {
+		got := plainAt(tc.width, b)
+		checkWidth(t, got, tc.width)
+		if got != tc.want {
+			t.Errorf("width %d: got\n%q\nwant\n%q", tc.width, got, tc.want)
+		}
+	}
+}

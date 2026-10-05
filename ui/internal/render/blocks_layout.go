@@ -162,6 +162,7 @@ func (r *renderer) stackedTable(b protocol.Block, header []protocol.Cell, avail 
 			continue
 		}
 		if len(row.Cells) == 0 {
+			r.emit(indent)
 			continue
 		}
 		first := row.Cells[0]
