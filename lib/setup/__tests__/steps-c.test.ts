@@ -19,7 +19,7 @@ import type { ToolResolution } from "../../deps/resolve.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import type { Probes } from "../probes.ts";
 
-import { MATTSTACK_MARKETPLACE_SOURCE, OFFICIAL_MARKETPLACE_SOURCE, computePlugins, pluginsInstallStep } from "../steps/plugins.ts";
+import { MATTSTACK_MARKETPLACE_SOURCE, OFFICIAL_MARKETPLACE_SOURCE, __test__ as pluginsTest, computePlugins, pluginsInstallStep } from "../steps/plugins.ts";
 import { gitIdentityStep } from "../steps/git-identity.ts";
 import { linearMcpStep } from "../steps/linear-mcp.ts";
 import { applyBaselinePermissions, claudePermissionsStep } from "../steps/claude-permissions.ts";
@@ -210,6 +210,12 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(trusted).toContain("mine@elsewhere");
         expect(teamAuthored).not.toContain("mine@elsewhere");
       });
+    });
+
+    test("an item no layer claims reads as shared, so it is never enabled", () => {
+      expect(pluginsTest.sharedOnly([])).toBe(true);
+      expect(pluginsTest.sharedOnly([{ scope: "org", file: null }, { scope: "team", file: null }])).toBe(true);
+      expect(pluginsTest.sharedOnly([{ scope: "org", file: null }, { scope: "user", file: null }])).toBe(false);
     });
 
     test("only the active team's marketplace entry is team-authored; another team's pack is not installed", () => {

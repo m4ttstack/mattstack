@@ -1827,19 +1827,19 @@ export const TREE: Record<string, CommandNode> = {
         args: [
           { name: "Key", type: "text", placeholder: "rt.worktrees", hint: "Namespaced settings key (must be migrated:true)" },
           { name: "Value", type: "text", placeholder: "{\"onDeck\":3}", hint: "JSON(C) value" },
-          { name: "Scope", flag: "--scope", type: "select", hint: "Which store to write into", options: [{ value: "user", label: "user", hint: "~/.mattstack/user/settings.user.jsonc" }, { value: "org", label: "org", hint: "shared by every team in your org" }, { value: "team", label: "team", hint: "your team's own settings" }, { value: "machine", label: "machine", hint: "~/.mattstack/user/local/<machine-key>/settings.local.jsonc" }] },
+          { name: "Scope", flag: "--scope", type: "select", hint: "Which store to write into", options: [{ value: "user", label: "user", hint: "you, on every Mac" }, { value: "org", label: "org", hint: "shared by every team in your org" }, { value: "team", label: "team", hint: "your team's own settings" }, { value: "machine", label: "machine", hint: "this Mac only" }] },
           { name: "Repo", flag: "--repo", type: "text", placeholder: "acme-dev", hint: "Registered repo (name, path, or identity); required for repo-scoped keys" },
           { name: "Team", flag: "--team", type: "text", placeholder: "widgets", hint: "A team's name, for --scope team; your own team when left out" },
         ],
       },
       unset: {
-        description: "Remove a setting from one authored store (the only supported way; hand-editing a store is not)",
+        description: "Remove a setting from one layer",
         module: "./commands/settings-keys.ts",
         fn: "settingsUnset",
         omitBehavior: { exempt: "agent-facing; the key is passed explicitly (discover the set with rt settings list)" },
         args: [
           { name: "Key", type: "text", placeholder: "rt.worktrees", hint: "Namespaced settings key to remove" },
-          { name: "Scope", flag: "--scope", type: "select", hint: "Which store to remove it from", options: [{ value: "user", label: "user", hint: "~/.mattstack/user/settings.user.jsonc" }, { value: "org", label: "org", hint: "shared by every team in your org" }, { value: "team", label: "team", hint: "your team's own settings" }, { value: "machine", label: "machine", hint: "~/.mattstack/user/local/<machine-key>/settings.local.jsonc" }] },
+          { name: "Scope", flag: "--scope", type: "select", hint: "Which store to remove it from", options: [{ value: "user", label: "user", hint: "you, on every Mac" }, { value: "org", label: "org", hint: "shared by every team in your org" }, { value: "team", label: "team", hint: "your team's own settings" }, { value: "machine", label: "machine", hint: "this Mac only" }] },
           { name: "Repo", flag: "--repo", type: "text", placeholder: "acme-dev", hint: "Registered repo (name, path, or identity); required for repo-scoped keys" },
           { name: "Team", flag: "--team", type: "text", placeholder: "widgets", hint: "A team's name, for --scope team; your own team when left out" },
         ],

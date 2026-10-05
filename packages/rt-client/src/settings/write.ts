@@ -637,7 +637,11 @@ function realPathOf(path: string): string {
   }
 }
 
-/** The org clone a store file sits in, by real path, so a symlinked clone and every spelling through it are found. */
+/**
+ * The org clone a store file sits in, by real path, so a symlinked clone and every spelling through it are found.
+ * Only the directory is resolved: the write replaces the entry in it, so a store file that is itself a link
+ * still lands in the clone wherever the link points.
+ */
 function orgHolding(storePath: string): { org: string; rest: string[] } | null {
   let names: string[];
   try {
@@ -645,7 +649,7 @@ function orgHolding(storePath: string): { org: string; rest: string[] } | null {
   } catch {
     return null;
   }
-  const real = realPathOf(storePath);
+  const real = join(realPathOf(dirname(storePath)), basename(storePath));
   for (const org of names.sort()) {
     const rel = relative(realPathOf(orgDir(org)), real);
     if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue;

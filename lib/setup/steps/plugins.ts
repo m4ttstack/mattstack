@@ -166,10 +166,12 @@ function teamMarketplaceDir(p: Pick<Probes, "home">, slug: string): string {
   return join(p.home, ".mattstack", "teams", slug);
 }
 
-/** An item is the org's or a team's only when no layer of your own lists it too. */
+/** An item is the org's or a team's only when no layer of your own lists it too; one with no layer at all fails closed. */
 function sharedOnly(sources: Provenance[]): boolean {
-  return sources.length > 0 && sources.every((s) => isSharedScope(s.scope));
+  return sources.length === 0 || sources.every((s) => isSharedScope(s.scope));
 }
+
+export const __test__ = { sharedOnly };
 
 /**
  * The marketplaces BASE_PLUGINS install from are added FIRST, ahead of

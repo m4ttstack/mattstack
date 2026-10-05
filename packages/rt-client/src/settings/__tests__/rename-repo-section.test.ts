@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { seedOrg } from "../../../test/org-fixture.ts";
@@ -144,6 +144,19 @@ describe("renameRepoSection", () => {
       expect(readStore(real[0]!).repos[NEW]).toEqual({ x: 1 });
       expect(renameRepoSection(real[1]!, OLD, NEW).status).toBe("moved");
       expect(readStore(real[1]!).repos[NEW]).toEqual({ x: 1 });
+    });
+
+    test("is not changed by a member when the store file is a symlink that points outside the clone", () => {
+      const { orgStore, teamStore } = seedMember();
+      for (const [i, store] of [orgStore, teamStore].entries()) {
+        const outside = join(dir, `outside-${i}.jsonc`);
+        renameSync(store, outside);
+        symlinkSync(outside, store);
+        const before = readFileSync(outside, "utf8");
+        expect(renameRepoSection(store, OLD, NEW).status).toBe("skipped");
+        expect(lstatSync(store).isSymbolicLink()).toBe(true);
+        expect(readFileSync(outside, "utf8")).toBe(before);
+      }
     });
 
     test("leaves a member's own user and machine stores renamable beside a symlinked clone", () => {

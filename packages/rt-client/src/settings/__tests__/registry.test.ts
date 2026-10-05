@@ -444,7 +444,7 @@ describe("settings/registry", () => {
       expect(isRetiredKey("board.members")).toBe(true);
     });
 
-    test("scope spot-checks: deck.access is user-only, board.gitlabHost is team-only, gitq.forges is user-only, mattstack.appPath is machine-only", () => {
+    test("scope spot-checks: deck.access is user-only, board.gitlabHost is team or org, gitq.forges is user-only, mattstack.appPath is machine-only", () => {
       expect(getDef("deck.access")?.scopes).toEqual(["user"]);
       expect(getDef("board.gitlabHost")?.scopes).toEqual(["team", "org"]);
       expect(getDef("gitq.forges")?.scopes).toEqual(["user"]);
