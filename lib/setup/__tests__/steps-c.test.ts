@@ -8,7 +8,8 @@ import { updateRepoIndex } from "../../repo-index.ts";
 import { setSetting } from "../../settings/write.ts";
 import type { SecretsSeams } from "../../secrets/store.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
-import type { ApplyContext, StepOutcome } from "../apply.ts";
+import { runUpdateWith, type ApplyContext, type StepOutcome } from "../apply.ts";
+import { computeUninstallActions, runUninstall } from "../uninstall.ts";
 import { BASE_PLUGINS } from "../base-plugins.ts";
 import { ENGINE_PACK_MISSING_CODE } from "../skills-materialize.ts";
 import { stageSecret } from "../staging.ts";
@@ -118,6 +119,101 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     process.env.HOME = origHome;
     rmSync(home, { recursive: true, force: true });
     bundleLayoutTest.resetBundleLayoutMemo();
+  });
+
+  // Catches update orchestration accidentally switching to install semantics,
+  // adopting pre-existing plugins, or losing ownership before uninstall.
+  test.each([false, true])("update then uninstall preserves the member's team enablement (%s) and unrelated configuration", async (teamEnabled) => {
+    const teamDir = join(home, ".mattstack", "teams", "acme");
+    const teamPlugin = "acme-skills@acme-market";
+    const enabled: Record<string, boolean> = {
+      "mattstack@mattstack": false,
+      "fast-browser@mattstack": true,
+      "chat@mattstack": true,
+      "superpowers@claude-plugins-official": true,
+      [teamPlugin]: teamEnabled,
+      "personal@personal": true,
+    };
+    const settingsPath = join(home, ".claude", "settings.json");
+    const mcpPath = join(home, ".claude.json");
+    const beforeSettings = {
+      permissions: { allow: ["Read(/personal/**)"], deny: ["Bash(rm *)"], defaultMode: "plan" },
+      crossSessionInbound: "reject",
+      hooks: { Stop: [{ hooks: [{ type: "command", command: "personal-stop" }] }] },
+    };
+    const beforeMcp = { mcpServers: { personal: { command: "personal-mcp", args: ["serve"] } }, numStartups: 7 };
+    const p = fakeProbes({
+      home,
+      env: { PATH: "/fixture/bin" },
+      files: {
+        "/fixture/bin/claude": "fake executable",
+        [join(teamDir, ".claude-plugin", "marketplace.json")]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }),
+        [settingsPath]: JSON.stringify(beforeSettings),
+        [mcpPath]: JSON.stringify(beforeMcp),
+      },
+      exec: async (argv) => {
+        if (argv[0] !== "/fixture/bin/claude") throw new Error(`Unexpected executable: ${argv[0]}`);
+        if (argv.slice(1).join(" ") === "plugin marketplace list --json") return ok(JSON.stringify([
+          { name: "mattstack", source: "git", url: MATTSTACK_MARKETPLACE_SOURCE },
+          { name: "claude-plugins-official", source: "github", repo: OFFICIAL_MARKETPLACE_SOURCE },
+          { name: "acme-market", source: "directory", path: teamDir },
+          { name: "personal", source: "directory", path: "/personal" },
+        ]));
+        if (argv.slice(1).join(" ") === "plugin list --json") return ok(JSON.stringify(
+          Object.entries(enabled).map(([id, on]) => ({ id, version: "1.0.0", enabled: on, scope: "user" })),
+        ));
+        if (argv[2] === "update" && argv[3]! in enabled) return ok("");
+        if (argv[2] === "enable" && argv[3]! in enabled) { enabled[argv[3]!] = true; return ok(""); }
+        if (argv[2] === "uninstall" && argv[3]! in enabled) { delete enabled[argv[3]!]; return ok(""); }
+        throw new Error(`Unexpected Claude operation: ${argv.slice(1).join(" ")}`);
+      },
+    });
+    // Only one baseline plugin belongs to rt. The team pack and the others
+    // were already installed by the member and must not become ours on update.
+    updateSetupState(p, (s) => ({ ...s, plugins: ["mattstack@mattstack"], marketplaces: [] }));
+    const { ctx } = makeCtx(p, {
+      update: true,
+      team: { slug: "acme", name: "Acme", mode: "none" },
+      secretPresence: { has: async () => "fixture-linear-token" },
+    });
+    const steps = [pluginsInstallStep, claudePermissionsStep, linearMcpStep];
+    const first = await runUpdateWith(steps, [], ctx);
+    expect(first.ok).toBe(true);
+    expect(first.outcomes.map((o) => o.id)).toEqual(["plugins.install", "claude.permissions"]);
+    expect(enabled["mattstack@mattstack"]).toBe(false);
+    expect(enabled[teamPlugin]).toBe(teamEnabled);
+    expect(readSetupState(p).plugins).toEqual(["mattstack@mattstack"]);
+    expect(readSetupState(p).marketplaces).toEqual([]);
+    const settings = JSON.parse(p.readFile(settingsPath)!);
+    expect(settings.permissions.allow[0]).toBe("Read(/personal/**)");
+    expect(settings.permissions.allow).toContain("mcp__plugin_mattstack_mattstack");
+    expect(settings.permissions.deny).toEqual(["Bash(rm *)"]);
+    expect(settings.permissions.defaultMode).toBe("plan");
+    expect(settings.crossSessionInbound).toBe("reject");
+    expect(settings.hooks).toEqual(beforeSettings.hooks);
+    // Linear is not update-safe: even an available token must not cause an
+    // unattended update to add it to a member's otherwise-valid MCP config.
+    expect(JSON.parse(p.readFile(mcpPath)!)).toEqual(beforeMcp);
+
+    const stableSettings = p.readFile(settingsPath);
+    const again = await runUpdateWith(steps, [], ctx);
+    expect(again.ok).toBe(true);
+    expect(p.readFile(settingsPath)).toBe(stableSettings);
+    expect(readSetupState(p).plugins).toEqual(["mattstack@mattstack"]);
+    const actions = computeUninstallActions(p, { keepData: true }, { detectEditors: () => [] })
+      .filter((a) => a.id === "plugins.uninstall");
+    expect(actions.map((a) => a.id)).toEqual(["plugins.uninstall"]);
+    expect((await runUninstall(ctx, actions)).ok).toBe(true);
+    expect(enabled).toEqual({
+      "fast-browser@mattstack": true,
+      "chat@mattstack": true,
+      "superpowers@claude-plugins-official": true,
+      [teamPlugin]: teamEnabled,
+      "personal@personal": true,
+    });
+    expect(readSetupState(p).plugins).toEqual([]);
+    expect(p.readFile(settingsPath)).toBe(stableSettings);
+    expect(JSON.parse(p.readFile(mcpPath)!)).toEqual(beforeMcp);
   });
 
   // ─── plugins.install ────────────────────────────────────────────────────

@@ -230,8 +230,8 @@ identities.
 | Repeated sign-in | Same identity for the same verified native session |
 | Clear or fork into a new native session | Fresh identity unless an authorized continuation explicitly applies |
 | Compaction retaining the native session | Retain identity; refresh attachment/context as needed |
-| Explicit herd worker replacement | Continue the assigned worker identity into the replacement attempt; invalidate the predecessor's assignment authority |
-| Explicit harness switch for a job | New attempt and native session; preserve the assignment and Mattstack history through authorized continuation |
+| Explicit herd worker replacement | Mint a fresh worker identity as Claude does today, keeping predecessor DMs separate; retain job history and invalidate predecessor assignment authority |
+| Explicit harness switch for a job | New attempt, native session and worker identity; preserve job history and invalidate predecessor authority, without implicitly inheriting predecessor DMs |
 | Daemon restart | Reload bindings and reconcile; unresolved observations remain unknown |
 | Sign-out or confirmed session end | Update presence and detach delivery using the existing ownership rules |
 
@@ -595,6 +595,16 @@ The source audit contains the corresponding file references.
 | A28 | Release and clean-room verification | Shared release checks and profile matrix | Distributed bundle and actual lifecycle pass all supported profiles |
 
 ## Verification and release criteria
+
+Before production extraction, establish the mandatory [B0 regression baseline](../plans/2026-10-05-harness-integrations-0-regression-baseline.md).
+Characterization tests must first pass against the existing implementation and
+then remain unchanged through extraction. Record actual assertions and runs
+for every audited surface; distinguish mocks, compiled-daemon tests, native
+workflows and distributed lifecycle evidence. Root-suite success alone is
+insufficient. Existing failures, flaky affected tests and missing required
+behavioral evidence block admission under B0; frozen fixtures cannot be updated
+to hide a regression. New policy guarantees get separate tests and explicit
+migration decisions rather than being mislabeled as existing protection.
 
 Use three layers of evidence. Contract tests run against both integrations
 with controlled transports and event fixtures. A small fake third integration

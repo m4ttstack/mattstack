@@ -1328,6 +1328,84 @@ describe("agent:start resolves unset payload fields from settings", () => {
     expect(argv).not.toContain("--dangerously-skip-permissions");
   });
 
+  for (const surface of ["herdr", "headless"] as const) {
+    for (const yolo of [false, true]) {
+      test(`agent:resume ${surface} keeps recorded options after defaults change, including yolo:${yolo}`, async () => {
+        setSetting("agent.provider", "claude", "user");
+        setSetting("agent.claude.account", "before@example.com", "user");
+        setSetting("agent.claude.model", "haiku", "user");
+        setSetting("agent.claude.effort", "low", "user");
+        setSetting("agent.claude.extraArgs", "--verbose", "user");
+        setSetting("agent.claude.yolo", true, "user");
+        const calls: string[][] = [];
+        const spawns: string[][] = [];
+        const herdrCalls: string[] = [];
+        const h = fresh({
+          runner: okRunner(calls),
+          herdr: async (method) => {
+            herdrCalls.push(method);
+            if (method === "agent.get" || method === "agent.wait") {
+              return { ok: true, result: { agent: { agent_status: "idle" } } };
+            }
+            if (method === "pane.read") return { ok: true, result: { read: { text: "$ claude\n> \n" } } };
+            return { ok: false, code: "invalid_request", message: method };
+          },
+          spawn: (argv) => {
+            spawns.push(argv);
+            return { exited: Promise.resolve(0), stdout: async () => "{}", sessionId: async () => undefined };
+          },
+        });
+        const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface, prompt: "go", yolo });
+        if (!started.ok) throw new Error(started.error);
+        expect(getAgent(started.data.id, h.db)).toMatchObject({
+          provider: "claude", account: "before@example.com", model: "haiku", effort: "low", extraArgs: "--verbose", yolo,
+        });
+
+        setSetting("agent.provider", "codex", "user");
+        setSetting("agent.claude.account", "after@example.com", "user");
+        setSetting("agent.claude.model", "opus", "user");
+        setSetting("agent.claude.effort", "high", "user");
+        setSetting("agent.claude.extraArgs", "--debug", "user");
+        setSetting("agent.claude.yolo", !yolo, "user");
+        calls.length = 0;
+        spawns.length = 0;
+        const resumed = await h["agent:resume"]({ id: started.data.id, ...(surface === "headless" ? { prompt: "continue" } : {}) });
+        if (!resumed.ok) throw new Error(resumed.error);
+        expect(herdrCalls).not.toContain("pane.send_keys");
+        if (surface === "headless") expect(herdrCalls).toEqual([]);
+        expect(resumed.data).toMatchObject({
+          sessionId: started.data.sessionId, surface, provider: "claude", account: "before@example.com",
+          model: "haiku", effort: "low", extraArgs: "--verbose", yolo,
+        });
+        expect(getAgent(started.data.id, h.db)).toMatchObject({
+          provider: "claude", account: "before@example.com", model: "haiku", effort: "low", extraArgs: "--verbose", yolo,
+        });
+        if (surface === "herdr") {
+          const command = calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!;
+          expect(command).toContain("cswap run 'before@example.com'");
+          expect(command).toContain("'--model' 'haiku' '--effort' 'low'");
+          expect(command).toContain(`'--resume' '${started.data.sessionId}'`);
+          expect(command).toContain("'--verbose'");
+          expect(command.includes("'--dangerously-skip-permissions'")).toBe(yolo);
+          expect(command).not.toContain("after@example.com");
+          expect(command).not.toContain("'--debug'");
+          expect(command).not.toContain("'--session-id'");
+        } else {
+          expect(spawns).toHaveLength(1);
+          const argv = spawns[0]!;
+          expect(argv.slice(1, 4)).toEqual(["run", "before@example.com", "--"]);
+          expect(argv.slice(argv.indexOf("--model"), argv.indexOf("--model") + 4)).toEqual(["--model", "haiku", "--effort", "low"]);
+          expect(argv.slice(argv.indexOf("--resume"), argv.indexOf("--resume") + 2)).toEqual(["--resume", started.data.sessionId]);
+          expect(argv).toContain("--verbose");
+          expect(argv.includes("--dangerously-skip-permissions")).toBe(yolo);
+          expect(argv).not.toContain("after@example.com");
+          expect(argv).not.toContain("--debug");
+          expect(argv).not.toContain("--session-id");
+        }
+      });
+    }
+  }
+
   // An explicit payload provider must beat the global default outright --
   // that is what herd:spawn relies on to stay claude-only.
   test("an explicit payload provider overrides agent.provider", async () => {

@@ -124,6 +124,37 @@ test("posting to a room delivers the body to a signed-in recipient's inbox and a
   expect(lastReadId(h.db, "general", "b")).toBe(posted.data.id);
 });
 
+// Registry states differ from Herdr's working/blocked statuses. Ordinary
+// inbox delivery must not consult the pane or disturb its question/composer.
+for (const status of ["idle", "busy", "shell", undefined] as const) {
+  test(`ordinary inbox delivery with registry status ${status ?? "unknown"} sends the frame without touching the pane`, async () => {
+    const calls: Array<[string, string]> = [];
+    const herdrCalls: string[] = [];
+    const sock = fakeSocketPath();
+    const inboxDeps: InboxDeps = {
+      resolve: (sessionId) => sessionId === "sess-b" ? { pid: process.pid, socketPath: sock, status } : null,
+      deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
+    };
+    const herdr: typeof herdrRequest = async (method) => {
+      herdrCalls.push(method);
+      return { ok: false, code: "unreachable", message: "no pane transport in this test" };
+    };
+    const h = freshHandlers(inboxDeps, herdr);
+    await h["chat:join"]({ room: "general", handle: "a" });
+    await h["chat:join"]({ room: "general", handle: "b" });
+    const { signIn } = await import("../../state/index.ts");
+    signIn({ sessionId: "sess-b", continueId: "b", pane: "w1:p2" }, h.db);
+    const posted = await h["chat:post"]({ room: "general", handle: "a", body: "@b hi" });
+    if (!posted.ok) throw new Error(posted.error);
+    await waitFor(() => lastReadId(h.db, "general", "b") === posted.data.id);
+    expect(posted.data.recipients).toEqual(["b"]);
+    expect(calls).toEqual([
+      [sock, `<cross-session-message from-name="a (#general)">\n[#general] a #1: @b hi\n${STEER}\n</cross-session-message>`],
+    ]);
+    expect(herdrCalls).toEqual([]);
+  });
+}
+
 test("a successful delivery refreshes the recipient's last_seen_at -- the only remaining route to it now that chat:pulse is gone", async () => {
   const calls: Array<[string, string]> = [];
   const sock = fakeSocketPath();
@@ -1551,6 +1582,97 @@ test("a pair past the ceiling backs off, then retries and delivers on the next e
   expect(revived).toEqual({ sweptPairs: 1, recoveredMessages: 1 });
   expect(lastReadId(db, "general", "b")).toBeGreaterThan(0);
   expect(warnCalls).toHaveLength(3); // no additional warn on the eventual, successful retry
+});
+
+/** Seed a real unread backlog directly so only the sweep drives delivery;
+    per-post pushes and welcome frames cannot consume a retry by accident. */
+async function sweepBackoffFixture(maxConsecutiveFailures: number) {
+  const sock = fakeSocketPath();
+  const binding: InboxBinding = { pid: process.pid, socketPath: sock, status: "idle" };
+  const delivered: string[] = [];
+  let accepting = false;
+  const inboxDeps: InboxDeps = {
+    resolve: (sessionId) => sessionId === "sess-b" ? binding : null,
+    deliver: async (_socketPath, content) => {
+      delivered.push(content);
+      return accepting ? { ok: true } : { ok: false, error: "unavailable" };
+    },
+  };
+  const registryDeps: RegistryDeps = {
+    resolve: (sessionId) => sessionId === "sess-b" ? binding : null,
+    alive: () => true,
+    resolveAll: () => new Map([["sess-b", binding]]),
+  };
+  const { db, sweep } = freshSweep(inboxDeps, { registryDeps, log: fakeLogger().log, retryDelayMs: 0, maxConsecutiveFailures });
+  const { joinRoom, postMessage, signIn } = await import("../../state/index.ts");
+  joinRoom({ room: "general", handle: "a", wakeOn: "all" }, db);
+  joinRoom({ room: "general", handle: "b", wakeOn: "all" }, db);
+  signIn({ sessionId: "sess-b", continueId: "b" }, db);
+  return {
+    db, sweep, delivered,
+    post: (body: string) => {
+      const message = postMessage({ room: "general", handle: "a", body }, db);
+      if (!message) throw new Error("fixture message was refused");
+      return message;
+    },
+    accept: () => { accepting = true; },
+  };
+}
+
+test("a saturated sweep skips at most 120 ticks and keeps retrying the same unread message", async () => {
+  const { db, sweep, delivered, post, accept } = await sweepBackoffFixture(1);
+  const message = post("still waiting");
+  // Seven failed sweeps grow the skipped windows to 64 ticks. The next
+  // failure reaches the 120-tick cap instead of doubling to 128.
+  for (const skipped of [1, 2, 4, 8, 16, 32, 64]) {
+    expect(await sweep()).toEqual({ sweptPairs: 1, recoveredMessages: 0 });
+    for (let i = 0; i < skipped; i++) {
+      expect(await sweep()).toEqual({ sweptPairs: 0, recoveredMessages: 0 });
+    }
+  }
+  expect(await sweep()).toEqual({ sweptPairs: 1, recoveredMessages: 0 });
+  expect(delivered).toHaveLength(16); // eight failures, each with its immediate retry
+  for (let i = 0; i < 120; i++) {
+    expect(await sweep()).toEqual({ sweptPairs: 0, recoveredMessages: 0 });
+  }
+  expect(delivered).toHaveLength(16);
+  expect(lastReadId(db, "general", "b")).toBe(0);
+  expect(await sweep()).toEqual({ sweptPairs: 1, recoveredMessages: 0 });
+  expect(delivered).toHaveLength(18);
+
+  accept();
+  for (let i = 0; i < 120; i++) {
+    expect(await sweep()).toEqual({ sweptPairs: 0, recoveredMessages: 0 });
+  }
+  expect(await sweep()).toEqual({ sweptPairs: 1, recoveredMessages: 1 });
+  expect(delivered).toHaveLength(19);
+  expect(lastReadId(db, "general", "b")).toBe(message.id);
+  expect(new Set(delivered).size).toBe(1);
+});
+
+test("a newer message resets the sweep's failure streak while the old message is still unread", async () => {
+  const { db, sweep, delivered, post, accept } = await sweepBackoffFixture(2);
+  post("first body");
+  expect(await sweep()).toEqual({ sweptPairs: 1, recoveredMessages: 0 });
+  expect(await sweep()).toEqual({ sweptPairs: 1, recoveredMessages: 0 });
+  expect(await sweep()).toEqual({ sweptPairs: 0, recoveredMessages: 0 });
+  expect(await sweep()).toEqual({ sweptPairs: 1, recoveredMessages: 0 });
+  expect(delivered).toHaveLength(6);
+  expect(lastReadId(db, "general", "b")).toBe(0);
+
+  const newer = post("second body");
+  // Both ticks were inside the old backoff window. The first must attempt
+  // immediately, and its failure must restart at one so the second can too.
+  expect(await sweep()).toEqual({ sweptPairs: 1, recoveredMessages: 0 });
+  expect(await sweep()).toEqual({ sweptPairs: 1, recoveredMessages: 0 });
+  expect(delivered).toHaveLength(10);
+  expect(lastReadId(db, "general", "b")).toBe(0);
+  expect(await sweep()).toEqual({ sweptPairs: 0, recoveredMessages: 0 });
+  accept();
+  expect(await sweep()).toEqual({ sweptPairs: 1, recoveredMessages: 2 });
+  expect(lastReadId(db, "general", "b")).toBe(newer.id);
+  expect(delivered.at(-1)).toContain("[#general] a #1: first body");
+  expect(delivered.at(-1)).toContain("[#general] a #2: second body");
 });
 
 test("a sweep re-delivery chains behind an in-flight post delivery to the same recipient instead of racing it", async () => {

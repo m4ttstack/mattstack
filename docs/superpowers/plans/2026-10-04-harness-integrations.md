@@ -29,6 +29,17 @@
 
 **F1 result:** [Original exit report](../spikes/2026-10-05-harness-gate-spike-report.md) plus [focused hook follow-up](../spikes/2026-10-05-codex-hooks-followup.md) prove G1/G2/G3/G5. The revised spec and plans incorporate the observed hook loading/trust lifecycle; G4 async completion and G7 restart remain explicit gaps.
 
+## Mandatory regression baseline
+
+[B0: regression baseline](2026-10-05-harness-integrations-0-regression-baseline.md)
+precedes F2 and every production extraction. Existing test files and successful
+spikes do not establish a comprehensive green baseline. B0 records actual
+current-behavior assertions and run results for all A01–A28 areas, fills material
+characterization gaps, and explicitly distinguishes offline/native/distributed
+evidence. Follow its admission and per-task rules; unresolved required evidence
+blocks the affected work. The [baseline report](../spikes/2026-10-05-harness-regression-baseline.md)
+records progress, not a presumption of GREEN.
+
 ## Review Focus
 
 These five failure classes receive explicit tests in the owning tasks:
@@ -55,6 +66,7 @@ cases merely to produce a newer timestamp.
 
 | Plan | Deliverable | Dependencies |
 | --- | --- | --- |
+| [0. Regression baseline](2026-10-05-harness-integrations-0-regression-baseline.md) | Verified current-Claude protection and task-level regression gates | Unchanged production implementation; B0 admission criteria |
 | [1. Foundation](2026-10-04-harness-integrations-1-foundation.md) | Registered launch/session integrations with verified identity and context | Existing `rt agent` seams; F1 native evidence |
 | [2. Messaging and gates](2026-10-04-harness-integrations-2-messaging.md) | Current push behavior and authoritative gate completion through both integrations | F1–F6; S1/S2/S4 prerequisites as specified |
 | [3. Orchestration](2026-10-04-harness-integrations-3-orchestration.md) | Mixed workers, either shepherd harness, correct supervision and pipeline ownership | Foundation; messaging/policy contracts |
@@ -66,6 +78,7 @@ The suffixes below split the original task IDs at independent review boundaries;
 references to a parent ID include every subtask. Do not implement a later phase
 by silently stubbing a required capability.
 
+0. **Regression baseline:** B0.1 → B0.2 → B0.3 → B0.4; no production extraction before its admission criteria pass.
 1. **Foundation:** F2 → F3 → F4 → F5a (native control) → F5b (Claude sessions)
    → F5c (Codex sessions) → F5d (shared launch) → F6. Bootstrap launches have
    no managed-work admission; they exist to bind/test native sessions.

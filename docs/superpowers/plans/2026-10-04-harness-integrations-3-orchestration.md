@@ -56,7 +56,9 @@ optional `replaces`. `reconcileJobAttempts(): Promise<void>` repairs interrupted
   Assert native submission count stays zero after activation failure and an
   immediate report from the submitted worker is authorized by the active attempt.
   Assert the predecessor receives `error.code === 'stale-binding'`, the
-  replacement keeps the stored worker handle, and only matching active attempt
+  replacement mints a fresh worker identity, preserving predecessor DM separation
+  as current `herd-handlers.test.ts` requires; resuming the same worker retains
+  its identity. Only the matching active attempt
   plus binding authorizes a report. A current M6c proof must precede activation;
   `expect(activateWithoutProof.ok).toBe(false)` even if hooks/list is trusted. Close/reopen both stores between each step
   of reserve/bind/activate and assert recovery creates no duplicate attempt.
