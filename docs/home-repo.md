@@ -114,10 +114,11 @@ The team instance differs from the home one in four ways:
 - **Scope.** It stages only `mattstack/**`, `.sops.yaml` and
   `.claude-plugin/**`. A team clone that is also a working repo keeps its
   `src/` and `docs/` hand-committed.
-- **Packs are janitor-only.** `mattstack/packs/` is a standing claimed zone
-  (owner `skills-publish`): a pack is published by its own commit (the
-  `mattstack:editing-skills` flow, `rt skills sync`), so a watch never commits
-  a half-made pack edit. The janitor still commits a pack left dirty past
+- **Packs are janitor-only.** Every pack folder (`mattstack/org/packs/`, each
+  `mattstack/teams/<team>/packs/`, and `mattstack/packs/` on a clone not yet
+  converted) is a standing claimed zone (owner `skills-publish`): a pack is
+  published by its own commit (the `mattstack:editing-skills` flow,
+  `rt skills sync`), so a watch never commits a half-made pack edit. The janitor still commits a pack left dirty past
   `janitorThresholdHours`. A claim on the same path in the clone's own
   `snapshot-owners.jsonc` wins over the standing one.
 - **Pull.** Before every push, at daemon boot and every `pullIntervalSec`, it

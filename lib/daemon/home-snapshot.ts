@@ -23,7 +23,7 @@
  * caller asked for "manual". Running it again gets a fresh manual cycle.
  */
 
-import { existsSync, watch as fsWatch } from "fs";
+import { existsSync, readdirSync, watch as fsWatch } from "fs";
 import { isAbsolute, join } from "path";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
@@ -44,6 +44,7 @@ import {
 import { gitWithToken } from "../team/git-credential.ts";
 import { unpublishedPaths } from "../team/publish-history.ts";
 import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
 import { roleFor } from "../team/roles.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
 import type { Probes } from "../setup/probes.ts";
@@ -153,7 +154,7 @@ export interface SnapshotSpec {
   /** Paths (relative to repoDir) the engine may stage; undefined = everything outside claimed zones. */
   scope?: (relPath: string) => boolean;
   /** Zones claimed for as long as the spec runs, as if written to the owners file; a claim in the file wins over one here. */
-  standingZones?: Owners["zones"];
+  standingZones?: (repoDir: string) => Owners["zones"];
   readAuthorization?: () => { scope: (relPath: string) => boolean; pullOnly: boolean };
   /** Every managed path, including paths this Mac may not push. */
   watch?: (relPath: string) => boolean;
@@ -368,11 +369,23 @@ export function homeSnapshotSpec(repoDir: string = join(mattstackHome(), "user")
  * Packs publish through their own commit (the editing-skills flow, `rt skills
  * sync`), which a watch commit would preempt mid-edit and push under the
  * generic message. The janitor still commits a pack left dirty past its
- * threshold, so an abandoned edit is not lost.
+ * threshold, so an abandoned edit is not lost. Team folders come and go
+ * (`rt team add`), so the zones are re-listed on every read; an unconverted
+ * clone still keeps its packs in `mattstack/packs/`.
  */
-const TEAM_STANDING_ZONES: Owners["zones"] = {
-  "mattstack/packs/": { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" },
-};
+function teamStandingZones(repoDir: string): Owners["zones"] {
+  let teams: string[] = [];
+  try {
+    teams = readdirSync(join(repoDir, "mattstack", "teams"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && TEAM_NAME_RE.test(entry.name))
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    teams = [];
+  }
+  const zones = ["mattstack/packs/", "mattstack/org/packs/", ...teams.map((team) => `mattstack/teams/${team}/packs/`)];
+  return Object.fromEntries(zones.map((zone) => [zone, { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" }]));
+}
 
 /** A team clone: no legacy state file (nothing predates it), and it pulls (multi-writer), unlike the home repo. */
 export function teamSnapshotSpec(
@@ -395,7 +408,7 @@ export function teamSnapshotSpec(
     kvNamespace: `team-snapshot:${slug}`,
     eventPrefix: "team",
     scope: (path) => teamScope(path) && owns(path),
-    standingZones: TEAM_STANDING_ZONES,
+    standingZones: teamStandingZones,
     readAuthorization: () => {
       const roots = ownedRoots(roleFor(opts.probes, slug));
       return {
@@ -440,7 +453,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   const ownersPath = ownersPathFor(deps.repoDir);
   const readClaims = (): Owners => {
     const owners = deps.readOwners(ownersPath);
-    return spec.standingZones ? { zones: { ...spec.standingZones, ...owners.zones } } : owners;
+    return spec.standingZones ? { zones: { ...spec.standingZones(deps.repoDir), ...owners.zones } } : owners;
   };
   const { label, settingsKey, missingRepo } = vocabOf(spec);
 
