@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 /**
- * rt cd — Context-aware worktree/repo directory picker.
+ * rt cd - Context-aware worktree/repo directory picker.
  *
  * Prints the selected path to stdout so a shell function can cd into it.
  *
@@ -21,8 +21,9 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { yellow, green, reset } from "../lib/tui.ts";
-import { getRepoIdentity, getKnownRepos, getKnownReposCached, findKnownRepo, repoCarriesWorktree, getWorkspacePackages, repoFromOptionValue, missingRepoRefusal, ghostPathRefusal, type KnownRepo } from "../lib/repo.ts";
+import * as out from "../lib/ui/out.ts";
+import type { Block } from "../lib/ui/protocol.ts";
+import { getRepoIdentity, getKnownRepos, getKnownReposCached, findKnownRepo, repoCarriesWorktree, getWorkspacePackages, repoFromOptionValue, missingRepoFailure, type KnownRepo } from "../lib/repo.ts";
 import { writeRepoCache } from "../lib/repo-cache.ts";
 import { isTrashPath } from "../lib/worktree/trash.ts";
 import {
@@ -67,16 +68,36 @@ export const SHELL_FUNCTION = [
   `}`,
 ].join("\n");
 
+function wrapperNotes(rcLabel: string, flags: { funcnest: boolean; preRehash: boolean; noNav: boolean; worktreeNav: boolean; hashCache: boolean; oldWrapper: boolean; legacyRtcd: boolean }): Block {
+  const reason = flags.funcnest
+    ? "it can loop forever in zsh"
+    : flags.preRehash
+      ? "it does not rehash after a dev mode switch"
+      : flags.noNav
+        ? "it cannot cd for rt nav"
+        : flags.worktreeNav
+          ? "it still jumps on rt worktree"
+          : flags.hashCache
+            ? "it finds the dev app's rt by name, not by path"
+            : flags.oldWrapper
+              ? "it does not follow rt x"
+              : flags.legacyRtcd
+                ? "it is the old rtcd function"
+                : null;
+  return reason ? out.line("warn", "Your rt shell function is out of date", reason) : out.line("needs-you", "rt cd needs a shell function to change your directory", rcLabel);
+}
+
 async function ensureShellFunction(): Promise<void> {
   const shell = detectShell();
-  const rcFile = shellRcPath(shell) ?? join(homedir(), ".zshrc");
+  const home = process.env.HOME ?? homedir();
+  const rcFile = shellRcPath(shell) ?? join(home, ".zshrc");
   let rcContent = "";
   try {
     rcContent = readFileSync(rcFile, "utf8");
   } catch { /* no rc file yet */ }
 
   // Latest version marker: whence -p / type -P PATH-only lookup (fixes FUNCNEST
-  // recursion), and NO bare `rt worktree` cd-jump — that hijacked the subcommand
+  // recursion), and NO bare `rt worktree` cd-jump - that hijacked the subcommand
   // picker, so a wrapper still carrying it is stale and gets rewritten below.
   if (
     rcContent.includes('rt() {') &&
@@ -85,46 +106,31 @@ async function ensureShellFunction(): Promise<void> {
     !rcContent.includes('"$1" = "worktree"')
   ) return;
 
-  // Redirect stdout → stderr before showing prompts
-  const origWrite = process.stdout.write.bind(process.stdout);
-  process.stdout.write = process.stderr.write.bind(process.stderr) as typeof process.stdout.write;
+  const release = out.holdStdout();
+  try {
 
   const { confirm } = await import("../lib/rt-render.ts");
   const hasLegacyRtcd = rcContent.includes("rtcd()");
   const hasOldRtWrapper = rcContent.includes("rt() {") && rcContent.includes("command rt cd") && !rcContent.includes(".last-cwd");
   const hasPreRehashWrapper = rcContent.includes("rt() {") && rcContent.includes(".last-cwd") && !rcContent.includes("hash -r");
   const hasNoNav = rcContent.includes("rt() {") && rcContent.includes("command rt cd") && !rcContent.includes("command rt nav") && !rcContent.includes('"$rt_bin" nav');
-  // Function exists but uses `command rt` everywhere — vulnerable to the stale
+  // Function exists but uses `command rt` everywhere - vulnerable to the stale
   // zsh hash-table issue. Anything pre-absolute-path version qualifies.
   const hasHashCacheBug = rcContent.includes("rt() {") && rcContent.includes("command rt cd") && !rcContent.includes("local rt_bin");
   // Uses command -v which returns the function name in zsh, causing infinite recursion
   const hasFuncnestBug = rcContent.includes("rt() {") && rcContent.includes("command -v rt") && !rcContent.includes("whence -p rt");
-  // Function still carries the bare `rt worktree` cd-jump — strip it so
+  // Function still carries the bare `rt worktree` cd-jump - strip it so
   // `rt worktree` reaches its subcommand picker like every other group.
   const hasWorktreeNav = rcContent.includes("rt() {") && rcContent.includes('"$1" = "worktree"');
   const hasOldFunction = hasLegacyRtcd || hasOldRtWrapper || hasPreRehashWrapper || hasHashCacheBug || hasFuncnestBug || hasWorktreeNav;
 
-  if (hasFuncnestBug) {
-    console.error(`\n  ${yellow}Upgrading rt shell wrapper: fix FUNCNEST recursion in zsh${reset}`);
-  } else if (hasPreRehashWrapper) {
-    console.error(`\n  ${yellow}Upgrading rt shell wrapper: auto-rehash after dev-mode toggle${reset}`);
-  } else if (hasNoNav) {
-    console.error(`\n  ${yellow}Upgrading rt shell wrapper: adding rt nav cd support${reset}`);
-  } else if (hasWorktreeNav) {
-    console.error(`\n  ${yellow}Upgrading rt shell wrapper: removing rt worktree cd-jump${reset}`);
-  } else if (hasHashCacheBug) {
-    console.error(`\n  ${yellow}Upgrading rt shell wrapper: resolve dev-mode binary by absolute path${reset}`);
-  } else if (hasOldRtWrapper) {
-    console.error(`\n  ${yellow}Upgrading rt shell wrapper: adding rt x auto-cd support${reset}`);
-  } else if (hasLegacyRtcd) {
-    console.error(`\n  ${yellow}Upgrading shell function: rtcd → rt cd (native)${reset}`);
-  } else {
-    console.error(`\n  ${yellow}rt cd needs a shell function to change your directory.${reset}`);
-  }
-
   const hasOldFunction2 = hasOldFunction || hasNoNav;
-
-  const rcLabel = rcFile.replace(homedir(), "~");
+  const rcLabel = rcFile.replace(home, "~");
+  out.print(wrapperNotes(rcLabel, {
+    funcnest: hasFuncnestBug, preRehash: hasPreRehashWrapper, noNav: hasNoNav,
+    worktreeNav: hasWorktreeNav, hashCache: hasHashCacheBug,
+    oldWrapper: hasOldRtWrapper, legacyRtcd: hasLegacyRtcd,
+  }));
   const install = await confirm({
     message: hasOldFunction2
       ? `Upgrade rt shell wrapper in ${rcLabel}?`
@@ -134,30 +140,29 @@ async function ensureShellFunction(): Promise<void> {
   });
 
   if (!install) {
-    console.error(`\n  Add this to your shell config manually:\n`);
-    console.error(SHELL_FUNCTION);
-    process.stdout.write = origWrite;
+    out.print(out.copy(SHELL_FUNCTION, "add this to your shell config"));
+    release();
     process.exit(0);
   }
 
   if (hasOldRtWrapper || hasPreRehashWrapper || hasNoNav || hasHashCacheBug || hasFuncnestBug || hasWorktreeNav) {
     rcContent = rcContent
-      .replace(/\n?# rt — shell wrapper \(enables rt cd to change directory\)\n?/g, "")
+      .replace(/\n?# rt (?:\u2014|-) shell wrapper \(enables rt cd to change directory\)\n?/g, "")
       .replace(/\n?rt\(\) \{[\s\S]*?\n\}\n?/g, "\n");
     writeFileSync(rcFile, rcContent);
   } else if (hasLegacyRtcd) {
     rcContent = rcContent
-      .replace(/\n?# rt — worktree\/repo directory picker\n?/g, "")
+      .replace(/\n?# rt (?:\u2014|-) worktree\/repo directory picker\n?/g, "")
       .replace(/\n?rtcd\(\)[^\n]*\n?/g, "\n");
     writeFileSync(rcFile, rcContent);
   }
 
-  const line = `\n# rt — shell wrapper (enables rt cd to change directory)\n${SHELL_FUNCTION}\n`;
+  const line = `\n# rt - shell wrapper (enables rt cd to change directory)\n${SHELL_FUNCTION}\n`;
   appendFileSync(rcFile, line);
-  console.error(`  ${green}✓ Installed rt shell wrapper in ${rcLabel}${reset}`);
-  console.error(`  Restart your terminal or run: source ${rcLabel}`);
-
-  process.stdout.write = origWrite;
+  out.print(out.line("done", "Installed the rt shell function", rcLabel), out.callout("next", out.cmd(`source ${rcLabel}`)));
+  } finally {
+    release();
+  }
 }
 
 // ─── Cache read path ─────────────────────────────────────────────────────────
@@ -189,7 +194,7 @@ export function resolveReposForIdentity(
  * entry whose selection dead-ends in ghostPathRefusal. Linked rows are
  * re-checked against disk before any picker sees them. The lead row stays even
  * when missing: that is the repo-level lost-path case, which must remain
- * pickable so it gets missingRepoRefusal instead of vanishing.
+ * pickable so it gets missingRepoFailure instead of vanishing.
  */
 export function dropGhostWorktrees(
   repos: KnownRepo[],
@@ -222,21 +227,8 @@ function reloadRepos(): KnownRepo[] {
 export async function worktreePicker(args: string[]): Promise<void> {
   await ensureShellFunction();
 
-  // Redirect stdout → stderr so TUI prompts don’t contaminate the path output
-  const realStdoutWrite = process.stdout.write.bind(process.stdout);
-  process.stdout.write = process.stderr.write.bind(process.stderr) as typeof process.stdout.write;
-  if (!process.stdout.columns && process.stderr.columns) {
-    Object.defineProperty(process.stdout, "columns", { value: process.stderr.columns, configurable: true });
-  }
-
-  // After any picker exits (ESC or selection), cursor is just below the 2-line
-  // header. Erase it so the terminal is clean — but only on success: error
-  // paths exit(1) after printing a message ("no worktree found matching …"),
-  // and the erase would wipe exactly those two lines.
-  process.once("exit", (code) => {
-    if (code === 0) process.stderr.write("\x1b[2A\x1b[0J");
-  });
-
+  const release = out.holdStdout();
+  try {
   // ── Parse flags ─────────────────────────────────────────────────────────────────────
   const forceRepo    = args.includes("--repo");
   const wtIdx        = args.indexOf("--worktree");
@@ -250,7 +242,7 @@ export async function worktreePicker(args: string[]): Promise<void> {
   // instead of recognizing where you are.
   //
   // includeMissing: true so a lost repo still renders (dimmed, via repoOption)
-  // in every picker built from `repos` — pickFromAllRepos's missing guard is
+  // in every picker built from `repos` - pickFromAllRepos's missing guard is
   // otherwise dead code, since a bare getKnownRepos() never hands it one.
   //
   // `repos` reads the cd cache (fast path). resolveReposForIdentity re-reads
@@ -284,7 +276,7 @@ export async function worktreePicker(args: string[]): Promise<void> {
     if (wtBranch) {
       // Pick repo first, then jump to the matching worktree (or show picker).
       // A missing row must be pickable here so it gets the clean
-      // missingRepoRefusal below instead of resolving via branch name against
+      // missingRepoFailure below instead of resolving via branch name against
       // a dead path.
       const pickedRepoName = repos.length === 1
         ? repos[0]!.repoName
@@ -292,7 +284,7 @@ export async function worktreePicker(args: string[]): Promise<void> {
       if (!pickedRepoName) process.exit(0); // Esc on repo picker
       const pickedRepo = repoFromOptionValue(repos, pickedRepoName)!;
       if (pickedRepo.missing) {
-        console.error(`\n  ${missingRepoRefusal(pickedRepo)}\n`);
+        out.fail(missingRepoFailure(pickedRepo));
         process.exit(1);
       }
 
@@ -340,16 +332,18 @@ export async function worktreePicker(args: string[]): Promise<void> {
     selectedPath = await pickFromAllRepos(repos, { stderr: true, includePackages: true, onReload: reloadRepos, breadcrumb: CD_BREADCRUMB });
   }
 
-  // Restore stdout and print just the path
-  process.stdout.write = realStdoutWrite;
+  release();
 
   // Ghost guard: the cache (or a picker built from it) can hand back a path
   // that no longer exists on disk. Refuse rather than print a dead path...
   // the shell wrapper `cd`s into whatever stdout prints, no questions asked.
   if (!existsSync(selectedPath)) {
-    console.error(`\n  ${ghostPathRefusal(selectedPath)}\n`);
+    out.fail({ title: "That folder is gone", hint: selectedPath, why: "rt's list of folders was out of date.", next: out.cmd("rt repos prune") });
     process.exit(1);
   }
 
-  realStdoutWrite(selectedPath + "\n");
+  out.payload(selectedPath + "\n");
+  } finally {
+    release();
+  }
 }

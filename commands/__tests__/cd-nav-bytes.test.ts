@@ -6,7 +6,11 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
+import * as out from "../../lib/ui/out.ts";
+import { __test__ as gate } from "../../lib/ui/gate.ts";
+import { __test__ as spawnTest } from "../../lib/ui/spawn.ts";
+const FAKE_UI = resolve(import.meta.dir, "..", "..", "lib", "ui", "__tests__", "fake-rt-ui.ts");
 import { execFileSync } from "child_process";
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
 import { __test__ as pickImplTest, type PickImpl } from "../../lib/ui/pick.ts";
@@ -21,6 +25,7 @@ let home: string;
 let scratch: string;
 
 beforeEach(() => {
+  out.__test__.reset();
   home = realpathSync(mkdtempSync(join(tmpdir(), "rt-cdnav-home-")));
   scratch = realpathSync(mkdtempSync(join(tmpdir(), "rt-cdnav-repos-")));
   process.env.HOME = home;
@@ -31,6 +36,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  out.__test__.reset();
   process.chdir(origCwd);
   process.env.HOME = origHome;
   process.env.SHELL = origShell;
@@ -91,6 +97,38 @@ async function run(fn: () => Promise<void>): Promise<{ code: number | undefined;
 }
 
 describe("rt cd and rt nav stdout (frozen for the shell wrapper)", () => {
+  test("rt cd registers no exit-time erase", async () => {
+    const before = process.listenerCount("exit");
+    setKvValue("repo-index", "sample-app", gitRepo("sample-app"));
+    installPick(null);
+    await run(() => worktreePicker([]));
+    expect(process.listenerCount("exit")).toBe(before);
+  });
+
+  test("the wrapper upgrade notes go to stderr and leave stdout empty", async () => {
+    writeFileSync(join(home, ".zshrc"), 'rt() {\n  command rt cd\n}\n');
+    const wt = gitRepo("sample-app");
+    setKvValue("repo-index", "sample-app", wt);
+    installPick(wt);
+    process.env.RT_UI_BIN = FAKE_UI;
+    process.env.RT_UI_FAKE = JSON.stringify({ answer: { ok: false } });
+    gate.setInteractive(() => true);
+    spawnTest.setExit((code) => {
+      throw new Error(`exit ${code}`);
+    });
+    try {
+      const r = await run(() => worktreePicker([]));
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toContain("Your rt shell function is out of date");
+      expect(r.stderr).toContain("add this to your shell config:");
+      expect(r.code).toBe(0);
+    } finally {
+      delete process.env.RT_UI_BIN;
+      delete process.env.RT_UI_FAKE;
+      gate.setInteractive(undefined);
+      spawnTest.setExit(undefined);
+    }
+  });
   test("a chosen worktree is the path and a newline on stdout, nothing else", async () => {
     const wt = gitRepo("sample-app");
     setKvValue("repo-index", "sample-app", wt);
