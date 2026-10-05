@@ -1,0 +1,121 @@
+{
+  "date": "2026-10-04",
+  "sourceCommit": "7538cfe5c",
+  "versions": {
+    "codex": "0.160.0",
+    "claude": "2.1.289",
+    "herdr": "0.9.3"
+  },
+  "verification": "11 marker assertions plus native form completion, blocked Herdr refusal, chat identity continuity, and four daemon checks passed",
+  "codexThread": "01a1097b-163b-7760-adc5-f56f1ca250a3",
+  "markers": [
+    {
+      "at": 1791160453.48899,
+      "marker": "codex-idle-herdr",
+      "codexThread": "01a1097b-163b-7760-adc5-f56f1ca250a3",
+      "claudeSession": null,
+      "pane": "wMP:p0",
+      "socket": "/Users/matt/.config/herdr/herdr.sock"
+    },
+    {
+      "at": 1791160719.07317,
+      "marker": "busy-original-done",
+      "codexThread": "01a1097b-163b-7760-adc5-f56f1ca250a3",
+      "claudeSession": null,
+      "pane": "wMP:p0",
+      "socket": "/Users/matt/.config/herdr/herdr.sock"
+    },
+    {
+      "at": 1791160719.183295,
+      "marker": "codex-queued-herdr",
+      "codexThread": "01a1097b-163b-7760-adc5-f56f1ca250a3",
+      "claudeSession": null,
+      "pane": "wMP:p0",
+      "socket": "/Users/matt/.config/herdr/herdr.sock"
+    },
+    {
+      "at": 1791160921.92436,
+      "marker": "codex-blocked-native-queue",
+      "codexThread": "01a1097b-163b-7760-adc5-f56f1ca250a3",
+      "claudeSession": null,
+      "pane": "wMP:p0",
+      "socket": "/Users/matt/.config/herdr/herdr.sock"
+    },
+    {
+      "at": 1791160992.8712,
+      "marker": "codex-external-gate-Beta",
+      "codexThread": "01a1097b-163b-7760-adc5-f56f1ca250a3",
+      "claudeSession": null,
+      "pane": "wMP:p0",
+      "socket": "/Users/matt/.config/herdr/herdr.sock"
+    },
+    {
+      "at": 1791161109.468683,
+      "marker": "codex-native-busy-original",
+      "codexThread": "01a1097b-163b-7760-adc5-f56f1ca250a3",
+      "claudeSession": null,
+      "pane": "wMP:p0",
+      "socket": "/Users/matt/.config/herdr/herdr.sock"
+    },
+    {
+      "at": 1791161116.4174569,
+      "marker": "codex-native-busy-queued",
+      "codexThread": "01a1097b-163b-7760-adc5-f56f1ca250a3",
+      "claudeSession": null,
+      "pane": "wMP:p0",
+      "socket": "/Users/matt/.config/herdr/herdr.sock"
+    },
+    {
+      "at": 1791161122.6978261,
+      "marker": "claude-idle-inbox",
+      "codexThread": null,
+      "claudeSession": "69547c0f-c04e-4981-ae1d-ba025f2bf010",
+      "pane": "w4:p1",
+      "socket": "/tmp/mcs-pr43afb6/home/.config/herdr/herdr.sock"
+    },
+    {
+      "at": 1791161125.6335008,
+      "marker": "codex-native-idle-queued",
+      "codexThread": "01a1097b-163b-7760-adc5-f56f1ca250a3",
+      "claudeSession": null,
+      "pane": "wMP:p0",
+      "socket": "/Users/matt/.config/herdr/herdr.sock"
+    },
+    {
+      "at": 1791161161.7010088,
+      "marker": "codex-chat-read-verified",
+      "codexThread": "01a1097b-163b-7760-adc5-f56f1ca250a3",
+      "claudeSession": null,
+      "pane": "wMP:p0",
+      "socket": "/Users/matt/.config/herdr/herdr.sock"
+    },
+    {
+      "at": 1791161194.8618681,
+      "marker": "codex-resumed-same-thread",
+      "codexThread": "01a1097b-163b-7760-adc5-f56f1ca250a3",
+      "claudeSession": null,
+      "pane": "wMP:p0",
+      "socket": "/Users/matt/.config/herdr/herdr.sock"
+    }
+  ],
+  "daemon": {
+    "firstAnswerWins": true,
+    "answerBeforeWait": true,
+    "answerSurvivesRealDaemonRestart": true,
+    "blockingWaitReturnsAnswer": true,
+    "scope": "Real rt daemon API, no agent consumption claimed"
+  },
+  "nativeForm": {
+    "blocking": true,
+    "answerCommittedToRt": "Beta",
+    "workerFinalAnswer": "Beta.",
+    "turnCompleted": true
+  },
+  "limits": [
+    "Throwaway bridges; production routing unchanged",
+    "Console daemon API exercised; no browser UI test",
+    "Codex daemon was not restarted",
+    "Synchronous native form was initiated while the bridge client was attached",
+    "No native queue deduplication or reconnect guarantee inferred"
+  ]
+}
