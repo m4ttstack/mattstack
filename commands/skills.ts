@@ -2056,7 +2056,7 @@ export async function skillsMaterialize(args: string[]): Promise<void> {
     const code = materializeExitCode(result, dir !== undefined);
     if (code !== 0) process.exitCode = code;
   } catch (err) {
-    if (err instanceof UserActionableError) exitUserError(err, json, "skills materialize");
+    if (err instanceof UserActionableError) exitUserError(err, json);
     throw err;
   }
 }

@@ -23,7 +23,6 @@ function usageForTrigger(json: boolean, verb: string): never {
     exitUserError(
       new UserActionableError("usage", `usage: rt cron ${verb} <trigger> [--json] (trigger: ${KNOWN_TRIGGERS.join(", ")})`),
       json,
-      `cron ${verb}`,
     );
   }
   out.fail(usageFailure("Which trigger?", "rt cron <install|remove> <trigger>", `The one trigger is ${KNOWN_TRIGGERS.join(", ")}.`));
@@ -68,7 +67,6 @@ export async function cronInstall(args: string[], _ctx: CommandContext = {}): Pr
         { next: "rt deps resolve board" },
       ),
       json,
-      "cron install",
     );
   }
 

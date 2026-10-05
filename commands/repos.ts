@@ -50,8 +50,8 @@ function flagValue(args: string[], flag: string): string | undefined {
 }
 
 /** `jsonMessage` is the envelope's error text and never changes; a person gets the question and the command. */
-function refuseUsage(deps: RegisterDeps, json: boolean, verb: string, jsonMessage: string, title: string, usage: string, why?: string): never {
-  if (json) exitUserError(new UserActionableError("usage", jsonMessage), true, verb, deps.print);
+function refuseUsage(deps: RegisterDeps, json: boolean, jsonMessage: string, title: string, usage: string, why?: string): never {
+  if (json) exitUserError(new UserActionableError("usage", jsonMessage), true, deps.print);
   out.fail(usageFailure(title, usage, why));
   process.exit(2);
 }
@@ -98,13 +98,13 @@ export async function reposRegister(args: string[], _ctx: CommandContext = {}, d
     const picked =
       process.stdin.isTTY && !json && !process.env.RT_BATCH ? await pickRegisterTarget() : undefined;
     if (picked === undefined) {
-      refuseUsage(deps, json, "repos register", USAGE, "Which repo?", USAGE);
+      refuseUsage(deps, json, USAGE, "Which repo?", USAGE);
     }
     if (picked === null) process.exit(0);
     paths = [picked];
   }
   if (track !== undefined && track !== "live" && track !== "poll") {
-    refuseUsage(deps, json, "repos register", `--track must be "live" or "poll" (got "${track}")`, "Tracking is live or poll", USAGE, `You passed "${track}".`);
+    refuseUsage(deps, json, `--track must be "live" or "poll" (got "${track}")`, "Tracking is live or poll", USAGE, `You passed "${track}".`);
   }
 
   let caches: CacheKind[] | null = null;
@@ -114,7 +114,6 @@ export async function reposRegister(args: string[], _ctx: CommandContext = {}, d
       refuseUsage(
         deps,
         json,
-        "repos register",
         `unknown cache name in "${cachesArg}" (valid: ${CACHE_KINDS.join(", ")})`,
         "rt does not know that cache",
         USAGE,
@@ -130,13 +129,12 @@ export async function reposRegister(args: string[], _ctx: CommandContext = {}, d
   for (const inputPath of paths) {
     const real = resolveRealpath(inputPath);
     if (real === null) {
-      exitUserError(new UserActionableError("bad-path", `There is no folder at ${inputPath}`), json, "repos register", deps.print);
+      exitUserError(new UserActionableError("bad-path", `There is no folder at ${inputPath}`), json, deps.print);
     }
     if (!isGitRepo(real)) {
       exitUserError(
         new UserActionableError("not-a-git-repo", `${inputPath} is not a git repo`, {}, { why: "rt can only register a folder that git tracks." }),
         json,
-        "repos register",
         deps.print,
       );
     }
@@ -167,7 +165,6 @@ export async function reposRegister(args: string[], _ctx: CommandContext = {}, d
           ...(indexed.next ? { next: indexed.next } : {}),
         }),
         json,
-        "repos register",
         deps.print,
       );
     }
@@ -274,7 +271,7 @@ export async function reposPrune(args: string[], _ctx: CommandContext = {}, deps
 
   for (const a of args) {
     if (a.startsWith("--") && a !== "--json" && a !== "--dry-run") {
-      refuseUsage(deps, json, "repos prune", `unknown flag "${a}"; ${PRUNE_USAGE}`, `This command has no option called ${a}`, PRUNE_USAGE);
+      refuseUsage(deps, json, `unknown flag "${a}"; ${PRUNE_USAGE}`, `This command has no option called ${a}`, PRUNE_USAGE);
     }
   }
 
@@ -318,7 +315,7 @@ async function resolveLocateRepo(arg: string, json: boolean, deps: RegisterDeps)
           next: "rt repos locate <new-path> --repo <identity>",
         })
       : new UserActionableError("repo-unknown", `rt does not know a repo called "${arg}"`, {}, { why: "Name a repo rt has registered, or run this from inside one." });
-  return exitUserError(err, json, "repos locate", deps.print);
+  return exitUserError(err, json, deps.print);
 }
 
 /**
@@ -333,13 +330,13 @@ export async function reposLocate(args: string[], _ctx: CommandContext = {}, dep
   const dryRun = args.includes("--dry-run");
   for (const a of args) {
     if (a.startsWith("--") && !LOCATE_FLAGS.includes(a)) {
-      refuseUsage(deps, json, "repos locate", `unknown flag "${a}"; ${LOCATE_USAGE}`, `This command has no option called ${a}`, LOCATE_USAGE);
+      refuseUsage(deps, json, `unknown flag "${a}"; ${LOCATE_USAGE}`, `This command has no option called ${a}`, LOCATE_USAGE);
     }
   }
 
   const repoArg = flagValue(args, "--repo");
   if (args.includes("--repo") && (repoArg === undefined || repoArg.startsWith("--"))) {
-    refuseUsage(deps, json, "repos locate", `--repo needs a value; ${LOCATE_USAGE}`, "Which repo moved?", LOCATE_USAGE, "The repo option needs a name.");
+    refuseUsage(deps, json, `--repo needs a value; ${LOCATE_USAGE}`, "Which repo moved?", LOCATE_USAGE, "The repo option needs a name.");
   }
   const repo = repoArg ? await resolveLocateRepo(repoArg, json, deps) : undefined;
 
@@ -348,7 +345,6 @@ export async function reposLocate(args: string[], _ctx: CommandContext = {}, dep
     refuseUsage(
       deps,
       json,
-      "repos locate",
       `locate takes one path, got ${positionals.length} (${positionals.join(", ")}); ${LOCATE_USAGE}`,
       "One folder at a time",
       LOCATE_USAGE,
@@ -366,7 +362,7 @@ export async function reposLocate(args: string[], _ctx: CommandContext = {}, dep
       out.note(out.line("refused", sentence), ...(next ? [out.callout("next", out.cmd(next))] : []));
       process.exit(2);
     }
-    exitUserError(new UserActionableError("refused", outcome.error, {}, { why: outcome.why, next: outcome.next }), json, "repos locate", deps.print);
+    exitUserError(new UserActionableError("refused", outcome.error, {}, { why: outcome.why, next: outcome.next }), json, deps.print);
   }
 
   if (outcome.dryRun) {

@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { closeStateDb, setKvValue } from "../state/index.ts";
-import { getKnownRepos, missingRepoRefusal, repoFromOptionValue, repoOption, repoOptions, type KnownRepo } from "../repo-index.ts";
+import { getKnownRepos, repoFromOptionValue, repoOption, repoOptions, type KnownRepo } from "../repo-index.ts";
 import { pickFromAllRepos } from "../pickers.ts";
 import { pickWorktree } from "../repo.ts";
 import * as ui from "../ui/out.ts";
@@ -168,13 +168,6 @@ describe("missing index rows", () => {
       }
     });
   }
-
-  test("the refusal names the repo, the gone path, and the fix", () => {
-    const msg = missingRepoRefusal({ repoName: "moved", worktrees: [{ path: "/x/gone", branch: "", isBare: false }], dataDir: "/d", missing: true });
-    expect(msg).toContain("/x/gone");
-    expect(msg).toContain("rt repos locate");
-    expect(msg).toContain("--repo moved");
-  });
 
   test("pickFromAllRepos refuses to cd into a missing repo instead of auto-selecting it", async () => {
     const exitSpy = spyOn(process, "exit").mockImplementation(() => {

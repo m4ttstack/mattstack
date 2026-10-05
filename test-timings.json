@@ -654,7 +654,6 @@
     "lib/team/__tests__/repo-access.test.ts": 1,
     "lib/team/__tests__/slug.test.ts": 1,
     "lib/team/__tests__/team-local.test.ts": 1,
-    "lib/tui/__tests__/palette.test.ts": 1,
     "lib/ui/__tests__/resolve.test.ts": 1,
     "lib/worktree/__tests__/claude-hook.test.ts": 1,
     "lib/worktree/__tests__/registry-merge.test.ts": 1,
