@@ -2530,6 +2530,50 @@ test('catalog: an app the bundle ships no Helpers binary for gets no row, and th
   expect(catalogReport()).toBeNull();
 });
 
+test('catalog: an existing catalog row carrying a portless issue is re-aliased and the issue clears; a clean row is left alone', async () => {
+  const helpers = mkdtempSync(join(tmpdir(), 'stale-portless-helpers-'));
+  writeFileSync(join(helpers, 'board'), '');
+  writeFileSync(join(helpers, 'chat'), '');
+  for (const [name, port] of [
+    ['board', 11006],
+    ['chat', 11002],
+  ] as const) {
+    putRecord({
+      name,
+      managedBy: 'rt',
+      port,
+      kind: 'service',
+      label: `com.mattstack.deck.${name}`,
+      createdAt: AT,
+      ...(name === 'board'
+        ? {
+            issues: [
+              {
+                source: 'portless' as const,
+                message: 'Error: Executable not found in $PATH: "portless"',
+                at: AT,
+              },
+            ],
+          }
+        : {}),
+    });
+  }
+  setServeShapeDeps({
+    devMode: () => false,
+    helpersDir: helpers,
+    catalog: new Map([
+      ['board', { port: 11006, args: [] as string[] }],
+      ['chat', { port: 11002, args: [] as string[] }],
+    ]),
+  });
+
+  await reresolveManagedApps(drivers);
+
+  expect(getRecord('board')!.issues).toBeUndefined();
+  expect(drivers.edge.aliases.get('board')).toBe(11006);
+  expect(drivers.edge.aliases.has('chat')).toBe(false);
+});
+
 test("catalog: the report leaves deck's own record and its launchd issue alone", async () => {
   const platformIssue = {
     source: 'launchd' as const,

@@ -595,6 +595,13 @@ async function ensureCatalogRows(
       out.created.push(name);
       continue;
     }
+    // A portless issue clears only on a later successful sync, and nothing
+    // else re-syncs an existing row, so a stale badge would never go away.
+    if (existing.issues?.some(i => i.source === 'portless')) {
+      await tryDriver(name, 'portless', () =>
+        drivers.edge.alias(name, existing.port)
+      );
+    }
     if (!adopt || existing.managedBy !== 'user') continue;
     if (existing.kind !== 'service') {
       out.failed.push({
