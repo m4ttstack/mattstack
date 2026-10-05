@@ -323,7 +323,10 @@ export async function runEscalationFlow(opts: {
         syncLog.cmd(`push --force-with-lease origin ${bundle.branch}`, cwd, pushRes.status ?? 1, pushRes.stdout ?? "", pushRes.stderr ?? "");
         if (pushRes.status !== 0) {
           const detail = (pushRes.stderr ?? "").trim();
-          out.fail({ title: "The rebase finished, but the push failed", ...(detail ? { details: detail } : {}) });
+          out.fail(
+            { title: "The rebase finished, but the push failed" },
+            ...(detail ? [out.verbatim(detail.split("\n"), "push output")] : []),
+          );
           return 1;
         }
       }

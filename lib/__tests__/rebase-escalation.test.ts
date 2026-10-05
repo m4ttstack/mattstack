@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, statSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -259,6 +259,47 @@ describe("runEscalationFlow (agent path)", () => {
     expect(io.lines()).toEqual(["[running] An agent is resolving the conflicts  pane p1; Ctrl+C leaves it working", "[ok] The agent resolved the conflicts  feature is rebased"]);
     expect(io.stderr()).toBe("");
   }, 20_000);
+
+  for (const row of [
+    { name: "multiple lines", stderr: "\nfirst push line\nsecond push line\n", expected: "push output:\n  first push line\n  second push line\n" },
+    { name: "one line", stderr: "single push line\n", expected: "push output:\n  single push line\n" },
+    { name: "empty output", stderr: "", expected: "" },
+    { name: "whitespace-only output", stderr: "\n \t\n", expected: "" },
+  ]) {
+    test(`a failed push with ${row.name} keeps its title and formats its output`, async () => {
+      const repo = makeConflictRepo();
+      const result = await pausedConflict(repo);
+      writeFileSync(join(repo, "app.txt"), "merged change\n");
+      sh("git add app.txt", repo);
+      sh("GIT_EDITOR=true git -c user.email=t@t -c user.name=t rebase --continue", repo);
+      const realGit = Bun.which("git")!;
+      const bin = join(tmpRoot, "bin");
+      const stderrPath = join(tmpRoot, "push-stderr");
+      mkdirSync(bin);
+      writeFileSync(stderrPath, row.stderr);
+      const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+      writeFileSync(join(bin, "git"), `#!/bin/sh
+if [ "$1" = "push" ]; then
+  cat ${quote(stderrPath)} >&2
+  exit 1
+fi
+exec ${quote(realGit)} "$@"
+`, { mode: 0o755 });
+      const savedPath = process.env.PATH;
+      process.env.PATH = `${bin}:${savedPath ?? ""}`;
+      try {
+        const { runner } = scriptedHerdr();
+        const code = await runEscalationFlow({ cwd: repo, dataDir: join(tmpRoot, "data"), repoName: "sample-app", result, mode: "interactive", autoYes: true, push: true, herdrRunner: runner });
+        expect(code).toBe(1);
+        expect(io.stderr()).toBe("The rebase finished, but the push failed\n" + row.expected);
+        expect(io.stdout()).toBe("[running] An agent is resolving the conflicts  pane p1; Ctrl+C leaves it working\n");
+        expect(verifyRebaseCompleted(repo, "feature", "master")).toBe("completed");
+      } finally {
+        if (savedPath === undefined) delete process.env.PATH;
+        else process.env.PATH = savedPath;
+      }
+    }, 20_000);
+  }
 
   test("agent wait times out: reports and reads the pane, never the removed verb", async () => {
     const repo = makeConflictRepo();
