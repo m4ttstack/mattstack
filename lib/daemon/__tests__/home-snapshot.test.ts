@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { execFileSync } from "child_process";
@@ -2142,13 +2142,105 @@ describe("teamSnapshotSpec", () => {
     await handle.ready;
     const result = await handle.runNow("watch");
     expect(result.paths).toEqual(["mattstack/teams/widgets/settings.team.jsonc"]);
+    const excludes = [":(exclude)mattstack/packs/", ":(exclude)mattstack/org/packs/", `:(exclude)${WIDGETS_PACK}`];
     const add = calls.find((c) => gitVerb(c) === "add")!;
     expect(add.filter((arg) => !arg.startsWith(":(exclude)"))).toEqual(["git", "add", "-A", "--", "mattstack/teams/widgets/settings.team.jsonc"]);
+    expect(add).toEqual(expect.arrayContaining(excludes));
     const commit = calls.find((c) => gitVerb(c) === "commit")!;
     expect(commit.some((arg) => arg.includes("/packs/") && !arg.startsWith(":(exclude)"))).toBe(false);
+    expect(commit).toEqual(expect.arrayContaining(excludes));
     expect(handle.status().claimedZones).toEqual(expect.arrayContaining(["mattstack/packs/", "mattstack/org/packs/", WIDGETS_PACK]));
     handle.stop();
   }));
+
+  test("a team owner's watch stages only its own folder minus its pack, and its janitor commits only its own pack", async () => {
+    mkdirSync(join(FAKE_REPO_DIR, "mattstack", "teams", "widgets"), { recursive: true });
+    mkdirSync(join(FAKE_REPO_DIR, "mattstack", "teams", "gadgets"), { recursive: true });
+    try {
+      const ownerProbes = fakeProbes({ home: "/h", files: {
+        "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev2" }),
+        "/h/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] }, gadgets: { owners: ["dev1"] } } } }),
+      } });
+      const widgetsPackFile = "mattstack/teams/widgets/packs/widgets/skills/x/SKILL.md";
+      const gadgetsPackFile = "mattstack/teams/gadgets/packs/gadgets/skills/y/SKILL.md";
+      const statusZ = [
+        `?? ${widgetsPackFile}`,
+        `?? ${gadgetsPackFile}`,
+        "?? mattstack/teams/gadgets/settings.team.jsonc",
+        "?? mattstack/teams/widgets/settings.team.jsonc",
+      ].map((line) => `${line}\0`).join("");
+      const db = freshDb();
+      db.query("INSERT INTO kv (ns, k, v, updated_at) VALUES ('team-snapshot:acme', 'state', ?, 0);")
+        .run(JSON.stringify({ firstSeenDirty: { [WIDGETS_PACK]: 0, "mattstack/teams/gadgets/packs/": 0 } }));
+      const { fn, calls } = makeFakeExec(defaultResponders({ statusZ }));
+      const { deps } = baseDeps({ exec: fn, db, now: () => 10_000_000 });
+      const { repoDir: _repoDir, ...specDeps } = deps;
+      const handle = startSnapshot(teamSnapshotSpec("acme", FAKE_REPO_DIR, { ownedRoots: ["mattstack/teams/widgets"], pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: ownerProbes, readToken: async () => "glpat-x" }), specDeps);
+      await handle.ready;
+      const watch = await handle.runNow("watch");
+      expect(watch.paths).toEqual(["mattstack/teams/widgets/settings.team.jsonc"]);
+      const watchAdd = calls.find((c) => gitVerb(c) === "add")!;
+      expect(watchAdd.filter((arg) => !arg.startsWith(":(exclude)"))).toEqual(["git", "add", "-A", "--", "mattstack/teams/widgets/settings.team.jsonc"]);
+      expect(watchAdd).toContain(`:(exclude)${WIDGETS_PACK}`);
+
+      calls.length = 0;
+      const janitor = await handle.runNow("janitor");
+      expect(janitor.committed).toBe(true);
+      const staged = calls.filter((c) => gitVerb(c) === "add" || gitVerb(c) === "commit").flatMap((c) => c.slice(c.indexOf("--") + 1));
+      expect(staged).toContain(widgetsPackFile);
+      expect(staged.some((arg) => arg.startsWith("mattstack/teams/gadgets/"))).toBe(false);
+      expect(calls).toContainEqual([
+        "git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", `snapshot (janitor): ${WIDGETS_PACK} dirty >2h, owner skills-publish`, "--", widgetsPackFile,
+      ]);
+      handle.stop();
+    } finally {
+      rmSync(join(FAKE_REPO_DIR, "mattstack"), { recursive: true, force: true });
+    }
+  });
+
+  test("an unreadable teams folder fails closed: the round commits nothing and warns", async () => {
+    const teamsDir = join(FAKE_REPO_DIR, "mattstack", "teams");
+    mkdirSync(join(teamsDir, "widgets"), { recursive: true });
+    chmodSync(teamsDir, 0o000);
+    try {
+      const statusZ = ["?? mattstack/teams/widgets/packs/widgets/skills/x/SKILL.md", "?? mattstack/teams/widgets/settings.team.jsonc"].map((line) => `${line}\0`).join("");
+      const { fn, calls } = makeFakeExec(defaultResponders({ statusZ }));
+      const { deps, log } = baseDeps({ exec: fn });
+      const { repoDir: _repoDir, ...specDeps } = deps;
+      const handle = startSnapshot(teamSnapshotSpec("acme", FAKE_REPO_DIR, { ownedRoots: ADMIN_ROOTS, pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: adminProbes(), readToken: async () => "glpat-x" }), specDeps);
+      await handle.ready;
+      const result = await handle.runNow("watch");
+      expect(result.committed).toBe(false);
+      expect(result.skipped).toBe("owners-read-error");
+      expect(calls.some((c) => gitVerb(c) === "add" || gitVerb(c) === "commit")).toBe(false);
+      expect(log.calls.filter((c) => c.level === "warn").length).toBe(1);
+      expect(handle.status().ownersError).toContain("EACCES");
+      handle.stop();
+    } finally {
+      chmodSync(teamsDir, 0o755);
+      rmSync(join(FAKE_REPO_DIR, "mattstack"), { recursive: true, force: true });
+    }
+  });
+
+  for (const shape of ["missing", "a file"] as const) test(`a teams folder that is ${shape} means no team pack zones, and the round still commits`, async () => {
+    mkdirSync(join(FAKE_REPO_DIR, "mattstack"), { recursive: true });
+    if (shape === "a file") writeFileSync(join(FAKE_REPO_DIR, "mattstack", "teams"), "");
+    try {
+      const { fn, calls } = makeFakeExec(defaultResponders({ statusZ: "?? mattstack/org/settings.org.jsonc\0" }));
+      const { deps } = baseDeps({ exec: fn });
+      const { repoDir: _repoDir, ...specDeps } = deps;
+      const handle = startSnapshot(teamSnapshotSpec("acme", FAKE_REPO_DIR, { ownedRoots: ADMIN_ROOTS, pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: adminProbes(), readToken: async () => "glpat-x" }), specDeps);
+      await handle.ready;
+      const result = await handle.runNow("watch");
+      expect(result.committed).toBe(true);
+      expect(calls.some((c) => gitVerb(c) === "commit")).toBe(true);
+      expect(handle.status().claimedZones).toEqual(["mattstack/packs/", "mattstack/org/packs/"]);
+      expect(handle.status().ownersError).toBeNull();
+      handle.stop();
+    } finally {
+      rmSync(join(FAKE_REPO_DIR, "mattstack"), { recursive: true, force: true });
+    }
+  });
 
   test("real git: a watch commit takes the store change and leaves new pack files untracked", async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-team-snapshot-packs-")));

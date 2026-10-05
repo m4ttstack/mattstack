@@ -380,8 +380,9 @@ function teamStandingZones(repoDir: string): Owners["zones"] {
       .filter((entry) => entry.isDirectory() && TEAM_NAME_RE.test(entry.name))
       .map((entry) => entry.name)
       .sort();
-  } catch {
-    teams = [];
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT" && code !== "ENOTDIR") throw err;
   }
   const zones = ["mattstack/packs/", "mattstack/org/packs/", ...teams.map((team) => `mattstack/teams/${team}/packs/`)];
   return Object.fromEntries(zones.map((zone) => [zone, { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" }]));
@@ -1181,7 +1182,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message !== lastLoggedOwnersError) {
-        deps.log.warn({ err }, `${label}: owners file unreadable; skipping cycle`);
+        deps.log.warn({ err }, `${label}: claimed zones unreadable; skipping cycle`);
         lastLoggedOwnersError = message;
       }
       return { committed: false, sha: null, paths: [], reason, skipped: "owners-read-error" };
