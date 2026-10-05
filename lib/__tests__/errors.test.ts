@@ -74,7 +74,7 @@ test("failureFor maps the error onto a failure block", () => {
 
 test("exitUserError --json hands the envelope line to print when given", () => {
   const lines: string[] = [];
-  expect(() => exitUserError(teamError(), true, "team pull", (s) => lines.push(s))).toThrow("exit 2");
+  expect(() => exitUserError(teamError(), true, (s) => lines.push(s))).toThrow("exit 2");
   expect(lines).toHaveLength(1);
   const { at, ...body } = JSON.parse(lines[0]!);
   expect(typeof at).toBe("string");
@@ -84,7 +84,7 @@ test("exitUserError --json hands the envelope line to print when given", () => {
 });
 
 test("exitUserError --json without print writes the same line on stdout", () => {
-  expect(() => exitUserError(teamError(), true, "team pull")).toThrow("exit 2");
+  expect(() => exitUserError(teamError(), true)).toThrow("exit 2");
   const written = captured.stdout();
   expect(written.endsWith("\n")).toBe(true);
   expect(JSON.parse(written).error.code).toBe("team-secrets-unreadable");
@@ -93,7 +93,7 @@ test("exitUserError --json without print writes the same line on stdout", () => 
 });
 
 test("exitUserError without --json draws the failure on stderr with no verb prefix and exits 2", () => {
-  expect(() => exitUserError(teamError(), false, "team pull", () => { throw new Error("print must not be used for a human failure"); })).toThrow("exit 2");
+  expect(() => exitUserError(teamError(), false, () => { throw new Error("print must not be used for a human failure"); })).toThrow("exit 2");
   expect(captured.stdout()).toBe("");
   expect(captured.stderr()).toBe(
     "This Mac cannot read the acme team's secrets yet\n" +
@@ -105,7 +105,7 @@ test("exitUserError without --json draws the failure on stderr with no verb pref
 });
 
 test("a log detail lands in the cli log, never on screen", () => {
-  expect(() => exitUserError(teamError(), false, "team pull")).toThrow("exit 2");
+  expect(() => exitUserError(teamError(), false)).toThrow("exit 2");
   expect(captured.stderr()).not.toContain("sops -d");
   const entry = lastCliLogLine();
   expect(entry.level).toBe("warn");
@@ -115,13 +115,13 @@ test("a log detail lands in the cli log, never on screen", () => {
 });
 
 test("an error with no why or next is one line", () => {
-  expect(() => exitUserError(new UserActionableError("usage", "usage: rt tools install <tool> [--json]"), false, "tools install")).toThrow("exit 2");
+  expect(() => exitUserError(new UserActionableError("usage", "usage: rt tools install <tool> [--json]"), false)).toThrow("exit 2");
   expect(captured.stderr()).toBe("usage: rt tools install <tool> [--json]\n");
 });
 
 test("a multi-line message collapses to one title line in plain output", () => {
   const err = new UserActionableError("members-error", "first line\nsecond line");
-  expect(() => exitUserError(err, false, "team members sync")).toThrow("exit 2");
+  expect(() => exitUserError(err, false)).toThrow("exit 2");
   expect(captured.stderr()).toBe("first line second line\n");
 });
 

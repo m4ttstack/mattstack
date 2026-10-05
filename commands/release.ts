@@ -231,7 +231,7 @@ export async function releaseUpdateMachine(args: string[], _ctx: CommandContext 
       out.note(...refusalNote(failureFor(err)));
       process.exit(2);
     }
-    if (err instanceof UserActionableError) exitUserError(err, json, "release update-machine");
+    if (err instanceof UserActionableError) exitUserError(err, json);
     throw err;
   }
   cleanupWorkDir();
@@ -353,7 +353,7 @@ export async function releaseApps(args: string[], _ctx: CommandContext = {}, dep
     }
   };
   const usage = (title: string, why?: string): never => {
-    if (json) exitUserError(new UserActionableError("usage", RELEASE_APPS_USAGE), true, "release apps");
+    if (json) exitUserError(new UserActionableError("usage", RELEASE_APPS_USAGE), true);
     out.fail(usageFailure(title, RELEASE_APPS_USAGE, why));
     return process.exit(2);
   };

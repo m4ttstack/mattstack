@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { closeStateDb, setKvValue } from "../state/index.ts";
-import { getKnownRepos, getKnownReposCached, ghostPathRefusal, type KnownRepo } from "../repo-index.ts";
+import { getKnownRepos, getKnownReposCached, type KnownRepo } from "../repo-index.ts";
 import { writeRepoCache } from "../repo-cache.ts";
 import { resolveReposForIdentity } from "../../commands/cd.ts";
 
@@ -140,14 +140,5 @@ describe("resolveReposForIdentity (cd's current-repo-missing live fallback)", ()
 
     expect(result).not.toBe(staleCache);
     expect(result.some((r) => r.repoName === "current-repo")).toBe(true);
-  });
-});
-
-describe("ghostPathRefusal", () => {
-  test("names the dead path and points at rt repos prune", () => {
-    const msg = ghostPathRefusal("/repos/gone/worktree");
-
-    expect(msg).toContain("/repos/gone/worktree");
-    expect(msg).toContain("rt repos prune");
   });
 });

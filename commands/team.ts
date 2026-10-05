@@ -124,8 +124,8 @@ function positional(args: string[], valueFlags: string[]): string[] {
 }
 
 /** `--json` gets the same exit-2 envelope a real failure gets; a person gets the question and the command. */
-function usageError(deps: TeamDeps, json: boolean, verb: string, title: string, usage: string): never {
-  if (json) exitUserError(new UserActionableError("usage", `usage: ${usage}`), true, verb, deps.print);
+function usageError(deps: TeamDeps, json: boolean, title: string, usage: string): never {
+  if (json) exitUserError(new UserActionableError("usage", `usage: ${usage}`), true, deps.print);
   out.fail(usageFailure(title, usage));
   process.exit(2);
 }
@@ -142,8 +142,8 @@ const REFUSAL_CODES = new Set([
 ]);
 
 /** `--json` and every non-refusal take exitUserError's route, so the envelope and the exit code never depend on the code. */
-function exitTeamError(err: UserActionableError, json: boolean, verb: string, deps: TeamDeps): never {
-  if (json || !REFUSAL_CODES.has(err.code)) exitUserError(err, json, verb, deps.print);
+function exitTeamError(err: UserActionableError, json: boolean, deps: TeamDeps): never {
+  if (json || !REFUSAL_CODES.has(err.code)) exitUserError(err, json, deps.print);
   logFailureDetail(err);
   out.note(
     out.line("refused", err.message),
@@ -166,7 +166,7 @@ export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps
       name = await textInput({ message: "Team name", placeholder: "Platform Team" });
       if (!name) process.exit(0);
     } else {
-      usageError(deps, json, "team create", "What should the team be called?", "rt team create <name> (--remote <url> | --create-repo <owner>) [--others] [--json]");
+      usageError(deps, json, "What should the team be called?", "rt team create <name> (--remote <url> | --create-repo <owner>) [--others] [--json]");
     }
   }
 
@@ -182,7 +182,7 @@ export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps
         : out.line("skipped", `The ${result.slug} team is already set up`, result.remote),
     );
   } catch (err) {
-    if (err instanceof UserActionableError) exitTeamError(err, json, "team create", deps);
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
   }
 }
@@ -245,7 +245,7 @@ export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: 
       out.print(out.line("warn", `The ${slug} team pull ended in a way rt does not recognize`, hint));
     }
   } catch (err) {
-    if (err instanceof UserActionableError) exitTeamError(err, json, "team pull", deps);
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
   }
 }
@@ -265,7 +265,7 @@ export async function teamPublish(args: string[], _ctx: CommandContext = {}, dep
     }
     out.print(out.line("done", `Pushed the ${slug} team`, result.remote));
   } catch (err) {
-    if (err instanceof UserActionableError) exitTeamError(err, json, "team publish", deps);
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
   }
 }
@@ -320,7 +320,7 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
   const handle = flagValue(args, "--handle");
 
   if (!handle) {
-    usageError(deps, json, "team invite", "Who is the invite for?", "rt team invite --handle <h> [--team <slug>] [--require-peering] [--json]");
+    usageError(deps, json, "Who is the invite for?", "rt team invite --handle <h> [--team <slug>] [--require-peering] [--json]");
   }
 
   try {
@@ -359,7 +359,7 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
 
     out.print(...inviteBlocks(handle, result));
   } catch (err) {
-    if (err instanceof UserActionableError) exitTeamError(err, json, "team invite", deps);
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
   }
 }
@@ -373,7 +373,7 @@ export async function teamManageMembership(args: string[], _ctx: CommandContext 
   const json = args.includes("--json");
   const state = positional(args, ["--team"])[0];
   if (state !== undefined && state !== "on" && state !== "off") {
-    usageError(deps, json, "team manage-membership", "Choose on or off", "rt team manage-membership [on|off] [--team <slug>] [--json]");
+    usageError(deps, json, "Choose on or off", "rt team manage-membership [on|off] [--team <slug>] [--json]");
   }
 
   try {
@@ -402,7 +402,7 @@ export async function teamManageMembership(args: string[], _ctx: CommandContext 
           ]),
     );
   } catch (err) {
-    if (err instanceof UserActionableError) exitTeamError(err, json, "team manage-membership", deps);
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
   }
 }
@@ -452,7 +452,7 @@ export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: 
         next: "rt team join",
         ...(err.detail ? { log: err.detail } : {}),
       });
-      return exitUserError(failure, json, "team join", deps.print);
+      return exitUserError(failure, json, deps.print);
     }
     if (err instanceof JoinPeeringStoreError) {
       const failure = new UserActionableError("peering-store-failed", err.message, {}, {
@@ -460,25 +460,25 @@ export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: 
         next: "rt home init",
         ...(err.detail ? { log: err.detail } : {}),
       });
-      return exitUserError(failure, json, "team join", deps.print);
+      return exitUserError(failure, json, deps.print);
     }
-    if (err instanceof UserActionableError) exitTeamError(err, json, "team join", deps);
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
   }
 }
 
 /** A non-UserActionableError from the members path (a rollback error from addTeamRecipient/removeTeamRecipient, a keychain failure) already carries a complete, human-readable explanation in its own message — the user can act on it (retry, unlock), so it gets its own code and the same exit-2 envelope every other actionable failure uses, rather than falling through to a raw stack trace or an envelope the app's decoder can't reach at exit 1. */
-function reportMembersError(err: unknown, deps: TeamDeps, json: boolean, verb: string): never {
-  if (err instanceof UserActionableError) exitTeamError(err, json, verb, deps);
+function reportMembersError(err: unknown, deps: TeamDeps, json: boolean): never {
+  if (err instanceof UserActionableError) exitTeamError(err, json, deps);
   if (err instanceof MembersSyncAbortedError) {
     const failure = new UserActionableError("members-error", err.message, {}, { why: "The keys it already added stay. Run the sync again.", next: "rt team members sync", log: err.detail });
-    return exitUserError(failure, json, verb, deps.print);
+    return exitUserError(failure, json, deps.print);
   }
   if (err instanceof MembersKeyError) {
-    return exitUserError(new UserActionableError("members-error", err.message, {}, { why: "Check that your keychain is unlocked, then try again.", log: err.detail }), json, verb, deps.print);
+    return exitUserError(new UserActionableError("members-error", err.message, {}, { why: "Check that your keychain is unlocked, then try again.", log: err.detail }), json, deps.print);
   }
   const message = err instanceof Error ? err.message : String(err);
-  return exitUserError(new UserActionableError("members-error", message), json, verb, deps.print);
+  return exitUserError(new UserActionableError("members-error", message), json, deps.print);
 }
 
 export async function teamMembersSync(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
@@ -496,7 +496,7 @@ export async function teamMembersSync(args: string[], _ctx: CommandContext = {},
     }
     out.print(...membersSyncBlocks(result));
   } catch (err) {
-    reportMembersError(err, deps, json, "team members sync");
+    reportMembersError(err, deps, json);
   }
 }
 
@@ -530,7 +530,7 @@ export async function teamMembersRemove(args: string[], _ctx: CommandContext = {
       if (!picked) process.exit(0);
       handle = picked;
     } else {
-      usageError(deps, json, "team members remove", "Which member?", "rt team members remove <handle> [--key <age1...>] [--team <slug>] [--json]");
+      usageError(deps, json, "Which member?", "rt team members remove <handle> [--key <age1...>] [--team <slug>] [--json]");
     }
   }
 
@@ -545,7 +545,7 @@ export async function teamMembersRemove(args: string[], _ctx: CommandContext = {
     }
     out.print(...membersRemoveBlocks(handle, slug, result));
   } catch (err) {
-    reportMembersError(err, deps, json, "team members remove");
+    reportMembersError(err, deps, json);
   }
 }
 
@@ -673,7 +673,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
       ),
     );
   } catch (err) {
-    if (err instanceof UserActionableError) exitTeamError(err, json, "team status", deps);
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
   }
 }

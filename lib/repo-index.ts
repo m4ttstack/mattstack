@@ -268,11 +268,6 @@ export function updateRepoIndex(repoName: string, repoRoot: string): void {
  */
 export type IndexHealResult = { ok: true; healed: boolean } | { ok: false; error: string; why?: string; next?: string };
 
-/** A failed heal's `error` carried on after a colon in the caller's own sentence. */
-export function healErrorClause(error: string): string {
-  return /^(The|A|An|No|Nothing|Every|This|That|It|Could|Can|Cannot) /.test(error) ? `${error[0]!.toLowerCase()}${error.slice(1)}` : error;
-}
-
 /**
  * `updateRepoIndex` for callers that can await: the same write, plus the move
  * heal the sync seam cannot perform. The locate runs in the daemon whenever
@@ -1049,8 +1044,8 @@ async function multiWorktreesAsync(mainPath: string): Promise<KnownRepo["worktre
  *
  * `includeMissing` is opt-in: a caller that resolves a repo and then chdirs
  * or spawns against its worktree path must ask for `missing` rows explicitly
- * and refuse them (`missingRepoRefusal`) before acting, or leave the default
- * off and keep today's silent-exclusion behavior.
+ * and refuse them before acting, or leave the default off and keep today's
+ * silent-exclusion behavior.
  */
 export function getKnownRepos(opts?: { includeMissing?: boolean }): KnownRepo[] {
   const { keep, lostEntries } = loadPartitionedEntries();
@@ -1464,21 +1459,6 @@ export function pickerWorktrees(repo: Pick<KnownRepo, "worktrees">): KnownRepo["
   if (!main) return [];
   const label = (wt: KnownRepo["worktrees"][number]) => wt.branch || basename(wt.path);
   return [main, ...rest.sort((a, b) => label(a).localeCompare(label(b), undefined, { sensitivity: "base" }))];
-}
-
-/** The one-line refusal every picker prints instead of cd-ing into a repo whose indexed path is gone. */
-export function missingRepoRefusal(r: KnownRepo): string {
-  const gone = r.worktrees[0]?.path ?? "its indexed path";
-  return `${repoLabel(r.repoName)} is no longer at ${gone} — run: rt repos locate <new-path> --repo ${r.repoName}`;
-}
-
-/**
- * The refusal `rt cd` prints instead of emitting a dead path to stdout: the
- * cd cache said this path existed but it is gone now (cache staleness, not
- * the missing-repo-row case `missingRepoRefusal` handles).
- */
-export function ghostPathRefusal(path: string): string {
-  return `${path} no longer exists (the cd cache may be stale) - run: rt repos prune`;
 }
 
 // ─── Test seam ───────────────────────────────────────────────────────────────

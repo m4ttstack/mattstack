@@ -15,7 +15,7 @@ import { identityFromRemote, serializeIdentity } from "./settings/identity.ts";
 // ─── Re-exports ──────────────────────────────────────────────────────────────
 
 export { getRepoRoot, getCurrentBranch, getRemoteUrl } from "./git.ts";
-export { updateRepoIndex, getKnownRepos, getKnownReposCached, findKnownRepo, repoCarriesWorktree, repoOption, repoOptions, repoFromOptionValue, missingRepoRefusal, ghostPathRefusal, pickerWorktrees, type KnownRepo } from "./repo-index.ts";
+export { updateRepoIndex, getKnownRepos, getKnownReposCached, findKnownRepo, repoCarriesWorktree, repoOption, repoOptions, repoFromOptionValue, pickerWorktrees, type KnownRepo } from "./repo-index.ts";
 
 // ─── Internal imports ────────────────────────────────────────────────────────
 

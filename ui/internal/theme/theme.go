@@ -1,5 +1,5 @@
-// Package theme is the rt-ui token sheet: lib/tui/palette.ts in Go. Every
-// color and glyph rt-ui paints comes from here; nothing crosses the wire.
+// Package theme is the rt-ui token sheet. Every color and glyph rt-ui paints
+// comes from here; nothing crosses the wire.
 package theme
 
 import (

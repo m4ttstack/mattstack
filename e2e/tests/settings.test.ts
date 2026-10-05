@@ -118,7 +118,7 @@ function findFreePoolBase(size = 6): number {
   throw new Error("no free block of pool ports in 42500-42800 — something local is squatting the range");
 }
 
-/** rt renders unconditional ANSI (lib/ansi.ts has no TTY check), so human-output assertions strip it. */
+/** Off a terminal rt prints plain text; a styled run is stripped before asserting. */
 function stripAnsi(text: string): string {
   // eslint-disable-next-line no-control-regex -- stripping real ANSI escapes
   return text.replace(/\x1b\[[0-9;]*m/g, "");

@@ -82,7 +82,7 @@ export async function depsLink(args: string[], _ctx: CommandContext = {}, p: Pro
   // action reads one path. Only no-bundle is a failure; the others are rt
   // declining by policy, which is never coral.
   if (!outcome.ok) {
-    if (json || outcome.reason === "no-bundle") return exitUserError(new UserActionableError(outcome.reason, outcome.detail), json, "deps link");
+    if (json || outcome.reason === "no-bundle") return exitUserError(new UserActionableError(outcome.reason, outcome.detail), json);
     const forceClears = outcome.reason === "user-copy" || outcome.reason === "occupied";
     out.note(out.line("refused", outcome.detail), ...(forceClears ? [out.callout("next", out.cmd(`rt deps link ${t} --force`))] : []));
     process.exit(2);

@@ -58,7 +58,7 @@ export async function toolsInstall(args: string[], _ctx: CommandContext = {}, p:
       t = (await pickTool("Install which tool?", installableTools(p, resolveTeamReqs(p)))) ?? undefined;
       if (!t) process.exit(0);
     } else if (json) {
-      exitUserError(new UserActionableError("usage", "usage: rt tools install <tool> [--json]"), json, "tools install");
+      exitUserError(new UserActionableError("usage", "usage: rt tools install <tool> [--json]"), json);
     } else {
       out.fail(usageFailure("Which tool?", "rt tools install <tool>"));
       process.exit(2);
@@ -71,7 +71,7 @@ export async function toolsInstall(args: string[], _ctx: CommandContext = {}, p:
   try {
     result = await installTool(p, t, reqs);
   } catch (err) {
-    if (err instanceof UserActionableError) exitUserError(err, json, "tools install");
+    if (err instanceof UserActionableError) exitUserError(err, json);
     throw err;
   }
 
@@ -100,7 +100,7 @@ export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: P
       t = (await pickTool("Set up which tool?", SETUP_TOOLS)) ?? undefined;
       if (!t) process.exit(0);
     } else if (json) {
-      exitUserError(new UserActionableError("usage", "usage: rt tools setup <tool> [--config-dir <dir>]… [--json]"), json, "tools setup");
+      exitUserError(new UserActionableError("usage", "usage: rt tools setup <tool> [--config-dir <dir>]… [--json]"), json);
     } else {
       out.fail(usageFailure("Which tool?", "rt tools setup <tool>"));
       process.exit(2);
@@ -113,7 +113,7 @@ export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: P
   try {
     result = await setupTool(p, t, { configDirs, marketplaceSource: fastBrowserMarketplaceSource(p.env) });
   } catch (err) {
-    if (err instanceof UserActionableError) exitUserError(err, json, "tools setup");
+    if (err instanceof UserActionableError) exitUserError(err, json);
     throw err;
   }
 

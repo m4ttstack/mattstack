@@ -42,8 +42,8 @@ interface RegisterReply {
   results?: unknown;
 }
 
-function appNotRunning(json: boolean, verb: string, deps: ServicesDeps): never {
-  exitUserError(new UserActionableError("app-not-running", "mattstack.app is not open", {}, { why: "rt asks it to manage background services.", next: "open -a mattstack" }), json, verb, deps.print);
+function appNotRunning(json: boolean, deps: ServicesDeps): never {
+  exitUserError(new UserActionableError("app-not-running", "mattstack.app is not open", {}, { why: "rt asks it to manage background services.", next: "open -a mattstack" }), json, deps.print);
 }
 
 function exitWith(deps: ServicesDeps, code: number): never {
@@ -54,14 +54,13 @@ export async function servicesList(args: string[], _ctx: CommandContext = {}, de
   const json = args.includes("--json");
 
   const res = await deps.probes.tray<{ agents: ServiceAgent[] }>("/services", { method: "GET" });
-  if (res.status === 0) appNotRunning(json, "services list", deps);
+  if (res.status === 0) appNotRunning(json, deps);
 
   const agents = res.status === 200 ? res.json?.agents : undefined;
   if (!Array.isArray(agents)) {
     exitUserError(
       new UserActionableError("services-list-failed", "mattstack.app gave an answer rt could not read", {}, { log: `status ${res.status}` }),
       json,
-      "services list",
       deps.print,
     );
   }
@@ -86,7 +85,7 @@ export async function servicesRegister(args: string[], _ctx: CommandContext = {}
   }
 
   const res = await deps.probes.tray<RegisterReply>("/services/register", { method: "POST", body: { plists } });
-  if (res.status === 0) appNotRunning(json, "services register", deps);
+  if (res.status === 0) appNotRunning(json, deps);
 
   const ok = res.json?.ok ?? false;
   if (json) {
@@ -124,12 +123,12 @@ export async function servicesRestart(args: string[], _ctx: CommandContext = {},
         out.fail(usageFailure("Which service?", "rt services restart <label>"));
         return exitWith(deps, 2);
       }
-      exitUserError(new UserActionableError("usage", "usage: rt services restart <label> [--json]"), json, "services restart", deps.print);
+      exitUserError(new UserActionableError("usage", "usage: rt services restart <label> [--json]"), json, deps.print);
     }
   }
 
   const res = await deps.probes.tray<{ ok: boolean }>("/services/restart", { method: "POST", body: { label } });
-  if (res.status === 0) appNotRunning(json, "services restart", deps);
+  if (res.status === 0) appNotRunning(json, deps);
 
   const ok = res.json?.ok ?? false;
   if (json) {

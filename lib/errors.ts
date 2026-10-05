@@ -58,9 +58,8 @@ export function logFailureDetail(err: UserActionableError): void {
 /**
  * Prints the contract's exit-2 payload (--json, on stdout, through `print`
  * when the caller has one) or the failure block on stderr, then exits 2.
- * `verb` is kept for the callers; the block carries no prefix.
  */
-export function exitUserError(err: UserActionableError, json: boolean, _verb: string, print?: (s: string) => void): never {
+export function exitUserError(err: UserActionableError, json: boolean, print?: (s: string) => void): never {
   logFailureDetail(err);
   if (json) {
     const payload = userErrorPayload(err);
@@ -83,7 +82,7 @@ const LOG_VIEWER = "rt daemon logs";
  * plugin's own.
  */
 export function exitFromDispatch(err: unknown): never {
-  if (err instanceof UserActionableError) return exitUserError(err, process.argv.includes("--json"), "");
+  if (err instanceof UserActionableError) return exitUserError(err, process.argv.includes("--json"));
   return exitUnexpected(err);
 }
 

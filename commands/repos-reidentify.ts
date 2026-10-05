@@ -17,7 +17,6 @@ import { usageFailure } from "../lib/ui/usage.ts";
 
 const USAGE = "usage: rt repos reidentify <old-identity> <new-identity> [--dry-run] [--json]";
 const FLAGS = ["--json", "--dry-run"];
-const VERB = "repos reidentify";
 
 export interface ReidentifyDeps {
   /** The --json envelope line only; human text goes through lib/ui/out.ts. */
@@ -36,7 +35,7 @@ function givenCount(n: number): string {
 
 /** `jsonMessage` is the envelope's error text and never changes; a person gets the sentence and the command. */
 function refuseUsage(deps: ReidentifyDeps, json: boolean, jsonMessage: string, title: string, why?: string): never {
-  if (json) exitUserError(new UserActionableError("usage", jsonMessage), true, VERB, deps.print);
+  if (json) exitUserError(new UserActionableError("usage", jsonMessage), true, deps.print);
   out.fail(usageFailure(title, USAGE, why));
   process.exit(2);
 }
@@ -57,14 +56,14 @@ export async function reposReidentify(args: string[], _ctx: CommandContext = {},
 
   const outcome = await reidentifyRepo({ from, to, dryRun });
   if (!outcome.ok && !outcome.report) {
-    exitUserError(new UserActionableError("refused", outcome.error, {}, { why: outcome.why, next: outcome.next }), json, VERB, deps.print);
+    exitUserError(new UserActionableError("refused", outcome.error, {}, { why: outcome.why, next: outcome.next }), json, deps.print);
   }
   const report = outcome.report!;
   const route = `${report.from.raw} → ${report.to.raw}`;
 
   if (!outcome.ok) {
     // JSON mode must stay one parseable document, so the report rides in the error payload.
-    if (json) exitUserError(new UserActionableError("refused", outcome.error, { via: outcome.via, report }), true, VERB, deps.print);
+    if (json) exitUserError(new UserActionableError("refused", outcome.error, { via: outcome.via, report }), true, deps.print);
     out.note(out.line("refused", dryRun ? "This move would be refused" : "The move stopped partway", route), storeTable(report.stores));
     process.exit(2);
   }
