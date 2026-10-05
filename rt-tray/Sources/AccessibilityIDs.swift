@@ -137,6 +137,8 @@ enum AXID {
     static let settingsWritingStyleRow = "settings.writingStyle.row"
     static let settingsWritingStyleRowAction = "settings.writingStyle.row.action"
     static let settingsWritingStyleRowStatus = "settings.writingStyle.row.status"
+    static let settingsTeamYourTeam = "settings.team.yourTeam"
+    static let settingsTeamInviteTeam = "settings.team.inviteTeam"
     static let settingsTeamInviteHandle = "settings.team.inviteHandle"
     static let settingsTeamInvite = "settings.team.invite"
     static let settingsTeamCopyRemote = "settings.team.copyRemote"
