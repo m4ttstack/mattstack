@@ -392,9 +392,102 @@ describe("the wrapper", () => {
 
   function snapshot(dir: string): string {
     const git = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", env: childEnv() });
-    const files = git("ls-files", "-z").split("\0").filter(Boolean).map((rel) => [rel, lstatSync(join(dir, rel)).isSymbolicLink() ? readlinkSync(join(dir, rel)) : readFileSync(join(dir, rel), "base64")]);
-    return JSON.stringify({ head: git("rev-parse", "HEAD"), index: git("ls-files", "-s"), status: git("status", "--porcelain"), files });
+    const files: string[][] = [];
+    const walk = (parent: string): void => {
+      for (const name of readdirSync(join(dir, parent)).sort()) {
+        if (parent === "" && name === ".git") continue;
+        const rel = parent ? `${parent}/${name}` : name;
+        const stat = lstatSync(join(dir, rel));
+        if (stat.isSymbolicLink()) files.push([rel, "link", readlinkSync(join(dir, rel))]);
+        else if (stat.isDirectory()) {
+          files.push([rel, "directory"]);
+          walk(rel);
+        } else files.push([rel, "file", readFileSync(join(dir, rel), "base64")]);
+      }
+    };
+    walk("");
+    return JSON.stringify({ head: git("rev-parse", "HEAD"), index: git("ls-files", "-s"), status: git("status", "--porcelain", "--ignored"), files });
   }
+
+  for (const collision of [
+    "mattstack/teams/widgets/packs/widgets/.keep",
+    "mattstack/org/secrets/.keep",
+    "mattstack/org/packs/acme-base/.keep",
+    "mattstack/org/settings.org.jsonc",
+    "mattstack/teams/widgets/settings.team.jsonc",
+    "mattstack/org/settings.org.jsonc/.keep",
+  ]) {
+    test(`a tracked conversion destination at ${collision} is refused before changing anything`, () => {
+      ready();
+      const dir = tempClone({ [collision]: "keep these original bytes" });
+      const before = snapshot(dir);
+      const result = runScript(dir, "--write", "--roster-confirmed");
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr.toString()).toContain("[refused]");
+      expect(result.stderr.toString()).toContain("destination already exists");
+      expect(snapshot(dir)).toBe(before);
+      expect(existsSync(join(dir, "mattstack/teams/widgets/packs/widgets/widgets"))).toBe(false);
+    });
+  }
+
+  test("an existing empty move destination is refused without removing it", () => {
+    ready();
+    const dir = tempClone();
+    mkdirSync(join(dir, "mattstack/teams/widgets/packs/widgets"), { recursive: true });
+    const before = snapshot(dir);
+    const result = runScript(dir, "--write", "--roster-confirmed");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr.toString()).toContain("destination already exists");
+    expect(snapshot(dir)).toBe(before);
+  });
+
+  for (const pattern of ["mattstack/teams/", "mattstack/org/settings.org.jsonc"]) {
+    test(`rollback removes new ignored output under ${pattern} and permits a clean retry`, () => {
+      ready();
+      const dir = tempClone({
+        ".gitignore": `${pattern}\noutside-cache/\n`,
+        "mattstack/org/keep.txt": "keep org content",
+        "mattstack/teams/keep.txt": "keep teams content",
+      });
+      execFileSync("git", ["-C", dir, "add", "-f", "--", "mattstack/teams/keep.txt"], { env: childEnv() });
+      execFileSync("git", ["-C", dir, "commit", "-q", "--allow-empty", "-m", "keep shared parent"], { env: childEnv() });
+      mkdirSync(join(dir, "mattstack/org/packs"), { recursive: true });
+      mkdirSync(join(dir, "mattstack/teams/widgets/packs"), { recursive: true });
+      mkdirSync(join(dir, "outside-cache"));
+      writeFileSync(join(dir, "outside-cache/keep.txt"), "keep ignored content outside conversion");
+      const before = snapshot(dir);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const result = runScript(dir, "--write", "--roster-confirmed");
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr.toString()).toContain("the clone is back as it was");
+        expect(snapshot(dir)).toBe(before);
+        expect(existsSync(join(dir, "mattstack/teams/widgets/settings.team.jsonc"))).toBe(false);
+      }
+      writeFileSync(join(dir, ".gitignore"), "outside-cache/\n");
+      execFileSync("git", ["-C", dir, "add", "--", ".gitignore"], { env: childEnv() });
+      execFileSync("git", ["-C", dir, "commit", "-q", "-m", "allow conversion output"], { env: childEnv() });
+      expect(runScript(dir, "--write", "--roster-confirmed").exitCode).toBe(0);
+      expect(readFileSync(join(dir, "mattstack/teams/widgets/packs/widgets/pack/skills.jsonc"), "utf8")).toBe("{}");
+      expect(readFileSync(join(dir, "mattstack/org/secrets/rt.json"), "utf8")).toBe("{}");
+      expect(readFileSync(join(dir, "mattstack/org/keep.txt"), "utf8")).toBe("keep org content");
+      expect(readFileSync(join(dir, "mattstack/teams/keep.txt"), "utf8")).toBe("keep teams content");
+      expect(readFileSync(join(dir, "outside-cache/keep.txt"), "utf8")).toBe("keep ignored content outside conversion");
+      expect(execFileSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8", env: childEnv() }).trim()).toBe("");
+    });
+  }
+
+  test("a dormant ignored destination with no existing parent leaves no residue after rollback", () => {
+    ready();
+    const dir = tempClone({ ".gitignore": "mattstack/teams/\n" });
+    const before = snapshot(dir);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = runScript(dir, "--write", "--roster-confirmed");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr.toString()).toContain("the clone is back as it was");
+      expect(snapshot(dir)).toBe(before);
+      expect(existsSync(join(dir, "mattstack/teams"))).toBe(false);
+    }
+  });
 
   test("ignored existing conversion targets are refused without overwriting their bytes", () => {
     ready();
@@ -423,7 +516,27 @@ describe("the wrapper", () => {
 
   test("a commit failure restores original bytes, index and history", () => {
     ready();
+    const dir = tempClone({ "mattstack/org/keep.txt": "keep org content" });
+    mkdirSync(join(dir, "mattstack/org/packs"), { recursive: true });
+    mkdirSync(join(dir, "mattstack/teams/widgets/packs"), { recursive: true });
+    mkdirSync(join(dir, "mattstack/org/empty/child"), { recursive: true });
+    mkdirSync(join(dir, "mattstack/teams/widgets/empty/child"), { recursive: true });
+    const hook = join(dir, ".git/hooks/pre-commit");
+    writeFileSync(hook, "#!/bin/sh\nexit 1\n");
+    chmodSync(hook, 0o755);
+    const before = snapshot(dir);
+    const result = runScript(dir, "--write", "--roster-confirmed");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.toString()).toContain("the clone is back as it was");
+    expect(snapshot(dir)).toBe(before);
+    rmSync(hook);
+    expect(runScript(dir, "--write", "--roster-confirmed").exitCode).toBe(0);
+  });
+
+  test("rollback preserves empty folders inside the moved packs and secrets", () => {
+    ready();
     const dir = tempClone();
+    for (const rel of ["mattstack/packs/widgets/empty/child", "mattstack/packs/acme-base/empty/child", "mattstack/secrets/empty/child"]) mkdirSync(join(dir, rel), { recursive: true });
     const hook = join(dir, ".git/hooks/pre-commit");
     writeFileSync(hook, "#!/bin/sh\nexit 1\n");
     chmodSync(hook, 0o755);
@@ -505,19 +618,44 @@ describe("the wrapper", () => {
     expect(runScript(dir, "--write", "--roster-confirmed").exitCode).toBe(0);
   });
 
-  test("a write that fails partway puts the clone back exactly as it was", () => {
+  test("a tracked file blocking a destination parent is refused before changing anything", () => {
     ready();
     const dir = tempClone({ "mattstack/org/packs": "in the way" });
+    const before = snapshot(dir);
     const out = runScript(dir, "--write", "--roster-confirmed");
-    expect(out.exitCode).toBe(1);
-    expect(out.stderr.toString()).toContain("the clone is back as it was");
-    expect(execFileSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8", env: childEnv() }).trim()).toBe("");
-    expect(execFileSync("git", ["-C", dir, "rev-list", "--count", "HEAD"], { encoding: "utf8", env: childEnv() }).trim()).toBe("1");
-    expect(existsSync(join(dir, "mattstack", "settings.team.jsonc"))).toBe(true);
-    expect(existsSync(join(dir, "mattstack", "secrets", "rt.json"))).toBe(true);
-    expect(existsSync(join(dir, "mattstack", "packs", "widgets", "pack", "skills.jsonc"))).toBe(true);
-    expect(existsSync(join(dir, "mattstack", "org", "secrets"))).toBe(false);
-    expect(existsSync(join(dir, "mattstack", "teams"))).toBe(false);
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr.toString()).toContain("[refused]");
+    expect(snapshot(dir)).toBe(before);
+  });
+
+  test("a real Git move failure restores the whole tree and permits a retry", () => {
+    ready();
+    const dir = tempClone({ "mattstack/org/keep.txt": "keep org content" });
+    mkdirSync(join(dir, "mattstack/teams/widgets/packs"), { recursive: true });
+    const before = snapshot(dir);
+    const bin = join(home, "bin");
+    mkdirSync(bin);
+    const marker = join(home, "moves-happened");
+    const shim = join(bin, "git");
+    writeFileSync(shim, `#!/bin/sh
+if [ "$3" = mv ] && [ "$5" = mattstack/packs/acme-base ]; then
+  test -f "$2/mattstack/org/secrets/rt.json" || exit 91
+  test -f "$2/mattstack/teams/widgets/packs/widgets/pack/skills.jsonc" || exit 92
+  printf 'earlier moves happened\\n' > "$RT_CONVERT_MOVE_MARKER"
+  exit 1
+fi
+exec "$RT_CONVERT_REAL_GIT" "$@"
+`);
+    chmodSync(shim, 0o755);
+    const result = Bun.spawnSync(["bun", script, dir, "--admin", "dev1", "--write", "--roster-confirmed"], {
+      env: { ...childEnv(), PATH: `${bin}:${process.env.PATH}`, RT_CONVERT_REAL_GIT: Bun.which("git")!, RT_CONVERT_MOVE_MARKER: marker }, stdout: "pipe", stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.toString()).toContain("the clone is back as it was");
+    expect(readFileSync(marker, "utf8")).toBe("earlier moves happened\n");
+    expect(snapshot(dir)).toBe(before);
+    expect(runScript(dir, "--write", "--roster-confirmed").exitCode).toBe(0);
+    expect(readFileSync(join(dir, "mattstack/org/packs/acme-base/pack/skills.jsonc"), "utf8")).toBe(`{ "base": true }`);
   });
 
   test("--write without --roster-confirmed names the usernames and changes nothing", () => {
