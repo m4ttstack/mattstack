@@ -284,8 +284,20 @@ class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
                 if count > 1 {
                     TrayLog.info("coalesced notification sounds", ["count": count, "tier": winner.resource])
                 }
-                Self.play(winner)
+                Self.playIfAllowed(winner)
             }
+        }
+    }
+
+    /// Read at play time, not cached: the toggle in System Settings can change
+    /// while the tray runs and sends no callback when it does.
+    private static func playIfAllowed(_ tier: SoundTier) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            guard NotificationSound.shouldPlay(authorization: settings.authorizationStatus, sound: settings.soundSetting) else {
+                TrayLog.info("notification sound muted by system settings", ["tier": tier.resource])
+                return
+            }
+            DispatchQueue.main.async { Self.play(tier) }
         }
     }
 
