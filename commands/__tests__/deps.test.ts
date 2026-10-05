@@ -237,7 +237,7 @@ describe("rt deps commands", () => {
       expect(stderr).toBe("");
     });
 
-    test("tools install of a bundled tool --json, refused: the envelope, the detail alone on stderr, exit 1", async () => {
+    test("tools install of a bundled tool --json, refused: the envelope, the refusal on stderr, exit 1", async () => {
       const path = linkPath(home, "gh");
       const p = bundleProbe({ files: { [path]: "#!/bin/sh\necho unrelated\n" } });
       const { exitCode, logs, stderr } = await runCapturingExit(() => toolsInstall(["gh", "--json"], {}, p));
@@ -247,7 +247,7 @@ describe("rt deps commands", () => {
       expect(Object.keys(body)).toEqual(["contract", "at", "via", "ok", "detail"]);
       expect(body).toMatchObject({ contract: 1, via: "bundled-link", ok: false });
       expect(body.detail).toContain(path);
-      expect(stderr).toBe(`${body.detail}\n`);
+      expect(stderr).toBe(`[refused] rt left your gh alone  ${body.detail}\n`);
     });
   });
 });

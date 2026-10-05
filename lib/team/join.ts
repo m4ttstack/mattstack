@@ -563,7 +563,7 @@ export async function joinRedeem(
   if (!handle) {
     const cli = forge?.provider === "gitlab" ? "glab" : "gh";
     throw new UserActionableError("forge-login-unknown", `rt could not tell who you are on ${cli === "glab" ? "GitLab" : "GitHub"}. The invite has not been used yet.`, {}, {
-      why: `Sign in to the ${cli} command line tool, then join again.`,
+      why: `rt reads your username from the ${cli} command line tool, which is not signed in. The invite still works once you are.`,
       next: `${cli} auth login`,
       log: `the team is cloned at ${dir}`,
     });

@@ -8,6 +8,7 @@
 import { execSync } from "child_process";
 import { existsSync, readdirSync, readFileSync, mkdirSync, realpathSync } from "fs";
 import { basename, join, resolve } from "path";
+import { shellQuote } from "./herdr-launch.ts";
 import { repoDataDir } from "./rt-paths.ts";
 import { identityFromRemote, serializeIdentity } from "./settings/identity.ts";
 
@@ -20,7 +21,7 @@ export { updateRepoIndex, getKnownRepos, getKnownReposCached, findKnownRepo, rep
 
 import { getRepoRoot, getRemoteUrl } from "./git.ts";
 import { updateRepoIndex, getKnownRepos, findKnownRepo, repoOption, repoOptions, repoFromOptionValue, pickerWorktrees, type KnownRepo } from "./repo-index.ts";
-import { repoLabel } from "./repo-label.ts";
+import { repoLabel, repoLabelFull } from "./repo-label.ts";
 import * as out from "./ui/out.ts";
 import { groupWorktrees } from "./worktree-groups.ts";
 import type { PickRow } from "./ui/protocol.ts";
@@ -31,7 +32,7 @@ export function missingRepoFailure(r: KnownRepo): out.FailureInput {
   return {
     title: `${repoLabel(r.repoName)} is no longer where rt last saw it`,
     ...(gone ? { why: `It was at ${gone}.` } : {}),
-    next: out.cmd(`rt repos locate <new-path> --repo ${r.repoName}`),
+    next: out.cmd(`rt repos locate <new-path> --repo ${shellQuote(repoLabelFull(r.repoName))}`),
   };
 }
 
@@ -42,10 +43,10 @@ function failNoRepos(title: string): never {
   process.exit(1);
 }
 
-function failCannotAsk(): never {
+function failCannotAsk(what: "repo" | "worktree"): never {
   out.fail({
     title: "You are not in a git repo",
-    why: "rt knows more than one repo and cannot ask which one you mean without a terminal.",
+    why: `rt knows more than one ${what} and cannot ask which one you mean without a terminal.`,
     next: "Run this from inside the repo you mean",
   });
   process.exit(1);
@@ -270,7 +271,7 @@ export async function requireRepoIdentity(commandLabel?: string): Promise<RepoId
   let selectedRepo = choices[0]!;
 
   if (choices.length > 1) {
-    if (!process.stdin.isTTY) failCannotAsk();
+    if (!process.stdin.isTTY) failCannotAsk("repo");
 
     const { filterableSelect } = await import("./pick-wrappers.ts");
     const picked = await filterableSelect({
@@ -309,7 +310,7 @@ export async function pickWorktree(prompt: string): Promise<string> {
     return choices[0]!.worktrees[0]!.path;
   }
 
-  if (!process.stdin.isTTY) failCannotAsk();
+  if (!process.stdin.isTTY) failCannotAsk(choices.length > 1 ? "repo" : "worktree");
 
   let selectedRepo: KnownRepo;
 

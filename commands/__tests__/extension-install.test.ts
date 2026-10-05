@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { __test__ } from "../extension.ts";
+import { __test__, installExtension, type ExtensionDeps } from "../extension.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { __test__ as gate } from "../../lib/ui/gate.ts";
@@ -108,3 +108,60 @@ test("an editor that timed out says so and the next editor is still installed", 
     "  next: Restart your editor to turn it on",
   ]);
 }, 15_000);
+
+describe("installExtension's exit code", () => {
+  const EDITORS = [
+    { name: "Sample Code", cliPath: "/apps/sample-code", appPath: "/Applications/Sample Code.app" },
+    { name: "Sample Editor", cliPath: "/apps/sample-editor", appPath: "/Applications/Sample Editor.app" },
+  ];
+  const deps = (over: Partial<ExtensionDeps>): ExtensionDeps => ({
+    findVsix: () => "/x/rt-context.vsix",
+    detectEditors: () => EDITORS,
+    pick: async () => EDITORS.map((e) => e.cliPath),
+    install: async () => ({ ok: true }),
+    ...over,
+  });
+  const run = async (d: ExtensionDeps): Promise<number> => {
+    const exit = spyOn(process, "exit").mockImplementation(((c?: number) => {
+      throw new Error(`exit ${c}`);
+    }) as unknown as typeof process.exit);
+    try {
+      await installExtension([], {}, d);
+      return 0;
+    } catch (err) {
+      const m = /^exit (\d+)$/.exec((err as Error).message);
+      if (!m) throw err;
+      return Number(m[1]);
+    } finally {
+      exit.mockRestore();
+    }
+  };
+
+  test("a missing extension exits 1", async () => {
+    expect(await run(deps({ findVsix: () => null }))).toBe(1);
+    expect(io.stderr()).toStartWith("rt could not find its editor extension");
+  });
+
+  test("nothing installed exits 1", async () => {
+    expect(await run(deps({ install: async () => ({ ok: false, output: "boom" }) }))).toBe(1);
+    expect(io.lines()).toEqual([
+      "[failed] Sample Code did not take the extension  boom",
+      "[failed] Sample Editor did not take the extension  boom",
+    ]);
+  });
+
+  test("a partial install exits 0", async () => {
+    expect(await run(deps({ install: async (cliPath) => (cliPath === "/apps/sample-code" ? { ok: true } : { ok: false, output: "boom" }) }))).toBe(0);
+  });
+
+  test("no detected editor exits 0 without picking or installing", async () => {
+    expect(await run(deps({ detectEditors: () => [], pick: async () => { throw new Error("unexpected picker"); }, install: async () => { throw new Error("unexpected install"); } }))).toBe(0);
+  });
+
+  for (const selected of [null, []]) {
+    test(`${selected === null ? "a cancelled" : "an empty"} selection exits 0 without installing`, async () => {
+      expect(await run(deps({ pick: async () => selected, install: async () => { throw new Error("unexpected install"); } }))).toBe(0);
+      expect(io.lines()).toEqual(["[skipped] No editors selected"]);
+    });
+  }
+});

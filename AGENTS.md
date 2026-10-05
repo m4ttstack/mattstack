@@ -478,6 +478,8 @@ Human failures go to stderr; the envelopes the tray reads did not change.
 traces keep the `rt-intercept:` prefix, because `commands/intercept.ts`
 routes them to the log by that prefix.
 
+A command a person can run to fix something names its subject in a form the verb resolves: `rt repos locate --repo` takes a repo's `host/path` label, so printed commands use that (`repoLabelFull`), never the stored identity.
+
 ## The TypeScript CLI is UI-free
 
 The rt TS CLI (`commands/`, `lib/`, `cli.ts`, `scripts/`) is pure Bun/TypeScript

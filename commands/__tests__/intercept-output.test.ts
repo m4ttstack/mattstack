@@ -102,8 +102,8 @@ describe("rt intercept, read by a person", () => {
   });
 
   test("install: what was written, what was current, and what rt left alone", () => {
-    expect(renderPlain(installBlocks({ installed: ["pnpm"], current: ["vite"], skipped: ["doppler"], rules: 3 }))).toBe(
-      "[ok] Installed  pnpm\n[ok] Already current  vite\n[refused] Left alone, because rt did not make them  doppler\nRules: 3\n",
+    expect(renderPlain(installBlocks({ installed: ["pnpm"], current: ["vite"], skipped: ["deck"], rules: 3 }))).toBe(
+      "[ok] Installed  pnpm\n[ok] Already current  vite\n[refused] rt did not make these, so rt left them alone  deck\nRules: 3\n",
     );
     expect(renderPlain(installBlocks({ installed: [], current: [], skipped: [], rules: 0 }))).toBe("[skipped] No commands to intercept\nRules: 0\n");
   });

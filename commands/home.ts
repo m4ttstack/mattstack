@@ -411,7 +411,7 @@ async function ensureHomeAgeKey(
       ok: false,
       failure: {
         title: "This Mac's key cannot open your secrets",
-        why: `They are locked to ${existingRecipient ?? "a key rt does not recognise"}. A new key was already minted and stored for this Mac, and it is not the one they need.`,
+        why: `They are locked to ${existingRecipient ?? "a key rt does not recognize"}. A new key was already minted and stored for this Mac, and it is not the one they need.`,
         next: out.cmd("rt home key import --force"),
       },
     };
@@ -428,7 +428,7 @@ async function ensureHomeAgeKey(
       ok: false,
       failure: {
         title: "This Mac's key does not match your secrets",
-        why: `They are locked to ${existingRecipient === null ? "a key rt does not recognise" : truncateKey(existingRecipient)}, but this Mac holds ${truncateKey(publicKey)}, and rt will not change that lock by itself.`,
+        why: `They are locked to ${existingRecipient === null ? "a key rt does not recognize" : truncateKey(existingRecipient)}, but this Mac holds ${truncateKey(publicKey)}, and rt will not change that lock by itself.`,
         next: out.cmd("rt home key import --force"),
       },
       after: [out.callout("note", "To change the key on purpose, rewrite the recipient in your home repo by hand, then save each secret again with rt secrets set.")],

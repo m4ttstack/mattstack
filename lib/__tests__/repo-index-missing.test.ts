@@ -143,6 +143,32 @@ describe("missing index rows", () => {
     }
   });
 
+  for (const what of ["worktree", "repo"] as const) {
+    test(`without a terminal the failure names more than one ${what}`, async () => {
+      const first = realRepo("first");
+      setKvValue("repo-index", "first", first);
+      if (what === "worktree") {
+        execSync(`git worktree add -q -b second ${join(scratch, "second")}`, { cwd: first, stdio: "pipe" });
+      } else {
+        setKvValue("repo-index", "second", realRepo("second"));
+      }
+      const savedTTY = process.stdin.isTTY;
+      Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+      const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("process.exit sentinel"); });
+      const io = captureOut();
+      ui.__test__.setHuman(() => false);
+      try {
+        await expect(pickWorktree("Pick a repo")).rejects.toThrow("process.exit sentinel");
+        expect(io.stderr()).toContain(`  why: rt knows more than one ${what} and cannot ask which one you mean without a terminal.\n`);
+        expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(1);
+      } finally {
+        io.restore();
+        exitSpy.mockRestore();
+        Object.defineProperty(process.stdin, "isTTY", { value: savedTTY, configurable: true });
+      }
+    });
+  }
+
   test("the refusal names the repo, the gone path, and the fix", () => {
     const msg = missingRepoRefusal({ repoName: "moved", worktrees: [{ path: "/x/gone", branch: "", isBare: false }], dataDir: "/d", missing: true });
     expect(msg).toContain("/x/gone");

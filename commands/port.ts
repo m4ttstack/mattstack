@@ -133,9 +133,10 @@ function stopAll(targets: StopTarget[]): void {
   const done: Block[] = [];
   const failures: out.FailureInput[] = [];
   for (const { pid, command, port } of targets) {
-    const where = `pid ${pid}, port ${port}`;
+    const valid = Number.isInteger(pid) && pid > 0;
+    const where = valid ? `pid ${pid}, port ${port}` : `port ${port}`;
     // process.kill on 0 or a negative pid signals a whole process group.
-    if (!Number.isInteger(pid) || pid <= 0) {
+    if (!valid) {
       done.push(out.line("skipped", `${command} has no process to stop`, where));
       continue;
     }

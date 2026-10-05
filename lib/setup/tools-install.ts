@@ -87,6 +87,8 @@ export interface InstallResult {
   via: InstallVia;
   ok: boolean;
   detail: string;
+  /** Internal bundled-link classification, excluded from the JSON envelope. */
+  reason?: Extract<LinkOutcome, { ok: false }>["reason"];
 }
 
 function firstLine(s: string): string {
@@ -176,7 +178,7 @@ export async function installTool(p: Probes, tool: string, reqs: PackRequirement
   const bundled = seams.bundledToolExec(p, tool);
   if (bundled) {
     const outcome = seams.link(p, tool);
-    return { via: "bundled-link", ok: outcome.ok, detail: linkOutcomeDetail(outcome) };
+    return { via: "bundled-link", ok: outcome.ok, detail: linkOutcomeDetail(outcome), ...(outcome.ok ? {} : { reason: outcome.reason }) };
   }
 
   const teamTool = reqs.flatMap((r) => r.tools).find((t) => t.name === tool);

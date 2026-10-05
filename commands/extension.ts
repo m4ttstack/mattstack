@@ -15,7 +15,7 @@ import { childEnv } from "../lib/subprocess.ts";
 import { interactive } from "../lib/ui/gate.ts";
 import * as out from "../lib/ui/out.ts";
 import { openStep, settleBackground, type StepHandle } from "../lib/ui/spawn.ts";
-import { detectEditors } from "../lib/editors.ts";
+import { detectEditors, type DetectedEditor } from "../lib/editors.ts";
 
 // ─── VSIX Finder ─────────────────────────────────────────────────────────────
 
@@ -177,38 +177,53 @@ async function installInto(
 
 export const __test__ = { installInto, installWithCli };
 
-export async function installExtension(): Promise<void> {
-  const vsixPath = findVsix();
+export interface ExtensionDeps {
+  findVsix: () => string | null;
+  detectEditors: () => DetectedEditor[];
+  pick: (editors: DetectedEditor[]) => Promise<string[] | null>;
+  install: Installer;
+}
+
+function realExtensionDeps(): ExtensionDeps {
+  return {
+    findVsix,
+    detectEditors: () => detectEditors(),
+    pick: async (editors) => {
+      const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
+      return filterableMultiselect({
+        message: "Select editors to install RT Context into",
+        options: editors.map((e) => ({ value: e.cliPath, label: e.name, hint: e.appPath })),
+      });
+    },
+    install: installWithCli,
+  };
+}
+
+export async function installExtension(_args: string[] = [], _ctx: unknown = {}, deps: ExtensionDeps = realExtensionDeps()): Promise<void> {
+  const vsixPath = deps.findVsix();
   if (!vsixPath) {
     out.fail({ title: "rt could not find its editor extension", why: "It ships beside the rt program and is missing there." });
-    return;
+    process.exit(1);
   }
   logCliEvent("debug", "extension", "vsix found", { path: vsixPath });
 
-  const editors = detectEditors();
+  const editors = deps.detectEditors();
   if (editors.length === 0) {
     out.print(out.line("pending", "No editor that takes VS Code extensions was found", "install Cursor, VS Code or a similar editor first"));
     return;
   }
 
-  const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
-
-  const selected = await filterableMultiselect({
-    message: "Select editors to install RT Context into",
-    options: editors.map((e) => ({
-      value: e.cliPath,
-      label: e.name,
-      hint: e.appPath,
-    })),
-  });
+  const selected = await deps.pick(editors);
 
   if (!selected || selected.length === 0) {
     out.print(out.line("skipped", "No editors selected"));
     return;
   }
 
-  await installInto(
+  const installed = await installInto(
     selected.map((cliPath) => editors.find((e) => e.cliPath === cliPath)!),
     vsixPath,
+    deps.install,
   );
+  if (installed === 0) process.exit(1);
 }

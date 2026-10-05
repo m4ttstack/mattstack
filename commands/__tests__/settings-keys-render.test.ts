@@ -22,6 +22,12 @@ const row = (over: Partial<ListedSetting>): ListedSetting =>
   ({ key: "rt.roles", value: 1, provenance: [], migrated: true, ...over }) as ListedSetting;
 
 describe("renderListRow", () => {
+  test("an invalid value names whose settings hold it, in words", () => {
+    const text = listText(row({ invalid: [{ scope: "user", file: "/tmp/x", reason: "expected number, got string" }] } as never));
+    expect(text).toContain("your user settings: value is not valid: expected number, got string");
+    expect(text).not.toContain("invalid[");
+  });
+
   test("an unregistered key is labelled ONLY unregistered — never 'reads legacy'", () => {
     const text = listText(row({ key: "rt.fromTheFuture", migrated: false, unregistered: true }));
 
@@ -47,8 +53,8 @@ describe("renderListRow", () => {
       mergedIssues: [{ path: ["enabled"], message: "expected boolean, got string" }],
     }));
 
-    expect(text).toContain("nonconforming[machine]: enabled: expected boolean, got string");
-    expect(text).toContain("merged: enabled: expected boolean, got string");
+    expect(text).toContain("this Mac's settings: value has the wrong shape: enabled: expected boolean, got string");
+    expect(text).toContain("the combined value has a problem: enabled: expected boolean, got string");
   });
 });
 
@@ -104,7 +110,9 @@ describe("renderExplainRow over store names", () => {
 
 describe("renderListRow over store names", () => {
   test("a diverged layer and a newer-rt name are labeled", () => {
-    expect(listText(row({ diverged: [{ scope: "user", file: null, storeNames: ["rt.roles"] }] }))).toContain("diverged[user]: rt.roles");
+    const text = listText(row({ diverged: [{ scope: "user", file: null, storeNames: ["rt.roles"] }] }));
+    expect(text).toContain("your user settings: two copies disagree");
+    expect(text.slice("rt.roles  ".length)).not.toContain("rt.roles");
     expect(listText(row({ key: "rt.roles@3", migrated: false, unregistered: true, newer: true }))).toContain("from a newer rt");
   });
 });

@@ -28,7 +28,7 @@ async function interceptsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
     const result = await installShims();
     const total = result.installed.length + result.current.length;
     if (result.skipped.length > 0) {
-      ctx.log("intercepts.install", `not ours, left alone: ${result.skipped.join(", ")}`);
+      ctx.log("intercepts.install", `rt did not make these, so rt left them alone: ${result.skipped.join(", ")}`);
     }
     const detail =
       total === 0 && result.skipped.length === 0

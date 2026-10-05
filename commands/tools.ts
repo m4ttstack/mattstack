@@ -76,15 +76,17 @@ export async function toolsInstall(args: string[], _ctx: CommandContext = {}, p:
   }
 
   if (json) {
-    out.json(envelope(result));
+    out.json(envelope({ via: result.via, ok: result.ok, detail: result.detail }));
     if (!result.ok) {
-      out.fail({ title: result.detail });
+      if (result.reason && result.reason !== "no-bundle") out.note(out.line("refused", `rt left your ${t} alone`, result.detail));
+      else out.fail({ title: result.detail });
       process.exit(1);
     }
     return;
   }
   if (!result.ok) {
-    out.fail({ title: `${t} was not installed`, why: result.detail });
+    if (result.reason && result.reason !== "no-bundle") out.note(out.line("refused", `rt left your ${t} alone`, result.detail));
+    else out.fail({ title: `${t} was not installed`, why: result.detail });
     process.exit(1);
   }
   out.print(out.line("done", `Installed ${t}`, result.detail));

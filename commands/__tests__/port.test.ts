@@ -215,13 +215,24 @@ describe("stopping what listens on a port", () => {
     __test__.setSystem({ listeners: () => "", kill: (pid) => void killed.push(pid) });
     await portScanner([]);
     expect(killed).toEqual([]);
-    expect(io.stdout()).toBe("[skipped] ghost has no process to stop  pid 0, port 3000\n[skipped] phantom has no process to stop  pid -1, port 4000\n");
+    expect(io.stdout()).toBe("[skipped] ghost has no process to stop  port 3000\n[skipped] phantom has no process to stop  port 4000\n");
 
     io.clear();
     __test__.setSystem({ listeners: () => LSOF.split("\n")[0] + "\nghost       0 me     3u  IPv4 0x9  0t0  TCP *:3000 (LISTEN)\n", kill: (pid) => void killed.push(pid) });
     await portScanner(["3000"]);
     expect(killed).toEqual([]);
-    expect(io.stdout()).toBe("[skipped] ghost has no process to stop  pid 0, port 3000\n");
+    expect(io.stdout()).toBe("[skipped] ghost has no process to stop  port 3000\n");
+    expect(io.stderr()).toBe("");
+  });
+
+  test("a NaN pid omits the pid hint and is never signalled", async () => {
+    fakeDaemon([entry({ pid: Number.NaN })]);
+    setTTY(true);
+    gate.setInteractive(() => false);
+    mock.module("../../lib/pick-wrappers.ts", () => ({ ...realPickWrappers, filterableMultiselect: async () => ["NaN"] }));
+    await portScanner([]);
+    expect(killed).toEqual([]);
+    expect(io.stdout()).toBe("[skipped] node has no process to stop  port 3000\n");
     expect(io.stderr()).toBe("");
   });
 

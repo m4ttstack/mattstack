@@ -14,6 +14,7 @@
  */
 
 import { existsSync } from "fs";
+import { runningRunDetail } from "./running-run.ts";
 import { gitOk, headSha, runGit } from "./git-async.ts";
 import { containmentOf } from "./containment.ts";
 import { findByPath, loadRegistry, saveRegistry, type TreeRecord } from "./registry.ts";
@@ -226,7 +227,7 @@ export async function disposeTree(
     //    reporting "none" here would let disposal race a run it failed to see.
     const scan = deps.findRunningRun(rec.path);
     if (scan.kind === "match") {
-      return refuse("running-run", `running run ${scan.run.id} at ${scan.run.currentStage}; rt runs abandon ${scan.run.id}`);
+      return refuse("running-run", runningRunDetail(scan.run.id, scan.run.currentStage));
     }
     if (scan.kind === "incomplete") {
       return refuse("runs-unreadable", "could not verify no run is live in this worktree; check manually with `rt runs`");
