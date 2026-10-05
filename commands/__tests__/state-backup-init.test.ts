@@ -126,7 +126,7 @@ describe("state backup init", () => {
         } else {
           await stateBackupInit([], {});
           const text = io.stdout();
-          const ordered = ["age, zstd and git-lfs are here", "Git LFS is set up", "This Mac can decrypt your backups", `Backed up ${scenario === "no sources" ? 0 : 1} source(s)`, scenario === "no sources" ? "No backup to check yet" : "A backup decrypts", scenario === "success" ? "Git LFS stores the encrypted files" : "Finished checking Git LFS", "Encrypted backup is set up"];
+          const ordered = ["age, zstd and git-lfs are here", "Git LFS is set up", "This Mac can decrypt your backups", `Backed up ${scenario === "no sources" ? 0 : 1} source(s)`, scenario === "no sources" ? "No backup to check yet" : "A backup decrypts", scenario === "success" ? "Git LFS stores the encrypted files" : "Finished checking Git LFS", scenario === "success" ? "Encrypted backup is set up" : "Encrypted backup still needs a check"];
           let previous = -1;
           for (const title of ordered) { const position = text.indexOf(title); expect(position).toBeGreaterThan(previous); previous = position; }
           expect(events).toEqual(scenario === "no sources" ? ["install", "key", "backup"] : ["install", "key", "backup", "read", "decrypt", "check"]);
@@ -141,11 +141,15 @@ describe("state backup init", () => {
           if (scenario !== "success") {
             expect(text).toContain("[ok] Finished checking Git LFS  not confirmed yet\n");
             expect(text).not.toContain("Git LFS stores the encrypted files");
+            expect(text).toContain("[not yet] Encrypted backup still needs a check  the daemon backs up every 4 hours\n");
+            expect(text).not.toContain("Encrypted backup is set up");
             expect(text).toContain("[warning] Git LFS has not taken the encrypted files yet\n  next: rt state backup status\n");
           } else {
             expect(text).toContain("[ok] Git LFS stores the encrypted files\n");
             expect(text).not.toContain("Finished checking Git LFS");
             expect(text).not.toContain("not confirmed yet");
+            expect(text).toContain("[ok] Encrypted backup is set up  the daemon backs up every 4 hours\n");
+            expect(text).not.toContain("Encrypted backup still needs a check");
           }
           expect(exit).not.toHaveBeenCalled();
           expect(io.stderr()).toBe("");

@@ -103,5 +103,5 @@ export async function stateBackupInit(_args: string[], _ctx: CommandContext = {}
     return checked.exitCode === 0 && checked.stdout.toString().includes("filter: lfs");
   }, confirmed => confirmed ? undefined : "not confirmed yet");
   if (!confirmed) out.print(out.line("warn", "Git LFS has not taken the encrypted files yet"), out.callout("next", out.cmd("rt state backup status")));
-  out.print(out.summary("done", "Encrypted backup is set up", ["the daemon backs up every 4 hours"]));
+  out.print(out.summary(confirmed ? "done" : "pending", confirmed ? "Encrypted backup is set up" : "Encrypted backup still needs a check", ["the daemon backs up every 4 hours"]));
 }
