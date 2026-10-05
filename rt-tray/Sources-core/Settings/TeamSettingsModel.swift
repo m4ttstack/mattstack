@@ -16,6 +16,7 @@ public struct TeamSettingsInfo: Codable, Equatable, Sendable {
 }
 
 extension TeamSettingsInfo {
+    public var orgIdentity: String? { slug ?? name }
     /// An rt that reports no role predates orgs; the pane keeps what it showed then.
     public var isAdmin: Bool { role == nil || role == "admin" }
     public var myTeams: [String] { teams ?? [] }

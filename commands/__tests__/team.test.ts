@@ -51,7 +51,7 @@ function baseDeps(overrides: Partial<TeamDeps> = {}): TeamDeps & { lines: string
 
 /** `publishTeam` prechecks the zone exists — every teamPublish test that means to reach the git steps needs it seeded. */
 function depsWithZone(overrides: Partial<TeamDeps> = {}) {
-  return baseDeps({ probes: fakeProbes({ home: "/home/x", files: adminFiles, dirs: { [ZONE_DIR]: [] } }), ...overrides });
+  return baseDeps({ probes: fakeProbes({ home: "/home/x", files: adminFiles, dirs: { [ZONE_DIR]: [] }, exec: (argv) => ({ code: 0, stdout: argv.includes("get-url") ? "https://github.com/acme/repo.git\n" : "", stderr: "" }) }), ...overrides });
 }
 
 /** Every exit path (usage refusals included, now that they route through `exitUserError`) calls the real `process.exit(2)`, never `deps.exit` — `deps.exit` stays only as a defensive sentinel that would fail a test loudly if some future path called it unexpectedly. */
@@ -211,7 +211,7 @@ describe("teamPublish", () => {
       dirs: { [ZONE_DIR]: [] },
       exec: (argv, opts) => {
         seen.push({ argv, env: opts?.env });
-        return { code: 0, stdout: "", stderr: "" };
+        return { code: 0, stdout: argv.includes("get-url") ? "https://github.com/acme/repo.git\n" : "", stderr: "" };
       },
     });
     const deps = baseDeps({ probes, forgeToken: async (_p, remote) => (remote.includes("acme/repo") ? "ghp-secret" : null) });
@@ -310,7 +310,9 @@ describe("teamInvite", () => {
         [join(teamDir, "mattstack", "teams", "widgets", "settings.team.jsonc")]: "{}",
         [teamLocalPath(home, "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
       },
-      exec: overrides.exec ?? ghExec(),
+      exec: (argv) => argv.includes("get-url")
+        ? { code: 0, stdout: "git@github.com:acme/widgets.git\n", stderr: "" }
+        : (overrides.exec ?? ghExec())(argv),
       fetch: (url, init) => {
         if (url.endsWith("/boards")) return Promise.resolve({ status: 401, body: "", headers: {} });
         overrides.onRelay?.();

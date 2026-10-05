@@ -920,6 +920,8 @@ describe("roster publication in an existing clone", () => {
         };
         let pushes = 0;
         p.exec = async (argv, opts) => {
+          if (argv.includes("get-url")) return { code: 0, stdout: `${REMOTE}\n`, stderr: "" };
+          if (argv.includes("ls-remote")) return { code: 0, stdout: `${head.trim()}\trefs/heads/main\n`, stderr: "" };
           if (argv.includes("push")) { pushes++; return { code: 0, stdout: "", stderr: "" }; }
           if (argv[1] === (mode === "add-fails" ? "add" : mode === "commit-fails" ? "commit" : "")) return { code: 1, stdout: "", stderr: "fixture denied" };
           return realExec(argv, opts);

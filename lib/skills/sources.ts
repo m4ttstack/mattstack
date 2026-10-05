@@ -5,6 +5,7 @@ import { parse as parseYaml } from "yaml";
 import { resolveClaudeBin } from "../claude-bin.ts";
 import { stripJsonc } from "../jsonc.ts";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
+import { validateSlug } from "../secrets/store.ts";
 import { warn } from "../ui/warn.ts";
 import { findPlaceholders } from "./placeholders.ts";
 import type { AttachmentSource, SlotSpec, StepSource, VerbDef } from "./types.ts";
@@ -241,7 +242,13 @@ export function orgOfPackDir(packDir: string): { org: string; root: string } | n
     if (existsSync(markerPath)) {
       const marker = readJsoncObject(markerPath);
       const org = marker?.org;
-      return marker?.role === "org" && typeof org === "string" && TEAM_NAME_RE.test(org) ? { org, root: dir } : null;
+      if (marker?.role !== "org" || typeof org !== "string") return null;
+      try {
+        validateSlug(org);
+        return { org, root: dir };
+      } catch {
+        return null;
+      }
     }
     const parent = dirname(dir);
     if (parent === dir) return null;

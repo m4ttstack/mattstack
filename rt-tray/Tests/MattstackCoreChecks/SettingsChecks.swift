@@ -99,6 +99,29 @@ private actor GatedTeamRt: RtRunning {
 }
 
 let settingsChecks: [Check] = [
+    Check("team switch keeps Org identity while board titles and working teams change") { c in
+        let rt = ScriptedRt()
+        rt.answers["team status"] = (0, #"{"contract":1,"name":"Widgets","slug":"acme","activeTeam":"widgets","teams":["widgets","gadgets"]}"#)
+        rt.answers["team use gadgets"] = (0, #"{"contract":1,"team":"gadgets","pack":{"enabled":true}}"#)
+        let m = await MainActor.run { makeTeamSettings(rt).0 }
+        await m.load()
+        await MainActor.run {
+            c.expectEqual(m.info?.orgIdentity, "acme")
+            c.expectEqual(m.info?.name, "Widgets")
+        }
+        rt.answers["team status"] = (0, #"{"contract":1,"name":"Gadgets","slug":"acme","activeTeam":"gadgets","teams":["widgets","gadgets"]}"#)
+        await m.useTeam("gadgets")
+        await MainActor.run {
+            c.expectEqual(m.info?.orgIdentity, "acme")
+            c.expectEqual(m.info?.name, "Gadgets")
+            c.expectEqual(m.info?.activeTeam, "gadgets")
+            c.expect(!m.isSwitchingTeam)
+            c.expectEqual(m.packNotice, nil)
+        }
+        let legacy = try JSONDecoder().decode(TeamSettingsInfo.self, from: Data(#"{"name":"Legacy"}"#.utf8))
+        c.expectEqual(legacy.orgIdentity, "Legacy")
+    },
+
     Check("team switch ignores another selection during the mutation and status reload") { c in
         let mutation = AsyncGate(), reload = AsyncGate()
         let rt = GatedTeamRt(mutationGate: mutation, reloadGate: reload)

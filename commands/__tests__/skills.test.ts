@@ -634,6 +634,38 @@ describe("skillsCompile", () => {
     expect(existsSync(join(baseDir, "skills"))).toBe(false);
   });
 
+  for (const externalCopy of [false, true]) test(`a numeric-leading org materializes and compiles inherited base fills in its ${externalCopy ? "external copy" : "clone"}`, async () => {
+    const mattstackDir = makeMattstackDir();
+    seedOrg(mattstackDir, "1acme", { projects: ["acme/widgets"], teams: ["team-1acme"] });
+    const baseDir = join(mattstackDir, "teams", "1acme", "mattstack", "org", "packs", "acme-base");
+    const packDir = teamPackDir(mattstackDir, "1acme", "team-1acme");
+    writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD);
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
+    writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
+    writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+
+    const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, enginePackDir: join(mattstackDir, "plugins", "mattstack") }, "https://gitlab.example.com/acme/widgets.git");
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs).toMatchObject([{ pack: "team-1acme", ok: true, layers: ["base:acme-base", "pack"] }]);
+
+    let compileDir = packDir;
+    if (externalCopy) {
+      const copy = join(realpathSync(mkdtempSync(join(tmpdir(), "rt-numeric-org-copy-"))), "1acme-copy");
+      cpSync(join(mattstackDir, "teams", "1acme"), copy, { recursive: true });
+      compileDir = join(copy, "mattstack", "teams", "team-1acme", "packs", "team-1acme");
+      const copiedFill = join(copy, "mattstack", "org", "packs", "acme-base", "attachments", "watch-ci-domain", "SKILL.md");
+      writeFile(copiedFill, DOMAIN_SKILL_MD + "\nFill from this external copy.\n");
+    }
+    const { errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "team-1acme", "--pack-dir", compileDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
+    expect(errors).toEqual([]);
+    const body = readFileSync(join(compileDir, "skills", "watch-ci", "SKILL.md"), "utf8");
+    expect(body).toContain("acme-base:watch-ci-domain");
+    if (externalCopy) expect(body).toContain("Fill from this external copy.");
+    expect(existsSync(join(baseDir, "skills"))).toBe(false);
+  });
+
   test("a team pack in a copy of the org repo outside teams/ compiles its org base fill from that copy, and a pack in no org repo gets no bases", async () => {
     const mattstackDir = makeMattstackDir();
     seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });

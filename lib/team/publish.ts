@@ -13,7 +13,8 @@ import type { ExecResult, Probes } from "../setup/probes.ts";
 import { parseOriginUrl, stripUserinfo } from "../setup/team-settings.ts";
 import { withoutUrls } from "./redact.ts";
 import { assertMayWrite, roleFor } from "./roles.ts";
-import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { mayWritePath, ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { GIT_OBJECT_ID, unpublishedPaths } from "./publish-history.ts";
 
 export interface PublishTeamResult {
   remote: string;
@@ -77,7 +78,25 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   }
 
   const activeRemote = remote ?? (await currentOrigin(p, dir)) ?? "";
+  const inspectionFailure = () => new UserActionableError("team-pull-only", "rt could not check your pending changes", {}, { next: "rt team pull" });
+  const destination = await p.exec(["git", "remote", "get-url", "--push", "--all", "origin"], { cwd: dir });
+  const urls = destination.stdout.trim().split("\n").filter(Boolean);
+  if (destination.code !== 0 || urls.length !== 1) throw inspectionFailure();
+  const lookup = gitWithToken(["ls-remote", "--refs", "--", urls[0]!, "refs/heads/main"], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
+  const published = await p.exec(lookup.argv, { cwd: dir, env: lookup.env });
+  const rows = published.stdout.trim().split("\n").filter(Boolean);
+  if (published.code !== 0 || rows.length > 1) throw inspectionFailure();
+  const base = rows[0]?.split("\t");
+  if (base && (base.length !== 2 || !GIT_OBJECT_ID.test(base[0]!) || base[1] !== "refs/heads/main")) throw inspectionFailure();
+  const pending = await unpublishedPaths((argv) => p.exec(argv, { cwd: dir }), base ? `${base[0]}..refs/heads/main` : "refs/heads/main");
+  if (pending === null) throw inspectionFailure();
   const cmd = gitWithToken(["push", "-u", "origin", "main"], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
+  const current = roleFor(p, slug);
+  if (ownedRoots(current).length === 0) assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
+  for (const path of pending) {
+    if (current.kind === "admin" && path === ".gitignore") continue;
+    if (!mayWritePath(current, path)) assertMayWrite(p, slug, path);
+  }
   const push = await p.exec(cmd.argv, { cwd: dir, env: cmd.env });
 
   if (push.code !== 0) {

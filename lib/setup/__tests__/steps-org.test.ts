@@ -7,7 +7,14 @@ import type { ApplyContext } from "../apply.ts";
 import type { Probes } from "../probes.ts";
 import { readTeamLocal, teamLocalPath } from "../../team/team-local.ts";
 import { cloneSlugs, orgPullStep, teamIdentityStep, recordForgeIdentity } from "../steps/org.ts";
-import { fakeProbes } from "./fakes.ts";
+import { fakeProbes as baseFakeProbes } from "./fakes.ts";
+
+function fakeProbes(opts: Parameters<typeof baseFakeProbes>[0] = {}) {
+  return baseFakeProbes({ ...opts, exec: (argv, execOpts) => {
+    if (argv.includes("get-url")) return { code: 0, stdout: "https://github.com/acme/org.git\n", stderr: "" };
+    return opts.exec?.(argv, execOpts) ?? { code: 0, stdout: "", stderr: "" };
+  } });
+}
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
