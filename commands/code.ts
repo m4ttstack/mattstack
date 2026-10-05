@@ -22,6 +22,7 @@ import { getSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import { dim, green, red, reset } from "../lib/tui.ts";
 import * as out from "../lib/ui/out.ts";
+import { warn } from "../lib/ui/warn.ts";
 import { getRepoIdentity, getKnownRepos, findKnownRepo } from "../lib/repo.ts";
 import { currentRepoIdentityFor } from "../lib/repo-arg.ts";
 import { repoLabel } from "../lib/repo-label.ts";
@@ -58,10 +59,17 @@ function loadPrefs(): Prefs {
     never brick editor launch — degrade to a warning, same as loadPrefs. */
 function savePrefs(prefs: Prefs): void {
   try {
-    setSetting("rt.workspacePrefs", prefs, "machine");
+    const value = {
+      editors: prefs.editors,
+      workspaces: prefs.workspaces,
+      ...(prefs.defaultEditor !== undefined ? { defaultEditor: prefs.defaultEditor } : {}),
+    };
+    setSetting("rt.workspacePrefs", value, "machine");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn("rt: could not save workspace prefs — " + message);
+    warn("code", `could not save workspace prefs: ${message}`, {
+      show: { title: "rt could not remember your editor choice", hint: message.split("\n")[0], next: out.cmd("rt settings check") },
+    });
   }
 }
 
