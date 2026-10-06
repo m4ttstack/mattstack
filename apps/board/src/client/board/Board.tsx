@@ -1579,7 +1579,7 @@ export function Board() {
             {controlProps.show && <ShowChips show={controlProps.show} />}
             <div className="tui-header-corner">
               <AsksButton
-                asks={data.asks}
+                asks={data.local ? data.asks : undefined}
                 open={asksOpen}
                 onOpenChange={setAsksOpen}
                 flashId={askFlashId}
@@ -1861,7 +1861,7 @@ export function Board() {
                 setPendingAsk({
                   kind: req.ask,
                   reviewer: opts.pick,
-                  subject: `${count} MRs`,
+                  subject: `${count} ${count === 1 ? 'MR' : 'MRs'}`,
                   send: note =>
                     void runBulk(
                       {

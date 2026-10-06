@@ -99,7 +99,7 @@ export function AskCard({
         </span>
       </div>
       <div className="tui-ask-mr">
-        <span className="tui-ask-title">{ask.title ?? ask.mrUrl}</span>
+        {ask.title && <span className="tui-ask-title">{ask.title}</span>}
         <MrLinks
           mr={{
             webUrl: ask.mrUrl,

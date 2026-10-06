@@ -40,8 +40,8 @@ export function AskHistory({
                   </span>
                 </div>
                 <div className="tui-ask-history-mr">
-                  <span className="tui-ask-iid">!{a.iid}</span>{' '}
-                  {a.title ?? a.mrUrl}
+                  <span className="tui-ask-iid">!{a.iid}</span>
+                  {a.title && ` ${a.title}`}
                 </div>
                 <div className="tui-ask-outcome" data-tone={outcome.tone}>
                   {outcome.text}

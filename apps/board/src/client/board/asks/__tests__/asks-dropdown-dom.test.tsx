@@ -73,3 +73,36 @@ test('a retry that succeeds drops the earlier failure', async () => {
   expect(notices).toEqual([]);
   await act(async () => root.unmount());
 });
+
+test('an ask with no title shows no title text, never its URL', async () => {
+  const untitled = { ...fx.RAE_ASK, title: undefined };
+  const handled = {
+    ...untitled,
+    id: 'h1',
+    handled: { at: fx.ASKS_NOW, result: 'launched' as const },
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  for (const initialView of ['list', 'history'] as const) {
+    await act(async () =>
+      root.render(
+        <AsksDropdown
+          key={initialView}
+          asks={{ pending: [untitled], history: [handled], alwaysAllow: [] }}
+          initialView={initialView}
+          flashId={null}
+          onAccept={async () => {}}
+          onDecline={async () => {}}
+          onAllow={async () => {}}
+          onFocus={() => {}}
+          onNotice={() => {}}
+        />
+      )
+    );
+    expect(host.textContent).toContain('!1388');
+    expect(host.textContent).not.toContain(untitled.mrUrl);
+    expect(host.querySelector('.tui-ask-title')).toBeNull();
+  }
+  await act(async () => root.unmount());
+});
