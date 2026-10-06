@@ -10,7 +10,7 @@ const RT_GUIDES = [
 export const DOCS_MOVES: readonly DocsMove[] = [
   { from: "/", to: "/rt" },
   { from: "/reference", to: "/rt/reference", prefix: true },
-  { from: "/category/command-reference", to: "/rt" },
+  { from: "/category/command-reference", to: "/rt/reference" },
   { from: "/getting-started/install", to: "/start/install" },
   { from: "/getting-started/just-me", to: "/start/setup" },
   { from: "/getting-started/onboard-a-repo", to: "/start/onboard-a-repo" },

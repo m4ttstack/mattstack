@@ -60,8 +60,8 @@ test("redirects cover bare and trailing-slash forms, end with a catch-all", () =
   expect(lines.at(-1)).toBe("/* https://docs.mattstack.dev/ 301");
 });
 
-test("the old command-reference category page lands on the rt tab home (the reference has no index page)", () => {
-  expect(resolveRedirect("/category/command-reference")).toBe("/rt");
+test("the old command-reference category page lands on the reference index", () => {
+  expect(resolveRedirect("/category/command-reference")).toBe("/rt/reference");
 });
 
 describe("hasRule", () => {
