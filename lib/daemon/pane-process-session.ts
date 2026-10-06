@@ -1,4 +1,3 @@
-import type { NativeSessionRef } from "../../packages/rt-client/src/agent-integrations.ts";
 import { sessionForPid } from "../claude-registry.ts";
 import type { herdrRequest } from "../herdr/client.ts";
 import type { HerdrPane } from "./handlers/pane.ts";
@@ -48,26 +47,21 @@ export async function withProcessSession(
   return { ...pane, agent_session: { source: "process", agent: "claude", kind: "id", value: sessionId } };
 }
 
-/** The sessions a harness's own discovery found running, keyed by process id. */
-export type SessionsByPid = ReadonlyMap<number, NativeSessionRef>;
-
 /**
- * withProcessSession for any harness: the pane's foreground process is
- * matched against the sessions its harness's integration discovered, and the
- * process is read only when that discovery found something.
+ * withProcessSession for any harness: the pane's foreground process is looked
+ * up through its harness's own `sessionForPid`. A harness without one is never
+ * asked, and its pane's process is not read.
  */
-export async function withDiscoveredSession(
+export async function withIntegrationSession(
   herdr: typeof herdrRequest,
   pane: HerdrPane,
   sockPath: string | undefined,
-  discovered: (harness: string) => Promise<SessionsByPid>,
+  sessionForPid: ((pid: number) => Promise<string | null>) | undefined,
 ): Promise<HerdrPane> {
-  if (pane.agent_session?.kind === "id" || pane.agent === undefined) return pane;
-  const sessions = await discovered(pane.agent);
-  if (sessions.size === 0) return pane;
+  if (pane.agent_session?.kind === "id" || pane.agent === undefined || !sessionForPid) return pane;
   for (const pid of await foregroundPids(herdr, pane.pane_id, sockPath)) {
-    const native = sessions.get(pid);
-    if (native) return { ...pane, agent_session: { source: "process", agent: pane.agent, kind: native.kind, value: native.value } };
+    const sessionId = await sessionForPid(pid);
+    if (sessionId) return { ...pane, agent_session: { source: "process", agent: pane.agent, kind: "id", value: sessionId } };
   }
   return pane;
 }

@@ -829,9 +829,14 @@ export interface Commands {
   "pane:accounts": { payload: Record<string, never>; data: { accounts: PaneAccount[] } };
   "pane:directories": { payload: { q?: string }; data: { directories: PaneDirectory[] } };
   "pane:spawn": {
-    /** `provider` names a registered harness; omitted, the pane runs Claude Code. */
+    /**
+     * `provider` names a registered harness; omitted, the pane runs Claude Code.
+     * While agent.integrations.enabled is on a spawn is an agent start: `agentId`
+     * names its record, and a failure after which its session may exist also
+     * carries `agentId` (and `paneId` when a pane is known) beside `error`.
+     */
     payload: { cwd: string; provider?: HarnessId; account?: string; model?: string; effort?: string; prompt?: string; workspace?: string };
-    data: { pane: ChatPane; ready: boolean };
+    data: { pane: ChatPane; ready: boolean; agentId?: string };
   };
   "pane:send": { payload: { paneId: string; text: string; callerPane?: string; continuation?: string }; data: PaneSendResult };
   /** `callerWorkspace` (HERDR_WORKSPACE_ID) is required only for a `bg:`

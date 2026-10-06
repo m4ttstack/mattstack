@@ -28,7 +28,7 @@ import { createReconcilerHandlers } from "./handlers/reconciler.ts";
 import { createHerdHandlers, type HerdDeps } from "./handlers/herd.ts";
 import { createBgHandlers } from "./handlers/bg.ts";
 import { createChatHandlers } from "./handlers/chat.ts";
-import { createAgentHandlers } from "./handlers/agent.ts";
+import { createAgentService } from "./handlers/agent.ts";
 import { createPaneHandlers } from "./handlers/pane.ts";
 import { createAgentIntegrationHandlers } from "./handlers/agent-integrations.ts";
 import { builtinRegistry } from "../agent-integrations/builtins.ts";
@@ -161,14 +161,15 @@ export function buildRoutedHandlers(opts: {
     db: opts.stateDb, emitEvent, repoIndex: ctx.repoIndex, log: ctx.log, deliveryChains: opts.chatDeliveryChains,
   });
   const integrations = builtinRegistry();
+  const agentService = createAgentService({
+    db: opts.stateDb, emitEvent, log: ctx.log,
+    bg: opts.bgService, bgClaims: opts.bgClaims, lifecycle: opts.herdLifecycle, integrations,
+  });
+  const agentHandlers = agentService.handlers;
   const paneHandlers = createPaneHandlers({
     db: opts.stateDb, repoIndex: ctx.repoIndex, bg: opts.bgService, log: ctx.log,
     herdrRunnerFor: (socket) => defaultHerdrRunner(socket ? { ...process.env, HERDR_SOCKET_PATH: socket } : process.env),
-    relocation: opts.relocation, integrations,
-  });
-  const agentHandlers = createAgentHandlers({
-    db: opts.stateDb, emitEvent, log: ctx.log,
-    bg: opts.bgService, bgClaims: opts.bgClaims, lifecycle: opts.herdLifecycle, integrations,
+    relocation: opts.relocation, integrations, startAgent: agentService.start,
   });
   const worktreeHandlers = createWorktreeHandlers({ repoIndex: ctx.repoIndex, cache: ctx.cache, log: ctx.log }, opts.worktree);
   const worktreeTriageHandlers = createWorktreeTriageHandlers(

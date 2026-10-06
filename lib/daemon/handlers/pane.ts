@@ -6,7 +6,7 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 import { basename, isAbsolute } from "path";
 import type { AgentStatus, BuddyStatus, ChatPane, Commands, PaneDirectory } from "../../../packages/rt-client/src/commands.ts";
-import type { HarnessId, NativeSessionRef, Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
+import type { HarnessId } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { formatPaneRef, parsePaneRef } from "../../../packages/rt-client/src/index.ts";
 import { listCswapAccounts } from "../../cswap.ts";
 import { herdrRequest, waitTimeout, type HerdrResult } from "../../herdr/client.ts";
@@ -14,7 +14,7 @@ import { trayRequest } from "../../daemon-client.ts";
 import { herdrError, injectAfterTurn, injectIntoPane } from "../inject.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
 import { attendPane } from "../attend.ts";
-import { withDiscoveredSession, withProcessSession, type SessionsByPid } from "../pane-process-session.ts";
+import { withIntegrationSession, withProcessSession } from "../pane-process-session.ts";
 import { cwdPath, driveTrustAccept } from "../trust-accept.ts";
 import type { RelocationWatcher } from "../relocation-announce.ts";
 import { BG_SESSION, bgSocketPath, type BgService } from "../bg-service.ts";
@@ -22,16 +22,18 @@ import type { HerdrRunner } from "../../agent-herdr.ts";
 import { shellQuote } from "../../herdr-launch.ts";
 import { repoLabel } from "../../repo-label.ts";
 import { getSetting } from "../../settings/resolve.ts";
-import { branchForCwd, repoForCwd } from "../../repo-for-cwd.ts";
+import { branchForCwd, findGitRoot, repoForCwd, resolveMainWorktreePath, safeRealpath } from "../../repo-for-cwd.ts";
 import { listBuddies, listRooms, type PresenceRow, type RegistryDeps } from "../../state/index.ts";
 import { runCapture } from "../../subprocess.ts";
 import { loadRegistry } from "../../worktree/registry.ts";
 import { builtinRegistry } from "../../agent-integrations/builtins.ts";
 import { integrationsEnabled } from "../../agent-integrations/context.ts";
 import type { IntegrationRegistry } from "../../agent-integrations/contracts.ts";
-import { createBoundLauncher, launchGuard, launchInProgress, type BoundLauncher } from "../../agent-integrations/launch.ts";
-import { createSessionStore } from "../../agent-integrations/session-store.ts";
+import type { AgentStartOutcome } from "./agent.ts";
 import type { CommandResult } from "./types.ts";
+
+/** A switch-on spawn that fails after starting an agent names it, and its pane when one is known. */
+type PaneSpawnResult = CommandResult<"pane:spawn"> | { ok: false; error: string; agentId: string; paneId?: string };
 
 const FOCUS_NO_WORKSPACE = "focus for a background pane must run from a herdr pane; HERDR_WORKSPACE_ID is unset";
 
@@ -183,8 +185,8 @@ export function createPaneHandlers(opts: {
   integrations?: IntegrationRegistry;
   /** The agent.integrations.enabled switch, read on every call; tests inject it. */
   integrationsEnabled?: () => boolean;
-  /** The shared launcher pane:spawn starts through while the switch is on; built over this db and registry when omitted. */
-  launcher?: BoundLauncher;
+  /** agent:start's own start, which pane:spawn runs while the switch is on; omitted, a switch-on spawn is refused. */
+  startAgent?: (payload: Commands["agent:start"]["payload"]) => Promise<AgentStartOutcome>;
 }):
   // Declared as direct `unknown`-payload members (not `Pick<TypedHandlers, ...>`)
   // rather than the narrower per-command payload types the catalog would
@@ -198,7 +200,7 @@ export function createPaneHandlers(opts: {
   & { "pane:send": (payload: unknown) => Promise<CommandResult<"pane:send">> }
   & { "pane:focus": (payload: unknown) => Promise<CommandResult<"pane:focus">> }
   & { "pane:announce-relocation": (payload: unknown) => Promise<CommandResult<"pane:announce-relocation">> }
-  & { "pane:spawn": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"pane:spawn">> } {
+  & { "pane:spawn": (payload: unknown, signal?: AbortSignal) => Promise<PaneSpawnResult> } {
   const { db, repoIndex } = opts;
   const herdr = opts.herdr ?? herdrRequest;
   const tray = opts.tray ?? trayRequest;
@@ -214,126 +216,92 @@ export function createPaneHandlers(opts: {
   const claudeRegistryRoots = opts.claudeRegistryRoots;
   const integrations = opts.integrations ?? builtinRegistry();
   const boundEnabled = opts.integrationsEnabled ?? integrationsEnabled;
-  let launcher = opts.launcher;
-  const bound = (): BoundLauncher => (launcher ??= createBoundLauncher({ db, registry: integrations }));
+  const startAgent = opts.startAgent;
 
   async function snapshot(sockPath?: string): Promise<HerdrResult<{ snapshot: HerdrSnapshot }>> {
     return herdr<{ snapshot: HerdrSnapshot }>("session.snapshot", {}, { sockPath });
   }
 
-  /** One discovery per harness per call, and only for a harness with a pane herdr named no session for. */
-  function discoveryPass(): (harness: string) => Promise<SessionsByPid> {
-    const passes = new Map<string, Promise<SessionsByPid>>();
-    const discover = async (harness: string): Promise<SessionsByPid> => {
-      const byPid = new Map<number, NativeSessionRef>();
-      const integration = integrations.get(harness);
-      if (!integration?.loadSessions) return byPid;
-      try {
-        for (const found of await (await integration.loadSessions()).discover()) {
-          const pid = found.attachment.pid;
-          if (pid !== undefined && !byPid.has(pid)) byPid.set(pid, found.native);
-        }
-      } catch (err) {
-        log?.warn({ err, harness }, "pane: session discovery failed; the pane's session stays unknown");
-      }
-      return byPid;
-    };
-    return (harness) => {
-      let pass = passes.get(harness);
-      if (!pass) passes.set(harness, (pass = discover(harness)));
-      return pass;
-    };
-  }
-
-  /** The panes a list shows, with a session filled in where herdr had none; off, today's Claude-only list. */
-  function listedPanes(panes: HerdrPane[], sockPath: string | undefined, discovered: (harness: string) => Promise<SessionsByPid>, on: boolean): Promise<HerdrPane[]> {
+  /**
+   * The panes a list shows, with a session filled in where herdr had none;
+   * off, today's Claude-only list. A list is polled, so it never loads a
+   * harness's sessions: only a harness's own by-process lookup is asked.
+   */
+  function listedPanes(panes: HerdrPane[], sockPath: string | undefined, on: boolean): Promise<HerdrPane[]> {
     if (!on) return Promise.all(panes.filter((p) => p.agent === "claude").map((p) => withProcessSession(herdr, p, sockPath, claudeRegistryRoots)));
     const known = panes.filter((p) => p.agent !== undefined && integrations.get(p.agent) !== undefined);
-    return Promise.all(known.map((p) => withDiscoveredSession(herdr, p, sockPath, discovered)));
+    return Promise.all(known.map(async (p) => {
+      try {
+        return await withIntegrationSession(herdr, p, sockPath, integrations.get(p.agent!)!.sessionForPid);
+      } catch (err) {
+        log?.warn({ err, harness: p.agent }, "pane: process session lookup failed; the pane's session stays unknown");
+        return p;
+      }
+    }));
   }
 
   const withProvider = (row: ChatPane, agent: string | undefined, on: boolean): ChatPane =>
     (on && agent !== undefined ? { ...row, provider: agent } : row);
 
+  /** The index key of the repo `cwd` sits in, or in a worktree of; the agent record keys on it. */
+  function repoKeyForCwd(cwd: string): string | null {
+    const root = findGitRoot(cwd);
+    const main = root ? resolveMainWorktreePath(root) : null;
+    if (!main) return null;
+    const target = safeRealpath(main);
+    return Object.entries(repoIndex()).find(([, path]) => safeRealpath(path) === target)?.[0] ?? null;
+  }
+
   /**
-   * pane:spawn while the switch is on: the shared launcher opens the pane and
-   * an opening prompt goes through its work step, so a retry cannot start a
-   * second session in the same place.
+   * pane:spawn while the switch is on is an agent start: the same path
+   * agent:start takes, so the prompt sits in an owner-only file, a retry is
+   * refused while an earlier start there is unresolved, and an ambiguous
+   * spawn keeps an agent record that says why. Each spawn opens its own tab.
    */
-  async function spawnBound(payload: Commands["pane:spawn"]["payload"], signal?: AbortSignal): Promise<CommandResult<"pane:spawn">> {
-    const { cwd, prompt } = payload;
-    const harness = payload.provider ?? DEFAULT_PANE_HARNESS;
-    const integration = integrations.get(harness);
-    if (!integration) {
-      return { ok: false, error: `invalid provider "${harness}"; must be one of ${integrations.list().map((i) => i.id).join(", ")}` };
-    }
-    const validated = integration.validateOptions({
-      ...(payload.account !== undefined && { account: payload.account }),
-      ...(payload.model !== undefined && { model: payload.model }),
-      ...(payload.effort !== undefined && { effort: payload.effort }),
-    });
-    if (!validated.ok) return { ok: false, error: validated.error.message };
-    const options = validated.data;
-    const account = options.account;
-    if (account !== undefined) {
+  async function spawnBound(payload: Commands["pane:spawn"]["payload"]): Promise<PaneSpawnResult> {
+    const { cwd, account, model, effort, prompt } = payload;
+    if (!startAgent) return { ok: false, error: "this daemon cannot start agents for pane:spawn" };
+    if (account) {
       const accounts = await listCswapAccounts(exec);
       const known = accounts.some((a) => a.alias === account || a.email === account || String(a.slot) === account);
       if (!known) return { ok: false, error: `unknown cswap account "${account}"` };
     }
-    const busy = launchInProgress(db, launchGuard({ harness, options: { ...(account !== undefined && { account }) } }, cwd));
-    if (busy) return { ok: false, error: busy };
-
+    const repo = repoKeyForCwd(cwd);
+    if (!repo) return { ok: false, error: `${cwd} is not in a repo rt knows, so pane:spawn cannot record the agent it starts there` };
     const label = payload.workspace ?? getSetting<string>("chat.herdrWorkspace").value ?? "chat";
-    const store = createSessionStore(db);
-    const identity = `pane:${crypto.randomUUID()}`;
-    const prepared = await bound().launchBoundAgent({
-      reservationId: store.reserve({ identity }), cwd, mode: "herdr", selection: { harness, options }, required: [],
+    const started = await startAgent({
+      repo, cwd, surface: "herdr", provider: payload.provider ?? DEFAULT_PANE_HARNESS,
+      ...(account !== undefined && { account }),
+      ...(model !== undefined && { model }),
+      ...(effort !== undefined && { effort }),
       ...(prompt !== undefined && { prompt }),
-      access: { readRoots: [] },
-      host: {
-        workspace: label, tab: basename(cwd), trustWaitMs: IDLE_BUDGET_MS,
-        herdr: {
-          request: herdr,
-          ...(herdrRunnerFor !== undefined && { runner: herdrRunnerFor(null), runnerForSocket: (socket: string) => herdrRunnerFor(socket) }),
-        },
-        ...(log !== undefined && { log }),
-      },
+      workspace: label,
+      tab: `${basename(cwd)} ${crypto.randomUUID().slice(0, 8)}`,
+      trustWaitMs: IDLE_BUDGET_MS,
     });
-    if (!prepared.ok) return { ok: false, error: prepared.error.message };
-    let binding: SessionBinding = prepared.data;
-    let surface = prepared.data.surface;
-    let submitted = false;
-    if (prompt !== undefined && !signal?.aborted) {
-      const stillOurs = async (): Promise<Outcome<void>> => (store.get(binding.key)?.identity === identity
-        ? { ok: true, data: undefined }
-        : { ok: false, error: { code: "refused", message: "this pane's session no longer belongs to the spawn that started it, so its prompt was not sent" } });
-      const work = await bound().startBoundWork(binding, { id: `work-${crypto.randomUUID()}`, text: prompt }, stillOurs);
-      if (!work.ok) return { ok: false, error: work.error.message };
-      binding = work.data.binding;
-      surface = work.data.surface ?? surface;
-      submitted = true;
+    if (!started.ok) {
+      return "kept" in started
+        ? { ok: false, error: started.error, agentId: started.kept.agentId, ...(started.kept.paneId !== undefined && { paneId: started.kept.paneId }) }
+        : { ok: false, error: started.error };
     }
-    const paneId = binding.attachment.pane;
-    if (paneId === undefined) {
-      const why = prompt !== undefined && !submitted ? "the caller stopped waiting before its opening prompt was sent" : "it reported no pane";
-      return { ok: false, error: `${integration.label} did not open a pane: ${why}` };
-    }
+    const rec = started.data;
+    if (rec.paneId === undefined) return { ok: false, error: `agent ${rec.id} started without a pane`, agentId: rec.id };
 
-    const info = await herdr<{ pane: HerdrPane }>("pane.get", { pane_id: paneId });
+    const info = await herdr<{ pane: HerdrPane }>("pane.get", { pane_id: rec.paneId });
     const raw: HerdrPane = info.ok
       ? info.result.pane
-      : { pane_id: paneId, workspace_id: surface?.workspaceId ?? "", tab_id: surface?.tabId ?? "", agent: harness, agent_status: "unknown" };
-    const workspaces = new Map(surface?.workspaceId !== undefined ? [[surface.workspaceId, label]] : []);
+      : { pane_id: rec.paneId, workspace_id: rec.workspaceId ?? "", tab_id: rec.tabId ?? "", agent: rec.provider, agent_status: "unknown" };
+    const workspaces = new Map(rec.workspaceId !== undefined ? [[rec.workspaceId, label]] : []);
     const ctx: PaneRowContext = { db, repoIndex, exec, now, workspaces, ...presenceMaps(db, now(), registryDeps) };
     const settled = raw.agent_status === "idle" || raw.agent_status === "done";
-    const ready = !signal?.aborted && surface?.trust !== "stuck" && (submitted || settled);
-    return { ok: true, data: { pane: withProvider(await paneRow(raw, ctx), harness, true), ready } };
+    // A start with a prompt returned only after the prompt was submitted.
+    const ready = rec.trust !== "stuck" && (prompt !== undefined || settled);
+    return { ok: true, data: { pane: withProvider(await paneRow(raw, ctx), rec.provider, true), ready, agentId: rec.id } };
   }
 
   return {
     "pane:list": async (_payload: unknown): Promise<CommandResult<"pane:list">> => {
       const on = boundEnabled();
-      const discovered = discoveryPass();
       const snap = await snapshot();
       if (!snap.ok) return herdrError(snap);
       const presence = presenceMaps(db, now(), registryDeps);
@@ -343,7 +311,7 @@ export function createPaneHandlers(opts: {
         tabs: tabLabels(snap.result.snapshot),
         ...presence,
       };
-      const listed = await listedPanes(snap.result.snapshot.panes, undefined, discovered, on);
+      const listed = await listedPanes(snap.result.snapshot.panes, undefined, on);
       const rows = await Promise.all(listed.map(async (p) => withProvider(await paneRow(p, ctx), p.agent, on)));
 
       // Ensure-on-touch never applies here (spec "The bg service"): a
@@ -360,7 +328,7 @@ export function createPaneHandlers(opts: {
             ...presence,
           };
           const bgSock = bg.socketPath();
-          const bgListed = await listedPanes(bgSnap.result.snapshot.panes, bgSock, discovered, on);
+          const bgListed = await listedPanes(bgSnap.result.snapshot.panes, bgSock, on);
           const resolved = await Promise.all(bgListed.map(async (p) => withProvider(await paneRow(p, bgCtx, formatPaneRef(p.pane_id, "bg")), p.agent, on)));
           for (const row of resolved) bgRows.push({ ...row, paneId: formatPaneRef(row.paneId, "bg") });
         }
@@ -413,11 +381,11 @@ export function createPaneHandlers(opts: {
       return { ok: true, data: { directories: out } };
     },
 
-    "pane:spawn": async (rawPayload: unknown, signal?: AbortSignal): Promise<CommandResult<"pane:spawn">> => {
+    "pane:spawn": async (rawPayload: unknown, signal?: AbortSignal): Promise<PaneSpawnResult> => {
       const payload = rawPayload as Commands["pane:spawn"]["payload"];
       const { cwd, account, model, effort, prompt } = payload;
       if (!cwd || !cwd.startsWith("/")) return { ok: false, error: "cwd must be an absolute path" };
-      if (boundEnabled()) return spawnBound(payload, signal);
+      if (boundEnabled()) return spawnBound(payload);
       if (payload.provider !== undefined && payload.provider !== DEFAULT_PANE_HARNESS) {
         return { ok: false, error: `pane:spawn starts only Claude Code while agent.integrations.enabled is off, so it did not start "${payload.provider}"` };
       }

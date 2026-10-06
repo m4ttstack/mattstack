@@ -174,6 +174,12 @@ export type HarnessIntegration = {
   readonly label: string;
   /** Environment variables this harness names its own session by; another harness's worker never inherits them. */
   readonly sessionEnv?: readonly string[];
+  /**
+   * The native session id a pane's foreground process runs, read from the
+   * harness's own records without loading sessions, connecting or spawning.
+   * Absent when the harness cannot match a pane to a session by process.
+   */
+  readonly sessionForPid?: (pid: number) => Promise<string | null>;
   capabilities(mode: Mode): Promise<CapabilityReport>;
   validateOptions(options: AgentOptions): Outcome<AgentOptions>;
   options(): Promise<OptionDescriptor[]>;

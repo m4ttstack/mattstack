@@ -340,7 +340,7 @@ function withName(rec: AgentRecord, db: Database): AgentRecord & { name?: string
   return rec.handle === undefined ? rec : { ...rec, name: identityName(rec.handle, db) };
 }
 
-export function createAgentHandlers(opts: {
+export type AgentHandlerOpts = {
   db: Database;
   emitEvent: (topic: string, payload?: unknown) => unknown;
   /** Daemon logger, wired from the router's ctx.log; falls back to a lazy child logger for callers (tests) that construct handlers directly. */
@@ -375,14 +375,26 @@ export function createAgentHandlers(opts: {
   launcher?: BoundLauncher;
   /** Set by the in-process CLI fallback: it never resumes a herd worker's bound session, which only the daemon may relaunch. */
   ordinaryOnly?: boolean;
-}):
-  // Direct `unknown`-payload members, not `Pick<TypedHandlers, ...>`: a wider
-  // `unknown` param still satisfies TypedHandlers' narrower one at the
-  // command-router.ts assembly site (function parameter contravariance).
+};
+
+// Direct `unknown`-payload members, not `Pick<TypedHandlers, ...>`: a wider
+// `unknown` param still satisfies TypedHandlers' narrower one at the
+// command-router.ts assembly site (function parameter contravariance).
+type AgentHandlers =
   & { "agent:start": (payload: unknown) => Promise<CommandResult<"agent:start">> }
   & { "agent:resume": (payload: unknown) => Promise<CommandResult<"agent:resume">> }
   & { "agent:get": (payload: unknown) => Promise<CommandResult<"agent:get">> }
-  & { "agent:list": (payload: unknown) => Promise<CommandResult<"agent:list">> } {
+  & { "agent:list": (payload: unknown) => Promise<CommandResult<"agent:list">> };
+
+/** A start's outcome; `kept` names the agent rt kept because its session may have started, and the pane when one is known. */
+export type AgentStartOutcome = CommandResult<"agent:start"> | { ok: false; error: string; kept: { agentId: string; paneId?: string } };
+
+export function createAgentHandlers(opts: AgentHandlerOpts): AgentHandlers {
+  return createAgentService(opts).handlers;
+}
+
+/** The agent handlers, and the start they run, which pane:spawn shares so both launch through one path. */
+export function createAgentService(opts: AgentHandlerOpts): { handlers: AgentHandlers; start: (payload: unknown) => Promise<AgentStartOutcome> } {
   const { db, emitEvent } = opts;
   const log = opts.log ?? lazyChildLogger("agent");
   const spawnHeadless = opts.spawnHeadless ?? defaultSpawnHeadless;
@@ -689,185 +701,189 @@ export function createAgentHandlers(opts: {
     return { ok: true, data: rec };
   }
 
-  return {
-    "agent:start": async (rawPayload: unknown): Promise<CommandResult<"agent:start">> => {
-      if (!rawPayload || typeof rawPayload !== "object") return { ok: false, error: "agent:start requires an object payload" };
-      const payload = rawPayload as Commands["agent:start"]["payload"];
-      const { repo, cwd } = payload;
-      if (!repo || !cwd) return { ok: false, error: "agent:start requires repo (serialized identity) and cwd" };
-      if (payload.surface !== undefined && payload.surface !== "herdr" && payload.surface !== "headless") {
-        return { ok: false, error: `invalid surface "${payload.surface}"; must be one of herdr, headless` };
-      }
-      const surface: AgentSurface = payload.surface ?? "herdr";
-      const providerRaw = payload.provider ?? fromSetting("agent.provider", log) ?? "claude";
-      const integration = integrations.get(providerRaw);
-      if (!integration) {
-        const known = integrations.list().map((item) => item.id).join(", ");
-        return { ok: false, error: `invalid provider "${providerRaw}"; must be one of ${known}` };
-      }
-      const provider: AgentProvider = integration.id;
-      const validated = integration.validateOptions({
-        model: payload.model, effort: payload.effort, account: payload.account,
-        extraArgs: payload.extraArgs, yolo: payload.yolo,
-      });
-      if (!validated.ok) return { ok: false, error: validated.error.message };
-      if (payload.bg && surface === "headless") {
-        return { ok: false, error: "--bg is a herdr-surface option" };
-      }
-      if (payload.bg && (!opts.bg || !opts.bgClaims || !opts.lifecycle)) {
-        return { ok: false, error: "bg launches require the rt daemon (rt daemon start)" };
-      }
-      const prompt = payload.prompt;
-      if (surface === "headless" && !prompt) {
-        return { ok: false, error: `headless launch requires a prompt (${headlessStdinBlurb(provider)})` };
-      }
-      const startEnvError = envError(payload.env, surface);
-      if (startEnvError) return { ok: false, error: startEnvError };
-      if (payload.handle !== undefined && !isValidChatName(payload.handle)) {
-        return { ok: false, error: "invalid handle" };
-      }
-      if (payload.subject !== undefined && (typeof payload.subject !== "string" || payload.subject.length === 0)) {
-        return { ok: false, error: "subject must be a non-empty string" };
-      }
-      if (payload.trustWaitMs !== undefined && (typeof payload.trustWaitMs !== "number" || payload.trustWaitMs <= 0)) {
-        return { ok: false, error: "trustWaitMs must be a positive number" };
-      }
-      const rec: AgentRecord = {
-        id: newAgentId(),
-        repo, cwd, provider, surface,
-        sessionId: crypto.randomUUID(),
-        createdAt: Date.now(),
-      };
-      // Left undefined rather than defaulted to "agent:<id>" when the
-      // caller passes no subject: launch()'s
-      // gateEnv still falls back to agentOwner(rec.id) for RT_GATE_SUBJECT,
-      // and that fallback is a pure function of rec.id, so a later resume
-      // recomputing it lands on the exact same value. What DOES change on
-      // this field is whether resolveHookSettingsPath sees an explicit
-      // subject to gate hook injection on.
-      if (payload.subject !== undefined) rec.subject = payload.subject;
-      const pack = packFromEnv(payload.env);
-      if (pack !== undefined) rec.pack = pack;
-      const merged = integration.validateOptions({
-        model: payload.model ?? fromSetting(`agent.${provider}.model`, log),
-        effort: payload.effort ?? fromSetting(`agent.${provider}.effort`, log),
-        account: provider === "claude" ? payload.account ?? fromSetting("agent.claude.account", log) : payload.account,
-        extraArgs: payload.extraArgs ?? fromSetting(`agent.${provider}.extraArgs`, log),
-        yolo: payload.yolo ?? fromSetting<boolean>(`agent.${provider}.yolo`, log) ?? false,
-      });
-      if (!merged.ok) return { ok: false, error: merged.error.message };
-      const { model, effort, account, extraArgs, yolo } = merged.data;
-      const boundPath = boundEnabled();
-      // A retry of a start still unresolved here (a client that timed out, say) must not become a second session.
-      const busy = boundPath ? launchInProgress(db, launchGuard({ harness: provider, options: { ...(account !== undefined && { account }) } }, cwd)) : null;
-      if (busy) return { ok: false, error: busy };
-      if (model !== undefined) rec.model = model;
-      if (effort !== undefined) rec.effort = effort;
-      if (extraArgs !== undefined) rec.extraArgs = extraArgs;
-      // Stored unconditionally, including false: an explicit `--no-yolo`
-      // against a true `agent.<provider>.yolo` setting has to survive into the
-      // record, or resume would silently re-derive nothing and leave it unset.
-      rec.yolo = yolo ?? false;
-      if (account !== undefined) rec.account = account;
-      if (payload.label !== undefined) rec.label = payload.label;
-      if (payload.caller !== undefined) rec.caller = payload.caller;
-      if (surface === "headless") {
-        rec.resultPath = agentResultPath(rec.id);
-      } else if (payload.handle) {
-        rec.handle = payload.handle;
-      } else if (provider === "claude") {
-        // Headless never signs into chat (see claudeArgs), so reserving a
-        // handle for it would only burn an LRU pool slot no one adopts. Nor
-        // does codex at any surface: its builders have no chat-handle
-        // mechanism (a spec Non-goal), so a reserved handle would be a pool
-        // slot spent on a record signed into nothing.
-        rec.handle = reserveAgentHandle(db);
-      }
+  async function start(rawPayload: unknown): Promise<AgentStartOutcome> {
+    if (!rawPayload || typeof rawPayload !== "object") return { ok: false, error: "agent:start requires an object payload" };
+    const payload = rawPayload as Commands["agent:start"]["payload"];
+    const { repo, cwd } = payload;
+    if (!repo || !cwd) return { ok: false, error: "agent:start requires repo (serialized identity) and cwd" };
+    if (payload.surface !== undefined && payload.surface !== "herdr" && payload.surface !== "headless") {
+      return { ok: false, error: `invalid surface "${payload.surface}"; must be one of herdr, headless` };
+    }
+    const surface: AgentSurface = payload.surface ?? "herdr";
+    const providerRaw = payload.provider ?? fromSetting("agent.provider", log) ?? "claude";
+    const integration = integrations.get(providerRaw);
+    if (!integration) {
+      const known = integrations.list().map((item) => item.id).join(", ");
+      return { ok: false, error: `invalid provider "${providerRaw}"; must be one of ${known}` };
+    }
+    const provider: AgentProvider = integration.id;
+    const validated = integration.validateOptions({
+      model: payload.model, effort: payload.effort, account: payload.account,
+      extraArgs: payload.extraArgs, yolo: payload.yolo,
+    });
+    if (!validated.ok) return { ok: false, error: validated.error.message };
+    if (payload.bg && surface === "headless") {
+      return { ok: false, error: "--bg is a herdr-surface option" };
+    }
+    if (payload.bg && (!opts.bg || !opts.bgClaims || !opts.lifecycle)) {
+      return { ok: false, error: "bg launches require the rt daemon (rt daemon start)" };
+    }
+    const prompt = payload.prompt;
+    if (surface === "headless" && !prompt) {
+      return { ok: false, error: `headless launch requires a prompt (${headlessStdinBlurb(provider)})` };
+    }
+    const startEnvError = envError(payload.env, surface);
+    if (startEnvError) return { ok: false, error: startEnvError };
+    if (payload.handle !== undefined && !isValidChatName(payload.handle)) {
+      return { ok: false, error: "invalid handle" };
+    }
+    if (payload.subject !== undefined && (typeof payload.subject !== "string" || payload.subject.length === 0)) {
+      return { ok: false, error: "subject must be a non-empty string" };
+    }
+    if (payload.trustWaitMs !== undefined && (typeof payload.trustWaitMs !== "number" || payload.trustWaitMs <= 0)) {
+      return { ok: false, error: "trustWaitMs must be a positive number" };
+    }
+    const rec: AgentRecord = {
+      id: newAgentId(),
+      repo, cwd, provider, surface,
+      sessionId: crypto.randomUUID(),
+      createdAt: Date.now(),
+    };
+    // Left undefined rather than defaulted to "agent:<id>" when the
+    // caller passes no subject: launch()'s
+    // gateEnv still falls back to agentOwner(rec.id) for RT_GATE_SUBJECT,
+    // and that fallback is a pure function of rec.id, so a later resume
+    // recomputing it lands on the exact same value. What DOES change on
+    // this field is whether resolveHookSettingsPath sees an explicit
+    // subject to gate hook injection on.
+    if (payload.subject !== undefined) rec.subject = payload.subject;
+    const pack = packFromEnv(payload.env);
+    if (pack !== undefined) rec.pack = pack;
+    const merged = integration.validateOptions({
+      model: payload.model ?? fromSetting(`agent.${provider}.model`, log),
+      effort: payload.effort ?? fromSetting(`agent.${provider}.effort`, log),
+      account: provider === "claude" ? payload.account ?? fromSetting("agent.claude.account", log) : payload.account,
+      extraArgs: payload.extraArgs ?? fromSetting(`agent.${provider}.extraArgs`, log),
+      yolo: payload.yolo ?? fromSetting<boolean>(`agent.${provider}.yolo`, log) ?? false,
+    });
+    if (!merged.ok) return { ok: false, error: merged.error.message };
+    const { model, effort, account, extraArgs, yolo } = merged.data;
+    const boundPath = boundEnabled();
+    // A retry of a start still unresolved here (a client that timed out, say) must not become a second session.
+    const busy = boundPath ? launchInProgress(db, launchGuard({ harness: provider, options: { ...(account !== undefined && { account }) } }, cwd)) : null;
+    if (busy) return { ok: false, error: busy };
+    if (model !== undefined) rec.model = model;
+    if (effort !== undefined) rec.effort = effort;
+    if (extraArgs !== undefined) rec.extraArgs = extraArgs;
+    // Stored unconditionally, including false: an explicit `--no-yolo`
+    // against a true `agent.<provider>.yolo` setting has to survive into the
+    // record, or resume would silently re-derive nothing and leave it unset.
+    rec.yolo = yolo ?? false;
+    if (account !== undefined) rec.account = account;
+    if (payload.label !== undefined) rec.label = payload.label;
+    if (payload.caller !== undefined) rec.caller = payload.caller;
+    if (surface === "headless") {
+      rec.resultPath = agentResultPath(rec.id);
+    } else if (payload.handle) {
+      rec.handle = payload.handle;
+    } else if (provider === "claude") {
+      // Headless never signs into chat (see claudeArgs), so reserving a
+      // handle for it would only burn an LRU pool slot no one adopts. Nor
+      // does codex at any surface: its builders have no chat-handle
+      // mechanism (a spec Non-goal), so a reserved handle would be a pool
+      // slot spent on a record signed into nothing.
+      rec.handle = reserveAgentHandle(db);
+    }
 
-      const tabLabel = payload.tab ?? rec.label ?? rec.id;
-      const workspaceLabel = payload.workspace ?? repoLabel(repo);
-      try {
-        // Inserted before launch() runs, not after: launch()'s headless
-        // branch arms a completion callback that calls finishAgent, and
-        // that row must already exist or the update is a silent no-op.
-        // A launch failure below rolls this insert back so no phantom,
-        // never-launched record survives it (unlike agent:resume, whose
-        // record predates the call and must never be deleted on failure).
-        insertAgentFn(rec, db);
-        // insertAgent goes through runCriticalWrite: sustained SQLITE_BUSY
-        // logs and returns without throwing, so the insert can silently not
-        // have happened. Confirm the row exists before ever spawning.
-        if (!getAgent(rec.id, db)) {
-          return { ok: false, error: "state.db busy: agent not recorded, not launched" };
-        }
-        // Awaited before launch, not folded into the launch() extras spread:
-        // a failed ensure must roll the insert back the same way a failed
-        // launch does, and the socket has to be known before launch runs.
-        let bgSocket: string | undefined;
-        if (payload.bg) {
-          const ensured = await opts.bg!.ensure();
-          bgSocket = ensured.socket;
-          opts.lifecycle!.watch(ensured.socket);
-        }
-        const effectiveSocket = bgSocket ?? payload.herdrSocket;
-        const extra = {
-          ...(payload.env !== undefined && { env: withoutPackClear(payload.env) }),
-          ...(effectiveSocket !== undefined && { herdrSocket: effectiveSocket }),
-          ...(payload.trustWaitMs !== undefined && { trustWaitMs: payload.trustWaitMs }),
-        };
-        const res = boundPath
-          ? await launchBound(rec, undefined, prompt, tabLabel, workspaceLabel, {
-            ...extra, background: payload.bg === true || effectiveSocket === bgSocketPath(),
-          })
-          : await launch(rec, { kind: "start", sessionId: rec.sessionId }, prompt, tabLabel, workspaceLabel, extra);
-        if (!res.ok) {
-          if (!("kept" in res)) {
-            deleteAgent(rec.id, db);
-            removeAgentPromptDir(rec.id, log);
-          }
-          return { ok: false, error: res.error };
-        }
-        // A herd-spawned hidden worker rides the bg socket via herdrSocket,
-        // never payload.bg (its claim is the herd's own, not this record's);
-        // the ref must still store bg: or agent:resume's wasBg check misses
-        // it and relaunches on the visible server. `payload.bg` stays the
-        // primary signal (production and every faked-socket test agree on
-        // it); the socket-equality check only widens it to the flagless
-        // herd:spawn path, where the effective socket really is bgSocketPath().
-        if ((payload.bg || effectiveSocket === bgSocketPath()) && rec.paneId) {
-          // The pane column and AgentRecord.paneId both store the ref, never
-          // the bare pane id: releaseByPane is later called with this same
-          // string, and renderRecord/agent:get print it back verbatim.
-          rec.paneId = formatPaneRef(rec.paneId, "bg");
-        }
-        if (payload.bg && rec.paneId) {
-          opts.bgClaims!.claim(agentOwner(rec.id), rec.paneId);
-        }
-        // On the bound path the launcher already wrote the pane it bound.
-        if (!boundPath && surface === "herdr" && rec.paneId && rec.tabId && rec.workspaceId) {
-          updateAgentPane(rec.id, { paneId: rec.paneId, tabId: rec.tabId, workspaceId: rec.workspaceId }, db);
-        }
-        return res.ok ? { ok: true, data: withName(res.data, db) } : res;
-      } catch (err) {
+    const tabLabel = payload.tab ?? rec.label ?? rec.id;
+    const workspaceLabel = payload.workspace ?? repoLabel(repo);
+    try {
+      // Inserted before launch() runs, not after: launch()'s headless
+      // branch arms a completion callback that calls finishAgent, and
+      // that row must already exist or the update is a silent no-op.
+      // A launch failure below rolls this insert back so no phantom,
+      // never-launched record survives it (unlike agent:resume, whose
+      // record predates the call and must never be deleted on failure).
+      insertAgentFn(rec, db);
+      // insertAgent goes through runCriticalWrite: sustained SQLITE_BUSY
+      // logs and returns without throwing, so the insert can silently not
+      // have happened. Confirm the row exists before ever spawning.
+      if (!getAgent(rec.id, db)) {
+        return { ok: false, error: "state.db busy: agent not recorded, not launched" };
+      }
+      // Awaited before launch, not folded into the launch() extras spread:
+      // a failed ensure must roll the insert back the same way a failed
+      // launch does, and the socket has to be known before launch runs.
+      let bgSocket: string | undefined;
+      if (payload.bg) {
+        const ensured = await opts.bg!.ensure();
+        bgSocket = ensured.socket;
+        opts.lifecycle!.watch(ensured.socket);
+      }
+      const effectiveSocket = bgSocket ?? payload.herdrSocket;
+      const extra = {
+        ...(payload.env !== undefined && { env: withoutPackClear(payload.env) }),
+        ...(effectiveSocket !== undefined && { herdrSocket: effectiveSocket }),
+        ...(payload.trustWaitMs !== undefined && { trustWaitMs: payload.trustWaitMs }),
+      };
+      const res = boundPath
+        ? await launchBound(rec, undefined, prompt, tabLabel, workspaceLabel, {
+          ...extra, background: payload.bg === true || effectiveSocket === bgSocketPath(),
+        })
+        : await launch(rec, { kind: "start", sessionId: rec.sessionId }, prompt, tabLabel, workspaceLabel, extra);
+      if (!res.ok) {
+        if ("kept" in res) return { ok: false, error: res.error, kept: { agentId: rec.id, ...(rec.paneId !== undefined && { paneId: rec.paneId }) } };
         deleteAgent(rec.id, db);
         removeAgentPromptDir(rec.id, log);
-        const message = err instanceof Error ? err.message : String(err);
-        if (payload.bg && opts.bg && isCommandNotFoundShape(message)) {
-          // Advisory only: the failure this branch handles is exactly the
-          // case where the bg server may be unhealthy, so the reprobe itself
-          // can reject. A reprobe rejection must not replace the launch
-          // error the caller actually needs.
-          let drift = "";
-          try {
-            const report = await opts.bg.reprobe();
-            if (report.drift.length > 0) drift = `; bg env drift: ${report.drift.join("; ")}`;
-          } catch (probeErr) {
-            log.warn({ err: probeErr, id: rec.id }, "agent: bg reprobe failed after launch error");
-          }
-          return { ok: false, error: `${message}${drift}` };
-        }
-        return { ok: false, error: message };
+        return { ok: false, error: res.error };
       }
+      // A herd-spawned hidden worker rides the bg socket via herdrSocket,
+      // never payload.bg (its claim is the herd's own, not this record's);
+      // the ref must still store bg: or agent:resume's wasBg check misses
+      // it and relaunches on the visible server. `payload.bg` stays the
+      // primary signal (production and every faked-socket test agree on
+      // it); the socket-equality check only widens it to the flagless
+      // herd:spawn path, where the effective socket really is bgSocketPath().
+      if ((payload.bg || effectiveSocket === bgSocketPath()) && rec.paneId) {
+        // The pane column and AgentRecord.paneId both store the ref, never
+        // the bare pane id: releaseByPane is later called with this same
+        // string, and renderRecord/agent:get print it back verbatim.
+        rec.paneId = formatPaneRef(rec.paneId, "bg");
+      }
+      if (payload.bg && rec.paneId) {
+        opts.bgClaims!.claim(agentOwner(rec.id), rec.paneId);
+      }
+      // On the bound path the launcher already wrote the pane it bound.
+      if (!boundPath && surface === "herdr" && rec.paneId && rec.tabId && rec.workspaceId) {
+        updateAgentPane(rec.id, { paneId: rec.paneId, tabId: rec.tabId, workspaceId: rec.workspaceId }, db);
+      }
+      return res.ok ? { ok: true, data: withName(res.data, db) } : res;
+    } catch (err) {
+      deleteAgent(rec.id, db);
+      removeAgentPromptDir(rec.id, log);
+      const message = err instanceof Error ? err.message : String(err);
+      if (payload.bg && opts.bg && isCommandNotFoundShape(message)) {
+        // Advisory only: the failure this branch handles is exactly the
+        // case where the bg server may be unhealthy, so the reprobe itself
+        // can reject. A reprobe rejection must not replace the launch
+        // error the caller actually needs.
+        let drift = "";
+        try {
+          const report = await opts.bg.reprobe();
+          if (report.drift.length > 0) drift = `; bg env drift: ${report.drift.join("; ")}`;
+        } catch (probeErr) {
+          log.warn({ err: probeErr, id: rec.id }, "agent: bg reprobe failed after launch error");
+        }
+        return { ok: false, error: `${message}${drift}` };
+      }
+      return { ok: false, error: message };
+    }
+  }
+
+  const handlers: AgentHandlers = {
+    "agent:start": async (rawPayload: unknown): Promise<CommandResult<"agent:start">> => {
+      const res = await start(rawPayload);
+      return res.ok || !("kept" in res) ? res : { ok: false, error: res.error };
     },
 
     "agent:resume": async (rawPayload: unknown): Promise<CommandResult<"agent:resume">> => {
@@ -969,4 +985,5 @@ export function createAgentHandlers(opts: {
       return { ok: true, data: { agents: listAgents({ ...(payload.repo !== undefined && { repo: payload.repo }) }, db).map((r) => withAttention(withName(r, db), enabled)) } };
     },
   };
+  return { handlers, start };
 }

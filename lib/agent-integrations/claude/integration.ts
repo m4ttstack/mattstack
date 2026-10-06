@@ -1,9 +1,14 @@
+import { homedir } from "os";
 import type { HarnessIntegration } from "../contracts.ts";
 
 export const claudeIntegration: HarnessIntegration = {
   id: "claude",
   label: "Claude Code",
   sessionEnv: ["CLAUDE_CODE_SESSION_ID"],
+  sessionForPid: async (pid) => {
+    const { registryRoots, sessionForPid } = await import("../../claude-registry.ts");
+    return sessionForPid(pid, { roots: registryRoots(process.env.HOME ?? homedir()) });
+  },
   capabilities: async (mode) => {
     const { claudeReadiness, claudeSupported } = await import("./sessions.ts");
     return { mode, supported: claudeSupported(mode), readiness: claudeReadiness() };

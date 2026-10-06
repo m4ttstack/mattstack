@@ -1,21 +1,26 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { dirname, join, relative, resolve } from "path";
+import { basename, dirname, join, relative, resolve } from "path";
 import type {
-  Mode, OptionDescriptor, Outcome, Readiness, SessionBinding,
+  CapabilityReport, Mode, NativeSessionRef, OptionDescriptor, Outcome, Readiness,
 } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { builtinRegistry } from "../../agent-integrations/builtins.ts";
+import { claudeIntegration } from "../../agent-integrations/claude/integration.ts";
+import { createClaudeSessions, type PaneLaunch } from "../../agent-integrations/claude/sessions.ts";
+import { codexIntegration } from "../../agent-integrations/codex/integration.ts";
 import type {
-  HarnessIntegration, IntegrationRegistry, NativeLaunch, SessionAdapter, WorkInput,
+  HarnessIntegration, IntegrationRegistry, LaunchRequest, NativeLaunch, SessionAdapter, WorkInput,
 } from "../../agent-integrations/contracts.ts";
-import type { BoundLaunchRequest, BoundLauncher, PreparedBinding, SubmittedWork } from "../../agent-integrations/launch.ts";
 import { createRegistry } from "../../agent-integrations/registry.ts";
 import { createSessionStore } from "../../agent-integrations/session-store.ts";
+import type { HerdrRunner } from "../../agent-herdr.ts";
 import { herdrRequest } from "../../herdr/client.ts";
 import { fakeHerdr, HerdrFakeError, type FakeHerdrHandler } from "../../herdr/__tests__/fake-herdr.ts";
+import { rtDir } from "../../rt-paths.ts";
 import { openStateDb } from "../../state/index.ts";
+import { createAgentService, type AgentStartOutcome } from "../handlers/agent.ts";
 import { createAgentIntegrationHandlers, listAgentIntegrations } from "../handlers/agent-integrations.ts";
 import { createPaneHandlers } from "../handlers/pane.ts";
 
@@ -51,23 +56,33 @@ const freshDb = () => openStateDb(join(tmpdir(), `agent-int-${process.pid}-${n++
 const notCalled = async (): Promise<never> => {
   throw new Error("not expected in this test");
 };
+const ready = async (mode: Mode): Promise<CapabilityReport> => ({ mode, supported: ["launch", "resume", "observe"], readiness: { ready: true } });
+const noHerdrRunner: HerdrRunner = async () => {
+  throw new Error("this test opens no pane through the herdr CLI");
+};
 
-type FakeIntegration = HarnessIntegration & { loads: number };
 /** A session-only integration may report only what its session adapter does. */
 type SessionOnly = "launch" | "resume" | "observe";
+type FakeIntegration = HarnessIntegration & { loads: number; lookups: number[] };
 
-function fakeIntegration(
-  id: string,
-  extra: { discovered?: NativeLaunch[]; options?: OptionDescriptor[]; report?: { readiness?: Readiness; supported?: SessionOnly[] }; throws?: boolean } = {},
-): FakeIntegration {
-  const adapter: SessionAdapter = {
-    launch: notCalled, resume: notCalled, observe: notCalled, startWork: notCalled,
-    discover: async () => extra.discovered ?? [],
+function fakeIntegration(id: string, extra: {
+  pidSessions?: Record<number, string>; adapter?: SessionAdapter;
+  options?: OptionDescriptor[]; report?: { readiness?: Readiness; supported?: SessionOnly[] }; throws?: boolean;
+} = {}): FakeIntegration {
+  const adapter: SessionAdapter = extra.adapter ?? {
+    launch: notCalled, resume: notCalled, observe: notCalled, startWork: notCalled, discover: notCalled,
   };
   const integration: FakeIntegration = {
     id,
     label: `${id} label`,
     loads: 0,
+    lookups: [],
+    ...(extra.pidSessions !== undefined && {
+      sessionForPid: async (pid: number) => {
+        integration.lookups.push(pid);
+        return extra.pidSessions![pid] ?? null;
+      },
+    }),
     capabilities: async (mode: Mode) => {
       if (extra.throws) throw new Error(`${id} probe broke`);
       return { mode, supported: ["launch", "observe"], readiness: { ready: true }, ...extra.report };
@@ -84,68 +99,35 @@ function fakeIntegration(
   return integration;
 }
 
-/** Binds through the real session store when given its db, the way the shared launcher records a launch. */
-function fakeLauncher(binding: Partial<SessionBinding["attachment"]> & { surface?: PreparedBinding["surface"] } = {}, db?: Database) {
-  const launches: BoundLaunchRequest[] = [];
-  const works: WorkInput[] = [];
-  const { surface: asked, ...attachment } = binding;
-  const surface = asked ?? { tabId: "w2:t3", workspaceId: "w2", trust: "none" };
-  const native = { harness: "fixture", profile: "default", kind: "id" as const, value: "fix-native" };
-  const launcher: BoundLauncher = {
-    async launchBoundAgent(request) {
-      launches.push(request);
-      if (db) {
-        const bound = createSessionStore(db).bind(request.reservationId, native, { mode: "herdr", pane: "w2:p7", ...attachment });
-        return bound.ok ? { ok: true, data: { ...bound.data, surface } } : bound;
-      }
-      return { ok: true, data: { key: "k1", identity: "pane:x", native, attachment: { generation: 1, mode: "herdr", pane: "w2:p7", ...attachment }, surface } };
-    },
-    async startBoundWork(bound, input, authorize): Promise<Outcome<SubmittedWork>> {
-      works.push(input);
-      const allowed = await authorize();
-      if (!allowed.ok) return allowed;
-      return { ok: true, data: { id: input.id, evidence: "submitted", binding: bound } };
-    },
-    recover: async () => {},
-  };
-  return { launcher, launches, works };
-}
+const threeHarnesses = () => ({ registry: createRegistry([fakeIntegration("claude"), fakeIntegration("codex"), fakeIntegration("fixture")]) });
 
 const paneInfo = (id: string, agent: string | undefined, extra: Record<string, unknown> = {}) => ({
   pane_id: id, terminal_id: `t-${id}`, workspace_id: "w1", tab_id: "w1:t1", focused: false,
   ...(agent !== undefined && { agent }), agent_status: "idle", cwd: "/repos/acme", revision: 1, ...extra,
 });
 
-const SNAPSHOT = {
-  type: "session_snapshot",
-  snapshot: {
-    version: "0.8.0", protocol: 19, tabs: [], layouts: [], agents: [],
-    workspaces: [{ workspace_id: "w1", label: "acme", focused: false }],
-    panes: [
-      paneInfo("w1:p1", "claude", { agent_session: { source: "herdr:claude", agent: "claude", kind: "id", value: "sess-claude" } }),
-      paneInfo("w1:p2", "codex", { agent_session: { source: "herdr:codex", agent: "codex", kind: "id", value: "thread-codex" } }),
-      paneInfo("w1:p3", "fixture"),
-      paneInfo("w1:p4", "aider"),
-      paneInfo("w1:p5", undefined),
-    ],
-  },
-};
-
-function listFake(): FakeHerdrHandler {
-  return (method, params) => {
-    if (method === "session.snapshot") return SNAPSHOT;
-    if (method === "pane.process_info" && params.pane_id === "w1:p3") {
-      return { process_info: { pane_id: "w1:p3", shell_pid: 1, foreground_process_group_id: 7001, foreground_processes: [{ pid: 7002 }] } };
-    }
-    return new HerdrFakeError("invalid_request", method);
+function snapshotOf(panes: unknown[]) {
+  return {
+    type: "session_snapshot",
+    snapshot: { version: "0.8.0", protocol: 19, tabs: [], layouts: [], agents: [], workspaces: [{ workspace_id: "w1", label: "acme", focused: false }], panes },
   };
 }
 
-const spawnPane = (status: string) => paneInfo("w2:p7", "fixture", { workspace_id: "w2", tab_id: "w2:t3", agent_status: status, cwd: "/repos/acme-dev" });
+const MIXED = snapshotOf([
+  paneInfo("w1:p1", "claude", { agent_session: { source: "herdr:claude", agent: "claude", kind: "id", value: "sess-claude" } }),
+  paneInfo("w1:p2", "codex", { agent_session: { source: "herdr:codex", agent: "codex", kind: "id", value: "thread-codex" } }),
+  paneInfo("w1:p3", "fixture"),
+  paneInfo("w1:p4", "aider"),
+  paneInfo("w1:p5", undefined),
+]);
 
-function spawnFake(status = "idle"): FakeHerdrHandler {
-  return (method) => {
-    if (method === "pane.get") return { type: "pane_info", pane: spawnPane(status) };
+function listFake(snap: unknown, pids: Record<string, number>): FakeHerdrHandler {
+  return (method, params) => {
+    if (method === "session.snapshot") return snap;
+    const pid = pids[String(params.pane_id)];
+    if (method === "pane.process_info" && pid !== undefined) {
+      return { process_info: { pane_id: params.pane_id, shell_pid: 1, foreground_process_group_id: pid, foreground_processes: [{ pid: pid + 1 }] } };
+    }
     return new HerdrFakeError("invalid_request", method);
   };
 }
@@ -153,60 +135,72 @@ function spawnFake(status = "idle"): FakeHerdrHandler {
 const CSWAP_EXEC = async (argv: [string, ...string[]]) =>
   argv[1] === "list" ? { stdout: "Accounts:\n  1: me@x.y [Me]\n", stderr: "", exitCode: 0 } : { stdout: "main\n", stderr: "", exitCode: 0 };
 
+type StartAgent = (payload: Parameters<ReturnType<typeof createAgentService>["start"]>[0]) => Promise<AgentStartOutcome>;
+
 function harness(handler: FakeHerdrHandler, opts: {
-  integrations?: IntegrationRegistry; enabled?: boolean; launcher?: BoundLauncher; claudeRegistryRoots?: string[]; db?: Database;
+  integrations?: IntegrationRegistry; enabled?: boolean; claudeRegistryRoots?: string[]; db?: Database;
+  repoIndex?: Record<string, string>; startAgent?: StartAgent;
 } = {}) {
   const { sock, seen, stop } = fakeHerdr(handler);
   stops.push(stop);
   const db = opts.db ?? freshDb();
   const herdr: typeof herdrRequest = (method, params, o) => herdrRequest(method, params, { ...o, sockPath: sock });
   const pane = createPaneHandlers({
-    db, repoIndex: () => ({}), herdr, exec: CSWAP_EXEC,
+    db, repoIndex: () => opts.repoIndex ?? {}, herdr, exec: CSWAP_EXEC,
     ...(opts.claudeRegistryRoots !== undefined && { claudeRegistryRoots: opts.claudeRegistryRoots }),
     ...(opts.integrations !== undefined && { integrations: opts.integrations }),
     ...(opts.enabled !== undefined && { integrationsEnabled: () => opts.enabled! }),
-    ...(opts.launcher !== undefined && { launcher: opts.launcher }),
+    ...(opts.startAgent !== undefined && { startAgent: opts.startAgent }),
   });
-  return { pane, seen, db };
-}
-
-function threeHarnesses() {
-  const claude = fakeIntegration("claude");
-  const codex = fakeIntegration("codex");
-  const fixture = fakeIntegration("fixture", {
-    discovered: [{ native: { harness: "fixture", profile: "default", kind: "id", value: "fix-from-pid" }, attachment: { mode: "herdr", pid: 7002 } }],
-  });
-  return { claude, codex, fixture, registry: createRegistry([claude, codex, fixture]) };
+  return { pane, seen, db, herdr };
 }
 
 describe("pane discovery through the integration registry", () => {
   test("pane discovery includes both harnesses and fixture integration", async () => {
-    const { claude, codex, fixture, registry } = threeHarnesses();
-    const { pane } = harness(listFake(), { integrations: registry, enabled: true });
+    const claude = fakeIntegration("claude");
+    const codex = fakeIntegration("codex");
+    const fixture = fakeIntegration("fixture", { pidSessions: { 7002: "fix-from-pid" } });
+    const { pane } = harness(listFake(MIXED, { "w1:p3": 7001 }), { integrations: createRegistry([claude, codex, fixture]), enabled: true });
     const res = await pane["pane:list"]({});
     if (!res.ok) throw new Error(res.error);
     const panes = res.data.panes;
     expect(panes.map((p) => p.provider).sort()).toEqual(["claude", "codex", "fixture"]);
     expect(panes.find((p) => p.provider === "fixture")?.sessionId).toBe("fix-from-pid");
     expect(panes.find((p) => p.provider === "codex")?.sessionId).toBe("thread-codex");
-    expect(fixture.loads).toBe(1);
-    expect(claude.loads + codex.loads).toBe(0);
+    expect(fixture.lookups).toEqual([7001, 7002]);
+    expect(claude.loads + codex.loads + fixture.loads).toBe(0);
   });
 
-  test("a pane whose harness discovered nothing is not asked for its processes", async () => {
-    const quiet = createRegistry([fakeIntegration("claude"), fakeIntegration("codex"), fakeIntegration("fixture")]);
-    const { pane, seen } = harness(listFake(), { integrations: quiet, enabled: true });
+  test("a Codex pane with no herdr session loads no sessions, opens no connection, and its process is not read", async () => {
+    const codex = fakeIntegration("codex");
+    const snap = snapshotOf([paneInfo("w1:p2", "codex")]);
+    const { pane, seen } = harness(listFake(snap, { "w1:p2": 8100 }), { integrations: createRegistry([codex]), enabled: true });
     const res = await pane["pane:list"]({});
     if (!res.ok) throw new Error(res.error);
-    expect(res.data.panes.find((p) => p.provider === "fixture")?.sessionId).toBeUndefined();
+    expect(res.data.panes.map((p) => [p.provider, p.sessionId])).toEqual([["codex", undefined]]);
+    expect(codex.loads).toBe(0);
     expect(seen.map((s) => s.method)).toEqual(["session.snapshot"]);
   });
 
+  test("with the built-in harnesses, a Claude pane finds its session from Claude's registry and nothing native runs", async () => {
+    const sessions = join(process.env.HOME!, ".claude", "sessions");
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(join(sessions, "7101.json"), JSON.stringify({ pid: 7101, sessionId: "sess-from-registry" }));
+    const snap = snapshotOf([paneInfo("w1:p1", "claude"), paneInfo("w1:p2", "codex")]);
+    const { pane, seen } = harness(listFake(snap, { "w1:p1": 7101, "w1:p2": 8100 }), { integrations: builtinRegistry(), enabled: true });
+    const res = await pane["pane:list"]({});
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.panes.map((p) => [p.provider, p.sessionId])).toEqual([["claude", "sess-from-registry"], ["codex", undefined]]);
+    expect(seen.filter((s) => s.method === "pane.process_info").map((s) => s.params.pane_id)).toEqual(["w1:p1"]);
+    expect(readFileSync(shimLog, "utf8")).toBe("");
+  });
+
   test("with the switch off pane:list is today's Claude-only list, with no provider, whatever the registry holds", async () => {
-    const { registry, fixture } = threeHarnesses();
+    const fixture = fakeIntegration("fixture", { pidSessions: { 7002: "fix-from-pid" } });
+    const registry = createRegistry([fakeIntegration("claude"), fakeIntegration("codex"), fixture]);
     const root = mkdtempSync(join(tmpdir(), "agent-int-creg-"));
-    const baseline = harness(listFake(), { claudeRegistryRoots: [root] });
-    const off = harness(listFake(), { integrations: registry, enabled: false, claudeRegistryRoots: [root] });
+    const baseline = harness(listFake(MIXED, { "w1:p3": 7001 }), { claudeRegistryRoots: [root] });
+    const off = harness(listFake(MIXED, { "w1:p3": 7001 }), { integrations: registry, enabled: false, claudeRegistryRoots: [root] });
     const before = await baseline.pane["pane:list"]({});
     const after = await off.pane["pane:list"]({});
     expect(after).toEqual(before);
@@ -214,120 +208,203 @@ describe("pane discovery through the integration registry", () => {
     expect(after.data.panes.map((p) => p.paneId)).toEqual(["w1:p1"]);
     expect(after.data.panes.every((p) => !("provider" in p))).toBe(true);
     expect(off.seen.map((s) => s.method)).toEqual(baseline.seen.map((s) => s.method));
-    expect(fixture.loads).toBe(0);
+    expect(fixture.lookups).toEqual([]);
   });
 });
 
-describe("pane creation through the shared launcher", () => {
-  test("pane:spawn calls the shared launcher once and opens nothing itself", async () => {
-    const { registry } = threeHarnesses();
-    const { launcher, launches, works } = fakeLauncher();
-    const { pane, seen } = harness(spawnFake("idle"), { integrations: registry, enabled: true, launcher });
-    const res = await pane["pane:spawn"]({ cwd: "/repos/acme-dev", provider: "fixture", model: "m1", workspace: "fleet" });
-    if (!res.ok) throw new Error(res.error);
-    expect(launches).toHaveLength(1);
-    expect(launches[0]).toMatchObject({
-      cwd: "/repos/acme-dev", mode: "herdr", selection: { harness: "fixture", options: { model: "m1" } },
-      host: { workspace: "fleet", tab: "acme-dev" },
-    });
-    expect(works).toHaveLength(0);
-    expect(res.data).toMatchObject({ ready: true, pane: { paneId: "w2:p7", workspace: "fleet", provider: "fixture", agentStatus: "idle" } });
-    expect(seen.map((s) => s.method)).toEqual(["pane.get"]);
-  });
+/** The real Claude session adapter, opening its panes through a recorder instead of herdr. */
+function recordedClaude(db: Database, trust = "none") {
+  const opened: PaneLaunch[] = [];
+  const integration: HarnessIntegration = {
+    ...claudeIntegration,
+    capabilities: ready,
+    loadSessions: async () => createClaudeSessions({
+      store: () => createSessionStore(db),
+      openPane: async (launch) => {
+        opened.push(launch);
+        return { ok: true, data: { pane: `w2:p${opened.length}`, tabId: `w2:t${opened.length}`, workspaceId: "w2" } };
+      },
+      acceptTrust: async () => trust,
+    }),
+  } as HarnessIntegration;
+  return { integration, opened };
+}
 
-  test("an opening prompt is submitted once through the launcher's work step", async () => {
-    const { registry } = threeHarnesses();
+/** A fixture harness whose launch the test answers, counting every call. */
+function answeredFixture(answer: (req: LaunchRequest) => Promise<Outcome<NativeLaunch>>) {
+  const launches: LaunchRequest[] = [];
+  const adapter = {
+    carriesReservations: true,
+    launch: async (req: LaunchRequest) => { launches.push(req); return answer(req); },
+    resume: notCalled, observe: notCalled, discover: async () => [],
+    startWork: async (_b: unknown, input: WorkInput) => ({ ok: true, data: { id: input.id, evidence: "submitted" } }),
+  } as unknown as SessionAdapter;
+  return { launches, integration: { ...fakeIntegration("fixture", { adapter }), capabilities: ready } as HarnessIntegration };
+}
+
+const fixtureRef = (value: string): NativeSessionRef => ({ harness: "fixture", profile: "default", kind: "id", value });
+
+const spawnPane = (status: string) => paneInfo("w2:p1", "claude", { workspace_id: "w2", tab_id: "w2:t1", agent_status: status });
+
+/** pane:spawn wired to agent:start's own start over one db, the way the router wires it. */
+function spawnHarness(integrations: IntegrationRegistry, db: Database, opts: { status?: string; enabled?: boolean } = {}) {
+  const repoDir = mkdtempSync(join(tmpdir(), "agent-int-repo-"));
+  mkdirSync(join(repoDir, ".git"));
+  const enabled = opts.enabled ?? true;
+  const service = createAgentService({
+    db, emitEvent: () => 0, integrations, integrationsEnabled: () => enabled, herdrRunner: noHerdrRunner,
+    herdr: (async () => ({ ok: false, code: "unreachable", message: "no server" })) as never,
+  });
+  const starts: unknown[] = [];
+  const startAgent: StartAgent = (payload) => {
+    starts.push(payload);
+    return service.start(payload);
+  };
+  const handler: FakeHerdrHandler = (method) => (method === "pane.get"
+    ? { type: "pane_info", pane: spawnPane(opts.status ?? "idle") }
+    : new HerdrFakeError("invalid_request", method));
+  const h = harness(handler, { integrations, enabled, db, repoIndex: { "remote:example.com%2Facme%2Fdev": repoDir }, startAgent });
+  return { ...h, service, starts, cwd: repoDir };
+}
+
+describe("pane creation through agent:start's shared path", () => {
+  test("a switch-on pane spawn puts no prompt text on the command line", async () => {
     const db = freshDb();
-    const { launcher, launches, works } = fakeLauncher({}, db);
-    const { pane } = harness(spawnFake("working"), { integrations: registry, enabled: true, launcher, db });
-    const res = await pane["pane:spawn"]({ cwd: "/repos/acme-dev", provider: "fixture", prompt: "read AGENTS.md" });
+    const claude = recordedClaude(db);
+    const { pane, cwd } = spawnHarness(createRegistry([claude.integration, codexIntegration]), db);
+    const res = await pane["pane:spawn"]({ cwd, prompt: "SECRET-PROMPT-TEXT please read AGENTS.md" });
     if (!res.ok) throw new Error(res.error);
-    expect(launches).toHaveLength(1);
-    expect(launches[0]!.prompt).toBe("read AGENTS.md");
-    expect(works.map((w) => w.text)).toEqual(["read AGENTS.md"]);
-    expect(res.data.ready).toBe(true);
+    expect(claude.opened).toHaveLength(1);
+    const command = claude.opened[0]!.command;
+    expect(command).not.toContain("SECRET-PROMPT-TEXT");
+    const promptDir = join(rtDir(), "agent-prompts", res.data.agentId!);
+    expect(command).toContain(promptDir);
+    expect(readFileSync(join(promptDir, "prompt-1.md"), "utf8")).toContain("SECRET-PROMPT-TEXT");
+    expect(res.data).toMatchObject({ ready: true, agentId: expect.stringMatching(/\S/), pane: { paneId: "w2:p1", provider: "claude" } });
   });
 
-  test("the opening prompt is not sent once the session belongs to someone else", async () => {
-    const { registry } = threeHarnesses();
-    const { launcher, works } = fakeLauncher();
-    const { pane } = harness(spawnFake("idle"), { integrations: registry, enabled: true, launcher });
-    const res = await pane["pane:spawn"]({ cwd: "/repos/acme-dev", provider: "fixture", prompt: "read AGENTS.md" });
-    expect(res.ok).toBe(false);
-    expect(works).toHaveLength(1);
+  test("two spawns in one cwd open two tabs", async () => {
+    const db = freshDb();
+    const claude = recordedClaude(db);
+    const { pane, cwd } = spawnHarness(createRegistry([claude.integration]), db);
+    const first = await pane["pane:spawn"]({ cwd });
+    const second = await pane["pane:spawn"]({ cwd });
+    if (!first.ok || !second.ok) throw new Error("both spawns should start");
+    const tabs = claude.opened.map((o) => o.host?.tab);
+    expect(tabs).toHaveLength(2);
+    expect(new Set(tabs).size).toBe(2);
+    for (const tab of tabs) expect(tab?.startsWith(`${basename(cwd)} `)).toBe(true);
+    expect(first.data.agentId).not.toBe(second.data.agentId);
+  });
+
+  test("an ambiguous spawn keeps an agent record with attention and returns its id, and a later spawn refusal names it", async () => {
+    const db = freshDb();
+    const fixture = answeredFixture(async () => ({ ok: false, error: { code: "ambiguous", message: "the fixture cannot say whether it started" } }));
+    const { pane, service, cwd } = spawnHarness(createRegistry([recordedClaude(db).integration, fixture.integration]), db);
+    const first = await pane["pane:spawn"]({ cwd, provider: "fixture", prompt: "do it" });
+    expect(first.ok).toBe(false);
+    const agentId = (first as { agentId?: string }).agentId;
+    expect(agentId).toEqual(expect.stringMatching(/\S/));
+    const kept = await service.handlers["agent:get"]({ id: agentId! });
+    if (!kept.ok) throw new Error(kept.error);
+    expect((kept.data as { attention?: string }).attention).toContain("has not resolved");
+
+    const retry = await pane["pane:spawn"]({ cwd, provider: "fixture", prompt: "do it" });
+    expect(retry).toEqual({ ok: false, error: expect.stringContaining(`agent ${agentId}`) });
+    expect(fixture.launches).toHaveLength(1);
   });
 
   test("an omitted provider launches claude, the API's original meaning", async () => {
-    const { registry } = threeHarnesses();
-    const { launcher, launches } = fakeLauncher();
-    const { pane } = harness(spawnFake("idle"), { integrations: registry, enabled: true, launcher });
-    const res = await pane["pane:spawn"]({ cwd: "/repos/acme-dev", account: "Me" });
+    const db = freshDb();
+    const claude = recordedClaude(db);
+    const fixture = answeredFixture(notCalled);
+    const { pane, cwd } = spawnHarness(createRegistry([claude.integration, fixture.integration]), db);
+    const res = await pane["pane:spawn"]({ cwd, account: "Me" });
     if (!res.ok) throw new Error(res.error);
-    expect(launches[0]!.selection).toEqual({ harness: "claude", options: { account: "Me" } });
+    expect(claude.opened).toHaveLength(1);
+    expect(claude.opened[0]!.command).toContain("cswap run 'Me'");
+    expect(fixture.launches).toHaveLength(0);
   });
 
   test("a stuck trust dialog leaves the pane not ready", async () => {
-    const { registry } = threeHarnesses();
-    const { launcher } = fakeLauncher({ surface: { tabId: "w2:t3", workspaceId: "w2", trust: "stuck" } });
-    const { pane } = harness(spawnFake("idle"), { integrations: registry, enabled: true, launcher });
-    const res = await pane["pane:spawn"]({ cwd: "/repos/acme-dev", provider: "fixture" });
+    const db = freshDb();
+    const { pane, cwd } = spawnHarness(createRegistry([recordedClaude(db, "stuck").integration]), db);
+    const res = await pane["pane:spawn"]({ cwd });
     if (!res.ok) throw new Error(res.error);
     expect(res.data.ready).toBe(false);
+  });
+
+  test("the launched fixture keeps its native session on the agent record", async () => {
+    const db = freshDb();
+    const fixture = answeredFixture(async (req) => ({ ok: true, data: { native: fixtureRef(req.nativeHint!), attachment: { mode: "herdr", pane: "w2:p1" }, surface: { tabId: "w2:t1", workspaceId: "w2" } } }));
+    const { pane, service, cwd } = spawnHarness(createRegistry([recordedClaude(db).integration, fixture.integration]), db);
+    const res = await pane["pane:spawn"]({ cwd, provider: "fixture" });
+    if (!res.ok) throw new Error(res.error);
+    const rec = await service.handlers["agent:get"]({ id: res.data.agentId! });
+    if (!rec.ok) throw new Error(rec.error);
+    expect(rec.data).toMatchObject({ provider: "fixture", paneId: "w2:p1", sessionId: fixture.launches[0]!.nativeHint });
   });
 });
 
 describe("unknown IDs refuse", () => {
-  test("an unregistered provider refuses before anything launches", async () => {
-    const { registry } = threeHarnesses();
-    const { launcher, launches } = fakeLauncher();
-    const { pane, seen } = harness(spawnFake(), { integrations: registry, enabled: true, launcher });
-    const res = await pane["pane:spawn"]({ cwd: "/repos/acme-dev", provider: "aider" });
+  test("an unregistered provider refuses before anything launches or is recorded", async () => {
+    const db = freshDb();
+    const claude = recordedClaude(db);
+    const { pane, service, cwd, seen } = spawnHarness(createRegistry([claude.integration, codexIntegration, answeredFixture(notCalled).integration]), db);
+    const res = await pane["pane:spawn"]({ cwd, provider: "aider" });
     expect(res).toEqual({ ok: false, error: 'invalid provider "aider"; must be one of claude, codex, fixture' });
-    expect(launches).toHaveLength(0);
+    expect(claude.opened).toHaveLength(0);
     expect(seen).toHaveLength(0);
+    const list = await service.handlers["agent:list"]({});
+    expect(list.ok && list.data.agents).toEqual([]);
   });
 
   test("an option the harness refuses is refused before anything launches", async () => {
-    const { registry } = threeHarnesses();
-    const { launcher, launches } = fakeLauncher();
-    const { pane } = harness(spawnFake(), { integrations: registry, enabled: true, launcher });
-    const res = await pane["pane:spawn"]({ cwd: "/repos/acme-dev", provider: "codex", account: "Me" });
-    expect(res).toEqual({ ok: false, error: "codex takes no account" });
-    expect(launches).toHaveLength(0);
+    const db = freshDb();
+    const fixture = answeredFixture(notCalled);
+    const { pane, cwd } = spawnHarness(createRegistry([recordedClaude(db).integration, fixture.integration]), db);
+    const res = await pane["pane:spawn"]({ cwd, provider: "fixture", account: "Me" });
+    expect(res).toEqual({ ok: false, error: "fixture takes no account" });
+    expect(fixture.launches).toHaveLength(0);
   });
 
   test("an account rt does not know is refused as before", async () => {
-    const { registry } = threeHarnesses();
-    const { launcher, launches } = fakeLauncher();
-    const { pane } = harness(spawnFake(), { integrations: registry, enabled: true, launcher });
-    const res = await pane["pane:spawn"]({ cwd: "/repos/acme-dev", account: "Nobody" });
+    const db = freshDb();
+    const { pane, cwd, starts } = spawnHarness(createRegistry([recordedClaude(db).integration]), db);
+    const res = await pane["pane:spawn"]({ cwd, account: "Nobody" });
     expect(res).toEqual({ ok: false, error: 'unknown cswap account "Nobody"' });
-    expect(launches).toHaveLength(0);
+    expect(starts).toHaveLength(0);
+  });
+
+  test("a folder outside every repo rt knows is refused, since its agent could not be recorded", async () => {
+    const db = freshDb();
+    const { pane, starts } = spawnHarness(createRegistry([recordedClaude(db).integration]), db);
+    const res = await pane["pane:spawn"]({ cwd: mkdtempSync(join(tmpdir(), "agent-int-loose-")) });
+    expect(res.ok).toBe(false);
+    expect(starts).toHaveLength(0);
   });
 
   test("with the switch off a provider other than claude refuses rather than starting Claude Code", async () => {
-    const { registry } = threeHarnesses();
-    const { launcher, launches } = fakeLauncher();
-    const { pane, seen } = harness(spawnFake(), { integrations: registry, enabled: false, launcher });
-    const res = await pane["pane:spawn"]({ cwd: "/repos/acme-dev", provider: "codex" });
+    const db = freshDb();
+    const { pane, cwd, starts, seen } = spawnHarness(createRegistry([recordedClaude(db).integration, codexIntegration]), db, { enabled: false });
+    const res = await pane["pane:spawn"]({ cwd, provider: "codex" });
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error).toContain("agent.integrations.enabled");
-    expect(launches).toHaveLength(0);
+    expect(starts).toHaveLength(0);
     expect(seen).toHaveLength(0);
   });
 
-  test("with the switch off pane:spawn never reaches the launcher", async () => {
-    const { registry } = threeHarnesses();
-    const { launcher, launches } = fakeLauncher();
-    const { pane, seen } = harness(spawnFake(), { integrations: registry, enabled: false, launcher });
-    await pane["pane:spawn"]({ cwd: "/repos/acme-dev" });
-    expect(launches).toHaveLength(0);
+  test("with the switch off pane:spawn never reaches the shared start", async () => {
+    const db = freshDb();
+    const { pane, cwd, starts, seen } = spawnHarness(createRegistry([recordedClaude(db).integration]), db, { enabled: false });
+    await pane["pane:spawn"]({ cwd });
+    expect(starts).toHaveLength(0);
     expect(seen[0]?.method).toBe("workspace.list");
   });
 
   test("agent:integrations refuses a mode it does not know", async () => {
-    const handlers = createAgentIntegrationHandlers({ integrations: threeHarnesses().registry });
+    const handlers = createAgentIntegrationHandlers({ integrations: createRegistry([fakeIntegration("claude")]) });
     expect(await handlers["agent:integrations"]({ mode: "tmux" })).toEqual({
       ok: false, error: 'invalid mode "tmux"; must be one of herdr, headless',
     });
