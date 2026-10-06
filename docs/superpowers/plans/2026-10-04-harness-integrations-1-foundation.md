@@ -55,6 +55,12 @@ can be reviewed independently.
 
 ### F2: Register integrations and admit workflows by capability
 
+**Execution split:** [Approved F2a scope](2026-10-05-harness-integrations-b0-admission-decision.md)
+permits only the five new disconnected files and their tests. Existing-file
+wiring, public exports, generic argv changes and built-in composition are F2b
+and remain blocked. The checklist below describes the whole original F2;
+F2a completion must not mark the entire task complete.
+
 **Files:** Create `packages/rt-client/src/agent-integrations.ts`,
 `lib/agent-integrations/contracts.ts`, `lib/agent-integrations/registry.ts`,
 `lib/agent-integrations/admission.ts`,

@@ -2049,7 +2049,7 @@
     ]
   },
   "pureContractExceptionProposal": {
-    "status": "reviewed-draft-user-decision-pending",
+    "status": "user-approved-isolated-f2a-only",
     "document": "docs/superpowers/plans/2026-10-05-harness-integrations-b0-admission-decision.md",
     "reviewedContentSha256": "41b424ac2d4a0c04837319f8577a55dd7f57cc3957dcb51e46410c59ff8c183b",
     "reviewSession": "2413bac7-ba1b-4253-8abd-d5bf668a6059",
@@ -2089,6 +2089,12 @@
         "path": ".harness-spike/baseline-04/decision-review-prompt.txt",
         "sha256": "0f771bdb707ceacf005c3eadbcd0ffbaabb5b20795e9e362178e29ce41492f98"
       }
-    ]
+    ],
+    "userApproval": {
+      "proposalCommit": "abb49cb7e",
+      "recordedAt": "2026-10-06T04:20:07.150781+00:00",
+      "constraint": "Isolated worktrees only; canonical checkout untouched",
+      "scope": "F2a only; general B0 admission blocked"
+    }
   }
 }

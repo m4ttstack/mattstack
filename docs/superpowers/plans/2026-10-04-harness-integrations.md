@@ -40,6 +40,12 @@ evidence. Follow its admission and per-task rules; unresolved required evidence
 blocks the affected work. The [baseline report](../spikes/2026-10-05-harness-regression-baseline.md)
 records progress, not a presumption of GREEN.
 
+**Scoped execution update:** The user approved the independently reviewed
+[F2a exception](2026-10-05-harness-integrations-b0-admission-decision.md) from
+`abb49cb7e`: only disconnected contracts, registry, capability checks and tests,
+in an isolated worktree. F2b and all other implementation remain blocked.
+This scoped decision takes precedence over the general execution hold below.
+
 ## Review Focus
 
 These five failure classes receive explicit tests in the owning tasks:

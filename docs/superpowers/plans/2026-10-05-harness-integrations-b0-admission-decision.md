@@ -1,8 +1,9 @@
 # Proposed B0 exception: pure F2 contracts only
 
-**Status: DRAFT — not effective; user approval required after independent review.**
-This proposal does not change the current BLOCKED admission decision. No F2
-implementation has begun under it.
+**Status: APPROVED for isolated F2a only.**
+The user approved this scope with the constraint that work stays in isolated
+worktrees and never edits the canonical checkout. General B0 admission remains
+BLOCKED; only the exact F2a exception below is active.
 
 ## Decision requested
 
@@ -118,6 +119,8 @@ observation window; do not repeat passing selections indefinitely.
 
 Independent review: approved in round two by the same read-only Claude reviewer
 on 2026-10-05 (America/Chicago). The advisory to use unique run names was adopted.
-User decision: pending. Neither this draft nor a
-reviewer's approval of its wording activates the exception. Record any user
-decision with its date and the reviewed proposal's commit or content hash.
+User decision: approved in this session on 2026-10-06 (UTC), against reviewed proposal
+commit `abb49cb7e`. Exact instruction: “ok sure but build in isolated worktrees
+so nothing in the canonical worktree is touched”. Implementation uses the existing
+`huan` linked worktree on `harness-integrations`. Approval does not admit F2b,
+other implementation tasks, merge, push, deployment or shared-service changes.
