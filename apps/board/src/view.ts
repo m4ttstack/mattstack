@@ -825,6 +825,9 @@ export interface ViewState {
 
 /** A fresh board shows only what went to the team channel, grouped by
     status and split by age. */
+/** Sort values from before Sort became a second grouping. */
+const LEGACY_SORTS = ['oldest', 'progress'];
+
 export const DEFAULT_VIEW: ViewState = {
   member: 'all',
   group: 'status',
@@ -894,7 +897,11 @@ export function parseViewState(
   return {
     member: resolve('member', members, memberFallback),
     group: resolve('group', GROUP_KEYS, DEFAULT_VIEW.group),
-    sort: resolve('sort', SORT_KEYS, DEFAULT_VIEW.sort),
+    // The pre-split sorts (oldest, progress) were plain orderings; a URL that
+    // still carries one asks for the default view, not a stored split.
+    sort: LEGACY_SORTS.includes(params.get('sort') ?? '')
+      ? DEFAULT_VIEW.sort
+      : resolve('sort', SORT_KEYS, DEFAULT_VIEW.sort),
     tab: resolve('tab', validTabs, validTabs[0] ?? ''),
     off: resolveOff(params, stored),
   };
