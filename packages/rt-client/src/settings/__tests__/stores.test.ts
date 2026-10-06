@@ -9,8 +9,8 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { userSettingsPath, orgSettingsPath, teamsDir, machineSettingsPath } from "../paths.ts";
-import { currentOrg, listOrgs, listTeamFolders, parseStoreText, readStore } from "../stores.ts";
+import { userSettingsPath, orgSettingsPath, teamSettingsPath, teamsDir, machineSettingsPath } from "../paths.ts";
+import { currentOrg, listOrgs, listTeamFolders, parseStoreText, readStore, sharedStoreFiles } from "../stores.ts";
 
 describe("settings/stores", () => {
   const origHome = process.env.HOME;
@@ -251,6 +251,18 @@ describe("settings/stores", () => {
       writeFileSync(join(teams, "notes.md"), "");
       expect(listTeamFolders("acme")).toEqual(["gadgets", "widgets"]);
       expect(listTeamFolders("nope")).toEqual([]);
+    });
+
+    test("the shared store files are the org store, then each team folder's store that exists", () => {
+      expect(sharedStoreFiles()).toEqual([]);
+      mkdirSync(dirname(orgSettingsPath("acme")), { recursive: true });
+      writeFileSync(orgSettingsPath("acme"), "{}");
+      for (const team of ["widgets", "gadgets"]) {
+        mkdirSync(dirname(teamSettingsPath("acme", team)), { recursive: true });
+        writeFileSync(teamSettingsPath("acme", team), "{}");
+      }
+      mkdirSync(join(teamsDir(), "acme", "mattstack", "teams", "storeless"), { recursive: true });
+      expect(sharedStoreFiles()).toEqual([orgSettingsPath("acme"), teamSettingsPath("acme", "gadgets"), teamSettingsPath("acme", "widgets")]);
     });
   });
 });

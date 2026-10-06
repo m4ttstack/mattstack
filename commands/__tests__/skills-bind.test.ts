@@ -53,6 +53,13 @@ function makePackDir(): string {
   return realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-bind-pack-")));
 }
 
+/** The org's base pack folder in an org clone at `<root>/acme`, with the org marker written. */
+function orgBasePackDir(root: string): string {
+  const mattstack = join(root, "acme", "mattstack");
+  writeFile(join(mattstack, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
+  return join(mattstack, "org", "packs", "acme-base");
+}
+
 function writeStubs(packDir: string, verbs: Record<string, { engine: string; description: string }>): void {
   writeFile(join(packDir, "pack", "stubs.jsonc"), JSON.stringify({ verbs }));
 }
@@ -323,7 +330,7 @@ describe("skillsBind", () => {
         process.env.HOME = join(root, "home");
         mkdirSync(process.env.HOME, { recursive: true });
         process.env.RT_ENGINE_PACK_DIR = join(root, "missing-engine-pack");
-        const packDir = join(root, "zone", "mattstack", "packs", "acme-base");
+        const packDir = orgBasePackDir(root);
         writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
         const fragmentPath = join(packDir, "pack", "skills.jsonc");
         writeFile(fragmentPath, `{\n  "base": true,\n  "bindings": {}\n}\n`);
@@ -371,7 +378,7 @@ describe("skillsBind", () => {
       process.env.HOME = join(root, "home");
       mkdirSync(process.env.HOME, { recursive: true });
       process.env.RT_ENGINE_PACK_DIR = join(root, "missing-engine-pack");
-      const packDir = join(root, "zone", "mattstack", "packs", "acme-base");
+      const packDir = orgBasePackDir(root);
       writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
       writeFile(join(packDir, "pack", "skills.jsonc"), `{\n  "base": true,\n  "bindings": {}\n}\n`);
       const manifest = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
@@ -397,7 +404,7 @@ describe("skillsBind", () => {
 
     test("a fragment that symlinks outside the pack is refused, and the outside file is untouched", async () => {
       const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-base-")));
-      const packDir = join(root, "zone", "mattstack", "packs", "acme-base");
+      const packDir = orgBasePackDir(root);
       writeStubs(packDir, { "watch-ci": { engine: "watch-ci", description: "Watch CI" } });
       const outside = join(root, "elsewhere", "skills.jsonc");
       const outsideText = `{\n  "base": true,\n  "bindings": {}\n}\n`;
@@ -418,7 +425,7 @@ describe("skillsBind", () => {
     });
 
     test("a base with no verbs of its own says to edit its fragment directly", async () => {
-      const packDir = join(makePackDir(), "mattstack", "packs", "acme-base");
+      const packDir = orgBasePackDir(makePackDir());
       const fragmentPath = join(packDir, "pack", "skills.jsonc");
       writeFile(fragmentPath, JSON.stringify({ base: true }));
       const { mattstackDir } = makeEngineFixture();

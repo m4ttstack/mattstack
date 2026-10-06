@@ -103,6 +103,12 @@ describe("readZones", () => {
     expect(byTeam).toEqual({ widgets: ["acme/widgets"], gadgets: ["acme/gadgets"] });
   });
 
+  test("a team's own board.gitlabHost wins over the org's", () => {
+    const fs = memFs(orgFiles("acme", { "board.gitlabHost": "gitlab.example.com", "board.projects": ["acme/widgets"] }, { widgets: { "board.gitlabHost": "https://widgets.gitlab.example.com" }, gadgets: {} }));
+    const byTeam = Object.fromEntries(readZones(fs, HOME).map((z) => [z.team, z.host]));
+    expect(byTeam).toEqual({ widgets: "widgets.gitlab.example.com", gadgets: "gitlab.example.com" });
+  });
+
   test("the host falls back to the forge in mattstack.integrations, team then org", () => {
     const fs = memFs(orgFiles("acme", { "mattstack.integrations": { forge: { host: "github.com", provider: "github" } } }, { widgets: {} }));
     expect(readZones(fs, HOME)[0]!.host).toBe("github.com");

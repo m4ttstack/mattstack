@@ -51,7 +51,7 @@ function def(key: string, over: Partial<SettingDefWire>): SettingDefWire {
   };
 }
 const store = () => ({
-  set: vi.fn(async () => null),
+  set: vi.fn(async () => null as string | null),
   unset: vi.fn(async () => null),
   move: vi.fn(async () => null),
   prune: vi.fn(async () => null as string | null),
@@ -398,6 +398,34 @@ describe('composite rows', () => {
         '~/e',
       ])
     );
+  });
+
+  it('a failed add in a long string list shows the error and keeps the draft', async () => {
+    const s = store();
+    s.set.mockImplementation(async () => 'the org settings belong to dev1');
+    renderWithProviders(
+      <SettingRow
+        def={def('rt.repoRoots', {
+          effective: {
+            scope: 'machine',
+            file: '/m',
+            value: ['~/a', '~/b', '~/c', '~/d'],
+          },
+        })}
+        store={s}
+        subhead={null}
+        query=""
+      />
+    );
+    await openRow('rt.repoRoots');
+    const add = screen.getByLabelText('add to rt.repoRoots');
+    await userEvent.type(add, '~/e{enter}');
+    expect(
+      await screen.findByText(/the org settings belong to dev1/)
+    ).toBeInTheDocument();
+    await waitFor(() => expect(add).toBeEnabled());
+    expect(add).toHaveValue('~/e');
+    expect(s.set).toHaveBeenCalledTimes(1);
   });
 
   function stubLayers(

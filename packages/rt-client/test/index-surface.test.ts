@@ -102,5 +102,8 @@ describe("index.ts org and active-team surface", () => {
     expect(typeof rtClient.listOrgs).toBe("function");
     expect(typeof rtClient.currentOrg).toBe("function");
     expect(rtClient.TEAM_NAME_RE.test("widgets")).toBe(true);
+    for (const name of ["sharedStoreFiles", "listTeamFolders", "getOrgSetting", "isSharedScope", "roleOf", "mergeTeamRoster", "sameUser", "decideActiveTeam"] as const) {
+      expect(typeof rtClient[name], name).toBe("function");
+    }
   });
 });

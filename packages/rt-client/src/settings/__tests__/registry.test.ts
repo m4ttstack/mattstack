@@ -595,6 +595,9 @@ describe("org scope", () => {
     expect(getDef("board.title")?.scopes).toEqual(["team", "org"]);
     expect(getDef("rt.roles")?.scopes).toEqual(["user", "team", "org", "machine"]);
     expect(getDef("claude.plugins")?.scopes).toEqual(["user", "team", "org"]);
+    const teamDefs = allDefs().filter((def) => def.scopes.includes("team"));
+    expect(teamDefs.length).toBeGreaterThan(0);
+    expect(teamDefs.filter((def) => def.scopes[0] === "org").map((def) => def.key)).toEqual([]);
   });
 
   test("the roster and the roles are org only", () => {

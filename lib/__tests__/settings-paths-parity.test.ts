@@ -101,4 +101,33 @@ describe("settings paths parity (lib/rt-paths.ts vs rt-client/settings/paths.ts)
     expect(clientPaths.teamFolderDir("acme", "widgets")).toBe(rtPaths.teamFolderDir("acme", "widgets"));
     expect(clientPaths.teamPackDir("acme", "widgets")).toBe(rtPaths.teamPackDir("acme", "widgets"));
   });
+
+  test("org and team folder paths land where the org layout puts them", () => {
+    process.env.HOME = "/tmp/parity-fake-home";
+    const org = "/tmp/parity-fake-home/.mattstack/teams/acme";
+    const expected = {
+      orgDir: org,
+      orgMarkerPath: `${org}/mattstack/mattstack.jsonc`,
+      orgSettingsPath: `${org}/mattstack/org/settings.org.jsonc`,
+      orgSecretsDir: `${org}/mattstack/org/secrets`,
+      orgPacksDir: `${org}/mattstack/org/packs`,
+      teamFoldersDir: `${org}/mattstack/teams`,
+      teamFolderDir: `${org}/mattstack/teams/widgets`,
+      teamPackDir: `${org}/mattstack/teams/widgets/packs/widgets`,
+      teamSettingsPath: `${org}/mattstack/teams/widgets/settings.team.jsonc`,
+    };
+    for (const side of [clientPaths, rtPaths]) {
+      expect({
+        orgDir: side.orgDir("acme"),
+        orgMarkerPath: side.orgMarkerPath("acme"),
+        orgSettingsPath: side.orgSettingsPath("acme"),
+        orgSecretsDir: side.orgSecretsDir("acme"),
+        orgPacksDir: side.orgPacksDir("acme"),
+        teamFoldersDir: side.teamFoldersDir("acme"),
+        teamFolderDir: side.teamFolderDir("acme", "widgets"),
+        teamPackDir: side.teamPackDir("acme", "widgets"),
+        teamSettingsPath: side.teamSettingsPath("acme", "widgets"),
+      }).toEqual(expected);
+    }
+  });
 });

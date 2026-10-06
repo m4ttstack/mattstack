@@ -583,13 +583,25 @@ describe("stale bindings files (team-folder zones)", () => {
     stale(root, "gadgets", "acme/gadgets");
     const teamsBefore = snapshot(join(root, "teams"));
     const engineBefore = snapshot(engine);
+    const calls: string[] = [];
     const moves: Array<[string, string]> = [];
-    const fs: MaterializeFs = { ...realFs, rename: (from, to) => { moves.push([from, to]); realFs.rename(from, to); } };
+    const written = new Set<string>();
+    const fs = new Proxy(realFs, {
+      get(target, name: string) {
+        const method = Reflect.get(target, name) as (...args: string[]) => unknown;
+        return (...args: string[]) => {
+          calls.push(name);
+          if (name === "writeFile") written.add(args[0]!);
+          if (name === "rename") moves.push([args[0]!, args[1]!]);
+          return method(...args);
+        };
+      },
+    });
     const out = run(root, engine, fs);
     expect(out.pruned).toEqual([`${fileFor(root, "gadgets")}.stale`]);
-    expect(moves.filter(([, to]) => to.endsWith(".stale"))).toEqual([[fileFor(root, "gadgets"), `${fileFor(root, "gadgets")}.stale`]]);
+    expect([...new Set(calls)].filter((name) => !["exists", "readFile", "readDir", "writeFile", "mkdirp", "rename"].includes(name))).toEqual([]);
+    expect(moves.filter(([from]) => !written.has(from))).toEqual([[fileFor(root, "gadgets"), `${fileFor(root, "gadgets")}.stale`]]);
     expect(snapshot(join(root, "teams"))).toEqual(teamsBefore);
     expect(snapshot(engine)).toEqual(engineBefore);
-    expect(Object.keys(realFs)).not.toContain("remove");
   });
 });
