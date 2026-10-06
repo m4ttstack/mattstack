@@ -23,7 +23,12 @@ export function DetailPage({
   selection: RangeSelection;
 }) {
   const detail = useUserDetail(username, selection, data.generatedAt);
-  const people = data.users.filter(u => u.resolved);
+  const self = data.viewer.role === 'self';
+  const people = data.users.filter(
+    u =>
+      u.resolved ||
+      (self && (u.isCurrentUser || u.username === data.viewer.username))
+  );
   const person = people.find(u => u.username === username);
   if (!person) return <NotFoundPage />;
 
@@ -36,16 +41,28 @@ export function DetailPage({
 
   return (
     <div className={classes.page}>
-      <ProfileHeader person={person} people={people} stat={stat} meta={meta} />
-      <PersonSummary users={data.users} person={person} window={data.window} />
+      <ProfileHeader
+        person={person}
+        people={people}
+        stat={stat}
+        meta={meta}
+        self={self}
+      />
+      <PersonSummary
+        users={data.users}
+        person={person}
+        window={data.window}
+        self={self}
+      />
       <div className={classes.body} data-parity="Body">
-        <StatRail person={person} selected={stat} />
+        <StatRail person={person} selected={stat} self={self} />
         <StatPanel
           users={data.users}
           person={person}
           stat={stat}
           window={data.window}
           evidence={evidence}
+          self={self}
         />
       </div>
     </div>

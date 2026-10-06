@@ -9,7 +9,11 @@ import {
   fixtureDetail,
   fixtureLeaderboard,
 } from '../../../server/fixture/index';
-import type { MetricEvidence, MetricKey } from '../../../shared/types';
+import type {
+  MetricEvidence,
+  MetricKey,
+  UserDetailResponse,
+} from '../../../shared/types';
 import { App } from '../../App';
 
 const { useLeaderboard, useUserDetail } = vi.hoisted(() => ({
@@ -28,7 +32,7 @@ beforeEach(() => {
     isFetching: false,
   });
   useUserDetail.mockImplementation((username: string) => ({
-    data: fixtureDetail(username, false),
+    data: fixtureDetail(username, false) as UserDetailResponse,
     error: null,
     isLoading: false,
   }));
@@ -78,7 +82,7 @@ async function panelAt(stat: string) {
 
 function withEvidence(stat: MetricKey, edit: (ev: MetricEvidence) => void) {
   useUserDetail.mockImplementation((username: string) => {
-    const data = fixtureDetail(username, false)!;
+    const data = fixtureDetail(username, false) as UserDetailResponse;
     const ev = structuredClone(data.evidence[stat]!);
     edit(ev);
     data.evidence = { ...data.evidence, [stat]: ev };

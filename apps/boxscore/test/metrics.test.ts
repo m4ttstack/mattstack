@@ -156,6 +156,7 @@ describe('buildResponse trend deltas (4.11)', () => {
     priorWindow: priorW,
     baseUrl: 'https://gitlab.com',
     currentUser: 'alice',
+    viewer: { username: 'alice', role: 'team' },
     generatedAt: '2026-05-31T00:00:00.000Z',
     fromCache: false,
     identities: {
@@ -173,6 +174,19 @@ describe('buildResponse trend deltas (4.11)', () => {
     expect(alice.metrics.additions.delta).toBeNull();
     expect(alice.isCurrentUser).toBe(true);
     expect(alice.name).toBe('Alice');
+  });
+
+  it('flags the current user across GitLab/roster case', () => {
+    const res = buildResponse(snapshot(), null, {
+      ...ctx(null),
+      currentUser: 'Alice',
+    });
+    expect(res.users.find(u => u.username === 'alice')!.isCurrentUser).toBe(
+      true
+    );
+    expect(res.users.find(u => u.username === 'bob')!.isCurrentUser).toBe(
+      false
+    );
   });
 
   it('with prior snapshot => deltas computed, hasTrend true', () => {

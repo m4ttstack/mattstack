@@ -10,6 +10,7 @@ export {
   readMrsByBranch,
   readBranchCache,
   resolveForgeToken,
+  readGitlabToken,
   listRuns,
   getRun,
   abandonRun,
@@ -198,6 +199,7 @@ export { REGISTRY } from "./settings/registry-defs.ts";
 export { NOTIFICATION_EVENT_KEYS, NOTIFICATION_DEFAULTS } from "./settings/notification-events.ts";
 
 export { readStore, listTeams } from "./settings/stores.ts";
+export { isJoinedTeam } from "./settings/team-local-read.ts";
 export type { StoreFile } from "./settings/stores.ts";
 
 export {

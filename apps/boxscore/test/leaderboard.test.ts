@@ -1,7 +1,15 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from 'vitest';
 
 import type {
   FetchMergeRequestIndexOptions,
@@ -22,10 +30,15 @@ import {
 const dir = mkdtempSync(join(tmpdir(), 'boxscore-leaderboard-'));
 process.env.BOXSCORE_DB = join(dir, 'test.sqlite');
 
-const { getLeaderboard, ColdCacheError } =
+const { getLeaderboard, getUserDetail, ColdCacheError } =
   await import('../src/server/leaderboard.js');
 const { getStore, __resetStore } = await import('../src/server/store/index.js');
 const { __setProviderFactory } = await import('../src/server/source/index.js');
+const { __setCurrentUser, __resetCurrentUser } =
+  await import('../src/server/config/current-user.js');
+const { __setTeamReader } = await import('../src/server/config/team.js');
+const { ViewerForbiddenError, LOCKED_MESSAGE } =
+  await import('../src/server/viewer-scope.js');
 
 const PROJECT = 'acme/app';
 const SETTINGS: Record<string, unknown> = {
@@ -214,5 +227,83 @@ describe('getLeaderboard: cacheOnly against the scan floor', () => {
     });
 
     expect(res.hasTrend).toBe(true);
+  });
+});
+
+describe('viewer roles', () => {
+  const ROLES_SETTINGS: Record<string, unknown> = {
+    ...SETTINGS,
+    'mattstack.roster': [{ username: 'alice' }, { username: 'bob' }],
+    'boxscore.hiddenMembers': ['alice'],
+  };
+  const window = resolvePreset('30d', new Date('2026-06-01T00:00:00Z'));
+
+  beforeEach(() => {
+    __setSettingReader(<T>(k: string) => ROLES_SETTINGS[k] as T | undefined);
+    fakeProvider();
+    __setTeamReader(() => ({ joined: true }));
+    __setCurrentUser({ username: 'Alice', name: null });
+  });
+  afterEach(() => {
+    __setTeamReader(null);
+    __resetCurrentUser();
+    __setSettingReader(<T>(k: string) => SETTINGS[k] as T | undefined);
+  });
+
+  it('serves an unlisted member only their own unranked row, even when they hid themselves', async () => {
+    const res = await getLeaderboard({ window, refresh: false, trend: false });
+    expect(res.viewer).toEqual({ username: 'alice', role: 'self' });
+    expect(res.users.map(u => u.username)).toEqual(['alice']);
+    expect(res.leaders).toEqual({});
+    expect(res.users[0]!.metrics.mrsMerged.rank).toBeNull();
+  });
+
+  it('serves the full board to a member granted team', async () => {
+    ROLES_SETTINGS['boxscore.roles'] = { alice: 'team' };
+    try {
+      const res = await getLeaderboard({
+        window,
+        refresh: false,
+        trend: false,
+      });
+      expect(res.viewer.role).toBe('team');
+      expect(res.users.map(u => u.username)).toEqual(['bob']);
+    } finally {
+      delete ROLES_SETTINGS['boxscore.roles'];
+    }
+  });
+
+  it("refuses a Self viewer someone else's detail", async () => {
+    await expect(
+      getUserDetail({ window, refresh: false, trend: false, user: 'bob' })
+    ).rejects.toBeInstanceOf(ViewerForbiddenError);
+  });
+
+  it('serves a Self viewer their own detail with ranks blanked, any case', async () => {
+    const res = await getUserDetail({
+      window,
+      refresh: false,
+      trend: false,
+      user: 'ALICE',
+    });
+    expect(res.user.username).toBe('alice');
+    expect(res.user.metrics.mrsMerged.rank).toBeNull();
+  });
+
+  it('locks a viewer the lookup could not identify', async () => {
+    __resetCurrentUser();
+    const res = await getLeaderboard({ window, refresh: false, trend: false });
+    expect(res.viewer).toEqual({ username: null, role: 'self' });
+    expect(res.users).toEqual([]);
+  });
+
+  it('refuses a locked viewer detail with the locked message', async () => {
+    __resetCurrentUser();
+    await expect(
+      getUserDetail({ window, refresh: false, trend: false, user: 'bob' })
+    ).rejects.toMatchObject({
+      name: 'ViewerForbiddenError',
+      message: LOCKED_MESSAGE,
+    });
   });
 });

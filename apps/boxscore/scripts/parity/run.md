@@ -21,6 +21,8 @@ board 04):
 | 04     | each `Panel · <label>`, on its own route                                                        |
 | 05     | `Crumbs`, `Top Right`, `Page Header`, `Refresh Status`, `Stat Leaders`, `Standings`, `Footnote` |
 | 06     | `Crumbs`, `Top Right`, `Page Header`, `Refresh Status`, `Skeleton`                              |
+| 08     | `Crumbs`, `Top Right`, `Profile Header`, `Body`                                                 |
+| 09, 10 | `Crumbs`, `Top Right`, `Not Available`                                                          |
 
 Kit components in these roots (the `Top Right` Badge and Button, the `Page
 Header` SegmentedControls, the profile `Avatar` and arrow `ActionIcon`s) keep
@@ -56,7 +58,7 @@ the Pencil MCP, `Export([frameId], "html-css", path, { includeLayerNames: true }
 once per board frame, with the frame's `theme.mode` set to the scheme. The
 layer name attribute is `data-pencil-name`; colours are resolved hex. Frame
 ids: `WqX8t` 01, `iUxSO` 02, `bhvvQ` 03, `JPhZn` 04, `k6kFQA` 05, `ULlmd` 06,
-`rmvgy` 07. Re-export only when the `.pen` changes, with Pencil open on it.
+`rmvgy` 07, `cM0i5` 08, `IyB3G` 09, `K3P22c` 10. Re-export only when the `.pen` changes, with Pencil open on it.
 
 The export has one defect the runner corrects on load: a stroked layer is
 written `box-sizing: content-box` with its padding still inside its stated
@@ -161,8 +163,8 @@ with `lsof -nP -iTCP:<port> -sTCP:LISTEN`; stop it only if it is one of
 yours.
 
 The scenario is fixed per server process. Boards 05 (`refreshing`) and 06
-(`cold-stalled`) need the fixture server restarted with that scenario; the
-rest use `warm`. Vite and the harness keep running across boards.
+(`cold-stalled`), 08 and 09 (`self-view`) and 10 (`locked`) need the fixture
+server restarted with that scenario; the rest use `warm`. Vite and the harness keep running across boards.
 
 ### 2. Load the browser tools
 

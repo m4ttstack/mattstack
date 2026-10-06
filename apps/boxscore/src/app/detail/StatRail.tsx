@@ -31,9 +31,11 @@ function RankPill({ rank }: { rank: number | null }) {
 export function StatRail({
   person,
   selected,
+  self = false,
 }: {
   person: UserRow;
   selected: MetricKey;
+  self?: boolean;
 }) {
   return (
     <nav
@@ -88,7 +90,7 @@ export function StatRail({
                   >
                     {cardValue(key, metricValue(person.metrics, d))}
                   </span>
-                  <RankPill rank={metricRank(person.metrics, d)} />
+                  {!self && <RankPill rank={metricRank(person.metrics, d)} />}
                 </Link>
               );
             })}

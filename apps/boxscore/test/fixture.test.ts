@@ -1,5 +1,6 @@
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { fixtureDetail, fixtureLeaderboard } from '../src/server/fixture';
 import type {
   LeaderboardResponse,
   RefreshStatusResponse,
@@ -160,7 +161,7 @@ describe('design fixture mode', () => {
 
   it('bins the drawn histograms exactly', async () => {
     const { fixtureDetail } = await import('../src/server/fixture');
-    const ev = fixtureDetail('srivera', false)!.evidence;
+    const ev = (fixtureDetail('srivera', false) as UserDetailResponse).evidence;
     const bin = (values: number[], edges: number[]) =>
       edges
         .map((lo, i) => [lo, edges[i + 1] ?? Infinity] as const)
@@ -183,7 +184,9 @@ describe('design fixture mode', () => {
 
   it('answers detail for every roster user and 404 for strangers', async () => {
     const { fixtureDetail } = await import('../src/server/fixture');
-    expect(fixtureDetail('nvance', false)!.user.name).toBe('Nora Vance');
+    expect(
+      (fixtureDetail('nvance', false) as UserDetailResponse).user.name
+    ).toBe('Nora Vance');
     expect(fixtureDetail('nobody', false)).toBeNull();
     const { routes } = await import('../src/server/routes');
     const res = await routes.request('/api/detail?user=nobody');
@@ -210,5 +213,31 @@ describe('design fixture mode', () => {
           totals: { users: 7, 'mrs-list': 1, 'mrs-detail': 310 },
         },
       });
+  });
+});
+
+describe('viewer scenarios', () => {
+  afterEach(() => {
+    delete process.env.BOXSCORE_FIXTURE_SCENARIO;
+  });
+
+  it('serves the current user alone in self-view', () => {
+    process.env.BOXSCORE_FIXTURE_SCENARIO = 'self-view';
+    const res = fixtureLeaderboard(false);
+    expect(res.viewer).toEqual({ username: 'srivera', role: 'self' });
+    expect(res.users.map(u => u.username)).toEqual(['srivera']);
+    expect(fixtureDetail('srivera', false)).not.toBe('forbidden');
+    expect(fixtureDetail('someone-else', false)).toBe('forbidden');
+  });
+
+  it('serves no one when locked', () => {
+    process.env.BOXSCORE_FIXTURE_SCENARIO = 'locked';
+    const res = fixtureLeaderboard(false);
+    expect(res.viewer).toEqual({ username: null, role: 'self' });
+    expect(res.users).toEqual([]);
+  });
+
+  it('stays Team view by default', () => {
+    expect(fixtureLeaderboard(false).viewer.role).toBe('team');
   });
 });

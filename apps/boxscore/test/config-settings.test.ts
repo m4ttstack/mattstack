@@ -75,4 +75,11 @@ describe('readSettings', () => {
     __setSettingReader(null);
     expect(() => readSettings()).toThrow('inject a setting reader');
   });
+
+  it('passes boxscore.roles through raw, {} when unset', () => {
+    store({ 'boxscore.roles': { ada: 'team' } });
+    expect(readSettings().roles).toEqual({ ada: 'team' });
+    store({});
+    expect(readSettings().roles).toEqual({});
+  });
 });

@@ -118,6 +118,34 @@ all without restarting.
 For a production-style run: `bun run build && bun run serve` (the server then serves the
 built app straight out of `dist/`).
 
+## Viewer roles
+
+The team owner decides, per member, how much of boxscore that member sees:
+
+| Role          | What the member sees                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| **Team view** | The whole board: leaderboard, every person's page, ranks.                                 |
+| **Self view** | Only their own person page, with every rank, leader and team comparison removed. Default. |
+
+- **Self view is the default.** A roster member not listed in `boxscore.roles` gets it, so
+  Team view is a grant.
+- **The owner's Mac always gets Team view**, and so does a Mac with no team. The owner's Mac
+  is the one whose team clone was not joined by invite.
+- **A Mac counts as a member's only when it joined the team by invite** with rt from
+  2026-09-08 on. A member who joined earlier, or cloned the team repo by hand, is treated as
+  the owner and sees the whole team until re-invited.
+- **A Mac that created one team and joined another counts as a member's**, so roles apply
+  there and the console control is read-only.
+- **The owner sets roles** in console's Boxscore group, or from boxscore's header gear, which
+  frames that same group. A member's Mac shows the control read-only.
+- **Locked:** when boxscore cannot identify the viewer (the GitLab user lookup failed, or the
+  username is not on the roster), it shows a message instead of any stats, with a link to
+  console's Boxscore group.
+
+This is a courtesy boundary, not a security one: each member's boxscore runs on their own Mac
+with their own GitLab token and their own store, so a determined member can read the store or
+ask GitLab directly.
+
 ## How the metrics work (and how they're gamed)
 
 | Metric                  | Source                                                | Gaming vector                                                                           |

@@ -43,6 +43,15 @@ light variant), per `docs/apps/ui-authoring.md`. Weights are 400, 500, 700.
   stay, dimmed, under a phase stepper fed by the job's progress events.
 - `Leaderboard · First load, stalled`: a cold cache with a skeleton table,
   and the stall notice when progress stops moving.
+- `08 · Person · Self view`: the person page a Self view member sees
+  (BOXSCR-3, approved 2026-10-06). No back link, person switcher, rank
+  summary, rank pills, rank, leader or team spread. The summary strip is
+  dropped rather than kept as a lone Coding days card, since Coding days is
+  already a row in the stat rail.
+- `09 · Not available`: someone else's page in Self view, with a link back
+  to your own.
+- `10 · Not available · Locked`: boxscore could not identify the viewer, so
+  it shows no one's stats and names what to check.
 
 ## Rulings
 

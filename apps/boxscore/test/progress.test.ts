@@ -38,6 +38,7 @@ const SETTINGS: BoxscoreSettings = {
   botPatterns: [],
   defaultRange: '30d',
   baseUrl: ENV.baseUrl,
+  roles: {},
 };
 
 /** A hand-rolled fake, not a mock library: minimal stand-in for the real GitLab provider. */

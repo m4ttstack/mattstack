@@ -21,6 +21,9 @@ const { routes: app } = await import('../src/server/routes.js');
 const { startRefresh, __resetJobs } =
   await import('../src/server/refresh/index.js');
 const { getStore, __resetStore } = await import('../src/server/store/index.js');
+const { __setCurrentUser, __resetCurrentUser } =
+  await import('../src/server/config/current-user.js');
+const { __setTeamReader } = await import('../src/server/config/team.js');
 
 const WINDOW: TimeWindow = {
   start: '2026-05-01T00:00:00.000Z',
@@ -163,5 +166,24 @@ describe('deleted routes', () => {
       body: JSON.stringify({ key: 'boxscore.defaultRange', value: '7d' }),
     });
     expect(write.status).toBe(404);
+  });
+});
+
+describe('viewer roles over HTTP', () => {
+  beforeEach(() => {
+    __setTeamReader(() => ({ joined: true }));
+    __setCurrentUser({ username: 'alexrivera', name: 'Alex Rivera' });
+  });
+  afterEach(() => {
+    __setTeamReader(null);
+    __resetCurrentUser();
+  });
+
+  it("answers 403 for someone else's detail", async () => {
+    const res = await app.request('/api/detail?user=someoneelse&range=30d');
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toMatch(
+      /only your own/i
+    );
   });
 });

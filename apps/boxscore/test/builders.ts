@@ -77,6 +77,11 @@ export function makeResponse(
     leaders?: LeaderboardResponse['leaders'];
   } = {}
 ): LeaderboardResponse {
+  const currentUser =
+    opts.currentUser ??
+    users.find(u => u.isCurrentUser)?.username ??
+    users[0]?.username ??
+    '';
   return {
     scope: { type: 'projects', projectPaths: ['org/app'] },
     window: {
@@ -87,11 +92,8 @@ export function makeResponse(
     priorWindow: null,
     hasTrend: opts.hasTrend ?? false,
     baseUrl: 'https://gitlab.com',
-    currentUser:
-      opts.currentUser ??
-      users.find(u => u.isCurrentUser)?.username ??
-      users[0]?.username ??
-      '',
+    currentUser,
+    viewer: { username: currentUser, role: 'team' },
     generatedAt: '2026-05-31T00:00:00.000Z',
     fromCache: false,
     metricNotes: {},

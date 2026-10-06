@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { fixtureDetail } from '../../server/fixture/index';
-import type { MetricEvidence } from '../../shared/types';
+import type { MetricEvidence, UserDetailResponse } from '../../shared/types';
 import {
   calendarWeeks,
   depthBins,
@@ -338,7 +338,7 @@ describe('reviewsByAuthor', () => {
 });
 
 describe('the design fixture reproduces the drawn panels', () => {
-  const detail = fixtureDetail('srivera', false)!;
+  const detail = fixtureDetail('srivera', false) as UserDetailResponse;
   const ev = detail.evidence;
   const { start, end } = detail.window;
 
