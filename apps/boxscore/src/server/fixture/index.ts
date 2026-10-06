@@ -14,9 +14,11 @@ import type {
   UserDetailResponse,
   UserMetrics,
   UserRow,
+  Viewer,
 } from '../../shared/types.js';
 import { applyRankings } from '../metrics/ranking.js';
 import { mean, percentile, round, streaks } from '../metrics/stats.js';
+import { canSeeUser, narrowForViewer } from '../viewer-scope.js';
 import {
   BASE_URL,
   CURRENT_USER,
@@ -42,15 +44,31 @@ import {
   REVIEWS,
 } from './design-evidence.js';
 
-export type FixtureScenario = 'warm' | 'refreshing' | 'cold-stalled';
+export type FixtureScenario =
+  'warm' | 'refreshing' | 'cold-stalled' | 'self-view' | 'locked';
+
+const SCENARIOS: FixtureScenario[] = [
+  'refreshing',
+  'cold-stalled',
+  'self-view',
+  'locked',
+];
 
 export function fixtureMode(): 'design' | null {
   return process.env.BOXSCORE_FIXTURE === 'design' ? 'design' : null;
 }
 
 export function fixtureScenario(): FixtureScenario {
-  const s = process.env.BOXSCORE_FIXTURE_SCENARIO;
-  return s === 'refreshing' || s === 'cold-stalled' ? s : 'warm';
+  const s = process.env.BOXSCORE_FIXTURE_SCENARIO as
+    FixtureScenario | undefined;
+  return s && SCENARIOS.includes(s) ? s : 'warm';
+}
+
+export function fixtureViewer(): Viewer {
+  const s = fixtureScenario();
+  if (s === 'self-view') return { username: CURRENT_USER, role: 'self' };
+  if (s === 'locked') return { username: null, role: 'self' };
+  return { username: CURRENT_USER, role: 'team' };
 }
 
 const SYNCED_MINUTES_AGO = 4;
@@ -111,29 +129,35 @@ const generatedAt = (): string =>
 export function fixtureLeaderboard(trend: boolean): LeaderboardResponse {
   const users = buildUsers(trend);
   const leaders = applyRankings(users);
-  return {
-    scope: SCOPE,
-    window: { ...WINDOW },
-    priorWindow: trend ? { ...PRIOR_WINDOW } : null,
-    hasTrend: trend,
-    baseUrl: BASE_URL,
-    currentUser: CURRENT_USER,
-    viewer: { username: CURRENT_USER, role: 'team' },
-    generatedAt: generatedAt(),
-    fromCache: true,
-    metricNotes: {},
-    leaders,
-    users,
-    warnings: [],
-  };
+  const viewer = fixtureViewer();
+  return narrowForViewer(
+    {
+      scope: SCOPE,
+      window: { ...WINDOW },
+      priorWindow: trend ? { ...PRIOR_WINDOW } : null,
+      hasTrend: trend,
+      baseUrl: BASE_URL,
+      currentUser: CURRENT_USER,
+      viewer,
+      generatedAt: generatedAt(),
+      fromCache: true,
+      metricNotes: {},
+      leaders,
+      users,
+      warnings: [],
+    },
+    viewer
+  );
 }
 
 export function fixtureDetail(
   user: string,
   trend: boolean
-): UserDetailResponse | null {
+): UserDetailResponse | null | 'forbidden' {
+  if (!canSeeUser(fixtureViewer(), user)) return 'forbidden';
   const board = fixtureLeaderboard(trend);
-  const row = board.users.find(u => u.username === user);
+  const want = user.toLowerCase();
+  const row = board.users.find(u => u.username.toLowerCase() === want);
   if (!row) return null;
   const evidence = designEvidence();
   if (user !== CURRENT_USER) retarget(evidence, row);

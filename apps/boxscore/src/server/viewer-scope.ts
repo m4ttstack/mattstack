@@ -5,6 +5,9 @@ import type {
   Viewer,
 } from '../shared/types.js';
 
+export const SELF_ONLY_MESSAGE =
+  'You can see only your own page in boxscore. Ask your team owner for Team view.';
+
 /** A Self view viewer asked for someone else (or anyone, unidentified). Routes answer 403. */
 export class ViewerForbiddenError extends Error {
   override readonly name = 'ViewerForbiddenError';

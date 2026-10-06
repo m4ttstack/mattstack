@@ -28,6 +28,7 @@ import { baseWindow, covers, priorWindow } from './util/window.js';
 import {
   canSeeUser,
   narrowForViewer,
+  SELF_ONLY_MESSAGE,
   unrankedRow,
   ViewerForbiddenError,
 } from './viewer-scope.js';
@@ -252,9 +253,7 @@ export async function getUserDetail(
 ): Promise<UserDetailResponse> {
   const { response, current, env } = await buildLeaderboard(opts);
   if (!canSeeUser(response.viewer, opts.user)) {
-    throw new ViewerForbiddenError(
-      'You can see only your own page in boxscore. Ask your team owner for Team view.'
-    );
+    throw new ViewerForbiddenError(SELF_ONLY_MESSAGE);
   }
   const want = opts.user.toLowerCase();
   const userRow = response.users.find(u => u.username.toLowerCase() === want);

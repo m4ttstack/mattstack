@@ -1,6 +1,7 @@
 import type { Board } from '../../../../scripts/parity/config';
 
-export type Scenario = 'warm' | 'refreshing' | 'cold-stalled';
+export type Scenario =
+  'warm' | 'refreshing' | 'cold-stalled' | 'self-view' | 'locked';
 
 const DYNAMIC_TEXT = ['Fresh Label', 'RS Sub'];
 const SETTLE_TEXT = 'Loading…';

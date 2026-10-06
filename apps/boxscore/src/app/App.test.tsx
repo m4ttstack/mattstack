@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { fixtureDetail, fixtureLeaderboard } from '../server/fixture/index';
-import type { LeaderboardResponse } from '../shared/types';
+import type { LeaderboardResponse, UserDetailResponse } from '../shared/types';
 import { App } from './App';
 import type { AppRoute } from './routes';
 
@@ -215,7 +215,7 @@ describe('App: refresh on the person page', () => {
     });
     useUserDetail.mockImplementation(
       (username: string, _selection: unknown, generatedAt: string) => {
-        const detail = fixtureDetail(username, false)!;
+        const detail = fixtureDetail(username, false) as UserDetailResponse;
         if (generatedAt !== after.generatedAt) {
           return { data: detail, error: null, isLoading: false };
         }
