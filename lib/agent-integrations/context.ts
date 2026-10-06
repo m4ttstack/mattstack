@@ -19,6 +19,7 @@ import type {
   CallerContext, FaultCode, HarnessId, NativeSessionRef, Outcome, SessionBinding,
 } from "../../packages/rt-client/src/agent-integrations.ts";
 import { getSetting } from "../settings/resolve.ts";
+import { getAgent } from "../state/agents-store.ts";
 import { getStateDb } from "../state/db.ts";
 import { isDetachedClaudeBinding } from "./claude/sessions.ts";
 import { canonicalCodexProfile } from "./codex/profile.ts";
@@ -43,6 +44,11 @@ export type McpTransport = { harness?: HarnessId; profile?: string };
 export type ResolveDeps = { db?: Database; legacy?: typeof resolveLegacySession };
 
 const SETTING = "agent.integrations.enabled";
+
+/** The cause and the remedy when one environment names both a Codex thread and a Claude Code session. */
+export const BOTH_SESSIONS_MESSAGE = "this command's environment names both a Codex thread (CODEX_THREAD_ID) and a Claude Code session "
+  + "(CLAUDE_CODE_SESSION_ID), so rt cannot tell which one is calling. The Codex app server most likely inherited a Claude Code "
+  + "session's environment: restart the Codex app server from a plain shell, outside any Claude Code session";
 
 /** Read at call time: a machine can flip the switch under a running server. Unreadable settings keep it off. */
 export function integrationsEnabled(): boolean {
@@ -132,7 +138,7 @@ export function extractCliEvidence(args: string[], env: NodeJS.ProcessEnv): Outc
   if (text(explicit)) return { ok: true, data: { raw: explicit, ...extra } };
   const codexThread = text(env.CODEX_THREAD_ID) ? env.CODEX_THREAD_ID : undefined;
   const claude = claudeEnvClaim(env);
-  if (codexThread && claude) return fail("ambiguous", "both a Codex thread and a Claude Code session are set in this environment");
+  if (codexThread && claude) return fail("ambiguous", BOTH_SESSIONS_MESSAGE);
   const native: NativeClaim | undefined = codexThread
     ? { harness: "codex", profile: codexProfile(env), kind: "id", value: codexThread }
     : claude;
@@ -258,4 +264,31 @@ export function resolveCliSession(
   const caller = opts.bindingsOnly ? resolveCallerContextNow(evidence.data, deps) : resolveCallerOrEnvironmentNow(evidence.data, deps);
   if (caller === null) return { ok: true, data: native!.value };
   return caller.ok ? { ok: true, data: caller.data.binding.native.value } : caller;
+}
+
+/** The agent and gate subject a bound Codex worker acts as, and the session id the daemon resolves them by. */
+export type BoundGateIdentity = { agentId: string; subject: string; sessionId: string };
+
+/**
+ * With agent.integrations.enabled on, a Codex worker's gate identity comes
+ * from its binding: its tools run in the user-started app server, whose
+ * environment never carries the RT_AGENT_ID and RT_GATE_SUBJECT a launch
+ * stamps. Null when the switch is off, the caller is not a Codex thread, or
+ * the thread is not a launched agent's bound session; those keep today's path.
+ * An environment naming both harnesses' sessions refuses.
+ */
+export function boundCodexGateIdentity(
+  env: NodeJS.ProcessEnv, deps: ResolveDeps & { enabled?: () => boolean } = {},
+): Outcome<BoundGateIdentity | null> {
+  if (!(deps.enabled ?? integrationsEnabled)() || !text(env.CODEX_THREAD_ID)) return { ok: true, data: null };
+  if (text(env.CLAUDE_CODE_SESSION_ID)) return fail("ambiguous", BOTH_SESSIONS_MESSAGE);
+  const db = deps.db ?? getStateDb();
+  const caller = resolveCallerContextNow({ native: { harness: "codex", profile: codexProfile(env), kind: "id", value: env.CODEX_THREAD_ID } }, { ...deps, db });
+  const agentId = caller.ok ? caller.data.binding.agentId : undefined;
+  if (!caller.ok || agentId === undefined) return { ok: true, data: null };
+  const rec = getAgent(agentId, db);
+  return {
+    ok: true,
+    data: { agentId, subject: rec?.id === agentId && rec.subject !== undefined ? rec.subject : `agent:${agentId}`, sessionId: caller.data.binding.native.value },
+  };
 }

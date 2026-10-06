@@ -106,3 +106,24 @@ describe("forkDenyReason", () => {
     expect(forkDenyReason(undefined)).not.toContain("gates file under");
   });
 });
+
+describe("a bound Codex worker's fork check", () => {
+  const identity = { agentId: "ag-1", subject: "herd:h1/job-a", sessionId: "thread-1" };
+
+  test("with no launch env, its subject and session come from the binding", () => {
+    const env = { CODEX_THREAD_ID: "thread-1" } as NodeJS.ProcessEnv;
+    expect(buildForkCheckPayload("", env, "/does/not/exist", () => ({ ok: true, data: identity }))).toMatchObject({
+      subject: "herd:h1/job-a", sessionIds: ["thread-1"],
+    });
+  });
+
+  test("a launch's own RT_GATE_SUBJECT still wins, and an unattributable caller is allowed as before", () => {
+    let asked = 0;
+    const lookup = () => { asked++; return { ok: true as const, data: identity }; };
+    expect(buildForkCheckPayload("", agentEnv, "/x", lookup)?.subject).toBe("herd:acme-x/acme-1234-attorney");
+    expect(asked).toBe(0);
+    const both = { CODEX_THREAD_ID: "t", CLAUDE_CODE_SESSION_ID: "c" } as NodeJS.ProcessEnv;
+    expect(buildForkCheckPayload("", both, "/x", () => ({ ok: false, error: { code: "ambiguous", message: "both" } }))).toBeNull();
+    expect(buildForkCheckPayload("", {} as NodeJS.ProcessEnv, "/x")).toBeNull();
+  });
+});

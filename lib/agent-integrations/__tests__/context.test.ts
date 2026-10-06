@@ -13,7 +13,7 @@ import { createSessionStore, type StoredAttachment } from "../session-store.ts";
 import { createClaudeSessions } from "../claude/sessions.ts";
 import { canonicalCodexProfile } from "../codex/profile.ts";
 import {
-  extractCliEvidence, extractMcpEvidence, integrationsEnabled, mcpTransportFromArgs, resolveCallerContext,
+  BOTH_SESSIONS_MESSAGE, boundCodexGateIdentity, extractCliEvidence, extractMcpEvidence, integrationsEnabled, mcpTransportFromArgs, resolveCallerContext,
   resolveCliSession, resolveToolCaller, type CallerEvidence,
 } from "../context.ts";
 import { createCallHandler } from "../../../commands/mcp.ts";
@@ -316,5 +316,54 @@ describe("the agent.integrations.enabled switch", () => {
     expect(integrationsEnabled()).toBe(true);
     setSetting("agent.integrations.enabled", false, "machine");
     expect(integrationsEnabled()).toBe(false);
+  });
+});
+
+describe("a bound Codex worker's gate identity", () => {
+  const on = () => true;
+  function codexAgent(db: Database, id: string, thread: string, subject?: string) {
+    const rec: AgentRecord = {
+      id, repo: "remote:example.com%2Fa%2Fb", cwd: "/w", provider: "codex", surface: "herdr", sessionId: thread, createdAt: 1,
+      ...(subject !== undefined && { subject }),
+    };
+    insertAgent(rec, db);
+    const store = createSessionStore(db);
+    const result = store.bind(store.reserve({ identity: `agent:${id}`, agentId: id }), codex(thread), { mode: "herdr", pane: "w1:p1" });
+    if (!result.ok) throw new Error(result.error.message);
+  }
+
+  test("comes from the binding, never from the app server's environment", () => {
+    const db = freshDb();
+    codexAgent(db, "ag-sub", "thread-sub", "herd:h1/job-a");
+    codexAgent(db, "ag-plain", "thread-plain");
+    // RT_* in the environment belong to whoever started the app server, not to this worker.
+    const env = { CODEX_THREAD_ID: "thread-sub", RT_AGENT_ID: "ag-someone-else", RT_GATE_SUBJECT: "agent:ag-someone-else" } as NodeJS.ProcessEnv;
+    expect(boundCodexGateIdentity(env, { db, enabled: on })).toEqual({
+      ok: true, data: { agentId: "ag-sub", subject: "herd:h1/job-a", sessionId: "thread-sub" },
+    });
+    expect(boundCodexGateIdentity({ CODEX_THREAD_ID: "thread-plain" } as NodeJS.ProcessEnv, { db, enabled: on })).toEqual({
+      ok: true, data: { agentId: "ag-plain", subject: "agent:ag-plain", sessionId: "thread-plain" },
+    });
+  });
+
+  test("switch off, no Codex thread, or a thread no launched agent owns keeps today's path", () => {
+    const db = freshDb();
+    codexAgent(db, "ag-sub", "thread-sub");
+    bound(db, "kai.cd34", codex("thread-signed-in"));
+    expect(boundCodexGateIdentity({ CODEX_THREAD_ID: "thread-sub" } as NodeJS.ProcessEnv, { db, enabled: () => false })).toEqual({ ok: true, data: null });
+    expect(boundCodexGateIdentity({ CLAUDE_CODE_SESSION_ID: "c1" } as NodeJS.ProcessEnv, { db, enabled: on })).toEqual({ ok: true, data: null });
+    expect(boundCodexGateIdentity({ CODEX_THREAD_ID: "thread-unknown" } as NodeJS.ProcessEnv, { db, enabled: on })).toEqual({ ok: true, data: null });
+    expect(boundCodexGateIdentity({ CODEX_THREAD_ID: "thread-signed-in" } as NodeJS.ProcessEnv, { db, enabled: on })).toEqual({ ok: true, data: null });
+  });
+
+  test("an environment naming both harnesses' sessions still refuses, and says why and what to do", () => {
+    const db = freshDb();
+    codexAgent(db, "ag-sub", "thread-sub");
+    const both = { CODEX_THREAD_ID: "thread-sub", CLAUDE_CODE_SESSION_ID: "c1" } as NodeJS.ProcessEnv;
+    const refused = boundCodexGateIdentity(both, { db, enabled: on });
+    expect(refused).toEqual({ ok: false, error: { code: "ambiguous", message: BOTH_SESSIONS_MESSAGE } });
+    expect(BOTH_SESSIONS_MESSAGE).toContain("inherited a Claude Code session");
+    expect(BOTH_SESSIONS_MESSAGE).toContain("restart the Codex app server from a plain shell");
+    expect(extractCliEvidence([], both)).toEqual({ ok: false, error: { code: "ambiguous", message: BOTH_SESSIONS_MESSAGE } });
   });
 });

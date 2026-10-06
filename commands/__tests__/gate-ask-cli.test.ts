@@ -63,3 +63,20 @@ describe("gateAskOutput", () => {
     });
   });
 });
+
+describe("a bound Codex worker asks under its binding", () => {
+  const identity = { agentId: "ag-1", subject: "herd:h1/job-a", sessionId: "thread-1" };
+
+  test("its session id comes from the binding, so the daemon finds its agent record and subject", () => {
+    const env = { CODEX_THREAD_ID: "thread-1", HERDR_PANE_ID: "w1:p1" } as NodeJS.ProcessEnv;
+    const payload = buildGateAskPayload(["--questions", Q], env, () => ({ ok: true, data: identity }));
+    expect(payload).toMatchObject({ sessionId: "thread-1", paneId: "w1:p1" });
+    expect(payload.subject).toBeUndefined();
+  });
+
+  test("no bound identity keeps today's environment session", () => {
+    const env = { CLAUDE_CODE_SESSION_ID: "sess-1" } as NodeJS.ProcessEnv;
+    expect(buildGateAskPayload(["--questions", Q], env, () => ({ ok: true, data: null })).sessionId).toBe("sess-1");
+    expect(buildGateAskPayload(["--questions", Q], env).sessionId).toBe("sess-1");
+  });
+});

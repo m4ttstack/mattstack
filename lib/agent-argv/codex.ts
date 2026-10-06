@@ -67,7 +67,7 @@ export function buildCodexPaneCommand(cwd: string, inv: AgentInvocation): string
   return `cd ${shellSingleQuote(cwd)} && ${unsetPrefix(inv.unsetEnv)}${[...env, ...head, ...tail].join(" ")}`;
 }
 
-export type CodexRemoteAttach = { socketPath: string; threadId: string; env?: Record<string, string>; unsetEnv?: readonly string[] };
+export type CodexRemoteAttach = { socketPath: string; threadId: string; env?: Record<string, string> };
 
 const THREAD_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 
@@ -85,5 +85,5 @@ export function buildCodexRemoteResumeCommand(cwd: string, attach: CodexRemoteAt
     "codex", "--remote", shellSingleQuote(`unix://${attach.socketPath}`), "-C", shellSingleQuote(cwd),
     "resume", shellSingleQuote(attach.threadId),
   ];
-  return `cd ${shellSingleQuote(cwd)} && ${unsetPrefix(attach.unsetEnv)}${[...env, ...head].join(" ")}`;
+  return `cd ${shellSingleQuote(cwd)} && ${[...env, ...head].join(" ")}`;
 }

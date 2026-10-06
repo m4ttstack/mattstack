@@ -16,6 +16,8 @@
  * nothing here starts a second thread or opens a second pane to cover an
  * unfinished or unknown result.
  *
+ * Limit: tools run in the user-started app server, whose env rt cannot set, so a worker's gate identity comes from its binding.
+ *
  * This adapter never assigns a herd job and never writes the session store.
  */
 
@@ -28,6 +30,7 @@ import type {
 import { buildCodexRemoteResumeCommand } from "../../agent-argv/codex.ts";
 import type { LaunchHost, LaunchRequest, NativeLaunch, SessionAdapter, WorkCompletion, WorkReceipt } from "../contracts.ts";
 import { openHostPane, type HostPaneLaunch, type HostPaneOpened } from "../herdr-pane.ts";
+import { CODEX_ATTACH_READ_MS, CODEX_ATTACH_READS, CODEX_INIT_TURN_TIMEOUT_MS } from "../timeouts.ts";
 import { workDigest } from "../work-submissions.ts";
 import {
   CodexControlError, connectCodexControl, discoverCodexEndpoint,
@@ -85,8 +88,8 @@ export type CodexSessionDeps = {
   inFlight: Set<string>;
 };
 
-const ATTACH_READS = 30;
-const ATTACH_READ_MS = 500;
+const ATTACH_READS = CODEX_ATTACH_READS;
+const ATTACH_READ_MS = CODEX_ATTACH_READ_MS;
 /** Long enough to identify a message, short enough to fit one terminal row unwrapped. */
 const EVIDENCE_CHARS = 48;
 
@@ -147,7 +150,7 @@ function defaultDeps(): CodexSessionDeps {
   return {
     now: Date.now,
     clock: { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (handle) => clearTimeout(handle as Timer) },
-    initTurnTimeoutMs: 180_000,
+    initTurnTimeoutMs: CODEX_INIT_TURN_TIMEOUT_MS,
     workTurnTimeoutMs: 6 * 60 * 60_000,
     unresolved: UNRESOLVED,
     inFlight: IN_FLIGHT,
@@ -295,10 +298,8 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     if (!entry.pane) {
       let command: string;
       try {
-        command = buildCodexRemoteResumeCommand(entry.cwd, {
-          socketPath: deps.endpoint!.socketPath, threadId,
-          ...(host?.env !== undefined && { env: host.env }), ...(host?.unsetEnv !== undefined && { unsetEnv: host.unsetEnv }),
-        });
+        // The terminal only draws the thread: its tools run in the app server, so the launch's env would reach nothing there.
+        command = buildCodexRemoteResumeCommand(entry.cwd, { socketPath: deps.endpoint!.socketPath, threadId });
       } catch (err) {
         return fail("invalid", messageOf(err));
       }
@@ -380,6 +381,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
   }
 
   return {
+    carriesReservations: true,
     async launch(request) {
       const checked = checkRequest(request);
       if (!checked.ok) return checked;

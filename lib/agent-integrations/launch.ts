@@ -19,6 +19,7 @@
  */
 
 import type { Database } from "bun:sqlite";
+import { resolve } from "path";
 import type {
   Capability, FaultCode, NativeSessionRef, Outcome, Selection, SessionBinding,
 } from "../../packages/rt-client/src/agent-integrations.ts";
@@ -27,17 +28,21 @@ import { getAgent, updateAgentPane, updateAgentSessionId } from "../state/agents
 import { getStateDb } from "../state/db.ts";
 import { admit } from "./admission.ts";
 import { builtinRegistry } from "./builtins.ts";
-import type {
-  HarnessIntegration, IntegrationRegistry, LaunchHost, LaunchRequest, LaunchSurface, NativeLaunch, PolicyAdapter, PolicyProof,
-  PreparedLaunch, PreparedPolicy, SessionAdapter, WorkInput, WorkReceipt,
+import {
+  createObservationSweep,
+  type HarnessIntegration, type IntegrationRegistry, type LaunchHost, type LaunchRequest, type LaunchSurface, type NativeLaunch,
+  type ObservationSweep, type PolicyAdapter, type PolicyProof, type PreparedLaunch, type PreparedPolicy, type SessionAdapter,
+  type WorkInput, type WorkReceipt,
 } from "./contracts.ts";
 import {
-  claimReservation, createSessionStore, failReservation, isDetachedAttachment, markBindingReady, noteReservationError,
-  pruneReservations, readBindingReadiness, readBindingSelection, readReservation, recordLaunched,
+  abandonStaleLaunches, claimReservation, createSessionStore, failReservation, isDetachedAttachment, LEGACY_DEFAULT_PROFILE,
+  launchHolding, markBindingReady, noteReservationError, pruneReservations, readBindingReadiness, readBindingSelection,
+  readReservation, recordLaunched, unresolvedLaunchOf,
   type LaunchedNative, type PersistedLaunch, type ReservationRecord, type SessionStore,
 } from "./session-store.ts";
 import {
-  DELIVERED_STATES, findSubmission, listSubmissions, markSubmitting, receiptOf, recordPending, settleSubmission, workDigest,
+  abandonSubmission, DELIVERED_STATES, findSubmission, listDueSubmissions, listStalePending, listSubmissions, markSubmitting,
+  noteCheck, receiptOf, recordPending, sendInProgress, settleSubmission, unresolvedSubmissionOf, workDigest,
   type SubmissionKey, type SubmissionState, type WorkSubmission,
 } from "./work-submissions.ts";
 
@@ -81,10 +86,48 @@ const LAUNCHING = new Set<string>();
 const SUBMITTING = new Set<string>();
 
 const DAY_MS = 24 * 60 * 60_000;
+/** An unresolved launch left this long stops holding its place, and asks for attention instead. */
+const LAUNCH_GIVE_UP_MS = 6 * 60 * 60_000;
+/** A pending submission this old belongs to a call that ended before sending anything. */
+const PENDING_STALE_MS = 10 * 60_000;
 
 const ok = <T>(data: T): Outcome<T> => ({ ok: true, data });
 const fail = <T>(code: FaultCode, message: string): Outcome<T> => ({ ok: false, error: { code, message } });
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/**
+ * One unresolved launch at a time per (harness, profile, cwd). The profile is
+ * the account the selection names, else the ambient one; a harness whose
+ * profile is not an account option (Codex) is guarded per harness and cwd.
+ */
+export function launchGuard(selection: Selection, cwd: string): string {
+  return [selection.harness, selection.options.account ?? LEGACY_DEFAULT_PROFILE, resolve(cwd)].join("\0");
+}
+
+/** Why a new launch under this guard must wait, naming the agent whose launch or work is still unresolved; null when none is. */
+export function launchInProgress(db: Database, guard: string): string | null {
+  const held = launchHolding(db, guard);
+  const sending = held ? null : sendInProgress(db, guard);
+  if (!held && !sending) return null;
+  const who = held?.agentId ?? sending?.agentId;
+  const subject = who !== undefined ? `agent ${who}` : held ? `launch ${held.reservationId}` : "an earlier launch";
+  return `${subject} is still starting here, or rt cannot tell whether it started; rt will not start another session in the same place until it resolves`;
+}
+
+/** Why an agent needs a person: a launch or a submission whose outcome rt cannot tell. */
+export function launchAttention(db: Database, agentId: string): string | undefined {
+  const launch = unresolvedLaunchOf(db, agentId);
+  if (launch) {
+    return launch.state === "abandoned"
+      ? "rt stopped waiting for this agent's launch; check whether its session started"
+      : "this agent's launch has not resolved; rt cannot tell yet whether its session started";
+  }
+  const work = unresolvedSubmissionOf(db, agentId);
+  if (!work) return undefined;
+  return work.state === "abandoned"
+    ? "rt found no sign that this agent's work reached its session and stopped checking; it will not send it again"
+    : "rt cannot tell yet whether this agent's work reached its session; it will not send it again";
+}
 
 /** The agent record follows its binding: the native session id, and the pane when the launch reported where it opened. */
 export function syncAgentRecord(db: Database, binding: SessionBinding, surface?: LaunchSurface): void {
@@ -200,17 +243,22 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     return finish(integration, bound.data, request, kind, made.surface, policy);
   }
 
-  /** Another process claimed this launch and left no record of a session: only native discovery can say what it made. */
-  async function reconcileElsewhere(
+  /**
+   * A launch whose outcome is unknown and that no adapter is carrying on (it
+   * started in another process, or its adapter keeps nothing per
+   * reservation): only native discovery of the id the launch was handed can
+   * say what it made. It is never launched again.
+   */
+  async function reconcileByDiscovery(
     integration: HarnessIntegration, sessions: SessionAdapter, reservation: ReservationRecord, request: LaunchRequest, kind: PreparedLaunch["kind"],
   ): Promise<Outcome<PreparedBinding>> {
     const hint = reservation.request?.nativeHint;
     const found = hint === undefined ? undefined
       : (await sessions.discover()).find((d) => d.native.harness === integration.id && d.native.value === hint);
     if (!found) {
-      return fail("ambiguous", `launch reservation ${reservation.id} was started by another process and its outcome is unknown; rt will not start another session for it`);
+      return fail("ambiguous", `launch reservation ${reservation.id} has an unknown outcome and no running session shows it; rt will not start another session for it`);
     }
-    return bindMade(integration, reservation.id, found, request, kind);
+    return bindMade(integration, reservation.id, { ...found, attachment: onBackground(found.attachment, request.host) }, request, kind);
   }
 
   async function launchReserved(
@@ -230,19 +278,23 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
       if (!policy.ok) return policy;
     }
 
-    if (reservation.state === "launching") {
-      if (reservation.claimedBy !== claimToken) return reconcileElsewhere(integration, sessions, reservation, request, kind);
-      // This process's own unresolved launch: the adapter carries on with what it holds for this reservation id.
+    const retried = reservation.state === "launching";
+    if (retried) {
+      // Only this process's own adapter, holding what the launch made under this id, may carry it on.
+      if (reservation.claimedBy !== claimToken || sessions.carriesReservations !== true) {
+        return reconcileByDiscovery(integration, sessions, reservation, request, kind);
+      }
     } else {
-      const claimed = claimReservation(db, reservation.id, claimToken, persisted);
+      const claimed = claimReservation(db, reservation.id, claimToken, persisted, launchGuard(persisted.selection, persisted.cwd));
       if (!claimed.ok) return claimed;
     }
 
     const result = resumed ? await sessions.resume(resumed, request) : await sessions.launch(request);
     if (!result.ok) {
-      if (MADE_NOTHING.has(result.error.code)) failReservation(db, reservation.id, result.error.message);
+      // A retried launch may already have made something, whatever the adapter says now (a deduped tab can be its own).
+      if (!retried && MADE_NOTHING.has(result.error.code)) failReservation(db, reservation.id, result.error.message);
       else noteReservationError(db, reservation.id, result.error.message);
-      return result;
+      return retried && result.error.code !== "ambiguous" ? fail("ambiguous", result.error.message) : result;
     }
     const launched: NativeLaunch = { ...result.data, attachment: onBackground(result.data.attachment, request.host) };
     madeHere.set(reservation.id, launched);
@@ -270,15 +322,31 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     return ok(current);
   }
 
+  /**
+   * Checks native evidence for a submission whose outcome is unknown. A check
+   * that finds nothing pushes the next one back; the last allowed one
+   * abandons the row. Neither ever sends the work again.
+   */
   async function reconcileSubmission(
-    row: WorkSubmission, binding: SessionBinding, integration: HarnessIntegration,
+    row: WorkSubmission, binding: SessionBinding, integration: HarnessIntegration, sweep?: ObservationSweep,
   ): Promise<Outcome<SubmittedWork>> {
     const key: SubmissionKey = { bindingKey: row.bindingKey, generation: row.generation, inputId: row.inputId };
-    if (row.state === "submitting") settleSubmission(db, key, ["submitting", "submitting"], "ambiguous", { error: "interrupted before its outcome was recorded" });
-    const unknown = (why: string) => fail<SubmittedWork>("ambiguous", `work ${row.inputId} may or may not have reached session ${binding.native.value} (${why}); rt will not send it again`);
+    const unsent = (why: string) => fail<SubmittedWork>("ambiguous", `work ${row.inputId} may or may not have reached session ${binding.native.value} (${why}); rt will not send it again`);
+    if (row.state === "abandoned") return unsent("rt stopped checking for it");
+    let current = row;
+    if (row.state === "submitting") {
+      settleSubmission(db, key, ["submitting", "submitting"], "ambiguous", { error: "interrupted before its outcome was recorded" });
+      current = { ...row, state: "ambiguous" };
+    }
+    const unknown = (why: string) => {
+      const left = noteCheck(db, current, deps.now(), why);
+      return unsent(left === "abandoned" ? `${why}; rt has stopped checking` : why);
+    };
     const sessions = await integration.loadSessions!();
     if (!sessions.reconcileWork) return unknown(`${integration.label} offers no evidence to check`);
-    const found = await sessions.reconcileWork(binding, { id: row.inputId, digest: row.digest, ...(row.submittingAt !== undefined && { submittedAt: row.submittingAt }) });
+    const found = await sessions.reconcileWork(binding, {
+      id: row.inputId, digest: row.digest, ...(row.submittingAt !== undefined && { submittedAt: row.submittingAt }),
+    }, sweep);
     if (!found.ok) return unknown(found.error.message);
     if (!found.data) return unknown("no native evidence of it yet");
     settleSubmission(db, key, ["ambiguous", "submitting"], found.data.evidence, { receipt: found.data });
@@ -288,10 +356,14 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
   async function submit(current: SessionBinding, input: WorkInput, integration: HarnessIntegration, authorize: AuthorizeWork): Promise<Outcome<SubmittedWork>> {
     const existing = findSubmission(db, current.key, input.id);
     if (existing && DELIVERED_STATES.has(existing.state)) return ok({ ...receiptOf(existing), binding: current });
-    if (existing && (existing.state === "submitting" || existing.state === "ambiguous")) return reconcileSubmission(existing, current, integration);
+    if (existing && (existing.state === "submitting" || existing.state === "ambiguous" || existing.state === "abandoned")) {
+      return reconcileSubmission(existing, current, integration);
+    }
 
     const key: SubmissionKey = { bindingKey: current.key, generation: current.attachment.generation, inputId: input.id };
-    const pending = recordPending(db, key, workDigest(input.text), current.attemptId);
+    const launch = prepared.get(current.key);
+    const guard = launch ? launchGuard(launch.request.selection, launch.request.cwd) : undefined;
+    const pending = recordPending(db, key, workDigest(input.text), current.attemptId, guard);
     if (!pending.ok) return pending;
     const refuse = (error: { code: FaultCode; message: string }): Outcome<SubmittedWork> => {
       settleSubmission(db, key, ["pending", "refused"], "refused", { error: error.message });
@@ -308,7 +380,7 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
 
     let result: Outcome<WorkReceipt>;
     try {
-      result = await sessions.startWork(now.data, input, prepared.get(current.key));
+      result = await sessions.startWork(now.data, input, launch);
     } catch (err) {
       settleSubmission(db, key, ["submitting", "ambiguous"], "ambiguous", { error: messageOf(err) });
       return fail("ambiguous", `work ${input.id} may or may not have reached session ${current.native.value}: ${messageOf(err)}`);
@@ -320,7 +392,6 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     }
     const receipt = result.data;
     settleSubmission(db, key, ["submitting", "ambiguous"], receipt.evidence, { receipt });
-    const launch = prepared.get(current.key);
     prepared.delete(current.key);
 
     let bound = now.data;
@@ -372,8 +443,10 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
 
       const unsetEnv = [...new Set([...(request.host?.unsetEnv ?? []), ...foreignSessionEnv(asked.id)])];
       const { resumeKey: _resumeKey, ...base } = request;
+      // Every launch is handed one id up front, kept across retries, so a harness that takes rt-minted ids is found by it later.
+      const nativeHint = reservation.request?.nativeHint ?? request.nativeHint ?? crypto.randomUUID();
       const adapterRequest: LaunchRequest = {
-        ...base, selection,
+        ...base, selection, nativeHint,
         ...((request.host !== undefined || unsetEnv.length > 0) && { host: { ...request.host, unsetEnv } }),
       };
       const kind: PreparedLaunch["kind"] = resumed ? "resume" : "launch";
@@ -395,7 +468,7 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
         const persisted: PersistedLaunch = {
           cwd: request.cwd, mode: request.mode, selection, required: [...request.required],
           ...(request.resumeKey !== undefined && { resumeKey: request.resumeKey }),
-          ...(request.nativeHint !== undefined && { nativeHint: request.nativeHint }),
+          nativeHint,
         };
         return await launchReserved(asked, reservation, adapterRequest, kind, resumed?.native, persisted);
       } finally {
@@ -423,22 +496,34 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     },
 
     async recover() {
+      const now = deps.now();
+      const busyHere = (row: WorkSubmission) => SUBMITTING.has(flight("work", row.bindingKey, row.inputId));
+      for (const row of listStalePending(db, now - PENDING_STALE_MS)) {
+        if (busyHere(row)) continue;
+        settleSubmission(db, row, ["pending", "pending"], "refused", { error: "its call ended before sending anything" });
+      }
       for (const row of listSubmissions(db, "submitting")) {
-        if (row.claimedBy === claimToken && SUBMITTING.has(flight("work", row.bindingKey, row.inputId))) continue;
+        if (row.claimedBy === claimToken && busyHere(row)) continue;
         settleSubmission(db, row, ["submitting", "submitting"], "ambiguous", { error: "interrupted before its outcome was recorded" });
       }
-      for (const row of listSubmissions(db, "ambiguous")) {
-        if (SUBMITTING.has(flight("work", row.bindingKey, row.inputId))) continue;
+      // One sweep for every check this pass, so a native source is read once, not once per row.
+      const sweep = createObservationSweep();
+      for (const row of listDueSubmissions(db, now)) {
+        if (busyHere(row)) continue;
         const binding = store.get(row.bindingKey);
         const integration = binding ? registry.get(binding.native.harness) : undefined;
-        if (!binding || !integration?.loadSessions) continue;
+        if (!binding || !integration?.loadSessions) {
+          abandonSubmission(db, row, binding ? `no session integration is registered for ${binding.native.harness}` : "its session binding is gone");
+          continue;
+        }
         try {
-          await reconcileSubmission(row, binding, integration);
+          await reconcileSubmission(row, binding, integration, sweep);
         } catch (err) {
+          noteCheck(db, row, now, messageOf(err));
           void warnOnce("an interrupted work submission could not be reconciled", { key: row.bindingKey, input: row.inputId, err: messageOf(err) });
         }
       }
-      const now = deps.now();
+      abandonStaleLaunches(db, now - LAUNCH_GIVE_UP_MS);
       pruneReservations(db, now - DAY_MS, now - 7 * DAY_MS);
     },
   };

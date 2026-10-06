@@ -33,6 +33,8 @@ import {
 import type { Commands, GateRow, RtResponse } from "../packages/rt-client/src/index.ts";
 import { parseDuration, nextWaitMs } from "./events.ts";
 import { GATE_FORK_HOOK_TIMEOUT_SECONDS } from "../lib/agent-hooks.ts";
+import { boundCodexGateIdentity, type BoundGateIdentity } from "../lib/agent-integrations/context.ts";
+import type { Outcome } from "../packages/rt-client/src/agent-integrations.ts";
 import * as out from "../lib/ui/out.ts";
 
 function fail(msg: string): never {
@@ -181,7 +183,12 @@ function askFail(message: string): never {
   process.exit(1);
 }
 
-export function buildGateAskPayload(args: string[], env: NodeJS.ProcessEnv): Commands["gate:ask"]["payload"] {
+/** A bound Codex worker's gate identity (see boundCodexGateIdentity); null keeps the environment path. */
+export type GateIdentityOf = (env: NodeJS.ProcessEnv) => Outcome<BoundGateIdentity | null>;
+
+export function buildGateAskPayload(
+  args: string[], env: NodeJS.ProcessEnv, identityOf: GateIdentityOf = boundCodexGateIdentity,
+): Commands["gate:ask"]["payload"] {
   const raw = flagValue(args, "--questions");
   if (raw === undefined) askFail(ASK_USAGE);
   let questions: unknown;
@@ -203,7 +210,12 @@ export function buildGateAskPayload(args: string[], env: NodeJS.ProcessEnv): Com
   // own subject.
   const subject = flagValue(args, "--subject");
   if (subject !== undefined) payload.subject = subject;
-  if (env.CLAUDE_CODE_SESSION_ID) payload.sessionId = env.CLAUDE_CODE_SESSION_ID;
+  // A bound Codex worker names its session through its binding: the daemon
+  // finds its agent record, and so its subject, by that session id.
+  const bound = identityOf(env);
+  if (!bound.ok) askFail(bound.error.message);
+  if (bound.data) payload.sessionId = bound.data.sessionId;
+  else if (env.CLAUDE_CODE_SESSION_ID) payload.sessionId = env.CLAUDE_CODE_SESSION_ID;
   if (env.HERDR_PANE_ID) payload.paneId = env.HERDR_PANE_ID;
   return payload;
 }
@@ -251,8 +263,12 @@ export function buildForkCheckPayload(
   stdin: string,
   env: NodeJS.ProcessEnv,
   cwd: string,
+  identityOf: GateIdentityOf = boundCodexGateIdentity,
 ): Commands["gate:fork-check"]["payload"] | null {
-  const subject = env.RT_GATE_SUBJECT;
+  // A bound Codex worker's tools never see the launch's env, so its subject comes from its binding.
+  const bound = env.RT_GATE_SUBJECT ? null : identityOf(env);
+  const identity = bound?.ok ? bound.data : null;
+  const subject = env.RT_GATE_SUBJECT || identity?.subject;
   if (!subject) return null;
   let hook: { session_id?: unknown; cwd?: unknown } = {};
   try {
@@ -261,7 +277,7 @@ export function buildForkCheckPayload(
   } catch { /* no payload: fall back to env and process cwd */ }
 
   const payload: Commands["gate:fork-check"]["payload"] = { subject };
-  const sessionIds = [...new Set([hook.session_id, env.CLAUDE_CODE_SESSION_ID])]
+  const sessionIds = [...new Set([hook.session_id, env.CLAUDE_CODE_SESSION_ID, identity?.sessionId])]
     .filter((s): s is string => typeof s === "string" && s.length > 0);
   if (sessionIds.length > 0) payload.sessionIds = sessionIds;
   if (env.HERDR_PANE_ID) payload.paneId = env.HERDR_PANE_ID;

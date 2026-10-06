@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { __test__ } from "../agent.ts";
+import { __test__, launchClientOptions } from "../agent.ts";
+import { BOUND_LAUNCH_CLIENT_TIMEOUT_MS, CODEX_ATTACH_READ_MS, CODEX_ATTACH_READS, CODEX_INIT_TURN_TIMEOUT_MS } from "../../lib/agent-integrations/timeouts.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import type { AgentRecord } from "../../packages/rt-client/src/index.ts";
 
@@ -152,5 +153,14 @@ describe("agent list at a terminal", () => {
 
   test("none says so", () => {
     expect(renderPlain(__test__.agentListBlocks([]))).toBe("[skipped] No agent handoffs yet\n");
+  });
+});
+
+describe("the client timeout for start and resume", () => {
+  test("switch off leaves the client's own default; switch on waits out a Codex initialization turn and attach", () => {
+    expect(launchClientOptions(false)).toEqual({});
+    expect(launchClientOptions()).toEqual({});
+    expect(launchClientOptions(true)).toEqual({ timeoutMs: BOUND_LAUNCH_CLIENT_TIMEOUT_MS });
+    expect(BOUND_LAUNCH_CLIENT_TIMEOUT_MS).toBeGreaterThan(CODEX_INIT_TURN_TIMEOUT_MS + CODEX_ATTACH_READS * CODEX_ATTACH_READ_MS);
   });
 });

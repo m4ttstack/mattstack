@@ -481,11 +481,13 @@ export function createClaudeSessions(overrides: Partial<ClaudeSessionDeps> = {})
     },
 
     /** A running process on the session is the evidence; a resume's older process counts too, since starting another would be the duplicate. */
-    async reconcileWork(binding, probe) {
+    async reconcileWork(binding, probe, sweep) {
       const { native } = binding;
       if (native.harness !== HARNESS || native.kind !== "id") return fail("invalid", "only a Claude Code session id is reconciled here");
-      const found = registryRow(deps.registry, deps.processAlive, native.value);
-      const running = found?.live === true || (await deps.agents())?.some((entry) => entry.session === native.value) === true;
+      const registry = sweep ? sweep.memo("claude:registry", () => snapshotRegistry(deps.registry)) : deps.registry;
+      const found = registryRow(registry, deps.processAlive, native.value);
+      const agents = found?.live === true ? null : await (sweep ? sweep.memo("claude:agents", () => deps.agents()) : deps.agents());
+      const running = found?.live === true || agents?.some((entry) => entry.session === native.value) === true;
       return ok(running ? { id: probe.id, evidence: "submitted", nativeId: native.value } : null);
     },
   };

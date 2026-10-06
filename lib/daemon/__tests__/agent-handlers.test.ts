@@ -1941,4 +1941,86 @@ describe("agent.integrations.enabled routes launches through the shared launcher
     expect(binding!.attemptId).toBeUndefined();
     expect(createSessionStore(h.db).get(binding!.key)).toEqual(binding!);
   });
+
+  /** A Codex integration whose launch the test answers, counting every call. */
+  function heldCodex(answer: (req: LaunchRequest) => Promise<Outcome<import("../../agent-integrations/contracts.ts").NativeLaunch>>) {
+    const seen = { launches: 0 };
+    const sessions = {
+      carriesReservations: true,
+      launch: async (req: LaunchRequest) => { seen.launches++; return answer(req); },
+      resume: async () => ({ ok: false, error: { code: "unsupported", message: "no" } }),
+      discover: async () => [],
+      observe: async () => ({ ok: false, error: { code: "unsupported", message: "no" } }),
+      startWork: async (_b: unknown, input: WorkInput) => ({ ok: true, data: { id: input.id, evidence: "submitted" } }),
+    } as unknown as SessionAdapter;
+    return { seen, integration: { ...codexIntegration, capabilities: ready, loadSessions: async () => sessions } as HarnessIntegration };
+  }
+
+  test("switch on: a launch with an unknown outcome keeps its record and prompt, says why, and a retry refuses naming it, spawning nothing", async () => {
+    const codex = heldCodex(async () => ({ ok: false, error: { code: "ambiguous", message: "Codex has not said whether it created a thread" } }));
+    const h = fresh({ runner: okRunner([]), herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codex.integration]) });
+    let keptId: string | undefined;
+    const h2 = Object.assign(createAgentHandlers({
+      db: h.db, emitEvent: () => 0, herdr: unreachable, herdrRunner: okRunner([]), integrationsEnabled: on,
+      integrations: createRegistry([claudeReady, codex.integration]),
+      insertAgentFn: (rec, db) => { keptId = rec.id; insertAgent(rec, db); },
+    }), { db: h.db });
+    const first = await h2["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "build it", surface: "herdr", provider: "codex" });
+    expect(first.ok).toBe(false);
+    if (first.ok) throw new Error("unreachable");
+    expect(first.error).toContain(`Agent ${keptId} is kept`);
+    const kept = await h["agent:get"]({ id: keptId! });
+    if (!kept.ok) throw new Error(kept.error);
+    expect((kept.data as { attention?: string }).attention).toContain("has not resolved");
+    expect(existsSync(join(rtDir(), "agent-prompts", keptId!, "prompt-1.md"))).toBe(true);
+
+    const retry = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "build it", surface: "herdr", provider: "codex" });
+    expect(retry).toEqual({ ok: false, error: expect.stringContaining(`agent ${keptId}`) });
+    expect(codex.seen.launches).toBe(1);
+    const list = await h["agent:list"]({});
+    if (!list.ok) throw new Error(list.error);
+    expect(list.data.agents.map((a) => a.id)).toEqual([keptId!]);
+  });
+
+  test("switch on: a retry while the first start is still running refuses naming it, and spawns nothing", async () => {
+    let release: (o: Outcome<import("../../agent-integrations/contracts.ts").NativeLaunch>) => void = () => {};
+    let held = true;
+    const codex = heldCodex((req) => {
+      if (!held) return Promise.resolve({ ok: true, data: { native: { harness: "codex", profile: "default", kind: "id", value: "T-next" }, attachment: { mode: req.mode, pane: "w7:p3" } } });
+      held = false;
+      return new Promise((r) => { release = r; });
+    });
+    const h = fresh({ runner: okRunner([]), herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codex.integration]) });
+    const first = h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "build it", surface: "herdr", provider: "codex" });
+    while (codex.seen.launches === 0) await new Promise((r) => setTimeout(r, 1));
+    const [running] = (await h["agent:list"]({}) as { ok: true; data: { agents: Array<{ id: string }> } }).data.agents;
+    const retry = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x/", prompt: "build it", surface: "herdr", provider: "codex" });
+    expect(retry).toEqual({ ok: false, error: expect.stringContaining(`agent ${running!.id}`) });
+    expect(codex.seen.launches).toBe(1);
+    release({ ok: true, data: { native: { harness: "codex", profile: "default", kind: "id", value: "T-late" }, attachment: { mode: "herdr", pane: "w7:p1" } } });
+    const done = await first;
+    if (!done.ok) throw new Error(done.error);
+    expect(done.data.sessionId).toBe("T-late");
+    const after = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "herdr", provider: "codex", tab: "again" });
+    expect(after.ok).toBe(true);
+  });
+
+  test("switch on: a launch that made nothing still rolls its record back, as today", async () => {
+    const codex = heldCodex(async () => ({ ok: false, error: { code: "refused", message: "the app server refused thread/start" } }));
+    const h = fresh({ runner: okRunner([]), herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codex.integration]) });
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "build it", surface: "herdr", provider: "codex" });
+    expect(res).toEqual({ ok: false, error: "the app server refused thread/start" });
+    const list = await h["agent:list"]({});
+    if (!list.ok) throw new Error(list.error);
+    expect(list.data.agents).toHaveLength(0);
+  });
+
+  test("switch off: records read exactly as before, with no attention field", async () => {
+    const h = fresh({ runner: okRunner([]), herdr: unreachable, enabled: off });
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+    if (!res.ok) throw new Error(res.error);
+    const got = await h["agent:get"]({ id: res.data.id });
+    if (!got.ok) throw new Error(got.error);
+    expect("attention" in got.data).toBe(false);
+  });
 });

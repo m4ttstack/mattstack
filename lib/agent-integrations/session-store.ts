@@ -252,7 +252,7 @@ export function createSessionStore(db: Database): SessionStore {
 
 // --- Reservation progress ---------------------------------------------------
 
-export type ReservationState = "reserved" | "launching" | "launched" | "bound" | "failed";
+export type ReservationState = "reserved" | "launching" | "launched" | "bound" | "failed" | "abandoned";
 
 /** What a launch asked for, minus what is held only in memory (labels, environment, transports). */
 export type PersistedLaunch = {
@@ -277,8 +277,15 @@ interface ReservationProgressRow {
 
 const SELECT_PROGRESS_SQL = `SELECT id, identity, agent_id, attempt_id, bound_key, state, claimed_by, request, launched, error, created_at, updated_at
 FROM agent_session_reservations WHERE id = ?;`;
-const CLAIM_SQL = `UPDATE agent_session_reservations SET state = 'launching', claimed_by = ?, request = ?, error = NULL, updated_at = ?
+const CLAIM_SQL = `UPDATE agent_session_reservations SET state = 'launching', claimed_by = ?, request = ?, guard = ?, error = NULL, updated_at = ?
 WHERE id = ? AND bound_key IS NULL AND state IN ('reserved', 'failed');`;
+const GUARD_HELD_SQL = `SELECT id, agent_id FROM agent_session_reservations
+WHERE guard = ? AND id != ? AND bound_key IS NULL AND state IN ('launching', 'launched') ORDER BY created_at LIMIT 1;`;
+const STALE_LAUNCHES_SQL = `UPDATE agent_session_reservations SET state = 'abandoned',
+  error = COALESCE(error || '; ', '') || 'rt stopped waiting for this launch to resolve', updated_at = ?
+WHERE bound_key IS NULL AND state IN ('launching', 'launched') AND COALESCE(updated_at, created_at) < ?;`;
+const UNRESOLVED_FOR_AGENT_SQL = `SELECT id, state, error FROM agent_session_reservations
+WHERE agent_id = ? AND bound_key IS NULL AND state IN ('launching', 'launched', 'abandoned') ORDER BY created_at DESC LIMIT 1;`;
 const LAUNCHED_SQL = `UPDATE agent_session_reservations SET state = 'launched', launched = ?, error = NULL, updated_at = ?
 WHERE id = ? AND bound_key IS NULL AND state = 'launching';`;
 const FAILED_SQL = `UPDATE agent_session_reservations SET state = 'failed', error = ?, updated_at = ?
@@ -309,15 +316,30 @@ export function readReservation(db: Database, id: string): ReservationRecord | n
   return row ? toReservation(row) : null;
 }
 
+/** Another reservation under `guard` whose launch is unresolved: the agent it launches for, or its own id. */
+export function launchHolding(db: Database, guard: string, exceptId = ""): { reservationId: string; agentId?: string } | null {
+  const row = db.query(GUARD_HELD_SQL).get(guard, exceptId) as { id: string; agent_id: string | null } | null;
+  return row ? { reservationId: row.id, ...(row.agent_id !== null && { agentId: row.agent_id }) } : null;
+}
+
 /**
  * Persists, before any native side effect, that `claimant` is launching this
  * reservation. Only an unbound reservation that is reserved, or whose last
  * launch failed before making anything, can be claimed; any other state means
  * a launch is in progress or may have made a session, so the claim refuses.
+ * The claim also refuses, in the same write lock, while another launch under
+ * the same guard (harness, profile, cwd) is unresolved, whichever process
+ * started it.
  */
-export function claimReservation(db: Database, id: string, claimant: string, request: PersistedLaunch): Outcome<ReservationRecord> {
+export function claimReservation(
+  db: Database, id: string, claimant: string, request: PersistedLaunch, guard?: string,
+): Outcome<ReservationRecord> {
   return guarded(() => writeTransaction(db, () => {
-    const changed = db.query(CLAIM_SQL).run(claimant, JSON.stringify(request), Date.now(), id).changes;
+    const held = guard === undefined ? null : launchHolding(db, guard, id);
+    if (held) {
+      return fail("refused", `${held.agentId !== undefined ? `agent ${held.agentId}` : `launch ${held.reservationId}`} is still launching here, or its launch's outcome is unknown; rt will not start another session in the same place until it resolves`);
+    }
+    const changed = db.query(CLAIM_SQL).run(claimant, JSON.stringify(request), guard ?? null, Date.now(), id).changes;
     const row = readReservation(db, id);
     if (!row) return fail("invalid", "no launch reservation has that id");
     if (changed === 0) return fail("ambiguous", `launch reservation ${id} is already ${row.state}; rt will not start another session for it`);
@@ -351,6 +373,22 @@ export function noteReservationError(db: Database, id: string, message: string):
   } catch (err) {
     if (!isBusyError(err)) throw err;
   }
+}
+
+/** Unresolved launches untouched since `before` stop holding their guard; they stay recorded for attention and are never relaunched. */
+export function abandonStaleLaunches(db: Database, before: number): number {
+  try {
+    return db.query(STALE_LAUNCHES_SQL).run(Date.now(), before).changes;
+  } catch (err) {
+    if (isBusyError(err)) return 0;
+    throw err;
+  }
+}
+
+/** This agent's newest launch whose outcome is unknown, or that rt stopped waiting on. */
+export function unresolvedLaunchOf(db: Database, agentId: string): { reservationId: string; state: ReservationState; error?: string } | null {
+  const row = db.query(UNRESOLVED_FOR_AGENT_SQL).get(agentId) as { id: string; state: string; error: string | null } | null;
+  return row ? { reservationId: row.id, state: row.state as ReservationState, ...(row.error !== null && { error: row.error }) } : null;
 }
 
 /** Drops bound reservations older than `boundBefore` and unlaunched or failed ones older than `idleBefore`; an unresolved launch is kept. */

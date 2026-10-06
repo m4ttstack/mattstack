@@ -53,8 +53,8 @@ import type { CommandResult } from "./types.ts";
 import { builtinRegistry } from "../../agent-integrations/builtins.ts";
 import { integrationsEnabled } from "../../agent-integrations/context.ts";
 import type { IntegrationRegistry, LaunchHost, LaunchSurface, WorkCompletion } from "../../agent-integrations/contracts.ts";
-import { createBoundLauncher, type BoundLauncher } from "../../agent-integrations/launch.ts";
-import { createSessionStore, listBindingsByAgent } from "../../agent-integrations/session-store.ts";
+import { createBoundLauncher, launchAttention, launchGuard, launchInProgress, type BoundLauncher } from "../../agent-integrations/launch.ts";
+import { createSessionStore, listBindingsByAgent, readReservation } from "../../agent-integrations/session-store.ts";
 import type { Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 
 export interface HeadlessChild {
@@ -287,6 +287,9 @@ function withoutPackClear(env: Record<string, string> | undefined): Record<strin
 
 const agentOwner = (id: string): string => `agent:${id}`;
 
+/** A bound launch's result; `kept` marks a failure after which a session may exist, so nothing is rolled back. */
+type BoundResult = CommandResult<"agent:start"> | { ok: false; error: string; kept: true };
+
 /** Every launch (start and resume, herdr and headless) stamps the gate-protocol env. */
 function gateEnvFor(rec: AgentRecord): Record<string, string> {
   return {
@@ -395,6 +398,13 @@ export function createAgentHandlers(opts: {
     return listBindingsByAgent(db, rec.id).find((b) => b.native.harness === rec.provider && b.native.value === rec.sessionId);
   }
 
+  /** With the switch on, a record whose launch or work outcome rt cannot tell says why; off, records read exactly as before. */
+  function withAttention<T extends AgentRecord>(rec: T, enabled = boundEnabled()): T & { attention?: string } {
+    if (!enabled) return rec;
+    const attention = launchAttention(db, rec.id);
+    return attention === undefined ? rec : { ...rec, attention };
+  }
+
   /** The record's own launch options, which is the selection a bound session keeps. */
   function selectionOf(rec: AgentRecord): { harness: string; options: Record<string, string | boolean> } {
     return {
@@ -465,7 +475,7 @@ export function createAgentHandlers(opts: {
     tabLabel: string,
     workspaceLabel: string,
     extra: { env?: Record<string, string>; herdrSocket?: string; background?: boolean; trustWaitMs?: number } = {},
-  ): Promise<CommandResult<"agent:start">> {
+  ): Promise<BoundResult> {
     const herdr = rec.surface === "herdr";
     const gateEnv = gateEnvFor(rec);
     const { prompt: resolvedPrompt, addDirs } = resolveHerdrPrompt(rec, prompt);
@@ -499,7 +509,11 @@ export function createAgentHandlers(opts: {
       ...(resumed ? { resumeKey: resumed.key } : { nativeHint: rec.sessionId }),
       host,
     });
-    if (!prepared.ok) return { ok: false, error: prepared.error.message };
+    if (!prepared.ok) {
+      // A reservation the launcher claimed may have made a session, whatever the error says.
+      const state = readReservation(db, reservationId)?.state;
+      return failed(rec, prepared.error.message, state !== undefined && state !== "reserved" && state !== "failed");
+    }
     applyBinding(rec, prepared.data, prepared.data.surface);
     if (resolvedPrompt === undefined) return { ok: true, data: rec };
 
@@ -512,10 +526,24 @@ export function createAgentHandlers(opts: {
     const work = await bound().startBoundWork(
       prepared.data, { id: `work-${crypto.randomUUID()}`, text: resolvedPrompt }, authorizeRecord(rec.id, prepared.data.key),
     );
-    if (!work.ok) return { ok: false, error: work.error.message };
+    if (!work.ok) {
+      const a = prepared.data.attachment;
+      const running = a.pane !== undefined || a.pid !== undefined || a.socket !== undefined;
+      return failed(rec, work.error.message, work.error.code === "ambiguous" || running);
+    }
     applyBinding(rec, work.data.binding, work.data.surface);
     if (resultPath !== undefined) finishWhenDone(rec, resultPath, work.data.completion);
     return { ok: true, data: rec };
+  }
+
+  /** `kept` when a session may exist: the record and its prompt stay, and say so, instead of being rolled back. */
+  function failed(rec: AgentRecord, message: string, kept: boolean): BoundResult {
+    if (!kept) return { ok: false, error: message };
+    log.warn({ id: rec.id }, "agent: a bound launch ended with an unknown outcome; the record is kept for attention");
+    return {
+      ok: false, kept: true,
+      error: `${message}. Agent ${rec.id} is kept because its session may have started; check it with rt agent show ${rec.id} before starting another`,
+    };
   }
 
   async function launch(
@@ -729,6 +757,10 @@ export function createAgentHandlers(opts: {
       });
       if (!merged.ok) return { ok: false, error: merged.error.message };
       const { model, effort, account, extraArgs, yolo } = merged.data;
+      const boundPath = boundEnabled();
+      // A retry of a start still unresolved here (a client that timed out, say) must not become a second session.
+      const busy = boundPath ? launchInProgress(db, launchGuard({ harness: provider, options: { ...(account !== undefined && { account }) } }, cwd)) : null;
+      if (busy) return { ok: false, error: busy };
       if (model !== undefined) rec.model = model;
       if (effort !== undefined) rec.effort = effort;
       if (extraArgs !== undefined) rec.extraArgs = extraArgs;
@@ -754,7 +786,6 @@ export function createAgentHandlers(opts: {
 
       const tabLabel = payload.tab ?? rec.label ?? rec.id;
       const workspaceLabel = payload.workspace ?? repoLabel(repo);
-      const boundPath = boundEnabled();
       try {
         // Inserted before launch() runs, not after: launch()'s headless
         // branch arms a completion callback that calls finishAgent, and
@@ -790,9 +821,11 @@ export function createAgentHandlers(opts: {
           })
           : await launch(rec, { kind: "start", sessionId: rec.sessionId }, prompt, tabLabel, workspaceLabel, extra);
         if (!res.ok) {
-          deleteAgent(rec.id, db);
-          removeAgentPromptDir(rec.id, log);
-          return res;
+          if (!("kept" in res)) {
+            deleteAgent(rec.id, db);
+            removeAgentPromptDir(rec.id, log);
+          }
+          return { ok: false, error: res.error };
         }
         // A herd-spawned hidden worker rides the bg socket via herdrSocket,
         // never payload.bg (its claim is the herd's own, not this record's);
@@ -878,6 +911,10 @@ export function createAgentHandlers(opts: {
       if (boundSession?.attemptId !== undefined && opts.ordinaryOnly) {
         return { ok: false, error: "this agent's session belongs to a herd job; resuming it needs the rt daemon (rt daemon start)" };
       }
+      if (boundSession) {
+        const busy = launchInProgress(db, launchGuard(selectionOf(rec), rec.cwd));
+        if (busy) return { ok: false, error: busy };
+      }
       try {
         let bgSocket: string | undefined;
         if (wasBg) {
@@ -892,7 +929,7 @@ export function createAgentHandlers(opts: {
         const res = boundSession
           ? await launchBound(attempt, boundSession, payload.prompt, tabLabel, workspaceLabel, { ...extra, background: wasBg })
           : await launch(attempt, { kind: "resume", sessionId: rec.sessionId }, payload.prompt, tabLabel, workspaceLabel, extra);
-        if (!res.ok) return res;
+        if (!res.ok) return { ok: false, error: res.error };
         const now = Date.now();
         markAgentResumed(rec.id, now, db);
         if (clearsPack && rec.pack !== undefined) updateAgentPack(rec.id, null, db);
@@ -918,12 +955,13 @@ export function createAgentHandlers(opts: {
     "agent:get": async (rawPayload: unknown): Promise<CommandResult<"agent:get">> => {
       const payload = rawPayload as Commands["agent:get"]["payload"];
       const rec = getAgent(payload.id, db);
-      return rec ? { ok: true, data: withName(rec, db) } : { ok: false, error: `no agent record for "${payload.id}"` };
+      return rec ? { ok: true, data: withAttention(withName(rec, db)) } : { ok: false, error: `no agent record for "${payload.id}"` };
     },
 
     "agent:list": async (rawPayload: unknown): Promise<CommandResult<"agent:list">> => {
       const payload = rawPayload as Commands["agent:list"]["payload"];
-      return { ok: true, data: { agents: listAgents({ ...(payload.repo !== undefined && { repo: payload.repo }) }, db).map((r) => withName(r, db)) } };
+      const enabled = boundEnabled();
+      return { ok: true, data: { agents: listAgents({ ...(payload.repo !== undefined && { repo: payload.repo }) }, db).map((r) => withAttention(withName(r, db), enabled)) } };
     },
   };
 }

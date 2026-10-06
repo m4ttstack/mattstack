@@ -365,13 +365,15 @@ CREATE TABLE IF NOT EXISTS agent_session_reservations (
   attempt_id  TEXT,
   bound_key   TEXT,             -- null until a native session binds it
   created_at  INTEGER NOT NULL,
-  state       TEXT NOT NULL DEFAULT 'reserved',  -- reserved | launching | launched | bound | failed
+  state       TEXT NOT NULL DEFAULT 'reserved',  -- reserved | launching | launched | bound | failed | abandoned
   claimed_by  TEXT,             -- the process that started the launch
   request     TEXT,             -- JSON: cwd, mode, selection, required, resumed key, native hint
   launched    TEXT,             -- JSON: the native session and attachment a launch made, before it bound
   error       TEXT,
-  updated_at  INTEGER
+  updated_at  INTEGER,
+  guard       TEXT              -- harness, profile and cwd: one unresolved launch per guard
 );
+CREATE INDEX IF NOT EXISTS agent_session_reservations_guard ON agent_session_reservations(guard, state);
 CREATE TABLE IF NOT EXISTS agent_session_bindings (
   key           TEXT PRIMARY KEY,
   identity      TEXT NOT NULL,
@@ -414,7 +416,7 @@ CREATE TABLE IF NOT EXISTS agent_work_submissions (
   generation    INTEGER NOT NULL,
   input_id      TEXT NOT NULL,
   attempt_id    TEXT,
-  state         TEXT NOT NULL,  -- pending | submitting | submitted | queued | consumed | ambiguous | refused
+  state         TEXT NOT NULL,  -- pending | submitting | submitted | queued | consumed | ambiguous | refused | abandoned
   digest        TEXT NOT NULL,  -- sha256 of the input text, for reconciling against native history
   native_id     TEXT,
   turn_id       TEXT,
@@ -424,9 +426,13 @@ CREATE TABLE IF NOT EXISTS agent_work_submissions (
   created_at    INTEGER NOT NULL,
   updated_at    INTEGER NOT NULL,
   submitting_at INTEGER,
+  checks        INTEGER NOT NULL DEFAULT 0,  -- native evidence checks made while ambiguous
+  next_check_at INTEGER,        -- when an ambiguous row is next checked; null is due now
+  guard         TEXT,           -- the launch guard of the work's session, when the launcher knows it
   PRIMARY KEY (binding_key, generation, input_id)
 );
-CREATE INDEX IF NOT EXISTS agent_work_submissions_state ON agent_work_submissions(state);
+CREATE INDEX IF NOT EXISTS agent_work_submissions_state ON agent_work_submissions(state, next_check_at);
+CREATE INDEX IF NOT EXISTS agent_work_submissions_guard ON agent_work_submissions(guard, state);
 CREATE INDEX IF NOT EXISTS agent_work_submissions_input ON agent_work_submissions(binding_key, input_id);
 `;
 

@@ -214,15 +214,15 @@ describe("codex session launch", () => {
     await expect(h.control.request("thread/read", { threadId: "T1" })).resolves.toBeDefined();
   });
 
-  test("the terminal opens where the launch host says, with its environment and without another harness's session variable", async () => {
+  test("the terminal opens where the launch host says, and carries none of the launch's env: the thread's tools never run in it", async () => {
     const h = await harness();
     const host = { workspace: "acme", tab: "worker", env: { RT_AGENT_ID: "a1" }, unsetEnv: ["CLAUDE_CODE_SESSION_ID"] };
     const launched = data(await h.sessions().launch(request({ host })));
     expect(h.panes).toEqual([{
       cwd: "/work/a", reservationId: "res-1", host,
-      command: buildCodexRemoteResumeCommand("/work/a", { socketPath: SOCKET, threadId: "T1", env: { RT_AGENT_ID: "a1" }, unsetEnv: ["CLAUDE_CODE_SESSION_ID"] }),
+      command: buildCodexRemoteResumeCommand("/work/a", { socketPath: SOCKET, threadId: "T1" }),
     }]);
-    expect(h.panes[0]!.command).toStartWith("cd '/work/a' && unset CLAUDE_CODE_SESSION_ID && RT_AGENT_ID='a1' codex --remote");
+    expect(h.panes[0]!.command).toStartWith("cd '/work/a' && codex --remote");
     expect(launched.attachment).toEqual({ mode: "herdr", pane: "p1" });
   });
 

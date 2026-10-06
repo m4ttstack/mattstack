@@ -229,7 +229,7 @@ describe("currentSessionId through session bindings", () => {
       thrown = e;
     }
     expect(thrown).toBeInstanceOf(UserActionableError);
-    expect((thrown as UserActionableError).why).toContain("both a Codex thread and a Claude Code session");
+    expect((thrown as UserActionableError).why).toContain("restart the Codex app server from a plain shell");
   });
 
   test("integrations on: an explicit --session looks up its one recorded session and refuses an ambiguous raw id", () => {

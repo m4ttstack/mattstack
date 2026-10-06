@@ -19,6 +19,8 @@
 
 import { readFileSync, realpathSync } from "fs";
 import { builtinRegistry } from "../lib/agent-integrations/builtins.ts";
+import { integrationsEnabled } from "../lib/agent-integrations/context.ts";
+import { BOUND_LAUNCH_CLIENT_TIMEOUT_MS } from "../lib/agent-integrations/timeouts.ts";
 import { verbHelpRequested } from "../lib/cli-verb-help.ts";
 import { isDaemonRunning } from "../lib/daemon-client.ts";
 import { currentRepoIdentity, repoLabel, resolveRepoArg } from "../lib/repo-arg.ts";
@@ -33,6 +35,16 @@ import {
 import type { RtResponse } from "../packages/rt-client/src/index.ts";
 
 const integrations = builtinRegistry();
+
+/**
+ * With agent.integrations.enabled on, a start or resume binds its session
+ * before the daemon answers, which for Codex includes an initialization turn
+ * and a terminal attach, so the client waits that long. Off, the client's
+ * own default stands.
+ */
+export function launchClientOptions(enabled: boolean = integrationsEnabled()): { timeoutMs?: number } {
+  return enabled ? { timeoutMs: BOUND_LAUNCH_CLIENT_TIMEOUT_MS } : {};
+}
 
 const FLAGS_WITH_VALUES = new Set([
   "--repo", "--prompt", "--prompt-file", "--surface", "--model", "--effort",
@@ -238,7 +250,7 @@ async function runStart(args: string[]): Promise<void> {
   }
   const { repo, cwd } = await repoAndCwd(args);
   const payload = { repo, cwd, ...(await withCallerAccount(parsed)) };
-  const data = unwrap(await dispatch("agent:start", payload, () => agentStart(payload)), "start");
+  const data = unwrap(await dispatch("agent:start", payload, () => agentStart(payload, launchClientOptions())), "start");
   if (args.includes("--json")) {
     // Deliberately unannotated: a machine consumer needs the raw record, and
     // the session id it carries for codex is provisional (see the note below).
@@ -258,7 +270,7 @@ async function runResume(args: string[]): Promise<void> {
   } catch (err) {
     fail(err instanceof Error ? err.message : String(err));
   }
-  const data = unwrap(await dispatch("agent:resume", parsed, () => agentResume(parsed)), "resume");
+  const data = unwrap(await dispatch("agent:resume", parsed, () => agentResume(parsed, launchClientOptions())), "resume");
   if (args.includes("--json")) {
     out.json({ ok: true, agent: data });
     return;

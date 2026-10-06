@@ -106,6 +106,13 @@ export function createObservationSweep(): ObservationSweep {
   };
 }
 export interface SessionAdapter {
+  /**
+   * True when the adapter holds what an unfinished launch made under its
+   * reservation id, so calling launch again with that id carries on rather
+   * than starting again. Without it, a retried reservation is reconciled
+   * through discover() and is never launched a second time.
+   */
+  readonly carriesReservations?: boolean;
   launch(request: LaunchRequest): Promise<Outcome<NativeLaunch>>;
   resume(ref: NativeSessionRef, request: LaunchRequest): Promise<Outcome<NativeLaunch>>;
   discover(): Promise<NativeLaunch[]>;
@@ -114,7 +121,7 @@ export interface SessionAdapter {
   /** `prepared` is the launch that bound this session, when this process made it. */
   startWork(binding: SessionBinding, input: WorkInput, prepared?: PreparedLaunch): Promise<Outcome<WorkReceipt>>;
   /** Native evidence that an interrupted submission reached the session; null when there is none. */
-  reconcileWork?(binding: SessionBinding, probe: WorkProbe): Promise<Outcome<DeliveryReceipt | null>>;
+  reconcileWork?(binding: SessionBinding, probe: WorkProbe, sweep?: ObservationSweep): Promise<Outcome<DeliveryReceipt | null>>;
 }
 export interface MessageAdapter {
   submit(binding: SessionBinding, input: PeerInput): Promise<Outcome<DeliveryReceipt>>;

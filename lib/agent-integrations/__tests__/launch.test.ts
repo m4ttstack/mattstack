@@ -12,12 +12,16 @@ import { resolveCallerContextNow } from "../context.ts";
 import type {
   HarnessIntegration, LaunchRequest, NativeLaunch, PolicyAdapter, PreparedLaunch, SessionAdapter, WorkInput, WorkProbe, WorkReceipt,
 } from "../contracts.ts";
-import { createBoundLauncher, type BoundLaunchRequest } from "../launch.ts";
+import { createBoundLauncher, launchAttention, launchGuard, launchInProgress, type BoundLaunchRequest } from "../launch.ts";
+import { claudeIntegration } from "../claude/integration.ts";
+import { createClaudeSessions } from "../claude/sessions.ts";
 import { createRegistry } from "../registry.ts";
 import {
   createSessionStore, readBindingReadiness, readBindingSelection, readReservation, type SessionStore,
 } from "../session-store.ts";
-import { findSubmission, markSubmitting, readSubmission, recordPending, workDigest } from "../work-submissions.ts";
+import {
+  findSubmission, markSubmitting, readSubmission, recordPending, RECHECK_BASE_MS, RECHECK_LIMIT, settleSubmission, workDigest,
+} from "../work-submissions.ts";
 
 let dir = "";
 let db: Database;
@@ -57,6 +61,9 @@ type FakeOptions = {
   launch?: (request: LaunchRequest, calls: Calls) => Outcome<NativeLaunch>;
   startWork?: (binding: SessionBinding, input: WorkInput, calls: Calls) => Outcome<WorkReceipt>;
   reconcile?: (binding: SessionBinding, probe: WorkProbe) => Outcome<DeliveryReceipt | null>;
+  /** The adapter holds what an unfinished launch made under its reservation id, as Codex does. */
+  carries?: boolean;
+  discover?: () => NativeLaunch[];
 };
 
 function fake(o: FakeOptions = {}): { integration: HarnessIntegration; calls: Calls } {
@@ -69,6 +76,7 @@ function fake(o: FakeOptions = {}): { integration: HarnessIntegration; calls: Ca
   const seen = new Map<string, string>();
   const native = (value: string): NativeSessionRef => ({ harness: id, profile: "default", kind: "id", value });
   const sessions: SessionAdapter = {
+    ...(o.carries && { carriesReservations: true }),
     async launch(request) {
       calls.launches.push(request);
       if (o.launch) return o.launch(request, calls);
@@ -86,7 +94,7 @@ function fake(o: FakeOptions = {}): { integration: HarnessIntegration; calls: Ca
       return ok({ native: ref, attachment: { mode: request.mode, pane: "w2:p9" } });
     },
     async discover() {
-      return [];
+      return o.discover ? o.discover() : [];
     },
     async observe(binding) {
       return ok({ connectivity: "unknown", execution: "unknown", background: "unknown", observedAt: 1, source: "none", generation: binding.attachment.generation });
@@ -143,8 +151,11 @@ function fake(o: FakeOptions = {}): { integration: HarnessIntegration; calls: Ca
   return { integration, calls };
 }
 
-function launcherFor(integrations: HarnessIntegration[], over: { claimToken?: string; store?: SessionStore } = {}) {
-  return createBoundLauncher({ db, registry: createRegistry(integrations), claimToken: over.claimToken ?? "proc-A", ...(over.store && { store: over.store }) });
+function launcherFor(integrations: HarnessIntegration[], over: { claimToken?: string; store?: SessionStore; now?: () => number } = {}) {
+  return createBoundLauncher({
+    db, registry: createRegistry(integrations), claimToken: over.claimToken ?? "proc-A",
+    ...(over.store && { store: over.store }), ...(over.now && { now: over.now }),
+  });
 }
 
 function request(reservationId: string, over: Partial<BoundLaunchRequest> = {}): BoundLaunchRequest {
@@ -186,6 +197,7 @@ describe("reservation before native creation", () => {
   test("an unresolved launch is carried on by its own process and refused by any other", async () => {
     let ambiguousOnce = true;
     const { integration, calls } = fake({
+      carries: true,
       launch: (req, c) => {
         if (ambiguousOnce) {
           ambiguousOnce = false;
@@ -508,5 +520,184 @@ describe("what the launcher records and hands the adapter", () => {
     expect(await launcherFor([refusing]).launchBoundAgent(request(createSessionStore(db).reserve({ identity: "w2" }))))
       .toMatchObject({ ok: false, error: { code: "invalid" } });
     expect(calls.loadSessions).toBe(0);
+  });
+});
+
+describe("retries never make a second session", () => {
+  test("a retried reservation whose adapter keeps nothing is reconciled through discovery with the id it was handed", async () => {
+    let first = true;
+    let shown: NativeLaunch[] = [];
+    const { integration, calls } = fake({
+      discover: () => shown,
+      launch: (req, c) => {
+        c.spawn++;
+        if (first) { first = false; return fail("ambiguous", "the pane did not answer"); }
+        return ok({ native: { harness: "fake", profile: "default", kind: "id", value: req.nativeHint! }, attachment: { mode: req.mode, pane: "w1:p2" } });
+      },
+    });
+    const reservationId = createSessionStore(db).reserve({ identity: "remy" });
+    const launcher = launcherFor([integration]);
+    expect((await launcher.launchBoundAgent(request(reservationId))).ok).toBe(false);
+    const hint = calls.launches[0]!.nativeHint!;
+    expect(hint).toMatch(/^[0-9a-f-]{36}$/);
+    expect(readReservation(db, reservationId)?.request?.nativeHint).toBe(hint);
+
+    expect(await launcher.launchBoundAgent(request(reservationId))).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(calls.spawn).toBe(1);
+
+    shown = [{ native: { harness: "fake", profile: "default", kind: "id", value: hint }, attachment: { mode: "herdr", pid: 77 } }];
+    const bound = data(await launcher.launchBoundAgent(request(reservationId)));
+    expect(bound.native.value).toBe(hint);
+    expect(bound.attachment).toEqual({ generation: 1, mode: "herdr", pid: 77 });
+    expect(calls.spawn).toBe(1);
+  });
+
+  test("a deduped tab on a retried reservation is ambiguous, never a launch that made nothing", async () => {
+    let attempt = 0;
+    const { integration, calls } = fake({
+      carries: true,
+      launch: (req) => (++attempt === 1
+        ? fail("ambiguous", "the terminal has not attached yet")
+        : fail("refused", `tab "${req.reservationId}" already open; focused it`)),
+    });
+    const reservationId = createSessionStore(db).reserve({ identity: "remy" });
+    const launcher = launcherFor([integration]);
+    await launcher.launchBoundAgent(request(reservationId));
+    expect(await launcher.launchBoundAgent(request(reservationId))).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(readReservation(db, reservationId)?.state).toBe("launching");
+    expect(await launcherFor([integration], { claimToken: "proc-B" }).launchBoundAgent(request(reservationId)))
+      .toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(calls.launches).toHaveLength(2);
+  });
+});
+
+describe("one unresolved launch per harness, profile and cwd", () => {
+  const guard = (cwd = "/w/acme", account?: string) => launchGuard({ harness: "fake", options: { ...(account && { account }) } }, cwd);
+
+  test("a launch whose outcome is unknown holds its place, in any process, until it resolves", async () => {
+    const { integration, calls } = fake({ carries: true, launch: (_req, c) => { c.spawn++; return fail("ambiguous", "no answer yet"); } });
+    const store = createSessionStore(db);
+    const first = store.reserve({ identity: "remy", agentId: "ag-first" });
+    await launcherFor([integration]).launchBoundAgent(request(first));
+    expect(launchInProgress(db, guard())).toContain("agent ag-first");
+    expect(launchInProgress(db, guard("/w/acme/"))).toContain("agent ag-first");
+    expect(launchAttention(db, "ag-first")).toContain("has not resolved");
+
+    const second = await launcherFor([integration], { claimToken: "proc-B" }).launchBoundAgent(request(store.reserve({ identity: "sam" })));
+    expect(second).toMatchObject({ ok: false, error: { code: "refused" } });
+    expect(second.ok ? "" : second.error.message).toContain("agent ag-first");
+    expect(calls.spawn).toBe(1);
+
+    expect(launchInProgress(db, guard("/w/other"))).toBeNull();
+    expect(launchInProgress(db, guard("/w/acme", "sam@example.com"))).toBeNull();
+  });
+
+  test("work whose delivery is unknown holds the place too; a delivered one does not", async () => {
+    const { integration } = fake({ startWork: () => fail("ambiguous", "dropped") });
+    const store = createSessionStore(db);
+    const launcher = launcherFor([integration]);
+    const bound = data(await launcher.launchBoundAgent(request(store.reserve({ identity: "remy", agentId: "ag-1" }))));
+    expect(launchInProgress(db, guard())).toBeNull();
+    await launcher.startBoundWork(bound, { id: "w1", text: "go" }, allow);
+    expect(launchInProgress(db, guard())).toContain("agent ag-1");
+    expect(launchAttention(db, "ag-1")).toContain("cannot tell yet whether this agent's work reached");
+    settleSubmission(db, { bindingKey: bound.key, generation: 1, inputId: "w1" }, ["ambiguous", "ambiguous"], "submitted");
+    expect(launchInProgress(db, guard())).toBeNull();
+  });
+
+  test("a launch left unresolved for hours stops holding its place and asks for attention", async () => {
+    const { integration } = fake({ carries: true, launch: () => fail("ambiguous", "no answer yet") });
+    const first = createSessionStore(db).reserve({ identity: "remy", agentId: "ag-old" });
+    await launcherFor([integration]).launchBoundAgent(request(first));
+    await launcherFor([integration], { claimToken: "proc-B", now: () => Date.now() + 7 * 60 * 60_000 }).recover();
+    expect(readReservation(db, first)?.state).toBe("abandoned");
+    expect(launchInProgress(db, guard())).toBeNull();
+    expect(launchAttention(db, "ag-old")).toContain("stopped waiting");
+  });
+});
+
+describe("the ambiguous-submission sweep", () => {
+  function stuck(binding: SessionBinding, inputId: string) {
+    const key = { bindingKey: binding.key, generation: binding.attachment.generation, inputId };
+    data(recordPending(db, key, workDigest(inputId), undefined));
+    data(markSubmitting(db, key, "a-crashed-daemon"));
+    return key;
+  }
+
+  async function boundFake(o: FakeOptions = {}) {
+    const f = fake(o);
+    const binding = data(await launcherFor([f.integration]).launchBoundAgent(request(createSessionStore(db).reserve({ identity: "remy" }))));
+    return { ...f, binding };
+  }
+
+  test("checks back off exponentially, then give up for attention, never sending again", async () => {
+    const { integration, binding, calls } = await boundFake();
+    const key = stuck(binding, "w1");
+    let now = Date.now() + 1_000;
+    const sweep = () => launcherFor([integration], { claimToken: "proc-B", now: () => now }).recover();
+    await sweep();
+    expect(readSubmission(db, key)).toMatchObject({ state: "ambiguous", checks: 1, nextCheckAt: now + RECHECK_BASE_MS });
+    now += RECHECK_BASE_MS - 1;
+    await sweep();
+    expect(calls.reconcile).toHaveLength(1);
+    now += 1;
+    await sweep();
+    expect(readSubmission(db, key)).toMatchObject({ checks: 2, nextCheckAt: now + 2 * RECHECK_BASE_MS });
+    for (let i = 0; i < RECHECK_LIMIT; i++) {
+      now += 24 * 60 * 60_000;
+      await sweep();
+    }
+    expect(readSubmission(db, key)?.state).toBe("abandoned");
+    expect(calls.reconcile).toHaveLength(RECHECK_LIMIT);
+    expect(await launcherFor([integration]).startBoundWork(binding, { id: "w1", text: "w1" }, allow)).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(calls.reconcile).toHaveLength(RECHECK_LIMIT);
+    expect(calls.startWork).toBe(0);
+  });
+
+  test("more than one sweep's worth of stuck rows never starves a new one", async () => {
+    const { integration, binding } = await boundFake({
+      reconcile: (_b, probe) => ok(probe.id === "fresh" ? { id: probe.id, evidence: "submitted" } : null),
+    });
+    for (let i = 0; i < 60; i++) stuck(binding, `old-${i}`);
+    const fresh = stuck(binding, "fresh");
+    const now = Date.now() + 1_000;
+    const sweep = () => launcherFor([integration], { claimToken: "proc-B", now: () => now }).recover();
+    await sweep();
+    await sweep();
+    expect(readSubmission(db, fresh)?.state).toBe("submitted");
+  });
+
+  test("a row whose binding is gone is abandoned, not skipped forever", async () => {
+    const { integration, binding } = await boundFake();
+    const key = stuck(binding, "w1");
+    db.query("DELETE FROM agent_session_bindings WHERE key = ?").run(binding.key);
+    await launcherFor([integration], { claimToken: "proc-B" }).recover();
+    expect(readSubmission(db, key)).toMatchObject({ state: "abandoned", error: "its session binding is gone" });
+  });
+
+  test("a pending row whose call is long gone sent nothing and is refused", async () => {
+    const { integration, binding } = await boundFake();
+    const key = { bindingKey: binding.key, generation: 1, inputId: "w1" };
+    data(recordPending(db, key, workDigest("go"), undefined));
+    await launcherFor([integration], { claimToken: "proc-B", now: () => Date.now() + 60 * 60_000 }).recover();
+    expect(readSubmission(db, key)?.state).toBe("refused");
+  });
+
+  test("one sweep asks herdr for its agents once, however many Claude rows it checks", async () => {
+    let herdrCalls = 0;
+    const sessions = createClaudeSessions({
+      agents: async () => { herdrCalls++; return []; },
+      registry: { roots: () => [], read: () => new Map(), sessionForPid: () => null },
+      processAlive: () => true,
+    });
+    const ready = async (mode: Mode): Promise<CapabilityReport> => ({ mode, supported: ["launch", "resume", "observe"], readiness: { ready: true } });
+    const claude = { ...claudeIntegration, capabilities: ready, loadSessions: async () => sessions } as HarnessIntegration;
+    const store = createSessionStore(db);
+    for (const value of ["0b9d2f9a-1c4e-4f6a-9d7e-3b2a1c0d9e81", "0b9d2f9a-1c4e-4f6a-9d7e-3b2a1c0d9e82", "0b9d2f9a-1c4e-4f6a-9d7e-3b2a1c0d9e83"]) {
+      const bound = data(store.bind(store.reserve({ identity: `id-${value}` }), { harness: "claude", profile: "default", kind: "id", value }, { mode: "headless" }));
+      stuck(bound, `w-${value}`);
+    }
+    await launcherFor([claude], { claimToken: "proc-B" }).recover();
+    expect(herdrCalls).toBe(1);
   });
 });
