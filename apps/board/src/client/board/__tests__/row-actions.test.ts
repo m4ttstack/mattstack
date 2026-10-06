@@ -242,12 +242,12 @@ test("a teammate's MR without my commented review blocks the respond ask", () =>
   expect(ask?.blocked).toBe('no finished review with comments');
 });
 
-test('the respond ask names an author who has not enrolled', () => {
+test('the respond ask names an author whose board takes no asks', () => {
   const ask = rowActions(
     teammateReviewed,
     actionEnvOf({ ...ownEnv, peers: ['pat'] }, teammateReviewed)
   ).find(a => a.key === 'ask-respond');
-  expect(ask?.blocked).toBe('author not enrolled');
+  expect(ask?.blocked).toBe("author's board isn't taking asks");
 });
 
 test('an outstanding ask blocks request review and leaves no re-review placeholder', () => {
@@ -784,4 +784,27 @@ test("a teammate's MR with no thread leads with finding it", () => {
   });
   expect(topKeys(mr)).toEqual(['find-thread']);
   expect(keys(mr, ownEnv)).not.toContain('post-slack');
+});
+
+const rereviewKeys = (peers?: string[]) => {
+  const reviewed = mrx(1418, {
+    peerReviews: [
+      { reviewer: 'tom', status: 'done', outcome: 'comment' },
+      { reviewer: 'mira', status: 'done', outcome: 'comment' },
+    ],
+  });
+  return rowActions(
+    reviewed,
+    actionEnvOf({ ...ownEnv, ...(peers ? { peers } : {}) }, reviewed)
+  )
+    .map(a => a.key)
+    .filter(k => k.startsWith('nudge-'));
+};
+
+test('a teammate outside peers gets no re-review item', () => {
+  expect(rereviewKeys(['tom'])).toEqual(['nudge-tom']);
+});
+
+test('without a peers list every finished reviewer is offered a re-review', () => {
+  expect(rereviewKeys()).toEqual(['nudge-tom', 'nudge-mira']);
 });

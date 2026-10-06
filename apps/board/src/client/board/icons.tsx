@@ -1,3 +1,5 @@
+import { useId } from 'react';
+
 import type { FlagKey } from '../../view.ts';
 
 const ICON = {
@@ -205,6 +207,57 @@ export function AgentGlyph() {
       <path d="M12 8V4H8" />
       <rect width="16" height="12" x="4" y="8" rx="2" />
       <path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
+    </svg>
+  );
+}
+
+/** The cloud for a peer's machine with the agent's bot over its lower right,
+    on the menu's own icon scale (lucide 1.34.0 path data, ISC licensed,
+    https://lucide.dev). A mask cuts the cloud's stroke around the bot, so the
+    overlap stays clean on the hovered row's translucent wash too. */
+export function AgentCloudGlyph() {
+  const maskId = useId();
+  return (
+    <svg
+      width={19}
+      height={15}
+      viewBox="0 0 19 15"
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      style={{ flexShrink: 0 }}
+    >
+      <defs>
+        <mask
+          id={maskId}
+          maskUnits="userSpaceOnUse"
+          x="0"
+          y="0"
+          width="19"
+          height="15"
+        >
+          <rect width="19" height="15" fill="white" />
+          <rect x="6.6" y="5.2" width="12.4" height="9.8" rx="3" fill="black" />
+        </mask>
+      </defs>
+      <g mask={`url(#${maskId})`}>
+        <path
+          transform="scale(0.5833)"
+          d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"
+          stroke="currentColor"
+          strokeWidth={2.6}
+        />
+      </g>
+      <g
+        transform="translate(8 4) scale(0.4583)"
+        stroke="var(--text-accent)"
+        strokeWidth={3.3}
+      >
+        <path d="M12 8V4H8" />
+        <rect width="16" height="12" x="4" y="8" rx="2" />
+        <path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
+      </g>
     </svg>
   );
 }

@@ -20,6 +20,7 @@ import type { TabConfig } from '../../config.ts';
 import type { BoardMR } from '../../data.ts';
 import { inferRoster } from '../../data.ts';
 import type { GateRow } from '../../gates/store.ts';
+import type { DeclineReason } from '../../peer/envelope.ts';
 import { sectionStatus } from '../../sections.ts';
 import {
   menuActsOnSelection,
@@ -51,8 +52,15 @@ import {
   visibleByAuthor,
 } from '../../view.ts';
 import type { GroupKey, ShowItem, StackNode, ViewState } from '../../view.ts';
-import { postAction, type ActionResult } from '../api.ts';
+import {
+  acceptAsk,
+  declineAsk,
+  postAction,
+  setAlwaysAllow,
+  type ActionResult,
+} from '../api.ts';
 import type {
+  AskKind,
   BoardData,
   BoardMRWithReview,
   DraftInfo,
@@ -70,6 +78,9 @@ import {
 } from './action-runner.ts';
 import { ActionMenu } from './ActionMenu.tsx';
 import { AppMark } from './AppMark.tsx';
+import { AskConfirmDialog } from './AskConfirmDialog.tsx';
+import { firstName, verbLane } from './asks/ask-copy.ts';
+import { AsksButton } from './asks/AsksButton.tsx';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
 import { ConsoleSettingsModal } from './ConsoleSettingsModal.tsx';
 import {
@@ -89,6 +100,7 @@ import {
   DecisionQueueModal,
 } from './DecisionQueueModal.tsx';
 import {
+  askParam,
   gateDeepLinkAction,
   gateParam,
   linkedGroupLabel,
@@ -107,6 +119,7 @@ import {
 } from './hooks.ts';
 import { assignMemberLooks } from './invadr-colors.ts';
 import { MemberInvadr, MemberLooksProvider } from './MemberInvadr.tsx';
+import { mrRef } from './MrLinks.tsx';
 import { NEED_LABEL, NEED_ORDER, needOf } from './needs-me.ts';
 import { overlay, overlayMerging } from './optimistic.ts';
 import { OwnersPostModal } from './OwnersPostModal.tsx';
@@ -415,6 +428,13 @@ export function Board() {
 
   // Row action menu (right-click) and transient toasts.
   const [rowMenu, setRowMenu] = useState<RowMenuState | null>(null);
+  // An ask waiting on the confirm dialog; send runs it with the typed note.
+  const [pendingAsk, setPendingAsk] = useState<{
+    kind: AskKind;
+    reviewer: string;
+    subject: string;
+    send: (note: string) => void;
+  } | null>(null);
   // The MR whose saved review is open in the modal, if any.
   const [reviewModal, setReviewModal] = useState<BoardMRWithReview | null>(
     null
@@ -731,6 +751,84 @@ export function Board() {
     [addToast, load]
   );
 
+  const [asksOpen, setAsksOpen] = useState(false);
+  const [askFlashId, setAskFlashId] = useState<string | null>(null);
+  const askLinkConsumed = useRef(false);
+
+  // `?ask=<id>`: open the inbox once, flash the card only when it is still
+  // pending, and strip the param so a refresh doesn't replay it.
+  useEffect(() => {
+    if (!data || askLinkConsumed.current) return;
+    const id = askParam(location.search);
+    if (id === null) return;
+    askLinkConsumed.current = true;
+    history.replaceState(
+      null,
+      '',
+      stripDeepLinkParams(location.search) || location.pathname
+    );
+    setAsksOpen(true);
+    if (data.asks?.pending.some(a => a.id === id)) setAskFlashId(id);
+  }, [data]);
+
+  useEffect(() => {
+    if (askFlashId === null || !asksOpen) return;
+    const frame = requestAnimationFrame(() =>
+      document
+        .querySelector(`[data-ask-id="${CSS.escape(askFlashId)}"]`)
+        ?.scrollIntoView({ block: 'nearest' })
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [askFlashId, asksOpen]);
+
+  useEffect(() => {
+    if (askFlashId === null) return;
+    const timer = setTimeout(() => setAskFlashId(null), 2600);
+    return () => clearTimeout(timer);
+  }, [askFlashId]);
+  const askFailure = (r: ActionResult) =>
+    r.text || (r.status ? `failed (${r.status})` : "couldn't reach the board");
+  const handleAskAccept = useCallback(
+    async (id: string, alwaysAllow: boolean) => {
+      const r = await acceptAsk(id, alwaysAllow);
+      load();
+      if (!r.ok) throw new Error(askFailure(r));
+    },
+    [load]
+  );
+  const handleAskDecline = useCallback(
+    async (id: string, reason: DeclineReason | null, note: string) => {
+      const r = await declineAsk(id, reason, note);
+      load();
+      if (!r.ok) throw new Error(askFailure(r));
+    },
+    [load]
+  );
+  const handleAskAllow = useCallback(
+    async (username: string, allow: boolean) => {
+      const r = await setAlwaysAllow(username, allow);
+      if (!r.ok) addToast(`could not change always allow (${askFailure(r)})`);
+      load();
+    },
+    [addToast, load]
+  );
+  const handleAskFocus = useCallback(
+    (mrUrl: string) => {
+      const mr = data?.mrs.find(m => m.webUrl === mrUrl);
+      if (!mr) {
+        addToast('That MR is not on this board.');
+        return;
+      }
+      const asks = data?.asks;
+      const ask = [...(asks?.pending ?? []), ...(asks?.history ?? [])].find(
+        a => a.mrUrl === mrUrl
+      );
+      setAsksOpen(false);
+      handleFocusPane(mr, ask ? verbLane(ask.kind) : 'review');
+    },
+    [data, addToast, handleFocusPane]
+  );
+
   // Row menu's "never diagnose this stack" toggle. Turning it on mutes
   // auto-doctor for this MR and every descendant (server-enforced) and
   // clears whatever's currently on this row; turning it off just clears the
@@ -883,8 +981,26 @@ export function Board() {
     [runner]
   );
   const runRowAction = useCallback(
-    (action: RowAction, mr: BoardMR, opts: RunOpts) =>
-      dispatchRowAction(action.request, mr, opts, runner, rowHandlers),
+    (action: RowAction, mr: BoardMR, opts: RunOpts) => {
+      const req = action.request;
+      if (req.kind !== 'ask') {
+        return dispatchRowAction(req, mr, opts, runner, rowHandlers);
+      }
+      setPendingAsk({
+        kind: req.ask,
+        reviewer: opts.pick ?? req.reviewer ?? '',
+        subject: mrRef(mr),
+        send: note =>
+          void dispatchRowAction(
+            { ...req, note: note.trim() || undefined },
+            mr,
+            opts,
+            runner,
+            rowHandlers
+          ),
+      });
+      return undefined;
+    },
     [runner, rowHandlers]
   );
 
@@ -1048,6 +1164,15 @@ export function Board() {
       .sort();
     return [...listed, ...others].join('\n');
   }, [data, boardView]);
+  const rosterNames = useMemo(
+    () =>
+      new Map(
+        (data?.allMembers ?? []).flatMap(m =>
+          m.name ? [[m.username, m.name] as const] : []
+        )
+      ),
+    [data?.allMembers]
+  );
   const memberLooks = useMemo(
     () => assignMemberLooks(lookIds ? lookIds.split('\n') : []),
     [lookIds]
@@ -1294,6 +1419,7 @@ export function Board() {
     ownerSlackRepos: data.ownerSlackRepos,
     self: seat,
     roster: data.members.map(m => m.username),
+    names: rosterNames,
     peers: data.peers,
     allMrs: data.mrs,
   };
@@ -1452,6 +1578,18 @@ export function Board() {
             </div>
             {controlProps.show && <ShowChips show={controlProps.show} />}
             <div className="tui-header-corner">
+              <AsksButton
+                asks={data.local ? data.asks : undefined}
+                open={asksOpen}
+                onOpenChange={setAsksOpen}
+                flashId={askFlashId}
+                names={rosterNames}
+                onAccept={handleAskAccept}
+                onDecline={handleAskDecline}
+                onAllow={handleAskAllow}
+                onFocus={handleAskFocus}
+                onNotice={addToast}
+              />
               <RefreshControl onRefresh={refreshNow} refreshing={refreshing} />
               <ThemeControl theme={theme} pickTheme={pickTheme} />
             </div>
@@ -1715,7 +1853,26 @@ export function Board() {
               onClose={() => setRowMenu(null)}
               onRun={(key, opts) => {
                 const entry = bulkEntries.find(e => e.key === key);
-                return entry ? runBulk(entry, opts, runner) : undefined;
+                if (!entry) return undefined;
+                const req = entry.request;
+                if (req.kind !== 'ask') return runBulk(entry, opts, runner);
+                if (!opts.pick) return undefined;
+                const count = entry.pickTargets?.get(opts.pick)?.length ?? 0;
+                setPendingAsk({
+                  kind: req.ask,
+                  reviewer: opts.pick,
+                  subject: `${count} ${count === 1 ? 'MR' : 'MRs'}`,
+                  send: note =>
+                    void runBulk(
+                      {
+                        ...entry,
+                        request: { ...req, note: note.trim() || undefined },
+                      },
+                      opts,
+                      runner
+                    ),
+                });
+                return undefined;
               }}
             />
           ) : (
@@ -1726,6 +1883,21 @@ export function Board() {
               onClose={() => setRowMenu(null)}
             />
           ))}
+
+        <AskConfirmDialog
+          open={pendingAsk !== null}
+          kind={pendingAsk?.kind ?? 'review'}
+          reviewerName={firstName(
+            rosterNames.get(pendingAsk?.reviewer ?? ''),
+            pendingAsk?.reviewer ?? ''
+          )}
+          subject={pendingAsk?.subject ?? ''}
+          onSend={note => {
+            pendingAsk?.send(note);
+            setPendingAsk(null);
+          }}
+          onCancel={() => setPendingAsk(null)}
+        />
 
         {reviewModal && (
           <ReviewModal mr={reviewModal} onClose={() => setReviewModal(null)} />

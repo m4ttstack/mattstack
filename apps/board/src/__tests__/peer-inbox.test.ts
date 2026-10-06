@@ -302,6 +302,27 @@ describe('materializeEnvelope', () => {
       expect(deps.peerReviews).toEqual([]);
     });
 
+    test('carries the title and source branch onto the nudge', () => {
+      const deps = fakeDeps();
+      materializeEnvelope(
+        envelope({
+          type: 'review-request',
+          payload: {
+            mrUrl: URL_A,
+            iid: 4821,
+            title: 'debounce the claim search',
+            sourceBranch: 'acme-1388-x',
+          },
+        }),
+        deps,
+        1000
+      );
+      expect(deps.nudges[0]).toMatchObject({
+        title: 'debounce the claim search',
+        sourceBranch: 'acme-1388-x',
+      });
+    });
+
     test('malformed review-request payload only logs', () => {
       const deps = fakeDeps();
       const e = envelope({
@@ -594,5 +615,39 @@ describe('materializeEnvelope', () => {
       );
       expect(deps.nudges[0]?.materializedAt).toBe(1234);
     });
+  });
+
+  test('a nudge-outcome passes decline fields to the resolver', () => {
+    const calls: unknown[] = [];
+    materializeEnvelope(
+      {
+        id: 'e',
+        to: 'rae',
+        from: 'mira',
+        type: 'nudge-outcome',
+        sentAt: 1,
+        receivedAt: 1,
+        payload: {
+          mrUrl: 'u',
+          iid: 1,
+          nudgeId: 'n',
+          result: 'rejected',
+          reason: 'not my area',
+          declined: true,
+          declineNote: 'ask Tom',
+        },
+      },
+      { ...fakeDeps(), resolveSentNudge: (_u, r) => calls.push(r) },
+      5
+    );
+    expect(calls).toEqual([
+      {
+        result: 'rejected',
+        reason: 'not my area',
+        declined: true,
+        declineNote: 'ask Tom',
+        at: 5,
+      },
+    ]);
   });
 });

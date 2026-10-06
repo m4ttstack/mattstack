@@ -49,6 +49,7 @@ const reviewer = {
   kind: 'review',
 } as const;
 const states: Array<[string, SentNudgeInfo]> = [
+  ['pending', { ...reviewer, display: 'pending', sentAt: NOW - 4 * MIN }],
   ['requested', { ...reviewer, display: 'requested', sentAt: NOW - 2 * MIN }],
   [
     'reviewing',
@@ -80,6 +81,27 @@ const states: Array<[string, SentNudgeInfo]> = [
     },
   ],
   [
+    'declined',
+    {
+      ...reviewer,
+      display: 'rejected',
+      declined: true,
+      reason: 'busy right now',
+      declineNote: 'after standup',
+      sentAt: NOW - 20 * MIN,
+      resolvedAt: NOW - 3 * MIN,
+    },
+  ],
+  [
+    'asks off',
+    {
+      ...reviewer,
+      display: 'rejected',
+      reason: 'asks-off',
+      sentAt: NOW - 20 * MIN,
+    },
+  ],
+  [
     'done',
     {
       ...reviewer,
@@ -101,7 +123,7 @@ export const AllStates: Story = {
   play: async ({ canvasElement }) => {
     await canvasElement.ownerDocument.fonts.ready;
     const bands = canvasElement.querySelectorAll<HTMLElement>('.tui-ask');
-    expect(bands).toHaveLength(5);
+    expect(bands).toHaveLength(8);
     for (const band of bands) {
       const label = band.querySelector<HTMLElement>('.tui-ask-label')!;
       expect(label.scrollWidth, label.textContent ?? '').toBeLessThanOrEqual(

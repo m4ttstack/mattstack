@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 
 import { getSetting } from '@mattstack/rt-client';
 import { CONFIG_PATH } from '../config.ts';
+import { canonicalUsername } from '../peer/envelope.ts';
 
 export interface FixClasses {
   retryFlake: boolean;
@@ -178,6 +179,22 @@ function storeValue<T>(
     console.warn(`board: ${key} unavailable, ${fallback}`, err);
     return undefined;
   }
+}
+
+export function loadPeerAsksAlwaysAllow(
+  resolve: GetSettingFn = getSetting
+): Set<string> {
+  const raw = storeValue<unknown>(
+    'board.peerAsksAlwaysAllow',
+    resolve,
+    'treating as empty'
+  );
+  if (!Array.isArray(raw)) return new Set();
+  return new Set(
+    raw
+      .filter((u): u is string => typeof u === 'string' && !!u.trim())
+      .map(canonicalUsername)
+  );
 }
 
 function isEnoent(err: unknown): boolean {

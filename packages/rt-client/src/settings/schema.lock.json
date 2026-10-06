@@ -70,6 +70,16 @@
       "additionalProperties": {}
     }
   },
+  "board.peerAsksAlwaysAllow": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
   "board.projects": {
     "storeVersion": 1,
     "schema": {

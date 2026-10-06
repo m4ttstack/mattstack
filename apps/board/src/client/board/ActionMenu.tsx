@@ -2,8 +2,8 @@ import { Fragment, useEffect, useState } from 'react';
 
 import { ContextMenu } from '@mattstack/tui-kit';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
-import { AskGlyph } from './ask-glyph.tsx';
 import {
+  AgentCloudGlyph,
   AgentGlyph,
   ArrowOutGlyph,
   FlagGlyph,
@@ -51,8 +51,8 @@ function glyphNode(g: ActionGlyph, blocked = false): React.ReactNode {
       return <ArrowOutGlyph />;
     case 'agent':
       return <AgentGlyph />;
-    case 'cloud':
-      return <AskGlyph name="cloud" />;
+    case 'agent-cloud':
+      return <AgentCloudGlyph />;
     case 'slack':
       return <SlackLogo mono={blocked} />;
     case 'emoji':
@@ -171,7 +171,7 @@ function ActionMenu({
             key={`ask-${o.value}`}
             label={iconLabel(
               picking.glyph ? glyphNode(picking.glyph) : null,
-              o.value
+              o.label ?? o.value
             )}
             hint={o.hint}
             onClick={() => fire(picking, { pick: o.value })}
@@ -279,10 +279,14 @@ function ActionMenu({
         label={entryLabel(e, e.label)}
         ariaLabel={`${e.pick.aria} for ${subject}`}
       >
+        <ContextMenu.Label>{e.pick.title}</ContextMenu.Label>
         {e.pick.options.map(o => (
           <ContextMenu.Item
             key={`ask-${o.value}`}
-            label={o.value}
+            label={iconLabel(
+              e.glyph ? glyphNode(e.glyph) : null,
+              o.label ?? o.value
+            )}
             hint={o.hint}
             onClick={() => fire(e, { pick: o.value })}
           />

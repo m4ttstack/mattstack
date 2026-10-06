@@ -84,12 +84,6 @@ describe("needOf: hot rows are the seat's move whoever authored them", () => {
     expect(need(mr({ doctor: { status: 'error' } }))).toBe('unstick');
   });
 
-  test('a peer asking for a re-review is a re-review', () => {
-    expect(need(mr({ nudges: [{ from: 'jo', receivedAt: NOW }] }))).toBe(
-      're-review'
-    );
-  });
-
   test("a working agent has the row: nobody's move, even with threads awaiting the author", () => {
     expect(need(mr({ review: { status: 'reviewing' } }))).toBeNull();
     expect(

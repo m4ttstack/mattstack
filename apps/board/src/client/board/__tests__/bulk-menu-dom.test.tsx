@@ -51,7 +51,12 @@ function boardMr(iid: number, over: Record<string, unknown> = {}) {
   };
 }
 
-const member = (username: string) => ({ username, name: username, count: 0 });
+const NAMES: Record<string, string> = { kim: 'Kimberly Ash' };
+const member = (username: string) => ({
+  username,
+  name: NAMES[username] ?? username,
+  count: 0,
+});
 const BOARD_DATA = {
   title: 'MRs ready for review',
   defaultMember: 'matt',
@@ -451,14 +456,34 @@ test('request review from… asks the picked person on each MR', async () => {
   await check(102);
   await rightClick(101);
   await click('request review from…');
-  await click('kim');
+  expect(items().map(i => i.textContent)).toContain("Kimberly Ash's agent");
+  await click("Kimberly Ash's agent");
+  expect(posts.filter(p => p.url === '/nudge')).toEqual([]);
+  expect(document.body.textContent).toContain(
+    "Ask Kimberly's agent to review 2 MRs?"
+  );
+  const note = document.querySelector<HTMLInputElement>(
+    'input[maxlength="500"]'
+  )!;
+  await React.act(async () => {
+    const set = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      'value'
+    )!.set!;
+    set.call(note, ' mostly the retry path ');
+    note.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const send = [...document.querySelectorAll('button')].find(
+    b => b.textContent === 'Send ask'
+  )!;
+  await React.act(async () => send.click());
   expect(
     posts
       .filter(p => p.url === '/nudge')
-      .map(p => [p.body.iid, p.body.reviewer])
+      .map(p => [p.body.iid, p.body.reviewer, p.body.note])
   ).toEqual([
-    [101, 'kim'],
-    [102, 'kim'],
+    [101, 'kim', 'mostly the retry path'],
+    [102, 'kim', 'mostly the retry path'],
   ]);
 });
 

@@ -121,10 +121,16 @@ const NUDGE_RETRYABLE = new Set<SentNudgeInfo['display']>([
 
 /** Peers we can ask to look again: their review finished with comments (so
     there's something to re-check) and no ask of ours is still outstanding. */
-function nudgeTargets(mrx: BoardMRWithReview): PeerReviewInfo[] {
+function nudgeTargets(
+  mrx: BoardMRWithReview,
+  peers?: readonly string[]
+): PeerReviewInfo[] {
   if (askOutstanding(mrx)) return [];
   return (mrx.peerReviews ?? []).filter(
-    p => p.status === 'done' && p.outcome === 'comment'
+    p =>
+      p.status === 'done' &&
+      p.outcome === 'comment' &&
+      (!peers || peers.includes(p.reviewer))
   );
 }
 
@@ -139,7 +145,7 @@ function respondAskBlock(mrx: BoardMRWithReview): string {
   const r = mrx.review;
   if (!r || r.status !== 'done' || r.outcome !== 'comment')
     return 'no finished review with comments';
-  return 'author not enrolled';
+  return "author's board isn't taking asks";
 }
 
 /** Roster members an author can ask for a first look: not the author, not a

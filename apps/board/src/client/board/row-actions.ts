@@ -35,7 +35,7 @@ export type ActionGlyph =
     }
   | { kind: 'flag'; name: 'conflicts' | 'auto-merge' | 'draft' }
   | { kind: 'out' }
-  | { kind: 'cloud' }
+  | { kind: 'agent-cloud' }
   | { kind: 'agent' }
   | { kind: 'slack' }
   | { kind: 'emoji'; glyph: string };
@@ -55,7 +55,12 @@ export type ActionRequest =
   | { kind: 'draft'; draft: boolean }
   | { kind: 'react'; emoji: string; glyph: string; remove: boolean }
   | { kind: 'find-thread' }
-  | { kind: 'ask'; ask: 'review' | 're-review' | 'respond'; reviewer?: string }
+  | {
+      kind: 'ask';
+      ask: 'review' | 're-review' | 'respond';
+      reviewer?: string;
+      note?: string;
+    }
   | { kind: 'post-slack' }
   | { kind: 'post-owners' }
   | { kind: 'copy' }
@@ -87,7 +92,7 @@ export interface MenuEntry {
   pick?: {
     title: string;
     aria: string;
-    options: Array<{ value: string; hint?: string }>;
+    options: Array<{ value: string; label?: string; hint?: string }>;
   };
 }
 
@@ -96,6 +101,12 @@ export interface RowAction extends MenuEntry {
   /** Present only when the action can join the bulk menu: its grouped
       wording ("call doctor" covers "call doctor again" too). */
   bulk?: string;
+}
+
+/** A pick option for a teammate's agent: the username stays the payload. */
+function peerOption(env: ActionEnv, value: string) {
+  const name = env.names?.get(value);
+  return name ? { value, label: `${name}'s agent` } : { value };
 }
 
 export interface ActionEnv {
@@ -109,6 +120,8 @@ export interface ActionEnv {
   /** The board's seat; null on an "all" board. */
   self: string | null;
   roster: string[];
+  /** Full names by username, for labels that read as a person. */
+  names?: ReadonlyMap<string, string>;
   /** Enrolled peer usernames when the relay has said; undefined = unknown. */
   peers?: string[];
   /** Every MR on the board, for the stack checks. */
@@ -126,7 +139,7 @@ const DISMISS: ActionGlyph = { kind: 'menu', name: 'dismiss' };
 const COPY: ActionGlyph = { kind: 'menu', name: 'copy' };
 const NOTE: ActionGlyph = { kind: 'menu', name: 'note' };
 const DRAFT: ActionGlyph = { kind: 'flag', name: 'draft' };
-const CLOUD: ActionGlyph = { kind: 'cloud' };
+const AGENT_CLOUD: ActionGlyph = { kind: 'agent-cloud' };
 const SLACK: ActionGlyph = { kind: 'slack' };
 const GITLAB_GLYPH: Record<MrAction, ActionGlyph> = {
   merge: { kind: 'flag', name: 'conflicts' },
@@ -356,7 +369,7 @@ export function rowActions(
       );
     }
   if (env.local && own) {
-    const peers = nudgeTargets(mrx);
+    const peers = nudgeTargets(mrx, env.peers);
     for (const peer of peers)
       sessions.push(
         item(
@@ -373,14 +386,14 @@ export function rowActions(
         askTargets.length ? 'agent' : 'sessions',
         'request-review',
         'request review from…',
-        CLOUD,
+        AGENT_CLOUD,
         { kind: 'ask', ask: 'review' },
         askTargets.length
           ? {
               pick: {
                 title: 'request review from',
                 aria: 'request review',
-                options: askTargets.map(value => ({ value })),
+                options: askTargets.map(value => peerOption(env, value)),
               },
               bulk: 'request review from…',
             }
@@ -844,7 +857,7 @@ export function bulkActions(
     if (g.first.pick) {
       entry.pick = {
         ...g.first.pick,
-        options: [...g.picks.keys()].map(value => ({ value })),
+        options: [...g.picks.keys()].map(value => peerOption(env, value)),
       };
       entry.pickTargets = g.picks;
     }

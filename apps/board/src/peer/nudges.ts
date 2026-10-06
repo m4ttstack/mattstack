@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite';
 
 import { getStateDb, persistOrWarn, runCriticalWrite } from '../state/index.ts';
+import { ASK_HISTORY_MS } from './ask-inbox.ts';
 import type { AskKind, NudgeResult } from './envelope.ts';
 
 /** An inbound review ask, materialized from a peer's envelope. `kind` is
@@ -17,7 +18,17 @@ export interface NudgeState {
       ReviewState.runStartedAt where the relay's receivedAt is not. */
   materializedAt?: number;
   kind?: AskKind;
-  handled?: { at: number; result: NudgeResult; reason?: string };
+  title?: string;
+  sourceBranch?: string;
+  /** Set once the desktop notification for this ask has fired. */
+  notifiedAt?: number;
+  handled?: {
+    at: number;
+    result: NudgeResult;
+    reason?: string;
+    note?: string;
+    declined?: true;
+  };
 }
 
 /** Insert an inbound nudge. INSERT OR IGNORE, since at-least-once delivery
@@ -48,74 +59,99 @@ export function readNudges(db: Database = getStateDb()): NudgeState[] {
   return out;
 }
 
-export interface PendingNudge {
-  from: string;
-  receivedAt: number;
-  kind?: AskKind;
-  /** Triage is off, so nothing starts this ask until someone clicks. */
-  awaitsClick?: true;
-}
-
-/** The asks still awaiting a decision, keyed by MR. Handled ones stay on
-    disk for the outcome trail but are off the board. */
-export function pendingNudgesByMr(
-  nudges: NudgeState[],
-  triageEnabled: boolean
-): Map<string, PendingNudge[]> {
-  const byMr = new Map<string, PendingNudge[]>();
-  for (const n of nudges) {
-    if (n.handled) continue;
-    const entry: PendingNudge = {
-      from: n.from,
-      receivedAt: n.receivedAt,
-      kind: n.kind,
-      ...(triageEnabled ? {} : { awaitsClick: true as const }),
-    };
-    const list = byMr.get(n.mrUrl);
-    if (list) list.push(entry);
-    else byMr.set(n.mrUrl, [entry]);
+function readNudgeRow(id: string, db: Database): NudgeState | null {
+  const row = db.query('SELECT nudge FROM nudges WHERE id = ?').get(id) as {
+    nudge: string;
+  } | null;
+  if (!row) return null;
+  try {
+    return JSON.parse(row.nudge) as NudgeState;
+  } catch {
+    return null;
   }
-  return byMr;
 }
 
-/** Read-merge-write a nudge's handled outcome. No-op if no row exists for
-    this id. */
+function writeNudgeRow(next: NudgeState, now: number, db: Database): void {
+  db.query('UPDATE nudges SET nudge = ?, updated_at = ? WHERE id = ?').run(
+    JSON.stringify(next),
+    now,
+    next.id
+  );
+}
+
+/** Answer a nudge, once. The board server and the cron triage pass share this
+    db, so the read and the write sit in one immediate transaction: the first
+    answer wins and every later one returns false and must publish nothing.
+    `replacing` lets the winner rewrite its own claim (a `launched` claim
+    whose launch then failed). False too when no row exists for this id. */
 export function markNudgeHandled(
   id: string,
   result: NudgeResult,
   reason?: string,
   db: Database = getStateDb(),
+  now: number = Date.now(),
+  opts: { note?: string; declined?: true; replacing?: NudgeResult } = {}
+): boolean {
+  let won = false;
+  runCriticalWrite('nudge handled write', () => {
+    won = db
+      .transaction(() => {
+        const prev = readNudgeRow(id, db);
+        if (!prev) return false;
+        if (prev.handled && prev.handled.result !== opts.replacing)
+          return false;
+        writeNudgeRow(
+          {
+            ...prev,
+            handled: {
+              at: now,
+              result,
+              ...(reason ? { reason } : {}),
+              ...(opts.note ? { note: opts.note } : {}),
+              ...(opts.declined ? { declined: true as const } : {}),
+            },
+          },
+          now,
+          db
+        );
+        return true;
+      })
+      .immediate();
+  });
+  return won;
+}
+
+/** Record that the desktop notification for this ask has fired. No-op if no
+    row exists for this id. */
+export function markNudgeNotified(
+  id: string,
+  db: Database = getStateDb(),
   now: number = Date.now()
 ): void {
-  const row = db.query('SELECT nudge FROM nudges WHERE id = ?').get(id) as {
-    nudge: string;
-  } | null;
-  if (!row) return;
-  let prev: NudgeState;
-  try {
-    prev = JSON.parse(row.nudge) as NudgeState;
-  } catch {
-    return;
-  }
-  const next: NudgeState = { ...prev, handled: { at: now, result, reason } };
-  runCriticalWrite('nudge handled write', () => {
-    db.query('UPDATE nudges SET nudge = ?, updated_at = ? WHERE id = ?').run(
-      JSON.stringify(next),
-      now,
-      id
-    );
+  runCriticalWrite('nudge notified write', () => {
+    db.transaction(() => {
+      const prev = readNudgeRow(id, db);
+      if (!prev) return;
+      writeNudgeRow({ ...prev, notifiedAt: now }, now, db);
+    }).immediate();
   });
 }
 
-/** Delete inbound nudges whose MR is no longer on the board. `keepUrls` is
-    the current board MR set; callers gate this on a healthy snapshot so a
-    failed fetch can't wipe live state. */
+/** Delete stale inbound nudges. Handled history outlives its MR for
+    ASK_HISTORY_MS, and a waiting ask need not be on this board, so it goes
+    only once it is that old too. `keepUrls` is the current board MR set;
+    callers gate this on a healthy snapshot so a failed fetch can't wipe live
+    state. */
 export function pruneNudges(
   keepUrls: ReadonlySet<string>,
-  db: Database = getStateDb()
+  db: Database = getStateDb(),
+  now: number = Date.now()
 ): void {
-  const nudges = readNudges(db);
-  const stale = nudges.filter(n => !keepUrls.has(n.mrUrl));
+  const stale = readNudges(db).filter(n =>
+    n.handled
+      ? now - n.handled.at > ASK_HISTORY_MS
+      : !keepUrls.has(n.mrUrl) && now - n.receivedAt > ASK_HISTORY_MS
+  );
   if (stale.length === 0) return;
   persistOrWarn('nudge prune', () => {
     const tx = db.transaction(() => {
@@ -146,6 +182,8 @@ export interface SentNudgeResolution {
   /** The finished run's verdict word ('comment', 'approve'), on 'done'. */
   outcome?: string;
   at: number;
+  declined?: true;
+  declineNote?: string;
 }
 
 /** Write a sent nudge, replacing any prior row for the same MR -- a board
@@ -211,7 +249,9 @@ export function resolveSentNudge(
       const was = prev.resolution?.result;
       const refreshesLaunch =
         was === 'launched' && resolution.result === 'confirmed';
-      if (was && was !== 'confirmed' && !refreshesLaunch) return;
+      if (resolution.result === 'pending' && was) return;
+      if (was && was !== 'confirmed' && was !== 'pending' && !refreshesLaunch)
+        return;
       const next: SentNudge = { ...prev, resolution };
       db.query(
         'UPDATE nudges_sent SET nudge = ?, updated_at = ? WHERE mr_url = ?'
@@ -258,7 +298,14 @@ export function finishSentNudge(
       } else if (prev.sentAt >= ifSentBefore) return;
       const r = prev.resolution?.result;
       const doneAfterStop = r === 'failed' && finish.result === 'done';
-      if (r && r !== 'confirmed' && r !== 'launched' && !doneAfterStop) return;
+      if (
+        r &&
+        r !== 'confirmed' &&
+        r !== 'launched' &&
+        r !== 'pending' &&
+        !doneAfterStop
+      )
+        return;
       const next: SentNudge = { ...prev, resolution: finish };
       db.query(
         'UPDATE nudges_sent SET nudge = ?, updated_at = ? WHERE mr_url = ?'
@@ -348,6 +395,8 @@ export interface SentNudgeView {
   sentAt: number;
   reason?: string;
   outcome?: string;
+  declined?: true;
+  declineNote?: string;
   resolvedAt?: number;
   finishedAt?: number;
 }
@@ -363,6 +412,8 @@ export function sentNudgeView(n: SentNudge, now: number): SentNudgeView | null {
     sentAt: n.sentAt,
     ...(r?.reason ? { reason: r.reason } : {}),
     ...(r?.outcome ? { outcome: r.outcome } : {}),
+    ...(r?.declined ? { declined: true as const } : {}),
+    ...(r?.declineNote ? { declineNote: r.declineNote } : {}),
     ...(r ? { resolvedAt: r.at } : {}),
     ...(finished && r ? { finishedAt: r.at } : {}),
   };
@@ -379,6 +430,7 @@ export const NUDGE_QUIET_MS = 30 * 60_000;
 export type SentNudgeDisplay =
   | 'requested'
   | 'confirmed'
+  | 'pending'
   | 'launched'
   | 'no-update'
   | 'rejected'
@@ -393,6 +445,8 @@ export type SentNudgeDisplay =
 export function sentNudgeDisplay(n: SentNudge, now: number): SentNudgeDisplay {
   const r = n.resolution;
   if (r) {
+    if (r.result === 'pending')
+      return now - r.at > NUDGE_NO_RESPONSE_MS ? 'no-response' : 'pending';
     const running = r.result === 'launched' || r.result === 'confirmed';
     return running && now - r.at > NUDGE_QUIET_MS ? 'no-update' : r.result;
   }

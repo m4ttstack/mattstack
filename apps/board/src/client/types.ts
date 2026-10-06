@@ -125,6 +125,7 @@ export interface SentNudgeInfo {
   display:
     | 'requested'
     | 'confirmed'
+    | 'pending'
     | 'launched'
     | 'no-update'
     | 'rejected'
@@ -142,18 +143,11 @@ export interface SentNudgeInfo {
   resolvedAt?: number;
   /** The finished run's verdict word ('approve', 'comment'), on 'done'. */
   outcome?: string;
+  declined?: boolean;
+  declineNote?: string;
   finishedAt?: number;
   /** Absent means re-review (older boards never send the other kinds). */
   kind?: 'review' | 're-review' | 'respond';
-}
-/** A peer waiting on us: an inbound re-review request we haven't handled yet. */
-export interface InboundNudgeInfo {
-  from: string;
-  receivedAt: number;
-  /** Absent means re-review. */
-  kind?: 'review' | 're-review' | 'respond';
-  /** Triage is off, so nothing starts this ask until someone clicks. */
-  awaitsClick?: boolean;
 }
 export type BoardMRWithReview = BoardMR & {
   review?: ReviewInfo;
@@ -172,7 +166,6 @@ export type BoardMRWithReview = BoardMR & {
   note?: string;
   peerReviews?: PeerReviewInfo[];
   sentNudge?: SentNudgeInfo;
-  nudges?: InboundNudgeInfo[];
   /** Each gate carries `executor` when the reconciler sweep's `openGateIds`
       names it -- the pane state currently blocking on that gate. */
   gates: Array<GateRow & { executor?: ExecutorState }>;
@@ -181,6 +174,32 @@ export type BoardMRWithReview = BoardMR & {
       entries no MR row claimed. */
   orphan?: ExecutorView;
 };
+
+export type AskKind = 'review' | 're-review' | 'respond';
+
+/** One peer's ask for this board's agent, waiting or handled. */
+export interface AskCardData {
+  id: string;
+  from: string;
+  /** The asker's roster name, when the roster knows them. */
+  fromName?: string;
+  kind: AskKind;
+  mrUrl: string;
+  iid: number;
+  title?: string;
+  sourceBranch?: string;
+  note?: string;
+  receivedAt: number;
+  handled?: {
+    at: number;
+    result: 'pending' | 'launched' | 'rejected' | 'expired';
+    reason?: string;
+    note?: string;
+    declined?: boolean;
+    /** A board rule's plain words, on a skipped or expired row. */
+    reasonText?: string;
+  };
+}
 
 export interface BoardData {
   title: string;
@@ -253,6 +272,14 @@ export interface BoardData {
   /** Reconciler executors in state "gone" that matched no MR row's subject;
       one that did match rides that row's own `orphan` field instead. */
   orphans: ExecutorView[];
+  /** Peer asks for this board's agent: waiting ones oldest first, the last
+      14 days of handled ones newest first, and who starts without asking.
+      Absent from an older server. */
+  asks?: {
+    pending: AskCardData[];
+    history: AskCardData[];
+    alwaysAllow: string[];
+  };
 }
 
 export type ThemeMode = 'light' | 'dark' | 'system';

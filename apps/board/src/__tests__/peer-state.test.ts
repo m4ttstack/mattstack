@@ -11,13 +11,14 @@ import { join } from 'path';
 import { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
+import { ASK_HISTORY_MS } from '../peer/ask-inbox.ts';
 import {
   dismissSentNudge,
   finishSentNudge,
   markNudgeHandled,
+  markNudgeNotified,
   NUDGE_NO_RESPONSE_MS,
   NUDGE_QUIET_MS,
-  pendingNudgesByMr,
   pruneFinishedSentNudges,
   pruneNudges,
   pruneSentNudges,
@@ -422,6 +423,128 @@ describe('markNudgeHandled', () => {
       result: 'launched',
       reason: 'checked out and ran it',
     });
+  });
+});
+
+describe('markNudgeHandled answers once', () => {
+  const row = { id: 'n1', mrUrl: URL_A, iid: 4821, from: 'ada', receivedAt: 1 };
+
+  test('the first answer wins and a second returns false, leaving it', () => {
+    writeNudge(row, db);
+    expect(markNudgeHandled('n1', 'launched', 'accepted', db, 5)).toBe(true);
+    expect(markNudgeHandled('n1', 'rejected', 'asks-off', db, 6)).toBe(false);
+    expect(readNudges(db)[0]?.handled).toEqual({
+      at: 5,
+      result: 'launched',
+      reason: 'accepted',
+    });
+  });
+
+  test('a missing row returns false', () => {
+    expect(markNudgeHandled('gone', 'expired', 'stale', db, 5)).toBe(false);
+  });
+
+  test('replacing rewrites only a claim of that result', () => {
+    writeNudge(row, db);
+    markNudgeHandled('n1', 'launched', 'accepted', db, 5);
+    expect(
+      markNudgeHandled('n1', 'rejected', 'launch-failed', db, 6, {
+        replacing: 'expired',
+      })
+    ).toBe(false);
+    expect(
+      markNudgeHandled('n1', 'rejected', 'launch-failed', db, 7, {
+        replacing: 'launched',
+      })
+    ).toBe(true);
+    expect(readNudges(db)[0]?.handled).toEqual({
+      at: 7,
+      result: 'rejected',
+      reason: 'launch-failed',
+    });
+  });
+
+  test('a notified write keeps a handled outcome already on the row', () => {
+    writeNudge(row, db);
+    markNudgeHandled('n1', 'rejected', 'asks-off', db, 5);
+    markNudgeNotified('n1', db, 8);
+    expect(readNudges(db)[0]).toMatchObject({
+      notifiedAt: 8,
+      handled: { at: 5, result: 'rejected', reason: 'asks-off' },
+    });
+  });
+});
+
+describe('ask consent rows', () => {
+  test('notified marker and handled note persist', () => {
+    writeNudge({ id: 'n', mrUrl: 'u', iid: 1, from: 'rae', receivedAt: 1 }, db);
+    markNudgeNotified('n', db, 7);
+    markNudgeHandled('n', 'rejected', 'busy right now', db, 9, {
+      note: 'after standup',
+      declined: true,
+    });
+    expect(readNudges(db)[0]).toMatchObject({
+      notifiedAt: 7,
+      handled: {
+        at: 9,
+        result: 'rejected',
+        reason: 'busy right now',
+        note: 'after standup',
+        declined: true,
+      },
+    });
+  });
+
+  test('prune keeps a waiting ask off the board, drops history past 14 days', () => {
+    const now = 30 * 24 * 60 * 60_000;
+    writeNudge(
+      {
+        id: 'wait',
+        mrUrl: 'off',
+        iid: 1,
+        from: 'rae',
+        receivedAt: now - 60_000,
+      },
+      db
+    );
+    writeNudge(
+      {
+        id: 'old',
+        mrUrl: 'on',
+        iid: 2,
+        from: 'rae',
+        receivedAt: 1,
+        handled: { at: now - ASK_HISTORY_MS - 1, result: 'launched' },
+      },
+      db
+    );
+    writeNudge(
+      {
+        id: 'recent',
+        mrUrl: 'off',
+        iid: 3,
+        from: 'rae',
+        receivedAt: 1,
+        handled: { at: now - 1000, result: 'launched' },
+      },
+      db
+    );
+    writeNudge(
+      {
+        id: 'lost',
+        mrUrl: 'off',
+        iid: 4,
+        from: 'rae',
+        receivedAt: now - ASK_HISTORY_MS - 1,
+      },
+      db
+    );
+    pruneNudges(new Set(['on']), db, now);
+    expect(
+      readNudges(db)
+        .map(n => n.id)
+        .sort()
+    ).toEqual(['recent', 'wait']);
   });
 });
 
@@ -1052,38 +1175,93 @@ describe('sentNudgeView', () => {
   });
 });
 
-describe('pendingNudgesByMr', () => {
-  const ask = (id: string, mrUrl: string, extra: Partial<NudgeState> = {}) =>
-    ({
-      id,
-      mrUrl,
-      iid: 1,
-      from: 'jo',
-      receivedAt: 100,
-      kind: 'review',
-      ...extra,
-    }) satisfies NudgeState;
-
-  test('groups unhandled asks by MR and drops handled ones', () => {
-    const byMr = pendingNudgesByMr(
-      [
-        ask('a', 'u1'),
-        ask('b', 'u1', { from: 'sam' }),
-        ask('c', 'u2', { handled: { at: 1, result: 'rejected' } }),
-      ],
-      true
+describe('pending and declined asks', () => {
+  test('a late pending never overwrites a started ask', () => {
+    writeSentNudge(
+      { nudgeId: 'n1', mrUrl: 'u', iid: 1, reviewer: 'mira', sentAt: 0 },
+      db
     );
-    expect([...byMr.keys()]).toEqual(['u1']);
-    expect(byMr.get('u1')).toEqual([
-      { from: 'jo', receivedAt: 100, kind: 'review' },
-      { from: 'sam', receivedAt: 100, kind: 'review' },
-    ]);
+    resolveSentNudge('u', { result: 'confirmed', at: 1 }, db);
+    resolveSentNudge('u', { result: 'pending', at: 2 }, db);
+    expect(readSentNudges(db).get('u')?.resolution?.result).toBe('confirmed');
   });
-
-  test('with triage off every ask waits for a click', () => {
-    const byMr = pendingNudgesByMr([ask('a', 'u1')], false);
-    expect(byMr.get('u1')).toEqual([
-      { from: 'jo', receivedAt: 100, kind: 'review', awaitsClick: true },
-    ]);
+  test('pending is replaced by any later answer', () => {
+    writeSentNudge(
+      {
+        nudgeId: 'n1',
+        mrUrl: 'u',
+        iid: 1,
+        reviewer: 'mira',
+        sentAt: 0,
+        kind: 'review',
+      },
+      db
+    );
+    resolveSentNudge('u', { result: 'pending', at: 1 }, db);
+    resolveSentNudge('u', { result: 'launched', at: 2 }, db);
+    expect(readSentNudges(db).get('u')?.resolution?.result).toBe('launched');
+  });
+  test('a late pending never overwrites a rejected ask', () => {
+    writeSentNudge(
+      { nudgeId: 'n1', mrUrl: 'u', iid: 1, reviewer: 'mira', sentAt: 0 },
+      db
+    );
+    resolveSentNudge('u', { result: 'rejected', reason: 'busy', at: 1 }, db);
+    resolveSentNudge('u', { result: 'pending', at: 2 }, db);
+    expect(readSentNudges(db).get('u')?.resolution?.result).toBe('rejected');
+  });
+  test('a decline keeps its flag and note', () => {
+    writeSentNudge(
+      { nudgeId: 'n1', mrUrl: 'u', iid: 1, reviewer: 'mira', sentAt: 0 },
+      db
+    );
+    resolveSentNudge('u', { result: 'pending', at: 1 }, db);
+    resolveSentNudge(
+      'u',
+      {
+        result: 'rejected',
+        reason: 'busy right now',
+        declined: true,
+        declineNote: 'after standup',
+        at: 2,
+      },
+      db
+    );
+    const view = sentNudgeView(readSentNudges(db).get('u')!, 3);
+    expect(view).toMatchObject({
+      display: 'rejected',
+      reason: 'busy right now',
+      declined: true,
+      declineNote: 'after standup',
+    });
+  });
+  test('pending reads no-response after 48h like an unanswered ask', () => {
+    const n = {
+      nudgeId: 'n',
+      mrUrl: 'u',
+      iid: 1,
+      reviewer: 'mira',
+      sentAt: 0,
+      resolution: { result: 'pending' as const, at: 10 },
+    };
+    expect(sentNudgeDisplay(n, 10 + NUDGE_NO_RESPONSE_MS - 1)).toBe('pending');
+    expect(sentNudgeDisplay(n, 10 + NUDGE_NO_RESPONSE_MS + 1)).toBe(
+      'no-response'
+    );
+  });
+  test('a pending ask can still finish when the run reports done', () => {
+    writeSentNudge(
+      { nudgeId: 'n1', mrUrl: 'u', iid: 1, reviewer: 'mira', sentAt: 0 },
+      db
+    );
+    resolveSentNudge('u', { result: 'pending', at: 1 }, db);
+    finishSentNudge(
+      'u',
+      { result: 'done', outcome: 'comment', at: 5 },
+      9,
+      db,
+      'n1'
+    );
+    expect(readSentNudges(db).get('u')?.resolution?.result).toBe('done');
   });
 });
