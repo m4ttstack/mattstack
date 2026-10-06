@@ -1,21 +1,10 @@
 import { ICONS } from '@mattstack/tui-kit';
-import {
-  showDescription,
-  showLabel,
-  TURN_SETTINGS_LABEL,
-  type ShowMenuModel,
-} from './Controls.tsx';
+import { showDescription, showLabel, type ShowMenuModel } from './Controls.tsx';
 
 /** The Show picker: one checkbox chip per offered item, always in view, so
     what the board shows and how much each choice covers read without
     opening anything. */
-export function ShowChips({
-  show,
-  onOpenTurnSettings,
-}: {
-  show: ShowMenuModel;
-  onOpenTurnSettings?: () => void;
-}) {
+export function ShowChips({ show }: { show: ShowMenuModel }) {
   return (
     <div className="tui-show">
       <div
@@ -37,21 +26,14 @@ export function ShowChips({
                 checked={on}
                 onChange={() => show.toggle(item)}
               />
-              {showLabel(item, show.channel)}
-              <span className="tui-show-count">{show.counts[item]}</span>
+              <span className="tui-show-chip-label">
+                {showLabel(item, show.channel)}
+              </span>
+              <span className="tui-show-chip-count">{show.counts[item]}</span>
             </label>
           );
         })}
       </div>
-      {onOpenTurnSettings && (
-        <button
-          type="button"
-          className="tui-show-chips-settings"
-          onClick={onOpenTurnSettings}
-        >
-          {ICONS.settings} {TURN_SETTINGS_LABEL}
-        </button>
-      )}
     </div>
   );
 }

@@ -94,32 +94,6 @@ test('clicking a chip toggles its item', async () => {
   expect(toggled).toEqual(['authorTurn']);
 });
 
-test('the settings link opens the turn settings', async () => {
-  let opened = 0;
-  await React.act(async () => {
-    root.render(
-      <ShowChips
-        show={{
-          offered: ['authorTurn'],
-          off: [],
-          counts: COUNTS,
-          channel: null,
-          toggle: () => {},
-        }}
-        onOpenTurnSettings={() => {
-          opened += 1;
-        }}
-      />
-    );
-  });
-  await React.act(async () =>
-    container
-      .querySelector<HTMLButtonElement>('.tui-show-chips-settings')!
-      .click()
-  );
-  expect(opened).toBe(1);
-});
-
 test('the drawer offers the display settings link under its show row', async () => {
   let opened = 0;
   await React.act(async () => {
