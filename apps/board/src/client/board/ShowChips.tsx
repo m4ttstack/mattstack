@@ -7,9 +7,10 @@ import { AUTHOR_LABEL } from './turn-labels.ts';
 /** A long enough hover that sweeping across the row doesn't flash tips. */
 const TIP_DELAY_MS = 750;
 
-function listOr(items: string[]): string {
-  if (items.length <= 1) return items.join('');
-  return `${items.slice(0, -1).join(', ')}, or ${items.at(-1)}`;
+function bullets(items: string[]): string {
+  return items
+    .map(item => `• ${item.charAt(0).toUpperCase()}${item.slice(1)}`)
+    .join('\n');
 }
 
 /** What each chip covers, in a person's words; Waiting on author follows the
@@ -23,7 +24,7 @@ export function showTip(item: ShowItem, turn: TurnConfig): string {
     case 'authorTurn':
       return turn.author.length === 0
         ? 'No signal counts as the author’s move in Display Settings, so this covers nothing.'
-        : `The author’s move: ${listOr(turn.author.map(s => AUTHOR_LABEL[s]))}.`;
+        : `The author’s move:\n${bullets(turn.author.map(s => AUTHOR_LABEL[s]))}`;
     case 'myDrafts':
       return 'Only your own drafts, as the signed-in user. Other people’s drafts aren’t affected.';
   }
