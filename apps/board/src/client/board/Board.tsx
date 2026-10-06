@@ -20,6 +20,7 @@ import type { TabConfig } from '../../config.ts';
 import type { BoardMR } from '../../data.ts';
 import { inferRoster } from '../../data.ts';
 import type { GateRow } from '../../gates/store.ts';
+import type { DeclineReason } from '../../peer/envelope.ts';
 import { sectionStatus } from '../../sections.ts';
 import {
   menuActsOnSelection,
@@ -49,7 +50,13 @@ import {
   tabDimsEmpty,
 } from '../../view.ts';
 import type { GroupKey, ShowItem, StackNode, ViewState } from '../../view.ts';
-import { postAction, type ActionResult } from '../api.ts';
+import {
+  acceptAsk,
+  declineAsk,
+  postAction,
+  setAlwaysAllow,
+  type ActionResult,
+} from '../api.ts';
 import type {
   BoardData,
   BoardMRWithReview,
@@ -68,6 +75,8 @@ import {
 } from './action-runner.ts';
 import { ActionMenu } from './ActionMenu.tsx';
 import { AppMark } from './AppMark.tsx';
+import { verbLane } from './asks/ask-copy.ts';
+import { AsksButton } from './asks/AsksButton.tsx';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
 import { ConsoleSettingsModal } from './ConsoleSettingsModal.tsx';
 import {
@@ -727,6 +736,53 @@ export function Board() {
     [addToast, load]
   );
 
+  // The header inbox. Task 10's `?ask=` deep link opens it and sets the
+  // card to flash.
+  const [asksOpen, setAsksOpen] = useState(false);
+  const [askFlashId] = useState<string | null>(null);
+  const askFailure = (r: ActionResult) =>
+    r.text || (r.status ? `failed (${r.status})` : "couldn't reach the board");
+  const handleAskAccept = useCallback(
+    async (id: string, alwaysAllow: boolean) => {
+      const r = await acceptAsk(id, alwaysAllow);
+      load();
+      if (!r.ok) throw new Error(askFailure(r));
+    },
+    [load]
+  );
+  const handleAskDecline = useCallback(
+    async (id: string, reason: DeclineReason | null, note: string) => {
+      const r = await declineAsk(id, reason, note);
+      load();
+      if (!r.ok) throw new Error(askFailure(r));
+    },
+    [load]
+  );
+  const handleAskAllow = useCallback(
+    async (username: string, allow: boolean) => {
+      const r = await setAlwaysAllow(username, allow);
+      if (!r.ok) addToast(`could not change always allow (${askFailure(r)})`);
+      load();
+    },
+    [addToast, load]
+  );
+  const handleAskFocus = useCallback(
+    (mrUrl: string) => {
+      const mr = data?.mrs.find(m => m.webUrl === mrUrl);
+      if (!mr) {
+        addToast('That MR is not on this board.');
+        return;
+      }
+      const asks = data?.asks;
+      const ask = [...(asks?.pending ?? []), ...(asks?.history ?? [])].find(
+        a => a.mrUrl === mrUrl
+      );
+      setAsksOpen(false);
+      handleFocusPane(mr, ask ? verbLane(ask.kind) : 'review');
+    },
+    [data, addToast, handleFocusPane]
+  );
+
   // Row menu's "never diagnose this stack" toggle. Turning it on mutes
   // auto-doctor for this MR and every descendant (server-enforced) and
   // clears whatever's currently on this row; turning it off just clears the
@@ -1032,6 +1088,15 @@ export function Board() {
       .sort();
     return [...listed, ...others].join('\n');
   }, [data, boardView]);
+  const rosterNames = useMemo(
+    () =>
+      new Map(
+        (data?.allMembers ?? []).flatMap(m =>
+          m.name ? [[m.username, m.name] as const] : []
+        )
+      ),
+    [data?.allMembers]
+  );
   const memberLooks = useMemo(
     () => assignMemberLooks(lookIds ? lookIds.split('\n') : []),
     [lookIds]
@@ -1436,6 +1501,17 @@ export function Board() {
             </div>
             {controlProps.show && <ShowChips show={controlProps.show} />}
             <div className="tui-header-corner">
+              <AsksButton
+                asks={data.asks}
+                open={asksOpen}
+                onOpenChange={setAsksOpen}
+                flashId={askFlashId}
+                names={rosterNames}
+                onAccept={handleAskAccept}
+                onDecline={handleAskDecline}
+                onAllow={handleAskAllow}
+                onFocus={handleAskFocus}
+              />
               <RefreshControl onRefresh={refreshNow} refreshing={refreshing} />
               <ThemeControl theme={theme} pickTheme={pickTheme} />
             </div>

@@ -1,3 +1,4 @@
+import type { DeclineReason } from '../peer/envelope.ts';
 import type {
   BoardData,
   BoardMRWithReview,
@@ -49,6 +50,48 @@ export async function postAction(
   } catch {
     return { ok: false, status: 0, body: null, text: '' };
   }
+}
+
+/** Give a peer's ask the go-ahead; `alwaysAllow` also starts that peer's
+    later asks without waiting. */
+export function acceptAsk(
+  id: string,
+  alwaysAllow: boolean,
+  fetcher: typeof fetch = fetch
+): Promise<ActionResult> {
+  return postAction(
+    '/asks/accept',
+    alwaysAllow ? { id, alwaysAllow } : { id },
+    fetcher
+  );
+}
+
+/** Turn a peer's ask down, with an optional reason and note for them. */
+export function declineAsk(
+  id: string,
+  reason: DeclineReason | null,
+  note: string,
+  fetcher: typeof fetch = fetch
+): Promise<ActionResult> {
+  const trimmed = note.trim();
+  return postAction(
+    '/asks/decline',
+    {
+      id,
+      ...(reason ? { reason } : {}),
+      ...(trimmed ? { note: trimmed } : {}),
+    },
+    fetcher
+  );
+}
+
+/** Add or remove a peer from the always-allowed list. */
+export function setAlwaysAllow(
+  username: string,
+  allow: boolean,
+  fetcher: typeof fetch = fetch
+): Promise<ActionResult> {
+  return postAction('/asks/always-allow', { username, allow }, fetcher);
 }
 
 /** The board's own snapshot. Deliberately doesn't gate on `r.ok` -- a non-ok

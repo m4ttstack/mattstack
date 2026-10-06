@@ -185,6 +185,32 @@ export type BoardMRWithReview = BoardMR & {
   orphan?: ExecutorView;
 };
 
+export type AskKind = 'review' | 're-review' | 'respond';
+
+/** One peer's ask for this board's agent, waiting or handled. */
+export interface AskCardData {
+  id: string;
+  from: string;
+  /** The asker's roster name, when the roster knows them. */
+  fromName?: string;
+  kind: AskKind;
+  mrUrl: string;
+  iid: number;
+  title?: string;
+  sourceBranch?: string;
+  note?: string;
+  receivedAt: number;
+  handled?: {
+    at: number;
+    result: 'pending' | 'launched' | 'rejected' | 'expired';
+    reason?: string;
+    note?: string;
+    declined?: boolean;
+    /** A board rule's plain words, on a skipped or expired row. */
+    reasonText?: string;
+  };
+}
+
 export interface BoardData {
   title: string;
   defaultMember: string;
@@ -256,6 +282,14 @@ export interface BoardData {
   /** Reconciler executors in state "gone" that matched no MR row's subject;
       one that did match rides that row's own `orphan` field instead. */
   orphans: ExecutorView[];
+  /** Peer asks for this board's agent: waiting ones oldest first, the last
+      14 days of handled ones newest first, and who starts without asking.
+      Absent from an older server. */
+  asks?: {
+    pending: AskCardData[];
+    history: AskCardData[];
+    alwaysAllow: string[];
+  };
 }
 
 export type ThemeMode = 'light' | 'dark' | 'system';
