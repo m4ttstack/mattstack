@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"rt-ui/internal/testutil"
@@ -177,13 +178,19 @@ func TestSelectLegendNamesCtrlUpOnlyWhenBackIsOffered(t *testing.T) {
 	}
 }
 
+// The error lives only until the next keystroke clears it, and Bubble Tea
+// paints on a frame tick, so a Ctrl-U that lands before that tick means the
+// error frame is never drawn. The next keys wait for it on screen.
 func TestTextValidatesPatternThenAccepts(t *testing.T) {
-	stdout, tty, exit := testutil.RunPTY(t, []string{testutil.Binary(t), "prompt"}, []string{spec(t, "prompt-text.json")}, []string{"Bad Name", keyEnter, "\x15", "linear-tools", keyEnter}, nil, false)
-	if exit != 0 || !strings.Contains(stdout, `"text":"linear-tools"`) {
+	s := testutil.StartSession(t, []string{testutil.Binary(t), "prompt"}, nil)
+	s.Send(spec(t, "prompt-text.json"))
+	s.WaitForPaint("Plugin name")
+	s.Type("Bad Name", keyEnter)
+	s.WaitForPaint("must be kebab-case")
+	s.Type("\x15", "linear-tools", keyEnter)
+	stdout, _ := s.ReadLine(10 * time.Second)
+	if exit := s.Wait(); exit != 0 || !strings.Contains(stdout, `"text":"linear-tools"`) {
 		t.Fatalf("exit %d stdout %q", exit, stdout)
-	}
-	if !strings.Contains(tty, "must be kebab-case") {
-		t.Fatalf("validation message never shown: %q", tty)
 	}
 }
 
