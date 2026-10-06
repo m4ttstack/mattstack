@@ -37,16 +37,16 @@ export interface PeerResult {
   boardEnvOverrides: boolean;
 }
 
-/** The board identifies itself by `board.defaultMember`, which setup seeds from the forge login; then the username this Mac recorded for the org, the same handle `rt team join` registers; then the org forge's login. */
+/** The switchboard knows a board only by the name it was registered under, so this is the name `rt team join` registers: the username this Mac recorded for the org. `board.defaultMember` (which board view runs as, and can name a teammate) is a fallback only, then the org forge's login. */
 async function realBoardUsername(p: Probes, slug: string): Promise<string | null> {
+  const recorded = readTeamLocal(p, slug).forgeUsername;
+  if (recorded) return recorded;
   try {
     const member = getSetting<string>("board.defaultMember").value;
     if (typeof member === "string" && member.trim() && member !== "all") return member;
   } catch {
-    /* an unreadable setting falls through to the recorded username */
+    /* an unreadable setting falls through to the forge login */
   }
-  const recorded = readTeamLocal(p, slug).forgeUsername;
-  if (recorded) return recorded;
   const remote = teamRemote(p, slug);
   const forge = readTeamSnapshot(p, slug).integrations.forge ?? (remote ? forgeFromRemote(remote) : null);
   if (!forge) return null;

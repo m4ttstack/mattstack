@@ -691,8 +691,8 @@ the invite; `rt team join` stores it under the rt secrets scope, writes no URL
 setting, and refuses a pointer from an older rt whose URL is not
 `switchboardUrl()`. `rt team peer` connects the own board of a Mac holding
 the switchboard admin token, in practice the org admin's (`lib/team/peer.ts`): with the admin token readable it registers the
-board under `board.defaultMember` (else the username this Mac recorded for
-the org, the handle join registers, else the org forge's login), stores the
+board under the username this Mac recorded for the org, the handle join
+registers (else `board.defaultMember`, else the org forge's login), stores the
 token in that same `switchboardToken` secret, and leaves a board whose token
 already works alone; `rt team create` runs it and degrades to a warning. `rt team members remove` deletes the member's
 board registration and `rt team status --json` reports `peered` per member.
