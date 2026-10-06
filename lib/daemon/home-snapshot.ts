@@ -579,8 +579,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   if (startupSettings !== null && startupSettings.enabled === false) {
     // Logged once, informationally, but NOT sticky: `disabledReason` stays
     // null so a live `rt.homeSnapshot.enabled` flip is picked up by doRun's
-    // own top-of-run check without a daemon restart (only "not-a-repo" and
-    // "init-failed" below are permanent — a directory's git-repo-ness
+    // own top-of-run check without a daemon restart (only "not-a-repo" and a
+    // throwing "init-failed" below are permanent — a directory's git-repo-ness
     // doesn't change mid-process the way a setting can). The watcher/janitor
     // timer stay unarmed for now; doRun lazily arms them on its own first
     // call once it observes a live re-enable, so a manual run reaching that
@@ -614,6 +614,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     try {
       await probeOrInert();
     } finally {
+      // Unconditional: every runNow() (the home:snapshot IPC handler too)
+      // awaits readyPromise, so a missed resolve hangs them all.
       resolveReady();
     }
   }
@@ -622,10 +624,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     try {
       await probeAndArm();
     } catch (err) {
-      // The is-inside-work-tree exec call itself never throws per its own
-      // contract, but this still guards resolveReady() unconditionally —
-      // without it, any surprise here would leave every runNow() (including
-      // the home:snapshot IPC handler) awaiting readyPromise forever.
+      // Also reached from the retry timer, where a throw would be an
+      // unhandled rejection rather than a logged, inert instance.
       disabledReason = "init-failed";
       deps.log.warn({ err }, `${label}: startup arming failed; inert`);
     }

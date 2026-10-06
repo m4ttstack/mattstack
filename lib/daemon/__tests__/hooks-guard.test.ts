@@ -116,7 +116,7 @@ test("refreshWatchedRepos never creates a watch synchronously, and yields to the
   await done;
 
   expect(order.filter((e) => e.startsWith("watch:"))).toHaveLength(3);
-  expect(order.indexOf("tick")).toBeGreaterThan(-1);
+  expect(order.indexOf("tick")).toBeGreaterThan(0);
   expect(order.indexOf("tick")).toBeLessThan(order.length - 1);
   expect(guard.watchedConfigs.size).toBe(3);
   guard.closeAll();
@@ -138,6 +138,12 @@ test("a refresh requested mid-pass runs again on the newest index, and closeAll 
   const third = guard.refreshWatchedRepos();
   guard.closeAll();
   await third;
+  expect(guard.watchedConfigs.size).toBe(0);
+
+  const fourth = guard.refreshWatchedRepos();
+  void guard.refreshWatchedRepos();
+  guard.closeAll();
+  await fourth;
   expect(guard.watchedConfigs.size).toBe(0);
 });
 

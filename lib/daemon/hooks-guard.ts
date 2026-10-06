@@ -137,14 +137,17 @@ export function createHooksGuard(
       rerunRequested = true;
       return passInFlight;
     }
+    const startGeneration = generation;
     passInFlight = (async () => {
       do {
         rerunRequested = false;
-        await refreshPass(generation);
-      } while (rerunRequested);
-    })()
-      .catch((err) => { log.warn({ err }, "hooks-guard: refreshing repo watches failed"); })
-      .finally(() => { passInFlight = null; });
+        try {
+          await refreshPass(startGeneration);
+        } catch (err) {
+          log.warn({ err }, "hooks-guard: refreshing repo watches failed");
+        }
+      } while (rerunRequested && generation === startGeneration);
+    })().finally(() => { passInFlight = null; });
     return passInFlight;
   }
 
