@@ -473,15 +473,55 @@ export function filterByShow<T extends ShowRow>(
   };
   const active = off.filter(i => offered.includes(i));
   const rows = mrs.filter(mr => {
-    let shown = true;
-    for (const item of SHOW_ITEMS) {
-      if (!matchesShowItem(mr, item, cfg)) continue;
-      counts[item]++;
-      if (active.includes(item)) shown = false;
-    }
-    return shown;
+    const matched = SHOW_ITEMS.filter(i => matchesShowItem(mr, i, cfg));
+    const hiding = matched.filter(i => active.includes(i));
+    // An item's count is what it shows, or would show once switched on: a
+    // row another off item still hides is not one of them.
+    for (const item of matched)
+      if (hiding.every(h => h === item)) counts[item]++;
+    return hiding.length === 0;
   });
   return { rows, counts };
+}
+
+/** The items the toolbar renders. Drafts never appear on an "all" board
+    (buildBoard drops every draft when no single seat owns one), Needs me is
+    already turn-based, and on your own MRs the author's move is yours. */
+export function offeredShowItems(o: {
+  slackEnabled: boolean;
+  seatTab: boolean;
+  seat: string | null;
+  member: string;
+}): ShowItem[] {
+  const own = o.seat !== null && o.member === o.seat;
+  return [
+    ...(o.slackEnabled ? (['posted', 'notPosted'] as const) : []),
+    ...(o.seatTab || own ? [] : (['authorTurn'] as const)),
+    ...(o.seat !== null ? (['myDrafts'] as const) : []),
+  ];
+}
+
+/** The roster's numbers: each person's is the rows picking them shows, under
+    the items offered while they're picked, and the total is the All view's. */
+export function visibleByAuthor<T extends ShowRow>(
+  mrs: T[],
+  off: readonly ShowItem[],
+  offeredFor: (member: string) => readonly ShowItem[],
+  cfg: TurnConfig
+): { byAuthor: Map<string, number>; total: number } {
+  const byAuthor = new Map<string, number>();
+  for (const username of new Set(mrs.map(m => m.author.username)))
+    byAuthor.set(
+      username,
+      filterByShow(
+        filterByMember(mrs, username),
+        off,
+        offeredFor(username),
+        cfg
+      ).rows.length
+    );
+  const total = filterByShow(mrs, off, offeredFor('all'), cfg).rows.length;
+  return { byAuthor, total };
 }
 
 /** Usernames the member filter may legitimately hold on a given tab. An

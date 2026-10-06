@@ -23,11 +23,13 @@ import {
   isPeered,
   NEEDS_ME_TAB,
   nestStacks,
+  offeredShowItems,
   oldestFirst,
   parseViewState,
   resolveStandDownTarget,
   rosterUsernamesFor,
   seatOf,
+  visibleByAuthor,
   serializeViewState,
   sortKeysFor,
   statusFlags,
@@ -141,6 +143,104 @@ describe('filterByShow', () => {
   test('waiting on author follows the turn config', () => {
     const cfg = { ...ALL_TURN, author: [] };
     expect(filterByShow(list, ['authorTurn'], ALL, cfg).rows).toHaveLength(5);
+  });
+  test('a count leaves out rows another off item still hides', () => {
+    const both = mr({
+      iid: 6,
+      slack: { status: 'found', reactions: [], posted: false },
+      threadSummary: { awaiting: 1, replied: 0, resolved: 0 },
+    } as any);
+    const r = filterByShow([posted, both], ['authorTurn'], ALL, ALL_TURN);
+    expect(r.rows.map(m => m.iid)).toEqual([1]);
+    expect(r.counts.notPosted).toBe(0);
+    expect(r.counts.authorTurn).toBe(1);
+  });
+  test('an off item counts the rows switching it on would bring back', () => {
+    const r = filterByShow(
+      list,
+      ['notPosted', 'authorTurn'],
+      ALL,
+      ALL_TURN
+    );
+    expect(r.counts).toEqual({
+      posted: 2,
+      notPosted: 2,
+      authorTurn: 1,
+      myDrafts: 1,
+    });
+  });
+});
+
+describe('offeredShowItems', () => {
+  const base = {
+    slackEnabled: true,
+    seatTab: false,
+    seat: 'alice',
+    member: 'all',
+  };
+  test('a seated board offers every item', () => {
+    expect(offeredShowItems(base)).toEqual([
+      'posted',
+      'notPosted',
+      'authorTurn',
+      'myDrafts',
+    ]);
+  });
+  test('picking yourself drops waiting on author', () => {
+    expect(offeredShowItems({ ...base, member: 'alice' })).toEqual([
+      'posted',
+      'notPosted',
+      'myDrafts',
+    ]);
+  });
+  test('picking someone else keeps waiting on author', () => {
+    expect(offeredShowItems({ ...base, member: 'bob' })).toContain(
+      'authorTurn'
+    );
+  });
+  test('the seat tab, a seatless board and no slack drop their items', () => {
+    expect(offeredShowItems({ ...base, seatTab: true })).not.toContain(
+      'authorTurn'
+    );
+    expect(
+      offeredShowItems({ ...base, seat: null, slackEnabled: false })
+    ).toEqual(['authorTurn']);
+  });
+});
+
+describe('visibleByAuthor', () => {
+  const author = (username: string) =>
+    ({ id: username, username, name: username, avatarUrl: null }) as any;
+  const posted = { status: 'found', reactions: [], posted: true };
+  const waiting = { awaiting: 1, replied: 0, resolved: 0 };
+  const rows = [
+    mr({ iid: 1, author: author('alice'), slack: posted } as any),
+    mr({
+      iid: 2,
+      author: author('alice'),
+      slack: posted,
+      threadSummary: waiting,
+    } as any),
+    mr({
+      iid: 3,
+      author: author('bob'),
+      slack: posted,
+      threadSummary: waiting,
+    } as any),
+  ];
+  const offeredFor = (member: string) =>
+    offeredShowItems({
+      slackEnabled: true,
+      seatTab: false,
+      seat: 'alice',
+      member,
+    });
+
+  test("each person's count matches the rows picking them shows", () => {
+    const v = visibleByAuthor(rows, ['authorTurn'], offeredFor, ALL_TURN);
+    expect(v.byAuthor.get('alice')).toBe(2);
+    expect(v.byAuthor.get('bob')).toBe(0);
+    expect(v.total).toBe(1);
   });
 });
 

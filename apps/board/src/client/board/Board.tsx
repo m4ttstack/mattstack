@@ -42,11 +42,13 @@ import {
   isOwnMr,
   NEEDS_ME_TAB,
   nestStacks,
+  offeredShowItems,
   oldestFirst,
   parseViewState,
   rosterUsernamesFor,
   serializeViewState,
   tabDimsEmpty,
+  visibleByAuthor,
 } from '../../view.ts';
 import type { GroupKey, ShowItem, StackNode, ViewState } from '../../view.ts';
 import { postAction, type ActionResult } from '../api.ts';
@@ -946,27 +948,23 @@ export function Board() {
     // a roster from the rows in view keeps the author filter (and the settings
     // gears that live in this panel) available.
     const inferred = isCodeownersTab || isSeatTab;
-    // Offered items are the ones the toolbar renders. Drafts never appear on
-    // an "all" board (buildBoard drops every draft when no single
-    // defaultMember owns one), and Needs me is already turn-based.
-    const offered: ShowItem[] = [
-      ...(data.slackEnabled ? (['posted', 'notPosted'] as const) : []),
-      ...(isSeatTab ? [] : (['authorTurn'] as const)),
-      ...(data.defaultMember !== 'all' ? (['myDrafts'] as const) : []),
-    ];
-    // The roster counts what this tab shows under the current Show picks,
-    // so a member's number matches the rows that appear when they're picked.
-    const visible = filterByShow(tabFiltered, state.off, offered, turnCfg).rows;
-    const visibleBy = new Map<string, number>();
-    for (const mr of visible)
-      visibleBy.set(
-        mr.author.username,
-        (visibleBy.get(mr.author.username) ?? 0) + 1
-      );
-    const roster = (inferred ? inferRoster(tabFiltered) : data.members).map(
-      m => ({ ...m, count: visibleBy.get(m.username) ?? 0 })
+    const offeredFor = (member: string) =>
+      offeredShowItems({
+        slackEnabled: data.slackEnabled,
+        seatTab: isSeatTab,
+        seat: self,
+        member,
+      });
+    const offered = offeredFor(state.member);
+    const { byAuthor, total: rosterTotal } = visibleByAuthor(
+      tabFiltered,
+      state.off,
+      offeredFor,
+      turnCfg
     );
-    const rosterTotal = visible.length;
+    const roster = (inferred ? inferRoster(tabFiltered) : data.members).map(
+      m => ({ ...m, count: byAuthor.get(m.username) ?? 0 })
+    );
     const memberFiltered = filterByMember(tabFiltered, state.member);
     const { rows: filtered, counts: showCounts } = filterByShow(
       memberFiltered,
