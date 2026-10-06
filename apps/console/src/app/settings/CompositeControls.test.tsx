@@ -1065,7 +1065,10 @@ describe('composite rows', () => {
 describe('the boxscore roles summary', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  function serveRoster() {
+  function serveRoster(
+    access: 'owner' | 'member' = 'member',
+    self: string | null = null
+  ) {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
@@ -1075,8 +1078,8 @@ describe('the boxscore roles summary', () => {
             { username: 'bob', name: null },
             { username: 'cy', name: null },
           ],
-          access: 'member',
-          self: null,
+          access,
+          self,
         })
       )
     );
@@ -1093,6 +1096,48 @@ describe('the boxscore roles summary', () => {
             scope: 'team',
             file: '/t',
             value: { ADA: 'team', ada: 'team', Bob: 'team', bob: 'self' },
+          },
+        })}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    expect(await screen.findByText('1 of 3 on Team view')).toBeInTheDocument();
+  });
+
+  it("counts the owner's own row as Team on the owner's Mac", async () => {
+    serveRoster('owner', 'bob');
+    renderWithProviders(
+      <SettingRow
+        def={def('boxscore.roles', {
+          type: 'object',
+          scopes: ['team'],
+          effective: {
+            scope: 'team',
+            file: '/t',
+            value: { ada: 'team', bob: 'self' },
+          },
+        })}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    expect(await screen.findByText('2 of 3 on Team view')).toBeInTheDocument();
+  });
+
+  it('keeps the stored count when the owner is not known', async () => {
+    serveRoster('owner', null);
+    renderWithProviders(
+      <SettingRow
+        def={def('boxscore.roles', {
+          type: 'object',
+          scopes: ['team'],
+          effective: {
+            scope: 'team',
+            file: '/t',
+            value: { ada: 'team', bob: 'self' },
           },
         })}
         store={store()}

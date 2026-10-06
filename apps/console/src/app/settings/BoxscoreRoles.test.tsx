@@ -102,11 +102,10 @@ describe('BoxscoreRolesBody', () => {
     renderWithProviders(
       <BoxscoreRolesBody def={def({ bob: 'self' })} row={row() as never} />
     );
-    const bob = await screen.findByRole('radiogroup', { name: 'Role for bob' });
-    expect(within(bob).getByRole('radio', { name: 'Team' })).toBeChecked();
-    for (const radio of within(bob).getAllByRole('radio'))
-      expect(radio).toBeDisabled();
-    expect(screen.getByText('owner')).toBeInTheDocument();
+    expect(await screen.findByText('Team · owner')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('radiogroup', { name: 'Role for bob' })
+    ).toBeNull();
     const ada = screen.getByRole('radiogroup', { name: 'Role for ada' });
     for (const radio of within(ada).getAllByRole('radio'))
       expect(radio).toBeEnabled();
@@ -118,7 +117,7 @@ describe('BoxscoreRolesBody', () => {
       <BoxscoreRolesBody def={def({})} row={row() as never} />
     );
     await screen.findByText('Ada L');
-    expect(screen.queryByText('owner')).toBeNull();
+    expect(screen.queryByText('Team · owner')).toBeNull();
     for (const radio of screen.getAllByRole('radio'))
       expect(radio).toBeEnabled();
   });

@@ -67,13 +67,18 @@ const ROLE_DATA = [
   { value: 'self', label: 'Self' },
 ];
 
+/** The owner's Mac always sees the whole team, whatever is stored for them. */
+function isOwner(info: RolesInfo, u: string): boolean {
+  return info.access === 'owner' && info.self === u;
+}
+
 /** "N of M on Team view" over the roster, or `fallback` until it loads. */
 export function useRolesSummary(def: SettingDefWire, fallback: string): string {
   const info = useRolesInfo();
   if (!info) return fallback;
   const stored = storedRoles(def);
   const team = info.members.filter(
-    m => roleOf(stored, m.username) === 'team'
+    m => isOwner(info, m.username) || roleOf(stored, m.username) === 'team'
   ).length;
   return `${team} of ${info.members.length} on Team view`;
 }
@@ -88,7 +93,6 @@ export function BoxscoreRolesBody({
   const info = useRolesInfo();
   const stored = storedRoles(def);
   const editable = info?.access === 'owner' && row.status !== 'saving';
-  const isOwnerRow = (u: string) => info?.access === 'owner' && info.self === u;
   const saveRole = (u: string, v: Role) => {
     const drop = new Set(variants(stored, u));
     const kept = Object.fromEntries(
@@ -109,29 +113,27 @@ export function BoxscoreRolesBody({
           {NOTE[info.access]}
         </Text>
       )}
-      {info?.members.map(m => {
-        const owner = isOwnerRow(m.username);
-        return (
-          <Group key={m.username} gap={12} wrap="nowrap">
-            <Text fz={13} w={240} truncate="end">
-              {m.name ?? m.username}
+      {info?.members.map(m => (
+        <Group key={m.username} gap={12} wrap="nowrap" mih={30}>
+          <Text fz={13} w={240} truncate="end">
+            {m.name ?? m.username}
+          </Text>
+          {isOwner(info, m.username) ? (
+            <Text fz="xs" fw={500} c="dimmed" pl={10}>
+              Team · owner
             </Text>
+          ) : (
             <SegmentedControl
               size="xs"
               aria-label={`Role for ${m.username}`}
-              disabled={!editable || owner}
-              value={owner ? 'team' : roleOf(stored, m.username)}
+              disabled={!editable}
+              value={roleOf(stored, m.username)}
               data={ROLE_DATA}
               onChange={v => saveRole(m.username, v as Role)}
             />
-            {owner && (
-              <Text fz={11} c="dimmed">
-                owner
-              </Text>
-            )}
-          </Group>
-        );
-      })}
+          )}
+        </Group>
+      ))}
     </Stack>
   );
 }
