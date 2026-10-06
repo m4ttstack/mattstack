@@ -67,11 +67,13 @@ picks it from the org's roster (`mattstack.roster`, each entry's `teams`) and
 this Mac's stored forge username (`forgeUsername` in
 `~/.mattstack/rt/teams/<org>.json`): the team `mattstack.activeTeam` names
 when the roster lists you on it, else the first team in your roster entry. A
-Mac with no active team reads the org layer alone. Other teams' folders are
+Mac with no stored username takes the team `mattstack.activeTeam` names when
+that folder exists (reason `setting-only`). A Mac with no active team reads
+the org layer alone. Other teams' folders are
 never folded in; a caller that needs one reads it by name
 (`getSetting(key, { team: "<name>" })`, `setSetting(key, value, "team", {
 team })`, `rt settings set --scope team --team <name>`), and a team write
-with no name goes to the active team. Every key that allows `team` also
+with no name goes to the active team, or is refused when there is none. Every key that allows `team` also
 allows `org`; `mattstack.roster` (each entry's `teams`) and `mattstack.org`
 (`admins`, and `owners` per team) are org only.
 

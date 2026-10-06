@@ -48,12 +48,16 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    this machine only goes to `machine`. Every key that allows `team` also
    allows `org`. Path literals are legal only in the machine store.
    The `team` layer is the ACTIVE team's folder only; other teams' folders
-   are never folded in. Name one to reach it: read with
+   are never folded in. The active team is the one `mattstack.activeTeam`
+   names when the roster lists you on it, else your first roster team; a
+   Mac with no stored forge username takes the folder `mattstack.activeTeam`
+   names when it exists. Name one to reach it: read with
    `getSetting(key, { team: "gadgets" })`, write with
    `setSetting(key, value, "team", { team: "gadgets" })` or
    `rt settings set <key> <value> --scope team --team gadgets` (`--team`
    goes only with `--scope team`). A team write that names no team lands in
-   the active team. An `org` write takes no name.
+   the active team, and is refused when there is none. An `org` write takes
+   no name.
    The row's `merge` says how layers combine: `replace` (strongest layer
    wins), `deep` (objects merge field by field, so the org can hold
    `board.slack`'s app id and a team its channel), `add` (arrays from every
@@ -72,8 +76,11 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    live in the one org repo on this Mac, which the team sync engine
    commits and pushes the same way, so an `org` or `team` write reaches
    every member with no hand commit. `setSetting` prints a tip only when
-   that sync cannot run; a clone joined by invite is pull-only, and a
-   shared write there is refused with the org admin to ask.
+   that sync cannot run. Roles in the org's `mattstack.org` setting decide
+   who writes: an admin writes the org store and every team's, a team's
+   owner writes that team's store, and a member writes neither. A refused
+   team write names that team's owners, then the org's admins; a refused
+   org write names the admins.
 5. A registry `default` is the sharpest field on a row: it materializes as
    a present value on every install. The `board.*` block bans defaults
    OUTRIGHT — a new board.* row never carries `default:`, fresh key or
