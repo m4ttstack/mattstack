@@ -65,7 +65,6 @@ import {
   type RunnerDeps,
 } from './action-runner.ts';
 import { ActionMenu } from './ActionMenu.tsx';
-import { AlsoShow } from './AlsoShow.tsx';
 import { AppMark } from './AppMark.tsx';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
 import { ConfigModal } from './ConfigModal.tsx';
@@ -115,6 +114,7 @@ import { RowMenu } from './RowMenu.tsx';
 import { RowView } from './RowView.tsx';
 import { SelectionBar } from './SelectionBar.tsx';
 import { SettingsModal } from './SettingsModal.tsx';
+import { ShowChips } from './ShowChips.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import { useStaleTabTitle } from './stale-tab-title.ts';
 import { TabBar } from './TabBar.tsx';
@@ -1273,8 +1273,6 @@ export function Board() {
       load();
     });
   };
-  const showAll = () =>
-    update({ off: state.off.filter(i => !offered.includes(i)) });
   const inferredNote = isCodeownersTab
     ? 'authors in this queue'
     : isSeatTab
@@ -1309,10 +1307,7 @@ export function Board() {
               activeTab.slackChannel ??
               memberFiltered.find(mr => mr.slackChannel)?.slackChannel ??
               null,
-            shown: filtered.length,
-            total: memberFiltered.length,
             toggle: toggleShow,
-            showAll,
           }
         : null,
     onOpenTurnSettings: openTurnConfig,
@@ -1397,7 +1392,12 @@ export function Board() {
             <div className="tui-controls tui-controls-header">
               <Controls {...controlProps} />
             </div>
-            {controlProps.show && <AlsoShow show={controlProps.show} />}
+            {controlProps.show && (
+              <ShowChips
+                show={controlProps.show}
+                onOpenTurnSettings={openTurnConfig}
+              />
+            )}
             <div className="tui-header-corner">
               <RefreshControl onRefresh={refreshNow} refreshing={refreshing} />
               <ThemeControl theme={theme} pickTheme={pickTheme} />

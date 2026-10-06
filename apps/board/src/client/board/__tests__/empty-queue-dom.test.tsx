@@ -208,18 +208,24 @@ function withRows(mrs: unknown[]) {
   };
 }
 
-function alsoShow(container: HTMLElement): string[] {
-  return [...container.querySelectorAll('.tui-also-show-pill')].map(
-    el => el.textContent?.replace(/\s+/g, ' ').trim() ?? ''
-  );
+function chips(container: HTMLElement): HTMLLabelElement[] {
+  return [...container.querySelectorAll<HTMLLabelElement>('.tui-show-chip')];
 }
 
-function showButton(container: HTMLElement): HTMLButtonElement {
-  const btn = [
-    ...container.querySelectorAll<HTMLButtonElement>('.tui-menu-button'),
-  ].find(b => b.textContent?.includes('Showing'));
-  if (!btn) throw new Error('Showing button not found');
-  return btn;
+/** Each Show chip as "label count", for the unchecked ones only. */
+function unchecked(container: HTMLElement): string[] {
+  return chips(container)
+    .filter(c => !c.querySelector('input')!.checked)
+    .map(c => {
+      const count = c.querySelector('.tui-show-count')!.textContent;
+      return `${c.textContent!.slice(0, -count!.length).trim()} ${count}`;
+    });
+}
+
+function chip(container: HTMLElement, label: string): HTMLInputElement {
+  const c = chips(container).find(c => c.textContent?.startsWith(label));
+  if (!c) throw new Error(`no ${label} chip`);
+  return c.querySelector('input')!;
 }
 
 async function mount(fn: (container: HTMLElement) => Promise<void>) {
@@ -246,7 +252,7 @@ test('an empty queue the picks did not empty keeps the nothing-waiting copy', as
   await mount(async container => {
     await openNeedsMe(container);
     expect(emptyCopy(container)).toBe('nothing waiting on review ✓');
-    expect(alsoShow(container)).toEqual([]);
+    expect(unchecked(container)).toEqual(['Not Posted 0']);
   });
 });
 
@@ -278,11 +284,11 @@ test('a queue the Show picks emptied says so and offers the rows back', async ()
   await mount(async container => {
     await openNeedsMe(container);
     expect(emptyCopy(container)).toBe('nothing to show with these picks');
-    expect(alsoShow(container)).toEqual(['+ Not Posted 2']);
+    expect(unchecked(container)).toEqual(['Not Posted 2']);
   });
 });
 
-test('unchecked drafts land on the Also show line, with no hidden-items note or footer', async () => {
+test('unchecked drafts show as an unchecked chip, with no hidden-items note or footer', async () => {
   servedData = withRows([
     needsMeMr(1),
     { ...needsMeMr(2), isDraft: true },
@@ -291,28 +297,30 @@ test('unchecked drafts land on the Also show line, with no hidden-items note or 
   history.replaceState(null, '', '?drafts=hide');
   await mount(async container => {
     expect(container.querySelector('.tui-empty')).toBeNull();
-    expect(alsoShow(container)).toEqual(['+ My drafts 2']);
+    expect(unchecked(container)).toEqual(['My drafts 2']);
     expect(container.querySelector('.tui-hidden-note')).toBeNull();
     expect(container.querySelector('footer')).toBeNull();
-    expect(showButton(container).textContent).toContain('1 of 3');
+    expect(rowCount(container)).toBe(1);
   });
 });
 
-test('show everything checks every item again', async () => {
+test('checking an unchecked chip brings its rows back', async () => {
   servedData = withRows([
     { ...needsMeMr(1), slack: { posted: true, reactions: [] } },
     needsMeMr(2),
-    { ...needsMeMr(3), isDraft: true },
+    {
+      ...needsMeMr(3),
+      isDraft: true,
+      slack: { posted: true, reactions: [] },
+    },
   ]);
   history.replaceState(null, '', '?slack=posted&drafts=hide');
   await mount(async container => {
-    expect(alsoShow(container)).toEqual(['+ Not Posted 2', '+ My drafts 1']);
-    const everything = [
-      ...container.querySelectorAll<HTMLButtonElement>('.tui-also-show button'),
-    ].find(b => b.textContent === 'show everything')!;
-    await React.act(async () => everything.click());
-    expect(container.querySelector('.tui-also-show')).toBeNull();
-    expect(showButton(container).textContent).toContain('3 of 3');
+    expect(unchecked(container)).toEqual(['Not Posted 1', 'My drafts 1']);
+    expect(rowCount(container)).toBe(1);
+    await React.act(async () => chip(container, 'My drafts').click());
+    expect(unchecked(container)).toEqual(['Not Posted 1']);
+    expect(rowCount(container)).toBe(2);
   });
 });
 
@@ -336,37 +344,24 @@ test('the turn summary replaces the subtitle and links need you to Needs me', as
   });
 });
 
-test('the Show menu lists its items checked and taking Not Posted off re-checks Slack', async () => {
+test('the Show chips start checked and taking Not Posted off re-checks Slack', async () => {
   servedData = withRows([
     { ...needsMeMr(1), slackChannel: 'team-reviews' },
     { ...needsMeMr(2), slackChannel: 'team-reviews' },
   ]);
   await mount(async container => {
-    await React.act(async () => showButton(container).click());
-    expect(document.querySelector('[role="menu"]')?.textContent).toContain(
+    expect(chips(container)[0]!.textContent).toContain(
       'Posted to #team-reviews'
     );
-    const items = () => [
-      ...document.querySelectorAll<HTMLButtonElement>(
-        '[role="menuitemcheckbox"]'
-      ),
-    ];
-    expect(items().map(i => i.getAttribute('aria-checked'))).toEqual([
-      'true',
-      'true',
-      'true',
-      'true',
-    ]);
-    const notPosted = () =>
-      items().find(i => i.textContent?.includes('Not Posted'))!;
-    await React.act(async () => notPosted().click());
+    expect(unchecked(container)).toEqual([]);
+    await React.act(async () => chip(container, 'Not Posted').click());
     await React.act(async () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
-    expect(notPosted().getAttribute('aria-checked')).toBe('false');
+    expect(chip(container, 'Not Posted').checked).toBe(false);
     expect(posts).toEqual(['/slack/refresh']);
-    await React.act(async () => notPosted().click());
-    expect(notPosted().getAttribute('aria-checked')).toBe('true');
+    await React.act(async () => chip(container, 'Not Posted').click());
+    expect(chip(container, 'Not Posted').checked).toBe(true);
     expect(posts).toEqual(['/slack/refresh']);
   });
 });
@@ -374,10 +369,10 @@ test('the Show menu lists its items checked and taking Not Posted off re-checks 
 test('with no channel known the Slack items name the team channel', async () => {
   servedData = withRows([needsMeMr(1)]);
   await mount(async container => {
-    await React.act(async () => showButton(container).click());
-    const menu = document.querySelector('[role="menu"]')?.textContent ?? '';
-    expect(menu).toContain('Posted to team channel');
-    expect(menu).toContain('not posted to team channel yet');
+    expect(chips(container)[0]!.textContent).toContain(
+      'Posted to team channel'
+    );
+    expect(chips(container)[1]!.title).toBe('not posted to team channel yet');
   });
 });
 
@@ -391,7 +386,7 @@ test('the toolbar drops the copy-summary button and the old filter chips', async
       [...header.querySelectorAll('.tui-menu-button-label')].map(
         l => l.textContent
       )
-    ).toEqual(['Group', 'Sort', 'Showing']);
+    ).toEqual(['Group', 'Sort']);
   });
 });
 
@@ -410,7 +405,9 @@ test('a stored Not Posted pick hides nothing on a board without Slack', async ()
   );
   await mount(async container => {
     expect(rowCount(container)).toBe(2);
-    expect(container.querySelector('.tui-also-show')).toBeNull();
+    expect(chips(container).map(c => c.textContent)).not.toContainEqual(
+      expect.stringContaining('Not Posted')
+    );
   });
 });
 
@@ -423,21 +420,20 @@ test('Needs me keeps its rows under a stored Waiting on author pick and offers n
   await mount(async container => {
     await openNeedsMe(container);
     expect(rowCount(container)).toBe(2);
-    await React.act(async () => showButton(container).click());
-    const menu = document.querySelector('[role="menu"]')?.textContent ?? '';
-    expect(menu).toContain('Not Posted');
-    expect(menu).not.toContain('Waiting on author');
+    const labels = chips(container).map(c => c.textContent ?? '');
+    expect(labels.some(l => l.startsWith('Not Posted'))).toBe(true);
+    expect(labels.some(l => l.startsWith('Waiting on author'))).toBe(false);
   });
 });
 
 test('saving a Whose turn signal reloads the board', async () => {
   servedData = withRows([needsMeMr(1)]);
   await mount(async container => {
-    await React.act(async () => showButton(container).click());
-    const link = [
-      ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
-    ].find(i => i.textContent === 'Whose turn settings…')!;
-    await React.act(async () => link.click());
+    await React.act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('.tui-show-chips-settings')!
+        .click()
+    );
     await React.act(async () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });

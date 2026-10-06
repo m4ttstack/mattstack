@@ -2,7 +2,6 @@ import { useState, type ReactNode } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect } from 'storybook/test';
 
-import { ContextMenu } from '@mattstack/tui-kit';
 import { registerTheme, SoribashiProvider } from '@mattstack/tui-kit/provider';
 import { tuiTheme } from '@mattstack/tui-kit/theme';
 
@@ -12,8 +11,8 @@ import '../../style.css';
 
 import { DEFAULT_VIEW, type ShowItem, type ViewState } from '../../view.ts';
 import type { ThemeMode } from '../types.ts';
-import { AlsoShow } from './AlsoShow.tsx';
-import { Controls, ShowMenuItems, type ShowMenuModel } from './Controls.tsx';
+import { Controls, type ShowMenuModel } from './Controls.tsx';
+import { ShowChips } from './ShowChips.tsx';
 import { TurnSummary } from './TurnSummary.tsx';
 
 const stage = (
@@ -64,11 +63,8 @@ function model(
     off,
     counts: COUNTS,
     channel: 'example-reviews',
-    shown: 15 - off.reduce((n, i) => n + COUNTS[i], 0),
-    total: 15,
     toggle: item =>
       setOff(off.includes(item) ? off.filter(i => i !== item) : [...off, item]),
-    showAll: () => setOff([]),
   };
 }
 
@@ -106,42 +102,29 @@ function Header({ initialOff }: { initialOff: ShowItem[] }) {
           onOpenTurnSettings={() => {}}
         />
       </div>
-      <AlsoShow show={show} />
+      <ShowChips show={show} onOpenTurnSettings={() => {}} />
     </header>
   );
 }
 
 export const EverythingShown: Story = {
   play: async ({ canvasElement }) => {
-    expect(canvasElement.querySelector('.tui-also-show')).toBeNull();
-    expect(canvasElement.textContent).toContain('15 of 15');
+    const chips = canvasElement.querySelectorAll('.tui-show-chip');
+    expect(chips).toHaveLength(4);
+    expect(
+      canvasElement.querySelectorAll('.tui-show-chip[data-on]')
+    ).toHaveLength(4);
   },
   render: () => <Header initialOff={[]} />,
 };
 
-export const AlsoShowLine: Story = {
+export const SomeHidden: Story = {
   play: async ({ canvasElement }) => {
-    const pills = canvasElement.querySelectorAll('.tui-also-show-pill');
-    expect(pills).toHaveLength(2);
+    expect(
+      canvasElement.querySelectorAll('.tui-show-chip[data-on]')
+    ).toHaveLength(2);
   },
   render: () => <Header initialOff={['notPosted', 'authorTurn']} />,
-};
-
-function OpenMenu() {
-  const [off, setOff] = useState<ShowItem[]>(['authorTurn']);
-  return (
-    <ContextMenu x={24} y={24} ariaLabel="show on the board" onClose={() => {}}>
-      <ShowMenuItems show={model(off, setOff)} onOpenTurnSettings={() => {}} />
-    </ContextMenu>
-  );
-}
-
-export const ShowMenuOpen: Story = {
-  play: async () => {
-    const items = document.querySelectorAll('[role="menuitemcheckbox"]');
-    expect(items).toHaveLength(4);
-  },
-  render: () => <OpenMenu />,
 };
 
 export const SummaryWithStaleSync: Story = {
