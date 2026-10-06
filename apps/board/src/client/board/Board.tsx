@@ -1367,18 +1367,17 @@ export function Board() {
             <RefreshControl onRefresh={refreshNow} refreshing={refreshing} />
             <ThemeControl theme={theme} pickTheme={pickTheme} />
           </div>
+          <TabBar
+            tabs={tabs}
+            active={state.tab}
+            counts={
+              needsMeCount === null ? {} : { [NEEDS_ME_TAB.id]: needsMeCount }
+            }
+            onPick={tab => update({ tab })}
+            syncing={tabSyncing}
+            unknown={unknownTabs}
+          />
         </header>
-
-        <TabBar
-          tabs={tabs}
-          active={state.tab}
-          counts={
-            needsMeCount === null ? {} : { [NEEDS_ME_TAB.id]: needsMeCount }
-          }
-          onPick={tab => update({ tab })}
-          syncing={tabSyncing}
-          unknown={unknownTabs}
-        />
 
         {selectedMrs.length > 0 && (
           <SelectionBar
