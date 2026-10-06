@@ -54,7 +54,7 @@ import { builtinRegistry } from "../../agent-integrations/builtins.ts";
 import { integrationsEnabled } from "../../agent-integrations/context.ts";
 import type { IntegrationRegistry, LaunchHost, LaunchSurface, WorkCompletion } from "../../agent-integrations/contracts.ts";
 import { createBoundLauncher, launchAttention, launchGuard, launchInProgress, type BoundLauncher } from "../../agent-integrations/launch.ts";
-import { createSessionStore, listBindingsByAgent, readReservation } from "../../agent-integrations/session-store.ts";
+import { createSessionStore, listBindingsByAgent, readReservation, unresolvedLaunchOf } from "../../agent-integrations/session-store.ts";
 import type { Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 
 export interface HeadlessChild {
@@ -906,12 +906,17 @@ export function createAgentHandlers(opts: {
       if (wasBg && (!opts.bg || !opts.bgClaims || !opts.lifecycle)) {
         return { ok: false, error: "bg launches require the rt daemon (rt daemon start)" };
       }
-      // A record the shared launcher never bound keeps today's resume, switch or no switch.
-      const boundSession = boundEnabled() ? boundSessionOf(rec) : undefined;
+      // A record the shared launcher never bound keeps today's resume, unless a launch it may have made is unresolved.
+      const switchOn = boundEnabled();
+      const boundSession = switchOn ? boundSessionOf(rec) : undefined;
       if (boundSession?.attemptId !== undefined && opts.ordinaryOnly) {
         return { ok: false, error: "this agent's session belongs to a herd job; resuming it needs the rt daemon (rt daemon start)" };
       }
-      if (boundSession) {
+      if (switchOn) {
+        const own = unresolvedLaunchOf(db, rec.id);
+        if (own && own.state !== "abandoned") {
+          return { ok: false, error: `agent ${rec.id}'s launch outcome is still unknown, so its session may already be running; rt will not resume it until that launch resolves` };
+        }
         const busy = launchInProgress(db, launchGuard(selectionOf(rec), rec.cwd));
         if (busy) return { ok: false, error: busy };
       }

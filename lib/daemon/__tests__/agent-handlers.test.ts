@@ -2005,6 +2005,33 @@ describe("agent.integrations.enabled routes launches through the shared launcher
     expect(after.ok).toBe(true);
   });
 
+  test("switch on: resuming a kept record whose launch never resolved refuses and spawns nothing; a resolved one still resumes", async () => {
+    const calls: string[][] = [];
+    let herdrDown = true;
+    const runner: HerdrRunner = async (args) => {
+      if (herdrDown && args[0] === "workspace" && args[1] === "create") throw new Error("herdr timed out creating the workspace");
+      return okRunner(calls)(args);
+    };
+    const h = fresh({ runner, herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codexIntegration]) });
+    const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "herdr" });
+    expect(started.ok).toBe(false);
+    if (started.ok) throw new Error("unreachable");
+    const keptId = /Agent (\S+) is kept/.exec(started.error)?.[1];
+    expect(keptId).toBeDefined();
+    expect(listBindingsByAgent(h.db, keptId!)).toEqual([]);
+
+    herdrDown = false;
+    const resumed = await h["agent:resume"]({ id: keptId! });
+    expect(resumed).toEqual({ ok: false, error: expect.stringContaining(`agent ${keptId}'s launch outcome is still unknown`) });
+    expect(calls.some((c) => c[0] === "pane" && c[1] === "run")).toBe(false);
+
+    const other = await h["agent:start"]({ repo: REPO, cwd: "/tmp/y", surface: "herdr", tab: "other" });
+    if (!other.ok) throw new Error(other.error);
+    const again = await h["agent:resume"]({ id: other.data.id });
+    if (!again.ok) throw new Error(again.error);
+    expect(calls.filter((c) => c[0] === "pane" && c[1] === "run").at(-1)![3]).toContain(`'--resume' '${other.data.sessionId}'`);
+  });
+
   test("switch on: a launch that made nothing still rolls its record back, as today", async () => {
     const codex = heldCodex(async () => ({ ok: false, error: { code: "refused", message: "the app server refused thread/start" } }));
     const h = fresh({ runner: okRunner([]), herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codex.integration]) });

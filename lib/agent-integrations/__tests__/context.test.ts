@@ -321,25 +321,25 @@ describe("the agent.integrations.enabled switch", () => {
 
 describe("a bound Codex worker's gate identity", () => {
   const on = () => true;
-  function codexAgent(db: Database, id: string, thread: string, subject?: string) {
+  function codexAgent(db: Database, id: string, thread: string, subject?: string, pane: string | null = "w1:p1") {
     const rec: AgentRecord = {
       id, repo: "remote:example.com%2Fa%2Fb", cwd: "/w", provider: "codex", surface: "herdr", sessionId: thread, createdAt: 1,
       ...(subject !== undefined && { subject }),
     };
     insertAgent(rec, db);
     const store = createSessionStore(db);
-    const result = store.bind(store.reserve({ identity: `agent:${id}`, agentId: id }), codex(thread), { mode: "herdr", pane: "w1:p1" });
+    const result = store.bind(store.reserve({ identity: `agent:${id}`, agentId: id }), codex(thread), { mode: "herdr", ...(pane !== null && { pane }) });
     if (!result.ok) throw new Error(result.error.message);
   }
 
   test("comes from the binding, never from the app server's environment", () => {
     const db = freshDb();
     codexAgent(db, "ag-sub", "thread-sub", "herd:h1/job-a");
-    codexAgent(db, "ag-plain", "thread-plain");
+    codexAgent(db, "ag-plain", "thread-plain", undefined, null);
     // RT_* in the environment belong to whoever started the app server, not to this worker.
-    const env = { CODEX_THREAD_ID: "thread-sub", RT_AGENT_ID: "ag-someone-else", RT_GATE_SUBJECT: "agent:ag-someone-else" } as NodeJS.ProcessEnv;
+    const env = { CODEX_THREAD_ID: "thread-sub", RT_AGENT_ID: "ag-someone-else", RT_GATE_SUBJECT: "agent:ag-someone-else", HERDR_PANE_ID: "w0:p0" } as NodeJS.ProcessEnv;
     expect(boundCodexGateIdentity(env, { db, enabled: on })).toEqual({
-      ok: true, data: { agentId: "ag-sub", subject: "herd:h1/job-a", sessionId: "thread-sub" },
+      ok: true, data: { agentId: "ag-sub", subject: "herd:h1/job-a", sessionId: "thread-sub", pane: "w1:p1" },
     });
     expect(boundCodexGateIdentity({ CODEX_THREAD_ID: "thread-plain" } as NodeJS.ProcessEnv, { db, enabled: on })).toEqual({
       ok: true, data: { agentId: "ag-plain", subject: "agent:ag-plain", sessionId: "thread-plain" },

@@ -266,8 +266,12 @@ export function resolveCliSession(
   return caller.ok ? { ok: true, data: caller.data.binding.native.value } : caller;
 }
 
-/** The agent and gate subject a bound Codex worker acts as, and the session id the daemon resolves them by. */
-export type BoundGateIdentity = { agentId: string; subject: string; sessionId: string };
+/**
+ * The agent and gate subject a bound Codex worker acts as, the session id the
+ * daemon resolves them by, and the binding's own pane (the environment its
+ * tools see belongs to the app server, so its pane variable is not the worker's).
+ */
+export type BoundGateIdentity = { agentId: string; subject: string; sessionId: string; pane?: string };
 
 /**
  * With agent.integrations.enabled on, a Codex worker's gate identity comes
@@ -289,6 +293,10 @@ export function boundCodexGateIdentity(
   const rec = getAgent(agentId, db);
   return {
     ok: true,
-    data: { agentId, subject: rec?.id === agentId && rec.subject !== undefined ? rec.subject : `agent:${agentId}`, sessionId: caller.data.binding.native.value },
+    data: {
+      agentId, subject: rec?.id === agentId && rec.subject !== undefined ? rec.subject : `agent:${agentId}`,
+      sessionId: caller.data.binding.native.value,
+      ...(caller.data.binding.attachment.pane !== undefined && { pane: caller.data.binding.attachment.pane }),
+    },
   };
 }

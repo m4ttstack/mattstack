@@ -214,8 +214,13 @@ export function buildGateAskPayload(
   // finds its agent record, and so its subject, by that session id.
   const bound = identityOf(env);
   if (!bound.ok) askFail(bound.error.message);
-  if (bound.data) payload.sessionId = bound.data.sessionId;
-  else if (env.CLAUDE_CODE_SESSION_ID) payload.sessionId = env.CLAUDE_CODE_SESSION_ID;
+  if (bound.data) {
+    // The binding's own pane, never the app server's inherited one.
+    payload.sessionId = bound.data.sessionId;
+    if (bound.data.pane !== undefined) payload.paneId = bound.data.pane;
+    return payload;
+  }
+  if (env.CLAUDE_CODE_SESSION_ID) payload.sessionId = env.CLAUDE_CODE_SESSION_ID;
   if (env.HERDR_PANE_ID) payload.paneId = env.HERDR_PANE_ID;
   return payload;
 }
@@ -280,7 +285,8 @@ export function buildForkCheckPayload(
   const sessionIds = [...new Set([hook.session_id, env.CLAUDE_CODE_SESSION_ID, identity?.sessionId])]
     .filter((s): s is string => typeof s === "string" && s.length > 0);
   if (sessionIds.length > 0) payload.sessionIds = sessionIds;
-  if (env.HERDR_PANE_ID) payload.paneId = env.HERDR_PANE_ID;
+  const pane = identity ? identity.pane : env.HERDR_PANE_ID || undefined;
+  if (pane !== undefined) payload.paneId = pane;
   // Both spellings: a run records whichever path its pipeline saw, and a
   // symlinked tree differs between the logical and the physical one.
   const dir = typeof hook.cwd === "string" && hook.cwd ? hook.cwd : cwd;

@@ -65,13 +65,22 @@ describe("gateAskOutput", () => {
 });
 
 describe("a bound Codex worker asks under its binding", () => {
-  const identity = { agentId: "ag-1", subject: "herd:h1/job-a", sessionId: "thread-1" };
+  const identity = { agentId: "ag-1", subject: "herd:h1/job-a", sessionId: "thread-1", pane: "w7:p1" };
 
-  test("its session id comes from the binding, so the daemon finds its agent record and subject", () => {
+  test("its session and pane come from the binding, never the app server's inherited pane", () => {
+    // HERDR_PANE_ID here is whatever pane the user started the app server in.
     const env = { CODEX_THREAD_ID: "thread-1", HERDR_PANE_ID: "w1:p1" } as NodeJS.ProcessEnv;
     const payload = buildGateAskPayload(["--questions", Q], env, () => ({ ok: true, data: identity }));
-    expect(payload).toMatchObject({ sessionId: "thread-1", paneId: "w1:p1" });
+    expect(payload).toMatchObject({ sessionId: "thread-1", paneId: "w7:p1" });
     expect(payload.subject).toBeUndefined();
+  });
+
+  test("a binding with no pane sends none, whatever the environment says", () => {
+    const env = { CODEX_THREAD_ID: "thread-1", HERDR_PANE_ID: "w1:p1" } as NodeJS.ProcessEnv;
+    const { pane: _pane, ...headless } = identity;
+    const payload = buildGateAskPayload(["--questions", Q], env, () => ({ ok: true, data: headless }));
+    expect(payload.sessionId).toBe("thread-1");
+    expect("paneId" in payload).toBe(false);
   });
 
   test("no bound identity keeps today's environment session", () => {
