@@ -157,7 +157,7 @@ export interface SnapshotSpec {
   /** Paths (relative to repoDir) the engine may stage; undefined = everything outside claimed zones. */
   scope?: (relPath: string) => boolean;
   /** Zones claimed for as long as the spec runs, as if written to the owners file; a claim in the file wins over one here. */
-  standingZones?: (repoDir: string) => Owners["zones"];
+  standingZones?: (repoDir: string, log: Logger) => Owners["zones"];
   /** `held` paths are in scope but not staged this round, given the round's dirty paths; they are not reported as unowned. */
   readAuthorization?: () => { scope: (relPath: string) => boolean; pullOnly: boolean; held?: (relPath: string, dirty: readonly string[]) => boolean };
   /** Every managed path, including paths this Mac may not push. */
@@ -377,18 +377,20 @@ export function homeSnapshotSpec(repoDir: string = join(mattstackHome(), "user")
  * (`rt team add`), so the zones are re-listed on every read; an unconverted
  * clone still keeps its packs in `mattstack/packs/`.
  */
-function teamStandingZones(repoDir: string): Owners["zones"] {
+function teamStandingZones(repoDir: string, log: Logger): Owners["zones"] {
   let teams: string[] = [];
   try {
-    teams = readdirSync(join(repoDir, "mattstack", "teams"), { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && TEAM_NAME_RE.test(entry.name))
-      .map((entry) => entry.name)
-      .sort();
+    const folders = readdirSync(join(repoDir, "mattstack", "teams"), { withFileTypes: true }).filter((entry) => entry.isDirectory());
+    for (const folder of folders) {
+      if (!TEAM_NAME_RE.test(folder.name)) log.debug({ folder: folder.name }, "team snapshot: a folder under mattstack/teams is not a team name, so its packs get no zone");
+    }
+    teams = folders.map((entry) => entry.name).filter((name) => TEAM_NAME_RE.test(name)).sort();
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code !== "ENOENT" && code !== "ENOTDIR") throw err;
   }
-  const zones = ["mattstack/packs/", "mattstack/org/packs/", ...teams.map((team) => `mattstack/teams/${team}/packs/`)];
+  const legacy = !existsSync(join(repoDir, "mattstack", "org")) || existsSync(join(repoDir, "mattstack", "packs")) ? ["mattstack/packs/"] : [];
+  const zones = [...legacy, "mattstack/org/packs/", ...teams.map((team) => `mattstack/teams/${team}/packs/`)];
   return Object.fromEntries(zones.map((zone) => [zone, { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" }]));
 }
 
@@ -484,7 +486,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   const ownersPath = ownersPathFor(deps.repoDir);
   const readClaims = (): Owners => {
     const owners = deps.readOwners(ownersPath);
-    return spec.standingZones ? { zones: { ...spec.standingZones(deps.repoDir), ...owners.zones } } : owners;
+    return spec.standingZones ? { zones: { ...spec.standingZones(deps.repoDir, deps.log), ...owners.zones } } : owners;
   };
   const { label, settingsKey, missingRepo } = vocabOf(spec);
 
@@ -1152,6 +1154,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
 
   async function doRun(reason: SnapshotReason): Promise<SnapshotResult> {
     lastRunAt = deps.now();
+    heldBack = [];
 
     const settings = safeReadSettings();
     if (settings.enabled === false) {
@@ -1377,14 +1380,14 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (willJanitorCommit) {
       for (const jz of plan.janitorZones) {
         const inZone = (path: string) => jz.zone.endsWith("/") ? path.startsWith(jz.zone) : path === jz.zone;
-        const commitPaths = spec.scope ? scopeArgs.filter(inZone) : [jz.zone];
-        const addPaths = spec.scope ? addScopeArgs.filter(inZone) : [jz.zone];
+        const commitPaths = stageScope ? scopeArgs.filter(inZone) : [jz.zone];
+        const addPaths = stageScope ? addScopeArgs.filter(inZone) : [jz.zone];
         if (commitPaths.length === 0) continue;
         const dirtyHours = Math.floor((deps.now() - jz.dirtySinceMs) / (60 * 60 * 1000));
         const message = `snapshot (janitor): ${jz.zone} dirty >${dirtyHours}h, owner ${jz.owner}`;
         if (!mayWrite(commitPaths, rawEntries)) continue;
         const addResult = addPaths.length > 0
-          ? await deps.exec(["git", "add", "-A", "--", ...(spec.scope ? literal(addPaths) : addPaths)], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" })
+          ? await deps.exec(["git", "add", "-A", "--", ...(stageScope ? literal(addPaths) : addPaths)], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" })
           : { exitCode: 0, stderr: "" };
         if (addResult.exitCode !== 0) {
           deps.log.warn({ stderr: addResult.stderr, zone: jz.zone }, `${label}: janitor add failed; skipping this zone this cycle`);
@@ -1392,7 +1395,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
         }
         // Same self-contained-commit and unsigned-commit reasoning as the auto commit above.
         if (!mayWrite(commitPaths, rawEntries)) continue;
-        const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", ...(spec.scope ? literal(commitPaths) : commitPaths)], {
+        const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", ...(stageScope ? literal(commitPaths) : commitPaths)], {
           cwd: deps.repoDir,
           timeoutMs: GIT_TIMEOUT_MS,
           stderr: "pipe",

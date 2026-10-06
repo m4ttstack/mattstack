@@ -2172,6 +2172,87 @@ describe("teamSnapshotSpec", () => {
     test("never holds it for a record that does not name the marketplace", async () => {
       expect(await round([GADGETS], dirty, true)).toEqual({ staged: true, heldBack: [] });
     });
+
+    test("a later round that stops early no longer reports the hold", async () => {
+      mkdirSync(join(FAKE_REPO_DIR, GADGETS), { recursive: true });
+      try {
+        const { fn } = makeFakeExec(defaultResponders({ statusZ: dirty.map((line) => `${line}\0`).join("") }));
+        const { deps } = baseDeps({ exec: fn });
+        const { repoDir: _repoDir, ...specDeps } = deps;
+        const handle = startSnapshot(teamSnapshotSpec("acme", FAKE_REPO_DIR, { ownedRoots: ADMIN_ROOTS, pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: probesWithShare([GADGETS, MARKET]), readToken: async () => "glpat-x" }), specDeps);
+        await handle.ready;
+        await handle.runNow("watch");
+        expect(handle.status().heldBack).toEqual([MARKET]);
+        mkdirSync(join(FAKE_REPO_DIR, ".git"), { recursive: true });
+        writeFileSync(join(FAKE_REPO_DIR, ".git", "MERGE_HEAD"), "");
+        expect((await handle.runNow("watch")).skipped).toBe("merge-in-progress");
+        expect(handle.status().heldBack).toEqual([]);
+        handle.stop();
+      } finally {
+        rmSync(join(FAKE_REPO_DIR, "mattstack"), { recursive: true, force: true });
+        rmSync(join(FAKE_REPO_DIR, ".git"), { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("a converted clone lists the legacy packs zone only when that folder is there", async () => {
+    mkdirSync(join(FAKE_REPO_DIR, "mattstack", "org"), { recursive: true });
+    try {
+      const { fn } = makeFakeExec(defaultResponders());
+      const { deps } = baseDeps({ exec: fn });
+      const { repoDir: _repoDir, ...specDeps } = deps;
+      const handle = startSnapshot(teamSnapshotSpec("acme", FAKE_REPO_DIR, { ownedRoots: ADMIN_ROOTS, pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: adminProbes(), readToken: async () => "glpat-x" }), specDeps);
+      await handle.ready;
+      expect(handle.status().claimedZones).toEqual(["mattstack/org/packs/"]);
+      mkdirSync(join(FAKE_REPO_DIR, "mattstack", "packs"), { recursive: true });
+      expect(handle.status().claimedZones).toEqual(["mattstack/packs/", "mattstack/org/packs/"]);
+      handle.stop();
+    } finally {
+      rmSync(join(FAKE_REPO_DIR, "mattstack"), { recursive: true, force: true });
+    }
+  });
+
+  test("a folder under teams that is not a team name gets no pack zone, and says so in the debug log", async () => {
+    mkdirSync(join(FAKE_REPO_DIR, "mattstack", "teams", "Widgets"), { recursive: true });
+    mkdirSync(join(FAKE_REPO_DIR, "mattstack", "teams", "gadgets"), { recursive: true });
+    writeFileSync(join(FAKE_REPO_DIR, "mattstack", "teams", "notes.txt"), "");
+    try {
+      const { fn } = makeFakeExec(defaultResponders());
+      const { deps, log } = baseDeps({ exec: fn });
+      const { repoDir: _repoDir, ...specDeps } = deps;
+      const handle = startSnapshot(teamSnapshotSpec("acme", FAKE_REPO_DIR, { ownedRoots: ADMIN_ROOTS, pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: adminProbes(), readToken: async () => "glpat-x" }), specDeps);
+      await handle.ready;
+      expect(handle.status().claimedZones).toEqual(["mattstack/packs/", "mattstack/org/packs/", "mattstack/teams/gadgets/packs/"]);
+      const debug = log.calls.filter((call) => call.level === "debug").map((call) => JSON.stringify(call.args));
+      expect(debug.some((line) => line.includes("Widgets"))).toBe(true);
+      expect(debug.some((line) => line.includes("notes.txt"))).toBe(false);
+      handle.stop();
+    } finally {
+      rmSync(join(FAKE_REPO_DIR, "mattstack"), { recursive: true, force: true });
+    }
+  });
+
+  test("the janitor scopes its commit by the round's own authorization, not the spec's", async () => {
+    const zone = "mattstack/packs/";
+    const packFile = "mattstack/packs/acme/SKILL.md";
+    const db = freshDb();
+    db.query("INSERT INTO kv (ns, k, v, updated_at) VALUES ('team-snapshot:acme', 'state', ?, 0);").run(JSON.stringify({ firstSeenDirty: { [zone]: 0 } }));
+    const { fn, calls } = makeFakeExec(defaultResponders({ statusZ: `?? ${packFile}\0?? src/a.ts\0` }));
+    const { deps } = baseDeps({ exec: fn, db, now: () => 10_000_000 });
+    const { repoDir: _repoDir, ...specDeps } = deps;
+    const handle = startSnapshot({
+      ...homeSnapshotSpec(FAKE_REPO_DIR),
+      id: "team:acme",
+      kvNamespace: "team-snapshot:acme",
+      eventPrefix: "team",
+      standingZones: () => ({ [zone]: { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" } }),
+      readAuthorization: () => ({ scope: teamScope, pullOnly: false }),
+    }, specDeps);
+    await handle.ready;
+    expect((await handle.runNow("janitor")).committed).toBe(true);
+    const janitorCommit = calls.find((c) => gitVerb(c) === "commit" && c.some((arg) => arg.startsWith("snapshot (janitor)")))!;
+    expect(janitorCommit.slice(janitorCommit.indexOf("--") + 1)).toEqual([`:(literal)${packFile}`]);
+    handle.stop();
   });
 
   test("packs are janitor-only: a watch commits the rest of the store and leaves a dirty pack for its own publish", () => withWidgetsFolder(async () => {
