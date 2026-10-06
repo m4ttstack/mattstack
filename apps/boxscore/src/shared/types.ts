@@ -96,6 +96,14 @@ export interface UserRow {
   metrics: UserMetrics;
 }
 
+export type ViewerRole = 'team' | 'self';
+
+/** Who is looking, and what they may see. `username: null` = not identified. */
+export interface Viewer {
+  username: string | null;
+  role: ViewerRole;
+}
+
 export interface Scope {
   type: 'group' | 'projects';
   groupPath?: string;
