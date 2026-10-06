@@ -44,7 +44,7 @@
     "url": "git+https://github.com/m4ttstack/mattstack.git",
     "directory": "packages/rt-client"
   },
-  "homepage": "https://rt.cool",
+  "homepage": "https://docs.mattstack.dev/rt",
   "bugs": {
     "url": "https://github.com/m4ttstack/mattstack/issues"
   },

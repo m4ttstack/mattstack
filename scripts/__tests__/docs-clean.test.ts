@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { cleanGenerated } from "../lib/docs-clean.ts";
-import { HAND_WRITTEN_REFERENCE } from "../lib/docs-hand.ts";
+import { HAND_WRITTEN_REFERENCE, REFERENCE_ROOT } from "../lib/docs-hand.ts";
 
 test("cleanGenerated removes generated pages but preserves the hand-written allowlist", () => {
   const dir = mkdtempSync(join(tmpdir(), "rt-clean-"));
@@ -33,4 +33,24 @@ test("cleanGenerated removes generated pages but preserves the hand-written allo
 test("cleanGenerated is a no-op when the dir does not exist", () => {
   const dir = join(tmpdir(), "rt-clean-missing-" + process.pid);
   expect(() => cleanGenerated(dir, HAND_WRITTEN_REFERENCE)).not.toThrow();
+});
+
+test("the reference root is the rt tab's reference folder", () => {
+  expect(REFERENCE_ROOT).toBe("website/docs/rt/reference");
+});
+
+test("hand-written reference files survive a clean at the reference root", () => {
+  const home = mkdtempSync(join(tmpdir(), "docs-clean-"));
+  const root = join(home, REFERENCE_ROOT);
+  mkdirSync(join(root, "_partials", "gate"), { recursive: true });
+  writeFileSync(join(root, "_partials", "gate", "ask.mdx"), "x");
+  writeFileSync(join(root, "_category_.json"), "{}");
+  writeFileSync(join(root, "global.mdx"), "x");
+  writeFileSync(join(root, "cd.mdx"), "generated");
+  cleanGenerated(root, HAND_WRITTEN_REFERENCE);
+  expect(existsSync(join(root, "_partials", "gate", "ask.mdx"))).toBe(true);
+  expect(existsSync(join(root, "_category_.json"))).toBe(true);
+  expect(existsSync(join(root, "global.mdx"))).toBe(true);
+  expect(existsSync(join(root, "cd.mdx"))).toBe(false);
+  rmSync(home, { recursive: true, force: true });
 });

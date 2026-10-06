@@ -337,13 +337,13 @@ bun bin/gitq stacks
 - [docs/testing.md](docs/testing.md): running the unit and integration suites, and the two tests that write to a real forge.
 - [docs/releasing.md](docs/releasing.md): cutting a version and the release artifact contract.
 
-The full documentation site (getting started, concepts, guides, and a reference page per command) is Docusaurus source under [`website/`](website/). Run it locally with `cd website && bun run start`.
+The full documentation (getting started, concepts, guides, and a reference page per command) is the gitq tab of the mattstack docs at [docs.mattstack.dev/gitq](https://docs.mattstack.dev/gitq). Its source lives in the monorepo's `website/docs/gitq/`.
 
 ## Contributing
 
 Issues and pull requests are welcome at [github.com/m4ttstack/mattstack](https://github.com/m4ttstack/mattstack); gitq lives under `apps/gitq`.
 
-Before opening a PR, run `bun run check-types` and `bun run test`. A new CLI command also needs a reference page under `website/docs/reference/<category>/<command>.mdx`; `tests/docs-coverage.test.ts` fails the suite when a command has no page, or when a page has no command.
+Before opening a PR, run `bun run check-types` and `bun run test`. A new CLI command also needs a reference page under `website/docs/gitq/reference/<category>/<command>.mdx`; `tests/docs-coverage.test.ts` fails the suite when a command has no page, or when a page has no command.
 
 ## License
 

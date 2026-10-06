@@ -1,0 +1,100 @@
+---
+sidebar_position: 7
+title: The daemon
+---
+
+# The daemon
+
+`rt` runs a small background daemon that keeps a few things warm so interactive commands feel instant instead of shelling out to GitHub, GitLab, and `git` on every keystroke.
+
+## What it does today
+
+The daemon is a long-lived process (a launchd LaunchAgent, `com.mattstack.daemon`, registered by mattstack.app) that:
+
+- **Caches MR/branch data.** It keeps branch and merge-request caches warm for the repos you've granted background tracking, and consumers like the board app and rt's own pickers (`rt cd` and friends) read those caches instead of re-fetching from GitLab/Linear on every invocation. Tracking is opt-in per repo, set with [`rt daemon track`](/rt/reference/daemon/track) (or `rt repos register --track`): `live` repos (GitLab only) add an events watcher that polls roughly every 15 seconds on top of the 5-minute refresh cycle, `poll` repos get only the 5-minute cycle, and `off` repos (the default) make no background API calls, though on-demand reads still work. The team-wide open-MR list (the `project-mrs` cache) also gets a full reconcile once a day. Consumers can also demand freshness explicitly (a max-age on reads), so a stale cache is refreshed on the spot instead of served as-is.
+- **Scans ports.** It scans listening ports roughly every 30 seconds while something has asked for port or process data in the last 5 minutes (mattstack.app polls every 10 seconds, so in practice whenever the app is running), so `rt port` can show you what's running across your repos with zero configuration.
+- **Guards git hooks.** For repos where rt manages hooks, it watches each repo's `.git/config` (with a 60-second rescan as a fallback) and re-applies rt's hooks shim path whenever it's missing or points anywhere else. Tools like husky rewrite `core.hooksPath` on every install; rt points it back, and its shims still run the repo's `.husky/<hook>` scripts, so your `rt hooks` toggles keep working.
+- **Answers status polls.** CLI commands and mattstack.app both query the daemon over a local Unix socket (and a REST/WebSocket API) for cached data and health.
+- **Runs the worktree lifecycle.** [`rt worktree`](/rt/reference/worktree)'s provision/dispose/freshen verbs execute in the daemon, which owns the worktree registry, keeps the on-deck pool replenished, and reacts to merged MRs (auto-return plus guarded auto-dispose of the finished tree).
+- **Kills a worktree's workload on dispose.** When a worktree is disposed (its feature is done), the daemon finds the dev servers, watchers, and compilers rooted in that worktree, SIGTERMs them, and escalates any survivor to SIGKILL after about 5 seconds. It deliberately spares AI agent sessions (Claude, Codex, and the like) and everything they spawned, plus shells and `.app` bundle processes, since those aren't workload.
+- **Scans for and notifies on runaway processes.** Roughly every 10 seconds (under the same "something asked recently" rule as the port scan) it scans system processes for anything rooted in a tracked repo, tracks a rolling CPU sample window per process, and notifies once a process has sustained high CPU for long enough (5 minutes above 80% by default, after a 2-minute grace period). AI agent sessions are excluded from this too.
+
+mattstack.app's menu bar icon shows the daemon's health at a glance, polling its status so you can tell at a look whether it's up. See the [menu bar app guide](/start/menu-bar-app).
+
+It does not run or supervise your dev servers for you the way the old managed-process feature did, and it does not provide tunnels: there's no "start this script and keep it alive" concept. The process-related behaviors above are reactive (dispose-time cleanup) and observational (runaway detection), not a general-purpose process supervisor.
+
+## Installing, starting, and stopping
+
+```bash
+rt daemon install         # register the daemon with launchd through mattstack.app
+rt daemon uninstall       # unregister and stop the daemon
+rt daemon start           # start the daemon
+rt daemon stop            # stop the daemon
+rt daemon restart         # restart the daemon
+```
+
+mattstack.app owns the daemon's launchd registration, so these commands ask the running app to do the work, and tell you to open it when it isn't running. Setup (the app's setup wizard, or `rt --post-install` from a terminal) registers the daemon for you, so you rarely need to run `rt daemon install` yourself. `rt verify` reports whether it's healthy.
+
+## Checking health and logs
+
+```bash
+rt daemon status          # pid, uptime, watched repos, cache entries, health
+rt daemon logs            # open the log viewer
+```
+
+`rt daemon status` reports liveness: pid, uptime, how many repos are watched, how many cache entries are held, the events-watcher state of each `live` repo, and any health problems the daemon reports about itself. When the daemon isn't serving normally, it says why (still booting, wedged, crash-looping, failed to boot, or parked behind another flavor's daemon) rather than just calling it down.
+
+`rt daemon logs` opens a browser-based log viewer by default; pass `--terminal` (or `-t`) for a live tail in your terminal instead. The browser view runs the `logdy` that ships inside mattstack.app, falling back to one on your `PATH` or in `/opt/homebrew/bin`, `/usr/local/bin` or `~/.local/bin`; `--no-open` starts it without opening a browser. The terminal view uses `lnav` when it's installed and `pino-pretty` otherwise. All daemon (and other rt surface) logs live under `~/.mattstack/rt/logs/`; see the [logging guide](/rt/guides/logging) for the file convention and how the viewer discovers them.
+
+See the full command reference: [`rt daemon`](/rt/reference/daemon), [`rt daemon status`](/rt/reference/daemon/status), [`rt daemon logs`](/rt/reference/daemon/logs), [`rt daemon log-level`](/rt/reference/daemon/log-level), [`rt daemon track`](/rt/reference/daemon/track), [`rt daemon install`](/rt/reference/daemon/install), [`rt daemon start`](/rt/reference/daemon/start), [`rt daemon stop`](/rt/reference/daemon/stop), [`rt daemon restart`](/rt/reference/daemon/restart), and [`rt daemon uninstall`](/rt/reference/daemon/uninstall).
+
+## Background server
+
+The daemon owns a headless herdr server (session name `bg`) for agents that do not need a visible terminal. Any operation that creates a background pane starts the server automatically; you do not need to manage it yourself.
+
+```bash
+rt bg status              # up/down, socket path, live claims
+rt bg release <owner>     # release one claim (picker when omitted)
+rt bg stop                # shut down (refuses while claims are live)
+```
+
+Background panes use a `bg:` prefix in pane addressing (e.g. `bg:w1:p2`). All standard pane verbs (`rt pane list`, `rt pane peek`, `rt pane send`, `rt pane focus`) work with that prefix.
+
+Agents launched with `rt agent start --bg` run on the background server instead of the visible herdr instance.
+
+## Stale-claim sweep
+
+The daemon also cleans up claims nobody released. A claimed worktree with no open MR that has been inactive longer than its repo's `staleClaimDays` (in `rt.worktrees`; default 7, `0` turns the sweep off) goes through the same guarded dispose as a merged tree: a dirty or unpushed tree is refused and stays claimed, a tree with any live process sitting inside it is skipped, and a disposed tree lands in the 14-day trash. On the background server, a claim is released once its pane is gone, its runner process has exited, or its herd has wrapped up with no live pane.
+
+## Gates
+
+Gates are daemon-persisted decisions that survive restarts. They are primarily agent-facing (the herd orchestrator opens them, workers wait on them), but the user-facing surface is how you answer a pending question or see what is waiting:
+
+```bash
+rt gate list --open       # show pending decisions
+rt gate answer <id>       # answer one (first answer wins)
+```
+
+`rt gate answer --override` lets a human answer a gate that belongs to a herd, escalating past the automated owner. An unanswered herd gate is escalated to you automatically once its TTL elapses or its owner stops listening.
+
+See the [gates guide](/skills/gates) for the full lifecycle, `rt gate ask`, option descriptions, and delivery mechanics.
+
+## Herds
+
+A herd is a group of workers (coding agents in herdr panes) coordinated by a shepherd. The daemon owns the herd registry, spawns workers, and routes their questions through gates.
+
+### `rt herd brief`
+
+Assembles a worker's job brief from a shepherd skill's template plus a strategy body. The shepherd passes every path explicitly; this is agent-facing and not something you run by hand.
+
+### Spawn and folder trust
+
+When a worker spawns, its pane may show Claude Code's folder-trust dialog. The spawn logic reads the dialog, computes the correct accept key, and verifies acceptance. If the dialog persists after a retry, the job is parked at `stuck-at-modal`, and `rt herd status` shows `STUCK AT TRUST MODAL` with remediation instructions.
+
+### Dead worker detection
+
+A memory-pressure SIGKILL can remove the Claude process while leaving the pane's shell alive. The herd detects this by checking whether the pane still has a running agent session. When it doesn't, `rt herd status` reports `SESSION DEAD` with the respawn command.
+
+### Gate-fork hook
+
+Herd spawns stamp the gate subject on the worker environment so each worker gets the gate-fork hook (a Claude Code hook that routes questions through the daemon's gate registry). The hook asks the daemon (`rt gate fork-check`), which resolves the pane's subject the same way `rt gate ask` does, so a worker's own open gate (its launch subject, a form gate asked from its live pane and session, a run gate for its worktree, or its session's run) is allowed through and it doesn't block on its own question.

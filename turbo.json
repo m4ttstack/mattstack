@@ -132,6 +132,14 @@
         "!$TURBO_ROOT$/**/dist-bin/**"
       ]
     },
+    "@mattstack/gitq#test": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/website/docs/gitq/**",
+        "!$TURBO_ROOT$/**/node_modules/**"
+      ]
+    },
     "//#lint:root": {
       "inputs": [
         "eslint.config.mjs",

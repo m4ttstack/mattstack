@@ -1,0 +1,28 @@
+---
+sidebar_position: 2
+title: Review
+---
+
+# Review
+
+The plugin's public review door is `mattstack:subagent-review-loop`: a review loop for a spec or plan document, before anyone starts implementing it. It is not for reviewing code, a branch or an MR or PR.
+
+## What you ask for
+
+Say something like "have a subagent review the spec and loop until it signs off". It also fits a design doc that brainstorming or plan-writing just produced, or any time you want explicit sign-off on a spec or plan before execution starts.
+
+## What you get
+
+One reviewer subagent reads the document and returns a verdict. The driving agent fixes the document and goes back to that same reviewer until it answers `Status: Approved`. The reviewer keeps its context across rounds, so round two asks "did the fixes hold?" instead of a cold re-read.
+
+- **The target** is the path you give, else the spec or plan the session just wrote.
+- **The reviewer's model** is the one you name ("have a fable subagent review..."). Otherwise it is chosen by `mattstack:model-tiering`, which for adversarial spec review should land on the top tier.
+- **Disagreement** with a finding gets pushed back with a technical reason, not silently applied.
+- **The exit** is the reviewer's explicit `Status: Approved`, never the driver's own judgment that things look fine.
+- **A round-four stop**: if round four ends without approval, the loop stops and shows you the remaining disagreement instead of grinding on.
+
+Recommendations in the verdict are advisory and do not block approval.
+
+## Reviewing an MR or PR
+
+Reviewing someone else's MR or PR, reviewing your own branch before shipping, and processing feedback on your own MR are separate skills (`review`, `self-review`, `receive-review`). They are hidden from the slash menu and reachable only as verbs a team pack compiles. See [Packs](/skills/packs).

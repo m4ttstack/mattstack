@@ -3,7 +3,7 @@ import { renderUsage, renderArgsTable, slugArg, escapeMdxText } from "../lib/doc
 import type { CommandArg } from "../../lib/command-tree.ts";
 import { TREE } from "../../lib/command-tree-def.ts";
 
-const NO_COMMON = { flags: new Set<string>(), href: "/guides/common-flags" };
+const NO_COMMON = { flags: new Set<string>(), href: "/rt/guides/common-flags" };
 
 test("slugArg lowercases and hyphenates", () => {
   expect(slugArg("Dry run")).toBe("dry-run");
@@ -47,9 +47,9 @@ test("renderArgsTable renders a row per arg with flag, type, default, hint", () 
 
 test("renderArgsTable links common flags to the guide", () => {
   const args: CommandArg[] = [{ name: "JSON", flag: "--json", type: "boolean" }];
-  const common = { flags: new Set(["--json"]), href: "/guides/common-flags" };
+  const common = { flags: new Set(["--json"]), href: "/rt/guides/common-flags" };
   const out = renderArgsTable(args, common);
-  expect(out).toContain("[`--json`](/guides/common-flags)");
+  expect(out).toContain("[`--json`](/rt/guides/common-flags)");
 });
 
 test("renderArgsTable returns empty string when no args", () => {
@@ -67,7 +67,7 @@ import { renderPage, renderSubcommandsTable } from "../lib/docs-render.ts";
 import type { CommandNode } from "../../lib/command-tree.ts";
 
 const OPTS = {
-  common: { flags: new Set<string>(), href: "/guides/common-flags" },
+  common: { flags: new Set<string>(), href: "/rt/guides/common-flags" },
   sourceBase: "https://github.com/x/repo-tools/blob/main/",
   hasPartial: () => false,
 };
@@ -107,7 +107,7 @@ test("renderPage lists subcommands for a branch node", () => {
 test("renderPage splices a partial import only when the partial exists", () => {
   const node: CommandNode = { description: "Runner", module: "./commands/run.ts", fn: "runCommand" };
   const withPartial = renderPage(node, ["run"], "run", { ...OPTS, hasPartial: () => true });
-  expect(withPartial).toContain("import Notes from '@site/docs/reference/_partials/run.mdx'");
+  expect(withPartial).toContain("import Notes from '@site/docs/rt/reference/_partials/run.mdx'");
   expect(withPartial).toContain("<Notes />");
   const without = renderPage(node, ["run"], "run", OPTS);
   expect(without).not.toContain("import Notes");

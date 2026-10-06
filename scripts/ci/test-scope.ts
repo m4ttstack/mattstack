@@ -1,7 +1,7 @@
 /**
  * Decides what the unit shards run for one CI event and prints the answer
  * for checks.yml. Usage:
- *   bun scripts/ci/test-scope.ts             writes mode=, dirs=, always=, plugins= to $GITHUB_OUTPUT
+ *   bun scripts/ci/test-scope.ts             writes mode=, dirs=, always=, plugins=, website= to $GITHUB_OUTPUT
  *   bun scripts/ci/test-scope.ts --explain   prints the decision and its reason only
  */
 import { appendFileSync, existsSync, readdirSync, readFileSync, statSync } from "fs";
@@ -148,6 +148,21 @@ export function prPluginDirs(changed: string[], root: string = ROOT): string[] {
   return [...new Set([...pluginDirs(changed), ...rtTriggeredPluginDirs(changed, root)])].sort();
 }
 
+const WEBSITE_TRIGGERS = [
+  "website/",
+  "scripts/gen-docs.ts",
+  "scripts/check-docs.ts",
+  "scripts/gen-rt-cool-redirects.ts",
+  "scripts/check-rt-cool-redirects.ts",
+  "scripts/lib/docs-",
+  "lib/command-tree-def.ts",
+  ...ALL_PLUGIN_TRIGGERS,
+];
+
+export function websiteChanged(changed: string[]): boolean {
+  return changed.some((f) => WEBSITE_TRIGGERS.some((t) => f.startsWith(t)));
+}
+
 export function existingPluginDirs(root: string = ROOT): string[] {
   const dir = join(root, "plugins");
   if (!existsSync(dir)) return [];
@@ -279,10 +294,12 @@ if (import.meta.main) {
   const plugins = (event === "pull_request" ? prPluginDirs(changed) : existingPluginDirs()).join(",");
   console.log(`always=${always}`);
   console.log(`plugins=${plugins}`);
+  const website = event === "pull_request" ? websiteChanged(changed) : true;
+  console.log(`website=${website}`);
   if (!process.argv.includes("--explain") && process.env.GITHUB_OUTPUT) {
     appendFileSync(
       process.env.GITHUB_OUTPUT,
-      `mode=${decision.mode}\ndirs=${dirs}\nalways=${always}\nplugins=${plugins}\n`,
+      `mode=${decision.mode}\ndirs=${dirs}\nalways=${always}\nplugins=${plugins}\nwebsite=${website}\n`,
     );
   }
 }

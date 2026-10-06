@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Build the rt.cool docs site and deploy it to Cloudflare Pages.
+# Build the mattstack docs site and deploy it to Cloudflare Pages.
 #
 # One-time setup (maintainer, outside this script):
-#   1. Create a Cloudflare Pages project (default name: rt-cool).
+#   1. Create the Pages project mattstack-docs.
 #   2. Authenticate wrangler: `wrangler login`, or set CLOUDFLARE_API_TOKEN.
-#   3. Point rt.cool (apex + www) DNS at the Pages project.
+#   3. Add docs.mattstack.dev as the Pages project's custom domain.
 #
 # Usage:
 #   bash scripts/deploy-docs.sh            # build + deploy to production
 #   bash scripts/deploy-docs.sh --check    # build only, verify wrangler is present, no deploy
 #
 # Env:
-#   CF_PAGES_PROJECT   Pages project name (default: rt-cool)
+#   CF_PAGES_PROJECT   Pages project name (default: mattstack-docs)
 set -euo pipefail
 
-PROJECT="${CF_PAGES_PROJECT:-rt-cool}"
+PROJECT="${CF_PAGES_PROJECT:-mattstack-docs}"
 CHECK_ONLY=0
 [ "${1:-}" = "--check" ] && CHECK_ONLY=1
 
@@ -45,4 +45,4 @@ fi
 
 echo "==> Deploying build/ to Cloudflare Pages project '$PROJECT'"
 $WRANGLER pages deploy build --project-name "$PROJECT" --branch main
-echo "==> Deployed. If DNS is pointed at the project, rt.cool is live."
+echo "==> Deployed. Run bun run docs:smoke to confirm docs.mattstack.dev is live."

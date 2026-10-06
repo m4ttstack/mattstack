@@ -95,3 +95,15 @@ test('the board skills drift guard runs in //#turbo:test and rehashes on its sou
     ])
   );
 });
+
+// The no-rt-cool-links guard reads every tracked file, so test-scope skips it on the
+// PRs most likely to add a link (docs, apps, plugins). //#purity runs on every
+// check and already hashes the whole tracked tree.
+test('the no-rt-cool-links guard runs in //#purity, which rehashes on any tracked file', () => {
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+  expect(pkg.scripts.purity.split(' ')).toContain(
+    './lib/__tests__/no-rt-cool-links.test.ts'
+  );
+  const turbo = JSON.parse(readFileSync(join(ROOT, 'turbo.json'), 'utf8'));
+  expect(turbo.tasks['//#purity'].inputs).toEqual(['$TURBO_DEFAULT$']);
+});

@@ -114,7 +114,7 @@ export function renderPage(
 
   const partial = opts.hasPartial(relPath)
     ? [
-        `import Notes from '@site/docs/reference/_partials/${relPath}.mdx';`,
+        `import Notes from '@site/docs/rt/reference/_partials/${relPath}.mdx';`,
         "",
         "## Examples & notes",
         "",

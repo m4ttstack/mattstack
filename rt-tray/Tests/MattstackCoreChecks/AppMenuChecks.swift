@@ -11,8 +11,8 @@ private func installMainMenuBody() throws -> String {
 }
 
 let appMenuChecks: [Check] = [
-    Check("mattstack Help opens the rt.cool docs site") { c in
-        c.expectEqual(DocsSite.home.absoluteString, "https://rt.cool/")
+    Check("mattstack Help opens the mattstack docs site") { c in
+        c.expectEqual(DocsSite.home.absoluteString, "https://docs.mattstack.dev/")
     },
     Check("the app menu lists About, updates, Settings, Setup status and Quit, in that order") { c in
         let body = try installMainMenuBody()

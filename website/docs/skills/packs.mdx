@@ -1,0 +1,82 @@
+---
+sidebar_position: 6
+title: Packs
+---
+
+# Packs
+
+A pack is your team's plugin: the verbs your team types (`/<team>:work`), the bindings that route each pipeline stage to your rules, and the rules themselves. Nobody writes it by hand. Two skills do the work: `mattstack:creating-a-pack` and `mattstack:extending-a-pack`. The examples here use an org called `acme` and its team `widgets`.
+
+A team does not fork the plugin. Its pack compiles a `work` verb from the plugin's engines with every domain slot unbound, so the generic pipeline runs on day one, and rules arrive later one at a time.
+
+## Before you start
+
+On the machine that runs it you need the rt daemon, the mattstack and superpowers plugins, `glab`, and a GitLab remote on the repo. Your org must be on the machine too: `~/.mattstack/teams/<org>/`, with one folder per team. With no org yet, `rt team create` makes one; see [Teams and invites](/start/teams). An org admin gives another team its folder with `rt team add`.
+
+## Create the pack
+
+In the repo, say what you want in plain words:
+
+```
+$ claude
+> we want the mattstack work pipeline on this repo, our team is widgets
+```
+
+`mattstack:creating-a-pack` runs the checks above and stops on any miss, naming the fix. Then it runs `rt skills init`, which writes the pack in your team's folder of the org clone, compiles it, checks it and installs it on your machine. The pack starts with no rules, and every stage runs its generic path.
+
+Init also publishes the pack: it commits the new files in the org clone and pushes them. When that falls short, `rt team publish` finishes it. Your team's members receive the pack through `rt setup`, and a machine installs only its active team's pack.
+
+## Prove it
+
+`/widgets:work` appears after `/reload-plugins` in your Claude session. Run the pipeline on a small real ticket:
+
+```
+> /widgets:work <ticket>
+```
+
+A good first run shows a branch or worktree, an `APPROACH:` block at the plan gate, a commit, an MR and a CI verdict. The stages tell you where they took a generic fallback. Until this run has happened, the pack is scaffolded, not proven, and the skill says so.
+
+It then asks one question, once: are any of your team's rules already written down (CONTRIBUTING, a review checklist, branch rules, a release checklist)? "No" is a complete answer.
+
+## Add a rule
+
+Every rule is one round of `mattstack:extending-a-pack`, one ask at a time:
+
+```
+$ claude
+> our pipeline shipped an MR without running bun run lint; make ship run lint before it opens an MR on this repo
+```
+
+The skill sorts the ask into one of four places:
+
+| The ask is about | Where it lands |
+| --- | --- |
+| A rule that holds even outside a pipeline (branch names, forbidden ops, where things live) | `skills/context/SKILL.md`, a public skill in the pack |
+| Something one stage or verb should do differently | A fill bound to that stage's slot |
+| A new door: `ship`, `review`, `watch-ci`, `self-review`, `receive-review`, `shepherdr` | A roster entry in `pack/stubs.jsonc` |
+| The wording of an existing verb | Its `description` in `pack/stubs.jsonc` |
+
+For the lint example, you see a failing run first, with nothing running lint. Then a small fill skill written in your team's words is bound to the ship stage, `tests/certify.sh` and `rt skills check` pass, and the same task runs again with lint blocking the push. Publishing goes through `mattstack:editing-skills`: bump the pack version, commit, push, `rt skills sync --pack widgets`, `/reload-plugins`. A rule is undone the same way: remove the binding and the fill, bump, publish.
+
+## What not to do
+
+- Do not edit `skills/work/` or `attachments/stage-*/`: compiled output, overwritten on the next compile.
+- Do not edit the mattstack engine in the plugin cache: every team compiles from it, and the next update erases the edit.
+- Do not edit a repo's generated `skills.jsonc` under `~/.mattstack/repos/`: `rt skills materialize` regenerates it, and `pack/skills.jsonc` is the source.
+- Do not copy another team's pack: its fills carry that team's rules.
+- Do not write a fill "to have something there": an unbound slot renders as nothing, which is the correct state until a rule exists.
+
+## Fills the whole org shares
+
+A rule every team follows goes in the org's base pack, a folder the org admin adds by hand at `mattstack/org/packs/acme-base/` in the org repo. A team pack uses it with `"extends": "acme-base"` in its `pack/skills.jsonc`, and its own fills override the base's slot by slot. Bindings follow the base at once on every machine; compiled fills follow at the team owner's next `rt skills compile`. The base is never installed.
+
+## Where things live
+
+| Thing | Path |
+| --- | --- |
+| The org clone | `~/.mattstack/teams/<org>/` |
+| A team's pack | `~/.mattstack/teams/<org>/mattstack/teams/<team>/packs/<team>/` |
+| The org's base pack | `~/.mattstack/teams/<org>/mattstack/org/packs/<org>-base/` |
+| The installed copy sessions load | `~/.claude/plugins/cache/<marketplace>/<pack>/<version>/` |
+
+Packs are the exception to the daemon's automatic commits: the pack's author commits and pushes a pack's edits, and [`rt skills sync`](/rt/reference/skills/sync) brings the installed copies current. See [Teams and invites](/start/teams#team-packs) for how a member's Mac receives the pack.

@@ -8,9 +8,9 @@ import { join } from "path";
 import { spawnSync } from "child_process";
 import { TREE } from "../lib/command-tree-def.ts";
 import { coverageGaps } from "./lib/docs-coverage.ts";
-import { HAND_WRITTEN_REFERENCE } from "./lib/docs-hand.ts";
+import { REFERENCE_ROOT, HAND_WRITTEN_REFERENCE } from "./lib/docs-hand.ts";
 
-const COMMITTED = "website/docs/reference";
+const COMMITTED = REFERENCE_ROOT;
 const tmp = mkdtempSync(join(tmpdir(), "rt-docs-"));
 
 // Regenerate into a temp dir using the same generator.

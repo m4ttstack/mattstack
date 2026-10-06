@@ -1,0 +1,48 @@
+---
+title: boxscore
+sidebar_position: 6
+---
+
+# boxscore
+
+## What it is
+
+boxscore is the Forge Leaderboard: a local dashboard that ranks a hand-picked set of GitLab users against each other across a window. It ranks volume metrics (lines, MRs merged and reviewed, pipelines) and quality and consistency metrics (review depth, review latency, revert rate, MR size health, coding-day streak, review reciprocity). It also has an optional view of you against your past self.
+
+These metrics are easy to game. Lines and MR counts reward big diffs and lots of tiny MRs, and "MRs reviewed" rewards rubber-stamping. Pair every speed or volume number with its quality partner, prefer the trend view over absolute ranking, and do not let boxscore become a scoreboard people are measured on.
+
+## Open it
+
+Open boxscore from the mattstack window. It is a team app, so it expects you to be in a [team](/start/teams). Turn it on or off with [`rt apps`](/rt/reference/apps).
+
+## What you do in it
+
+**Read the standings.** The leaderboard has a strip of leaders, one per group, over a standings table with an Overview tab and one tab per group: delivery, volume, quality, consistency and collaboration.
+
+**Change the window and the view.** The page header switches the range between 7d, 30d and 90d, shows values or trend (each value beside its change from the prior equal window), and shows a table or cards.
+
+**Open a person.** A person page has a profile header, a summary of where they lead and place, and a stat rail grouped by group. Pick a stat on the rail to open its panel: its value, rank and definition, with the MRs, notes or pipelines behind it.
+
+**Refresh the data.** The Refresh button in the top bar rescans GitLab. The last numbers stay on screen, dimmed, while it runs.
+
+**Tune what counts.** The header gear opens boxscore's settings, and the same keys are in console under `/settings#boxscore`.
+
+## Settings that matter
+
+| Key | Meaning |
+| --- | --- |
+| `boxscore.projects` | GitLab projects boxscore scores, as full paths such as `group/project`. |
+| `boxscore.defaultRange` | Default comparison window when none is given: `7d`, `30d` or `90d`. |
+| `boxscore.hiddenMembers` | Usernames hidden from your leaderboard. |
+| `boxscore.sizeBand` | The healthy MR size band in changed lines, as `tooSmall` and `tooLarge`. |
+| `boxscore.excludeFilePatterns` | Glob patterns for files left out of addition and deletion counts. |
+| `boxscore.ignoredMrs` | MRs excluded from all metrics, as `!123` or `group/project!123`. |
+| `boxscore.botPatterns` | Extra patterns treated as bot accounts, beyond the built-in detection. |
+| `boxscore.linearDoneStates` | Linear state names that count as done. Empty means the completed and canceled state types. |
+
+## Related
+
+- [`rt settings`](/rt/reference/settings) reads and writes these keys.
+- [Settings](/start/settings) explains the scopes behind them.
+- [`rt secrets`](/rt/reference/secrets) holds the read-only GitLab token boxscore uses.
+- [`rt apps`](/rt/reference/apps) turns boxscore on or off.

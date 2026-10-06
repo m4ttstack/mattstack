@@ -6,7 +6,8 @@ leaf is agent-safe, so `rt_verb` refuses them.
 
 Every served app that moved, released together by one verb that qualifies origin/main, writes
 and commits the notes, tags the next patch without a rehearsal, and verifies the publish. The
-verb takes no app name: it works out which apps moved and the notes name each one.
+verb takes no app name: it works out which apps moved and the notes name each one. Before it
+runs, the docs pages for the apps that moved are updated, approved and pushed to main.
 
 ```dot
 digraph fast_path_release_apps {
@@ -17,6 +18,30 @@ digraph fast_path_release_apps {
     "Fast path verified: continue at Publish and finish" [shape=doublecircle style=filled fillcolor=lightgreen];
     "Take the full path instead" [shape=doublecircle];
     "Trigger: preflight says fast path" [shape=ellipse];
+    "git_pull {tree: <release checkout>}, before the app docs" [shape=plaintext];
+    "Pull before the app docs result?" [shape=diamond];
+    "Off-script gate: local main diverged before the app docs" [shape=box];
+    "Local main diverged before the app docs: gate rounds = 2?" [shape=diamond];
+    "git log --oneline <newest-tag>..main --grep \"docs: app pages for the next release\"" [shape=plaintext];
+    "An app docs commit since the newest tag?" [shape=diamond];
+    "bun scripts/update-docs.ts --dry-run --no-agent, for the apps that moved" [shape=plaintext];
+    "bun scripts/update-docs.ts --dry-run --no-agent --range <newest docs commit>" [shape=plaintext];
+    "Docs to review?" [shape=diamond];
+    "Update the app pages with rt:docs" [shape=box];
+    "rt:docs staged a change?" [shape=diamond];
+    "git log --oneline origin/main..main --grep \"docs: app pages for the next release\"" [shape=plaintext];
+    "An app docs commit only on local main?" [shape=diamond];
+    "Gate: confirm the resumed app docs push" [shape=box];
+    "Resumed push answer?" [shape=diamond];
+    "STOP: the resumed push waits for Matt's confirmation" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Gate: approve the app docs diff" [shape=box];
+    "App docs answer?" [shape=diamond];
+    "STOP: the app docs commit waits for Matt's approval" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "git commit -m \"docs: app pages for the next release\"" [shape=plaintext];
+    "Push main: the app docs commit" [shape=box];
+    "App docs push result?" [shape=diamond];
+    "Off-script gate: app docs push refused" [shape=box];
+    "App docs push refused: gate rounds = 2?" [shape=diamond];
     "rt release apps --dry-run --json" [shape=plaintext];
     "Dry run qualifies?" [shape=diamond];
     "rt release apps --json" [shape=plaintext];
@@ -37,7 +62,51 @@ digraph fast_path_release_apps {
     "Off-script gate: fast path declined" [shape=box];
     "Fast path declined: gate rounds = 2?" [shape=diamond];
 
-    "Trigger: preflight says fast path" -> "rt release apps --dry-run --json";
+    "Trigger: preflight says fast path" -> "git_pull {tree: <release checkout>}, before the app docs";
+    "git_pull {tree: <release checkout>}, before the app docs" -> "Pull before the app docs result?";
+    "Pull before the app docs result?" -> "git log --oneline <newest-tag>..main --grep \"docs: app pages for the next release\"" [label="ok: main is not behind origin/main"];
+    "Pull before the app docs result?" -> "Off-script gate: local main diverged before the app docs" [label="refused"];
+    "Off-script gate: local main diverged before the app docs" -> "git log --oneline <newest-tag>..main --grep \"docs: app pages for the next release\"" [label="take: Matt synced main himself"];
+    "Off-script gate: local main diverged before the app docs" -> "Local main diverged before the app docs: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: local main diverged before the app docs" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: local main diverged before the app docs" -> "Handed back to Matt" [label="hand back"];
+    "Local main diverged before the app docs: gate rounds = 2?" -> "git_pull {tree: <release checkout>}, before the app docs" [label="no: retry"];
+    "Local main diverged before the app docs: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "git log --oneline <newest-tag>..main --grep \"docs: app pages for the next release\"" -> "An app docs commit since the newest tag?";
+    "An app docs commit since the newest tag?" -> "bun scripts/update-docs.ts --dry-run --no-agent, for the apps that moved" [label="no"];
+    "An app docs commit since the newest tag?" -> "bun scripts/update-docs.ts --dry-run --no-agent --range <newest docs commit>" [label="yes: a resume, review only what landed after it"];
+    "bun scripts/update-docs.ts --dry-run --no-agent, for the apps that moved" -> "Docs to review?";
+    "bun scripts/update-docs.ts --dry-run --no-agent --range <newest docs commit>" -> "Docs to review?";
+    "Docs to review?" -> "git log --oneline origin/main..main --grep \"docs: app pages for the next release\"" [label="none"];
+    "Docs to review?" -> "Update the app pages with rt:docs" [label="listed"];
+    "Update the app pages with rt:docs" -> "rt:docs staged a change?";
+    "rt:docs staged a change?" -> "Gate: approve the app docs diff" [label="yes"];
+    "rt:docs staged a change?" -> "git log --oneline origin/main..main --grep \"docs: app pages for the next release\"" [label="no: no page needed a change"];
+    "git log --oneline origin/main..main --grep \"docs: app pages for the next release\"" -> "An app docs commit only on local main?";
+    "An app docs commit only on local main?" -> "Gate: confirm the resumed app docs push" [label="yes: approved earlier, its push never landed"];
+    "Gate: confirm the resumed app docs push" -> "Resumed push answer?";
+    "Resumed push answer?" -> "Push main: the app docs commit" [label="approve: push main"];
+    "Resumed push answer?" -> "Held: release paused, resume point named" [label="hold"];
+    "Resumed push answer?" -> "Handed back to Matt" [label="hand back"];
+    "Resumed push answer?" -> "STOP: the resumed push waits for Matt's confirmation" [label="tempted to push before the answer"];
+    "STOP: the resumed push waits for Matt's confirmation" -> "Gate: confirm the resumed app docs push";
+    "An app docs commit only on local main?" -> "rt release apps --dry-run --json" [label="no"];
+    "Gate: approve the app docs diff" -> "App docs answer?";
+    "App docs answer?" -> "git commit -m \"docs: app pages for the next release\"" [label="approve: commit and push main"];
+    "App docs answer?" -> "Held: release paused, resume point named" [label="hold"];
+    "App docs answer?" -> "Handed back to Matt" [label="hand back"];
+    "App docs answer?" -> "STOP: the app docs commit waits for Matt's approval" [label="tempted to commit or push before the answer"];
+    "STOP: the app docs commit waits for Matt's approval" -> "Gate: approve the app docs diff";
+    "git commit -m \"docs: app pages for the next release\"" -> "Push main: the app docs commit";
+    "Push main: the app docs commit" -> "App docs push result?";
+    "App docs push result?" -> "rt release apps --dry-run --json" [label="ok"];
+    "App docs push result?" -> "Off-script gate: app docs push refused" [label="refused"];
+    "Off-script gate: app docs push refused" -> "rt release apps --dry-run --json" [label="take: Matt pushed it himself"];
+    "Off-script gate: app docs push refused" -> "App docs push refused: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: app docs push refused" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: app docs push refused" -> "Handed back to Matt" [label="hand back"];
+    "App docs push refused: gate rounds = 2?" -> "Push main: the app docs commit" [label="no: retry"];
+    "App docs push refused: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "rt release apps --dry-run --json" -> "Dry run qualifies?";
     "Dry run qualifies?" -> "rt release apps --json" [label="yes"];
     "Dry run qualifies?" -> "Take the full path instead" [label="no: refused outside its gate"];
@@ -91,8 +160,13 @@ qualifies when its `status` is `planned`, its `nextTag` is the tag a real run cu
 served-app path, the notes and `website/`, and its qualify step has confirmed the newest tag
 verified. Every step detects its own completion, so rerunning the verb resumes, even after a run
 killed mid-wait, and a newest tag whose publish has not verified is re-verified before anything
-new starts. The verified outcome continues at Publish and finish (`publish-and-finish.md`) for rt.cool and
-update-machine.
+new starts. The verified outcome continues at Publish and finish (`publish-and-finish.md`) for the
+docs site and update-machine.
+
+The verb commits only `RELEASE_NOTES.md`, through the GitHub API on top of origin/main
+(`commitNotes` in `lib/release/release-app.ts`). It never commits from the local checkout, so the
+app docs reach the tag only when their commit is on origin/main before the verb runs: that is why
+the docs stage comes first and ends with a push.
 
 A verify rerun reports rows, not a status: every row ok reads as `released`, only pending rows as
 `pending`, and any stale or error row (a draft left behind, a missing asset) as `failed`, which
@@ -104,6 +178,92 @@ so it is yes after the fourth. `Fast-path resumes = 2?` counts resumes of the fa
 the first failure, so it is yes after the second resume also fails. Every
 `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes once
 Matt has answered iterate twice.
+
+### git_pull {tree: <release checkout>}, before the app docs
+
+The docs commit goes on top of local main and the push sends all of local main, so local main
+must not be behind origin/main before anything is reviewed. The pull fast-forwards a main that is
+behind (staged pages from a held gate ride along when the pull touches none of them) and changes
+nothing on a main that is current or only ahead. It refuses a main that has diverged from
+origin/main, or one whose fast-forward would overwrite a staged or modified file.
+
+### Off-script gate: local main diverged before the app docs
+
+Quote `git_pull`'s refusal, `git log --oneline origin/main..main` and `git log --oneline
+main..origin/main`. Never reset, rebase or stash to get past it. Take: Matt synced main himself.
+Iterate: Matt fixed the cause, and the pull runs again, counted by `Local main diverged before the
+app docs: gate rounds = 2?`.
+
+### An app docs commit since the newest tag?
+
+Run the log in the release checkout on main. It reads local main, so it finds a docs commit
+whether or not its push landed; the impact list alone cannot tell, since it names the same pages
+after that commit as before it. No match is a first pass. A match is a resume: the newest match
+(the first line) is `<newest docs commit>`, and only what landed after it needs review.
+
+### bun scripts/update-docs.ts --dry-run --no-agent, for the apps that moved
+
+The dry run changes nothing and prints the impact list, the `docs to review:` block rt:docs
+describes, for the newest tag to HEAD: on this path, an `apps:` line naming each moved app's page
+(`website/docs/apps/<app>.mdx`) and a `gitq:` line when gitq moved. Never run update-docs without
+`--dry-run`: a full run writes `RELEASE_NOTES.md`, and on this path the verb writes the notes.
+
+### bun scripts/update-docs.ts --dry-run --no-agent --range <newest docs commit>
+
+The same dry run over `<newest docs commit>..HEAD`: only the app commits that landed after the
+pages were last updated. Their pages get a second docs commit with the same subject.
+
+### Docs to review?
+
+`docs to review: none` takes `none`, and nothing is left to update. Anything else takes `listed`.
+
+### An app docs commit only on local main?
+
+The log prints a docs commit when Matt approved it earlier but its push never landed (a refused
+push he held or handed back, then a resume). The verb releases origin/main, so that commit would
+be left out of the tag: it needs a push, confirmed at its own gate first. No output means every
+docs commit is on origin/main, and the verb runs.
+
+### Gate: confirm the resumed app docs push
+
+The push sends every commit on local main, and a resumed session cannot tell which of them the
+earlier app docs gate listed: commits made in the release checkout since then ride along. Show
+`git log --oneline origin/main..main` and name every commit it lists as part of the push. Approve
+is Matt's confirmation for the push to main, covering exactly those listed commits, the same
+confirmation Prepare the release (`prepare.md`) asks before its main push: a standing "get it out
+today" pre-authorizes no answer here. Hold and hand back leave local main as it is, unpushed.
+
+### Update the app pages with rt:docs
+
+Follow rt:docs from its trigger, scoped by the impact list to the apps that moved: update only
+the pages it names (each app's `website/docs/apps/<app>.mdx`, gitq's pages under
+`website/docs/gitq/`), and leave rt:docs at its `Staged for review`. A hold inside rt:docs is this
+stage's `Held: release paused, resume point named`, resuming at `Update the app pages with
+rt:docs`; a hand back inside it is this stage's `Handed back to Matt`. Do the judgment in this
+session; never shell out to a nested headless Claude.
+
+### Gate: approve the app docs diff
+
+Show the impact list, `git diff --staged --stat`, the staged diff of each page, and
+`git log --oneline origin/main..main`. Everything staged must sit under `website/`. The push sends
+every commit that log lists along with the docs commit, so name them as part of the push, or say
+the log is empty. Approve is Matt's confirmation for both the commit and the push to main,
+covering those listed commits, the same confirmation Prepare the release (`prepare.md`) asks
+before its main push: a standing "get it out today" pre-authorizes no answer here. Hold and hand back leave the
+pages staged and uncommitted.
+
+### Push main: the app docs commit
+
+Run `git push origin main` <!-- mcp-lint: allow --> on Bash: git_push refuses main and tags.
+
+A refusal (another session pushed to main since) goes straight to its gate. Never rebase, pull or
+force past it.
+
+### Off-script gate: app docs push refused
+
+Quote the refusal and what landed on origin/main since (`git log --oneline main..origin/main`).
+Take: Matt pushed it himself, and the dry run qualifies the main that now carries it. Iterate:
+Matt fixed the cause, and the push runs again, counted by `App docs push refused: gate rounds = 2?`.
 
 ### Gate: approve the fast-path tag and notes
 
