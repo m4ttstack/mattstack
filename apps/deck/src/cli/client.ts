@@ -14,10 +14,12 @@ export async function deckNotRunning(
   return `Deck isn't running. ${await deckStartHint(probe, bundleRoot)}`;
 }
 
-/** Retries a request deck never answered, for up to `waitMs`, when running
-    inside a deck command run: deck may be redeploying itself alongside the
-    run (`bun run build && deck restart <app>`), and comes back in seconds. A
-    request deck did answer is never retried, so a write is never repeated. */
+/** Retries a refused connection, for up to `waitMs`, when running inside a
+    deck command run: deck may be redeploying itself alongside the run
+    (`bun run build && deck restart <app>`), and comes back in seconds. Only a
+    refusal proves deck never saw the request; a socket dropped mid-answer may
+    follow a write deck already did (`deck restart deck` drops its own), so
+    that is never repeated. */
 export async function withDeckWait(
   attempt: () => Promise<Response>,
   opts: {
@@ -35,7 +37,9 @@ export async function withDeckWait(
     try {
       return await attempt();
     } catch (err) {
-      if (!insideRun || now() >= deadline) throw err;
+      const refusedConnection =
+        (err as { code?: unknown }).code === 'ConnectionRefused';
+      if (!insideRun || !refusedConnection || now() >= deadline) throw err;
       await sleep(500);
     }
   }

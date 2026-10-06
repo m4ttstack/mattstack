@@ -29,8 +29,28 @@ test('a machine with no helper keeps the deck serve / deck setup hint', async ()
 });
 
 const refused = async (): Promise<Response> => {
-  throw new TypeError('Unable to connect');
+  throw Object.assign(new TypeError('Unable to connect'), {
+    code: 'ConnectionRefused',
+  });
 };
+
+test('inside a deck run, a request deck dropped mid-answer is never repeated', async () => {
+  // `deck restart deck` drops its own socket after acting on the request;
+  // sending it again would restart the new deck too.
+  let calls = 0;
+  await expect(
+    withDeckWait(
+      async () => {
+        calls++;
+        throw Object.assign(new TypeError('socket closed'), {
+          code: 'ECONNRESET',
+        });
+      },
+      { insideRun: true, waitMs: 1000, sleep: async () => {} }
+    )
+  ).rejects.toThrow('socket closed');
+  expect(calls).toBe(1);
+});
 
 test('inside a deck run, a deck that is restarting is waited for', async () => {
   let calls = 0;
