@@ -369,7 +369,7 @@ export function rowActions(
       );
     }
   if (env.local && own) {
-    const peers = nudgeTargets(mrx);
+    const peers = nudgeTargets(mrx, env.peers);
     for (const peer of peers)
       sessions.push(
         item(

@@ -149,15 +149,6 @@ export interface SentNudgeInfo {
   /** Absent means re-review (older boards never send the other kinds). */
   kind?: 'review' | 're-review' | 'respond';
 }
-/** A peer waiting on us: an inbound re-review request we haven't handled yet. */
-export interface InboundNudgeInfo {
-  from: string;
-  receivedAt: number;
-  /** Absent means re-review. */
-  kind?: 'review' | 're-review' | 'respond';
-  /** Triage is off, so nothing starts this ask until someone clicks. */
-  awaitsClick?: boolean;
-}
 export type BoardMRWithReview = BoardMR & {
   review?: ReviewInfo;
   respond?: RespondInfo;
@@ -175,7 +166,6 @@ export type BoardMRWithReview = BoardMR & {
   note?: string;
   peerReviews?: PeerReviewInfo[];
   sentNudge?: SentNudgeInfo;
-  nudges?: InboundNudgeInfo[];
   /** Each gate carries `executor` when the reconciler sweep's `openGateIds`
       names it -- the pane state currently blocking on that gate. */
   gates: Array<GateRow & { executor?: ExecutorState }>;
