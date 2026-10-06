@@ -288,6 +288,21 @@ describe("planConversion", () => {
     expect(JSON.parse(plan.writes["mattstack/teams/widgets/packs/widgets/.claude-plugin/plugin.json"]!).version).toBe("1.4.3");
   });
 
+  test("a marketplace entry that carries its own version gets the bumped version too", () => {
+    const market = JSON.stringify({ name: "acme", plugins: [{ name: "widgets", source: "./mattstack/packs/widgets", version: "1.4.2" }, { name: "acme-base", source: "./mattstack/packs/acme-base", version: "2.0.0" }] });
+    const plugins = JSON.parse(run(oldClone({ ".claude-plugin/marketplace.json": market })).writes[".claude-plugin/marketplace.json"]!).plugins;
+    expect(plugins).toEqual([
+      { name: "widgets", source: "./mattstack/teams/widgets/packs/widgets", version: "1.4.3" },
+      { name: "acme-base", source: "./mattstack/org/packs/acme-base", version: "2.0.0" },
+    ]);
+  });
+
+  test("the report says when the old store's comments are not carried over", () => {
+    expect(run().report).toContain("comments in mattstack/settings.team.jsonc are not carried over");
+    const plain = run(oldClone({ "mattstack/settings.team.jsonc": JSON.stringify({ "board.gitlabHost": "gitlab.example.com", "board.title": "https://gitlab.example.com/acme // not a comment" }) }), { teamRepos: [] });
+    expect(plain.report.join("\n")).not.toContain("not carried over");
+  });
+
   test("a stored path through ${team:} is rewritten to where the file moved", () => {
     const org = settings(run().writes["mattstack/org/settings.org.jsonc"]!);
     expect(org.repos[SHARED]["rt.roles"].dev.hook).toBe("${team:acme}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh");
@@ -406,7 +421,16 @@ describe("the wrapper", () => {
     git("config", "user.email", "t@example.com");
     git("add", "--", ".");
     git("commit", "-q", "-m", "old layout");
+    const origin = join(dirname(dir), "origin.git");
+    execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin], { env: childEnv() });
+    git("remote", "add", "origin", origin);
+    git("push", "-q", "origin", "main");
     return dir;
+  }
+
+  /** Pushes the clone's own commits, so a test's later commit leaves it current with origin. */
+  function publish(dir: string): void {
+    execFileSync("git", ["-C", dir, "push", "-q", "origin", "main"], { env: childEnv() });
   }
   const script = join(import.meta.dir, "..", "convert-team-repo-to-org.ts");
   const runScript = (dir: string, ...extra: string[]) => Bun.spawnSync(["bun", script, dir, "--admin", "dev1", ...extra], { env: childEnv(), stdout: "pipe", stderr: "pipe" });
@@ -472,6 +496,7 @@ describe("the wrapper", () => {
       });
       execFileSync("git", ["-C", dir, "add", "-f", "--", "mattstack/teams/keep.txt"], { env: childEnv() });
       execFileSync("git", ["-C", dir, "commit", "-q", "--allow-empty", "-m", "keep shared parent"], { env: childEnv() });
+      publish(dir);
       mkdirSync(join(dir, "mattstack/org/packs"), { recursive: true });
       mkdirSync(join(dir, "mattstack/teams/widgets/packs"), { recursive: true });
       mkdirSync(join(dir, "outside-cache"));
@@ -487,6 +512,7 @@ describe("the wrapper", () => {
       writeFileSync(join(dir, ".gitignore"), "outside-cache/\n");
       execFileSync("git", ["-C", dir, "add", "--", ".gitignore"], { env: childEnv() });
       execFileSync("git", ["-C", dir, "commit", "-q", "-m", "allow conversion output"], { env: childEnv() });
+      publish(dir);
       expect(runScript(dir, "--write", "--roster-confirmed").exitCode).toBe(0);
       expect(readFileSync(join(dir, "mattstack/teams/widgets/packs/widgets/pack/skills.jsonc"), "utf8")).toBe("{}");
       expect(readFileSync(join(dir, "mattstack/org/secrets/rt.json"), "utf8")).toBe("{}");
@@ -695,6 +721,65 @@ exec "$RT_CONVERT_REAL_GIT" "$@"
     expect(snapshot(dir)).toBe(before);
     expect(runScript(dir, "--write", "--roster-confirmed").exitCode).toBe(0);
     expect(readFileSync(join(dir, "mattstack/org/packs/acme-base/pack/skills.jsonc"), "utf8")).toBe(`{ "base": true }`);
+  });
+
+  test("--write refuses a clone behind origin, names the fast-forward, and changes nothing", () => {
+    ready();
+    const dir = tempClone();
+    const other = join(home, "other");
+    const gitEnv = { ...childEnv(), GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+    execFileSync("git", ["clone", "-q", join(dirname(dir), "origin.git"), other], { env: gitEnv });
+    writeFileSync(join(other, "pushed-since.txt"), "a teammate's change");
+    execFileSync("git", ["-C", other, "add", "--", "pushed-since.txt"], { env: gitEnv });
+    execFileSync("git", ["-C", other, "commit", "-q", "-m", "pushed since"], { env: gitEnv });
+    execFileSync("git", ["-C", other, "push", "-q", "origin", "main"], { env: gitEnv });
+    const before = snapshot(dir);
+    const result = runScript(dir, "--write", "--roster-confirmed");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr.toString()).toContain("[refused]");
+    expect(result.stderr.toString()).toContain("The clone is behind origin");
+    expect(result.stderr.toString()).toContain(`git -C ${dir} pull --ff-only`);
+    expect(snapshot(dir)).toBe(before);
+    execFileSync("git", ["-C", dir, "pull", "-q", "--ff-only", "origin", "main"], { env: childEnv() });
+    expect(runScript(dir, "--write", "--roster-confirmed").exitCode).toBe(0);
+  });
+
+  test("--write refuses a clone with commits origin does not have, and changes nothing", () => {
+    ready();
+    const dir = tempClone();
+    writeFileSync(join(dir, "local-only.txt"), "not published");
+    execFileSync("git", ["-C", dir, "add", "--", "local-only.txt"], { env: childEnv() });
+    execFileSync("git", ["-C", dir, "commit", "-q", "-m", "local only"], { env: childEnv() });
+    const before = snapshot(dir);
+    const result = runScript(dir, "--write", "--roster-confirmed");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr.toString()).toContain("The clone has commits origin does not have");
+    expect(snapshot(dir)).toBe(before);
+  });
+
+  test("an empty secrets folder git does not track is left alone instead of failing the move", () => {
+    ready();
+    const dir = tempClone();
+    execFileSync("git", ["-C", dir, "rm", "-q", "--", "mattstack/secrets/rt.json"], { env: childEnv() });
+    execFileSync("git", ["-C", dir, "commit", "-q", "-m", "no secrets yet"], { env: childEnv() });
+    publish(dir);
+    mkdirSync(join(dir, "mattstack", "secrets"), { recursive: true });
+    const result = runScript(dir, "--write", "--roster-confirmed");
+    expect(result.stderr.toString()).not.toContain("the clone is back as it was");
+    expect(result.exitCode).toBe(0);
+    expect(execFileSync("git", ["-C", dir, "ls-files", "--", "mattstack/org/secrets"], { encoding: "utf8", env: childEnv() }).trim()).toBe("");
+    expect(existsSync(join(dir, "mattstack", "org", "settings.org.jsonc"))).toBe(true);
+  });
+
+  test("--write stops before writing when origin cannot be fetched", () => {
+    ready();
+    const dir = tempClone();
+    execFileSync("git", ["-C", dir, "remote", "set-url", "origin", join(home, "missing.git")], { env: childEnv() });
+    const before = snapshot(dir);
+    const result = runScript(dir, "--write", "--roster-confirmed");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.toString()).toContain("Could not fetch origin to check that the clone is current");
+    expect(snapshot(dir)).toBe(before);
   });
 
   test("--write without --roster-confirmed names the usernames and changes nothing", () => {

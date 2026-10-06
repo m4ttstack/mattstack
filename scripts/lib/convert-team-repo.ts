@@ -1,6 +1,6 @@
 import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
 import { isRetiredKey } from "../../packages/rt-client/src/settings/registry-machinery.ts";
-import { parse, parseTree, printParseErrorCode, type Node, type ParseError } from "jsonc-parser";
+import { parse, parseTree, printParseErrorCode, visit, type Node, type ParseError } from "jsonc-parser";
 import { isMap, isScalar, isSeq, parseDocument } from "yaml";
 
 export interface ConvertInput {
@@ -62,6 +62,12 @@ function objOf(files: Record<string, string>, rel: string): Json {
   };
   check(parseTree(text)!);
   return value as Json;
+}
+
+function hasComments(text: string): boolean {
+  let found = false;
+  visit(text, { onComment: () => { found = true; } });
+  return found;
 }
 
 function escapeRegExp(text: string): string {
@@ -257,6 +263,7 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
   const moves: [string, string][] = [];
   const deletes = ["mattstack/settings.team.jsonc"];
   if (input.files["mattstack/team.jsonc"] !== undefined) deletes.push("mattstack/team.jsonc");
+  for (const rel of deletes) if (hasComments(input.files[rel] ?? "")) report.push(`comments in ${rel} are not carried over`);
 
   if (input.hasSecrets) moves.push(["mattstack/secrets", "mattstack/org/secrets"]);
   const sops = input.files[".sops.yaml"];
@@ -273,10 +280,11 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
   for (const base of input.packs.filter(isBase)) moves.push([`mattstack/packs/${base}`, `mattstack/org/packs/${base}`]);
 
   const manifest = objOf(input.files, `mattstack/packs/${pack}/.claude-plugin/plugin.json`);
-  writes[`${packTo}/.claude-plugin/plugin.json`] = `${JSON.stringify({ ...manifest, version: bumpPatch(manifest.version) }, null, 2)}\n`;
+  const version = bumpPatch(manifest.version);
+  writes[`${packTo}/.claude-plugin/plugin.json`] = `${JSON.stringify({ ...manifest, version }, null, 2)}\n`;
 
   const marketSwaps: [string, string][] = moves.filter(([from]) => from.startsWith("mattstack/packs/")).map(([from, to]) => [`./${from}`, `./${to}`]);
-  const plugins = (Array.isArray(market.plugins) ? (market.plugins as Json[]) : []).map((entry) => entry.name === pack ? { ...entry, source: `./${packTo}` } : { ...entry, ...(typeof entry.source === "string" ? { source: rewritePaths(entry.source, marketSwaps, noteRewrite) } : {}) });
+  const plugins = (Array.isArray(market.plugins) ? (market.plugins as Json[]) : []).map((entry) => entry.name === pack ? { ...entry, source: `./${packTo}`, ...(entry.version !== undefined ? { version } : {}) } : { ...entry, ...(typeof entry.source === "string" ? { source: rewritePaths(entry.source, marketSwaps, noteRewrite) } : {}) });
   writes[".claude-plugin/marketplace.json"] = `${JSON.stringify({ ...market, plugins }, null, 2)}\n`;
 
   return { team, writes, moves, deletes, report, rosterUsernames };

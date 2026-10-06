@@ -4,6 +4,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, wr
 import { basename, dirname, join, resolve } from "path";
 import { parse } from "jsonc-parser";
 import { UserActionableError, failureFor, logFailureDetail } from "../lib/errors.ts";
+import { shellQuote } from "../lib/herdr-launch.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { childEnv } from "../lib/subprocess.ts";
 import * as out from "../lib/ui/out.ts";
@@ -73,7 +74,7 @@ function main(): void {
   }
   let plan;
   try {
-    plan = planConversion({ files, packs, hasSecrets: existsSync(join(clone, "mattstack", "secrets")) }, { org: basename(clone), admin, team: values["--team"]?.[0], teamRepos: values["--team-repo"] });
+    plan = planConversion({ files, packs, hasSecrets: git("ls-files", "--", "mattstack/secrets").trim() !== "" }, { org: basename(clone), admin, team: values["--team"]?.[0], teamRepos: values["--team-repo"] });
   } catch (err) {
     throw new UserActionableError("invalid-conversion", "This clone cannot be converted", {}, { why: err instanceof Error ? err.message : String(err) });
   }
@@ -121,6 +122,24 @@ function main(): void {
     for (const entry of readdirSync(path, { withFileTypes: true })) if (entry.isDirectory()) rememberDirectories(join(path, entry.name));
   };
   for (const [from] of plan.moves) rememberDirectories(join(clone, from));
+  const quoted = shellQuote(clone);
+  try {
+    execFileSync("git", ["-C", clone, "fetch", "-q", "origin"], { encoding: "utf8", env: { ...childEnv(), GIT_TERMINAL_PROMPT: "0" }, stdio: "pipe" });
+  } catch (err) {
+    const stderr = (err as { stderr?: string }).stderr;
+    throw new UserActionableError("fetch-failed", "Could not fetch origin to check that the clone is current", {}, { next: `git -C ${quoted} fetch origin`, log: stderr || (err instanceof Error ? err.message : String(err)) });
+  }
+  let originMain: string;
+  try {
+    originMain = git("rev-parse", "--verify", "-q", "refs/remotes/origin/main").trim();
+  } catch {
+    refuse("Origin has no main branch", "rt publishes the org to origin's main, so the clone has to match it before converting.", `git -C ${quoted} branch -r`);
+  }
+  const [ahead, behind] = git("rev-list", "--left-right", "--count", `HEAD...${originMain}`).trim().split(/\s+/).map(Number);
+  if (ahead === 0 && behind! > 0) {
+    refuse("The clone is behind origin", `Origin has ${behind} commit${behind === 1 ? "" : "s"} this clone does not. Converting now would leave them out, and the publish would be refused.`, `git -C ${quoted} pull --ff-only`);
+  }
+  if (ahead! > 0) refuse("The clone has commits origin does not have", "Publish or drop them first, so the conversion is the only change you publish.", `git -C ${quoted} log --oneline origin/main..HEAD`);
   const start = git("rev-parse", "HEAD").trim();
   try {
     for (const [from, to] of plan.moves) {
