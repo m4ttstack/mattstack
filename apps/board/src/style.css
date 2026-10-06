@@ -97,6 +97,16 @@ body {
   border: 1px solid var(--border-soft);
   border-radius: 8px;
 }
+/* The recipe underlines the label on hover, which ran under the name and the
+   count alike once the label became a band; the band deepens instead. A
+   layered wash works over the tinted and neutral fills alike. */
+[data-part='panel-title']:hover {
+  text-decoration: none;
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--fg) 6%, transparent),
+    color-mix(in srgb, var(--fg) 6%, transparent)
+  );
+}
 /* The recipe's bottom padding left a sliver of panel under the last row, and
    a row's full-width footer band showed it. Rows run to the panel's own edge,
    and the rows' own clip keeps the last one's corners inside its radius. */
