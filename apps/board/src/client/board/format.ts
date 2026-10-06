@@ -29,8 +29,8 @@ const GROUP_LABEL: Record<GroupKey, string> = {
   needs: 'need',
 };
 const SORT_LABEL: Record<SortKey, string> = {
-  oldest: 'oldest',
-  progress: 'progress',
+  none: 'none',
+  ...GROUP_LABEL,
 };
 
 // ── formatting helpers ─────────────────────────────────────────────────────

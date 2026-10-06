@@ -18,6 +18,7 @@ import {
   type AuthorSignal,
   type ReviewerSignal,
 } from '../../turn.ts';
+import { tabDimsEmpty } from '../../view.ts';
 import { postAction } from '../api.ts';
 import {
   addToList,
@@ -935,6 +936,18 @@ function TabsControl({
                     }))
                   }
                 />
+              </label>
+              <label className="tui-tabs-field tui-tabs-check">
+                <input
+                  type="checkbox"
+                  className="tui-check-box"
+                  checked={tabDimsEmpty(tab)}
+                  disabled={busy}
+                  onChange={e =>
+                    patch(tab.id, t => ({ ...t, dimEmpty: e.target.checked }))
+                  }
+                />
+                <span>fade people with nothing on this tab</span>
               </label>
               <label className="tui-tabs-field">
                 <span>pack</span>

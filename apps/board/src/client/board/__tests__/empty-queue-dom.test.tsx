@@ -325,6 +325,7 @@ test('checking an unchecked chip brings its rows back', async () => {
 });
 
 test('the turn summary replaces the subtitle and links need you to Needs me', async () => {
+  history.replaceState(null, '', '/?off=');
   servedData = withRows([needsMeMr(1)]);
   await mount(async container => {
     const line = container.querySelector('.tui-turn-summary');
@@ -344,7 +345,29 @@ test('the turn summary replaces the subtitle and links need you to Needs me', as
   });
 });
 
-test('the Show chips start checked and taking Not Posted off re-checks Slack', async () => {
+test('the turn summary counts only what the Show picks leave on the board', async () => {
+  servedData = withRows([needsMeMr(1)]);
+  await mount(async container => {
+    expect(container.querySelector('.tui-turn-summary')?.textContent).toContain(
+      'nothing open'
+    );
+  });
+});
+
+test('a fresh board ticks only Posted', async () => {
+  servedData = withRows([{ ...needsMeMr(1), slackChannel: 'team-reviews' }]);
+  await mount(async container => {
+    const ticked = chips(container).filter(
+      c => c.querySelector('input')!.checked
+    );
+    expect(ticked.map(c => c.textContent)).toEqual([
+      expect.stringContaining('Posted to #team-reviews'),
+    ]);
+  });
+});
+
+test('with everything on, taking Not Posted off re-checks Slack', async () => {
+  history.replaceState(null, '', '/?off=');
   servedData = withRows([
     { ...needsMeMr(1), slackChannel: 'team-reviews' },
     { ...needsMeMr(2), slackChannel: 'team-reviews' },
@@ -459,6 +482,7 @@ test('the roster counts only the rows the Show picks leave on the board', async 
     needsMeMr(2),
     needsMeMr(3),
   ]);
+  history.replaceState(null, '', '/?off=');
   const counts = (container: HTMLElement) =>
     [...container.querySelectorAll('.tui-sidebar .tui-side-count')].map(
       c => c.textContent

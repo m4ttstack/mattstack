@@ -70,6 +70,8 @@ const tab = z.looseObject({
   ]),
   slackChannel: z.string().optional(),
   reviewSkill: z.string().optional(),
+  pack: z.string().optional(),
+  dimEmpty: z.boolean().optional(),
 });
 
 // rt's board.keys setup step writes bare repo names; gitq's own loader reads { path, name? }.

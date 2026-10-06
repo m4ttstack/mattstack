@@ -220,6 +220,12 @@
           },
           "reviewSkill": {
             "type": "string"
+          },
+          "pack": {
+            "type": "string"
+          },
+          "dimEmpty": {
+            "type": "boolean"
           }
         },
         "required": [

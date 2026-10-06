@@ -2,19 +2,11 @@ import { Tooltip } from '@mattstack/tui-kit';
 import { ALL_TURN, type TurnConfig } from '../../turn.ts';
 import type { ShowItem } from '../../view.ts';
 import { showLabel, type ShowMenuModel } from './Controls.tsx';
-import { AUTHOR_LABEL } from './turn-labels.ts';
 
 /** A long enough hover that sweeping across the row doesn't flash tips. */
-const TIP_DELAY_MS = 750;
+const TIP_DELAY_MS = 1000;
 
-function bullets(items: string[]): string {
-  return items
-    .map(item => `• ${item.charAt(0).toUpperCase()}${item.slice(1)}`)
-    .join('\n');
-}
-
-/** What each chip covers, in a person's words; Waiting on author follows the
-    whose-turn signals switched on in Display Settings. */
+/** What each chip covers, in a person's words, in one short line. */
 export function showTip(item: ShowItem, turn: TurnConfig): string {
   switch (item) {
     case 'posted':
@@ -24,9 +16,9 @@ export function showTip(item: ShowItem, turn: TurnConfig): string {
     case 'authorTurn':
       return turn.author.length === 0
         ? 'No signal counts as the author’s move in Display Settings, so this covers nothing.'
-        : `The author’s move:\n${bullets(turn.author.map(s => AUTHOR_LABEL[s]))}`;
+        : 'MRs waiting on the author to act. Display Settings picks what counts.';
     case 'myDrafts':
-      return 'Only your own drafts, as the signed-in user. Other people’s drafts aren’t affected.';
+      return 'Show or hide your own draft MRs. Other people’s drafts are never shown.';
   }
 }
 
@@ -50,6 +42,7 @@ export function ShowChips({ show }: { show: ShowMenuModel }) {
               <label
                 className="tui-show-chip"
                 data-on={on || undefined}
+                data-empty={show.counts[item] === 0 || undefined}
                 aria-description={tip}
               >
                 <input

@@ -12,6 +12,7 @@ function Sidebar({
   scopeUncovered,
   note,
   empty,
+  dimEmpty = false,
   queue,
 }: {
   members: RosterMember[];
@@ -27,6 +28,8 @@ function Sidebar({
   note?: string;
   /** What the list says when it names no one. */
   empty?: string;
+  /** Fade members with nothing on this tab (the tab's dimEmpty). */
+  dimEmpty?: boolean;
   /** Pending decision queue -- null when empty. Rendered above the roster
       because it means the user owes an action, not just information. */
   queue?: { count: number; open: () => void } | null;
@@ -80,7 +83,7 @@ function Sidebar({
           key={m.username}
           className={
             (active === m.username ? 'tui-side-item active' : 'tui-side-item') +
-            (m.count === 0 ? ' tui-side-empty' : '')
+            (dimEmpty && m.count === 0 ? ' tui-side-empty' : '')
           }
           onClick={() => onPick(m.username)}
           title={m.name ?? m.username}

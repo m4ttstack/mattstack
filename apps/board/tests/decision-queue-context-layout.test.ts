@@ -104,7 +104,7 @@ async function openQueue(
       await route.fulfill({ response: res, json: body });
     });
   const page = await ctx.newPage();
-  await page.goto(`${BASE}/?member=all`);
+  await page.goto(`${BASE}/?member=all&off=`);
   await page.waitForSelector('.tui-row');
   await page.click('.tui-dq-open');
   await page.waitForSelector('.tui-gate-sheet');

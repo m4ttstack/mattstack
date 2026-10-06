@@ -89,7 +89,7 @@ describe('tabChangeClearsSelection', () => {
   test('a member/group/sort-only patch (no tab key) never clears it', () => {
     expect(tabChangeClearsSelection({ member: 'bob' }, 'team')).toBe(false);
     expect(tabChangeClearsSelection({ group: 'status' }, 'team')).toBe(false);
-    expect(tabChangeClearsSelection({ sort: 'progress' }, 'team')).toBe(false);
+    expect(tabChangeClearsSelection({ sort: 'author' }, 'team')).toBe(false);
   });
 });
 
