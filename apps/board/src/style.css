@@ -165,15 +165,20 @@ body {
    off the end, the direction `overflow-x: auto` can reach, and each
    button's `flex-shrink: 0` keeps its label from being squeezed. The z-index
    lifts the open menus over the MR panels below: the kit menu's fixed
-   wrapper is its own stacking context, so its z-index alone cannot. */
+   wrapper is its own stacking context, so its z-index alone cannot. The
+   scroll box clips, so a 4px padding (undone by the margin) leaves room for
+   the buttons' 2px-offset focus ring; without it only a sliver of the ring
+   showed, in the gap between two buttons. */
 .tui-controls-header {
   position: relative;
   z-index: 3;
-  flex-basis: 100%;
+  flex-basis: calc(100% + 8px);
   justify-content: flex-start;
   flex-wrap: nowrap;
   overflow-x: auto;
-  max-width: 100%;
+  max-width: calc(100% + 8px);
+  margin: -4px;
+  padding: 4px;
 }
 .tui-controls-header > * {
   flex-shrink: 0;
@@ -310,7 +315,10 @@ body {
 .tui-draft-act:focus-visible,
 .tui-modal-x:focus-visible,
 .tui-join-toggle:focus-visible,
-.tui-drawer-action:focus-visible {
+.tui-drawer-action:focus-visible,
+.tui-menu-button:focus-visible,
+.tui-tab:focus-visible,
+.tui-also-show-pill:focus-visible {
   outline: 2px solid var(--fill-accent);
   outline-offset: 2px;
 }
