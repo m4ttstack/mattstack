@@ -1805,7 +1805,7 @@ body {
   border-radius: 6px;
   background: color-mix(in srgb, var(--fg) 6%, transparent);
   color: var(--text-2);
-  font-size: 12px;
+  font-size: 16px;
   line-height: 1;
   cursor: pointer;
   transition:
@@ -3497,9 +3497,9 @@ a.tui-id-card-ref:focus-visible {
   gap: 4px;
   /* One height for both occupants, so selecting never shifts the page. */
   box-sizing: border-box;
-  min-height: 60px;
+  min-height: 54px;
   margin: 2px -0.9rem -0.7rem;
-  padding: 11px 0.9rem;
+  padding: 8px 0.9rem;
   border-top: 1px solid var(--border-soft);
   border-radius: 0 0 7px 7px;
   background: light-dark(
