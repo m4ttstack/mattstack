@@ -219,10 +219,12 @@ const isShared = (s: string | null | undefined): s is 'org' | 'team' =>
   s === 'org' || s === 'team';
 
 /** A key sits under its first scope, except that a key the org and a team
-    both hold sits under whichever of the two serves its value. */
+    both hold sits under whichever of the two serves its value, and a key a
+    shared store's repo section serves sits under that store. */
 function subheadOf(def: SettingDefWire): string | undefined {
   const first = def.scopes[0];
   const served = rungBase(def.effective.scope);
+  if (isRung(def.effective.scope) && isShared(served)) return served;
   if (isShared(first) && isShared(served) && def.scopes.includes(served))
     return served;
   return first;
@@ -268,15 +270,18 @@ export function badgeScope(
   def: SettingDefWire,
   subhead: StoreScope | null
 ): LayerScope | null {
+  if (def.merge === 'add') return null;
   const scope = def.effective.scope;
   if (isRung(scope)) return scope;
   return isStoreScope(scope) && scope !== subhead ? scope : null;
 }
 
-export function sourceText(def: SettingDefWire): 'default' | 'unset' | null {
+export function sourceText(
+  def: SettingDefWire
+): 'default' | 'unset' | 'merged' | null {
   if (def.effective.scope === 'default') return 'default';
   if (def.effective.scope === null) return 'unset';
-  return null;
+  return def.merge === 'add' ? 'merged' : null;
 }
 
 export function firstSentence(text: string): string {

@@ -314,6 +314,7 @@ function LayerLine({
     if (!editing) setReveal(false);
   }, [editing]);
   const [saved, setSaved] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   // Close on the re-read, not the write, so the old value never flashes.
   useEffect(() => {
     if (!saved) return;
@@ -389,8 +390,13 @@ function LayerLine({
           </Tooltip>
         )}
         {moves.length > 0 && (
-          <Menu position="bottom-end" withinPortal>
-            <Tooltip label="Move to another layer">
+          <Menu
+            position="bottom-end"
+            withinPortal
+            opened={moveOpen}
+            onChange={setMoveOpen}
+          >
+            <Tooltip label="Move to another layer" disabled={moveOpen}>
               <Menu.Target>
                 <ActionIcon
                   variant="subtle"

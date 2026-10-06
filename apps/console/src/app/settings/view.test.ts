@@ -181,6 +181,28 @@ describe('buildSections', () => {
     ]);
   });
 
+  it('puts a key served from a shared repo section under that store, whatever its first scope', () => {
+    const roles = (key: string, scope: string) =>
+      def(key, {
+        type: 'object',
+        scopes: ['user', 'team', 'machine'],
+        repoScoped: true,
+        effective: { scope, file: '/s', value: {} },
+      });
+    const boards = [
+      roles('board.roles', 'org.repo'),
+      roles('board.intercepts', 'team.repo'),
+      roles('board.mine', 'user.repo'),
+      ...Array.from({ length: 10 }, (_, i) => def(`board.u${i}`)),
+    ];
+    const [board] = buildSections(boards, NO_FILTER);
+    const where = (key: string) =>
+      board!.subsections.find(x => x.defs.some(d => d.key === key))?.scope;
+    expect(where('board.roles')).toBe('org');
+    expect(where('board.intercepts')).toBe('team');
+    expect(where('board.mine')).toBe('user');
+  });
+
   it('orders rows selects, numbers, text, switches, then composites', () => {
     const [daemon] = buildSections(
       [
@@ -358,6 +380,17 @@ describe('layer rungs and write targets', () => {
     expect(targetAt('team.repo', null)).toBeNull();
     expect(targetAt('user', REPO)).toEqual({ scope: 'user' });
     expect(targetAt('default', REPO)).toBeNull();
+  });
+
+  it('badgeScope names no single layer for a list that adds up across layers', () => {
+    const plugins = def('claude.plugins', {
+      type: 'array',
+      scopes: ['user', 'team', 'org'],
+      merge: 'add',
+      effective: { scope: 'user', file: '/u', value: ['a', 'b'] },
+    });
+    expect(badgeScope(plugins, null)).toBeNull();
+    expect(sourceText(plugins)).toBe('merged');
   });
 
   it('badgeScope always shows a repo rung, even under a matching subhead', () => {

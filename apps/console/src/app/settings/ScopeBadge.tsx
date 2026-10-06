@@ -15,7 +15,7 @@ export const SCOPE_COLOR: Record<StoreScope, string> = {
   org: 'gold',
   team: 'purple',
   user: 'cyan',
-  machine: 'accent',
+  machine: 'bad',
 };
 
 type BadgeBase = StoreScope | 'default';

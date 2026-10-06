@@ -379,6 +379,25 @@ describe('KeyPanel', () => {
     ).toBeNull();
   });
 
+  it('closes the move tooltip while the move menu is open', async () => {
+    renderPanel(def('board.agent.model'), LAYERS);
+    const user = await screen.findByTestId('layer-user');
+    const move = within(user).getByRole('button', {
+      name: 'move board.agent.model from user',
+    });
+    await userEvent.hover(move);
+    expect(
+      await screen.findByText('Move to another layer')
+    ).toBeInTheDocument();
+    await userEvent.click(move);
+    expect(
+      await screen.findByRole('menuitem', { name: 'Move to machine' })
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText('Move to another layer')).toBeNull()
+    );
+  });
+
   it('a rejected stored value can be removed but not moved', async () => {
     renderPanel(
       def('board.agent.model', {

@@ -367,7 +367,7 @@ const TAG_STYLES = {
   root: {
     height: TAG_HEIGHT,
     borderRadius: 4,
-    background: 'var(--tk-raised)',
+    background: 'var(--tag-fill, var(--tk-raised))',
     color: 'var(--tk-text-1)',
   },
   remove: { color: 'var(--tk-text-3)' },
