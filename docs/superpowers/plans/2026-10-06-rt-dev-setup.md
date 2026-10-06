@@ -29,7 +29,7 @@
 
 ## Review Focus
 
-1. **No repo root chosen** (prod Mac where `rt.repoRoots` is unset): setup refuses with `rt setup repo-root` as `next` before cloning. Test in Task 5.
+1. **No repo root chosen** (prod Mac where `rt.repoRoots` is unset): setup refuses with `rt setup repo-root set <folder>` as `next` before cloning. Test in Task 5.
 2. **The clone folder already holds the user's own mattstack clone on another branch with local edits**: setup reuses it untouched (no checkout, no pull). Test in Task 5.
 3. **`bun` on PATH is an app bundle's copy** (`/Applications/mattstack.app/Contents/Helpers/bun` symlinked into a PATH dir): ignored, so the state is `missing` unless a real bun exists. Test in Task 1.
 4. **The newest release's `SHA256SUMS` has no dev zip line yet** (upload half done): that release is skipped and the next one with a line is used. Test in Task 4.
@@ -377,7 +377,7 @@ describe("installDevTool", () => {
     const r = await installDevTool(p, "bun", "1.4.2");
     expect(r.ok).toBe(true);
     expect(p.calls.exec).toContainEqual(["curl", "-fsSL", "https://bun.sh/install", "-o", "/tmp/rt-vendor-install/bun.sh"]);
-    expect(p.calls.exec).toContainEqual(["sh", "/tmp/rt-vendor-install/bun.sh", "bun-v1.4.2"]);
+    expect(p.calls.exec).toContainEqual(["bash", "/tmp/rt-vendor-install/bun.sh", "bun-v1.4.2"]);
     expect(p.calls.exec).toContainEqual([`${HOME}/.bun/bin/bun`, "--version"]);
   });
 
@@ -400,7 +400,7 @@ describe("installDevTool", () => {
   });
 
   test("a failed installer is ok:false with the reason", async () => {
-    const p = fakeProbes({ env: { TMPDIR: "/tmp" }, exec: (argv) => (argv[0] === "sh" ? { code: 1, stdout: "", stderr: "unsupported" } : { code: 0, stdout: "", stderr: "" }) });
+    const p = fakeProbes({ env: { TMPDIR: "/tmp" }, exec: (argv) => (argv[0] === "bash" ? { code: 1, stdout: "", stderr: "unsupported" } : { code: 0, stdout: "", stderr: "" }) });
     const r = await installDevTool(p, "bun", "1.4.2");
     expect(r).toMatchObject({ ok: false, via: "vendor" });
     expect(r.detail).toContain("unsupported");
@@ -447,12 +447,12 @@ async function runInstallerAndVerify(
 }
 ```
 
-3. Give `runVendorInstaller` rt-owned args and verify argv (callers that pass nothing behave as before):
+3. Give `runVendorInstaller` an rt-owned shell, args and verify argv (callers that pass nothing behave as before; bun's installer is a bash script):
 
 ```ts
-async function runVendorInstaller(p: Probes, tool: string, url: string, opts: { args?: string[]; verify?: string[] } = {}): Promise<InstallResult> {
+async function runVendorInstaller(p: Probes, tool: string, url: string, opts: { shell?: "sh" | "bash"; args?: string[]; verify?: string[] } = {}): Promise<InstallResult> {
   // ...validation and download unchanged...
-  return runInstallerAndVerify(p, tool, "vendor", ["sh", path, ...(opts.args ?? [])], "install script", "installed via vendor script", opts.verify);
+  return runInstallerAndVerify(p, tool, "vendor", [opts.shell ?? "sh", path, ...(opts.args ?? [])], "install script", "installed via vendor script", opts.verify);
 }
 ```
 
@@ -470,7 +470,7 @@ const DEV_TOOL_DOWNLOAD: Record<"go" | "node", string> = { go: "https://go.dev/d
 
 export async function installDevTool(p: Probes, tool: "bun" | "go" | "node", version: string): Promise<InstallResult> {
   if (tool === "bun") {
-    return runVendorInstaller(p, "bun", BUN_INSTALLER_URL, { args: [`bun-v${version}`], verify: [join(p.home, ".bun", "bin", "bun"), "--version"] });
+    return runVendorInstaller(p, "bun", BUN_INSTALLER_URL, { shell: "bash", args: [`bun-v${version}`], verify: [join(p.home, ".bun", "bin", "bun"), "--version"] });
   }
   const brew = await p.exec(["brew", "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
   if (brew.code !== 0) {
@@ -923,16 +923,22 @@ git commit -m "feat(dev): find, verify and install release dev apps"
 - Consumes: Tasks 1-4; `InstallResult` from `lib/setup/tools-install.ts`; `Flavor` from `lib/flavor.ts`; `RenderStatus` from `lib/ui/protocol.ts`; `OPEN_DEV_APP`, `DEV_APP_PATH` from `lib/release/app-swap.ts`; `REGISTERED_APPS` from `lib/release/update-machine.ts`; `expandHome` from `lib/setup/repo-root.ts`.
 - Produces (`lib/dev/seams.ts`):
   - `interface StageEnding { status: Exclude<RenderStatus, "running">; title: string; hint?: string }`
-  - `type StageRunner = (title: string, task: (sub: (text: string) => void) => Promise<StageEnding>) => Promise<StageEnding>`
+  - `interface StageIO { sub(text: string): void; pause<T>(fn: () => Promise<T>): Promise<T> }` — `pause` takes the stage's rt-ui step off the screen while `fn` prompts or hands the terminal to a child, then puts it back
+  - `type StageRunner = (title: string, task: (io: StageIO) => Promise<StageEnding>) => Promise<StageEnding>`
   - `interface DevSeams extends DevAppInstallSeams { flavor: Flavor; interactive: boolean; prodVersion: string; confirm(message: string): Promise<boolean>; repoRoot(): string | null; storedSourcePath(): string | null; saveSourcePath(sourcePath: string, bunPath: string): void; installDevTool(tool: "bun" | "go" | "node", version: string): Promise<InstallResult>; gh(): string[] | null; devWrapperOwnsRt(): boolean }`
+  - `type ChosenDevRelease = { release: DevRelease; sha: string }`
   - `const DEV_REFUSAL_CODES: ReadonlySet<string>` = `dev-no-push-access`, `dev-clone-path-taken`, `dev-not-set-up`
 - Produces (`lib/dev/stages.ts`):
-  - `async function ensureTools(s: DevSeams, pins: DevPins, sub: (t: string) => void): Promise<{ ending: StageEnding; bunPath: string; goPath: string }>`
-  - `async function ensureDevApp(s: DevSeams, sub: (t: string) => void, mode: "setup" | "update"): Promise<StageEnding>`
+  - `async function ensureTools(s: DevSeams, pins: DevPins, io: StageIO): Promise<{ ending: StageEnding; bunPath: string; goPath: string }>`
+  - `async function findDevRelease(s: DevSeams): Promise<ChosenDevRelease>` (throws `dev-no-dev-zip`)
+  - `async function ensureDevApp(s: DevSeams, io: StageIO, mode: "setup" | "update", chosen?: ChosenDevRelease): Promise<StageEnding>`
   - `function isMattstackRemote(url: string): boolean`
 - Produces (`lib/dev/setup.ts`):
   - `type DevSetupResult = { kind: "already"; clone: string } | { kind: "done"; clone: string; stages: StageEnding[] }`
   - `async function runDevSetup(s: DevSeams, stage: StageRunner): Promise<DevSetupResult>`
+  - `async function registerApps(s: DevSeams, dir: string, io: { sub(text: string): void }): Promise<void>` (Task 6 reuses it)
+
+Stage order (the spec's "prerequisites before anything changes"): already-set-up check, clone-folder check, pins, **Check your tools**, **Check you can push to mattstack**, **Find the dev app**, then the changing stages **Clone**, **Build**, **Point rt at your clone**, **Install the dev app**, **Switch**, **Serve the apps from your clone**.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -940,7 +946,7 @@ git commit -m "feat(dev): find, verify and install release dev apps"
 // lib/dev/__tests__/setup.test.ts
 import { describe, expect, test } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
-import type { DevSeams, StageEnding, StageRunner } from "../seams.ts";
+import type { DevSeams, StageRunner } from "../seams.ts";
 import { runDevSetup } from "../setup.ts";
 import { isMattstackRemote } from "../stages.ts";
 
@@ -952,11 +958,16 @@ const GO = "/opt/homebrew/bin/go";
 const GH = ["/Applications/mattstack.app/Contents/Helpers/gh"];
 const PINS = { pkg: JSON.stringify({ packageManager: "bun@1.4.2" }), goMod: "go 1.26.5\n" };
 
-const runner: StageRunner = async (_title, task) => task(() => {});
+/** Records pause() calls so a test can prove every prompt ran with the step off screen. */
+function recordingRunner() {
+  const paused: string[] = [];
+  const runner: StageRunner = async (title, task) => task({ sub: () => {}, pause: async (fn) => { paused.push(title); return fn(); } });
+  return { runner, paused };
+}
+const runner = recordingRunner().runner;
 
 interface World {
-  cloneExists?: boolean;
-  origin?: string;
+  clone?: "ours" | "empty" | "other";
   pushAccess?: string;
   ghLoggedIn?: boolean;
   repoRoot?: string | null;
@@ -967,15 +978,20 @@ interface World {
   takeoverAfterOpen?: boolean;
   flavor?: "dev" | "prod";
   wrapperOwns?: boolean;
+  stored?: string | null;
+  noDevZip?: boolean;
 }
 
 function world(w: World = {}) {
   const files: Record<string, string> = { "/usr/bin/git": "", [GO]: "", "/opt/homebrew/bin/node": "" };
   if (w.bun !== "missing") files[BUN] = "";
-  if (w.cloneExists) {
+  const dirs: Record<string, string[]> = {};
+  if (w.clone === "ours" || w.clone === "other") {
     files[`${CLONE}/package.json`] = PINS.pkg;
     files[`${CLONE}/ui/go.mod`] = PINS.goMod;
+    dirs[CLONE] = ["package.json", "ui"];
   }
+  if (w.clone === "empty") dirs[CLONE] = [];
   let opened = false;
   const saved: Array<[string, string]> = [];
   const installs: string[] = [];
@@ -983,8 +999,7 @@ function world(w: World = {}) {
     home: HOME,
     env: { PATH: "/usr/bin" },
     files,
-    // exists() on a directory reads `dirs`, so an existing clone needs its folder here too
-    dirs: w.cloneExists ? { [CLONE]: ["package.json", "ui"] } : {},
+    dirs,
     fetch: async (url) =>
       w.online === false
         ? { status: 0, body: "", headers: {} }
@@ -1002,9 +1017,14 @@ function world(w: World = {}) {
       if (a.endsWith("auth status")) return { code: w.ghLoggedIn === false ? 1 : 0, stdout: "", stderr: "" };
       if (a.includes("--jq .permissions.push")) return { code: 0, stdout: `${w.pushAccess ?? "true"}\n`, stderr: "" };
       if (a.includes("api repos/m4ttstack/mattstack/releases")) {
-        return { code: 0, stderr: "", stdout: JSON.stringify([{ tag_name: "v2.22.0", draft: false, prerelease: false, assets: [{ name: "mattstack-dev-2.22.0.zip", browser_download_url: "https://dl/z" }, { name: "SHA256SUMS", browser_download_url: "https://dl/s" }] }]) };
+        const list = w.noDevZip
+          ? []
+          : [{ tag_name: "v2.22.0", draft: false, prerelease: false, assets: [{ name: "mattstack-dev-2.22.0.zip", browser_download_url: "https://dl/z" }, { name: "SHA256SUMS", browser_download_url: "https://dl/s" }] }];
+        return { code: 0, stderr: "", stdout: JSON.stringify(list) };
       }
-      if (a.startsWith(`git -C ${CLONE} remote get-url origin`)) return { code: 0, stdout: `${w.origin ?? "https://github.com/m4ttstack/mattstack.git"}\n`, stderr: "" };
+      if (a === `git -C ${CLONE} remote get-url origin`) {
+        return { code: 0, stdout: w.clone === "other" ? "https://github.com/someone/else.git\n" : "https://github.com/m4ttstack/mattstack.git\n", stderr: "" };
+      }
       if (a.startsWith("shasum")) return { code: 0, stdout: "good  x\n", stderr: "" };
       if (a.includes("/usr/bin/open")) { opened = true; return { code: 0, stdout: "", stderr: "" }; }
       return { code: 0, stdout: "", stderr: "" };
@@ -1020,7 +1040,7 @@ function world(w: World = {}) {
     prodVersion: "2.22.0",
     confirm: async () => w.confirm ?? true,
     repoRoot: () => (w.repoRoot === undefined ? ROOT : w.repoRoot),
-    storedSourcePath: () => null,
+    storedSourcePath: () => w.stored ?? null,
     saveSourcePath: (sp, bp) => { saved.push([sp, bp]); },
     installDevTool: async (tool, version) => { installs.push(`${tool}@${version}`); return { via: "vendor", ok: true, detail: "ok" }; },
     gh: () => GH,
@@ -1029,56 +1049,76 @@ function world(w: World = {}) {
   return { seams, probes, saved, installs };
 }
 
+const cmds = (p: ReturnType<typeof world>["probes"]) => p.calls.exec.map((a) => a.join(" "));
+const cloned = (p: ReturnType<typeof world>["probes"]) => cmds(p).some((c) => c.startsWith("git clone"));
+
 describe("runDevSetup", () => {
   test("a fresh prod Mac: clones, builds, stores the source, installs and opens the dev app, registers apps", async () => {
     const { seams, probes, saved } = world();
     const r = await runDevSetup(seams, runner);
     expect(r.kind).toBe("done");
-    const cmds = probes.calls.exec.map((a) => a.join(" "));
-    expect(cmds).toContain(`git clone https://github.com/m4ttstack/mattstack.git ${CLONE}`);
-    expect(cmds).toContain(`${BUN} install`);
-    expect(cmds).toContain(`${BUN} run ui:build`);
+    expect(cmds(probes)).toContain(`git clone https://github.com/m4ttstack/mattstack.git ${CLONE}`);
+    expect(cmds(probes)).toContain(`${BUN} install`);
+    expect(cmds(probes)).toContain(`${BUN} run ui:build`);
     expect(saved).toEqual([[CLONE, BUN]]);
-    expect(cmds.some((c) => c.includes("/usr/bin/open /Applications/mattstack-dev.app"))).toBe(true);
+    expect(cmds(probes).some((c) => c.includes("/usr/bin/open /Applications/mattstack-dev.app"))).toBe(true);
     for (const app of ["board", "console", "chat", "boxscore", "deck"]) {
-      expect(cmds).toContain(`/Applications/mattstack-dev.app/Contents/Helpers/deck register --dir ${CLONE}/apps/${app}`);
+      expect(cmds(probes)).toContain(`/Applications/mattstack-dev.app/Contents/Helpers/deck register --dir ${CLONE}/apps/${app}`);
     }
   });
 
-  test("already on dev with the wrapper: reports already set up, changes nothing", async () => {
-    const { seams, probes } = world({ flavor: "dev", wrapperOwns: true });
+  test("already on dev with the wrapper: reports already set up before reading anything else", async () => {
+    const { seams, probes } = world({ flavor: "dev", wrapperOwns: true, stored: CLONE, repoRoot: null });
     expect(await runDevSetup(seams, runner)).toEqual({ kind: "already", clone: CLONE });
     expect(probes.calls.exec).toEqual([]);
   });
 
   test("no repo root: refuses before cloning (Review Focus 1)", async () => {
     const { seams, probes } = world({ repoRoot: null });
-    await expect(runDevSetup(seams, runner)).rejects.toMatchObject({ code: "dev-no-repo-root", next: "rt setup repo-root" });
-    expect(probes.calls.exec.some((a) => a[0] === "git" && a[1] === "clone")).toBe(false);
+    await expect(runDevSetup(seams, runner)).rejects.toMatchObject({ code: "dev-no-repo-root", next: "rt setup repo-root set <folder>" });
+    expect(cloned(probes)).toBe(false);
   });
 
   test("an existing mattstack clone is reused untouched (Review Focus 2)", async () => {
-    const { seams, probes } = world({ cloneExists: true });
+    const { seams, probes } = world({ clone: "ours" });
     await runDevSetup(seams, runner);
-    const cmds = probes.calls.exec.map((a) => a.join(" "));
-    expect(cmds.some((c) => c.startsWith("git clone"))).toBe(false);
-    expect(cmds.some((c) => /git (-C \S+ )?(checkout|pull|reset|fetch)/.test(c))).toBe(false);
+    expect(cloned(probes)).toBe(false);
+    expect(cmds(probes).some((c) => /git (-C \S+ )?(checkout|pull|reset|fetch)/.test(c))).toBe(false);
+  });
+
+  test("an empty folder at the clone path is cloned into", async () => {
+    const { seams, probes } = world({ clone: "empty" });
+    await runDevSetup(seams, runner);
+    expect(cloned(probes)).toBe(true);
   });
 
   test("a folder holding something else is a refusal", async () => {
-    const { seams } = world({ cloneExists: true, origin: "https://github.com/someone/else.git" });
+    const { seams } = world({ clone: "other" });
     await expect(runDevSetup(seams, runner)).rejects.toMatchObject({ code: "dev-clone-path-taken" });
   });
 
   test("no push access refuses before cloning", async () => {
     const { seams, probes } = world({ pushAccess: "false" });
     await expect(runDevSetup(seams, runner)).rejects.toMatchObject({ code: "dev-no-push-access" });
-    expect(probes.calls.exec.some((a) => a[1] === "clone")).toBe(false);
+    expect(cloned(probes)).toBe(false);
+  });
+
+  test("no release with a dev app refuses before cloning", async () => {
+    const { seams, probes } = world({ noDevZip: true });
+    await expect(runDevSetup(seams, runner)).rejects.toMatchObject({ code: "dev-no-dev-zip" });
+    expect(cloned(probes)).toBe(false);
   });
 
   test("not logged in to GitHub, non-interactive: refuses naming gh auth login", async () => {
     const { seams } = world({ ghLoggedIn: false, interactive: false });
     await expect(runDevSetup(seams, runner)).rejects.toMatchObject({ code: "dev-gh-login" });
+  });
+
+  test("not logged in, interactive: the login runs with the step paused", async () => {
+    const { seams } = world({ ghLoggedIn: false });
+    const { runner: r, paused } = recordingRunner();
+    await expect(runDevSetup(seams, r)).rejects.toMatchObject({ code: "dev-gh-login" });
+    expect(paused).toContain("Check you can push to mattstack");
   });
 
   test("missing bun, non-interactive: refuses with the install command, installs nothing", async () => {
@@ -1087,11 +1127,13 @@ describe("runDevSetup", () => {
     expect(installs).toEqual([]);
   });
 
-  test("too-old bun, interactive and accepted: installs the pinned version", async () => {
+  test("too-old bun, interactive and accepted: asks with the step paused, installs the pinned version", async () => {
     const { seams, installs } = world({ bun: "1.3.0" });
-    // the re-probe after install still sees 1.3.0 in this fake, so expect the post-install check to fail loudly
-    await expect(runDevSetup(seams, runner)).rejects.toMatchObject({ code: "dev-tool-install-failed" });
+    const { runner: r, paused } = recordingRunner();
+    // the fake still reports 1.3.0 after the install, so the post-install re-probe fails loudly
+    await expect(runDevSetup(seams, r)).rejects.toMatchObject({ code: "dev-tool-install-failed" });
     expect(installs).toEqual(["bun@1.4.2"]);
+    expect(paused).toContain("Check your tools");
   });
 
   test("offline before the clone: plain error, nothing changed (Review Focus 5)", async () => {
@@ -1116,7 +1158,7 @@ describe("isMattstackRemote", () => {
 });
 ```
 
-The "offline" test asserts `probes.calls.exec` is empty: the pin read must happen before any exec (tools probe, gh) runs. Order the stages accordingly (pins, then tools).
+Check how `fakeProbes` answers `exists()` and `readDir()` for a path in `dirs` (`grep -n "exists\|readDir" lib/setup/__tests__/fakes.ts`): the clone-folder check relies on `exists(CLONE)` being true for a `dirs` entry and `readDir(CLONE)` returning its list.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -1129,7 +1171,7 @@ Expected: FAIL, cannot resolve `../setup.ts`.
 import type { Flavor } from "../flavor.ts";
 import type { InstallResult } from "../setup/tools-install.ts";
 import type { RenderStatus } from "../ui/protocol.ts";
-import type { DevAppInstallSeams } from "./dev-app.ts";
+import type { DevAppInstallSeams, DevRelease } from "./dev-app.ts";
 
 export interface StageEnding {
   status: Exclude<RenderStatus, "running">;
@@ -1137,7 +1179,16 @@ export interface StageEnding {
   hint?: string;
 }
 
-export type StageRunner = (title: string, task: (sub: (text: string) => void) => Promise<StageEnding>) => Promise<StageEnding>;
+export interface StageIO {
+  /** A transient line under the running step. */
+  sub(text: string): void;
+  /** Takes the step off the screen while `fn` prompts or hands a child the terminal: rt-ui never paints under a prompt. */
+  pause<T>(fn: () => Promise<T>): Promise<T>;
+}
+
+export type StageRunner = (title: string, task: (io: StageIO) => Promise<StageEnding>) => Promise<StageEnding>;
+
+export type ChosenDevRelease = { release: DevRelease; sha: string };
 
 export interface DevSeams extends DevAppInstallSeams {
   flavor: Flavor;
@@ -1165,7 +1216,7 @@ export const DEV_REFUSAL_CODES: ReadonlySet<string> = new Set(["dev-no-push-acce
 import { UserActionableError } from "../errors.ts";
 import { compareVersions, installCommandFor, probeDevTools, type DevPins, type DevToolStatus } from "./tools.ts";
 import { chooseDevRelease, installDevAppFromRelease, listDevReleases, readInstalledDevApp } from "./dev-app.ts";
-import type { DevSeams, StageEnding } from "./seams.ts";
+import type { ChosenDevRelease, DevSeams, StageEnding, StageIO } from "./seams.ts";
 
 export function isMattstackRemote(url: string): boolean {
   return /github\.com[:/]m4ttstack\/mattstack(\.git)?\/?$/.test(url.trim());
@@ -1175,7 +1226,7 @@ function describe(t: DevToolStatus): string {
   return `${t.name} ${t.version}`;
 }
 
-export async function ensureTools(s: DevSeams, pins: DevPins, sub: (t: string) => void): Promise<{ ending: StageEnding; bunPath: string; goPath: string }> {
+export async function ensureTools(s: DevSeams, pins: DevPins, io: StageIO): Promise<{ ending: StageEnding; bunPath: string; goPath: string }> {
   let tools = await probeDevTools(s.probes, pins);
   for (const t of tools.filter((x) => x.need === "required" && x.state !== "ready")) {
     const command = installCommandFor(t.name, t.wanted);
@@ -1183,10 +1234,10 @@ export async function ensureTools(s: DevSeams, pins: DevPins, sub: (t: string) =
     if (t.name === "git" || !s.interactive) {
       throw new UserActionableError("dev-tool-missing", what, {}, { next: command });
     }
-    if (!(await s.confirm(`${what}. Install ${t.name} ${t.wanted} now?`))) {
+    if (!(await io.pause(() => s.confirm(`${what}. Install ${t.name} ${t.wanted} now?`)))) {
       throw new UserActionableError("dev-tool-missing", what, {}, { next: command });
     }
-    sub(`Installing ${t.name} ${t.wanted}`);
+    io.sub(`Installing ${t.name} ${t.wanted}`);
     const result = await s.installDevTool(t.name, t.wanted!);
     if (!result.ok) throw new UserActionableError("dev-tool-install-failed", `Installing ${t.name} failed`, {}, { why: result.detail, next: command });
   }
@@ -1208,23 +1259,28 @@ export async function ensureTools(s: DevSeams, pins: DevPins, sub: (t: string) =
   };
 }
 
-export async function ensureDevApp(s: DevSeams, sub: (t: string) => void, mode: "setup" | "update"): Promise<StageEnding> {
+export async function findDevRelease(s: DevSeams): Promise<ChosenDevRelease> {
   const gh = s.gh();
   if (!gh) throw new UserActionableError("dev-no-gh", "This app does not include the GitHub CLI rt needs");
+  const chosen = await chooseDevRelease(s.probes, await listDevReleases(s.probes, gh));
+  if (!chosen) throw new UserActionableError("dev-no-dev-zip", "No mattstack release has a dev app yet", {}, { why: "Ask the maintainers to publish one." });
+  return chosen;
+}
+
+export async function ensureDevApp(s: DevSeams, io: StageIO, mode: "setup" | "update", chosen?: ChosenDevRelease): Promise<StageEnding> {
   const installed = await readInstalledDevApp(s.probes);
   if (mode === "update" && installed && !installed.releaseBuild) {
     return { status: "skipped", title: "Your dev app was built on this Mac", hint: "rt only updates a dev app that came from a release" };
   }
-  const chosen = await chooseDevRelease(s.probes, await listDevReleases(s.probes, gh));
-  if (!chosen) throw new UserActionableError("dev-no-dev-zip", "No mattstack release has a dev app yet", {}, { why: "Ask the maintainers to publish one." });
-  if (installed && compareVersions(installed.version, chosen.release.version) >= 0) {
+  const pick = chosen ?? (await findDevRelease(s));
+  if (installed && compareVersions(installed.version, pick.release.version) >= 0) {
     return { status: "skipped", title: `Dev app ${installed.version} is current` };
   }
-  sub(`Downloading the dev app ${chosen.release.version}`);
-  const r = await installDevAppFromRelease(s, chosen, installed);
-  const older = chosen.release.version !== s.prodVersion ? `${chosen.release.version}, the newest release with a dev app` : chosen.release.version;
+  io.sub(`Downloading the dev app ${pick.release.version}`);
+  const r = await installDevAppFromRelease(s, pick, installed);
+  const version = pick.release.version !== s.prodVersion ? `${pick.release.version}, the newest release with a dev app` : pick.release.version;
   const relaunched = r.relaunchedPid !== null ? " and reopened it" : "";
-  return { status: "done", title: `Installed the dev app${relaunched}`, hint: older };
+  return { status: "done", title: `Installed the dev app${relaunched}`, hint: version };
 }
 ```
 
@@ -1237,8 +1293,8 @@ import { DEV_APP_PATH, OPEN_DEV_APP } from "../release/app-swap.ts";
 import { REGISTERED_APPS } from "../release/update-machine.ts";
 import { expandHome } from "../setup/repo-root.ts";
 import { readPins } from "./tools.ts";
-import { ensureDevApp, ensureTools, isMattstackRemote } from "./stages.ts";
-import type { DevSeams, StageEnding, StageRunner } from "./seams.ts";
+import { ensureDevApp, ensureTools, findDevRelease, isMattstackRemote } from "./stages.ts";
+import type { ChosenDevRelease, DevSeams, StageEnding, StageRunner } from "./seams.ts";
 
 export type DevSetupResult = { kind: "already"; clone: string } | { kind: "done"; clone: string; stages: StageEnding[] };
 
@@ -1250,34 +1306,40 @@ const DECK_WAIT_S = 60;
 function clonePath(s: DevSeams): string {
   const root = s.repoRoot();
   if (!root) {
-    throw new UserActionableError("dev-no-repo-root", "This Mac has no repo folder chosen yet", {}, { why: "rt clones mattstack into it.", next: "rt setup repo-root" });
+    throw new UserActionableError("dev-no-repo-root", "This Mac has no repo folder chosen yet", {}, { why: "rt clones mattstack into it.", next: "rt setup repo-root set <folder>" });
   }
   return join(expandHome(s.probes, root), "mattstack");
 }
 
-async function cloneIsOurs(s: DevSeams, dir: string): Promise<boolean | null> {
-  if (!s.probes.exists(dir)) return null;
+type CloneFolder = "missing" | "empty" | "ours" | "other";
+
+async function cloneFolder(s: DevSeams, dir: string): Promise<CloneFolder> {
+  if (!s.probes.exists(dir)) return "missing";
+  if (s.probes.readDir(dir).length === 0) return "empty";
   const r = await s.probes.exec(["git", "-C", dir, "remote", "get-url", "origin"], { timeoutMs: 5000 });
-  return r.code === 0 && isMattstackRemote(r.stdout);
+  return r.code === 0 && isMattstackRemote(r.stdout) ? "ours" : "other";
 }
 
 export async function runDevSetup(s: DevSeams, stage: StageRunner): Promise<DevSetupResult> {
   const p = s.probes;
-  const dir = clonePath(s);
-  if (s.flavor === "dev" && s.devWrapperOwnsRt()) return { kind: "already", clone: dir };
+  const stored = s.storedSourcePath();
+  if (s.flavor === "dev" && s.devWrapperOwnsRt() && stored) return { kind: "already", clone: stored };
 
-  const stages: StageEnding[] = [];
-  const ours = await cloneIsOurs(s, dir);
-  if (ours === false) {
+  const dir = clonePath(s);
+  const folder = await cloneFolder(s, dir);
+  if (folder === "other") {
     throw new UserActionableError("dev-clone-path-taken", `${dir} already holds something that is not mattstack`, {}, { why: "Move it aside, then run this again." });
   }
-  const pins = await readPins(p, ours ? dir : null);
+  const pins = await readPins(p, folder === "ours" ? dir : null);
 
+  const stages: StageEnding[] = [];
   let bunPath = "";
   let goPath = "";
+  let chosen: ChosenDevRelease | null = null;
+
   stages.push(
-    await stage("Check your tools", async (sub) => {
-      const t = await ensureTools(s, pins, sub);
+    await stage("Check your tools", async (io) => {
+      const t = await ensureTools(s, pins, io);
       bunPath = t.bunPath;
       goPath = t.goPath;
       return t.ending;
@@ -1285,14 +1347,17 @@ export async function runDevSetup(s: DevSeams, stage: StageRunner): Promise<DevS
   );
 
   stages.push(
-    await stage("Check you can push to mattstack", async () => {
+    await stage("Check you can push to mattstack", async (io) => {
       const gh = s.gh();
       if (!gh) throw new UserActionableError("dev-no-gh", "This app does not include the GitHub CLI rt needs");
       let auth = await p.exec([...gh, "auth", "status"], { timeoutMs: 15_000 });
-      if (auth.code !== 0 && s.interactive && (await s.confirm("You're not logged in to GitHub. Log in now?"))) {
-        await p.exec([...gh, "auth", "login", "--git-protocol", "https", "--web"], { inherit: true, timeoutMs: 600_000 });
-        await p.exec([...gh, "auth", "setup-git"], { timeoutMs: 15_000 });
-        auth = await p.exec([...gh, "auth", "status"], { timeoutMs: 15_000 });
+      if (auth.code !== 0 && s.interactive) {
+        auth = await io.pause(async () => {
+          if (!(await s.confirm("You're not logged in to GitHub. Log in now?"))) return auth;
+          await p.exec([...gh, "auth", "login", "--git-protocol", "https", "--web"], { inherit: true, timeoutMs: 600_000 });
+          await p.exec([...gh, "auth", "setup-git"], { timeoutMs: 15_000 });
+          return p.exec([...gh, "auth", "status"], { timeoutMs: 15_000 });
+        });
       }
       if (auth.code !== 0) {
         throw new UserActionableError("dev-gh-login", "You're not logged in to GitHub", {}, { why: "Pushing your branches needs it.", next: `${gh.join(" ")} auth login` });
@@ -1306,9 +1371,16 @@ export async function runDevSetup(s: DevSeams, stage: StageRunner): Promise<DevS
   );
 
   stages.push(
-    await stage("Clone mattstack", async (sub) => {
-      if (ours) return { status: "skipped", title: "Using your clone", hint: dir };
-      sub(`Cloning into ${dir}`);
+    await stage("Find the dev app", async () => {
+      chosen = await findDevRelease(s);
+      return { status: "done", title: `Found the dev app ${chosen.release.version}` };
+    }),
+  );
+
+  stages.push(
+    await stage("Clone mattstack", async (io) => {
+      if (folder === "ours") return { status: "skipped", title: "Using your clone", hint: dir };
+      io.sub(`Cloning into ${dir}`);
       const r = await p.exec(["git", "clone", CLONE_URL, dir], { timeoutMs: 30 * 60_000 });
       if (r.code !== 0) throw new UserActionableError("dev-clone-failed", "Cloning mattstack failed", {}, { log: r.stderr || r.stdout });
       return { status: "done", title: "Cloned mattstack", hint: dir };
@@ -1316,12 +1388,12 @@ export async function runDevSetup(s: DevSeams, stage: StageRunner): Promise<DevS
   );
 
   stages.push(
-    await stage("Build your clone", async (sub) => {
+    await stage("Build your clone", async (io) => {
       const path = `${join(goPath, "..")}:${join(bunPath, "..")}:${p.env.PATH ?? ""}`;
-      sub("Installing packages");
+      io.sub("Installing packages");
       const install = await p.exec([bunPath, "install"], { cwd: dir, env: { PATH: path }, timeoutMs: 30 * 60_000 });
       if (install.code !== 0) throw new UserActionableError("dev-build-failed", "Installing packages in your clone failed", {}, { log: install.stderr || install.stdout });
-      sub("Building rt's terminal helper");
+      io.sub("Building rt's terminal helper");
       const ui = await p.exec([bunPath, "run", "ui:build"], { cwd: dir, env: { PATH: path }, timeoutMs: 10 * 60_000 });
       if (ui.code !== 0) throw new UserActionableError("dev-build-failed", "Building rt's terminal helper failed", {}, { log: ui.stderr || ui.stdout });
       return { status: "done", title: "Built your clone" };
@@ -1330,13 +1402,13 @@ export async function runDevSetup(s: DevSeams, stage: StageRunner): Promise<DevS
 
   stages.push(
     await stage("Point rt at your clone", async () => {
-      if (s.storedSourcePath() === dir) return { status: "skipped", title: "rt already runs your clone" };
+      if (stored === dir) return { status: "skipped", title: "rt already runs your clone" };
       s.saveSourcePath(dir, bunPath);
       return { status: "done", title: "rt will run your clone", hint: dir };
     }),
   );
 
-  stages.push(await stage("Install the dev app", (sub) => ensureDevApp(s, sub, "setup")));
+  stages.push(await stage("Install the dev app", (io) => ensureDevApp(s, io, "setup", chosen!)));
 
   stages.push(
     await stage("Switch to the dev app", async () => {
@@ -1355,32 +1427,35 @@ export async function runDevSetup(s: DevSeams, stage: StageRunner): Promise<DevS
   );
 
   stages.push(
-    await stage("Serve the apps from your clone", async (sub) => {
-      let answered = false;
-      for (let i = 0; i < DECK_WAIT_S && !answered; i++) {
-        answered = (await p.exec([DEV_DECK, "list"], { timeoutMs: 10_000 })).code === 0;
-        if (!answered) await s.swap.sleep(1000);
-      }
-      if (!answered) throw new UserActionableError("dev-deck-silent", "The dev app's deck did not answer", {}, { next: "rt dev setup" });
-      for (const app of REGISTERED_APPS) {
-        sub(`Registering ${app}`);
-        const r = await p.exec([DEV_DECK, "register", "--dir", `${dir}/apps/${app}`], { timeoutMs: 120_000 });
-        if (r.code !== 0) throw new UserActionableError("dev-register-failed", `deck could not serve ${app} from your clone`, {}, { log: r.stderr || r.stdout, next: "rt dev setup" });
-      }
+    await stage("Serve the apps from your clone", async (io) => {
+      await registerApps(s, dir, io);
       return { status: "done", title: "The apps run from your clone" };
     }),
   );
 
   return { kind: "done", clone: dir, stages };
 }
-```
 
-Note the "already" check must run before `clonePath` can throw only if the stored source path is known; keep it as written (it needs the repo root to name the clone). If the test for "already" fails because `repoRoot` is consulted first, that is fine: the fake returns ROOT.
+/** Shared with `rt dev update`, which re-runs it: a setup that stopped after the switch resumes there, since setup itself now answers "already". Waits for the dev deck first, since the dev app may have just been (re)opened. */
+export async function registerApps(s: DevSeams, dir: string, io: { sub(text: string): void }): Promise<void> {
+  let answered = false;
+  for (let i = 0; i < DECK_WAIT_S && !answered; i++) {
+    answered = (await s.probes.exec([DEV_DECK, "list"], { timeoutMs: 10_000 })).code === 0;
+    if (!answered) await s.swap.sleep(1000);
+  }
+  if (!answered) throw new UserActionableError("dev-deck-silent", "The dev app's deck did not answer", {}, { next: "rt dev update" });
+  for (const app of REGISTERED_APPS) {
+    io.sub(`Registering ${app}`);
+    const r = await s.probes.exec([DEV_DECK, "register", "--dir", `${dir}/apps/${app}`], { timeoutMs: 120_000 });
+    if (r.code !== 0) throw new UserActionableError("dev-register-failed", `deck could not serve ${app} from your clone`, {}, { log: r.stderr || r.stdout, next: "rt dev update" });
+  }
+}
+```
 
 - [ ] **Step 6: Run to verify it passes**
 
 Run: `bun test lib/dev/__tests__/setup.test.ts`
-Expected: PASS. If the "offline" test fails because `cloneIsOurs` runs `git` before `readPins`, it only does so when the folder exists; the offline world has no folder, so `calls.exec` stays empty. Keep that order.
+Expected: PASS. The offline world has no clone folder, so `cloneFolder` runs no exec before `readPins` fails, and `calls.exec` stays empty.
 
 - [ ] **Step 7: Commit**
 
@@ -1398,11 +1473,13 @@ git commit -m "feat(dev): rt dev setup orchestration"
 - Test: `lib/dev/__tests__/update.test.ts`
 
 **Interfaces:**
-- Consumes: `DevSeams`, `StageRunner`, `StageEnding` (Task 5); `ensureTools`, `ensureDevApp` (Task 5); `readPins` (Task 1).
+- Consumes: `DevSeams`, `StageRunner`, `StageEnding`, `StageIO` (Task 5); `ensureTools`, `ensureDevApp` (Task 5); `registerApps` (Task 5); `readPins` (Task 1).
 - Produces:
   - `async function rtUiStale(s: DevSeams, clone: string): Promise<boolean>`
   - `type DevUpdateResult = { clone: string; stages: StageEnding[] }`
   - `async function runDevUpdate(s: DevSeams, stage: StageRunner): Promise<DevUpdateResult>`
+
+Stages: **Check your tools**, **Rebuild rt's terminal helper**, **Update the dev app**, **Serve the apps from your clone** (the last one finishes a setup that stopped after the switch, and is a no-op re-register otherwise).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1416,7 +1493,7 @@ import { runDevUpdate, rtUiStale } from "../update.ts";
 const CLONE = "/Users/collab/Documents/GitHub/mattstack";
 const BUN = "/Users/collab/.bun/bin/bun";
 const GO = "/opt/homebrew/bin/go";
-const runner: StageRunner = async (_t, task) => task(() => {});
+const runner: StageRunner = async (_t, task) => task({ sub: () => {}, pause: (fn) => fn() });
 
 function seams(opts: { flavor?: "dev" | "prod"; source?: string | null; uiBinary?: boolean; newerUnderUi?: boolean; installedVersion?: string; releaseBuild?: boolean }) {
   const files: Record<string, string> = {
@@ -1474,17 +1551,18 @@ describe("runDevUpdate", () => {
     await expect(runDevUpdate(s, runner)).rejects.toMatchObject({ code: "dev-not-set-up", next: "rt dev setup" });
   });
 
-  test("swaps in a newer release dev app", async () => {
-    const { s, swapCmds } = seams({});
+  test("swaps in a newer release dev app, then re-registers the apps", async () => {
+    const { s, probes, swapCmds } = seams({});
     const r = await runDevUpdate(s, runner);
-    expect(r.stages.map((x) => x.status)).toEqual(["done", "skipped", "done"]);
+    expect(r.stages.map((x) => x.status)).toEqual(["done", "skipped", "done", "done"]);
     expect(swapCmds.some((c) => c.startsWith("ditto") && c.endsWith("/Applications/mattstack-dev.app"))).toBe(true);
+    expect(probes.calls.exec.map((a) => a.join(" "))).toContain(`/Applications/mattstack-dev.app/Contents/Helpers/deck register --dir ${CLONE}/apps/board`);
   });
 
   test("a locally built dev app is left alone", async () => {
     const { s, swapCmds } = seams({ releaseBuild: false });
     const r = await runDevUpdate(s, runner);
-    expect(r.stages.at(-1)!.status).toBe("skipped");
+    expect(r.stages[2]!.status).toBe("skipped");
     expect(swapCmds).toEqual([]);
   });
 
@@ -1514,6 +1592,7 @@ import { join } from "path";
 import { UserActionableError } from "../errors.ts";
 import { readPins } from "./tools.ts";
 import { ensureDevApp, ensureTools } from "./stages.ts";
+import { registerApps } from "./setup.ts";
 import type { DevSeams, StageEnding, StageRunner } from "./seams.ts";
 
 export type DevUpdateResult = { clone: string; stages: StageEnding[] };
@@ -1535,8 +1614,8 @@ export async function runDevUpdate(s: DevSeams, stage: StageRunner): Promise<Dev
   let bunPath = "";
   let goPath = "";
   stages.push(
-    await stage("Check your tools", async (sub) => {
-      const t = await ensureTools(s, pins, sub);
+    await stage("Check your tools", async (io) => {
+      const t = await ensureTools(s, pins, io);
       bunPath = t.bunPath;
       goPath = t.goPath;
       return t.ending;
@@ -1551,14 +1630,20 @@ export async function runDevUpdate(s: DevSeams, stage: StageRunner): Promise<Dev
       return { status: "done", title: "Rebuilt rt's terminal helper" };
     }),
   );
-  stages.push(await stage("Update the dev app", (sub) => ensureDevApp(s, sub, "update")));
+  stages.push(await stage("Update the dev app", (io) => ensureDevApp(s, io, "update")));
+  stages.push(
+    await stage("Serve the apps from your clone", async (io) => {
+      await registerApps(s, clone, io);
+      return { status: "done", title: "The apps run from your clone" };
+    }),
+  );
   return { clone, stages };
 }
 ```
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `bun test lib/dev/__tests__/update.test.ts`
+Run: `bun test lib/dev/__tests__/update.test.ts lib/dev/__tests__/setup.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -1575,12 +1660,16 @@ git commit -m "feat(dev): rt dev update orchestration"
 **Files:**
 - Create: `commands/dev.ts`
 - Modify: `lib/command-tree-def.ts` (new top-level `dev` branch), `lib/module-registry.ts`, `commands/settings.ts` (export `saveSourcePath`)
-- Test: `commands/__tests__/dev.test.ts`
+- Test: `commands/__tests__/dev.test.ts` (plus its `__snapshots__` file, written on first run)
 - Regenerate: `bun run docs:gen`
 
 **Interfaces:**
-- Consumes: `runDevSetup`, `runDevUpdate`, `DevSeams`, `StageRunner`, `DEV_REFUSAL_CODES`; `createRealProbes` (`lib/setup/probes.ts`); `installDevTool`; `resolveTool` (`lib/deps/resolve.ts`); `getSetting` (`lib/settings/resolve.ts`); `processFlavor`; `devWrapperOwnsRt` (`lib/dev-mode.ts`); `readDevModeConfig`, `saveSourcePath` (`commands/settings.ts`); `rtVersion` (`lib/setup/update.ts`); `openStep`, `settleBackground` (`lib/ui/spawn.ts`); `interactive` (`lib/ui/gate.ts`); `confirm` (`lib/ui/prompts.ts`); `envelope` (`lib/setup/contract.ts`); `exitUserError` (`lib/errors.ts`); `logCliEvent` (`lib/cli-logger.ts`); `withoutUrls` (`lib/team/redact.ts`); `runCapture`, `childEnv` (`lib/subprocess.ts`).
-- Produces: `devSetup(args, ctx)`, `devUpdate(args, ctx)` handlers; `function devSetupBlocks(r: DevSetupResult): Block[]` and `function devUpdateBlocks(r: DevUpdateResult): Block[]` (pure, for tests).
+- Consumes: `runDevSetup`, `runDevUpdate`, `DevSeams`, `StageRunner`, `StageIO`, `StageEnding`, `DEV_REFUSAL_CODES`; `createRealProbes` (`lib/setup/probes.ts`); `installDevTool`; `resolveTool` (`lib/deps/resolve.ts`); `getSetting` (`lib/settings/resolve.ts`); `processFlavor`; `devWrapperOwnsRt` (`lib/dev-mode.ts`); `readDevModeConfig`, `saveSourcePath` (`commands/settings.ts`); `rtVersion` (`lib/setup/update.ts`); `openStep`, `settleBackground`, `StepHandle` (`lib/ui/spawn.ts`); `interactive` (`lib/ui/gate.ts`); `confirm` (`lib/ui/prompts.ts`); `envelope` (`lib/setup/contract.ts`); `exitUserError`, `failureFor`, `logFailureDetail`, `UserActionableError` (`lib/errors.ts`); `logCliEvent` (`lib/cli-logger.ts`); `withoutUrls` (`lib/team/redact.ts`); `runCapture`, `childEnv` (`lib/subprocess.ts`); `TREE` (`lib/command-tree-def.ts`), `listAgentSafe` (`lib/command-tree-resolve.ts`), `renderPlain` (`lib/ui/out-plain.ts`) in tests.
+- Produces:
+  - handlers `devSetup(args, ctx)`, `devUpdate(args, ctx)`
+  - pure `devSetupBlocks(r: DevSetupResult): Block[]`, `devUpdateBlocks(r: DevUpdateResult): Block[]`
+  - pure `devEnvelope(body: Record<string, unknown>, now: Date)` — the `--json` success envelope, pinned by snapshot
+  - pure `failureBlocks(err: UserActionableError): { refused: boolean; blocks: Block[] }` — the human failure: a `refused` note for `DEV_REFUSAL_CODES`, otherwise the failure plus the last child-output lines
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1588,17 +1677,20 @@ git commit -m "feat(dev): rt dev update orchestration"
 // commands/__tests__/dev.test.ts
 import { describe, expect, test } from "bun:test";
 import { listAgentSafe } from "../../lib/command-tree-resolve.ts";
-import { COMMAND_TREE } from "../../lib/command-tree-def.ts";
+import { TREE } from "../../lib/command-tree-def.ts";
+import { UserActionableError } from "../../lib/errors.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
-import { devSetupBlocks, devUpdateBlocks } from "../dev.ts";
+import { devEnvelope, devSetupBlocks, devUpdateBlocks, failureBlocks } from "../dev.ts";
+
+const AT = new Date("2026-10-06T15:00:00.000Z");
 
 describe("rt dev", () => {
   test("neither verb is agent-safe", () => {
-    expect(listAgentSafe(COMMAND_TREE).some((e) => e.path[0] === "dev")).toBe(false);
+    expect(listAgentSafe(TREE).some((e) => e.path[0] === "dev")).toBe(false);
   });
 
   test("the tree has dev setup and dev update with plain descriptions", () => {
-    const dev = COMMAND_TREE.dev!;
+    const dev = TREE.dev!;
     expect(Object.keys(dev.subcommands!)).toEqual(["setup", "update"]);
     expect(dev.subcommands!.setup!.description).toBe("Set this Mac up to build mattstack from your own clone");
     expect(dev.subcommands!.update!.description).toBe("Update your tools and dev app");
@@ -1606,24 +1698,45 @@ describe("rt dev", () => {
 
   test("setup summary names the way back and the Rebuild limit", () => {
     const text = renderPlain(devSetupBlocks({ kind: "done", clone: "/c/mattstack", stages: [{ status: "done", title: "Cloned mattstack" }] }));
-    expect(text).toContain("Cloned mattstack");
     expect(text).toContain("open /Applications/mattstack.app");
     expect(text).toContain("Rebuild");
   });
 
   test("already set up points at update", () => {
-    const text = renderPlain(devSetupBlocks({ kind: "already", clone: "/c/mattstack" }));
-    expect(text).toContain("rt dev update");
+    expect(renderPlain(devSetupBlocks({ kind: "already", clone: "/c/mattstack" }))).toContain("rt dev update");
   });
 
-  test("update summary lists each stage", () => {
-    const text = renderPlain(devUpdateBlocks({ clone: "/c", stages: [{ status: "skipped", title: "Dev app 2.22.0 is current" }] }));
-    expect(text).toContain("Dev app 2.22.0 is current");
+  test("update summary names the clone", () => {
+    expect(renderPlain(devUpdateBlocks({ clone: "/c/mattstack", stages: [] }))).toContain("/c/mattstack");
+  });
+
+  test("--json envelopes are pinned", () => {
+    const stages = [{ status: "done", title: "Your tools are ready", hint: "bun 1.4.2 · go 1.26.5" }];
+    expect(devEnvelope({ ok: true, kind: "done", clone: "/c/mattstack", stages }, AT)).toMatchSnapshot();
+    expect(devEnvelope({ ok: true, kind: "already", clone: "/c/mattstack", stages: [] }, AT)).toMatchSnapshot();
+    expect(devEnvelope({ ok: true, clone: "/c/mattstack", stages }, AT)).toMatchSnapshot();
+  });
+
+  test("a policy refusal is a refused note with its next command", () => {
+    const f = failureBlocks(new UserActionableError("dev-no-push-access", "You can't push to mattstack yet", {}, { why: "Ask the mattstack maintainers to add you as a collaborator." }));
+    expect(f.refused).toBe(true);
+    expect(renderPlain(f.blocks)).toContain("You can't push to mattstack yet");
+  });
+
+  test("a failure shows the last lines of the child's output, with urls stripped", () => {
+    const log = ["line 1", "line 2", "line 3", "line 4", "line 5", "fatal: could not read from https://user:tok@github.com/x.git", "line 7"].join("\n");
+    const f = failureBlocks(new UserActionableError("dev-clone-failed", "Cloning mattstack failed", {}, { log }));
+    const text = renderPlain(f.blocks);
+    expect(f.refused).toBe(false);
+    expect(text).toContain("Cloning mattstack failed");
+    expect(text).toContain("line 7");
+    expect(text).not.toContain("line 1");
+    expect(text).not.toContain("tok@");
   });
 });
 ```
 
-Check the real export names before running: `grep -n "^export" lib/command-tree-def.ts | head` (the tree constant may be named differently from `COMMAND_TREE`) and `grep -n "^export function renderPlain" lib/ui/out-plain.ts`. Use the real names in the test.
+Confirm `renderPlain` takes `Block[]` (`grep -n "export function renderPlain" lib/ui/out-plain.ts`); if it takes one block at a time, map and join.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -1632,7 +1745,7 @@ Expected: FAIL, cannot resolve `../dev.ts`.
 
 - [ ] **Step 3: Export `saveSourcePath`** in `commands/settings.ts`: change `function saveSourcePath(` to `export function saveSourcePath(`.
 
-- [ ] **Step 4: Add the tree node** in `lib/command-tree-def.ts`, next to the other top-level branches (place it alphabetically near `daemon`):
+- [ ] **Step 4: Add the tree node** to `TREE` in `lib/command-tree-def.ts`, beside the other top-level branches (alphabetically near `daemon`):
 
 ```ts
   dev: {
@@ -1668,18 +1781,17 @@ Expected: FAIL, cannot resolve `../dev.ts`.
  * step per stage at a terminal, plain lines off one, and a frozen envelope
  * under --json. Every decision lives in lib/dev.
  */
-import { mkdtempSync } from "fs";
+import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { resolveTool } from "../lib/deps/resolve.ts";
 import { devWrapperOwnsRt } from "../lib/dev-mode.ts";
-import type { DevSeams, StageEnding, StageRunner } from "../lib/dev/seams.ts";
-import { DEV_REFUSAL_CODES } from "../lib/dev/seams.ts";
+import { DEV_REFUSAL_CODES, type DevSeams, type StageEnding, type StageIO, type StageRunner } from "../lib/dev/seams.ts";
 import { runDevSetup, type DevSetupResult } from "../lib/dev/setup.ts";
 import { runDevUpdate, type DevUpdateResult } from "../lib/dev/update.ts";
-import { exitUserError, UserActionableError } from "../lib/errors.ts";
+import { exitUserError, failureFor, logFailureDetail, UserActionableError } from "../lib/errors.ts";
 import { processFlavor } from "../lib/flavor.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { envelope } from "../lib/setup/contract.ts";
@@ -1695,13 +1807,15 @@ import type { Block } from "../lib/ui/protocol.ts";
 import { openStep, settleBackground, type StepHandle } from "../lib/ui/spawn.ts";
 import { readDevModeConfig, saveSourcePath } from "./settings.ts";
 
+const OUTPUT_CAPTION = "what it said";
+const OUTPUT_TAIL_LINES = 5;
+
 function canPrompt(json: boolean): boolean {
   return !json && !process.env.RT_BATCH && interactive();
 }
 
-function realSeams(json: boolean): DevSeams {
+function realSeams(json: boolean, scratch: { dir: string | null }): DevSeams {
   const probes = createRealProbes();
-  let scratch: string | null = null;
   return {
     probes,
     swap: {
@@ -1712,7 +1826,7 @@ function realSeams(json: boolean): DevSeams {
       const r = await runCapture(["curl", "-fsSL", "--retry", "3", "-o", dest, url], { stderr: "pipe", timeoutMs: 30 * 60_000 });
       if (r.exitCode !== 0) throw new UserActionableError("dev-download-failed", "Downloading the dev app failed", {}, { log: r.stderr });
     },
-    scratchDir: () => (scratch ??= mkdtempSync(join(tmpdir(), "rt-dev-"))),
+    scratchDir: () => (scratch.dir ??= mkdtempSync(join(tmpdir(), "rt-dev-"))),
     flavor: processFlavor(),
     interactive: canPrompt(json),
     prodVersion: rtVersion(),
@@ -1726,27 +1840,46 @@ function realSeams(json: boolean): DevSeams {
   };
 }
 
-/** One rt-ui step per stage, the shape commands/home.ts uses; endings are collected for --json. */
+async function openStageStep(title: string): Promise<StepHandle | null> {
+  await settleBackground();
+  try {
+    return openStep(title);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One rt-ui step per stage, the shape commands/home.ts uses. `pause` clears
+ * the step before a prompt or a child that owns the terminal and reopens it
+ * after, so nothing paints under a prompt. Endings are collected for --json.
+ */
 function stageRunner(json: boolean, endings: StageEnding[]): StageRunner {
   return async (title, task) => {
-    let step: StepHandle | null = null;
-    if (!json && interactive()) {
-      await settleBackground();
-      try {
-        step = openStep(title);
-      } catch {
-        step = null;
-      }
-    }
-    const sub = (text: string) => {
-      step?.sub(text);
-      logCliEvent("debug", "dev", withoutUrls(text));
+    const drawing = !json && interactive();
+    let step: StepHandle | null = drawing ? await openStageStep(title) : null;
+    const io: StageIO = {
+      sub: (text) => {
+        step?.sub(text);
+        logCliEvent("debug", "dev", withoutUrls(text));
+      },
+      pause: async (fn) => {
+        if (step) {
+          await step.clear();
+          step = null;
+        }
+        try {
+          return await fn();
+        } finally {
+          if (drawing) step = await openStageStep(title);
+        }
+      },
     };
     let ending: StageEnding;
     try {
-      ending = await task(sub);
+      ending = await task(io);
     } catch (err) {
-      if (step) await step.fail(title);
+      if (step) await step.clear({ thrown: true });
       throw err;
     }
     endings.push(ending);
@@ -1778,43 +1911,64 @@ export function devUpdateBlocks(r: DevUpdateResult): Block[] {
   return [out.blank(), out.line("done", "Your dev setup is up to date", r.clone)];
 }
 
+export function devEnvelope(body: Record<string, unknown>, now: Date) {
+  return envelope(body, now);
+}
+
+export function failureBlocks(err: UserActionableError): { refused: boolean; blocks: Block[] } {
+  if (DEV_REFUSAL_CODES.has(err.code)) {
+    return { refused: true, blocks: [out.line("refused", err.message, err.why), ...(err.next ? [out.callout("next", out.cmd(err.next))] : [])] };
+  }
+  const tail = err.log
+    ? withoutUrls(err.log)
+        .split("\n")
+        .filter((l) => l.trim() !== "")
+        .slice(-OUTPUT_TAIL_LINES)
+    : [];
+  return { refused: false, blocks: tail.length > 0 ? [out.verbatim(tail, OUTPUT_CAPTION)] : [] };
+}
+
 function fail(err: unknown, json: boolean): never {
   if (!(err instanceof UserActionableError)) throw err;
-  if (!json && DEV_REFUSAL_CODES.has(err.code)) {
-    out.note(out.line("refused", err.message, err.why), ...(err.next ? [out.callout("next", out.cmd(err.next))] : []));
-    process.exit(2);
+  const safe = new UserActionableError(err.code, err.message, err.extra, { why: err.why, next: err.next, log: err.log ? withoutUrls(err.log) : undefined });
+  if (json) exitUserError(safe, true);
+  logFailureDetail(safe);
+  const f = failureBlocks(safe);
+  if (f.refused) out.note(...f.blocks);
+  else out.fail(failureFor(safe), ...f.blocks);
+  process.exit(2);
+}
+
+async function run<T>(args: string[], verb: (s: DevSeams, r: StageRunner) => Promise<T>, done: (r: T, stages: StageEnding[], json: boolean) => void): Promise<void> {
+  const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
+  const endings: StageEnding[] = [];
+  const scratch: { dir: string | null } = { dir: null };
+  try {
+    done(await verb(realSeams(json, scratch), stageRunner(json, endings)), endings, json);
+  } catch (err) {
+    fail(err, json);
+  } finally {
+    if (scratch.dir) rmSync(scratch.dir, { recursive: true, force: true });
   }
-  exitUserError(err, json);
 }
 
 export async function devSetup(args: string[], _ctx: CommandContext = {}): Promise<void> {
-  const json = args.includes("--json");
-  if (json) out.payloadOnStdout();
-  const endings: StageEnding[] = [];
-  try {
-    const r = await runDevSetup(realSeams(json), stageRunner(json, endings));
-    if (json) out.json(envelope({ ok: true, kind: r.kind, clone: r.clone, stages: endings }));
+  await run(args, runDevSetup, (r, stages, json) => {
+    if (json) out.json(devEnvelope({ ok: true, kind: r.kind, clone: r.clone, stages }, new Date()));
     else out.print(...devSetupBlocks(r));
-  } catch (err) {
-    fail(err, json);
-  }
+  });
 }
 
 export async function devUpdate(args: string[], _ctx: CommandContext = {}): Promise<void> {
-  const json = args.includes("--json");
-  if (json) out.payloadOnStdout();
-  const endings: StageEnding[] = [];
-  try {
-    const r = await runDevUpdate(realSeams(json), stageRunner(json, endings));
-    if (json) out.json(envelope({ ok: true, clone: r.clone, stages: endings }));
+  await run(args, runDevUpdate, (r, stages, json) => {
+    if (json) out.json(devEnvelope({ ok: true, clone: r.clone, stages }, new Date()));
     else out.print(...devUpdateBlocks(r));
-  } catch (err) {
-    fail(err, json);
-  }
+  });
 }
 ```
 
-Before running, confirm each imported name exists: `grep -n "export function blank\|export function cmd\|export const cmd\|export function payloadOnStdout\|export function json" lib/ui/out.ts`, `grep -n "\"tip\"" lib/ui/protocol.ts` (the `CalloutLabel` set; use `"note"` if `"tip"` is not a label), `grep -n "export function exitUserError" lib/errors.ts`. Adjust to the real names; do not add new output primitives.
+`process.exit` inside `fail` skips the `finally`, so the scratch folder of a failed run stays behind in the system temp dir; that is acceptable (macOS cleans it), and the log line names nothing in it.
 
 - [ ] **Step 7: Run the tests, the guards and the docs generator**
 
@@ -1824,12 +1978,12 @@ bun test commands/__tests__/dev.test.ts lib/__tests__/no-raw-output.test.ts lib/
 bun run picker:check
 bun run docs:gen
 ```
-Expected: all PASS; `docs:gen` writes the new reference pages.
+Expected: all PASS (the first run writes `commands/__tests__/__snapshots__/dev.test.ts.snap`; read it and check the three envelopes carry `contract: 1`, `at: "2026-10-06T15:00:00.000Z"` and the body keys); `docs:gen` writes the new reference pages.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add commands/dev.ts commands/settings.ts lib/command-tree-def.ts lib/module-registry.ts commands/__tests__/dev.test.ts docs/
+git add commands/dev.ts commands/settings.ts lib/command-tree-def.ts lib/module-registry.ts commands/__tests__/dev.test.ts commands/__tests__/__snapshots__/ docs/
 git commit -m "feat(dev): rt dev setup and rt dev update commands"
 ```
 
@@ -1840,16 +1994,19 @@ git commit -m "feat(dev): rt dev setup and rt dev update commands"
 **Files:**
 - Modify: `rt-tray/build.sh` (MSDevReleaseBuild key)
 - Create: `lib/release/dev-publish.ts`
-- Modify: `lib/release/update-machine.ts` (`LegId` gains `"dev-publish"`; label, plan description, ordering; `runDevBundleLeg` passes `MS_DEV_RELEASE_BUILD=1` for a release run only)
-- Test: `lib/release/__tests__/dev-publish.test.ts`; update `lib/release/__tests__/update-machine.test.ts` for the seventh leg
+- Modify: `lib/release/update-machine.ts` (`LegId` gains `"dev-publish"`; seams gain `writeFile` and `notaryProfile`; notary preflight before the legs; a non-halting leg; `runDevBundleLeg` passes `MS_DEV_RELEASE_BUILD=1` for a release run only)
+- Modify: `commands/release.ts` (real `writeFile` and `notaryProfile` seams)
+- Test: `lib/release/__tests__/dev-publish.test.ts`; update `lib/release/__tests__/update-machine.test.ts` and `commands/__tests__/release-update-machine.test.ts` (both build their own `UpdateMachineSeams` and count six legs)
 
 **Interfaces:**
-- Consumes: `AppSwapSeams`, `execTail` (Task 3); `devZipName` (Task 4); `UpdateMachineSeams`, `RELEASE_REPO`.
+- Consumes: `AppSwapSeams`, `execTail` (Task 3); `UpdateMachineSeams`, `RELEASE_REPO`.
 - Produces:
   - `const NOTARY_PROFILE_DEFAULT = "mattstack-notary"`
   - `function mergeSums(existing: string, fileName: string, sha: string): string`
+  - `interface DevPublishSeams extends AppSwapSeams { readFile(path: string): string | null; writeFile(path: string, content: string): Promise<void> }`
   - `interface DevPublishInput { bundleDir: string; workDir: string; tag: string; version: string; notaryProfile: string }`
-  - `async function publishDevApp(seams: AppSwapSeams, input: DevPublishInput): Promise<{ ok: true; detail: string } | { ok: false; error: string }>`
+  - `async function publishDevApp(seams: DevPublishSeams, input: DevPublishInput): Promise<{ ok: true; detail: string } | { ok: false; error: string }>`
+  - `UpdateMachineSeams` gains `writeFile(path: string, content: string): Promise<void>` and `notaryProfile: string`
 
 - [ ] **Step 1: Add the Info.plist key** in `rt-tray/build.sh`, right after the `MS_BUILD_SHA` block (around line 399):
 
@@ -1860,12 +2017,12 @@ if [ "$IS_DEV" = true ] && [ "${MS_DEV_RELEASE_BUILD:-0}" = 1 ]; then
 fi
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [ ] **Step 2: Write the failing tests for the publish work**
 
 ```ts
 // lib/release/__tests__/dev-publish.test.ts
 import { describe, expect, test } from "bun:test";
-import { mergeSums, publishDevApp } from "../dev-publish.ts";
+import { mergeSums, publishDevApp, type DevPublishSeams } from "../dev-publish.ts";
 
 describe("mergeSums", () => {
   test("appends a new line", () => {
@@ -1878,56 +2035,57 @@ describe("mergeSums", () => {
 
 describe("publishDevApp", () => {
   const input = { bundleDir: "/w/rt-dev-bundle", workDir: "/w", tag: "v2.22.0", version: "2.22.0", notaryProfile: "mattstack-notary" };
-  function seams(fail?: string) {
+  function seams(failOn?: string) {
     const cmds: string[] = [];
-    return {
-      cmds,
-      s: {
-        exec: async (argv: string[], opts?: { env?: Record<string, string> }) => {
-          const cmd = argv.join(" ") + (opts?.env?.NOTARY_PROFILE ? ` [NOTARY_PROFILE=${opts.env.NOTARY_PROFILE}]` : "");
-          cmds.push(cmd);
-          if (fail && cmd.includes(fail)) return { stdout: "", stderr: "nope", exitCode: 1 };
-          if (argv[0] === "shasum") return { stdout: "abc  /w/mattstack-dev-2.22.0.zip\n", stderr: "", exitCode: 0 };
-          if (argv[0] === "cat") return { stdout: "aaa  mattstack-2.22.0.dmg\n", stderr: "", exitCode: 0 };
-          return { stdout: "", stderr: "", exitCode: 0 };
-        },
-        sleep: async () => {},
+    const writes: Record<string, string> = {};
+    const s: DevPublishSeams = {
+      exec: async (argv, opts) => {
+        const cmd = argv.join(" ") + (opts?.env?.NOTARY_PROFILE ? ` [NOTARY_PROFILE=${opts.env.NOTARY_PROFILE}]` : "");
+        cmds.push(cmd);
+        if (failOn && cmd.includes(failOn)) return { stdout: "", stderr: "nope", exitCode: 1 };
+        if (argv[0] === "shasum") return { stdout: "abc  /w/mattstack-dev-2.22.0.zip\n", stderr: "", exitCode: 0 };
+        return { stdout: "", stderr: "", exitCode: 0 };
       },
+      sleep: async () => {},
+      readFile: (path) => (path === "/w/sums/SHA256SUMS" ? "aaa  mattstack-2.22.0.dmg\n" : null),
+      writeFile: async (path, content) => { writes[path] = content; },
     };
+    return { s, cmds, writes };
   }
 
-  test("checks the profile, notarizes, zips, uploads the zip, then the merged sums", async () => {
-    const { s, cmds } = seams();
-    const r = await publishDevApp(s as never, input);
+  test("notarizes, zips, uploads the zip, then the merged sums", async () => {
+    const { s, cmds, writes } = seams();
+    const r = await publishDevApp(s, input);
     expect(r.ok).toBe(true);
     const order = [
-      "xcrun notarytool history --keychain-profile mattstack-notary",
       "scripts/release/notarize.sh rt-tray/mattstack-dev.app [NOTARY_PROFILE=mattstack-notary]",
       "ditto -c -k --keepParent /w/rt-dev-bundle/rt-tray/mattstack-dev.app /w/mattstack-dev-2.22.0.zip",
+      "gh release download v2.22.0 --repo m4ttstack/mattstack --pattern SHA256SUMS --dir /w/sums --clobber",
       "gh release upload v2.22.0 /w/mattstack-dev-2.22.0.zip --repo m4ttstack/mattstack --clobber",
       "gh release upload v2.22.0 /w/sums/SHA256SUMS --repo m4ttstack/mattstack --clobber",
     ];
     let at = -1;
     for (const c of order) {
-      const i = cmds.findIndex((x, idx) => idx > at && x.startsWith(c));
+      const i = cmds.findIndex((x, idx) => idx > at && x === c);
       expect(i).toBeGreaterThan(at);
       at = i;
     }
-  });
-
-  test("no notary profile stops before notarizing, naming the one-time command", async () => {
-    const { s, cmds } = seams("notarytool history");
-    const r = await publishDevApp(s as never, input);
-    expect(r).toMatchObject({ ok: false });
-    if (!r.ok) expect(r.error).toContain("xcrun notarytool store-credentials mattstack-notary");
-    expect(cmds.some((c) => c.includes("notarize.sh"))).toBe(false);
+    expect(writes["/w/sums/SHA256SUMS"]).toBe(mergeSums("aaa  mattstack-2.22.0.dmg\n", "mattstack-dev-2.22.0.zip", "abc"));
   });
 
   test("a failed zip upload never touches SHA256SUMS", async () => {
-    const { s, cmds } = seams("mattstack-dev-2.22.0.zip --repo");
-    const r = await publishDevApp(s as never, input);
+    const { s, cmds, writes } = seams("mattstack-dev-2.22.0.zip --repo");
+    const r = await publishDevApp(s, input);
     expect(r.ok).toBe(false);
     expect(cmds.some((c) => c.includes("sums/SHA256SUMS --repo"))).toBe(false);
+    expect(writes).toEqual({});
+  });
+
+  test("a failed notarization stops before zipping", async () => {
+    const { s, cmds } = seams("notarize.sh");
+    const r = await publishDevApp(s, input);
+    expect(r).toMatchObject({ ok: false });
+    expect(cmds.some((c) => c.startsWith("ditto"))).toBe(false);
   });
 });
 ```
@@ -1952,6 +2110,11 @@ import { execTail, type AppSwapSeams } from "./app-swap.ts";
 export const NOTARY_PROFILE_DEFAULT = "mattstack-notary";
 const REPO = "m4ttstack/mattstack";
 
+export interface DevPublishSeams extends AppSwapSeams {
+  readFile(path: string): string | null;
+  writeFile(path: string, content: string): Promise<void>;
+}
+
 export function mergeSums(existing: string, fileName: string, sha: string): string {
   const kept = existing
     .split("\n")
@@ -1961,16 +2124,12 @@ export function mergeSums(existing: string, fileName: string, sha: string): stri
 
 export interface DevPublishInput { bundleDir: string; workDir: string; tag: string; version: string; notaryProfile: string }
 
-export async function publishDevApp(seams: AppSwapSeams, input: DevPublishInput): Promise<{ ok: true; detail: string } | { ok: false; error: string }> {
+export async function publishDevApp(seams: DevPublishSeams, input: DevPublishInput): Promise<{ ok: true; detail: string } | { ok: false; error: string }> {
   const app = join(input.bundleDir, "rt-tray", "mattstack-dev.app");
   const zipName = `mattstack-dev-${input.version}.zip`;
   const zip = join(input.workDir, zipName);
   const sumsDir = join(input.workDir, "sums");
-
-  const profile = await seams.exec(["xcrun", "notarytool", "history", "--keychain-profile", input.notaryProfile]);
-  if (profile.exitCode !== 0) {
-    return { ok: false, error: `no notary profile named ${input.notaryProfile} on this Mac; save one once with: xcrun notarytool store-credentials ${input.notaryProfile}` };
-  }
+  const sumsPath = join(sumsDir, "SHA256SUMS");
 
   const notarize = await seams.exec(["scripts/release/notarize.sh", "rt-tray/mattstack-dev.app"], { cwd: input.bundleDir, env: { NOTARY_PROFILE: input.notaryProfile }, timeoutMs: 50 * 60_000 });
   if (notarize.exitCode !== 0) return { ok: false, error: `notarize.sh failed: ${execTail(notarize)}` };
@@ -1984,87 +2143,188 @@ export async function publishDevApp(seams: AppSwapSeams, input: DevPublishInput)
 
   const fetchSums = await seams.exec(["gh", "release", "download", input.tag, "--repo", REPO, "--pattern", "SHA256SUMS", "--dir", sumsDir, "--clobber"]);
   if (fetchSums.exitCode !== 0) return { ok: false, error: `downloading SHA256SUMS failed: ${execTail(fetchSums)}` };
-  const current = await seams.exec(["cat", join(sumsDir, "SHA256SUMS")]);
-  if (current.exitCode !== 0) return { ok: false, error: `reading SHA256SUMS failed: ${execTail(current)}` };
-  const merged = mergeSums(current.stdout, zipName, sha);
+  const current = seams.readFile(sumsPath);
+  if (current === null) return { ok: false, error: `the release's SHA256SUMS could not be read at ${sumsPath}` };
 
   const uploadZip = await seams.exec(["gh", "release", "upload", input.tag, zip, "--repo", REPO, "--clobber"]);
   if (uploadZip.exitCode !== 0) return { ok: false, error: `uploading ${zipName} failed: ${execTail(uploadZip)}` };
 
-  await Bun.write(join(sumsDir, "SHA256SUMS"), merged);
-  const uploadSums = await seams.exec(["gh", "release", "upload", input.tag, join(sumsDir, "SHA256SUMS"), "--repo", REPO, "--clobber"]);
+  await seams.writeFile(sumsPath, mergeSums(current, zipName, sha));
+  const uploadSums = await seams.exec(["gh", "release", "upload", input.tag, sumsPath, "--repo", REPO, "--clobber"]);
   if (uploadSums.exitCode !== 0) return { ok: false, error: `${zipName} is attached, but uploading the updated SHA256SUMS failed: ${execTail(uploadSums)}` };
 
   return { ok: true, detail: `${zipName} notarized and attached to ${input.tag}` };
 }
 ```
 
-`Bun.write` writes a real file even under test; in the test, `workDir` is `/w`, which does not exist. Route the write through the seam instead so tests stay off disk: add `writeFile(path: string, content: string): Promise<void>` to a `DevPublishSeams = AppSwapSeams & { writeFile(...) }` type, use it here, give the test seam a recording `writeFile`, and wire the real one in Step 5 as `(path, content) => Bun.write(path, content).then(() => {})` after `mkdir -p` of `sumsDir` via `seams.exec(["mkdir", "-p", sumsDir])`. Assert in the test that the written content equals `mergeSums("aaa  mattstack-2.22.0.dmg\n", "mattstack-dev-2.22.0.zip", "abc")`.
+- [ ] **Step 5: Run the publish tests**
 
-- [ ] **Step 5: Wire the leg into update-machine**
+Run: `bun test lib/release/__tests__/dev-publish.test.ts`
+Expected: PASS.
+
+- [ ] **Step 6: Wire the leg into update-machine**
 
 In `lib/release/update-machine.ts`:
 
-1. `export type LegId = "prod-app" | "dev-bundle" | "dev-publish" | "checkout-sync" | "daemon" | "served-suite" | "verify";`
-2. `const DEV_PUBLISH_LABEL = "dev app publish";`
-3. `UpdateMachineSeams` gains `writeFile(path: string, content: string): Promise<void>` (real seam in `commands/release.ts`: `(path, content) => Bun.write(path, content).then(() => {})`), and the dev-bundle build passes the release flag. Change the signature to `runDevBundleLeg(seams, ctx, onNotRunning = () => {}, release = false)` and the build call to:
+1. `export type LegId = "prod-app" | "dev-bundle" | "dev-publish" | "checkout-sync" | "daemon" | "served-suite" | "verify";` and `const DEV_PUBLISH_LABEL = "dev app publish";`
+2. `export interface UpdateMachineSeams extends AppSwapSeams` gains (beside the existing `readFile`):
+
+```ts
+  writeFile(path: string, content: string): Promise<void>;
+  /** The notarytool keychain profile the dev-publish leg signs in with (NOTARY_PROFILE, else mattstack-notary). */
+  notaryProfile: string;
+```
+
+3. `runDevBundleLeg(seams, ctx, onNotRunning = () => {}, release = false)`; its build call becomes:
 
 ```ts
   const build = await seams.exec(["rt-tray/build.sh", "dev"], { cwd: bundleDir, ...(release ? { env: { MS_DEV_RELEASE_BUILD: "1" } } : {}) });
 ```
 
-`runUpdateMachine` calls it with `release = true`; `runDevAppRebuild` keeps the default `false`.
+`runUpdateMachine` passes `release = true`; `runDevAppRebuild` keeps the default.
 
-4. After the dev-bundle `runGatedLeg`, add:
+4. `runGatedLeg` gains a fourth parameter `halts = true`, and only sets `haltedAfter` when it is true:
 
 ```ts
-  await runGatedLeg("dev-publish", DEV_PUBLISH_LABEL, async () => {
-    const devLeg = legs.find((l) => l.id === "dev-bundle");
-    if (devLeg?.status !== "ok") return skippedLeg("dev-publish", DEV_PUBLISH_LABEL, "Not run: the dev app was not built in this run");
-    const r = await publishDevApp(seams, {
-      bundleDir: `${seams.workDir}/rt-dev-bundle`,
-      workDir: seams.workDir,
-      tag: ctx.tag,
-      version: ctx.ver,
-      notaryProfile: process.env.NOTARY_PROFILE || NOTARY_PROFILE_DEFAULT,
-    });
-    return r.ok ? okLeg("dev-publish", DEV_PUBLISH_LABEL, r.detail) : errorLeg("dev-publish", DEV_PUBLISH_LABEL, r.error);
-  });
+  async function runGatedLeg(id: LegId, label: string, run: () => Promise<LegResult>, halts = true): Promise<void> {
+    // ...unchanged up to the push...
+    legs.push(result);
+    if (halts && (result.status === "aborted" || result.status === "error")) haltedAfter = label;
+  }
 ```
 
-5. Add `"dev-publish"` to the `--plan` id list (after `"dev-bundle"`), its label to the label map, and to `describePlannedLeg`:
+5. Right after `const ctx: ReleaseContext = { tag, ver, sha };`, check the notary profile once, before any leg changes the Mac:
+
+```ts
+  const notaryReady = (await seams.exec(["xcrun", "notarytool", "history", "--keychain-profile", seams.notaryProfile])).exitCode === 0;
+```
+
+6. After the dev-bundle `runGatedLeg`, add the publish leg, non-halting:
+
+```ts
+  await runGatedLeg(
+    "dev-publish",
+    DEV_PUBLISH_LABEL,
+    async () => {
+      if (!notaryReady) {
+        return skippedLeg("dev-publish", DEV_PUBLISH_LABEL, `Not run: no notary profile named ${seams.notaryProfile} on this Mac; save one once with: xcrun notarytool store-credentials ${seams.notaryProfile}`);
+      }
+      if (legs.find((l) => l.id === "dev-bundle")?.status !== "ok") {
+        return skippedLeg("dev-publish", DEV_PUBLISH_LABEL, "Not run: the dev app was not built in this run");
+      }
+      const r = await publishDevApp(seams, { bundleDir: `${seams.workDir}/rt-dev-bundle`, workDir: seams.workDir, tag: ctx.tag, version: ctx.ver, notaryProfile: seams.notaryProfile });
+      return r.ok ? okLeg("dev-publish", DEV_PUBLISH_LABEL, r.detail) : errorLeg("dev-publish", DEV_PUBLISH_LABEL, r.error);
+    },
+    false,
+  );
+```
+
+7. Add `"dev-publish"` to the `--plan` id list (after `"dev-bundle"`), `"dev-publish": DEV_PUBLISH_LABEL` to its label map, and to `describePlannedLeg`:
 
 ```ts
     case "dev-publish":
       return `Notarize that dev app, zip it, and attach it and its checksum to the ${tag} release`;
 ```
 
-- [ ] **Step 6: Update the update-machine tests**
-
-In `lib/release/__tests__/update-machine.test.ts`: the fake seam handles `xcrun notarytool history`, `scripts/release/notarize.sh`, `ditto -c`, `shasum`, `gh release download`, `cat .../SHA256SUMS`, `gh release upload` (all exit 0, `shasum` printing `abc  <path>`), plus a recording `writeFile`. Change the "runs all six legs" test to seven legs with `dev-publish` second-after `dev-bundle`, and the `--plan` test's id list. Add:
+In `commands/release.ts`'s `createRealUpdateMachineSeams`, add:
 
 ```ts
-  test("dev publish: skipped when the dev bundle leg did not build", async () => {
-    // build the seams with buildExit: 1 (existing option), run with yes: true
-    // expect the dev-publish leg status "skipped" (halted runs report "Not run: the run stopped at dev bundle rebuild")
+    writeFile: async (path, content) => {
+      mkdirSync(dirname(path), { recursive: true });
+      await Bun.write(path, content);
+    },
+    notaryProfile: process.env.NOTARY_PROFILE || NOTARY_PROFILE_DEFAULT,
+```
+
+(import `mkdirSync` from `fs`, `dirname` from `path`, and `NOTARY_PROFILE_DEFAULT` from `../lib/release/dev-publish.ts` if not already imported).
+
+- [ ] **Step 7: Update the update-machine test harness and add the leg's tests**
+
+In `lib/release/__tests__/update-machine.test.ts`:
+
+1. Add to `Options`: `notaryMissing?: boolean; publishUploadExit?: number;`.
+2. In `fakeSeams`, record exec options and add the new seams. Change the `exec` member's signature to `exec: (argv, opts) => {` and push `{ cmd, opts }` onto a new `execOpts: { cmd: string; opts?: { env?: Record<string, string> } }[]` array returned beside `calls` (add `execOpts` to the return value: `return { seams, calls, execOpts };`). Add these handlers before the final `unhandled` return:
+
+```ts
+      if (cmd.startsWith("xcrun notarytool history")) return opts.notaryMissing ? fail("No Keychain password item found") : ok("");
+      if (cmd.startsWith("scripts/release/notarize.sh")) return ok("");
+      if (cmd.startsWith("ditto -c -k --keepParent")) return ok("");
+      if (cmd.startsWith("gh release download")) return ok("");
+      if (cmd.startsWith("gh release upload")) return opts.publishUploadExit ? fail("upload failed", opts.publishUploadExit) : ok("");
+```
+
+and to the seams object:
+
+```ts
+    writeFile: async (path, content) => { calls.push(`writeFile ${path} ${content.trim().split("\n").at(-1)}`); },
+    notaryProfile: "mattstack-notary",
+```
+
+The existing `shasum` handler (`cafefeed ...`) and the `readFile` handler for `SHA256SUMS` already serve the publish leg.
+
+3. Change the "runs all six legs" test to seven, with the order `["prod-app", "dev-bundle", "dev-publish", "checkout-sync", "daemon", "served-suite", "verify"]`, and add `"dev-publish"` after `"dev-bundle"` wherever the `--plan` test lists ids.
+
+4. Add these tests inside `describe("rt release update-machine", ...)`:
+
+```ts
+  test("dev publish: no notary profile skips only the publish leg, naming the one-time command", async () => {
+    const { seams, calls } = fakeSeams({ notaryMissing: true });
+    const report = await runUpdateMachine(seams, { yes: true });
+    const publish = report.legs.find((l) => l.id === "dev-publish")!;
+    expect(publish.status).toBe("skipped");
+    expect(publish.detail).toContain("xcrun notarytool store-credentials mattstack-notary");
+    expect(calls.some((c) => c.startsWith("scripts/release/notarize.sh"))).toBe(false);
+    expect(report.legs.find((l) => l.id === "daemon")!.status).toBe("ok");
+    expect(report.haltedAfter).toBeNull();
   });
-  test("dev publish: the release build passes MS_DEV_RELEASE_BUILD=1 and a ref rebuild does not", async () => {
-    // assert the exec opts for "rt-tray/build.sh dev" carry env MS_DEV_RELEASE_BUILD=1 under runUpdateMachine
-    // and carry no env under runDevAppRebuild
+
+  test("dev publish: a failed upload is an error that does not halt the later legs", async () => {
+    const { seams } = fakeSeams({ publishUploadExit: 1 });
+    const report = await runUpdateMachine(seams, { yes: true });
+    expect(report.legs.find((l) => l.id === "dev-publish")!.status).toBe("error");
+    expect(report.legs.find((l) => l.id === "checkout-sync")!.status).toBe("ok");
+    expect(report.legs.find((l) => l.id === "served-suite")!.status).toBe("ok");
+    expect(report.haltedAfter).toBeNull();
+    expect(report.ok).toBe(false);
+  });
+
+  test("dev publish: skipped when the dev bundle build failed", async () => {
+    const { seams } = fakeSeams({ buildExit: 1 });
+    const report = await runUpdateMachine(seams, { yes: true });
+    expect(report.legs.find((l) => l.id === "dev-bundle")!.status).toBe("error");
+    expect(report.legs.find((l) => l.id === "dev-publish")!.status).toBe("skipped");
+  });
+
+  test("dev publish: the release build passes MS_DEV_RELEASE_BUILD=1", async () => {
+    const { seams, execOpts } = fakeSeams();
+    await runUpdateMachine(seams, { yes: true });
+    const build = execOpts.find((e) => e.cmd === "rt-tray/build.sh dev")!;
+    expect(build.opts?.env?.MS_DEV_RELEASE_BUILD).toBe("1");
   });
 ```
 
-Write both tests out in full against the harness's real option names (`buildExit`, the exec recorder); the fake's exec must record `opts` alongside argv for the second test.
+and inside `describe("runDevAppRebuild", ...)`:
 
-- [ ] **Step 7: Run**
+```ts
+  test("a ref rebuild does not mark the build as a release build", async () => {
+    const { seams, execOpts } = fakeSeams();
+    await runDevAppRebuild(seams, "main");
+    const build = execOpts.find((e) => e.cmd === "rt-tray/build.sh dev")!;
+    expect(build.opts?.env).toBeUndefined();
+  });
+```
 
-Run: `bun test lib/release/__tests__/dev-publish.test.ts lib/release/__tests__/update-machine.test.ts lib/release/__tests__/app-swap.test.ts`
+5. In `commands/__tests__/release-update-machine.test.ts`, give its seam builder the same `writeFile` (a no-op) and `notaryProfile: "mattstack-notary"`, handle the same five new commands in its exec fake (all exit 0), and change `expect(body.legs).toHaveLength(6)` to `7`. Read the file first; mirror its existing fake's style.
+
+- [ ] **Step 8: Run**
+
+Run: `bun test lib/release/__tests__/dev-publish.test.ts lib/release/__tests__/update-machine.test.ts lib/release/__tests__/app-swap.test.ts commands/__tests__/release-update-machine.test.ts`
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add rt-tray/build.sh lib/release/dev-publish.ts lib/release/update-machine.ts commands/release.ts lib/release/__tests__/
+git add rt-tray/build.sh lib/release/dev-publish.ts lib/release/update-machine.ts commands/release.ts lib/release/__tests__/ commands/__tests__/release-update-machine.test.ts
 git commit -m "feat(release): publish the notarized dev app from update-machine"
 ```
 
@@ -2078,17 +2338,19 @@ git commit -m "feat(release): publish the notarized dev app from update-machine"
 - Test: `lib/release/__tests__/signing-identity.test.ts`
 
 **Interfaces:**
-- Consumes: `RunResult`; `notify` from `lib/notifier.ts`.
+- Consumes: `RunResult`; `notify` from `lib/notifier.ts` (wired only in the script).
 - Produces:
   - `const REBUILD_NEEDS_CERT: string` (the Global Constraints copy, verbatim)
   - `async function hasDeveloperIdIdentity(exec: (argv: [string, ...string[]]) => Promise<RunResult>): Promise<boolean>`
+  - `interface RebuildGuardDeps { exec(argv: [string, ...string[]]): Promise<RunResult>; notify(title: string, message: string): void; print(line: string): void }`
+  - `async function rebuildGuard(deps: RebuildGuardDeps): Promise<boolean>` — true means go ahead; false means it printed and notified the refusal and nothing else may run
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 // lib/release/__tests__/signing-identity.test.ts
 import { describe, expect, test } from "bun:test";
-import { hasDeveloperIdIdentity, REBUILD_NEEDS_CERT } from "../signing-identity.ts";
+import { hasDeveloperIdIdentity, REBUILD_NEEDS_CERT, rebuildGuard } from "../signing-identity.ts";
 
 const run = (stdout: string, exitCode = 0) => async () => ({ stdout, stderr: "", exitCode });
 
@@ -2106,6 +2368,29 @@ describe("hasDeveloperIdIdentity", () => {
     expect(REBUILD_NEEDS_CERT).toBe(
       "Rebuilding the dev app needs the maintainers' signing certificate. You only need it for tray changes: your rt, app and skill changes already run from your clone.",
     );
+  });
+});
+
+describe("rebuildGuard", () => {
+  test("no identity: prints and notifies the refusal, runs nothing else, returns false", async () => {
+    const execs: string[] = [];
+    const notes: string[] = [];
+    const printed: string[] = [];
+    const ok = await rebuildGuard({
+      exec: async (argv) => { execs.push(argv.join(" ")); return { stdout: "0 valid identities found\n", stderr: "", exitCode: 0 }; },
+      notify: (title, message) => notes.push(`${title}: ${message}`),
+      print: (line) => printed.push(line),
+    });
+    expect(ok).toBe(false);
+    expect(execs).toEqual(["security find-identity -v -p codesigning"]);
+    expect(notes).toEqual([`Dev app not rebuilt: ${REBUILD_NEEDS_CERT}`]);
+    expect(printed).toEqual([`✗ ${REBUILD_NEEDS_CERT}`]);
+  });
+  test("with an identity: silent, returns true", async () => {
+    const notes: string[] = [];
+    const ok = await rebuildGuard({ exec: run('"Developer ID Application: X (T)"'), notify: (t) => notes.push(t), print: () => {} });
+    expect(ok).toBe(true);
+    expect(notes).toEqual([]);
   });
 });
 ```
@@ -2128,6 +2413,20 @@ export async function hasDeveloperIdIdentity(exec: (argv: [string, ...string[]])
   const r = await exec(["security", "find-identity", "-v", "-p", "codesigning"]);
   return r.exitCode === 0 && r.stdout.includes("Developer ID Application");
 }
+
+export interface RebuildGuardDeps {
+  exec(argv: [string, ...string[]]): Promise<RunResult>;
+  notify(title: string, message: string): void;
+  print(line: string): void;
+}
+
+/** The tray only shows "last try failed" for a failed rebuild, so the reason travels as a notification and a log line. */
+export async function rebuildGuard(deps: RebuildGuardDeps): Promise<boolean> {
+  if (await hasDeveloperIdIdentity(deps.exec)) return true;
+  deps.print(`✗ ${REBUILD_NEEDS_CERT}`);
+  deps.notify("Dev app not rebuilt", REBUILD_NEEDS_CERT);
+  return false;
+}
 ```
 
 - [ ] **Step 4: Guard `scripts/build-dev-app.ts`**
@@ -2135,9 +2434,14 @@ export async function hasDeveloperIdIdentity(exec: (argv: [string, ...string[]])
 After `parsed` is validated and before the `if (parsed.local)` block, add:
 
 ```ts
-if (parsed.yes && !(await hasDeveloperIdIdentity((argv) => runCapture(argv, { stderr: "pipe", timeoutMs: 30_000 })))) {
-  console.error(`✗ ${REBUILD_NEEDS_CERT}`);
-  notify("Dev app not rebuilt", REBUILD_NEEDS_CERT, undefined, "general", undefined, "dev-app-rebuild-needs-cert");
+if (
+  parsed.yes &&
+  !(await rebuildGuard({
+    exec: (argv) => runCapture(argv, { stderr: "pipe", timeoutMs: 30_000 }),
+    notify: (title, message) => notify(title, message, undefined, "general", undefined, "dev-app-rebuild-needs-cert"),
+    print: (line) => console.error(line),
+  }))
+) {
   process.exit(1);
 }
 ```
@@ -2146,21 +2450,12 @@ with imports:
 
 ```ts
 import { notify } from "../lib/notifier.ts";
-import { hasDeveloperIdIdentity, REBUILD_NEEDS_CERT } from "../lib/release/signing-identity.ts";
+import { rebuildGuard } from "../lib/release/signing-identity.ts";
 ```
 
-The tray streams this script's stdout and stderr into `~/.mattstack/rt/logs/dev-app-build.log`, so the `console.error` line lands there; `notify` queues it, pushes it to the tray socket, and falls back to osascript.
+The tray streams this script's stdout and stderr into `~/.mattstack/rt/logs/dev-app-build.log`, so the printed line lands there; `notify` queues it, pushes it to the tray socket and falls back to osascript. Do not run the script by hand to check this: on this Mac it would either rebuild the real dev app or pop a real notification. The `rebuildGuard` tests are the check.
 
-- [ ] **Step 5: Verify by hand under an isolated HOME** (no identity can be faked away on this Mac, so check the refusal path with a stub `security` on PATH):
-
-```bash
-mkdir -p "$TMPDIR/rt-nocert/bin" && printf '#!/bin/sh\necho "0 valid identities found"\n' > "$TMPDIR/rt-nocert/bin/security" && chmod +x "$TMPDIR/rt-nocert/bin/security"
-env -i HOME="$TMPDIR/rt-nocert" PATH="$TMPDIR/rt-nocert/bin:/usr/bin:/bin" "$HOME/.bun/bin/bun" scripts/build-dev-app.ts --local --yes; echo "exit $?"
-```
-
-Expected: prints `✗ Rebuilding the dev app needs the maintainers' signing certificate...`, `exit 1`, and no scratch build starts.
-
-- [ ] **Step 6: Run the test and commit**
+- [ ] **Step 5: Run the test and commit**
 
 Run: `bun test lib/release/__tests__/signing-identity.test.ts`
 Expected: PASS.
@@ -2176,11 +2471,11 @@ git commit -m "feat(dev-app): refuse a rebuild without the signing certificate"
 
 **Files:**
 - Create: `lib/dev/notice.ts`
-- Modify: `commands/setup.ts` (`setupUpdate`), and `ApplyDeps` wherever it is declared (`grep -n "interface ApplyDeps" -r commands lib`)
-- Test: `lib/dev/__tests__/notice.test.ts`; extend the existing `setupUpdate` tests (`grep -rln "setupUpdate" commands/__tests__`)
+- Modify: `commands/setup.ts` (`ApplyDeps`, `realApplyDeps`, `setupUpdate` all live there)
+- Test: `lib/dev/__tests__/notice.test.ts`; extend `commands/__tests__/setup-update.test.ts`
 
 **Interfaces:**
-- Consumes: `readInstalledDevApp`, `listDevReleases` (Task 4); `compareVersions` (Task 1); `Flavor`; `SETUP_UPDATE_CATEGORY`.
+- Consumes: `readInstalledDevApp`, `listDevReleases`, `chooseDevRelease` (Task 4); `compareVersions` (Task 1); `Flavor`; `SETUP_UPDATE_CATEGORY`. The notice uses `chooseDevRelease`, so it only fires for a release whose `SHA256SUMS` carries the dev zip, the same one `rt dev update` would install.
 - Produces:
   - `interface DevAppNotice { id: string; title: string; message: string }`
   - `async function devAppNotice(s: { probes: Probes; flavor: Flavor; gh(): string[] | null }): Promise<DevAppNotice | null>`
@@ -2194,10 +2489,11 @@ import { describe, expect, test } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { devAppNotice } from "../notice.ts";
 
-function probes(installed: string | null, releaseBuild: boolean, latest: string) {
+function probes(installed: string | null, releaseBuild: boolean, latest: string, sumsLine = true) {
   const files: Record<string, string> = installed ? { "/Applications/mattstack-dev.app/Contents/Info.plist": "" } : {};
   return fakeProbes({
     files,
+    fetch: async () => ({ status: 200, headers: {}, body: sumsLine === false ? "aaa  mattstack.dmg\n" : `good  mattstack-dev-${latest}.zip\n` }),
     exec: (argv) => {
       const a = argv.join(" ");
       if (a.includes("CFBundleShortVersionString")) return { code: 0, stdout: `${installed}\n`, stderr: "" };
@@ -2217,6 +2513,9 @@ describe("devAppNotice", () => {
   });
   test("current: no notice", async () => {
     expect(await devAppNotice({ probes: probes("2.23.0", true, "2.23.0"), flavor: "dev", gh: () => ["gh"] })).toBeNull();
+  });
+  test("a newer release whose SHA256SUMS lacks the dev zip: no notice, since rt dev update would skip it", async () => {
+    expect(await devAppNotice({ probes: probes("2.22.0", true, "2.23.0", false), flavor: "dev", gh: () => ["gh"] })).toBeNull();
   });
   test("a locally built dev app: no notice", async () => {
     expect(await devAppNotice({ probes: probes("2.22.0", false, "2.23.0"), flavor: "dev", gh: () => ["gh"] })).toBeNull();
@@ -2243,7 +2542,7 @@ Expected: FAIL, cannot resolve `../notice.ts`.
 ```ts
 import type { Flavor } from "../flavor.ts";
 import type { Probes } from "../setup/probes.ts";
-import { listDevReleases, readInstalledDevApp } from "./dev-app.ts";
+import { chooseDevRelease, listDevReleases, readInstalledDevApp } from "./dev-app.ts";
 import { compareVersions } from "./tools.ts";
 
 export interface DevAppNotice { id: string; title: string; message: string }
@@ -2257,7 +2556,7 @@ export async function devAppNotice(s: { probes: Probes; flavor: Flavor; gh(): st
   if (!gh) return null;
   let newest: string | undefined;
   try {
-    newest = (await listDevReleases(s.probes, gh))[0]?.version;
+    newest = (await chooseDevRelease(s.probes, await listDevReleases(s.probes, gh)))?.release.version;
   } catch {
     return null;
   }
@@ -2283,21 +2582,89 @@ devAppNotice: () => devAppNotice({ probes, flavor: processFlavor(), gh: () => re
 
 It does not change `needsAttention` or the exit code.
 
-Add a test beside the existing `setupUpdate` tests: deps with `devAppNotice: async () => ({ id: "dev_app:2.23.0", title: "t", message: "m" })` and a recording `notify`; assert `notify` was called with `("setup_update", "t", "m", "dev_app:2.23.0")` and the run did not exit 2. Copy the surrounding tests' deps builder rather than writing a new one.
+Add a test in `commands/__tests__/setup-update.test.ts`: deps with `devAppNotice: async () => ({ id: "dev_app:2.23.0", title: "t", message: "m" })` and a recording `notify`; assert `notify` was called with `("setup_update", "t", "m", "dev_app:2.23.0")` and the run did not exit 2. Copy the surrounding tests' deps builder rather than writing a new one.
 
 - [ ] **Step 5: Run and commit**
 
-Run: `bun test lib/dev/__tests__/notice.test.ts <the setupUpdate test file>`
+Run: `bun test lib/dev/__tests__/notice.test.ts commands/__tests__/setup-update.test.ts`
 Expected: PASS.
 
 ```bash
-git add lib/dev/notice.ts lib/dev/__tests__/notice.test.ts commands/setup.ts <ApplyDeps file> <setupUpdate test file>
+git add lib/dev/notice.ts lib/dev/__tests__/notice.test.ts commands/setup.ts commands/__tests__/setup-update.test.ts
 git commit -m "feat(dev): tell a collaborator when a newer dev app is out"
 ```
 
 ---
 
-### Task 11: Release skill and docs
+### Task 11: The shared checkout follows the stored source path
+
+**Files:**
+- Modify: `lib/release/shared-checkout.ts`
+- Modify: `commands/release.ts` (line ~164), `commands/skills.ts` (line ~1903), `commands/skills-sync.ts` (line ~238)
+- Test: `lib/release/__tests__/shared-checkout.test.ts`
+
+**Interfaces:**
+- Consumes: `readDevModeConfig` (`commands/settings.ts`).
+- Produces: `function resolveSharedCheckout(home: string, exists?: (p: string) => boolean, stored?: string | null): string` — the stored source path wins when it holds a `cli.ts`; the fixed candidates stay the fallback. Existing two-argument callers and tests keep their behavior.
+
+A collaborator's repo root can be `~/code` or `~/src`, so their clone is not under `~/Documents/GitHub`. `update-machine`'s checkout sync, `rt skills sync`'s in-tree root and `rt skills` discard all find the checkout through `resolveSharedCheckout`; without this task they look in the wrong place on such a Mac. On the maintainer's Mac the stored path is already the shared checkout, so nothing changes there.
+
+- [ ] **Step 1: Write the failing tests** (append inside the existing `describe`)
+
+```ts
+  test("the stored source path wins when it holds a cli.ts", () => {
+    expect(resolveSharedCheckout("/h", (p) => p === "/h/code/mattstack/cli.ts" || p.startsWith("/h/Documents"), "/h/code/mattstack")).toBe("/h/code/mattstack");
+  });
+  test("a stored path without a cli.ts falls back to the candidates", () => {
+    expect(resolveSharedCheckout("/h", (p) => p === "/h/Documents/GitHub/mattstack/cli.ts", "/h/gone")).toBe("/h/Documents/GitHub/mattstack");
+  });
+  test("no stored path behaves as before", () => {
+    expect(resolveSharedCheckout("/h", () => true, null)).toBe("/h/Documents/GitHub/mattstack");
+  });
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `bun test lib/release/__tests__/shared-checkout.test.ts`
+Expected: the first new test FAILs (it returns the Documents candidate).
+
+- [ ] **Step 3: Implement**
+
+```ts
+/** Where the dev daemon and deck's from-source apps run from: the checkout dev mode stores (rt dev setup and rt settings source-path write it), else the fixed folders; the older folder name stays a fallback for a machine that has not moved it. */
+export function resolveSharedCheckout(home: string, exists: (p: string) => boolean = existsSync, stored: string | null = null): string {
+  if (stored && exists(join(stored, "cli.ts"))) return stored;
+  for (const rel of SHARED_CHECKOUT_CANDIDATES) {
+    const dir = join(home, rel);
+    if (exists(join(dir, "cli.ts"))) return dir;
+  }
+  return join(home, SHARED_CHECKOUT_CANDIDATES[0]);
+}
+```
+
+Then pass the stored path at all three call sites, e.g. in `commands/release.ts`:
+
+```ts
+    sharedCheckoutPath: resolveSharedCheckout(homedir(), existsSync, readDevModeConfig().sourcePath ?? null),
+```
+
+and the same third argument in `commands/skills.ts` (`sharedCheckout: () => resolveSharedCheckout(homedir(), existsSync, readDevModeConfig().sourcePath ?? null)`) and `commands/skills-sync.ts` (`inTreeRoot: ...`). Import `readDevModeConfig` from `./settings.ts` and `existsSync` from `fs` where missing. `readDevModeConfig` opens the state db; both skills call sites already run inside a real command, so that is fine, but keep the `sharedCheckout` one lazy (it is already a thunk).
+
+- [ ] **Step 4: Run**
+
+Run: `bun test lib/release/__tests__/shared-checkout.test.ts lib/release/__tests__/update-machine.test.ts commands/__tests__/release-update-machine.test.ts`
+Expected: PASS. Then run the skills tests that cover the two skills call sites: `grep -rln "inTreeRoot\|sharedCheckout" commands/__tests__ | xargs bun test`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/release/shared-checkout.ts lib/release/__tests__/shared-checkout.test.ts commands/release.ts commands/skills.ts commands/skills-sync.ts
+git commit -m "feat(release): the shared checkout follows rt's stored source path"
+```
+
+---
+
+### Task 12: Release skill and docs
 
 **Files:**
 - Modify: `skills/rt-release/publish-and-finish.md` (the update-machine gate's leg list)
@@ -2314,8 +2681,11 @@ git commit -m "feat(dev): tell a collaborator when a newer dev app is out"
 - **Dev app publish**: notarizes the dev app the previous leg built, zips it as
   `mattstack-dev-<version>.zip`, and attaches it and its line in `SHA256SUMS` to the release, so
   collaborators' `rt dev setup` and `rt dev update` can install it. It needs a saved notary profile
-  (`NOTARY_PROFILE`, default `mattstack-notary`); without one the leg stops and names the one-time
-  `xcrun notarytool store-credentials` command. It is skipped when the dev bundle leg did not build.
+  (`NOTARY_PROFILE`, default `mattstack-notary`), checked before any leg runs; without one this leg
+  is skipped with the one-time `xcrun notarytool store-credentials` command in its detail. It is
+  also skipped when the dev bundle leg did not build. It never halts the legs after it: a failed
+  publish shows as an error in the summary while checkout sync, the daemon and the served suite
+  still run.
 ```
 
 Also change "the dev app replace, and the daemon restart" in the paragraph above the list to "the dev app replace, the dev app upload to the release, and the daemon restart".
@@ -2348,7 +2718,7 @@ git commit -m "docs: rt dev setup, the dev-publish leg and the Rebuild limit"
 
 ---
 
-### Task 12: Isolated-HOME smoke run
+### Task 13: Isolated-HOME smoke run
 
 **Files:** none (verification only).
 

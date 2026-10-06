@@ -58,10 +58,14 @@ second run resumes where the first stopped.
    Both happen before anything is cloned.
 3. **Clone.** Into `<repo root>/mattstack`, the repo root the machine already
    chose (`lib/setup/repo-root.ts`). A folder that is already a clone of
-   `m4ttstack/mattstack` is reused; a folder holding anything else is a
-   refusal that names the folder. `mattstack` is the first name in
-   `SHARED_CHECKOUT_CANDIDATES`, so `update-machine` and the docs that assume
-   a shared checkout find it.
+   `m4ttstack/mattstack` is reused untouched (no checkout, pull or reset); an
+   empty folder is cloned into; a folder holding anything else is a refusal
+   that names the folder. The repo root can be anywhere (`~/code`, `~/src`),
+   so `resolveSharedCheckout` (`lib/release/shared-checkout.ts`), which
+   `update-machine` and the skills verbs use to find the checkout, prefers the
+   stored source path (step 5) when it holds a `cli.ts`, and falls back to its
+   fixed candidates otherwise. On the maintainer's Mac the stored path already
+   is the shared checkout, so nothing changes there.
 4. **Build.** `bun install` in the clone (its `postinstall` builds glance,
    rt-client, settings-kit and tui-kit), then `bun run ui:build`, since in dev
    mode `resolveRtUi` reads `ui/dist/rt-ui` from the checkout and the dev
@@ -118,15 +122,22 @@ One table in code, the only place a tool is added:
   clone exists, `setup` reads the two files from `main` on GitHub (the repo is
   public).
 - **Too old counts as missing** for bun and Go; for node it is a warning.
-- **Installs go through `rt tools install`** (`lib/setup/tools-install.ts`).
-  bun joins `VENDOR_INSTALLERS` with `bun.sh` added to
-  `VENDOR_ALLOWED_HOSTS`; vendor installers gain an optional, rt-owned
-  argument list so bun's installer can take `bun-v<version>`. Go and node join
-  `BREW_FORMULAE`. With no Homebrew, the row refuses with the official
-  download page.
+- **Installs go through a new `installDevTool`** in
+  `lib/setup/tools-install.ts`, beside `installTool` and sharing its vendor
+  and Homebrew runners, but never its bundled-link path: `installTool` links
+  the app's own bun when one is bundled, which is exactly what dev mode must
+  not run on. `rt tools install` keeps its behavior; `VENDOR_INSTALLERS` and
+  `BREW_FORMULAE` are unchanged. bun's installer runs from `bun.sh` (added to
+  `VENDOR_ALLOWED_HOSTS`) under `bash` with an rt-owned `bun-v<version>`
+  argument; Go and node install with `brew install`. With no Homebrew, it
+  refuses with the official download page.
 - **Consent:** at a terminal `setup` and `update` ask before installing.
   Under `--json` or `RT_BATCH` they never install: they refuse with the
   install command as `next`.
+- **Prompts never share the terminal with a running step.** A stage that has
+  to ask (an install, a GitHub login) clears its rt-ui step, asks, and
+  reopens the step, per the rt-ui bridge's rule that nothing paints while a
+  prompt owns the tty.
 - bun is the official installer's `~/.bun/bin/bun`, which is also the dev
   daemon shim's default.
 
@@ -144,7 +155,11 @@ published the release:
    the build is for a release (an environment variable the step passes).
 3. Notarize and staple it with `scripts/release/notarize.sh` through its
    `NOTARY_PROFILE` path. A Mac with no saved profile needs a one-time
-   `xcrun notarytool store-credentials`; the step's preflight checks for it.
+   `xcrun notarytool store-credentials`. `update-machine` checks for the
+   profile before any leg runs: with none, the publish leg is skipped with
+   that command in its detail and every other leg still runs. A publish that
+   fails later is reported but does not halt the legs after it, since nothing
+   on the Mac depends on it.
 4. Zip it as `mattstack-dev-<version>.zip`, attach it with
    `gh release upload`, and append its line to the release's `SHA256SUMS`
    (download, append, re-upload with `--clobber`).
@@ -181,8 +196,9 @@ app, so Gatekeeper prompts and macOS permissions reset on every rebuild.
   macOS notification through rt's notifier: "Rebuilding the dev app needs
   the maintainers' signing certificate. You only need it for tray changes: your rt, app
   and skill changes already run from your clone." The same words go to
-  `dev-app-build.log`. If no CLI path can raise a notification through the
-  daemon today, the plan adds a small daemon verb for it.
+  `dev-app-build.log`. `notify()` in `lib/notifier.ts` already works from any
+  process (durable queue, tray socket, osascript fallback), so no daemon verb
+  is needed.
 - Follow-ups for when Swift work resumes: hide both items when no identity is
   present, and have Rebuild use the stored bun path instead of the hardcoded
   `~/.bun/bin/bun` (`DevBuildWatcher.swift`).
@@ -195,8 +211,9 @@ app, so Gatekeeper prompts and macOS permissions reset on every rebuild.
   under the failure block; all of it goes to the CLI log through
   `withoutUrls`.
 - Prerequisites are checked before anything changes: tools, push access and
-  the existence of a dev zip. A setup that is going to fail does so before
-  the clone.
+  the existence of a dev zip (found and checked against `SHA256SUMS` before
+  the clone, then installed in step 6). A setup that is going to fail does so
+  before the clone.
 - Before step 7, prod still owns the Mac and a re-run resumes. If the dev app
   opens but its takeover fails, the existing takeover rules decide which app
   serves; `setup` reports the error with opening mattstack.app as the way
@@ -218,8 +235,11 @@ app, so Gatekeeper prompts and macOS permissions reset on every rebuild.
   exits before any build or swap.
 - `rt-release` skill: the new step and its preflight, edited through the
   writing-skills process.
-- One real run under an isolated HOME through the download stage; the first
-  full run is the first collaborator's Mac. No VM.
+- One real run under an isolated HOME, which stops at its first refusal (no
+  repo root, a missing tool or no network) and proves that refusal reads
+  plainly and changes nothing outside that HOME. Getting further needs real
+  tools, a GitHub login and push access, so the first full run is the first
+  collaborator's Mac. No VM.
 
 ## Out of scope
 
