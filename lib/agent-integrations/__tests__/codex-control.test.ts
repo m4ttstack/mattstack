@@ -108,6 +108,9 @@ const question = (id: number | string, threadId: string, extra: Message = {}) =>
     ...extra,
   },
 });
+const threadStarted = (id: string, cwd?: string) => ({
+  method: "thread/started", params: { thread: { id, cwd, status: { type: "idle" } } },
+});
 const turnStarted = (threadId: string) => ({
   method: "turn/started", params: { threadId, turn: { id: "U1", items: [], status: "inProgress" } },
 });
@@ -336,8 +339,8 @@ describe("codex control", () => {
     const h = harness({
       request: (s, m) => {
         if (m.method !== "thread/start") return;
-        s.push({ method: "thread/started", params: { thread: { id: "X", status: { type: "idle" } } } });
-        s.push({ method: "thread/started", params: { thread: { id: "T9", status: { type: "idle" } } } });
+        s.push(threadStarted("X", "/work/elsewhere"));
+        s.push(threadStarted("T9", "/work/a"));
         s.push({ id: m.id, result: { thread: { id: "T9" }, cwd: "/work/a" } });
         s.push(turnStarted("X"));
       },
@@ -367,6 +370,51 @@ describe("codex control", () => {
     h.socket().push(turnStarted("T9"));
     expect(events).toHaveLength(1);
     expect((await rejection(control.request("thread/read", { threadId: "T9" }))).code).toBe("refused");
+  });
+
+  test("a foreign flood during a launch cannot evict the new thread's announcement", async () => {
+    const h = harness({
+      request: (s, m) => {
+        if (m.method !== "thread/start") return;
+        s.push(threadStarted("T9", "/work/a"));
+        for (let i = 0; i < 2000; i++) {
+          s.push({ method: "item/agentMessage/delta", params: { threadId: "F", turnId: "U", itemId: "I", delta: `secret ${i}` } });
+          s.push(turnStarted("F"));
+        }
+        for (let i = 0; i < 200; i++) s.push(turnStarted("T9"));
+        s.push({ id: m.id, result: { thread: { id: "T9" } } });
+      },
+    });
+    const control = await h.connect();
+    const events = collect(control);
+    const reserved = control.reserveLaunch("/work/a");
+    if (!reserved.ok) throw new Error(reserved.error.message);
+    await control.request("thread/start", { cwd: "/work/a" });
+    expect(events[0]).toMatchObject({ method: "thread/started", threadId: "T9" });
+    expect(events.every((e) => e.threadId === "T9")).toBe(true);
+    expect(events.length).toBeGreaterThan(1);
+    expect(JSON.stringify(h.logs)).not.toContain("secret");
+  });
+
+  test("an unmatched thread announcement during a launch is not retained", async () => {
+    const h = harness({
+      request: (s, m) => {
+        if (m.method !== "thread/start") return;
+        s.push(threadStarted("T9", "/work/b"));
+        s.push(turnStarted("T9"));
+        s.push(threadStarted("T8"));
+        s.push({ id: m.id, result: { thread: { id: "T9" } } });
+      },
+    });
+    const control = await h.connect();
+    const events = collect(control);
+    const reserved = control.reserveLaunch("/work/a");
+    if (!reserved.ok) throw new Error(reserved.error.message);
+    await control.request("thread/start", { cwd: "/work/a" });
+    expect(reserved.data.threadId).toBe("T9");
+    expect(events).toEqual([]);
+    h.socket().push(turnStarted("T9"));
+    expect(events.map((e) => [e.method, e.threadId])).toEqual([["turn/started", "T9"]]);
   });
 
   test("a launch that times out leaves its reservation unknown", async () => {

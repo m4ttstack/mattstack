@@ -78,7 +78,7 @@ export class CodexControlError extends Error {
 }
 
 const EARLY_EVENT_LIMIT = 1000;
-const HELD_EVENT_LIMIT = 256;
+const HELD_EVENTS_PER_THREAD = 64;
 
 export const openCodexUnixSocket: CodexSocketFactory = (socketPath, handlers) => {
   const ws = new WebSocket(`ws+unix://${socketPath}`);
@@ -137,7 +137,8 @@ class Control implements CodexControl {
   private readonly reservations = new Set<Reservation>();
   private readonly listeners = new Set<(event: CodexEvent) => void>();
   private early: CodexEvent[] = [];
-  private held: { threadId: string; message: Record<string, unknown> }[] = [];
+  private readonly held = new Map<string, { reservation: Reservation; messages: Record<string, unknown>[] }>();
+  private readonly ambiguous = new Set<string>();
   private starting = 0;
 
   constructor(private readonly options: CodexControlOptions, private readonly deps: CodexControlDeps) {
@@ -305,27 +306,55 @@ class Control implements CodexControl {
         if (reservation.state === "starting") reservation.state = "unknown";
         throw new CodexControlError("invalid", "Codex answered thread/start without a thread id.");
       }
+      const announced = this.held.get(threadId);
+      this.dropHeld(reservation);
       if (reservation.state === "starting") {
         reservation.state = "started";
         reservation.threadId = threadId;
-        this.releaseHeld(threadId);
+        if (announced?.reservation === reservation) for (const message of announced.messages) this.accept(message);
       }
       return result;
     } catch (error) {
+      this.dropHeld(reservation);
       if (reservation.state === "starting") {
         reservation.state = error instanceof CodexControlError && error.code === "refused" ? "failed" : "unknown";
       }
       throw error;
     } finally {
       this.starting--;
-      if (this.starting === 0) this.held = [];
+      if (this.starting === 0) {
+        this.held.clear();
+        this.ambiguous.clear();
+      }
     }
   }
 
-  private releaseHeld(threadId: string): void {
-    const mine = this.held.filter((h) => h.threadId === threadId);
-    this.held = this.held.filter((h) => h.threadId !== threadId);
-    for (const h of mine) this.accept(h.message);
+  private dropHeld(reservation: Reservation): void {
+    for (const [threadId, entry] of this.held) if (entry.reservation === reservation) this.held.delete(threadId);
+  }
+
+  /**
+   * A new thread can announce itself before its thread/start reply names it.
+   * Only a thread/started whose cwd matches exactly one in-flight reservation
+   * admits its id; nothing else about an unowned thread is retained.
+   */
+  private hold(threadId: string, message: Record<string, unknown>): void {
+    const entry = this.held.get(threadId);
+    if (entry) {
+      if (entry.messages.length < HELD_EVENTS_PER_THREAD) entry.messages.push(message);
+      return;
+    }
+    if (message.method !== "thread/started") return;
+    const params = message.params as Record<string, unknown>;
+    const cwd = isRecord(params.thread) ? params.thread.cwd : undefined;
+    if (typeof cwd !== "string") return;
+    const matches = [...this.reservations].filter((r) => r.state === "starting" && r.cwd === cwd);
+    if (matches.length === 1) {
+      this.held.set(threadId, { reservation: matches[0]!, messages: [message] });
+    } else if (matches.length > 1 && !this.ambiguous.has(threadId)) {
+      this.ambiguous.add(threadId);
+      this.deps.log("warn", "Ignored a new Codex thread that matches more than one launch.", { count: matches.length });
+    }
   }
 
   private call(method: string, params: Record<string, unknown>): Promise<unknown> {
@@ -386,11 +415,7 @@ class Control implements CodexControl {
       this.accept(message);
       return;
     }
-    // A new thread can announce itself before its thread/start reply names
-    // it, so unowned thread events wait here until that reply settles.
-    if (this.starting === 0) return;
-    this.held.push({ threadId, message });
-    if (this.held.length > HELD_EVENT_LIMIT) this.held.shift();
+    if (this.starting > 0) this.hold(threadId, message);
   }
 
   private settle(message: Record<string, unknown>): void {
@@ -465,7 +490,8 @@ class Control implements CodexControl {
     this.pending.clear();
     this.inbound.clear();
     this.early = [];
-    this.held = [];
+    this.held.clear();
+    this.ambiguous.clear();
     for (const r of this.reservations) if (r.state === "starting") r.state = "unknown";
     if (!this.socketClosed) {
       this.socketClosed = true;
