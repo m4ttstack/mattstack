@@ -169,16 +169,36 @@ describe('payload parsers', () => {
 describe('ask consent wire', () => {
   test('a pending outcome parses', () => {
     expect(
-      parseNudgeOutcomePayload({ mrUrl: 'u', iid: 1, nudgeId: 'n', result: 'pending' })
-    ).toEqual({ mrUrl: 'u', iid: 1, nudgeId: 'n', result: 'pending', reason: undefined });
+      parseNudgeOutcomePayload({
+        mrUrl: 'u',
+        iid: 1,
+        nudgeId: 'n',
+        result: 'pending',
+      })
+    ).toEqual({
+      mrUrl: 'u',
+      iid: 1,
+      nudgeId: 'n',
+      result: 'pending',
+      reason: undefined,
+    });
   });
   test('a decline carries its flag and note', () => {
     expect(
       parseNudgeOutcomePayload({
-        mrUrl: 'u', iid: 1, nudgeId: 'n', result: 'rejected',
-        reason: 'busy right now', declined: true, declineNote: 'after standup',
+        mrUrl: 'u',
+        iid: 1,
+        nudgeId: 'n',
+        result: 'rejected',
+        reason: 'busy right now',
+        declined: true,
+        declineNote: 'after standup',
       })
-    ).toMatchObject({ declined: true, declineNote: 'after standup', reason: 'busy right now' });
+    ).toMatchObject({
+      declined: true,
+      declineNote: 'after standup',
+      reason: 'busy right now',
+    });
   });
   test('a non-boolean declined or non-string note is malformed', () => {
     const base = { mrUrl: 'u', iid: 1, nudgeId: 'n', result: 'rejected' };
@@ -187,28 +207,45 @@ describe('ask consent wire', () => {
   });
   test('an unknown result is still dropped', () => {
     expect(
-      parseNudgeOutcomePayload({ mrUrl: 'u', iid: 1, nudgeId: 'n', result: 'snoozed' })
+      parseNudgeOutcomePayload({
+        mrUrl: 'u',
+        iid: 1,
+        nudgeId: 'n',
+        result: 'snoozed',
+      })
     ).toBeNull();
   });
   test('an ask carries title and branch when the sender knows them', () => {
     expect(
       parseReReviewRequestPayload({
-        mrUrl: 'u', iid: 1, note: 'mostly the retry path',
-        title: 'debounce the claim search input', sourceBranch: 'acme-1388-debounce',
+        mrUrl: 'u',
+        iid: 1,
+        note: 'mostly the retry path',
+        title: 'debounce the claim search input',
+        sourceBranch: 'acme-1388-debounce',
       })
     ).toEqual({
-      mrUrl: 'u', iid: 1, note: 'mostly the retry path',
-      title: 'debounce the claim search input', sourceBranch: 'acme-1388-debounce',
+      mrUrl: 'u',
+      iid: 1,
+      note: 'mostly the retry path',
+      title: 'debounce the claim search input',
+      sourceBranch: 'acme-1388-debounce',
     });
   });
   test('an older ask without them still parses', () => {
     expect(parseReReviewRequestPayload({ mrUrl: 'u', iid: 1 })).toEqual({
-      mrUrl: 'u', iid: 1, note: undefined, title: undefined, sourceBranch: undefined,
+      mrUrl: 'u',
+      iid: 1,
+      note: undefined,
+      title: undefined,
+      sourceBranch: undefined,
     });
   });
   test('decline reasons read as the chips do', () => {
     expect(Object.values(DECLINE_REASONS)).toEqual([
-      'busy right now', 'not my area', 'ask me later',
+      'busy right now',
+      'not my area',
+      'ask me later',
     ]);
   });
 });

@@ -181,6 +181,7 @@ function runtime() {
     inbox: async () => [],
     ack: async () => true,
     peers: async () => [],
+    setAsksEnabled: async () => 'ok',
   };
   let peer: { self: string; client: SwitchboardClient } | undefined = {
     self: 'pat',
