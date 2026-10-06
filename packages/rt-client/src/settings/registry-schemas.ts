@@ -61,15 +61,22 @@ const oauthRule = z.union([
   z.looseObject({ mode: z.literal("domains"), domains: z.array(z.string()).min(1) }),
 ]);
 
+// Mirrors board's own loader (parseTabs), which refuses to start on a tab
+// list these rules would reject.
 const tab = z.looseObject({
-  id: z.string(),
-  label: z.string(),
-  source: z.union([
-    z.looseObject({ kind: z.literal("authors") }),
-    z.looseObject({ kind: z.literal("codeowners"), section: z.string(), excludeMembers: z.boolean().optional() }),
-  ]),
-  slackChannel: z.string().optional(),
-  reviewSkill: z.string().optional(),
+  id: z.string().min(1).meta({ title: "Id", description: "Stable id the board's URL and state key on." }),
+  label: z.string().min(1).meta({ title: "Label" }),
+  // No annotations inside the branches: the lock compares a oneOf branch
+  // whole, and the migration rebuilder cannot carry them.
+  source: z
+    .discriminatedUnion("kind", [
+      z.looseObject({ kind: z.literal("authors") }),
+      z.looseObject({ kind: z.literal("codeowners"), section: z.string().min(1), excludeMembers: z.boolean().optional() }),
+    ])
+    .meta({ title: "Shows" }),
+  slackChannel: z.string().optional().meta({ title: "Slack channel" }),
+  reviewSkill: z.string().optional().meta({ title: "Review skill" }),
+  pack: z.string().optional().meta({ title: "Pack" }),
 });
 
 // rt's board.keys setup step writes bare repo names; gitq's own loader reads { path, name? }.
@@ -189,7 +196,7 @@ export const SCHEMAS = {
       approved: z.string().optional().meta({ placeholder: "white_check_mark" }),
     }).optional(),
   }),
-  "board.tabs": z.array(tab),
+  "board.tabs": z.array(tab).min(1).meta({ uniqueBy: "id" }),
   "board.workspaces": z.looseObject({ reviews: z.string().optional(), responds: z.string().optional(), doctors: z.string().optional() }),
   "board.hiddenMembers": z.array(z.string()),
   "board.turn": z.looseObject({

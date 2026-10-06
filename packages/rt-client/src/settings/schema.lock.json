@@ -165,21 +165,27 @@
     }
   },
   "board.tabs": {
-    "storeVersion": 1,
+    "storeVersion": 2,
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "minItems": 1,
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "title": "Id",
+            "description": "Stable id the board's URL and state key on."
           },
           "label": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "title": "Label"
           },
           "source": {
-            "anyOf": [
+            "oneOf": [
               {
                 "type": "object",
                 "properties": {
@@ -201,7 +207,8 @@
                     "const": "codeowners"
                   },
                   "section": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1
                   },
                   "excludeMembers": {
                     "type": "boolean"
@@ -213,12 +220,19 @@
                 ],
                 "additionalProperties": {}
               }
-            ]
+            ],
+            "title": "Shows"
           },
           "slackChannel": {
+            "title": "Slack channel",
             "type": "string"
           },
           "reviewSkill": {
+            "title": "Review skill",
+            "type": "string"
+          },
+          "pack": {
+            "title": "Pack",
             "type": "string"
           }
         },
@@ -228,6 +242,73 @@
           "source"
         ],
         "additionalProperties": {}
+      },
+      "uniqueBy": "id"
+    },
+    "migrateFrom": {
+      "1": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "authors"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": {}
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "codeowners"
+                    },
+                    "section": {
+                      "type": "string"
+                    },
+                    "excludeMembers": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "section"
+                  ],
+                  "additionalProperties": {}
+                }
+              ]
+            },
+            "slackChannel": {
+              "type": "string"
+            },
+            "reviewSkill": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "source"
+          ],
+          "additionalProperties": {}
+        }
       }
     }
   },

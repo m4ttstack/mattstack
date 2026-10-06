@@ -423,3 +423,90 @@ describe('a card with a number, a switch and an enum field', () => {
     );
   });
 });
+
+describe('ItemCards with a tagged union field', () => {
+  const TABS_SCHEMA = {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        source: {
+          title: 'Shows',
+          oneOf: [
+            {
+              type: 'object',
+              properties: { kind: { type: 'string', const: 'authors' } },
+              required: ['kind'],
+            },
+            {
+              type: 'object',
+              properties: {
+                kind: { type: 'string', const: 'codeowners' },
+                section: { type: 'string', minLength: 1 },
+              },
+              required: ['kind', 'section'],
+            },
+          ],
+        },
+      },
+      required: ['id', 'source'],
+    },
+    uniqueBy: 'id',
+  };
+  const TABS_SHAPE = formShape(TABS_SCHEMA)!;
+  let latest: unknown;
+
+  function TabsHarness({ initial }: { initial: Record<string, unknown>[] }) {
+    const [value, setValue] = useState(initial);
+    latest = value;
+    return (
+      <ItemCards
+        shape={TABS_SHAPE}
+        value={value}
+        onChange={setValue}
+        disabled={false}
+        issues={checkValue(TABS_SCHEMA, value)}
+        footerEnd={null}
+      />
+    );
+  }
+
+  it("switches branch, shows the new branch's field and its missing value", async () => {
+    renderWithProviders(
+      <TabsHarness initial={[{ id: 'team', source: { kind: 'authors' } }]} />
+    );
+    const card = screen.getByTestId('item-0');
+    expect(within(card).queryByTestId('field-row-source.section')).toBeNull();
+    await userEvent.click(
+      within(card).getByRole('combobox', { name: 'source' })
+    );
+    await userEvent.click(
+      await screen.findByRole('option', { name: 'codeowners' })
+    );
+    expect(latest).toEqual([{ id: 'team', source: { kind: 'codeowners' } }]);
+    const row = within(card).getByTestId('field-row-source.section');
+    expect(row).toHaveTextContent('required');
+    await userEvent.type(within(row).getByLabelText('source section'), 'Web');
+    expect(latest).toEqual([
+      { id: 'team', source: { kind: 'codeowners', section: 'Web' } },
+    ]);
+  });
+
+  it("flags a repeated id on the second card's id field", async () => {
+    renderWithProviders(
+      <TabsHarness
+        initial={[
+          { id: 'team', source: { kind: 'authors' } },
+          { id: 'team', source: { kind: 'authors' } },
+        ]}
+      />
+    );
+    expect(
+      within(screen.getByTestId('item-1')).getByTestId('field-row-id')
+    ).toHaveTextContent('duplicate');
+    expect(
+      within(screen.getByTestId('item-0')).getByTestId('field-row-id')
+    ).not.toHaveTextContent('duplicate');
+  });
+});

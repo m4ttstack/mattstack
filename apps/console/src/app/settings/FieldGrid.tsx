@@ -29,6 +29,7 @@ import {
   visibleFields,
   type FieldSpec,
   type FormShape,
+  type UnionSpec,
 } from './formShape';
 import { shortIssue } from './issues';
 import { BLOCK_STYLE } from './JsonBlock';
@@ -194,6 +195,108 @@ function Row({
   );
 }
 
+function FieldName({ label, hint }: { label: string; hint?: string }) {
+  return (
+    <Text fz={12} ff="monospace" c="var(--tk-text-1)" truncate title={hint}>
+      {label}
+    </Text>
+  );
+}
+
+function IssueText({ issue }: { issue: SchemaIssue | undefined }) {
+  if (!issue) return null;
+  return (
+    <Text fz={12} c="var(--tk-text-bad-small)" truncate title={issue.message}>
+      {shortIssue(issue)}
+    </Text>
+  );
+}
+
+/** A tagged union property: its tag as a picker, then the chosen branch's
+    fields indented under it. Picking another tag starts that branch fresh,
+    since one branch's fields mean nothing in another. */
+function UnionRows({
+  name,
+  spec,
+  value,
+  disabled,
+  issues,
+  showIssues,
+  onChange,
+  onTouch,
+}: {
+  name: string;
+  spec: UnionSpec;
+  value: unknown;
+  disabled: boolean;
+  issues: SchemaIssue[];
+  showIssues: boolean;
+  onChange: (next: Entry) => void;
+  onTouch: () => void;
+}) {
+  const current: Entry =
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as Entry)
+      : {};
+  const tagValue = current[spec.tag];
+  const branch = spec.branches.find(b => b.value === tagValue);
+  const issueAt = (field: string) =>
+    showIssues
+      ? issues.find(i => i.path[0] === name && i.path[1] === field)
+      : undefined;
+  const setField = (field: string, v: unknown) => {
+    const next: Entry = {};
+    for (const [k, x] of Object.entries({ ...current, [field]: v }))
+      if (x !== undefined) next[k] = x;
+    onChange(next);
+  };
+  return (
+    <>
+      <Row
+        testId={`field-row-${name}`}
+        name={<FieldName label={spec.title ?? name} hint={spec.description} />}
+        message={<IssueText issue={issueAt(spec.tag)} />}
+      >
+        <FieldInput
+          label={name}
+          spec={{ type: { enum: spec.branches.map(b => b.value) } }}
+          value={tagValue}
+          disabled={disabled}
+          error={issueAt(spec.tag) !== undefined}
+          onChange={v => onChange({ [spec.tag]: v })}
+          onTouch={onTouch}
+        />
+      </Row>
+      {branch &&
+        Object.entries(branch.fields).map(([field, fieldSpec]) => (
+          <Row
+            key={`${branch.value}.${field}`}
+            testId={`field-row-${name}.${field}`}
+            name={
+              <Box pl={12}>
+                <FieldName
+                  label={fieldSpec.title ?? field}
+                  hint={fieldSpec.description}
+                />
+              </Box>
+            }
+            message={<IssueText issue={issueAt(field)} />}
+          >
+            <FieldInput
+              label={`${name} ${field}`}
+              spec={fieldSpec}
+              value={current[field]}
+              disabled={disabled}
+              error={issueAt(field) !== undefined}
+              onChange={v => setField(field, v)}
+              onTouch={onTouch}
+            />
+          </Row>
+        ))}
+    </>
+  );
+}
+
 /** One object's fields: required first, then set or added optional ones,
     an Add property menu, and read-only rows for properties the form does
     not draw (kept as they are on save). */
@@ -254,6 +357,21 @@ export function FieldGrid({
   return (
     <Stack gap={0}>
       {visibleFields(shape, entry, shown).map(name => {
+        const union = shape.unions[name];
+        if (union)
+          return (
+            <UnionRows
+              key={name}
+              name={name}
+              spec={union}
+              value={entry[name]}
+              disabled={disabled}
+              issues={issues}
+              showIssues={touched.has(name)}
+              onChange={v => set(name, v)}
+              onTouch={() => onTouch(name)}
+            />
+          );
         const spec = shape.fields[name]!;
         const required = shape.required.includes(name);
         const issue = issueFor(name);

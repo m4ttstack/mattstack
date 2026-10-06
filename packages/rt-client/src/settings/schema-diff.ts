@@ -20,7 +20,7 @@ export interface Change { key: string; kind: "safe" | "breaking"; detail: string
 type NodeChange = Omit<Change, "key">;
 
 const ANNOTATIONS = new Set(["title", "description", "default", "$schema", "$id", "examples", "labels", "placeholder", "deprecated", "readOnly", "writeOnly"]);
-const KNOWN = new Set(["type", "properties", "required", "additionalProperties", "propertyNames", "items", "prefixItems", "enum", "const", "anyOf", "oneOf", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "minItems", "maxItems", "pattern", "format"]);
+const KNOWN = new Set(["type", "properties", "required", "additionalProperties", "propertyNames", "items", "prefixItems", "enum", "const", "anyOf", "oneOf", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "minItems", "maxItems", "pattern", "format", "uniqueBy"]);
 
 /** True only for git show's own "that path is not in this tree" failure; any other failure is a real error. */
 export function isMissingPathAtRef(stderr: string): boolean {
@@ -180,7 +180,7 @@ function diffNode(a0: JsonSchema, b0: JsonSchema, at: string): NodeChange[] {
         verdict(bv === undefined || (av !== undefined && (bv as number) <= (av as number)), `${k} ${av} -> ${bv}`); break;
       case "maximum": case "exclusiveMaximum": case "maxLength": case "maxItems":
         verdict(bv === undefined || (av !== undefined && (bv as number) >= (av as number)), `${k} ${av} -> ${bv}`); break;
-      case "pattern": case "format": verdict(bv === undefined, `${k} ${bv === undefined ? "removed" : "changed"}`); break;
+      case "pattern": case "format": case "uniqueBy": verdict(bv === undefined, `${k} ${bv === undefined ? "removed" : "changed"}`); break;
     }
   }
   return out;

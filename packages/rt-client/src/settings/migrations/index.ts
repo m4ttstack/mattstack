@@ -17,6 +17,26 @@ export interface KeyedMigrationStep extends MigrationStep {
 }
 
 export const MIGRATION_STEPS: KeyedMigrationStep[] = [
+  {
+    key: "board.tabs",
+    version: 1,
+    // v2 refuses what board's loader refuses: an empty id, label or
+    // codeowners section, a repeated id, an empty list. A tab board would not
+    // start with is dropped; nothing left reads as board's implicit Team tab.
+    up: (value) => {
+      const seen = new Set<string>();
+      const kept = (Array.isArray(value) ? value : []).filter((t: unknown) => {
+        if (t === null || typeof t !== "object") return false;
+        const { id, label, source } = t as { id?: unknown; label?: unknown; source?: { kind?: unknown; section?: unknown } };
+        if (typeof id !== "string" || id === "" || typeof label !== "string" || label === "" || seen.has(id)) return false;
+        if (source?.kind === "codeowners" && (typeof source.section !== "string" || source.section === "")) return false;
+        if (source?.kind !== "authors" && source?.kind !== "codeowners") return false;
+        seen.add(id);
+        return true;
+      });
+      return kept.length > 0 ? kept : [{ id: "team", label: "Team", source: { kind: "authors" } }];
+    },
+  },
   // @draft-steps
 ];
 

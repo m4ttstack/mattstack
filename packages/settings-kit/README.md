@@ -79,8 +79,14 @@ collapsed line, and `targetScope` says where an edit lands (the winning
 layer when allowed, else the key's first scope). A deep-merged `leaves` row
 counts only fields some store layer sets (`effective.authored`), so a
 registry default alone reads as "0 of N set". `SHAPES` holds only the
-`external` keys (`board.tabs`, `board.members`, `board.hiddenMembers`),
+`external` keys (`board.members`, `board.hiddenMembers`),
 whose editor board owns.
+
+A tagged `oneOf` (zod's `discriminatedUnion`) is checked as if/then on its
+tag, so a value reports only its own branch's problems; `taggedUnion(schema)`
+reads its tag and branches for a form. `uniqueBy` on an array schema (zod
+`.meta({ uniqueBy: "id" })`) is rt's one keyword beyond JSON Schema: no two
+items may share that property, and the issue lands on the repeat's field.
 
 `checkValue(schema, value)` checks one value in the browser with the same
 validator and messages as the server (`[{ path: [0, "pattern"], message:

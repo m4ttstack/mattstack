@@ -1,6 +1,7 @@
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
 import {
   rowKind,
+  taggedUnion,
   type JsonSchema,
   type LeafType,
   type RowKind,
@@ -15,12 +16,29 @@ export interface FieldSpec {
   suggestions?: string[];
 }
 
+/** A property that is one of several objects told apart by a tag (zod's
+    discriminatedUnion): a picker for the tag, then the chosen branch's
+    scalar fields. */
+export interface UnionSpec {
+  title?: string;
+  description?: string;
+  tag: string;
+  branches: {
+    value: string;
+    fields: Record<string, FieldSpec>;
+    required: string[];
+  }[];
+}
+
 /** A list or map of objects drawn as cards or sections. `nested` names
-    declared properties that are not scalars: drawn read-only, kept on
-    save. */
+    declared properties that are neither scalars nor tagged unions: drawn
+    read-only, kept on save. `order` is every drawn property in schema
+    order. */
 export interface FormShape {
   kind: 'objectList' | 'objectMap';
   fields: Record<string, FieldSpec>;
+  unions: Record<string, UnionSpec>;
+  order: string[];
   nested: string[];
   required: string[];
   labels: [string, string];
@@ -58,6 +76,31 @@ function fieldOf(s: JsonSchema): FieldSpec | null {
   return f;
 }
 
+function unionOf(s: JsonSchema): UnionSpec | null {
+  const union = taggedUnion(s);
+  if (!union) return null;
+  const branches: UnionSpec['branches'] = [];
+  for (const { value, schema } of union.branches) {
+    const fields: Record<string, FieldSpec> = {};
+    for (const [name, prop] of Object.entries(
+      (schema.properties ?? {}) as Record<string, JsonSchema>
+    )) {
+      if (name === union.tag) continue;
+      const f = fieldOf(prop);
+      if (!f) return null;
+      fields[name] = f;
+    }
+    const required = Array.isArray(schema.required)
+      ? (schema.required as string[]).filter(r => r !== union.tag)
+      : [];
+    branches.push({ value, fields, required });
+  }
+  const spec: UnionSpec = { tag: union.tag, branches };
+  if (typeof s.title === 'string') spec.title = s.title;
+  if (typeof s.description === 'string') spec.description = s.description;
+  return spec;
+}
+
 /** Cards for a list of objects, sections for a map of objects, when every
     required property is a scalar and at least one property is. Anything
     else is JSON only. */
@@ -79,23 +122,33 @@ export function formShape(schema: JsonSchema | undefined): FormShape | null {
   if (!item || item.type !== 'object' || !isRecord(item.properties))
     return null;
   const fields: Record<string, FieldSpec> = {};
+  const unions: Record<string, UnionSpec> = {};
+  const order: string[] = [];
   const nested: string[] = [];
   for (const [name, prop] of Object.entries(
     item.properties as Record<string, JsonSchema>
   )) {
     const f = fieldOf(prop);
+    const u = f ? null : unionOf(prop);
     if (f) fields[name] = f;
-    else nested.push(name);
+    else if (u) unions[name] = u;
+    else {
+      nested.push(name);
+      continue;
+    }
+    order.push(name);
   }
   const required = Array.isArray(item.required)
     ? (item.required as string[])
     : [];
   if (Object.keys(fields).length === 0) return null;
-  if (required.some(r => !(r in fields))) return null;
+  if (required.some(r => !(r in fields) && !(r in unions))) return null;
   const labels = schema.labels as { key?: string; value?: string } | undefined;
   return {
     kind,
     fields,
+    unions,
+    order,
     nested,
     required,
     labels: [labels?.key ?? 'name', labels?.value ?? 'value'],
@@ -115,10 +168,30 @@ export function editorKind(def: SettingDefWire): RowKind {
   return formOf(def)?.kind ?? 'json';
 }
 
+/** A union property the form can show: absent, or an object whose tag
+    names one of its branches. */
+function drawsUnions(shape: FormShape, entry: Entry): boolean {
+  return Object.entries(shape.unions).every(([name, u]) => {
+    const v = entry[name];
+    return (
+      v === undefined ||
+      (isRecord(v) && u.branches.some(b => b.value === v[u.tag]))
+    );
+  });
+}
+
 export function canDraw(shape: FormShape, value: unknown): boolean {
-  if (shape.kind === 'objectList')
-    return Array.isArray(value) && value.every(isRecord);
-  return isRecord(value) && Object.values(value).every(isRecord);
+  const entries =
+    shape.kind === 'objectList'
+      ? Array.isArray(value)
+        ? value
+        : null
+      : isRecord(value)
+        ? Object.values(value)
+        : null;
+  return (
+    entries !== null && entries.every(e => isRecord(e) && drawsUnions(shape, e))
+  );
 }
 
 /** Required scalars from their schema defaults; a required switch with no
@@ -126,6 +199,11 @@ export function canDraw(shape: FormShape, value: unknown): boolean {
 export function newEntry(shape: FormShape): Entry {
   const out: Entry = {};
   for (const name of shape.required) {
+    const u = shape.unions[name];
+    if (u) {
+      out[name] = { [u.tag]: u.branches[0]!.value };
+      continue;
+    }
     const f = shape.fields[name]!;
     if (f.default !== undefined) out[name] = f.default;
     else if (f.type === 'boolean') out[name] = false;
@@ -138,7 +216,7 @@ export function visibleFields(
   entry: Entry,
   shown: readonly string[]
 ): string[] {
-  return Object.keys(shape.fields).filter(
+  return shape.order.filter(
     k =>
       shape.required.includes(k) || entry[k] !== undefined || shown.includes(k)
   );
@@ -158,5 +236,7 @@ export function addableFields(
 }
 
 export function extraKeys(shape: FormShape, entry: Entry): string[] {
-  return Object.keys(entry).filter(k => !(k in shape.fields));
+  return Object.keys(entry).filter(
+    k => !(k in shape.fields) && !(k in shape.unions)
+  );
 }

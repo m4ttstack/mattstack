@@ -94,6 +94,8 @@ describe('entries', () => {
           on: { type: 'boolean' },
           mode: { type: { enum: ['a', 'b'] }, default: 'b' },
         },
+        unions: {},
+        order: ['on', 'mode'],
         nested: [],
         required: ['on', 'mode'],
         labels: ['name', 'value'],
@@ -110,5 +112,81 @@ describe('entries', () => {
       true
     );
     expect(canDraw(map, { 'gitlab.example.com': 'gitlab' })).toBe(false);
+  });
+});
+
+describe('tagged unions', () => {
+  const tabs = {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        source: {
+          title: 'Shows',
+          oneOf: [
+            {
+              type: 'object',
+              properties: { kind: { type: 'string', const: 'authors' } },
+              required: ['kind'],
+            },
+            {
+              type: 'object',
+              properties: {
+                kind: { type: 'string', const: 'codeowners' },
+                section: { type: 'string', minLength: 1 },
+                excludeMembers: { type: 'boolean' },
+              },
+              required: ['kind', 'section'],
+            },
+          ],
+        },
+        note: { type: 'string' },
+      },
+      required: ['id', 'source'],
+    },
+  };
+
+  it('draws a tagged oneOf as a union in schema order, not a nested property', () => {
+    const shape = formShape(tabs)!;
+    expect(shape.order).toEqual(['id', 'source', 'note']);
+    expect(shape.nested).toEqual([]);
+    expect(shape.unions.source).toEqual({
+      title: 'Shows',
+      tag: 'kind',
+      branches: [
+        { value: 'authors', fields: {}, required: [] },
+        {
+          value: 'codeowners',
+          fields: {
+            section: { type: 'string' },
+            excludeMembers: { type: 'boolean' },
+          },
+          required: ['section'],
+        },
+      ],
+    });
+  });
+
+  it('a new entry starts on the first branch', () => {
+    expect(newEntry(formShape(tabs)!)).toEqual({ source: { kind: 'authors' } });
+  });
+
+  it('draws only entries whose tag names a branch', () => {
+    const shape = formShape(tabs)!;
+    expect(
+      canDraw(shape, [
+        { id: 'a', source: { kind: 'codeowners', section: 'Web' } },
+      ])
+    ).toBe(true);
+    expect(canDraw(shape, [{ id: 'a', source: { kind: 'other' } }])).toBe(
+      false
+    );
+  });
+
+  it('a union never reads as an extra key', () => {
+    expect(
+      extraKeys(formShape(tabs)!, { id: 'a', source: { kind: 'authors' } })
+    ).toEqual([]);
   });
 });

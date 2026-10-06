@@ -119,8 +119,12 @@ whose `project-mrs:read` handler is sections-aware. An older daemon reports no
 codeowner sections at all, so the tab renders empty with no badge explaining
 why.
 
-Edit tabs on the team scope with `rt settings set board.tabs --scope team`.
-`config.json` carries them until then, and a store edit needs a restart.
+Edit tabs in the board's settings (console's board group, also at
+`/settings#board` in console) or with `rt settings set board.tabs --scope team`.
+The write is refused unless there is at least one tab, every id is unique and
+non-empty, every label is non-empty, and every codeowners tab names a section.
+An edit from the board's settings modal reloads the board; one from a shell
+needs a restart.
 
 ## Posting to code owners
 

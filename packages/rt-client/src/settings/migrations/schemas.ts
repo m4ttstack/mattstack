@@ -18,5 +18,23 @@ export interface MigrationSchema {
 }
 
 export const MIGRATION_SCHEMAS: MigrationSchema[] = [
+  {
+    key: "board.tabs",
+    version: 1,
+    schema: z.array(z.looseObject({ id: z.string(), label: z.string(), source: z.union([z.looseObject({ kind: z.literal("authors") }), z.looseObject({ kind: z.literal("codeowners"), section: z.string(), excludeMembers: z.boolean().optional() })]), slackChannel: z.string().optional(), reviewSkill: z.string().optional() })),
+    examples: [
+      [
+        { id: "team", label: "Team", source: { kind: "authors" } },
+        { id: "web", label: "Web", source: { kind: "codeowners", section: "Web", excludeMembers: true }, slackChannel: "web-reviews" },
+      ],
+      [
+        { id: "team", label: "Team", source: { kind: "authors" } },
+        { id: "team", label: "Team again", source: { kind: "authors" } },
+        { id: "", label: "No id", source: { kind: "authors" } },
+        { id: "api", label: "API", source: { kind: "codeowners", section: "" } },
+      ],
+      [],
+    ],
+  },
   // @draft-schemas
 ];
