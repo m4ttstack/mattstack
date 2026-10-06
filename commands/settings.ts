@@ -204,7 +204,7 @@ export function bunPathForStorage(detected: string): string | undefined {
 }
 
 /** Stores the checkout the dev wrapper and the dev daemon launcher run. */
-function saveSourcePath(sourcePath: string, bunPath: string): void {
+export function saveSourcePath(sourcePath: string, bunPath: string): void {
   // readDevModeConfig() first folds in (and safely imports/renames) any
   // legacy dev-mode.json — a save reached without a prior load would
   // otherwise strand an unread legacy file the moment this write makes the
