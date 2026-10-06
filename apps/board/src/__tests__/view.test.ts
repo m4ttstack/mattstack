@@ -193,7 +193,7 @@ describe('offeredShowItems', () => {
     ]);
   });
   test('picking yourself drops waiting on author', () => {
-    expect(offeredShowItems({ ...base, member: 'alice' })).toEqual([
+    expect(offeredShowItems({ ...base, member: 'Alice' })).toEqual([
       'posted',
       'notPosted',
       'myDrafts',

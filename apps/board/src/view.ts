@@ -496,7 +496,7 @@ export function offeredShowItems(o: {
   seat: string | null;
   member: string;
 }): ShowItem[] {
-  const own = o.seat !== null && o.member === o.seat;
+  const own = isOwnMr({ author: { username: o.member } }, o.seat);
   return [
     ...(o.slackEnabled ? (['posted', 'notPosted'] as const) : []),
     ...(o.seatTab || own ? [] : (['authorTurn'] as const)),
