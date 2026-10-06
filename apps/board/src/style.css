@@ -2231,6 +2231,11 @@ body {
   justify-content: flex-start;
   align-items: center;
 }
+/* A long file:line breaks rather than squeezing the chips beside it. */
+.tui-gate-question[data-gate-ctx='thread'] .tui-gate-question-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 /* Same role as `.tui-gate-question-context`, for a structured thread's
    claim / points / verdict / reply instead of plain prose: the whole card
    scrolls as a unit once it hits its own viewport-relative cap, rather
@@ -2281,8 +2286,10 @@ body {
 /* The post step's outcome chip holds the card head's right edge; the
    edited mark rides beside it at the same size. */
 .tui-respond-chip:is(.tui-thread-outcome, .tui-thread-edited) {
+  flex-shrink: 0;
   padding: 4px 12px;
   font-size: 13px;
+  white-space: nowrap;
 }
 .tui-respond-chip.tui-thread-outcome {
   margin-left: auto;
