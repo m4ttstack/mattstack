@@ -12,7 +12,12 @@ import {
 } from './envelope.ts';
 import type { NudgeState } from './nudges.ts';
 
+/** MRs with an accept in flight. The ask is only marked handled after the
+    launch resolves, so a second click must be refused before the first await. */
+const accepting = new Set<string>();
+
 export interface AskActionDeps {
+  asksOn(): boolean;
   readNudges(): NudgeState[];
   markNudgeHandled(
     id: string,
@@ -53,6 +58,35 @@ export async function acceptAsk(
 ): Promise<{ ok: true } | Fail<404 | 409 | 502>> {
   const n = find(id, deps);
   if ('ok' in n) return n;
+  if (!deps.asksOn())
+    return {
+      ok: false,
+      status: 409,
+      message: plainReason('asks-off', deps.cfg),
+    };
+  const kind: AskKind = n.kind ?? 're-review';
+  if (accepting.has(n.mrUrl))
+    return {
+      ok: false,
+      status: 409,
+      message: plainReason(
+        kind === 'respond' ? 'respond-in-flight' : 'review-in-flight',
+        deps.cfg
+      ),
+    };
+  accepting.add(n.mrUrl);
+  try {
+    return await accept(n, kind, deps);
+  } finally {
+    accepting.delete(n.mrUrl);
+  }
+}
+
+async function accept(
+  n: NudgeState,
+  kind: AskKind,
+  deps: AskActionDeps
+): Promise<{ ok: true } | Fail<409 | 502>> {
   const now = deps.now();
   // A person's go-ahead outranks the automatic limits, not the guards.
   const cfg = {
@@ -84,7 +118,6 @@ export async function acceptAsk(
       message: plainReason(decision.reason, deps.cfg),
     };
   }
-  const kind: AskKind = n.kind ?? 're-review';
   const launch = await deps.launchAsk(n.mrUrl, n.iid, kind);
   if (launch.kind === 'error') {
     deps.markNudgeHandled(n.id, 'rejected', 'launch-failed');
@@ -94,8 +127,11 @@ export async function acceptAsk(
     );
     return { ok: false, status: 502, message: launch.message };
   }
-  deps.markNudgeHandled(n.id, 'launched', 'accepted');
-  deps.publishOutcome(n.from, outcome(n, 'launched'));
+  // Another answer may have landed while the launch was in flight.
+  if (!deps.readNudges().find(x => x.id === n.id)?.handled) {
+    deps.markNudgeHandled(n.id, 'launched', 'accepted');
+    deps.publishOutcome(n.from, outcome(n, 'launched'));
+  }
   return { ok: true };
 }
 

@@ -34,6 +34,7 @@ function deps(over: Partial<AskActionDeps> = {}) {
   const published: unknown[] = [];
   const launched: unknown[] = [];
   const d: AskActionDeps = {
+    asksOn: () => true,
     readNudges: () => [ask],
     markNudgeHandled: (id, result, reason, opts) =>
       handled.push({ id, result, reason, ...opts }),
@@ -127,6 +128,39 @@ describe('acceptAsk', () => {
       message: 'A review is already running',
     });
     expect(d.launched).toHaveLength(1);
+  });
+
+  test('two accepts at once for one MR launch exactly once', async () => {
+    const states = new Map<string, ReviewState>();
+    const second = { ...ask, id: 'n2' };
+    const d = deps({
+      readNudges: () => [ask, second],
+      readReviewStates: () => states,
+      launchAsk: async mrUrl => {
+        d.launched.push(mrUrl);
+        await new Promise(r => setTimeout(r, 5));
+        states.set(mrUrl, reviewing(mrUrl));
+        return { kind: 'launched' };
+      },
+    });
+    const [a, b] = await Promise.all([acceptAsk('n1', d), acceptAsk('n2', d)]);
+    expect([a.ok, b.ok].sort()).toEqual([false, true]);
+    expect(d.launched).toHaveLength(1);
+    const loser = a.ok ? b : a;
+    expect(loser).toMatchObject({
+      status: 409,
+      message: 'A review is already running',
+    });
+  });
+
+  test('accept while asks are off is 409 and never launches', async () => {
+    const d = deps({ asksOn: () => false });
+    expect(await acceptAsk('n1', d)).toEqual({
+      ok: false,
+      status: 409,
+      message: 'Asks are turned off',
+    });
+    expect(d.launched).toEqual([]);
   });
 
   test('an ask that went stale while open expires instead', async () => {

@@ -17,7 +17,7 @@ writeFileSync(
   JSON.stringify({
     'board.gitlabHost': 'https://gitlab.example.com',
     'board.projects': ['g/p'],
-    'board.members': [{ username: 'alice' }],
+    'board.members': [{ username: 'mira' }],
   })
 );
 
@@ -29,7 +29,7 @@ writeNudge(
   db
 );
 
-const PORT = 47962;
+const PORT = 47970;
 const proc = Bun.spawn(
   ['bun', 'run', join(import.meta.dir, '..', 'server.ts')],
   {
@@ -61,6 +61,29 @@ async function ready(): Promise<void> {
     await new Promise(r => setTimeout(r, 100));
   }
   throw new Error('server never came up');
+}
+
+const EDGES: Record<string, string>[] = [
+  { 'x-mattstack-edge': 'public' },
+  { 'cf-connecting-ip': '203.0.113.9' },
+  { 'tailscale-funnel-request': '?1' },
+  { 'x-forwarded-for': '203.0.113.9' },
+];
+
+function postTo(
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {}
+) {
+  return fetch(`http://127.0.0.1:${PORT}${path}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      host: 'board.mattstack',
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
 }
 
 function decline(body: unknown, contentType = 'application/json') {
@@ -97,4 +120,28 @@ test('data.json carries the handled ask in the history', async () => {
   };
   expect(body.asks.history[0]!.id).toBe('n1');
   expect(body.asks.pending).toEqual([]);
+}, 15_000);
+
+test('the ask routes refuse every public edge marker', async () => {
+  await ready();
+  for (const path of ['/asks/accept', '/asks/decline', '/asks/always-allow']) {
+    for (const edge of EDGES) {
+      const res = await postTo(
+        path,
+        { id: 'n1', username: 'rae', allow: true },
+        edge
+      );
+      expect({ path, edge, status: res.status }).toEqual({
+        path,
+        edge,
+        status: 403,
+      });
+    }
+  }
+}, 15_000);
+
+test('always-allow refuses a malformed body', async () => {
+  await ready();
+  const res = await postTo('/asks/always-allow', { username: 'rae' });
+  expect(res.status).toBe(400);
 }, 15_000);

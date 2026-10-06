@@ -324,6 +324,7 @@ import {
 } from './thread-write.ts';
 import {
   loadPeerAsksAlwaysAllow,
+  loadPeerAsksConfig,
   loadReReviewConfig,
   loadTriageConfig,
   parseTriageBlock,
@@ -544,10 +545,27 @@ function kickOutbox(client: SwitchboardClient): void {
   });
 }
 
+/** A config that will not parse must not 500 the ask routes or blank the
+    board's payload. */
+function triageConfigOrDefault(): TriageConfig {
+  try {
+    return loadTriageConfig();
+  } catch {
+    return parseTriageBlock({});
+  }
+}
+
 /** What the accept, decline and always-allow routes act through. The snapshot
     is the caller's, so the own-MR guard answers from what it just rendered. */
 function askDeps(snapshot: { mrs: BoardMR[] }): AskActionDeps {
   return {
+    asksOn: () => {
+      try {
+        return loadPeerAsksConfig().enabled;
+      } catch {
+        return true;
+      }
+    },
     readNudges: () => readNudges(),
     markNudgeHandled: (id, result, reason, opts) =>
       markNudgeHandled(id, result, reason, getStateDb(), Date.now(), opts),
@@ -562,7 +580,7 @@ function askDeps(snapshot: { mrs: BoardMR[] }): AskActionDeps {
       return mr ? ownedHere(mr) : false;
     },
     launchAsk: makeAskLauncher(config),
-    cfg: loadTriageConfig(),
+    cfg: triageConfigOrDefault(),
     now: Date.now,
   };
 }
@@ -573,13 +591,7 @@ type AskCardData = Omit<AskView, 'handled'> & {
 };
 
 function asksPayload(snapshot: { mrs: BoardMR[] }, now: number = Date.now()) {
-  // A config that will not parse must not blank the board's payload.
-  let cfg: TriageConfig;
-  try {
-    cfg = loadTriageConfig();
-  } catch {
-    cfg = parseTriageBlock({});
-  }
+  const cfg = triageConfigOrDefault();
   const card = (v: AskView): AskCardData => {
     const mr = snapshot.mrs.find(m => m.webUrl === v.mrUrl);
     const title = v.title ?? mr?.title;
@@ -3215,16 +3227,22 @@ const httpServer = Bun.serve({
           from &&
           (result.ok || result.status !== 404)
         ) {
-          setSetting(
-            'board.peerAsksAlwaysAllow',
-            [
-              ...new Set([
-                ...loadPeerAsksAlwaysAllow(),
-                canonicalUsername(from),
-              ]),
-            ],
-            'user'
-          );
+          try {
+            setSetting(
+              'board.peerAsksAlwaysAllow',
+              [
+                ...new Set([
+                  ...loadPeerAsksAlwaysAllow(),
+                  canonicalUsername(from),
+                ]),
+              ],
+              'user'
+            );
+          } catch (err) {
+            console.error(
+              `board: could not save always-allow for ${from}: ${err instanceof Error ? err.message : err}`
+            );
+          }
         }
         return result.ok
           ? jsonOk()
@@ -3254,7 +3272,8 @@ const httpServer = Bun.serve({
           typeof id !== 'string' ||
           !id ||
           (reason !== undefined &&
-            (typeof reason !== 'string' || !(reason in DECLINE_REASONS))) ||
+            (typeof reason !== 'string' ||
+              !Object.hasOwn(DECLINE_REASONS, reason))) ||
           (note !== undefined &&
             (typeof note !== 'string' || note.length > 500))
         )

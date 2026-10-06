@@ -585,6 +585,9 @@ describe('runNudgePass notification copy', () => {
 describe('plainReason', () => {
   test('every code decideRequest produces maps to a plain phrase', () => {
     expect(plainReason('stale', cfg)).toBe('The ask is over 48 hours old');
+    expect(plainReason('launch-failed', cfg)).toBe(
+      'Your agent could not start'
+    );
     expect(plainReason('review-in-flight', cfg)).toBe(
       'A review is already running'
     );

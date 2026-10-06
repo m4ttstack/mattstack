@@ -128,6 +128,8 @@ export function plainReason(reason: string, cfg: TriageConfig): string {
       return 'Automatic asks are off';
     case 'asks-off':
       return 'Asks are turned off';
+    case 'launch-failed':
+      return 'Your agent could not start';
     case 'already-handled':
       return 'Already handled';
     case 'not-your-mr':
