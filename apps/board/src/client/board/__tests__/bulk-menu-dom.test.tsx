@@ -51,7 +51,12 @@ function boardMr(iid: number, over: Record<string, unknown> = {}) {
   };
 }
 
-const member = (username: string) => ({ username, name: username, count: 0 });
+const NAMES: Record<string, string> = { kim: 'Kimberly Ash' };
+const member = (username: string) => ({
+  username,
+  name: NAMES[username] ?? username,
+  count: 0,
+});
 const BOARD_DATA = {
   title: 'MRs ready for review',
   defaultMember: 'matt',
@@ -451,10 +456,11 @@ test('request review from… asks the picked person on each MR', async () => {
   await check(102);
   await rightClick(101);
   await click('request review from…');
-  await click('kim');
+  expect(items().map(i => i.textContent)).toContain("Kimberly Ash's agent");
+  await click("Kimberly Ash's agent");
   expect(posts.filter(p => p.url === '/nudge')).toEqual([]);
   expect(document.body.textContent).toContain(
-    "Ask Kim's agent to review 2 MRs?"
+    "Ask Kimberly's agent to review 2 MRs?"
   );
   const note = document.querySelector<HTMLInputElement>(
     'input[maxlength="500"]'

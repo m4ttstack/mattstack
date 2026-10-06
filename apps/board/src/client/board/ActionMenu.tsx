@@ -171,7 +171,7 @@ function ActionMenu({
             key={`ask-${o.value}`}
             label={iconLabel(
               picking.glyph ? glyphNode(picking.glyph) : null,
-              o.value
+              o.label ?? o.value
             )}
             hint={o.hint}
             onClick={() => fire(picking, { pick: o.value })}
@@ -283,7 +283,10 @@ function ActionMenu({
         {e.pick.options.map(o => (
           <ContextMenu.Item
             key={`ask-${o.value}`}
-            label={iconLabel(e.glyph ? glyphNode(e.glyph) : null, o.value)}
+            label={iconLabel(
+              e.glyph ? glyphNode(e.glyph) : null,
+              o.label ?? o.value
+            )}
             hint={o.hint}
             onClick={() => fire(e, { pick: o.value })}
           />

@@ -1403,6 +1403,7 @@ export function Board() {
     ownerSlackRepos: data.ownerSlackRepos,
     self: seat,
     roster: data.members.map(m => m.username),
+    names: rosterNames,
     peers: data.peers,
     allMrs: data.mrs,
   };
@@ -1870,7 +1871,10 @@ export function Board() {
         <AskConfirmDialog
           open={pendingAsk !== null}
           kind={pendingAsk?.kind ?? 'review'}
-          reviewerName={firstName(undefined, pendingAsk?.reviewer ?? '')}
+          reviewerName={firstName(
+            rosterNames.get(pendingAsk?.reviewer ?? ''),
+            pendingAsk?.reviewer ?? ''
+          )}
           subject={pendingAsk?.subject ?? ''}
           onSend={note => {
             pendingAsk?.send(note);

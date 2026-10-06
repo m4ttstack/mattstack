@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 
 import { ConfirmDialog, TextField } from '@mattstack/tui-kit';
 import type { AskKind } from '../types.ts';
+import { AskGlyph } from './ask-glyph.tsx';
+import { verbLane } from './asks/ask-copy.ts';
 
 const TITLE_VERB: Record<AskKind, string> = {
   review: 'review',
@@ -21,7 +23,7 @@ export function AskConfirmDialog({
 }: {
   open: boolean;
   kind: AskKind;
-  /** The teammate's first name. */
+  /** The teammate's first name; empty reads as "your teammate". */
   reviewerName: string;
   /** "!1271" for one MR, "3 MRs" for a bulk ask. */
   subject: string;
@@ -32,23 +34,30 @@ export function AskConfirmDialog({
   useEffect(() => {
     if (open) setNote('');
   }, [open]);
+  const who = reviewerName || 'your teammate';
   return (
     <ConfirmDialog
       open={open}
-      intent="accent"
-      title={`Ask ${reviewerName}'s agent to ${TITLE_VERB[kind]} ${subject}?`}
-      confirmLabel="Send ask"
+      intent={verbLane(kind) === 'respond' ? 'ok' : 'accent'}
+      confirmVariant="filled"
+      title={`Ask ${who}'s agent to ${TITLE_VERB[kind]} ${subject}?`}
+      confirmLabel={
+        <>
+          <AskGlyph name="send" size={13} />
+          Send ask
+        </>
+      }
       cancelLabel="Cancel"
       onConfirm={() => onSend(note)}
       onCancel={onCancel}
     >
       <div className="tui-ask-send-body">
         <p className="tui-ask-send-copy">
-          It runs on {reviewerName}'s Mac with {reviewerName}'s Claude usage,
-          once {reviewerName} says go ahead.
+          It runs on {who}'s Mac with {who}'s Claude usage, once {who} says go
+          ahead.
         </p>
         <TextField
-          label={`Note for ${reviewerName} (optional)`}
+          label={`Note for ${who} (optional)`}
           maxLength={500}
           value={note}
           onChange={e => setNote(e.target.value)}

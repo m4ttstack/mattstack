@@ -92,7 +92,7 @@ export interface MenuEntry {
   pick?: {
     title: string;
     aria: string;
-    options: Array<{ value: string; hint?: string }>;
+    options: Array<{ value: string; label?: string; hint?: string }>;
   };
 }
 
@@ -101,6 +101,12 @@ export interface RowAction extends MenuEntry {
   /** Present only when the action can join the bulk menu: its grouped
       wording ("call doctor" covers "call doctor again" too). */
   bulk?: string;
+}
+
+/** A pick option for a teammate's agent: the username stays the payload. */
+function peerOption(env: ActionEnv, value: string) {
+  const name = env.names?.get(value);
+  return name ? { value, label: `${name}'s agent` } : { value };
 }
 
 export interface ActionEnv {
@@ -114,6 +120,8 @@ export interface ActionEnv {
   /** The board's seat; null on an "all" board. */
   self: string | null;
   roster: string[];
+  /** Full names by username, for labels that read as a person. */
+  names?: ReadonlyMap<string, string>;
   /** Enrolled peer usernames when the relay has said; undefined = unknown. */
   peers?: string[];
   /** Every MR on the board, for the stack checks. */
@@ -385,7 +393,7 @@ export function rowActions(
               pick: {
                 title: 'request review from',
                 aria: 'request review',
-                options: askTargets.map(value => ({ value })),
+                options: askTargets.map(value => peerOption(env, value)),
               },
               bulk: 'request review from…',
             }
@@ -849,7 +857,7 @@ export function bulkActions(
     if (g.first.pick) {
       entry.pick = {
         ...g.first.pick,
-        options: [...g.picks.keys()].map(value => ({ value })),
+        options: [...g.picks.keys()].map(value => peerOption(env, value)),
       };
       entry.pickTargets = g.picks;
     }
