@@ -9,21 +9,21 @@ import { TREE } from "../lib/command-tree-def.ts";
 import { walkTree } from "./lib/docs-walk.ts";
 import { renderPage, type RenderOpts } from "./lib/docs-render.ts";
 import { cleanGenerated } from "./lib/docs-clean.ts";
-import { HAND_WRITTEN_REFERENCE } from "./lib/docs-hand.ts";
+import { REFERENCE_ROOT, HAND_WRITTEN_REFERENCE } from "./lib/docs-hand.ts";
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const outIdx = args.indexOf("--out");
-const OUT = (outIdx >= 0 ? args[outIdx + 1] : undefined) ?? "website/docs/reference";
+const OUT = (outIdx >= 0 ? args[outIdx + 1] : undefined) ?? REFERENCE_ROOT;
 
 // Partials are hand-written and live only under the real reference tree, never
 // under a --out override: check-docs.ts renders into a scratch tmpdir to diff
 // against the committed pages, and that tmpdir has no _partials of its own.
-const PARTIALS_DIR = "website/docs/reference/_partials";
+const PARTIALS_DIR = `${REFERENCE_ROOT}/_partials`;
 
 const COMMON_FLAGS = new Set(["--json", "--dry-run", "--repo", "--agent", "--no-agent"]);
 const opts: RenderOpts = {
-  common: { flags: COMMON_FLAGS, href: "/guides/common-flags" },
+  common: { flags: COMMON_FLAGS, href: "/rt/guides/common-flags" },
   sourceBase:
     process.env.RT_DOCS_SOURCE_BASE ??
     "https://github.com/m4ttstack/mattstack/blob/main/",
