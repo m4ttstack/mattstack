@@ -21,6 +21,9 @@ export interface FieldSpec {
   suggest?: string;
   /** A sibling field a new entry's value follows, slugged, until edited. */
   slugFrom?: string;
+  /** The value a newly added field or branch starts with, where that
+      differs from what the setting reads when the field is absent. */
+  initial?: unknown;
 }
 
 /** A property that is one of several objects told apart by a tag (zod's
@@ -90,6 +93,7 @@ function fieldOf(s: JsonSchema): FieldSpec | null {
   if (typeof s.inherits === 'string') f.inherits = s.inherits;
   if (typeof s.suggest === 'string') f.suggest = s.suggest;
   if (typeof s.slugFrom === 'string') f.slugFrom = s.slugFrom;
+  if (s.initial !== undefined) f.initial = s.initial;
   return f;
 }
 
@@ -224,12 +228,11 @@ export function canDraw(shape: FormShape, value: unknown): boolean {
   );
 }
 
-/** A branch's starting value: its tag and every field default it
-    declares. */
+/** A branch's starting value: its tag and each field's `initial`. */
 export function branchSeed(union: UnionSpec, branch: UnionBranch): Entry {
   const out: Entry = { [union.tag]: branch.value };
   for (const [name, f] of Object.entries(branch.fields))
-    if (f.default !== undefined) out[name] = f.default;
+    if (f.initial !== undefined) out[name] = f.initial;
   return out;
 }
 

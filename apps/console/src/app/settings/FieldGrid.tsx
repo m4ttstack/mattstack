@@ -407,11 +407,15 @@ export function FieldGrid({
   // extended (once) the first time a new name is set, so clearing and
   // retyping a field returns it to its original position instead of the end.
   const order = useRef<string[]>(Object.keys(entry));
+  // A slug target typed into by hand; focus alone (which marks touched)
+  // must not stop it following its source.
+  const edited = useRef(new Set<string>());
   const set = (name: string, v: unknown) => {
+    if (shape.fields[name]?.slugFrom) edited.current.add(name);
     const patch: Entry = { [name]: v };
     if (isNew)
       for (const [target, f] of Object.entries(shape.fields))
-        if (f.slugFrom === name && !touched.has(target))
+        if (f.slugFrom === name && !edited.current.has(target))
           patch[target] =
             typeof v === 'string' && v !== '' ? slugOf(v, taken) : undefined;
     for (const k of Object.keys(patch))

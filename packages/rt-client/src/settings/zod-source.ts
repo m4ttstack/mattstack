@@ -8,7 +8,7 @@
 
 import { isSchema, type JsonSchema } from "./schema.ts";
 
-const ANNOTATIONS = new Set(["$schema", "$id", "title", "description", "default", "examples", "labels", "placeholder", "deprecated", "readOnly", "writeOnly", "inherits", "suggest", "slugFrom"]);
+const ANNOTATIONS = new Set(["$schema", "$id", "title", "description", "default", "examples", "labels", "placeholder", "deprecated", "readOnly", "writeOnly", "inherits", "suggest", "slugFrom", "initial"]);
 // Carried back as `.meta()`, so a rebuilt branch of a oneOf (compared whole) matches its lock entry.
 const NOT_META = new Set(["$schema", "$id"]);
 const HANDLED = new Set([

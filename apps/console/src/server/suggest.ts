@@ -54,6 +54,10 @@ export async function suggestValues(
   source: string,
   deps: SuggestDeps = realDeps
 ): Promise<string[] | null | undefined> {
-  const suggester = SUGGESTERS[source];
-  return suggester ? suggester(deps) : undefined;
+  if (!Object.hasOwn(SUGGESTERS, source)) return undefined;
+  try {
+    return await SUGGESTERS[source]!(deps);
+  } catch {
+    return null;
+  }
 }

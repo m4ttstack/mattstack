@@ -532,7 +532,7 @@ describe('ItemCards with annotated fields', () => {
                   title: 'CODEOWNERS section',
                 },
                 section: { type: 'string', minLength: 1 },
-                hide: { type: 'boolean', default: true },
+                hide: { type: 'boolean', initial: true },
               },
               required: ['kind', 'section'],
             },
@@ -586,6 +586,15 @@ describe('ItemCards with annotated fields', () => {
     await userEvent.type(id, 'web');
     await userEvent.type(within(card).getByLabelText('label'), ' Two');
     expect(latest[1]).toMatchObject({ id: 'web', label: 'Web Reviews Two' });
+  });
+
+  it('focusing the empty id first does not stop it following the label', async () => {
+    renderWithProviders(<Harness initial={[team]} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
+    const card = screen.getByTestId('item-1');
+    await userEvent.click(within(card).getByLabelText('id'));
+    await userEvent.type(within(card).getByLabelText('label'), 'Docs');
+    expect(latest[1]).toMatchObject({ id: 'docs', label: 'Docs' });
   });
 
   it("a stored card's id never follows its label", async () => {

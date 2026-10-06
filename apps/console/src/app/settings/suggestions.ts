@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
-// One request per list per page load: every card's field shares it.
+// One request per list per page load, shared by every card's field. A
+// failed or empty answer is dropped, so the next field to mount asks again.
 const lists = new Map<string, Promise<string[] | null>>();
 
 function load(source: string): Promise<string[] | null> {
@@ -11,7 +12,11 @@ function load(source: string): Promise<string[] | null> {
       .then((b: { values?: unknown } | null) =>
         Array.isArray(b?.values) ? (b.values as string[]) : null
       )
-      .catch(() => null);
+      .catch(() => null)
+      .then(v => {
+        if (v === null) lists.delete(source);
+        return v;
+      });
     lists.set(source, p);
   }
   return p;

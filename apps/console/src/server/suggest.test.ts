@@ -59,4 +59,14 @@ describe('codeowners-sections', () => {
 
 it('an unknown list is undefined, which the route answers 404', async () => {
   expect(await suggestValues('nope', deps({}, {}))).toBeUndefined();
+  for (const name of ['constructor', 'toString', 'hasOwnProperty', '__proto__'])
+    expect(await suggestValues(name, deps({}, {}))).toBeUndefined();
+});
+
+it('a settings read that throws reads as nothing known yet', async () => {
+  const d = deps({}, {});
+  d.setting = () => {
+    throw new Error('unexpandable ${X}');
+  };
+  expect(await suggestValues('codeowners-sections', d)).toBeNull();
 });

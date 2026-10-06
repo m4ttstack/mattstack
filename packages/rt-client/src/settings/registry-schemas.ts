@@ -83,7 +83,8 @@ const tab = z.looseObject({
         excludeMembers: z.boolean().optional().meta({
           title: "Hide roster authors",
           description: "Leave out MRs by roster members, who have their own tab.",
-          default: true,
+          // Board reads a missing value as false; a tab added here starts on.
+          initial: true,
         }),
       }),
       z.looseObject({ kind: z.literal("authors").meta({ title: "Team roster" }) }),

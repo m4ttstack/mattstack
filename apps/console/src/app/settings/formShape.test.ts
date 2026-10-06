@@ -215,7 +215,7 @@ describe('field annotations', () => {
                   title: 'CODEOWNERS section',
                 },
                 section: { type: 'string', suggest: 'codeowners-sections' },
-                hide: { type: 'boolean', default: true },
+                hide: { type: 'boolean', initial: true },
               },
               required: ['kind', 'section'],
             },
@@ -257,7 +257,7 @@ describe('field annotations', () => {
     expect(shape.uniqueBy).toBe('id');
   });
 
-  it('a branch starts with its tag and its declared defaults', () => {
+  it("a branch starts with its tag and each field's initial value", () => {
     const u = formShape(schema)!.unions.source!;
     expect(branchSeed(u, u.branches[0]!)).toEqual({
       kind: 'codeowners',

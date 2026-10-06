@@ -207,7 +207,7 @@
                   "excludeMembers": {
                     "title": "Hide roster authors",
                     "description": "Leave out MRs by roster members, who have their own tab.",
-                    "default": true,
+                    "initial": true,
                     "type": "boolean"
                   }
                 },
