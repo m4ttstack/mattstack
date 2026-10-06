@@ -33,15 +33,15 @@ html {
      decide, which read the warn hue via --text-warn-vivid. */
   --orange: light-dark(#9e5c00, #ffca16);
   /* The lift every board card (header, roster, MR groups) shares, so they
-     sit a step off the grid paper together. The page is near black in dark,
-     so dark needs far denser shadows, and a third, wider one, to show. */
+     sit a step off the grid paper together: short and dense rather than
+     wide and soft, so the edge reads as a solid lift. The page is near
+     black in dark, so dark needs far denser alphas to show. */
   /* Interactive controls on a card take the ramp step above it, so they
      don't read white-on-white: panel in light, raised in dark. */
   --control-fill: light-dark(var(--surface-panel), var(--surface-raised));
   --card-shadow:
-    0 1px 2px light-dark(rgb(16 24 40 / 6%), rgb(0 0 0 / 70%)),
-    0 6px 16px -6px light-dark(rgb(16 24 40 / 16%), rgb(0 0 0 / 90%)),
-    0 12px 32px -12px light-dark(transparent, rgb(0 0 0 / 80%));
+    0 1px 1px light-dark(rgb(16 24 40 / 8%), rgb(0 0 0 / 80%)),
+    0 2px 5px -1px light-dark(rgb(16 24 40 / 12%), rgb(0 0 0 / 75%));
 }
 body {
   font-size: 0.84375rem;

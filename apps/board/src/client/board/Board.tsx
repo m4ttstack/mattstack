@@ -110,7 +110,7 @@ import {
   type RowAction,
   type RunOpts,
 } from './row-actions.ts';
-import { statusGroupHue } from './row-status.ts';
+import { reviewGroupHue, statusGroupHue } from './row-status.ts';
 import { RowMenu } from './RowMenu.tsx';
 import { RowView } from './RowView.tsx';
 import { SelectionBar } from './SelectionBar.tsx';
@@ -1318,13 +1318,15 @@ export function Board() {
     onOpenTurnSettings: openTurnConfig,
   };
 
-  /** A group's header band colour: its status pill's hue, or its author's
-      avatar colour; any other grouping keeps the neutral band. */
+  /** A group's header band colour: its status pill's hue, its review
+      state's hue, or its author's avatar colour; any other grouping keeps
+      the neutral band. */
   const groupBand = (g: {
     label: string;
     author?: string;
   }): { hue?: string; style?: CSSProperties } => {
     if (state.group === 'status') return { hue: statusGroupHue(g.label) };
+    if (state.group === 'review') return { hue: reviewGroupHue(g.label) };
     const look =
       state.group === 'author' && g.author
         ? memberLooks.get(g.author)
