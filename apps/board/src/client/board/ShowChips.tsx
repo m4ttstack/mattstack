@@ -12,11 +12,11 @@ export function showTip(item: ShowItem, turn: TurnConfig): string {
     case 'posted':
       return 'Posted to the team Slack channel.';
     case 'notPosted':
-      return 'Not posted to the team channel.';
+      return 'Not posted to the team Slack channel.';
     case 'authorTurn':
       return turn.author.length === 0
-        ? 'No signal counts as the author’s move in Display Settings, so this covers nothing.'
-        : 'MRs waiting on the author to act. Display Settings picks what counts.';
+        ? 'Nothing counts as the author’s move yet. Configure this behavior in settings.'
+        : 'MRs waiting on the author to act. Configure this behavior in settings.';
     case 'myDrafts':
       return 'Show or hide your own draft MRs. Other users’ drafts are never shown.';
   }

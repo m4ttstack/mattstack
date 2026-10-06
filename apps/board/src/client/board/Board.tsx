@@ -1392,7 +1392,6 @@ export function Board() {
           active={state.member}
           onPick={member => update({ member })}
           onSettings={openSettings}
-          onConfig={openConfig}
           scopeUncovered={data.scopeUncovered}
           note={inferredNote}
           empty={rosterEmpty}
@@ -1648,8 +1647,7 @@ export function Board() {
                 setMenuOpen(false);
               }}
               onSettings={openSettings}
-              onConfig={openConfig}
-              scopeUncovered={data.scopeUncovered}
+                  scopeUncovered={data.scopeUncovered}
               note={inferredNote}
               empty={rosterEmpty}
               dimEmpty={tabDimsEmpty(activeTab)}

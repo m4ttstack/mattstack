@@ -125,7 +125,7 @@ function MenuButton({
   );
 }
 
-export const TURN_SETTINGS_LABEL = 'Display Settings';
+export const TURN_SETTINGS_LABEL = 'Settings';
 
 // ── controls (shared: desktop header + mobile drawer) ───────────────────────
 
