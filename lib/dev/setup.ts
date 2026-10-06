@@ -79,8 +79,12 @@ export async function runDevSetup(s: DevSeams, stage: StageRunner): Promise<DevS
         throw new UserActionableError("dev-gh-login", "You're not logged in to GitHub", {}, { why: "Pushing your branches needs it.", next: `${gh.join(" ")} auth login` });
       }
       const push = await p.exec([...gh, "api", "repos/m4ttstack/mattstack", "--jq", ".permissions.push"], { timeoutMs: 15_000 });
-      if (push.stdout.trim() !== "true") {
+      const answer = push.stdout.trim();
+      if (push.code === 0 && answer === "false") {
         throw new UserActionableError("dev-no-push-access", "You can't push to mattstack yet", {}, { why: "Ask the mattstack maintainers to add you as a collaborator." });
+      }
+      if (push.code !== 0 || answer !== "true") {
+        throw new UserActionableError("dev-access-unreadable", "rt could not check your access to mattstack", {}, { why: "GitHub did not answer.", log: push.stderr || push.stdout, next: "rt dev setup" });
       }
       return { status: "done", title: "You can push to mattstack" };
     }),

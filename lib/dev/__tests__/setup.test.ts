@@ -12,6 +12,7 @@ const GO = "/opt/homebrew/bin/go";
 const GH = ["/Applications/mattstack.app/Contents/Helpers/gh"];
 const PINS = { pkg: JSON.stringify({ packageManager: "bun@1.4.2" }), goMod: "go 1.26.5\n" };
 const SHA = "abc123";
+const PLIST = "/Applications/mattstack-dev.app/Contents/Info.plist";
 
 /** Records pause() calls so a test can prove every prompt ran with the step off screen. */
 function recordingRunner() {
@@ -42,6 +43,9 @@ interface World {
   wrapperOwns?: boolean;
   stored?: string | null;
   noDevZip?: boolean;
+  pushExit?: number;
+  installedDevApp?: string;
+  ownsAfterInstall?: boolean;
 }
 
 function world(w: World = {}) {
@@ -55,6 +59,9 @@ function world(w: World = {}) {
   }
   if (w.clone === "empty") dirs[CLONE] = [];
   let opened = false;
+  let downloaded = false;
+  const swapCalls: string[] = [];
+  if (w.installedDevApp) files[PLIST] = "";
   const saved: Array<[string, string]> = [];
   const installs: string[] = [];
   const probes = fakeProbes({
@@ -77,7 +84,11 @@ function world(w: World = {}) {
       if (a === `${GO} version`) return { code: 0, stdout: "go version go1.26.5 darwin/arm64", stderr: "" };
       if (a === "/opt/homebrew/bin/node --version") return { code: 0, stdout: "v22.0.0", stderr: "" };
       if (a.endsWith("auth status")) return { code: w.ghLoggedIn === false ? 1 : 0, stdout: "", stderr: "" };
-      if (a.includes("--jq .permissions.push")) return { code: 0, stdout: `${w.pushAccess ?? "true"}\n`, stderr: "" };
+      if (a.includes("--jq .permissions.push")) {
+        return w.pushExit ? { code: w.pushExit, stdout: "", stderr: "HTTP 502" } : { code: 0, stdout: `${w.pushAccess ?? "true"}\n`, stderr: "" };
+      }
+      if (a === `plutil -extract CFBundleShortVersionString raw -o - ${PLIST}`) return { code: 0, stdout: `${w.installedDevApp}\n`, stderr: "" };
+      if (a === `plutil -extract MSDevReleaseBuild raw -o - ${PLIST}`) return { code: 0, stdout: "true\n", stderr: "" };
       if (a.includes("api repos/m4ttstack/mattstack/releases")) {
         const list = w.noDevZip
           ? []
@@ -107,8 +118,16 @@ function world(w: World = {}) {
   });
   const seams: DevSeams = {
     probes,
-    swap: { exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }), sleep: async () => {} },
-    download: async () => {},
+    swap: {
+      exec: async (argv) => {
+        swapCalls.push(argv.join(" "));
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+      sleep: async () => {},
+    },
+    download: async () => {
+      downloaded = true;
+    },
     scratchDir: () => "/scratch",
     flavor: w.flavor ?? "prod",
     interactive: w.interactive ?? true,
@@ -124,9 +143,9 @@ function world(w: World = {}) {
       return { via: "vendor", ok: true, detail: "ok" };
     },
     gh: () => GH,
-    devWrapperOwnsRt: () => (w.wrapperOwns ?? false) || (opened && (w.takeoverAfterOpen ?? true)),
+    devWrapperOwnsRt: () => (w.wrapperOwns ?? false) || (w.ownsAfterInstall === true && downloaded) || (opened && (w.takeoverAfterOpen ?? true)),
   };
-  return { seams, probes, saved, installs };
+  return { seams, probes, saved, installs, swapCalls, downloaded: () => downloaded };
 }
 
 const cmds = (p: ReturnType<typeof world>["probes"]) => p.calls.exec.map((a) => a.join(" "));
@@ -205,6 +224,17 @@ describe("runDevSetup", () => {
     expect(cloned(probes)).toBe(false);
   });
 
+  test("a failed access check is a failure, not a refusal, and nothing is cloned", async () => {
+    const { seams, probes } = world({ pushExit: 1 });
+    await expect(runDevSetup(seams, runner)).rejects.toMatchObject({ code: "dev-access-unreadable", log: "HTTP 502", next: "rt dev setup" });
+    expect(cloned(probes)).toBe(false);
+  });
+
+  test("an access answer that is neither true nor false is a failure, not a refusal", async () => {
+    const { seams } = world({ pushAccess: "null" });
+    await expect(runDevSetup(seams, runner)).rejects.toMatchObject({ code: "dev-access-unreadable" });
+  });
+
   test("no release with a dev app refuses before cloning", async () => {
     const { seams, probes } = world({ noDevZip: true });
     await expect(runDevSetup(seams, runner)).rejects.toMatchObject({ code: "dev-no-dev-zip" });
@@ -254,6 +284,54 @@ describe("runDevSetup", () => {
   test("the dev app never takes over: times out pointing back at prod", async () => {
     const { seams } = world({ takeoverAfterOpen: false });
     await expect(runDevSetup(seams, runner)).rejects.toMatchObject({ code: "dev-switch-timeout", next: "open /Applications/mattstack.app" });
+  });
+});
+
+describe("runDevSetup resumes a partial setup", () => {
+  const recording = () => {
+    const endings: Record<string, string> = {};
+    const r: StageRunner = async (title, task) => {
+      const e = await task({ sub: () => {}, pause: (fn) => fn() });
+      endings[title] = e.status;
+      return e;
+    };
+    return { r, endings };
+  };
+
+  test("a clone that is already ours is not cloned again", async () => {
+    const { seams, probes } = world({ clone: "ours" });
+    const { r, endings } = recording();
+    await runDevSetup(seams, r);
+    expect(cloned(probes)).toBe(false);
+    expect(endings["Clone mattstack"]).toBe("skipped");
+  });
+
+  test("a stored source path that is the clone skips pointing rt at it", async () => {
+    const { seams, saved } = world({ clone: "ours", stored: CLONE });
+    const { r, endings } = recording();
+    await runDevSetup(seams, r);
+    expect(saved).toEqual([]);
+    expect(endings["Point rt at your clone"]).toBe("skipped");
+  });
+
+  test("a dev app already at the chosen version is not downloaded or swapped", async () => {
+    const { seams, probes, swapCalls, downloaded } = world({ installedDevApp: "2.22.0" });
+    const { r, endings } = recording();
+    await runDevSetup(seams, r);
+    expect(downloaded()).toBe(false);
+    expect(swapCalls).toEqual([]);
+    expect(cmds(probes).some((c) => c.startsWith("shasum") || c.startsWith("ditto"))).toBe(false);
+    expect(endings["Install the dev app"]).toBe("skipped");
+  });
+
+  test("a dev app that already runs this Mac is not opened again, and the apps still register", async () => {
+    const { seams, probes } = world({ ownsAfterInstall: true });
+    const { r, endings } = recording();
+    await runDevSetup(seams, r);
+    expect(cmds(probes).some((c) => c.includes("/usr/bin/open"))).toBe(false);
+    expect(endings["Switch to the dev app"]).toBe("skipped");
+    expect(endings["Serve the apps from your clone"]).toBe("done");
+    expect(cmds(probes)).toContain(`/Applications/mattstack-dev.app/Contents/Helpers/deck register --dir ${CLONE}/apps/board`);
   });
 });
 
