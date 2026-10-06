@@ -14,7 +14,7 @@ import {
 } from "../claude/sessions.ts";
 import { claudeIntegration } from "../claude/integration.ts";
 import { extractMcpEvidence, resolveCallerContext } from "../context.ts";
-import { createSessionStore } from "../session-store.ts";
+import { createSessionStore, type StoredAttachment } from "../session-store.ts";
 import { openStateDb } from "../../state/db.ts";
 import { insertAgent, type AgentRecord } from "../../state/agents-store.ts";
 import { setSetting } from "../../settings/write.ts";
@@ -119,17 +119,41 @@ describe("native argv lives in the Claude integration", () => {
 });
 
 describe("launch and resume", () => {
-  test("a fresh launch opens one pane with rt's minted id, never the deferred prompt, and checks folder trust", async () => {
+  test("a fresh launch with no work to follow opens one pane with rt's minted id and checks folder trust", async () => {
     const h = harness();
     const sessions = createClaudeSessions(h.deps);
-    const launched = data(await sessions.launch(request({ model: "haiku" }, { prompt: "the deferred work", access: { readRoots: ["/r1"] } })));
+    const launched = data(await sessions.launch(request({ model: "haiku" }, { access: { readRoots: ["/r1"] } })));
     expect(launched).toEqual<NativeLaunch>({ native: claudeRef(MINTED), attachment: { mode: "herdr", pane: "w4:p2" } });
     expect(h.opened).toEqual([{
       cwd: "/w/acme", reservationId: "rsv-1",
       command: `cd '/w/acme' && claude '--model' 'haiku' '--add-dir' '/r1' '--session-id' '${MINTED}'`,
     }]);
-    expect(h.opened[0]!.command).not.toContain("deferred");
     expect(h.trusted).toEqual([{ opened: { pane: "w4:p2" }, cwd: "/w/acme" }]);
+  });
+
+  test("a launch with deferred work binds rt's id and starts nothing; its work starts the pane with the prompt on the launch line", async () => {
+    const h = harness();
+    const sessions = createClaudeSessions(h.deps);
+    const req = request({ model: "haiku" }, { prompt: "the deferred work", access: { readRoots: ["/r1"] }, nativeHint: UUID });
+    const launched = data(await sessions.launch(req));
+    expect(launched).toEqual<NativeLaunch>({ native: claudeRef(UUID), attachment: { mode: "herdr" } });
+    expect(h.opened).toEqual([]);
+    expect(h.trusted).toEqual([]);
+
+    const work = data(await sessions.startWork(
+      { key: "sk-1", identity: "remy.ab12", native: launched.native, attachment: { generation: 1, mode: "herdr" } },
+      { id: "w1", text: "the deferred work" }, { request: req, kind: "launch" },
+    ));
+    expect(work).toMatchObject({ id: "w1", evidence: "submitted", nativeId: UUID, attachment: { mode: "herdr", pane: "w4:p2" } });
+    expect(h.opened.map((o) => o.command)).toEqual([
+      `cd '/w/acme' && claude '--model' 'haiku' '--add-dir' '/r1' '--session-id' '${UUID}' 'the deferred work'`,
+    ]);
+    expect(h.trusted).toHaveLength(1);
+  });
+
+  test("an id that is not a session uuid is never used as the native session; rt mints its own", async () => {
+    const launched = data(await createClaudeSessions(harness().deps).launch(request({}, { nativeHint: "not-a-uuid" })));
+    expect(launched.native).toEqual(claudeRef(MINTED));
   });
 
   test("a cswap account is the native profile", async () => {
@@ -170,11 +194,65 @@ describe("launch and resume", () => {
     expect(h.opened).toHaveLength(1);
   });
 
-  test("headless cannot launch without submitting its work, so it is unsupported rather than faked", async () => {
+  test("headless binds rt's minted id without spawning; its work spawns claude -p with the prompt on stdin, never in argv", async () => {
+    const spawned: Array<{ argv: string[]; cwd: string; env: Record<string, string>; opts: { stdin?: string; unset?: readonly string[] } }> = [];
+    const h = harness({
+      spawn: (argv, cwd, env, opts) => {
+        spawned.push({ argv, cwd, env, opts });
+        return { pid: 777, exited: Promise.resolve(3), stdout: async () => "{\"result\":\"done\"}" };
+      },
+    });
+    const sessions = createClaudeSessions(h.deps);
+    const req = request({ model: "haiku", yolo: true }, {
+      mode: "headless", prompt: "the brief", host: { env: { RT_AGENT_ID: "agent-1" }, unsetEnv: ["CODEX_THREAD_ID"] },
+    });
+    const launched = data(await sessions.launch(req));
+    expect(launched).toEqual<NativeLaunch>({ native: claudeRef(MINTED), attachment: { mode: "headless" } });
+    expect(spawned).toEqual([]);
+    expect(h.opened).toEqual([]);
+
+    const work = data(await sessions.startWork(
+      { key: "sk-1", identity: "agent:agent-1", native: launched.native, attachment: { generation: 1, mode: "headless" } },
+      { id: "w1", text: "the brief" }, { request: req, kind: "launch" },
+    ));
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]!.argv.slice(1)).toEqual(["-p", "--output-format", "json", "--dangerously-skip-permissions", "--model", "haiku", "--session-id", MINTED]);
+    expect(spawned[0]!.argv.join(" ")).not.toContain("the brief");
+    expect(spawned[0]!.opts).toEqual({ stdin: "the brief", unset: ["CODEX_THREAD_ID"] });
+    expect(spawned[0]!.env).toEqual({ RT_AGENT_ID: "agent-1" });
+    expect(work).toMatchObject({ id: "w1", evidence: "submitted", nativeId: MINTED, attachment: { mode: "headless", pid: 777 } });
+    expect(await work.completion).toEqual({ exitCode: 3, body: "{\"result\":\"done\"}" });
+  });
+
+  test("work for a session this process did not prepare, or one already running, is not sent", async () => {
+    const sessions = createClaudeSessions(harness().deps);
+    const req = request({}, { prompt: "go" });
+    const prepared = { request: req, kind: "launch" as const };
+    const at = (attachment: SessionBinding["attachment"]): SessionBinding => ({ key: "sk-1", identity: "remy.ab12", native: claudeRef(UUID), attachment });
+    expect(await sessions.startWork(at({ generation: 1, mode: "herdr" }), { id: "w1", text: "go" })).toMatchObject({ ok: false, error: { code: "unsupported" } });
+    expect(await sessions.startWork(at({ generation: 1, mode: "herdr", pane: "w1:p1" }), { id: "w1", text: "go" }, prepared))
+      .toMatchObject({ ok: false, error: { code: "unsupported" } });
+  });
+
+  test("a resume with deferred work resumes on the launch line under the session's own account", async () => {
     const h = harness();
-    const outcome = await createClaudeSessions(h.deps).launch(request({}, { mode: "headless", prompt: "go" }));
-    expect(outcome).toMatchObject({ ok: false, error: { code: "unsupported" } });
-    expect(h.opened).toHaveLength(0);
+    const sessions = createClaudeSessions(h.deps);
+    const req = request({ account: "sam@example.com", effort: "low" }, { prompt: "next step" });
+    const resumed = data(await sessions.resume(claudeRef(UUID, "sam@example.com"), req));
+    expect(resumed.attachment).toEqual({ mode: "herdr" });
+    data(await sessions.startWork(
+      { key: "sk-1", identity: "remy.ab12", native: resumed.native, attachment: { generation: 2, mode: "herdr" } },
+      { id: "w2", text: "next step" }, { request: req, kind: "resume" },
+    ));
+    expect(h.opened[0]!.command).toBe(`cd '/w/acme' && cswap run 'sam@example.com' -- '--effort' 'low' '--resume' '${UUID}' 'next step'`);
+  });
+
+  test("an interrupted start is evidenced only by the session running", async () => {
+    const live = harness({ registry: registryOf({ [DEFAULT_ROOT]: { [UUID]: inbox(42) } }) });
+    const gone = harness({ registry: registryOf({}), agents: async () => [] });
+    const bound = { key: "sk-1", identity: "remy.ab12", native: claudeRef(UUID), attachment: { generation: 1, mode: "herdr" as const } };
+    expect(data(await createClaudeSessions(live.deps).reconcileWork!(bound, { id: "w1", digest: "d" }))).toEqual({ id: "w1", evidence: "submitted", nativeId: UUID });
+    expect(data(await createClaudeSessions(gone.deps).reconcileWork!(bound, { id: "w1", digest: "d" }))).toBeNull();
   });
 
   test("a pane that fails to open is the launch's failure, and trust is not driven", async () => {
@@ -240,7 +318,7 @@ describe("observations", () => {
     const seen = data(await createClaudeSessions(h.deps).observe(before));
     expect(seen).toMatchObject({ connectivity: "disconnected", execution: "unknown", source: "claude-registry", generation: 2 });
     const stored = createSessionStore(db).get(before.key)!;
-    expect(stored.attachment).toEqual({ generation: 2, mode: "herdr" });
+    expect(stored.attachment as StoredAttachment).toEqual({ generation: 2, mode: "herdr", detached: true });
     expect(isDetachedClaudeBinding(stored)).toBe(true);
 
     // A second observation of the stale copy cannot replace the newer attachment.
@@ -332,7 +410,7 @@ describe("registration", () => {
     const herdr = await claudeIntegration.capabilities("herdr");
     const headless = await claudeIntegration.capabilities("headless");
     expect(herdr.supported).toEqual(["launch", "resume", "observe"]);
-    expect(headless.supported).toEqual(["observe"]);
+    expect(headless.supported).toEqual(["launch", "resume", "observe"]);
     expect(typeof herdr.readiness.ready).toBe("boolean");
   });
 
@@ -415,7 +493,7 @@ describe("binding at sign-in", () => {
     const db = freshDb();
     const store = createSessionStore(db);
     const before = bindClaude(db, "remy.ab12", "sess-back", { pid: 10 });
-    data(store.replaceAttachment(before.key, 1, { mode: "herdr" }));
+    data(store.detach(before.key, 1));
     // The pre-clear id a cleared MCP server passes: no binding to attach, so today's sign-in.
     const notLive = await signIn(db, "sess-back", {}, {}, true);
     expect(notLive("remy.ab12")).toEqual({ ok: true, data: null });

@@ -15,6 +15,7 @@ import type { Database } from "bun:sqlite";
 import { builtinRegistry } from "../agent-integrations/builtins.ts";
 import { integrationsEnabled } from "../agent-integrations/context.ts";
 import { createObservationSweep, type IntegrationRegistry } from "../agent-integrations/contracts.ts";
+import { createBoundLauncher } from "../agent-integrations/launch.ts";
 import { isAlive } from "../runner/workspace-registry.ts";
 import { listAttachedBindings } from "../agent-integrations/session-store.ts";
 import { livenessFrom, primeLivenessCache, probeAgents, type AgentEntry } from "../runs/liveness.ts";
@@ -40,8 +41,10 @@ export interface AgentStatusPollerHandle {
 /**
  * With agent.integrations.enabled on, each harness's session adapter observes
  * its attached bindings, which is where a Claude session that left its
- * attachment is detached. Off, nothing is read. A binding whose recorded
- * process is gone is skipped, never marked: a dead pid is not a dead session.
+ * attachment is detached, and the shared launcher recovers work submissions
+ * a crash interrupted (they become ambiguous and are reconciled, never sent
+ * again). Off, nothing is read. A binding whose recorded process is gone is
+ * skipped, never marked: a dead pid is not a dead session.
  */
 export async function observeBoundSessions(deps: {
   enabled?: () => boolean;
@@ -49,12 +52,19 @@ export async function observeBoundSessions(deps: {
   integrations?: () => IntegrationRegistry;
   alive?: (pid: number) => boolean;
   log?: Pick<Log, "warn">;
+  recover?: (db: Database, integrations: IntegrationRegistry) => Promise<void>;
 } = {}): Promise<void> {
   if (!(deps.enabled ?? integrationsEnabled)()) return;
   const db = (deps.db ?? getStateDb)();
+  const registry = (deps.integrations ?? builtinRegistry)();
+  try {
+    await (deps.recover ?? ((d, r) => createBoundLauncher({ db: d, registry: r }).recover()))(db, registry);
+  } catch (err) {
+    deps.log?.warn({ err }, "agent-status poller could not recover interrupted agent work");
+  }
   const alive = deps.alive ?? isAlive;
   const sweep = createObservationSweep();
-  for (const integration of (deps.integrations ?? builtinRegistry)().list()) {
+  for (const integration of registry.list()) {
     if (!integration.loadSessions) continue;
     const bindings = listAttachedBindings(db, integration.id)
       .filter((b) => b.attachment.pid === undefined || alive(b.attachment.pid));

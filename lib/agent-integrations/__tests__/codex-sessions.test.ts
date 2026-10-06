@@ -10,6 +10,7 @@ import {
   attachEvidence, awaitCodexHistory, CODEX_INIT_PROMPT, codexReadiness, createCodexSessionLoader, createCodexSessions,
   DISCOVERY_BACKOFF_CAP_MS, DISCOVERY_BACKOFF_MS, type CodexSessionDeps, type PaneLaunch, type UnresolvedLaunch,
 } from "../codex/sessions.ts";
+import { workDigest } from "../work-submissions.ts";
 
 type Message = Record<string, any>;
 type Handler = (socket: FakeSocket, message: Message) => void;
@@ -211,6 +212,18 @@ describe("codex session launch", () => {
 
     expect(h.control.reserveLaunch("/work/a").ok).toBe(true);
     await expect(h.control.request("thread/read", { threadId: "T1" })).resolves.toBeDefined();
+  });
+
+  test("the terminal opens where the launch host says, with its environment and without another harness's session variable", async () => {
+    const h = await harness();
+    const host = { workspace: "acme", tab: "worker", env: { RT_AGENT_ID: "a1" }, unsetEnv: ["CLAUDE_CODE_SESSION_ID"] };
+    const launched = data(await h.sessions().launch(request({ host })));
+    expect(h.panes).toEqual([{
+      cwd: "/work/a", reservationId: "res-1", host,
+      command: buildCodexRemoteResumeCommand("/work/a", { socketPath: SOCKET, threadId: "T1", env: { RT_AGENT_ID: "a1" }, unsetEnv: ["CLAUDE_CODE_SESSION_ID"] }),
+    }]);
+    expect(h.panes[0]!.command).toStartWith("cd '/work/a' && unset CLAUDE_CODE_SESSION_ID && RT_AGENT_ID='a1' codex --remote");
+    expect(launched.attachment).toEqual({ mode: "herdr", pane: "p1" });
   });
 
   test("headless mode uses the same owned API thread without a terminal", async () => {
@@ -655,12 +668,55 @@ describe("codex observations", () => {
     expect(h.requests("thread/read")).toEqual([]);
   });
 
-  test("the adapter never discovers, starts work or writes a binding", async () => {
+  test("the adapter never discovers or writes a binding", async () => {
     const h = await harness();
     const sessions = h.sessions();
     expect(await sessions.discover()).toEqual([]);
-    expect(await sessions.startWork(binding("T1"), { id: "w1", text: "go" })).toMatchObject({ ok: false, error: { code: "unsupported" } });
     expect(h.ops).toEqual([]);
+  });
+});
+
+describe("work on a bound thread", () => {
+  test("work is one turn on the bound thread, with the text as its only input", async () => {
+    const h = await harness();
+    const receipt = data(await h.sessions().startWork(binding("T1"), { id: "w1", text: "the real brief" }));
+    expect(h.requests("turn/start").map((m) => m.params)).toEqual([{ threadId: "T1", input: [{ type: "text", text: "the real brief" }] }]);
+    expect(receipt).toEqual({ id: "w1", evidence: "submitted", nativeId: "T1", turnId: "U0" });
+  });
+
+  test("a headless turn completes the run when Codex reports the turn's end", async () => {
+    const h = await harness();
+    const receipt = data(await h.sessions().startWork(binding("T1", { attachment: { generation: 1, mode: "headless" } }), { id: "w1", text: "go" }));
+    expect(await receipt.completion).toEqual({ exitCode: 0, body: JSON.stringify({ threadId: "T1", turnId: "U0", status: "completed" }) });
+  });
+
+  test("Codex refusing the turn is definite; no answer at all is ambiguous", async () => {
+    const refused = await harness({ "turn/start": (s, m) => s.push({ id: m.id, error: { code: -32600, message: "thread is busy" } }) });
+    expect(await refused.sessions().startWork(binding("T1"), { id: "w1", text: "go" })).toMatchObject({ ok: false, error: { code: "refused" } });
+
+    const silent = await harness({ "turn/start": () => {} });
+    const pending = silent.sessions().startWork(binding("T1"), { id: "w2", text: "go" });
+    silent.clock.advance(1000);
+    expect(await pending).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+  });
+
+  test("a closed connection sends nothing", async () => {
+    const h = await harness();
+    const sessions = h.sessions();
+    h.control.close();
+    expect(await sessions.startWork(binding("T1"), { id: "w1", text: "go" })).toMatchObject({ ok: false, error: { code: "not-ready" } });
+  });
+
+  test("an interrupted submission is found in the thread's own history, or not at all", async () => {
+    const withTurn = await harness({
+      "thread/read": (s, m) => s.push({
+        id: m.id,
+        result: { thread: { id: m.params.threadId, cwd: "/work/a", turns: [readyTurn, { id: "U5", status: "completed", items: [userItem("i5", "the real brief")] }] } },
+      }),
+    });
+    expect(data(await withTurn.sessions().reconcileWork!(binding("T1"), { id: "w1", digest: workDigest("the real brief") })))
+      .toEqual({ id: "w1", evidence: "submitted", nativeId: "T1", turnId: "U5" });
+    expect(data(await withTurn.sessions().reconcileWork!(binding("T1"), { id: "w2", digest: workDigest("another brief") }))).toBeNull();
   });
 });
 

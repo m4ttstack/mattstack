@@ -199,7 +199,7 @@ describe("currentSessionId through session bindings", () => {
     const store = createSessionStore(db);
     const bound = store.bind(store.reserve({ identity: "remy.ab12" }), { harness: "claude", profile: "default", kind: "id", value: "claude-unsigned" }, { mode: "herdr", pid: 4242 });
     if (!bound.ok) throw new Error(bound.error.message);
-    if (!store.replaceAttachment(bound.data.key, 1, { mode: "herdr" }).ok) throw new Error("detach failed");
+    if (!store.detach(bound.data.key, 1).ok) throw new Error("detach failed");
     expect(currentSessionId(["post", "r", "hi"])).toBe("claude-unsigned");
     expect(db.query("SELECT count(*) AS n FROM agent_session_bindings").get()).toEqual({ n: 1 });
   });

@@ -16,10 +16,12 @@ import type { HerdrRunner } from "../../agent-herdr.ts";
 import { repoLabel } from "../../repo-arg.ts";
 import { herdSubject } from "../herd-store.ts";
 import { workspaceScreen } from "./trust-workspace-fixtures.ts";
-import type { AgentOptions } from "../../../packages/rt-client/src/agent-integrations.ts";
+import type { AgentOptions, CapabilityReport, Mode, NativeSessionRef, Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { claudeIntegration } from "../../agent-integrations/claude/integration.ts";
-import type { IntegrationRegistry } from "../../agent-integrations/contracts.ts";
+import { codexIntegration } from "../../agent-integrations/codex/integration.ts";
+import type { HarnessIntegration, IntegrationRegistry, LaunchRequest, SessionAdapter, WorkInput } from "../../agent-integrations/contracts.ts";
 import { createRegistry } from "../../agent-integrations/registry.ts";
+import { createSessionStore, listBindingsByAgent } from "../../agent-integrations/session-store.ts";
 
 let n = 0;
 const REPO = "remote:example.com%2Fa%2Fb";
@@ -112,6 +114,7 @@ function fresh(over: {
   bgClaims?: FakeBgClaims | Pick<BgClaimsStore, "claim" | "releaseByPane">;
   lifecycle?: FakeLifecycle;
   integrations?: IntegrationRegistry;
+  enabled?: () => boolean;
 } = {}) {
   const db = openStateDb(join(tmpdir(), `agent-h-${process.pid}-${n++}.db`));
   // Handlers no longer expose `db` (R028); tests that need to reach the
@@ -129,6 +132,7 @@ function fresh(over: {
     bgClaims: over.bgClaims,
     lifecycle: over.lifecycle,
     integrations: over.integrations,
+    ...(over.enabled !== undefined && { integrationsEnabled: over.enabled }),
   }), { db });
 }
 
@@ -1684,4 +1688,257 @@ test("agent:get and agent:list carry the reserved identity's display name beside
   const listed = await h["agent:list"]({});
   if (!listed.ok) throw new Error(listed.error);
   expect(listed.data.agents.find((a) => a.id === res.data.id)).toMatchObject({ handle: res.data.handle, name: res.data.name });
+});
+
+describe("agent.integrations.enabled routes launches through the shared launcher", () => {
+  const origHome = process.env.HOME;
+  const origPath = process.env.PATH;
+  const origHerdrBin = process.env.HERDR_BIN;
+  let home: string;
+  let shimLog: string;
+
+  // Anything that reached a real harness or herdr binary would run one of these and leave a line behind.
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-agent-bound-")));
+    process.env.HOME = home;
+    const shims = join(home, "shims");
+    mkdirSync(shims);
+    shimLog = join(home, "shim.log");
+    for (const bin of ["claude", "codex", "cswap", "herdr"]) {
+      writeFileSync(join(shims, bin), `#!/bin/sh\necho "${bin} $*" >> '${shimLog}'\nexit 1\n`);
+      chmodSync(join(shims, bin), 0o755);
+    }
+    process.env.PATH = `${shims}:${origPath}`;
+    process.env.HERDR_BIN = join(shims, "herdr");
+  });
+
+  afterEach(() => {
+    expect(existsSync(shimLog)).toBe(false);
+    process.env.HOME = origHome;
+    process.env.PATH = origPath;
+    if (origHerdrBin === undefined) delete process.env.HERDR_BIN;
+    else process.env.HERDR_BIN = origHerdrBin;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  const on = () => true;
+  const off = () => false;
+  const unreachable = (async () => ({ ok: false, code: "unreachable", message: "no server" })) as never;
+  const ready = async (mode: Mode): Promise<CapabilityReport> => ({ mode, supported: ["launch", "resume", "observe"], readiness: { ready: true } });
+  /** The real Claude integration, reporting ready whatever is installed on this machine. */
+  const claudeReady: HarnessIntegration = { ...claudeIntegration, capabilities: ready } as HarnessIntegration;
+
+  function fakeCodex() {
+    const seen = { launches: [] as LaunchRequest[], resumes: [] as NativeSessionRef[], work: [] as WorkInput[] };
+    const ok = <T>(data: T): Outcome<T> => ({ ok: true, data });
+    const sessions: SessionAdapter = {
+      launch: async (req) => {
+        seen.launches.push(req);
+        return ok({
+          native: { harness: "codex", profile: "default", kind: "id", value: "T-codex" },
+          attachment: { mode: req.mode, ...(req.mode === "herdr" && { pane: "w7:p1" }) },
+          ...(req.mode === "herdr" && { surface: { tabId: "w7:t1", workspaceId: "w7" } }),
+        });
+      },
+      resume: async (native, req) => {
+        seen.resumes.push(native);
+        return ok({ native, attachment: { mode: req.mode, pane: "w7:p2" }, surface: { tabId: "w7:t2", workspaceId: "w7" } });
+      },
+      discover: async () => [],
+      observe: async (b) => ok({ connectivity: "unknown", execution: "unknown", background: "unknown", observedAt: 1, source: "none", generation: b.attachment.generation }),
+      startWork: async (b, input) => {
+        seen.work.push(input);
+        return ok({
+          id: input.id, evidence: "submitted", nativeId: b.native.value, turnId: "U1",
+          ...(b.attachment.mode === "headless" && { completion: Promise.resolve({ exitCode: 0, body: "{\"turn\":\"U1\"}" }) }),
+        });
+      },
+    };
+    const integration = { ...codexIntegration, capabilities: ready, loadSessions: async () => sessions } as HarnessIntegration;
+    return { integration, seen };
+  }
+
+  const norm = (text: string, rec: { id: string; sessionId: string }) => text.replaceAll(rec.id, "<ID>").replaceAll(rec.sessionId, "<SID>");
+  const rows = (db: import("bun:sqlite").Database, table: string) => (db.query(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
+
+  test("switch off is today's launcher: same herdr calls, no session rows, no integration loaded", async () => {
+    let loads = 0;
+    const spy = { ...claudeIntegration, loadSessions: async () => { loads++; throw new Error("the switch is off"); } } as HarnessIntegration;
+    const payload = { repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" as const, subject: herdSubject("h1", "job-a"), label: "worker", env: { FOO: "bar" } };
+    const run = async (enabled?: () => boolean) => {
+      const calls: string[][] = [];
+      const h = fresh({ runner: okRunner(calls), herdr: unreachable, integrations: createRegistry([spy]), ...(enabled && { enabled }) });
+      const res = await h["agent:start"](payload);
+      if (!res.ok) throw new Error(res.error);
+      for (const table of ["agent_session_reservations", "agent_session_bindings", "agent_work_submissions"]) expect(rows(h.db, table)).toBe(0);
+      return calls.map((c) => norm(c.join(" "), res.data));
+    };
+    const unset = await run();
+    setSetting("agent.integrations.enabled", false, "machine");
+    expect(await run()).toEqual(unset);
+    expect(await run(off)).toEqual(unset);
+    expect(loads).toBe(0);
+  });
+
+  test("switch on: a claude herdr start binds first, then opens today's pane command with only the other harness's session variable cleared", async () => {
+    const payload = { repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" as const, subject: herdSubject("h1", "job-a"), label: "worker", env: { FOO: "bar" } };
+    const offCalls: string[][] = [];
+    const offH = fresh({ runner: okRunner(offCalls), herdr: unreachable, enabled: off });
+    const offRes = await offH["agent:start"](payload);
+    if (!offRes.ok) throw new Error(offRes.error);
+
+    const onCalls: string[][] = [];
+    const h = fresh({ runner: okRunner(onCalls), herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codexIntegration]) });
+    const res = await h["agent:start"](payload);
+    if (!res.ok) throw new Error(res.error);
+
+    const paneRun = (calls: string[][], rec: { id: string; sessionId: string }) => norm(calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!, rec);
+    expect(paneRun(onCalls, res.data)).toBe(paneRun(offCalls, offRes.data).replace("cd '/tmp/x' && ", "cd '/tmp/x' && unset CODEX_THREAD_ID && "));
+    expect(onCalls.map((c) => norm(c.slice(0, 2).join(" "), res.data))).toEqual(offCalls.map((c) => norm(c.slice(0, 2).join(" "), offRes.data)));
+    expect(onCalls.some((c) => c[0] === "pane" && c[1] === "rename" && c[3] === "worker")).toBe(true);
+    expect(res.data).toMatchObject({ paneId: "w1:p1", tabId: "w1:t1", workspaceId: "w1", trust: "unchecked" });
+
+    const [binding] = listBindingsByAgent(h.db, res.data.id);
+    expect(binding).toMatchObject({ identity: res.data.handle, native: { harness: "claude", profile: "default", value: res.data.sessionId } });
+    expect(binding!.attachment).toEqual({ generation: 2, mode: "herdr", pane: "w1:p1" });
+    expect(h.db.query("SELECT state FROM agent_work_submissions").all()).toEqual([{ state: "submitted" }]);
+    expect(getAgent(res.data.id, h.db)).toMatchObject({ sessionId: res.data.sessionId, paneId: "w1:p1", tabId: "w1:t1", workspaceId: "w1" });
+  });
+
+  test("switch on is read from the machine setting on every launch", async () => {
+    const h = fresh({ runner: okRunner([]), herdr: unreachable, integrations: createRegistry([claudeReady, codexIntegration]) });
+    const before = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "herdr" });
+    if (!before.ok) throw new Error(before.error);
+    expect(listBindingsByAgent(h.db, before.data.id)).toEqual([]);
+    setSetting("agent.integrations.enabled", true, "machine");
+    const after = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "herdr", tab: "second" });
+    if (!after.ok) throw new Error(after.error);
+    expect(listBindingsByAgent(h.db, after.data.id)).toHaveLength(1);
+  });
+
+  test("switch on: a codex start records the thread rt bound and its pane, and its prompt is one submitted turn, with no herdr session poll", async () => {
+    const codex = fakeCodex();
+    const calls: string[][] = [];
+    const h = fresh({ runner: okRunner(calls), herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codex.integration]) });
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "build it", surface: "herdr", provider: "codex", label: "cx" });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data).toMatchObject({ sessionId: "T-codex", paneId: "w7:p1", tabId: "w7:t1", workspaceId: "w7" });
+    expect(getAgent(res.data.id, h.db)).toMatchObject({ sessionId: "T-codex", paneId: "w7:p1", tabId: "w7:t1", workspaceId: "w7" });
+    const launch = codex.seen.launches[0]!;
+    expect(launch.prompt).toBe(pointerPrompt(join(rtDir(), "agent-prompts", res.data.id, "prompt-1.md")));
+    expect(launch.host).toMatchObject({
+      workspace: repoLabel(REPO), tab: "cx", label: "cx", unsetEnv: ["CLAUDE_CODE_SESSION_ID"],
+      env: { RT_AGENT_ID: res.data.id, RT_GATE_SUBJECT: `agent:${res.data.id}`, RT_DAEMON_SOCK: DAEMON_SOCK_PATH },
+    });
+    expect(codex.seen.work.map((w) => w.text)).toEqual([launch.prompt!]);
+    expect(listBindingsByAgent(h.db, res.data.id)[0]).toMatchObject({ identity: `agent:${res.data.id}`, native: { value: "T-codex" } });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(calls.some((c) => c[0] === "agent" && c[1] === "get")).toBe(false);
+  });
+
+  test("switch on: a headless claude start spawns today's claude -p only after binding, and finishes its record", async () => {
+    const run = async (enabled: () => boolean) => {
+      const spawned: Array<{ argv: string[]; env: Record<string, string>; opts: unknown }> = [];
+      let done: (topic: string) => void = () => {};
+      const finished = new Promise<string>((r) => { done = r; });
+      const h = fresh({
+        enabled, integrations: createRegistry([claudeReady, codexIntegration]),
+        emit: (topic) => done(topic),
+        spawn: (argv, _cwd, env, opts) => {
+          spawned.push({ argv, env, opts });
+          return { exited: Promise.resolve(4), stdout: async () => "{\"result\":1}", sessionId: () => Promise.resolve(undefined) };
+        },
+      });
+      const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "headless", prompt: "go", subject: "mr:test/3", model: "haiku" });
+      if (!res.ok) throw new Error(res.error);
+      expect(await finished).toBe(`agent/done/${res.data.id}`);
+      expect(getAgent(res.data.id, h.db)).toMatchObject({ exitCode: 4, resultPath: join(rtDir(), "agents", `${res.data.id}.json`) });
+      expect(readFileSync(join(rtDir(), "agents", `${res.data.id}.json`), "utf8")).toBe("{\"result\":1}");
+      return { res: res.data, spawned, db: h.db };
+    };
+    const today = await run(off);
+    const routed = await run(on);
+    expect(routed.spawned.map((s) => norm(s.argv.join(" "), routed.res))).toEqual(today.spawned.map((s) => norm(s.argv.join(" "), today.res)));
+    expect(routed.spawned[0]!.env).toEqual({ RT_AGENT_ID: routed.res.id, RT_GATE_SUBJECT: "mr:test/3", RT_DAEMON_SOCK: DAEMON_SOCK_PATH });
+    expect(routed.spawned[0]!.opts).toEqual({ stdin: "go", unset: ["CODEX_THREAD_ID"] });
+    expect(today.spawned[0]!.opts).toEqual({ captureSessionId: false, stdin: "go" });
+    expect(listBindingsByAgent(routed.db, routed.res.id)[0]).toMatchObject({ native: { value: routed.res.sessionId } });
+  });
+
+  test("switch on: resuming a bound record goes through the launcher and keeps its session; a record it never bound resumes as today", async () => {
+    const calls: string[][] = [];
+    const h = fresh({ runner: okRunner(calls), herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codexIntegration]) });
+    const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", model: "haiku" });
+    if (!started.ok) throw new Error(started.error);
+    calls.length = 0;
+    const resumed = await h["agent:resume"]({ id: started.data.id, prompt: "again" });
+    if (!resumed.ok) throw new Error(resumed.error);
+    const cmd = calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!;
+    expect(cmd).toContain(`'--model' 'haiku'`);
+    expect(cmd).toContain(`'--resume' '${started.data.sessionId}'`);
+    expect(cmd).toContain(shellSingleQuote(pointerPrompt(join(rtDir(), "agent-prompts", started.data.id, "prompt-2.md"))));
+    expect(resumed.data.lastResumedAt).toBeGreaterThan(0);
+    const bindings = listBindingsByAgent(h.db, started.data.id);
+    expect(bindings).toHaveLength(1);
+    expect(bindings[0]!.attachment).toEqual({ generation: 4, mode: "herdr", pane: "w1:p1" });
+
+    const legacy = { id: "agent-legacy", repo: REPO, cwd: "/tmp/x", provider: "claude", surface: "herdr" as const, sessionId: crypto.randomUUID(), createdAt: 1 };
+    insertAgent(legacy, h.db);
+    const before = rows(h.db, "agent_session_reservations");
+    calls.length = 0;
+    const plain = await h["agent:resume"]({ id: legacy.id });
+    if (!plain.ok) throw new Error(plain.error);
+    expect(rows(h.db, "agent_session_reservations")).toBe(before);
+    expect(calls.find((c) => c[0] === "pane" && c[1] === "run")![3]).not.toContain("unset ");
+  });
+
+  test("switch on: a --bg start binds the pane by its bg: ref and claims it", async () => {
+    const claims = fakeBgClaims();
+    const h = fresh({
+      runnerFactory: () => okRunner([]), herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codexIntegration]),
+      bg: fakeBg(), bgClaims: claims, lifecycle: fakeLifecycle(),
+    });
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", bg: true });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.paneId).toBe("bg:w1:p1");
+    expect(claims.claims).toEqual([{ owner: `agent:${res.data.id}`, pane: "bg:w1:p1" }]);
+    expect(listBindingsByAgent(h.db, res.data.id)[0]!.attachment).toEqual({ generation: 2, mode: "herdr", pane: "bg:w1:p1", socket: "/bg.sock" });
+    expect(getAgent(res.data.id, h.db)?.paneId).toBe("bg:w1:p1");
+  });
+
+  test("switch on: a deduped tab sends nothing and rolls the record back, as today", async () => {
+    const runner: HerdrRunner = async (args) => {
+      if (args[0] === "workspace" && args[1] === "list") return { stdout: JSON.stringify({ result: { workspaces: [{ workspace_id: "w1", label: repoLabel(REPO) }] } }), exitCode: 0 };
+      if (args[0] === "tab" && args[1] === "list") return { stdout: JSON.stringify({ result: { tabs: [{ tab_id: "w1:t9", label: "!7" }] } }), exitCode: 0 };
+      return { stdout: "{}", exitCode: 0 };
+    };
+    const h = fresh({ runner, herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codexIntegration]) });
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", tab: "!7" });
+    expect(res).toEqual({ ok: false, error: `tab "!7" already open; focused it` });
+    const list = await h["agent:list"]({});
+    if (!list.ok) throw new Error(list.error);
+    expect(list.data.agents).toHaveLength(0);
+    expect(h.db.query("SELECT state FROM agent_work_submissions").all()).toEqual([{ state: "refused" }]);
+  });
+
+  test("switch on: a harness that is not ready launches nothing and records nothing it would have to roll back", async () => {
+    const notReady = { ...claudeIntegration, capabilities: async (mode: Mode) => ({ mode, supported: ["launch", "resume", "observe"], readiness: { ready: false, reason: "Claude Code is not installed" } }) } as HarnessIntegration;
+    const calls: string[][] = [];
+    const h = fresh({ runner: okRunner(calls), herdr: unreachable, enabled: on, integrations: createRegistry([notReady, codexIntegration]) });
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+    expect(res).toEqual({ ok: false, error: "Claude Code is not installed" });
+    expect(calls).toEqual([]);
+    const list = await h["agent:list"]({});
+    if (!list.ok) throw new Error(list.error);
+    expect(list.data.agents).toHaveLength(0);
+  });
+
+  test("an ordinary agent launch carries no herd attempt and asks for no policy", async () => {
+    const h = fresh({ runner: okRunner([]), herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codexIntegration]) });
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", subject: herdSubject("h1", "job-a") });
+    if (!res.ok) throw new Error(res.error);
+    const [binding] = listBindingsByAgent(h.db, res.data.id);
+    expect(binding!.attemptId).toBeUndefined();
+    expect(createSessionStore(h.db).get(binding!.key)).toEqual(binding!);
+  });
 });

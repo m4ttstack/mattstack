@@ -4,19 +4,82 @@ import type {
   PeerInput, QuestionBinding, Readiness, Selection, SessionBinding,
 } from "../../packages/rt-client/src/agent-integrations.ts";
 import type { GateRow } from "../../packages/rt-client/src/commands.ts";
+import type { Logger } from "pino";
+import type { HerdrRunner } from "../agent-herdr.ts";
+import type { herdrRequest } from "../herdr/client.ts";
 import type { PluginListEntry } from "../skills/sources.ts";
 
 /** The ID survives acknowledgement ambiguity; native deduplication is not implied. */
 export type WorkInput = { id: string; text: string };
+
+/** A process a caller runs and reaps for a session's work; the integration only decides its argv and environment. */
+export type WorkProcess = { pid?: number; exited: Promise<number>; stdout: () => Promise<string> };
+export type RunWorkProcess = (
+  argv: string[], cwd: string, env: Record<string, string>, opts: { stdin?: string; unset?: readonly string[] },
+) => WorkProcess;
+
+/**
+ * How the caller presents and transports a launch. Held in memory only, never
+ * persisted, so it may carry transports and environment values.
+ */
+export type LaunchHost = {
+  workspace?: string; tab?: string;
+  /** The pane's own name, shown over its terminal title. */
+  label?: string;
+  /** The herdr server socket the pane runs on; absent is the visible server. */
+  socket?: string;
+  /** The socket is rt's background server, so pane refs are recorded as bg: refs. */
+  background?: boolean;
+  /** Exported to the worker: on its pane line, or in its process environment. */
+  env?: Record<string, string>;
+  /** Variables the worker must not inherit; the launcher fills in other harnesses' session variables. */
+  unsetEnv?: readonly string[];
+  /** The gate subject this worker asks under, for integrations that install a gate hook. */
+  gate?: { agentId: string; subject?: string };
+  /** The worker holds a chat identity, so it accepts cross-session inbound messages. */
+  chat?: boolean;
+  /** Paint budget for a folder-trust check on a freshly opened pane. */
+  trustWaitMs?: number;
+  herdr?: {
+    runner?: HerdrRunner;
+    runnerForSocket?: (socket: string) => HerdrRunner;
+    request?: typeof herdrRequest;
+    trustBudgets?: { registerBudgetMs?: number; waitBudgetMs?: number; settleMs?: number; stepMs?: number };
+  };
+  log?: Logger;
+  /** Runs a headless worker process; without it an integration spawns its own. */
+  runProcess?: RunWorkProcess;
+};
+
 export type LaunchRequest = {
   reservationId: string; cwd: string; mode: Mode; selection: Selection;
   required: readonly Capability[];
   /** Deferred work: launch/resume must not submit this prompt. */
   prompt?: string;
   access: { readRoots: string[] };
+  /** A session id rt already minted for this launch; used by an integration that takes rt-minted ids. */
+  nativeHint?: string;
+  host?: LaunchHost;
 };
+/** What a pane launch reported beyond the attachment itself. */
+export type LaunchSurface = { tabId?: string; workspaceId?: string; trust?: string };
 /** A verified native reference; the shared store assigns attachment generation. */
-export type NativeLaunch = { native: NativeSessionRef; attachment: Omit<Attachment, "generation"> };
+export type NativeLaunch = { native: NativeSessionRef; attachment: Omit<Attachment, "generation">; surface?: LaunchSurface };
+/** The launch a session was prepared by, handed back when its work starts. */
+export type PreparedLaunch = { request: LaunchRequest; kind: "launch" | "resume" };
+/** A finished headless run; null when its outcome cannot be known. */
+export type WorkCompletion = { exitCode: number; body: string } | null;
+/**
+ * A submission's evidence. `attachment` is set when starting the work also
+ * started the native process (a session that takes its first work at spawn).
+ */
+export type WorkReceipt = DeliveryReceipt & {
+  attachment?: Omit<Attachment, "generation">;
+  surface?: LaunchSurface;
+  completion?: Promise<WorkCompletion>;
+};
+/** What the launcher knows about a submission whose outcome is unknown. */
+export type WorkProbe = { id: string; digest: string; submittedAt?: number };
 export type PreparedPolicy = {
   id: string; harness: HarnessId; profile: string; cwd: string; revision: string;
 };
@@ -48,7 +111,10 @@ export interface SessionAdapter {
   discover(): Promise<NativeLaunch[]>;
   /** `sweep` is shared by every observe of one pass, so a native source is read once per pass, not per binding. */
   observe(binding: SessionBinding, sweep?: ObservationSweep): Promise<Outcome<Observation>>;
-  startWork(binding: SessionBinding, input: WorkInput): Promise<Outcome<DeliveryReceipt>>;
+  /** `prepared` is the launch that bound this session, when this process made it. */
+  startWork(binding: SessionBinding, input: WorkInput, prepared?: PreparedLaunch): Promise<Outcome<WorkReceipt>>;
+  /** Native evidence that an interrupted submission reached the session; null when there is none. */
+  reconcileWork?(binding: SessionBinding, probe: WorkProbe): Promise<Outcome<DeliveryReceipt | null>>;
 }
 export interface MessageAdapter {
   submit(binding: SessionBinding, input: PeerInput): Promise<Outcome<DeliveryReceipt>>;
@@ -99,6 +165,8 @@ type SessionFacets =
 export type HarnessIntegration = {
   readonly id: HarnessId;
   readonly label: string;
+  /** Environment variables this harness names its own session by; another harness's worker never inherits them. */
+  readonly sessionEnv?: readonly string[];
   capabilities(mode: Mode): Promise<CapabilityReport>;
   validateOptions(options: AgentOptions): Outcome<AgentOptions>;
   options(): Promise<OptionDescriptor[]>;

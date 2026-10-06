@@ -7,7 +7,11 @@ import type { NativeSessionRef } from "../../../packages/rt-client/src/agent-int
 import { openStateDb, openStateDbGuarded, SCHEMA_VERSION } from "../../state/db.ts";
 import { getAgent, insertAgent, type AgentRecord } from "../../state/agents-store.ts";
 import { sessionFilePath, writeChatSession } from "../../chat-session.ts";
-import { createSessionStore } from "../session-store.ts";
+import {
+  claimReservation, createSessionStore, failReservation, markBindingReady, noteReservationError, pruneReservations,
+  readBindingReadiness, readBindingSelection, readReservation, recordLaunched,
+} from "../session-store.ts";
+import { isDetachedClaudeBinding } from "../claude/sessions.ts";
 import { migrateLegacySessions, resolveLegacySession } from "../legacy.ts";
 
 let dir = "";
@@ -136,6 +140,92 @@ function agent(over: Partial<AgentRecord>): AgentRecord {
     provider: "claude", surface: "herdr", sessionId: crypto.randomUUID(), createdAt: Date.now(), ...over,
   };
 }
+
+describe("explicit attachment state", () => {
+  test("same-identity rebind of an attached binding never looks detached; only an explicit detach does", () => {
+    const db = freshDb();
+    const store = createSessionStore(db);
+    const first = bound(db, "remy.ab12", ref());
+    const rebound = store.bind(store.reserve({ identity: "remy.ab12" }), ref(), { mode: "herdr" });
+    if (!rebound.ok) throw new Error(rebound.error.message);
+    expect(rebound.data.attachment).toEqual({ generation: 2, mode: "herdr" });
+    expect(isDetachedClaudeBinding(rebound.data)).toBe(false);
+
+    const detached = store.detach(first.key, 2);
+    if (!detached.ok) throw new Error(detached.error.message);
+    expect(isDetachedClaudeBinding(detached.data)).toBe(true);
+    expect(isDetachedClaudeBinding(store.get(first.key)!)).toBe(true);
+    expect(store.detach(first.key, 2)).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+
+    const back = store.replaceAttachment(first.key, 3, { mode: "herdr", pane: "w2:p1" });
+    if (!back.ok) throw new Error(back.error.message);
+    expect(isDetachedClaudeBinding(back.data)).toBe(false);
+  });
+});
+
+describe("reservation progress", () => {
+  const request = { cwd: "/w", mode: "herdr" as const, selection: { harness: "claude", options: { model: "haiku" } }, required: [] };
+
+  test("a reservation is claimed once, records what its launch made, and binds with the launch's selection", () => {
+    const db = freshDb();
+    const store = createSessionStore(db);
+    const id = store.reserve({ identity: "remy.ab12", agentId: "a1" });
+    expect(readReservation(db, id)).toMatchObject({ state: "reserved", identity: "remy.ab12", agentId: "a1" });
+    expect(claimReservation(db, id, "proc-A", request)).toMatchObject({ ok: true, data: { state: "launching", claimedBy: "proc-A", request } });
+    expect(claimReservation(db, id, "proc-B", request)).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(recordLaunched(db, id, { native: ref(), attachment: { mode: "herdr", pane: "w1:p1" } })).toBe(true);
+    expect(readReservation(db, id)).toMatchObject({ state: "launched", launched: { native: ref(), attachment: { pane: "w1:p1" } } });
+
+    const binding = store.bind(id, ref(), { mode: "herdr", pane: "w1:p1" });
+    if (!binding.ok) throw new Error(binding.error.message);
+    expect(readReservation(db, id)).toMatchObject({ state: "bound", boundKey: binding.data.key });
+    expect(readReservation(db, id)?.launched).toBeUndefined();
+    expect(readBindingSelection(db, binding.data.key)).toEqual(request.selection);
+    expect(claimReservation(db, id, "proc-A", request)).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+  });
+
+  test("a launch that made nothing frees its reservation; one with an unknown outcome keeps its claim", () => {
+    const db = freshDb();
+    const store = createSessionStore(db);
+    const failed = store.reserve({ identity: "remy.ab12" });
+    claimReservation(db, failed, "proc-A", request);
+    failReservation(db, failed, "tab already open");
+    expect(readReservation(db, failed)).toMatchObject({ state: "failed", error: "tab already open" });
+    expect(claimReservation(db, failed, "proc-B", request).ok).toBe(true);
+
+    const unknown = store.reserve({ identity: "remy.ab12" });
+    claimReservation(db, unknown, "proc-A", request);
+    noteReservationError(db, unknown, "the init turn has not finished");
+    expect(readReservation(db, unknown)).toMatchObject({ state: "launching", error: "the init turn has not finished" });
+  });
+
+  test("readiness belongs to one generation", () => {
+    const db = freshDb();
+    const store = createSessionStore(db);
+    const b = bound(db, "remy.ab12", ref());
+    expect(readBindingReadiness(db, b.key)).toEqual({ generation: null, required: [] });
+    expect(markBindingReady(db, b.key, 1, ["launch"]).ok).toBe(true);
+    expect(readBindingReadiness(db, b.key)).toEqual({ generation: 1, required: ["launch"] });
+    store.replaceAttachment(b.key, 1, { mode: "herdr", pane: "w9:p9" });
+    expect(markBindingReady(db, b.key, 1, ["launch"])).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+    expect(readBindingReadiness(db, b.key)?.generation).toBe(1);
+  });
+
+  test("pruning drops settled reservations and keeps unresolved launches", () => {
+    const db = freshDb();
+    const store = createSessionStore(db);
+    const settled = store.reserve({ identity: "remy.ab12" });
+    if (!store.bind(settled, ref(), { mode: "herdr" }).ok) throw new Error("bind failed");
+    const idle = store.reserve({ identity: "remy.ab12" });
+    const unresolved = store.reserve({ identity: "remy.ab12" });
+    claimReservation(db, unresolved, "proc-A", request);
+    const later = Date.now() + 1_000;
+    expect(pruneReservations(db, later, later)).toBe(2);
+    expect(readReservation(db, settled)).toBeNull();
+    expect(readReservation(db, idle)).toBeNull();
+    expect(readReservation(db, unresolved)?.state).toBe("launching");
+  });
+});
 
 /** Pre-v16 state: agents rows and chat session files exactly as older builds wrote them. */
 function legacyFixture(db: Database) {

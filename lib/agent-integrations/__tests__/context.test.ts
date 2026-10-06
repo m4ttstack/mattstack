@@ -9,7 +9,7 @@ import { openStateDb } from "../../state/db.ts";
 import { insertAgent, type AgentRecord } from "../../state/agents-store.ts";
 import { writeChatSession } from "../../chat-session.ts";
 import { setSetting } from "../../settings/write.ts";
-import { createSessionStore } from "../session-store.ts";
+import { createSessionStore, type StoredAttachment } from "../session-store.ts";
 import { createClaudeSessions } from "../claude/sessions.ts";
 import { canonicalCodexProfile } from "../codex/profile.ts";
 import {
@@ -156,7 +156,7 @@ describe("caller attribution", () => {
     expect(resolveCliSession([], { CLAUDE_CODE_SESSION_ID: "sess-before" }, { db })).toEqual({ ok: true, data: "sess-before" });
     // An explicit id is not the caller's own environment: it still names nothing.
     expect(await resolveToolCaller({ raw: "sess-before" }, { db })).toMatchObject({ ok: false, error: { code: "stale-binding" } });
-    expect(createSessionStore(db).get(before.key)!.attachment).toEqual({ generation: 2, mode: "herdr" });
+    expect(createSessionStore(db).get(before.key)!.attachment as StoredAttachment).toEqual({ generation: 2, mode: "herdr", detached: true });
     const fresh = resolved(await resolveCallerContext(evidence(extractMcpEvidence(undefined, { CLAUDE_CODE_SESSION_ID: "sess-after" }, {})), { db }));
     expect(fresh.binding.key).toBe(after.key);
   });

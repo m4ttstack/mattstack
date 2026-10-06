@@ -354,7 +354,8 @@ CREATE INDEX IF NOT EXISTS chat_dms_b ON chat_dms(b);
 `;
 
 // Tables (v16): agent sessions (lib/agent-integrations/session-store.ts owns
-// reservations and bindings, lib/agent-integrations/legacy.ts owns aliases).
+// reservations and bindings, lib/agent-integrations/legacy.ts owns aliases,
+// lib/agent-integrations/work-submissions.ts owns work submissions).
 // A binding key is minted, never derived from the native reference.
 const V16_SCHEMA = `
 CREATE TABLE IF NOT EXISTS agent_session_reservations (
@@ -363,7 +364,13 @@ CREATE TABLE IF NOT EXISTS agent_session_reservations (
   agent_id    TEXT,
   attempt_id  TEXT,
   bound_key   TEXT,             -- null until a native session binds it
-  created_at  INTEGER NOT NULL
+  created_at  INTEGER NOT NULL,
+  state       TEXT NOT NULL DEFAULT 'reserved',  -- reserved | launching | launched | bound | failed
+  claimed_by  TEXT,             -- the process that started the launch
+  request     TEXT,             -- JSON: cwd, mode, selection, required, resumed key, native hint
+  launched    TEXT,             -- JSON: the native session and attachment a launch made, before it bound
+  error       TEXT,
+  updated_at  INTEGER
 );
 CREATE TABLE IF NOT EXISTS agent_session_bindings (
   key           TEXT PRIMARY KEY,
@@ -381,6 +388,11 @@ CREATE TABLE IF NOT EXISTS agent_session_bindings (
   attempt_id    TEXT,
   bound_at      INTEGER NOT NULL,
   attached_at   INTEGER NOT NULL,
+  attachment_state TEXT NOT NULL DEFAULT 'attached',  -- attached | detached
+  selection     TEXT,           -- JSON: the harness and options it launched with
+  ready_generation INTEGER,     -- the generation a launch verified ready; null while unready
+  required      TEXT,           -- JSON: the capabilities that launch required
+  proof         TEXT,           -- JSON: the policy proof for ready_generation, when policy was required
   UNIQUE (harness, profile, native_kind, native_value)
 );
 CREATE INDEX IF NOT EXISTS agent_session_bindings_value ON agent_session_bindings(native_value);
@@ -397,6 +409,25 @@ CREATE TABLE IF NOT EXISTS agent_session_aliases (
   PRIMARY KEY (source, source_id)
 );
 CREATE INDEX IF NOT EXISTS agent_session_aliases_raw ON agent_session_aliases(raw);
+CREATE TABLE IF NOT EXISTS agent_work_submissions (
+  binding_key   TEXT NOT NULL,
+  generation    INTEGER NOT NULL,
+  input_id      TEXT NOT NULL,
+  attempt_id    TEXT,
+  state         TEXT NOT NULL,  -- pending | submitting | submitted | queued | consumed | ambiguous | refused
+  digest        TEXT NOT NULL,  -- sha256 of the input text, for reconciling against native history
+  native_id     TEXT,
+  turn_id       TEXT,
+  item_id       TEXT,
+  claimed_by    TEXT,           -- the process that persisted submitting
+  error         TEXT,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  submitting_at INTEGER,
+  PRIMARY KEY (binding_key, generation, input_id)
+);
+CREATE INDEX IF NOT EXISTS agent_work_submissions_state ON agent_work_submissions(state);
+CREATE INDEX IF NOT EXISTS agent_work_submissions_input ON agent_work_submissions(binding_key, input_id);
 `;
 
 /**

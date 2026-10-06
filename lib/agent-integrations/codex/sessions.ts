@@ -21,12 +21,14 @@
 
 import { existsSync } from "fs";
 import { homedir } from "os";
-import { basename, isAbsolute, join, resolve } from "path";
+import { isAbsolute, join, resolve } from "path";
 import type {
   FaultCode, Mode, NativeSessionRef, Outcome, Readiness, SessionBinding,
 } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { buildCodexRemoteResumeCommand } from "../../agent-argv/codex.ts";
-import type { LaunchRequest, NativeLaunch, SessionAdapter } from "../contracts.ts";
+import type { LaunchHost, LaunchRequest, NativeLaunch, SessionAdapter, WorkCompletion, WorkReceipt } from "../contracts.ts";
+import { openHostPane, type HostPaneLaunch, type HostPaneOpened } from "../herdr-pane.ts";
+import { workDigest } from "../work-submissions.ts";
 import {
   CodexControlError, connectCodexControl, discoverCodexEndpoint,
   type CodexClock, type CodexControl, type CodexControlLog, type CodexControlOptions, type CodexEndpoint, type LaunchReservation,
@@ -50,8 +52,8 @@ export interface CodexSessionAdapter extends SessionAdapter {
   resume(ref: NativeSessionRef, request: LaunchRequest): Promise<Outcome<CodexLaunch>>;
 }
 
-export type PaneLaunch = { cwd: string; command: string; reservationId: string };
-export type PaneOpened = { pane: string; socket?: string };
+export type PaneLaunch = HostPaneLaunch;
+export type PaneOpened = HostPaneOpened;
 
 /** A launch or terminal attach that has not finished, with everything it already made. */
 export type UnresolvedLaunch = {
@@ -71,11 +73,13 @@ export type CodexSessionDeps = {
   now(): number;
   clock: CodexClock;
   initTurnTimeoutMs: number;
+  /** How long a headless work turn is waited on before its outcome is left unknown. */
+  workTurnTimeoutMs: number;
   /** Where the app server listens; a terminal attaches there. Without it only headless sessions run. */
   endpoint?: CodexEndpoint;
   openPane(launch: PaneLaunch): Promise<Outcome<PaneOpened>>;
   /** Positive evidence that the terminal shows the thread: any one of `evidence` on screen. A folder-trust prompt is not. */
-  confirmAttached(opened: PaneOpened, expected: { threadId: string; evidence: string[] }): Promise<Outcome<void>>;
+  confirmAttached(opened: PaneOpened, expected: { threadId: string; evidence: string[] }, host?: LaunchHost): Promise<Outcome<void>>;
   unresolved: Map<string, UnresolvedLaunch>;
   /** Reservations with a launch or resume running now, keyed like `unresolved`. */
   inFlight: Set<string>;
@@ -144,24 +148,18 @@ function defaultDeps(): CodexSessionDeps {
     now: Date.now,
     clock: { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (handle) => clearTimeout(handle as Timer) },
     initTurnTimeoutMs: 180_000,
+    workTurnTimeoutMs: 6 * 60 * 60_000,
     unresolved: UNRESOLVED,
     inFlight: IN_FLIGHT,
-    openPane: async ({ cwd, command, reservationId }) => {
-      const { launchInWorkspace } = await import("../../agent-herdr.ts");
-      try {
-        const out = await launchInWorkspace({ workspaceLabel: basename(cwd), tabLabel: reservationId, paneCommand: command });
-        return out.focusedExisting ? fail("refused", `tab "${reservationId}" already open; focused it`) : ok({ pane: out.paneId });
-      } catch (err) {
-        return fail("transient", messageOf(err));
-      }
-    },
-    confirmAttached: async (opened, expected) => {
+    openPane: openHostPane,
+    confirmAttached: async (opened, expected, host) => {
       const [{ herdrRequest }, { parsePaneRef }] = await Promise.all([
         import("../../herdr/client.ts"), import("../../../packages/rt-client/src/pane-ref.ts"),
       ]);
+      const request = host?.herdr?.request ?? herdrRequest;
       const pane = parsePaneRef(opened.pane).paneId;
       const read = async () => {
-        const screen = await herdrRequest<{ read?: { text?: unknown } }>(
+        const screen = await request<{ read?: { text?: unknown } }>(
           "pane.read", { pane_id: pane, source: "visible" }, opened.socket ? { sockPath: opened.socket } : {},
         );
         return screen.ok && typeof screen.result.read?.text === "string" ? screen.result.read.text : null;
@@ -291,24 +289,33 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
   }
 
   /** Opens the terminal once per entry; a retry re-checks the pane it already opened. */
-  async function attach(entry: UnresolvedLaunch, threadId: string, evidence: string[], reservationId: string): Promise<Outcome<NativeLaunch["attachment"]>> {
+  async function attach(
+    entry: UnresolvedLaunch, threadId: string, evidence: string[], reservationId: string, host?: LaunchHost,
+  ): Promise<Outcome<Pick<NativeLaunch, "attachment" | "surface">>> {
     if (!entry.pane) {
       let command: string;
       try {
-        command = buildCodexRemoteResumeCommand(entry.cwd, { socketPath: deps.endpoint!.socketPath, threadId });
+        command = buildCodexRemoteResumeCommand(entry.cwd, {
+          socketPath: deps.endpoint!.socketPath, threadId,
+          ...(host?.env !== undefined && { env: host.env }), ...(host?.unsetEnv !== undefined && { unsetEnv: host.unsetEnv }),
+        });
       } catch (err) {
         return fail("invalid", messageOf(err));
       }
-      const opened = await deps.openPane({ cwd: entry.cwd, command, reservationId });
+      const opened = await deps.openPane({ cwd: entry.cwd, command, reservationId, ...(host !== undefined && { host }) });
       if (!opened.ok) return opened;
       entry.pane = opened.data;
     }
-    const shown = await deps.confirmAttached(entry.pane, { threadId, evidence });
+    const shown = await deps.confirmAttached(entry.pane, { threadId, evidence }, host);
     if (!shown.ok) {
       return fail("not-ready", `Codex opened in pane ${entry.pane.pane} but has not attached to thread ${threadId}: ${shown.error.message}. Retry with reservation ${reservationId} to check that pane again`);
     }
-    const { pane, socket } = entry.pane;
-    return ok({ mode: "herdr", pane, ...(socket !== undefined && { socket }) });
+    const { pane, socket, tabId, workspaceId } = entry.pane;
+    const surface = { ...(tabId !== undefined && { tabId }), ...(workspaceId !== undefined && { workspaceId }) };
+    return ok({
+      attachment: { mode: "herdr", pane, ...(socket !== undefined && { socket }) },
+      ...(Object.keys(surface).length > 0 && { surface }),
+    });
   }
 
   /** Creates the thread unless this entry already has one, or Codex has not said whether it made one. */
@@ -412,10 +419,10 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
           settle(key, entry);
           return ok({ native: ref(threadId), attachment: { mode: "headless" }, settings });
         }
-        const attachment = await attach(entry, threadId, [CODEX_INIT_PROMPT], request.reservationId);
-        if (!attachment.ok) return attachment;
+        const attached = await attach(entry, threadId, [CODEX_INIT_PROMPT], request.reservationId, request.host);
+        if (!attached.ok) return attached;
         settle(key, entry);
-        return ok({ native: ref(threadId), attachment: attachment.data, settings });
+        return ok({ native: ref(threadId), ...attached.data, settings });
       });
     },
 
@@ -464,13 +471,13 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
         const evidence = attachEvidence(thread);
         if (evidence.length === 0) return fail("not-ready", `thread ${threadId} has no history yet, so a terminal cannot resume it`);
         const entry = pending ?? { kind: "resume", profile: control.profile, cwd, threadId };
-        const attachment = await attach(entry, threadId, evidence, request.reservationId);
-        if (!attachment.ok) {
+        const attached = await attach(entry, threadId, evidence, request.reservationId, request.host);
+        if (!attached.ok) {
           if (entry.pane) unresolved.set(key, entry);
-          return attachment;
+          return attached;
         }
         settle(key, entry);
-        return ok({ native, attachment: attachment.data, settings });
+        return ok({ native, ...attached.data, settings });
       });
     },
 
@@ -500,8 +507,51 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
       });
     },
 
-    async startWork() {
-      return fail("unsupported", "work reaches a Codex thread through the shared launcher's submission step, which this adapter does not provide yet");
+    /** One turn on the bound thread. Codex answering with an error refused it; a timeout or a dropped connection may have started it. */
+    async startWork(binding, input): Promise<Outcome<WorkReceipt>> {
+      const valid = checkRef(binding.native);
+      if (!valid.ok) return valid;
+      if (control.closed) return fail("not-ready", "the Codex control connection is closed, so nothing was sent");
+      const threadId = binding.native.value;
+      control.adopt(threadId);
+      let started: unknown;
+      try {
+        started = await control.request("turn/start", { threadId, input: [{ type: "text", text: input.text }] });
+      } catch (err) {
+        if (err instanceof CodexControlError && err.code !== "transient" && err.code !== "invalid") return failFrom(err);
+        return fail("ambiguous", `Codex may have started a turn on thread ${threadId}: ${messageOf(err)}`);
+      }
+      const turnId = isRecord(started) && isRecord(started.turn) && text(started.turn.id) ? started.turn.id : undefined;
+      if (turnId === undefined) return fail("ambiguous", `Codex answered turn/start on thread ${threadId} without a turn id`);
+      const receipt: WorkReceipt = { id: input.id, evidence: "submitted", nativeId: threadId, turnId };
+      if (binding.attachment.mode !== "headless") return ok(receipt);
+      const completion: Promise<WorkCompletion> = hub.waitTurn(threadId, turnId, deps.clock, deps.workTurnTimeoutMs)
+        .then((status) => (status === undefined ? null : {
+          exitCode: status === "completed" ? 0 : 1, body: JSON.stringify({ threadId, turnId, status }),
+        }));
+      return ok({ ...receipt, completion });
+    },
+
+    /** The thread's own history is the evidence: a turn whose user message is the submitted text. */
+    async reconcileWork(binding, probe) {
+      const valid = checkRef(binding.native);
+      if (!valid.ok) return valid;
+      if (control.closed) return fail("transient", "the Codex control connection is closed");
+      const threadId = binding.native.value;
+      control.adopt(threadId);
+      let read: unknown;
+      try {
+        read = await control.request("thread/read", { threadId, includeTurns: true });
+      } catch (err) {
+        return failFrom(err, `Codex could not read thread ${threadId}: `);
+      }
+      const turns = Array.isArray(threadOf(read)?.turns) ? (threadOf(read)!.turns as unknown[]).filter(isRecord) : [];
+      for (const turn of [...turns].reverse()) {
+        const items = Array.isArray(turn.items) ? turn.items.filter(isRecord) : [];
+        const sent = items.some((item) => item.type === "userMessage" && workDigest(messageText(item) ?? "") === probe.digest);
+        if (sent) return ok({ id: probe.id, evidence: "submitted", nativeId: threadId, ...(text(turn.id) && { turnId: turn.id }) });
+      }
+      return ok(null);
     },
   };
 }
@@ -509,7 +559,9 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
 /** Stands in when no connection could be made, so each operation reports why. */
 function unavailableSessions(error: { code: FaultCode; message: string }): SessionAdapter {
   const refused = async () => ({ ok: false as const, error });
-  return { launch: refused, resume: refused, observe: refused, startWork: refused, discover: async () => [] };
+  // With no connection nothing can have been sent, whatever made the connection fail.
+  const unsent = async () => ({ ok: false as const, error: { code: "not-ready" as const, message: error.message } });
+  return { launch: refused, resume: refused, observe: refused, startWork: unsent, discover: async () => [] };
 }
 
 export type CodexSessionLoaderDeps = {

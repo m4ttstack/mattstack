@@ -12,6 +12,8 @@ export interface AgentInvocation {
   prompt?: string;
   /** Extra environment for the pane shell, exported before the agent head. Values are single-quoted verbatim. */
   env?: Record<string, string>;
+  /** Variables the pane line unsets before the agent head (see env.ts). */
+  unsetEnv?: readonly string[];
   /** Maps to each provider's real bypass flag (see claude.ts / codex.ts). A
       resume re-applies whatever the record stored; what a resume never does is
       re-derive it from `agent.<provider>.yolo`, so a settings change after the

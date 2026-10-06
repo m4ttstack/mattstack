@@ -17,6 +17,13 @@
  * subject has no gate to fork against, so the deny-by-default hook would
  * only ever degrade to allow -- skip writing it at all); see
  * resolveHookSettingsPath below.
+ *
+ * With agent.integrations.enabled on (read per call), start and resume go
+ * through the shared launcher instead (launchBound below): it binds the
+ * session first and the prompt is then submitted under this record's own
+ * authorization, with the same gate env, hook settings and labels. A record
+ * the launcher never bound resumes as before. Off, nothing here touches the
+ * session store.
  */
 
 import { chmodSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
@@ -27,8 +34,8 @@ import {
   deleteAgent, finishAgent, getAgent, identityName, insertAgent, isValidChatName, listAgents, markAgentResumed,
   newAgentId, reserveAgentHandle, updateAgentPack, updateAgentPane, updateAgentSessionId, type AgentRecord, type AgentSurface,
 } from "../../state/index.ts";
-import { buildAgentArgv, buildAgentPaneCommand, CROSS_SESSION_INBOUND_SETTINGS, pointerPrompt, writePromptFile, type AgentInvocation, type AgentProvider } from "../../agent-argv/index.ts";
-import { mergeGateForkHookSettings, resolveGateForkHookPath } from "../../agent-hooks.ts";
+import { buildAgentArgv, buildAgentPaneCommand, pointerPrompt, withoutEnv, writePromptFile, type AgentInvocation, type AgentProvider } from "../../agent-argv/index.ts";
+import { writeClaudeGateHookSettings } from "../../agent-integrations/claude/hooks.ts";
 import { defaultHerdrRunner, herdrAgentSessionId, launchInWorkspace, type HerdrRunner } from "../../agent-herdr.ts";
 import { herdrRequest } from "../../herdr/client.ts";
 import { acceptTrustOnPane, cwdPath, type TrustOutcome } from "../trust-accept.ts";
@@ -44,9 +51,15 @@ import type { BgService } from "../bg-service.ts";
 import type { BgClaimsStore } from "../bg-claims-store.ts";
 import type { CommandResult } from "./types.ts";
 import { builtinRegistry } from "../../agent-integrations/builtins.ts";
-import type { IntegrationRegistry } from "../../agent-integrations/contracts.ts";
+import { integrationsEnabled } from "../../agent-integrations/context.ts";
+import type { IntegrationRegistry, LaunchHost, LaunchSurface, WorkCompletion } from "../../agent-integrations/contracts.ts";
+import { createBoundLauncher, type BoundLauncher } from "../../agent-integrations/launch.ts";
+import { createSessionStore, listBindingsByAgent } from "../../agent-integrations/session-store.ts";
+import type { Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 
 export interface HeadlessChild {
+  /** The child's pid, when the spawner knows it. */
+  pid?: number;
   exited: Promise<number>;
   stdout: () => Promise<string>;
   /** Resolves with the provider-minted session id once seen in the stream,
@@ -111,19 +124,22 @@ export function extractSessionId(stream: ReadableStream<Uint8Array>): Promise<st
   })();
 }
 
+type SpawnHeadlessOptions = { captureSessionId?: boolean; stdin?: string; unset?: readonly string[] };
+
 function defaultSpawnHeadless(
   argv: string[], cwd: string, env: Record<string, string> = {},
-  opts: { captureSessionId?: boolean; stdin?: string } = {},
+  opts: SpawnHeadlessOptions = {},
 ): HeadlessChild {
   const proc = Bun.spawn(argv as [string, ...string[]], {
     cwd,
-    env: { ...process.env, ...env },
+    env: withoutEnv({ ...process.env, ...env }, opts.unset),
     stdin: opts.stdin !== undefined ? new Blob([opts.stdin]) : "ignore",
     stdout: "pipe",
     stderr: "ignore",
   });
   if (!opts.captureSessionId || !proc.stdout) {
     return {
+      pid: proc.pid,
       exited: proc.exited,
       stdout: () => new Response(proc.stdout).text(),
       sessionId: () => Promise.resolve(undefined),
@@ -132,6 +148,7 @@ function defaultSpawnHeadless(
   const [forText, forId] = proc.stdout.tee();
   const sessionIdPromise = extractSessionId(forId);
   return {
+    pid: proc.pid,
     exited: proc.exited,
     stdout: () => new Response(forText).text(),
     sessionId: () => sessionIdPromise,
@@ -212,70 +229,25 @@ function resolveHerdrPrompt(rec: AgentRecord, prompt: string | undefined): { pro
   return { prompt: pointerPrompt(path), addDirs: [dir] };
 }
 
-/** Deterministic from the id alone, mirroring agentResultPath above. */
-function agentHookSettingsPath(id: string): string {
-  return join(rtDir(), "agent-hooks", `${id}.json`);
-}
-
-/** Tokenized the same way claudeArgs splits extraArgs, so a match here is exactly a flag claude will also see. Matches both the split ("--settings", "<path>") and "--settings=<path>" spellings. */
-function extraArgsHasSettingsFlag(extraArgs: string | undefined): boolean {
-  if (!extraArgs) return false;
-  return extraArgs.split(/\s+/).filter(Boolean).some((tok) => tok === "--settings" || tok.startsWith("--settings="));
-}
-
 /**
- * Absolute path to a freshly written per-agent settings file carrying the
- * AskUserQuestion PreToolUse hook (Task 9), or undefined when injection is
- * skipped. Four skip cases, all non-fatal to the launch: the provider is not
- * claude (only claude reads `--settings`; codex's builders ignore
- * inv.settingsPath outright, so writing the file would leave a dead one in the
- * agent-hooks directory per launch), the launch carries no explicit subject (with no
- * subject there is no gate for the hook to check, so it would only ever
- * degrade to allow; skip writing it rather than ship a no-op hook file),
- * extraArgs already sets --settings (merge is not attempted -- the user's
- * own value wins outright), or gate-fork.sh cannot be resolved on this
- * machine.
- *
- * A launch never emits two --settings flags (repeated-flag semantics are
- * unverified against the real CLI): when this launch would otherwise get
- * the inbound-accept inline CROSS_SESSION_INBOUND_SETTINGS JSON (a
- * reserved handle, non-headless -- claudeArgs' own condition), that object
- * is folded into this SAME file via mergeGateForkHookSettings instead of
- * being emitted as a second flag. lib/agent-argv/claude.ts's claudeArgs skips its
- * inline JSON whenever settingsPath is set, so the fold here is the only
- * place that JSON survives for such a launch. A subjectless launch skips
- * this file entirely, so that inline JSON reverts to riding its own
- * --settings flag exactly as it did before the gate-fork hook existed.
+ * The per-agent `--settings` file carrying the AskUserQuestion PreToolUse
+ * hook, or undefined when injection is skipped (see
+ * writeClaudeGateHookSettings for the skip cases and the inbound-accept
+ * fold). Only claude reads `--settings`: codex's builders ignore
+ * inv.settingsPath outright, so writing the file would leave a dead one in
+ * the agent-hooks directory per launch.
  */
 function resolveHookSettingsPath(rec: AgentRecord, log: Logger): string | undefined {
   if (rec.provider !== "claude") {
     log.debug({ id: rec.id, provider: rec.provider }, "agent: provider does not read --settings; gate-fork hook injection skipped");
     return undefined;
   }
-  if (rec.subject === undefined) {
-    log.debug({ id: rec.id }, "agent: no explicit subject; gate-fork hook injection skipped");
-    return undefined;
-  }
-  if (extraArgsHasSettingsFlag(rec.extraArgs)) {
-    log.debug({ id: rec.id }, "agent: extraArgs already sets --settings; gate-fork hook injection skipped");
-    return undefined;
-  }
-  const hookPath = resolveGateForkHookPath();
-  if (!hookPath) {
-    log.debug({ id: rec.id }, "agent: gate-fork.sh not found; hook injection skipped");
-    return undefined;
-  }
-  const inlineBase = rec.surface !== "headless" && rec.handle !== undefined ? CROSS_SESSION_INBOUND_SETTINGS : undefined;
-  const settings = mergeGateForkHookSettings(inlineBase, hookPath);
-  const settingsPath = agentHookSettingsPath(rec.id);
-  try {
-    mkdirSync(dirname(settingsPath), { recursive: true });
-    writeFileSync(settingsPath, JSON.stringify(settings));
-    return settingsPath;
-  } catch (err) {
-    log.warn({ err, id: rec.id }, "agent: failed to write gate-fork hook settings file");
-    return undefined;
-  }
+  return writeClaudeGateHookSettings({
+    agentId: rec.id,
+    ...(rec.subject !== undefined && { subject: rec.subject }),
+    ...(rec.extraArgs !== undefined && { extraArgs: rec.extraArgs }),
+    inbound: rec.surface !== "headless" && rec.handle !== undefined,
+  }, log);
 }
 
 function isStringRecord(v: unknown): v is Record<string, string> {
@@ -314,6 +286,15 @@ function withoutPackClear(env: Record<string, string> | undefined): Record<strin
 }
 
 const agentOwner = (id: string): string => `agent:${id}`;
+
+/** Every launch (start and resume, herdr and headless) stamps the gate-protocol env. */
+function gateEnvFor(rec: AgentRecord): Record<string, string> {
+  return {
+    RT_AGENT_ID: rec.id,
+    RT_GATE_SUBJECT: rec.subject ?? agentOwner(rec.id),
+    RT_DAEMON_SOCK: DAEMON_SOCK_PATH,
+  };
+}
 
 /** Names the real flag the caller will be looking for; codex.ts's own
     equivalent throw already spells the codex form, and a claude-worded
@@ -369,7 +350,7 @@ export function createAgentHandlers(opts: {
   herdr?: typeof herdrRequest;
   /** Shortened budgets for tests; the driver's own defaults otherwise. */
   trustBudgets?: { registerBudgetMs?: number; waitBudgetMs?: number; settleMs?: number; stepMs?: number };
-  spawnHeadless?: (argv: string[], cwd: string, env: Record<string, string>, opts?: { captureSessionId?: boolean; stdin?: string }) => HeadlessChild;
+  spawnHeadless?: (argv: string[], cwd: string, env: Record<string, string>, opts?: SpawnHeadlessOptions) => HeadlessChild;
   insertAgentFn?: typeof insertAgent;
   /** The daemon-owned background herdr server `--bg` launches onto (spec "The bg service"). Omitted, `bg: true` is refused. */
   bg?: Pick<BgService, "ensure" | "reprobe">;
@@ -385,6 +366,12 @@ export function createAgentHandlers(opts: {
       before any handler is constructed. */
   skipSessionCapture?: boolean;
   integrations?: IntegrationRegistry;
+  /** The agent.integrations.enabled switch, read on every start and resume; tests inject it. */
+  integrationsEnabled?: () => boolean;
+  /** The shared launcher the switch routes through; built over this db and registry when omitted. */
+  launcher?: BoundLauncher;
+  /** Set by the in-process CLI fallback: it never resumes a herd worker's bound session, which only the daemon may relaunch. */
+  ordinaryOnly?: boolean;
 }):
   // Direct `unknown`-payload members, not `Pick<TypedHandlers, ...>`: a wider
   // `unknown` param still satisfies TypedHandlers' narrower one at the
@@ -399,6 +386,137 @@ export function createAgentHandlers(opts: {
   const insertAgentFn = opts.insertAgentFn ?? insertAgent;
   const skipSessionCapture = opts.skipSessionCapture ?? false;
   const integrations = opts.integrations ?? builtinRegistry();
+  const boundEnabled = opts.integrationsEnabled ?? integrationsEnabled;
+  let launcher = opts.launcher;
+  const bound = (): BoundLauncher => (launcher ??= createBoundLauncher({ db, registry: integrations }));
+
+  /** The record's session, when the shared launcher bound it: the binding for the native session the record names. */
+  function boundSessionOf(rec: AgentRecord): SessionBinding | undefined {
+    return listBindingsByAgent(db, rec.id).find((b) => b.native.harness === rec.provider && b.native.value === rec.sessionId);
+  }
+
+  /** The record's own launch options, which is the selection a bound session keeps. */
+  function selectionOf(rec: AgentRecord): { harness: string; options: Record<string, string | boolean> } {
+    return {
+      harness: rec.provider,
+      options: {
+        ...(rec.model !== undefined && { model: rec.model }),
+        ...(rec.effort !== undefined && { effort: rec.effort }),
+        ...(rec.account !== undefined && { account: rec.account }),
+        ...(rec.extraArgs !== undefined && { extraArgs: rec.extraArgs }),
+        ...(rec.yolo !== undefined && { yolo: rec.yolo }),
+      },
+    };
+  }
+
+  /** The ordinary caller's authorization: the record this work belongs to still exists and still owns the binding. */
+  function authorizeRecord(id: string, key: string): () => Promise<Outcome<void>> {
+    return async () => {
+      const current = getAgent(id, db);
+      if (current?.id !== id) return { ok: false, error: { code: "refused", message: `agent ${id} is no longer recorded, so its work was not sent` } };
+      if (createSessionStore(db).get(key)?.agentId !== id) {
+        return { ok: false, error: { code: "refused", message: `agent ${id} no longer owns its session, so its work was not sent` } };
+      }
+      return { ok: true, data: undefined };
+    };
+  }
+
+  function applyBinding(rec: AgentRecord, binding: SessionBinding, surface: LaunchSurface | undefined): void {
+    rec.sessionId = binding.native.value;
+    if (binding.attachment.pane !== undefined) rec.paneId = binding.attachment.pane;
+    if (surface?.tabId !== undefined) rec.tabId = surface.tabId;
+    if (surface?.workspaceId !== undefined) rec.workspaceId = surface.workspaceId;
+    if (surface?.trust !== undefined) (rec as AgentRecord & { trust?: TrustOutcome }).trust = surface.trust as TrustOutcome;
+  }
+
+  /** A headless run finishes its record the way the direct spawn does; an outcome nobody can know leaves it running. */
+  function finishWhenDone(rec: AgentRecord, resultPath: string, completion: Promise<WorkCompletion> | undefined): void {
+    if (!completion) {
+      log.warn({ id: rec.id }, "agent: headless work reported no completion; the record stays running");
+      return;
+    }
+    void completion.then((done) => {
+      if (!done) {
+        log.warn({ id: rec.id }, "agent: headless work outcome is unknown; the record stays running");
+        return;
+      }
+      try {
+        writeFileSync(resultPath, done.body);
+      } catch (err) {
+        log.warn({ err, id: rec.id }, "agent: failed to persist headless result body");
+      }
+      finishAgent(rec.id, { exitCode: done.exitCode, resultPath, finishedAt: Date.now() }, db);
+      emitEvent(`agent/done/${rec.id}`, { exitCode: done.exitCode });
+    }).catch((err) => {
+      log.warn({ err, id: rec.id }, "agent: headless work completion failed");
+    });
+  }
+
+  /**
+   * The agent.integrations.enabled path: the shared launcher prepares a bound
+   * session (never sending work), then the prompt goes through its explicit
+   * submission step under this record's own authorization. The launcher keeps
+   * the record's session id and pane in step with the binding.
+   */
+  async function launchBound(
+    rec: AgentRecord,
+    resumed: SessionBinding | undefined,
+    prompt: string | undefined,
+    tabLabel: string,
+    workspaceLabel: string,
+    extra: { env?: Record<string, string>; herdrSocket?: string; background?: boolean; trustWaitMs?: number } = {},
+  ): Promise<CommandResult<"agent:start">> {
+    const herdr = rec.surface === "herdr";
+    const gateEnv = gateEnvFor(rec);
+    const { prompt: resolvedPrompt, addDirs } = resolveHerdrPrompt(rec, prompt);
+    const host: LaunchHost = {
+      workspace: workspaceLabel, tab: tabLabel,
+      ...(rec.label !== undefined && { label: rec.label }),
+      ...(extra.herdrSocket !== undefined && { socket: extra.herdrSocket }),
+      ...(extra.background === true && { background: true }),
+      env: herdr ? { ...extra.env, ...gateEnv } : gateEnv,
+      gate: { agentId: rec.id, ...(rec.subject !== undefined && { subject: rec.subject }) },
+      chat: rec.handle !== undefined,
+      ...(extra.trustWaitMs !== undefined && { trustWaitMs: extra.trustWaitMs }),
+      herdr: {
+        ...(opts.herdrRunner !== undefined && { runner: opts.herdrRunner }),
+        ...(opts.herdrRunnerForSocket !== undefined && { runnerForSocket: opts.herdrRunnerForSocket }),
+        ...(opts.herdr !== undefined && { request: opts.herdr }),
+        ...(opts.trustBudgets !== undefined && { trustBudgets: opts.trustBudgets }),
+      },
+      log,
+      runProcess: (argv, cwd, env, o) => spawnHeadless(argv, cwd, env, {
+        ...(o.stdin !== undefined && { stdin: o.stdin }), ...(o.unset !== undefined && { unset: o.unset }),
+      }),
+    };
+    const reservationId = createSessionStore(db).reserve({
+      identity: resumed?.identity ?? rec.handle ?? agentOwner(rec.id), agentId: rec.id,
+    });
+    const prepared = await bound().launchBoundAgent({
+      reservationId, cwd: rec.cwd, mode: rec.surface, selection: selectionOf(rec), required: [],
+      ...(resolvedPrompt !== undefined && { prompt: resolvedPrompt }),
+      access: { readRoots: addDirs ?? [] },
+      ...(resumed ? { resumeKey: resumed.key } : { nativeHint: rec.sessionId }),
+      host,
+    });
+    if (!prepared.ok) return { ok: false, error: prepared.error.message };
+    applyBinding(rec, prepared.data, prepared.data.surface);
+    if (resolvedPrompt === undefined) return { ok: true, data: rec };
+
+    let resultPath: string | undefined;
+    if (!herdr) {
+      resultPath = agentResultPath(rec.id);
+      rec.resultPath = resultPath;
+      mkdirSync(dirname(resultPath), { recursive: true });
+    }
+    const work = await bound().startBoundWork(
+      prepared.data, { id: `work-${crypto.randomUUID()}`, text: resolvedPrompt }, authorizeRecord(rec.id, prepared.data.key),
+    );
+    if (!work.ok) return { ok: false, error: work.error.message };
+    applyBinding(rec, work.data.binding, work.data.surface);
+    if (resultPath !== undefined) finishWhenDone(rec, resultPath, work.data.completion);
+    return { ok: true, data: rec };
+  }
 
   async function launch(
     rec: AgentRecord,
@@ -408,11 +526,7 @@ export function createAgentHandlers(opts: {
     workspaceLabel: string,
     extra: { env?: Record<string, string>; herdrSocket?: string; trustWaitMs?: number } = {},
   ): Promise<CommandResult<"agent:start">> {
-    const gateEnv: Record<string, string> = {
-      RT_AGENT_ID: rec.id,
-      RT_GATE_SUBJECT: rec.subject ?? agentOwner(rec.id),
-      RT_DAEMON_SOCK: DAEMON_SOCK_PATH,
-    };
+    const gateEnv = gateEnvFor(rec);
     const settingsPath = resolveHookSettingsPath(rec, log);
     const { prompt: resolvedPrompt, addDirs } = resolveHerdrPrompt(rec, prompt);
 
@@ -640,6 +754,7 @@ export function createAgentHandlers(opts: {
 
       const tabLabel = payload.tab ?? rec.label ?? rec.id;
       const workspaceLabel = payload.workspace ?? repoLabel(repo);
+      const boundPath = boundEnabled();
       try {
         // Inserted before launch() runs, not after: launch()'s headless
         // branch arms a completion callback that calls finishAgent, and
@@ -664,11 +779,16 @@ export function createAgentHandlers(opts: {
           opts.lifecycle!.watch(ensured.socket);
         }
         const effectiveSocket = bgSocket ?? payload.herdrSocket;
-        const res = await launch(rec, { kind: "start", sessionId: rec.sessionId }, prompt, tabLabel, workspaceLabel, {
+        const extra = {
           ...(payload.env !== undefined && { env: withoutPackClear(payload.env) }),
           ...(effectiveSocket !== undefined && { herdrSocket: effectiveSocket }),
           ...(payload.trustWaitMs !== undefined && { trustWaitMs: payload.trustWaitMs }),
-        });
+        };
+        const res = boundPath
+          ? await launchBound(rec, undefined, prompt, tabLabel, workspaceLabel, {
+            ...extra, background: payload.bg === true || effectiveSocket === bgSocketPath(),
+          })
+          : await launch(rec, { kind: "start", sessionId: rec.sessionId }, prompt, tabLabel, workspaceLabel, extra);
         if (!res.ok) {
           deleteAgent(rec.id, db);
           removeAgentPromptDir(rec.id, log);
@@ -690,7 +810,8 @@ export function createAgentHandlers(opts: {
         if (payload.bg && rec.paneId) {
           opts.bgClaims!.claim(agentOwner(rec.id), rec.paneId);
         }
-        if (surface === "herdr" && rec.paneId && rec.tabId && rec.workspaceId) {
+        // On the bound path the launcher already wrote the pane it bound.
+        if (!boundPath && surface === "herdr" && rec.paneId && rec.tabId && rec.workspaceId) {
           updateAgentPane(rec.id, { paneId: rec.paneId, tabId: rec.tabId, workspaceId: rec.workspaceId }, db);
         }
         return res.ok ? { ok: true, data: withName(res.data, db) } : res;
@@ -752,6 +873,11 @@ export function createAgentHandlers(opts: {
       if (wasBg && (!opts.bg || !opts.bgClaims || !opts.lifecycle)) {
         return { ok: false, error: "bg launches require the rt daemon (rt daemon start)" };
       }
+      // A record the shared launcher never bound keeps today's resume, switch or no switch.
+      const boundSession = boundEnabled() ? boundSessionOf(rec) : undefined;
+      if (boundSession?.attemptId !== undefined && opts.ordinaryOnly) {
+        return { ok: false, error: "this agent's session belongs to a herd job; resuming it needs the rt daemon (rt daemon start)" };
+      }
       try {
         let bgSocket: string | undefined;
         if (wasBg) {
@@ -759,10 +885,13 @@ export function createAgentHandlers(opts: {
           bgSocket = ensured.socket;
           opts.lifecycle!.watch(ensured.socket);
         }
-        const res = await launch(attempt, { kind: "resume", sessionId: rec.sessionId }, payload.prompt, tabLabel, workspaceLabel, {
+        const extra = {
           ...(launchEnv !== undefined && { env: launchEnv }),
           ...(bgSocket !== undefined && { herdrSocket: bgSocket }),
-        });
+        };
+        const res = boundSession
+          ? await launchBound(attempt, boundSession, payload.prompt, tabLabel, workspaceLabel, { ...extra, background: wasBg })
+          : await launch(attempt, { kind: "resume", sessionId: rec.sessionId }, payload.prompt, tabLabel, workspaceLabel, extra);
         if (!res.ok) return res;
         const now = Date.now();
         markAgentResumed(rec.id, now, db);
@@ -777,7 +906,7 @@ export function createAgentHandlers(opts: {
           attempt.paneId = formatPaneRef(attempt.paneId, "bg");
           opts.bgClaims!.claim(agentOwner(rec.id), attempt.paneId);
         }
-        if (surface === "herdr" && attempt.paneId && attempt.tabId && attempt.workspaceId) {
+        if (!boundSession && surface === "herdr" && attempt.paneId && attempt.tabId && attempt.workspaceId) {
           updateAgentPane(rec.id, { paneId: attempt.paneId, tabId: attempt.tabId, workspaceId: attempt.workspaceId }, db);
         }
         return { ok: true, data: withName(getAgent(rec.id, db) ?? attempt, db) };

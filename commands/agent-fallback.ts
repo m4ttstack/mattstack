@@ -4,8 +4,16 @@
  * herdr launch/resume and the read verbs. Headless is refused BEFORE any
  * handler is constructed, because the CLI exits immediately and cannot reap
  * the async `claude -p` child (it would spawn and orphan it).
+ *
+ * With agent.integrations.enabled on, the handlers route through the shared
+ * launcher here too, as an ordinary caller only: a launch from this process
+ * never carries a herd attempt or a policy requirement, and a herd worker's
+ * bound session is never resumed from here, so this fallback cannot stand in
+ * for a managed worker. A launch it leaves unresolved is claimed under this
+ * process's name, so the daemon reconciles it instead of launching again.
  */
 import type { Database } from "bun:sqlite";
+import type { IntegrationRegistry } from "../lib/agent-integrations/contracts.ts";
 import { createAgentHandlers, type HeadlessChild } from "../lib/daemon/handlers/agent.ts";
 import { openStateDbGuarded, getAgent, stateDbPath } from "../lib/state/index.ts";
 import type { HerdrRunner } from "../lib/agent-herdr.ts";
@@ -23,7 +31,10 @@ type FallbackCommand = "agent:start" | "agent:resume" | "agent:get" | "agent:lis
 export async function runAgentFallback<T>(
   command: FallbackCommand,
   payload: Record<string, unknown>,
-  deps: { db?: Database; herdrRunner?: HerdrRunner; herdr?: typeof herdrRequest; spawnHeadless?: (argv: string[], cwd: string) => HeadlessChild } = {},
+  deps: {
+    db?: Database; herdrRunner?: HerdrRunner; herdr?: typeof herdrRequest; spawnHeadless?: (argv: string[], cwd: string) => HeadlessChild;
+    integrations?: IntegrationRegistry; integrationsEnabled?: () => boolean;
+  } = {},
 ): Promise<RtResponse<T>> {
   const db = deps.db ?? openStateDbGuarded(stateDbPath());
 
@@ -56,6 +67,9 @@ export async function runAgentFallback<T>(
     // the same reason the runner is.
     ...(deps.herdr !== undefined && { herdr: deps.herdr }),
     ...(deps.spawnHeadless !== undefined && { spawnHeadless: deps.spawnHeadless }),
+    ...(deps.integrations !== undefined && { integrations: deps.integrations }),
+    ...(deps.integrationsEnabled !== undefined && { integrationsEnabled: deps.integrationsEnabled }),
+    ordinaryOnly: true,
   });
   const res = await (handlers[command] as (p: unknown) => Promise<RtResponse<T>>)(payload);
   return res;

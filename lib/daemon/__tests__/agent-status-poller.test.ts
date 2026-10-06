@@ -14,6 +14,7 @@ import { createRegistry } from "../../agent-integrations/registry.ts";
 import { createSessionStore, listAttachedBindings } from "../../agent-integrations/session-store.ts";
 import { createClaudeSessions, type ClaudeRegistry } from "../../agent-integrations/claude/sessions.ts";
 import { openStateDb } from "../../state/db.ts";
+import { markSubmitting, readSubmission, recordPending, workDigest } from "../../agent-integrations/work-submissions.ts";
 
 const quietLog = { info: () => {}, warn: () => {} };
 
@@ -181,6 +182,31 @@ test("with the switch off, bound-session observation reads nothing at all", asyn
   expect(loaded).toBe(0);
 });
 
+test("with the switch on, work a crash left submitting becomes ambiguous and is reconciled, never sent again", async () => {
+  await withDb(async (db) => {
+    const store = createSessionStore(db);
+    const bound = store.bind(store.reserve({ identity: "remy" }), { harness: "codex", profile: "default", kind: "id", value: "T1" }, { mode: "headless" });
+    if (!bound.ok) throw new Error(bound.error.message);
+    const key = { bindingKey: bound.data.key, generation: 1, inputId: "w1" };
+    if (!recordPending(db, key, workDigest("go"), undefined).ok) throw new Error("pending failed");
+    if (!markSubmitting(db, key, "a-crashed-daemon").ok) throw new Error("submitting failed");
+    let started = 0;
+    const probes: unknown[] = [];
+    const adapter = {
+      observe: async () => ({ ok: true, data: {} }),
+      startWork: async () => { started++; return { ok: true, data: { id: "w1", evidence: "submitted" } }; },
+      reconcileWork: async (_b: SessionBinding, probe: unknown) => { probes.push(probe); return { ok: true, data: null }; },
+    } as unknown as SessionAdapter;
+    await observeBoundSessions({
+      enabled: () => true, db: () => db,
+      integrations: () => createRegistry([{ ...codexIntegration, loadSessions: async () => adapter }]),
+    });
+    expect(readSubmission(db, key)?.state).toBe("ambiguous");
+    expect(probes).toEqual([{ id: "w1", digest: workDigest("go"), submittedAt: expect.any(Number) }]);
+    expect(started).toBe(0);
+  });
+});
+
 test("with the switch on, every attached binding of a harness with a session adapter is observed", async () => {
   await withDb(async (db) => {
     const store = createSessionStore(db);
@@ -194,7 +220,7 @@ test("with the switch on, every attached binding of a harness with a session ada
     bind("claude", "c-dead-pid", { pid: 9, pane: "w3:p1" });
     bind("claude", "c-nothing", {});
     const detached = bind("claude", "c-detached", { pid: 8 });
-    if (!store.replaceAttachment(detached.key, 1, { mode: "herdr" }).ok) throw new Error("detach failed");
+    if (!store.detach(detached.key, 1).ok) throw new Error("detach failed");
     const codexBound = bind("codex", "x-attached", { pane: "w2:p1" });
 
     const seen: SessionBinding[] = [];

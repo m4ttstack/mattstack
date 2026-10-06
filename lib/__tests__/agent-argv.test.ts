@@ -1,7 +1,26 @@
 import { describe, expect, test } from "bun:test";
-import { buildAgentArgv, buildAgentPaneCommand, buildClaudeArgv, buildPaneCommand, isValidSessionUuid, shellSingleQuote } from "../agent-argv/index.ts";
+import { buildAgentArgv, buildAgentPaneCommand, buildClaudeArgv, buildPaneCommand, isValidSessionUuid, shellSingleQuote, unsetPrefix, withoutEnv } from "../agent-argv/index.ts";
 
 const UUID = "6e225e74-4cb7-4aea-8807-6aa9011d4112";
+
+describe("environment a worker must not inherit", () => {
+  test("a pane line unsets it before the harness starts; nothing to clear adds nothing", () => {
+    const inv = { session: { kind: "start" as const, sessionId: UUID }, headless: false, env: { RT_AGENT_ID: "a1" } };
+    expect(buildPaneCommand("/w", inv)).toBe(`cd '/w' && RT_AGENT_ID='a1' claude '--session-id' '${UUID}'`);
+    expect(buildPaneCommand("/w", { ...inv, unsetEnv: ["CODEX_THREAD_ID"] }))
+      .toBe(`cd '/w' && unset CODEX_THREAD_ID && RT_AGENT_ID='a1' claude '--session-id' '${UUID}'`);
+    expect(buildAgentPaneCommand("codex", "/w", { ...inv, unsetEnv: ["CLAUDE_CODE_SESSION_ID"] }))
+      .toBe(`cd '/w' && unset CLAUDE_CODE_SESSION_ID && RT_AGENT_ID='a1' codex`);
+    expect(unsetPrefix([])).toBe("");
+  });
+
+  test("only shell identifiers are ever unset, and a spawned environment just leaves them out", () => {
+    expect(() => unsetPrefix(["A; rm -rf /"])).toThrow(/invalid environment variable name/);
+    expect(withoutEnv<Record<string, string>>({ A: "1", CODEX_THREAD_ID: "t" }, ["CODEX_THREAD_ID"])).toEqual({ A: "1" });
+    const env = { A: "1" };
+    expect(withoutEnv(env, undefined)).toBe(env);
+  });
+});
 
 describe("isValidSessionUuid", () => {
   test("accepts a v4 uuid, rejects the spike footguns", () => {

@@ -30,15 +30,22 @@ import type {
 } from "../../../packages/rt-client/src/agent-integrations.ts";
 import type { PaneAccount } from "../../../packages/rt-client/src/commands.ts";
 import { parsePaneRef } from "../../../packages/rt-client/src/pane-ref.ts";
+import { unsetPrefix, withoutEnv } from "../../agent-argv/env.ts";
 import type { AgentInvocation } from "../../agent-argv/types.ts";
 import { registryRoots, resolveAllInboxes, sessionForPid, type InboxBinding } from "../../claude-registry.ts";
 import type { AgentEntry } from "../../runs/liveness.ts";
 import { isAlive } from "../../runner/workspace-registry.ts";
 import { isBusyError } from "../../state/busy.ts";
-import type { LaunchRequest, NativeLaunch, SessionAdapter } from "../contracts.ts";
+import type {
+  LaunchHost, LaunchRequest, NativeLaunch, PreparedLaunch, RunWorkProcess, SessionAdapter, WorkReceipt,
+} from "../contracts.ts";
+import { openHostPane, type HostPaneLaunch, type HostPaneOpened } from "../herdr-pane.ts";
 import {
-  createSessionStore, LEGACY_DEFAULT_PROFILE, listBindingsByNativeValue, type AttachmentInput, type SessionStore,
+  createSessionStore, isDetachedAttachment, LEGACY_DEFAULT_PROFILE, listBindingsByNativeValue, type AttachmentInput, type SessionStore,
 } from "../session-store.ts";
+import { CROSS_SESSION_INBOUND_SETTINGS, writeClaudeGateHookSettings } from "./hooks.ts";
+
+export { CROSS_SESSION_INBOUND_SETTINGS };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -51,9 +58,6 @@ export function shellSingleQuote(s: string): string {
 }
 
 export type ClaudeInvocation = AgentInvocation;
-
-/** The inline `--settings` JSON `inboundAccept` triggers on its own (no settingsPath). Exported so a settingsPath caller can merge it into the SAME file instead of the flag being emitted twice. */
-export const CROSS_SESSION_INBOUND_SETTINGS = { crossSessionInbound: "accept" } as const;
 
 export function resolveClaudeBin(): string {
   return Bun.which("claude") ?? join(process.env.HOME ?? homedir(), ".local", "bin", "claude");
@@ -110,11 +114,11 @@ export function buildPaneCommand(cwd: string, inv: AgentInvocation): string {
   const quoted = claudeArgs(inv).map(shellSingleQuote);
   const head = inv.account ? `cswap run ${shellSingleQuote(inv.account)} --` : "claude";
   const env = Object.entries(inv.env ?? {}).map(([k, v]) => `${k}=${shellSingleQuote(v)}`);
-  return `cd ${shellSingleQuote(cwd)} && ${[...env, head, ...quoted].join(" ")}`;
+  return `cd ${shellSingleQuote(cwd)} && ${unsetPrefix(inv.unsetEnv)}${[...env, head, ...quoted].join(" ")}`;
 }
 
-export type PaneLaunch = { cwd: string; command: string; reservationId: string };
-export type PaneOpened = { pane: string; socket?: string };
+export type PaneLaunch = HostPaneLaunch;
+export type PaneOpened = HostPaneOpened;
 
 export type ClaudeRegistry = {
   roots(): string[];
@@ -128,7 +132,10 @@ export type ClaudeSessionDeps = {
   now(): number;
   mintId(): string;
   openPane(launch: PaneLaunch): Promise<Outcome<PaneOpened>>;
-  acceptTrust(opened: PaneOpened, cwd: string): Promise<unknown>;
+  /** Resolves with the folder-trust outcome the caller reports, when there is one. */
+  acceptTrust(opened: PaneOpened, cwd: string, host?: LaunchHost): Promise<unknown>;
+  /** Spawns a headless `claude -p` when the launch host brings no runner of its own. */
+  spawn: RunWorkProcess;
   /** herdr's agent list; null when herdr could not be asked. */
   agents(): Promise<AgentEntry[] | null>;
   registry: ClaudeRegistry;
@@ -186,23 +193,27 @@ function defaultDeps(): ClaudeSessionDeps {
     store: async () => (store ??= createSessionStore((await import("../../state/db.ts")).getStateDb())),
     now: Date.now,
     mintId: () => crypto.randomUUID(),
-    openPane: async ({ cwd, command, reservationId }) => {
-      const { launchInWorkspace } = await import("../../agent-herdr.ts");
-      try {
-        const out = await launchInWorkspace({ workspaceLabel: basename(cwd), tabLabel: reservationId, paneCommand: command });
-        return out.focusedExisting ? fail("refused", `tab "${reservationId}" already open; focused it`) : ok({ pane: out.paneId });
-      } catch (err) {
-        return fail("transient", messageOf(err));
-      }
-    },
-    acceptTrust: async (opened, cwd) => {
+    openPane: openHostPane,
+    acceptTrust: async (opened, cwd, host) => {
       const [{ acceptTrustOnPane, cwdPath }, { herdrRequest }] = await Promise.all([
         import("../../daemon/trust-accept.ts"), import("../../herdr/client.ts"),
       ]);
       return acceptTrustOnPane({
-        herdr: herdrRequest, sock: opened.socket ? { sockPath: opened.socket } : {},
-        pane: parsePaneRef(opened.pane).paneId, context: { cwd }, trustsPath: cwdPath(cwd), waitBudgetMs: TRUST_PAINT_MS,
+        herdr: host?.herdr?.request ?? herdrRequest, sock: opened.socket ? { sockPath: opened.socket } : {},
+        pane: parsePaneRef(opened.pane).paneId, ...(host?.log && { log: host.log }),
+        context: { ...(host?.gate && { agent: host.gate.agentId }), cwd }, trustsPath: cwdPath(cwd),
+        waitBudgetMs: host?.trustWaitMs ?? TRUST_PAINT_MS, ...host?.herdr?.trustBudgets,
       });
+    },
+    spawn: (argv, cwd, env, opts) => {
+      const proc = Bun.spawn(argv as [string, ...string[]], {
+        cwd,
+        env: withoutEnv({ ...process.env, ...env }, opts.unset),
+        stdin: opts.stdin !== undefined ? new Blob([opts.stdin]) : "ignore",
+        stdout: "pipe",
+        stderr: "ignore",
+      });
+      return { pid: proc.pid, exited: proc.exited, stdout: () => new Response(proc.stdout).text() };
     },
     agents: async () => (await import("../../runs/liveness.ts")).recentAgents(),
     registry: defaultRegistry,
@@ -234,11 +245,9 @@ function registryRow(registry: ClaudeRegistry, alive: (pid: number) => boolean, 
   return first;
 }
 
-/** Generation 1 is whatever the bind recorded; a later replacement that leaves no pane, socket or process attached is an observed detachment. */
+/** A Claude binding the store recorded as detached: its session left its attachment (a /clear, a fork, or a resume elsewhere). */
 export function isDetachedClaudeBinding(binding: SessionBinding): boolean {
-  const a = binding.attachment;
-  return binding.native.harness === HARNESS && a.generation > 1
-    && a.pane === undefined && a.socket === undefined && a.pid === undefined;
+  return binding.native.harness === HARNESS && isDetachedAttachment(binding);
 }
 
 export function claudeReadiness(
@@ -249,12 +258,16 @@ export function claudeReadiness(
   return { ready: false, reason: "Claude Code is not installed: there is no claude on PATH or in ~/.local/bin" };
 }
 
-/** Headless Claude runs one prompt per process, so it cannot launch without submitting its work. */
-export function claudeSupported(mode: Mode): Array<"launch" | "resume" | "observe"> {
-  return mode === "herdr" ? ["launch", "resume", "observe"] : ["observe"];
+/**
+ * Both modes launch and resume. Claude Code takes its first work on its launch
+ * line, so a launch that has work to follow binds rt's minted session id and
+ * starts nothing; the process starts when that work is submitted.
+ */
+export function claudeSupported(_mode: Mode): Array<"launch" | "resume" | "observe"> {
+  return ["launch", "resume", "observe"];
 }
 
-const HEADLESS_UNSUPPORTED = "headless Claude Code takes its prompt when it starts, so it cannot launch or resume ahead of its work";
+const NOT_SUBMITTABLE = "Claude Code takes its first work on its launch line; rt cannot yet submit work to a running Claude session";
 
 const HERDR_EXECUTION: Partial<Record<AgentEntry["status"], Observation["execution"]>> = {
   working: "working", blocked: "blocked", idle: "idle", done: "idle",
@@ -294,39 +307,71 @@ function herdrEntry(binding: SessionBinding, agents: AgentEntry[] | null): Agent
 export function createClaudeSessions(overrides: Partial<ClaudeSessionDeps> = {}): SessionAdapter {
   const deps: ClaudeSessionDeps = { ...defaultDeps(), ...overrides };
 
-  async function open(
-    request: LaunchRequest, session: AgentInvocation["session"], account: string | undefined, native: NativeSessionRef,
-  ): Promise<Outcome<NativeLaunch>> {
-    if (request.mode !== "herdr") return fail("unsupported", HEADLESS_UNSUPPORTED);
-    if (request.selection.harness !== HARNESS) return fail("invalid", `a ${request.selection.harness} selection cannot start Claude Code`);
+  /** Today's `rt agent` invocation for this request and host; `prompt` only when the work starts with the process. */
+  function invocation(
+    request: LaunchRequest, session: AgentInvocation["session"], account: string | undefined, headless: boolean, prompt?: string,
+  ): AgentInvocation {
     const { model, effort, extraArgs, yolo } = request.selection.options;
-    const inv: AgentInvocation = {
-      session, headless: false,
+    const host = request.host;
+    const settingsPath = host?.gate
+      ? writeClaudeGateHookSettings({
+        agentId: host.gate.agentId, ...(host.gate.subject !== undefined && { subject: host.gate.subject }),
+        ...(extraArgs !== undefined && { extraArgs }), inbound: !headless && host.chat === true,
+      }, host.log)
+      : undefined;
+    return {
+      session, headless,
       ...(account !== undefined && { account }),
       ...(model !== undefined && { model }),
       ...(effort !== undefined && { effort }),
+      ...(!headless && host?.chat === true && { inboundAccept: true }),
       ...(extraArgs !== undefined && { extraArgs }),
       ...(yolo !== undefined && { yolo }),
+      ...(prompt !== undefined && { prompt }),
+      ...(!headless && host?.env !== undefined && { env: host.env }),
+      ...(!headless && host?.unsetEnv !== undefined && host.unsetEnv.length > 0 && { unsetEnv: host.unsetEnv }),
+      ...(settingsPath !== undefined && { settingsPath }),
       ...(request.access.readRoots.length > 0 && { addDirs: request.access.readRoots }),
     };
+  }
+
+  async function openPane(request: LaunchRequest, inv: AgentInvocation): Promise<Outcome<Pick<NativeLaunch, "attachment" | "surface">>> {
     let command: string;
     try {
       command = buildPaneCommand(request.cwd, inv);
     } catch (err) {
       return fail("invalid", messageOf(err));
     }
-    const opened = await deps.openPane({ cwd: request.cwd, command, reservationId: request.reservationId });
+    const opened = await deps.openPane({
+      cwd: request.cwd, command, reservationId: request.reservationId, ...(request.host !== undefined && { host: request.host }),
+    });
     if (!opened.ok) return opened;
-    await deps.acceptTrust(opened.data, request.cwd);
-    const { pane, socket } = opened.data;
-    return ok({ native, attachment: { mode: "herdr", pane, ...(socket !== undefined && { socket }) } });
+    const trust = await deps.acceptTrust(opened.data, request.cwd, request.host);
+    const { pane, socket, tabId, workspaceId } = opened.data;
+    const surface = {
+      ...(tabId !== undefined && { tabId }), ...(workspaceId !== undefined && { workspaceId }), ...(typeof trust === "string" && { trust }),
+    };
+    return ok({
+      attachment: { mode: "herdr", pane, ...(socket !== undefined && { socket }) },
+      ...(Object.keys(surface).length > 0 && { surface }),
+    });
+  }
+
+  /** A launch with work to follow, and every headless one, binds the id and starts nothing: the process starts with its work. */
+  async function prepare(request: LaunchRequest, kind: PreparedLaunch["kind"], native: NativeSessionRef, account: string | undefined): Promise<Outcome<NativeLaunch>> {
+    if (request.selection.harness !== HARNESS) return fail("invalid", `a ${request.selection.harness} selection cannot start Claude Code`);
+    if (request.mode === "headless" || request.prompt !== undefined) return ok({ native, attachment: { mode: request.mode } });
+    const session: AgentInvocation["session"] = kind === "launch" ? { kind: "start", sessionId: native.value } : { kind: "resume", sessionId: native.value };
+    const opened = await openPane(request, invocation(request, session, account, false));
+    return opened.ok ? ok({ native, ...opened.data }) : opened;
   }
 
   return {
     async launch(request) {
       const account = request.selection.options.account;
-      const sessionId = deps.mintId();
-      return open(request, { kind: "start", sessionId }, account, claudeRef(account ?? LEGACY_DEFAULT_PROFILE, sessionId));
+      const hint = request.nativeHint;
+      const sessionId = hint !== undefined && isValidSessionUuid(hint) ? hint : deps.mintId();
+      return prepare(request, "launch", claudeRef(account ?? LEGACY_DEFAULT_PROFILE, sessionId), account);
     },
 
     async resume(native, request) {
@@ -337,7 +382,7 @@ export function createClaudeSessions(overrides: Partial<ClaudeSessionDeps> = {})
       if (asked !== undefined && asked !== account) {
         return fail("invalid", `this session belongs to ${native.profile}, and a Claude session resumes only under its own account`);
       }
-      return open(request, { kind: "resume", sessionId: native.value }, account, native);
+      return prepare(request, "resume", native, account);
     },
 
     async discover() {
@@ -370,7 +415,7 @@ export function createClaudeSessions(overrides: Partial<ClaudeSessionDeps> = {})
       const agents = await (sweep ? sweep.memo("claude:agents", () => deps.agents()) : deps.agents());
       const moved = movedBy(binding, agents, registry, deps.processAlive);
       if (moved) {
-        const detached = (await deps.store()).replaceAttachment(binding.key, attachment.generation, { mode: attachment.mode });
+        const detached = (await deps.store()).detach(binding.key, attachment.generation);
         if (!detached.ok) return detached;
         return seen({ connectivity: "disconnected", execution: "unknown", source: moved }, detached.data.attachment.generation);
       }
@@ -388,8 +433,60 @@ export function createClaudeSessions(overrides: Partial<ClaudeSessionDeps> = {})
       return seen({ connectivity, execution: "unknown", source: "none" });
     },
 
-    async startWork() {
-      return fail("unsupported", "Claude Code takes its first work on its launch line; rt cannot yet submit work to a running Claude session");
+    /** Starts the process a prepared launch deferred, with the work on its launch line (herdr) or its stdin (headless). */
+    async startWork(binding, input, prepared): Promise<Outcome<WorkReceipt>> {
+      const { native, attachment } = binding;
+      if (native.harness !== HARNESS || native.kind !== "id") return fail("invalid", "only a Claude Code session id takes work here");
+      if (!prepared || prepared.request.selection.harness !== HARNESS) return fail("unsupported", NOT_SUBMITTABLE);
+      if (attachment.pane !== undefined || attachment.pid !== undefined) return fail("unsupported", NOT_SUBMITTABLE);
+      const { request } = prepared;
+      const account = native.profile === LEGACY_DEFAULT_PROFILE ? undefined : native.profile;
+      const session: AgentInvocation["session"] = prepared.kind === "launch"
+        ? { kind: "start", sessionId: native.value } : { kind: "resume", sessionId: native.value };
+      const receipt = { id: input.id, evidence: "submitted" as const, nativeId: native.value };
+
+      if (request.mode === "herdr") {
+        const opened = await openPane(request, invocation(request, session, account, false, input.text));
+        return opened.ok ? ok({ ...receipt, ...opened.data }) : opened;
+      }
+
+      let argv: string[];
+      try {
+        argv = buildClaudeArgv(invocation(request, session, account, true, input.text));
+      } catch (err) {
+        return fail("invalid", messageOf(err));
+      }
+      const unset = request.host?.unsetEnv;
+      let child: ReturnType<RunWorkProcess>;
+      try {
+        child = (request.host?.runProcess ?? deps.spawn)(argv, request.cwd, request.host?.env ?? {}, {
+          stdin: input.text, ...(unset !== undefined && unset.length > 0 && { unset }),
+        });
+      } catch (err) {
+        // A spawn that throws never started a process, so nothing was sent.
+        return fail("not-ready", `Claude Code could not start: ${messageOf(err)}`);
+      }
+      const log = request.host?.log;
+      const completion = child.exited.then(async (exitCode) => {
+        try {
+          return { exitCode, body: await child.stdout() };
+        } catch (err) {
+          log?.warn({ err, session: native.value }, "agent: headless Claude output could not be read; its exit code still finishes the run");
+          return { exitCode, body: "" };
+        }
+      });
+      return ok({
+        ...receipt, attachment: { mode: "headless", ...(child.pid !== undefined && { pid: child.pid }) }, completion,
+      });
+    },
+
+    /** A running process on the session is the evidence; a resume's older process counts too, since starting another would be the duplicate. */
+    async reconcileWork(binding, probe) {
+      const { native } = binding;
+      if (native.harness !== HARNESS || native.kind !== "id") return fail("invalid", "only a Claude Code session id is reconciled here");
+      const found = registryRow(deps.registry, deps.processAlive, native.value);
+      const running = found?.live === true || (await deps.agents())?.some((entry) => entry.session === native.value) === true;
+      return ok(running ? { id: probe.id, evidence: "submitted", nativeId: native.value } : null);
     },
   };
 }
