@@ -39,7 +39,21 @@ export function BoxscoreRolesBody({
 
   const stored = (def.effective.value ?? {}) as Record<string, Role>;
   const editable = info?.access === 'owner' && row.status !== 'saving';
-  const roleOf = (u: string): Role => (stored[u] === 'team' ? 'team' : 'self');
+  const variants = (u: string) =>
+    Object.keys(stored).filter(k => k.toLowerCase() === u.toLowerCase());
+  const roleOf = (u: string): Role => {
+    const keys = variants(u);
+    return keys.length > 0 && keys.every(k => stored[k] === 'team')
+      ? 'team'
+      : 'self';
+  };
+  const saveRole = (u: string, v: Role) => {
+    const drop = new Set(variants(u));
+    const kept = Object.fromEntries(
+      Object.entries(stored).filter(([k]) => !drop.has(k))
+    );
+    void row.save({ ...kept, [u]: v });
+  };
 
   return (
     <Stack gap={8} py={8}>
@@ -48,6 +62,11 @@ export function BoxscoreRolesBody({
         page. This is a courtesy: each member&apos;s boxscore runs on their own
         Mac.
       </Text>
+      {info?.access === 'owner' && (
+        <Text fz={12} c="dimmed">
+          Your own Mac always sees the whole team.
+        </Text>
+      )}
       {info && info.access !== 'owner' && (
         <Text fz={12} c="dimmed">
           {NOTE[info.access]}
@@ -65,9 +84,7 @@ export function BoxscoreRolesBody({
               { value: 'team', label: 'Team' },
               { value: 'self', label: 'Self' },
             ]}
-            onChange={v =>
-              void row.save({ ...stored, [m.username]: v as Role })
-            }
+            onChange={v => saveRole(m.username, v as Role)}
           />
         </Group>
       ))}

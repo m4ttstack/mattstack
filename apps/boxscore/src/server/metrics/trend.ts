@@ -50,7 +50,9 @@ export function buildResponse(
       username,
       name: identity.name,
       resolved: identity.resolved,
-      isCurrentUser: username === ctx.currentUser,
+      isCurrentUser:
+        ctx.currentUser != null &&
+        username.toLowerCase() === ctx.currentUser.toLowerCase(),
       metrics: combine(cur, prev),
     };
   });

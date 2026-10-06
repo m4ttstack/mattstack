@@ -37,7 +37,8 @@ const { __setProviderFactory } = await import('../src/server/source/index.js');
 const { __setCurrentUser, __resetCurrentUser } =
   await import('../src/server/config/current-user.js');
 const { __setTeamReader } = await import('../src/server/config/team.js');
-const { ViewerForbiddenError } = await import('../src/server/viewer-scope.js');
+const { ViewerForbiddenError, LOCKED_MESSAGE } =
+  await import('../src/server/viewer-scope.js');
 
 const PROJECT = 'acme/app';
 const SETTINGS: Record<string, unknown> = {
@@ -294,5 +295,15 @@ describe('viewer roles', () => {
     const res = await getLeaderboard({ window, refresh: false, trend: false });
     expect(res.viewer).toEqual({ username: null, role: 'self' });
     expect(res.users).toEqual([]);
+  });
+
+  it('refuses a locked viewer detail with the locked message', async () => {
+    __resetCurrentUser();
+    await expect(
+      getUserDetail({ window, refresh: false, trend: false, user: 'bob' })
+    ).rejects.toMatchObject({
+      name: 'ViewerForbiddenError',
+      message: LOCKED_MESSAGE,
+    });
   });
 });

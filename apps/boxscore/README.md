@@ -131,6 +131,11 @@ The team owner decides, per member, how much of boxscore that member sees:
   Team view is a grant.
 - **The owner's Mac always gets Team view**, and so does a Mac with no team. The owner's Mac
   is the one whose team clone was not joined by invite.
+- **A Mac counts as a member's only when it joined the team by invite** with rt from
+  2026-09-08 on. A member who joined earlier, or cloned the team repo by hand, is treated as
+  the owner and sees the whole team until re-invited.
+- **A Mac that created one team and joined another counts as a member's**, so roles apply
+  there and the console control is read-only.
 - **The owner sets roles** in console's Boxscore group, or from boxscore's header gear, which
   frames that same group. A member's Mac shows the control read-only.
 - **Locked:** when boxscore cannot identify the viewer (the GitLab user lookup failed, or the

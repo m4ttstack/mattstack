@@ -6,10 +6,9 @@ import {
 } from '../shared/metrics.js';
 import type { LeaderboardResponse } from '../shared/types.js';
 import { validateLeaderboard } from './metrics/validate.js';
+import { LOCKED_MESSAGE } from './viewer-scope.js';
 
-/** Printed for a locked response, where the board could not identify the viewer. */
-export const LOCKED_MESSAGE =
-  "boxscore couldn't tell who you are. Check that your GitLab token is set and that your GitLab username is on the team roster in console.";
+export { LOCKED_MESSAGE };
 
 export function isLocked(res: LeaderboardResponse): boolean {
   return res.viewer.role === 'self' && res.viewer.username === null;

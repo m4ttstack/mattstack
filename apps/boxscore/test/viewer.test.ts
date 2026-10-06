@@ -80,6 +80,17 @@ describe('resolveViewer', () => {
     ).toEqual({ username: 'bob', role: 'team' });
   });
 
+  it('fails closed when case-variant role keys disagree', () => {
+    expect(
+      resolveViewer({
+        currentUser: 'bob',
+        roster,
+        roles: { Bob: 'team', bob: 'self' },
+        team: member,
+      })
+    ).toEqual({ username: 'bob', role: 'self' });
+  });
+
   it('treats an invalid role value as Self view', () => {
     expect(
       resolveViewer({

@@ -27,6 +27,7 @@ import {
 import { baseWindow, covers, priorWindow } from './util/window.js';
 import {
   canSeeUser,
+  LOCKED_MESSAGE,
   narrowForViewer,
   SELF_ONLY_MESSAGE,
   unrankedRow,
@@ -253,7 +254,9 @@ export async function getUserDetail(
 ): Promise<UserDetailResponse> {
   const { response, current, env } = await buildLeaderboard(opts);
   if (!canSeeUser(response.viewer, opts.user)) {
-    throw new ViewerForbiddenError(SELF_ONLY_MESSAGE);
+    throw new ViewerForbiddenError(
+      response.viewer.username === null ? LOCKED_MESSAGE : SELF_ONLY_MESSAGE
+    );
   }
   const want = opts.user.toLowerCase();
   const userRow = response.users.find(u => u.username.toLowerCase() === want);

@@ -13,10 +13,12 @@ function roleOf(roles: unknown, username: string): ViewerRole {
   if (typeof roles !== 'object' || roles === null || Array.isArray(roles))
     return 'self';
   const want = username.toLowerCase();
-  const hit = Object.entries(roles as Record<string, unknown>).find(
+  const hits = Object.entries(roles as Record<string, unknown>).filter(
     ([name]) => name.toLowerCase() === want
   );
-  return hit?.[1] === 'team' ? 'team' : 'self';
+  return hits.length > 0 && hits.every(([, value]) => value === 'team')
+    ? 'team'
+    : 'self';
 }
 
 export function resolveViewer(input: ViewerInput): Viewer {

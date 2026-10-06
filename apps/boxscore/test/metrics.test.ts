@@ -176,6 +176,19 @@ describe('buildResponse trend deltas (4.11)', () => {
     expect(alice.name).toBe('Alice');
   });
 
+  it('flags the current user across GitLab/roster case', () => {
+    const res = buildResponse(snapshot(), null, {
+      ...ctx(null),
+      currentUser: 'Alice',
+    });
+    expect(res.users.find(u => u.username === 'alice')!.isCurrentUser).toBe(
+      true
+    );
+    expect(res.users.find(u => u.username === 'bob')!.isCurrentUser).toBe(
+      false
+    );
+  });
+
   it('with prior snapshot => deltas computed, hasTrend true', () => {
     const current = snapshot();
     // Synthetic prior: alice had 100 additions, bob had 80.

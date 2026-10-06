@@ -68,6 +68,41 @@ describe('BoxscoreRolesBody', () => {
     expect(within(bob).getByRole('radio', { name: 'Self' })).toBeChecked();
   });
 
+  it('reads a stored role case-insensitively', async () => {
+    serve('owner');
+    renderWithProviders(
+      <BoxscoreRolesBody def={def({ ADA: 'team' })} row={row() as never} />
+    );
+    const ada = await screen.findByRole('radiogroup', { name: 'Role for ada' });
+    expect(within(ada).getByRole('radio', { name: 'Team' })).toBeChecked();
+  });
+
+  it('drops case-variant keys when saving a member', async () => {
+    serve('owner');
+    const r = row();
+    renderWithProviders(
+      <BoxscoreRolesBody
+        def={def({ Bob: 'self', ada: 'team' })}
+        row={r as never}
+      />
+    );
+    const bob = await screen.findByRole('radiogroup', { name: 'Role for bob' });
+    await userEvent.click(within(bob).getByRole('radio', { name: 'Team' }));
+    await waitFor(() =>
+      expect(r.save).toHaveBeenCalledWith({ ada: 'team', bob: 'team' })
+    );
+  });
+
+  it('tells the owner their own Mac sees the whole team', async () => {
+    serve('owner');
+    renderWithProviders(
+      <BoxscoreRolesBody def={def({})} row={row() as never} />
+    );
+    expect(
+      await screen.findByText('Your own Mac always sees the whole team.')
+    ).toBeInTheDocument();
+  });
+
   it('saves a grant for the owner', async () => {
     serve('owner');
     const r = row();
