@@ -1,7 +1,6 @@
-import { Invadr } from 'invadrs/react';
-
 import { Button, Chip, ICONS } from '@mattstack/tui-kit';
 import type { RosterMember } from '../types.ts';
+import { MemberInvadr } from './MemberInvadr.tsx';
 
 function Sidebar({
   members,
@@ -81,7 +80,7 @@ function Sidebar({
           title={m.name ?? m.username}
         >
           <span className="tui-side-name">
-            <Invadr id={m.username} palette="css-vars" className="tui-avatar" />{' '}
+            <MemberInvadr id={m.username} className="tui-avatar" />{' '}
             {m.name ?? m.username}
           </span>
           <span className="tui-side-right">

@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from 'react';
 
 import type { GateDomain } from '@mattstack/gate-kit';
@@ -96,6 +97,8 @@ import {
   useMerging,
   useOptimisticLifecycle,
 } from './hooks.ts';
+import { assignMemberLooks } from './invadr-colors.ts';
+import { MemberLooksProvider } from './MemberInvadr.tsx';
 import { NEED_LABEL, NEED_ORDER, needOf } from './needs-me.ts';
 import { overlay, overlayMerging } from './optimistic.ts';
 import { OwnersPostModal } from './OwnersPostModal.tsx';
@@ -893,6 +896,10 @@ export function Board() {
   // called unconditionally, as every hook in this component must be: a
   // render where `data` is still null must call exactly the hooks it always
   // calls, never fewer.
+  const memberLooks = useMemo(
+    () => assignMemberLooks((data?.members ?? []).map(m => m.username)),
+    [data?.members]
+  );
   const boardView = useMemo(() => {
     if (!data) return null;
     const total = data.members.reduce((n, m) => n + m.count, 0);
@@ -963,10 +970,7 @@ export function Board() {
         const n = need(mr);
         return n && { label: NEED_LABEL[n], order: NEED_ORDER.indexOf(n) };
       }
-    ).map(g => ({
-      label: g.label,
-      mrs: sortMRs(g.mrs, state.sort),
-    }));
+    ).map(g => ({ ...g, mrs: sortMRs(g.mrs, state.sort) }));
     return {
       tabs,
       activeTab,
@@ -1309,379 +1313,413 @@ export function Board() {
     onOpenTurnSettings: openTurnConfig,
   };
 
+  /** A group's header band colour: its status pill's hue, or its author's
+      avatar colour; any other grouping keeps the neutral band. */
+  const groupBand = (g: {
+    label: string;
+    author?: string;
+  }): { hue?: string; style?: CSSProperties } => {
+    if (state.group === 'status') return { hue: statusGroupHue(g.label) };
+    const look =
+      state.group === 'author' && g.author
+        ? memberLooks.get(g.author)
+        : undefined;
+    if (!look) return {};
+    return {
+      hue: 'author',
+      style: {
+        '--pill': look.color,
+        '--pill-text': 'var(--text-1)',
+      } as CSSProperties,
+    };
+  };
+
   return (
-    <div className="tui tui-app">
-      {/* Desktop roster (hidden on mobile, where it moves into the drawer).
+    <MemberLooksProvider value={memberLooks}>
+      <div className="tui tui-app">
+        {/* Desktop roster (hidden on mobile, where it moves into the drawer).
           Also hidden on a codeowners tab: it isn't filtered by member, so the
           roster has nothing to drive. */}
-      <Sidebar
-        members={roster}
-        total={rosterTotal}
-        active={state.member}
-        onPick={member => update({ member })}
-        onSettings={openSettings}
-        onConfig={openConfig}
-        scopeUncovered={data.scopeUncovered}
-        note={inferredNote}
-        queue={
-          queueEntries.length > 0
-            ? { count: queueEntries.length, open: queue.openAtStart }
-            : null
-        }
-      />
+        <Sidebar
+          members={roster}
+          total={rosterTotal}
+          active={state.member}
+          onPick={member => update({ member })}
+          onSettings={openSettings}
+          onConfig={openConfig}
+          scopeUncovered={data.scopeUncovered}
+          note={inferredNote}
+          queue={
+            queueEntries.length > 0
+              ? { count: queueEntries.length, open: queue.openAtStart }
+              : null
+          }
+        />
 
-      <div className="tui-main">
-        <header className="tui-header">
-          {/* Mobile-only: burger opens the drawer with roster + controls. */}
-          <button
-            className="tui-burger"
-            onClick={() => setMenuOpen(true)}
-            aria-label="open menu"
-          >
-            {ICONS.menu}
-          </button>
-          <div className="tui-header-title">
-            <h1>
-              <AppMark />
-              <span>{data.title.toLowerCase()}</span>{' '}
-              {activeMember && (
-                <span className="tui-author">
-                  --author @{activeMember.username}
-                </span>
-              )}
-            </h1>
-            <TurnSummary
-              counts={summary}
-              synced={dataAge}
-              onNeedsMe={
-                needsMeCount === null
-                  ? null
-                  : () => update({ tab: NEEDS_ME_TAB.id })
+        <div className="tui-main">
+          <header className="tui-header">
+            {/* Mobile-only: burger opens the drawer with roster + controls. */}
+            <button
+              className="tui-burger"
+              onClick={() => setMenuOpen(true)}
+              aria-label="open menu"
+            >
+              {ICONS.menu}
+            </button>
+            <div className="tui-header-title">
+              <h1>
+                <AppMark />
+                <span>{data.title.toLowerCase()}</span>{' '}
+                {activeMember && (
+                  <span className="tui-author">
+                    --author @{activeMember.username}
+                  </span>
+                )}
+              </h1>
+              <TurnSummary
+                counts={summary}
+                synced={dataAge}
+                onNeedsMe={
+                  needsMeCount === null
+                    ? null
+                    : () => update({ tab: NEEDS_ME_TAB.id })
+                }
+              />
+            </div>
+            <div className="tui-controls tui-controls-header">
+              <Controls {...controlProps} />
+            </div>
+            {controlProps.show && <AlsoShow show={controlProps.show} />}
+            <div className="tui-header-corner">
+              <RefreshControl onRefresh={refreshNow} refreshing={refreshing} />
+              <ThemeControl theme={theme} pickTheme={pickTheme} />
+            </div>
+            <TabBar
+              tabs={tabs}
+              active={state.tab}
+              counts={
+                needsMeCount === null ? {} : { [NEEDS_ME_TAB.id]: needsMeCount }
+              }
+              onPick={tab => update({ tab })}
+              syncing={tabSyncing}
+              unknown={unknownTabs}
+            />
+          </header>
+
+          {selectedMrs.length > 0 && (
+            <SelectionBar
+              selectedMrs={selectedMrs}
+              inViewCount={selectionOf(filtered, selected).length}
+              templates={data.slackTemplates}
+              onClear={clearSelection}
+              posting={postingSummary}
+              onActions={
+                data.local
+                  ? (x, y) => {
+                      const first = selectedMrs[0];
+                      if (first) setRowMenu({ x, y, mr: first });
+                    }
+                  : undefined
+              }
+              slackPost={
+                data.slackEnabled && data.local && postableSelected.length > 0
+                  ? {
+                      count: postableSelected.length,
+                      // Clear only on success: the posted MRs drop out of
+                      // postableSelected, so leaving them checked would sit the
+                      // bar there with no post button and read like a bug.
+                      send: header =>
+                        handlePostSummary(
+                          postableSelected,
+                          header,
+                          clearSelection
+                        ),
+                    }
+                  : null
               }
             />
-          </div>
-          <div className="tui-controls tui-controls-header">
-            <Controls {...controlProps} />
-          </div>
-          {controlProps.show && <AlsoShow show={controlProps.show} />}
-          <div className="tui-header-corner">
-            <RefreshControl onRefresh={refreshNow} refreshing={refreshing} />
-            <ThemeControl theme={theme} pickTheme={pickTheme} />
-          </div>
-          <TabBar
-            tabs={tabs}
-            active={state.tab}
-            counts={
-              needsMeCount === null ? {} : { [NEEDS_ME_TAB.id]: needsMeCount }
-            }
-            onPick={tab => update({ tab })}
-            syncing={tabSyncing}
-            unknown={unknownTabs}
-          />
-        </header>
+          )}
 
-        {selectedMrs.length > 0 && (
-          <SelectionBar
-            selectedMrs={selectedMrs}
-            inViewCount={selectionOf(filtered, selected).length}
-            templates={data.slackTemplates}
-            onClear={clearSelection}
-            posting={postingSummary}
-            onActions={
-              data.local
-                ? (x, y) => {
-                    const first = selectedMrs[0];
-                    if (first) setRowMenu({ x, y, mr: first });
-                  }
-                : undefined
-            }
-            slackPost={
-              data.slackEnabled && data.local && postableSelected.length > 0
-                ? {
-                    count: postableSelected.length,
-                    // Clear only on success: the posted MRs drop out of
-                    // postableSelected, so leaving them checked would sit the
-                    // bar there with no post button and read like a bug.
-                    send: header =>
-                      handlePostSummary(
-                        postableSelected,
-                        header,
-                        clearSelection
-                      ),
-                  }
-                : null
-            }
-          />
-        )}
+          {freshness && (
+            <div
+              className="tui-banner"
+              data-intent={freshness.intent === 'bad' ? 'bad' : undefined}
+              role="status"
+              title={freshness.title}
+            >
+              {freshness.text}
+            </div>
+          )}
+          {windowMismatch && (
+            <div className="tui-banner">⚠ {windowMismatch}</div>
+          )}
 
-        {freshness && (
-          <div
-            className="tui-banner"
-            data-intent={freshness.intent === 'bad' ? 'bad' : undefined}
-            role="status"
-            title={freshness.title}
-          >
-            {freshness.text}
-          </div>
-        )}
-        {windowMismatch && <div className="tui-banner">⚠ {windowMismatch}</div>}
+          {data.switchboardTokenMissing && (
+            <div className="tui-banner" data-intent="bad" role="alert">
+              ⚠ no switchboard token, so peer asks can't reach this board · ask
+              the team owner to re-invite it from their members panel (
+              <code>rt team invite</code>)
+              {data.local && (
+                <button
+                  type="button"
+                  className="tui-banner-btn"
+                  onClick={openSettings}
+                >
+                  paste an invite
+                </button>
+              )}
+            </div>
+          )}
 
-        {data.switchboardTokenMissing && (
-          <div className="tui-banner" data-intent="bad" role="alert">
-            ⚠ no switchboard token, so peer asks can't reach this board · ask
-            the team owner to re-invite it from their members panel (
-            <code>rt team invite</code>)
-            {data.local && (
+          {activeTab.source.kind === 'codeowners' && activeSection?.unknown && (
+            <div className="tui-banner" data-intent="bad" role="alert">
+              ⚠ no CODEOWNERS section "{activeTab.source.section}"
+              {activeSection.suggestion && (
+                <> · did you mean "{activeSection.suggestion}"?</>
+              )}
               <button
                 type="button"
                 className="tui-banner-btn"
-                onClick={openSettings}
+                onClick={openConfig}
               >
-                paste an invite
+                fix in settings
               </button>
-            )}
-          </div>
-        )}
+            </div>
+          )}
 
-        {activeTab.source.kind === 'codeowners' && activeSection?.unknown && (
-          <div className="tui-banner" data-intent="bad" role="alert">
-            ⚠ no CODEOWNERS section "{activeTab.source.section}"
-            {activeSection.suggestion && (
-              <> · did you mean "{activeSection.suggestion}"?</>
-            )}
-            <button
-              type="button"
-              className="tui-banner-btn"
-              onClick={openConfig}
-            >
-              fix in settings
-            </button>
-          </div>
-        )}
+          {filtered.length === 0 &&
+          !data.fetchError &&
+          freshness?.intent !== 'bad' &&
+          !activeSection?.unknown ? (
+            <p className="tui-empty">
+              {memberFiltered.length > 0
+                ? 'nothing to show with these picks'
+                : 'nothing waiting on review ✓'}
+            </p>
+          ) : (
+            groups.map(g => {
+              const band = groupBand(g);
+              return (
+                // Panel lays its own style over a passed one, so the band's
+                // colour rides this wrapper and reaches the panel by
+                // inheritance; display: contents keeps it out of layout.
+                <div key={g.label} className="tui-group" style={band.style}>
+                  <Panel
+                    title={g.label}
+                    count={g.mrs.length}
+                    data-hue={band.hue}
+                    // Pins the LEGACY persistence key: the recipe defaults to its own
+                    // "tui-panel-collapsed", and switching would orphan every panel a
+                    // user has already folded up.
+                    storageKey={PANEL_COLLAPSED_KEY}
+                  >
+                    <RowView
+                      mrs={g.mrs}
+                      now={now}
+                      showAuthor={showAuthorIn(g)}
+                      ctx={rowCtx}
+                    />
+                  </Panel>
+                </div>
+              );
+            })
+          )}
+        </div>
 
-        {filtered.length === 0 &&
-        !data.fetchError &&
-        freshness?.intent !== 'bad' &&
-        !activeSection?.unknown ? (
-          <p className="tui-empty">
-            {memberFiltered.length > 0
-              ? 'nothing to show with these picks'
-              : 'nothing waiting on review ✓'}
-          </p>
-        ) : (
-          groups.map(g => (
-            <Panel
-              key={g.label}
-              title={g.label}
-              count={g.mrs.length}
-              data-hue={
-                state.group === 'status' ? statusGroupHue(g.label) : undefined
+        {/* Mobile drawer: roster + controls, tucked behind the burger. */}
+        {menuOpen && (
+          <SideDrawer
+            // `side` replaces the two class-name props: it drives the panel's
+            // width, border edge, shadow, padding/gap and the overlay's
+            // stacking + alignment. The one thing it does NOT carry is this
+            // drawer's below-720px-only existence, which is a board layout
+            // decision -- style.css keeps that as a two-rule display gate on
+            // [data-part="sidedrawer-overlay"][data-side="left"].
+            side="left"
+            ariaLabel="menu"
+            onClose={() => setMenuOpen(false)}
+          >
+            <div className="tui-drawer-head">
+              <span className="tui-modal-title">❯ menu</span>
+              <button
+                className="tui-modal-x"
+                onClick={() => setMenuOpen(false)}
+                aria-label="close menu"
+              >
+                {ICONS.close}
+              </button>
+            </div>
+            <Sidebar
+              members={roster}
+              total={rosterTotal}
+              active={state.member}
+              onPick={member => {
+                update({ member });
+                setMenuOpen(false);
+              }}
+              onSettings={openSettings}
+              onConfig={openConfig}
+              scopeUncovered={data.scopeUncovered}
+              note={inferredNote}
+              queue={
+                queueEntries.length > 0
+                  ? {
+                      count: queueEntries.length,
+                      open: () => {
+                        setMenuOpen(false);
+                        queue.openAtStart();
+                      },
+                    }
+                  : null
               }
-              // Pins the LEGACY persistence key: the recipe defaults to its own
-              // "tui-panel-collapsed", and switching would orphan every panel a
-              // user has already folded up.
-              storageKey={PANEL_COLLAPSED_KEY}
-            >
-              <RowView
-                mrs={g.mrs}
-                now={now}
-                showAuthor={showAuthorIn(g)}
-                ctx={rowCtx}
-              />
-            </Panel>
-          ))
+            />
+            <div className="tui-drawer-controls">
+              <Controls {...controlProps} stacked />
+            </div>
+          </SideDrawer>
         )}
-      </div>
 
-      {/* Mobile drawer: roster + controls, tucked behind the burger. */}
-      {menuOpen && (
-        <SideDrawer
-          // `side` replaces the two class-name props: it drives the panel's
-          // width, border edge, shadow, padding/gap and the overlay's
-          // stacking + alignment. The one thing it does NOT carry is this
-          // drawer's below-720px-only existence, which is a board layout
-          // decision -- style.css keeps that as a two-rule display gate on
-          // [data-part="sidedrawer-overlay"][data-side="left"].
-          side="left"
-          ariaLabel="menu"
-          onClose={() => setMenuOpen(false)}
-        >
-          <div className="tui-drawer-head">
-            <span className="tui-modal-title">❯ menu</span>
-            <button
-              className="tui-modal-x"
-              onClick={() => setMenuOpen(false)}
-              aria-label="close menu"
-            >
-              {ICONS.close}
-            </button>
-          </div>
-          <Sidebar
-            members={roster}
-            total={rosterTotal}
-            active={state.member}
-            onPick={member => {
-              update({ member });
-              setMenuOpen(false);
+        {showSettings && (
+          <SettingsModal
+            members={data.allMembers}
+            canInvite={data.canInvite}
+            local={data.local}
+            peering={data.peering}
+            defaultMember={data.defaultMember}
+            onToggle={toggleMember}
+            onJoined={() => load()}
+            onClose={() => setShowSettings(false)}
+          />
+        )}
+
+        {showConfig && (
+          <ConfigModal
+            tabs={data.tabs}
+            knownSections={data.scopeKnownSections}
+            focusKey={configFocus}
+            onSaved={() => load()}
+            onClose={() => setShowConfig(false)}
+            onOpenRoster={() => {
+              setShowConfig(false);
+              setShowSettings(true);
             }}
-            onSettings={openSettings}
-            onConfig={openConfig}
-            scopeUncovered={data.scopeUncovered}
-            note={inferredNote}
-            queue={
-              queueEntries.length > 0
-                ? {
-                    count: queueEntries.length,
-                    open: () => {
-                      setMenuOpen(false);
-                      queue.openAtStart();
-                    },
-                  }
-                : null
+          />
+        )}
+
+        {rowMenu &&
+          (bulkEntries ? (
+            <ActionMenu
+              x={rowMenu.x}
+              y={rowMenu.y}
+              subject={`${selectedMrs.length} selected`}
+              entries={bulkEntries}
+              empty={`nothing fits all ${selectedMrs.length}`}
+              flat
+              onClose={() => setRowMenu(null)}
+              onRun={(key, opts) => {
+                const entry = bulkEntries.find(e => e.key === key);
+                return entry ? runBulk(entry, opts, runner) : undefined;
+              }}
+            />
+          ) : (
+            <RowMenu
+              menu={rowMenu}
+              env={actionEnv}
+              onRun={runRowAction}
+              onClose={() => setRowMenu(null)}
+            />
+          ))}
+
+        {reviewModal && (
+          <ReviewModal mr={reviewModal} onClose={() => setReviewModal(null)} />
+        )}
+        {respondModal && (
+          <RespondModal
+            mr={respondModal}
+            onClose={() => setRespondModal(null)}
+          />
+        )}
+
+        {queue.open && queue.active && activeGateId && (
+          <DecisionQueueModal
+            key={activeGateId}
+            gate={queue.active.gate}
+            mr={queue.active.mr}
+            position={queue.position}
+            states={queue.states}
+            nextPeek={queue.nextPeek}
+            onClose={queue.close}
+            onNext={queue.next}
+            onBack={queue.back}
+            canBack={queue.canBack}
+            canNext={queue.canNext}
+            onFocusPane={handleFocusPane}
+            onAnswered={retireActiveGate}
+            onContinue={retireActiveGate}
+            onLostChange={lost => queue.hold(lost ? activeGateId : null)}
+            readOnly={gateReadOnlyReason(
+              queue.active.gate,
+              queue.active.mr,
+              effectiveSeat(data.defaultMember, data.tokenUser)
+            )}
+            people={
+              new Map(
+                data.members.flatMap(m =>
+                  m.name ? [[m.username, m.name] as const] : []
+                )
+              )
             }
           />
-          <div className="tui-drawer-controls">
-            <Controls {...controlProps} stacked />
-          </div>
-        </SideDrawer>
-      )}
+        )}
+        {queue.open && queue.complete && (
+          <DecisionQueueComplete
+            decided={decidedEntries(queue.answeredIds, data, queue.seenEntries)}
+            onClose={queue.close}
+          />
+        )}
 
-      {showSettings && (
-        <SettingsModal
-          members={data.allMembers}
-          canInvite={data.canInvite}
-          local={data.local}
-          peering={data.peering}
-          defaultMember={data.defaultMember}
-          onToggle={toggleMember}
-          onJoined={() => load()}
-          onClose={() => setShowSettings(false)}
-        />
-      )}
+        {draftModal && (
+          <DraftModal
+            mr={draftModal.mr}
+            draft={draftModal.draft}
+            local={data.local}
+            canPost={isOwnMr(
+              draftModal.mr,
+              effectiveSeat(data.defaultMember, data.tokenUser)
+            )}
+            onResolved={handleDraftResolved}
+            onClose={() => setDraftModal(null)}
+          />
+        )}
 
-      {showConfig && (
-        <ConfigModal
-          tabs={data.tabs}
-          knownSections={data.scopeKnownSections}
-          focusKey={configFocus}
-          onSaved={() => load()}
-          onClose={() => setShowConfig(false)}
-          onOpenRoster={() => {
-            setShowConfig(false);
-            setShowSettings(true);
-          }}
-        />
-      )}
-
-      {rowMenu &&
-        (bulkEntries ? (
-          <ActionMenu
-            x={rowMenu.x}
-            y={rowMenu.y}
-            subject={`${selectedMrs.length} selected`}
-            entries={bulkEntries}
-            empty={`nothing fits all ${selectedMrs.length}`}
-            flat
-            onClose={() => setRowMenu(null)}
-            onRun={(key, opts) => {
-              const entry = bulkEntries.find(e => e.key === key);
-              return entry ? runBulk(entry, opts, runner) : undefined;
+        {ownersPost && (
+          <OwnersPostModal
+            mr={ownersPost}
+            onPosted={channels => {
+              addToast(
+                `posted !${ownersPost.iid} to ${channels.map(c => `#${c}`).join(', ')}`
+              );
+              setOwnersPost(null);
             }}
+            onClose={() => setOwnersPost(null)}
           />
-        ) : (
-          <RowMenu
-            menu={rowMenu}
-            env={actionEnv}
-            onRun={runRowAction}
-            onClose={() => setRowMenu(null)}
+        )}
+
+        {commentsFor && (
+          <CommentsDrawer
+            mr={
+              data.mrs.find(
+                m => !!m.webUrl && m.webUrl === commentsFor.webUrl
+              ) ?? commentsFor
+            }
+            local={data.local}
+            self={effectiveSeat(data.defaultMember, data.tokenUser)}
+            onClose={() => setCommentsFor(null)}
           />
-        ))}
+        )}
 
-      {reviewModal && (
-        <ReviewModal mr={reviewModal} onClose={() => setReviewModal(null)} />
-      )}
-      {respondModal && (
-        <RespondModal mr={respondModal} onClose={() => setRespondModal(null)} />
-      )}
-
-      {queue.open && queue.active && activeGateId && (
-        <DecisionQueueModal
-          key={activeGateId}
-          gate={queue.active.gate}
-          mr={queue.active.mr}
-          position={queue.position}
-          states={queue.states}
-          nextPeek={queue.nextPeek}
-          onClose={queue.close}
-          onNext={queue.next}
-          onBack={queue.back}
-          canBack={queue.canBack}
-          canNext={queue.canNext}
-          onFocusPane={handleFocusPane}
-          onAnswered={retireActiveGate}
-          onContinue={retireActiveGate}
-          onLostChange={lost => queue.hold(lost ? activeGateId : null)}
-          readOnly={gateReadOnlyReason(
-            queue.active.gate,
-            queue.active.mr,
-            effectiveSeat(data.defaultMember, data.tokenUser)
-          )}
-          people={
-            new Map(
-              data.members.flatMap(m =>
-                m.name ? [[m.username, m.name] as const] : []
-              )
-            )
-          }
-        />
-      )}
-      {queue.open && queue.complete && (
-        <DecisionQueueComplete
-          decided={decidedEntries(queue.answeredIds, data, queue.seenEntries)}
-          onClose={queue.close}
-        />
-      )}
-
-      {draftModal && (
-        <DraftModal
-          mr={draftModal.mr}
-          draft={draftModal.draft}
-          local={data.local}
-          canPost={isOwnMr(
-            draftModal.mr,
-            effectiveSeat(data.defaultMember, data.tokenUser)
-          )}
-          onResolved={handleDraftResolved}
-          onClose={() => setDraftModal(null)}
-        />
-      )}
-
-      {ownersPost && (
-        <OwnersPostModal
-          mr={ownersPost}
-          onPosted={channels => {
-            addToast(
-              `posted !${ownersPost.iid} to ${channels.map(c => `#${c}`).join(', ')}`
-            );
-            setOwnersPost(null);
-          }}
-          onClose={() => setOwnersPost(null)}
-        />
-      )}
-
-      {commentsFor && (
-        <CommentsDrawer
-          mr={
-            data.mrs.find(m => !!m.webUrl && m.webUrl === commentsFor.webUrl) ??
-            commentsFor
-          }
-          local={data.local}
-          self={effectiveSeat(data.defaultMember, data.tokenUser)}
-          onClose={() => setCommentsFor(null)}
-        />
-      )}
-
-      <ToastHost toasts={toasts} />
-    </div>
+        <ToastHost toasts={toasts} />
+      </div>
+    </MemberLooksProvider>
   );
 }

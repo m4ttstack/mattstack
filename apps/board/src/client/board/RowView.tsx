@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import { Invadr } from 'invadrs/react';
 
 import { SelectBox } from '@mattstack/tui-kit';
 import type { BoardMR } from '../../data.ts';
@@ -20,6 +19,7 @@ import {
   FlagGlyph,
   SlackLogo,
 } from './icons.tsx';
+import { MemberInvadr } from './MemberInvadr.tsx';
 import { mrRef } from './MrLinks.tsx';
 import { rowStatus, statusPhrase, statusReasons } from './row-status.ts';
 import { RowNote } from './RowNote.tsx';
@@ -191,11 +191,7 @@ function AuthorTag({ mr }: { mr: BoardMR }) {
   const name = mr.author.name || mr.author.username;
   return (
     <span className="tui-author-tag" title={name}>
-      <Invadr
-        id={mr.author.username}
-        palette="css-vars"
-        className="tui-avatar"
-      />
+      <MemberInvadr id={mr.author.username} className="tui-avatar" />
       {name}
     </span>
   );
