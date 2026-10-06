@@ -25,16 +25,16 @@
  * path, write and commit the notes, tag and verify in one resumable run
  * (lib/release/release-app.ts).
  */
-import { readFileSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir, homedir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError, failureFor, logFailureDetail } from "../lib/errors.ts";
 import { refusalNote } from "./git/shared.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
-import { runCapture } from "../lib/subprocess.ts";
+import { childEnv, runCapture } from "../lib/subprocess.ts";
 import { runPreflight, type CheckRow, type PreflightSeams } from "../lib/release/preflight.ts";
 import { runVerify, type VerifyRow, type VerifySeams } from "../lib/release/verify.ts";
 import {
@@ -46,6 +46,8 @@ import {
   type UpdateMachineSeams,
 } from "../lib/release/update-machine.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
+import { readDevModeConfig } from "./settings.ts";
+import { NOTARY_PROFILE_DEFAULT } from "../lib/release/dev-publish.ts";
 import {
   listJoin,
   notesDeclined,
@@ -161,11 +163,11 @@ export async function createRealUpdateMachineSeams(options: UpdateMachineOptions
   const needsWorkDir = !options.plan && !options.verifyOnly;
   return {
     repoRoot: top.exitCode === 0 ? top.stdout.trim() : process.cwd(),
-    sharedCheckoutPath: resolveSharedCheckout(homedir()),
+    sharedCheckoutPath: resolveSharedCheckout(homedir(), existsSync, readDevModeConfig().sourcePath ?? null),
     workDir: needsWorkDir ? mkdtempSync(join(tmpdir(), "rt-update-machine-")) : "",
     uid: process.getuid ? process.getuid() : 501,
     isTTY: interactive(),
-    exec: (argv, opts) => runCapture(argv, { stderr: "pipe", timeoutMs: 600_000, ...opts }),
+    exec: (argv, opts) => runCapture(argv, { stderr: "pipe", timeoutMs: 600_000, ...opts, ...(opts?.env ? { env: { ...childEnv(), ...opts.env } } : {}) }),
     download: async (url, destPath) => {
       const res = await fetch(url, { signal: AbortSignal.timeout(300_000) });
       if (!res.ok) throw new Error(`${url} answered ${res.status}`);
@@ -178,6 +180,11 @@ export async function createRealUpdateMachineSeams(options: UpdateMachineOptions
         return null;
       }
     },
+    writeFile: async (path, content) => {
+      mkdirSync(dirname(path), { recursive: true });
+      await Bun.write(path, content);
+    },
+    notaryProfile: process.env.NOTARY_PROFILE || NOTARY_PROFILE_DEFAULT,
     confirm: (message) => confirm({ message }),
     announce: async (message) => (await runCapture(["rt", "chat", "post", CHAT_ROOM, message], { timeoutMs: 30_000 })).exitCode === 0,
     clock: () => new Date(),

@@ -37,6 +37,14 @@ rt settings source-path                     # show it
 rt settings source-path ~/code/repo-tools   # set it (rewrites the dev wrapper if it owns ~/.local/bin/rt)
 ```
 
+A collaborator with push access to `m4ttstack/mattstack` gets the dev app with
+`rt dev setup`, run from mattstack.app: it checks git, bun and Go (offering to
+install them), clones the repo into the repo root, builds it, points rt at the
+clone, installs the notarized dev app from the newest release that has one,
+switches the Mac over and registers the apps with deck from the clone.
+`rt dev update` keeps the tools, rt-ui and the dev app current. The tray's
+Rebuild menu needs the maintainers' signing certificate and refuses without it.
+
 ## Exercising the installer
 
 ```bash
