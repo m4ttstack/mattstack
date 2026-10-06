@@ -362,6 +362,36 @@ describe('viewer roles', () => {
       ).rejects.toBeInstanceOf(UnknownViewAsError);
     });
 
+    it('404s an unknown viewAs before any refresh fetch', async () => {
+      const { scans } = fakeProvider();
+      await expect(
+        getLeaderboard({ ...opts, refresh: true, viewAs: 'mallory' })
+      ).rejects.toBeInstanceOf(UnknownViewAsError);
+      expect(scans).toEqual([]);
+    });
+
+    it('does not refuse a Self viewer for an unknown viewAs, and still refreshes', async () => {
+      delete ROLES_SETTINGS['boxscore.roles'];
+      const { scans } = fakeProvider();
+      const res = await getLeaderboard({
+        ...opts,
+        refresh: true,
+        viewAs: 'mallory',
+      });
+      expect(res.previewing).toBe(false);
+      expect(scans.length).toBeGreaterThan(0);
+    });
+
+    it("drops the previewer's own lookup-failed warning, keeps it otherwise", async () => {
+      __setTeamReader(() => null);
+      __resetCurrentUser();
+      const plain = await getLeaderboard(opts);
+      expect(plain.warnings.map(w => w.code)).toContain('user_lookup_failed');
+      const res = await getLeaderboard({ ...opts, viewAs: 'bob' });
+      expect(res.previewing).toBe(true);
+      expect(res.warnings.map(w => w.code)).not.toContain('user_lookup_failed');
+    });
+
     it('ignores viewAs for a Self viewer', async () => {
       delete ROLES_SETTINGS['boxscore.roles'];
       const res = await getLeaderboard({ ...opts, viewAs: 'bob' });

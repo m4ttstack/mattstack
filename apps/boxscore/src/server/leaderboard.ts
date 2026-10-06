@@ -149,6 +149,18 @@ async function buildLeaderboard(
     : opts.window;
   const warnings: LeaderboardWarning[] = [];
 
+  // Resolved before the refresh so an unknown viewAs 404s without fetching anything.
+  const who = await getCurrentUser(env.baseUrl, env.token);
+  const { viewer, previewing } = applyViewAs(
+    resolveViewer({
+      currentUser: who?.username ?? null,
+      roster: settings.roster,
+      roles: settings.roles,
+      team: readTeamMembership(),
+    }),
+    opts.viewAs,
+    settings.roster
+  );
   if (opts.refresh) {
     // Spec 7.3: the refresh covers the base window (90 days, 180 with trend), so switching
     // presets never refetches; only a range the base cannot cover is fetched as itself.
@@ -176,24 +188,13 @@ async function buildLeaderboard(
     );
   }
 
-  const who = await getCurrentUser(env.baseUrl, env.token);
-  if (!who) {
+  if (!who && !previewing) {
     warnings.push({
       code: 'user_lookup_failed',
       message: 'GitLab /user lookup failed; no row is highlighted as you',
     });
   }
 
-  const { viewer, previewing } = applyViewAs(
-    resolveViewer({
-      currentUser: who?.username ?? null,
-      roster: settings.roster,
-      roles: settings.roles,
-      team: readTeamMembership(),
-    }),
-    opts.viewAs,
-    settings.roster
-  );
   // A Self viewer is computed alone: hiddenMembers is a Team view overlay.
   const compared =
     viewer.role === 'team'
