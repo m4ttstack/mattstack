@@ -329,7 +329,7 @@ describe("scopeEntries", () => {
   });
   test("teamScope is prefix-safe: mattstack-tools/ is not mattstack/", () => {
     expect(teamScope("mattstack-tools/x")).toBe(false);
-    expect(teamScope("mattstack/secrets/board.json")).toBe(true);
+    expect(teamScope("mattstack/org/secrets/board.json")).toBe(true);
     expect(teamScope(".sops.yaml")).toBe(true);
     expect(teamScope(".sops.yaml.bak")).toBe(false);
   });

@@ -30,6 +30,10 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSy
 import { applyEdits, modify } from "jsonc-parser";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
+import { otherOrgRefusal, packOrg } from "../lib/skills/pack-org.ts";
+import { readOrgRoles } from "../packages/rt-client/src/settings/active-team.ts";
+import { readForgeUsername } from "../packages/rt-client/src/settings/team-local-read.ts";
+import { roleOf, writeRefusalFor } from "../packages/rt-client/src/settings/org-roles.ts";
 import { mattstackHome } from "../lib/rt-paths.ts";
 import { childEnv, runCapture } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
@@ -48,10 +52,10 @@ import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.t
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
-import { isBasePack, readZonesFrom, type InitFs } from "../lib/skills/init.ts";
+import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
-import { discoverPacks, findEnclosingPack, surfaceFileFor, type PackInfo } from "../lib/skills/packs.ts";
+import { discoverPacks, findEnclosingPack, solePack, surfaceFileFor, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
@@ -65,6 +69,8 @@ import {
   loadAttachment,
   loadInclude,
   loadStepSource,
+  orgBasePackRoots,
+  orgOfPackDir,
   parseStageQualifiedName,
   readManifestBindings,
   readManifestPipelines,
@@ -78,6 +84,8 @@ import {
   type SurfaceConfig,
 } from "../lib/skills/sources.ts";
 import type { AttachmentSource, CompileResult, Side, StageEntry, StepSource, VerbDef } from "../lib/skills/types.ts";
+
+export const NO_PACKS_WHY = "A pack is a folder with a surface file: a plugin from a directory marketplace, or a team's or the org's pack folder in your org repo.";
 
 /**
  * An expected, user-facing condition (bad flags, an absent binding, an
@@ -95,6 +103,20 @@ export class SkillsUsageError extends Error {
   }
 }
 
+export class SkillsRefusal extends SkillsUsageError {}
+
+function refuseUnlessPackOwned(packDir: string): void {
+  const owner = packOrg(packDir);
+  if (owner.kind === "outside") return;
+  if (owner.kind === "other") {
+    const { message, why } = otherOrgRefusal(owner.org, owner.current);
+    throw new SkillsRefusal(`${message}. ${why}`, { title: message, why });
+  }
+  const roles = readOrgRoles(owner.org);
+  const refusal = writeRefusalFor(roleOf(readForgeUsername(owner.org), roles), roles, owner.rel);
+  if (refusal) throw new SkillsRefusal(`${refusal.message}. ${refusal.why}`, { title: refusal.message, why: refusal.why });
+}
+
 export function skillsFailure(err: SkillsUsageError): out.FailureInput {
   if (err.shown) return err.shown;
   const [title, ...rest] = err.message.split("\n");
@@ -105,6 +127,11 @@ async function withCleanErrors(fn: () => Promise<void>): Promise<void> {
   try {
     await fn();
   } catch (err) {
+    if (err instanceof SkillsRefusal) {
+      const shown = skillsFailure(err);
+      out.note(out.line("refused", shown.title), ...(shown.why ? [out.callout("why", shown.why)] : []));
+      process.exit(2);
+    }
     if (err instanceof SkillsUsageError) {
       out.fail(skillsFailure(err));
       process.exit(1);
@@ -169,8 +196,9 @@ function parseFlags(args: string[]): Flags {
   return { team, verbs: verbs.length ? verbs : null, manifest, repo, dryRun, preview, packDir, mattstackDir, json, strict };
 }
 
-function packRootDir(mattstackRoot: string, team: string): string {
-  return join(mattstackRoot, "teams", team, "mattstack", "packs", team);
+function packRootDir(mattstackRoot: string, team: string): string | null {
+  const zone = readZonesFrom(realInitFs, join(mattstackRoot, "teams")).find((z) => z.team === team);
+  return zone ? zonePackDir(zone) : null;
 }
 
 type PackTarget = { team: string; packDir: string };
@@ -235,19 +263,20 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
   if (flags.team) {
     const pack = packs.find((p) => p.name === flags.team);
     if (pack) return { team: pack.name, packDir: pack.dir };
-    const legacy = packRootDir(mattstackRoot, flags.team);
-    if (existsSync(legacy)) return { team: flags.team, packDir: legacy };
+    const byFolder = packRootDir(mattstackRoot, flags.team);
+    if (byFolder && existsSync(byFolder)) return { team: flags.team, packDir: byFolder };
     throw new SkillsUsageError(
-      `no pack named "${flags.team}" (discovered: ${packs.map((p) => p.name).join(", ") || "none"}; checked ${legacy})`,
+      `no pack named "${flags.team}" (discovered: ${packs.map((p) => p.name).join(", ") || "none"})`,
       { title: `No pack is called ${flags.team}`, next: out.cmd("rt skills packs"), details: `Packs here: ${packs.map((p) => p.name).join(", ") || "none"}` },
     );
   }
 
-  if (packs.length === 1) return { team: packs[0]!.name, packDir: packs[0]!.dir };
+  const sole = solePack(packs);
+  if (sole) return { team: sole.name, packDir: sole.dir };
   if (packs.length === 0) {
-    throw new SkillsUsageError("no packs discovered (no directory marketplace plugin carries a surface.jsonc); pass --pack <name>", {
+    throw new SkillsUsageError("no packs discovered (no directory marketplace plugin, team folder or org folder carries a surface.jsonc); pass --pack <name>", {
       title: "No packs found",
-      why: "A pack is a plugin from a directory marketplace that has a surface file.",
+      why: NO_PACKS_WHY,
       next: ["Run it again with ", out.cmd("--pack <name>"), " or ", out.cmd("--pack-dir <folder>")],
     });
   }
@@ -255,7 +284,7 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
   if (!process.stdin.isTTY) {
     throw new SkillsUsageError(`which pack? pass --pack <name> (discovered: ${packs.map((p) => p.name).join(", ")})`, {
       title: "Which pack?",
-      why: `There is more than one: ${packs.map((p) => p.name).join(", ")}.`,
+      why: whichPackWhy(packs),
       next: ["Run it again with ", out.cmd("--pack <name>")],
     });
   }
@@ -460,7 +489,7 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
 
   if (candidates.length > 1) {
     const zones = readZonesFrom(realInitFs, join(mattstackRoot, "teams"))
-      .filter((z) => existsSync(join(z.dir, "mattstack", "packs", team)));
+      .filter((z) => z.team === team && existsSync(zonePackDir(z)));
     for (const { host, projects } of zones) {
       if (!host) continue;
       for (const project of projects) {
@@ -471,23 +500,23 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
     const hostless = zones.length > 0 && zones.every((z) => !z.host);
     throw new SkillsUsageError(
       `pack "${team}" binds ${candidates.length} repos (${candidates.map((c) => c.slug).join(", ")})` +
-        (hostless ? `; its team zone declares no forge host, so its projects cannot pick one` : "") +
+        (hostless ? `; its team declares no forge host, so its projects cannot pick one` : "") +
         `; pass --repo <slug or host/path>`,
       {
         title: "Which repo?",
         why:
           `The ${team} pack is bound in ${candidates.length} repos: ${candidates.map((c) => c.slug).join(", ")}.` +
-          (hostless ? " Its team zone names no forge host, so rt cannot pick one." : ""),
+          (hostless ? " Its team names no forge host, so rt cannot pick one." : ""),
         next: ["Run it again with ", out.cmd("--repo <slug>")],
       },
     );
   }
 
-  // Team packs sit at <repo>/mattstack/packs/<team>; that path shape
-  // survives worktrees, unlike the teams-zone location, and a team pack's
+  // Team packs sit at <repo>/mattstack/teams/<team>/packs/<team>; that path
+  // shape survives worktrees, unlike the clone's location, and a team pack's
   // pack/skills.jsonc is a merge fragment, never its manifest.
   const parts = resolvePath(packDir).split(sep);
-  const teamShaped = parts.at(-2) === "packs" && parts.at(-3) === "mattstack";
+  const teamShaped = parts.at(-2) === "packs" && parts.at(-4) === "teams" && parts.at(-5) === "mattstack";
   const standalone = !isUnder(join(mattstackRoot, "teams"), packDir) && !teamShaped;
   if (standalone && existsSync(ownManifest)) return ownManifest;
   throw new SkillsUsageError(
@@ -587,6 +616,21 @@ async function resolve(flags: Flags): Promise<Resolved> {
   const self = packPluginIdentity(packDir);
   if (self && fullRoster.length > 0) pluginRoots.byName[self.name] = { dir: packDir, version: self.version };
   const invocable = fullRoster.length === 0 ? new Set<string>() : invocableRoster(pluginRoots);
+  // After the invocable roster: a base pack is never installed, so nothing in it is invocable.
+  const packOrg = fullRoster.length > 0 ? orgOfPackDir(packDir) : null;
+  if (packOrg) {
+    for (const baseRoot of orgBasePackRoots(packOrg.root)) {
+      if (baseRoot.name === self?.name) continue;
+      if (pluginRoots.byName[baseRoot.name]) {
+        throw new SkillsUsageError(`org base pack ${baseRoot.name} has the same name as an installed plugin`, {
+          title: "An org base pack has the same name as an installed plugin",
+          details: `Rename the base pack folder ${baseRoot.dir} so its fills do not replace ${baseRoot.name}'s.`,
+        });
+      }
+      pluginRoots.byName[baseRoot.name] = { dir: baseRoot.dir, version: baseRoot.version };
+      (pluginRoots.folderOnly ??= new Set()).add(baseRoot.name);
+    }
+  }
   const surface = readSurface(packDir);
   const internalRoster = computeInternalRoster(team, packDir, surface, fullRoster);
 
@@ -896,6 +940,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   misplaced: string[];
   writes: CompileWrites;
 } {
+  if (write) refuseUnlessPackOwned(resolved.packDir);
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
   const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, verbFilter);
   // Lint accepts a relative path to any KNOWN target, not only emitted ones: a
@@ -1025,7 +1070,18 @@ export async function skillsCompile(args: string[]): Promise<void> {
       return;
     }
 
-    const { outcomes, failures, misplaced } = performCompile(resolved, flags.verbs, !flags.dryRun);
+    let compiledResult: ReturnType<typeof performCompile>;
+    try {
+      compiledResult = performCompile(resolved, flags.verbs, !flags.dryRun);
+    } catch (err) {
+      if (!(err instanceof SkillsRefusal) || !flags.json) throw err;
+      const { targets } = compileTargets(resolved, publicSet, flags.verbs);
+      const shown = skillsFailure(err);
+      out.note(out.line("refused", shown.title), ...(shown.why ? [out.callout("why", shown.why)] : []));
+      out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written: false, verbs: targets.map(target => ({ name: target.verb.name, status: "errored", files: [], warnings: [], errors: [err.message], side: target.isPublic ? "skills" : "attachments" })), misplaced: [] });
+      process.exit(2);
+    }
+    const { outcomes, failures, misplaced } = compiledResult;
     if (failures.length > 0 && !flags.json) {
       out.fail(compileFailure(failures));
       process.exit(1);
@@ -1081,9 +1137,14 @@ export async function compilePackAll(opts: { pack?: string; packDir?: string; ma
   const resolved = await resolve(parseFlags(args));
   const chainErrors = pipelineChainErrors(resolved);
   if (chainErrors.length > 0) return { ok: false, errors: chainErrors, written: [], removed: [] };
-  const { failures, misplaced, writes } = performCompile(resolved, opts.verbs ?? null, opts.write ?? true);
-  const errors = [...failures, ...misplaced.map((name) => `misplaced: ${name}`)];
-  return { ok: errors.length === 0, errors, ...writes };
+  try {
+    const { failures, misplaced, writes } = performCompile(resolved, opts.verbs ?? null, opts.write ?? true);
+    const errors = [...failures, ...misplaced.map((name) => `misplaced: ${name}`)];
+    return { ok: errors.length === 0, errors, ...writes };
+  } catch (err) {
+    if (!(err instanceof SkillsRefusal)) throw err;
+    return { ok: false, errors: [err.message], written: [], removed: [] };
+  }
 }
 
 type CheckVerbStatus = "in-sync" | "stale" | "never-compiled";
@@ -1309,7 +1370,7 @@ function skillsFlagValue(args: string[], flag: string): string | undefined {
 
 export function packsBlocks(rows: Array<{ name: string; dir: string; layout: string }>): Block[] {
   if (rows.length === 0) {
-    return [out.line("pending", "No packs found"), out.callout("note", "A pack is a plugin from a directory marketplace that has a surface file.")];
+    return [out.line("pending", "No packs found"), out.callout("note", NO_PACKS_WHY)];
   }
   return [out.table(rows.map((row) => [out.strong(row.name), row.layout, out.dim(row.dir)]), ["Pack", "Layout", "Folder"])];
 }
@@ -2303,13 +2364,14 @@ async function runList(flags: SurfaceFlags): Promise<void> {
 
 type ApplyResult = { moved: string[]; recorded: string[]; compileErrors: string[] };
 
-async function runApply(flags: SurfaceFlags): Promise<ApplyResult> {
+async function runApply(flags: SurfaceFlags, desiredPublic?: ReadonlySet<string>): Promise<ApplyResult> {
   const { packDir } = await resolveSurfacePaths(flags);
+  if (!flags.dryRun) refuseUnlessPackOwned(packDir);
   const verbNames = new Set(readVerbRoster(packDir).map((v) => v.name));
   const surface = readSurface(packDir);
   const stageNames = stageNamesFor(flags, packDir);
   const { skillsNames, attachmentNames, skillEntries, attachmentEntries } = collectRegistry(packDir, verbNames);
-  const publicSet = surface ? new Set(surface.public) : defaultPublicSet(skillsNames, verbNames);
+  const publicSet = desiredPublic ?? (surface ? new Set(surface.public) : defaultPublicSet(skillsNames, verbNames));
 
   const candidates = [...new Set<string>([...skillsNames, ...attachmentNames])].sort();
   const moved: string[] = [];
@@ -2392,6 +2454,7 @@ async function runApply(flags: SurfaceFlags): Promise<ApplyResult> {
  */
 async function runSet(names: string[], want: "public" | "internal", flags: SurfaceFlags): Promise<void> {
   const { packDir } = await resolveSurfacePaths(flags);
+  if (!flags.dryRun) refuseUnlessPackOwned(packDir);
   const verbNames = new Set(readVerbRoster(packDir).map((v) => v.name));
   const { skillsNames, allNames } = collectRegistry(packDir, verbNames);
   const stageNames = stageNamesFor(flags, packDir);
@@ -2415,10 +2478,10 @@ async function runSet(names: string[], want: "public" | "internal", flags: Surfa
     else publicSet.delete(name);
   }
 
-  writeSurfaceConfig(packDir, [...publicSet].sort());
+  if (!flags.dryRun) writeSurfaceConfig(packDir, [...publicSet].sort());
   if (!flags.json) out.print(...names.map((name) => out.line("done", name, want)));
 
-  const result = await runApply(flags);
+  const result = await runApply(flags, flags.dryRun ? publicSet : undefined);
   if (flags.json) {
     out.json({
       ok: result.compileErrors.length === 0,
@@ -2494,6 +2557,7 @@ async function runPalette(flags: SurfaceFlags): Promise<void> {
     return;
   }
 
+  refuseUnlessPackOwned(packDir);
   const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
   const options = rows.map((row) => ({
     value: row.name,
@@ -2554,7 +2618,14 @@ export async function skillsSurface(args: string[]): Promise<void> {
     if (mode === "apply") {
       const { flags, rest } = parseSurfaceFlags(args.slice(1));
       if (rest.length) throw new SkillsUsageError(`unrecognized argument "${rest[0]}"`);
-      const result = await runApply(flags);
+      let result: ApplyResult;
+      try {
+        result = await runApply(flags);
+      } catch (err) {
+        if (!(err instanceof SkillsRefusal) || !flags.json) throw err;
+        out.json({ ok: false, dryRun: flags.dryRun, moved: [], recorded: [], compileErrors: [err.message] });
+        process.exit(2);
+      }
       if (flags.json) {
         out.json({ ok: result.compileErrors.length === 0, dryRun: flags.dryRun, moved: result.moved, recorded: result.recorded, compileErrors: result.compileErrors });
       }
@@ -2587,7 +2658,13 @@ export async function skillsSurface(args: string[]): Promise<void> {
           usageFailure("Should it be public or internal?", "rt skills surface set <name> --public", "Say which with --public or --internal."),
         );
       }
-      await runSet(names, want, flags);
+      try {
+        await runSet(names, want, flags);
+      } catch (err) {
+        if (!(err instanceof SkillsRefusal) || !flags.json) throw err;
+        out.json({ ok: false, dryRun: flags.dryRun, set: names.map(name => ({ name, want })), moved: [], recorded: [], compileErrors: [err.message] });
+        process.exit(2);
+      }
       return;
     }
 
@@ -2961,6 +3038,15 @@ export async function skillsBind(args: string[]): Promise<void> {
 
     const engineRef = `${step.plugin}:${verb.engine}`;
     const oldValue = resolved.bindings[engineRef]?.[slotName] ?? "(unbound)";
+    if (!bindFlags.dryRun) {
+      try {
+        refuseUnlessPackOwned(resolved.packDir);
+      } catch (err) {
+        if (!(err instanceof SkillsRefusal) || !bindFlags.json) throw err;
+        out.json({ ok: false, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated: null, shadowedBy: null, compileErrors: [err.message] });
+        process.exit(2);
+      }
+    }
     const bound = { verb: verbName, slot: slotName, from: oldValue, to: fill, dryRun: bindFlags.dryRun, fragmentUpdated: null as string | null, basePack: null as string | null };
 
     if (bindFlags.dryRun) {

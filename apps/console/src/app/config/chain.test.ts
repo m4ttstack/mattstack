@@ -199,6 +199,42 @@ describe('analyzeChain: deep-merged object keys have contributors, no winner', (
   });
 });
 
+describe('analyzeChain: add lists have contributors, no winner', () => {
+  const plugins = def({
+    key: 'claude.plugins',
+    type: 'array',
+    scopes: ['user', 'team', 'org'],
+    merge: 'add',
+    hasDefault: false,
+    defaultValue: null,
+  });
+
+  it('every present valid layer contributes, and a refused layer does not', () => {
+    const verdict = analyzeChain(plugins, [
+      row('default', false),
+      row('org', true, ['acme-tools@acme']),
+      row('team', true, ['widgets@acme']),
+      row('user', true, 'not a list', { invalid: 'expected array' }),
+      row('machine', false),
+    ]);
+
+    expect(verdict.kind).toBe('composite');
+    if (verdict.kind !== 'composite') return;
+    expect(verdict.contributors.map(r => r.scope)).toEqual(['org', 'team']);
+    expect(verdict.sentence).toBe(
+      'claude.plugins adds up its layers: 2 layers contribute items; there is no single winner.'
+    );
+  });
+
+  it('a single contributor gets singular agreement', () => {
+    const verdict = analyzeChain(plugins, [row('org', true, ['a@acme'])]);
+    if (verdict.kind !== 'composite') throw new Error('expected composite');
+    expect(verdict.sentence).toBe(
+      'claude.plugins adds up its layers: 1 layer contributes items; there is no single winner.'
+    );
+  });
+});
+
 describe('shortValue', () => {
   it('renders scalars as JSON and truncates long values', () => {
     expect(shortValue(14)).toBe('14');

@@ -223,6 +223,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
 
   return {
     run,
+    mayCompile: () => true,
     claudeBin,
     checkPack: async () => {
       world.calls.push({ cmd: "checkPack", args: [] });
@@ -2475,4 +2476,69 @@ describe("--expect against real git", () => {
     expect(mustGit(root, "diff", "--cached", "--name-only")).toBe("");
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
+});
+
+
+describe("member sync", () => {
+  test("a member's install-only sync keeps the source-current skip reasons", async () => {
+    const pack = fixturePack("acme", "local", "0.5.2");
+    const sourceBefore = readFileSync(join(pack.dir, ".claude-plugin", "plugin.json"), "utf8");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps = { ...makeDeps(pack, engine, { calls, installed: { [pluginId(pack)]: "0.5.1", [pluginId(engine)]: "2.0.0" }, drift: [false] }), mayCompile: () => false };
+    const report = await syncPack(pack, engine, deps);
+    const steps = Object.fromEntries(report.steps.map(s => [s.name, s]));
+    expect(steps.bump).toMatchObject({ status: "skipped", detail: "nothing changed, so the version stays" });
+    expect(steps["update-pack"]?.status).toBe("ran");
+    expect(readVersion(pack.dir)).toBe("0.5.2");
+    expect(readFileSync(join(pack.dir, ".claude-plugin", "plugin.json"), "utf8")).toBe(sourceBefore);
+    expect(report.ok).toBe(true);
+    expect(calls.some(c => c.cmd === "git" && ["add", "commit", "push"].includes(c.args[0]!))).toBe(false);
+  });
+
+  test("a current member pack with pending edits is refused before staging or pulling", async () => {
+    const pack = fixturePack("acme", "local", "0.5.2");
+    const sourceBefore = readFileSync(join(pack.dir, ".claude-plugin", "plugin.json"), "utf8");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps = { ...makeDeps(pack, engine, { calls, installed: { [pluginId(pack)]: "0.5.2", [pluginId(engine)]: "2.0.0" }, drift: [false], gitStatus: { [pack.dir]: " M pack/skills.jsonc\n" } }), mayCompile: () => false };
+    const report = await syncPack(pack, engine, deps, { commitPending: true });
+    expect(report.ok).toBe(false);
+    expect(report.steps.at(-1)?.status).toBe("refused");
+    expect(calls.some(c => c.cmd === "git" && ["add", "commit", "push", "pull"].includes(c.args[0]!))).toBe(false);
+    expect(readVersion(pack.dir)).toBe("0.5.2");
+    expect(readFileSync(join(pack.dir, ".claude-plugin", "plugin.json"), "utf8")).toBe(sourceBefore);
+  });
+
+  test("a pack that is not installed on this Mac is skipped, never handed to Claude Code's update", async () => {
+    const pack = fixturePack("acme", "local", "0.5.2");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps = { ...makeDeps(pack, engine, { calls, installed: { [pluginId(engine)]: "2.0.0" }, drift: [false] }), mayCompile: () => false };
+    const report = await syncPack(pack, engine, deps);
+    const steps = Object.fromEntries(report.steps.map(s => [s.name, s]));
+    expect(steps["update-pack"]).toMatchObject({ status: "skipped", detail: "acme is not installed on this Mac" });
+    expect(steps["verify-installed"]).toMatchObject({ status: "skipped", detail: "acme is not installed on this Mac" });
+    expect(calls.some(c => c.cmd === deps.claudeBin && c.args[1] === "update" && c.args[2] === pluginId(pack))).toBe(false);
+    expect(report.ok).toBe(true);
+    expect(report.restartNeeded).toBe(false);
+  });
+
+  for (const installed of ["0.5.1", "0.5.2"]) {
+    test(`drifted pack stays unchanged with installed version ${installed}`, async () => {
+      const pack = fixturePack("acme", "local", "0.5.2");
+    const sourceBefore = readFileSync(join(pack.dir, ".claude-plugin", "plugin.json"), "utf8");
+      const engine = fixturePack("beacon", "local", "2.0.0");
+      const calls: Call[] = [];
+      const deps = { ...makeDeps(pack, engine, { calls, installed: { [pluginId(pack)]: installed, [pluginId(engine)]: "2.0.0" }, drift: [true] }), mayCompile: () => false };
+      const report = await syncPack(pack, engine, deps);
+      expect(readVersion(pack.dir)).toBe("0.5.2");
+    expect(readFileSync(join(pack.dir, ".claude-plugin", "plugin.json"), "utf8")).toBe(sourceBefore);
+      const steps = Object.fromEntries(report.steps.map(s => [s.name, s]));
+      for (const name of ["bump", "compile", "recheck", "commit-push"]) expect(steps[name]).toMatchObject({ status: "skipped", detail: "This pack is out of date, but only its team's owners recompile it" });
+      expect(steps["update-pack"]!.status).toBe(installed === "0.5.2" ? "skipped" : "ran");
+      expect(calls.some(c => c.cmd === "git" && ["add", "commit", "push"].includes(c.args[0]!))).toBe(false);
+      expect(report.ok).toBe(true);
+    });
+  }
 });

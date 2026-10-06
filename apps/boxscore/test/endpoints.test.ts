@@ -11,7 +11,10 @@ import {
   it,
 } from 'vitest';
 
-import { __setSettingReader } from '../src/server/config/index.js';
+import {
+  __setRosterReader,
+  __setSettingReader,
+} from '../src/server/config/index.js';
 import type { TimeWindow } from '../src/shared/types.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'boxscore-endpoints-'));
@@ -37,20 +40,18 @@ const flush = () => new Promise(r => setTimeout(r, 0));
 const PROJECTS = ['acme/acme-web'];
 const SETTINGS: Record<string, unknown> = {
   'boxscore.projects': PROJECTS,
-  'mattstack.roster': [
-    { username: 'alexrivera', name: 'Alex Rivera' },
-    { username: 'bob', name: 'Bob' },
-  ],
   'mattstack.integrations': { forge: { host: 'gl.example' } },
 };
 
 beforeAll(() => {
   __setSettingReader(<T>(k: string) => SETTINGS[k] as T | undefined);
+  __setRosterReader(() => [{ username: 'alexrivera', name: 'Alex Rivera' }]);
   // resolveEnv() reads GITLAB_TOKEN through the env-first secrets seam.
   process.env.GITLAB_TOKEN = 'test-token';
 });
 afterAll(() => {
   __setSettingReader(null);
+  __setRosterReader(null);
   __resetStore();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -174,11 +175,16 @@ describe('deleted routes', () => {
 
 describe('viewer roles over HTTP', () => {
   beforeEach(() => {
-    __setTeamReader(() => ({ joined: true }));
+    __setRosterReader(() => [
+      { username: 'alexrivera', name: 'Alex Rivera' },
+      { username: 'bob', name: 'Bob' },
+    ]);
+    __setTeamReader(() => ({ seesTeam: false }));
     __setCurrentUser({ username: 'alexrivera', name: 'Alex Rivera' });
   });
   afterEach(() => {
     __setTeamReader(null);
+    __setRosterReader(() => [{ username: 'alexrivera', name: 'Alex Rivera' }]);
     __resetCurrentUser();
   });
 

@@ -1,14 +1,16 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { beforeEach, afterEach, describe, expect, test } from "bun:test";
 import { dirname, join } from "path";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
+import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 
-const tmpHome = mkdtempSync(join(tmpdir(), "rt-doppler-sync-"));
-process.env.HOME = tmpHome;
+let tmpHome: string;
+let priorHome: string | undefined;
 
+const { closeStateDb } = await import("../../state/index.ts");
 const { reconcileForRepo } = await import("../doppler-sync.ts");
 const { setSetting } = await import("../../settings/write.ts");
-const { machineSettingsPath, teamSettingsPath } = await import("../../rt-paths.ts");
+const { machineSettingsPath } = await import("../../rt-paths.ts");
 const { loadDopplerConfig, writeDopplerConfig } = await import("../../doppler-config.ts");
 
 const IDENTITY = "gitlab.com/acme/test-repo";
@@ -17,16 +19,21 @@ function seedTemplate(entries: unknown[]): void {
   setSetting("rt.dopplerTemplate", entries, "machine", { repoIdentity: IDENTITY });
 }
 
-/** setSetting(..., "team", ...) refuses without a local team store (write.ts's team-selection rule). */
+/** setSetting(..., "org", ...) refuses without an org store. */
 function seedTeam(): void {
-  const path = teamSettingsPath("acme");
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, "// team store\n{}\n");
+  seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
 }
 
+beforeEach(() => {
+  priorHome = process.env.HOME;
+  closeStateDb();
+  tmpHome = mkdtempSync(join(tmpdir(), "rt-doppler-sync-"));
+  process.env.HOME = tmpHome;
+});
 afterEach(() => {
-  try { rmSync(join(tmpHome, ".mattstack"), { recursive: true, force: true }); } catch { /* */ }
-  try { rmSync(join(tmpHome, ".doppler"),   { recursive: true, force: true }); } catch { /* */ }
+  closeStateDb();
+  process.env.HOME = priorHome;
+  rmSync(tmpHome, { recursive: true, force: true });
 });
 
 describe("reconcileForRepo", () => {
@@ -71,12 +78,12 @@ describe("reconcileForRepo", () => {
     });
   });
 
-  test("resolves a template declared at team.repo scope — where the cutover actually writes it", async () => {
+  test("resolves a template declared at org.repo scope, where the cutover actually writes it", async () => {
     seedTeam();
     setSetting(
       "rt.dopplerTemplate",
       [{ path: "apps/backend", project: "backend", config: "dev" }],
-      "team",
+      "org",
       { repoIdentity: IDENTITY },
     );
 

@@ -4,9 +4,9 @@ import { enrichmentPath, stripJsonc } from "../enrichment.ts";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join, dirname } from "path";
-import { teamSettingsPath } from "../../rt-paths.ts";
 import * as out from "../../ui/out.ts";
 import { captureOut } from "../../ui/__tests__/capture-out.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 function writeStore(file: string, obj: unknown): void {
   mkdirSync(dirname(file), { recursive: true });
@@ -54,7 +54,7 @@ describe("enrichmentCmd init: scaffold refusal when the team store owns rt.sdmEn
   });
 
   test("says the team already labels them, names the file it would otherwise write, and never scaffolds it", async () => {
-    writeStore(teamSettingsPath("acme"), { "rt.sdmEnrichment": { "res-a": { label: "A" } } });
+    writeStore(sharedStorePath("acme"), { "rt.sdmEnrichment": { "res-a": { label: "A" } } });
     const path = enrichmentPath();
 
     await enrichmentCmd(["init"]);

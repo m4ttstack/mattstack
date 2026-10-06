@@ -17,14 +17,21 @@ import { afterAll, expect, test } from 'bun:test';
 // needed for this assertion to hold.
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-slack-channel-'));
 
-const teamDir = join(fakeHome, '.mattstack', 'teams', 'testteam', 'mattstack');
+const teamDir = join(
+  fakeHome,
+  '.mattstack',
+  'teams',
+  'testteam',
+  'mattstack',
+  'org'
+);
 mkdirSync(teamDir, { recursive: true });
 writeFileSync(
-  join(teamDir, 'settings.team.jsonc'),
+  join(teamDir, 'settings.org.jsonc'),
   JSON.stringify({
     'board.gitlabHost': 'https://gitlab.example.com',
     'board.projects': ['g/p'],
-    'board.members': [{ username: 'alice' }],
+    'mattstack.roster': [{ username: 'alice' }],
   })
 );
 

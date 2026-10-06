@@ -19,6 +19,7 @@ import { forgeLogin } from "./forge.ts";
 import { teamRemote } from "./members.ts";
 import { scrub } from "./redact.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
+import { readTeamLocal } from "./team-local.ts";
 
 export interface PeerSeams {
   readLocalSecret: ReadLocalSecret;
@@ -36,8 +37,10 @@ export interface PeerResult {
   boardEnvOverrides: boolean;
 }
 
-/** The board identifies itself by `board.defaultMember`, which setup seeds from the forge login; the team forge's login is the fallback, the same handle `rt team join` registers. */
+/** The switchboard knows a board only by the name it was registered under, so this is the name `rt team join` registers: the username this Mac recorded for the org. `board.defaultMember` (which board view runs as, and can name a teammate) is a fallback only, then the org forge's login. */
 async function realBoardUsername(p: Probes, slug: string): Promise<string | null> {
+  const recorded = readTeamLocal(p, slug).forgeUsername;
+  if (recorded) return recorded;
   try {
     const member = getSetting<string>("board.defaultMember").value;
     if (typeof member === "string" && member.trim() && member !== "all") return member;
@@ -61,7 +64,7 @@ export function realPeerSeams(): PeerSeams {
   };
 }
 
-const ASK_OWNER = "Ask the team's owner to invite you again, then join with the new invite.";
+const ASK_ADMIN = "Ask your org admin to invite you again, then join with the new invite.";
 
 function switchboardFailure(detail: string): UserActionableError {
   return new UserActionableError("switchboard-refused", "rt could not connect your board to the switchboard", {}, { why: detail });
@@ -88,8 +91,8 @@ function parsed<T>(body: string): T | null {
 export async function peerOwnBoard(p: Probes, slug: string, opts: { rotate: boolean }, seams: PeerSeams = realPeerSeams()): Promise<PeerResult> {
   const admin = await readAdminToken(p, seams.readLocalSecret);
   if (!admin) {
-    throw new UserActionableError("peer-needs-owner", "Only the team's owner can connect a board from their own Mac", {}, {
-      why: `This Mac holds no switchboard admin token. ${ASK_OWNER}`,
+    throw new UserActionableError("peer-needs-admin", "Only a Mac holding the switchboard admin token can connect its own board", {}, {
+      why: `This Mac holds no switchboard admin token. ${ASK_ADMIN}`,
       next: "rt team join",
     });
   }

@@ -3,10 +3,10 @@ import { execSync } from "child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { teamSettingsPath } from "../../rt-paths.ts";
 import { closeStateDb, getKvValue, setKvValue } from "../../state/index.ts";
 import { installShims, renderInterceptShim, shimPath, type InterceptRule } from "../../endpoint/shim.ts";
 import { createInterceptPullHook } from "../intercept-pull-hook.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 function fakeLog() {
   const calls = { debug: [] as unknown[][], info: [] as unknown[][], warn: [] as unknown[][] };
@@ -105,8 +105,8 @@ describe("createInterceptPullHook", () => {
     });
 
     function declare(commands: string[]): void {
-      mkdirSync(dirname(teamSettingsPath("acme")), { recursive: true });
-      writeFileSync(teamSettingsPath("acme"), JSON.stringify({
+      mkdirSync(dirname(sharedStorePath("acme")), { recursive: true });
+      writeFileSync(sharedStorePath("acme"), JSON.stringify({
         repos: { "x/acme/widgets": { "rt.intercepts": commands.map((command) => ({ command, matches: RULE.matches })) } },
       }));
     }

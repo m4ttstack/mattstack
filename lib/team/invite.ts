@@ -1,5 +1,12 @@
+import { isAbsolute, join, relative } from "path";
+import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
+import { assertTeamFolders } from "./team-names.ts";
+import { orgStoreFile } from "./org-store.ts";
+import { gitWithToken } from "./git-credential.ts";
+import { withoutUrls } from "./redact.ts";
+import { publishTeam } from "./publish.ts";
 /**
- * `rt team invite` — mints an opaque relay invite for a handle: pointer
+ * `rt team invite` mints an opaque relay invite for a handle: pointer
  * (team/name/remote/owner/forge) sealed under a fresh key and a
  * client-generated id, stored on the relay as ciphertext only, and handed
  * back as a short paste-able code.
@@ -11,19 +18,19 @@
  */
 
 import { createRealAgeKeySeam } from "../home/age-key.ts";
-import { teamSettingsPath } from "../rt-paths.ts";
+import { orgSettingsPath } from "../rt-paths.ts";
 import { createRealSecretsExecSeam, readSecret } from "../secrets/store.ts";
-import { readStore } from "../settings/stores.ts";
+import { currentOrg, readStore } from "../settings/stores.ts";
 import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
 import { UserActionableError } from "../errors.ts";
-import type { InvitePointer } from "../setup/intent.ts";
+import { INVITE_POINTER_VERSION, type InvitePointer } from "../setup/intent.ts";
 import type { Probes } from "../setup/probes.ts";
 import { forgeFromRemote, readTeamSnapshot, type SettingsReader } from "../setup/team-settings.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
 import { forgeLogin, grantRead, membershipSteps, type ForgeAccess } from "./forge.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
-import { readTeamLocal } from "./team-local.ts";
+import { assertCurrentOrg, readTeamLocal } from "./team-local.ts";
 import { encodeCode, generateId, generateKey, seal } from "./invite-crypto.ts";
 import { readInviteRecords, upsertInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
@@ -32,8 +39,8 @@ import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
 
 export const INVITE_TTL_DAYS = 7;
 
-/** Forge usernames only (letters, digits, `.`, `_`, `-`; must start alphanumeric) — this handle also becomes a `board.members` entry and a mint-record key, so it is checked before anything downstream trusts it. */
-const HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/;
+/** Forge usernames only (letters, digits, `.`, `_`, `-`; must start alphanumeric). This handle also becomes a `mattstack.roster` entry and a mint-record key, so it is checked before anything downstream trusts it. */
+export const HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/;
 
 export const DEFAULT_JOIN_BASE_URL = "https://mattstack.dev/join";
 
@@ -103,18 +110,23 @@ export interface InviteResult {
 export interface MintInviteOpts {
   slug: string;
   handle: string;
+  teams: string[];
   now: Date;
   /** Refuse, before anything is minted, an invite that will carry no board token, including on a Mac with no admin token. */
   requirePeering?: boolean;
 }
 
 export interface MintInviteSeams {
+  pullOrg: (p: Probes, slug: string, remote: string, token: string | null) => Promise<void>;
+  publishRoster: (p: Probes, slug: string, handle: string, remote: string, token: string | null) => Promise<void>;
   read: SettingsReader;
-  /** The ONE team's own store, unmixed with the resolver's multi-team overlay — `addToRoster` must read-modify-write the team it is about to push a value into, not the union of every locally-cloned team's roster. */
+  /** The org store's own top-level keys, unmerged with the active team's: `addToRoster` read-modify-writes the org layer. */
   readTeamStore: (slug: string) => Record<string, unknown>;
   writeSetting: typeof setSetting;
+  /** The org this Mac reads settings from, which is where an org write lands. */
+  currentOrg: () => string | null;
   grantRead: typeof grantRead;
-  /** Local, per-machine team record — carries the membership permission. Seamed so a test can grant it without writing to a real home. */
+  /** Local, per-machine team record that carries the membership permission. Seamed so a test can grant it without writing to a real home. */
   readTeamLocal: typeof readTeamLocal;
   forgeLogin: typeof forgeLogin;
   /** The forge token rt holds for the team remote's host, or null. */
@@ -125,7 +137,7 @@ export interface MintInviteSeams {
   warn: (message: string, shown?: ShownWarning) => void;
 }
 
-/** Degrades to `undefined` on a resolver-layer throw rather than taking the mint down with it — mirrors team-settings.ts's own default reader. */
+/** Degrades to `undefined` on a resolver-layer throw rather than taking the mint down with it, as does team-settings.ts's own default reader. */
 function defaultRead(): SettingsReader {
   return <T>(key: string): T | undefined => {
     try {
@@ -137,18 +149,105 @@ function defaultRead(): SettingsReader {
 }
 
 function defaultReadTeamStore(slug: string): Record<string, unknown> {
-  return readStore(teamSettingsPath(slug)).global;
+  return readStore(orgSettingsPath(slug)).global;
 }
 
 function defaultWarn(message: string, shown?: ShownWarning): void {
   warnLine("team", message, { show: shown ?? { title: message } });
 }
 
+function shellQuote(s: string): string {
+  return /^[\w./:@=-]+$/.test(s) ? s : `'${s.replaceAll("'", "'\\''")}'`;
+}
+
+async function gitPathExists(p: Probes, dir: string, name: string): Promise<boolean> {
+  const res = await p.exec(["git", "rev-parse", "--git-path", name], { cwd: dir });
+  if (res.code !== 0) return false;
+  const path = res.stdout.trim();
+  return path !== "" && p.exists(isAbsolute(path) ? path : join(dir, path));
+}
+
+async function rebaseStopped(p: Probes, dir: string): Promise<boolean> {
+  for (const name of ["rebase-merge", "rebase-apply"]) {
+    if (await gitPathExists(p, dir, name)) return true;
+  }
+  return false;
+}
+
+async function refuseIfBusy(p: Probes, dir: string): Promise<void> {
+  const state = (await rebaseStopped(p, dir)) ? "rebase" : (await gitPathExists(p, dir, "MERGE_HEAD")) ? "merge" : null;
+  if (state === null) return;
+  throw new UserActionableError(`org-mid-${state}`, `Your copy of the org is part way through a git ${state}, so rt made no invite`, {}, {
+    why: `rt leaves a ${state} it did not start alone. Finish it or undo it, then invite again.`,
+    next: `git -C ${shellQuote(dir)} status`,
+  });
+}
+
+/** `rebase --abort` reapplies the pull's autostash, and parks it in the stash list when it no longer applies cleanly, so uncommitted edits survive either way. */
+async function abortRebase(p: Probes, dir: string, slug: string, pullOutput: string): Promise<never> {
+  const abort = await p.exec(["git", "rebase", "--abort"], { cwd: dir });
+  const log = `${pullOutput}\n${withoutUrls(`${abort.stdout}\n${abort.stderr}`.trim())}`.trim();
+  if (abort.code !== 0) {
+    throw new UserActionableError("org-mid-rebase", "rt could not put your copy of the org back after a failed pull, so it made no invite", {}, {
+      why: "Your copy of the org is part way through a git rebase. Undo it, then invite again.",
+      next: `git -C ${shellQuote(dir)} rebase --abort`,
+      log,
+    });
+  }
+  const stashed = /safe in the stash/i.test(`${abort.stdout}\n${abort.stderr}`);
+  throw new UserActionableError("org-changed-concurrently", "Someone else changed the org at the same time, so rt made no invite", {}, {
+    why: stashed
+      ? `rt put your copy of the org back as it was and kept your unsaved edits there in git's stash. ${SETTLE_THE_CLASH}`
+      : `rt put your copy of the org back as it was. ${SETTLE_THE_CLASH}`,
+    ...settleTheClash(dir, slug),
+    log,
+  });
+}
+
+function peeringNotEmbedded(log: string): UserActionableError {
+  return new UserActionableError("peering-not-embedded", "rt did not make the invite, because it could not connect their board", {}, {
+    why: "It could not register their board with the switchboard.",
+    log,
+  });
+}
+
+const SETTLE_THE_CLASH = "Pull their change and settle any clash, publish, then invite again.";
+
+/** The daemon's pull replays the same rebase and stops on the same clash, so the remedy is a pull a person finishes by hand. */
+function settleTheClash(dir: string, slug: string): { next: string; thenRun: string } {
+  return { next: `git -C ${shellQuote(dir)} pull --rebase --autostash origin main`, thenRun: `rt team publish --team ${slug}` };
+}
+
 export function realMintInviteSeams(): MintInviteSeams {
   return {
     read: defaultRead(),
+    pullOrg: async (p, slug, remote, token) => {
+      const dir = join(p.home, ".mattstack", "teams", slug);
+      await refuseIfBusy(p, dir);
+      const known = await p.exec(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"], { cwd: dir });
+      if (known.code !== 0) return;
+      const pull = gitWithToken(["pull", "--rebase", "--autostash", "origin", "main"], token, { GIT_TERMINAL_PROMPT: "0" }, { remote });
+      const res = await p.exec(pull.argv, { cwd: dir, env: pull.env });
+      if (res.code === 0) return;
+      const output = withoutUrls(`${res.stdout}\n${res.stderr}`.trim());
+      if (!(await rebaseStopped(p, dir))) throw new Error(output || `git pull exited ${res.code}`);
+      await abortRebase(p, dir, slug, output);
+    },
+    publishRoster: async (p, slug, handle, remote, token) => {
+      const dir = join(p.home, ".mattstack", "teams", slug);
+      const file = relative(dir, orgStoreFile(p.home, slug));
+      const add = await p.exec(["git", "add", "--", file], { cwd: dir });
+      if (add.code !== 0) throw new UserActionableError("git-add-failed", "rt could not stage the roster change", {}, { log: add.stderr });
+      const commit = await p.exec(["git", "commit", "-m", `team: invite ${handle}`, "--", file], { cwd: dir });
+      if (commit.code !== 0 && !/nothing to commit|no changes added/i.test(`${commit.stdout}\n${commit.stderr}`)) {
+        throw new UserActionableError("git-commit-failed", "rt could not commit the roster change", {}, { log: commit.stderr });
+      }
+      await publishTeam(p, slug, null, { token, tokenRemote: remote });
+    },
+
     readTeamStore: defaultReadTeamStore,
     writeSetting: setSetting,
+    currentOrg,
     grantRead,
     readTeamLocal,
     forgeLogin,
@@ -158,19 +257,23 @@ export function realMintInviteSeams(): MintInviteSeams {
   };
 }
 
-interface BoardMember {
+interface RosterEntryLike {
   username: string;
   [key: string]: unknown;
 }
 
-/** Both roster keys, each judged on its own contents: board.members is the board's own list, mattstack.roster the cross-app successor, and a store can legitimately carry one without the other. */
-function addToRoster(seams: MintInviteSeams, slug: string, handle: string): void {
+function addToRoster(seams: MintInviteSeams, slug: string, handle: string, teams: string[]): void {
   const store = seams.readTeamStore(slug);
-  for (const key of ["board.members", "mattstack.roster"] as const) {
-    const existing = Array.isArray(store[key]) ? (store[key] as BoardMember[]) : [];
-    if (existing.some((m) => m.username === handle)) continue;
-    seams.writeSetting(key, [...existing, { username: handle }], "team", { team: slug });
+  const roster = Array.isArray(store["mattstack.roster"]) ? (store["mattstack.roster"] as RosterEntryLike[]) : [];
+  const existing = roster.find((m) => typeof m.username === "string" && sameUser(m.username, handle));
+  if (!existing) {
+    seams.writeSetting("mattstack.roster", [...roster, { username: handle, teams }], "org");
+    return;
   }
+  const had = Array.isArray(existing.teams) ? (existing.teams as unknown[]).filter((t): t is string => typeof t === "string") : [];
+  const next = [...had, ...teams.filter((t) => !had.includes(t))];
+  if (next.length === had.length) return;
+  seams.writeSetting("mattstack.roster", roster.map((m) => (m === existing ? { ...m, teams: next } : m)), "org");
 }
 
 function assertValidHandle(handle: string): void {
@@ -221,6 +324,12 @@ async function resolveForgeAccess(
 
 export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInviteOpts, seams: MintInviteSeams = realMintInviteSeams()): Promise<InviteResult> {
   assertValidHandle(opts.handle);
+  if (opts.teams.length === 0) {
+    throw new UserActionableError("invite-needs-team", "Say which team the invite is for", {}, { next: "rt team invite --handle <username> --teams <team>" });
+  }
+  assertTeamFolders(p, opts.slug, opts.teams);
+  const teams = [...new Set(opts.teams)];
+  assertCurrentOrg(opts.slug, seams.currentOrg(), `team invite ${opts.handle}`);
 
   const snapshot = readTeamSnapshot(p, opts.slug, { read: seams.read, warn: seams.warn });
   if (!snapshot.remote) {
@@ -233,7 +342,9 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
 
   const title = seams.read<string>("board.title");
   const pointer: InvitePointer = {
-    v: 1,
+    v: INVITE_POINTER_VERSION,
+    username: opts.handle,
+    teams,
     team: opts.slug,
     name: title && title.length > 0 ? title : opts.slug,
     remote,
@@ -246,7 +357,9 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   // at join time (their age key is not yet a recipient), so the per-board
   // token must be minted HERE, where the admin token is readable, and sealed
   // into the pointer. Every failure degrades to an invite without peering
-  // plus a warning; a fresh invite and a re-join remain the repair.
+  // plus a warning; a fresh invite and a re-join remain the repair. The
+  // register runs only once the roster is pushed, so no refusal before it
+  // leaves a minted board token unused.
   let peeringWarning: string | undefined;
   let embedFailure: string | null = null;
   let adminToken: string | null = null;
@@ -260,6 +373,31 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
       why: "This Mac holds no switchboard admin token, so it cannot register their board.",
     });
   }
+  if (embedFailure && opts.requirePeering) throw peeringNotEmbedded(embedFailure);
+
+  // Captured before this handle's new record is minted: replace-on-mint's revoke of THIS value runs last, after the new invite is safely live (finding: create-before-destroy).
+  const priorRecord = readInviteRecords(p, opts.slug)[opts.handle];
+
+  try {
+    await seams.pullOrg(p, opts.slug, remote, token);
+  } catch (err) {
+    if (err instanceof UserActionableError) throw err;
+    throw new UserActionableError("org-not-current", "rt could not bring the org repo up to date, so it made no invite", {}, {
+      why: err instanceof Error ? err.message : String(err),
+      next: "rt team status",
+    });
+  }
+  addToRoster(seams, opts.slug, opts.handle, teams);
+  try {
+    await seams.publishRoster(p, opts.slug, opts.handle, remote, token);
+  } catch (err) {
+    const reason = (err instanceof Error ? err.message : String(err)).replace(/\.$/, "");
+    throw new UserActionableError("roster-not-published", `rt could not push ${opts.handle}'s roster entry, so it made no invite`, {}, {
+      why: `${reason}. Pull any change someone else pushed and settle any clash, publish, then invite again.`,
+      ...settleTheClash(join(p.home, ".mattstack", "teams", opts.slug), opts.slug),
+    });
+  }
+
   if (adminToken) {
     try {
       const res = await p.fetch(`${switchboardUrl(p.env)}/boards`, {
@@ -288,18 +426,10 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   }
   if (embedFailure) {
     peeringWarning = "This invite will not connect their board. Once it can, invite them again and have them join with the new invite.";
-    if (opts.requirePeering) {
-      throw new UserActionableError("peering-not-embedded", "rt did not make the invite, because it could not connect their board", {}, {
-        why: "It could not register their board with the switchboard.",
-        log: embedFailure,
-      });
-    }
+    if (opts.requirePeering) throw peeringNotEmbedded(embedFailure);
     seams.warn(`board peering: ${embedFailure}`, { title: "This invite will not connect their board", hint: "invite them again later and have them join with the new invite" });
   }
   const peering: InviteResult["peering"] = pointer.switchboard ? "embedded" : embedFailure ? "missing" : "none";
-
-  // Captured before this handle's new record is minted — replace-on-mint's revoke of THIS value runs last, after the new invite is safely live (finding: create-before-destroy).
-  const priorRecord = readInviteRecords(p, opts.slug)[opts.handle];
 
   const key = generateKey();
   const idHex = generateId();
@@ -312,7 +442,7 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
 
   const code = encodeCode(created.id, key);
 
-  // The record is the ONLY copy of creatorSecret (revoke capability) and keyB64 (reply-read capability) — persist it before anything else fallible runs, and if the write itself fails, name the id/code so the invite is still recoverable by hand.
+  // The record is the ONLY copy of creatorSecret (revoke capability) and keyB64 (reply-read capability): persist it before anything else fallible runs, and if the write itself fails, name the id/code so the invite is still recoverable by hand.
   try {
     upsertInviteRecord(p, opts.slug, opts.handle, {
       id: created.id,
@@ -333,14 +463,13 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   // neither fact is derivable from the remote URL alone.
   const { access: forgeAccess, manualSteps } = await resolveForgeAccess(p, seams, opts.slug, remote, opts.handle, token);
 
-  addToRoster(seams, opts.slug, opts.handle);
 
   if (priorRecord) {
     try {
       await relay.delete(priorRecord.id, priorRecord.creatorSecret);
     } catch (err) {
       seams.warn(
-        `rt team invite: minted a new invite for "${opts.handle}", but could not revoke the previous one (id ${priorRecord.id}) — ${err instanceof Error ? err.message : String(err)}; it will simply expire on its own.`,
+        `rt team invite: minted a new invite for "${opts.handle}", but could not revoke the previous one (id ${priorRecord.id}): ${err instanceof Error ? err.message : String(err)}; it will simply expire on its own.`,
         { title: `The earlier invite for ${opts.handle} is still live`, hint: "it stops working when it expires" },
       );
     }

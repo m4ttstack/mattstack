@@ -79,7 +79,7 @@ collapsed line, and `targetScope` says where an edit lands (the winning
 layer when allowed, else the key's first scope). A deep-merged `leaves` row
 counts only fields some store layer sets (`effective.authored`), so a
 registry default alone reads as "0 of N set". `SHAPES` holds only the
-`external` keys (`board.members`, `board.hiddenMembers`),
+`external` key (`board.hiddenMembers`),
 whose editor board owns.
 
 A tagged `oneOf` (zod's `discriminatedUnion`) is checked as if/then on its

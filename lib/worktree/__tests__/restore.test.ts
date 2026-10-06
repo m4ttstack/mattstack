@@ -4,7 +4,6 @@ import * as fsSync from "fs";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { teamSettingsPath } from "../../rt-paths.ts";
 import { setSetting } from "../../settings/write.ts";
 import { closeStateDb } from "../../state/index.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../registry.ts";
@@ -15,6 +14,7 @@ import { disposeTree, type DisposeDeps } from "../dispose.ts";
 import { listRestorableEntries, restoreTree, type RestoreDeps } from "../restore.ts";
 import { legacyWorktreePoolRoots } from "../../rt-paths.ts";
 import { branchExistsLocalAsync } from "../git-async.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 const GIT_ID = "-c user.email=t@t -c user.name=t";
 
@@ -42,7 +42,7 @@ const IDENTITY = "test/acme-restore";
 
 function seedIdentity(originUrl: string): void {
   setSetting("rt.repoIdentityOverrides", { [originUrl]: IDENTITY }, "machine");
-  const teamPath = teamSettingsPath("acme-restore");
+  const teamPath = sharedStorePath("acme-restore");
   mkdirSync(dirname(teamPath), { recursive: true });
   writeFileSync(teamPath, "// team store\n{}\n");
 }

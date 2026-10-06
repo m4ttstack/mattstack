@@ -25,10 +25,10 @@ import { closeStateDb } from "../../lib/state/index.ts";
 import type { DaemonResponse } from "../../lib/daemon-client.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { teamSettingsPath } from "../../lib/rt-paths.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../../lib/settings/identity.ts";
 import { loadWorktreeRepoConfig } from "../../lib/worktree/config.ts";
 import { readyLadderHash, writeReadyApproval } from "../../lib/worktree/ready-approval.ts";
+import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 
 // mock.module rewrites the live namespace in place: keep the real bindings to restore.
 const realDaemonClient = await import("../../lib/daemon-client.ts");
@@ -190,7 +190,7 @@ describe("rt worktree ready-approve --json bytes", () => {
   });
 
   test("an approved team ladder is one compact line with its hash", async () => {
-    const store = teamSettingsPath("sample-team");
+    const store = sharedStorePath("sample-team");
     mkdirSync(dirname(store), { recursive: true });
     writeFileSync(store, JSON.stringify({ repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 1, ready: [{ run: "make setup" }] } } } }, null, 2));
     const hash = readyLadderHash((await loadWorktreeRepoConfig(wire, repo)).ready);
