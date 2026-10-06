@@ -5,7 +5,6 @@ import type {
   Scope,
   TimeWindow,
   UserDetailResponse,
-  Viewer,
 } from '../shared/types.js';
 import { getCurrentUser } from './config/current-user.js';
 import { ConfigError, readSettings, type Env } from './config/index.js';
@@ -28,6 +27,7 @@ import { baseWindow, covers, priorWindow } from './util/window.js';
 import {
   canSeeUser,
   LOCKED_MESSAGE,
+  applyViewAs,
   narrowForViewer,
   SELF_ONLY_MESSAGE,
   unrankedRow,
@@ -55,6 +55,8 @@ export interface LeaderboardOptions {
   onProgress?: (p: RefreshProgress) => void;
   /** When true, never fetch: a cold store throws ColdCacheError instead of hitting the network. */
   cacheOnly?: boolean;
+  /** Roster username whose Self view a Team viewer previews; ignored for any other viewer. */
+  viewAs?: string;
 }
 
 /** Wrap a window-agnostic reporter to stamp the window. Exported for testing. */
@@ -182,12 +184,16 @@ async function buildLeaderboard(
     });
   }
 
-  const viewer: Viewer = resolveViewer({
-    currentUser: who?.username ?? null,
-    roster: settings.roster,
-    roles: settings.roles,
-    team: readTeamMembership(),
-  });
+  const { viewer, previewing } = applyViewAs(
+    resolveViewer({
+      currentUser: who?.username ?? null,
+      roster: settings.roster,
+      roles: settings.roles,
+      team: readTeamMembership(),
+    }),
+    opts.viewAs,
+    settings.roster
+  );
   // A Self viewer is computed alone: hiddenMembers is a Team view overlay.
   const compared =
     viewer.role === 'team'
@@ -215,7 +221,7 @@ async function buildLeaderboard(
     window: opts.window,
     priorWindow: priorSnapshot ? pw : null,
     baseUrl: env.baseUrl,
-    currentUser: who?.username ?? '',
+    currentUser: previewing ? (viewer.username ?? '') : (who?.username ?? ''),
     viewer,
     generatedAt: new Date().toISOString(),
     // No refresh ran on this request: everything served came from data already in the store.
@@ -225,14 +231,17 @@ async function buildLeaderboard(
   };
 
   return {
-    response: narrowForViewer(
-      buildResponse(
-        snapshotFor(current, opts.window, compared),
-        priorSnapshot,
-        ctx
+    response: {
+      ...narrowForViewer(
+        buildResponse(
+          snapshotFor(current, opts.window, compared),
+          priorSnapshot,
+          ctx
+        ),
+        viewer
       ),
-      viewer
-    ),
+      previewing,
+    },
     current,
     env,
   };
@@ -283,6 +292,7 @@ export async function getUserDetail(
     baseUrl: response.baseUrl,
     currentUser: response.currentUser,
     viewer: response.viewer,
+    previewing: response.previewing,
     generatedAt: response.generatedAt,
     fromCache: response.fromCache,
     user: response.viewer.role === 'team' ? userRow : unrankedRow(userRow),

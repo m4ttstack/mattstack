@@ -17,6 +17,11 @@ export class ViewerForbiddenError extends Error {
   override readonly name = 'ViewerForbiddenError';
 }
 
+/** A Team viewer asked to preview someone who is not on the roster. Routes answer 404. */
+export class UnknownViewAsError extends Error {
+  override readonly name = 'UnknownViewAsError';
+}
+
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 export function canSeeUser(viewer: Viewer, username: string): boolean {
@@ -48,5 +53,23 @@ export function narrowForViewer<
     users: response.users
       .filter(u => canSeeUser(viewer, u.username))
       .map(unrankedRow),
+  };
+}
+
+/**
+ * A Team viewer may preview a roster member's Self view. Anyone else keeps their own
+ * viewer: `viewAs` never widens what a Self or locked viewer sees.
+ */
+export function applyViewAs(
+  real: Viewer,
+  viewAs: string | undefined,
+  roster: readonly { username: string }[]
+): { viewer: Viewer; previewing: boolean } {
+  if (!viewAs || real.role !== 'team') return { viewer: real, previewing: false };
+  const entry = roster.find(r => same(r.username, viewAs));
+  if (!entry) throw new UnknownViewAsError(`unknown user: ${viewAs}`);
+  return {
+    viewer: { username: entry.username, role: 'self' },
+    previewing: true,
   };
 }

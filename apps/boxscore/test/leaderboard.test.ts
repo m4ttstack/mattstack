@@ -37,7 +37,7 @@ const { __setProviderFactory } = await import('../src/server/source/index.js');
 const { __setCurrentUser, __resetCurrentUser } =
   await import('../src/server/config/current-user.js');
 const { __setTeamReader } = await import('../src/server/config/team.js');
-const { ViewerForbiddenError, LOCKED_MESSAGE } =
+const { ViewerForbiddenError, UnknownViewAsError, LOCKED_MESSAGE } =
   await import('../src/server/viewer-scope.js');
 
 const PROJECT = 'acme/app';
@@ -304,6 +304,78 @@ describe('viewer roles', () => {
     ).rejects.toMatchObject({
       name: 'ViewerForbiddenError',
       message: LOCKED_MESSAGE,
+    });
+  });
+
+  describe('viewAs preview', () => {
+    const opts = { window, refresh: false, trend: false };
+    beforeEach(() => {
+      ROLES_SETTINGS['boxscore.roles'] = { alice: 'team' };
+    });
+    afterEach(() => {
+      delete ROLES_SETTINGS['boxscore.roles'];
+    });
+
+    it("serves a Team viewer the target's own unranked Self view", async () => {
+      const res = await getLeaderboard({ ...opts, viewAs: 'bob' });
+      expect(res.users.map(u => u.username)).toEqual(['bob']);
+      expect(res.users[0]!.metrics.mrsMerged.rank).toBeNull();
+      expect(res.leaders).toEqual({});
+      expect(res.viewer).toEqual({ username: 'bob', role: 'self' });
+      expect(res.currentUser).toBe('bob');
+      expect(res.users[0]!.isCurrentUser).toBe(true);
+      expect(res.previewing).toBe(true);
+    });
+
+    it('resolves the target to its roster spelling, any case', async () => {
+      const res = await getLeaderboard({ ...opts, viewAs: 'BOB' });
+      expect(res.viewer.username).toBe('bob');
+      expect(res.users.map(u => u.username)).toEqual(['bob']);
+    });
+
+    it('previews a member the Team viewer hid', async () => {
+      const res = await getLeaderboard({ ...opts, viewAs: 'alice' });
+      expect(res.users.map(u => u.username)).toEqual(['alice']);
+    });
+
+    it('is not previewing without viewAs', async () => {
+      expect((await getLeaderboard(opts)).previewing).toBe(false);
+    });
+
+    it("serves the previewed user's detail with ranks blanked", async () => {
+      const res = await getUserDetail({ ...opts, user: 'bob', viewAs: 'bob' });
+      expect(res.user.username).toBe('bob');
+      expect(res.user.metrics.mrsMerged.rank).toBeNull();
+      expect(res.viewer).toEqual({ username: 'bob', role: 'self' });
+      expect(res.previewing).toBe(true);
+    });
+
+    it("refuses anyone else's detail while previewing", async () => {
+      await expect(
+        getUserDetail({ ...opts, user: 'alice', viewAs: 'bob' })
+      ).rejects.toBeInstanceOf(ViewerForbiddenError);
+    });
+
+    it('rejects a target that is not on the roster', async () => {
+      await expect(
+        getLeaderboard({ ...opts, viewAs: 'mallory' })
+      ).rejects.toBeInstanceOf(UnknownViewAsError);
+    });
+
+    it('ignores viewAs for a Self viewer', async () => {
+      delete ROLES_SETTINGS['boxscore.roles'];
+      const res = await getLeaderboard({ ...opts, viewAs: 'bob' });
+      expect(res.viewer).toEqual({ username: 'alice', role: 'self' });
+      expect(res.users.map(u => u.username)).toEqual(['alice']);
+      expect(res.previewing).toBe(false);
+    });
+
+    it('ignores viewAs, even an unknown one, for a locked viewer', async () => {
+      __resetCurrentUser();
+      const res = await getLeaderboard({ ...opts, viewAs: 'mallory' });
+      expect(res.viewer).toEqual({ username: null, role: 'self' });
+      expect(res.users).toEqual([]);
+      expect(res.previewing).toBe(false);
     });
   });
 });
