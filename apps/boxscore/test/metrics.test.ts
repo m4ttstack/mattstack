@@ -156,6 +156,7 @@ describe('buildResponse trend deltas (4.11)', () => {
     priorWindow: priorW,
     baseUrl: 'https://gitlab.com',
     currentUser: 'alice',
+    viewer: { username: 'alice', role: 'team' },
     generatedAt: '2026-05-31T00:00:00.000Z',
     fromCache: false,
     identities: {

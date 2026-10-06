@@ -7,6 +7,7 @@ import type {
   TimeWindow,
   UserMetrics,
   UserRow,
+  Viewer,
 } from '../../shared/types.js';
 import type { UserIdentity } from '../store/model.js';
 import { applyRankings } from './ranking.js';
@@ -19,6 +20,7 @@ export interface BuildContext {
   priorWindow: TimeWindow | null;
   baseUrl: string;
   currentUser: string;
+  viewer: Viewer;
   generatedAt: string;
   fromCache: boolean;
   identities: Record<string, UserIdentity>;
@@ -73,6 +75,7 @@ export function buildResponse(
     hasTrend,
     baseUrl: ctx.baseUrl,
     currentUser: ctx.currentUser,
+    viewer: ctx.viewer,
     generatedAt: ctx.generatedAt,
     fromCache: ctx.fromCache,
     metricNotes,

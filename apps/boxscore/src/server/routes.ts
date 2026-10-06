@@ -26,6 +26,7 @@ import {
 } from './refresh/index.js';
 import { getStore } from './store/index.js';
 import { resolveWindowArgs } from './util/window.js';
+import { ViewerForbiddenError } from './viewer-scope.js';
 
 const boolQuery = (c: Context, name: string): boolean =>
   c.req.query(name) === '1' || c.req.query(name) === 'true';
@@ -102,6 +103,8 @@ const leaderboard = new Hono()
       const result = await getUserDetail({ window, refresh, trend, user });
       return c.json(result);
     } catch (err) {
+      if (err instanceof ViewerForbiddenError)
+        return c.json({ error: err.message }, 403);
       if (err instanceof UnknownUserError)
         return c.json({ error: err.message }, 404);
       if (err instanceof ConfigError)

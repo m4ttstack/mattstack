@@ -34,6 +34,7 @@ const EMPTY: LeaderboardResponse = {
   hasTrend: false,
   baseUrl: 'https://gitlab.example.com',
   currentUser: '',
+  viewer: { username: '', role: 'team' },
   generatedAt: '2026-08-31T12:00:00.000Z',
   fromCache: true,
   metricNotes: {},
