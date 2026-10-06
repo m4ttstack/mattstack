@@ -58,6 +58,7 @@ import {
   type ActionResult,
 } from '../api.ts';
 import type {
+  AskKind,
   BoardData,
   BoardMRWithReview,
   DraftInfo,
@@ -75,7 +76,8 @@ import {
 } from './action-runner.ts';
 import { ActionMenu } from './ActionMenu.tsx';
 import { AppMark } from './AppMark.tsx';
-import { verbLane } from './asks/ask-copy.ts';
+import { AskConfirmDialog } from './AskConfirmDialog.tsx';
+import { firstName, verbLane } from './asks/ask-copy.ts';
 import { AsksButton } from './asks/AsksButton.tsx';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
 import { ConsoleSettingsModal } from './ConsoleSettingsModal.tsx';
@@ -115,6 +117,7 @@ import {
 } from './hooks.ts';
 import { assignMemberLooks } from './invadr-colors.ts';
 import { MemberInvadr, MemberLooksProvider } from './MemberInvadr.tsx';
+import { mrRef } from './MrLinks.tsx';
 import { NEED_LABEL, NEED_ORDER, needOf } from './needs-me.ts';
 import { overlay, overlayMerging } from './optimistic.ts';
 import { OwnersPostModal } from './OwnersPostModal.tsx';
@@ -421,6 +424,13 @@ export function Board() {
 
   // Row action menu (right-click) and transient toasts.
   const [rowMenu, setRowMenu] = useState<RowMenuState | null>(null);
+  // An ask waiting on the confirm dialog; send runs it with the typed note.
+  const [pendingAsk, setPendingAsk] = useState<{
+    kind: AskKind;
+    reviewer: string;
+    subject: string;
+    send: (note: string) => void;
+  } | null>(null);
   // The MR whose saved review is open in the modal, if any.
   const [reviewModal, setReviewModal] = useState<BoardMRWithReview | null>(
     null
@@ -967,8 +977,26 @@ export function Board() {
     [runner]
   );
   const runRowAction = useCallback(
-    (action: RowAction, mr: BoardMR, opts: RunOpts) =>
-      dispatchRowAction(action.request, mr, opts, runner, rowHandlers),
+    (action: RowAction, mr: BoardMR, opts: RunOpts) => {
+      const req = action.request;
+      if (req.kind !== 'ask') {
+        return dispatchRowAction(req, mr, opts, runner, rowHandlers);
+      }
+      setPendingAsk({
+        kind: req.ask,
+        reviewer: opts.pick ?? req.reviewer ?? '',
+        subject: mrRef(mr),
+        send: note =>
+          void dispatchRowAction(
+            { ...req, note: note.trim() || undefined },
+            mr,
+            opts,
+            runner,
+            rowHandlers
+          ),
+      });
+      return undefined;
+    },
     [runner, rowHandlers]
   );
 
@@ -1808,7 +1836,26 @@ export function Board() {
               onClose={() => setRowMenu(null)}
               onRun={(key, opts) => {
                 const entry = bulkEntries.find(e => e.key === key);
-                return entry ? runBulk(entry, opts, runner) : undefined;
+                if (!entry) return undefined;
+                const req = entry.request;
+                if (req.kind !== 'ask') return runBulk(entry, opts, runner);
+                if (!opts.pick) return undefined;
+                const count = entry.pickTargets?.get(opts.pick)?.length ?? 0;
+                setPendingAsk({
+                  kind: req.ask,
+                  reviewer: opts.pick,
+                  subject: `${count} MRs`,
+                  send: note =>
+                    void runBulk(
+                      {
+                        ...entry,
+                        request: { ...req, note: note.trim() || undefined },
+                      },
+                      opts,
+                      runner
+                    ),
+                });
+                return undefined;
               }}
             />
           ) : (
@@ -1819,6 +1866,18 @@ export function Board() {
               onClose={() => setRowMenu(null)}
             />
           ))}
+
+        <AskConfirmDialog
+          open={pendingAsk !== null}
+          kind={pendingAsk?.kind ?? 'review'}
+          reviewerName={firstName(undefined, pendingAsk?.reviewer ?? '')}
+          subject={pendingAsk?.subject ?? ''}
+          onSend={note => {
+            pendingAsk?.send(note);
+            setPendingAsk(null);
+          }}
+          onCancel={() => setPendingAsk(null)}
+        />
 
         {reviewModal && (
           <ReviewModal mr={reviewModal} onClose={() => setReviewModal(null)} />

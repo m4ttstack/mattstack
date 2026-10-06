@@ -407,3 +407,20 @@ test('dispatchRowAction routes one-row requests to their handlers', async () => 
     `post /nudge {"mrUrl":"${mr(7).webUrl}","iid":7,"reviewer":"jo","kind":"review"}`
   );
 });
+
+test('an ask carries its note to /nudge', async () => {
+  const { deps, events } = fakeDeps();
+  await runOne(
+    {
+      kind: 'ask',
+      ask: 'review',
+      reviewer: 'mira',
+      note: 'mostly the retry path',
+    },
+    mr(7),
+    deps
+  );
+  expect(events).toContain(
+    `post /nudge {"mrUrl":"${mr(7).webUrl}","iid":7,"reviewer":"mira","kind":"review","note":"mostly the retry path"}`
+  );
+});

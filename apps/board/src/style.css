@@ -5303,6 +5303,16 @@ a.tui-id-card-ref:focus-visible {
   gap: 6px;
 }
 
+.tui-ask-send-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tui-ask-send-copy {
+  margin: 0;
+  color: var(--text-3);
+}
+
 .tui-ask-history {
   margin: 0;
   padding: 0;

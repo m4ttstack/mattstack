@@ -35,7 +35,7 @@ export type ActionGlyph =
     }
   | { kind: 'flag'; name: 'conflicts' | 'auto-merge' | 'draft' }
   | { kind: 'out' }
-  | { kind: 'cloud' }
+  | { kind: 'agent-cloud' }
   | { kind: 'agent' }
   | { kind: 'slack' }
   | { kind: 'emoji'; glyph: string };
@@ -55,7 +55,12 @@ export type ActionRequest =
   | { kind: 'draft'; draft: boolean }
   | { kind: 'react'; emoji: string; glyph: string; remove: boolean }
   | { kind: 'find-thread' }
-  | { kind: 'ask'; ask: 'review' | 're-review' | 'respond'; reviewer?: string }
+  | {
+      kind: 'ask';
+      ask: 'review' | 're-review' | 'respond';
+      reviewer?: string;
+      note?: string;
+    }
   | { kind: 'post-slack' }
   | { kind: 'post-owners' }
   | { kind: 'copy' }
@@ -126,7 +131,7 @@ const DISMISS: ActionGlyph = { kind: 'menu', name: 'dismiss' };
 const COPY: ActionGlyph = { kind: 'menu', name: 'copy' };
 const NOTE: ActionGlyph = { kind: 'menu', name: 'note' };
 const DRAFT: ActionGlyph = { kind: 'flag', name: 'draft' };
-const CLOUD: ActionGlyph = { kind: 'cloud' };
+const AGENT_CLOUD: ActionGlyph = { kind: 'agent-cloud' };
 const SLACK: ActionGlyph = { kind: 'slack' };
 const GITLAB_GLYPH: Record<MrAction, ActionGlyph> = {
   merge: { kind: 'flag', name: 'conflicts' },
@@ -373,7 +378,7 @@ export function rowActions(
         askTargets.length ? 'agent' : 'sessions',
         'request-review',
         'request review from…',
-        CLOUD,
+        AGENT_CLOUD,
         { kind: 'ask', ask: 'review' },
         askTargets.length
           ? {
