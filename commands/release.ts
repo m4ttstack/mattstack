@@ -25,7 +25,7 @@
  * path, write and commit the notes, tag and verify in one resumable run
  * (lib/release/release-app.ts).
  */
-import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir, homedir } from "os";
 import { dirname, join } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
@@ -46,6 +46,7 @@ import {
   type UpdateMachineSeams,
 } from "../lib/release/update-machine.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
+import { readDevModeConfig } from "./settings.ts";
 import { NOTARY_PROFILE_DEFAULT } from "../lib/release/dev-publish.ts";
 import {
   listJoin,
@@ -162,7 +163,7 @@ export async function createRealUpdateMachineSeams(options: UpdateMachineOptions
   const needsWorkDir = !options.plan && !options.verifyOnly;
   return {
     repoRoot: top.exitCode === 0 ? top.stdout.trim() : process.cwd(),
-    sharedCheckoutPath: resolveSharedCheckout(homedir()),
+    sharedCheckoutPath: resolveSharedCheckout(homedir(), existsSync, readDevModeConfig().sourcePath ?? null),
     workDir: needsWorkDir ? mkdtempSync(join(tmpdir(), "rt-update-machine-")) : "",
     uid: process.getuid ? process.getuid() : 501,
     isTTY: interactive(),
