@@ -345,8 +345,7 @@ body {
 .tui-join-toggle:focus-visible,
 .tui-drawer-action:focus-visible,
 .tui-menu-button:focus-visible,
-.tui-tab:focus-visible,
-.tui-also-show-pill:focus-visible {
+.tui-tab:focus-visible {
   outline: 2px solid var(--fill-accent);
   outline-offset: 2px;
 }
@@ -4999,51 +4998,6 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-3);
   display: inline-flex;
 }
-.tui-show-menu-item {
-  align-items: flex-start;
-}
-.tui-show-item {
-  display: flex;
-  gap: 9px;
-  align-items: flex-start;
-}
-.tui-show-check {
-  flex-shrink: 0;
-  width: 15px;
-  height: 15px;
-  margin-top: 1px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  background: var(--card);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--on-fill-accent);
-}
-.tui-show-check svg {
-  width: 11px;
-  height: 11px;
-}
-.tui-show-check[data-on] {
-  background: var(--fill-accent);
-  border-color: var(--fill-accent);
-}
-.tui-show-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  text-align: left;
-}
-.tui-show-label {
-  color: var(--text-2);
-}
-.tui-show-label[data-on] {
-  color: var(--text-1);
-}
-.tui-show-desc {
-  color: var(--text-3);
-  font-size: 11px;
-}
 .tui-show-count {
   color: var(--text-3);
   font-family: var(--font-mono);
@@ -5053,42 +5007,103 @@ a.tui-id-card-ref:focus-visible {
   color: var(--text-accent-small);
 }
 
-/* ── Also show line ───────────────────────────────────────────────── */
-.tui-also-show {
+/* ── Show chips ───────────────────────────────────────────────────── */
+/* The Show picker, always in view: a checked chip wears the accent wash and
+   edge so what is on the board reads at a glance; an unchecked one goes
+   dashed and neutral. */
+.tui-show {
   flex-basis: 100%;
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: -4px;
+}
+.tui-show-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tui-show-chip {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
-  font-size: 11px;
-}
-.tui-also-show-lead {
+  height: 26px;
+  padding: 0 10px 0 7px;
+  border: 1px dashed var(--border-control-on-card);
+  border-radius: 999px;
   color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
 }
-.tui-also-show-pill {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 3px 9px 3px 7px;
-  background: var(--control-fill);
-  color: var(--text-accent-small);
-  font: inherit;
-  font-weight: 500;
+.tui-show-chip input {
+  /* Drawn by hand: a native checkbox turns grey whenever the window is not
+     focused. */
+  appearance: none;
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  border: 1px solid var(--border-control-on-card);
+  border-radius: 3px;
+  background: var(--card);
   cursor: pointer;
 }
-.tui-also-show-pill:hover {
+.tui-show-chip input:checked {
+  border-color: var(--fill-accent);
+  background: var(--fill-accent)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
+    center / 10px no-repeat;
+}
+.tui-show-chip:hover {
   border-color: var(--fill-accent);
 }
-/* A verb in merge's neutral: bold body text that takes a grey wash on hover. */
-.tui-also-show .tui-also-show-all {
-  padding: 1px 6px;
-  border-radius: var(--radius-px5);
-  font-size: 0.72rem;
-  font-weight: 600;
-  line-height: 16px;
+.tui-show-chip[data-on] {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--fill-accent) 55%, var(--card));
+  background: color-mix(in srgb, var(--fill-accent) 10%, var(--card));
   color: var(--text-1);
 }
-.tui-also-show .tui-also-show-all:hover {
+.tui-show-chip[data-on] .tui-show-count {
+  color: var(--text-accent-small);
+}
+.tui-show-chip:has(:focus-visible) {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 2px;
+}
+.tui-show-chips-settings {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 0 -4px;
+  padding: 2px 6px 2px 4px;
+  border: 0;
+  border-radius: var(--radius-px5);
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.tui-show-chips-settings:hover {
+  color: var(--text-1);
   background: color-mix(in srgb, var(--muted) 12%, transparent);
+}
+.tui-show-chips-settings:focus-visible {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 2px;
+}
+.tui-show-chips-settings svg {
+  width: 13px;
+  height: 13px;
+}
+/* Below 720px the drawer carries the Show toggles, as it does the menus. */
+@media (max-width: 720px) {
+  .tui-show {
+    display: none;
+  }
 }
 
 /* ── whose-turn summary ───────────────────────────────────────────── */

@@ -13,12 +13,10 @@ import type { ThemeMode } from '../types.ts';
 import { GROUP_LABEL, SORT_LABEL } from './format.ts';
 import { SlackLogo } from './icons.tsx';
 
-// Lucide path data; tui-kit's ICONS has no layers, sort, eye or chevron-down.
+// Lucide path data; tui-kit's ICONS has no layers, sort or chevron-down.
 const LAYERS_ICON =
   'M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83zM2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17';
 const SORT_ICON = 'm21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16';
-const EYE_ICON =
-  'M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0';
 const CHEVRON_DOWN_ICON = 'm6 9 6 6 6-6';
 
 export interface ShowMenuModel {
@@ -26,12 +24,7 @@ export interface ShowMenuModel {
   off: readonly ShowItem[];
   counts: Record<ShowItem, number>;
   channel: string | null;
-  shown: number;
-  total: number;
   toggle: (item: ShowItem) => void;
-  /** Checks every offered item, zero counts included, in one state write:
-      `toggle` per item would each start from the same stale `off`. */
-  showAll: () => void;
 }
 
 const slackPlace = (channel: string | null) =>
@@ -129,67 +122,7 @@ function MenuButton({
   );
 }
 
-const TURN_SETTINGS_LABEL = 'Whose turn settings…';
-
-export function ShowMenuItems({
-  show,
-  onOpenTurnSettings,
-  close,
-}: {
-  show: ShowMenuModel;
-  onOpenTurnSettings?: () => void;
-  /** Kit items never close the menu on click; the settings link must. */
-  close?: () => void;
-}) {
-  return (
-    <>
-      <ContextMenu.Label>Show on the board</ContextMenu.Label>
-      {show.offered.map(item => {
-        const on = !show.off.includes(item);
-        return (
-          <ContextMenu.Item
-            key={item}
-            role="menuitemcheckbox"
-            aria-checked={on}
-            className="tui-show-menu-item"
-            label={
-              <span className="tui-show-item">
-                <span className="tui-show-check" data-on={on || undefined}>
-                  {on && <Icon d={CHECK_ICON} />}
-                </span>
-                <span className="tui-show-text">
-                  <span className="tui-show-label" data-on={on || undefined}>
-                    {showLabel(item, show.channel)}
-                  </span>
-                  <span className="tui-show-desc">
-                    {showDescription(item, show.channel)}
-                  </span>
-                </span>
-              </span>
-            }
-            trailing={
-              <span className="tui-show-count">{show.counts[item]}</span>
-            }
-            onClick={() => show.toggle(item)}
-          />
-        );
-      })}
-      {onOpenTurnSettings && (
-        <>
-          <ContextMenu.Separator />
-          <ContextMenu.Item
-            className="tui-show-settings"
-            label={TURN_SETTINGS_LABEL}
-            onClick={() => {
-              close?.();
-              onOpenTurnSettings();
-            }}
-          />
-        </>
-      )}
-    </>
-  );
-}
+export const TURN_SETTINGS_LABEL = 'Display Settings';
 
 // ── controls (shared: desktop header + mobile drawer) ───────────────────────
 
@@ -351,22 +284,6 @@ function Controls({
           ))
         }
       </MenuButton>
-      {show && (
-        <MenuButton
-          icon={<Icon d={EYE_ICON} />}
-          label="Showing"
-          value={`${show.shown} of ${show.total}`}
-          ariaLabel="show on the board"
-        >
-          {close => (
-            <ShowMenuItems
-              show={show}
-              onOpenTurnSettings={onOpenTurnSettings}
-              close={close}
-            />
-          )}
-        </MenuButton>
-      )}
     </>
   );
 }
