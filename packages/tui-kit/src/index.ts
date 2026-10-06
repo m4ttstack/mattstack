@@ -108,6 +108,9 @@ export type { ModalOwnProps, ModalProps } from "./recipes/Modal/Modal.tsx";
 export { Panel, PANEL_PARTS, panelTheme } from "./recipes/Panel/Panel.tsx";
 export type { PanelOwnProps, PanelProps } from "./recipes/Panel/Panel.tsx";
 
+export { POPOVER_PARTS, Popover, popoverTheme } from "./recipes/Popover/Popover.tsx";
+export type { PopoverOwnProps, PopoverProps } from "./recipes/Popover/Popover.tsx";
+
 export {
   ScrollPane,
   SCROLLPANE_PARTS,

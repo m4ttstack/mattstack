@@ -1,0 +1,27 @@
+@layer soribashi.recipes {
+  .root {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .positioner {
+    z-index: 200;
+  }
+
+  .popup {
+    box-sizing: border-box;
+    width: max-content;
+    color: var(--text-1);
+    font-family: var(--font-sans);
+    padding: var(--spacing-px4);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-menu);
+    font-size: var(--font-size-px13);
+    outline: none;
+  }
+}
