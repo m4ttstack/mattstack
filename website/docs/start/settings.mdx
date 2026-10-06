@@ -18,7 +18,7 @@ A setting can be set at four levels, called scopes:
 | org | shared by every team in your org |
 | machine | this Mac only |
 
-When the same setting is set in more than one place, the most specific one wins. From weakest to strongest the order is: the built-in default, org, team, user, then machine. A setting that only makes sense for one repo can also be set for just that repo, and that repo value beats the same level's global one.
+When the same setting is set in more than one place, the most specific one wins. From weakest to strongest the order is: the built-in default, org, team, user, org for one repo, team for one repo, user for one repo, machine, then machine for one repo. So a value set for one repo at the org, team or user level beats every plain org, team or user value, and a machine value beats all of those. A setting that only makes sense for one repo can be set only for that repo.
 
 The org and team scopes are shared through your org's repo, so a change there reaches every member's Mac. Only an org admin can write the org scope, and only that team's owner can write a team's scope. See [Teams and invites](/start/teams) for roles. Without a team, you have the user and machine scopes.
 
