@@ -1,7 +1,8 @@
 import type { AuthorSignal, ReviewerSignal } from '../../turn.ts';
 
-/** How each whose-turn signal reads to a person: the settings editor's
-    checkbox labels and the Show chips' tooltip share these words. */
+/** How each whose-turn signal reads to a person in the Show chips' tooltip.
+    The settings editor's checkboxes carry the same words, sentence-cased, in
+    board.turn's schema; turn-labels.test.ts holds the two together. */
 export const AUTHOR_LABEL: Record<AuthorSignal, string> = {
   threads: 'unanswered comments',
   changesRequested: 'changes requested',

@@ -4,6 +4,15 @@ type JsonSchema = NonNullable<SettingDefWire['schema']>;
 
 const D = 'https://json-schema.org/draft/2020-12/schema';
 const STRING_LIST = { $schema: D, type: 'array', items: { type: 'string' } };
+const AUTHOR_SIGNALS = [
+  'threads',
+  'changesRequested',
+  'conflicts',
+  'rebase',
+  'ciFailing',
+  'readyToMerge',
+];
+const REVIEWER_SIGNALS = ['assigned', 'approvalReset', 'repliedThreads'];
 
 /** Literal copies of the registry's JSON Schemas for the keys console tests
     render. testSchemas.test.ts fails when one drifts from rt-client's. */
@@ -28,6 +37,38 @@ export const TEST_SCHEMAS: Record<string, JsonSchema> = {
       'janitorThresholdHours',
       'janitorIntervalMin',
     ],
+    additionalProperties: {},
+  },
+  'board.turn': {
+    $schema: D,
+    type: 'object',
+    properties: {
+      author: {
+        title: "Author's turn",
+        labels: {
+          threads: 'Unanswered comments',
+          changesRequested: 'Changes requested',
+          conflicts: 'Merge conflicts',
+          rebase: 'Needs a rebase',
+          ciFailing: 'CI failing',
+          readyToMerge: 'Approved, ready to merge',
+        },
+        default: [...AUTHOR_SIGNALS],
+        type: 'array',
+        items: { type: 'string', enum: [...AUTHOR_SIGNALS] },
+      },
+      reviewer: {
+        title: "Reviewer's turn",
+        labels: {
+          assigned: "Assigned and haven't finished",
+          approvalReset: 'A push reset my approval',
+          repliedThreads: 'The author answered my comment',
+        },
+        default: [...REVIEWER_SIGNALS],
+        type: 'array',
+        items: { type: 'string', enum: [...REVIEWER_SIGNALS] },
+      },
+    },
     additionalProperties: {},
   },
   'rt.runaway': {
