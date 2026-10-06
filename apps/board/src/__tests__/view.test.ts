@@ -29,11 +29,11 @@ import {
   resolveStandDownTarget,
   rosterUsernamesFor,
   seatOf,
-  visibleByAuthor,
   serializeViewState,
   sortKeysFor,
   statusFlags,
   tabDimsEmpty,
+  visibleByAuthor,
 } from '../view.ts';
 
 function mr(overrides: Partial<BoardMR>): BoardMR {
@@ -155,13 +155,19 @@ describe('filterByShow', () => {
     expect(r.counts.notPosted).toBe(0);
     expect(r.counts.authorTurn).toBe(1);
   });
+  test('your own MRs never count as waiting on author', () => {
+    const own = mr({
+      iid: 7,
+      author: { id: 'a', username: 'Alice', name: 'Alice', avatarUrl: null },
+      slack: { status: 'found', reactions: [], posted: true },
+      threadSummary: { awaiting: 1, replied: 0, resolved: 0 },
+    } as any);
+    const r = filterByShow([own], ['authorTurn'], ALL, ALL_TURN, 'alice');
+    expect(r.rows).toHaveLength(1);
+    expect(r.counts.authorTurn).toBe(0);
+  });
   test('an off item counts the rows switching it on would bring back', () => {
-    const r = filterByShow(
-      list,
-      ['notPosted', 'authorTurn'],
-      ALL,
-      ALL_TURN
-    );
+    const r = filterByShow(list, ['notPosted', 'authorTurn'], ALL, ALL_TURN);
     expect(r.counts).toEqual({
       posted: 2,
       notPosted: 2,
@@ -228,19 +234,13 @@ describe('visibleByAuthor', () => {
       threadSummary: waiting,
     } as any),
   ];
-  const offeredFor = (member: string) =>
-    offeredShowItems({
-      slackEnabled: true,
-      seatTab: false,
-      seat: 'alice',
-      member,
-    });
+  const ALL = ['posted', 'notPosted', 'authorTurn', 'myDrafts'] as const;
 
-  test("each person's count matches the rows picking them shows", () => {
-    const v = visibleByAuthor(rows, ['authorTurn'], offeredFor, ALL_TURN);
+  test('the counts add up to the total, own MRs never waiting on you', () => {
+    const v = visibleByAuthor(rows, ['authorTurn'], ALL, ALL_TURN, 'alice');
     expect(v.byAuthor.get('alice')).toBe(2);
-    expect(v.byAuthor.get('bob')).toBe(0);
-    expect(v.total).toBe(1);
+    expect(v.byAuthor.has('bob')).toBe(false);
+    expect(v.total).toBe(2);
   });
 });
 
