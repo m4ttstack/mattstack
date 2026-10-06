@@ -851,12 +851,13 @@ describe("membersRemove", () => {
     });
   });
 
-  test("membersRemove refuses on a joined clone", async () => {
+  test("membersRemove refuses on a joined clone, and never reaches the switchboard even with its admin token", async () => {
     const p = probesWithJoinedTeam();
     const { secrets } = seamsWithClone();
-    const { seams } = fakeMembersSeams();
+    const { seams } = fakeMembersSeams({ readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin-secret" : null) });
 
     await expect(membersRemove(p, secrets, SLUG, "zaphod", undefined, seams)).rejects.toMatchObject({ code: "team-pull-only", message: "The org's shared files belong to its admins" });
+    expect(p.calls.fetch).toEqual([]);
   });
 });
 
@@ -887,6 +888,31 @@ describe("roster edits compare usernames without case", () => {
   test("removing finds the member in any case and hands back what it removed", () => {
     expect(withoutMember(roster, "DEV2")).toEqual({ roster: [{ username: "dev1" }], removed: roster[0]! });
     expect(withoutMember(roster, "dev3")).toEqual({ roster, removed: null });
+  });
+});
+
+describe("a malformed roster row never stops a roster edit", () => {
+  const malformed = [null, { name: "no username" }, { username: 7 }] as unknown as { username: string }[];
+  const roster = [...malformed, { username: " Dev2 ", agePublicKey: ALICE_PUBLIC_KEY }];
+
+  test("recording a key skips the malformed rows and keeps them", () => {
+    expect(withRosterKey(roster, "dev2", "age1zzz")).toEqual([...malformed, { username: " Dev2 ", agePublicKey: "age1zzz" }]);
+  });
+  test("removing skips the malformed rows and keeps them", () => {
+    expect(withoutMember(roster, "dev2")).toEqual({ roster: malformed, removed: roster[3]! });
+  });
+  test("membersRemove removes the member and revokes their key past a malformed row", async () => {
+    const p = fakeProbes({ home: HOME });
+    const { execSeam, secrets } = seamsWithClone();
+    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
+    execSeam.writeFile(teamSecretsFile(SLUG, "board"), JSON.stringify({ data: "opaque", sops: {} }));
+    const { seams, writes } = fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": roster }) });
+
+    const result = await membersRemove(p, secrets, SLUG, "dev2", undefined, seams);
+
+    expect(result.rosterRemoved).toBe(true);
+    expect(readTeamRecipients(SLUG, secrets)).toEqual([OWNER_PUBLIC_KEY]);
+    expect(writes.find((w) => w.key === "mattstack.roster")).toMatchObject({ value: malformed });
   });
 });
 
@@ -1025,9 +1051,9 @@ describe("membersRemove: the member's board on the switchboard", () => {
     expect(result.manualSteps.join(" ")).not.toContain("answered 0");
   });
 
-  test("without the admin token the step names the command the owner runs", async () => {
+  test("without the admin token the step names the command the token holder runs", async () => {
     const { result } = await removeAlice(async () => ({ status: 200, body: "", headers: {} }), null);
-    expect(result.manualSteps.join(" ")).toContain("rt team members remove alice on their Mac");
+    expect(result.manualSteps.join(" ")).toContain("rt team members remove alice there");
   });
 
   test("a handle in another case still finds its roster entry and key, and the board is revoked under the canonical name", async () => {

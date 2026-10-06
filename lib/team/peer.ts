@@ -91,7 +91,7 @@ function parsed<T>(body: string): T | null {
 export async function peerOwnBoard(p: Probes, slug: string, opts: { rotate: boolean }, seams: PeerSeams = realPeerSeams()): Promise<PeerResult> {
   const admin = await readAdminToken(p, seams.readLocalSecret);
   if (!admin) {
-    throw new UserActionableError("peer-needs-admin", "Only the org admin can connect a board from their own Mac", {}, {
+    throw new UserActionableError("peer-needs-admin", "Only a Mac holding the switchboard admin token can connect its own board", {}, {
       why: `This Mac holds no switchboard admin token. ${ASK_ADMIN}`,
       next: "rt team join",
     });

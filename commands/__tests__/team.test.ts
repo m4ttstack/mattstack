@@ -259,7 +259,7 @@ describe("teamPeer", () => {
     try {
       const code = await runExpectingProcessExit(() => teamPeer(["--team", "acme"], {}, deps));
       expect(code).toBe(2);
-      expect(io.stderr()).toContain("[refused] Only the org admin can connect a board from their own Mac");
+      expect(io.stderr()).toContain("[refused] Only a Mac holding the switchboard admin token can connect its own board");
       expect(io.stderr()).toContain("rt team join");
     } finally {
       io.restore();

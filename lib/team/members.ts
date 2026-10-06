@@ -1,4 +1,3 @@
-import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
 /**
  * `rt team members sync|remove` — the owner side of the invite loop: sync
  * turns each outstanding invite record with a posted reply into a sops
@@ -35,7 +34,7 @@ import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
 import { revokeRead, type RevokeAccess } from "./forge.ts";
-import { realReadLocalSecret, revokeBoard, type ReadLocalSecret } from "./board-peers.ts";
+import { canonicalHandle, realReadLocalSecret, revokeBoard, type ReadLocalSecret } from "./board-peers.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { scrub } from "./redact.ts";
 import { assertMayWrite } from "./roles.ts";
@@ -141,15 +140,20 @@ function readRoster(seams: MembersSeams, slug: string): RosterMember[] {
   return Array.isArray(store["mattstack.roster"]) ? (store["mattstack.roster"] as RosterMember[]) : [];
 }
 
+/** Roster rows are hand-editable, so a row without a string username never matches and is written back untouched. Names compare the way the switchboard compares board names. */
+function isMember(m: RosterMember, handle: string): boolean {
+  return typeof m?.username === "string" && canonicalHandle(m.username) === canonicalHandle(handle);
+}
+
 export function withRosterKey(roster: RosterMember[], handle: string, agePublicKey: string): RosterMember[] {
-  return roster.some((m) => sameUser(m.username, handle))
-    ? roster.map((m) => (sameUser(m.username, handle) ? { ...m, agePublicKey } : m))
+  return roster.some((m) => isMember(m, handle))
+    ? roster.map((m) => (isMember(m, handle) ? { ...m, agePublicKey } : m))
     : [...roster, { username: handle, agePublicKey }];
 }
 
 export function withoutMember(roster: RosterMember[], handle: string): { roster: RosterMember[]; removed: RosterMember | null } {
-  const removed = roster.find((m) => sameUser(m.username, handle)) ?? null;
-  return { roster: removed ? roster.filter((m) => !sameUser(m.username, handle)) : roster, removed };
+  const removed = roster.find((m) => isMember(m, handle)) ?? null;
+  return { roster: removed ? roster.filter((m) => !isMember(m, handle)) : roster, removed };
 }
 
 /** Sets (or overwrites) one roster entry's `agePublicKey`: the sync-time record of which sops recipient a handle maps to, so `membersRemove` can find it later without a `--key` argument. */
@@ -211,7 +215,7 @@ export function membersSetTeams(p: Probes, seams: MembersSeams, slug: string, ha
   assertCurrentOrg(slug, seams.currentOrg(), "team members set");
   assertTeamFolders(p, slug, teams);
   const roster = readRoster(seams, slug);
-  const entry = roster.find((member) => sameUser(member.username, handle));
+  const entry = roster.find((member) => isMember(member, handle));
   if (!entry) {
     throw new UserActionableError("not-a-member", `${handle} is not in this org yet`, {}, { next: `rt team invite --handle ${handle} --teams <team>` });
   }
@@ -412,7 +416,7 @@ export async function membersRemove(
   const recordedKeys = [
     ...new Set(
       roster
-        .filter((m) => sameUser(m.username, handle))
+        .filter((m) => isMember(m, handle))
         .map((m) => m.agePublicKey)
         .filter((k): k is string => typeof k === "string"),
     ),
@@ -455,7 +459,7 @@ export async function membersRemove(
     board.kind === "revoked" ? "revoked" : board.kind === "not-peered" ? "not-peered" : board.kind === "no-admin-token" ? "left-peered" : "failed";
   const boardSteps =
     board.kind === "no-admin-token"
-      ? [`${handle}'s board is still connected. Only the switchboard owner can disconnect it, by running rt team members remove ${handle} on their Mac.`]
+      ? [`${handle}'s board is still connected. Only a Mac holding the switchboard admin token can disconnect it, by running rt team members remove ${handle} there.`]
       : board.kind === "failed"
         ? [`rt could not disconnect ${handle}'s board: ${board.detail}. Run this command again to retry.`]
         : [];

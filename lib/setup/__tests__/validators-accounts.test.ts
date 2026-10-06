@@ -577,7 +577,7 @@ describe("accountRows: account.board-peering", () => {
     expect(r.status).toBe("needs-you");
     expect(r.required).toBe(false);
     expect(r.finishGated).toBeUndefined();
-    expect(r.detail).toContain("You created acme on this Mac");
+    expect(r.detail).toContain("This Mac holds the switchboard admin token");
     expect(r.detail).not.toContain("invite you again");
     expect(r.optionalNote).not.toContain("owner");
     expect(r.optionalNote?.toLowerCase().startsWith("works without")).toBe(false);
@@ -588,6 +588,13 @@ describe("accountRows: account.board-peering", () => {
     });
   });
 
+  test("a joined Mac that holds the admin token is pointed at rt team peer, not at asking for an invite", async () => {
+    const r = await peeringRow(machine({ acme: { joinedByRt: true } }), withAdmin);
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toContain("This Mac holds the switchboard admin token");
+    expect(r.detail).not.toContain("invite you again");
+  });
+
   test("the creator's Mac without the admin token has no way to peer, so it gets no row", async () => {
     const rows = await rowsFor(machine({ acme: { joinedByRt: false } }));
     expect(rows.find((r) => r.id === "account.board-peering")).toBeUndefined();
@@ -596,7 +603,7 @@ describe("accountRows: account.board-peering", () => {
   test("the admin token in the board's own .env counts for the creator's Mac", async () => {
     const r = await peeringRow(machine({ acme: { joinedByRt: false } }, { extra: { [`${HOME}/.mattstack/board/.env`]: "SWITCHBOARD_ADMIN_TOKEN=admin-1\n" } }));
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("You created acme on this Mac");
+    expect(r.detail).toContain("This Mac holds the switchboard admin token");
   });
 
   test("a creator without the admin token who also joined another team keeps the re-invite remedy", async () => {

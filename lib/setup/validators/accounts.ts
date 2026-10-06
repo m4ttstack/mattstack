@@ -259,11 +259,10 @@ async function boardPeeringRow(p: Probes, secrets: SecretPresence, team: TeamSna
   if (peering.kind === "not-applicable") return null;
   if (peering.kind === "unpeered") {
     const unpeered = `This Mac is in ${peering.teams.join(", ")}, but its board has no switchboard token, so it cannot peer.`;
-    const created = peering.teams.filter((slug) => readTeamLocal(p, slug).createdByRt);
     const joinedSome = peering.teams.some((slug) => !readTeamLocal(p, slug).createdByRt);
-    // The board token is one per Mac, not per team, so creating any one team here is enough to connect it.
+    // Registering a board takes only the switchboard admin token, whoever holds it.
     const canSelfInvite =
-      created.length > 0 && (Boolean(p.env.SWITCHBOARD_ADMIN_TOKEN) || boardEnvHas(p, "SWITCHBOARD_ADMIN_TOKEN") || (await secrets.has("rt", "switchboardAdminToken")) !== null);
+      Boolean(p.env.SWITCHBOARD_ADMIN_TOKEN) || boardEnvHas(p, "SWITCHBOARD_ADMIN_TOKEN") || (await secrets.has("rt", "switchboardAdminToken")) !== null;
     // A creator without the admin token, and no other org admin to ask, has no way to peer from here.
     if (!canSelfInvite && !joinedSome) return null;
     if (canSelfInvite) {
@@ -271,7 +270,7 @@ async function boardPeeringRow(p: Probes, secrets: SecretPresence, team: TeamSna
         ...BOARD_PEERING_BASE,
         optionalNote: "Your board does not peer until you connect it with rt team peer.",
         status: "needs-you",
-        detail: `${unpeered} You created ${created.join(", ")} on this Mac, so you can connect your own board with rt team peer.`,
+        detail: `${unpeered} This Mac holds the switchboard admin token, so you can connect your own board with rt team peer.`,
         action: SELF_INVITE_STEPS,
       });
     }
