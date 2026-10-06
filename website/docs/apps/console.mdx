@@ -1,0 +1,37 @@
+---
+title: console
+sidebar_position: 4
+---
+
+# console
+
+## What it is
+
+console is the management console for mattstack: a local web app that shows what is running, what needs you and what a run actually did. It reads run state, wiring and settings through the same client the `rt` CLI and daemon use, so it has no separate database and no write path the CLI does not already have.
+
+## Open it
+
+Open console from the mattstack window. Turn it on or off with [`rt apps`](/rt/reference/apps). It is most useful once rt is set up on your Mac, because without it the board and settings pages start out empty.
+
+## What you do in it
+
+**Watch your runs.** The run board is a live view of every pipeline run, with aging, liveness and stage progress. It updates as runs change, with no refreshing.
+
+**See what a run did.** Open a run for its timeline, failure excerpts, command provenance and effective inputs. Search finds a run across the whole board.
+
+**Read the wiring.** The wiring map shows the skill and pipeline graph, its surfaces, its health and its version history.
+
+**Browse and change settings.** The settings explorer lists every registered key across the default, user, team and machine scopes, and shows where each value is set. You stage a change before it is written. console has no config file of its own, so this is the place to edit settings in the app.
+
+**Jump anywhere.** The command palette (`mod+K`) jumps straight to a run, a config key or a navigation action.
+
+## Settings that matter
+
+console has no keys of its own. What it shows and edits are the shared settings every mattstack app reads; see [Settings](/start/settings).
+
+## Related
+
+- [Settings](/start/settings) explains the scopes console's settings explorer shows.
+- [`rt settings`](/rt/reference/settings) does the same reading and writing from the terminal.
+- [Gates](/skills/gates) covers the decisions a run can pause on.
+- [`rt apps`](/rt/reference/apps) turns console on or off.

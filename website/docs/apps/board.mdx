@@ -1,0 +1,52 @@
+---
+title: board
+sidebar_position: 2
+---
+
+# board
+
+## What it is
+
+board is one page of your team's open GitLab merge requests that are ready for review, so you can drop a single link in Slack instead of pasting MR URLs. Each row shows a status dot, the title, the branch, one review-state phrase, the diff size, the age and a Linear ticket link when the branch or title carries a ticket id. Merge conflicts and red CI show as their own flag chips, so the phrase always says where the MR sits in review.
+
+## Open it
+
+Open board from the mattstack window, or at `board.mattstack`. It is a team app, so it expects you to be in a [team](/start/teams). Turn it on or off with [`rt apps`](/rt/reference/apps).
+
+## What you do in it
+
+**Find what needs a look.** A sidebar switches between everyone and a single member. The header groups rows by age, author, status or your reviews, sorts them by oldest or by progress, and switches between rows and grid and between light, dark and system themes. Your view lives in the page address, so you can share it.
+
+**Open or act on an MR.** A click opens the MR in GitLab. Right-click a row for its menu: open in GitLab, copy for Slack, mark or unmark a Slack reaction, and flip your own MR between draft and ready.
+
+**Hand an MR to an agent.** From a local address, the row menu can start a Claude Code agent in a herdr pane to review someone else's MR, to respond to review on your own, or to look into merge conflicts and red CI. The row shows a live badge while the agent works. These actions are not offered on a board opened through a public address.
+
+**Run reviews through Slack.** board follows a channel convention: a review request is a message with the MR link, and review state is signalled with three reactions (looking, commented, approved). You can post a request and set the reactions from a row.
+
+**Ask a teammate's board for a review.** If teammates run their own boards, an optional relay lets boards ask each other for reviews and re-reviews. Skip it and board works without it.
+
+## Settings that matter
+
+These are registry keys, so you can read them with `rt settings get <key>`.
+
+| Key | Meaning |
+| --- | --- |
+| `board.gitlabHost` | GitLab host the board polls for MRs, shared by the whole team. |
+| `board.projects` | GitLab projects the board tracks, shared by the whole team. |
+| `board.title` | Display title shown in the board's UI. |
+| `board.tabs` | The board's tabs; one tab can show the approval queue for a named codeowners section. |
+| `board.defaultMember` | Which member this developer's local board opens as. |
+| `board.hiddenMembers` | Usernames you hide from the authors tab's roster. |
+| `board.staleAfterDays` | Days of MR inactivity before the board flags it stale, for you. |
+| `board.gateGraceMinutes` | Minutes an unanswered review gate stays open before the board parks the review. Default 90. |
+| `board.reReview` | Turns the automatic re-review sweep on or off. |
+| `board.peerAsks` | Turns on starting the agent when a teammate's board asks yours for a review. |
+| `board.agent.account` | The cswap account the board's review, respond and doctor panes launch under. |
+| `board.agent.model` | Default model for those panes. |
+
+## Related
+
+- [`rt apps`](/rt/reference/apps) turns board on or off.
+- [`rt settings`](/rt/reference/settings) reads and writes the keys above.
+- [Gates](/skills/gates) explains the decisions an agent pauses on, which board shows for you to answer.
+- [Teams and invites](/start/teams) covers the team board expects.

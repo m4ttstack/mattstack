@@ -1,0 +1,43 @@
+---
+title: deck
+sidebar_position: 3
+---
+
+# deck
+
+## What it is
+
+deck registers any web app you run on your machine as a supervised service with a stable HTTPS address, an always-on dashboard and a one-toggle dev-port override. When you are ready, it can also give an app a public URL on your own domain with access control. The command is `deck`, not `local`, because `local` is a reserved word in zsh and bash. mattstack uses deck to serve its own apps, and deck needs none of them.
+
+## Open it
+
+Use the `deck` command, or open the dashboard at `https://deck.localhost`. deck v1 is macOS only. Where the mattstack app is installed, the app supervises deck itself, and `deck setup` refuses and changes nothing.
+
+## What you do in it
+
+**Give an app a name.** Run `deck add myapp --cmd "bun src/server.ts" --dir ~/code/myapp`. The app is live at `https://myapp.localhost`, starts at login and restarts if it crashes. If you already run your own dev server, run `deck add otherapp --port 4200` to track the name without deck touching the process.
+
+**Check on everything.** `deck status` lists every app. The dashboard shows health and logs, and lets you restart an app. `deck logs <name>` tails an app's stderr.
+
+**Debug against a dev server.** `deck override myapp 5173` makes `myapp.localhost` serve port 5173. `deck override myapp off` clears it.
+
+**Share an app on your terms.** Nothing is public until you say so. Options are a casual public URL with `portless --funnel`, a password gate (`deck password <name>`), or your own domain with `deck domain yourdomain.dev`, plus a Google sign-in allowlist of people or domains with `deck access`. Publish or unpublish with `deck publish <name> on|off`. Do not share through `--ngrok`, because it defeats deck's local-only controls.
+
+**Serve while your laptop is off.** `deck remote <name> on` redeploys the app to Railway and points its public hostname there. `deck push <name>` redeploys after a local change, and `deck remote <name> off` moves it back.
+
+**Bring in what already runs.** `deck migrate` adopts your existing LaunchAgents and routes so they show up on the dashboard, without rewriting them.
+
+## Settings that matter
+
+| Key | Meaning |
+| --- | --- |
+| `deck.apps` | Per-app publish state, such as the published flag. |
+| `deck.access` | deck's access-control roster. |
+| `deck.platform` | deck's platform-level machine config: public domain and legacy URL prefixes. |
+
+## Related
+
+- [`rt services`](/rt/reference/services) covers the services rt runs on your Mac.
+- [`rt apps`](/rt/reference/apps) turns the mattstack apps deck serves on or off.
+- [The menu bar app](/start/menu-bar-app) describes the mattstack window that shows those apps.
+- [`rt secrets`](/rt/reference/secrets) holds the Cloudflare secrets `deck domain` needs.

@@ -1,0 +1,36 @@
+---
+title: fast-browser
+sidebar_position: 7
+---
+
+# fast-browser
+
+## What it is
+
+fast-browser lets Claude Code and Codex drive the Chrome you already have open: your profile, your logins, your tabs, rather than a blank automated browser. It attaches to your real Chrome through an extension, so an agent starts from a browser that is already signed in. It is built to collapse the usual snapshot, read, click loop: a multi-step flow goes into a single script, and repeated flows are saved as macros that an agent replays by name.
+
+## Open it
+
+fast-browser has no window of its own. Its tools show up directly inside Claude Code and Codex once setup has run and the Chrome extension is loaded. It is macOS only, needs Google Chrome and Node.js 20 or newer, and Chrome is the only supported browser for now. Set it up with `npx @mattstack/fast-browser setup --host both` (or `--host claude`, or `--host codex`), install the Fast Browser extension from the Chrome Web Store, then run `fast-browser doctor` to check everything is wired up. In the mattstack app, Settings has a Fast Browser tab.
+
+## What you do in it
+
+**Point an agent at a browser task.** There is no separate client to run. Give Claude Code or Codex a task that needs a browser and it drives the Chrome you wired up.
+
+**Run many agents at once.** Each agent connection gets its own tab group, labelled with that client's workspace folder, so you can see who is doing what. An agent only controls the tabs it attached. A second agent connecting does not disconnect the first, and stopping one leaves the others working.
+
+**Keep working while it runs.** fast-browser does not steal focus, so an agent can work while you keep using the browser.
+
+**Build up a macro library.** Repeated flows are mined from your session logs, parameterised and saved, so next time the agent replays the flow by name with arguments.
+
+**Check and tune the setup.** `fast-browser doctor` prints a report, and `--json` gives the same for scripts. `fast-browser configure --profile full` turns on automatic routing instructions and session recording. The default `safe` profile keeps recording off. Recorded sessions can hold page text, URLs and form values, so treat them as confidential.
+
+## Settings that matter
+
+fast-browser has no keys in the mattstack settings registry. Its choices are made with `fast-browser configure`: the `safe` or `full` profile, session recording with a retention of 1 to 365 days, and manual or automatic extension pairing.
+
+## Related
+
+- [The menu bar app](/start/menu-bar-app) describes the mattstack app's Settings window, which has a Fast Browser tab.
+- [Skills: MCP server](/skills/mcp) covers the tools mattstack gives agents.
+- [fast-browser on GitHub](https://github.com/m4ttstack/fast-browser) has the full README.
