@@ -21,7 +21,8 @@ import type {
 import { getSetting } from "../settings/resolve.ts";
 import { getStateDb } from "../state/db.ts";
 import { isDetachedClaudeBinding } from "./claude/sessions.ts";
-import { LEGACY_DEFAULT_PROFILE, resolveLegacySession } from "./legacy.ts";
+import { canonicalCodexProfile } from "./codex/profile.ts";
+import { resolveLegacySession } from "./legacy.ts";
 import { createSessionStore, listBindingsByNativeValue } from "./session-store.ts";
 
 /** A native reference whose profile the boundary may not be able to observe. */
@@ -58,9 +59,9 @@ function fail<T>(code: FaultCode, message: string): Outcome<T> {
 
 const text = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
 
-/** The Codex home is the profile: two homes hold separate thread stores. F5c binds under the same string. */
+/** The Codex home is the profile: two homes hold separate thread stores. The session adapter binds under the same string. */
 export function codexProfile(env: NodeJS.ProcessEnv): string {
-  return text(env.CODEX_HOME) ? env.CODEX_HOME : LEGACY_DEFAULT_PROFILE;
+  return canonicalCodexProfile(undefined, env);
 }
 
 function hintsFrom(env: NodeJS.ProcessEnv, pid?: number): Pick<CallerEvidence, "hints" | "requested"> {
@@ -92,7 +93,7 @@ export function mcpTransportFromArgs(args: string[], env: NodeJS.ProcessEnv): Ou
     return profile.value === undefined ? { ok: true, data: {} } : fail("invalid", "--profile needs --harness");
   }
   if (harness.value !== "codex") return fail("unsupported", `no ${harness.value} host is supported for per-call attribution`);
-  return { ok: true, data: { harness: "codex", profile: profile.value ?? codexProfile(env) } };
+  return { ok: true, data: { harness: "codex", profile: canonicalCodexProfile(profile.value, env) } };
 }
 
 function codexMcpClaim(meta: unknown, env: NodeJS.ProcessEnv, profile: string): Outcome<NativeClaim | undefined> {

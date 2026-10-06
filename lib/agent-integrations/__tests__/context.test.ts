@@ -11,6 +11,7 @@ import { writeChatSession } from "../../chat-session.ts";
 import { setSetting } from "../../settings/write.ts";
 import { createSessionStore } from "../session-store.ts";
 import { createClaudeSessions } from "../claude/sessions.ts";
+import { canonicalCodexProfile } from "../codex/profile.ts";
 import {
   extractCliEvidence, extractMcpEvidence, integrationsEnabled, mcpTransportFromArgs, resolveCallerContext,
   resolveCliSession, resolveToolCaller, type CallerEvidence,
@@ -198,6 +199,24 @@ describe("MCP extraction", () => {
     expect(mcpTransportFromArgs(["--harness", "codex", "--profile", "work"], {})).toEqual({ ok: true, data: { harness: "codex", profile: "work" } });
     expect(mcpTransportFromArgs(["--harness", "gemini"], {}).ok).toBe(false);
     expect(mcpTransportFromArgs(["--harness"], {}).ok).toBe(false);
+  });
+
+  test("the CLI, the MCP server and the session adapter name one Codex home the same way", () => {
+    const home = "/Users/remy";
+    const spellings: Array<string | undefined> = [undefined, "", "  ", "~/.codex", "~/.codex/", `${home}/.codex`, `${home}/.codex/`, `${home}/x/../.codex`];
+    for (const spelling of spellings) {
+      expect(canonicalCodexProfile(spelling, { HOME: home }), String(spelling)).toBe("default");
+      const env = { HOME: home, ...(spelling !== undefined && { CODEX_HOME: spelling }), CODEX_THREAD_ID: "t1" };
+      expect(evidence(extractCliEvidence([], env)).native?.profile, String(spelling)).toBe("default");
+      expect(mcpTransportFromArgs(["--harness", "codex"], env)).toEqual({ ok: true, data: { harness: "codex", profile: "default" } });
+      if (spelling !== undefined) {
+        expect(mcpTransportFromArgs(["--harness", "codex", "--profile", spelling], { HOME: home }), spelling)
+          .toEqual({ ok: true, data: { harness: "codex", profile: "default" } });
+      }
+    }
+    expect(canonicalCodexProfile("~/.codex-work/", { HOME: home })).toBe(`${home}/.codex-work`);
+    expect(canonicalCodexProfile(undefined, { HOME: home, CODEX_HOME: "/x/.codex-work/" })).toBe("/x/.codex-work");
+    expect(canonicalCodexProfile("work", { HOME: home, CODEX_HOME: "/elsewhere" })).toBe("work");
   });
 
   test("a caller-supplied lookalike in tool arguments never reaches the evidence", async () => {

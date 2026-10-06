@@ -52,6 +52,8 @@ export interface LaunchReservation {
   readonly cwd: string;
   readonly state: ReservationState;
   readonly threadId: string | undefined;
+  /** The thread/start result, including one that arrived after its request timed out. */
+  readonly result: Record<string, unknown> | undefined;
   release(): void;
 }
 
@@ -103,15 +105,21 @@ const fail = (code: FaultCode, message: string): { ok: false; error: { code: Fau
   ({ ok: false, error: { code, message } });
 
 type Pending = { method: string; resolve(value: unknown): void; reject(error: Error): void; timer: unknown };
+type Settlement = { result?: unknown; error?: unknown };
 type Inbound = { threadId: string; turnId: string; itemId: string; questionIds: Set<string> };
 
 class Reservation implements LaunchReservation {
   readonly id = crypto.randomUUID();
   state: ReservationState = "reserved";
   threadId: string | undefined;
+  result: Record<string, unknown> | undefined;
   constructor(readonly cwd: string, private readonly onRelease: (reservation: Reservation) => void) {}
   get active(): boolean {
     return this.state === "reserved" || this.state === "starting" || this.state === "started";
+  }
+  /** An unknown start may still have created a thread, so its cwd stays taken until its owner releases it. */
+  get holdsCwd(): boolean {
+    return this.active || this.state === "unknown";
   }
   release(): void {
     if (this.state === "released") return;
@@ -121,6 +129,11 @@ class Reservation implements LaunchReservation {
 }
 
 const requestKey = (id: CodexRequestId): string => `${typeof id}:${id}`;
+
+function startedThread(result: unknown): string | undefined {
+  return isRecord(result) && isRecord(result.thread) && typeof result.thread.id === "string" && result.thread.id
+    ? result.thread.id : undefined;
+}
 
 class Control implements CodexControl {
   readonly connection = crypto.randomUUID();
@@ -139,6 +152,8 @@ class Control implements CodexControl {
   private early: CodexEvent[] = [];
   private readonly held = new Map<string, { reservation: Reservation; messages: Record<string, unknown>[] }>();
   private readonly ambiguous = new Set<string>();
+  /** thread/start requests that timed out, kept so their late reply can settle the reservation. */
+  private readonly lateStarts = new Map<number, Reservation>();
   private starting = 0;
 
   constructor(private readonly options: CodexControlOptions, private readonly deps: CodexControlDeps) {
@@ -234,11 +249,12 @@ class Control implements CodexControl {
   reserveLaunch(cwd: string): Outcome<LaunchReservation> {
     if (this.isClosed) return fail("transient", "The Codex control connection is closed.");
     if (typeof cwd !== "string" || !isAbsolute(cwd)) return fail("invalid", "A launch needs an absolute working directory.");
-    if ([...this.reservations].some((r) => r.active && r.cwd === cwd)) {
+    if ([...this.reservations].some((r) => r.holdsCwd && r.cwd === cwd)) {
       return fail("refused", "Another launch already holds this working directory.");
     }
     const reservation = new Reservation(cwd, (released) => {
       this.reservations.delete(released);
+      for (const [id, r] of this.lateStarts) if (r === released) this.lateStarts.delete(id);
       if (released.threadId) this.forget(released.threadId);
     });
     this.reservations.add(reservation);
@@ -299,9 +315,8 @@ class Control implements CodexControl {
     reservation.state = "starting";
     this.starting++;
     try {
-      const result = await this.call("thread/start", fields);
-      const threadId = isRecord(result) && isRecord(result.thread) && typeof result.thread.id === "string" && result.thread.id
-        ? result.thread.id : undefined;
+      const result = await this.call("thread/start", fields, (id) => this.lateStarts.set(id, reservation));
+      const threadId = startedThread(result);
       if (!threadId) {
         if (reservation.state === "starting") reservation.state = "unknown";
         throw new CodexControlError("invalid", "Codex answered thread/start without a thread id.");
@@ -311,6 +326,7 @@ class Control implements CodexControl {
       if (reservation.state === "starting") {
         reservation.state = "started";
         reservation.threadId = threadId;
+        reservation.result = result as Record<string, unknown>;
         if (announced?.reservation === reservation) for (const message of announced.messages) this.accept(message);
       }
       return result;
@@ -357,11 +373,12 @@ class Control implements CodexControl {
     }
   }
 
-  private call(method: string, params: Record<string, unknown>): Promise<unknown> {
+  private call(method: string, params: Record<string, unknown>, onTimeout?: (id: number) => void): Promise<unknown> {
     const id = this.seq++;
     return new Promise((resolve, reject) => {
       const timer = this.deps.clock.setTimeout(() => {
         this.pending.delete(id);
+        onTimeout?.(id);
         reject(new CodexControlError("transient", `${method} timed out.`));
       }, this.deps.timeoutMs);
       this.pending.set(id, { method, resolve, reject, timer });
@@ -422,6 +439,12 @@ class Control implements CodexControl {
     const id = message.id;
     const pending = typeof id === "number" ? this.pending.get(id) : undefined;
     if (!pending) {
+      const late = typeof id === "number" ? this.lateStarts.get(id) : undefined;
+      if (late) {
+        this.lateStarts.delete(id as number);
+        this.reconcile(late, message);
+        return;
+      }
       this.deps.log("debug", "Dropped a Codex response with no pending request.");
       return;
     }
@@ -436,6 +459,21 @@ class Control implements CodexControl {
     } else {
       this.deps.log("warn", "Dropped a malformed Codex response.", { method: pending.method });
       pending.reject(new CodexControlError("invalid", `Codex answered ${pending.method} with neither a result nor an error.`));
+    }
+  }
+
+  /** A late thread/start reply is the native answer to that launch: it names the thread, or proves none was created. */
+  private reconcile(reservation: Reservation, message: Settlement): void {
+    if (reservation.state !== "unknown") return;
+    const threadId = isRecord(message.error) ? undefined : startedThread(message.result);
+    if (isRecord(message.error)) {
+      reservation.state = "failed";
+    } else if (threadId) {
+      reservation.state = "started";
+      reservation.threadId = threadId;
+      reservation.result = message.result as Record<string, unknown>;
+    } else {
+      this.deps.log("warn", "A late Codex thread/start reply named no thread.");
     }
   }
 
@@ -492,6 +530,7 @@ class Control implements CodexControl {
     this.early = [];
     this.held.clear();
     this.ambiguous.clear();
+    this.lateStarts.clear();
     for (const r of this.reservations) if (r.state === "starting") r.state = "unknown";
     if (!this.socketClosed) {
       this.socketClosed = true;

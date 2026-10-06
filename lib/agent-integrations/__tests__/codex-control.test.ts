@@ -429,6 +429,62 @@ describe("codex control", () => {
     expect((await rejection(control.request("thread/start", { cwd: "/work/a" }))).code).toBe("refused");
   });
 
+  test("an unresolved launch holds its cwd until a late reply reconciles it", async () => {
+    let startId: number | undefined;
+    const h = harness({ request: (_s, m) => { if (m.method === "thread/start") startId = m.id; } });
+    const control = await h.connect();
+    const events = collect(control);
+    const reserved = control.reserveLaunch("/work/a");
+    if (!reserved.ok) throw new Error(reserved.error.message);
+    const start = control.request("thread/start", { cwd: "/work/a" });
+    h.clock.advance(1000);
+    await rejection(start);
+
+    expect(control.reserveLaunch("/work/a")).toMatchObject({ ok: false, error: { code: "refused" } });
+    h.socket().push(turnStarted("T9"));
+    h.socket().push({ id: startId, result: { thread: { id: "T9" }, cwd: "/work/a", sandbox: { type: "readOnly" } } });
+    expect(reserved.data.state).toBe("started");
+    expect(reserved.data.threadId).toBe("T9");
+    expect(reserved.data.result).toMatchObject({ cwd: "/work/a", sandbox: { type: "readOnly" } });
+    expect(events).toEqual([]);
+    h.socket().push(turnStarted("T9"));
+    expect(events.map((e) => [e.method, e.threadId])).toEqual([["turn/started", "T9"]]);
+    expect(control.reserveLaunch("/work/a")).toMatchObject({ ok: false, error: { code: "refused" } });
+    reserved.data.release();
+    expect(control.reserveLaunch("/work/a").ok).toBe(true);
+  });
+
+  test("a late refusal settles an unresolved launch as failed", async () => {
+    let startId: number | undefined;
+    const h = harness({ request: (_s, m) => { if (m.method === "thread/start") startId = m.id; } });
+    const control = await h.connect();
+    const reserved = control.reserveLaunch("/work/a");
+    if (!reserved.ok) throw new Error(reserved.error.message);
+    const start = control.request("thread/start", { cwd: "/work/a" });
+    h.clock.advance(1000);
+    await rejection(start);
+    h.socket().push({ id: startId, error: { code: -32600, message: "no" } });
+    expect(reserved.data.state).toBe("failed");
+    expect(reserved.data.threadId).toBeUndefined();
+  });
+
+  test("thread/resume never carries permission or retargeting overrides", async () => {
+    const h = harness();
+    const control = await h.connect({ threads: ["T1"] });
+    const sentBefore = h.socket().sent.length;
+    for (const field of [
+      "approvalPolicy", "approvalsReviewer", "sandbox", "permissions", "cwd", "config", "runtimeWorkspaceRoots",
+      "model", "modelProvider", "baseInstructions", "developerInstructions", "personality", "serviceTier",
+    ]) {
+      const error = await rejection(control.request("thread/resume", { threadId: "T1", [field]: "x" }));
+      expect(error.code, field).toBe("unsupported");
+    }
+    expect(h.socket().sent.length).toBe(sentBefore);
+    expect(CODEX_METHODS["thread/resume"]!.refused).toEqual(expect.arrayContaining([
+      "approvalPolicy", "sandbox", "permissions", "cwd", "config", "runtimeWorkspaceRoots",
+    ]));
+  });
+
   test("experimental queue methods need the negotiated capability", async () => {
     const stable = harness();
     const plain = await stable.connect({ threads: ["T1"], experimental: false });

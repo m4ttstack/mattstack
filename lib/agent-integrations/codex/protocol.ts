@@ -51,15 +51,15 @@ export const CODEX_METHODS: Readonly<Record<string, MethodSpec>> = {
     ],
     refused: ["experimentalRawEvents", "mockExperimentalField"],
   },
+  // A resume reattaches the thread with the settings it was created with; it never re-decides them.
   "thread/resume": {
     scope: "owned", experimental: false, required: ["threadId"],
-    fields: [
-      "approvalPolicy", "approvalsReviewer", "baseInstructions", "config", "cwd", "developerInstructions", "excludeTurns",
-      "initialTurnsPage", "model", "modelProvider", "permissions", "personality", "runtimeWorkspaceRoots", "sandbox",
-      "serviceTier", "threadId",
+    fields: ["excludeTurns", "initialTurnsPage", "threadId"],
+    experimentalFields: ["initialTurnsPage"],
+    refused: [
+      "approvalPolicy", "approvalsReviewer", "baseInstructions", "config", "cwd", "developerInstructions", "history",
+      "model", "modelProvider", "path", "permissions", "personality", "runtimeWorkspaceRoots", "sandbox", "serviceTier",
     ],
-    experimentalFields: ["initialTurnsPage", "permissions", "runtimeWorkspaceRoots"],
-    refused: ["history", "path"],
   },
   "thread/read": {
     scope: "owned", experimental: false, required: ["threadId"], fields: ["includeTurns", "threadId"],
