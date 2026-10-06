@@ -3326,53 +3326,75 @@ a.tui-id-card-ref:focus-visible {
 }
 
 /* ── board tabs ──────────────────────────────────────────────────────────── */
-/* A strip above the content it scopes, not another control in the header row. */
-.tui-tabs {
+/* The header card's last row: a tinted band bled to the card's edges, so the
+   tabs read as part of the header they scope instead of floating on the
+   grid paper. The margins undo .tui-header's padding; the radius sits inside
+   its 1px border. */
+.tui-header .tui-tabs {
+  order: 99;
+  flex-basis: calc(100% + 1.8rem);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  margin: 0 0 14px;
-  padding-bottom: 0;
-  border-bottom: 1px solid var(--border);
+  margin: 2px -0.9rem -0.7rem;
+  padding: 7px 0.9rem;
+  border-top: 1px solid var(--border-soft);
+  border-radius: 0 0 7px 7px;
+  background: light-dark(
+    color-mix(in srgb, var(--fg) 4%, var(--card)),
+    color-mix(in srgb, var(--fg) 6%, var(--card))
+  );
 }
-/* The buttons carry the surface, not the strip: a tab sitting straight on the
-   page's grid-paper background is hard to read. Opaque fills only: a
-   translucent wash lets the grid pattern show through the pill. */
 .tui-tab {
-  padding: 7px 14px;
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 11px;
   border: 0;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  border-radius: 6px 6px 0 0;
-  background: var(--card);
+  border-radius: 6px;
+  background: transparent;
   color: var(--text-3);
   font: inherit;
   font-size: 0.8125rem;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     color 150ms ease,
-    border-color 150ms ease,
-    background 150ms ease;
+    background 150ms ease,
+    box-shadow 150ms ease;
 }
-/* The active tab is marked by the accent underline and --text-1 text, not
-   by a lighter fill: a white active tab against the strip was the loudest
-   seam on the page. */
-.tui-tab:hover {
+.tui-tab:not(.active):hover {
   color: var(--text-1);
-  background: color-mix(in srgb, var(--fg) 9%, var(--card));
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
 }
+/* The active tab is a chip raised off the band by its shadow, not an accent:
+   the header's summary line already carries the colour. A shadow alone is
+   invisible on a dark band, so dark lifts the chip's fill and adds a top
+   highlight instead. */
 .tui-tab.active {
   color: var(--text-1);
-  border-bottom-color: var(--fill-accent, var(--fg));
+  font-weight: 500;
+  background: light-dark(
+    var(--card),
+    color-mix(in srgb, var(--fg) 12%, var(--card))
+  );
+  box-shadow:
+    0 0 0 0.5px light-dark(rgb(16 24 40 / 10%), rgb(255 255 255 / 6%)),
+    inset 0 1px 0 light-dark(transparent, rgb(255 255 255 / 6%)),
+    0 1px 2px light-dark(rgb(16 24 40 / 8%), rgb(0 0 0 / 40%)),
+    0 3px 8px -2px light-dark(rgb(16 24 40 / 16%), rgb(0 0 0 / 55%));
 }
-/* A tab's live count: the group header's count in miniature, so the strip
-   reads the way the groups below it do. */
+/* A tab's live count, as a badge so it reads on the band and the chip alike. */
 .tui-tab-count {
   margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
   font-size: 0.72rem;
   font-weight: 600;
+  line-height: 1.5;
   font-variant-numeric: tabular-nums;
   color: var(--text-accent-small);
+  background: color-mix(in srgb, var(--fill-accent) 14%, var(--card));
 }
 @media (prefers-reduced-motion: reduce) {
   .tui-tab {

@@ -3,9 +3,9 @@ import { Fragment } from 'react';
 import { Chip } from '@mattstack/tui-kit';
 import type { TabConfig } from '../../config.ts';
 
-/** Board tabs, rendered as a strip above the content they scope rather than as
-    another control in the header row. Renders nothing for a single tab, so a
-    board with no tabs configured looks exactly as it did before tabs existed. */
+/** Board tabs, docked as the header card's last row. Renders nothing for a
+    single tab, so a board with no tabs configured looks exactly as it did
+    before tabs existed. */
 export function TabBar({
   tabs,
   active,
