@@ -118,6 +118,33 @@ all without restarting.
 For a production-style run: `bun run build && bun run serve` (the server then serves the
 built app straight out of `dist/`).
 
+## Viewer roles
+
+The team's owners (and the org's admins) decide, per member, how much of boxscore that member sees:
+
+| Role          | What the member sees                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| **Team view** | The whole board: leaderboard, every person's page, ranks.                                 |
+| **Self view** | Only their own person page, with every rank, leader and team comparison removed. Default. |
+
+- **Self view is the default.** A roster member not listed in `boxscore.roles` gets it, so
+  Team view is a grant.
+- **An org admin's Mac, and an owner's Mac for the team it is working as, always get Team
+  view**, and so does a Mac in no org. The role comes from the org's `mattstack.org` and the
+  username this Mac recorded when it joined or created the org; a Mac with no recorded
+  username gets the roles setting like a member.
+- **An owner of another team is a member here**, so roles apply on their Mac when they work
+  as this team.
+- **An owner or admin sets roles** in console's Boxscore group, or from boxscore's header gear,
+  which frames that same group. A member's Mac shows the control read-only.
+- **Locked:** when boxscore cannot identify the viewer (the GitLab user lookup failed, or the
+  username is not on the roster), it shows a message instead of any stats, with a link to
+  console's Boxscore group.
+
+This is a courtesy boundary, not a security one: each member's boxscore runs on their own Mac
+with their own GitLab token and their own store, so a determined member can read the store or
+ask GitLab directly.
+
 ## How the metrics work (and how they're gamed)
 
 | Metric                  | Source                                                | Gaming vector                                                                           |

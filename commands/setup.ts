@@ -36,6 +36,9 @@ import { createStepEmitter, type Emit, type StepEmitterLabels } from "../lib/set
 import { exitWithUserError, type UserErrorSink } from "../lib/setup/user-failure.ts";
 import type { RenderStatus } from "../lib/ui/protocol.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
+import { resolveTool } from "../lib/deps/resolve.ts";
+import { devAppNotice, type DevAppNotice } from "../lib/dev/notice.ts";
+import { processFlavor } from "../lib/flavor.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { realWaiverStore, unwaiveRow, waiveRow, type WaiverChange, type WaiverStore } from "../lib/setup/finish-gate.ts";
 import { isValidHostname } from "../lib/setup/host-validate.ts";
@@ -169,6 +172,8 @@ export interface ApplyDeps {
   migrations?: MigrationDef[];
   /** Posts the update run's needs-you notification; defaults to the preference-gated notifier. */
   notify?: (category: string, title: string, message: string, id: string) => void;
+  /** Looks for a newer dev app after an update run; absent means no check. Never touches the exit code or the stamp. */
+  devAppNotice?: () => Promise<DevAppNotice | null>;
   /** Single flight for `rt setup update`; absent means the run is not guarded. */
   updateLock?: UpdateLock;
 }
@@ -187,6 +192,7 @@ export function realApplyDeps(): ApplyDeps {
       return confirm({ message });
     },
     notify: (category, title, message, id) => notifyEnabled(category, title, message, undefined, undefined, id),
+    devAppNotice: () => devAppNotice({ probes, flavor: processFlavor(), gh: () => resolveTool(probes, "gh").exec }),
     updateLock: createUpdateLock(updateLockPath(probes.home)),
   };
 }
@@ -414,6 +420,13 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
 
     const notification = updateNotification(version, result.outcomes);
     if (notification) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, notification.title, notification.message, notification.id);
+
+    try {
+      const devNotice = await deps.devAppNotice?.();
+      if (devNotice) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, devNotice.title, devNotice.message, devNotice.id);
+    } catch (err) {
+      logCliEvent("warn", "setup.update", `dev app notice skipped: ${err instanceof Error ? err.message : String(err)}`);
+    }
 
     needsAttention = notification !== null;
   } finally {

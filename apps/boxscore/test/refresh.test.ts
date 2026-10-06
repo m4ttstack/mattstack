@@ -160,6 +160,7 @@ function settings(over: Partial<BoxscoreSettings> = {}): BoxscoreSettings {
     botPatterns: [],
     defaultRange: '30d',
     baseUrl: 'https://gl.example',
+    roles: {},
     ...over,
   };
 }

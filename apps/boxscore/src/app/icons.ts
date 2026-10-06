@@ -9,6 +9,7 @@ import {
   Table2,
   Trophy,
   Undo2,
+  UserX,
 } from 'lucide-react';
 
 import { lucideWrapperFn, registerIcons } from '@mattstack/app-kit/icons';
@@ -22,4 +23,5 @@ registerIcons({
   table2: lucideWrapperFn(Table2),
   trophy: lucideWrapperFn(Trophy),
   undo2: lucideWrapperFn(Undo2),
+  userX: lucideWrapperFn(UserX),
 });

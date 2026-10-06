@@ -350,6 +350,7 @@ describe("settings/registry", () => {
         "boxscore.ignoredMrs",
         "boxscore.botPatterns",
         "boxscore.hiddenMembers",
+        "boxscore.roles",
         "boxscore.defaultRange",
         "gitq.workSlots",
         "gitq.forges",
@@ -390,7 +391,7 @@ describe("settings/registry", () => {
         "herd.watchdog.midRunTrustAccept",
         "panes.relocationAutoAccept",
       ];
-      expect(suiteKeys).toHaveLength(82);
+      expect(suiteKeys).toHaveLength(83);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

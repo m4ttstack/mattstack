@@ -82,6 +82,13 @@ export const TEST_SCHEMAS: Record<string, JsonSchema> = {
     },
     additionalProperties: {},
   },
+  'boxscore.roles': {
+    $schema: D,
+    type: 'object',
+    propertyNames: { type: 'string' },
+    additionalProperties: { type: 'string', enum: ['team', 'self'] },
+    labels: { key: 'member', value: 'role' },
+  },
   'rt.repoIdentityOverrides': {
     $schema: D,
     type: 'object',

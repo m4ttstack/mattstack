@@ -666,6 +666,14 @@ const ROWS: readonly SettingDef[] = [
     description: "Usernames from mattstack.roster hidden from this developer's leaderboard.",
   },
   {
+    key: "boxscore.roles",
+    type: "object",
+    scopes: ["team"],
+    merge: "replace",
+    description:
+      "Who sees the whole team in boxscore: { \"<gitlab username>\": \"team\" | \"self\" }. A roster member not listed sees only their own page. An org admin, or an owner of the team the Mac works as, always sees the whole team. A courtesy boundary, not a security one: each member's boxscore runs on their own Mac.",
+  },
+  {
     key: "boxscore.defaultRange",
     type: "string",
     scopes: ["user"],

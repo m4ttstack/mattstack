@@ -3,6 +3,9 @@
  * Every function degrades to `{ ok: false, error }` instead of throwing,
  * inherited from rtCommand -- callers surface daemon-down verbatim.
  */
+import { readFileSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import { rtCommand } from "./transport.ts";
 import type { RtResponse, RtClientOptions } from "./transport.ts";
 import type {
@@ -104,6 +107,29 @@ export function resolveForgeToken(
     { repoName, forge },
     { sockPath: opts.sockPath, timeoutMs: 10_000 },
   );
+}
+
+/**
+ * This Mac's GitLab token from the daemon's "extension" secrets scope, or
+ * null on any failure. The socket accepts this verb only with the local
+ * api-token, read at call time so a test's HOME is honored.
+ */
+export async function readGitlabToken(
+  opts: RtClientOptions & { apiTokenPath?: string } = {},
+): Promise<string | null> {
+  let token: string;
+  try {
+    const path = opts.apiTokenPath ?? join(process.env.HOME ?? homedir(), ".mattstack", "rt", "api-token");
+    token = readFileSync(path, "utf8").trim();
+  } catch {
+    return null;
+  }
+  const res = await rtCommand<{ gitlabToken?: string }>(
+    "secrets:read",
+    { token, scope: "extension" },
+    { sockPath: opts.sockPath, timeoutMs: 10_000 },
+  );
+  return (res.ok && res.data?.gitlabToken) || null;
 }
 
 export function listRuns(

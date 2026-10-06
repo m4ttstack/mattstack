@@ -355,6 +355,10 @@ export const EXAMPLES: Record<string, Example> = {
   "boxscore.ignoredMrs": { good: [[], ["!123", "acme/app!456"]], bad: [{ value: [123], path: [0] }] },
   "boxscore.botPatterns": { good: [[], ["^renovate", "-bot$"]], bad: [{ value: [{ pattern: "-bot$" }], path: [0] }] },
   "boxscore.hiddenMembers": { good: [[], ["dev2"]], bad: [{ value: [2], path: [0] }] },
+  "boxscore.roles": {
+    good: [{}, { alice: "team", bob: "self" }],
+    bad: [{ value: { alice: "admin" }, path: ["alice"] }],
+  },
   "gitq.workSlots": {
     good: [{}, { workSlotLocation: "/Users/dev/.gitq-slots", maxWorkSlots: 3 }],
     bad: [{ value: { maxWorkSlots: "3" }, path: ["maxWorkSlots"] }],

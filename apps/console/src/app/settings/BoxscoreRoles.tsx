@@ -1,0 +1,139 @@
+import { useEffect, useState } from 'react';
+import { Group, SegmentedControl, Stack, Text } from '@mattstack/app-kit/core';
+import type { SettingDefWire } from '@mattstack/settings-kit/react';
+
+import type { useRowSave } from './useRowSave';
+
+type Row = ReturnType<typeof useRowSave>;
+type Role = 'team' | 'self';
+type Roles = Record<string, Role>;
+interface RolesInfo {
+  members: {
+    username: string;
+    name: string | null;
+    fixed: 'admin' | 'owner' | null;
+  }[];
+  access: 'owner' | 'member' | 'no-team';
+}
+
+export const ROLES_KEY = 'boxscore.roles';
+
+const NOTE: Record<Exclude<RolesInfo['access'], 'owner'>, string> = {
+  member: 'Only an owner of your team or an org admin can change roles.',
+  'no-team': 'Roles live in team settings, and this Mac is in no org.',
+};
+
+let pending: Promise<RolesInfo | null> | null = null;
+
+/** The row's summary and body mount together; one read serves both. */
+function readRolesInfo(): Promise<RolesInfo | null> {
+  pending ??= fetch('/api/settings/boxscore-roles')
+    .then(r => (r.ok ? (r.json() as Promise<RolesInfo>) : null))
+    .catch(() => null)
+    .finally(() => {
+      pending = null;
+    });
+  return pending;
+}
+
+/** The roster and this Mac's access; null while loading or when the read fails. */
+function useRolesInfo(): RolesInfo | null {
+  const [info, setInfo] = useState<RolesInfo | null>(null);
+  useEffect(() => {
+    let live = true;
+    void readRolesInfo().then(v => live && setInfo(v));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return info;
+}
+
+function storedRoles(def: SettingDefWire): Roles {
+  return (def.effective.value ?? {}) as Roles;
+}
+
+function variants(stored: Roles, u: string): string[] {
+  return Object.keys(stored).filter(k => k.toLowerCase() === u.toLowerCase());
+}
+
+/** Team only when every case variant of the username says team. */
+function roleOf(stored: Roles, u: string): Role {
+  const keys = variants(stored, u);
+  return keys.length > 0 && keys.every(k => stored[k] === 'team')
+    ? 'team'
+    : 'self';
+}
+
+const ROLE_DATA = [
+  { value: 'team', label: 'Team' },
+  { value: 'self', label: 'Self' },
+];
+
+const FIXED_LABEL = { admin: 'Team · org admin', owner: 'Team · owner' };
+
+/** "N of M on Team view" over the roster, or `fallback` until it loads. */
+export function useRolesSummary(def: SettingDefWire, fallback: string): string {
+  const info = useRolesInfo();
+  if (!info) return fallback;
+  const stored = storedRoles(def);
+  const team = info.members.filter(
+    m => m.fixed !== null || roleOf(stored, m.username) === 'team'
+  ).length;
+  return `${team} of ${info.members.length} on Team view`;
+}
+
+export function BoxscoreRolesBody({
+  def,
+  row,
+}: {
+  def: SettingDefWire;
+  row: Row;
+}) {
+  const info = useRolesInfo();
+  const stored = storedRoles(def);
+  const editable = info?.access === 'owner' && row.status !== 'saving';
+  const saveRole = (u: string, v: Role) => {
+    const drop = new Set(variants(stored, u));
+    const kept = Object.fromEntries(
+      Object.entries(stored).filter(([k]) => !drop.has(k))
+    );
+    void row.save({ ...kept, [u]: v });
+  };
+
+  return (
+    <Stack gap={8} py={8}>
+      <Text fz={12} c="dimmed">
+        Team view sees everyone&apos;s stats. Self view sees only their own
+        page. This is a courtesy: each member&apos;s boxscore runs on their own
+        Mac.
+      </Text>
+      {info && info.access !== 'owner' && (
+        <Text fz={12} c="dimmed">
+          {NOTE[info.access]}
+        </Text>
+      )}
+      {info?.members.map(m => (
+        <Group key={m.username} gap={12} wrap="nowrap" mih={30}>
+          <Text fz={13} w={240} truncate="end">
+            {m.name ?? m.username}
+          </Text>
+          {m.fixed ? (
+            <Text fz="xs" fw={500} c="dimmed" pl={10}>
+              {FIXED_LABEL[m.fixed]}
+            </Text>
+          ) : (
+            <SegmentedControl
+              size="xs"
+              aria-label={`Role for ${m.username}`}
+              disabled={!editable}
+              value={roleOf(stored, m.username)}
+              data={ROLE_DATA}
+              onChange={v => saveRole(m.username, v as Role)}
+            />
+          )}
+        </Group>
+      ))}
+    </Stack>
+  );
+}

@@ -13,7 +13,7 @@
 
 import { homedir } from "os";
 import { join } from "path";
-import { realpathSync } from "fs";
+import { existsSync, realpathSync } from "fs";
 import { otherOrgRefusal, packOrg } from "../lib/skills/pack-org.ts";
 import { currentRole, mayWritePath } from "../packages/rt-client/src/settings/org-roles.ts";
 import { discoverPacks, packFromDir, solePack, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
@@ -24,6 +24,7 @@ import { SIGNATURE_RE } from "../lib/skills/changes.ts";
 import { checkPack, compilePackAll, NO_PACKS_WHY } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
+import { readDevModeConfig } from "./settings.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
@@ -251,7 +252,7 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
     materialize: async (name) => syncMaterializeVerdict(await materializeSkills(createRealProbes(), {}), name),
     configDir,
     cswapSessionsDir: join(homedir(), ".claude-swap-backup", "sessions"),
-    inTreeRoot: resolveSharedCheckout(homedir()),
+    inTreeRoot: resolveSharedCheckout(homedir(), existsSync, readDevModeConfig().sourcePath ?? null),
   };
 
   const needsInstalled = !packs.some((p) => p.name === "mattstack") && pack!.name !== "mattstack";

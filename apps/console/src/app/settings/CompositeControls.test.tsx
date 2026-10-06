@@ -1136,6 +1136,126 @@ describe('composite rows', () => {
   });
 });
 
+describe('the boxscore roles summary', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function serveRoster(
+    access: 'owner' | 'member' = 'member',
+    fixed: Record<string, 'admin' | 'owner'> = {}
+  ) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          members: [
+            { username: 'ada', name: 'Ada', fixed: fixed.ada ?? null },
+            { username: 'bob', name: null, fixed: fixed.bob ?? null },
+            { username: 'cy', name: null, fixed: fixed.cy ?? null },
+          ],
+          access,
+        })
+      )
+    );
+  }
+
+  it('counts the roster members on Team view, case-insensitively', async () => {
+    serveRoster();
+    renderWithProviders(
+      <SettingRow
+        def={def('boxscore.roles', {
+          type: 'object',
+          scopes: ['team'],
+          effective: {
+            scope: 'team',
+            file: '/t',
+            value: { ADA: 'team', ada: 'team', Bob: 'team', bob: 'self' },
+          },
+        })}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    expect(await screen.findByText('1 of 3 on Team view')).toBeInTheDocument();
+  });
+
+  it('counts a member who sees the team by their org role as Team', async () => {
+    serveRoster('member', { bob: 'owner' });
+    renderWithProviders(
+      <SettingRow
+        def={def('boxscore.roles', {
+          type: 'object',
+          scopes: ['team'],
+          effective: {
+            scope: 'team',
+            file: '/t',
+            value: { ada: 'team', bob: 'self' },
+          },
+        })}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    expect(await screen.findByText('2 of 3 on Team view')).toBeInTheDocument();
+  });
+
+  it('keeps the stored count when no member sees the team by their org role', async () => {
+    serveRoster('owner');
+    renderWithProviders(
+      <SettingRow
+        def={def('boxscore.roles', {
+          type: 'object',
+          scopes: ['team'],
+          effective: {
+            scope: 'team',
+            file: '/t',
+            value: { ada: 'team', bob: 'self' },
+          },
+        })}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    expect(await screen.findByText('1 of 3 on Team view')).toBeInTheDocument();
+  });
+
+  it('counts nobody on Team view when no roles are set', async () => {
+    serveRoster();
+    renderWithProviders(
+      <SettingRow
+        def={def('boxscore.roles', { type: 'object', scopes: ['team'] })}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    expect(await screen.findByText('0 of 3 on Team view')).toBeInTheDocument();
+  });
+
+  it('leaves every other string map on its own summary', () => {
+    serveRoster();
+    renderWithProviders(
+      <SettingRow
+        def={def('rt.repoIdentityOverrides', {
+          type: 'object',
+          effective: {
+            scope: 'machine',
+            file: '/m',
+            value: { 'https://example.dev/a.git': 'a' },
+          },
+        })}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    expect(screen.queryByText(/on Team view/)).toBeNull();
+    expect(fetch).not.toHaveBeenCalledWith('/api/settings/boxscore-roles');
+  });
+});
+
 describe('rowSummary', () => {
   const MERGED = {
     'gitlab.example.com': { provider: 'gitlab' },
