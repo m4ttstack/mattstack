@@ -17,16 +17,11 @@ import {
   METRICS,
   metricValue,
 } from '../shared/metrics.js';
-import type {
-  LeaderboardResponse,
-  MetricKey,
-  UserDetailResponse,
-} from '../shared/types.js';
+import type { MetricKey, UserDetailResponse } from '../shared/types.js';
 import { scanSuspectedBots } from './bots.js';
 import { readSettings } from './config/index.js';
 import { getLeaderboard, getUserDetail } from './leaderboard.js';
-import { validateLeaderboard } from './metrics/validate.js';
-import { isLocked, LOCKED_MESSAGE, standingsLines } from './standings-text.js';
+import { standingsOutcome } from './standings-text.js';
 import { resolveWindowArgs } from './util/window.js';
 
 interface Args {
@@ -59,22 +54,6 @@ function parseArgs(argv: string[]): Args {
     else if (arg === '--detail') a.detail = argv[++i];
   }
   return a;
-}
-
-function printStandings(res: LeaderboardResponse): void {
-  for (const line of standingsLines(res)) console.log(line);
-}
-
-function printValidation(res: LeaderboardResponse): number {
-  const report = validateLeaderboard(res);
-  console.log(
-    `\nVALIDATION: ${report.ok ? 'PASS' : 'FAIL'} · ${report.errors} error(s), ${report.warnings} warning(s)`
-  );
-  for (const issue of report.issues) {
-    const icon = issue.severity === 'error' ? '✗' : '⚠';
-    console.log(`  ${icon} [${issue.code}] ${issue.message}`);
-  }
-  return report.ok ? 0 : 1;
 }
 
 function printDetail(res: UserDetailResponse): void {
@@ -178,18 +157,10 @@ async function main() {
     return;
   }
 
-  if (isLocked(res)) {
-    console.error(LOCKED_MESSAGE);
-    process.exitCode = 1;
-    return;
-  }
-
-  printStandings(res);
-
-  if (args.format === 'validate') {
-    const code = printValidation(res);
-    process.exit(code);
-  }
+  const outcome = standingsOutcome(res, args.format === 'validate');
+  for (const line of outcome.stdout) console.log(line);
+  for (const line of outcome.stderr) console.error(line);
+  if (outcome.exitCode !== 0) process.exit(outcome.exitCode);
 }
 
 main().catch(err => {

@@ -5,6 +5,7 @@ import {
   metricValue,
 } from '../shared/metrics.js';
 import type { LeaderboardResponse } from '../shared/types.js';
+import { validateLeaderboard } from './metrics/validate.js';
 
 /** Printed for a locked response, where the board could not identify the viewer. */
 export const LOCKED_MESSAGE =
@@ -61,4 +62,40 @@ export function standingsLines(res: LeaderboardResponse): string[] {
       out.push(`  ⚠ [${wn.code}] ${wn.message.slice(0, 160)}`);
   }
   return out;
+}
+
+export const SELF_VALIDATE_NOTE =
+  '\nVALIDATION: skipped. Validation needs Team view, because Self view has no ranks or leaders to check.';
+
+export interface CliOutcome {
+  stdout: string[];
+  stderr: string[];
+  exitCode: number;
+}
+
+function validationLines(res: LeaderboardResponse): CliOutcome {
+  const report = validateLeaderboard(res);
+  const stdout = [
+    `\nVALIDATION: ${report.ok ? 'PASS' : 'FAIL'} · ${report.errors} error(s), ${report.warnings} warning(s)`,
+  ];
+  for (const issue of report.issues) {
+    const icon = issue.severity === 'error' ? '✗' : '⚠';
+    stdout.push(`  ${icon} [${issue.code}] ${issue.message}`);
+  }
+  return { stdout, stderr: [], exitCode: report.ok ? 0 : 1 };
+}
+
+/** What the standings run prints and exits with, for a table or validate format. */
+export function standingsOutcome(
+  res: LeaderboardResponse,
+  validate: boolean
+): CliOutcome {
+  if (isLocked(res))
+    return { stdout: [], stderr: [LOCKED_MESSAGE], exitCode: 1 };
+  const stdout = standingsLines(res);
+  if (!validate) return { stdout, stderr: [], exitCode: 0 };
+  if (res.viewer.role === 'self')
+    return { stdout: [...stdout, SELF_VALIDATE_NOTE], stderr: [], exitCode: 0 };
+  const v = validationLines(res);
+  return { ...v, stdout: [...stdout, ...v.stdout] };
 }
