@@ -72,8 +72,9 @@ function toNote(
 
 /**
  * Split an MR's discussions into resolvable reviewer threads and general MR
- * comments. Threads: a discussion with ≥1 resolvable note and a non-author
- * participant (drops system notes, bot linkbacks, and the author's solo threads).
+ * comments. Threads: a discussion with ≥1 resolvable note and a participant who
+ * is neither the author nor a bot (drops system notes, bot linkbacks, and
+ * threads only the author and bots took part in).
  * General comments: every other non-system note (e.g. a comment the author leaves
  * on the MR later, outside any thread).
  *
@@ -110,8 +111,16 @@ export function summarizeDiscussions(
       }
       continue;
     }
-    // Author-only thread (the author commenting on their own MR) — not feedback.
-    if (!notes.some(n => n.author?.username && n.author.username !== author))
+    // Only the author and bots took part (the author's own note, a Danger
+    // diff note) — not feedback.
+    if (
+      !notes.some(
+        n =>
+          n.author?.username &&
+          n.author.username !== author &&
+          !isBotAuthor(n.author, configBots)
+      )
+    )
       continue;
     const resolved = resolvable.every(n => n.resolved === true);
     const last = notes[notes.length - 1]!;
