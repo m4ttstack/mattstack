@@ -173,6 +173,7 @@ export {
   listBuddies,
   presenceForHandle,
   presenceForSession,
+  signedInPresenceForPane,
   assertSessionOwnsHandle,
   assertSessionSignedIn,
   prunePresence,

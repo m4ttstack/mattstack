@@ -200,7 +200,7 @@ function requireValidSessionId(id: string): void {
   if (!isValidSessionId(id)) fail(SESSION_ID_INVALID);
 }
 
-const CHAT_REFUSALS: Record<string, () => Block[]> = {
+const CHAT_REFUSALS: Record<string, (message: string) => Block[]> = {
   "not-holder": () => [
     out.line("refused", "rt chat will not release a claim you do not hold"),
     out.callout("why", "Only the agent holding a claim, or the one who posted the message, can release it."),
@@ -215,12 +215,16 @@ const CHAT_REFUSALS: Record<string, () => Block[]> = {
     out.callout("why", "Agents sign in under names of their own."),
     out.callout("next", out.cmd("rt chat sign-in")),
   ],
+  "pane-signed-in": (message) => [
+    out.line("refused", message),
+    out.callout("why", "A reply to a name nobody is signed in as never reaches anyone."),
+  ],
 };
 
 function unwrap<T>(res: RtResponse<T>, label: string): T {
   if (!res.ok || res.data === undefined) {
     const refusal = res.failure && Object.hasOwn(CHAT_REFUSALS, res.failure.code) ? CHAT_REFUSALS[res.failure.code] : undefined;
-    if (refusal) refuse(...refusal());
+    if (refusal) refuse(...refusal(res.failure!.message));
     fail({ title: res.error ?? `The chat ${label} did not go through` });
   }
   return res.data;
@@ -228,7 +232,8 @@ function unwrap<T>(res: RtResponse<T>, label: string): T {
 
 // ─── handle derivation ────────────────────────────────────────────────────────
 //
-// Order: the session file (signed in) → --as → chat.handle (user scope) →
+// Order: the session file (signed in), else the live identity signed in at
+// this herdr pane (see paneIdentity) → --as → chat.handle (user scope) →
 // herdr pane title (HERDR_PANE_ID) → <rt-repo-name>-<cwd-basename> → cwd
 // relative to $HOME → <user>-<host>. Position 0 wins over --as for every
 // verb but sign-in, which resolves its base handle through the --as-first
@@ -259,10 +264,10 @@ function unwrap<T>(res: RtResponse<T>, label: string): T {
 // pretty-and-colliding fallback.
 //
 // Deliberately NOT resolved through an existing chat_members row for this
-// cwd: that would be the only daemon-dependent step in an otherwise local
-// order (failing during exactly the outage every other step here survives),
-// would outlive its task (a recycled worktree slot inherits the previous
-// occupant's identity), and two rows for one cwd have no defined tie-break.
+// cwd: that would outlive its task (a recycled worktree slot inherits the
+// previous occupant's identity), and two rows for one cwd have no defined
+// tie-break. The pane lookup in position 0 is the one daemon read, and an
+// outage degrades it to this local chain.
 
 /** `<alias>-<cwd-basename>`, or null when `cwd` isn't inside any indexed repo (or the git pointer is broken). */
 function deriveRepoDirHandle(cwd: string, index: Record<string, string>): string | null {
@@ -406,29 +411,55 @@ function resolveBaseHandle(args: string[]): string {
   return userHostHandle();
 }
 
-/**
- * Position 0 (the session file) wins over every other position, for every
- * verb but sign-in itself (whose request comes from resolveSignInRequest,
- * before a session file exists for this sign-in). `--as` alongside an active session
- * is refused rather than silently overridden — a second identity is exactly
- * the desync the base resolution order exists to prevent.
- */
-function resolveHandle(args: string[]): string {
-  const session = readChatSession(currentSessionId(args));
-  if (session) {
-    if (flagValue(args, "--as") !== undefined) {
-      refuse(out.line("refused", `You are signed in as ${sessionName(session)}`), out.callout("why", "One session keeps one identity. Run it again without naming another one, or sign out to change it."), out.callout("next", out.cmd("rt chat sign-out")));
-    }
-    return session.handle;
-  }
-
-  return resolveBaseHandle(args);
+interface ChatIdentity {
+  handle: string;
+  name: string;
+  sessionId: string | undefined;
 }
 
-/** What to print for this caller: the session's name when signed in, else the unsigned handle itself. */
-function resolveSelfName(args: string[]): string {
-  const session = readChatSession(currentSessionId(args));
-  return session ? sessionName(session) : resolveBaseHandle(args);
+const PANE_LOOKUP_TIMEOUT_MS = 2000;
+
+/**
+ * The live identity signed in at this herdr pane. A session forked or moved
+ * to the background gets a new session id in the same pane, while its
+ * session file stays keyed by the id that signed in. Null when the daemon
+ * does not answer, so the lookup adds no hard dependency.
+ */
+async function paneIdentity(args: string[]): Promise<ChatIdentity | null> {
+  const pane = selfPaneRef();
+  if (!pane) return null;
+  const res = await chatBuddies({ ...sockOpts(args), timeoutMs: PANE_LOOKUP_TIMEOUT_MS });
+  if (!res.ok || !res.data) return null;
+  const row = res.data.buddies.find((b) => b.pane === pane && b.status !== "offline");
+  return row ? { handle: row.handle, name: row.name ?? row.handle, sessionId: row.sessionId } : null;
+}
+
+function refuseSecondIdentity(name: string): never {
+  refuse(out.line("refused", `You are signed in as ${name}`), out.callout("why", "One session keeps one identity. Run it again without naming another one, or sign out to change it."), out.callout("next", out.cmd("rt chat sign-out")));
+}
+
+/**
+ * Position 0 (the session file, else the identity signed in at this pane)
+ * wins over every other position, for every verb but sign-in itself (whose
+ * request comes from resolveSignInRequest, before a session file exists for
+ * this sign-in). `--as` alongside a signed-in identity is refused rather than
+ * silently overridden: a second identity is exactly the desync the base
+ * resolution order exists to prevent.
+ */
+async function resolveIdentity(args: string[]): Promise<ChatIdentity> {
+  const sessionId = currentSessionId(args);
+  const session = readChatSession(sessionId);
+  const signedIn = session ? { handle: session.handle, name: sessionName(session), sessionId: session.sessionId } : await paneIdentity(args);
+  if (signedIn) {
+    if (flagValue(args, "--as") !== undefined) refuseSecondIdentity(signedIn.name);
+    return signedIn;
+  }
+  const handle = resolveBaseHandle(args);
+  return { handle, name: handle, sessionId };
+}
+
+async function resolveHandle(args: string[]): Promise<string> {
+  return (await resolveIdentity(args)).handle;
 }
 
 function safeCwd(): string | undefined {
@@ -722,7 +753,7 @@ async function runJoin(args: string[]): Promise<void> {
   if (!room) failUsage("Which room?", "rt chat join <room>");
   requireValidName("room", room);
 
-  const handle = resolveHandle(args);
+  const handle = await resolveHandle(args);
   requireValidName("handle", handle);
 
   const wakeOnRaw = flagValue(args, "--wake-on");
@@ -749,7 +780,7 @@ async function runLeave(args: string[]): Promise<void> {
   if (!room) failUsage("Which room?", "rt chat leave <room>");
   requireValidName("room", room);
 
-  const handle = resolveHandle(args);
+  const { handle, name } = await resolveIdentity(args);
   requireValidName("handle", handle);
 
   const res = await chatLeave({ room, handle });
@@ -759,7 +790,7 @@ async function runLeave(args: string[]): Promise<void> {
     out.json({ ok: true });
     return;
   }
-  say(`✓ left #${room} (${resolveSelfName(args)})`);
+  say(`✓ left #${room} (${name})`);
 }
 
 async function runArchive(args: string[]): Promise<void> {
@@ -767,7 +798,7 @@ async function runArchive(args: string[]): Promise<void> {
   if (!room) failUsage("Which room?", "rt chat archive <room>");
   requireValidName("room", room);
 
-  const handle = resolveHandle(args);
+  const handle = await resolveHandle(args);
   requireValidName("handle", handle);
 
   const archived = !args.includes("--reopen");
@@ -860,11 +891,11 @@ async function runPost(args: string[]): Promise<void> {
   const body = await resolveBody(rest.slice(1), args, POST_USAGE);
   requireReadable(body, args, "rt chat post <room> <<'EOF'");
 
-  const handle = resolveHandle(args);
+  const handle = await resolveHandle(args);
   requireValidName("handle", handle);
 
   const quiet = args.includes("--quiet");
-  const res = await chatPost({ room, handle, body, quiet }, sockOpts(args));
+  const res = await chatPost({ room, handle, body, quiet, pane: selfPaneRef() }, sockOpts(args));
   const data = unwrap(res, "post");
   // Output stays to a line or two: who was actually woken (a post that
   // delivered to nobody used to be silent, indistinguishable from success
@@ -896,7 +927,7 @@ async function runAck(args: string[]): Promise<void> {
   const id = Number(raw);
   if (!Number.isInteger(id) || id <= 0) fail({ title: `"${raw}" is not a message id`, why: "A delivered message shows its id as #<id>." });
 
-  const handle = resolveHandle(args);
+  const handle = await resolveHandle(args);
   requireValidName("handle", handle);
 
   const res = await chatAck({ id, handle }, sockOpts(args));
@@ -932,7 +963,7 @@ function humanDuration(ms: number): string {
  */
 async function runClaim(args: string[]): Promise<void> {
   const id = parseMessageId(positionals(args)[0], "claim");
-  const handle = resolveHandle(args);
+  const handle = await resolveHandle(args);
   requireValidName("handle", handle);
 
   const res = await chatClaim({ id, handle }, sockOpts(args));
@@ -956,7 +987,7 @@ async function runClaim(args: string[]): Promise<void> {
 
 async function runRelease(args: string[]): Promise<void> {
   const id = parseMessageId(positionals(args)[0], "release");
-  const handle = resolveHandle(args);
+  const handle = await resolveHandle(args);
   requireValidName("handle", handle);
 
   const res = await chatRelease({ id, handle }, sockOpts(args));
@@ -972,7 +1003,7 @@ async function runRead(args: string[]): Promise<void> {
   const room = positional(args);
   if (room) requireValidName("room", room);
 
-  const handle = resolveHandle(args);
+  const handle = await resolveHandle(args);
   requireValidName("handle", handle);
 
   let limit = 20;
@@ -1025,7 +1056,7 @@ async function runRead(args: string[]): Promise<void> {
 }
 
 async function runRooms(args: string[]): Promise<void> {
-  const handle = resolveHandle(args);
+  const handle = await resolveHandle(args);
   requireValidName("handle", handle);
 
   const res = await chatRooms({ handle });
@@ -1054,7 +1085,7 @@ async function runWho(args: string[]): Promise<void> {
     out.json({ ok: true, rooms: [{ room, members }] });
     return;
   }
-  const handle = resolveHandle(args);
+  const handle = await resolveHandle(args);
   const headingFor = await dmHeadingsFor(handle);
   const heading = headingFor(room);
   show(() => whoBlocks(heading, members), () => renderWhoSection(heading, members));
@@ -1075,7 +1106,7 @@ async function runMark(args: string[]): Promise<void> {
   const room = positional(args);
   if (room) requireValidName("room", room);
 
-  const handle = resolveHandle(args);
+  const handle = await resolveHandle(args);
   requireValidName("handle", handle);
 
   let upto: number | undefined;
@@ -1126,10 +1157,10 @@ async function runDm(args: string[]): Promise<void> {
   const body = await resolveBody(rest.slice(1), args, DM_USAGE);
   requireReadable(body, args, "rt chat dm <handle> <<'EOF'");
 
-  const from = resolveHandle(args);
+  const { handle: from, sessionId } = await resolveIdentity(args);
   requireValidName("handle", from);
 
-  const res = await chatDm({ from, to, body, sessionId: currentSessionId(args) }, sockOpts(args));
+  const res = await chatDm({ from, to, body, sessionId, pane: selfPaneRef() }, sockOpts(args));
   const data = unwrap(res, "dm");
 
   if (args.includes("--json")) {
@@ -1153,8 +1184,8 @@ async function runInvite(args: string[]): Promise<void> {
   if (!room) failUsage("Which room?", "rt chat invite <pane> --room <room>");
   requireValidName("room", room);
   const note = flagValue(args, "--note");
-  const session = readChatSession(currentSessionId(args));
-  const from = session?.handle ?? getSetting<string>("chat.humanHandle").value;
+  const signedIn = readChatSession(currentSessionId(args))?.handle ?? (await paneIdentity(args))?.handle;
+  const from = signedIn ?? getSetting<string>("chat.humanHandle").value;
   const callerPane = selfPaneRef();
   const res = await chatInvite({ paneId, room, note, from, callerPane }, sockOpts(args));
   const data = unwrap(res, "invite");

@@ -55,11 +55,17 @@ const HANDLE_TOOLS: Array<[string, Record<string, unknown>]> = [
 ];
 
 describe("chat tools: identity", () => {
-  test.each(HANDLE_TOOLS)("%s refuses an unsigned session with no daemon call", async (name, input) => {
+  test.each(HANDLE_TOOLS)("%s refuses an unsigned session after only the pane's roster lookup", async (name, input) => {
     const f = fake({ signedIn: false });
     const r = await f.tool(name).handler(input, ENV);
     expect(r).toEqual({ ok: false, body: undefined, error: SIGN_IN_HINT });
-    expect(f.calls).toEqual([]);
+    expect(f.calls.map((c) => c.fn)).toEqual(["buddies"]);
+  });
+
+  test.each(HANDLE_TOOLS)("%s acts as the identity signed in at this pane when the session file is missing", async (name, input) => {
+    const f = fake({ signedIn: false, buddiesRows: [{ sessionId: "orig", handle: "tyler.gb3v", baseHandle: "tyler", name: "tyler", pane: "w1:p2", status: "live" }] });
+    await f.tool(name).handler(input, ENV);
+    expect(f.calls[1]!.a.handle).toBe("tyler.gb3v");
   });
 
   test.each(HANDLE_TOOLS)("%s ignores a caller handle and sends the session's own", async (name, input) => {
@@ -495,7 +501,7 @@ describe("chat_invite", () => {
     const f = fake({ signedIn: false });
     const r = await f.tool("chat_invite").handler({ pane: "w2:p1", room: "build" }, ENV);
     expect(r.error).toBe(SIGN_IN_HINT);
-    expect(f.calls).toEqual([]);
+    expect(f.calls.map((c) => c.fn)).toEqual(["buddies"]);
   });
 
   test.each([
@@ -529,9 +535,29 @@ describe("chat_invite", () => {
 });
 
 describe("requireChatHandle", () => {
-  test("returns the id to act as and the name to show", () => {
-    expect(requireChatHandle(ENV, () => ({ sessionId: "s1", handle: "ann.k3f9", baseHandle: "ann", name: "ann", signedInAt: 1 }))).toEqual({ handle: "ann.k3f9", name: "ann" });
-    expect(requireChatHandle(ENV, () => ({ sessionId: "s1", handle: "ann", baseHandle: "ann", signedInAt: 1 }))).toEqual({ handle: "ann", name: "ann" });
+  test("returns the id to act as and the name to show", async () => {
+    expect(await requireChatHandle(ENV, () => ({ sessionId: "s1", handle: "ann.k3f9", baseHandle: "ann", name: "ann", signedInAt: 1 }))).toEqual({ handle: "ann.k3f9", name: "ann", sessionId: "s1" });
+    expect(await requireChatHandle(ENV, () => ({ sessionId: "s1", handle: "ann", baseHandle: "ann", signedInAt: 1 }))).toEqual({ handle: "ann", name: "ann", sessionId: "s1" });
+  });
+
+  const paneRow = { sessionId: "orig", handle: "tyler.gb3v", baseHandle: "tyler", name: "tyler", pane: "w1:p2", status: "live" };
+  const buddiesOf = (rows: unknown[]) => async () => ({ ok: true, data: { buddies: rows } }) as never;
+
+  test("with no session file, acts as the live identity signed in at this pane", async () => {
+    expect(await requireChatHandle(ENV, () => null, buddiesOf([paneRow]))).toEqual({ handle: "tyler.gb3v", name: "tyler", sessionId: "orig" });
+  });
+
+  test("an offline identity at this pane, or none, is still the sign-in hint", async () => {
+    expect(await requireChatHandle(ENV, () => null, buddiesOf([{ ...paneRow, status: "offline" }]))).toEqual({ error: SIGN_IN_HINT });
+    expect(await requireChatHandle(ENV, () => null, buddiesOf([{ ...paneRow, pane: "w9:p9" }]))).toEqual({ error: SIGN_IN_HINT });
+    expect(await requireChatHandle(ENV, () => null, async () => ({ ok: false, error: "down" }) as never)).toEqual({ error: SIGN_IN_HINT });
+  });
+
+  test("a session with no pane never asks the daemon", async () => {
+    let asked = false;
+    const buddies = async () => { asked = true; return { ok: true, data: { buddies: [paneRow] } } as never; };
+    expect(await requireChatHandle({ CLAUDE_CODE_SESSION_ID: "s1" } as NodeJS.ProcessEnv, () => null, buddies)).toEqual({ error: SIGN_IN_HINT });
+    expect(asked).toBe(false);
   });
 
   test("the not-a-member refusal names the session by name", async () => {
