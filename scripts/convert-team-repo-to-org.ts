@@ -96,17 +96,14 @@ function main(): void {
   }
   if (git("status", "--porcelain", "--untracked-files=all").trim() !== "") refuse("The clone has uncommitted changes", "Commit or discard them before converting.");
   if (git("status", "--porcelain", "--untracked-files=all", "--ignored", "--", "mattstack", ".claude-plugin", ".sops.yaml", ".gitignore").trim() !== "") refuse("The clone has ignored files in its managed folders", "Move them aside before converting so a failed conversion can restore the clean start.");
-  const symbolic = (ref: string): string | null => {
-    try {
-      return git("symbolic-ref", "-q", "--short", ref).trim() || null;
-    } catch {
-      return null;
-    }
-  };
-  const branch = symbolic("HEAD");
-  const defaultBranch = symbolic("refs/remotes/origin/HEAD")?.replace(/^origin\//, "") ?? "main";
-  if (branch !== "main" && branch !== defaultBranch) {
-    refuse(`The clone is not on ${defaultBranch}`, `${branch === null ? "It has no branch checked out." : `It is on ${branch}.`} The conversion commits to the branch you are on, so it has to be the org's ${defaultBranch}.`, `git -C ${shellQuote(clone)} switch ${defaultBranch}`);
+  let branch: string | null;
+  try {
+    branch = git("symbolic-ref", "-q", "--short", "HEAD").trim() || null;
+  } catch {
+    branch = null;
+  }
+  if (branch !== "main") {
+    refuse("The clone is not on main", `${branch === null ? "It has no branch checked out." : `It is on ${branch}.`} The conversion commits to the branch you are on, and rt publishes the org from main.`, `git -C ${shellQuote(clone)} switch main`);
   }
   const targets = [...plan.moves.map(([, to]) => to), ...Object.keys(plan.writes)];
   const newTargets = new Set([...plan.moves.map(([, to]) => to), ...Object.keys(plan.writes).filter((rel) => files[rel] === undefined)]);
