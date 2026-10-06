@@ -143,9 +143,9 @@ async function harness(
   controls.push(control);
   const panes: PaneLaunch[] = [];
   const confirmed: Array<{ threadId: string; evidence: string[]; pane: string }> = [];
-  let confirm: Outcome<void> = { ok: true, data: undefined };
+  let confirm: Outcome<void> | Promise<Outcome<void>> = { ok: true, data: undefined };
   const deps: Partial<CodexSessionDeps> = {
-    now: () => 42, clock, initTurnTimeoutMs: 5000, endpoint: { socketPath: SOCKET }, unresolved: options.unresolved ?? new Map(),
+    now: () => 42, clock, initTurnTimeoutMs: 5000, endpoint: { socketPath: SOCKET }, unresolved: options.unresolved ?? new Map(), inFlight: new Set(),
     openPane: async (launch) => {
       ops.push("pane");
       panes.push(launch);
@@ -160,7 +160,7 @@ async function harness(
     clock, control, ops, panes, confirmed, deps,
     socket: () => socket,
     requests: (method: string) => socket.sent.filter((m) => m.method === method),
-    blockAttach: (outcome: Outcome<void>) => { confirm = outcome; },
+    blockAttach: (outcome: Outcome<void> | Promise<Outcome<void>>) => { confirm = outcome; },
     sessions: (extra: Partial<CodexSessionDeps> = {}) => createCodexSessions(control, { ...deps, ...extra }),
   };
 }
@@ -326,6 +326,45 @@ describe("codex session launch", () => {
     expect(h.confirmed.map((c) => c.pane)).toEqual(["p1", "p1"]);
   });
 
+  test("a same-id launch while one is in flight is refused and starts nothing", async () => {
+    const h = await harness({ "turn/start": (s, m) => s.push({ id: m.id, result: { turn: { id: "U0", items: [], status: "inProgress" } } }) });
+    const sessions = h.sessions();
+    const first = sessions.launch(request());
+    await Bun.sleep(0);
+    expect(h.requests("thread/start")).toHaveLength(1);
+
+    const second = await sessions.launch(request());
+    expect(second).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(second.ok || second.error.message).toContain("still in progress");
+    expect(await sessions.resume(binding("T1").native, request())).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(h.requests("thread/start")).toHaveLength(1);
+
+    h.clock.advance(5000);
+    expect(await first).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    h.socket().push(turn("turn/completed", "T1", "U0"));
+    expect(data(await sessions.launch(request())).native.value).toBe("T1");
+    expect(h.requests("thread/start")).toHaveLength(1);
+    expect(h.requests("turn/start")).toHaveLength(1);
+    expect(h.panes).toHaveLength(1);
+  });
+
+  test("a same-id launch while its pane is being checked opens no second pane", async () => {
+    const h = await harness();
+    const sessions = h.sessions();
+    let release!: (outcome: Outcome<void>) => void;
+    h.blockAttach(new Promise((r) => { release = r; }));
+    const first = sessions.launch(request());
+    while (h.confirmed.length === 0) await Bun.sleep(0);
+
+    expect(await sessions.launch(request())).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(h.panes).toHaveLength(1);
+    release({ ok: true, data: undefined });
+    expect(data(await first).attachment).toEqual({ mode: "herdr", pane: "p1" });
+    expect(h.requests("thread/start")).toHaveLength(1);
+    expect(h.panes).toHaveLength(1);
+    expect(h.confirmed).toHaveLength(1);
+  });
+
   test("a pane that fails to open keeps the thread; a same-id retry opens one pane for it", async () => {
     const h = await harness();
     let opens = 0;
@@ -443,6 +482,29 @@ describe("codex session resume", () => {
     const resumed = data(await sessions.resume(binding("T1").native, request()));
     expect(resumed.attachment).toEqual({ mode: "herdr", pane: "p1" });
     expect(h.confirmed[0]!.evidence).toEqual(["Fix the flaky login test in auth.spec.ts", "All 12 tests pass now."]);
+  });
+
+  test("a same-id resume while one is in flight is refused and opens nothing", async () => {
+    const h = await harness();
+    const sessions = h.sessions();
+    let release!: (outcome: Outcome<void>) => void;
+    h.blockAttach(new Promise((r) => { release = r; }));
+    const first = sessions.resume(binding("T1").native, request({ reservationId: "r-resume" }));
+    while (h.confirmed.length === 0) await Bun.sleep(0);
+
+    const second = await sessions.resume(binding("T1").native, request({ reservationId: "r-resume" }));
+    expect(second).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(await sessions.launch(request({ reservationId: "r-resume" }))).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(h.requests("thread/read")).toHaveLength(1);
+    expect(h.panes).toHaveLength(1);
+    expect(h.requests("thread/start")).toEqual([]);
+
+    release({ ok: false, error: { code: "not-ready", message: "trust prompt" } });
+    expect(await first).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    h.blockAttach({ ok: true, data: undefined });
+    expect(data(await sessions.resume(binding("T1").native, request({ reservationId: "r-resume" }))).attachment)
+      .toEqual({ mode: "herdr", pane: "p1" });
+    expect(h.panes).toHaveLength(1);
   });
 
   test("an unconfirmed resume keeps its pane; a same-id retry re-checks it instead of opening another", async () => {

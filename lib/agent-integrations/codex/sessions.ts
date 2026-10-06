@@ -77,6 +77,8 @@ export type CodexSessionDeps = {
   /** Positive evidence that the terminal shows the thread: any one of `evidence` on screen. A folder-trust prompt is not. */
   confirmAttached(opened: PaneOpened, expected: { threadId: string; evidence: string[] }): Promise<Outcome<void>>;
   unresolved: Map<string, UnresolvedLaunch>;
+  /** Reservations with a launch or resume running now, keyed like `unresolved`. */
+  inFlight: Set<string>;
 };
 
 const ATTACH_READS = 30;
@@ -143,6 +145,7 @@ function defaultDeps(): CodexSessionDeps {
     clock: { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (handle) => clearTimeout(handle as Timer) },
     initTurnTimeoutMs: 180_000,
     unresolved: UNRESOLVED,
+    inFlight: IN_FLIGHT,
     openPane: async ({ cwd, command, reservationId }) => {
       const { launchInWorkspace } = await import("../../agent-herdr.ts");
       try {
@@ -237,6 +240,7 @@ function startParams(cwd: string, options: LaunchRequest["selection"]["options"]
  * asked for it closed before the reply could arrive.
  */
 const UNRESOLVED = new Map<string, UnresolvedLaunch>();
+const IN_FLIGHT = new Set<string>();
 
 export function createCodexSessions(control: CodexControl, overrides: Partial<CodexSessionDeps> = {}): CodexSessionAdapter {
   const deps: CodexSessionDeps = { ...defaultDeps(), ...overrides };
@@ -244,6 +248,23 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
   const unresolved = deps.unresolved;
   const ref = (value: string): NativeSessionRef => ({ harness: HARNESS, profile: control.profile, kind: "id", value });
   const keyOf = (reservationId: string) => `${control.profile}\0${reservationId}`;
+
+  /**
+   * One operation per reservation at a time. A second call while one is in
+   * flight would see a half-made entry and could start a second thread or
+   * open a second pane, so it is refused before it touches anything.
+   */
+  async function exclusive<T>(key: string, reservationId: string, run: () => Promise<Outcome<T>>): Promise<Outcome<T>> {
+    if (deps.inFlight.has(key)) {
+      return fail("ambiguous", `a launch for reservation ${reservationId} is still in progress; try again once it finishes`);
+    }
+    deps.inFlight.add(key);
+    try {
+      return await run();
+    } finally {
+      deps.inFlight.delete(key);
+    }
+  }
 
   function checkRequest(request: LaunchRequest): Outcome<string> {
     if (request.selection.harness !== HARNESS) return fail("invalid", `a ${request.selection.harness} selection cannot start Codex`);
@@ -360,40 +381,42 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
       if (!params.ok) return params;
 
       const key = keyOf(request.reservationId);
-      let entry = unresolved.get(key);
-      if (entry && (entry.kind !== "launch" || entry.cwd !== cwd)) {
-        return fail("invalid", `reservation ${request.reservationId} is held for another ${entry.kind} in ${entry.cwd}`);
-      }
-      if (!entry) {
-        for (const held of unresolved.values()) {
-          if (held.kind === "launch" && held.profile === control.profile && held.cwd === cwd) {
-            return fail("refused", `an earlier Codex launch in ${cwd} has not finished, so rt will not start another thread there`);
-          }
+      return exclusive(key, request.reservationId, async () => {
+        let entry = unresolved.get(key);
+        if (entry && (entry.kind !== "launch" || entry.cwd !== cwd)) {
+          return fail("invalid", `reservation ${request.reservationId} is held for another ${entry.kind} in ${entry.cwd}`);
         }
-        const reserved = control.reserveLaunch(cwd);
-        if (!reserved.ok) return reserved;
-        entry = { kind: "launch", profile: control.profile, cwd, reservation: reserved.data };
-        unresolved.set(key, entry);
-      }
+        if (!entry) {
+          for (const held of unresolved.values()) {
+            if (held.kind === "launch" && held.profile === control.profile && held.cwd === cwd) {
+              return fail("refused", `an earlier Codex launch in ${cwd} has not finished, so rt will not start another thread there`);
+            }
+          }
+          const reserved = control.reserveLaunch(cwd);
+          if (!reserved.ok) return reserved;
+          entry = { kind: "launch", profile: control.profile, cwd, reservation: reserved.data };
+          unresolved.set(key, entry);
+        }
 
-      if (!entry.threadId) {
-        const made = await create(entry, key, params.data, request.reservationId);
-        if (!made.ok) return made;
-      }
-      const threadId = entry.threadId!;
-      control.adopt(threadId);
-      const initialized = await initialize(entry, threadId, request.reservationId);
-      if (!initialized.ok) return initialized;
+        if (!entry.threadId) {
+          const made = await create(entry, key, params.data, request.reservationId);
+          if (!made.ok) return made;
+        }
+        const threadId = entry.threadId!;
+        control.adopt(threadId);
+        const initialized = await initialize(entry, threadId, request.reservationId);
+        if (!initialized.ok) return initialized;
 
-      const settings = settingsOf(entry.result);
-      if (request.mode === "headless") {
+        const settings = settingsOf(entry.result);
+        if (request.mode === "headless") {
+          settle(key, entry);
+          return ok({ native: ref(threadId), attachment: { mode: "headless" }, settings });
+        }
+        const attachment = await attach(entry, threadId, [CODEX_INIT_PROMPT], request.reservationId);
+        if (!attachment.ok) return attachment;
         settle(key, entry);
-        return ok({ native: ref(threadId), attachment: { mode: "headless" }, settings });
-      }
-      const attachment = await attach(entry, threadId, [CODEX_INIT_PROMPT], request.reservationId);
-      if (!attachment.ok) return attachment;
-      settle(key, entry);
-      return ok({ native: ref(threadId), attachment: attachment.data, settings });
+        return ok({ native: ref(threadId), attachment: attachment.data, settings });
+      });
     },
 
     async resume(native, request) {
@@ -404,49 +427,51 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
       const cwd = checked.data;
       const threadId = native.value;
       const key = keyOf(request.reservationId);
-      const pending = unresolved.get(key);
-      if (pending && (pending.kind !== "resume" || pending.threadId !== threadId || pending.cwd !== cwd)) {
-        return fail("invalid", `reservation ${request.reservationId} is held for another ${pending.kind} in ${pending.cwd}`);
-      }
-      control.adopt(threadId);
+      return exclusive(key, request.reservationId, async () => {
+        const pending = unresolved.get(key);
+        if (pending && (pending.kind !== "resume" || pending.threadId !== threadId || pending.cwd !== cwd)) {
+          return fail("invalid", `reservation ${request.reservationId} is held for another ${pending.kind} in ${pending.cwd}`);
+        }
+        control.adopt(threadId);
 
-      let read: unknown;
-      try {
-        read = await control.request("thread/read", { threadId, includeTurns: request.mode === "herdr" });
-      } catch (err) {
-        return failFrom(err, `Codex could not read thread ${threadId}: `);
-      }
-      const thread = threadOf(read);
-      if (thread?.id !== threadId) return fail("ambiguous", `Codex answered for a different thread than ${threadId}`);
-      if (typeof thread.cwd === "string" && resolve(thread.cwd) !== cwd) {
-        return fail("invalid", `thread ${threadId} works in ${thread.cwd}, so it resumes there, not in ${cwd}`);
-      }
-      const settings: CodexThreadSettings = typeof thread.cwd === "string" ? { cwd: thread.cwd } : {};
-
-      if (request.mode === "headless") {
-        let resumed: unknown;
+        let read: unknown;
         try {
-          resumed = await control.request("thread/resume", { threadId, excludeTurns: true });
+          read = await control.request("thread/read", { threadId, includeTurns: request.mode === "herdr" });
         } catch (err) {
-          return failFrom(err, `Codex could not resume thread ${threadId}: `);
+          return failFrom(err, `Codex could not read thread ${threadId}: `);
         }
-        const now = threadOf(resumed);
-        if (now?.id !== threadId) {
-          return fail("ambiguous", `Codex resumed ${String(now?.id)} instead of thread ${threadId}; rt will not continue a different conversation`);
+        const thread = threadOf(read);
+        if (thread?.id !== threadId) return fail("ambiguous", `Codex answered for a different thread than ${threadId}`);
+        if (typeof thread.cwd === "string" && resolve(thread.cwd) !== cwd) {
+          return fail("invalid", `thread ${threadId} works in ${thread.cwd}, so it resumes there, not in ${cwd}`);
         }
-        return ok({ native, attachment: { mode: "headless" }, settings: settingsOf(resumed) });
-      }
+        const settings: CodexThreadSettings = typeof thread.cwd === "string" ? { cwd: thread.cwd } : {};
 
-      const evidence = attachEvidence(thread);
-      if (evidence.length === 0) return fail("not-ready", `thread ${threadId} has no history yet, so a terminal cannot resume it`);
-      const entry = pending ?? { kind: "resume", profile: control.profile, cwd, threadId };
-      const attachment = await attach(entry, threadId, evidence, request.reservationId);
-      if (!attachment.ok) {
-        if (entry.pane) unresolved.set(key, entry);
-        return attachment;
-      }
-      settle(key, entry);
-      return ok({ native, attachment: attachment.data, settings });
+        if (request.mode === "headless") {
+          let resumed: unknown;
+          try {
+            resumed = await control.request("thread/resume", { threadId, excludeTurns: true });
+          } catch (err) {
+            return failFrom(err, `Codex could not resume thread ${threadId}: `);
+          }
+          const now = threadOf(resumed);
+          if (now?.id !== threadId) {
+            return fail("ambiguous", `Codex resumed ${String(now?.id)} instead of thread ${threadId}; rt will not continue a different conversation`);
+          }
+          return ok({ native, attachment: { mode: "headless" }, settings: settingsOf(resumed) });
+        }
+
+        const evidence = attachEvidence(thread);
+        if (evidence.length === 0) return fail("not-ready", `thread ${threadId} has no history yet, so a terminal cannot resume it`);
+        const entry = pending ?? { kind: "resume", profile: control.profile, cwd, threadId };
+        const attachment = await attach(entry, threadId, evidence, request.reservationId);
+        if (!attachment.ok) {
+          if (entry.pane) unresolved.set(key, entry);
+          return attachment;
+        }
+        settle(key, entry);
+        return ok({ native, attachment: attachment.data, settings });
+      });
     },
 
     // Codex's loaded-thread list says nothing about a thread's terminal or owner; a manual session names itself by CODEX_THREAD_ID.
