@@ -4,7 +4,15 @@
   "observability": {
     "enabled": true
   },
+  "routes": [
+    {
+      "pattern": "docs.mattstack.dev",
+      "custom_domain": true
+    }
+  ],
   "assets": {
-    "directory": "build"
+    "directory": "build",
+    "not_found_handling": "404-page",
+    "html_handling": "auto-trailing-slash"
   }
 }
