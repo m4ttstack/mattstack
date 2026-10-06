@@ -61,7 +61,7 @@ describe("parseStartArgs", () => {
   });
 
   test("parseStartArgs: invalid --provider throws", () => {
-    expect(() => __test__.parseStartArgs(["--provider", "cursor"])).toThrow(/invalid provider/);
+    expect(() => __test__.parseStartArgs(["--provider", "cursor"])).toThrow(`invalid provider "cursor": expected claude or codex`);
   });
 
   test("parseStartArgs: --yolo sets the flag", () => {

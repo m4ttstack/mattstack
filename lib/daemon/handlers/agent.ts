@@ -43,6 +43,7 @@ import { bgSocketPath } from "../bg-service.ts";
 import type { BgService } from "../bg-service.ts";
 import type { BgClaimsStore } from "../bg-claims-store.ts";
 import type { CommandResult } from "./types.ts";
+import { builtinRegistry } from "../../agent-integrations/builtins.ts";
 
 export interface HeadlessChild {
   exited: Promise<number>;
@@ -395,6 +396,7 @@ export function createAgentHandlers(opts: {
   const spawnHeadless = opts.spawnHeadless ?? defaultSpawnHeadless;
   const insertAgentFn = opts.insertAgentFn ?? insertAgent;
   const skipSessionCapture = opts.skipSessionCapture ?? false;
+  const integrations = builtinRegistry();
 
   async function launch(
     rec: AgentRecord,
@@ -554,13 +556,17 @@ export function createAgentHandlers(opts: {
       }
       const surface: AgentSurface = payload.surface ?? "herdr";
       const providerRaw = payload.provider ?? fromSetting("agent.provider", log) ?? "claude";
-      if (providerRaw !== "claude" && providerRaw !== "codex") {
-        return { ok: false, error: `invalid provider "${providerRaw}"; must be one of claude, codex` };
+      const integration = integrations.get(providerRaw);
+      if (!integration) {
+        const known = integrations.list().map((item) => item.id).join(", ");
+        return { ok: false, error: `invalid provider "${providerRaw}"; must be one of ${known}` };
       }
-      const provider: AgentProvider = providerRaw;
-      if (payload.account !== undefined && provider === "codex") {
-        return { ok: false, error: "codex does not support --account in this version (see spec's Non-goals)" };
-      }
+      const provider: AgentProvider = integration.id;
+      const validated = integration.validateOptions({
+        model: payload.model, effort: payload.effort, account: payload.account,
+        extraArgs: payload.extraArgs, yolo: payload.yolo,
+      });
+      if (!validated.ok) return { ok: false, error: validated.error.message };
       if (payload.bg && surface === "headless") {
         return { ok: false, error: "--bg is a herdr-surface option" };
       }

@@ -18,6 +18,7 @@
  */
 
 import { readFileSync, realpathSync } from "fs";
+import { builtinRegistry } from "../lib/agent-integrations/builtins.ts";
 import { verbHelpRequested } from "../lib/cli-verb-help.ts";
 import { isDaemonRunning } from "../lib/daemon-client.ts";
 import { currentRepoIdentity, repoLabel, resolveRepoArg } from "../lib/repo-arg.ts";
@@ -108,7 +109,7 @@ function parseSurface(s: string | undefined): AgentSurface | undefined {
 interface StartArgs {
   prompt?: string; surface?: AgentSurface; model?: string; effort?: string;
   account?: string; label?: string; caller?: string; workspace?: string;
-  tab?: string; extraArgs?: string; bg?: boolean; provider?: "claude" | "codex"; yolo?: boolean;
+  tab?: string; extraArgs?: string; bg?: boolean; provider?: string; yolo?: boolean;
 }
 
 function parseStartArgs(args: string[]): StartArgs {
@@ -122,7 +123,11 @@ function parseStartArgs(args: string[]): StartArgs {
   if (surface !== undefined) out.surface = surface;
   const provider = flagValue(args, "--provider");
   if (provider !== undefined) {
-    if (provider !== "claude" && provider !== "codex") throw new Error(`invalid provider "${provider}": expected claude or codex`);
+    const integrations = builtinRegistry();
+    if (!integrations.get(provider)) {
+      const known = integrations.list().map((item) => item.id).join(" or ");
+      throw new Error(`invalid provider "${provider}": expected ${known}`);
+    }
     out.provider = provider;
   }
   for (const [flag, key] of [
@@ -155,14 +160,16 @@ function defaultProvider(): string {
   }
 }
 
-/** Mirrors agent:start's provider resolution, since codex rejects --account. */
+/** Mirrors agent:start's provider resolution; only a harness that describes an account option gets the caller's. */
 async function withCallerAccount(
   parsed: StartArgs,
   resolveProvider: () => string = defaultProvider,
   resolveAccount: () => Promise<string | undefined> = () => callerCswapAccount(process.env),
 ): Promise<StartArgs> {
   if (parsed.account) return parsed;
-  if ((parsed.provider ?? resolveProvider()) !== "claude") return parsed;
+  const integration = builtinRegistry().get(parsed.provider ?? resolveProvider());
+  const descriptors = integration ? await integration.options() : [];
+  if (!descriptors.some((option) => option.name === "account")) return parsed;
   const account = await resolveAccount();
   return account ? { ...parsed, account } : parsed;
 }

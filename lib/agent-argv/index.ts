@@ -17,9 +17,17 @@ export function buildAgentArgv(
   inv: AgentInvocation,
   bins?: { claude?: string; cswap?: string; codex?: string },
 ): string[] {
-  return provider === "codex" ? buildCodexArgv(inv, bins) : buildClaudeArgv(inv, bins);
+  if (provider === "codex") return buildCodexArgv(inv, bins);
+  if (provider === "claude") return buildClaudeArgv(inv, bins);
+  throw unknownProvider(provider);
 }
 
 export function buildAgentPaneCommand(provider: AgentProvider, cwd: string, inv: AgentInvocation): string {
-  return provider === "codex" ? buildCodexPaneCommand(cwd, inv) : buildClaudePaneCommand(cwd, inv);
+  if (provider === "codex") return buildCodexPaneCommand(cwd, inv);
+  if (provider === "claude") return buildClaudePaneCommand(cwd, inv);
+  throw unknownProvider(provider);
+}
+
+function unknownProvider(provider: AgentProvider): Error {
+  return new Error(`no argv builder for harness "${provider}"`);
 }

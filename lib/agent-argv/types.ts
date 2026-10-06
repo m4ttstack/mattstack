@@ -1,4 +1,7 @@
-export type AgentProvider = "claude" | "codex";
+import type { HarnessId } from "../../packages/rt-client/src/agent-integrations.ts";
+
+/** Open by design: a registered harness ID, validated against the registry at runtime. */
+export type AgentProvider = HarnessId;
 
 export interface AgentInvocation {
   model?: string;

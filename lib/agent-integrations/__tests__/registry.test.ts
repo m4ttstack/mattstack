@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Capability, CapabilityReport, Mode } from "../../../packages/rt-client/src/agent-integrations.ts";
 import type { HarnessIntegration, SessionAdapter } from "../contracts.ts";
 import { admit } from "../admission.ts";
+import type { HarnessInstall } from "../install.ts";
 import { createRegistry } from "../registry.ts";
 
 // Registration must not call any integration operation or lazy factory.
@@ -12,10 +13,10 @@ const sessions: SessionAdapter = {
 };
 function fixture(id = "fixture"): HarnessIntegration {
   return {
-    id, label: "Fixture harness", sessions,
+    id, label: "Fixture harness", loadSessions: unexpectedOperation,
     capabilities: unexpectedOperation, validateOptions: unexpectedOperation, options: unexpectedOperation,
     loadMessaging: unexpectedOperation, loadQuestions: unexpectedOperation,
-    loadPolicy: unexpectedOperation, loadSkills: unexpectedOperation, loadInstall: unexpectedOperation,
+    loadPolicy: unexpectedOperation, loadSkills: unexpectedOperation,
   };
 }
 function report(supported: Capability[], ready = true, reason?: string): CapabilityReport {
@@ -102,12 +103,17 @@ describe("admit", () => {
 // These declarations are checked by the root TypeScript gate. They do not claim
 // that runtime option routing or any native operation has been implemented.
 const launchOnly = {
-  id: "launch-only", label: "Launch only", sessions,
+  id: "launch-only", label: "Launch only", loadSessions: async () => sessions,
   capabilities: async (mode: Mode) => ({ mode, readiness: { ready: true }, supported: ["launch" as const] }),
   validateOptions: unexpectedOperation, options: unexpectedOperation,
 } satisfies HarnessIntegration;
 const advertises = <C extends Capability>(capability: C) => async (mode: Mode) =>
   ({ mode, readiness: { ready: true }, supported: [capability] });
+// @ts-expect-error Launch requires a sessions factory.
+const absentSessions: HarnessIntegration = {
+  id: "no-sessions", label: "No sessions", capabilities: advertises("launch"),
+  validateOptions: unexpectedOperation, options: unexpectedOperation,
+};
 // @ts-expect-error Peer delivery requires a messaging factory.
 const absentMessaging: HarnessIntegration = { ...launchOnly, capabilities: advertises("peer-idle") };
 // @ts-expect-error Busy peer delivery requires a messaging factory too.
@@ -138,7 +144,7 @@ const declaredOperations: HarnessIntegration = {
   ] }),
   validateOptions: (options) => ({ ok: true, data: options }),
   options: async () => [{ name: "model", kind: "choice", choices: ["fixture-model"] }],
-  sessions: {
+  loadSessions: async () => ({
     launch: async (request) => ({ ok: true, data: {
       native: { harness: request.selection.harness, profile: "fixture", kind: "id", value: "native-id" },
       attachment: { mode: request.mode },
@@ -150,7 +156,7 @@ const declaredOperations: HarnessIntegration = {
       observedAt: 1, source: "fixture", generation: binding.attachment.generation,
     } }),
     startWork: async (_binding, input) => ({ ok: true, data: { id: input.id, evidence: "submitted" } }),
-  },
+  }),
   loadMessaging: async () => ({
     submit: async (_binding, input) => ({ ok: true, data: { id: input.id, evidence: "queued" } }),
     reconcile: async (_binding, _inputId) => ({ ok: true, data: null }),
@@ -173,6 +179,9 @@ const declaredOperations: HarnessIntegration = {
     resolveResource: async (_plugin, _relativePath) => ({ ok: true, data: "/fixture/plugin/SKILL.md" }),
     maintain: async (_operation, _source) => ({ ok: true, data: undefined }),
   }),
+};
+const declaredInstall: HarnessInstall = {
+  id: "fixture",
   loadInstall: async () => ({
     steps: () => [],
     verify: async () => ({ ok: true, data: { ready: true } }),

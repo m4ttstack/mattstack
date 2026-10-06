@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildClaudeArgv, buildPaneCommand, isValidSessionUuid, shellSingleQuote } from "../agent-argv/index.ts";
+import { buildAgentArgv, buildAgentPaneCommand, buildClaudeArgv, buildPaneCommand, isValidSessionUuid, shellSingleQuote } from "../agent-argv/index.ts";
 
 const UUID = "6e225e74-4cb7-4aea-8807-6aa9011d4112";
 
@@ -191,4 +191,13 @@ describe("buildPaneCommand", () => {
 
 test("shellSingleQuote escapes embedded quotes", () => {
   expect(shellSingleQuote("a'b")).toBe(`'a'\\''b'`);
+});
+
+describe("agent argv dispatch", () => {
+  const inv = { session: { kind: "start" as const, sessionId: UUID }, headless: false };
+
+  test("an unknown harness refuses instead of building claude's argv", () => {
+    expect(() => buildAgentArgv("cursor", inv)).toThrow(/cursor/);
+    expect(() => buildAgentPaneCommand("cursor", "/tmp/x", inv)).toThrow(/cursor/);
+  });
 });

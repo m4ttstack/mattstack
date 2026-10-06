@@ -1,4 +1,4 @@
-/** Portable integration vocabulary; not exposed through the package entry point yet. */
+/** Portable integration vocabulary, exported through the package entry point. */
 export type HarnessId = string;
 export type Mode = "herdr" | "headless";
 export type Capability =

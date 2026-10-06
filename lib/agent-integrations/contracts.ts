@@ -4,7 +4,6 @@ import type {
   PeerInput, QuestionBinding, Readiness, Selection, SessionBinding,
 } from "../../packages/rt-client/src/agent-integrations.ts";
 import type { GateRow } from "../../packages/rt-client/src/commands.ts";
-import type { ApplyContext, StepDef, StepOutcome } from "../setup/apply.ts";
 import type { PluginListEntry } from "../skills/sources.ts";
 
 /** The ID survives acknowledgement ambiguity; native deduplication is not implied. */
@@ -54,17 +53,12 @@ export interface SkillAdapter {
   resolveResource(plugin: string, relativePath: string): Promise<Outcome<string>>;
   maintain(operation: "init" | "sync" | "link", source: string): Promise<Outcome<void>>;
 }
-export interface InstallAdapter {
-  steps(): StepDef[];
-  verify(): Promise<Outcome<Readiness>>;
-  reconcile(mode: "update" | "restore" | "uninstall", context: ApplyContext): Promise<StepOutcome[]>;
-}
 type AdapterFactories = {
+  loadSessions(): Promise<SessionAdapter>;
   loadMessaging(): Promise<MessageAdapter>;
   loadQuestions(): Promise<QuestionAdapter>;
   loadPolicy(): Promise<PolicyAdapter>;
   loadSkills(): Promise<SkillAdapter>;
-  loadInstall(): Promise<InstallAdapter>;
 };
 /** An absent factory narrows the capabilities a typed implementation may report.
  * This is a declaration constraint, not validation of untrusted native reports.
@@ -80,10 +74,8 @@ export type HarnessIntegration = {
   capabilities(mode: Mode): Promise<CapabilityReport>;
   validateOptions(options: AgentOptions): Outcome<AgentOptions>;
   options(): Promise<OptionDescriptor[]>;
-  sessions: SessionAdapter;
-  // There is no installation capability in the shared vocabulary.
-  loadInstall?: AdapterFactories["loadInstall"];
-} & OptionalAdapter<"loadMessaging", "peer-idle" | "peer-working">
+} & OptionalAdapter<"loadSessions", "launch" | "resume" | "observe">
+  & OptionalAdapter<"loadMessaging", "peer-idle" | "peer-working">
   & OptionalAdapter<"loadQuestions", "questions-form" | "questions-wait" | "question-recovery" | "questions-async">
   & OptionalAdapter<"loadPolicy", "gate-policy" | "continuation-policy">
   & OptionalAdapter<"loadSkills", "skills">;

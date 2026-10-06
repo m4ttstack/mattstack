@@ -61,11 +61,27 @@ wiring, public exports, generic argv changes and built-in composition are F2b
 and remain blocked. The checklist below describes the whole original F2;
 F2a completion must not mark the entire task complete.
 
-**Current F2a progress:** the five files are implemented and code-reviewed.
-The approved watcher-test prerequisite is applied and passes. Completion is
-stopped by three other root-suite failures (API bind and marketplace timeouts).
-The [checkpoint](../spikes/2026-10-05-harness-foundation-f2a.md) carries the full
-results and bounded diagnostic; F2b has not begun.
+**F2a:** complete. See the [checkpoint](../spikes/2026-10-05-harness-foundation-f2a.md);
+the three root-suite failures there were ruled unrelated flakes.
+
+**F2b (2026-10-06):** implemented. The user chose lazy sessions: the session
+adapter is a `loadSessions()` factory like the others, so the built-ins
+register before F5 builds their adapters. They advertise no capabilities and
+report not ready until then.
+
+- `builtinRegistry()` (`lib/agent-integrations/builtins.ts`) is the one
+  composition root; `claude/integration.ts` and `codex/integration.ts` carry
+  each harness's options and option validation.
+- `agent:start` and `rt agent start` validate the provider and options
+  through the registry. Refusal text is unchanged and now pinned exactly.
+- `AgentProvider` is an open `HarnessId`; argv dispatch refuses an unknown ID
+  instead of falling back to Claude.
+- rt-client exports the portable types.
+- `InstallAdapter` moved to `lib/agent-integrations/install.ts` as a separate
+  `HarnessInstall` facet. Its type-only edge to `lib/setup/apply.ts` pulled the
+  setup/CLI chain into the daemon graph (`no-eager-tui` guard), which breaks
+  "runtime imports never load setup". Setup composes it by harness ID in the
+  S tasks.
 
 **Files:** Create `packages/rt-client/src/agent-integrations.ts`,
 `lib/agent-integrations/contracts.ts`, `lib/agent-integrations/registry.ts`,

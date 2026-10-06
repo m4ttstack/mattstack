@@ -1075,15 +1075,13 @@ test("agent:start honors an explicit provider", async () => {
 test("agent:start rejects an unknown provider", async () => {
   const h = fresh();
   const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "headless", prompt: "go", provider: "cursor" });
-  expect(res.ok).toBe(false);
-  if (!res.ok) expect(res.error).toMatch(/provider/);
+  expect(res).toEqual({ ok: false, error: `invalid provider "cursor"; must be one of claude, codex` });
 });
 
 test("agent:start rejects account with codex", async () => {
   const h = fresh();
   const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "headless", prompt: "go", provider: "codex", account: "a@b.c" });
-  expect(res.ok).toBe(false);
-  if (!res.ok) expect(res.error).toMatch(/account/);
+  expect(res).toEqual({ ok: false, error: "codex does not support --account in this version (see spec's Non-goals)" });
 });
 
 test("agent:start threads yolo into the recorded agent", async () => {
