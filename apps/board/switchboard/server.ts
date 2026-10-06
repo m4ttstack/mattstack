@@ -136,7 +136,8 @@ export function makeFetchHandler(
     if (pathname.startsWith('/invite/') && req.method === 'GET') {
       return new Response(
         `<!doctype html><meta charset="utf-8"><style>body{font:16px system-ui;max-width:36rem;margin:4rem auto;padding:0 1rem}</style>` +
-          `<h1>board invite</h1><p>this link is a board invite. paste the whole link into your board's settings ("join peer boards") or into <code>bun run setup</code>.</p>`,
+          `<h1>board invite</h1><p>this link is a board invite. paste the whole link into <code>bun run setup</code> in your board's folder.</p>` +
+          `<p>on a Mac in an rt team, ask the team's owner for a team invite instead and run <code>rt team join</code>.</p>`,
         {
           headers: {
             'content-type': 'text/html; charset=utf-8',

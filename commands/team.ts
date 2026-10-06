@@ -17,6 +17,7 @@ import { roleFor, rolesFor } from "../lib/team/roles.ts";
  *   rt team members sync [--team <slug>] [--json]
  *   rt team members remove <handle> [--key <age1...>] [--team <slug>] [--json]
  *   rt team status [--team <slug>] [--json]
+ *   rt team peer [--team <slug>] [--rotate] [--json]
  *
  * Every mutating path funnels through one `UserActionableError` → exit-2
  * envelope, via `exitUserError` (lib/errors.ts), including a locked
@@ -51,7 +52,9 @@ import { extractInviteCode } from "../lib/team/invite-crypto.ts";
 import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeams } from "../lib/team/invite.ts";
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
-import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
+import { canonicalHandle, readPeeredBoards, realReadLocalSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
+import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
+import { peerOwnBoard, realPeerSeams, type PeerResult, type PeerSeams } from "../lib/team/peer.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { commitPendingPackShares, droppedShareBlocks, droppedShares, packShareBlocks, rememberPackShare, sharePack } from "../lib/team/share-pack.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
@@ -92,6 +95,10 @@ export interface TeamDeps {
   confirm?: (message: string) => Promise<boolean>;
   /** The TTY gate, seamed for the same reason. */
   interactive?: () => boolean;
+  /** An rt-scope secret (the switchboard tokens `teamStatus`, `teamPeer` and `members remove` read); real store by default. */
+  readLocalSecret?: ReadLocalSecret;
+  /** Overrides `peerOwnBoard`'s seams; real by default, with `readLocalSecret` above as its secret reader. */
+  peerSeams?: Partial<PeerSeams>;
 }
 
 async function defaultReadCode(json: boolean): Promise<string> {
@@ -163,6 +170,8 @@ const REFUSAL_CODES = new Set([
   "team-exists",
   "team-remote-mismatch",
   "org-first-team-set",
+  "peer-needs-admin",
+  "board-registered-elsewhere",
 ]);
 
 /** `--json` and every non-refusal take exitUserError's route, so the envelope and the exit code never depend on the code. */
@@ -235,6 +244,7 @@ export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps
 
   try {
     const result = await createTeam(deps.probes, { name, remote, createRepoOwner, others, firstTeam }, deps.ageKeySeam, { forgeLogin, forgeToken: deps.forgeToken ?? storedForgeToken });
+    const peered = result.created ? await autoPeer(deps, result.slug) : null;
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
@@ -244,7 +254,53 @@ export async function teamCreate(args: string[], _ctx: CommandContext = {}, deps
         ? out.line("done", `Created the ${result.slug} org`, result.remote)
         : out.line("skipped", `The ${result.slug} org is already set up`, result.remote),
       ...(result.rolesDeferred ? [out.callout("next", "Connect your forge account in Setup so rt can make you this org's admin")] : []),
+      ...(peered ? peerBlocks(peered) : []),
     );
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+function peerSeamsFor(deps: TeamDeps): PeerSeams {
+  return { ...realPeerSeams(), ...(deps.readLocalSecret ? { readLocalSecret: deps.readLocalSecret } : {}), ...deps.peerSeams };
+}
+
+/** A creator holding the admin token gets their board connected with the org; anything that goes wrong is a warning, never a failed create. */
+async function autoPeer(deps: TeamDeps, slug: string): Promise<PeerResult | null> {
+  try {
+    return await peerOwnBoard(deps.probes, slug, { rotate: false }, peerSeamsFor(deps));
+  } catch (err) {
+    if (err instanceof UserActionableError && err.code === "peer-needs-admin") return null;
+    const why = err instanceof UserActionableError ? err.why : undefined;
+    warn("team", `board peering after create: ${err instanceof Error ? err.message : String(err)}`, {
+      show: { title: "The org is ready, but rt could not connect your board", hint: why, next: out.cmd("rt team peer") },
+    });
+    return null;
+  }
+}
+
+export function peerBlocks(result: PeerResult): Block[] {
+  return [
+    result.outcome === "connected"
+      ? out.line("done", "Connected your board to the switchboard", result.username)
+      : out.line("skipped", "Your board is already connected to the switchboard", result.username),
+    ...(result.outcome === "connected" && result.boardEnvOverrides
+      ? [out.callout("fix", "Your board's .env sets its own SWITCHBOARD_TOKEN, which the board reads first. Remove that line so the board uses this one.")]
+      : []),
+  ];
+}
+
+export async function teamPeer(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  try {
+    const slug = resolveTeamSlug(args, "team peer");
+    const result = await peerOwnBoard(deps.probes, slug, { rotate: args.includes("--rotate") }, peerSeamsFor(deps));
+    if (json) {
+      deps.print(JSON.stringify(envelope(result)));
+      return;
+    }
+    out.print(...peerBlocks(result));
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
@@ -373,11 +429,24 @@ export function membersSyncBlocks(result: MembersSyncResult): Block[] {
   ];
 }
 
+const BOARD_LINES: Record<BoardPeeringOutcome, [RenderStatus, string]> = {
+  revoked: ["done", "Disconnected their board"],
+  "not-peered": ["skipped", "Their board was not connected"],
+  "left-peered": ["needs-you", "Their board is still connected"],
+  failed: ["failed", "Could not disconnect their board"],
+};
+
+function boardLine(handle: string, outcome: BoardPeeringOutcome): Block {
+  const [status, title] = BOARD_LINES[outcome];
+  return out.line(status, title, handle);
+}
+
 export function membersRemoveBlocks(handle: string, slug: string, result: MembersRemoveResult): Block[] {
   return [
     result.rosterRemoved
       ? out.line("done", `Removed ${handle} from the team`, `forge access: ${result.forgeAccess}`)
       : out.line("skipped", `${handle} was not on the team list`, `forge access: ${result.forgeAccess}`),
+    boardLine(handle, result.boardPeering),
     ...(result.manualSteps.length > 0 ? [out.callout("fix", ...result.manualSteps)] : []),
     out.callout("note", result.residueNote),
     out.callout("next", out.cmd(`rt secrets rotate --team ${slug} <domain> <key>`)),
@@ -644,7 +713,10 @@ export async function teamMembersRemove(args: string[], _ctx: CommandContext = {
   try {
     const slug = resolveTeamSlug(args, `team members remove ${handle}`);
     const secrets = createRealTeamSecretsSeams(slug);
-    const result = await membersRemove(deps.probes, secrets, slug, handle, key);
+    const result = await membersRemove(deps.probes, secrets, slug, handle, key, {
+      ...(deps.membersSeams ?? realMembersSeams()),
+      ...(deps.readLocalSecret ? { readLocalSecret: deps.readLocalSecret } : {}),
+    });
 
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
@@ -771,7 +843,13 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
     const { reachable, heldBack, ...sync } = await readTeamSyncFields(deps, slug);
 
-    const result = { slug, name, remote, lastPush, members, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };
+    // null when nothing on this Mac can ask the switchboard, so "not peered"
+    // is only ever said when the switchboard said it.
+    const peeredBoards = await readPeeredBoards(deps.probes, deps.readLocalSecret ?? realReadLocalSecret);
+    const membersWithPeering = members.map((m) => ({ ...m, peered: peeredBoards ? peeredBoards.has(canonicalHandle(m.username)) : null }));
+    const peeredCount = membersWithPeering.filter((m) => m.peered === true).length;
+
+    const result = { slug, name, remote, lastPush, members: membersWithPeering, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
@@ -787,7 +865,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
         name === slug ? undefined : slug,
         out.kv("remote", result.remote ?? "none"),
         out.kv("last push", lastPush ?? "never"),
-        out.kv("members", String(members.length)),
+        out.kv("members", String(members.length), peeredBoards ? `${peeredCount} with a connected board` : undefined),
         out.kv("your team", active.team ?? "none"),
         out.kv("your role", role === "admin" ? "org admin" : role === "owner" ? "team owner" : role === "member" ? "member" : "unknown"),
         out.kv("sync", syncState, syncNotes.length > 0 ? syncNotes.join("; ") : undefined),

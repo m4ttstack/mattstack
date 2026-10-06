@@ -252,6 +252,19 @@ describe('parseConfig', () => {
     ).toThrow(/"tabs\[0\]\.pack" must be a string/);
   });
 
+  test('tabs accept an optional dimEmpty and refuse a non-boolean one', () => {
+    const tab = { id: 'w', label: 'W', source: { kind: 'authors' } };
+    const cfg = parseConfig(
+      JSON.stringify({ ...base, tabs: [{ ...tab, dimEmpty: true }] })
+    );
+    expect(cfg.tabs[0]!.dimEmpty).toBe(true);
+    expect(() =>
+      parseConfig(
+        JSON.stringify({ ...base, tabs: [{ ...tab, dimEmpty: 'yes' }] })
+      )
+    ).toThrow(/"tabs\[0\]\.dimEmpty" must be a boolean/);
+  });
+
   test('a legacy defaultPack in config.json is ignored', () => {
     expect(
       parseConfig(JSON.stringify({ ...base, defaultPack: 'widgets' })).teamPack

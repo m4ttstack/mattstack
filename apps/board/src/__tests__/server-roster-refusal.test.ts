@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterAll, expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
 
 // Boots the real server against a fake $HOME whose org store owns
 // mattstack.roster and names dev1 its only admin, while this Mac is dev2.
@@ -65,8 +65,11 @@ const proc = Bun.spawn(
 
 afterAll(() => proc.kill());
 
+// A cold server boot can outlast a test's default 5s.
+beforeAll(() => waitForBoot(), 30_000);
+
 async function waitForBoot(): Promise<void> {
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 300; i++) {
     try {
       const res = await fetch(`http://127.0.0.1:${PORT}/data.json`);
       if (res.ok) return;
@@ -94,7 +97,6 @@ test.each([
 ])(
   'a member who is not an org admin is refused a roster %s with a plain 403',
   async (_label, body) => {
-    await waitForBoot();
     const res = await roster(body);
     expect(res.status).toBe(403);
     expect(await res.text()).toBe(REFUSAL);
@@ -103,7 +105,6 @@ test.each([
 );
 
 test('the board tells the page this Mac is not an org admin', async () => {
-  await waitForBoot();
   const data = (await (
     await fetch(`http://127.0.0.1:${PORT}/data.json`)
   ).json()) as { rosterView: unknown };

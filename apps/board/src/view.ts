@@ -8,7 +8,9 @@ import { projectKeyOf } from './triage/stack.ts';
 import { authorTurn, type TurnConfig } from './turn.ts';
 
 export type GroupKey = 'age' | 'author' | 'status' | 'review' | 'needs';
-export type SortKey = 'oldest' | 'progress';
+/** Sort splits each group into labelled sub-groups by a second grouping;
+    'none' keeps each group whole. Rows are always oldest first. */
+export type SortKey = 'none' | GroupKey;
 
 export type ShowItem = 'posted' | 'notPosted' | 'authorTurn' | 'myDrafts';
 
@@ -19,13 +21,21 @@ export const GROUP_KEYS: readonly GroupKey[] = [
   'review',
   'needs',
 ];
-export const SORT_KEYS: readonly SortKey[] = ['oldest', 'progress'];
+export const SORT_KEYS: readonly SortKey[] = ['none', ...GROUP_KEYS];
 export const SHOW_ITEMS: readonly ShowItem[] = [
   'posted',
   'notPosted',
   'authorTurn',
   'myDrafts',
 ];
+
+/** Whether `tab` fades its zero-count roster members: its own `dimEmpty`,
+    else every kind but an authors tab, whose roster is the team itself. */
+export function tabDimsEmpty(
+  tab: Pick<TabConfig, 'source' | 'dimEmpty'>
+): boolean {
+  return tab.dimEmpty ?? tab.source.kind !== 'authors';
+}
 
 /** Sentinel that sorts after any ISO date, so null timestamps land last. */
 const LATEST = '9999';
@@ -419,13 +429,6 @@ export function approvalSlots(mr: BoardMR): {
   return { filled: Math.max(required - remaining, 0), required };
 }
 
-/** Approval ratio in [0,1]; used by the "progress" sort. */
-function progress(mr: BoardMR): number {
-  const { filled, required } = approvalSlots(mr);
-  if (required > 0) return filled / required;
-  return mr.reviews.given > 0 ? 1 : 0;
-}
-
 export function filterByMember<M extends BoardMR>(
   mrs: M[],
   member: string
@@ -533,23 +536,13 @@ export function filterByTab<M extends BoardMR>(
   }
 }
 
-/** Return a new array ordered by the chosen sort. Never mutates the input. */
-export function sortMRs<M extends BoardMR>(mrs: M[], sort: SortKey): M[] {
-  // Order by last activity (updatedAt), the same axis the row's age token and
-  // the age grouping use, so "oldest" means stalest-first and the visible ages
-  // read in order.
-  const byOldest = (a: BoardMR, b: BoardMR) =>
-    (a.updatedAt ?? LATEST).localeCompare(b.updatedAt ?? LATEST);
-  const copy = [...mrs];
-  switch (sort) {
-    case 'oldest':
-      copy.sort(byOldest);
-      break;
-    case 'progress':
-      copy.sort((a, b) => progress(b) - progress(a) || byOldest(a, b));
-      break;
-  }
-  return copy;
+/** A new array, stalest last activity (updatedAt) first: the axis the row's
+    age token and the age grouping use, so the visible ages read in order.
+    Never mutates the input. */
+export function oldestFirst<M extends BoardMR>(mrs: M[]): M[] {
+  return [...mrs].sort((a, b) =>
+    (a.updatedAt ?? LATEST).localeCompare(b.updatedAt ?? LATEST)
+  );
 }
 
 export interface Group<M extends BoardMR = BoardMR> {
@@ -557,6 +550,8 @@ export interface Group<M extends BoardMR = BoardMR> {
   mrs: M[];
   /** The author's username, on an author grouping's groups. */
   author?: string;
+  /** The group split by the Sort grouping, when one is picked. */
+  sub?: Group<M>[];
 }
 
 /** Age band by last activity: by day for the first week, then weekly. Uses the
@@ -766,6 +761,60 @@ export function groupMRs<M extends ReviewedMR>(
   return pullStacksIntoParentGroups(grouped(), mrs);
 }
 
+/** The board's groups, rows oldest first, each split into sub-groups by
+    `sub` unless it is 'none' or the same as `group`. */
+export function arrangeGroups<M extends ReviewedMR>(
+  mrs: M[],
+  group: GroupKey,
+  sub: SortKey,
+  memberOrder: string[],
+  now: number,
+  needBucket?: (mr: M) => { label: string; order: number } | null
+): Group<M>[] {
+  const split = (list: M[], key: GroupKey) =>
+    groupMRs(list, key, memberOrder, now, needBucket).map(g => ({
+      ...g,
+      mrs: oldestFirst(g.mrs),
+    }));
+  const groups = split(mrs, group);
+  if (sub === 'none' || sub === group) return groups;
+  return groups.map(g => {
+    const parts = split(g.mrs, sub);
+    return { ...g, mrs: parts.flatMap(p => p.mrs), sub: parts };
+  });
+}
+
+/** The Sort choices beside a grouping: no split, or any other grouping
+    this tab offers. Looking at one person's MRs, an author split has
+    nothing to split. */
+export function sortKeysFor(
+  group: GroupKey,
+  groupKeys: readonly GroupKey[],
+  member = 'all'
+): SortKey[] {
+  return [
+    'none',
+    ...groupKeys.filter(
+      k => k !== group && !(k === 'author' && member !== 'all')
+    ),
+  ];
+}
+
+/** The Sort that actually applies. An author split hidden by picking one
+    person stands in as age, and the stored pick is left alone so it comes
+    back on All; any other Sort this tab doesn't offer splits nothing. */
+export function effectiveSort(
+  sort: SortKey,
+  group: GroupKey,
+  groupKeys: readonly GroupKey[],
+  member = 'all'
+): SortKey {
+  const offered = sortKeysFor(group, groupKeys, member);
+  if (offered.includes(sort)) return sort;
+  if (sort === 'author' && offered.includes('age')) return 'age';
+  return 'none';
+}
+
 export interface ViewState {
   member: string;
   group: GroupKey;
@@ -774,12 +823,14 @@ export interface ViewState {
   off: ShowItem[];
 }
 
+/** A fresh board shows only what went to the team channel, grouped by
+    status and split by age. */
 export const DEFAULT_VIEW: ViewState = {
   member: 'all',
   group: 'status',
-  sort: 'oldest',
+  sort: 'age',
   tab: '',
-  off: [],
+  off: ['notPosted', 'authorTurn', 'myDrafts'],
 };
 
 /** The grouping a tab other than the seat tab opens with, given the one you
@@ -802,6 +853,7 @@ function resolveOff(
   if (!legacyUrl && Array.isArray(stored?.off)) return canon(stored.off);
   const slack = params.get('slack') ?? stored?.slack;
   const drafts = params.get('drafts') ?? stored?.drafts;
+  if (slack === undefined && drafts === undefined) return [...DEFAULT_VIEW.off];
   const off: ShowItem[] = [];
   if (slack === 'posted') off.push('notPosted');
   if (drafts === 'hide') off.push('myDrafts');
@@ -842,72 +894,19 @@ export function parseViewState(
   return {
     member: resolve('member', members, memberFallback),
     group: resolve('group', GROUP_KEYS, DEFAULT_VIEW.group),
-    sort: resolve('sort', SORT_KEYS, 'oldest'),
+    sort: resolve('sort', SORT_KEYS, DEFAULT_VIEW.sort),
     tab: resolve('tab', validTabs, validTabs[0] ?? ''),
     off: resolveOff(params, stored),
   };
 }
 
-/** Settings-modal peering state for one roster member. A null peered list means
-    the GET /peer/boards fetch hasn't resolved: render nothing rather than a
-    wrong "invitable". Comparison is canonical (trimmed, lowercased) so a roster
-    handle typed with different case never hides a board that is already peered. */
-export function memberPeerState(
-  username: string,
-  peered: string[] | null
-): 'peered' | 'invitable' | 'unknown' {
-  if (peered === null) return 'unknown';
+/** Whether a roster member has a board on the switchboard. A null peered
+    list means GET /peer/boards has not answered, which is never "peered".
+    Comparison is canonical (trimmed, lowercased), mirroring the relay. */
+export function isPeered(username: string, peered: string[] | null): boolean {
+  if (peered === null) return false;
   const canonical = username.trim().toLowerCase();
-  return peered.some(p => p.trim().toLowerCase() === canonical)
-    ? 'peered'
-    : 'invitable';
-}
-
-/** Drop one handle from the peered list by canonical comparison, mirroring
-    the relay's own canonicalization, so a case difference between roster and
-    relay never strands a removed row until reload. */
-export function dropPeer(
-  peered: string[] | null,
-  username: string
-): string[] | null {
-  if (peered === null) return null;
-  const canonical = username.trim().toLowerCase();
-  return peered.filter(p => p.trim().toLowerCase() !== canonical);
-}
-
-/** Peered handles with no roster row: test boards, departed teammates, or a
-    handle invited free-text and later dropped from the roster. These are the
-    registrations only the remove action can reach, so the settings modal
-    lists them separately. Canonical comparison, same as memberPeerState. */
-export function offRosterPeers(
-  peered: string[] | null,
-  members: ReadonlyArray<{ username: string }>,
-  defaultMember: string
-): string[] {
-  if (peered === null) return [];
-  const roster = new Set(members.map(m => m.username.trim().toLowerCase()));
-  roster.add(defaultMember.trim().toLowerCase());
-  return peered.filter(p => !roster.has(p.trim().toLowerCase()));
-}
-
-/** What the settings modal's join row should say and whether it starts folded.
-    `switchboardConfigured` is the client's read of `data.peering !== null`; a
-    configured board whose token is missing also reports null peering, and gets
-    the open join row, which is exactly right. */
-export function joinRowState(
-  switchboardConfigured: boolean,
-  peering: 'ok' | 'unauthorized' | null
-): { label: string; collapsed: boolean; warning?: string } {
-  if (peering === 'unauthorized') {
-    return {
-      label: 're-join with a new invite',
-      collapsed: false,
-      warning: 'peering token rejected -- re-join with a new invite',
-    };
-  }
-  if (switchboardConfigured)
-    return { label: 're-join with a new invite', collapsed: true };
-  return { label: 'join peer boards', collapsed: false };
+  return peered.some(p => p.trim().toLowerCase() === canonical);
 }
 
 /** Query string (with leading "?") carrying only non-default values; "" when all default. */
@@ -918,7 +917,8 @@ export function serializeViewState(v: ViewState): string {
   if (v.sort !== DEFAULT_VIEW.sort) params.set('sort', v.sort);
   if (v.tab !== DEFAULT_VIEW.tab) params.set('tab', v.tab);
   const off = SHOW_ITEMS.filter(i => v.off.includes(i));
-  if (off.length > 0) params.set('off', off.join(','));
+  // Written even when empty: an empty pick differs from the default.
+  if (off.join() !== DEFAULT_VIEW.off.join()) params.set('off', off.join(','));
   const s = params.toString();
   return s ? `?${s}` : '';
 }

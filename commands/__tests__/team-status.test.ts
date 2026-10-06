@@ -3,6 +3,7 @@ import { join } from "path";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { teamStatus, type TeamDeps } from "../team.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
+import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import type { SettingsReader } from "../../lib/setup/team-settings.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
@@ -18,6 +19,7 @@ function baseDeps(overrides: Partial<TeamDeps> = {}): TeamDeps & { lines: string
   return {
     probes: fakeProbes({ home: HOME }),
     print: (s: string) => lines.push(s),
+    readLocalSecret: async () => null,
     lines,
     ...overrides,
   };
@@ -27,13 +29,14 @@ function fakeRead(values: Record<string, unknown>): SettingsReader {
   return <T>(key: string): T | undefined => values[key] as T | undefined;
 }
 
-function clonedDeps(overrides: { exec?: TeamDeps["probes"]["exec"]; read?: Record<string, unknown>; gitConfig?: string } = {}): TeamDeps & { lines: string[] } {
+function clonedDeps(overrides: { exec?: TeamDeps["probes"]["exec"]; fetch?: TeamDeps["probes"]["fetch"]; read?: Record<string, unknown>; gitConfig?: string } = {}): TeamDeps & { lines: string[] } {
   return baseDeps({
     probes: fakeProbes({
       home: HOME,
       dirs: { [TEAM_DIR]: [] },
       files: { [join(TEAM_DIR, ".git", "config")]: overrides.gitConfig ?? GIT_CONFIG },
       exec: overrides.exec,
+      fetch: overrides.fetch,
     }),
     statusRead: fakeRead(overrides.read ?? {}),
     daemon: async () => null,
@@ -142,7 +145,7 @@ describe("teamStatus", () => {
       name: "Acme Team",
       remote: "git@github.com:acme/widgets.git",
       lastPush: "2026-08-21T10:00:00+00:00",
-      members: [{ username: "dev1" }],
+      members: [{ username: "dev1", peered: null }],
       role: "unknown",
       activeTeam: null,
       teams: [],
@@ -153,6 +156,56 @@ describe("teamStatus", () => {
       conflicted: null,
       pullOnly: false,
     });
+  });
+
+  test("peered is true or false per member when the switchboard lists the boards, and only the switchboard is asked", async () => {
+    const fetched: Array<{ url: string; auth?: string }> = [];
+    const deps = clonedDeps({
+      exec: async () => ({ code: 0, stdout: "", stderr: "" }),
+      fetch: async (url, init) => {
+        fetched.push({ url, auth: (init?.headers as Record<string, string> | undefined)?.Authorization });
+        return { status: 200, body: JSON.stringify({ boards: [{ username: "Dev1" }] }), headers: {} };
+      },
+      read: { "mattstack.roster": [{ username: "dev1" }, { username: "dev2" }] },
+    });
+    deps.readLocalSecret = async (key) => (key === "switchboardAdminToken" ? "admin-tok" : null);
+
+    await teamStatus(["--team", SLUG, "--json"], {}, deps);
+
+    expect(JSON.parse(deps.lines[0]!).members).toEqual([
+      { username: "dev1", peered: true },
+      { username: "dev2", peered: false },
+    ]);
+    expect(fetched).toEqual([{ url: `${switchboardUrl()}/boards`, auth: "Bearer admin-tok" }]);
+  });
+
+  test("without the admin token, the board's own token asks /peers, and the human view counts connected boards", async () => {
+    const fetched: string[] = [];
+    const deps = clonedDeps({
+      exec: async () => ({ code: 0, stdout: "", stderr: "" }),
+      fetch: async (url) => {
+        fetched.push(url);
+        return { status: 200, body: JSON.stringify({ peers: ["dev2"] }), headers: {} };
+      },
+      read: { "mattstack.roster": [{ username: "dev1" }, { username: "dev2" }] },
+    });
+    deps.readLocalSecret = async (key) => (key === "switchboardToken" ? "board-tok" : null);
+
+    await teamStatus(["--team", SLUG, "--json"], {}, deps);
+    expect(JSON.parse(deps.lines[0]!).members).toEqual([
+      { username: "dev1", peered: false },
+      { username: "dev2", peered: true },
+    ]);
+    expect(fetched).toEqual([`${switchboardUrl()}/peers`]);
+
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamStatus(["--team", SLUG], {}, deps);
+      expect(io.stdout()).toContain("members: 2\n  1 with a connected board\n");
+    } finally {
+      io.restore();
+    }
   });
 
   test("--json carries pullOnly through from the daemon's snapshot-status entry, so a member can see why nothing pushes", async () => {
@@ -315,7 +368,7 @@ describe("teamStatus", () => {
     }
 
     const body = JSON.parse(deps.lines[0]!);
-    expect(body.members).toEqual([{ username: "dev2" }]);
+    expect(body.members).toEqual([{ username: "dev2", peered: null }]);
   });
 
   test("a malformed roster entry warns on stderr and leaves the envelope alone", async () => {
@@ -330,7 +383,7 @@ describe("teamStatus", () => {
     try {
       await teamStatus(["--team", SLUG, "--json"], {}, deps);
       expect(deps.lines).toHaveLength(1);
-      expect(JSON.parse(deps.lines[0]!).members).toEqual([{ username: "dev2" }]);
+      expect(JSON.parse(deps.lines[0]!).members).toEqual([{ username: "dev2", peered: null }]);
       expect(io.stdout()).toBe("");
       expect(io.stderr()).toBe("[warning] Some team members could not be read  4 left out\n");
     } finally {

@@ -1971,9 +1971,9 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(plan.finishBlockedBy).toEqual([]);
 
         const outcome = outcomeFromChecks(rowsToChecks(plan, { ci: false }), rows);
-        expect(outcome).toEqual({ state: "needs-you", detail: "Board not peered: ask the team owner to re-invite you" });
+        expect(outcome).toEqual({ state: "needs-you", detail: "Board not peered: ask your org admin to re-invite you" });
         expect(updateNotification("1.2.3", [{ id: "verify", state: outcome.state, detail: (outcome as { detail: string }).detail }])?.message).toBe(
-          "verify: Board not peered: ask the team owner to re-invite you",
+          "verify: Board not peered: ask your org admin to re-invite you",
         );
       });
 
@@ -1991,14 +1991,14 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const secrets = { has: async (domain: string, key: string) => (domain === "rt" && key === "switchboardAdminToken" ? "admin-1" : null) };
         const rows = await accountRows(p, team, [], secrets, null);
         const plan = finalizePlan({ slug: "acme", name: "acme", mode: "none" }, [{ id: "accounts", title: "Accounts", rows }]);
-        expect(outcomeFromChecks(rowsToChecks(plan, { ci: false }), rows)).toEqual({ state: "needs-you", detail: "Board not peered: invite your own board from its members panel" });
+        expect(outcomeFromChecks(rowsToChecks(plan, { ci: false }), rows)).toEqual({ state: "needs-you", detail: "Board not peered: run rt team peer" });
       });
 
       test("an unpeered board sits beside other member tasks in verify's summary", () => {
         const rows = [rowOf("account.slack", "account", "Slack", "missing"), { ...rowOf("account.board-peering", "account", "Board peering", "needs-you"), required: false }];
         expect(outcomeFromChecks([fail("account.slack"), { name: "account.board-peering", status: "warn", detail: "", severity: "warning" }], rows)).toEqual({
           state: "needs-you",
-          detail: "To connect: Slack. Board not peered: ask the team owner to re-invite you",
+          detail: "To connect: Slack. Board not peered: ask your org admin to re-invite you",
         });
       });
 

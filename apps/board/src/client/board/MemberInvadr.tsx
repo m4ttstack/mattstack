@@ -1,10 +1,7 @@
 import { createContext, useContext } from 'react';
 import { Invadr } from 'invadrs/react';
 
-export interface MemberLook {
-  color: string;
-  sprite: number;
-}
+import type { MemberLook } from './invadr-colors.ts';
 
 const MemberLooks = createContext<ReadonlyMap<string, MemberLook>>(new Map());
 
@@ -29,8 +26,9 @@ export function MemberInvadr({
   return look ? (
     <Invadr
       id={id}
-      palette={[look.color]}
+      palette={[...look.palette]}
       sprite={look.sprite}
+      color={look.color}
       className={className}
     />
   ) : (

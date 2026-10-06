@@ -375,7 +375,7 @@ async function peerBoard(
 ): Promise<PeeringOutcome> {
   const reinvite: PeeringOutcome = {
     peering: "unavailable",
-    peeringFix: `Ask ${pointer.owner} to invite ${handle} again and join with the new invite, or ask them to invite your board again from the board's members panel.`,
+    peeringFix: `Ask ${pointer.owner} to invite ${handle} again and join with the new invite.`,
   };
 
   if (pointer.switchboard?.token) {

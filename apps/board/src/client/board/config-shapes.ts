@@ -152,6 +152,7 @@ function isTabLike(v: unknown): boolean {
   if (v.reviewSkill !== undefined && typeof v.reviewSkill !== 'string')
     return false;
   if (v.pack !== undefined && typeof v.pack !== 'string') return false;
+  if (v.dimEmpty !== undefined && typeof v.dimEmpty !== 'boolean') return false;
   const src = v.source;
   if (!isRecord(src)) return false;
   if (src.kind === 'authors') return true;

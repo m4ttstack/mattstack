@@ -56,7 +56,8 @@ body {
 .tui-header,
 [data-part='panel'],
 .tui-selbar,
-.tui-sidebar {
+.tui-sidebar,
+[data-part='modal'] {
   --muted: var(--text-muted-on-card);
   --border: var(--border-on-card);
   --border-soft: var(--border-soft-on-card);
@@ -261,21 +262,8 @@ body {
 }
 
 /* ── selection ────────────────────────────────────────────────────── */
-.tui-selbar {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.6rem 0.75rem;
-  margin-bottom: 1rem;
-  border: 1px solid var(--fill-accent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--card) 94%, transparent);
-  backdrop-filter: blur(6px);
-}
+/* Docked in the header's tab band while something is selected; the band's
+   shape comes from the board tabs rule. */
 .tui-selbar-head {
   display: flex;
   align-items: baseline;
@@ -283,6 +271,7 @@ body {
 }
 .tui-selbar-count {
   color: var(--text-accent);
+  font-size: 0.8125rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -294,40 +283,75 @@ body {
    instead of scrolling out of it. Height is driven from JS off scrollHeight;
    resize is off because the box sizes itself. max-height caps the growth so a
    long header can't push the board off screen -- past that it scrolls, which is
-   why overflow-y is auto rather than hidden. */
+   why overflow-y is auto rather than hidden. Raised like the active tab, the
+   band's other lifted control. */
 .tui-selbar-input {
   flex: 1 1 16rem;
   min-width: 0;
-  padding: 0.35rem 0.55rem;
+  padding: 5px 10px;
   font: inherit;
+  font-size: 0.8125rem;
   color: var(--text-1);
   line-height: 1.45;
-  background: var(--card);
+  background: light-dark(
+    var(--card),
+    color-mix(in srgb, var(--fg) 12%, var(--card))
+  );
   border: 1px solid var(--border-control-on-card);
   border-radius: 6px;
+  box-shadow: 0 1px 2px light-dark(rgb(16 24 40 / 8%), rgb(0 0 0 / 40%));
   resize: none;
   overflow-y: auto;
   max-height: 30vh;
 }
-.tui-selbar-input:focus {
-  outline: none;
-  border-color: var(--fill-accent);
+.tui-selbar-input:focus-visible {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 1px;
 }
 .tui-selbar-actions {
   display: flex;
-  gap: 0.45rem;
+  gap: 6px;
   margin-left: auto;
   align-items: center;
 }
-/* Roomier than the bare icon buttons in the header: these carry a label beside
-   the icon, and without the gap the two collide. */
+/* Borderless like the tabs beside them, on a faint fill so they still read
+   as buttons at rest. */
 .tui-selbar-actions .tui-copy,
 .tui-selbar-actions [data-part='copybutton'] {
-  gap: 0.45rem;
-  padding: 0.4rem 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  color: var(--text-1);
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
   white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    transform 80ms ease;
+}
+@media (hover: hover) {
+  .tui-selbar-actions .tui-copy:hover,
+  .tui-selbar-actions [data-part='copybutton']:hover {
+    background: color-mix(in srgb, var(--fg) 11%, transparent);
+  }
+}
+.tui-selbar-actions .tui-copy:active,
+.tui-selbar-actions [data-part='copybutton']:active {
+  transform: scale(0.97);
+}
+.tui-selbar-actions [data-part='copybutton'][data-copied] {
+  color: var(--text-ok);
+}
+.tui-selbar-actions .tui-copy:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* Keyboard focus: one accent ring for the controls that lacked one. Menu
@@ -339,10 +363,8 @@ body {
 .tui-side-item:focus-visible,
 .tui-side-gear:focus-visible,
 .tui-burger:focus-visible,
-.tui-invite-btn:focus-visible,
 .tui-draft-act:focus-visible,
 .tui-modal-x:focus-visible,
-.tui-join-toggle:focus-visible,
 .tui-drawer-action:focus-visible,
 .tui-menu-button:focus-visible,
 .tui-tab:focus-visible {
@@ -354,9 +376,12 @@ body {
    line 2 facts, line 3 status. The gutter holds the status dot (and the
    checkbox on hover / in select mode) level with the title; the attention
    bar is flush to the row's left edge. Nothing on a row may grow it. */
+.tui-rows,
+.tui-subgroup-head {
+  --gutter-w: 40px;
+}
 .tui-rows {
   --row-pad: 12px;
-  --gutter-w: 40px;
   --pick-h: 20px;
   /* Line 0's height plus its gap: how far the gutter sits below the row's
      top padding. */
@@ -1617,6 +1642,7 @@ body {
   font-family: var(--font-sans);
   font-size: 0.85em;
 }
+
 .tui-side-empty {
   opacity: 0.45;
 }
@@ -1758,18 +1784,47 @@ body {
   letter-spacing: 0.02em;
   color: var(--text-accent);
 }
-.tui-modal-x {
-  background: none;
-  border: none;
-  color: var(--text-2);
-  cursor: pointer;
-  font-size: 0.9rem;
-  padding: 0.2rem 0.4rem;
-  border-radius: 5px;
-}
-.tui-modal-x:hover {
-  color: var(--text-1);
+/* Modals are cards like the header and panels around them. */
+[data-part='modal'] {
+  border-color: var(--border-soft);
   background: var(--card);
+  box-shadow: var(--card-shadow);
+}
+/* A real button, on the selection bar's faint fill. */
+.tui-modal-x,
+[data-part='modal-close'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  color: var(--text-2);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    transform 80ms ease;
+}
+@media (hover: hover) {
+  .tui-modal-x:hover,
+  [data-part='modal-close']:hover {
+    color: var(--text-1);
+    background: color-mix(in srgb, var(--fg) 11%, transparent);
+  }
+}
+.tui-modal-x:active,
+[data-part='modal-close']:active {
+  transform: scale(0.94);
+}
+[data-part='modal-close']:focus-visible {
+  outline: 2px solid var(--fill-accent);
+  outline-offset: 2px;
 }
 .tui-modal-sub {
   color: var(--text-3);
@@ -1792,8 +1847,14 @@ body {
   padding: 5px 6px;
   border-radius: 6px;
 }
-.tui-modal-row:hover {
-  background: var(--card);
+/* A light accent wash, the roster card's hue without its active edge. */
+@media (hover: hover) {
+  .tui-modal-row:hover {
+    background: var(--surface-wash-accent-7);
+  }
+}
+.tui-modal-row:focus-within {
+  background: var(--surface-wash-accent-7);
 }
 .tui-modal-row.out {
   opacity: 0.5;
@@ -1833,55 +1894,7 @@ body {
   flex-shrink: 0;
 }
 
-/* ── peering: invite / re-invite / join ───────────────────────────────── */
-/* "already has a board" marker, in the quiet small-caps register of .tui-modal-count */
-.tui-peered {
-  flex-shrink: 0;
-  color: var(--text-4);
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-/* small action button, in the .tui-draft-act family but sized for a list row */
-.tui-invite-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex-shrink: 0;
-  padding: 2px 8px;
-  font: inherit;
-  font-size: 0.75rem;
-  cursor: pointer;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-1);
-}
-.tui-invite-btn:hover:not(:disabled) {
-  background: var(--card);
-}
-.tui-invite-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-/* One green, TWO producers, signalled differently -- both selectors are
-   load-bearing. The CopyButton recipe ("copy invite") stamps `data-copied`
-   after a successful write; the ARMED RE-INVITE is a plain board button that
-   sets the `copied` CLASS itself while it waits for its confirm click. Drop
-   the class half and the armed state goes unstyled -- and no capture arms a
-   re-invite, so the pixel gate would not catch it. */
-.tui-invite-btn.copied,
-.tui-invite-btn[data-copied] {
-  color: var(--text-ok-small);
-  border-color: var(--fill-ok);
-}
-/* free-text handle entry, and the join input: field + button on one line */
-.tui-invite-new {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 0.7rem;
-}
+/* ── text input shared by the config modal ─────────────────────────── */
 .tui-invite-input {
   flex: 1;
   min-width: 0;
@@ -1895,64 +1908,6 @@ body {
 }
 .tui-invite-input::placeholder {
   color: var(--text-3);
-}
-/* the issued invite: the string itself, its copy button, and what it's good for */
-.tui-invite-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 0.7rem;
-  padding: 0.5rem 0.6rem;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-.tui-invite-code {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  color: var(--text-1);
-  overflow-wrap: anywhere;
-}
-.tui-invite-note {
-  flex-basis: 100%;
-  color: var(--text-4);
-  font-size: 0.72rem;
-}
-.tui-invite-error {
-  color: var(--text-bad-small);
-  margin: 0.6rem 0 0;
-}
-/* join / re-join sits below the roster, separated the way the modal separates
-   its own sections: a hairline rule, not a heading. */
-.tui-join-row {
-  margin-top: 0.9rem;
-  padding-top: 0.8rem;
-  border-top: 1px solid var(--border);
-}
-.tui-join-label {
-  color: var(--text-3);
-  font-size: 0.76rem;
-}
-.tui-join-warning {
-  color: var(--text-bad-small);
-  margin: 0 0 0.5rem;
-}
-/* collapsed affordance: a text button, so a healthy board isn't nagged by a form */
-.tui-join-toggle {
-  padding: 0;
-  font: inherit;
-  font-size: 0.76rem;
-  cursor: pointer;
-  background: none;
-  border: none;
-  color: var(--text-3);
-  text-decoration: underline;
-}
-.tui-join-toggle:hover {
-  color: var(--text-1);
 }
 
 /* ── stacked chains ───────────────────────────────────────────────── */
@@ -1975,6 +1930,16 @@ body {
 }
 .tui-stack-children .tui-row {
   border-top: none;
+}
+/* Parent and children still read as separate MRs: a quiet divider that
+   starts past the gutter, so it never crosses the chain's rail. */
+.tui-stack-children .tui-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: calc(var(--stack-indent) + var(--gutter-w));
+  border-top: 1px solid var(--border-soft);
 }
 /* One indent level regardless of depth: chain order alone carries the
    hierarchy, so a deep stack never marches off the right edge. */
@@ -3091,6 +3056,10 @@ a.tui-id-card-ref:focus-visible {
 .tui-row[data-local='1'] {
   cursor: context-menu;
 }
+/* In selection mode a click toggles the row, so it is a plain pointer. */
+.tui-rows[data-selecting] .tui-row {
+  cursor: pointer;
+}
 
 /* ── board settings (ConfigModal) ─────────────────────────────────────────── */
 .tui-config-modal {
@@ -3408,16 +3377,21 @@ a.tui-id-card-ref:focus-visible {
 /* The header card's last row: a tinted band bled to the card's edges, so the
    tabs read as part of the header they scope instead of floating on the
    grid paper. The margins undo .tui-header's padding; the radius sits inside
-   its 1px border. The header cannot clip instead: its menus open inside it. */
-.tui-header .tui-tabs {
+   its 1px border. The header cannot clip instead: its menus open inside it.
+   A selection swaps the tabs for its own bar in this same band. */
+.tui-header .tui-tabs,
+.tui-header .tui-selbar {
   order: 99;
   flex-basis: calc(100% + 1.8rem);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
+  /* One height for both occupants, so selecting never shifts the page. */
+  box-sizing: border-box;
+  min-height: 54px;
   margin: 2px -0.9rem -0.7rem;
-  padding: 7px 0.9rem;
+  padding: 8px 0.9rem;
   border-top: 1px solid var(--border-soft);
   border-radius: 0 0 7px 7px;
   background: light-dark(
@@ -3433,6 +3407,9 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-tabs-trailing {
   margin-left: auto;
+}
+.tui-header .tui-selbar {
+  gap: 0.6rem;
 }
 .tui-tab {
   display: inline-flex;
@@ -5128,6 +5105,24 @@ a.tui-id-card-ref:focus-visible {
   border-color: var(--fill-accent);
   background: color-mix(in srgb, var(--fill-accent) 15%, var(--card));
 }
+/* On but covering nothing: the on look, greyed, so it reads as picked yet
+   idle. */
+.tui-show-chip[data-on][data-empty] {
+  border-color: color-mix(in srgb, var(--text-3) 35%, var(--card));
+  background: color-mix(in srgb, var(--fg) 5%, var(--card));
+  color: var(--text-2);
+}
+.tui-show-chip[data-on][data-empty] input:checked {
+  color: var(--text-3);
+}
+.tui-show-chip[data-on][data-empty] .tui-show-chip-count {
+  background: color-mix(in srgb, var(--text-3) 70%, var(--card));
+  color: var(--card);
+}
+.tui-show-chip[data-on][data-empty]:hover {
+  border-color: var(--text-3);
+  background: color-mix(in srgb, var(--fg) 8%, var(--card));
+}
 .tui-show-chip:has(:focus-visible) {
   outline: 2px solid var(--fill-accent);
   outline-offset: 2px;
@@ -5280,4 +5275,32 @@ a.tui-id-card-ref:focus-visible {
   [data-part='tooltip-card'] {
     animation: none;
   }
+}
+
+/* Sort's sub-groups: a borderless neutral band inside the group card,
+   quieter than the group's tinted title band, lined up with the row text past the
+   checkbox gutter. */
+.tui-subgroup-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 16px 6px var(--gutter-w);
+  background: light-dark(
+    color-mix(in srgb, var(--fg) 6%, var(--card)),
+    color-mix(in srgb, var(--fg) 8%, var(--card))
+  );
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
+}
+.tui-subgroup-count {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--text-3);
+}
+.tui-subgroup-avatar {
+  width: 14px;
+  height: 14px;
 }

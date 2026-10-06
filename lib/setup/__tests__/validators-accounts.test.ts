@@ -493,7 +493,7 @@ describe("accountRows: account.board-peering", () => {
     expect(r.required).toBe(false);
     expect(r.finishGated).toBeUndefined();
     expect(r.detail).toContain("acme");
-    expect(r.detail).toContain("Ask the team's owner to invite you again (rt team invite --handle <your forge username>)");
+    expect(r.detail).toContain("Ask your org admin to invite you again (rt team invite --handle <your forge username>)");
     expect(r.action?.type).toBe("steps");
     expect(p.calls.fetch).toEqual([]);
   });
@@ -584,12 +584,7 @@ describe("accountRows: account.board-peering", () => {
     expect(r.action).toEqual({
       type: "steps",
       label: "Show steps…",
-      steps: [
-        "Open your board's team members panel",
-        "Invite your own username there",
-        "Paste that invite into the panel's join row",
-        "Re-check this row",
-      ],
+      steps: ["Run rt team peer to connect your board", "Re-check this row"],
     });
   });
 

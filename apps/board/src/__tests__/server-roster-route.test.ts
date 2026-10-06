@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterAll, expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
 
 // Boots the real server against a fake $HOME whose team store owns
 // mattstack.roster, then drives POST /roster. Proves the route's three
@@ -75,8 +75,11 @@ const proc = Bun.spawn(
 
 afterAll(() => proc.kill());
 
+// A cold server boot can outlast a test's default 5s.
+beforeAll(() => waitForBoot(), 30_000);
+
 async function waitForBoot(): Promise<void> {
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 300; i++) {
     try {
       const res = await fetch(`http://127.0.0.1:${PORT}/healthz`);
       if (res.ok) return;
@@ -105,7 +108,6 @@ function stored(): Array<{
 }
 
 test('add with a name writes mattstack.roster', async () => {
-  await waitForBoot();
   const res = await roster({ action: 'add', username: 'cy', name: 'Cy Park' });
   expect(res.status).toBe(200);
   expect(stored()).toContainEqual({ username: 'cy', name: 'Cy Park' });

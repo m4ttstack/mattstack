@@ -18,8 +18,8 @@ type CheckResult = ReturnType<typeof rowsToChecks>[number];
 
 type MemberTask = { verb: "connect" | "install"; label: string };
 
-const UNPEERED_NOTE = "Board not peered: ask the team owner to re-invite you";
-const SELF_INVITE_NOTE = "Board not peered: invite your own board from its members panel";
+const UNPEERED_NOTE = "Board not peered: ask your org admin to re-invite you";
+const SELF_INVITE_NOTE = "Board not peered: run rt team peer";
 const SEVERAL_TEAMS_NOTE = "More than one team on this Mac: open Setup status";
 
 /**

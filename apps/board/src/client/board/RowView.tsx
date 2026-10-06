@@ -34,9 +34,15 @@ import {
 } from './threads-seen.ts';
 
 /** Plain click opens the MR in GitLab; right-click opens the row action menu
-    (wired separately). Clicks on inner links/buttons are left to those. */
-function onRowClick(e: React.MouseEvent, mr: BoardMR) {
-  if ((e.target as HTMLElement).closest('a, button')) return;
+    (wired separately). Clicks on inner links/buttons are left to those.
+    While anything is selected the board is in selection mode, and a click
+    toggles the row instead, so picking several needs no aiming at boxes. */
+function onRowClick(e: React.MouseEvent, mr: BoardMR, ctx: RowContext) {
+  if ((e.target as HTMLElement).closest('a, button, input, label')) return;
+  if (ctx.selected.size > 0 && mr.webUrl) {
+    ctx.onToggleSelect(mr.webUrl);
+    return;
+  }
   if (mr.webUrl) {
     markSeen(mr.webUrl, commentCount(mr));
     window.open(mr.webUrl, '_blank', 'noopener');
@@ -245,7 +251,7 @@ function RowView({
         data-ask={mr.sentNudge ? '1' : undefined}
         data-local={ctx.local ? '1' : undefined}
         title={ctx.local ? 'right-click for actions' : undefined}
-        onClick={e => onRowClick(e, mr)}
+        onClick={e => onRowClick(e, mr, ctx)}
         onContextMenu={e => ctx.onContext(e, mr)}
       >
         {status.bar && (
