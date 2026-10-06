@@ -3,20 +3,22 @@ import type * as Preset from "@docusaurus/preset-classic";
 import { themes as prismThemes } from "prism-react-renderer";
 
 const config: Config = {
-  title: "rt",
-  tagline: "The mattstack command line: worktrees, git workflows, and the daemon behind the apps",
+  title: "mattstack",
+  tagline: "An agentic application stack for engineers.",
   favicon: "img/favicon.svg",
-  url: "https://rt.cool",
+  url: "https://docs.mattstack.dev",
   baseUrl: "/",
   organizationName: "m4ttstack",
-  projectName: "rt",
+  projectName: "mattstack",
   onBrokenLinks: "throw",
   onBrokenAnchors: "throw",
   markdown: {
+    mermaid: true,
     hooks: {
       onBrokenMarkdownLinks: "throw",
     },
   },
+  themes: ["@docusaurus/theme-mermaid"],
   i18n: { defaultLocale: "en", locales: ["en"] },
   presets: [
     [
@@ -34,29 +36,27 @@ const config: Config = {
   ],
   themeConfig: {
     navbar: {
-      title: "rt",
+      title: "mattstack",
       items: [
-        {
-          href: "https://github.com/m4ttstack/mattstack/releases/latest",
-          label: "Download",
-          position: "right",
-        },
-        {
-          href: "https://github.com/m4ttstack/mattstack",
-          label: "GitHub",
-          position: "right",
-        },
+        { type: "docSidebar", sidebarId: "start", label: "Get started", position: "left" },
+        { type: "docSidebar", sidebarId: "apps", label: "Apps", position: "left" },
+        { type: "docSidebar", sidebarId: "rt", label: "rt CLI", position: "left" },
+        { type: "docSidebar", sidebarId: "gitq", label: "gitq", position: "left" },
+        { type: "docSidebar", sidebarId: "skills", label: "Skills", position: "left" },
+        { href: "https://github.com/m4ttstack/mattstack", label: "GitHub", position: "right" },
+        { href: "https://github.com/m4ttstack/mattstack/releases", label: "Releases", position: "right" },
+        { href: "https://github.com/m4ttstack/mattstack/releases/latest", label: "Download", position: "right", className: "nav-dl" },
       ],
     },
     footer: {
       style: "dark",
       links: [],
-      copyright: "rt, the mattstack command line",
+      copyright: "mattstack",
     },
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
-      additionalLanguages: ["bash", "json"],
+      additionalLanguages: ["bash", "json", "diff"],
     },
     colorMode: { defaultMode: "light", respectPrefersColorScheme: true },
   } satisfies Preset.ThemeConfig,
