@@ -590,12 +590,7 @@ describe("accountRows: account.board-peering", () => {
     expect(r.action).toEqual({
       type: "steps",
       label: "Show steps…",
-      steps: [
-        "Open your board's team members panel",
-        "Invite your own username there",
-        "Paste that invite into the panel's join row",
-        "Re-check this row",
-      ],
+      steps: ["Run rt team peer to connect your board", "Re-check this row"],
     });
   });
 

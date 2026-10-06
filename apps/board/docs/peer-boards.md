@@ -101,6 +101,9 @@ change is additive and older boards keep polling.
 Inviting and removing teammates is the CLI's job, run on the Mac that holds
 the switchboard admin token (`rt secrets set rt switchboardAdminToken`):
 
+- `rt team peer` connects your own board: it registers your username and
+  stores the token where `rt team join` would. `rt team create` runs it for
+  you when the admin token is already on this Mac.
 - `rt team invite --handle <username>` mints the teammate's board token and
   seals it into their team invite, so `rt team join` peers their board.
 - `rt team members remove <username>` takes them off the team and deletes

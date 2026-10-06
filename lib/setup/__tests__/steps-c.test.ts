@@ -1891,7 +1891,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const secrets = { has: async (domain: string, key: string) => (domain === "rt" && key === "switchboardAdminToken" ? "admin-1" : null) };
         const rows = await accountRows(p, team, [], secrets, null);
         const plan = finalizePlan({ slug: "acme", name: "acme", mode: "none" }, [{ id: "accounts", title: "Accounts", rows }]);
-        expect(outcomeFromChecks(rowsToChecks(plan, { ci: false }), rows)).toEqual({ state: "needs-you", detail: "Board not peered: invite your own board from its members panel" });
+        expect(outcomeFromChecks(rowsToChecks(plan, { ci: false }), rows)).toEqual({ state: "needs-you", detail: "Board not peered: run rt team peer" });
       });
 
       test("an unpeered board sits beside other member tasks in verify's summary", () => {

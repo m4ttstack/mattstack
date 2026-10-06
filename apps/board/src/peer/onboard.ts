@@ -1,49 +1,9 @@
-import { canonicalUsername } from './envelope.ts';
-import { parseInvite, redeemInvite } from './invite.ts';
-
-/** Onboarding logic for the board's local-only peer endpoints. Pure over
-    injected effects so the whole flow is testable without a server; src/server.ts
-    only wires request parsing, the isLocal gate, and the real effects. */
+/** The board's local-only peer read: which boards the switchboard knows.
+    Pure over an injected fetch so it is testable without a server. */
 export interface InviteCtx {
   url: string;
   adminToken: string;
   fetchFn?: typeof fetch;
-}
-
-export async function createInvite(
-  username: string,
-  ctx: InviteCtx
-): Promise<{ status: number; body: string }> {
-  const fetchFn = ctx.fetchFn ?? fetch;
-  let res: Response;
-  try {
-    res = await fetchFn(`${ctx.url}/invites`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${ctx.adminToken}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ username }),
-    });
-  } catch {
-    return { status: 502, body: 'could not reach the switchboard' };
-  }
-  if (res.status !== 201) return { status: res.status, body: await res.text() };
-  // A 201 body is not a promise of a code. Unguarded, a malformed one rejects
-  // out of the handler and a missing code composes ".../invite/undefined",
-  // which reads like a real invite right up until someone pastes it.
-  let code: unknown;
-  try {
-    code = ((await res.json()) as { code?: unknown })?.code;
-  } catch {
-    // fall through: same "unexpected response" answer as a missing code
-  }
-  if (typeof code !== 'string' || !code)
-    return { status: 502, body: 'unexpected response from the switchboard' };
-  return {
-    status: 200,
-    body: JSON.stringify({ invite: `${ctx.url}/invite/${code}` }),
-  };
 }
 
 export async function listPeerBoards(
@@ -58,65 +18,4 @@ export async function listPeerBoards(
   } catch {
     return { status: 502, body: 'could not reach the switchboard' };
   }
-}
-
-export interface JoinCtx {
-  defaultMember: string;
-  /** The one switchboard this board peers through. */
-  relayUrl: string;
-  /** Whether this Mac is in a team; a board outside one never peers. */
-  inTeam: () => boolean;
-  persist(token: string): void;
-  startPeering(url: string, token: string): void;
-  fetchFn?: typeof fetch;
-}
-
-export async function joinSwitchboard(
-  invite: string,
-  ctx: JoinCtx
-): Promise<{ status: number; body: string }> {
-  if (!ctx.defaultMember || ctx.defaultMember === 'all') {
-    return {
-      status: 400,
-      body: 'joining needs your own username: set "defaultMember" in config.json first',
-    };
-  }
-  if (!ctx.inTeam()) {
-    return {
-      status: 400,
-      body: 'Join a team on this Mac first, then paste the invite again.',
-    };
-  }
-  const parsed = parseInvite(invite, ctx.relayUrl);
-  if (!parsed.ok) return { status: 400, body: parsed.message };
-  const r = await redeemInvite(
-    ctx.relayUrl,
-    parsed.code,
-    canonicalUsername(ctx.defaultMember),
-    ctx.fetchFn
-  );
-  if (!r.ok) {
-    const status =
-      r.error === 'mismatch'
-        ? 409
-        : r.error === 'network'
-          ? 502
-          : r.error === 'expired'
-            ? 410
-            : 404;
-    return { status, body: r.message };
-  }
-  try {
-    ctx.persist(r.token);
-  } catch (err) {
-    return {
-      status: 500,
-      body: `joining failed after the invite was used (${err instanceof Error ? err.message : err}); ask for a re-invite and try again`,
-    };
-  }
-  ctx.startPeering(ctx.relayUrl, r.token);
-  return {
-    status: 200,
-    body: JSON.stringify({ ok: true, username: r.username }),
-  };
 }

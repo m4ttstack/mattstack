@@ -8,12 +8,18 @@ import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { createRealSecretsExecSeam, readSecret } from "../secrets/store.ts";
 import type { Probes } from "../setup/probes.ts";
+import { boardEnvValue } from "./board-token.ts";
 
 /** Reads one secret from the rt scope, or null when it is not set. */
 export type ReadLocalSecret = (key: string) => Promise<string | null>;
 
 export const realReadLocalSecret: ReadLocalSecret = (key) =>
   readSecret("rt", key, { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() });
+
+/** The switchboard admin token from wherever this Mac keeps it, in the order the setup row checks: the environment, the board's .env, then rt's secret. */
+export async function readAdminToken(p: Pick<Probes, "home" | "env" | "readFile">, readSecret: ReadLocalSecret): Promise<string | null> {
+  return p.env.SWITCHBOARD_ADMIN_TOKEN || boardEnvValue(p, "SWITCHBOARD_ADMIN_TOKEN") || (await readSecret("switchboardAdminToken").catch(() => null));
+}
 
 /** Usernames compare the way the relay compares them. */
 export function canonicalHandle(handle: string): string {
@@ -43,7 +49,7 @@ export async function readPeeredBoards(p: Probes, readSecret: ReadLocalSecret): 
     }
   };
 
-  const admin = await readSecret("switchboardAdminToken").catch(() => null);
+  const admin = await readAdminToken(p, readSecret);
   if (admin) return ask("/boards", admin, "boards");
   const board = await readSecret("switchboardToken").catch(() => null);
   if (board) return ask("/peers", board, "peers");
@@ -58,7 +64,7 @@ export type BoardRevoke =
 
 /** Deletes `handle`'s board registration: its token stops working and anything queued for it is dropped. A 404 means there was nothing to remove. */
 export async function revokeBoard(p: Probes, readSecret: ReadLocalSecret, handle: string): Promise<BoardRevoke> {
-  const admin = await readSecret("switchboardAdminToken").catch(() => null);
+  const admin = await readAdminToken(p, readSecret);
   if (!admin) return { kind: "no-admin-token" };
   try {
     const res = await p.fetch(`${switchboardUrl(p.env)}/boards/${encodeURIComponent(handle)}`, {

@@ -43,7 +43,7 @@ import {
   AgentStatusFeed,
   isAgentStatusTopic,
 } from './agent-status/feed.ts';
-import { APP_ROOT, IS_COMPILED } from './app-root.ts';
+import { IS_COMPILED } from './app-root.ts';
 import { SnapshotCache } from './cache.ts';
 import { getClientAssets, watchClientAssets } from './client-assets.ts';
 import type { ExecutorView } from './client/types.ts';
@@ -122,7 +122,6 @@ import {
   readDrafts,
   writeDraft,
 } from './draft-state.ts';
-import { upsertEnvKeys } from './env-file.ts';
 import faviconSvg from './favicon.svg' with { type: 'text' };
 import { focusPane } from './focus-pane.ts';
 import { answerGate } from './gates/answer.ts';
@@ -226,11 +225,7 @@ import {
   type PendingNudge,
   type SentNudgeView,
 } from './peer/nudges.ts';
-import {
-  createInvite,
-  joinSwitchboard,
-  listPeerBoards,
-} from './peer/onboard.ts';
+import { listPeerBoards } from './peer/onboard.ts';
 import { classifySend, drainOutbox, enqueueOutbox } from './peer/outbox.ts';
 import {
   attachPeerReviews,
@@ -366,8 +361,6 @@ if (Bun.argv.includes('--version')) {
 // /style.css route re-reads from disk in dev so CSS edits land on refresh.
 const cssPath = join(import.meta.dir, 'style.css');
 const favicon = faviconSvg;
-/** The board's own .env, written when /peer/join redeems an invite. */
-const ENV_PATH = join(APP_ROOT, '.env');
 
 // First open of state.db in this process: the 'server' flavor's short busy
 // timeout (state/db.ts) matches a long-lived process that would rather fail
@@ -442,9 +435,8 @@ const getSwitchboardToken = memoizeAsync<SwitchboardTokenRead>(
   read => read.token === null
 );
 const switchboardToken = tokenMissingNotice(line => console.error(line));
-// Operator-only secret: its presence is what turns on this board's invite
-// affordances. Absent, /peer/invite and /peer/boards answer 400 and the UI
-// never offers them.
+// Operator-only secret: its presence is what lets /peer/boards answer, which
+// feeds the roster's peered badge. Absent, /peer/boards answers 400.
 const getSwitchboardAdminToken = memoizeAsync<string | null>(
   () => (FIXTURE_DIR ? Promise.resolve(null) : loadSwitchboardAdminToken()),
   isTokenFailure
@@ -522,7 +514,6 @@ const peering = makePeering({
 // Fire-and-forget: the daemon round trips must not hold up Bun.serve below.
 // Writer only: the runtime's tick publishes this board's state and writes
 // back what it polls, both of which belong to one process per state root.
-// /peer/join's own start path is a human joining a switchboard and stays.
 if (inTeam())
   void startPeeringWhenTokenLoads({
     peering,
@@ -3127,48 +3118,6 @@ const httpServer = Bun.serve({
           headers: { 'content-type': 'application/json' },
         });
       }
-      case '/peer/invite': {
-        // Mint a one-paste invite for a peer. Operator-only: needs the admin
-        // token this board holds, which is also what /data.json's canInvite
-        // reports so the UI never offers a button that can't work.
-        if (req.method !== 'POST')
-          return new Response('method not allowed', { status: 405 });
-        if (!isLocalRequest(req, server))
-          return new Response('forbidden', { status: 403 });
-        // isLocal reads the Host header, which a cross-origin form can forge.
-        // Requiring a json content-type takes that away: a form post can only
-        // carry the text/plain-class types, and anything else trips a CORS
-        // preflight the board never answers. The board's own client always
-        // sends application/json.
-        {
-          const notJson = requireJsonBody(req);
-          if (notJson) return notJson;
-        }
-        if (!switchboardAdminToken)
-          return new Response('inviting is not set up on this board', {
-            status: 400,
-          });
-        let body: unknown;
-        try {
-          body = await req.json();
-        } catch {
-          return new Response('invalid json', { status: 400 });
-        }
-        const username = (body as { username?: unknown })?.username;
-        if (typeof username !== 'string' || !username.trim())
-          return new Response('expected { username }', { status: 400 });
-        const r = await createInvite(username.trim(), {
-          url: config.switchboard.url,
-          adminToken: switchboardAdminToken,
-        });
-        return new Response(r.body, {
-          status: r.status,
-          headers:
-            r.status === 200
-              ? { 'content-type': 'application/json' }
-              : undefined,
-        });
-      }
       case '/peer/boards': {
         if (req.method !== 'GET')
           return new Response('method not allowed', { status: 405 });
@@ -3181,50 +3130,6 @@ const httpServer = Bun.serve({
         const r = await listPeerBoards({
           url: config.switchboard.url,
           adminToken: switchboardAdminToken,
-        });
-        return new Response(r.body, {
-          status: r.status,
-          headers:
-            r.status === 200
-              ? { 'content-type': 'application/json' }
-              : undefined,
-        });
-      }
-      case '/peer/join': {
-        // Redeem an invite from the UI: persist the token, then hot-start peering, so joining costs no restart.
-        if (req.method !== 'POST')
-          return new Response('method not allowed', { status: 405 });
-        if (!isLocalRequest(req, server))
-          return new Response('forbidden', { status: 403 });
-        // Same content-type gate as /peer/invite above: a forged Host header on
-        // a cross-origin form must not be enough to redeem an invite on this board's
-        // behalf.
-        {
-          const notJson = requireJsonBody(req);
-          if (notJson) return notJson;
-        }
-        let body: unknown;
-        try {
-          body = await req.json();
-        } catch {
-          return new Response('invalid json', { status: 400 });
-        }
-        const invite = (body as { invite?: unknown })?.invite;
-        if (typeof invite !== 'string' || !invite.trim())
-          return new Response('expected { invite }', { status: 400 });
-        const r = await joinSwitchboard(invite, {
-          defaultMember: config.defaultMember,
-          relayUrl: config.switchboard.url,
-          inTeam,
-          persist(token) {
-            // upsertEnvKeys reads "" as a removal, so an empty token must never
-            // reach it: that would quietly delete the token line this board is
-            // already peering with. The message is interpolated into
-            // onboard.ts's 500 body, which the join UI shows verbatim.
-            if (!token) throw new Error('the switchboard sent nothing usable');
-            upsertEnvKeys(ENV_PATH, { SWITCHBOARD_TOKEN: token });
-          },
-          startPeering: (url, token) => peering.start(url, token),
         });
         return new Response(r.body, {
           status: r.status,
@@ -4225,8 +4130,8 @@ if (writer) {
     writer = false;
     clearInterval(leaseTimer);
     clearInterval(sweepTimer);
-    // Kills the peer tick, not the handle: the UI's own peer reads and
-    // /peer/join keep working off the client this leaves in place.
+    // Kills the peer tick, not the handle: the UI's own peer reads keep
+    // working off the client this leaves in place.
     peering.stop();
     console.error(
       result === 'lost'
