@@ -112,7 +112,7 @@ beforeEach(() => {
   posts = [];
   servedData = BOARD_DATA;
   localStorage.clear();
-  history.replaceState(null, '', '/');
+  history.replaceState(null, '', '/?off=');
 });
 
 async function renderBoard() {
@@ -291,7 +291,7 @@ test('a selection no bulk action fits says so', async () => {
       mergeButton: { visible: false, disabled: false, loading: false },
     });
   servedData = { ...BOARD_DATA, mrs: [busy(106), busy(107)] };
-  history.replaceState(null, '', '/?member=all');
+  history.replaceState(null, '', '/?member=all&off=');
   await renderBoard();
   await check(106);
   await check(107);
@@ -473,4 +473,33 @@ test('a remote board opens the row menu on a checked row and has no actions butt
     ...container.querySelectorAll<HTMLElement>('.tui-selbar button'),
   ].find(b => b.textContent?.includes('actions'));
   expect(button).toBeUndefined();
+});
+
+test('with something selected, a row click toggles the row instead of opening it', async () => {
+  const opened: string[] = [];
+  window.open = ((url: string) => {
+    opened.push(url);
+    return null;
+  }) as typeof window.open;
+  await renderBoard();
+  const checked = (iid: number) =>
+    row(iid)
+      .querySelector('[role="checkbox"]')!
+      .getAttribute('aria-checked') === 'true';
+  const plainClick = (iid: number) =>
+    React.act(async () =>
+      row(iid).querySelector<HTMLElement>('.tui-row-body')!.click()
+    );
+
+  await check(101);
+  await plainClick(102);
+  expect(checked(102)).toBe(true);
+  await plainClick(101);
+  await plainClick(102);
+  expect(checked(101)).toBe(false);
+  expect(opened).toEqual([]);
+
+  await plainClick(102);
+  expect(opened).toHaveLength(1);
+  window.open = (() => null) as typeof window.open;
 });

@@ -8,10 +8,10 @@ function Sidebar({
   active,
   onPick,
   onSettings,
-  onConfig,
   scopeUncovered,
   note,
   empty,
+  dimEmpty = false,
   queue,
 }: {
   members: RosterMember[];
@@ -19,7 +19,6 @@ function Sidebar({
   active: string;
   onPick: (member: string) => void;
   onSettings: () => void;
-  onConfig: () => void;
   /** Authors demanded from rt but not yet backfilled -- their counts may be
       undercounts, so the row says so instead of quietly showing a low number. */
   scopeUncovered: string[];
@@ -27,6 +26,8 @@ function Sidebar({
   note?: string;
   /** What the list says when it names no one. */
   empty?: string;
+  /** Fade members with nothing on this tab (the tab's dimEmpty). */
+  dimEmpty?: boolean;
   /** Pending decision queue -- null when empty. Rendered above the roster
       because it means the user owes an action, not just information. */
   queue?: { count: number; open: () => void } | null;
@@ -63,14 +64,6 @@ function Sidebar({
         >
           {ICONS.people}
         </button>
-        <button
-          className="tui-side-gear"
-          onClick={onConfig}
-          title="board settings"
-          aria-label="board settings"
-        >
-          {ICONS.settings}
-        </button>
       </div>
       {members.length === 0 && empty && (
         <p className="tui-side-placeholder">{empty}</p>
@@ -80,7 +73,7 @@ function Sidebar({
           key={m.username}
           className={
             (active === m.username ? 'tui-side-item active' : 'tui-side-item') +
-            (m.count === 0 ? ' tui-side-empty' : '')
+            (dimEmpty && m.count === 0 ? ' tui-side-empty' : '')
           }
           onClick={() => onPick(m.username)}
           title={m.name ?? m.username}

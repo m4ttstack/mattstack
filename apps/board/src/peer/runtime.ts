@@ -28,8 +28,7 @@ export interface PeeringHost {
   outboxDb?: Database;
 }
 
-/** The board's peering runtime: hot-startable from /peer/join as well as boot
-    (spec I5). start() takes the token as an argument and never reads
+/** The board's peering runtime, started once the token loads (spec I5). start() takes the token as an argument and never reads
     process.env -- a running process does not reload .env. Idempotent: a second
     start replaces the client and interval without stacking. Health flips to
     "unauthorized" after 3 consecutive 401 inbox polls (spec M11). */
@@ -157,7 +156,7 @@ export function switchboardTokenBanner(s: {
     matches memoizeAsync's failure TTL: polling a memoized loader any faster
     only re-reads its cached null. `wanted` is re-read after every await
     because a board can lose the writer lease mid-wait, and a late token must
-    never replace a client /peer/join already started. */
+    never replace a client already started. */
 export async function startPeeringWhenTokenLoads(opts: {
   peering: Pick<ReturnType<typeof makePeering>, 'current' | 'start'>;
   url: string;

@@ -93,6 +93,10 @@ const tab = z.looseObject({
   slackChannel: z.string().optional().meta({ title: "Slack channel", inherits: "board.slack.channel" }),
   reviewSkill: z.string().optional().meta({ title: "Review skill", placeholder: "inherits the repo's review skill" }),
   pack: z.string().optional().meta({ title: "Pack", inherits: "board.defaultPack" }),
+  dimEmpty: z.boolean().optional().meta({
+    title: "Fade people with nothing here",
+    description: "Fade roster members with no MRs on this tab. Unset, every tab but a team roster one fades them.",
+  }),
 });
 
 // rt's board.keys setup step writes bare repo names; gitq's own loader reads { path, name? }.

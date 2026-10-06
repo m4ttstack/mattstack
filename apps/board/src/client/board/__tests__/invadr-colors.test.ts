@@ -1,17 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
-import {
-  assignInvadrColors,
-  assignMemberLooks,
-  hashedColor as hashed,
-  themePalette,
-} from '../invadr-colors.ts';
+import { assignMemberLooks, themePalette } from '../invadr-colors.ts';
 
 describe('themePalette', () => {
-  test('a small roster gets the base hues, which include every hashed colour', () => {
+  test('a small roster gets the seven wheel hues and a grey', () => {
     const p = themePalette(4);
     expect(p).toHaveLength(8);
-    for (let i = 0; i < 64; i++) expect(p).toContain(hashed(`member-${i}`));
+    expect(p[7]).toBe('color-mix(in oklch, var(--fg) 70%, var(--card))');
   });
 
   test('grows with the roster, every entry distinct', () => {
@@ -29,51 +24,37 @@ describe('themePalette', () => {
   });
 });
 
-describe('assignInvadrColors', () => {
-  const team = Array.from({ length: 20 }, (_, i) => `member-${i}`);
+describe('assignMemberLooks', () => {
+  const team = Array.from({ length: 12 }, (_, i) => `member-${i}`);
 
-  test('no two members share a colour', () => {
-    const colors = assignInvadrColors(team);
-    expect(new Set(colors.values()).size).toBe(team.length);
+  test('every member gets a distinct colour and a distinct creature', () => {
+    const looks = [...assignMemberLooks(team).values()];
+    expect(new Set(looks.map(l => l.fill)).size).toBe(12);
+    expect(new Set(looks.map(l => l.sprite)).size).toBe(12);
   });
 
-  test('the first member keeps the colour invadrs always gave it', () => {
-    expect(assignInvadrColors(team).get('member-0')).toBe(hashed('member-0'));
+  test('fill is the palette colour the avatar is drawn with', () => {
+    for (const look of assignMemberLooks(team).values())
+      expect(look.fill).toBe(look.palette[look.color]!);
   });
 
-  test('a member with no clash keeps its hashed colour', () => {
-    const a = 'member-0';
-    const b = team.find(id => hashed(id) !== hashed(a))!;
-    const colors = assignInvadrColors([a, b]);
-    expect(colors.get(b)).toBe(hashed(b));
+  test('the first eight people get the eight base hues', () => {
+    const fills = [...assignMemberLooks(team.slice(0, 8)).values()].map(
+      l => l.fill
+    );
+    expect(fills).toEqual(themePalette(8));
   });
 
-  test('a clash moves the later member, not the earlier one', () => {
-    const a = 'member-0';
-    const b = team.find(id => id !== a && hashed(id) === hashed(a))!;
-    const colors = assignInvadrColors([a, b]);
-    expect(colors.get(a)).toBe(hashed(a));
-    expect(colors.get(b)).not.toBe(hashed(a));
-  });
-
-  test('appending a member never recolours the ones before it', () => {
-    const before = assignInvadrColors(team.slice(0, 8));
-    const after = assignInvadrColors(team.slice(0, 9));
-    for (const id of team.slice(0, 8))
-      expect(after.get(id)).toBe(before.get(id));
+  test('appending people never changes the ones before them, even as the palette grows', () => {
+    const before = assignMemberLooks(team.slice(0, 8));
+    const after = assignMemberLooks(team);
+    for (const id of team.slice(0, 8)) {
+      expect(after.get(id)!.sprite).toBe(before.get(id)!.sprite);
+      expect(after.get(id)!.fill).toBe(before.get(id)!.fill);
+    }
   });
 
   test('a repeated id is assigned once', () => {
-    const colors = assignInvadrColors(['member-1', 'member-1', 'member-2']);
-    expect(colors.size).toBe(2);
-  });
-});
-
-describe('assignMemberLooks', () => {
-  test('every member gets a distinct colour and a distinct creature', () => {
-    const team = Array.from({ length: 12 }, (_, i) => `member-${i}`);
-    const looks = assignMemberLooks(team);
-    expect(new Set([...looks.values()].map(l => l.color)).size).toBe(12);
-    expect(new Set([...looks.values()].map(l => l.sprite)).size).toBe(12);
+    expect(assignMemberLooks(['a', 'a', 'b']).size).toBe(2);
   });
 });

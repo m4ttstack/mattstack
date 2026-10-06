@@ -184,7 +184,7 @@ describe('startPeeringWhenTokenLoads', () => {
     peering.stop();
   });
 
-  test('stands down once /peer/join has started peering', async () => {
+  test('stands down when peering already started while the token loaded', async () => {
     const made: string[] = [];
     const peering = makePeering({
       makeClient: (_url, token) => (made.push(token), fakeClient(() => [])),

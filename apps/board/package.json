@@ -25,7 +25,7 @@
     "@mattstack/rt-client": "workspace:*",
     "@mattstack/settings-kit": "workspace:*",
     "@mattstack/tui-kit": "workspace:*",
-    "invadrs": "^0.3.0",
+    "invadrs": "^1.2.0",
     "pngjs": "^7.0.0",
     "react": "catalog:",
     "react-dom": "catalog:",

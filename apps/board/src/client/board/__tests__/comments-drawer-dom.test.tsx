@@ -138,7 +138,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   localStorage.clear();
-  history.replaceState(null, '', '/');
+  history.replaceState(null, '', '/?off=');
   servedData = BOARD_DATA;
   servedDiscussions = DISCUSSIONS;
   posts = [];
@@ -424,7 +424,7 @@ test("on someone else's MR only a thread the seat started offers resolve", async
     ],
     comments: [],
   };
-  history.replaceState(null, '', '/?member=all');
+  history.replaceState(null, '', '/?member=all&off=');
   await renderBoardWithDrawerOpen();
   expect(buttonsIn('dA')).toContain('resolve');
   expect(buttonsIn('dB')).toContain('reply');

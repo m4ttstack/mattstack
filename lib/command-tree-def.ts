@@ -2911,6 +2911,16 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      peer: {
+        description: "Connect this Mac's own board to the switchboard, so it can trade asks with your teammates' boards",
+        module: "./commands/team.ts",
+        fn: "teamPeer",
+        args: [
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which cloned team; omit when only one is cloned" },
+          { name: "Rotate", flag: "--rotate", type: "boolean", default: false, hint: "Issue a new board token even if the switchboard already knows your board; a board still using the old one stops working" },
+          SETUP_JSON_ARG,
+        ],
+      },
       pull: {
         description: "Pull the local team clone up to date with its remote, through the daemon's snapshot supervisor",
         module: "./commands/team.ts",

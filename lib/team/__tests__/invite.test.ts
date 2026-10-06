@@ -463,7 +463,7 @@ describe("mintInvite", () => {
       const result = await mintInvite(refused(), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
 
       expect(result.peering).toBe("missing");
-      expect(result.peeringWarning).toBe("This invite will not connect their board. After they join, invite their board again from the board's members panel.");
+      expect(result.peeringWarning).toBe("This invite will not connect their board. Once it can, invite them again and have them join with the new invite.");
       expect(warnings).toContain("board peering: the switchboard register answered 401");
     });
 

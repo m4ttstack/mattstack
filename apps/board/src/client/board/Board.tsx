@@ -29,22 +29,24 @@ import {
 } from '../../selection.ts';
 import { ALL_TURN } from '../../turn.ts';
 import {
+  arrangeGroups,
   dataAgeLabel,
   effectiveSeat,
+  effectiveSort,
   filterByMember,
   filterByShow,
   filterByTab,
   freshnessBanner,
   GROUP_KEYS,
-  groupMRs,
   groupOnLeavingSeat,
   isOwnMr,
   NEEDS_ME_TAB,
   nestStacks,
+  oldestFirst,
   parseViewState,
   rosterUsernamesFor,
   serializeViewState,
-  sortMRs,
+  tabDimsEmpty,
 } from '../../view.ts';
 import type { GroupKey, ShowItem, StackNode, ViewState } from '../../view.ts';
 import { postAction, type ActionResult } from '../api.ts';
@@ -102,7 +104,7 @@ import {
   useOptimisticLifecycle,
 } from './hooks.ts';
 import { assignMemberLooks } from './invadr-colors.ts';
-import { MemberLooksProvider } from './MemberInvadr.tsx';
+import { MemberInvadr, MemberLooksProvider } from './MemberInvadr.tsx';
 import { NEED_LABEL, NEED_ORDER, needOf } from './needs-me.ts';
 import { overlay, overlayMerging } from './optimistic.ts';
 import { OwnersPostModal } from './OwnersPostModal.tsx';
@@ -141,6 +143,12 @@ const PANEL_COLLAPSED_KEY = 'mrs-panel-collapsed';
 
 /** Drops `title` from the folded-panel set tui-kit's Panel persists under
     PANEL_COLLAPSED_KEY (a JSON array of titles), so that panel mounts open. */
+/** Grouping by need only means something on the seat tab, as a group or a
+    Sort split. */
+function groupKeysFor(isSeatTab: boolean): readonly GroupKey[] {
+  return isSeatTab ? GROUP_KEYS : GROUP_KEYS.filter(k => k !== 'needs');
+}
+
 function unfoldPanel(title: string): void {
   try {
     const folded: unknown = JSON.parse(
@@ -901,10 +909,6 @@ export function Board() {
   // called unconditionally, as every hook in this component must be: a
   // render where `data` is still null must call exactly the hooks it always
   // calls, never fewer.
-  const memberLooks = useMemo(
-    () => assignMemberLooks((data?.members ?? []).map(m => m.username)),
-    [data?.members]
-  );
   const boardView = useMemo(() => {
     if (!data) return null;
     const now = Date.now();
@@ -971,26 +975,36 @@ export function Board() {
       offered,
       turnCfg
     );
+    // Counts what the board shows, after the person and Show picks, the way
+    // the roster's numbers do.
     const summary = turnSummary(
-      memberFiltered,
+      filtered,
       turnCfg,
       self === null ? null : mr => need(mr) !== null
     );
-    const groups = groupMRs(
+    const sub = effectiveSort(
+      state.sort,
+      state.group,
+      groupKeysFor(isSeatTab),
+      state.member
+    );
+    const groups = arrangeGroups(
       filtered,
       state.group,
+      sub,
       data.members.map(m => m.username),
       now,
       mr => {
         const n = need(mr);
         return n && { label: NEED_LABEL[n], order: NEED_ORDER.indexOf(n) };
       }
-    ).map(g => ({ ...g, mrs: sortMRs(g.mrs, state.sort) }));
+    );
     return {
       tabs,
       activeTab,
       isCodeownersTab,
       isSeatTab,
+      inferred,
       needsMeCount,
       mrs,
       roster,
@@ -1003,6 +1017,26 @@ export function Board() {
       groups,
     };
   }, [data, optimisticLifecycle.state, merging.merging, state, draftResolved]);
+  // Looks follow the roster on screen, so whoever this tab lists gets the
+  // most distinct colours first: the team in roster order, or an inferred
+  // roster (codeowners, Needs me) alphabetically. Every other author follows
+  // alphabetically so their rows still match. Joined to a string so a poll
+  // with the same people keeps the memo.
+  const lookIds = useMemo(() => {
+    if (!data || !boardView) return '';
+    const listed = boardView.inferred
+      ? boardView.roster.map(m => m.username).sort()
+      : data.members.map(m => m.username);
+    const seen = new Set(listed);
+    const others = [...new Set(data.mrs.map(mr => mr.author.username))]
+      .filter(u => !seen.has(u))
+      .sort();
+    return [...listed, ...others].join('\n');
+  }, [data, boardView]);
+  const memberLooks = useMemo(
+    () => assignMemberLooks(lookIds ? lookIds.split('\n') : []),
+    [lookIds]
+  );
 
   // Actionable gates on every row the board holds, visible rows first in
   // board order (group order, the group's own sort, stack nesting: exactly
@@ -1022,14 +1056,15 @@ export function Board() {
       collectMr(node.mr);
       node.children.forEach(collect);
     };
-    for (const g of boardView.groups) nestStacks(g.mrs).forEach(collect);
-    for (const mr of sortMRs(boardView.mrs, state.sort)) collectMr(mr);
+    for (const g of boardView.groups)
+      for (const part of g.sub ?? [g]) nestStacks(part.mrs).forEach(collect);
+    for (const mr of oldestFirst(boardView.mrs)) collectMr(mr);
     // Human-owned, non-MR gates (queueExtras -- a pane-attention gate is the
     // first kind of these) join the same queue with no `mr` at all.
     for (const gate of data?.queueExtras ?? [])
       if (needsQueue(gate)) out.push({ gate });
     return out;
-  }, [boardView, data, state.sort]);
+  }, [boardView, data]);
   // Positive answer evidence for the queue's reconcile, from the RAW data:
   // a gate answered on another surface must retire even if its MR is
   // currently filtered out of view.
@@ -1192,12 +1227,12 @@ export function Board() {
   // grouped by anything but author (where the group header isn't the name),
   // or a codeowners tab, which is never narrowed to one author.
   const showAuthor = state.member === 'all' && state.group !== 'author';
-  // Under author grouping the header IS the name, so rows normally drop the
-  // author tag -- but a stack pulled to its root's group can carry a
-  // co-author's MR under someone else's header. Tag the rows whenever a group
+  // Under author grouping (or an author sub-group) the header IS the name,
+  // so rows normally drop the author tag -- but a stack pulled to its root's
+  // group can carry a co-author's MR under someone else's header. Tag the rows whenever a group
   // turns out to hold more than one author, so nothing is misattributed.
-  const showAuthorIn = (g: { mrs: BoardMR[] }) =>
-    showAuthor ||
+  const showAuthorIn = (g: { mrs: BoardMR[]; author?: string }) =>
+    (showAuthor && g.author === undefined) ||
     (state.member === 'all' &&
       new Set(g.mrs.map(m => m.author.username)).size > 1);
   const flatMrs = groups.flatMap(g => g.mrs);
@@ -1271,7 +1306,8 @@ export function Board() {
   };
   // Refs go stale between sweeps, so taking Not Posted off re-checks Slack
   // (forced sweep, server-side); newly found rows land on the reload. The
-  // other items ride the regular poll.
+  // other items ride the regular poll. Quiet unless it fails: a toast on
+  // every chip click reads like something went wrong.
   const toggleShow = (item: ShowItem) => {
     const turningOff = !state.off.includes(item);
     update({
@@ -1280,11 +1316,9 @@ export function Board() {
         : state.off.filter(i => i !== item),
     });
     if (!(turningOff && item === 'notPosted' && data.local)) return;
-    const toast = startToast('refreshing slack status…');
     postAction('/slack/refresh', {}).then(result => {
       if (!result.ok)
-        return toast.fail(`slack refresh failed (${result.status})`);
-      toast.done('slack status refreshed');
+        return addToast(`could not re-check Slack (${result.status})`);
       load();
     });
   };
@@ -1301,8 +1335,7 @@ export function Board() {
   const controlProps = {
     state,
     update,
-    // Grouping by need only means something on the seat tab.
-    groupKeys: isSeatTab ? GROUP_KEYS : GROUP_KEYS.filter(k => k !== 'needs'),
+    groupKeys: groupKeysFor(isSeatTab),
     theme,
     pickTheme,
     onRefresh: refreshNow,
@@ -1346,7 +1379,7 @@ export function Board() {
     return {
       hue: 'author',
       style: {
-        '--pill': look.color,
+        '--pill': look.fill,
         '--pill-text': 'var(--text-1)',
       } as CSSProperties,
     };
@@ -1364,10 +1397,10 @@ export function Board() {
           active={state.member}
           onPick={member => update({ member })}
           onSettings={openSettings}
-          onConfig={openConfig}
           scopeUncovered={data.scopeUncovered}
           note={inferredNote}
           empty={rosterEmpty}
+          dimEmpty={tabDimsEmpty(activeTab)}
           queue={
             queueEntries.length > 0
               ? { count: queueEntries.length, open: queue.openAtStart }
@@ -1413,60 +1446,64 @@ export function Board() {
               <RefreshControl onRefresh={refreshNow} refreshing={refreshing} />
               <ThemeControl theme={theme} pickTheme={pickTheme} />
             </div>
-            <TabBar
-              tabs={tabs}
-              active={state.tab}
-              counts={
-                needsMeCount === null ? {} : { [NEEDS_ME_TAB.id]: needsMeCount }
-              }
-              onPick={tab => update({ tab })}
-              syncing={tabSyncing}
-              unknown={unknownTabs}
-              trailing={
-                <button
-                  type="button"
-                  className="tui-show-chips-settings"
-                  onClick={openTurnConfig}
-                >
-                  {ICONS.settings} {TURN_SETTINGS_LABEL}
-                </button>
-              }
-            />
+            {/* A selection takes over the tab band: the actions sit where
+                the tabs were, and clearing it brings the tabs back. */}
+            {selectedMrs.length > 0 ? (
+              <SelectionBar
+                selectedMrs={selectedMrs}
+                inViewCount={selectionOf(filtered, selected).length}
+                templates={data.slackTemplates}
+                onClear={clearSelection}
+                posting={postingSummary}
+                onActions={
+                  data.local
+                    ? (x, y) => {
+                        const first = selectedMrs[0];
+                        if (first) setRowMenu({ x, y, mr: first });
+                      }
+                    : undefined
+                }
+                slackPost={
+                  data.slackEnabled && data.local && postableSelected.length > 0
+                    ? {
+                        count: postableSelected.length,
+                        // Clear only on success: the posted MRs drop out of
+                        // postableSelected, so leaving them checked would sit the
+                        // bar there with no post button and read like a bug.
+                        send: header =>
+                          handlePostSummary(
+                            postableSelected,
+                            header,
+                            clearSelection
+                          ),
+                      }
+                    : null
+                }
+              />
+            ) : (
+              <TabBar
+                tabs={tabs}
+                active={state.tab}
+                counts={
+                  needsMeCount === null
+                    ? {}
+                    : { [NEEDS_ME_TAB.id]: needsMeCount }
+                }
+                onPick={tab => update({ tab })}
+                syncing={tabSyncing}
+                unknown={unknownTabs}
+                trailing={
+                  <button
+                    type="button"
+                    className="tui-show-chips-settings"
+                    onClick={openTurnConfig}
+                  >
+                    {ICONS.settings} {TURN_SETTINGS_LABEL}
+                  </button>
+                }
+              />
+            )}
           </header>
-
-          {selectedMrs.length > 0 && (
-            <SelectionBar
-              selectedMrs={selectedMrs}
-              inViewCount={selectionOf(filtered, selected).length}
-              templates={data.slackTemplates}
-              onClear={clearSelection}
-              posting={postingSummary}
-              onActions={
-                data.local
-                  ? (x, y) => {
-                      const first = selectedMrs[0];
-                      if (first) setRowMenu({ x, y, mr: first });
-                    }
-                  : undefined
-              }
-              slackPost={
-                data.slackEnabled && data.local && postableSelected.length > 0
-                  ? {
-                      count: postableSelected.length,
-                      // Clear only on success: the posted MRs drop out of
-                      // postableSelected, so leaving them checked would sit the
-                      // bar there with no post button and read like a bug.
-                      send: header =>
-                        handlePostSummary(
-                          postableSelected,
-                          header,
-                          clearSelection
-                        ),
-                    }
-                  : null
-              }
-            />
-          )}
 
           {freshness && (
             <div
@@ -1484,17 +1521,17 @@ export function Board() {
 
           {data.switchboardTokenMissing && (
             <div className="tui-banner" data-intent="bad" role="alert">
-              ⚠ no switchboard token, so peer asks can't reach this board · ask
-              the team owner to re-invite it from their members panel (
-              <code>rt team invite</code>)
-              {data.local && (
-                <button
-                  type="button"
-                  className="tui-banner-btn"
-                  onClick={openSettings}
-                >
-                  paste an invite
-                </button>
+              ⚠ no switchboard token, so peer asks can't reach this board ·{' '}
+              {data.canInvite ? (
+                <>
+                  run <code>rt team peer</code> to connect it
+                </>
+              ) : (
+                <>
+                  ask the team owner to invite you again (
+                  <code>rt team invite</code>), then run{' '}
+                  <code>rt team join</code> with the new invite
+                </>
               )}
             </div>
           )}
@@ -1541,12 +1578,41 @@ export function Board() {
                     // user has already folded up.
                     storageKey={PANEL_COLLAPSED_KEY}
                   >
-                    <RowView
-                      mrs={g.mrs}
-                      now={now}
-                      showAuthor={showAuthorIn(g)}
-                      ctx={rowCtx}
-                    />
+                    {g.sub ? (
+                      g.sub.map(part => (
+                        <section
+                          key={part.label}
+                          className="tui-subgroup"
+                          aria-label={part.label}
+                        >
+                          <h3 className="tui-subgroup-head">
+                            {part.author && (
+                              <MemberInvadr
+                                id={part.author}
+                                className="tui-subgroup-avatar"
+                              />
+                            )}
+                            <span>{part.label}</span>
+                            <span className="tui-subgroup-count">
+                              {part.mrs.length}
+                            </span>
+                          </h3>
+                          <RowView
+                            mrs={part.mrs}
+                            now={now}
+                            showAuthor={showAuthorIn(part)}
+                            ctx={rowCtx}
+                          />
+                        </section>
+                      ))
+                    ) : (
+                      <RowView
+                        mrs={g.mrs}
+                        now={now}
+                        showAuthor={showAuthorIn(g)}
+                        ctx={rowCtx}
+                      />
+                    )}
                   </Panel>
                 </div>
               );
@@ -1586,10 +1652,10 @@ export function Board() {
                 setMenuOpen(false);
               }}
               onSettings={openSettings}
-              onConfig={openConfig}
               scopeUncovered={data.scopeUncovered}
               note={inferredNote}
               empty={rosterEmpty}
+              dimEmpty={tabDimsEmpty(activeTab)}
               queue={
                 queueEntries.length > 0
                   ? {
@@ -1613,10 +1679,8 @@ export function Board() {
             members={data.allMembers}
             canInvite={data.canInvite}
             local={data.local}
-            peering={data.peering}
             defaultMember={data.defaultMember}
             onToggle={toggleMember}
-            onJoined={() => load()}
             onClose={() => setShowSettings(false)}
           />
         )}

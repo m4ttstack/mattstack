@@ -109,7 +109,7 @@ async function newPage(
   );
   // The fixture has a seat (rmarlow), which would open the board filtered to
   // her rows; every shot but the seat tab's wants the whole team.
-  await page.goto(`${BASE}/?member=all`);
+  await page.goto(`${BASE}/?member=all&off=`);
   // Kill animations/transitions so pulsing badges and spinners can't smear.
   await page.addStyleTag({
     content:

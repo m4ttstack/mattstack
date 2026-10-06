@@ -117,7 +117,7 @@ describe('viewStateForMr', () => {
         author: { id: 'b', username: 'bob', name: 'Bob', avatarUrl: null },
       }),
     ];
-    const state = { ...DEFAULT_VIEW, tab: 'team', member: 'alice' };
+    const state = { ...DEFAULT_VIEW, off: [], tab: 'team', member: 'alice' };
     const result = viewStateForMr(
       state,
       mrs,
@@ -138,7 +138,7 @@ describe('viewStateForMr', () => {
       }),
     ];
     // carol isn't on the roster, so the authors tab hides her row entirely.
-    const state = { ...DEFAULT_VIEW, tab: 'team' };
+    const state = { ...DEFAULT_VIEW, off: [], tab: 'team' };
     const result = viewStateForMr(
       state,
       mrs,
@@ -156,7 +156,7 @@ describe('viewStateForMr', () => {
         author: { id: 'b', username: 'bob', name: 'Bob', avatarUrl: null },
       }),
     ];
-    const state = { ...DEFAULT_VIEW, tab: 'team' };
+    const state = { ...DEFAULT_VIEW, off: [], tab: 'team' };
     const result = viewStateForMr(
       state,
       mrs,
@@ -220,7 +220,7 @@ describe('viewStateForMr', () => {
 
   test('returns state unchanged when no row matches', () => {
     const mrs = [mr({ iid: 6 })];
-    const state = { ...DEFAULT_VIEW, tab: 'team', member: 'bob' };
+    const state = { ...DEFAULT_VIEW, off: [], tab: 'team', member: 'bob' };
     const result = viewStateForMr(
       state,
       mrs,
@@ -247,7 +247,7 @@ describe('viewStateForMr', () => {
         codeownerSections: ['design'],
       } as Partial<GateLinkMR>),
     ];
-    const state = { ...DEFAULT_VIEW, tab: 'team' };
+    const state = { ...DEFAULT_VIEW, off: [], tab: 'team' };
     const result = viewStateForMr(
       state,
       mrs,

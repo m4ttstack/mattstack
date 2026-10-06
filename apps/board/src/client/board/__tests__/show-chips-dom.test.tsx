@@ -121,7 +121,7 @@ test('the drawer offers the display settings link under its show row', async () 
   });
   const link = [
     ...container.querySelectorAll<HTMLButtonElement>('.tui-ctl-show button'),
-  ].find(b => b.textContent === 'Display Settings')!;
+  ].find(b => b.textContent === 'Settings')!;
   await React.act(async () => link.click());
   expect(opened).toBe(1);
 });

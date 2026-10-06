@@ -134,7 +134,11 @@ describe('GET /invite/<code>', () => {
     expect(real.status).toBe(200);
     expect(real.headers.get('cache-control')).toBe('no-store');
     expect(real.headers.get('referrer-policy')).toBe('no-referrer');
-    expect(await real.text()).toBe(await fake.text());
+    const page = await real.text();
+    expect(page).toBe(await fake.text());
+    expect(page).toContain('bun run setup');
+    expect(page).toContain('rt team join');
+    expect(page).not.toContain('join peer boards');
     expect(store.redeemInvite(inv.code, 'grace', 2000).ok).toBe(true);
   });
 });

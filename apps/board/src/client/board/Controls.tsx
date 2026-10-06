@@ -8,7 +8,7 @@ import {
   LabeledSeg,
 } from '@mattstack/tui-kit';
 import type { TurnConfig } from '../../turn.ts';
-import { GROUP_KEYS, SORT_KEYS } from '../../view.ts';
+import { effectiveSort, GROUP_KEYS, sortKeysFor } from '../../view.ts';
 import type { GroupKey, ShowItem, ViewState } from '../../view.ts';
 import type { ThemeMode } from '../types.ts';
 import { GROUP_LABEL, SORT_LABEL } from './format.ts';
@@ -125,7 +125,7 @@ function MenuButton({
   );
 }
 
-export const TURN_SETTINGS_LABEL = 'Display Settings';
+export const TURN_SETTINGS_LABEL = 'Settings';
 
 // ── controls (shared: desktop header + mobile drawer) ───────────────────────
 
@@ -178,9 +178,14 @@ function Controls({
           <span className="tui-ctl-label">sort</span>
           <LabeledSeg
             legend="sort"
-            options={SORT_KEYS}
+            options={sortKeysFor(state.group, groupKeys, state.member)}
             labels={SORT_LABEL}
-            value={state.sort}
+            value={effectiveSort(
+              state.sort,
+              state.group,
+              groupKeys,
+              state.member
+            )}
             onChange={s => update({ sort: s })}
           />
         </div>
@@ -268,17 +273,37 @@ function Controls({
       <MenuButton
         icon={<Icon d={SORT_ICON} />}
         label="Sort"
-        value={SORT_LABEL[state.sort]}
+        value={
+          SORT_LABEL[
+            effectiveSort(state.sort, state.group, groupKeys, state.member)
+          ]
+        }
         ariaLabel="sort by"
       >
         {close =>
-          SORT_KEYS.map(k => (
+          sortKeysFor(state.group, groupKeys, state.member).map(k => (
             <ContextMenu.Item
               key={k}
               role="menuitemradio"
-              aria-checked={state.sort === k}
+              aria-checked={
+                effectiveSort(
+                  state.sort,
+                  state.group,
+                  groupKeys,
+                  state.member
+                ) === k
+              }
               label={SORT_LABEL[k]}
-              trailing={state.sort === k ? <Icon d={CHECK_ICON} /> : null}
+              trailing={
+                effectiveSort(
+                  state.sort,
+                  state.group,
+                  groupKeys,
+                  state.member
+                ) === k ? (
+                  <Icon d={CHECK_ICON} />
+                ) : null
+              }
               onClick={() => {
                 update({ sort: k });
                 close();

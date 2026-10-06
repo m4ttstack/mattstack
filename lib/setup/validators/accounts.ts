@@ -229,7 +229,7 @@ const REINVITE = "the team's owner to invite you again (rt team invite --handle 
 const REINVITE_STEPS: Action = {
   type: "steps",
   label: "Show steps…",
-  steps: [`Ask ${REINVITE}`, "Run rt team join with the new invite, or have them re-invite your board from the board's members panel", "Re-check this row"],
+  steps: [`Ask ${REINVITE}`, "Run rt team join with the new invite", "Re-check this row"],
 };
 
 /**
@@ -250,12 +250,7 @@ const BOARD_PEERING_BASE = {
 export const SELF_INVITE_STEPS: Action = {
   type: "steps",
   label: "Show steps…",
-  steps: [
-    "Open your board's team members panel",
-    "Invite your own username there",
-    "Paste that invite into the panel's join row",
-    "Re-check this row",
-  ],
+  steps: ["Run rt team peer to connect your board", "Re-check this row"],
 };
 
 async function boardPeeringRow(p: Probes, secrets: SecretPresence, team: TeamSnapshot): Promise<Row | null> {
@@ -265,7 +260,7 @@ async function boardPeeringRow(p: Probes, secrets: SecretPresence, team: TeamSna
     const unpeered = `This Mac is in ${peering.teams.join(", ")}, but its board has no switchboard token, so it cannot peer.`;
     const created = peering.teams.filter((slug) => readTeamLocal(p, slug).createdByRt);
     const joinedSome = peering.teams.some((slug) => !readTeamLocal(p, slug).createdByRt);
-    // The board token is one per Mac, not per team, so creating any one team here is enough to self-invite.
+    // The board token is one per Mac, not per team, so creating any one team here is enough to connect it.
     const canSelfInvite =
       created.length > 0 && (Boolean(p.env.SWITCHBOARD_ADMIN_TOKEN) || boardEnvHas(p, "SWITCHBOARD_ADMIN_TOKEN") || (await secrets.has("rt", "switchboardAdminToken")) !== null);
     // A creator without the admin token, and no other team's owner to ask, has no way to peer from here.
@@ -273,9 +268,9 @@ async function boardPeeringRow(p: Probes, secrets: SecretPresence, team: TeamSna
     if (canSelfInvite) {
       return row({
         ...BOARD_PEERING_BASE,
-        optionalNote: "Your board does not peer until you invite it from the board's members panel.",
+        optionalNote: "Your board does not peer until you connect it with rt team peer.",
         status: "needs-you",
-        detail: `${unpeered} You created ${created.join(", ")} on this Mac, so you can invite your own board from the board's members panel.`,
+        detail: `${unpeered} You created ${created.join(", ")} on this Mac, so you can connect your own board with rt team peer.`,
         action: SELF_INVITE_STEPS,
       });
     }

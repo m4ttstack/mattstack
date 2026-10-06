@@ -59,7 +59,7 @@ function SelectionBar({
   return (
     <div className="tui-selbar">
       <div className="tui-selbar-head">
-        <span className="tui-selbar-count">▣ {count} selected</span>
+        <span className="tui-selbar-count">{count} selected</span>
         {inViewCount < count && (
           <span className="tui-selbar-note">({inViewCount} in view)</span>
         )}
@@ -94,7 +94,6 @@ function SelectionBar({
             className="tui-copy tui-selbar-post"
             onClick={() => slackPost.send(header.post)}
             disabled={posting}
-            title="post the selection to slack"
           >
             <SlackLogo /> {posting ? 'posting…' : `post ${slackPost.count}`}
           </button>
@@ -106,17 +105,12 @@ function SelectionBar({
               const r = e.currentTarget.getBoundingClientRect();
               onActions(r.left, r.bottom + 4);
             }}
-            title="act on the selection"
             aria-haspopup="menu"
           >
             <MenuGlyph kind="checks" /> actions <MenuGlyph kind="chevron" />
           </button>
         )}
-        <button
-          className="tui-copy"
-          onClick={onClear}
-          title="clear the selection"
-        >
+        <button className="tui-copy" onClick={onClear}>
           clear
         </button>
       </div>
