@@ -84,18 +84,22 @@ Stale asks still expire at 48h (`NUDGE_FRESH_MS`) and publish `expired`.
 
 ### Accepting and declining
 
-Two new local-only routes on the board server, guarded like `/nudge`
-(`isLocalRequest` plus `hasLocalOrigin`):
+Three new local-only routes on the board server, guarded like `/nudge`
+(`isLocalRequest`), each taking a JSON body because the server's router
+matches whole paths:
 
-- `POST /asks/:id/accept`: runs the kind-specific reject rules (an
-  in-flight review still refuses), skips budget and cooldown (a click is an
-  explicit human choice, like a row verb today), launches through the same
-  `launchAsk` seam `bin/triage.ts:298-335` wires for the triage pass, marks
-  the nudge handled and publishes `launched`. Moving `launchAsk` and
-  `publishOutcome` into a module both the server and triage import is part of
-  this work; the route must not shell out to `board triage`.
-- `POST /asks/:id/decline` with `{ reason?: 'busy' | 'not-my-area' | 'later', note?: string }`:
+- `POST /asks/accept` with `{ id, alwaysAllow?: boolean }`: runs the
+  kind-specific reject rules (an in-flight review still refuses), skips
+  budget and cooldown (a click is an explicit human choice, like a row verb
+  today), launches through the same launcher `bin/triage.ts:298-335` builds
+  for the triage pass, marks the nudge handled and publishes `launched`.
+  With `alwaysAllow` it also adds the sender to the always-allow list.
+  Moving the launcher into a module both the server and triage import is
+  part of this work; the route must not shell out to `board triage`.
+- `POST /asks/decline` with `{ id, reason?: 'busy' | 'not-my-area' | 'later', note?: string }`:
   marks the nudge handled with result `rejected` and publishes it.
+- `POST /asks/always-allow` with `{ username, allow: boolean }`: adds to or
+  removes from the always-allow list (the history view's chips).
 
 Today a row verb launched on an ask never marks the nudge handled (the
 server does not import `markNudgeHandled`). Accept fixes that for the inbox
@@ -135,15 +139,18 @@ every enrolled board (`switchboard/server.ts:155-163`) and a board cannot
 withdraw itself. The relay gains:
 
 - `PUT /boards/self/asks` with `{ enabled: boolean }`, authenticated by the
-  board's own token, stored as a column on the `boards` row (default true).
+  board's own token, recorded in a new `asks_off` table (one row per board
+  that turned asks off), so the existing `boards` table needs no migration.
+  Deleting a board clears its row.
 - `/peers` returns only boards with asks enabled. Its shape (usernames) does
   not change, so every client's picker filters with no client change.
 
-The board server sends its current `board.peerAsks.enabled` at startup and
-whenever the setting changes. A relay that predates the route answers 404;
+The board's peer tick sends its current `board.peerAsks.enabled` whenever it
+differs from the last value the relay accepted, so startup and a settings
+change both reach the relay within one tick. A relay that predates the route answers 404;
 the board logs once and carries on, and the receiver still declines anything
 that arrives while off (`decideRequest`'s existing `disabled` skip, which now
-also publishes `rejected` with reason `asks off` so the asker is not left
+also publishes `rejected` with reason `asks-off` so the asker is not left
 waiting).
 
 ## The notification
@@ -157,8 +164,9 @@ socket path) with a new category `peer-ask`, independent of `triage.notify`:
   "Your agent waits for your go ahead."
 - url: `<board>/?ask=<nudge id>`
 
-The tray registers `peer-ask` with no actions (`NotificationManager.swift`'s
-category list). The osascript fallback carries no url and stays as is.
+No tray change: a category the tray does not register (as `mr-doctor`
+today) still shows as a banner and opens its url on click. The osascript
+fallback carries no url and stays as is.
 
 ### Landing on the ask
 
@@ -173,8 +181,12 @@ longer pending opens the dropdown with nothing flashed.
 
 A button in the header card's icon group, left of refresh: the inbox glyph
 with a count badge while anything waits, no badge when nothing does, and the
-open state tinted. It opens a Mantine `Popover` at `position="bottom-end"`
-with a 6px offset, so its right edge lines up with the button.
+open state tinted. It opens a dropdown whose right edge lines up with the
+button, 6px below it. Board renders through `@mattstack/tui-kit`, which has
+no anchored panel today (`ContextMenu` is a menu, with menu roles and item
+focus, and cannot hold a form), so this work adds a `Popover` recipe to
+tui-kit on Base UI's Popover, the same positioning box `ContextMenu` uses,
+with `side="bottom"` and `align="end"`.
 
 The dropdown: a head ("Asks for your agent", "N waiting", a "history" link),
 one card per waiting ask, oldest first, and a foot ("Asks run on this Mac with
@@ -223,28 +235,27 @@ The row menu keeps its items and its peer submenu. The submenu rows and the
 the bot mark overlapping its lower right on a knockout in the menu's
 background, matching R4.
 
-Picking a peer, or clicking the re-review or respond item, opens the kit's
-`modals.prompt`, never a bespoke dialog:
+Picking a peer, or clicking the re-review or respond item, opens tui-kit's
+`ConfirmDialog` with `intent="accent"`, never a bespoke dialog:
 
 - title: "Ask Mira's agent to review !1271?"
-- message: "It runs on Mira's Mac with Mira's Claude usage, once Mira says go
-  ahead."
-- field: "Note for Mira (optional)", not required
+- body: "It runs on Mira's Mac with Mira's Claude usage, once Mira says go
+  ahead.", then tui-kit's `Field` labelled "Note for Mira (optional)" around
+  a one-line input
 - buttons: Cancel, Send ask
 
-If `modals.prompt` cannot label its confirm button or leave the field
-optional, that is a kit change raised before building, not a local dialog.
 The bulk menu's "request review from…" opens one dialog for the whole
-selection, and its note rides every ask. `action-runner.ts`'s ask payload
-gains `note`, `title` and `sourceBranch`; `/nudge` passes them to
-`buildAskDraft`.
+selection, and its note rides every ask. The client's ask request gains
+`note`; `/nudge` passes it to `buildAskDraft` along with `title` and
+`sourceBranch`, which the server reads off its own snapshot of the MR.
 
 ## The asker's band
 
 `sentNudgeDisplay` (`peer/nudges.ts:393-400`) learns `pending` from the new
 outcome. `NudgeResult` (`peer/envelope.ts:5`) becomes
 `'pending' | 'launched' | 'rejected' | 'expired'`, and
-`NudgeOutcomePayload` gains `declineNote?: string`. The overwrite rules
+`NudgeOutcomePayload` gains `declined?: true` (a person said no, as opposed
+to a board rule refusing) and `declineNote?: string`. The overwrite rules
 (`nudges.ts:211-214`) let any later result replace `pending`.
 
 `client/board/ask-band.ts`:
@@ -255,11 +266,12 @@ outcome. `NudgeResult` (`peer/envelope.ts:5`) becomes
   chip's words; the bare "Mira declined" when none was picked), the note in
   the band's expanded steps, and Dismiss only. A decline is never retried
   by a button. Other rejections keep Retry.
-- `rejected` with reason `asks off`: "Mira has asks turned off", Dismiss only.
+- `rejected` with reason `asks-off`: "Mira has asks turned off", Dismiss only.
 - An always-allowed ask goes requested → reviewing as it does today.
 
-The decline `reason` on the wire is the chip's words ("busy right now"), so
-an older asker's band, which prints `declined: ${reason}`, still reads well.
+A decline's `reason` on the wire is the chip's words ("busy right now"), or
+absent when none was picked, so an older asker's band, which prints
+`declined: ${reason}` or `declined`, still reads well.
 
 ## Versions in the field
 
@@ -273,7 +285,7 @@ an older asker's band, which prints `declined: ${reason}`, still reads well.
 ## Testing
 
 - `decideRequest`: always-allowed dispatches, everyone else holds, held asks
-  notify once, stale still expires, off now publishes `rejected: asks off`.
+  notify once, stale still expires, off now publishes `rejected: asks-off`.
 - Envelope: `pending` and `declineNote` round-trip; an unknown result is
   still dropped.
 - `sentNudgeDisplay`: `pending` replaced by every later result.
