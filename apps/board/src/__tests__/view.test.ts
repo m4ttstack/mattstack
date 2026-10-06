@@ -757,6 +757,28 @@ describe('arrangeGroups', () => {
     expect(group!.mrs.map(m => m.iid)).toEqual([2, 3, 1]);
   });
 
+  test('a stack stays in its root’s sub-group when the child’s age differs', () => {
+    const parent = mr({
+      iid: 1,
+      webUrl: 'https://gitlab.com/acme/webapp/-/merge_requests/1',
+      sourceBranch: 'feat-a',
+      targetBranch: 'master',
+      updatedAt: '2026-07-05T00:00:00Z',
+    } as any);
+    const child = mr({
+      iid: 2,
+      webUrl: 'https://gitlab.com/acme/webapp/-/merge_requests/2',
+      sourceBranch: 'feat-b',
+      targetBranch: 'feat-a',
+      isStacked: true,
+      updatedAt: '2026-06-01T00:00:00Z',
+    } as any);
+    const [group] = arrangeGroups([parent, child], 'status', 'age', [], at);
+    expect(group!.sub!.map(p => p.mrs.map(m => m.iid).sort())).toEqual([
+      [1, 2],
+    ]);
+  });
+
   test('a Sort matching the grouping splits nothing', () => {
     const groups = arrangeGroups(list, 'author', 'author', [], at);
     expect(groups.every(g => g.sub === undefined)).toBe(true);
