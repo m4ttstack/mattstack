@@ -62,7 +62,8 @@ Facts a join run depends on:
   throwaway `vm-mint.*` HOME with `env -i`, a stand-in `security` that keeps
   the age key in that HOME (the host keychain is never read), and a git
   credential helper fed from the environment. The rt is the bundle under test
-  (read from `--app`, or from the DMG, attached read-only) unless `--mint-rt`
+  (read from `--app`; from the zip beside the DMG when there is one, as in a
+  rehearsal artifact; else from the DMG, attached read-only) unless `--mint-rt`
   names another. The HOME is deleted when the phase ends, the code lands in
   `mint/invite-code.txt` (0600, redacted from `logs/mint.log`), and teardown
   deletes the repo as for create. Invitee and owner are the same account, so
@@ -211,7 +212,7 @@ Today, the first line's `screens` phase and both lines' `update` phase report `f
 
 Phases: preflight · invite (join with `--fresh-team-repo` only) · clone · boot · stage · install · launch · screens · assert · update · teardown. Each is `pass|fail|skip` with a reason in `artifacts/<run>/phases.jsonl`; `report.md` is the human summary; `screenshots/` are numbered per screen (`00-first-launch`, `01-welcome`, `02-team-*`, `03-readiness-*`, `04-install-*`, `05-done`, `06-update-*`); `logs/` holds guest logs (`~/.mattstack/rt/logs`, unified log slice for mattstack/smd/backgroundtaskmanagementd, `launchctl print` grep, sshd's own log, `rt verify --json`, tray `/version`). Exit 1 iff any phase failed; skips are reported, never counted green.
 
-Every host-to-guest ssh sends keepalives (`ServerAliveInterval=10`, `ServerAliveCountMax=3`), so a session whose guest end vanished fails its phase in about 30s as `ssh to the guest failed or dropped after <n>s in <phase> (exit 255)`. Each phase also has a wall-clock limit: 20 minutes by default, 90 for screens, 60 for team-upgrade, 30 for update, 10 for the invite mint and for teardown's log collection; `VM_PHASE_LIMIT_<PHASE>=<seconds>` overrides one (dashes become underscores). A phase that reaches it fails as `<phase> timed out after <n>s (limit <n>s)`. Both reasons end with the last lines of the phase's log (`logs/drive.log` for the driven screens). Teardown runs after either, and after SIGINT, SIGTERM or SIGHUP, which ledger the phase they interrupted as failed: it collects guest logs, stops and deletes the guest, deletes the `--fresh-team-repo` repo, and records anything it left behind in its own `teardown` row.
+Every host-to-guest ssh sends keepalives (`ServerAliveInterval=10`, `ServerAliveCountMax=3`), so a session whose guest end vanished fails its phase in about 30s as `ssh to the guest failed or dropped after <n>s in <phase> (exit 255)`. The screens, team-upgrade and update scripts run through `vm_guest_run`, which writes their output and exit code into the share (`logs/screens.log`, `logs/upgrade.log`, `logs/update.log`, each with a `.rc` beside it): when only the channel drops, the phase waits for the script's own code instead, and fails as a drop only if none arrives by the phase limit. Each phase also has a wall-clock limit: 20 minutes by default, 90 for screens, 60 for team-upgrade, 30 for update, 10 for the invite mint and for teardown's log collection; `VM_PHASE_LIMIT_<PHASE>=<seconds>` overrides one (dashes become underscores). A phase that reaches it fails as `<phase> timed out after <n>s (limit <n>s)`. Both reasons end with the last lines of the phase's log (`logs/drive.log` for the driven screens). Teardown runs after either, and after SIGINT, SIGTERM or SIGHUP, which ledger the phase they interrupted as failed: it collects guest logs, stops and deletes the guest, deletes the `--fresh-team-repo` repo, and records anything it left behind in its own `teardown` row.
 
 ## Served apps
 

@@ -287,6 +287,39 @@ t "trigger-update.sh records the served jobs before the update and compares afte
 t "walkthrough hands --headless to the update leg" bash -c \
   'grep -q "UPD_HFLAG=--headless" run/walkthrough.sh && [ "$(grep -c UPD_HFLAG run/walkthrough.sh)" -ge 2 ]'
 
+# rt --version prints the binary's path on a second line; the version is the first line's last word.
+t "ax_bare_rt_version reads the first line's version" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x bash -c \
+  'source run/guest/ax.sh; [ "$(printf "rt v2.20.2-ci140\n/Applications/mattstack.app/Contents/MacOS/rt\n" | ax_bare_rt_version)" = 2.20.2 ] \
+   && [ "$(printf "v2.21.0\n" | ax_bare_rt_version)" = 2.21.0 ]'
+t "trigger-update.sh compares rt --version as a bare version" bash -c \
+  'grep -q "rt --version 2>/dev/null | ax_bare_rt_version" run/guest/trigger-update.sh'
+# A keystroked invite code that drops one character parses as no code at all, and the
+# Join card shows nothing; the fill must read back intact before the note is awaited.
+t "ax_fill_verified retypes until the field reads back intact" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x bash -c \
+  'source run/guest/ax.sh; n=0; ax_set_field() { n=$((n+1)); }; ax_value() { if [ "$n" -ge 2 ]; then printf "ABCD-EFGH"; else printf "ABCD-EFG"; fi; }
+   ax_fill_verified setup.team.join.code "ABCD-EFGH" && [ "$n" -eq 2 ]'
+t "ax_fill_verified fails after three mangled fills" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x bash -c \
+  'source run/guest/ax.sh; ax_set_field() { :; }; ax_value() { printf x; }; ax_dump_ids() { :; }
+   ( ax_fill_verified setup.team.join.code "ABCD" ) 2>/dev/null && exit 1; grep -q "did not read back intact after 3 fills" "$AX_LOG"'
+t "screens.sh fills the invite code through ax_fill_verified" bash -c \
+  'grep -q "ax_fill_verified setup.team.join.code" run/guest/screens.sh'
+# Once GitHub is connected the create card defaults to "Create a private GitHub repo"
+# and hides the URL field the harness fills.
+t "screen_team turns off the GitHub-repo switch before the URL" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x SCENARIO=create TEAM_REMOTE=https://example.invalid/r.git SLUG=s bash -c \
+  'source run/guest/ax.sh; source run/guest/screens.sh; calls=""
+   ax_wait_screen() { :; }; ax_shot() { :; }; ax_find() { [ "$1" = setup.team.create.useGh ]; }; ax_value() { printf 1; }
+   ax_click() { calls="$calls click:$1"; }; ax_set_field() { calls="$calls set:$1"; }
+   screen_team; case "$calls" in *"click:setup.team.create.useGh"*"set:setup.team.create.remote"*) ;; *) echo "$calls"; exit 1;; esac'
+t "screen_team leaves the GitHub-repo switch alone when it is off" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x SCENARIO=create TEAM_REMOTE=https://example.invalid/r.git SLUG=s bash -c \
+  'source run/guest/ax.sh; source run/guest/screens.sh; calls=""
+   ax_wait_screen() { :; }; ax_shot() { :; }; ax_find() { [ "$1" = setup.team.create.useGh ]; }; ax_value() { printf 0; }
+   ax_click() { calls="$calls click:$1"; }; ax_set_field() { calls="$calls set:$1"; }
+   screen_team; case "$calls" in *useGh*) echo "$calls"; exit 1;; esac'
+t "walkthrough mints with the rt from the dmg's sibling zip" bash -c \
+  'grep -q "vm_rt_from_zip" run/walkthrough.sh'
+t "walkthrough drives the long guest phases through vm_guest_run" bash -c \
+  '[ "$(grep -c "vm_guest_run " run/walkthrough.sh)" -ge 3 ]'
+
 t "e2e-cleanroom usage"          bash -c '! bash ../../scripts/e2e-cleanroom.sh >/dev/null 2>&1'
 t "winid compiles"               swiftc -O -o /tmp/vmcheck-winid run/host/winid.swift
 t "appcast-server compiles"      bun build --compile run/helpers/appcast-server.ts --outfile /tmp/vmcheck-appcast

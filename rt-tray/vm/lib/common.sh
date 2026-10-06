@@ -278,6 +278,36 @@ vm_ssh_try() {
   vm_guest_cmd ssh "${VM_SSH_OPTS[@]}" -i "$VM_SSH_KEY" "$user@$ip" "$@"
 }
 
+# Runs a long guest script so that a dropped ssh channel does not fail its
+# phase: the script writes its output and exit code into the share, and a 255
+# from ssh waits on that code until the phase deadline (still 255 past it). The
+# guest's bash is 3.2, where ignoring SIGPIPE hangs it, so the script keeps no
+# fd on the channel instead.
+vm_guest_run() {  # <user> <vm> <name> <guest command> → the guest command's exit code
+  local user="$1" vm="$2" name="$3" cmd="$4" rc
+  local rcfile="$VM_RUN_DIR/logs/$name.rc"
+  rm -f "$rcfile"
+  vm_ssh_try "$user" "$vm" "trap '' HUP; ( $cmd ) </dev/null >>'$GUEST_RUN/logs/$name.log' 2>&1; echo \$? >'$GUEST_RUN/logs/$name.rc'"
+  rc=$?
+  if [ "$rc" -eq 255 ]; then
+    vm_log "ssh dropped in $name; waiting for the guest script to finish"
+    until [ -s "$rcfile" ]; do
+      [ -n "$_vm_phase_deadline" ] && [ "$(date +%s)" -ge "$_vm_phase_deadline" ] && return 255
+      sleep 2
+    done
+  fi
+  [ -s "$rcfile" ] && return "$(tr -dc '0-9' < "$rcfile")"
+  return "$rc"
+}
+
+# The rt inside a release zip, extracted where nothing else attaches it.
+vm_rt_from_zip() {  # <zip> <dest dir> → prints the rt path
+  local zip="$1" dest="$2"
+  mkdir -p "$dest" && ditto -x -k "$zip" "$dest" 2>/dev/null || return 1
+  [ -x "$dest/mattstack.app/Contents/MacOS/rt" ] || return 1
+  printf '%s\n' "$dest/mattstack.app/Contents/MacOS/rt"
+}
+
 # vm_ssh/vm_scp/vm_ssh_pw exit the whole script on failure — preconditions only.
 # Inside a wait loop or ledgered phase, use the _try variants: the dying variants
 # make an until-loop impossible (the first no-lease boot kills the script).

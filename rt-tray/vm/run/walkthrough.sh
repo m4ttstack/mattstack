@@ -107,7 +107,7 @@ drop_mint_home() {
 
 # The rt that mints: --mint-rt, else the bundle under test (read from the
 # DMG, which stays attached until mint_detach).
-MINT_MOUNT=""; RT_FOR_MINT=""; MINT_REFUSAL=""
+MINT_MOUNT=""; MINT_ZIP_DIR=""; RT_FOR_MINT=""; MINT_REFUSAL=""
 mint_resolve_rt() {
   if [ -n "$MINT_RT" ]; then RT_FOR_MINT="$MINT_RT"; return 0; fi
   if [ -n "$APP" ]; then
@@ -118,12 +118,21 @@ mint_resolve_rt() {
     fi
     RT_FOR_MINT="$APP/Contents/MacOS/rt"; return 0
   fi
+  # A rehearsal artifact ships the zip beside the dmg: reading rt from it
+  # never attaches the dmg another run may have attached.
+  if [ -f "${DMG%.dmg}.zip" ]; then
+    MINT_ZIP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/vm-mint-zip.XXXXXX")
+    RT_FOR_MINT=$(vm_rt_from_zip "${DMG%.dmg}.zip" "$MINT_ZIP_DIR") && return 0
+    rm -rf "$MINT_ZIP_DIR"; MINT_ZIP_DIR=""
+  fi
   MINT_MOUNT=$(mktemp -d "${TMPDIR:-/tmp}/vm-mint-dmg.XXXXXX")
   hdiutil attach "$DMG" -nobrowse -quiet -readonly -mountpoint "$MINT_MOUNT" >/dev/null 2>&1 \
     || { rmdir "$MINT_MOUNT"; MINT_MOUNT=""; MINT_REFUSAL="could not attach $DMG to read its rt; pass --mint-rt"; return 1; }
   RT_FOR_MINT="$MINT_MOUNT/mattstack.app/Contents/MacOS/rt"
 }
 mint_detach() {
+  case "$MINT_ZIP_DIR" in */vm-mint-zip.*) rm -rf "$MINT_ZIP_DIR";; esac
+  MINT_ZIP_DIR=""
   [ -n "$MINT_MOUNT" ] || return 0
   hdiutil detach "$MINT_MOUNT" -quiet >/dev/null 2>&1 || true
   rmdir "$MINT_MOUNT" 2>/dev/null || true
@@ -351,7 +360,7 @@ if [ "$SCENARIO" = headless ]; then
   vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "open -a /Applications/mattstack.app; sleep 8" >>"$VM_RUN_DIR/logs/screens.log" 2>&1 || true
 else
   CODE_ARG=""; [ -n "$CODE_FILE" ] && { cp "$CODE_FILE" "$VM_RUN_DIR/in/invite-code.txt"; CODE_ARG="--invite-code-file '$GUEST_RUN/in/invite-code.txt'"; }
-  vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' bash $GUEST_BIN/drive-setup.sh $SCENARIO --team-slug $SLUG --pat-env $PAT_ENV $CODE_ARG" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
+  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" screens "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' bash $GUEST_BIN/drive-setup.sh $SCENARIO --team-slug $SLUG --pat-env $PAT_ENV $CODE_ARG" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
   rc=$?
   if [ "$rc" -eq 0 ]; then
     vm_phase_end screens pass "" $(cd "$VM_RUN_DIR" && ls screenshots/0[1-5]-*.png 2>/dev/null)
@@ -389,7 +398,7 @@ if [ "$SCENARIO" != solo ]; then
 elif [ -z "$TEAM_REMOTE" ]; then
   vm_phase_end team-upgrade skip "no --team-remote given"
 else
-  vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' bash $GUEST_BIN/upgrade-to-team.sh --team-slug $SLUG --pat-env $PAT_ENV --team-remote '$TEAM_REMOTE' --forge '$FORGE'" >>"$VM_RUN_DIR/logs/upgrade.log" 2>&1
+  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" upgrade "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' bash $GUEST_BIN/upgrade-to-team.sh --team-slug $SLUG --pat-env $PAT_ENV --team-remote '$TEAM_REMOTE' --forge '$FORGE'" >>"$VM_RUN_DIR/logs/upgrade.log" 2>&1
   rc=$?
   if [ "$rc" -eq 0 ]; then
     vm_phase_end team-upgrade pass
@@ -404,7 +413,8 @@ if [ -z "$UPD" ]; then vm_phase_end update skip "no --update-dir (L4 artifacts +
 elif [ "$(vm_phases_failed)" -gt 0 ]; then vm_phase_end update skip "earlier phase failed"
 else
   UPD_HFLAG=""; [ "$SCENARIO" = headless ] && UPD_HFLAG=--headless
-  vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' VM_APPCAST_PORT='$VM_APPCAST_PORT' bash $GUEST_BIN/trigger-update.sh '$GUEST_RUN/in/update' '$UPDV' $UPD_HFLAG" >"$VM_RUN_DIR/logs/update.log" 2>&1
+  : >"$VM_RUN_DIR/logs/update.log"
+  vm_guest_run "$VM_TESTER_USER" "$RUN_VM" update "GUEST_RUN='$GUEST_RUN' VM_APPCAST_PORT='$VM_APPCAST_PORT' bash $GUEST_BIN/trigger-update.sh '$GUEST_RUN/in/update' '$UPDV' $UPD_HFLAG" >>"$VM_RUN_DIR/logs/update.log" 2>&1
   rc=$?
   if [ "$rc" -eq 0 ]; then
     vm_phase_end update pass "" $(cd "$VM_RUN_DIR" && ls screenshots/06-*.png 2>/dev/null)

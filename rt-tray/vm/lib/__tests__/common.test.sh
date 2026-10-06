@@ -155,5 +155,38 @@ vm_render_report
 check "report escapes a pipe inside a reason"     'grep -qF "| piped | fail | " "$VM_RUN_DIR/report.md" && grep -qF "a \| b" "$VM_RUN_DIR/report.md"'
 rm -rf "$STUB"
 
+# vm_guest_run: the guest command's output and exit code travel through the
+# share, so a dropped ssh channel (255) waits on the code file instead of
+# failing a phase whose script is still running in the guest.
+GUEST_RUN="$VM_RUN_DIR"
+VM_PHASE_LIMIT_GUESTRUN=5
+vm_phase_begin guestrun
+vm_ssh_try() { bash -c "$3"; }
+rc=0; vm_guest_run tester vm drivetest "echo driven; exit 3" || rc=$?
+check "guest run returns the guest script's exit code" '[ "$rc" -eq 3 ]'
+check "guest run writes the script's output to the share" 'grep -qx driven "$VM_RUN_DIR/logs/drivetest.log"'
+vm_ssh_try() { ( sleep 1; bash -c "$3" ) & return 255; }
+rc=0; vm_guest_run tester vm dropped "exit 4" || rc=$?
+check "a dropped ssh waits for the script's own code" '[ "$rc" -eq 4 ]'
+vm_ssh_try() { return 255; }
+rc=0; vm_guest_run tester vm lost "exit 0" || rc=$?
+check "a drop with no code by the deadline stays a drop" '[ "$rc" -eq 255 ]'
+vm_ssh_try() { return 1; }
+rc=0; vm_guest_run tester vm unreachable "exit 0" || rc=$?
+check "ssh failing outright keeps its own code" '[ "$rc" -eq 1 ]'
+vm_phase_end guestrun pass
+unset -f vm_ssh_try
+
+# The rehearsal artifact ships a zip beside the dmg; minting from it never
+# attaches the dmg a concurrent run is reading.
+ZT=$(mktemp -d)
+mkdir -p "$ZT/src/mattstack.app/Contents/MacOS"
+printf '#!/bin/sh\necho rt v9.9.9\n' > "$ZT/src/mattstack.app/Contents/MacOS/rt"; chmod +x "$ZT/src/mattstack.app/Contents/MacOS/rt"
+(cd "$ZT/src" && ditto -c -k --keepParent mattstack.app "$ZT/mattstack-9.9.9.zip")
+rt_path=$(vm_rt_from_zip "$ZT/mattstack-9.9.9.zip" "$ZT/out")
+check "rt comes out of the zip runnable"     '[ "$("$rt_path")" = "rt v9.9.9" ]'
+check "a zip with no app fails"              '! (vm_rt_from_zip "$ZT/missing.zip" "$ZT/out2" 2>/dev/null)'
+rm -rf "$ZT"
+
 rm -rf "$VM_ARTIFACTS"
 [ "$fails" -eq 0 ] && echo "common.test.sh: all ok" || { echo "common.test.sh: $fails failed"; exit 1; }

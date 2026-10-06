@@ -47,13 +47,18 @@ screen_team() {
       [ -n "$TEAM_REMOTE" ] || ax_fail "create needs --team-remote (an empty repo URL the team zone will push to)"
       ax_click setup.team.card.create
       ax_set_field setup.team.create.name "$SLUG"
+      # With GitHub connected the card defaults to creating a private repo,
+      # which hides the URL field; the walkthrough pushes to its own repo.
+      if ax_find setup.team.create.useGh >/dev/null 2>&1 && [ "$(ax_value setup.team.create.useGh 2>/dev/null)" = 1 ]; then
+        ax_click setup.team.create.useGh
+      fi
       ax_set_field setup.team.create.remote "$TEAM_REMOTE"
       ax_shot 02-team-create
       ;;
     join)
       [ -n "$CODE_FILE" ] && [ -f "$CODE_FILE" ] || ax_fail "join needs --invite-code-file"
       ax_click setup.team.card.join
-      ax_set_field setup.team.join.code "$(tr -d '\n' < "$CODE_FILE")"
+      ax_fill_verified setup.team.join.code "$(tr -d '\n' < "$CODE_FILE")"
       rc=0; ax_wait_join_note 60 || rc=$?
       [ "$rc" -eq 2 ] && ax_fail "the Join card refused the invite code"
       [ "$rc" -eq 0 ] || ax_fail "no join note on the Join card before Continue"

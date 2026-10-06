@@ -202,6 +202,27 @@ ax_set_field() {  # <axid> <text>   (text never logged)
   ax_log "filled $1"
 }
 
+# A keystroked string can lose or double a character in the guest, and a field
+# like the invite code shows nothing at all for a code that does not parse, so
+# the fill is read back (whitespace aside) and retyped until it lands intact.
+ax_fill_verified() {  # <axid> <text>   (text never logged)
+  local id="$1" text="$2" want got attempt
+  want=$(printf '%s' "$text" | tr -d '[:space:]')
+  for attempt in 1 2 3; do
+    ax_set_field "$id" "$text"
+    got=$(ax_value "$id" 2>/dev/null | tr -d '[:space:]')
+    [ "$got" = "$want" ] && return 0
+    ax_log "$id read back ${#got} of ${#want} characters after fill $attempt; retyping"
+  done
+  ax_fail "$id did not read back intact after 3 fills"
+}
+
+# `rt --version` prints the version, then the binary's path on a second line.
+# A rehearsal compiles in "v2.11.1-ci111", a tag "v2.11.1"; both read as 2.11.1.
+ax_bare_rt_version() {  # stdin: rt --version output → X.Y.Z
+  awk 'NR == 1 { print $NF }' | sed -E 's/^v//; s/-ci[0-9]+$//'
+}
+
 ax_status() {  # <rowId> → status string (the app exposes it as the row status element's value)
   local id; id=$(ax_esc "$1")
   ax_osa "$AX_WALK_AS
