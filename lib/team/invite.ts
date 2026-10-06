@@ -6,7 +6,7 @@ import { gitWithToken } from "./git-credential.ts";
 import { withoutUrls } from "./redact.ts";
 import { publishTeam } from "./publish.ts";
 /**
- * `rt team invite` — mints an opaque relay invite for a handle: pointer
+ * `rt team invite` mints an opaque relay invite for a handle: pointer
  * (team/name/remote/owner/forge) sealed under a fresh key and a
  * client-generated id, stored on the relay as ciphertext only, and handed
  * back as a short paste-able code.
@@ -126,7 +126,7 @@ export interface MintInviteSeams {
   /** The org this Mac reads settings from, which is where an org write lands. */
   currentOrg: () => string | null;
   grantRead: typeof grantRead;
-  /** Local, per-machine team record — carries the membership permission. Seamed so a test can grant it without writing to a real home. */
+  /** Local, per-machine team record that carries the membership permission. Seamed so a test can grant it without writing to a real home. */
   readTeamLocal: typeof readTeamLocal;
   forgeLogin: typeof forgeLogin;
   /** The forge token rt holds for the team remote's host, or null. */
@@ -137,7 +137,7 @@ export interface MintInviteSeams {
   warn: (message: string, shown?: ShownWarning) => void;
 }
 
-/** Degrades to `undefined` on a resolver-layer throw rather than taking the mint down with it — mirrors team-settings.ts's own default reader. */
+/** Degrades to `undefined` on a resolver-layer throw rather than taking the mint down with it, as does team-settings.ts's own default reader. */
 function defaultRead(): SettingsReader {
   return <T>(key: string): T | undefined => {
     try {
@@ -184,7 +184,7 @@ async function refuseIfBusy(p: Probes, dir: string): Promise<void> {
 }
 
 /** `rebase --abort` reapplies the pull's autostash, and parks it in the stash list when it no longer applies cleanly, so uncommitted edits survive either way. */
-async function abortRebase(p: Probes, dir: string, pullOutput: string): Promise<never> {
+async function abortRebase(p: Probes, dir: string, slug: string, pullOutput: string): Promise<never> {
   const abort = await p.exec(["git", "rebase", "--abort"], { cwd: dir });
   const log = `${pullOutput}\n${withoutUrls(`${abort.stdout}\n${abort.stderr}`.trim())}`.trim();
   if (abort.code !== 0) {
@@ -197,11 +197,25 @@ async function abortRebase(p: Probes, dir: string, pullOutput: string): Promise<
   const stashed = /safe in the stash/i.test(`${abort.stdout}\n${abort.stderr}`);
   throw new UserActionableError("org-changed-concurrently", "Someone else changed the org at the same time, so rt made no invite", {}, {
     why: stashed
-      ? "rt put your copy of the org back as it was and kept your unsaved edits there in git's stash. Pull their change, then invite again."
-      : "rt put your copy of the org back as it was. Pull their change, then invite again.",
-    next: "rt team pull",
+      ? `rt put your copy of the org back as it was and kept your unsaved edits there in git's stash. ${SETTLE_THE_CLASH}`
+      : `rt put your copy of the org back as it was. ${SETTLE_THE_CLASH}`,
+    ...settleTheClash(dir, slug),
     log,
   });
+}
+
+function peeringNotEmbedded(log: string): UserActionableError {
+  return new UserActionableError("peering-not-embedded", "rt did not make the invite, because it could not connect their board", {}, {
+    why: "It could not register their board with the switchboard.",
+    log,
+  });
+}
+
+const SETTLE_THE_CLASH = "Pull their change and settle any clash, publish, then invite again.";
+
+/** The daemon's pull replays the same rebase and stops on the same clash, so the remedy is a pull a person finishes by hand. */
+function settleTheClash(dir: string, slug: string): { next: string; thenRun: string } {
+  return { next: `git -C ${shellQuote(dir)} pull --rebase --autostash origin main`, thenRun: `rt team publish --team ${slug}` };
 }
 
 export function realMintInviteSeams(): MintInviteSeams {
@@ -209,15 +223,15 @@ export function realMintInviteSeams(): MintInviteSeams {
     read: defaultRead(),
     pullOrg: async (p, slug, remote, token) => {
       const dir = join(p.home, ".mattstack", "teams", slug);
+      await refuseIfBusy(p, dir);
       const known = await p.exec(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"], { cwd: dir });
       if (known.code !== 0) return;
-      await refuseIfBusy(p, dir);
       const pull = gitWithToken(["pull", "--rebase", "--autostash", "origin", "main"], token, { GIT_TERMINAL_PROMPT: "0" }, { remote });
       const res = await p.exec(pull.argv, { cwd: dir, env: pull.env });
       if (res.code === 0) return;
       const output = withoutUrls(`${res.stdout}\n${res.stderr}`.trim());
       if (!(await rebaseStopped(p, dir))) throw new Error(output || `git pull exited ${res.code}`);
-      await abortRebase(p, dir, output);
+      await abortRebase(p, dir, slug, output);
     },
     publishRoster: async (p, slug, handle, remote, token) => {
       const dir = join(p.home, ".mattstack", "teams", slug);
@@ -343,7 +357,9 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   // at join time (their age key is not yet a recipient), so the per-board
   // token must be minted HERE, where the admin token is readable, and sealed
   // into the pointer. Every failure degrades to an invite without peering
-  // plus a warning; the board panel's re-invite remains the repair.
+  // plus a warning; the board panel's re-invite remains the repair. The
+  // register runs only once the roster is pushed, so no refusal before it
+  // leaves a minted board token unused.
   let peeringWarning: string | undefined;
   let embedFailure: string | null = null;
   let adminToken: string | null = null;
@@ -357,6 +373,31 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
       why: "This Mac holds no switchboard admin token, so it cannot register their board.",
     });
   }
+  if (embedFailure && opts.requirePeering) throw peeringNotEmbedded(embedFailure);
+
+  // Captured before this handle's new record is minted: replace-on-mint's revoke of THIS value runs last, after the new invite is safely live (finding: create-before-destroy).
+  const priorRecord = readInviteRecords(p, opts.slug)[opts.handle];
+
+  try {
+    await seams.pullOrg(p, opts.slug, remote, token);
+  } catch (err) {
+    if (err instanceof UserActionableError) throw err;
+    throw new UserActionableError("org-not-current", "rt could not bring the org repo up to date, so it made no invite", {}, {
+      why: err instanceof Error ? err.message : String(err),
+      next: "rt team status",
+    });
+  }
+  addToRoster(seams, opts.slug, opts.handle, teams);
+  try {
+    await seams.publishRoster(p, opts.slug, opts.handle, remote, token);
+  } catch (err) {
+    const reason = (err instanceof Error ? err.message : String(err)).replace(/\.$/, "");
+    throw new UserActionableError("roster-not-published", `rt could not push ${opts.handle}'s roster entry, so it made no invite`, {}, {
+      why: `${reason}. Pull any change someone else pushed and settle any clash, publish, then invite again.`,
+      ...settleTheClash(join(p.home, ".mattstack", "teams", opts.slug), opts.slug),
+    });
+  }
+
   if (adminToken) {
     try {
       const res = await p.fetch(`${switchboardUrl(p.env)}/boards`, {
@@ -385,37 +426,10 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   }
   if (embedFailure) {
     peeringWarning = "This invite will not connect their board. After they join, invite their board again from the board's members panel.";
-    if (opts.requirePeering) {
-      throw new UserActionableError("peering-not-embedded", "rt did not make the invite, because it could not connect their board", {}, {
-        why: "It could not register their board with the switchboard.",
-        log: embedFailure,
-      });
-    }
+    if (opts.requirePeering) throw peeringNotEmbedded(embedFailure);
     seams.warn(`board peering: ${embedFailure}`, { title: "This invite will not connect their board", hint: "invite their board again from the board's members panel after they join" });
   }
   const peering: InviteResult["peering"] = pointer.switchboard ? "embedded" : embedFailure ? "missing" : "none";
-
-  // Captured before this handle's new record is minted — replace-on-mint's revoke of THIS value runs last, after the new invite is safely live (finding: create-before-destroy).
-  const priorRecord = readInviteRecords(p, opts.slug)[opts.handle];
-
-  try {
-    await seams.pullOrg(p, opts.slug, remote, token);
-  } catch (err) {
-    if (err instanceof UserActionableError) throw err;
-    throw new UserActionableError("org-not-current", "rt could not bring the org repo up to date, so it made no invite", {}, {
-      why: err instanceof Error ? err.message : String(err),
-      next: "rt team status",
-    });
-  }
-  addToRoster(seams, opts.slug, opts.handle, teams);
-  try {
-    await seams.publishRoster(p, opts.slug, opts.handle, remote, token);
-  } catch (err) {
-    throw new UserActionableError("roster-not-published", `rt could not push ${opts.handle}'s roster entry, so it made no invite`, {}, {
-      why: err instanceof Error ? err.message : String(err),
-      next: "rt team pull",
-    });
-  }
 
   const key = generateKey();
   const idHex = generateId();
@@ -428,7 +442,7 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
 
   const code = encodeCode(created.id, key);
 
-  // The record is the ONLY copy of creatorSecret (revoke capability) and keyB64 (reply-read capability) — persist it before anything else fallible runs, and if the write itself fails, name the id/code so the invite is still recoverable by hand.
+  // The record is the ONLY copy of creatorSecret (revoke capability) and keyB64 (reply-read capability): persist it before anything else fallible runs, and if the write itself fails, name the id/code so the invite is still recoverable by hand.
   try {
     upsertInviteRecord(p, opts.slug, opts.handle, {
       id: created.id,
@@ -455,7 +469,7 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
       await relay.delete(priorRecord.id, priorRecord.creatorSecret);
     } catch (err) {
       seams.warn(
-        `rt team invite: minted a new invite for "${opts.handle}", but could not revoke the previous one (id ${priorRecord.id}) — ${err instanceof Error ? err.message : String(err)}; it will simply expire on its own.`,
+        `rt team invite: minted a new invite for "${opts.handle}", but could not revoke the previous one (id ${priorRecord.id}): ${err instanceof Error ? err.message : String(err)}; it will simply expire on its own.`,
         { title: `The earlier invite for ${opts.handle} is still live`, hint: "it stops working when it expires" },
       );
     }

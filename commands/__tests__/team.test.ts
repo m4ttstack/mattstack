@@ -3,7 +3,7 @@ import type { MembersSeams } from "../../lib/team/members.ts";
 import type { InviteResult, MintInviteOpts } from "../../lib/team/invite.ts";
 import { afterEach, beforeEach, describe, test, expect, spyOn } from "bun:test";
 import { execFileSync } from "child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { childEnv } from "../../lib/subprocess.ts";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -77,6 +77,17 @@ describe("teamCreate", () => {
     const deps = baseDeps();
     await teamCreate(["--first-team", "widgets", "Acme", "--remote", "https://github.com/acme/repo.git", "--json"], {}, deps);
     expect(JSON.parse(deps.lines[0]!)).toMatchObject({ slug: "acme", name: "Acme", team: "widgets" });
+  });
+
+  test("a rerun naming another first team is a refusal that points at adding the team", async () => {
+    const deps = baseDeps();
+    await teamCreate(["--first-team", "widgets", "Acme", "--remote", "https://github.com/acme/repo.git", "--json"], {}, deps);
+    const captured = captureOut();
+    try {
+      expect(await runExpectingProcessExit(() => teamCreate(["--first-team", "gadgets", "Acme", "--remote", "https://github.com/acme/repo.git"], {}, deps))).toBe(2);
+      expect(captured.stderr()).toContain("[refused] The acme org was started with widgets as its first team");
+      expect(captured.stderr()).toContain("rt team add gadgets --owner <username>");
+    } finally { captured.restore(); }
   });
 
   test("--json prints the exact contract envelope shape", async () => {
@@ -868,6 +879,49 @@ describe("teamAdd", () => {
       const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
       expect(files).toEqual(["mattstack/teams/widgets/packs/widgets/PACK.md"]);
       expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
+    });
+
+    test("--json names each remembered share it dropped beside the push", async () => {
+      const w = orgWorld("dev2");
+      mkdirSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets"), { recursive: true });
+      writeFileSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets/PACK.md"), "gadgets\n");
+      mkdirSync(join(w.root, "mattstack/teams/widgets/packs/widgets"), { recursive: true });
+      writeFileSync(join(w.root, "mattstack/teams/widgets/packs/widgets/PACK.md"), "widgets\n");
+      updateTeamLocal(w.p, "acme", { pendingPackShares: [
+        { pack: "gadgets", paths: ["mattstack/teams/gadgets", ".claude-plugin/marketplace.json"] },
+        { pack: "widgets", paths: ["mattstack/teams/widgets/packs/widgets"] },
+      ] });
+      const deps = baseDeps({ probes: w.p, forgeToken: async () => null });
+      const captured = captureOut();
+      try {
+        await teamPublish(["--team", "acme", "--json"], {}, deps);
+        expect(captured.stderr()).toBe("");
+      } finally { captured.restore(); }
+      const { at: _at, detail: _detail, ...body } = JSON.parse(deps.lines[0]!);
+      expect(body).toEqual({
+        contract: 1,
+        remote: w.remote,
+        pushed: true,
+        skipped: [{ pack: "gadgets", message: "The gadgets team's files belong to its owners" }],
+      });
+    });
+
+    test("a team add whose pack is remembered before its commit leaves the share owed when the commit fails", async () => {
+      const w = orgWorld();
+      const hooks = join(w.home, "hooks");
+      mkdirSync(hooks, { recursive: true });
+      writeFileSync(join(hooks, "pre-commit"), "#!/bin/sh\nexit 1\n");
+      chmodSync(join(hooks, "pre-commit"), 0o755);
+      w.git("config", "core.hooksPath", hooks);
+      const remembered: unknown[] = [];
+      const probes = { ...w.p, exec: async (argv: string[], opts?: Parameters<typeof w.p.exec>[1]) => {
+        if (argv[1] === "add") remembered.push(readTeamLocal(w.p, "acme").pendingPackShares);
+        return w.p.exec(argv as [string, ...string[]], opts);
+      } } as typeof w.p;
+      const deps = baseDeps({ probes, addTeamSeams: realSeams, forgeToken: async () => null });
+      await teamAdd(["gadgets", "--owner", "dev2", "--team", "acme", "--json"], {}, deps);
+      expect(remembered[0]).toEqual([{ pack: "gadgets", paths: ["mattstack/teams/gadgets", ".claude-plugin/marketplace.json"] }]);
+      expect(readTeamLocal(w.p, "acme").pendingPackShares).toEqual([{ pack: "gadgets", paths: ["mattstack/teams/gadgets", ".claude-plugin/marketplace.json"] }]);
     });
 
     test("a member's Mac never commits a remembered share", async () => {

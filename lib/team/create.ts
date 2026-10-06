@@ -1,5 +1,5 @@
 /**
- * `rt team create` — scaffolds the local team zone (~/.mattstack/teams/<slug>)
+ * `rt team create` scaffolds the local team zone (~/.mattstack/teams/<slug>)
  * as a fresh git repo with its starter settings, but never pushes: Install's
  * `team.create` step owns the push, via `publishTeam`.
  *
@@ -25,7 +25,8 @@ import { gitUsable } from "../setup/home-git.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
 import { forgeFromRemote, parseOriginUrl, stripUserinfo } from "../setup/team-settings.ts";
 import { withoutUrls } from "./redact.ts";
-import { TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
+import { sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
+import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { assertNotRealStoreInTest } from "../../packages/rt-client/src/test-isolation.ts";
 import { assertTeamName } from "./team-names.ts";
 import { slugify } from "./slug.ts";
@@ -62,11 +63,16 @@ export interface CreateTeamSeams {
 const REAL_SEAMS: CreateTeamSeams = { forgeLogin, forgeToken: storedForgeToken };
 const JSONC_EDIT = { formattingOptions: { insertSpaces: true, tabSize: 2 } };
 const ORG_STORE_RELATIVE = "mattstack/org/settings.org.jsonc";
+const teamStoreRelative = (team: string) => `mattstack/teams/${team}/settings.team.jsonc`;
 
 function namedAdmins(storeText: string): unknown[] {
   const current = parse(storeText, [], { allowTrailingComma: true }) as Record<string, unknown> | undefined;
   const admins = (current?.["mattstack.org"] as { admins?: unknown } | undefined)?.admins;
   return Array.isArray(admins) ? admins : [];
+}
+
+function namesAdmin(storeText: string, username: string): boolean {
+  return namedAdmins(storeText).some((admin) => typeof admin === "string" && sameUser(admin, username));
 }
 
 /** Existing admins are authoritative, including on a create rerun. */
@@ -86,12 +92,16 @@ async function creatorUsername(p: Probes, slug: string, remote: string, seams: C
   return seams.forgeLogin(p, forge.provider, forge.host, await seams.forgeToken(p, remote));
 }
 
-export async function commitFiles(p: Probes, slug: string, paths: string[], message: string): Promise<void> {
+/** False when the paths held nothing new to commit. */
+export async function commitFiles(p: Probes, slug: string, paths: string[], message: string): Promise<boolean> {
   const cwd = join(p.home, ".mattstack", "teams", slug);
   const add = await p.exec(["git", "add", "--", ...paths], { cwd });
-  if (add.code !== 0) throw gitStepError("git-add-failed", "git add", add);
+  if (add.code !== 0) {
+    await unstage(p, cwd, paths);
+    throw gitStepError("git-add-failed", "git add", add);
+  }
   const diff = await p.exec(["git", "diff", "--cached", "--quiet", "--", ...paths], { cwd });
-  if (diff.code === 0) return;
+  if (diff.code === 0) return false;
   if (diff.code !== 1) {
     await unstage(p, cwd, paths);
     throw gitStepError("git-commit-failed", "git diff", diff);
@@ -101,6 +111,7 @@ export async function commitFiles(p: Probes, slug: string, paths: string[], mess
     await unstage(p, cwd, paths);
     throw gitStepError("git-commit-failed", "git commit", commit);
   }
+  return true;
 }
 
 /** Staged files left behind make `rt skills sync` refuse on the clone; a clone with no commit yet has no HEAD to reset to. */
@@ -109,8 +120,8 @@ async function unstage(p: Probes, cwd: string, paths: string[]): Promise<void> {
   if (reset.code !== 0) await p.exec(["git", "rm", "--cached", "-r", "-q", "--ignore-unmatch", "--", ...paths], { cwd });
 }
 
-function commitCreator(p: Probes, slug: string, username: string): Promise<void> {
-  return commitFiles(p, slug, [ORG_STORE_RELATIVE], `team: ${username} is the ${slug} org's admin`);
+async function commitCreator(p: Probes, slug: string, username: string): Promise<void> {
+  await commitFiles(p, slug, [ORG_STORE_RELATIVE], `team: ${username} is the ${slug} org's admin`);
 }
 
 /** Only this Mac's pending create may claim or finish its creator's role commit. */
@@ -121,7 +132,7 @@ export async function claimPendingAdmin(p: Probes, slug: string, username: strin
   const before = p.readFile(file);
   if (before === null) return { claimed: false, published: false };
   const after = withCreator(before, pending.team, { username, ...(pending.agePublicKey ? { agePublicKey: pending.agePublicKey } : {}) });
-  if (after === before && !namedAdmins(before).includes(username)) {
+  if (after === before && !namesAdmin(before, username)) {
     updateTeamLocal(p, slug, { creatorPending: undefined });
     return { claimed: false, published: false };
   }
@@ -168,7 +179,7 @@ export function scaffoldFiles(slug: string, name: string, remote: string, recipi
   return {
     [SCAFFOLD_MARKER]: `${JSON.stringify({ role: "org", org: slug }, null, 2)}\n`,
     [ORG_STORE_RELATIVE]: `${ORG_SETTINGS_HEADER}${JSON.stringify(orgSettings, null, 2)}\n`,
-    [`mattstack/teams/${team}/settings.team.jsonc`]: `${TEAM_SETTINGS_HEADER}${JSON.stringify(teamSettings, null, 2)}\n`,
+    [teamStoreRelative(team)]: `${TEAM_SETTINGS_HEADER}${JSON.stringify(teamSettings, null, 2)}\n`,
     ".claude-plugin/marketplace.json": `${JSON.stringify(marketplace, null, 2)}\n`,
     ".sops.yaml": renderSopsYamlFor(TEAM_PATH_REGEX, recipients),
     ".gitignore": "mattstack/org/secrets/*.tmp\n.DS_Store\n",
@@ -211,7 +222,7 @@ const GIT_STEP_TITLE: Record<string, string> = {
   "git-commit-failed": "rt could not make the team repo's first commit",
 };
 
-/** Every git-step failure becomes one of these — never a plain `Error` that would surface as an unhandled crash instead of a renderable message. */
+/** Every git-step failure becomes one of these, never a plain `Error` that would surface as an unhandled crash instead of a renderable message. */
 function gitStepError(code: string, step: string, result: ExecResult): UserActionableError {
   return new UserActionableError(code, GIT_STEP_TITLE[code] ?? "rt could not set up the team repo", {}, {
     log: `${step} failed (exit ${result.code}): ${withoutUrls(`${result.stdout}\n${result.stderr}`.trim())}`,
@@ -221,7 +232,7 @@ function gitStepError(code: string, step: string, result: ExecResult): UserActio
 /**
  * A prior attempt may have already created the gh repo and then failed on a
  * later, purely-local step (git init, a scaffold write) before `.git/config`
- * ever recorded it — reuse that URL from the runtime intent instead of
+ * ever recorded it: reuse that URL from the runtime intent instead of
  * calling `gh repo create` again, which fails outright once the repo
  * already exists remotely. The intent is written the moment gh succeeds
  * (before any filesystem mutation to the zone), so this is the durable
@@ -265,7 +276,7 @@ async function resolveRemote(p: Probes, slug: string, opts: CreateTeamOpts): Pro
   }
 
   // Provenance, recorded at the one moment it is knowable: rt just created
-  // this remote. It confers no rights — it only lets the membership permission
+  // this remote. It confers no rights: it only lets the membership permission
   // be OFFERED later, so rt never asks whether it should administer a repo it
   // was merely pointed at (MAT-387). The permission itself stays off until a
   // human grants it.
@@ -278,9 +289,27 @@ async function resolveRemote(p: Probes, slug: string, opts: CreateTeamOpts): Pro
   return url;
 }
 
+function recordedFirstTeam(p: Probes, slug: string): string | undefined {
+  const intent = readIntent(p);
+  return intent?.mode === "create" && intent.team?.slug === slug ? intent.team.firstTeam : undefined;
+}
+
+function firstTeamSet(slug: string, first: string | undefined, asked: string): UserActionableError {
+  return new UserActionableError("org-first-team-set", first ? `The ${slug} org was started with ${first} as its first team` : `The ${slug} org already has its first team`, {}, {
+    why: "Running create again only finishes the org. Add another team to it instead.",
+    next: `rt team add ${asked} --owner <username>`,
+  });
+}
+
+async function inHead(p: Probes, cwd: string, path: string): Promise<boolean> {
+  return (await p.exec(["git", "cat-file", "-e", `HEAD:${path}`], { cwd })).code === 0;
+}
+
 export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: AgeKeySeam = createRealAgeKeySeam(), seams: CreateTeamSeams = REAL_SEAMS): Promise<CreateTeamResult> {
   const slug = slugify(opts.name);
-  const team = opts.firstTeam ?? defaultTeamName(slug);
+  const recorded = recordedFirstTeam(p, slug);
+  if (recorded && opts.firstTeam && opts.firstTeam !== recorded) throw firstTeamSet(slug, recorded, opts.firstTeam);
+  const team = opts.firstTeam ?? recorded ?? defaultTeamName(slug);
   assertTeamName(team);
   const dir = join(p.home, ".mattstack", "teams", slug);
   assertNotRealStoreInTest(orgStoreFile(p.home, slug));
@@ -308,7 +337,7 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
     const after = withCreator(before, team, { username, agePublicKey: publicKey });
     if (after !== before) p.writeFile(file, after);
     const local = readTeamLocal(p, slug);
-    const pending = after !== before ? { team, agePublicKey: publicKey } : namedAdmins(before).includes(username) ? local.creatorPending : undefined;
+    const pending = after !== before ? { team, agePublicKey: publicKey } : namesAdmin(before, username) ? local.creatorPending : undefined;
     if (!local.forgeUsername || local.creatorPending || pending) updateTeamLocal(p, slug, { ...(!local.forgeUsername ? { forgeUsername: username } : {}), creatorPending: pending });
     return { needsCommit: after !== before || pending !== undefined, deferred: false, username };
   };
@@ -316,6 +345,9 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
   const scaffolded = originConfigured !== null && p.exists(join(dir, SCAFFOLD_MARKER))
     ? await scaffoldInHead(p, slug, team)
     : false;
+  if (originConfigured !== null && !scaffolded && p.exists(join(dir, SCAFFOLD_MARKER)) && (await inHead(p, dir, SCAFFOLD_MARKER)) && !(await inHead(p, dir, teamStoreRelative(team)))) {
+    throw firstTeamSet(slug, recorded, team);
+  }
   if (originConfigured !== null && scaffolded) {
     const creator = await recordCreator(originConfigured);
     if (creator.needsCommit && creator.username) {
@@ -332,7 +364,7 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
   }
 
   // Past here the zone is either absent or partially built (dir exists, but
-  // not yet fully scaffolded/committed) — every step below is a no-op when a
+  // not yet fully scaffolded/committed); every step below is a no-op when a
   // prior attempt already got that far.
   const remote = originConfigured ?? (await resolveRemote(p, slug, opts));
 

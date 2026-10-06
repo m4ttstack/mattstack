@@ -3,7 +3,7 @@ import { assertTeamName } from "./team-names.ts";
 import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
 import { addMarketplacePlugin, packDescription, renderPackFiles } from "../skills/init.ts";
-import { assertMayWrite, rolesFor } from "./roles.ts";
+import { assertMayWrite, rolesFor, storedOrgValue } from "./roles.ts";
 
 export interface AddTeamOpts {
   org: string;
@@ -25,6 +25,16 @@ export interface AddTeamResult {
 }
 
 const SETTINGS_HEADER = "// mattstack team settings. Created by `rt team add`. JSONC: comments and trailing commas are fine.\n";
+
+function withTeam(p: Probes, org: string, team: string, owners: string[]): Record<string, unknown> {
+  const stored = storedOrgValue(p, org);
+  if (stored === null) {
+    const roles = rolesFor(p, org);
+    return { admins: roles.admins, teams: { ...roles.teams, [team]: { owners } } };
+  }
+  const teams = stored.teams !== null && typeof stored.teams === "object" && !Array.isArray(stored.teams) ? stored.teams : {};
+  return { ...stored, teams: { ...teams, [team]: { owners } } };
+}
 
 export function addTeam(p: Probes, opts: AddTeamOpts, seams: AddTeamSeams): AddTeamResult {
   const { org, team, owners } = opts;
@@ -80,9 +90,8 @@ export function addTeam(p: Probes, opts: AddTeamOpts, seams: AddTeamSeams): AddT
   for (const [rel, text] of Object.entries(packFiles)) write(join(packDir, rel), text);
   write(marketPath, marketAfter);
 
-  const roles = rolesFor(p, org);
   assertMayWrite(p, org, ".claude-plugin/marketplace.json");
-  seams.writeOrgSetting("mattstack.org", { admins: roles.admins, teams: { ...roles.teams, [team]: { owners } } });
+  seams.writeOrgSetting("mattstack.org", withTeam(p, org, team, owners));
 
   return { org, team, dir, owners, wrote };
 }

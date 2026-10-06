@@ -82,6 +82,56 @@ describe("sharePack", () => {
     expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
   });
 
+  test("an owed share and a new one land in one commit, so a failure commits neither and origin never names a pack it lacks", async () => {
+    const w = orgWorld();
+    addTeam(w.p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams);
+    writeFileSync(join(w.root, ".git", "index.lock"), "");
+    await sharePack(w.p, "acme", "gadgets", ["mattstack/teams/gadgets", ".claude-plugin/marketplace.json"], async () => null);
+    rmSync(join(w.root, ".git", "index.lock"));
+
+    addTeam(w.p, { org: "acme", team: "tools", owners: ["dev2"] }, seams);
+    const hooks = join(w.home, "hooks");
+    mkdirSync(hooks, { recursive: true });
+    writeFileSync(join(hooks, "pre-commit"), "#!/bin/sh\ngit diff --cached --name-only | grep -q '^mattstack/teams/tools/' && exit 1\nexit 0\n");
+    chmodSync(join(hooks, "pre-commit"), 0o755);
+    w.git("config", "core.hooksPath", hooks);
+    const shared = await sharePack(w.p, "acme", "tools", ["mattstack/teams/tools", ".claude-plugin/marketplace.json"], async () => null);
+
+    expect(shared).toMatchObject({ pushed: false, reason: "rt could not commit the gadgets and tools packs" });
+    expect(w.git("log", "--format=%s").trim()).toBe("seed");
+    expect(readTeamLocal(w.p, "acme").pendingPackShares?.map((share) => share.pack).sort()).toEqual(["gadgets", "tools"]);
+
+    w.git("config", "--unset", "core.hooksPath");
+    expect(await commitPendingPackShares(w.p, "acme")).toEqual({ committed: ["gadgets", "tools"], skipped: [] });
+    expect(w.git("log", "--format=%s").trim().split("\n")).toEqual(["skills: new gadgets and tools packs", "seed"]);
+  });
+
+  test("a remembered share with nothing left to commit is dropped without being reported as shared", async () => {
+    const w = orgWorld();
+    addTeam(w.p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams);
+    w.git("add", "-A");
+    w.git("commit", "-q", "-m", "by hand");
+    updateTeamLocal(w.p, "acme", { pendingPackShares: [{ pack: "gadgets", paths: ["mattstack/teams/gadgets", ".claude-plugin/marketplace.json"] }] });
+    expect(await commitPendingPackShares(w.p, "acme")).toEqual({ committed: [], skipped: [] });
+    expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
+  });
+
+  test("a share reports the remembered shares it dropped because this Mac may no longer write them", async () => {
+    const w = orgWorld("dev2");
+    mkdirSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets"), { recursive: true });
+    writeFileSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets/PACK.md"), "gadgets\n");
+    mkdirSync(join(w.root, "mattstack/teams/widgets/packs/widgets"), { recursive: true });
+    writeFileSync(join(w.root, "mattstack/teams/widgets/packs/widgets/PACK.md"), "widgets\n");
+    updateTeamLocal(w.p, "acme", { pendingPackShares: [{ pack: "gadgets", paths: ["mattstack/teams/gadgets", ".claude-plugin/marketplace.json"] }] });
+
+    const shared = await sharePack(w.p, "acme", "widgets", ["mattstack/teams/widgets/packs/widgets"], async () => null);
+
+    expect(shared).toMatchObject({ pushed: true, skipped: [{ pack: "gadgets", message: "The gadgets team's files belong to its owners" }] });
+    const text = renderPlain(packShareBlocks("widgets", shared));
+    expect(text).toContain("Shared the widgets pack with your org");
+    expect(text).toContain("rt did not share the gadgets pack from this Mac");
+  });
+
   test("a commit that fails after its add leaves nothing staged", async () => {
     const w = orgWorld();
     addTeam(w.p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams);

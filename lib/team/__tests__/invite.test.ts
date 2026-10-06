@@ -484,8 +484,8 @@ describe("mintInvite", () => {
       expect(warnings).toContain("board peering: the switchboard register answered 401");
     });
 
-    test("requirePeering refuses a missing token before anything reaches the relay or the roster", async () => {
-      const { seams, writeCalls } = baseSeams({ readLocalSecret: async () => "admin-1" });
+    test("requirePeering refuses a token that could not be minted before anything reaches the relay", async () => {
+      const { seams } = baseSeams({ readLocalSecret: async () => "admin-1" });
       const relay = fakeRelayClient();
 
       const caught = await mintInvite(refused(), relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW, requirePeering: true }, seams).catch((err: unknown) => err);
@@ -494,8 +494,19 @@ describe("mintInvite", () => {
       expect((caught as UserActionableError).code).toBe("peering-not-embedded");
       expect((caught as UserActionableError).log).toContain("the switchboard register answered 401");
       expect(relay.createCalls).toEqual([]);
-      expect(writeCalls).toEqual([]);
     });
+
+    for (const step of ["pull", "roster push"] as const) {
+      test(`a ${step} that fails registers no board, so no board token is left unused`, async () => {
+        const fail = async () => { throw new UserActionableError("org-changed-concurrently", "Someone else changed the org at the same time, so rt made no invite"); };
+        const { seams } = baseSeams({ readLocalSecret: async () => "admin-1", ...(step === "pull" ? { pullOrg: fail } : { publishRoster: fail }) });
+        const p = registered();
+
+        await expect(mintInvite(p, fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams)).rejects.toBeInstanceOf(UserActionableError);
+
+        expect(p.calls.fetch).toEqual([]);
+      });
+    }
 
     test("requirePeering refuses a Mac with no admin token before anything reaches the relay or the roster", async () => {
       const { seams, writeCalls } = baseSeams();
@@ -828,7 +839,7 @@ describe("joinLinkBase refuses a base the code could be intercepted on", () => {
 
     test("a pull that clashes with someone else's change keeps its own plain refusal", async () => {
       const relay = fakeRelayClient();
-      const clash = new UserActionableError("org-changed-concurrently", "Someone else changed the org at the same time, so rt made no invite", {}, { next: "rt team pull" });
+      const clash = new UserActionableError("org-changed-concurrently", "Someone else changed the org at the same time, so rt made no invite", {}, { next: "git pull" });
       const { seams, writeCalls } = baseSeams({ pullOrg: async () => { throw clash; } });
       await expect(mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "dev2", teams: ["widgets"], now: NOW }, seams)).rejects.toBe(clash);
       expect(writeCalls).toEqual([]);
@@ -852,7 +863,9 @@ describe("joinLinkBase refuses a base the code could be intercepted on", () => {
       await expect(mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "dev2", teams: ["widgets"], now: NOW }, seams)).rejects.toMatchObject({
         code: "roster-not-published",
         message: "rt could not push dev2's roster entry, so it made no invite",
-        why: "The org repo refused the push",
+        why: "The org repo refused the push. Pull any change someone else pushed and settle any clash, publish, then invite again.",
+        next: "git -C /home/.mattstack/teams/acme pull --rebase --autostash origin main",
+        thenRun: "rt team publish --team acme",
       });
       expect(relay.createCalls).toEqual([]);
     });
@@ -872,7 +885,7 @@ describe("real invite git seams", () => {
     const p = probesWithRemote("https://github.com/acme/widgets.git");
     p.exec = async (argv, opts) => { seen.push({ argv, env: opts?.env }); return { code: 0, stdout: "", stderr: "" }; };
     await realMintInviteSeams().pullOrg(p, SLUG, "https://github.com/acme/widgets.git", "private-token");
-    expect(seen[0]!.argv).toEqual(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"]);
+    expect(seen.map((call) => call.argv)).toContainEqual(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"]);
     const pull = seen.find((call) => call.argv.includes("pull"))!;
     expect(pull.argv.slice(-5)).toEqual(["pull", "--rebase", "--autostash", "origin", "main"]);
     expect(JSON.stringify(seen.map((call) => call.argv))).not.toContain("private-token");
@@ -883,7 +896,18 @@ describe("real invite git seams", () => {
     const p = probesWithRemote(REMOTE);
     p.exec = async (argv) => { p.calls.exec.push(argv); return { code: 1, stdout: "", stderr: "" }; };
     await realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null);
-    expect(p.calls.exec).toEqual([["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"]]);
+    expect(p.calls.exec).toContainEqual(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"]);
+    expect(p.calls.exec.some((argv) => argv.includes("pull"))).toBe(false);
+  });
+
+  test("a never-published org part way through a merge is refused, not pulled onto", async () => {
+    const p = probesWithRemote(REMOTE, { "/home/.mattstack/teams/acme/.git/MERGE_HEAD": "" });
+    p.exec = async (argv) => {
+      p.calls.exec.push(argv);
+      if (argv.includes("--git-path")) return { code: 0, stdout: `.git/${argv.at(-1)}\n`, stderr: "" };
+      return { code: 1, stdout: "", stderr: "" };
+    };
+    await expect(realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null)).rejects.toMatchObject({ code: "org-mid-merge" });
   });
 
   test("failed pulls redact urls before mint turns them into a visible reason", async () => {
@@ -1027,7 +1051,8 @@ describe("a pull that conflicts with another admin's roster change", () => {
       };
       const err = await realMintInviteSeams().pullOrg(p, "acme", remote, null).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(UserActionableError);
-      expect(err).toMatchObject({ code: "org-changed-concurrently", message: "Someone else changed the org at the same time, so rt made no invite", next: "rt team pull" });
+      expect(err).toMatchObject({ code: "org-changed-concurrently", message: "Someone else changed the org at the same time, so rt made no invite", next: `git -C ${dir} pull --rebase --autostash origin main`, thenRun: "rt team publish --team acme" });
+      expect((err as UserActionableError).why).toBe("rt put your copy of the org back as it was. Pull their change and settle any clash, publish, then invite again.");
 
       expect(existsSync(join(dir, ".git", "rebase-merge"))).toBe(false);
       expect(existsSync(join(dir, ".git", "rebase-apply"))).toBe(false);

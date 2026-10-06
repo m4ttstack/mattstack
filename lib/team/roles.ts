@@ -14,6 +14,14 @@ export function rolesFor(p: Reads, org: string): OrgRoles {
   return raw === null ? { admins: [], teams: {} } : rolesFrom(parseStoreText(file, raw));
 }
 
+/** The org store's own `mattstack.org` value with every field kept, for a write that must not drop what the roles view ignores. */
+export function storedOrgValue(p: Reads, org: string): Record<string, unknown> | null {
+  const file = orgStoreFile(p.home, org);
+  const raw = p.readFile(file);
+  const value = raw === null ? undefined : parseStoreText(file, raw).global["mattstack.org"];
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
 export function roleFor(p: Reads, org: string): OrgRole {
   return roleOf(readTeamLocal(p, org).forgeUsername ?? null, rolesFor(p, org));
 }

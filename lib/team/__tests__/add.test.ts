@@ -48,6 +48,14 @@ describe("addTeam", () => {
     expect(writes).toEqual([["mattstack.org", { admins: ["dev1"], teams: { widgets: { owners: ["dev1"] }, gadgets: { owners: ["dev2"] } } }]]);
   });
 
+  test("the roles write keeps every field the org store already has, including teams the roles view skips", () => {
+    const { p, seams, writes } = world();
+    const stored = { admins: ["dev1"], note: "kept", teams: { widgets: { owners: ["dev1"], lead: "dev1" }, Legacy: { owners: ["dev2"] } } };
+    p.writeFile(`${ROOT}/mattstack/org/settings.org.jsonc`, JSON.stringify({ "mattstack.org": stored }));
+    addTeam(p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams);
+    expect(writes).toEqual([["mattstack.org", { ...stored, teams: { ...stored.teams, gadgets: { owners: ["dev2"] } } }]]);
+  });
+
   test("only an org admin adds a team", () => {
     const { p, seams, writes } = world("dev2");
     expect(() => addTeam(p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams)).toThrow("The org's shared files belong to its admins");

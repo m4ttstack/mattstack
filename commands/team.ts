@@ -7,7 +7,7 @@ import { rosterFrom } from "../packages/rt-client/src/settings/active-team.ts";
 import { activeTeamFor } from "../lib/team/active-team.ts";
 import { roleFor, rolesFor } from "../lib/team/roles.ts";
 /**
- * rt team create|publish|invite|join|members|status — the team-repo
+ * rt team create|publish|invite|join|members|status: the team-repo
  * lifecycle verbs.
  *
  *   rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]
@@ -53,7 +53,7 @@ import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
 import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { publishTeam } from "../lib/team/publish.ts";
-import { commitPendingPackShares, packShareBlocks, sharePack } from "../lib/team/share-pack.ts";
+import { commitPendingPackShares, droppedShareBlocks, droppedShares, packShareBlocks, rememberPackShare, sharePack } from "../lib/team/share-pack.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient } from "../lib/team/relay-client.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
@@ -76,7 +76,7 @@ export interface TeamDeps {
   print: (s: string) => void;
   exit?: (code: number) => never;
   ageKeySeam?: AgeKeySeam;
-  /** `json` gates the interactive TTY prompt — a machine caller must never block waiting on a terminal that isn't there. */
+  /** `json` gates the interactive TTY prompt: a machine caller must never block waiting on a terminal that isn't there. */
   readCode?: (json: boolean) => Promise<string>;
   /** Overrides `joinRedeem`'s `read`/`readTeamSecret`/`forgeLogin`/`warn` seams, real by default, so a test never has to rely on the isolated test HOME happening to lack a team switchboard admin token. */
   joinRedeemSeams?: Partial<JoinRedeemSeams>;
@@ -84,7 +84,7 @@ export interface TeamDeps {
   mintInviteSeams?: Partial<MintInviteSeams>;
   /** Overrides `teamStatus`'s `board.title`/`mattstack.roster` reads; real by default, so a test never has to seed a real settings store just to check envelope shape. */
   statusRead?: SettingsReader;
-  /** The forge token rt holds for a remote's host — real store by default. */
+  /** The forge token rt holds for a remote's host, the real store by default. */
   forgeToken?: typeof storedForgeToken;
   /** The daemon round trip `teamPull`/`teamStatus` use for the team-snapshot verbs (`team:pull`, `team:snapshot-status`); real `daemonQuery` by default. */
   daemon?: (cmd: string, payload: unknown, timeoutMs?: number) => Promise<unknown>;
@@ -120,7 +120,7 @@ function flagValue(args: string[], flag: string): string | undefined {
  * `--key`-only: also accepts `--key=age1...`, unlike every other flag in
  * this file (a repo-wide `flagValue` gap, out of scope to fix generally
  * here). `--key` is the one flag whose wrong fallback has security
- * consequences — an unrecognized `--key=...` token would otherwise vanish
+ * consequences: an unrecognized `--key=...` token would otherwise vanish
  * silently and `membersRemove` would fall back to whatever key the roster
  * happens to record, which is exactly the substitution an operator typing
  * `--key=` to be explicit is trying to rule out.
@@ -130,7 +130,7 @@ function keyFlagValue(args: string[]): string | undefined {
   return inline ? inline.slice("--key=".length) : flagValue(args, "--key");
 }
 
-/** Strips every recognized flag (and its value) so what's left is positional — an unrecognized token stays visible instead of silently vanishing. */
+/** Strips every recognized flag (and its value) so what's left is positional, and an unrecognized token stays visible instead of silently vanishing. */
 function positional(args: string[], valueFlags: string[]): string[] {
   const result: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -162,6 +162,7 @@ const REFUSAL_CODES = new Set([
   "own-key-removal-refused",
   "team-exists",
   "team-remote-mismatch",
+  "org-first-team-set",
 ]);
 
 /** `--json` and every non-refusal take exitUserError's route, so the envelope and the exit code never depend on the code. */
@@ -186,7 +187,9 @@ export async function teamAdd(args: string[], _ctx: CommandContext = {}, deps: T
   try {
     const org = resolveTeamSlug(args, "team add");
     const result = addTeam(deps.probes, { org, team, owners }, deps.addTeamSeams ?? realAddTeamSeams());
-    const published = await sharePack(deps.probes, org, team, [`mattstack/teams/${team}`, ".claude-plugin/marketplace.json"], deps.forgeToken ?? storedForgeToken);
+    const sharePaths = [`mattstack/teams/${team}`, ".claude-plugin/marketplace.json"];
+    rememberPackShare(deps.probes, org, team, sharePaths);
+    const published = await sharePack(deps.probes, org, team, sharePaths, deps.forgeToken ?? storedForgeToken);
     if (json) {
       deps.print(JSON.stringify(envelope({ ...result, published })));
       return;
@@ -253,14 +256,14 @@ function resolveTeamSlug(args: string[], verb: string): string {
   const explicit = flagValue(args, "--team");
   if (explicit) return explicit;
 
-  const teams = listOrgs();
-  if (teams.length === 0) {
+  const orgs = listOrgs();
+  if (orgs.length === 0) {
     throw new UserActionableError("no-team", "This Mac has no team yet", {}, { next: "rt team create" });
   }
-  if (teams.length > 1) {
-    throw new UserActionableError("ambiguous-team", `This Mac has more than one team: ${teams.join(", ")}`, {}, { next: `rt ${verb} --team <slug>` });
+  if (orgs.length > 1) {
+    throw new UserActionableError("ambiguous-team", `This Mac has more than one team: ${orgs.join(", ")}`, {}, { next: `rt ${verb} --team <slug>` });
   }
-  return teams[0]!;
+  return orgs[0]!;
 }
 
 const PULL_TIMEOUT_MS = 180_000;
@@ -319,15 +322,11 @@ export async function teamPublish(args: string[], _ctx: CommandContext = {}, dep
     const slug = resolveTeamSlug(args, "team publish");
     const target = remote ?? teamRemote(deps.probes, slug);
     const pending = await commitPendingPackShares(deps.probes, slug);
-    if (!json) {
-      for (const skip of pending.skipped) {
-        out.note(out.line("refused", `rt did not share the ${skip.pack} pack from this Mac`, skip.message), ...(skip.why ? [out.callout("why", skip.why)] : []));
-      }
-    }
+    if (!json && pending.skipped.length > 0) out.note(...droppedShareBlocks(pending.skipped));
     const token = target ? await (deps.forgeToken ?? storedForgeToken)(deps.probes, target) : null;
     const result = await publishTeam(deps.probes, slug, remote, { token, tokenRemote: target });
     if (json) {
-      deps.print(JSON.stringify(envelope(result)));
+      deps.print(JSON.stringify(envelope({ ...result, ...droppedShares(pending.skipped) })));
       return;
     }
     out.print(
@@ -498,7 +497,7 @@ export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: 
     if (dryRun) {
       result = await joinDryRun(deps.probes, relay, code);
     } else {
-      // ageKeySeam is resolved LAST and always from TeamDeps.ageKeySeam first (the field teamCreate also uses) — never
+      // ageKeySeam is resolved LAST and always from TeamDeps.ageKeySeam first (the field teamCreate also uses), never
       // from realJoinRedeemSeams' own default, so a test-injected fake never lets a real redeem touch the actual keychain,
       // and never silently loses to a joinRedeemSeams override that didn't set one.
       const seams: JoinRedeemSeams = {
@@ -538,7 +537,7 @@ export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: 
   }
 }
 
-/** A non-UserActionableError from the members path (a rollback error from addTeamRecipient/removeTeamRecipient, a keychain failure) already carries a complete, human-readable explanation in its own message — the user can act on it (retry, unlock), so it gets its own code and the same exit-2 envelope every other actionable failure uses, rather than falling through to a raw stack trace or an envelope the app's decoder can't reach at exit 1. */
+/** A non-UserActionableError from the members path (a rollback error from addTeamRecipient/removeTeamRecipient, a keychain failure) already carries a complete, human-readable explanation in its own message: the user can act on it (retry, unlock), so it gets its own code and the same exit-2 envelope every other actionable failure uses, rather than falling through to a raw stack trace or an envelope the app's decoder can't reach at exit 1. */
 function reportMembersError(err: unknown, deps: TeamDeps, json: boolean): never {
   if (err instanceof UserActionableError) exitTeamError(err, json, deps);
   if (err instanceof MembersSyncAbortedError) {
@@ -669,7 +668,7 @@ function defaultStatusRead(): SettingsReader {
 
 /**
  * `mattstack.roster` lives in the org's git-synced settings store, writable by
- * any teammate (or a bad merge) — never trusted to already be an array of
+ * any teammate (or a bad merge), never trusted to already be an array of
  * `{username: string}` objects. A non-conforming entry is dropped rather than
  * crashing a contract verb with a raw `TypeError`, or letting a non-string
  * `username` (or an empty `{}`) leak into the envelope unfiltered.

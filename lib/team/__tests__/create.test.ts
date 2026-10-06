@@ -4,10 +4,10 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { childEnv } from "../../subprocess.ts";
 import { tmpdir } from "os";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
-import { createTeam, defaultTeamName, scaffoldFiles, withCreator, claimPendingAdmin } from "../create.ts";
+import { commitFiles, createTeam, defaultTeamName, scaffoldFiles, withCreator, claimPendingAdmin } from "../create.ts";
 import { UserActionableError } from "../../errors.ts";
 import { recordForgeIdentity } from "../../setup/steps/org.ts";
-import { readIntent } from "../../setup/intent.ts";
+import { clearIntent, readIntent } from "../../setup/intent.ts";
 import { resetCltCacheForTests } from "../../setup/home-git.ts";
 import { createRealProbes } from "../../setup/probes.ts";
 import { getSetting } from "../../settings/resolve.ts";
@@ -151,6 +151,16 @@ describe("createTeam", () => {
     const p = gitAwareFakeProbes("/home/x", (argv) => argv[0] === "git" && argv[1] === "commit" ? { code: 1, stdout: "", stderr: "nothing to commit; fake commit failure" } : undefined);
     await expect(createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false }, new FakeAgeKeySeam(), seams)).rejects.toMatchObject({ code: "git-commit-failed" });
     expect(readTeamLocal(p, "acme").creatorPending).toEqual({ team: "acme", agePublicKey: FAKE_PUBLIC_KEY });
+  });
+
+  test("commitFiles unstages its paths when git add fails part way, and says whether it committed", async () => {
+    const failing = gitAwareFakeProbes("/home/x", (argv) => (argv[1] === "add" ? { code: 128, stdout: "", stderr: "fatal: unable to index file" } : undefined));
+    await expect(commitFiles(failing, "acme", ["a", "b"], "m")).rejects.toMatchObject({ code: "git-add-failed" });
+    expect(failing.calls.exec).toContainEqual(["git", "reset", "-q", "--", "a", "b"]);
+
+    const clean = gitAwareFakeProbes("/home/x", (argv) => (argv[1] === "diff" ? { code: 0, stdout: "", stderr: "" } : undefined));
+    expect(await commitFiles(clean, "acme", ["a"], "m")).toBe(false);
+    expect(await commitFiles(gitAwareFakeProbes("/home/x"), "acme", ["a"], "m")).toBe(true);
   });
 
   test("argv sequence is CLT probe → init → remote add → add → commit, never push", async () => {
@@ -521,6 +531,67 @@ describe("the creator", () => {
     expect(git.slice(-2)).toEqual(["commit team: dev1 is the acme org's admin", "push"]);
 
     expect(await claimPendingAdmin(p, "acme", "dev2", null)).toEqual({ claimed: false, published: false });
+  });
+
+  test("a pending creator whose admin entry differs only in case still claims, commits and pushes", async () => {
+    const git: string[] = [];
+    const p = gitAwareFakeProbes(HOME, (argv) => {
+      if (argv[0] === "git" && (argv[1] === "commit" || argv.includes("push"))) git.push(argv.includes("push") ? "push" : `commit ${argv[argv.indexOf("-m") + 1]}`);
+      return undefined;
+    });
+    await createTeam(p, { ...GITHUB, firstTeam: "widgets" }, new FakeAgeKeySeam(), unknown);
+    p.writeFile(ORG_STORE, withCreator(p.readFile(ORG_STORE)!, "widgets", { username: "Dev1" }));
+    updateTeamLocal(p, "acme", { forgeUsername: "dev1" });
+    expect(await claimPendingAdmin(p, "acme", "dev1", null)).toEqual({ claimed: true, published: true });
+    expect(readTeamLocal(p, "acme").creatorPending).toBeUndefined();
+    expect(git.slice(-2)).toEqual(["commit team: dev1 is the acme org's admin", "push"]);
+  });
+
+  test("a rerun whose admin entry differs only in case keeps its pending commit", async () => {
+    const commits: string[] = [];
+    const p = gitAwareFakeProbes(HOME, (argv) => {
+      if (argv[0] === "git" && argv[1] === "commit") commits.push(argv[argv.indexOf("-m") + 1]!);
+      return undefined;
+    });
+    await createTeam(p, { ...GITHUB, firstTeam: "widgets" }, new FakeAgeKeySeam(), unknown);
+    p.writeFile(ORG_STORE, withCreator(p.readFile(ORG_STORE)!, "widgets", { username: "Dev1" }));
+    await createTeam(p, { ...GITHUB, firstTeam: "widgets" }, new FakeAgeKeySeam(), seams);
+    expect(commits).toEqual(["team: scaffold acme", "team: dev1 is the acme org's admin"]);
+    expect(readTeamLocal(p, "acme").creatorPending).toBeUndefined();
+  });
+
+  test("a rerun naming a different first team is refused and points at adding a team", async () => {
+    const p = gitAwareFakeProbes(HOME);
+    await createTeam(p, { ...GITHUB, firstTeam: "widgets" }, new FakeAgeKeySeam(), seams);
+    const writesBefore = Object.keys(p.calls.writes).sort();
+    await expect(createTeam(p, { ...GITHUB, firstTeam: "gadgets" }, new FakeAgeKeySeam(), seams)).rejects.toMatchObject({
+      code: "org-first-team-set",
+      message: "The acme org was started with widgets as its first team",
+      next: "rt team add gadgets --owner <username>",
+    });
+    expect(p.exists(`${HOME}/.mattstack/teams/acme/mattstack/teams/gadgets`)).toBe(false);
+    expect(Object.keys(p.calls.writes).sort()).toEqual(writesBefore);
+  });
+
+  test("once setup forgot the intent, a rerun naming a team the committed org lacks is still refused", async () => {
+    const p = gitAwareFakeProbes(HOME, (argv) => (argv[1] === "cat-file" && argv.at(-1) === "HEAD:mattstack/teams/gadgets/settings.team.jsonc" ? { code: 128, stdout: "", stderr: "" } : undefined));
+    await createTeam(p, { ...GITHUB, firstTeam: "widgets" }, new FakeAgeKeySeam(), seams);
+    clearIntent(p);
+    await expect(createTeam(p, { ...GITHUB, firstTeam: "gadgets" }, new FakeAgeKeySeam(), seams)).rejects.toMatchObject({
+      code: "org-first-team-set",
+      message: "The acme org already has its first team",
+      next: "rt team add gadgets --owner <username>",
+    });
+    expect(p.exists(`${HOME}/.mattstack/teams/acme/mattstack/teams/gadgets`)).toBe(false);
+  });
+
+  test("a rerun with no first team finishes the one the org was started with", async () => {
+    const p = gitAwareFakeProbes(HOME);
+    await createTeam(p, { ...GITHUB, firstTeam: "widgets" }, new FakeAgeKeySeam(), unknown);
+    const second = await createTeam(p, GITHUB, new FakeAgeKeySeam(), seams);
+    expect(second.team).toBe("widgets");
+    expect(p.exists(`${HOME}/.mattstack/teams/acme/mattstack/teams/acme`)).toBe(false);
+    expect(orgStore(p)["mattstack.org"]).toEqual({ admins: ["dev1"], teams: { widgets: { owners: ["dev1"] } } });
   });
 
   test("with no marker, or an org that already names an admin, nothing is claimed", async () => {
