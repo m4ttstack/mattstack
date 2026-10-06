@@ -1695,5 +1695,400 @@
         "evidence": ".harness-spike/baseline-01/git-launch-comparison-02.json"
       }
     ]
+  },
+  "boundedTimeoutRepetition": {
+    "status": "70 passes; historical timeout cause unresolved; admission blocked",
+    "selection": {
+      "cases": [
+        {
+          "file": "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "test": "worktree:provision hydration > cutting a new branch refreshes a hydrated tree's stale default ref first"
+        },
+        {
+          "file": "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "test": "worktree:freshen > runs the named tree and fast-forwards it"
+        },
+        {
+          "file": "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "test": "worktree:provision > a failure after the claim rolls the tree back to on-deck"
+        },
+        {
+          "file": "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "test": "worktree:provision > local branches report existing-clean, behind, or diverged and are never reconciled"
+        },
+        {
+          "file": "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "test": "worktree:provision hydration > a hydrate failure still returns a usable tree, via cold create"
+        },
+        {
+          "file": "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "test": "worktree:provision hydration > no golden: cold-creates as before, with no hydratedFrom"
+        },
+        {
+          "file": "lib/worktree/__tests__/create.test.ts",
+          "test": "createTree > out-of-repo default root leaves .git/info/exclude untouched"
+        },
+        {
+          "file": "lib/worktree/__tests__/dispose.test.ts",
+          "test": "disposeTree > commits made after the merged MR's head are not covered \u2014 the anchor refuses"
+        },
+        {
+          "file": "lib/worktree/__tests__/dispose.test.ts",
+          "test": "classifyDirtyAsync > declared generated file with a substantive edit is a blocker"
+        },
+        {
+          "file": "lib/worktree/__tests__/dispose.test.ts",
+          "test": "classifyDirtyAsync > undeclared modified file is a blocker even when whitespace-only"
+        },
+        {
+          "file": "lib/worktree/__tests__/dispose.test.ts",
+          "test": "disposeTree > a rebased-and-merged HEAD never lets dispose delete a branch holding a commit the MR lacks"
+        },
+        {
+          "file": "lib/worktree/__tests__/hydrate.test.ts",
+          "test": "hydrateTree > a donor that advances after the caller's read is not used stale: the member gets the fresh commit and fresh artifacts, not the caller's snapshot"
+        },
+        {
+          "file": "scripts/__tests__/no-repo-purity-scoped.test.ts",
+          "test": "scoped purity terms > the built-in plugins/mattstack entry bans each of the pack's three terms"
+        },
+        {
+          "file": "scripts/__tests__/release-marketplace.test.ts",
+          "test": "marketplace.sh validation > an in-tree plugin publishes tracked files only, never untracked, ignored, .git or .worktrees"
+        }
+      ],
+      "gitLookup": "/usr/bin/git",
+      "sourceSha256": {
+        "lib/daemon/__tests__/worktree-handlers.test.ts": "d9c53377bd257ba74e417a0eceb598f2268c8c244d21f6e340f4b60e439be119",
+        "lib/worktree/__tests__/create.test.ts": "990f79204c04f5c92653e780c3889cfd8b3d974299cf03a39c5662163299606b",
+        "lib/worktree/__tests__/dispose.test.ts": "f01014513fd836dbf389b5510307200c4d98eb5a315c979cca51aa45b60e06ae",
+        "lib/worktree/__tests__/hydrate.test.ts": "f2956b27a75bc93fb3a51714d67a691dfe5b1107b63b69418b3e24ef34821075",
+        "scripts/__tests__/no-repo-purity-scoped.test.ts": "3870858ba05f0c0ed52b4264e8aad70a8ccef7d8095a5ff9b005871787d35884",
+        "scripts/__tests__/release-marketplace.test.ts": "52aa5d159454305f0a634b137cfd590839026d6e5eb18565b3c37a705e0bc82f"
+      },
+      "maximumRounds": 5,
+      "stopOnFirstFailure": true,
+      "deadlineOverride": false
+    },
+    "runs": [
+      {
+        "command": [
+          "bun",
+          "test",
+          "--preload",
+          "./.harness-spike/baseline-03/observe-processes.ts",
+          "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "lib/worktree/__tests__/create.test.ts",
+          "lib/worktree/__tests__/dispose.test.ts",
+          "lib/worktree/__tests__/hydrate.test.ts",
+          "scripts/__tests__/no-repo-purity-scoped.test.ts",
+          "scripts/__tests__/release-marketplace.test.ts",
+          "--test-name-pattern",
+          "cutting\\ a\\ new\\ branch\\ refreshes\\ a\\ hydrated\\ tree's\\ stale\\ default\\ ref\\ first|runs\\ the\\ named\\ tree\\ and\\ fast\\-forwards\\ it|a\\ failure\\ after\\ the\\ claim\\ rolls\\ the\\ tree\\ back\\ to\\ on\\-deck|local\\ branches\\ report\\ existing\\-clean,\\ behind,\\ or\\ diverged\\ and\\ are\\ never\\ reconciled|a\\ hydrate\\ failure\\ still\\ returns\\ a\\ usable\\ tree,\\ via\\ cold\\ create|no\\ golden:\\ cold\\-creates\\ as\\ before,\\ with\\ no\\ hydratedFrom|out\\-of\\-repo\\ default\\ root\\ leaves\\ \\.git/info/exclude\\ untouched|commits\\ made\\ after\\ the\\ merged\\ MR's\\ head\\ are\\ not\\ covered\\ \u2014\\ the\\ anchor\\ refuses|declared\\ generated\\ file\\ with\\ a\\ substantive\\ edit\\ is\\ a\\ blocker|undeclared\\ modified\\ file\\ is\\ a\\ blocker\\ even\\ when\\ whitespace\\-only|a\\ rebased\\-and\\-merged\\ HEAD\\ never\\ lets\\ dispose\\ delete\\ a\\ branch\\ holding\\ a\\ commit\\ the\\ MR\\ lacks|a\\ donor\\ that\\ advances\\ after\\ the\\ caller's\\ read\\ is\\ not\\ used\\ stale:\\ the\\ member\\ gets\\ the\\ fresh\\ commit\\ and\\ fresh\\ artifacts,\\ not\\ the\\ caller's\\ snapshot|the\\ built\\-in\\ plugins/mattstack\\ entry\\ bans\\ each\\ of\\ the\\ pack's\\ three\\ terms|an\\ in\\-tree\\ plugin\\ publishes\\ tracked\\ files\\ only,\\ never\\ untracked,\\ ignored,\\ \\.git\\ or\\ \\.worktrees"
+        ],
+        "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+        "commit": "fc0f9bd9855cbf52616533f8537a9b231c2106f2",
+        "startedAt": "2026-10-06T00:56:20.367992+00:00",
+        "gitLookup": "/usr/bin/git",
+        "regularHomeBeforePreload": "/Users/matt",
+        "loadBefore": [
+          2.99853515625,
+          3.12744140625,
+          3.54443359375
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 12.428060000063851,
+        "finishedAt": "2026-10-06T00:56:32.773846+00:00",
+        "logSha256": "5bbe5db4ecab70df499d972c807d3b98d9f3ba069614df7ed14c50fbaeaff567",
+        "passed": 14,
+        "failedCases": []
+      },
+      {
+        "command": [
+          "bun",
+          "test",
+          "--preload",
+          "./.harness-spike/baseline-03/observe-processes.ts",
+          "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "lib/worktree/__tests__/create.test.ts",
+          "lib/worktree/__tests__/dispose.test.ts",
+          "lib/worktree/__tests__/hydrate.test.ts",
+          "scripts/__tests__/no-repo-purity-scoped.test.ts",
+          "scripts/__tests__/release-marketplace.test.ts",
+          "--test-name-pattern",
+          "cutting\\ a\\ new\\ branch\\ refreshes\\ a\\ hydrated\\ tree's\\ stale\\ default\\ ref\\ first|runs\\ the\\ named\\ tree\\ and\\ fast\\-forwards\\ it|a\\ failure\\ after\\ the\\ claim\\ rolls\\ the\\ tree\\ back\\ to\\ on\\-deck|local\\ branches\\ report\\ existing\\-clean,\\ behind,\\ or\\ diverged\\ and\\ are\\ never\\ reconciled|a\\ hydrate\\ failure\\ still\\ returns\\ a\\ usable\\ tree,\\ via\\ cold\\ create|no\\ golden:\\ cold\\-creates\\ as\\ before,\\ with\\ no\\ hydratedFrom|out\\-of\\-repo\\ default\\ root\\ leaves\\ \\.git/info/exclude\\ untouched|commits\\ made\\ after\\ the\\ merged\\ MR's\\ head\\ are\\ not\\ covered\\ \u2014\\ the\\ anchor\\ refuses|declared\\ generated\\ file\\ with\\ a\\ substantive\\ edit\\ is\\ a\\ blocker|undeclared\\ modified\\ file\\ is\\ a\\ blocker\\ even\\ when\\ whitespace\\-only|a\\ rebased\\-and\\-merged\\ HEAD\\ never\\ lets\\ dispose\\ delete\\ a\\ branch\\ holding\\ a\\ commit\\ the\\ MR\\ lacks|a\\ donor\\ that\\ advances\\ after\\ the\\ caller's\\ read\\ is\\ not\\ used\\ stale:\\ the\\ member\\ gets\\ the\\ fresh\\ commit\\ and\\ fresh\\ artifacts,\\ not\\ the\\ caller's\\ snapshot|the\\ built\\-in\\ plugins/mattstack\\ entry\\ bans\\ each\\ of\\ the\\ pack's\\ three\\ terms|an\\ in\\-tree\\ plugin\\ publishes\\ tracked\\ files\\ only,\\ never\\ untracked,\\ ignored,\\ \\.git\\ or\\ \\.worktrees"
+        ],
+        "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+        "commit": "fc0f9bd9855cbf52616533f8537a9b231c2106f2",
+        "startedAt": "2026-10-06T00:56:32.795060+00:00",
+        "gitLookup": "/usr/bin/git",
+        "regularHomeBeforePreload": "/Users/matt",
+        "loadBefore": [
+          3.97509765625,
+          3.3359375,
+          3.61328125
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 12.415583708090708,
+        "finishedAt": "2026-10-06T00:56:45.190190+00:00",
+        "logSha256": "af764abb28b42e1427f55db9ed15225ea5a96e189fc48576a262da5031c0a287",
+        "passed": 14,
+        "failedCases": []
+      },
+      {
+        "command": [
+          "bun",
+          "test",
+          "--preload",
+          "./.harness-spike/baseline-03/observe-processes.ts",
+          "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "lib/worktree/__tests__/create.test.ts",
+          "lib/worktree/__tests__/dispose.test.ts",
+          "lib/worktree/__tests__/hydrate.test.ts",
+          "scripts/__tests__/no-repo-purity-scoped.test.ts",
+          "scripts/__tests__/release-marketplace.test.ts",
+          "--test-name-pattern",
+          "cutting\\ a\\ new\\ branch\\ refreshes\\ a\\ hydrated\\ tree's\\ stale\\ default\\ ref\\ first|runs\\ the\\ named\\ tree\\ and\\ fast\\-forwards\\ it|a\\ failure\\ after\\ the\\ claim\\ rolls\\ the\\ tree\\ back\\ to\\ on\\-deck|local\\ branches\\ report\\ existing\\-clean,\\ behind,\\ or\\ diverged\\ and\\ are\\ never\\ reconciled|a\\ hydrate\\ failure\\ still\\ returns\\ a\\ usable\\ tree,\\ via\\ cold\\ create|no\\ golden:\\ cold\\-creates\\ as\\ before,\\ with\\ no\\ hydratedFrom|out\\-of\\-repo\\ default\\ root\\ leaves\\ \\.git/info/exclude\\ untouched|commits\\ made\\ after\\ the\\ merged\\ MR's\\ head\\ are\\ not\\ covered\\ \u2014\\ the\\ anchor\\ refuses|declared\\ generated\\ file\\ with\\ a\\ substantive\\ edit\\ is\\ a\\ blocker|undeclared\\ modified\\ file\\ is\\ a\\ blocker\\ even\\ when\\ whitespace\\-only|a\\ rebased\\-and\\-merged\\ HEAD\\ never\\ lets\\ dispose\\ delete\\ a\\ branch\\ holding\\ a\\ commit\\ the\\ MR\\ lacks|a\\ donor\\ that\\ advances\\ after\\ the\\ caller's\\ read\\ is\\ not\\ used\\ stale:\\ the\\ member\\ gets\\ the\\ fresh\\ commit\\ and\\ fresh\\ artifacts,\\ not\\ the\\ caller's\\ snapshot|the\\ built\\-in\\ plugins/mattstack\\ entry\\ bans\\ each\\ of\\ the\\ pack's\\ three\\ terms|an\\ in\\-tree\\ plugin\\ publishes\\ tracked\\ files\\ only,\\ never\\ untracked,\\ ignored,\\ \\.git\\ or\\ \\.worktrees"
+        ],
+        "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+        "commit": "fc0f9bd9855cbf52616533f8537a9b231c2106f2",
+        "startedAt": "2026-10-06T00:56:45.209381+00:00",
+        "gitLookup": "/usr/bin/git",
+        "regularHomeBeforePreload": "/Users/matt",
+        "loadBefore": [
+          10.66455078125,
+          4.8525390625,
+          4.14892578125
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 12.412801374914125,
+        "finishedAt": "2026-10-06T00:56:57.603608+00:00",
+        "logSha256": "08829dfe64b5e54713ea25ac3e057b767f01b57ea1c1a3c0f1c2b004e26b69c7",
+        "passed": 14,
+        "failedCases": []
+      },
+      {
+        "command": [
+          "bun",
+          "test",
+          "--preload",
+          "./.harness-spike/baseline-03/observe-processes.ts",
+          "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "lib/worktree/__tests__/create.test.ts",
+          "lib/worktree/__tests__/dispose.test.ts",
+          "lib/worktree/__tests__/hydrate.test.ts",
+          "scripts/__tests__/no-repo-purity-scoped.test.ts",
+          "scripts/__tests__/release-marketplace.test.ts",
+          "--test-name-pattern",
+          "cutting\\ a\\ new\\ branch\\ refreshes\\ a\\ hydrated\\ tree's\\ stale\\ default\\ ref\\ first|runs\\ the\\ named\\ tree\\ and\\ fast\\-forwards\\ it|a\\ failure\\ after\\ the\\ claim\\ rolls\\ the\\ tree\\ back\\ to\\ on\\-deck|local\\ branches\\ report\\ existing\\-clean,\\ behind,\\ or\\ diverged\\ and\\ are\\ never\\ reconciled|a\\ hydrate\\ failure\\ still\\ returns\\ a\\ usable\\ tree,\\ via\\ cold\\ create|no\\ golden:\\ cold\\-creates\\ as\\ before,\\ with\\ no\\ hydratedFrom|out\\-of\\-repo\\ default\\ root\\ leaves\\ \\.git/info/exclude\\ untouched|commits\\ made\\ after\\ the\\ merged\\ MR's\\ head\\ are\\ not\\ covered\\ \u2014\\ the\\ anchor\\ refuses|declared\\ generated\\ file\\ with\\ a\\ substantive\\ edit\\ is\\ a\\ blocker|undeclared\\ modified\\ file\\ is\\ a\\ blocker\\ even\\ when\\ whitespace\\-only|a\\ rebased\\-and\\-merged\\ HEAD\\ never\\ lets\\ dispose\\ delete\\ a\\ branch\\ holding\\ a\\ commit\\ the\\ MR\\ lacks|a\\ donor\\ that\\ advances\\ after\\ the\\ caller's\\ read\\ is\\ not\\ used\\ stale:\\ the\\ member\\ gets\\ the\\ fresh\\ commit\\ and\\ fresh\\ artifacts,\\ not\\ the\\ caller's\\ snapshot|the\\ built\\-in\\ plugins/mattstack\\ entry\\ bans\\ each\\ of\\ the\\ pack's\\ three\\ terms|an\\ in\\-tree\\ plugin\\ publishes\\ tracked\\ files\\ only,\\ never\\ untracked,\\ ignored,\\ \\.git\\ or\\ \\.worktrees"
+        ],
+        "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+        "commit": "fc0f9bd9855cbf52616533f8537a9b231c2106f2",
+        "startedAt": "2026-10-06T00:56:57.619189+00:00",
+        "gitLookup": "/usr/bin/git",
+        "regularHomeBeforePreload": "/Users/matt",
+        "loadBefore": [
+          9.95361328125,
+          4.89013671875,
+          4.17041015625
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 14.531586040975526,
+        "finishedAt": "2026-10-06T00:57:12.135761+00:00",
+        "logSha256": "3916e3d4298ef293acfccf2c57b5d2f2b6c4f44c58cfced3c091935973733ef7",
+        "passed": 14,
+        "failedCases": []
+      },
+      {
+        "command": [
+          "bun",
+          "test",
+          "--preload",
+          "./.harness-spike/baseline-03/observe-processes.ts",
+          "lib/daemon/__tests__/worktree-handlers.test.ts",
+          "lib/worktree/__tests__/create.test.ts",
+          "lib/worktree/__tests__/dispose.test.ts",
+          "lib/worktree/__tests__/hydrate.test.ts",
+          "scripts/__tests__/no-repo-purity-scoped.test.ts",
+          "scripts/__tests__/release-marketplace.test.ts",
+          "--test-name-pattern",
+          "cutting\\ a\\ new\\ branch\\ refreshes\\ a\\ hydrated\\ tree's\\ stale\\ default\\ ref\\ first|runs\\ the\\ named\\ tree\\ and\\ fast\\-forwards\\ it|a\\ failure\\ after\\ the\\ claim\\ rolls\\ the\\ tree\\ back\\ to\\ on\\-deck|local\\ branches\\ report\\ existing\\-clean,\\ behind,\\ or\\ diverged\\ and\\ are\\ never\\ reconciled|a\\ hydrate\\ failure\\ still\\ returns\\ a\\ usable\\ tree,\\ via\\ cold\\ create|no\\ golden:\\ cold\\-creates\\ as\\ before,\\ with\\ no\\ hydratedFrom|out\\-of\\-repo\\ default\\ root\\ leaves\\ \\.git/info/exclude\\ untouched|commits\\ made\\ after\\ the\\ merged\\ MR's\\ head\\ are\\ not\\ covered\\ \u2014\\ the\\ anchor\\ refuses|declared\\ generated\\ file\\ with\\ a\\ substantive\\ edit\\ is\\ a\\ blocker|undeclared\\ modified\\ file\\ is\\ a\\ blocker\\ even\\ when\\ whitespace\\-only|a\\ rebased\\-and\\-merged\\ HEAD\\ never\\ lets\\ dispose\\ delete\\ a\\ branch\\ holding\\ a\\ commit\\ the\\ MR\\ lacks|a\\ donor\\ that\\ advances\\ after\\ the\\ caller's\\ read\\ is\\ not\\ used\\ stale:\\ the\\ member\\ gets\\ the\\ fresh\\ commit\\ and\\ fresh\\ artifacts,\\ not\\ the\\ caller's\\ snapshot|the\\ built\\-in\\ plugins/mattstack\\ entry\\ bans\\ each\\ of\\ the\\ pack's\\ three\\ terms|an\\ in\\-tree\\ plugin\\ publishes\\ tracked\\ files\\ only,\\ never\\ untracked,\\ ignored,\\ \\.git\\ or\\ \\.worktrees"
+        ],
+        "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+        "commit": "fc0f9bd9855cbf52616533f8537a9b231c2106f2",
+        "startedAt": "2026-10-06T00:57:12.151427+00:00",
+        "gitLookup": "/usr/bin/git",
+        "regularHomeBeforePreload": "/Users/matt",
+        "loadBefore": [
+          9.31103515625,
+          4.9931640625,
+          4.21875
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 14.519511625054292,
+        "finishedAt": "2026-10-06T00:57:26.655814+00:00",
+        "logSha256": "bea88761adeb602be521a1c2430941f93a49a8789d94980ab6f346856662cfa6",
+        "passed": 14,
+        "failedCases": []
+      }
+    ],
+    "assertions": 270,
+    "artifacts": [
+      {
+        "path": ".harness-spike/baseline-04/repeat-timeout-cases.py",
+        "sha256": "4b2f73eb09893a4ca00fccf5a926c923716eaac71ad20b656d91d27a79618fa7"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-01-git.jsonl",
+        "sha256": "e4c29f3c79a5ffc3e7fa6268cc4f11db52adb4150e8f4dcbaa59adbc9b0b6eaa"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-01-machine.jsonl",
+        "sha256": "ebcc49e1fafed647fc055b65d5843ae480a0d94d051f0748ac41384762d74a37"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-01-processes.jsonl",
+        "sha256": "b9d294ac7d837961443bfa34b05476f5fa4fa39c5c280c6abf5fe02204f654e6"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-01.json",
+        "sha256": "116cbe35942f5f331a6a52356723efc38b0bb1c9ce7645e4e9793eedf08a7033"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-01.log",
+        "sha256": "5bbe5db4ecab70df499d972c807d3b98d9f3ba069614df7ed14c50fbaeaff567"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-02-git.jsonl",
+        "sha256": "8db43e11fc363ef51bdfa4640d087ab77364d3df062d5d7607e85eabdad4a345"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-02-machine.jsonl",
+        "sha256": "0562e543e067a3d473e744bdc34640ebe0ac90283fbe5109eff89c30ccd1f3a7"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-02-processes.jsonl",
+        "sha256": "de92d4bea207482d8f0a9df2daa65a69f9610d16398bf3f6c6d35d144ce7dc81"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-02.json",
+        "sha256": "8bec198cd57da9aba83fdf3cfaf76bd3119dfb540a6b74d49d3a67e9cc5656ab"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-02.log",
+        "sha256": "af764abb28b42e1427f55db9ed15225ea5a96e189fc48576a262da5031c0a287"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-03-git.jsonl",
+        "sha256": "a37f19ab9964ae7f2bc3463885e372a562209dc85f8bccb5a26874ffb63d2509"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-03-machine.jsonl",
+        "sha256": "af27a81acfcf4663bd3aba54e312a1b4c18c1ead732a8d64be184758bb4fe341"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-03-processes.jsonl",
+        "sha256": "66f7b12bef675ca69dc08e1e1a0acf40f8f430decaff91355d4817633fd37884"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-03.json",
+        "sha256": "a635a46f33582a06b097536d6c9b50a7675e3b879758b537afb56a52cab7336b"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-03.log",
+        "sha256": "08829dfe64b5e54713ea25ac3e057b767f01b57ea1c1a3c0f1c2b004e26b69c7"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-04-git.jsonl",
+        "sha256": "f67b884d7ef5f9aef024391390f97cc65785df7615ed4d03f1c9b1b8ef99ca89"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-04-machine.jsonl",
+        "sha256": "4e366b0f083565fdcc7605c4a4a2ad15674ac853b02b02a422ebdb23e0cb379d"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-04-processes.jsonl",
+        "sha256": "bde3c5e2b1a27f45b03bd14126b2796c514bc4f7ac2a7cb8222261342d4a5866"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-04.json",
+        "sha256": "b77004c332dd8f6df8569d71de891c0021e73c0502094211e86428bdcf343300"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-04.log",
+        "sha256": "3916e3d4298ef293acfccf2c57b5d2f2b6c4f44c58cfced3c091935973733ef7"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-05-git.jsonl",
+        "sha256": "17e59eaba38aba4a4dd26e6b939e40e9cd54cacb953c6dd4762264367ebfd080"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-05-machine.jsonl",
+        "sha256": "1667e03dc81147b15a30df6ee57792bbd0fd5098708a1309ee3f4228ff0a3bce"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-05-processes.jsonl",
+        "sha256": "edba716d3f835128b959962430ec87fd5fa0fe5b8a06d2032d82213853c6422c"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-05.json",
+        "sha256": "daaec7dd981e4795f491210663a921e19f9b0a06cb025d57c6d7d871832eded5"
+      },
+      {
+        "path": ".harness-spike/baseline-04/repetition-05.log",
+        "sha256": "bea88761adeb602be521a1c2430941f93a49a8789d94980ab6f346856662cfa6"
+      },
+      {
+        "path": ".harness-spike/baseline-04/selection.json",
+        "sha256": "abae94e7d49edd63b5e3b92ea3a1d042974ee3087d52af35d135b02cf3ecd029"
+      },
+      {
+        "path": ".harness-spike/baseline-04/summary.json",
+        "sha256": "dca58aa308fe75f4cc309d70fc626ae81c11e92f532e1bf255b44d6719ae7a8c"
+      }
+    ]
+  },
+  "pureContractExceptionProposal": {
+    "status": "reviewed-draft-user-decision-pending",
+    "document": "docs/superpowers/plans/2026-10-05-harness-integrations-b0-admission-decision.md",
+    "reviewedContentSha256": "41b424ac2d4a0c04837319f8577a55dd7f57cc3957dcb51e46410c59ff8c183b",
+    "reviewSession": "2413bac7-ba1b-4253-8abd-d5bf668a6059",
+    "rounds": 2,
+    "verdict": "Approved for user decision; no implementation admission",
+    "postReviewChange": "Recorded approval and adopted advisory requiring unique non-overwriting f2a run names",
+    "artifacts": [
+      {
+        "path": ".harness-spike/baseline-04/decision-review-01-meta.json",
+        "sha256": "f5c7445fa70a2a8612f813c443c7b9003a90880a3fedc883696536368bd2d827"
+      },
+      {
+        "path": ".harness-spike/baseline-04/decision-review-01.json",
+        "sha256": "acfb3cb4188595d5ae7ffe755440a8fea50b760d5d9f4c0a5e97c3b66d24f219"
+      },
+      {
+        "path": ".harness-spike/baseline-04/decision-review-01.stderr",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": ".harness-spike/baseline-04/decision-review-02-meta.json",
+        "sha256": "9f1f7850531c4193561a0522b3ced776820aba0f10a8c36fda07fc79742dba5c"
+      },
+      {
+        "path": ".harness-spike/baseline-04/decision-review-02-prompt.txt",
+        "sha256": "e079ec4d09f5b621561fe2a99c1e5339fc4e20632e750a9105b8f1f095d780bb"
+      },
+      {
+        "path": ".harness-spike/baseline-04/decision-review-02.json",
+        "sha256": "2ab33f22861dcb8e50ab9ab106060b73857510e2ab9efd437ced3eadd7d7a00c"
+      },
+      {
+        "path": ".harness-spike/baseline-04/decision-review-02.stderr",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": ".harness-spike/baseline-04/decision-review-prompt.txt",
+        "sha256": "0f771bdb707ceacf005c3eadbcd0ffbaabb5b20795e9e362178e29ce41492f98"
+      }
+    ]
   }
 }

@@ -591,3 +591,24 @@ timeout investigation in round two after the next-step order, exit rule and
 prior approval scope were clarified. This approves the evidence and its stated
 limits; B0 admission remains BLOCKED. The reviewed-content hash and review
 artifacts are retained in the evidence manifest.
+
+
+### Bounded timeout repetition — 2026-10-06, 00:57Z
+
+All 14 distinct historical deadline failures passed in five separate sequential
+Bun processes: **70 case executions, zero failures, 270 assertions**. Each run
+used the normal system Git lookup, unchanged five-second deadlines, canonical
+fixture HOME isolation, native Git Trace2 and the subprocess observer. No source
+or frozen-fixture hash changed. Whole-command durations were 12.428, 12.416,
+12.413, 14.532 and 14.520 seconds. The experiment was bounded at five rounds and
+stopped there; no timeout recurred to supply a causal reproduction.
+
+Exact selection, commands, source hashes, logs and timing observations are under
+`.harness-spike/baseline-04/`; their manifest is committed in the evidence JSON.
+Targeted passing runs cannot establish that full-suite ordering or machine-load
+failures are gone. B0 therefore remains BLOCKED.
+
+The next decision is the [proposed pure-contract F2a exception](../plans/2026-10-05-harness-integrations-b0-admission-decision.md).
+It requires independent review and explicit user approval before implementation;
+it does not admit any existing runtime connection or later task. This replaces
+further repetition of the same passing selections as the immediate next step.
