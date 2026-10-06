@@ -69,11 +69,37 @@ body {
    !important. */
 [data-part='panel'] {
   background: var(--card);
+  padding-top: 0;
+}
+/* The group label is the card's first row, a band tinted with the group's
+   status hue (the pill colours below) when grouped by status and a neutral
+   wash otherwise. The recipe draws it straddling the top border on a
+   page-coloured patch, which read as a grey slab on the grid paper. */
+[data-part='panel-title'] {
+  position: static;
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 18px 8px;
+  border-bottom: 1px solid var(--border-soft);
+  border-radius: 7px 7px 0 0;
+  background: color-mix(in srgb, var(--pill) 10%, var(--card));
+  color: var(--pill-text);
+}
+[data-part='panel']:not([data-hue]) [data-part='panel-title'] {
+  background: light-dark(
+    color-mix(in srgb, var(--fg) 4%, var(--card)),
+    color-mix(in srgb, var(--fg) 6%, var(--card))
+  );
+  color: var(--text-accent-small);
+}
+[data-part='panel'][data-collapsed] [data-part='panel-title'] {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
 }
 /* The recipe's bottom padding left a sliver of panel under the last row, and
    a row's full-width footer band showed it. Rows run to the panel's own edge,
-   and the rows' own clip keeps the last one's corners inside its radius (the
-   panel itself cannot clip: its title straddles the top border). */
+   and the rows' own clip keeps the last one's corners inside its radius. */
 [data-part='panel']:has(.tui-rows) {
   padding-bottom: 0;
 }
@@ -543,27 +569,33 @@ body {
   color: var(--pill-text);
   background: color-mix(in srgb, var(--pill) 17%, transparent);
 }
-.tui-phrase[data-hue='amber'] {
+.tui-phrase[data-hue='amber'],
+[data-part='panel'][data-hue='amber'] {
   --pill: var(--fill-warn);
   --pill-text: var(--text-warn-small);
 }
-.tui-phrase[data-hue='cyan'] {
+.tui-phrase[data-hue='cyan'],
+[data-part='panel'][data-hue='cyan'] {
   --pill: var(--fill-cyan);
   --pill-text: var(--text-cyan-small);
 }
-.tui-phrase[data-hue='green'] {
+.tui-phrase[data-hue='green'],
+[data-part='panel'][data-hue='green'] {
   --pill: var(--fill-ok);
   --pill-text: var(--text-ok-small);
 }
-.tui-phrase[data-hue='red'] {
+.tui-phrase[data-hue='red'],
+[data-part='panel'][data-hue='red'] {
   --pill: var(--fill-bad);
   --pill-text: var(--text-bad-small);
 }
-.tui-phrase[data-hue='accent'] {
+.tui-phrase[data-hue='accent'],
+[data-part='panel'][data-hue='accent'] {
   --pill: var(--fill-accent);
   --pill-text: var(--text-accent-small);
 }
-.tui-phrase[data-hue='purple'] {
+.tui-phrase[data-hue='purple'],
+[data-part='panel'][data-hue='purple'] {
   --pill: var(--fill-purple);
   --pill-text: var(--text-purple-small);
 }

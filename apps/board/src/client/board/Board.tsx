@@ -107,6 +107,7 @@ import {
   type RowAction,
   type RunOpts,
 } from './row-actions.ts';
+import { statusGroupHue } from './row-status.ts';
 import { RowMenu } from './RowMenu.tsx';
 import { RowView } from './RowView.tsx';
 import { SelectionBar } from './SelectionBar.tsx';
@@ -1473,6 +1474,9 @@ export function Board() {
               key={g.label}
               title={g.label}
               count={g.mrs.length}
+              data-hue={
+                state.group === 'status' ? statusGroupHue(g.label) : undefined
+              }
               // Pins the LEGACY persistence key: the recipe defaults to its own
               // "tui-panel-collapsed", and switching would orphan every panel a
               // user has already folded up.
