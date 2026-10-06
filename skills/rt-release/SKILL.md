@@ -170,7 +170,7 @@ lag origin/main), then take the first edge that matches:
   as before.
 - `tag pushed`: fact 2 matched and `ls-remote` printed its tag (that tag is the release in
   flight); or the newest tag's verify is not `released`; or Matt or the brief says the last
-  release stopped before rt.cool or update-machine.
+  release stopped before the docs deploy or update-machine.
 - `nothing started`: neither. A fast-path notes commit (`chore(release): notes for <tag>`)
   with no tag also lands here: `rt release apps` resumes its own steps.
 
@@ -324,7 +324,8 @@ Iterate: Matt fixed the cause (network, a token, a landed fix), and preflight ru
 ### Fast path: rt release apps (fast-path.md)
 
 Every served app that moved, released together by one verb that qualifies origin/main, writes
-and commits the notes, tags the next patch without a rehearsal, and verifies the publish.
+and commits the notes, tags the next patch without a rehearsal, and verifies the publish. The
+docs pages for the apps that moved go to main first.
 Read `fast-path.md` now and follow its graph; its sections are there.
 
 ### Prepare the release (prepare.md)
@@ -341,7 +342,7 @@ Read `prove-and-tag.md` now and follow its graph; its sections are there.
 
 ### Publish and finish (publish-and-finish.md)
 
-Verify what release.yml published, deploy rt.cool, bring this machine onto the release, and
+Verify what release.yml published, deploy the docs site, bring this machine onto the release, and
 close a team pack sync held on it.
 Read `publish-and-finish.md` now and follow its graph; its sections are there.
 

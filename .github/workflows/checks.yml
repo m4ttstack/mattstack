@@ -23,6 +23,7 @@ jobs:
       dirs: ${{ steps.scope.outputs.dirs }}
       always: ${{ steps.scope.outputs.always }}
       plugins: ${{ steps.scope.outputs.plugins }}
+      website: ${{ steps.scope.outputs.website }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -285,11 +286,26 @@ jobs:
             exit 1
           }
 
+  # Docusaurus fails the build on a broken link, but only a build catches it.
+  website:
+    needs: scope
+    if: needs.scope.outputs.website == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Build the docs site
+        working-directory: website
+        run: bun install --frozen-lockfile && bun run build
+
   # The job branch protection requires. Without always(), a failed scope
   # would skip unit and this job too, and a skipped required check reads as
   # passing on GitHub.
   checks:
-    needs: [scope, static, go, deck-macos, unit, plugin-herdr-chat, plugin-mattstack]
+    needs: [scope, static, go, deck-macos, unit, plugin-herdr-chat, plugin-mattstack, website]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -303,9 +319,10 @@ jobs:
           UNIT: ${{ needs.unit.result }}
           HERDR_CHAT: ${{ needs.plugin-herdr-chat.result }}
           MATTSTACK: ${{ needs.plugin-mattstack.result }}
+          WEBSITE: ${{ needs.website.result }}
           MODE: ${{ needs.scope.outputs.mode }}
         run: |
-          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK mode=$MODE"
+          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK website=$WEBSITE mode=$MODE"
           [ "$SCOPE" = success ] || { echo "scope did not succeed"; exit 1; }
           [ "$STATIC" = success ] || { echo "static did not succeed"; exit 1; }
           [ "$GO" = success ] || { echo "go did not succeed"; exit 1; }
@@ -313,6 +330,7 @@ jobs:
           # skipped is the untouched case: a needed job whose if: is false.
           [ "$HERDR_CHAT" = success ] || [ "$HERDR_CHAT" = skipped ] || { echo "plugin-herdr-chat did not succeed"; exit 1; }
           [ "$MATTSTACK" = success ] || [ "$MATTSTACK" = skipped ] || { echo "plugin-mattstack did not succeed"; exit 1; }
+          [ "$WEBSITE" = success ] || [ "$WEBSITE" = skipped ] || { echo "website did not succeed"; exit 1; }
           [ "$UNIT" = success ] && exit 0
           [ "$UNIT" = skipped ] && [ "$MODE" = skip ] && exit 0
           echo "unit was $UNIT with mode $MODE"

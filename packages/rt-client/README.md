@@ -1,6 +1,6 @@
 # @mattstack/rt-client
 
-Typed client for the [rt](https://rt.cool) daemon.
+Typed client for the [rt](https://docs.mattstack.dev/rt) daemon.
 
 rt keeps the per-repo state a dev environment needs: worktrees, assigned ports,
 tokens, dev servers, and a live event relay. This package is how other programs

@@ -240,4 +240,31 @@ describe('viewer scenarios', () => {
   it('stays Team view by default', () => {
     expect(fixtureLeaderboard(false).viewer.role).toBe('team');
   });
+
+  it('narrows to the previewed roster member for a Team viewer', () => {
+    const board = fixtureLeaderboard(false, 'PNAIR');
+    expect(board.users.map(u => u.username)).toEqual(['pnair']);
+    expect(board.viewer).toEqual({ username: 'pnair', role: 'self' });
+    expect(board.currentUser).toBe('pnair');
+    expect(board.previewing).toBe(true);
+    expect(board.leaders).toEqual({});
+    const detail = fixtureDetail('pnair', false, 'pnair') as UserDetailResponse;
+    expect(detail.previewing).toBe(true);
+    expect(fixtureDetail('srivera', false, 'pnair')).toBe('forbidden');
+  });
+
+  it('answers 404 over HTTP for an unknown viewAs and ignores it in self-view', async () => {
+    process.env.BOXSCORE_FIXTURE = 'design';
+    const { routes } = await import('../src/server/routes');
+    const bad = await routes.request('/api/leaderboard?viewAs=mallory');
+    expect(bad.status).toBe(404);
+    process.env.BOXSCORE_FIXTURE_SCENARIO = 'self-view';
+    const res = await routes.request('/api/leaderboard?viewAs=pnair');
+    const body = await res.json();
+    expect(body.users.map((u: { username: string }) => u.username)).toEqual([
+      'srivera',
+    ]);
+    expect(body.previewing).toBe(false);
+    delete process.env.BOXSCORE_FIXTURE;
+  });
 });

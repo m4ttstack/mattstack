@@ -3,20 +3,33 @@ import type * as Preset from "@docusaurus/preset-classic";
 import { themes as prismThemes } from "prism-react-renderer";
 
 const config: Config = {
-  title: "rt",
-  tagline: "The mattstack command line: worktrees, git workflows, and the daemon behind the apps",
-  favicon: "img/favicon.svg",
-  url: "https://rt.cool",
+  title: "mattstack",
+  tagline: "An agentic application stack for engineers.",
+  favicon: "img/app-icon.png",
+  headTags: [
+    { tagName: "link", attributes: { rel: "preconnect", href: "https://fonts.googleapis.com" } },
+    { tagName: "link", attributes: { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "anonymous" } },
+    {
+      tagName: "link",
+      attributes: {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap",
+      },
+    },
+  ],
+  url: "https://docs.mattstack.dev",
   baseUrl: "/",
   organizationName: "m4ttstack",
-  projectName: "rt",
+  projectName: "mattstack",
   onBrokenLinks: "throw",
   onBrokenAnchors: "throw",
   markdown: {
+    mermaid: true,
     hooks: {
       onBrokenMarkdownLinks: "throw",
     },
   },
+  themes: ["@docusaurus/theme-mermaid"],
   i18n: { defaultLocale: "en", locales: ["en"] },
   presets: [
     [
@@ -34,31 +47,37 @@ const config: Config = {
   ],
   themeConfig: {
     navbar: {
-      title: "rt",
+      logo: { alt: "", src: "img/app-icon.png", width: 26, height: 26 },
       items: [
-        {
-          href: "https://github.com/m4ttstack/mattstack/releases/latest",
-          label: "Download",
-          position: "right",
-        },
-        {
-          href: "https://github.com/m4ttstack/mattstack",
-          label: "GitHub",
-          position: "right",
-        },
+        { type: "docSidebar", sidebarId: "start", label: "Get started", position: "left" },
+        { type: "docSidebar", sidebarId: "apps", label: "Apps", position: "left" },
+        { type: "docSidebar", sidebarId: "rt", label: "rt CLI", position: "left" },
+        { type: "docSidebar", sidebarId: "gitq", label: "gitq", position: "left" },
+        { type: "docSidebar", sidebarId: "skills", label: "Skills", position: "left" },
+        { href: "https://github.com/m4ttstack/mattstack", label: "GitHub", position: "right" },
+        { href: "https://github.com/m4ttstack/mattstack/releases", label: "Releases", position: "right" },
+        { href: "https://github.com/m4ttstack/mattstack/releases/latest", label: "Download", position: "right", className: "nav-dl" },
       ],
     },
     footer: {
-      style: "dark",
-      links: [],
-      copyright: "rt, the mattstack command line",
+      style: "light",
+      links: [
+        { label: "mattstack.dev", href: "https://mattstack.dev" },
+        { label: "GitHub", href: "https://github.com/m4ttstack/mattstack" },
+        { label: "Releases", href: "https://github.com/m4ttstack/mattstack/releases" },
+      ],
+      copyright: "mattstack",
     },
     prism: {
-      theme: prismThemes.github,
-      darkTheme: prismThemes.dracula,
-      additionalLanguages: ["bash", "json"],
+      theme: prismThemes.oneLight,
+      darkTheme: prismThemes.oneDark,
+      additionalLanguages: ["bash", "json", "diff"],
     },
-    colorMode: { defaultMode: "light", respectPrefersColorScheme: true },
+    colorMode: { respectPrefersColorScheme: true },
+    mermaid: {
+      theme: { light: "neutral", dark: "dark" },
+      options: { fontFamily: "Inter, system-ui, -apple-system, \"Segoe UI\", Helvetica, sans-serif" },
+    },
   } satisfies Preset.ThemeConfig,
 };
 

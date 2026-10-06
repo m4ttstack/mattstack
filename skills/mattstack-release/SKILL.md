@@ -11,7 +11,7 @@ first, then come here.** Do not trust any prose restatement of the step list, in
 revision of this skill: step lists copied into prose are exactly what went stale last time.
 
 Division of duties: `rt:release` owns version judgment, docs, `RELEASE_NOTES.md`, the tag push,
-verifying the run, and deploying rt.cool. It is current; follow it for a normal release. Its
+verifying the run, and deploying the docs site. It is current; follow it for a normal release. Its
 Publish and finish stage's `upload flake persists` and `assets missing` takes land here on the
 `sent by rt:release after its publish recovery` edge, which skips the delete and rerun and goes
 straight to verify. This skill is the other half: running or debugging the build, sign and publish

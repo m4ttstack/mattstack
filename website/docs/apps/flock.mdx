@@ -1,0 +1,43 @@
+---
+title: flock
+sidebar_position: 8
+---
+
+# flock
+
+## What it is
+
+flock is a native macOS window onto your [herdr](https://github.com/herdrdev/herdr) session. It is the mattstack way to use herdr: drag and drop anything you see to move or rearrange it, with a workspaces view for rearranging across workspaces. It also supports keyboard navigation and improves how you interact with herdr notifications. The project is in continual development.
+
+## Open it
+
+Download `Flock-<version>.dmg` from the [latest release](https://github.com/m4ttstack/flock/releases/latest), open it and drag Flock onto Applications. It needs macOS 15 or later on Apple silicon and herdr 0.9 or later on your `PATH`. Start herdr the way you normally do, then open Flock. It attaches to your default herdr session and shows it straight away, and offers a Start herdr button if herdr is not running. Flock checks for updates by itself, or use Flock > Check for Updates.
+
+## What you do in it
+
+**Rearrange panes, tabs and workspaces.** Drag to move them. `Cmd R` enters rearrange mode and `Esc` leaves it. `Cmd Z` and `Shift Cmd Z` undo and redo a move. Shift Cmd R opens All Workspaces to rearrange across workspaces.
+
+**Jump around.** The workspace switcher works like macOS Cmd Tab: hold Ctrl and press Tab. The tab switcher is Option Tab. `Cmd K` opens the command palette, which lists every command with its key.
+
+**Split and move panes from the keyboard.** `Cmd D` splits right and Shift Cmd D splits down. Option Cmd with an arrow key focuses the pane on that side, and adding Shift moves the focused pane that way.
+
+**Handle notifications.** `Cmd J` opens the oldest notification and Shift Cmd J clears them. A question from an agent stays in the sidebar until you answer it.
+
+**Use rt from a pane.** If you run agents with rt, each pane gets an rt button that opens `rt nav`, `rt glitter`, `rt run` and `rt runner` in a modal. Herds get their own sidebar section with progress read from rt, and rt chat is a click away. None of it is needed to use Flock with plain herdr.
+
+## Settings that matter
+
+flock has no keys in the mattstack settings registry. Its own Settings (`Cmd ,`) hold these:
+
+| Setting | Meaning |
+| --- | --- |
+| Notifications > Show in sidebar | Until seen (the default), for 5 seconds, or never. |
+| Rearrange Mode > After a move | Turn rearrange mode off after a drag changes the layout (the default), or keep it on. |
+| rt Modal Text Size | The size each rt command's modal opens at. |
+| herdr > Mouse support | Installs a build of the same herdr version that passes clicks and scrolling through to its panes. |
+
+## Related
+
+- [rt runner](/rt/guides/runner) and [glitter](/rt/guides/glitter) are two of the commands Flock's rt button opens.
+- [Chat guide](/rt/guides/chat) covers the rt chat that Flock links to.
+- [flock on GitHub](https://github.com/m4ttstack/flock) has the full README, including known issues.

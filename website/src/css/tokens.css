@@ -1,0 +1,41 @@
+/* Values copied from https://mattstack.dev's :root, prefixed --ms-* so they never collide with Infima. */
+:root {
+  --ms-bg: #fafafa;
+  --ms-bg-alt: #f3f3f5;
+  --ms-surface: #fff;
+  --ms-border: #e3e3e8;
+  --ms-border-soft: #eaeaee;
+  --ms-fg: #16161b;
+  --ms-muted: #5f5f6a;
+  /* Darker than the landing's #767680 (4.31:1 on #fafafa); this is 4.83:1, so small dim text passes WCAG AA. */
+  --ms-dim: #6e6e78;
+  --ms-accent: #e64980;
+  /* #e64980 is 3.57:1 on #fafafa; this shade is 5.42:1, so accent text passes WCAG AA. */
+  --ms-accent-text: #c2255c;
+  --ms-accent-wash: rgba(230, 73, 128, 0.1);
+  --ms-accent-line: rgba(230, 73, 128, 0.22);
+  --ms-nav-bg: rgba(250, 250, 250, 0.78);
+  --ms-raised: #ffffff;
+  --ms-raised-border: #8f8f9c;
+  --ms-code-bg: var(--ms-bg-alt);
+  --ms-code-border: var(--ms-border);
+}
+
+[data-theme="dark"] {
+  --ms-bg: #0e0e14;
+  --ms-bg-alt: #14141b;
+  --ms-surface: #21212b;
+  --ms-border: #383846;
+  --ms-border-soft: #26262f;
+  --ms-fg: #f4f4f5;
+  --ms-muted: #9d9da6;
+  --ms-dim: #7a7a85;
+  --ms-accent-text: #e64980;
+  --ms-accent-wash: rgba(230, 73, 128, 0.14);
+  --ms-accent-line: rgba(230, 73, 128, 0.25);
+  --ms-nav-bg: rgba(14, 14, 20, 0.72);
+  --ms-raised: #262631;
+  --ms-raised-border: rgba(255, 255, 255, 0.36);
+  --ms-code-bg: var(--ms-surface);
+  --ms-code-border: var(--ms-border-soft);
+}

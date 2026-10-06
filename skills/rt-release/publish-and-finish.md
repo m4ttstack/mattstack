@@ -4,7 +4,7 @@ This is a stage of the rt:release skill; the `How every gate asks` section of it
 applies to every gate here. Every `rt release ...` command here runs on Bash: no `rt release`
 leaf is agent-safe, so `rt_verb` refuses them.
 
-Verify what release.yml published, deploy rt.cool, bring this machine onto the release, and close
+Verify what release.yml published, deploy the docs site, bring this machine onto the release, and close
 a team pack sync held on it.
 
 Verify reports rows, not a status; `Verify status?` reads them. Every row ok reads as `released`;
@@ -42,6 +42,8 @@ digraph publish_and_finish {
     "Docs deploy result?" [shape=diamond];
     "Docs deploy attempts = 2?" [shape=diamond];
     "bash scripts/deploy-docs.sh, retried once" [shape=plaintext];
+    "bun run docs:smoke" [shape=plaintext];
+    "Docs smoke result?" [shape=diamond];
     "rt release update-machine --plan --json" [shape=plaintext];
     "Gate: approve the update-machine legs" [shape=box];
     "Update-machine plan answer?" [shape=diamond];
@@ -64,10 +66,10 @@ digraph publish_and_finish {
     "Upload flake persists: gate rounds = 2?" [shape=diamond];
     "Off-script gate: draft will not publish" [shape=box];
     "Draft will not publish: gate rounds = 2?" [shape=diamond];
-    "Off-script gate: rt.cool setup missing" [shape=box];
-    "Rt.cool setup missing: gate rounds = 2?" [shape=diamond];
-    "Off-script gate: rt.cool deploy failing" [shape=box];
-    "Rt.cool deploy failing: gate rounds = 2?" [shape=diamond];
+    "Off-script gate: docs site setup missing" [shape=box];
+    "Docs site setup missing: gate rounds = 2?" [shape=diamond];
+    "Off-script gate: docs site deploy failing" [shape=box];
+    "Docs site deploy failing: gate rounds = 2?" [shape=diamond];
     "Off-script gate: shared checkout off main" [shape=box];
     "Shared checkout off main: gate rounds = 2?" [shape=diamond];
     "Off-script gate: update-machine leg halted" [shape=box];
@@ -143,23 +145,26 @@ digraph publish_and_finish {
     "Draft flips = 1?" -> "Off-script gate: draft will not publish" [label="yes: budget spent"];
     "bash scripts/deploy-docs.sh" -> "Docs deploy result?";
     "bash scripts/deploy-docs.sh, retried once" -> "Docs deploy result?";
-    "Docs deploy result?" -> "rt release update-machine --plan --json" [label="deployed"];
-    "Off-script gate: rt.cool setup missing" -> "rt release update-machine --plan --json" [label="take: Matt deployed rt.cool himself"];
-    "Off-script gate: rt.cool setup missing" -> "Rt.cool setup missing: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
-    "Off-script gate: rt.cool setup missing" -> "Held: release paused, resume point named" [label="hold"];
-    "Off-script gate: rt.cool setup missing" -> "Handed back to Matt" [label="hand back"];
-    "Rt.cool setup missing: gate rounds = 2?" -> "bash scripts/deploy-docs.sh" [label="no: retry"];
-    "Rt.cool setup missing: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
-    "Docs deploy result?" -> "Off-script gate: rt.cool setup missing" [label="setup missing"];
+    "Docs deploy result?" -> "bun run docs:smoke" [label="deployed"];
+    "bun run docs:smoke" -> "Docs smoke result?";
+    "Docs smoke result?" -> "rt release update-machine --plan --json" [label="pass: every check ok"];
+    "Docs smoke result?" -> "Off-script gate: docs site deploy failing" [label="failed: quote the failing lines"];
+    "Off-script gate: docs site setup missing" -> "rt release update-machine --plan --json" [label="take: Matt deployed the docs site himself"];
+    "Off-script gate: docs site setup missing" -> "Docs site setup missing: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: docs site setup missing" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: docs site setup missing" -> "Handed back to Matt" [label="hand back"];
+    "Docs site setup missing: gate rounds = 2?" -> "bash scripts/deploy-docs.sh" [label="no: retry"];
+    "Docs site setup missing: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "Docs deploy result?" -> "Off-script gate: docs site setup missing" [label="setup missing"];
     "Docs deploy result?" -> "Docs deploy attempts = 2?" [label="failed"];
     "Docs deploy attempts = 2?" -> "bash scripts/deploy-docs.sh, retried once" [label="no"];
-    "Off-script gate: rt.cool deploy failing" -> "rt release update-machine --plan --json" [label="take: Matt deployed rt.cool himself"];
-    "Off-script gate: rt.cool deploy failing" -> "Rt.cool deploy failing: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
-    "Off-script gate: rt.cool deploy failing" -> "Held: release paused, resume point named" [label="hold"];
-    "Off-script gate: rt.cool deploy failing" -> "Handed back to Matt" [label="hand back"];
-    "Rt.cool deploy failing: gate rounds = 2?" -> "bash scripts/deploy-docs.sh, retried once" [label="no: retry"];
-    "Rt.cool deploy failing: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
-    "Docs deploy attempts = 2?" -> "Off-script gate: rt.cool deploy failing" [label="yes: budget spent"];
+    "Off-script gate: docs site deploy failing" -> "rt release update-machine --plan --json" [label="take: Matt deployed the docs site himself"];
+    "Off-script gate: docs site deploy failing" -> "Docs site deploy failing: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: docs site deploy failing" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: docs site deploy failing" -> "Handed back to Matt" [label="hand back"];
+    "Docs site deploy failing: gate rounds = 2?" -> "bash scripts/deploy-docs.sh, retried once" [label="no: retry"];
+    "Docs site deploy failing: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "Docs deploy attempts = 2?" -> "Off-script gate: docs site deploy failing" [label="yes: budget spent"];
     "rt release update-machine --plan --json" -> "Gate: approve the update-machine legs";
     "Gate: approve the update-machine legs" -> "Update-machine plan answer?";
     "Update-machine plan answer?" -> "rt release update-machine --yes --json" [label="approve every leg"];
@@ -297,7 +302,7 @@ Quote verify's stale rows and their details: `release state` marked prerelease, 
 not matching the committed `RELEASE_NOTES.md`, or `releases/latest` still resolving another tag
 after the propagation window. CI owns the release object, so never flip the prerelease flag or
 edit the notes yourself; a wrong notes body is fixed only by a new tag. Take: Matt rules the
-release right as it stands, and rt.cool deploys. Iterate: Matt fixed the cause, and verify runs
+release right as it stands, and the docs site deploys. Iterate: Matt fixed the cause, and verify runs
 again, counted by `Release state wrong after publish: gate rounds = 2?`.
 
 ### Off-script gate: publish still pending
@@ -321,18 +326,37 @@ delete-and-rerun runs once more.
 Quote the flip's output and the release's draft state (`gh release view <tag> --json isDraft`).
 Take: Matt published the draft himself. Iterate: Matt fixed the cause, and the flip runs again.
 
-### Off-script gate: rt.cool setup missing
+### bun run docs:smoke
 
-`scripts/deploy-docs.sh` builds the site and deploys it to Cloudflare Pages through wrangler. It
-needs wrangler auth (`wrangler login` or `CLOUDFLARE_API_TOKEN`) and the Pages project pointed at
-rt.cool's DNS, both one-time setup described in the script's header. Quote what is missing and
-give Matt those steps; never log in for him. Take: Matt deployed rt.cool himself. Iterate: Matt
-did the setup, and the deploy runs again.
+The deploy is not done until the site answers. `bun run docs:smoke` requests four URLs without
+following redirects, each with a 15 second timeout: 200 from the docs home
+`https://docs.mattstack.dev/`, from `/rt/reference/cd/` and from `/gitq/` (the slash forms, since
+Pages answers a bare path with a 308), and a 301 from `https://rt.cool/reference/cd` to
+`https://docs.mattstack.dev/rt/reference/cd`. A failing check is retried once after 5 seconds,
+as a grace window for the fresh deploy. It prints `docs smoke: <ok>/4 ok`, writes one line per
+check that still fails to stderr (the URL and what it expected and got, or `fetch failed
+(<message>)` when the request itself failed) and exits 1 on any failure. Pass means every check
+ok; any failure goes to `Off-script gate: docs site deploy failing` with those lines quoted.
 
-### Off-script gate: rt.cool deploy failing
+rt.cool is a redirect-only Cloudflare Pages project, `rt-cool`, deployed by
+`scripts/deploy-rt-cool-redirects.sh`. The release never redeploys it, so when only the rt.cool
+line fails, say so in the gate: the fix is on that project, not the docs deploy.
 
-Quote the failing output of both attempts. Take: Matt deployed rt.cool himself. Iterate: Matt
-fixed the cause, and the deploy runs again.
+### Off-script gate: docs site setup missing
+
+`scripts/deploy-docs.sh` builds the site and deploys it to the Cloudflare Pages project
+`mattstack-docs` through wrangler (`CF_PAGES_PROJECT` overrides the name). It needs the
+`mattstack-docs` project, wrangler auth (`wrangler login` or `CLOUDFLARE_API_TOKEN`) and
+docs.mattstack.dev added as the project's custom domain, all one-time setup described in the
+script's header. Quote what is missing and give Matt those steps; never log in for him. Take:
+Matt deployed the docs site himself. Iterate: Matt did the setup, and the deploy runs again.
+
+### Off-script gate: docs site deploy failing
+
+Quote the failing output of both deploy attempts, or the failing lines of `bun run docs:smoke`.
+Take: Matt deployed the docs site himself (or fixed what the smoke check named), and the release
+goes on to update-machine. Iterate: Matt fixed the cause, and the deploy runs again, followed by
+the smoke check.
 
 ### Off-script gate: shared checkout off main
 

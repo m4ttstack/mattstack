@@ -1,0 +1,24 @@
+---
+sidebar_position: 4
+title: wrap-up
+---
+
+# wrap-up
+
+`mattstack:wrap-up` ends a turn that has open decisions with a form instead of a wall of prose.
+
+## What you ask for
+
+Invoke it when wrapping up a session, checking in before continuing, or when you ask what Claude needs from you, which decisions are open or what the next steps are. It also presents a pipeline gate's decision as a form.
+
+## What you get
+
+One optional sentence of context, then a form, then Claude stops and waits for your answers before doing more work. The form is Claude Code's structured-question tool, with one question per open item in three buckets (an empty bucket is left out):
+
+| Bucket | The question is | Options |
+| --- | --- | --- |
+| Important details | A confirmation or pick among facts that still matter | Concrete values |
+| Decisions | A choice only you can make | The real alternatives, recommended first and labelled `(Recommended)` |
+| Next steps | Whether or in what order to do remaining work | Do now, later or skip |
+
+Questions can be single or multiple choice. If the tool caps how many fit in one call, the first batch is asked, and the rest follow after you answer.

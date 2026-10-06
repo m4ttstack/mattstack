@@ -1,0 +1,67 @@
+---
+sidebar_position: 9
+title: herdr-chat
+---
+
+# herdr-chat
+
+herdr-chat is a [herdr](https://github.com/herdrdev/herdr) plugin that brings [rt chat](/rt/guides/chat) to where the agents live: the panes. It is built in Rust with ratatui and themed to match herdr.
+
+## What you can do
+
+- **Launcher:** one popup with every feature and quick action behind the lowercase letter of its direct binding.
+- **Broadcast:** send one message into a selection of panes.
+- **Peek:** see who is online and what is unread, at a glance.
+- **Quick-send:** fire a line at a room or DM without leaving your pane.
+- **Sign in and sign out:** put a pane on, or take it off, the chat buddy list on a hotkey.
+- **Jump:** go from a chat mention to that agent's pane.
+- **Open viewer:** hand off to the [chat web viewer](/apps/chat) to read and compose.
+
+## Requirements
+
+- macOS
+- herdr 0.8.0 or newer
+- A Rust toolchain, because `herdr plugin install` builds the plugin on your machine
+- `rt` with its daemon running
+- deck, optionally; without it "open viewer" has nowhere to hand off to
+
+## Install
+
+```bash
+herdr plugin install m4ttstack/mattstack/plugins/herdr-chat
+```
+
+This registers the actions (`launcher`, `broadcast`, `peek`, `quick-send`, `sign-in`, `sign-out`, `open-viewer`) and the popup panes. It binds no keys, because herdr keybindings are a user-config concern. To try an action before binding anything:
+
+```bash
+herdr plugin action invoke m4ttstack.chat.launcher
+```
+
+## Bind keys
+
+Add `[[keys.command]]` entries of `type = "plugin_action"` to your herdr keys config, each pointing at an action by its `m4ttstack.chat.*` id:
+
+```toml
+[[keys.command]]
+key = "prefix+C"
+type = "plugin_action"
+command = "m4ttstack.chat.launcher"
+description = "chat launcher: every feature behind one key"
+```
+
+herdr's lowercase letters are mostly taken by its own defaults, so shifted letters avoid collisions. Sign-in is hotkey-only and nothing prompts you on pane launch, so binding `sign-in` is how you get a pane onto the buddy list.
+
+## Unread badge
+
+The rt daemon reports a `chat_unread` token on a signed-in pane whenever a message fails to deliver straight into that pane's inbox. It shows in herdr's sidebar only once one of your sidebar agent rows references it:
+
+```toml
+[ui.sidebar.agents]
+rows = [
+  ["state_icon", "agent", "$chat_unread"],
+]
+```
+
+## Scripting it
+
+Every feature except the launcher runs without a terminal: pass `--json` and the command prints one JSON object on stdout and draws nothing. The wire shapes, the handle and name rules and the exit codes are in the [plugin's README](https://github.com/m4ttstack/mattstack/blob/main/plugins/herdr-chat/README.md).

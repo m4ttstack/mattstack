@@ -3,8 +3,8 @@ import { readdirSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { COMMANDS } from '../src/cli/main.ts';
 
-const REPO_ROOT = join(import.meta.dir, '..');
-const REFERENCE_DIR = join(REPO_ROOT, 'website', 'docs', 'reference');
+const REPO_ROOT = join(import.meta.dir, '..', '..', '..');
+const REFERENCE_DIR = join(REPO_ROOT, 'website', 'docs', 'gitq', 'reference');
 
 /** Recursively collects every `*.mdx` file under `dir`, as paths relative to `REFERENCE_DIR`. */
 function walkMdx(dir: string): string[] {
@@ -34,7 +34,7 @@ describe('docs coverage', () => {
   const commandNames = Object.keys(COMMANDS);
 
   // Walking the filesystem is deferred to beforeAll (rather than module load)
-  // so a missing website/docs/reference/ directory fails as a named test with
+  // so a missing website/docs/gitq/reference/ directory fails as a named test with
   // a useful message instead of throwing at import time.
   beforeAll(() => {
     const allMdxPaths = walkMdx(REFERENCE_DIR);
@@ -48,7 +48,7 @@ describe('docs coverage', () => {
     const missing = commandNames.filter((name) => !commandPageNames.has(name));
     expect(
       missing,
-      `commands with no reference page under website/docs/reference/<category>/: ${missing.join(', ')}`,
+      `commands with no reference page under website/docs/gitq/reference/<category>/: ${missing.join(', ')}`,
     ).toEqual([]);
   });
 
