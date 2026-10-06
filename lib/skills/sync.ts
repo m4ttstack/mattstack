@@ -486,6 +486,9 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       const packBranchRes = await deps.run("git", ["branch", "--show-current"], { cwd: pack.dir });
       if (packBranchRes.code !== 0) return failed(`git branch --show-current failed in ${pack.dir}: ${packBranchRes.stderr.trim()}`);
       const packBranch = packBranchRes.stdout.trim();
+      if (packBranch === "") {
+        return refused("The pack checkout has no branch checked out. Switch it to a branch, then run this again");
+      }
       if (packBranch !== "main" && !isInside(realRoot(pack.dir) ?? pack.dir, realRoot(deps.orgsRoot ?? null))) {
         return refused(`The pack checkout is on ${packBranch}, not main. Switch it to main, then run this again`);
       }

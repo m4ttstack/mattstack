@@ -34,7 +34,7 @@ import { assertCurrentOrg, readTeamLocal } from "./team-local.ts";
 import { encodeCode, generateId, generateKey, seal } from "./invite-crypto.ts";
 import { readInviteRecords, upsertInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
-import { checkedOutBranch, shellQuote } from "./org-branch.ts";
+import { orgBranch, shellQuote } from "./org-branch.ts";
 import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
 
@@ -221,8 +221,8 @@ export function realMintInviteSeams(): MintInviteSeams {
     pullOrg: async (p, slug, remote, token) => {
       const dir = join(p.home, ".mattstack", "teams", slug);
       await refuseIfBusy(p, dir);
-      const branch = await checkedOutBranch(p, dir);
-      if (branch !== null && branch !== "main") {
+      const branch = await orgBranch(p, dir);
+      if (branch !== "main") {
         throw new UserActionableError("invite-off-main", `Your copy of the org is on ${branch}, so rt made no invite`, {}, {
           why: "The people you invite clone main, so their roster entry has to land there. Switch back to main to invite.",
           next: `git -C ${shellQuote(dir)} switch main`,

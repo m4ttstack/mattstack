@@ -33,7 +33,7 @@ describe("publishTeam", () => {
 
     expect(p.calls.exec.filter((argv) => !argv.includes("get-url") && !argv.includes("ls-remote") && !argv.includes("rev-list") && !argv.includes("symbolic-ref"))).toEqual([
       ["git", "remote", "set-url", "origin", "https://github.com/acme/repo.git"],
-      ["git", "push", "-u", "origin", "main"],
+      ["git", "push", "-u", "origin", "refs/heads/main:refs/heads/main"],
     ]);
     expect(result).toEqual({ remote: "https://github.com/acme/repo.git", pushed: true, detail: "pushed to https://github.com/acme/repo.git" });
   });
@@ -43,7 +43,7 @@ describe("publishTeam", () => {
     await publishTeam(p, "acme", null);
     const remoteCalls = p.calls.exec.filter((argv) => argv.includes("ls-remote") || argv.includes("push") || argv.includes("rev-list"));
     expect(remoteCalls.find((argv) => argv.includes("ls-remote"))!.at(-1)).toBe("refs/heads/org-trial");
-    expect(remoteCalls.find((argv) => argv.includes("push"))!.slice(-3)).toEqual(["-u", "origin", "org-trial"]);
+    expect(remoteCalls.find((argv) => argv.includes("push"))!.slice(-3)).toEqual(["-u", "origin", "refs/heads/org-trial:refs/heads/org-trial"]);
     expect(remoteCalls.find((argv) => argv.includes("rev-list"))!.join(" ")).toContain("refs/heads/org-trial");
     expect(p.calls.exec.flat().join(" ")).not.toContain("refs/heads/main");
   });
@@ -81,7 +81,7 @@ describe("publishTeam", () => {
     expect(p.calls.exec.filter((argv) => !argv.includes("get-url") && !argv.includes("ls-remote") && !argv.includes("rev-list") && !argv.includes("symbolic-ref"))).toEqual([
       ["git", "remote", "set-url", "origin", "https://github.com/acme/repo.git"],
       ["git", "remote", "add", "origin", "https://github.com/acme/repo.git"],
-      ["git", "push", "-u", "origin", "main"],
+      ["git", "push", "-u", "origin", "refs/heads/main:refs/heads/main"],
     ]);
   });
 
@@ -92,7 +92,7 @@ describe("publishTeam", () => {
     });
     const result = await publishTeam(p, "acme", null);
 
-    expect(p.calls.exec.filter((argv) => !argv.includes("get-url") && !argv.includes("ls-remote") && !argv.includes("rev-list") && !argv.includes("symbolic-ref"))).toEqual([["git", "push", "-u", "origin", "main"]]);
+    expect(p.calls.exec.filter((argv) => !argv.includes("get-url") && !argv.includes("ls-remote") && !argv.includes("rev-list") && !argv.includes("symbolic-ref"))).toEqual([["git", "push", "-u", "origin", "refs/heads/main:refs/heads/main"]]);
     expect(result.remote).toBe("https://github.com/acme/repo.git");
   });
 
@@ -345,7 +345,17 @@ describe("publication authorizes the actual main history and destination", () =>
     w.p.exec = async (argv, opts) => { if (argv.includes("push")) pushed.push(argv); return exec(argv, opts); };
     if (branchUnowned) await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
     else await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true });
-    expect(pushed.map((argv) => argv.at(-1))).toEqual(branchUnowned ? [] : ["other"]);
+    expect(pushed.map((argv) => argv.at(-1))).toEqual(branchUnowned ? [] : ["refs/heads/other:refs/heads/other"]);
+  });
+
+  test("a branch named +main pushes its own ref, never a forced main", async () => {
+    const w = historyWorld();
+    w.git("checkout", "-q", "-b", "+main", w.base); w.commit("mattstack/teams/gadgets/destination.txt", "branch pending\n"); w.roles(["gadgets"], "dev1");
+    const pushed: string[][] = [];
+    const exec = w.p.exec;
+    w.p.exec = async (argv, opts) => { if (argv.includes("push")) pushed.push(argv); return exec(argv, opts); };
+    await publishTeam(w.p, "acme", null);
+    expect(pushed.map((argv) => argv.at(-1))).toEqual(["refs/heads/+main:refs/heads/+main"]);
   });
 
   for (const destination of ["explicit", "pushurl"] as const) test(`a changed ${destination} cannot reuse the old origin baseline`, async () => {

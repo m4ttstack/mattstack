@@ -66,6 +66,9 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     throw new UserActionableError("no-team-zone", `The ${slug} team is not on this Mac`, {}, { next: "rt team create" });
   }
 
+  const branch = await orgBranch(p, dir);
+  const ref = `refs/heads/${branch}`;
+
   if (remote) {
     const setUrl = await p.exec(["git", "remote", "set-url", "origin", remote], { cwd: dir });
     if (setUrl.code !== 0) {
@@ -78,9 +81,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     }
   }
 
-  const branch = await orgBranch(p, dir);
-  const ref = `refs/heads/${branch}`;
-  const activeRemote = remote ?? (await currentOrigin(p, dir)) ?? "";
+  const activeRemote =remote ?? (await currentOrigin(p, dir)) ?? "";
   const inspectionFailure = () => new UserActionableError("team-pull-only", "rt could not check your pending changes", {}, { next: "rt team pull" });
   const destination = await p.exec(["git", "remote", "get-url", "--push", "--all", "origin"], { cwd: dir });
   const urls = destination.stdout.trim().split("\n").filter(Boolean);
@@ -93,7 +94,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   if (base && (base.length !== 2 || !GIT_OBJECT_ID.test(base[0]!) || base[1] !== ref)) throw inspectionFailure();
   const pending = await unpublishedPaths((argv) => p.exec(argv, { cwd: dir }), base ? `${base[0]}..${ref}` : ref);
   if (pending === null) throw inspectionFailure();
-  const cmd = gitWithToken(["push", "-u", "origin", branch], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
+  const cmd = gitWithToken(["push", "-u", "origin", `${ref}:${ref}`], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
   const current = roleFor(p, slug);
   if (ownedRoots(current).length === 0) assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
   for (const path of pending) {

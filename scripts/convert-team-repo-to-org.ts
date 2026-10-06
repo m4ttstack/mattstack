@@ -142,13 +142,13 @@ function main(): void {
   try {
     originBranch = git("rev-parse", "--verify", "-q", `refs/remotes/origin/${branch}`).trim();
   } catch {
-    refuse(`Origin has no ${branch} branch`, "rt publishes the branch you are on, so origin needs it before converting. Push it once.", `git -C ${quoted} push -u origin ${branch}`);
+    refuse(`Origin has no ${branch} branch`, "rt publishes the branch you are on, so origin needs it before converting. Push it once.", `git -C ${quoted} push -u origin ${shellQuote(branch)}`);
   }
   const [ahead, behind] = git("rev-list", "--left-right", "--count", `HEAD...${originBranch}`).trim().split(/\s+/).map(Number);
   if (ahead === 0 && behind! > 0) {
     refuse("The clone is behind origin", `Origin has ${behind} commit${behind === 1 ? "" : "s"} this clone does not. Converting now would leave them out, and the publish would be refused.`, `git -C ${quoted} pull --ff-only`);
   }
-  if (ahead! > 0) refuse("The clone has commits origin does not have", "Publish or drop them first, so the conversion is the only change you publish.", `git -C ${quoted} log --oneline origin/${branch}..HEAD`);
+  if (ahead! > 0) refuse("The clone has commits origin does not have", "Publish or drop them first, so the conversion is the only change you publish.", `git -C ${quoted} log --oneline ${shellQuote(`origin/${branch}..HEAD`)}`);
   const start = git("rev-parse", "HEAD").trim();
   try {
     for (const [from, to] of plan.moves) {

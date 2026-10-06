@@ -494,7 +494,7 @@ describe("team.create", () => {
       ["git", "remote", "get-url", "--push", "--all", "origin"],
       ["git", "ls-remote", "--refs", "--", remote, "refs/heads/main"],
       ["git", "rev-list", "--max-count=1001", "refs/heads/main"],
-      ["git", "push", "-u", "origin", "main"],
+      ["git", "push", "-u", "origin", "refs/heads/main:refs/heads/main"],
     ]);
   });
 
