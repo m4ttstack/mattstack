@@ -1,39 +1,53 @@
-A patch for new and existing team members: team tools behind an intercept (doppler) now pass the setup check from the app, the intercepts row stops flipping back to a warning, and deck clears stale portless badges. Board peer asks no longer wait forever.
+A board and teams release: the board gets sub-groups, distinct member looks and settings in a console modal, a team creator connects their own board with `rt team peer`, and the daemon boots without waiting on a slow fseventsd.
 
-### Setup
+### Teams
 
-- a team tool behind an intercept shim is found in the Homebrew folders when the app's launch PATH has none, so the doppler row no longer blocks Install with "Could not run doppler (exit 1)" (#690)
-- the intercept shims row reports out of date only when the rules a newer settings file builds actually changed, not after any settings save (#690)
-- a tool whose version rt cannot read says so, instead of calling it older than the minimum (#684)
+- `rt team peer` connects a team creator's own board to the switchboard, and `rt team create` runs it when this Mac holds the switchboard admin token (#707)
+- `rt team members remove` also disconnects the member's board, and says plainly when only the switchboard owner can (#707)
+- `rt team status` counts the members with a connected board, and its `--json` marks each member as peered or not (#707)
+- the board's roster is read-only: inviting, re-inviting, removing and joining live in the CLI, and the Board peering row's steps name `rt team peer` or a fresh invite (#707)
 
-### Deck
+### Daemon
 
-- a "portless sync failed" badge left on a bundled app from an earlier failed sync clears on the next deck start when portless already routes the app (#693, 2560cb05a)
+- the daemon no longer waits on its repo watches at boot, so a slow fseventsd cannot stall it for a minute (#712)
+- the home and team snapshot watchers retry a git check that timed out, instead of staying off until the next daemon restart (#712)
 
 ### Board
 
-- a review the board just started no longer flashes "review interrupted" while its pane is still opening (#694)
-- a peer ask that hears nothing for 30 minutes says so, a closed review pane is reported to the asker's board, and a running ask can be dismissed (#677)
-- peer review state lives in the board's state database; leftover files are imported once (#677)
-- request review sits in a nested submenu, and empty session rows are hidden (#677)
+- sort splits each group into labelled sub-groups by a second grouping, with rows always oldest first (#707)
+- a fresh board groups by status, and leaving Needs me brings back the grouping you had before it (#700, #707)
+- every author gets a distinct avatar colour and creature, so neighbours in a list never share a hue (#707)
+- a selection replaces the tab band with its own bar (#707)
+- whose turn, a Show menu of checkbox chips with explaining tooltips, and card surfaces (#702)
+- settings open console's board group in a modal; Whose turn has checkboxes and Settings opens at the top (#706, #710)
+- tabs dock into the header card, group labels become tinted bands in the status hue, and a polish round on cards, tooltips and focus rings
 
-### Output
+### Settings
 
-- RT-369 phase 6: agent verbs, daemon, herd and pane, services, git and skills, and chat commands print through the output layer; wording polished throughout (#681, #682, #683, #684, #686, #687, #689), state and session/cd/nav follow (#691, d52c7a00b), and the renderer gets another round (#692)
+- board, chat, boxscore and deck show their own settings group from console in a modal instead of a settings page of their own (#706)
+
+### Deck
+
+- a deck self-deploy no longer kills other apps' redeploys (#709)
+- inside a run, deck never resends its own restart (#711)
+
+### Chat
+
+- a pane signed in to chat keeps its identity when its session id changes, so a forked session no longer posts as a new phantom name (#708)
 
 ### Also
 
-- the menu bar app's notification tones respect the system "Play sound for notifications" switch (#697)
-- the team clone's snapshot leaves team packs to their own publish, so a half-made pack edit is never pushed under a snapshot message (#696)
-- glitter checks out a stacked branch again, and its refusals paint as a solid band (#676)
-- boxscore cards scroll (918621edf)
+- `rt sync all` exits 1 when any branch failed or was refused (#704)
+- the rt-ui background probe answers Ctrl-C live, ignores late replies and leaves no lock files (#703)
+- RT-369 closes: the output-layer migration is complete, with no change to output, envelopes or exit codes (#701)
+- boxscore card scrollbars fade in on hover, clear of the values
 
-### Bundled
+### Settings store versions
 
-- the catalog's fast-browser plugin moves to fast-browser main aac4b69cb0f0 (#695)
+- `board.tabs` moves to `board.tabs@2`: a tab board would refuse to start with is dropped on migration (#706)
 
 ### Held pins
 
-- portless stays at 0.15.6 (0.15.7 is out); it moves in a later release
+- glab stays at 1.120.0 (1.121.0 is out), cloudflared at 2026.9.3 (2026.10.0 is out) and portless at 0.15.6 (0.15.7 is out); they move in a later release
 
-**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.20.0...v2.20.1
+**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.20.1...v2.21.0

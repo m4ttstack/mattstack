@@ -37,7 +37,13 @@ The joiner opens the invite link, or pastes the code into **Join a team** in set
 - If the joiner's forge account (GitHub or GitLab) cannot see the repo, a warning names the problem and suggests asking the owner or org admin for access. The `access.team-repo` checklist row holds Install until access is resolved.
 - If access is confirmed, setup continues normally.
 
-The invite also carries the joiner's board token. When this Mac's board ends up without one, the **Board peering** row says the board does not peer yet. It never holds up Install or Finish, but setup keeps listing it, and the setup check after an app update notifies you about it. The fix is on the owner's side: ask them to re-invite your board, with `rt team invite --handle <your forge username>` (then run `rt team join` with the new code) or from the board's members panel. The row turns ready once the token arrives. It shows only when your team runs a board, and on the Mac that created the team only when that Mac can invite its own board. It shows an error with a **Re-check** when the switchboard does not answer.
+The invite also carries the joiner's board token. When this Mac's board ends up without one, the **Board peering** row says the board does not peer yet. It never holds up Install or Finish, but setup keeps listing it, and the setup check after an app update notifies you about it. The fix is on the owner's side: ask them to invite you again with `rt team invite --handle <your forge username>`, then run `rt team join` with the new code. The row turns ready once the token arrives. It shows only when your team runs a board, and on the Mac that created the team only when that Mac can connect its own board. It shows an error with a **Re-check** when the switchboard does not answer.
+
+## Connecting the owner's board
+
+The Mac that created the team connects its own board to the switchboard: `rt team create` does it for you, and `rt team peer` does it later, for example when the create could not reach the switchboard. It needs the switchboard admin token on this Mac, and leaves a board that already peers alone. On that Mac, the **Board peering** row's steps name `rt team peer`. `rt team status` counts the members with a connected board, and its `--json` marks each member's board as peered or not.
+
+`rt team members remove <handle>` also disconnects that member's board from the switchboard, so it stops receiving the team's peer traffic. When this Mac cannot disconnect it, the command says so and names who can.
 
 ## When an invitee replies
 
