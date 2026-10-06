@@ -114,15 +114,15 @@ export function launchInProgress(db: Database, guard: string): string | null {
   return `${subject} is still starting here, or rt cannot tell whether it started; rt will not start another session in the same place until it resolves`;
 }
 
-/** Why an agent needs a person: a launch or a submission whose outcome rt cannot tell. */
-export function launchAttention(db: Database, agentId: string): string | undefined {
-  const launch = unresolvedLaunchOf(db, agentId);
+/** Why an agent needs a person: a launch or a submission whose outcome rt cannot tell, made after `since` (its last successful resume). */
+export function launchAttention(db: Database, agentId: string, since?: number): string | undefined {
+  const launch = unresolvedLaunchOf(db, agentId, since);
   if (launch) {
     return launch.state === "abandoned"
       ? "rt stopped waiting for this agent's launch; check whether its session started"
       : "this agent's launch has not resolved; rt cannot tell yet whether its session started";
   }
-  const work = unresolvedSubmissionOf(db, agentId);
+  const work = unresolvedSubmissionOf(db, agentId, since);
   if (!work) return undefined;
   return work.state === "abandoned"
     ? "rt found no sign that this agent's work reached its session and stopped checking; it will not send it again"
@@ -471,6 +471,10 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
           nativeHint,
         };
         return await launchReserved(asked, reservation, adapterRequest, kind, resumed?.native, persisted);
+      } catch (err) {
+        // A throw says nothing about what the adapter made, so the reservation keeps whatever claim it reached.
+        noteReservationError(db, reservation.id, messageOf(err));
+        return fail("ambiguous", messageOf(err));
       } finally {
         LAUNCHING.delete(inFlight);
       }

@@ -1,18 +1,19 @@
 /**
  * lib/agent-argv/env.ts ... environment a worker must not inherit. A pane
  * shell takes whatever its herdr server holds, so a variable that names
- * another harness's session is unset on the pane line before the harness
- * starts; a spawned process simply has it left out.
+ * another harness's session is removed on the pane line by starting the
+ * harness through `env -u`, which runs the same in any shell (fish has no
+ * `unset`); a spawned process simply has it left out.
  */
 
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** `unset A B && `, or nothing when there is nothing to clear. Names are never quoted, so only shell identifiers pass. */
+/** `env -u A -u B `, placed before the line's assignments and harness, or nothing when there is nothing to clear. Names are never quoted, so only shell identifiers pass. */
 export function unsetPrefix(names: readonly string[] | undefined): string {
   if (!names || names.length === 0) return "";
   const bad = names.find((name) => !ENV_NAME_RE.test(name));
   if (bad !== undefined) throw new Error(`invalid environment variable name "${bad}" ... refusing to build the pane command`);
-  return `unset ${names.join(" ")} && `;
+  return `env ${names.map((name) => `-u ${name}`).join(" ")} `;
 }
 
 /** A copy of `env` without `names`. */

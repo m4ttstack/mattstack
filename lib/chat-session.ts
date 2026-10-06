@@ -27,7 +27,7 @@ export interface ChatSession {
   lastBranchReadAt?: number;
 }
 
-function sessionsDir(): string {
+export function sessionsDir(): string {
   return join(rtDir(), "chat", "sessions");
 }
 

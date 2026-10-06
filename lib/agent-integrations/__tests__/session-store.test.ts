@@ -12,7 +12,7 @@ import {
   readBindingReadiness, readBindingSelection, readReservation, recordLaunched,
 } from "../session-store.ts";
 import { isDetachedClaudeBinding } from "../claude/sessions.ts";
-import { migrateLegacySessions, resolveLegacySession } from "../legacy.ts";
+import { __test__, migrateLegacySessions, resolveLegacySession } from "../legacy.ts";
 
 let dir = "";
 let origHome: string | undefined;
@@ -338,6 +338,77 @@ describe("legacy migration", () => {
     bound(db, "nell.9f9f", ref({ value: unknownRaw }));
     const result = resolveLegacySession(unknownRaw, undefined, db);
     expect(result.ok && result.data.identity).toBe("nell.9f9f");
+  });
+
+  test("a row that cannot bind is recorded unbound with its reason, and every other record still resolves", () => {
+    const db = freshDb();
+    const { oldClaude } = legacyFixture(db);
+    const broken = agent({ handle: "zed.0bad", account: "" });
+    insertAgent(broken, db);
+
+    expect(() => migrateLegacySessions(db)).not.toThrow();
+    const refused = resolveLegacySession(broken.sessionId, undefined, db);
+    expect(refused).toMatchObject({ ok: false, error: { code: "ambiguous", message: expect.stringContaining("could not be bound") } });
+    expect(db.query("SELECT identity, key, reason FROM agent_session_aliases WHERE source = 'agents' AND source_id = ?;").get(broken.id))
+      .toEqual({ identity: "zed.0bad", key: null, reason: "invalid-record" });
+    expect(resolveLegacySession(oldClaude.sessionId, undefined, db).ok).toBe(true);
+  });
+
+  test("an alias records the profile its row ran under: the account, else the ambient one, and Codex's canonical home", () => {
+    const savedCodexHome = process.env.CODEX_HOME;
+    delete process.env.CODEX_HOME;
+    try {
+      const db = freshDb();
+      const { oldClaude, explicitCodex, ambiguous } = legacyFixture(db);
+      migrateLegacySessions(db);
+      const profileOf = (id: string) => (db.query("SELECT profile FROM agent_session_aliases WHERE source = 'agents' AND source_id = ?;").get(id) as { profile: string | null }).profile;
+      expect(profileOf(oldClaude.id)).toBe("work");
+      expect(profileOf(explicitCodex.id)).toBe("default");
+      expect(profileOf(ambiguous.id)).toBe("default");
+      expect(db.query("SELECT DISTINCT profile FROM agent_session_aliases WHERE source = 'chat-session';").all()).toEqual([{ profile: null }]);
+    } finally {
+      if (savedCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = savedCodexHome;
+    }
+  });
+
+  test("an unproven Codex row never resolves to the same thread id bound under another Codex profile", () => {
+    const savedCodexHome = process.env.CODEX_HOME;
+    delete process.env.CODEX_HOME;
+    try {
+      const db = freshDb();
+      const { explicitCodex } = legacyFixture(db);
+      migrateLegacySessions(db);
+      bound(db, "kai.cd34", ref({ harness: "codex", profile: "/elsewhere/codex-home", value: explicitCodex.sessionId }));
+      const result = resolveLegacySession(explicitCodex.sessionId, undefined, db);
+      expect(result).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    } finally {
+      if (savedCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = savedCodexHome;
+    }
+  });
+
+  test("a resolve skips the legacy scan while nothing changed, and still sees a new session file or agent row", () => {
+    const db = freshDb();
+    legacyFixture(db);
+    __test__.reset();
+    resolveLegacySession("never-recorded", undefined, db);
+    expect(__test__.scans()).toBe(1);
+    resolveLegacySession("never-recorded", undefined, db);
+    resolveLegacySession("never-recorded", "claude", db);
+    expect(__test__.scans()).toBe(1);
+
+    writeChatSession({ sessionId: "n0000000-0000-4000-8000-00000000000d", handle: "nova.1234", baseHandle: "x", signedInAt: 1 });
+    const fromFile = resolveLegacySession("n0000000-0000-4000-8000-00000000000d", undefined, db);
+    expect(__test__.scans()).toBe(2);
+    expect(fromFile).toMatchObject({ ok: false, error: { message: expect.stringContaining("does not say which harness") } });
+
+    const late = agent({ handle: "otis.5678" });
+    insertAgent(late, db);
+    expect(resolveLegacySession(late.sessionId, undefined, db)).toMatchObject({ ok: true, data: { identity: "otis.5678" } });
+    expect(__test__.scans()).toBe(3);
+    resolveLegacySession("never-recorded", undefined, db);
+    expect(__test__.scans()).toBe(3);
   });
 
   test("migration preserves original agent and chat fields and is idempotent", () => {

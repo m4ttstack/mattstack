@@ -14,7 +14,7 @@ import type { RunSummary } from "../../packages/rt-client/src/commands.ts";
 import type { Database } from "bun:sqlite";
 import { builtinRegistry } from "../agent-integrations/builtins.ts";
 import { integrationsEnabled } from "../agent-integrations/context.ts";
-import { createObservationSweep, type IntegrationRegistry } from "../agent-integrations/contracts.ts";
+import { createObservationSweep, type IntegrationRegistry, type SessionAdapter } from "../agent-integrations/contracts.ts";
 import { createBoundLauncher } from "../agent-integrations/launch.ts";
 import { isAlive } from "../runner/workspace-registry.ts";
 import { listAttachedBindings } from "../agent-integrations/session-store.ts";
@@ -69,7 +69,13 @@ export async function observeBoundSessions(deps: {
     const bindings = listAttachedBindings(db, integration.id)
       .filter((b) => b.attachment.pid === undefined || alive(b.attachment.pid));
     if (bindings.length === 0) continue;
-    const sessions = await integration.loadSessions();
+    let sessions: SessionAdapter;
+    try {
+      sessions = await integration.loadSessions();
+    } catch (err) {
+      deps.log?.warn({ err, harness: integration.id }, "agent-status poller could not load a harness's sessions");
+      continue;
+    }
     for (const binding of bindings) {
       try {
         await sessions.observe(binding, sweep);

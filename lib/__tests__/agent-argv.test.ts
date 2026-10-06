@@ -4,14 +4,18 @@ import { buildAgentArgv, buildAgentPaneCommand, buildClaudeArgv, buildPaneComman
 const UUID = "6e225e74-4cb7-4aea-8807-6aa9011d4112";
 
 describe("environment a worker must not inherit", () => {
-  test("a pane line unsets it before the harness starts; nothing to clear adds nothing", () => {
+  test("a pane line starts the harness through env -u, which any shell runs; nothing to clear adds nothing", () => {
     const inv = { session: { kind: "start" as const, sessionId: UUID }, headless: false, env: { RT_AGENT_ID: "a1" } };
     expect(buildPaneCommand("/w", inv)).toBe(`cd '/w' && RT_AGENT_ID='a1' claude '--session-id' '${UUID}'`);
     expect(buildPaneCommand("/w", { ...inv, unsetEnv: ["CODEX_THREAD_ID"] }))
-      .toBe(`cd '/w' && unset CODEX_THREAD_ID && RT_AGENT_ID='a1' claude '--session-id' '${UUID}'`);
+      .toBe(`cd '/w' && env -u CODEX_THREAD_ID RT_AGENT_ID='a1' claude '--session-id' '${UUID}'`);
+    expect(buildPaneCommand("/w", { ...inv, account: "me", unsetEnv: ["CODEX_THREAD_ID", "OTHER"] }))
+      .toBe(`cd '/w' && env -u CODEX_THREAD_ID -u OTHER RT_AGENT_ID='a1' cswap run 'me' -- '--session-id' '${UUID}'`);
     expect(buildAgentPaneCommand("codex", "/w", { ...inv, unsetEnv: ["CLAUDE_CODE_SESSION_ID"] }))
-      .toBe(`cd '/w' && unset CLAUDE_CODE_SESSION_ID && RT_AGENT_ID='a1' codex`);
+      .toBe(`cd '/w' && env -u CLAUDE_CODE_SESSION_ID RT_AGENT_ID='a1' codex`);
+    expect(buildAgentPaneCommand("codex", "/w", inv)).toBe(`cd '/w' && RT_AGENT_ID='a1' codex`);
     expect(unsetPrefix([])).toBe("");
+    expect(unsetPrefix(undefined)).toBe("");
   });
 
   test("only shell identifiers are ever unset, and a spawned environment just leaves them out", () => {

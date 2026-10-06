@@ -614,6 +614,41 @@ describe("one unresolved launch per harness, profile and cwd", () => {
     expect(launchInProgress(db, guard())).toBeNull();
     expect(launchAttention(db, "ag-old")).toContain("stopped waiting");
   });
+
+  test("a launch whose adapter throws holds its place, records why, and is ambiguous", async () => {
+    const { integration, calls } = fake({ carries: true, launch: (_req, c) => { c.spawn++; throw new Error("socket closed mid-launch"); } });
+    const store = createSessionStore(db);
+    const first = store.reserve({ identity: "remy", agentId: "ag-thrown" });
+    const res = await launcherFor([integration]).launchBoundAgent(request(first));
+    expect(res).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(res.ok ? "" : res.error.message).toContain("socket closed mid-launch");
+    expect(readReservation(db, first)).toMatchObject({ state: "launching", error: expect.stringContaining("socket closed mid-launch") });
+    expect(launchInProgress(db, guard())).toContain("agent ag-thrown");
+    expect(launchAttention(db, "ag-thrown")).toContain("has not resolved");
+
+    const second = await launcherFor([integration], { claimToken: "proc-B" }).launchBoundAgent(request(store.reserve({ identity: "sam" })));
+    expect(second).toMatchObject({ ok: false, error: { code: "refused" } });
+    expect(calls.spawn).toBe(1);
+  });
+
+  test("a session adapter that cannot load records why and launches nothing", async () => {
+    const { integration } = fake();
+    const broken = { ...integration, loadSessions: async () => { throw new Error("adapter import failed"); } } as HarnessIntegration;
+    const id = createSessionStore(db).reserve({ identity: "remy", agentId: "ag-load" });
+    const res = await launcherFor([broken]).launchBoundAgent(request(id));
+    expect(res).toMatchObject({ ok: false, error: { code: "ambiguous", message: expect.stringContaining("adapter import failed") } });
+    expect(readReservation(db, id)).toMatchObject({ state: "reserved", error: expect.stringContaining("adapter import failed") });
+    expect(launchInProgress(db, guard())).toBeNull();
+  });
+
+  test("a successful later launch or resume clears the attention an older unresolved one left", async () => {
+    const { integration } = fake({ carries: true, launch: () => fail("ambiguous", "no answer yet") });
+    const first = createSessionStore(db).reserve({ identity: "remy", agentId: "ag-old" });
+    await launcherFor([integration]).launchBoundAgent(request(first));
+    await launcherFor([integration], { claimToken: "proc-B", now: () => Date.now() + 7 * 60 * 60_000 }).recover();
+    expect(launchAttention(db, "ag-old")).toContain("stopped waiting");
+    expect(launchAttention(db, "ag-old", Date.now() + 1)).toBeUndefined();
+  });
 });
 
 describe("the ambiguous-submission sweep", () => {

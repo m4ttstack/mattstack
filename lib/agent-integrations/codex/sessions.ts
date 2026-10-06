@@ -29,7 +29,9 @@ import type {
 } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { buildCodexRemoteResumeCommand } from "../../agent-argv/codex.ts";
 import type { LaunchHost, LaunchRequest, NativeLaunch, SessionAdapter, WorkCompletion, WorkReceipt } from "../contracts.ts";
+import { getStateDb } from "../../state/db.ts";
 import { openHostPane, type HostPaneLaunch, type HostPaneOpened } from "../herdr-pane.ts";
+import { readReservation } from "../session-store.ts";
 import { CODEX_ATTACH_READ_MS, CODEX_ATTACH_READS, CODEX_INIT_TURN_TIMEOUT_MS } from "../timeouts.ts";
 import { workDigest } from "../work-submissions.ts";
 import {
@@ -86,6 +88,8 @@ export type CodexSessionDeps = {
   unresolved: Map<string, UnresolvedLaunch>;
   /** Reservations with a launch or resume running now, keyed like `unresolved`. */
   inFlight: Set<string>;
+  /** Whether the launcher's persisted reservation has resolved (bound) or been given up (abandoned), so nothing waits on it here. */
+  reservationSettled(reservationId: string): boolean;
 };
 
 const ATTACH_READS = CODEX_ATTACH_READS;
@@ -154,6 +158,10 @@ function defaultDeps(): CodexSessionDeps {
     workTurnTimeoutMs: 6 * 60 * 60_000,
     unresolved: UNRESOLVED,
     inFlight: IN_FLIGHT,
+    reservationSettled: (id) => {
+      const state = readReservation(getStateDb(), id)?.state;
+      return state === "bound" || state === "abandoned";
+    },
     openPane: openHostPane,
     confirmAttached: async (opened, expected, host) => {
       const [{ herdrRequest }, { parsePaneRef }] = await Promise.all([
@@ -291,6 +299,14 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     entry.reservation?.release();
   }
 
+  /** Drops every idle entry whose persisted reservation no longer waits on it. */
+  function dropSettled(): void {
+    for (const [key, entry] of unresolved) {
+      if (deps.inFlight.has(key)) continue;
+      if (deps.reservationSettled(key.slice(key.indexOf("\0") + 1))) settle(key, entry);
+    }
+  }
+
   /** Opens the terminal once per entry; a retry re-checks the pane it already opened. */
   async function attach(
     entry: UnresolvedLaunch, threadId: string, evidence: string[], reservationId: string, host?: LaunchHost,
@@ -391,6 +407,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
 
       const key = keyOf(request.reservationId);
       return exclusive(key, request.reservationId, async () => {
+        dropSettled();
         let entry = unresolved.get(key);
         if (entry && (entry.kind !== "launch" || entry.cwd !== cwd)) {
           return fail("invalid", `reservation ${request.reservationId} is held for another ${entry.kind} in ${entry.cwd}`);
@@ -437,6 +454,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
       const threadId = native.value;
       const key = keyOf(request.reservationId);
       return exclusive(key, request.reservationId, async () => {
+        dropSettled();
         const pending = unresolved.get(key);
         if (pending && (pending.kind !== "resume" || pending.threadId !== threadId || pending.cwd !== cwd)) {
           return fail("invalid", `reservation ${request.reservationId} is held for another ${pending.kind} in ${pending.cwd}`);

@@ -54,7 +54,9 @@ import { builtinRegistry } from "../../agent-integrations/builtins.ts";
 import { integrationsEnabled } from "../../agent-integrations/context.ts";
 import type { IntegrationRegistry, LaunchHost, LaunchSurface, WorkCompletion } from "../../agent-integrations/contracts.ts";
 import { createBoundLauncher, launchAttention, launchGuard, launchInProgress, type BoundLauncher } from "../../agent-integrations/launch.ts";
-import { createSessionStore, listBindingsByAgent, readReservation, unresolvedLaunchOf } from "../../agent-integrations/session-store.ts";
+import {
+  createSessionStore, launchClaimedFor, listBindingsByAgent, readReservation, unresolvedLaunchOf,
+} from "../../agent-integrations/session-store.ts";
 import type { Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 
 export interface HeadlessChild {
@@ -410,10 +412,10 @@ export function createAgentService(opts: AgentHandlerOpts): { handlers: AgentHan
     return listBindingsByAgent(db, rec.id).find((b) => b.native.harness === rec.provider && b.native.value === rec.sessionId);
   }
 
-  /** With the switch on, a record whose launch or work outcome rt cannot tell says why; off, records read exactly as before. */
+  /** With the switch on, a record whose launch or work outcome rt cannot tell, since its last successful resume, says why; off, records read exactly as before. */
   function withAttention<T extends AgentRecord>(rec: T, enabled = boundEnabled()): T & { attention?: string } {
     if (!enabled) return rec;
-    const attention = launchAttention(db, rec.id);
+    const attention = launchAttention(db, rec.id, rec.lastResumedAt);
     return attention === undefined ? rec : { ...rec, attention };
   }
 
@@ -550,12 +552,12 @@ export function createAgentService(opts: AgentHandlerOpts): { handlers: AgentHan
 
   /** `kept` when a session may exist: the record and its prompt stay, and say so, instead of being rolled back. */
   function failed(rec: AgentRecord, message: string, kept: boolean): BoundResult {
-    if (!kept) return { ok: false, error: message };
+    return kept ? { ok: false, kept: true, error: keptError(rec, message) } : { ok: false, error: message };
+  }
+
+  function keptError(rec: AgentRecord, message: string): string {
     log.warn({ id: rec.id }, "agent: a bound launch ended with an unknown outcome; the record is kept for attention");
-    return {
-      ok: false, kept: true,
-      error: `${message}. Agent ${rec.id} is kept because its session may have started; check it with rt agent show ${rec.id} before starting another`,
-    };
+    return `${message}. Agent ${rec.id} is kept because its session may have started; check it with rt agent show ${rec.id} before starting another`;
   }
 
   async function launch(
@@ -859,9 +861,12 @@ export function createAgentService(opts: AgentHandlerOpts): { handlers: AgentHan
       }
       return res.ok ? { ok: true, data: withName(res.data, db) } : res;
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (boundPath && launchClaimedFor(db, rec.id)) {
+        return { ok: false, error: keptError(rec, message), kept: { agentId: rec.id, ...(rec.paneId !== undefined && { paneId: rec.paneId }) } };
+      }
       deleteAgent(rec.id, db);
       removeAgentPromptDir(rec.id, log);
-      const message = err instanceof Error ? err.message : String(err);
       if (payload.bg && opts.bg && isCommandNotFoundShape(message)) {
         // Advisory only: the failure this branch handles is exactly the
         // case where the bg server may be unhealthy, so the reprobe itself

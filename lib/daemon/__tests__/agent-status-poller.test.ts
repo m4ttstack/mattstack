@@ -249,6 +249,31 @@ test("with the switch on, every attached binding of a harness with a session ada
   });
 });
 
+test("a harness whose sessions cannot load is warned about, and later harnesses are still observed", async () => {
+  await withDb(async (db) => {
+    const store = createSessionStore(db);
+    for (const [harness, value] of [["claude", "c1"], ["codex", "x1"]] as const) {
+      const r = store.bind(store.reserve({ identity: `id-${value}` }), { harness, profile: "default", kind: "id", value }, { mode: "herdr", pane: "w1:p1" });
+      if (!r.ok) throw new Error(r.error.message);
+    }
+    const codexSeen: string[] = [];
+    const codexAdapter = {
+      observe: async (b: SessionBinding) => { codexSeen.push(b.native.value); return { ok: true, data: {} }; },
+    } as unknown as SessionAdapter;
+    const warned: string[] = [];
+    await observeBoundSessions({
+      enabled: () => true, db: () => db, recover: async () => {},
+      log: { warn: (_o: unknown, message: string) => { warned.push(message); } } as never,
+      integrations: () => createRegistry([
+        { ...claudeIntegration, loadSessions: async () => { throw new Error("adapter import failed"); } },
+        { ...codexIntegration, loadSessions: async () => codexAdapter },
+      ]),
+    });
+    expect(codexSeen).toEqual(["x1"]);
+    expect(warned).toEqual(["agent-status poller could not load a harness's sessions"]);
+  });
+});
+
 test("a sweep over many Claude bindings reads the registry once", async () => {
   await withDb(async (db) => {
     const store = createSessionStore(db);

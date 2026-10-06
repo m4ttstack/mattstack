@@ -285,8 +285,11 @@ const STALE_LAUNCHES_SQL = `UPDATE agent_session_reservations SET state = 'aband
   error = COALESCE(error || '; ', '') || 'rt stopped waiting for this launch to resolve', updated_at = ?
 WHERE bound_key IS NULL AND state IN ('launching', 'launched') AND COALESCE(updated_at, created_at) < ?;`;
 const UNRESOLVED_FOR_AGENT_SQL = `SELECT id, state, error FROM agent_session_reservations
-WHERE agent_id = ? AND bound_key IS NULL AND state IN ('launching', 'launched', 'abandoned') ORDER BY created_at DESC LIMIT 1;`;
-const LAUNCHED_SQL = `UPDATE agent_session_reservations SET state = 'launched', launched = ?, error = NULL, updated_at = ?
+WHERE agent_id = ? AND bound_key IS NULL AND state IN ('launching', 'launched', 'abandoned') AND created_at > ?
+ORDER BY created_at DESC LIMIT 1;`;
+const CLAIMED_FOR_AGENT_SQL = `SELECT 1 FROM agent_session_reservations
+WHERE agent_id = ? AND (bound_key IS NOT NULL OR state NOT IN ('reserved', 'failed')) LIMIT 1;`;
+const LAUNCHED_SQL =`UPDATE agent_session_reservations SET state = 'launched', launched = ?, error = NULL, updated_at = ?
 WHERE id = ? AND bound_key IS NULL AND state = 'launching';`;
 const FAILED_SQL = `UPDATE agent_session_reservations SET state = 'failed', error = ?, updated_at = ?
 WHERE id = ? AND bound_key IS NULL AND state = 'launching';`;
@@ -385,10 +388,17 @@ export function abandonStaleLaunches(db: Database, before: number): number {
   }
 }
 
-/** This agent's newest launch whose outcome is unknown, or that rt stopped waiting on. */
-export function unresolvedLaunchOf(db: Database, agentId: string): { reservationId: string; state: ReservationState; error?: string } | null {
-  const row = db.query(UNRESOLVED_FOR_AGENT_SQL).get(agentId) as { id: string; state: string; error: string | null } | null;
+/** This agent's newest launch made after `since` whose outcome is unknown, or that rt stopped waiting on. */
+export function unresolvedLaunchOf(
+  db: Database, agentId: string, since = -1,
+): { reservationId: string; state: ReservationState; error?: string } | null {
+  const row = db.query(UNRESOLVED_FOR_AGENT_SQL).get(agentId, since) as { id: string; state: string; error: string | null } | null;
   return row ? { reservationId: row.id, state: row.state as ReservationState, ...(row.error !== null && { error: row.error }) } : null;
+}
+
+/** Whether any launch for this agent got past its claim, so a session may exist whatever the caller saw. */
+export function launchClaimedFor(db: Database, agentId: string): boolean {
+  return db.query(CLAIMED_FOR_AGENT_SQL).get(agentId) !== null;
 }
 
 /** Drops bound reservations older than `boundBefore` and unlaunched or failed ones older than `idleBefore`; an unresolved launch is kept. */

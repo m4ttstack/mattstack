@@ -474,6 +474,13 @@ describe("binding at sign-in", () => {
     expect(boundBy(live("remy.ab12")).attachment.pid).toBe(55);
   });
 
+  test("a malformed legacy agent row does not stop a sign-in", async () => {
+    const db = freshDb();
+    insertAgent({ id: "ag-bad", repo: "r", cwd: "/w", provider: "claude", surface: "herdr", sessionId: UUID, createdAt: 1, handle: "zed.0bad", account: "" }, db);
+    const commit = await signIn(db, "sess-manual", {}, { registry: registryOf({ [DEFAULT_ROOT]: { "sess-manual": inbox(777) } }) });
+    expect(boundBy(commit("remy.ab12")).native).toEqual(claudeRef("sess-manual"));
+  });
+
   test("a migrated legacy agent row is reused under its own account, never bound a second time", async () => {
     const db = freshDb();
     const row: AgentRecord = {

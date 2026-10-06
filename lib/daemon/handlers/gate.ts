@@ -7,6 +7,7 @@
 import type { Logger } from "pino";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import { GATE_BY_PANE } from "../../../packages/rt-client/src/commands.ts";
+import { parsePaneRef } from "../../../packages/rt-client/src/pane-ref.ts";
 import { unwrapGateAnswerValue, validateGateAnswers } from "../../../packages/rt-client/src/gate-answers.ts";
 import type { CommandResult } from "./types.ts";
 import type { EventsBus } from "../events-bus.ts";
@@ -165,6 +166,12 @@ function isValidNudge(v: unknown): v is { session: string } {
   return isPlainObject(v) && typeof v.session === "string" && v.session.length > 0;
 }
 
+/** One pane in either spelling: a bound caller names a background pane by its
+    `bg:` ref, while the pane's own environment carries the bare id. */
+function samePane(a: string | null | undefined, b: string | null | undefined): boolean {
+  return !!a && !!b && parsePaneRef(a).paneId === parsePaneRef(b).paneId;
+}
+
 /** A wrapper relaunch opens a fresh gate that supersedes its own prior one
     from the SAME pane; delivering the closed-doorbell there would Escape
     the pane's brand-new form, an avoidable self-interrupt (recoverable via
@@ -176,7 +183,7 @@ function isValidNudge(v: unknown): v is { session: string } {
 function sameOpenerPane(a: GateRow, b: GateRow): boolean {
   const paneA = a.origin?.paneId || a.pane;
   const paneB = b.origin?.paneId || b.pane;
-  if (paneA && paneB) return paneA === paneB;
+  if (paneA && paneB) return samePane(paneA, paneB);
   const sessionA = a.nudge?.session;
   const sessionB = b.nudge?.session;
   if (sessionA && sessionB) return sessionA === sessionB;
@@ -869,7 +876,7 @@ export function createGateHandlers(
     const byPane = paneId
       ? openGates.find((g) =>
         g.origin?.presentation === "form"
-        && (g.origin.paneId || g.pane) === paneId
+        && samePane(g.origin.paneId || g.pane, paneId)
         && g.executor !== "gone"
         && !(sessionIds.length > 0 && g.nudge?.session && !sessionIds.includes(g.nudge.session)))
       : undefined;

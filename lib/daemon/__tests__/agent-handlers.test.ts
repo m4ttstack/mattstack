@@ -21,7 +21,8 @@ import { claudeIntegration } from "../../agent-integrations/claude/integration.t
 import { codexIntegration } from "../../agent-integrations/codex/integration.ts";
 import type { HarnessIntegration, IntegrationRegistry, LaunchRequest, SessionAdapter, WorkInput } from "../../agent-integrations/contracts.ts";
 import { createRegistry } from "../../agent-integrations/registry.ts";
-import { createSessionStore, listBindingsByAgent } from "../../agent-integrations/session-store.ts";
+import { abandonStaleLaunches, claimReservation, createSessionStore, listBindingsByAgent } from "../../agent-integrations/session-store.ts";
+import { launchGuard } from "../../agent-integrations/launch.ts";
 
 let n = 0;
 const REPO = "remote:example.com%2Fa%2Fb";
@@ -1793,7 +1794,7 @@ describe("agent.integrations.enabled routes launches through the shared launcher
     if (!res.ok) throw new Error(res.error);
 
     const paneRun = (calls: string[][], rec: { id: string; sessionId: string }) => norm(calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!, rec);
-    expect(paneRun(onCalls, res.data)).toBe(paneRun(offCalls, offRes.data).replace("cd '/tmp/x' && ", "cd '/tmp/x' && unset CODEX_THREAD_ID && "));
+    expect(paneRun(onCalls, res.data)).toBe(paneRun(offCalls, offRes.data).replace("cd '/tmp/x' && ", "cd '/tmp/x' && env -u CODEX_THREAD_ID "));
     expect(onCalls.map((c) => norm(c.slice(0, 2).join(" "), res.data))).toEqual(offCalls.map((c) => norm(c.slice(0, 2).join(" "), offRes.data)));
     expect(onCalls.some((c) => c[0] === "pane" && c[1] === "rename" && c[3] === "worker")).toBe(true);
     expect(res.data).toMatchObject({ paneId: "w1:p1", tabId: "w1:t1", workspaceId: "w1", trust: "unchecked" });
@@ -1889,7 +1890,7 @@ describe("agent.integrations.enabled routes launches through the shared launcher
     const plain = await h["agent:resume"]({ id: legacy.id });
     if (!plain.ok) throw new Error(plain.error);
     expect(rows(h.db, "agent_session_reservations")).toBe(before);
-    expect(calls.find((c) => c[0] === "pane" && c[1] === "run")![3]).not.toContain("unset ");
+    expect(calls.find((c) => c[0] === "pane" && c[1] === "run")![3]).not.toContain("env -u");
   });
 
   test("switch on: a --bg start binds the pane by its bg: ref and claims it", async () => {
@@ -2030,6 +2031,64 @@ describe("agent.integrations.enabled routes launches through the shared launcher
     const again = await h["agent:resume"]({ id: other.data.id });
     if (!again.ok) throw new Error(again.error);
     expect(calls.filter((c) => c[0] === "pane" && c[1] === "run").at(-1)![3]).toContain(`'--resume' '${other.data.sessionId}'`);
+  });
+
+  test("switch on: a launch whose adapter throws keeps its record and prompt, and a retry refuses naming it", async () => {
+    const codex = heldCodex(async () => { throw new Error("the app server socket closed mid-launch"); });
+    const h = fresh({ runner: okRunner([]), herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codex.integration]) });
+    const first = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "build it", surface: "herdr", provider: "codex" });
+    expect(first).toEqual({ ok: false, error: expect.stringContaining("the app server socket closed mid-launch") });
+    const keptId = /Agent (\S+) is kept/.exec(first.ok ? "" : first.error)?.[1];
+    expect(keptId).toBeDefined();
+    expect(existsSync(join(rtDir(), "agent-prompts", keptId!, "prompt-1.md"))).toBe(true);
+    const retry = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "build it", surface: "herdr", provider: "codex" });
+    expect(retry).toEqual({ ok: false, error: expect.stringContaining(`agent ${keptId}`) });
+    expect(codex.seen.launches).toBe(1);
+  });
+
+  test("switch on: a throw that escapes the launcher after it claimed the launch keeps the record, as an unknown outcome does", async () => {
+    const db = openStateDb(join(tmpdir(), `agent-h-${process.pid}-${n++}.db`));
+    const launcher = {
+      launchBoundAgent: async (req: LaunchRequest) => {
+        const persisted = { cwd: req.cwd, mode: req.mode, selection: req.selection, required: [] };
+        claimReservation(db, req.reservationId, "proc-test", persisted, launchGuard(req.selection, req.cwd));
+        throw new Error("the launcher broke after its claim");
+      },
+      startBoundWork: async () => { throw new Error("no work in this test"); },
+      recover: async () => {},
+    };
+    const h = createAgentHandlers({ db, emitEvent: () => 0, herdr: unreachable, herdrRunner: okRunner([]), integrationsEnabled: on, integrations: createRegistry([claudeReady, codexIntegration]), launcher });
+    const first = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "build it", surface: "herdr" });
+    expect(first).toEqual({ ok: false, error: expect.stringContaining("the launcher broke after its claim") });
+    const list = await h["agent:list"]({});
+    if (!list.ok) throw new Error(list.error);
+    expect(list.data.agents).toHaveLength(1);
+    expect(existsSync(join(rtDir(), "agent-prompts", list.data.agents[0]!.id, "prompt-1.md"))).toBe(true);
+    const retry = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "herdr" });
+    expect(retry).toEqual({ ok: false, error: expect.stringContaining(`agent ${list.data.agents[0]!.id}`) });
+  });
+
+  test("switch on: a successful resume clears the attention an earlier abandoned launch left", async () => {
+    let herdrDown = true;
+    const runner: HerdrRunner = async (args) => {
+      if (herdrDown && args[0] === "workspace" && args[1] === "create") throw new Error("herdr timed out creating the workspace");
+      return okRunner([])(args);
+    };
+    const h = fresh({ runner, herdr: unreachable, enabled: on, integrations: createRegistry([claudeReady, codexIntegration]) });
+    const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "herdr" });
+    const keptId = /Agent (\S+) is kept/.exec(started.ok ? "" : started.error)?.[1];
+    expect(keptId).toBeDefined();
+    abandonStaleLaunches(h.db, Date.now() + 1);
+    const before = await h["agent:get"]({ id: keptId! });
+    if (!before.ok) throw new Error(before.error);
+    expect((before.data as { attention?: string }).attention).toContain("stopped waiting");
+
+    herdrDown = false;
+    const resumed = await h["agent:resume"]({ id: keptId! });
+    if (!resumed.ok) throw new Error(resumed.error);
+    const after = await h["agent:get"]({ id: keptId! });
+    if (!after.ok) throw new Error(after.error);
+    expect("attention" in after.data).toBe(false);
   });
 
   test("switch on: a launch that made nothing still rolls its record back, as today", async () => {

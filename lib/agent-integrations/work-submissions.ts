@@ -65,7 +65,7 @@ LEFT JOIN agent_session_bindings b ON b.key = s.binding_key
 WHERE s.guard = ? AND s.state IN ('submitting', 'ambiguous') ORDER BY s.created_at LIMIT 1;`;
 const ATTENTION_SQL = `SELECT s.state AS state, s.input_id AS input_id, s.error AS error FROM agent_work_submissions s
 JOIN agent_session_bindings b ON b.key = s.binding_key
-WHERE b.agent_id = ? AND s.state IN ('submitting', 'ambiguous', 'abandoned') ORDER BY s.created_at DESC LIMIT 1;`;
+WHERE b.agent_id = ? AND s.state IN ('submitting', 'ambiguous', 'abandoned') AND s.created_at > ? ORDER BY s.created_at DESC LIMIT 1;`;
 
 function toSubmission(r: Row): WorkSubmission {
   return {
@@ -194,8 +194,10 @@ export function sendInProgress(db: Database, guard: string): { agentId?: string 
 }
 
 /** The newest submission of this agent's sessions whose outcome is unknown, for attention. */
-export function unresolvedSubmissionOf(db: Database, agentId: string): { state: SubmissionState; inputId: string; error?: string } | null {
-  const row = db.query(ATTENTION_SQL).get(agentId) as { state: string; input_id: string; error: string | null } | null;
+export function unresolvedSubmissionOf(
+  db: Database, agentId: string, since = -1,
+): { state: SubmissionState; inputId: string; error?: string } | null {
+  const row = db.query(ATTENTION_SQL).get(agentId, since) as { state: string; input_id: string; error: string | null } | null;
   return row ? { state: row.state as SubmissionState, inputId: row.input_id, ...(row.error !== null && { error: row.error }) } : null;
 }
 

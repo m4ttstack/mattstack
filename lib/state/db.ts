@@ -404,6 +404,7 @@ CREATE TABLE IF NOT EXISTS agent_session_aliases (
   source_id    TEXT NOT NULL,   -- agents.id, or the chat session file's id
   raw          TEXT NOT NULL,   -- the legacy session id exactly as stored
   harness      TEXT,            -- null when the record proves no harness
+  profile      TEXT,            -- the profile the record ran under; null when it proves none
   identity     TEXT,            -- the identity the record claims, if one
   key          TEXT,            -- null while the record stays unbound
   reason       TEXT NOT NULL,

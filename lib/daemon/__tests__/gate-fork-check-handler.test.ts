@@ -89,6 +89,23 @@ describe("gate:fork-check pane rule", () => {
     expect(res).toEqual({ ok: true, data: { allow: true, match: "pane", gateId: gate.id } });
   });
 
+  test("a background pane matches in either spelling: its bg: ref, or the bare id its environment carries", async () => {
+    for (const [asked, checked] of [[`bg:${PANE}`, PANE], [PANE, `bg:${PANE}`], [`bg:${PANE}`, `bg:${PANE}`]] as const) {
+      const { handlers } = harness(runSession("r1"));
+      const gate = await handlers["gate:ask"]({ questions: questions(), sessionId: SESSION, paneId: asked, context: "the plan under decision" });
+      if (!gate.ok) throw new Error(gate.error);
+      const res = await handlers["gate:fork-check"]({ sessionIds: [SESSION], paneId: checked, subject: LAUNCH });
+      expect(res).toEqual({ ok: true, data: { allow: true, match: "pane", gateId: gate.data.id } });
+    }
+  });
+
+  test("a bg: ref for another pane still denies", async () => {
+    const { handlers, open } = harness();
+    open("run:r1", { origin: { ...FORM, runId: "r1", paneId: `bg:${PANE}` } });
+    const res = await handlers["gate:fork-check"]({ paneId: "wKW:p9", subject: LAUNCH });
+    expect(res).toEqual({ ok: true, data: { allow: false } });
+  });
+
   test("a different pane denies", async () => {
     const { handlers, open } = harness();
     open("run:r1", { origin: { ...FORM, runId: "r1", paneId: PANE } });

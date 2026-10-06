@@ -10,70 +10,103 @@
  * stores rt's placeholder until a capture overwrites it in place, and no
  * stored field says whether that capture happened, so it binds only to a
  * binding a verified launch already made for that exact native session.
- * A chat session file proves an identity but
- * not a harness, so on its own it stays unbound. Every record processed
- * leaves an alias row saying what it proved, and an unbound alias needs
- * reconciliation; nothing here guesses from directories, recency or ID
- * syntax. The source rows and files are only ever read.
+ * A chat session file proves an identity but not a harness, so on its own
+ * it stays unbound. Every record processed leaves an alias row saying what
+ * it proved, including a row too malformed to bind, and an unbound alias
+ * needs reconciliation; nothing here guesses from directories, recency or
+ * ID syntax. The source rows and files are only ever read.
  */
 
 import type { Database } from "bun:sqlite";
+import { statSync } from "fs";
 import type {
   HarnessId, NativeSessionRef, Outcome, SessionBinding,
 } from "../../packages/rt-client/src/agent-integrations.ts";
-import { listChatSessions, type ChatSession } from "../chat-session.ts";
+import { listChatSessions, sessionsDir, type ChatSession } from "../chat-session.ts";
 import { listAgentsAwaitingSessionMigration, type AgentRecord } from "../state/agents-store.ts";
 import { isBusyError } from "../state/busy.ts";
 import { getStateDb } from "../state/db.ts";
+import { canonicalCodexProfile } from "./codex/profile.ts";
 import { createSessionStore, LEGACY_DEFAULT_PROFILE, listBindingsByNativeValue, type SessionStore } from "./session-store.ts";
 
 export { LEGACY_DEFAULT_PROFILE };
 
 type AliasSource = "agents" | "chat-session";
-type UnboundReason = "no-identity" | "conflicting-identity" | "unknown-provenance" | "unverified-native-id";
+type UnboundReason = "no-identity" | "conflicting-identity" | "unknown-provenance" | "unverified-native-id" | "invalid-record";
 
 /** Providers whose legacy session id rt minted and handed to the harness, so the stored id is the native one. */
 const RT_MINTED_SESSION_IDS = new Set<HarnessId>(["claude"]);
 type AliasReason = "proven" | "signed-in" | UnboundReason;
 
 interface AliasRow {
-  raw: string; harness: string | null; identity: string | null; key: string | null; reason: AliasReason;
+  raw: string; harness: string | null; profile: string | null; identity: string | null; key: string | null; reason: AliasReason;
 }
 
-const INSERT_ALIAS_SQL = `INSERT INTO agent_session_aliases (source, source_id, raw, harness, identity, key, reason, recorded_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);`;
+const INSERT_ALIAS_SQL = `INSERT INTO agent_session_aliases (source, source_id, raw, harness, profile, identity, key, reason, recorded_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`;
 const SELECT_ALIAS_EXISTS_SQL = "SELECT 1 FROM agent_session_aliases WHERE source = ? AND source_id = ?;";
 const SELECT_ALIASES_BY_RAW_SQL =
-  "SELECT raw, harness, identity, key, reason FROM agent_session_aliases WHERE raw = ? ORDER BY recorded_at, source, source_id;";
+  "SELECT raw, harness, profile, identity, key, reason FROM agent_session_aliases WHERE raw = ? ORDER BY recorded_at, source, source_id;";
+const NEWEST_AGENT_SQL = "SELECT rowid AS r, id, (SELECT count(*) FROM agents) AS n FROM agents ORDER BY rowid DESC LIMIT 1;";
 
 const UNBOUND_REASON: Record<UnboundReason, string> = {
   "no-identity": "its record names no identity",
   "conflicting-identity": "its records name different identities",
   "unknown-provenance": "its record does not say which harness ran it",
   "unverified-native-id": "its record does not show that the stored id is the native session's own",
+  "invalid-record": "its record could not be bound to a session",
 };
 
-type Alias = { source: AliasSource; sourceId: string; raw: string; harness: string | null; identity: string | null; key: string | null; reason: AliasReason };
+type Alias = {
+  source: AliasSource; sourceId: string; raw: string; harness: string | null; profile: string | null;
+  identity: string | null; key: string | null; reason: AliasReason;
+};
 
 function recordAlias(db: Database, a: Alias, now: number): void {
-  db.query(INSERT_ALIAS_SQL).run(a.source, a.sourceId, a.raw, a.harness, a.identity, a.key, a.reason, now);
+  db.query(INSERT_ALIAS_SQL).run(a.source, a.sourceId, a.raw, a.harness, a.profile, a.identity, a.key, a.reason, now);
 }
 
 function hasAlias(db: Database, source: AliasSource, sourceId: string): boolean {
   return db.query(SELECT_ALIAS_EXISTS_SQL).get(source, sourceId) !== null;
 }
 
+/** The profile a row ran under, spelled as its harness binds it: Codex's home, else the row's account or the ambient one. */
+function legacyProfile(row: AgentRecord): string {
+  return row.provider === "codex" ? canonicalCodexProfile(undefined, process.env) : row.account ?? LEGACY_DEFAULT_PROFILE;
+}
+
+class BindRefused extends Error {
+  constructor(readonly outcome: Outcome<SessionBinding> & { ok: false }) {
+    super(outcome.error.message);
+  }
+}
+
+/** Reserves and binds in one savepoint, so a row that cannot bind leaves no reservation behind. */
+function bindLegacy(db: Database, store: SessionStore, identity: string, agentId: string, native: NativeSessionRef, row: AgentRecord): Outcome<SessionBinding> {
+  try {
+    return db.transaction(() => {
+      const bound = store.bind(store.reserve({ identity, agentId }), native, {
+        mode: row.surface === "headless" ? "headless" : "herdr", ...(row.paneId !== undefined && { pane: row.paneId }),
+      });
+      if (!bound.ok) throw new BindRefused(bound);
+      return bound;
+    })();
+  } catch (err) {
+    if (err instanceof BindRefused) return err.outcome;
+    throw err;
+  }
+}
+
 function migrateAgent(db: Database, store: SessionStore, row: AgentRecord, chat: ChatSession | undefined, now: number): void {
-  const base = { source: "agents" as const, sourceId: row.id, raw: row.sessionId, harness: row.provider };
+  const profile = legacyProfile(row);
+  const base = { source: "agents" as const, sourceId: row.id, raw: row.sessionId, harness: row.provider, profile };
   const claims = new Set([row.handle, chat?.handle].filter((h): h is string => typeof h === "string" && h.length > 0));
   const [identity] = claims;
   if (claims.size !== 1 || identity === undefined) {
     recordAlias(db, { ...base, identity: null, key: null, reason: claims.size > 1 ? "conflicting-identity" : "no-identity" }, now);
     return;
   }
-  const native: NativeSessionRef = {
-    harness: row.provider, profile: row.account ?? LEGACY_DEFAULT_PROFILE, kind: "id", value: row.sessionId,
-  };
+  const native: NativeSessionRef = { harness: row.provider, profile, kind: "id", value: row.sessionId };
   const existing = store.find(native);
   if (existing) {
     const agrees = existing.identity === identity;
@@ -84,15 +117,13 @@ function migrateAgent(db: Database, store: SessionStore, row: AgentRecord, chat:
     recordAlias(db, { ...base, identity, key: null, reason: "unverified-native-id" }, now);
     return;
   }
-  const bound = store.bind(store.reserve({ identity, agentId: row.id }), native, {
-    mode: row.surface === "headless" ? "headless" : "herdr", ...(row.paneId !== undefined && { pane: row.paneId }),
-  });
-  if (!bound.ok) throw new Error(`legacy agent ${row.id} could not bind: ${bound.error.message}`);
-  recordAlias(db, { ...base, identity, key: bound.data.key, reason: "proven" }, now);
+  const bound = bindLegacy(db, store, identity, row.id, native, row);
+  if (!bound.ok && bound.error.code === "transient") throw new Error(`legacy agent ${row.id} could not bind: ${bound.error.message}`);
+  recordAlias(db, bound.ok ? { ...base, identity, key: bound.data.key, reason: "proven" } : { ...base, identity, key: null, reason: "invalid-record" }, now);
 }
 
 function migrateChat(db: Database, chat: ChatSession, now: number): void {
-  const base = { source: "chat-session" as const, sourceId: chat.sessionId, raw: chat.sessionId };
+  const base = { source: "chat-session" as const, sourceId: chat.sessionId, raw: chat.sessionId, profile: null };
   const matches = listBindingsByNativeValue(db, chat.sessionId);
   const only = matches.length === 1 ? matches[0]! : undefined;
   if (only && only.identity === chat.handle) {
@@ -104,21 +135,55 @@ function migrateChat(db: Database, chat: ChatSession, now: number): void {
   }
 }
 
-/** Records every legacy agents row and chat session file not yet accounted for. Idempotent; takes the write lock only when something is new. */
+/**
+ * What a full pass saw: the chat sessions folder's own metadata (a file
+ * added or removed changes it) and the newest agents row with the row count
+ * (a delete and insert can reuse a rowid, never an id). Null when the folder
+ * cannot be read, which never skips a pass.
+ */
+function scanStamp(db: Database): string | null {
+  const dir = sessionsDir();
+  let folder: string;
+  try {
+    const s = statSync(dir, { bigint: true });
+    folder = [s.mtimeNs, s.ctimeNs, s.size, s.nlink].join(":");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") return null;
+    folder = "absent";
+  }
+  const newest = db.query(NEWEST_AGENT_SQL).get() as { r: number; id: string; n: number } | null;
+  return [dir, folder, newest?.r ?? 0, newest?.id ?? "", newest?.n ?? 0].join("\0");
+}
+
+/** The stamp of the last full pass per database, in this process. */
+const lastPass = new WeakMap<Database, string>();
+let scans = 0;
+export const __test__ = { scans: () => scans, reset: () => { scans = 0; } };
+
+/**
+ * Records every legacy agents row and chat session file not yet accounted
+ * for. Idempotent; takes the write lock only when something is new, and
+ * reads nothing when no file or row appeared since its last full pass.
+ */
 export function migrateLegacySessions(db: Database = getStateDb()): void {
+  const stamp = db.inTransaction ? null : scanStamp(db);
+  if (stamp !== null && lastPass.get(db) === stamp) return;
+  scans++;
   const chats = listChatSessions();
   const pending = () => listAgentsAwaitingSessionMigration(db).length > 0
     || chats.some((c) => !hasAlias(db, "chat-session", c.sessionId));
-  if (!pending()) return;
-  const run = db.transaction(() => {
-    const store = createSessionStore(db);
-    const chatBySession = new Map(chats.map((c) => [c.sessionId, c]));
-    const now = Date.now();
-    for (const row of listAgentsAwaitingSessionMigration(db)) migrateAgent(db, store, row, chatBySession.get(row.sessionId), now);
-    for (const chat of chats) if (!hasAlias(db, "chat-session", chat.sessionId)) migrateChat(db, chat, now);
-  });
-  if (db.inTransaction) run();
-  else run.immediate();
+  if (pending()) {
+    const run = db.transaction(() => {
+      const store = createSessionStore(db);
+      const chatBySession = new Map(chats.map((c) => [c.sessionId, c]));
+      const now = Date.now();
+      for (const row of listAgentsAwaitingSessionMigration(db)) migrateAgent(db, store, row, chatBySession.get(row.sessionId), now);
+      for (const chat of chats) if (!hasAlias(db, "chat-session", chat.sessionId)) migrateChat(db, chat, now);
+    });
+    if (db.inTransaction) run();
+    else run.immediate();
+  }
+  if (stamp !== null) lastPass.set(db, stamp);
 }
 
 function refuse(message: string): Outcome<SessionBinding> {
@@ -129,11 +194,12 @@ function unattributed(raw: string, alias: AliasRow): string {
   return `session ${raw} cannot be attributed: ${UNBOUND_REASON[alias.reason as UnboundReason]}`;
 }
 
-/** An unbound record contradicts a binding when it names another harness or identity, or already conflicts with itself. */
+/** An unbound record contradicts a binding when it names another harness, profile or identity, or already conflicts with itself. */
 function contradicts(alias: AliasRow, binding: SessionBinding): boolean {
   return alias.reason === "conflicting-identity"
     || (alias.identity !== null && alias.identity !== binding.identity)
-    || (alias.harness !== null && alias.harness !== binding.native.harness);
+    || (alias.harness !== null && alias.harness !== binding.native.harness)
+    || (alias.profile !== null && alias.profile !== binding.native.profile);
 }
 
 /**

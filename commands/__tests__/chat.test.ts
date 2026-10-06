@@ -574,7 +574,7 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
       const store = createSessionStore(getStateDb());
       const held = store.bind(store.reserve({ identity: "otto.0001" }), { harness: "claude", profile: "default", kind: "id", value: "s-conflict" }, { mode: "herdr", pid: process.pid });
       if (!held.ok) throw new Error(held.error.message);
-      if (!store.replaceAttachment(held.data.key, 1, { mode: "herdr" }).ok) throw new Error("detach failed");
+      if (!store.detach(held.data.key, 1).ok) throw new Error("detach failed");
 
       const refused = await runChatRaw(["sign-in", "--no-room"]).catch((err: unknown) => err);
       expect(refused).toBeInstanceOf(UserActionableError);

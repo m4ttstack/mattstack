@@ -150,7 +150,7 @@ describe("the fallback under agent.integrations.enabled", () => {
     const res = await runAgentFallback<{ id: string; sessionId: string }>("agent:start", { repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" },
       { db, herdrRunner: okRunner(calls), herdr: noPane, integrations, integrationsEnabled: () => true });
     if (!res.ok) throw new Error(res.error);
-    expect(paneRun(calls)).toStartWith("cd '/tmp/x' && unset CODEX_THREAD_ID && ");
+    expect(paneRun(calls)).toStartWith("cd '/tmp/x' && env -u CODEX_THREAD_ID ");
     const [binding] = listBindingsByAgent(db, res.data!.id);
     expect(binding).toMatchObject({ native: { harness: "claude", value: res.data!.sessionId }, attachment: { pane: "w1:p1" } });
     expect(binding!.attemptId).toBeUndefined();

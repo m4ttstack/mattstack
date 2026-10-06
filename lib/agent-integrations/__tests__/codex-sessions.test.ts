@@ -439,6 +439,24 @@ describe("codex session launch", () => {
     expect(second.requests("thread/start").map((m) => m.params.cwd)).toEqual(["/work/b"]);
   });
 
+  test("an unresolved launch is dropped once its persisted reservation is abandoned or bound", async () => {
+    let starts = 0;
+    const h = await harness({ "thread/start": (s, m) => { if (++starts > 1) DEFAULTS["thread/start"]!(s, m); } });
+    const settled = new Set<string>();
+    const asked: string[] = [];
+    const sessions = h.sessions({ reservationSettled: (id) => { asked.push(id); return settled.has(id); } });
+    const first = sessions.launch(request());
+    await Bun.sleep(0);
+    h.clock.advance(1000);
+    expect(await first).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(await sessions.launch(request({ reservationId: "res-2", mode: "headless" }))).toMatchObject({ ok: false, error: { code: "refused" } });
+    expect(asked).toContain("res-1");
+
+    settled.add("res-1");
+    expect(await sessions.launch(request({ reservationId: "res-2", mode: "headless" }))).toMatchObject({ ok: true });
+    expect(h.requests("thread/start")).toHaveLength(2);
+  });
+
   test("a launch sends thread/start the cwd it reserved", async () => {
     const h = await harness();
     data(await h.sessions().launch(request({ cwd: "/work/./a//", mode: "headless" })));

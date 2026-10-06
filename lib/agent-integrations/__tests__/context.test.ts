@@ -356,6 +356,26 @@ describe("a bound Codex worker's gate identity", () => {
     expect(boundCodexGateIdentity({ CODEX_THREAD_ID: "thread-signed-in" } as NodeJS.ProcessEnv, { db, enabled: on })).toEqual({ ok: true, data: null });
   });
 
+  test("a hook outside any Codex thread never reads the switch", () => {
+    let reads = 0;
+    const counted = () => { reads++; return true; };
+    expect(boundCodexGateIdentity({ CLAUDE_CODE_SESSION_ID: "c1" } as NodeJS.ProcessEnv, { db: freshDb(), enabled: counted })).toEqual({ ok: true, data: null });
+    expect(boundCodexGateIdentity({} as NodeJS.ProcessEnv, { enabled: counted })).toEqual({ ok: true, data: null });
+    expect(reads).toBe(0);
+  });
+
+  test("a detached Codex binding names no caller, as a detached Claude one does", () => {
+    const db = freshDb();
+    codexAgent(db, "ag-left", "thread-left");
+    const store = createSessionStore(db);
+    const binding = store.find(codex("thread-left"))!;
+    if (!store.detach(binding.key, binding.attachment.generation).ok) throw new Error("detach failed");
+    const outcome = boundCodexGateIdentity({ CODEX_THREAD_ID: "thread-left" } as NodeJS.ProcessEnv, { db, enabled: on });
+    expect(outcome).toEqual({ ok: true, data: null });
+    const caller = resolveCliSession([], { CODEX_THREAD_ID: "thread-left" } as NodeJS.ProcessEnv, { db });
+    expect(caller).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+  });
+
   test("an environment naming both harnesses' sessions still refuses, and says why and what to do", () => {
     const db = freshDb();
     codexAgent(db, "ag-sub", "thread-sub");

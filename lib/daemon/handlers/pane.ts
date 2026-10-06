@@ -387,7 +387,7 @@ export function createPaneHandlers(opts: {
       if (!cwd || !cwd.startsWith("/")) return { ok: false, error: "cwd must be an absolute path" };
       if (boundEnabled()) return spawnBound(payload);
       if (payload.provider !== undefined && payload.provider !== DEFAULT_PANE_HARNESS) {
-        return { ok: false, error: `pane:spawn starts only Claude Code while agent.integrations.enabled is off, so it did not start "${payload.provider}"` };
+        return { ok: false, error: `Only Claude Code panes can be opened here for now, so ${payload.provider} was not started` };
       }
       if (account) {
         const accounts = await listCswapAccounts(exec);

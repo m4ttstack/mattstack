@@ -21,10 +21,9 @@ import type {
 import { getSetting } from "../settings/resolve.ts";
 import { getAgent } from "../state/agents-store.ts";
 import { getStateDb } from "../state/db.ts";
-import { isDetachedClaudeBinding } from "./claude/sessions.ts";
 import { canonicalCodexProfile } from "./codex/profile.ts";
 import { resolveLegacySession } from "./legacy.ts";
-import { createSessionStore, listBindingsByNativeValue } from "./session-store.ts";
+import { createSessionStore, isDetachedAttachment, listBindingsByNativeValue } from "./session-store.ts";
 
 /** A native reference whose profile the boundary may not be able to observe. */
 export type NativeClaim = Omit<NativeSessionRef, "profile"> & { profile?: string };
@@ -145,10 +144,10 @@ export function extractCliEvidence(args: string[], env: NodeJS.ProcessEnv): Outc
   return { ok: true, data: { ...(native && { native }), ...extra } };
 }
 
-/** A detached Claude binding grants nothing; its own environment caller falls back to the environment path (unboundClaudeCaller). */
+/** A detached binding grants nothing; a Claude caller's own environment falls back to the environment path (unboundClaudeCaller). */
 function resolvedAs(binding: SessionBinding): Outcome<CallerContext> {
-  if (isDetachedClaudeBinding(binding)) {
-    return fail("stale-binding", `claude session ${binding.native.value} left its attachment (a /clear, a fork, or a resume elsewhere), so it no longer names a bound session`);
+  if (isDetachedAttachment(binding)) {
+    return fail("stale-binding", `${binding.native.harness} session ${binding.native.value} left its attachment (a /clear, a fork, or a resume elsewhere), so it no longer names a bound session`);
   }
   return { ok: true, data: { binding } };
 }
@@ -233,7 +232,7 @@ function unboundClaudeCaller(input: CallerEvidence, outcome: Outcome<CallerConte
   if (!claim || claim.harness !== "claude" || claim.profile !== undefined || input.connection || input.raw !== undefined) return false;
   const recorded = listBindingsByNativeValue(deps.db ?? getStateDb(), claim.value).filter((b) => b.native.harness === "claude");
   if (outcome.error.code === "ambiguous") return recorded.length === 0;
-  return outcome.error.code === "stale-binding" && recorded.length > 0 && recorded.every(isDetachedClaudeBinding);
+  return outcome.error.code === "stale-binding" && recorded.length > 0 && recorded.every(isDetachedAttachment);
 }
 
 /** resolveCallerContextNow, or null for an unbound Claude caller, which keeps its environment path. */
@@ -284,7 +283,7 @@ export type BoundGateIdentity = { agentId: string; subject: string; sessionId: s
 export function boundCodexGateIdentity(
   env: NodeJS.ProcessEnv, deps: ResolveDeps & { enabled?: () => boolean } = {},
 ): Outcome<BoundGateIdentity | null> {
-  if (!(deps.enabled ?? integrationsEnabled)() || !text(env.CODEX_THREAD_ID)) return { ok: true, data: null };
+  if (!text(env.CODEX_THREAD_ID) || !(deps.enabled ?? integrationsEnabled)()) return { ok: true, data: null };
   if (text(env.CLAUDE_CODE_SESSION_ID)) return fail("ambiguous", BOTH_SESSIONS_MESSAGE);
   const db = deps.db ?? getStateDb();
   const caller = resolveCallerContextNow({ native: { harness: "codex", profile: codexProfile(env), kind: "id", value: env.CODEX_THREAD_ID } }, { ...deps, db });

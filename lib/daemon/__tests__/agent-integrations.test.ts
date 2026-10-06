@@ -23,6 +23,7 @@ import { openStateDb } from "../../state/index.ts";
 import { createAgentService, type AgentStartOutcome } from "../handlers/agent.ts";
 import { createAgentIntegrationHandlers, listAgentIntegrations } from "../handlers/agent-integrations.ts";
 import { createPaneHandlers } from "../handlers/pane.ts";
+import type { BgService } from "../bg-service.ts";
 
 const NATIVE_BINS = ["claude", "codex", "herdr", "cswap"];
 const shimDir = mkdtempSync(join(tmpdir(), "agent-int-shims-"));
@@ -193,6 +194,61 @@ describe("pane discovery through the integration registry", () => {
     expect(res.data.panes.map((p) => [p.provider, p.sessionId])).toEqual([["claude", "sess-from-registry"], ["codex", undefined]]);
     expect(seen.filter((s) => s.method === "pane.process_info").map((s) => s.params.pane_id)).toEqual(["w1:p1"]);
     expect(readFileSync(shimLog, "utf8")).toBe("");
+  });
+
+  test("switch on: a background-server pane lists by its bg: ref, its session found through its own harness on that server", async () => {
+    const fixture = fakeIntegration("fixture", { pidSessions: { 9001: "bg-fix-session" } });
+    const visible = fakeHerdr(listFake(snapshotOf([]), {}));
+    const background = fakeHerdr(listFake(snapshotOf([
+      paneInfo("w1:p1", "fixture"),
+      paneInfo("w1:p2", "codex", { agent_session: { source: "herdr:codex", agent: "codex", kind: "id", value: "bg-thread" } }),
+    ]), { "w1:p1": 9000 }));
+    stops.push(visible.stop, background.stop);
+    const BG = "/virtual/bg.sock";
+    const herdr: typeof herdrRequest = (method, params, o) =>
+      herdrRequest(method, params, { ...o, sockPath: o?.sockPath === BG ? background.sock : visible.sock });
+    const bg = { socketPath: () => BG, up: async () => true } as unknown as BgService;
+    const pane = createPaneHandlers({
+      db: freshDb(), repoIndex: () => ({}), herdr, exec: CSWAP_EXEC, bg,
+      integrations: createRegistry([fakeIntegration("codex"), fixture]), integrationsEnabled: () => true,
+    });
+    const res = await pane["pane:list"]({});
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.panes.map((p) => [p.paneId, p.provider, p.sessionId]).sort()).toEqual([
+      ["bg:w1:p1", "fixture", "bg-fix-session"], ["bg:w1:p2", "codex", "bg-thread"],
+    ]);
+    expect(background.seen.filter((s) => s.method === "pane.process_info").map((s) => s.params.pane_id)).toEqual(["w1:p1"]);
+    expect(visible.seen.map((s) => s.method)).toEqual(["session.snapshot"]);
+    expect(fixture.lookups).toEqual([9000, 9001]);
+  });
+
+  test("switch on: a process lookup that throws leaves that pane's session unknown, warns, and the rest still list", async () => {
+    const broken: HarnessIntegration = { ...fakeIntegration("fixture"), sessionForPid: async () => { throw new Error("registry unreadable"); } };
+    const claude = fakeIntegration("claude", { pidSessions: { 7101: "sess-claude" } });
+    const { sock, stop } = fakeHerdr(listFake(snapshotOf([paneInfo("w1:p1", "claude"), paneInfo("w1:p3", "fixture")]), { "w1:p1": 7100, "w1:p3": 7300 }));
+    stops.push(stop);
+    const warned: Array<{ harness?: string; message: string }> = [];
+    const pane = createPaneHandlers({
+      db: freshDb(), repoIndex: () => ({}), exec: CSWAP_EXEC,
+      herdr: (method, params, o) => herdrRequest(method, params, { ...o, sockPath: sock }),
+      log: { warn: (o: { harness?: string }, message: string) => { warned.push({ harness: o.harness, message }); } } as never,
+      integrations: createRegistry([claude, broken]), integrationsEnabled: () => true,
+    });
+    const res = await pane["pane:list"]({});
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.panes.map((p) => [p.provider, p.sessionId])).toEqual([["claude", "sess-claude"], ["fixture", undefined]]);
+    expect(warned).toEqual([{ harness: "fixture", message: "pane: process session lookup failed; the pane's session stays unknown" }]);
+  });
+
+  test("switch on: a pane's process is looked up only through its own harness, never attributed to another", async () => {
+    const claude = fakeIntegration("claude", { pidSessions: { 7001: "claude-owns-this-pid", 7002: "claude-owns-this-pid" } });
+    const fixture = fakeIntegration("fixture", { pidSessions: {} });
+    const { pane } = harness(listFake(snapshotOf([paneInfo("w1:p3", "fixture")]), { "w1:p3": 7001 }), { integrations: createRegistry([claude, fixture]), enabled: true });
+    const res = await pane["pane:list"]({});
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.panes.map((p) => [p.provider, p.sessionId])).toEqual([["fixture", undefined]]);
+    expect(fixture.lookups).toEqual([7001, 7002]);
+    expect(claude.lookups).toEqual([]);
   });
 
   test("with the switch off pane:list is today's Claude-only list, with no provider, whatever the registry holds", async () => {
@@ -390,7 +446,7 @@ describe("unknown IDs refuse", () => {
     const res = await pane["pane:spawn"]({ cwd, provider: "codex" });
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.error).toContain("agent.integrations.enabled");
+    expect(res.error).toBe(`Only Claude Code panes can be opened here for now, so codex was not started`);
     expect(starts).toHaveLength(0);
     expect(seen).toHaveLength(0);
   });
