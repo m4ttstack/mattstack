@@ -1,6 +1,11 @@
-import type { CSSProperties, HTMLAttributes, ReactNode, RefObject } from "react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import type {
+  CSSProperties,
+  HTMLAttributes,
+  ReactNode,
+  RefObject,
+} from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 /** The old CSS `transition-delay` before the card faded in, now a show timer:
     a quick pass-through hover shouldn't flash a card. Hiding stays immediate
@@ -30,7 +35,11 @@ const VIEWPORT_MARGIN = 8;
     survives an inactive window. */
 export function useTooltipReveal(
   triggerRef: RefObject<HTMLElement | null>,
-  { active, focusWithin }: { active: boolean; focusWithin: boolean },
+  {
+    active,
+    focusWithin,
+    delay = TOOLTIP_SHOW_DELAY_MS,
+  }: { active: boolean; focusWithin: boolean; delay?: number }
 ): boolean {
   const [visible, setVisible] = useState(false);
 
@@ -51,7 +60,7 @@ export function useTooltipReveal(
     };
     const show = () => {
       clearShowTimer();
-      showTimer = setTimeout(() => setVisible(true), TOOLTIP_SHOW_DELAY_MS);
+      showTimer = setTimeout(() => setVisible(true), delay);
     };
     const showNow = () => {
       clearShowTimer();
@@ -71,31 +80,31 @@ export function useTooltipReveal(
       if (!next || !el.contains(next)) hide();
     };
 
-    el.addEventListener("mouseenter", show);
-    el.addEventListener("mouseleave", hide);
+    el.addEventListener('mouseenter', show);
+    el.addEventListener('mouseleave', hide);
     if (focusWithin) {
-      el.addEventListener("focusin", onFocusIn);
-      el.addEventListener("focusout", onFocusOut);
+      el.addEventListener('focusin', onFocusIn);
+      el.addEventListener('focusout', onFocusOut);
     }
     return () => {
       clearShowTimer();
-      el.removeEventListener("mouseenter", show);
-      el.removeEventListener("mouseleave", hide);
+      el.removeEventListener('mouseenter', show);
+      el.removeEventListener('mouseleave', hide);
       if (focusWithin) {
-        el.removeEventListener("focusin", onFocusIn);
-        el.removeEventListener("focusout", onFocusOut);
+        el.removeEventListener('focusin', onFocusIn);
+        el.removeEventListener('focusout', onFocusOut);
       }
     };
-  }, [triggerRef, active, focusWithin]);
+  }, [triggerRef, active, focusWithin, delay]);
 
   useEffect(() => {
     if (!visible) return;
     const close = () => setVisible(false);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
     return () => {
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
     };
   }, [visible]);
 
@@ -111,8 +120,9 @@ export function useTooltipReveal(
     rem/em/px unit conversion rather than reimplementing it by parsing the
     custom property's raw string. */
 function resolveGapPx(scopeEl: HTMLElement, varName: string): number {
-  const probe = document.createElement("div");
-  probe.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;width:0;";
+  const probe = document.createElement('div');
+  probe.style.cssText =
+    'position:absolute;visibility:hidden;pointer-events:none;width:0;';
   probe.style.height = `var(${varName})`;
   scopeEl.appendChild(probe);
   const px = Number.parseFloat(getComputedStyle(probe).height);
@@ -126,7 +136,10 @@ interface TooltipCardProps {
   /** The trigger-scoped gap custom property name, resolved via `resolveGapPx`. */
   gapVar: string;
   part: string;
-  cardProps: HTMLAttributes<HTMLDivElement> & { className?: string; style?: CSSProperties };
+  cardProps: HTMLAttributes<HTMLDivElement> & {
+    className?: string;
+    style?: CSSProperties;
+  };
   children: ReactNode;
 }
 
@@ -138,7 +151,14 @@ interface TooltipCardProps {
     an `overflow-x: auto` ancestor's `scrollHeight` under the old `::after`.
     `aria-hidden` and `data-part` are stamped in the tail, after `cardProps`,
     so neither is overridable — the card exposes nothing to AT by contract. */
-export function TooltipCard({ triggerRef, visible, gapVar, part, cardProps, children }: TooltipCardProps) {
+export function TooltipCard({
+  triggerRef,
+  visible,
+  gapVar,
+  part,
+  cardProps,
+  children,
+}: TooltipCardProps) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   // Portal creation deferred to an effect, not computed during render — the
@@ -166,7 +186,10 @@ export function TooltipCard({ triggerRef, visible, gapVar, part, cardProps, chil
     // whenever the card already fits, so a trigger flush against the left
     // edge still gets a card flush against it too, not nudged in by a floor
     // margin nothing asked for.
-    const left = Math.max(0, Math.min(rect.left, window.innerWidth - width - VIEWPORT_MARGIN));
+    const left = Math.max(
+      0,
+      Math.min(rect.left, window.innerWidth - width - VIEWPORT_MARGIN)
+    );
     setPos({ left, top: rect.bottom + gap });
   }, [visible, triggerRef, gapVar]);
 
@@ -180,13 +203,19 @@ export function TooltipCard({ triggerRef, visible, gapVar, part, cardProps, chil
         ...cardProps.style,
         left: fallback?.left ?? 0,
         top: fallback?.bottom ?? 0,
-        visibility: "hidden",
+        visibility: 'hidden',
       };
 
   return createPortal(
-    <div {...cardProps} ref={cardRef} style={style} data-part={part} aria-hidden="true">
+    <div
+      {...cardProps}
+      ref={cardRef}
+      style={style}
+      data-part={part}
+      aria-hidden="true"
+    >
       {children}
     </div>,
-    document.body,
+    document.body
   );
 }

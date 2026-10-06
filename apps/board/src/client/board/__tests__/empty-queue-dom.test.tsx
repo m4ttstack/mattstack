@@ -372,7 +372,9 @@ test('with no channel known the Slack items name the team channel', async () => 
     expect(chips(container)[0]!.textContent).toContain(
       'Posted to team channel'
     );
-    expect(chips(container)[1]!.title).toBe('not posted to team channel yet');
+    expect(chips(container)[1]!.getAttribute('aria-description')).toBe(
+      'Not posted to the team channel.'
+    );
   });
 });
 

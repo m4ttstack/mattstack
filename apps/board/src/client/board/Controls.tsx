@@ -7,6 +7,7 @@ import {
   ICONS,
   LabeledSeg,
 } from '@mattstack/tui-kit';
+import type { TurnConfig } from '../../turn.ts';
 import { GROUP_KEYS, SORT_KEYS } from '../../view.ts';
 import type { GroupKey, ShowItem, ViewState } from '../../view.ts';
 import type { ThemeMode } from '../types.ts';
@@ -25,6 +26,8 @@ export interface ShowMenuModel {
   counts: Record<ShowItem, number>;
   channel: string | null;
   toggle: (item: ShowItem) => void;
+  /** The board's whose-turn signals, which the Waiting on author tip names. */
+  turn?: TurnConfig;
 }
 
 const slackPlace = (channel: string | null) =>

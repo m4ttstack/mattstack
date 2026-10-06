@@ -5231,3 +5231,24 @@ a.tui-id-card-ref:focus-visible {
 .tui-group {
   display: contents;
 }
+
+/* Tooltips read as an inverted label, not another panel: the kit's pale
+   card on a hairline vanished against the white header and looked like a
+   stray box over the tabs. */
+[data-part='tooltip-card'] {
+  max-width: 280px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: light-dark(
+    color-mix(in srgb, var(--fg) 92%, var(--card)),
+    color-mix(in srgb, var(--fg) 88%, var(--card))
+  );
+  color: var(--card);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 18%),
+    0 6px 16px -4px rgb(0 0 0 / 28%);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
