@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildCodexArgv, buildCodexPaneCommand } from "../agent-argv/index.ts";
+import { buildCodexArgv, buildCodexPaneCommand, buildCodexRemoteResumeCommand } from "../agent-argv/index.ts";
 
 const UUID = "6e225e74-4cb7-4aea-8807-6aa9011d4112";
 
@@ -80,5 +80,35 @@ describe("buildCodexPaneCommand", () => {
   test("yolo maps to --dangerously-bypass-approvals-and-sandbox", () => {
     const cmd = buildCodexPaneCommand("/r", { yolo: true, session: { kind: "start", sessionId: UUID }, headless: false });
     expect(cmd).toContain("--dangerously-bypass-approvals-and-sandbox");
+  });
+});
+
+describe("buildCodexRemoteResumeCommand", () => {
+  const attach = { socketPath: "/run/codex/control.sock", threadId: UUID };
+
+  test("attaches the terminal to the existing thread on the running app server", () => {
+    expect(buildCodexRemoteResumeCommand("/repo dir", attach))
+      .toBe(`cd '/repo dir' && codex --remote 'unix:///run/codex/control.sock' -C '/repo dir' resume '${UUID}'`);
+  });
+
+  test("remote resume omits permission overrides and submits no startup prompt", () => {
+    const cmd = buildCodexRemoteResumeCommand("/r", attach);
+    for (const flag of ["--add-dir", "-s", "-a", "--sandbox", "--ask-for-approval", "--dangerously-bypass-approvals-and-sandbox", "-m", "-c"]) {
+      expect(cmd.split(" "), flag).not.toContain(flag);
+      expect(cmd.split(" "), flag).not.toContain(`'${flag}'`);
+    }
+    expect(cmd.endsWith(`resume '${UUID}'`)).toBe(true);
+  });
+
+  test("env assignments precede the codex head", () => {
+    expect(buildCodexRemoteResumeCommand("/w", { ...attach, env: { RT_AGENT_ID: "ag-1" } }))
+      .toContain("cd '/w' && RT_AGENT_ID='ag-1' codex --remote");
+  });
+
+  test("refuses a thread id codex could read as a flag, and a relative socket", () => {
+    expect(() => buildCodexRemoteResumeCommand("/r", { ...attach, threadId: "-s" })).toThrow(/thread/);
+    expect(() => buildCodexRemoteResumeCommand("/r", { ...attach, threadId: "" })).toThrow(/thread/);
+    expect(() => buildCodexRemoteResumeCommand("/r", { ...attach, threadId: "a b" })).toThrow(/thread/);
+    expect(() => buildCodexRemoteResumeCommand("/r", { ...attach, socketPath: "codex.sock" })).toThrow(/socket/);
   });
 });

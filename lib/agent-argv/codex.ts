@@ -14,7 +14,7 @@
  */
 
 import { homedir } from "os";
-import { join } from "path";
+import { isAbsolute, join } from "path";
 import { shellSingleQuote } from "./claude.ts";
 import type { AgentInvocation } from "./types.ts";
 
@@ -64,4 +64,25 @@ export function buildCodexPaneCommand(cwd: string, inv: AgentInvocation): string
   const tail = inv.prompt ? [shellSingleQuote(inv.prompt)] : [];
   const env = Object.entries(inv.env ?? {}).map(([k, v]) => `${k}=${shellSingleQuote(v)}`);
   return `cd ${shellSingleQuote(cwd)} && ${[...env, ...head, ...tail].join(" ")}`;
+}
+
+export type CodexRemoteAttach = { socketPath: string; threadId: string; env?: Record<string, string> };
+
+const THREAD_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+
+/**
+ * Attaches a terminal to a thread rt already created on the running app
+ * server. It carries no permission flags: Codex refuses `-s`/`-a` on a remote
+ * resume and `--add-dir` with `--remote`, and the thread keeps the policy it
+ * was created with. No prompt follows the id, so the terminal submits nothing.
+ */
+export function buildCodexRemoteResumeCommand(cwd: string, attach: CodexRemoteAttach): string {
+  if (!THREAD_ID_RE.test(attach.threadId)) throw new Error(`invalid codex thread id "${attach.threadId}" ... refusing to attach`);
+  if (!isAbsolute(attach.socketPath)) throw new Error("the codex app server socket must be an absolute path");
+  const env = Object.entries(attach.env ?? {}).map(([k, v]) => `${k}=${shellSingleQuote(v)}`);
+  const head = [
+    "codex", "--remote", shellSingleQuote(`unix://${attach.socketPath}`), "-C", shellSingleQuote(cwd),
+    "resume", shellSingleQuote(attach.threadId),
+  ];
+  return `cd ${shellSingleQuote(cwd)} && ${[...env, ...head].join(" ")}`;
 }

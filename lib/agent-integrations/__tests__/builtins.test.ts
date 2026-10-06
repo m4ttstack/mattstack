@@ -38,6 +38,6 @@ describe("builtinRegistry", () => {
       else expect(report).toMatchObject({ supported: [], readiness: { ready: false } });
     }
     expect(typeof builtinRegistry().get("claude")!.loadSessions).toBe("function");
-    expect("loadSessions" in builtinRegistry().get("codex")!).toBe(false);
+    expect(typeof builtinRegistry().get("codex")!.loadSessions).toBe("function");
   });
 });

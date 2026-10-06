@@ -195,21 +195,29 @@ test("with the switch on, every attached binding of a harness with a session ada
     bind("claude", "c-nothing", {});
     const detached = bind("claude", "c-detached", { pid: 8 });
     if (!store.replaceAttachment(detached.key, 1, { mode: "herdr" }).ok) throw new Error("detach failed");
-    bind("codex", "x-attached", { pane: "w2:p1" });
+    const codexBound = bind("codex", "x-attached", { pane: "w2:p1" });
 
     const seen: SessionBinding[] = [];
+    const codexSeen: SessionBinding[] = [];
     const sweeps = new Set<unknown>();
     const adapter = {
       observe: async (b: SessionBinding, sweep: unknown) => { seen.push(b); sweeps.add(sweep); return { ok: true, data: {} }; },
+    } as unknown as SessionAdapter;
+    const codexAdapter = {
+      observe: async (b: SessionBinding, sweep: unknown) => { codexSeen.push(b); sweeps.add(sweep); return { ok: true, data: {} }; },
     } as unknown as SessionAdapter;
     await observeBoundSessions({
       enabled: () => true,
       db: () => db,
       alive: (pid) => pid !== 9,
-      integrations: () => createRegistry([{ ...claudeIntegration, loadSessions: async () => adapter }, codexIntegration]),
+      integrations: () => createRegistry([
+        { ...claudeIntegration, loadSessions: async () => adapter },
+        { ...codexIntegration, loadSessions: async () => codexAdapter },
+      ]),
     });
     // A dead recorded process is skipped, never marked.
     expect(seen.map((b) => b.key).sort()).toEqual([attached.key, byPid.key].sort());
+    expect(codexSeen.map((b) => b.key)).toEqual([codexBound.key]);
     expect(sweeps.size).toBe(1);
     expect(listAttachedBindings(db, "claude").map((b) => b.native.value)).toContain("c-dead-pid");
   });
