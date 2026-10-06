@@ -1,4 +1,4 @@
-import { Alert, Anchor, Group, Text } from '@mattstack/app-kit/core';
+import { Alert, Button, Group, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import { Link } from '@mattstack/app-kit/router';
 import { teamPersonHref } from './preview';
@@ -18,15 +18,16 @@ export function PreviewBanner({
       data-parity="Preview Banner"
     >
       <Group justify="space-between" gap="md">
-        <Text size="sm">{`Previewing ${name}'s Self view`}</Text>
-        <Anchor
+        <Text size="md">{`Previewing ${name}'s Self view`}</Text>
+        <Button
           component={Link}
           href={teamPersonHref(username)}
-          size="sm"
-          fw={500}
+          variant="subtle"
+          color="accent"
+          size="compact-sm"
         >
           Exit preview
-        </Anchor>
+        </Button>
       </Group>
     </Alert>
   );
