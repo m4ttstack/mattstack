@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite';
 
 import { getStateDb, persistOrWarn, runCriticalWrite } from '../state/index.ts';
+import { ASK_HISTORY_MS } from './ask-inbox.ts';
 import type { AskKind, NudgeResult } from './envelope.ts';
 
 /** An inbound review ask, materialized from a peer's envelope. `kind` is
@@ -17,7 +18,17 @@ export interface NudgeState {
       ReviewState.runStartedAt where the relay's receivedAt is not. */
   materializedAt?: number;
   kind?: AskKind;
-  handled?: { at: number; result: NudgeResult; reason?: string };
+  title?: string;
+  sourceBranch?: string;
+  /** Set once the desktop notification for this ask has fired. */
+  notifiedAt?: number;
+  handled?: {
+    at: number;
+    result: NudgeResult;
+    reason?: string;
+    note?: string;
+    declined?: true;
+  };
 }
 
 /** Insert an inbound nudge. INSERT OR IGNORE, since at-least-once delivery
@@ -78,6 +89,33 @@ export function pendingNudgesByMr(
   return byMr;
 }
 
+function readNudgeRow(id: string, db: Database): NudgeState | null {
+  const row = db.query('SELECT nudge FROM nudges WHERE id = ?').get(id) as {
+    nudge: string;
+  } | null;
+  if (!row) return null;
+  try {
+    return JSON.parse(row.nudge) as NudgeState;
+  } catch {
+    return null;
+  }
+}
+
+function writeNudgeRow(
+  next: NudgeState,
+  now: number,
+  label: string,
+  db: Database
+): void {
+  runCriticalWrite(label, () => {
+    db.query('UPDATE nudges SET nudge = ?, updated_at = ? WHERE id = ?').run(
+      JSON.stringify(next),
+      now,
+      next.id
+    );
+  });
+}
+
 /** Read-merge-write a nudge's handled outcome. No-op if no row exists for
     this id. */
 export function markNudgeHandled(
@@ -85,37 +123,55 @@ export function markNudgeHandled(
   result: NudgeResult,
   reason?: string,
   db: Database = getStateDb(),
-  now: number = Date.now()
+  now: number = Date.now(),
+  opts: { note?: string; declined?: true } = {}
 ): void {
-  const row = db.query('SELECT nudge FROM nudges WHERE id = ?').get(id) as {
-    nudge: string;
-  } | null;
-  if (!row) return;
-  let prev: NudgeState;
-  try {
-    prev = JSON.parse(row.nudge) as NudgeState;
-  } catch {
-    return;
-  }
-  const next: NudgeState = { ...prev, handled: { at: now, result, reason } };
-  runCriticalWrite('nudge handled write', () => {
-    db.query('UPDATE nudges SET nudge = ?, updated_at = ? WHERE id = ?').run(
-      JSON.stringify(next),
-      now,
-      id
-    );
-  });
+  const prev = readNudgeRow(id, db);
+  if (!prev) return;
+  writeNudgeRow(
+    {
+      ...prev,
+      handled: {
+        at: now,
+        result,
+        ...(reason ? { reason } : {}),
+        ...(opts.note ? { note: opts.note } : {}),
+        ...(opts.declined ? { declined: true as const } : {}),
+      },
+    },
+    now,
+    'nudge handled write',
+    db
+  );
 }
 
-/** Delete inbound nudges whose MR is no longer on the board. `keepUrls` is
-    the current board MR set; callers gate this on a healthy snapshot so a
-    failed fetch can't wipe live state. */
+/** Record that the desktop notification for this ask has fired. No-op if no
+    row exists for this id. */
+export function markNudgeNotified(
+  id: string,
+  db: Database = getStateDb(),
+  now: number = Date.now()
+): void {
+  const prev = readNudgeRow(id, db);
+  if (!prev) return;
+  writeNudgeRow({ ...prev, notifiedAt: now }, now, 'nudge notified write', db);
+}
+
+/** Delete stale inbound nudges. Handled history outlives its MR for
+    ASK_HISTORY_MS, and a waiting ask need not be on this board, so it goes
+    only once it is that old too. `keepUrls` is the current board MR set;
+    callers gate this on a healthy snapshot so a failed fetch can't wipe live
+    state. */
 export function pruneNudges(
   keepUrls: ReadonlySet<string>,
-  db: Database = getStateDb()
+  db: Database = getStateDb(),
+  now: number = Date.now()
 ): void {
-  const nudges = readNudges(db);
-  const stale = nudges.filter(n => !keepUrls.has(n.mrUrl));
+  const stale = readNudges(db).filter(n =>
+    n.handled
+      ? now - n.handled.at > ASK_HISTORY_MS
+      : !keepUrls.has(n.mrUrl) && now - n.receivedAt > ASK_HISTORY_MS
+  );
   if (stale.length === 0) return;
   persistOrWarn('nudge prune', () => {
     const tx = db.transaction(() => {

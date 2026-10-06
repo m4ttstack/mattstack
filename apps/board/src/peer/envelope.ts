@@ -169,7 +169,8 @@ export function parseReReviewRequestPayload(
   const { note, title, sourceBranch } = p as Record<string, unknown>;
   if (note !== undefined && typeof note !== 'string') return null;
   if (title !== undefined && typeof title !== 'string') return null;
-  if (sourceBranch !== undefined && typeof sourceBranch !== 'string') return null;
+  if (sourceBranch !== undefined && typeof sourceBranch !== 'string')
+    return null;
   return {
     ...base,
     note: note as string | undefined,
@@ -178,7 +179,12 @@ export function parseReReviewRequestPayload(
   };
 }
 
-const NUDGE_RESULTS: NudgeResult[] = ['pending', 'launched', 'rejected', 'expired'];
+const NUDGE_RESULTS: NudgeResult[] = [
+  'pending',
+  'launched',
+  'rejected',
+  'expired',
+];
 
 export function parseNudgeOutcomePayload(
   p: unknown

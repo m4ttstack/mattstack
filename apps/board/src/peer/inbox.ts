@@ -120,6 +120,8 @@ export function materializeEnvelope(
       iid: p.iid,
       from: e.from,
       note: p.note,
+      ...(p.title ? { title: p.title } : {}),
+      ...(p.sourceBranch ? { sourceBranch: p.sourceBranch } : {}),
       receivedAt: e.receivedAt,
       materializedAt: now,
       // Absence means re-review, so rows written before kinds existed keep
