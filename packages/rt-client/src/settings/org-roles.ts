@@ -4,9 +4,10 @@
  * who can actually push.
  */
 
-import { posix } from "path";
+import { posix, relative, sep } from "path";
 import { readOrgRoles, sameUser, type OrgRoles } from "./active-team.ts";
 import { TEAM_NAME_RE } from "./stores.ts";
+import { orgDir, orgSettingsPath } from "./paths.ts";
 import { readForgeUsername } from "./team-local-read.ts";
 
 export type OrgRole = { kind: "admin" } | { kind: "owner"; teams: string[] } | { kind: "member" } | { kind: "unknown" };
@@ -77,4 +78,12 @@ export function writeRefusalFor(role: OrgRole, roles: OrgRoles, relPath: string)
 
 export function currentRole(org: string): OrgRole {
   return roleOf(readForgeUsername(org), readOrgRoles(org));
+}
+
+/** Why this Mac may not write the org's own settings store, as one sentence pair a person reads; null when it may. */
+export function orgStoreRefusal(org: string): string | null {
+  const roles = readOrgRoles(org);
+  const relPath = relative(orgDir(org), orgSettingsPath(org)).split(sep).join("/");
+  const refusal = writeRefusalFor(roleOf(readForgeUsername(org), roles), roles, relPath);
+  return refusal ? `${refusal.message}. ${refusal.why}` : null;
 }

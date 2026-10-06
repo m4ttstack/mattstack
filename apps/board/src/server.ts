@@ -73,6 +73,7 @@ import {
   repoIdentityField,
   resolveLaunchRepo,
   rosterView,
+  rosterWriteRefusal,
   saveMemberHidden,
   saveRosterMembers,
   saveTabs,
@@ -1632,6 +1633,10 @@ const httpServer = Bun.serve({
         }
         if (name !== undefined && typeof name !== 'string') {
           return new Response('name must be a string', { status: 400 });
+        }
+        {
+          const refused = rosterWriteRefusal();
+          if (refused) return new Response(refused, { status: 403 });
         }
         // The edit applies to the roster as the store holds it now: the
         // in-memory copy misses writes made since load (an invite, a sync).

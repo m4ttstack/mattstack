@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { OrgRoles } from "../active-team.ts";
-import { currentRole, mayWritePath, ownedRoots, roleOf, writeRefusalFor } from "../org-roles.ts";
+import { currentRole, mayWritePath, orgStoreRefusal, ownedRoots, roleOf, writeRefusalFor } from "../org-roles.ts";
 
 const ROLES: OrgRoles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] }, gadgets: { owners: ["dev2", "dev3"] } } };
 
@@ -179,5 +179,13 @@ describe("currentRole reads the disk", () => {
   test("a malformed mattstack.org value leaves a known user a member", () => {
     seed("acme", JSON.stringify({ "mattstack.org": { admins: "dev1", teams: [] } }), "dev1");
     expect(currentRole("acme")).toEqual({ kind: "member" });
+  });
+  test("orgStoreRefusal lets an admin write the org store and names the admins to anyone else", () => {
+    seed("acme", store, "dev1");
+    expect(orgStoreRefusal("acme")).toBeNull();
+    seed("acme", store, "dev2");
+    expect(orgStoreRefusal("acme")).toBe("The org's shared files belong to its admins. Ask Dev1 (an org admin) to make this change.");
+    rmSync(join(home, ".mattstack", "rt", "teams", "acme.json"));
+    expect(orgStoreRefusal("acme")).toBe("rt can't tell who you are, so it will not change the org's shared files. Connect your forge account in Setup, then try again.");
   });
 });

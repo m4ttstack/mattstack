@@ -8,6 +8,7 @@ import {
   getSetting,
   identityFromRemote,
   mergeTeamRoster,
+  orgStoreRefusal,
   serializeIdentity,
   setSetting,
   switchboardUrl,
@@ -635,12 +636,17 @@ export const teamView: {
   pack: () => string | null;
   team: () => string | null;
   orgAdmin: () => boolean;
+  rosterRefusal: () => string | null;
 } = {
   pack: activeTeamPack,
   team: () => activeTeam().team,
   orgAdmin: () => {
     const { org } = activeTeam();
     return org !== null && currentRole(org).kind === 'admin';
+  },
+  rosterRefusal: () => {
+    const { org } = activeTeam();
+    return org === null ? null : orgStoreRefusal(org);
   },
 };
 
@@ -676,6 +682,15 @@ export function rosterView(
   const owner = rosterFromStore(resolve);
   if (!owner) return null;
   return { everyone: owner.team === null, orgAdmin: teamView.orgAdmin() };
+}
+
+/** Why this Mac may not change a store-owned roster (it lives in the org
+    store, which only an org admin writes); null when it may, or when
+    config.json owns the roster. */
+export function rosterWriteRefusal(
+  resolve: GetSettingFn = getSetting
+): string | null {
+  return rosterFromStore(resolve) ? teamView.rosterRefusal() : null;
 }
 
 /**

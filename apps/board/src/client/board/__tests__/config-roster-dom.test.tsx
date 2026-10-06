@@ -115,11 +115,22 @@ async function render(
 const button = (label: string) =>
   document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
 
-test('the everyone view offers a member nobody to remove', async () => {
+test('the everyone view offers a member who is not an org admin no edit at all', async () => {
   await render({ everyone: true, orgAdmin: false });
   expect(document.querySelector('.tui-roster-item')).not.toBeNull();
   expect(button('remove dev2 from the org')).toBeNull();
   expect(button('drop dev2')).toBeNull();
+  expect(button('rename dev2')).toBeNull();
+  expect(document.querySelector('.tui-roster-add')).toBeNull();
+  expect(document.querySelector('.tui-roster-list')!.textContent).toContain(
+    'dev2'
+  );
+});
+
+test('the everyone view offers an org admin add and rename', async () => {
+  await render({ everyone: true, orgAdmin: true });
+  expect(button('rename dev2')).not.toBeNull();
+  expect(document.querySelector('.tui-roster-add')).not.toBeNull();
 });
 
 test('the everyone view offers an org admin a remove from the org, and confirms it in those words', async () => {
@@ -131,6 +142,7 @@ test('the everyone view offers an org admin a remove from the org, and confirms 
     b => b.textContent === 'confirm remove from the org'
   )!;
   expect(confirm).toBeDefined();
+  expect(confirm.getAttribute('data-intent')).toBe('bad');
   await React.act(async () => confirm.click());
   await flush();
   expect(posts).toEqual([

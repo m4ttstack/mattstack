@@ -25,6 +25,7 @@ import {
   displayName,
   loadConfigFrom,
   rosterView,
+  rosterWriteRefusal,
   saveMemberHidden,
   saveRosterMembers,
   saveTabs,
@@ -53,6 +54,7 @@ beforeEach(() => {
   teamView.pack = () => null;
   teamView.team = () => null;
   teamView.orgAdmin = () => false;
+  teamView.rosterRefusal = () => null;
 });
 afterEach(() => {
   Object.assign(teamView, realView);
@@ -690,6 +692,26 @@ describe('rosterView: which roster the board edits, and who may remove from the 
 
   test('a roster config.json owns has no view', () => {
     expect(rosterView(fakeResolve({}))).toBeNull();
+  });
+});
+
+describe("rosterWriteRefusal: the org roster is the org admins' to change", () => {
+  test('a store-owned roster answers with the role refusal', () => {
+    teamView.rosterRefusal = () =>
+      "The org's shared files belong to its admins. Ask dev1 (an org admin) to make this change.";
+    expect(
+      rosterWriteRefusal(fakeResolve({ 'mattstack.roster': twoTeamsRoster }))
+    ).toBe(
+      "The org's shared files belong to its admins. Ask dev1 (an org admin) to make this change."
+    );
+  });
+
+  test('an admin, and a roster config.json owns, are not refused', () => {
+    expect(
+      rosterWriteRefusal(fakeResolve({ 'mattstack.roster': twoTeamsRoster }))
+    ).toBeNull();
+    teamView.rosterRefusal = () => 'refused';
+    expect(rosterWriteRefusal(fakeResolve({}))).toBeNull();
   });
 });
 

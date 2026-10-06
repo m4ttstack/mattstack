@@ -6,7 +6,7 @@ import {
   type ExplainRowWire,
   type SettingsScopeState,
 } from '@mattstack/settings-kit/react';
-import { Modal } from '@mattstack/tui-kit';
+import { Button, Modal } from '@mattstack/tui-kit';
 import type { TabConfig } from '../../config.ts';
 import { sectionStatus } from '../../sections.ts';
 import {
@@ -512,10 +512,10 @@ function RosterControl({
   const [armed, setArmed] = useState<string | null>(null);
   // The username whose display name is being edited inline, if any.
   const [renaming, setRenaming] = useState<string | null>(null);
-  // In the everyone view a remove takes someone out of the whole org, which
-  // only an org admin may do.
+  // In the everyone view an edit changes the whole org's roster, which only
+  // an org admin may do.
   const everyone = view?.everyone === true;
-  const canRemove = !everyone || view?.orgAdmin === true;
+  const canEdit = !everyone || view?.orgAdmin === true;
 
   const roster = Array.isArray(members)
     ? (members as Array<{
@@ -595,14 +595,18 @@ function RosterControl({
                 </span>
               ) : (
                 <span className="tui-roster-who">
-                  <button
-                    className="tui-config-link"
-                    onClick={() => setRenaming(username)}
-                    title="set a display name"
-                    aria-label={`rename ${username}`}
-                  >
-                    {name ?? username}
-                  </button>
+                  {canEdit ? (
+                    <button
+                      className="tui-config-link"
+                      onClick={() => setRenaming(username)}
+                      title="set a display name"
+                      aria-label={`rename ${username}`}
+                    >
+                      {name ?? username}
+                    </button>
+                  ) : (
+                    <span>{name ?? username}</span>
+                  )}
                   {name && (
                     <span className="tui-roster-handle">@{username}</span>
                   )}
@@ -615,14 +619,15 @@ function RosterControl({
                 <span className="tui-roster-out" title="this board runs as you">
                   you
                 </span>
-              ) : !canRemove ? null : armed === username ? (
-                <button
-                  className="tui-modal-btn danger"
+              ) : !canEdit ? null : armed === username ? (
+                <Button
+                  size="sm"
+                  intent="bad"
                   disabled={busy}
                   onClick={() => void edit('remove', username)}
                 >
                   {everyone ? 'confirm remove from the org' : 'confirm drop'}
-                </button>
+                </Button>
               ) : (
                 <button
                   className="tui-modal-btn"
@@ -646,38 +651,40 @@ function RosterControl({
           );
         })}
       </ul>
-      <form
-        className="tui-roster-add"
-        onSubmit={e => {
-          e.preventDefault();
-          const handle = adding.trim();
-          if (handle && !busy) void edit('add', handle, addingName.trim());
-        }}
-      >
-        <input
-          className="tui-modal-input"
-          value={adding}
-          onChange={e => setAdding(e.target.value)}
-          placeholder="gitlab username"
-          aria-label="add a teammate by gitlab username"
-          disabled={busy}
-        />
-        <input
-          className="tui-modal-input"
-          value={addingName}
-          onChange={e => setAddingName(e.target.value)}
-          placeholder="display name (optional)"
-          aria-label="display name for the teammate being added"
-          disabled={busy}
-        />
-        <button
-          className="tui-modal-btn"
-          type="submit"
-          disabled={busy || !adding.trim()}
+      {canEdit && (
+        <form
+          className="tui-roster-add"
+          onSubmit={e => {
+            e.preventDefault();
+            const handle = adding.trim();
+            if (handle && !busy) void edit('add', handle, addingName.trim());
+          }}
         >
-          add
-        </button>
-      </form>
+          <input
+            className="tui-modal-input"
+            value={adding}
+            onChange={e => setAdding(e.target.value)}
+            placeholder="gitlab username"
+            aria-label="add a teammate by gitlab username"
+            disabled={busy}
+          />
+          <input
+            className="tui-modal-input"
+            value={addingName}
+            onChange={e => setAddingName(e.target.value)}
+            placeholder="display name (optional)"
+            aria-label="display name for the teammate being added"
+            disabled={busy}
+          />
+          <button
+            className="tui-modal-btn"
+            type="submit"
+            disabled={busy || !adding.trim()}
+          >
+            add
+          </button>
+        </form>
+      )}
       {error && <p className="tui-modal-error">{error}</p>}
     </div>
   );
