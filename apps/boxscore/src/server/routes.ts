@@ -105,7 +105,11 @@ const leaderboard = new Hono()
     if (fixtureMode()) {
       let detail: ReturnType<typeof fixtureDetail>;
       try {
-        detail = fixtureDetail(user, boolQuery(c, 'trend'), c.req.query('viewAs'));
+        detail = fixtureDetail(
+          user,
+          boolQuery(c, 'trend'),
+          c.req.query('viewAs')
+        );
       } catch (err) {
         if (err instanceof UnknownViewAsError)
           return c.json({ error: err.message }, 404);

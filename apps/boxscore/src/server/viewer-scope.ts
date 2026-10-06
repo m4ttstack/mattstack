@@ -65,7 +65,8 @@ export function applyViewAs(
   viewAs: string | undefined,
   roster: readonly { username: string }[]
 ): { viewer: Viewer; previewing: boolean } {
-  if (!viewAs || real.role !== 'team') return { viewer: real, previewing: false };
+  if (!viewAs || real.role !== 'team')
+    return { viewer: real, previewing: false };
   const entry = roster.find(r => same(r.username, viewAs));
   if (!entry) throw new UnknownViewAsError(`unknown user: ${viewAs}`);
   return {

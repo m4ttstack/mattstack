@@ -25,9 +25,9 @@ import {
 } from './store/query.js';
 import { baseWindow, covers, priorWindow } from './util/window.js';
 import {
+  applyViewAs,
   canSeeUser,
   LOCKED_MESSAGE,
-  applyViewAs,
   narrowForViewer,
   SELF_ONLY_MESSAGE,
   unrankedRow,

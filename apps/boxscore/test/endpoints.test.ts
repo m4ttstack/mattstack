@@ -207,9 +207,7 @@ describe('viewer roles over HTTP', () => {
   });
 
   it('ignores viewAs for a Self viewer', async () => {
-    const res = await app.request(
-      '/api/detail?user=bob&range=30d&viewAs=bob'
-    );
+    const res = await app.request('/api/detail?user=bob&range=30d&viewAs=bob');
     expect(res.status).toBe(403);
   });
 
