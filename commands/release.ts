@@ -25,9 +25,9 @@
  * path, write and commit the notes, tag and verify in one resumable run
  * (lib/release/release-app.ts).
  */
-import { readFileSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir, homedir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError, failureFor, logFailureDetail } from "../lib/errors.ts";
@@ -46,6 +46,7 @@ import {
   type UpdateMachineSeams,
 } from "../lib/release/update-machine.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
+import { NOTARY_PROFILE_DEFAULT } from "../lib/release/dev-publish.ts";
 import {
   listJoin,
   notesDeclined,
@@ -178,6 +179,11 @@ export async function createRealUpdateMachineSeams(options: UpdateMachineOptions
         return null;
       }
     },
+    writeFile: async (path, content) => {
+      mkdirSync(dirname(path), { recursive: true });
+      await Bun.write(path, content);
+    },
+    notaryProfile: process.env.NOTARY_PROFILE || NOTARY_PROFILE_DEFAULT,
     confirm: (message) => confirm({ message }),
     announce: async (message) => (await runCapture(["rt", "chat", "post", CHAT_ROOM, message], { timeoutMs: 30_000 })).exitCode === 0,
     clock: () => new Date(),

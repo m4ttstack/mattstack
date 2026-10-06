@@ -2,7 +2,8 @@
  * rt release update-machine... the rt:release skill's update-machine step as
  * one verb: bring this developer's own machine (prod app, dev bundle,
  * checkout sync, daemon, and the served suite) up to a released tag, in that
- * order, with a verification sweep at the end.
+ * order, with a verification sweep at the end. On the maintainer's Mac it also
+ * publishes the notarized dev app it built to the release.
  *
  * Every external effect goes through UpdateMachineSeams so this module stays
  * pure and testable; the real seams (network, exec, prompts, chat) live in
@@ -21,8 +22,9 @@ import {
   swapDevApp,
   type AppSwapSeams,
 } from "./app-swap.ts";
+import { publishDevApp } from "./dev-publish.ts";
 
-export type LegId = "prod-app" | "dev-bundle" | "checkout-sync" | "daemon" | "served-suite" | "verify";
+export type LegId = "prod-app" | "dev-bundle" | "dev-publish" | "checkout-sync" | "daemon" | "served-suite" | "verify";
 export type LegStatus = "ok" | "skipped" | "aborted" | "error" | "planned";
 
 export interface LegResult {
@@ -60,6 +62,9 @@ export interface UpdateMachineSeams extends AppSwapSeams {
   isTTY: boolean;
   download(url: string, destPath: string): Promise<void>;
   readFile(path: string): string | null;
+  writeFile(path: string, content: string): Promise<void>;
+  /** The notarytool keychain profile the dev-publish leg signs in with (NOTARY_PROFILE, else mattstack-notary). */
+  notaryProfile: string;
   confirm(message: string): Promise<boolean>;
   /** Posts to the #rt chat room; returns whether the post succeeded. */
   announce(message: string): Promise<boolean>;
@@ -77,6 +82,7 @@ function bundleDeck(devNotRunning: boolean): string {
 
 const PROD_APP_LABEL = "prod app update";
 const DEV_BUNDLE_LABEL = "dev bundle rebuild";
+const DEV_PUBLISH_LABEL = "dev app publish";
 const CHECKOUT_SYNC_LABEL = "shared checkout sync";
 const DAEMON_LABEL = "daemon restart";
 const SERVED_SUITE_LABEL = "served suite restart";
@@ -363,7 +369,12 @@ async function runProdAppLeg(seams: UpdateMachineSeams, ctx: ReleaseContext): Pr
   }
 }
 
-async function runDevBundleLeg(seams: UpdateMachineSeams, ctx: ReleaseContext, onNotRunning: () => void = () => {}): Promise<LegResult> {
+async function runDevBundleLeg(
+  seams: UpdateMachineSeams,
+  ctx: ReleaseContext,
+  onNotRunning: () => void = () => {},
+  release = false,
+): Promise<LegResult> {
   const bundleDir = `${seams.workDir}/rt-dev-bundle`;
 
   const clone = await seams.exec(["git", "clone", `https://github.com/${RELEASE_REPO}.git`, bundleDir]);
@@ -386,7 +397,7 @@ async function runDevBundleLeg(seams: UpdateMachineSeams, ctx: ReleaseContext, o
   const buildApps = await seams.exec(["bun", "scripts/build-apps.ts", "--arch", "arm64"], { cwd: bundleDir });
   if (buildApps.exitCode !== 0) return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `scripts/build-apps.ts failed: ${execTail(buildApps)}`);
 
-  const build = await seams.exec(["rt-tray/build.sh", "dev"], { cwd: bundleDir });
+  const build = await seams.exec(["rt-tray/build.sh", "dev"], { cwd: bundleDir, ...(release ? { env: { MS_DEV_RELEASE_BUILD: "1" } } : {}) });
   if (build.exitCode !== 0) return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `build.sh dev failed: ${execTail(build)}`);
 
   // Opening the dev app by hand takes the Mac over from mattstack.app, so it
@@ -626,6 +637,8 @@ function describePlannedLeg(id: LegId, tag: string): string {
       return `Download the ${tag} app, check its checksum, and swap it in for the installed one without opening it`;
     case "dev-bundle":
       return `Build the dev app at ${tag} in a scratch folder, quit the running copy, swap the new one in, and reopen it if it was running`;
+    case "dev-publish":
+      return `Notarize that dev app, zip it, and attach it and its checksum to the ${tag} release`;
     case "checkout-sync":
       return "Pull main into the shared checkout and install its packages";
     case "daemon":
@@ -658,11 +671,12 @@ export async function runUpdateMachine(seams: UpdateMachineSeams, options: Updat
   }
 
   if (options.plan) {
-    const legs: LegResult[] = (["prod-app", "dev-bundle", "checkout-sync", "daemon", "served-suite", "verify"] as LegId[]).map((id) => ({
+    const legs: LegResult[] = (["prod-app", "dev-bundle", "dev-publish", "checkout-sync", "daemon", "served-suite", "verify"] as LegId[]).map((id) => ({
       id,
       label: {
         "prod-app": PROD_APP_LABEL,
         "dev-bundle": DEV_BUNDLE_LABEL,
+        "dev-publish": DEV_PUBLISH_LABEL,
         "checkout-sync": CHECKOUT_SYNC_LABEL,
         daemon: DAEMON_LABEL,
         "served-suite": SERVED_SUITE_LABEL,
@@ -683,10 +697,13 @@ export async function runUpdateMachine(seams: UpdateMachineSeams, options: Updat
 
   const sha = await resolveCommit(seams, tag);
   const ctx: ReleaseContext = { tag, ver, sha };
+  // Checked before any leg changes the Mac, so a missing profile is known up front.
+  const notaryReady =
+    (await seams.exec(["xcrun", "notarytool", "history", "--keychain-profile", seams.notaryProfile], { timeoutMs: 60_000 })).exitCode === 0;
   const legs: LegResult[] = [];
   let haltedAfter: string | null = null;
 
-  async function runGatedLeg(id: LegId, label: string, run: () => Promise<LegResult>): Promise<void> {
+  async function runGatedLeg(id: LegId, label: string, run: () => Promise<LegResult>, halts = true): Promise<void> {
     if (haltedAfter) {
       legs.push(skippedLeg(id, label, `Not run: the run stopped at ${haltedAfter}`));
       return;
@@ -697,13 +714,38 @@ export async function runUpdateMachine(seams: UpdateMachineSeams, options: Updat
     }
     const result = await run();
     legs.push(result);
-    if (result.status === "aborted" || result.status === "error") haltedAfter = label;
+    if (halts && (result.status === "aborted" || result.status === "error")) haltedAfter = label;
   }
 
   await runGatedLeg("prod-app", PROD_APP_LABEL, () => runProdAppLeg(seams, ctx));
   // Read here, not in the dev-bundle leg: a declined or failed one never reaches its own pgrep.
   let devNotRunning = (await pgrepPids(seams, DEV_APP_ANCHOR)).length === 0;
-  await runGatedLeg("dev-bundle", DEV_BUNDLE_LABEL, () => runDevBundleLeg(seams, ctx, () => { devNotRunning = true; }));
+  await runGatedLeg("dev-bundle", DEV_BUNDLE_LABEL, () => runDevBundleLeg(seams, ctx, () => { devNotRunning = true; }, true));
+  const publishBlocker = !notaryReady
+    ? `Not run: no notary profile named ${seams.notaryProfile} on this Mac; save one once with: xcrun notarytool store-credentials ${seams.notaryProfile}`
+    : legs.find((l) => l.id === "dev-bundle")?.status !== "ok"
+      ? "Not run: the dev app was not built in this run"
+      : null;
+  if (publishBlocker && !haltedAfter) {
+    legs.push(skippedLeg("dev-publish", DEV_PUBLISH_LABEL, publishBlocker));
+  } else {
+    // A failed publish leaves this Mac as current as a clean one, so later legs still run.
+    await runGatedLeg(
+      "dev-publish",
+      DEV_PUBLISH_LABEL,
+      async () => {
+        const r = await publishDevApp(seams, {
+          bundleDir: `${seams.workDir}/rt-dev-bundle`,
+          workDir: seams.workDir,
+          tag: ctx.tag,
+          version: ctx.ver,
+          notaryProfile: seams.notaryProfile,
+        });
+        return r.ok ? okLeg("dev-publish", DEV_PUBLISH_LABEL, r.detail) : errorLeg("dev-publish", DEV_PUBLISH_LABEL, r.error);
+      },
+      false,
+    );
+  }
   await runGatedLeg("checkout-sync", CHECKOUT_SYNC_LABEL, () => runCheckoutSyncLeg(seams));
   if (devNotRunning) {
     legs.push(skippedLeg("daemon", DAEMON_LABEL,

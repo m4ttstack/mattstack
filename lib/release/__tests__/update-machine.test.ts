@@ -68,6 +68,8 @@ interface Options {
   failExactCmd?: string;
   failExactCode?: number;
   failExactOccurrence?: number;
+  notaryMissing?: boolean;
+  publishUploadExit?: number;
 }
 
 /** Real `launchctl print` has no start-time field: top-level state/pid, tab-indented, nested sub-sections repeat their own "state = active" lines. */
@@ -120,8 +122,13 @@ function registryJson(registry: Record<string, string> | undefined): string | nu
 }
 
 /** A seam set representing a fully healthy machine: every leg succeeds cleanly. */
-function fakeSeams(opts: Options = {}): { seams: UpdateMachineSeams & { calls: string[][]; deckBin: string }; calls: string[] } {
+function fakeSeams(opts: Options = {}): {
+  seams: UpdateMachineSeams & { calls: string[][]; deckBin: string };
+  calls: string[];
+  execOpts: { cmd: string; opts?: { env?: Record<string, string> } }[];
+} {
   const calls: string[] = [];
+  const execOpts: { cmd: string; opts?: { env?: Record<string, string> } }[] = [];
   const rawCalls: string[][] = [];
   const managed = opts.managed ?? [{ name: "board", fresh: true }, { name: "chat", fresh: true }];
   const pids = new Map(managed.map((m, i) => [m.name, 1000 + i]));
@@ -140,10 +147,11 @@ function fakeSeams(opts: Options = {}): { seams: UpdateMachineSeams & { calls: s
     isTTY: true,
     calls: rawCalls,
     deckBin,
-    exec: (argv) => {
+    exec: (argv, execOptions) => {
       const cmd = argv.join(" ");
       calls.push(cmd);
       rawCalls.push([...argv]);
+      execOpts.push({ cmd, opts: execOptions });
       if (opts.failExactCmd && cmd === opts.failExactCmd) {
         failExactSeen++;
         if (!opts.failExactOccurrence || failExactSeen === opts.failExactOccurrence) return fail("injected failure", opts.failExactCode ?? 1);
@@ -239,6 +247,11 @@ function fakeSeams(opts: Options = {}): { seams: UpdateMachineSeams & { calls: s
         return ok(`${row?.psTime === "after" ? NEW_PS_TIME : OLD_PS_TIME}\n`);
       }
       if (cmd.includes("Info.plist")) return ok(`${opts.prodVersion ?? "2.11.0"}\n`);
+      if (cmd.startsWith("xcrun notarytool history")) return opts.notaryMissing ? fail("No Keychain password item found") : ok("");
+      if (cmd.startsWith("scripts/release/notarize.sh")) return ok("");
+      if (cmd.startsWith("ditto -c -k --keepParent")) return ok("");
+      if (cmd.startsWith("gh release download")) return ok("");
+      if (cmd.startsWith("gh release upload")) return opts.publishUploadExit ? fail("upload failed", opts.publishUploadExit) : ok("");
       return Promise.resolve({ stdout: "", stderr: `unhandled: ${cmd}`, exitCode: 1 });
     },
     download: async (url, dest) => {
@@ -251,6 +264,10 @@ function fakeSeams(opts: Options = {}): { seams: UpdateMachineSeams & { calls: s
       if (path.endsWith("registry.json")) return registryJson(opts.registry);
       return null;
     },
+    writeFile: async (path, content) => {
+      calls.push(`writeFile ${path} ${content.trim().split("\n").at(-1)}`);
+    },
+    notaryProfile: "mattstack-notary",
     confirm: async () => true,
     announce: async (message) => {
       calls.push(`announce ${message}`);
@@ -264,14 +281,14 @@ function fakeSeams(opts: Options = {}): { seams: UpdateMachineSeams & { calls: s
     sleep: async () => {},
   };
 
-  return { seams, calls };
+  return { seams, calls, execOpts };
 }
 
 describe("rt release update-machine", () => {
-  test("runs all six legs in order and reports ok when the machine is healthy", async () => {
+  test("runs all seven legs in order and reports ok when the machine is healthy", async () => {
     const { seams } = fakeSeams();
     const report = await runUpdateMachine(seams, { yes: true });
-    expect(report.legs.map((l) => l.id)).toEqual(["prod-app", "dev-bundle", "checkout-sync", "daemon", "served-suite", "verify"]);
+    expect(report.legs.map((l) => l.id)).toEqual(["prod-app", "dev-bundle", "dev-publish", "checkout-sync", "daemon", "served-suite", "verify"]);
     expect(report.legs.every((l) => l.status === "ok")).toBe(true);
     expect(report.ok).toBe(true);
     expect(report.haltedAfter).toBeNull();
@@ -281,14 +298,17 @@ describe("rt release update-machine", () => {
   test("--plan resolves and prints the legs without running any of them", async () => {
     const { seams, calls } = fakeSeams();
     const report = await runUpdateMachine(seams, { plan: true });
-    expect(report.legs).toHaveLength(6);
+    expect(report.legs.map((l) => l.id)).toEqual(["prod-app", "dev-bundle", "dev-publish", "checkout-sync", "daemon", "served-suite", "verify"]);
     expect(report.legs.every((l) => l.status === "planned")).toBe(true);
+    expect(report.legs.find((l) => l.id === "dev-publish")!.detail).toBe(
+      `Notarize that dev app, zip it, and attach it and its checksum to the ${TAG} release`,
+    );
     expect(report.legs.find((l) => l.id === "dev-bundle")!.detail).toBe(
       `Build the dev app at ${TAG} in a scratch folder, quit the running copy, swap the new one in, and reopen it if it was running`,
     );
     expect(report.ok).toBe(true);
     // Only the read-only tag resolution may have run; nothing state-changing did.
-    for (const prefix of ["ditto", "download", "git clone", "kill", "open", "mv", "hdiutil"]) {
+    for (const prefix of ["ditto", "download", "git clone", "kill", "open", "mv", "hdiutil", "xcrun", "scripts/release/notarize.sh", "gh release"]) {
       expect(calls.some((c) => c.startsWith(prefix))).toBe(false);
     }
     expect(calls.some(isOpen)).toBe(false);
@@ -329,7 +349,7 @@ describe("rt release update-machine", () => {
       return true;
     };
     await runUpdateMachine(seams, {});
-    expect(asked).toHaveLength(5);
+    expect(asked).toHaveLength(6);
   });
 
   test("declining a leg's confirm prompt skips just that leg; later legs still run (decline keeps skip-and-continue)", async () => {
@@ -360,10 +380,10 @@ describe("rt release update-machine", () => {
     test("a sha256 mismatch (aborted) halts every later state-changing leg, but the verify sweep still runs and the report names the halt", async () => {
       const { seams, calls } = fakeSeams({ shaMismatch: true });
       const report = await runUpdateMachine(seams, { yes: true });
-      expect(report.legs.map((l) => l.status)).toEqual(["aborted", "skipped", "skipped", "skipped", "skipped", "ok"]);
-      expect(report.legs[5]!.id).toBe("verify");
+      expect(report.legs.map((l) => l.status)).toEqual(["aborted", "skipped", "skipped", "skipped", "skipped", "skipped", "ok"]);
+      expect(report.legs[6]!.id).toBe("verify");
       expect(report.haltedAfter).toBe("prod app update");
-      for (const l of report.legs.slice(1, 5)) expect(l.detail).toContain("the run stopped at");
+      for (const l of report.legs.slice(1, 6)) expect(l.detail).toContain("the run stopped at");
       expect(calls.some((c) => c === "rt daemon restart")).toBe(false);
       expect(calls.some((c) => c === `${DEV_DECK} restart --managed`)).toBe(false);
       expect(calls.some((c) => c.startsWith("git clone"))).toBe(false);
@@ -373,9 +393,10 @@ describe("rt release update-machine", () => {
     test("an error leg (not just aborted) also halts every later state-changing leg", async () => {
       const { seams } = fakeSeams({ buildExit: 1 });
       const report = await runUpdateMachine(seams, { yes: true });
-      const [prodLeg, devLeg, checkoutLeg, daemonLeg, suiteLeg] = report.legs;
+      const [prodLeg, devLeg, publishLeg, checkoutLeg, daemonLeg, suiteLeg] = report.legs;
       expect(prodLeg!.status).toBe("ok");
       expect(devLeg!.status).toBe("error");
+      expect(publishLeg!.status).toBe("skipped");
       expect(checkoutLeg!.status).toBe("skipped");
       expect(daemonLeg!.status).toBe("skipped");
       expect(suiteLeg!.status).toBe("skipped");
@@ -1015,9 +1036,95 @@ describe("rt release update-machine", () => {
       await expect(runUpdateMachine(seams, { yes: true })).rejects.toThrow(UserActionableError);
     });
   });
+
+  describe("dev publish", () => {
+    test("notarizes the scratch build, attaches the zip, then the merged checksum", async () => {
+      const { seams, calls } = fakeSeams();
+      const report = await runUpdateMachine(seams, { yes: true });
+      const publish = report.legs.find((l) => l.id === "dev-publish")!;
+      expect(publish).toEqual({
+        id: "dev-publish",
+        label: "dev app publish",
+        status: "ok",
+        detail: "mattstack-dev-2.11.0.zip notarized and attached to v2.11.0",
+      });
+      expect(calls).toContain("xcrun notarytool history --keychain-profile mattstack-notary");
+      expect(calls).toContain("gh release upload v2.11.0 /work/mattstack-dev-2.11.0.zip --repo m4ttstack/mattstack --clobber");
+      expect(calls).toContain("writeFile /work/sums/SHA256SUMS cafefeed  mattstack-dev-2.11.0.zip");
+    });
+
+    test("no notary profile skips only the publish leg, naming the one-time command", async () => {
+      const { seams, calls } = fakeSeams({ notaryMissing: true });
+      const report = await runUpdateMachine(seams, { yes: true });
+      const publish = report.legs.find((l) => l.id === "dev-publish")!;
+      expect(publish.status).toBe("skipped");
+      expect(publish.detail).toContain("xcrun notarytool store-credentials mattstack-notary");
+      expect(calls.some((c) => c.startsWith("scripts/release/notarize.sh"))).toBe(false);
+      expect(report.legs.find((l) => l.id === "daemon")!.status).toBe("ok");
+      expect(report.haltedAfter).toBeNull();
+    });
+
+    test("no notary profile is not a prompt: there is nothing to approve", async () => {
+      const { seams } = fakeSeams({ notaryMissing: true });
+      const asked: string[] = [];
+      seams.confirm = async (message) => {
+        asked.push(message);
+        return true;
+      };
+      await runUpdateMachine(seams, {});
+      expect(asked.some((m) => m.includes("dev app publish"))).toBe(false);
+    });
+
+    test("a failed upload is an error that does not halt the later legs", async () => {
+      const { seams } = fakeSeams({ publishUploadExit: 1 });
+      const report = await runUpdateMachine(seams, { yes: true });
+      expect(report.legs.find((l) => l.id === "dev-publish")!.status).toBe("error");
+      expect(report.legs.find((l) => l.id === "checkout-sync")!.status).toBe("ok");
+      expect(report.legs.find((l) => l.id === "served-suite")!.status).toBe("ok");
+      expect(report.haltedAfter).toBeNull();
+      expect(report.ok).toBe(false);
+    });
+
+    test("skipped when the dev bundle build failed", async () => {
+      const { seams, calls } = fakeSeams({ buildExit: 1 });
+      const report = await runUpdateMachine(seams, { yes: true });
+      expect(report.legs.find((l) => l.id === "dev-bundle")!.status).toBe("error");
+      expect(report.legs.find((l) => l.id === "dev-publish")!.status).toBe("skipped");
+      expect(calls.some((c) => c.startsWith("scripts/release/notarize.sh"))).toBe(false);
+    });
+
+    test("skipped, without a prompt, when the dev bundle leg was declined", async () => {
+      const { seams, calls } = fakeSeams();
+      const asked: string[] = [];
+      seams.confirm = async (message) => {
+        asked.push(message);
+        return !message.includes("dev bundle");
+      };
+      const report = await runUpdateMachine(seams, {});
+      const publish = report.legs.find((l) => l.id === "dev-publish")!;
+      expect(publish.status).toBe("skipped");
+      expect(publish.detail).toContain("the dev app was not built in this run");
+      expect(asked.some((m) => m.includes("dev app publish"))).toBe(false);
+      expect(calls.some((c) => c.startsWith("scripts/release/notarize.sh"))).toBe(false);
+    });
+
+    test("the release build passes MS_DEV_RELEASE_BUILD=1", async () => {
+      const { seams, execOpts } = fakeSeams();
+      await runUpdateMachine(seams, { yes: true });
+      const build = execOpts.find((e) => e.cmd === "rt-tray/build.sh dev")!;
+      expect(build.opts?.env?.MS_DEV_RELEASE_BUILD).toBe("1");
+    });
+  });
 });
 
 describe("runDevAppRebuild", () => {
+  test("a ref rebuild does not mark the build as a release build", async () => {
+    const { seams, execOpts } = fakeSeams();
+    await runDevAppRebuild(seams, "main");
+    const build = execOpts.find((e) => e.cmd === "rt-tray/build.sh dev")!;
+    expect(build.opts?.env).toBeUndefined();
+  });
+
   test("resolves the ref and runs only the dev-bundle leg at that sha", async () => {
     const { seams, calls } = fakeSeams();
     const { sha, result } = await runDevAppRebuild(seams, "main");
