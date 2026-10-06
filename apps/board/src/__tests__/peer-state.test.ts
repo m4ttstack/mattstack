@@ -19,7 +19,6 @@ import {
   markNudgeNotified,
   NUDGE_NO_RESPONSE_MS,
   NUDGE_QUIET_MS,
-  pendingNudgesByMr,
   pruneFinishedSentNudges,
   pruneNudges,
   pruneSentNudges,
@@ -1124,42 +1123,6 @@ describe('sentNudgeView', () => {
     expect(sentNudgeView(base, 100 + SENT_FINISH_KEEP_MS * 5)).toMatchObject({
       display: 'no-response',
     });
-  });
-});
-
-describe('pendingNudgesByMr', () => {
-  const ask = (id: string, mrUrl: string, extra: Partial<NudgeState> = {}) =>
-    ({
-      id,
-      mrUrl,
-      iid: 1,
-      from: 'jo',
-      receivedAt: 100,
-      kind: 'review',
-      ...extra,
-    }) satisfies NudgeState;
-
-  test('groups unhandled asks by MR and drops handled ones', () => {
-    const byMr = pendingNudgesByMr(
-      [
-        ask('a', 'u1'),
-        ask('b', 'u1', { from: 'sam' }),
-        ask('c', 'u2', { handled: { at: 1, result: 'rejected' } }),
-      ],
-      true
-    );
-    expect([...byMr.keys()]).toEqual(['u1']);
-    expect(byMr.get('u1')).toEqual([
-      { from: 'jo', receivedAt: 100, kind: 'review' },
-      { from: 'sam', receivedAt: 100, kind: 'review' },
-    ]);
-  });
-
-  test('with triage off every ask waits for a click', () => {
-    const byMr = pendingNudgesByMr([ask('a', 'u1')], false);
-    expect(byMr.get('u1')).toEqual([
-      { from: 'jo', receivedAt: 100, kind: 'review', awaitsClick: true },
-    ]);
   });
 });
 

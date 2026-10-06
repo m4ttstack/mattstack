@@ -192,7 +192,13 @@ import {
   parseMrActionBody,
   runMrAction,
 } from './mr-action.ts';
+import {
+  acceptAsk,
+  declineAsk,
+  type AskActionDeps,
+} from './peer/ask-actions.ts';
 import { askIdForRun } from './peer/ask-echo.ts';
+import { buildAskInbox, type AskView } from './peer/ask-inbox.ts';
 import {
   makeSwitchboardClient,
   type SwitchboardClient,
@@ -205,15 +211,18 @@ import {
 import {
   buildAskDraft,
   canonicalUsername,
+  DECLINE_REASONS,
   makeEnvelope,
   type AskKind,
+  type DeclineReason,
   type ReReviewRequestPayload,
   type ReviewStatePayload,
 } from './peer/envelope.ts';
+import { makeAskLauncher } from './peer/launch-ask.ts';
 import { boardMaterializeDeps } from './peer/materialize-deps.ts';
 import {
   dismissSentNudge,
-  pendingNudgesByMr,
+  markNudgeHandled,
   pruneFinishedSentNudges,
   pruneNudges,
   pruneSentNudges,
@@ -222,7 +231,6 @@ import {
   reviewerDisplayName,
   sentNudgeView,
   writeSentNudge,
-  type PendingNudge,
   type SentNudgeView,
 } from './peer/nudges.ts';
 import { listPeerBoards } from './peer/onboard.ts';
@@ -315,9 +323,11 @@ import {
   type ThreadWriteSend,
 } from './thread-write.ts';
 import {
-  loadPeerAsksConfig,
+  loadPeerAsksAlwaysAllow,
   loadReReviewConfig,
   loadTriageConfig,
+  parseTriageBlock,
+  type TriageConfig,
 } from './triage/config.ts';
 import {
   attachStandDown,
@@ -327,6 +337,7 @@ import {
   writeRefreshedIdentity,
   writeStandDown,
 } from './triage/memory-store.ts';
+import { plainReason } from './triage/nudge.ts';
 import { manualDoctorFields, resolveDispatchIdentity } from './triage/run.ts';
 import { readTurnConfig } from './turn-setting.ts';
 import { effectiveSeat, isOwnMr, resolveStandDownTarget } from './view.ts';
@@ -533,23 +544,79 @@ function kickOutbox(client: SwitchboardClient): void {
   });
 }
 
+/** What the accept, decline and always-allow routes act through. The snapshot
+    is the caller's, so the own-MR guard answers from what it just rendered. */
+function askDeps(snapshot: { mrs: BoardMR[] }): AskActionDeps {
+  return {
+    readNudges: () => readNudges(),
+    markNudgeHandled: (id, result, reason, opts) =>
+      markNudgeHandled(id, result, reason, getStateDb(), Date.now(), opts),
+    publishOutcome: (to, p) => {
+      enqueueOutbox(makeEnvelope(to, 'nudge-outcome', p));
+      void peering.tickNow();
+    },
+    readReviewStates: () => readReviewStates(),
+    readRespondStates: () => readRespondStates(),
+    isOwnMr: mrUrl => {
+      const mr = snapshot.mrs.find(m => m.webUrl === mrUrl);
+      return mr ? ownedHere(mr) : false;
+    },
+    launchAsk: makeAskLauncher(config),
+    cfg: loadTriageConfig(),
+    now: Date.now,
+  };
+}
+
+type AskCardData = Omit<AskView, 'handled'> & {
+  fromName?: string;
+  handled?: NonNullable<AskView['handled']> & { reasonText?: string };
+};
+
+function asksPayload(snapshot: { mrs: BoardMR[] }, now: number = Date.now()) {
+  // A config that will not parse must not blank the board's payload.
+  let cfg: TriageConfig;
+  try {
+    cfg = loadTriageConfig();
+  } catch {
+    cfg = parseTriageBlock({});
+  }
+  const card = (v: AskView): AskCardData => {
+    const mr = snapshot.mrs.find(m => m.webUrl === v.mrUrl);
+    const title = v.title ?? mr?.title;
+    const sourceBranch = v.sourceBranch ?? mr?.sourceBranch;
+    const fromName = reviewerDisplayName(v.from, config.members, memberNames);
+    const h = v.handled;
+    const skipped =
+      h && !h.declined && (h.result === 'rejected' || h.result === 'expired');
+    return {
+      ...v,
+      ...(fromName ? { fromName } : {}),
+      ...(title ? { title } : {}),
+      ...(sourceBranch ? { sourceBranch } : {}),
+      ...(h && skipped && h.reason
+        ? { handled: { ...h, reasonText: plainReason(h.reason, cfg) } }
+        : {}),
+    };
+  };
+  const inbox = buildAskInbox(readNudges(), now);
+  return {
+    pending: inbox.pending.map(card),
+    history: inbox.history.map(card),
+    alwaysAllow: [...loadPeerAsksAlwaysAllow()],
+  };
+}
+
+function jsonOk(): Response {
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 /** Per-MR peer state for the board payload: how peers with a review of this MR
-    are getting on, the nudge this board sent about its own MR, and the
-    unhandled nudges peers sent here. */
+    are getting on, and the nudge this board sent about its own MR. */
 interface PeerAttachments {
   peerReviews?: PeerReviewState[];
   sentNudge?: SentNudgeView;
-  nudges?: PendingNudge[];
-}
-
-/** Automatic asks off, or a settings read that fails, leaves inbound asks
-    waiting for a click. */
-function peerAsksEnabled(): boolean {
-  try {
-    return loadPeerAsksConfig().enabled;
-  } catch {
-    return false;
-  }
 }
 
 /** A config that fails to parse also stops the triage pass, so it reads as
@@ -570,7 +637,6 @@ function attachPeerState<T extends { webUrl?: string | null }>(
   now: number = Date.now()
 ): Array<T & PeerAttachments> {
   const sent = readSentNudges();
-  const inbound = pendingNudgesByMr(readNudges(), peerAsksEnabled());
   return attachPeerReviews(mrs, readPeerReviews()).map(mr => {
     if (!mr.webUrl) return mr;
     const s = sent.get(mr.webUrl);
@@ -581,13 +647,8 @@ function attachPeerState<T extends { webUrl?: string | null }>(
     const sentNudge = view
       ? { ...view, ...(reviewerName ? { reviewerName } : {}) }
       : null;
-    const nudges = inbound.get(mr.webUrl);
-    if (!sentNudge && !nudges) return mr;
-    return {
-      ...mr,
-      ...(sentNudge ? { sentNudge } : {}),
-      ...(nudges ? { nudges } : {}),
-    };
+    if (!sentNudge) return mr;
+    return { ...mr, sentNudge };
   });
 }
 
@@ -1514,6 +1575,7 @@ const httpServer = Bun.serve({
             // Enrolled peer usernames from the relay, when peering knows them.
             // Absent means unknown, and the pickers fall back to the roster.
             peers: peering.current()?.peers() ?? undefined,
+            asks: asksPayload(snapshot),
             local: isLocalRequest(req, server),
             canInvite: isLocalRequest(req, server) && !!switchboardAdminToken,
             peering: peering.current() ? peering.current()!.health() : null,
@@ -3037,6 +3099,12 @@ const httpServer = Bun.serve({
           );
         }
         const kind: AskKind = rawKind === undefined ? 're-review' : rawKind;
+        const rawNote = (body as { note?: unknown })?.note;
+        if (rawNote !== undefined && typeof rawNote !== 'string')
+          return new Response('note must be a string', { status: 400 });
+        const note = rawNote?.trim() || undefined;
+        if (note && note.length > 500)
+          return new Response('note is over 500 characters', { status: 400 });
         const snapshot = await cache.get();
         const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
         if (!mr)
@@ -3067,6 +3135,9 @@ const httpServer = Bun.serve({
         const draft = buildAskDraft(reviewer, kind, {
           mrUrl: parsed.mrUrl,
           iid: parsed.iid,
+          title: mr.title,
+          ...(mr.sourceBranch ? { sourceBranch: mr.sourceBranch } : {}),
+          ...(note ? { note } : {}),
         } satisfies ReReviewRequestPayload);
         // Publish inline rather than queue-and-forget: a 4xx (usually 422, the
         // reviewer has no board on the switchboard) is permanent, and the drain
@@ -3104,6 +3175,138 @@ const httpServer = Bun.serve({
             headers: { 'content-type': 'application/json' },
           }
         );
+      }
+      case '/asks/accept': {
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const { id, alwaysAllow } = (body ?? {}) as {
+          id?: unknown;
+          alwaysAllow?: unknown;
+        };
+        if (
+          typeof id !== 'string' ||
+          !id ||
+          (alwaysAllow !== undefined && typeof alwaysAllow !== 'boolean')
+        )
+          return new Response(
+            'expected { id: string, alwaysAllow?: boolean }',
+            {
+              status: 400,
+            }
+          );
+        const from = readNudges().find(n => n.id === id)?.from;
+        const result = await acceptAsk(id, askDeps(await cache.get()));
+        // Written after acceptAsk has marked the ask handled, so a triage
+        // pass running at the same moment cannot launch it a second time.
+        if (
+          alwaysAllow === true &&
+          from &&
+          (result.ok || result.status !== 404)
+        ) {
+          setSetting(
+            'board.peerAsksAlwaysAllow',
+            [
+              ...new Set([
+                ...loadPeerAsksAlwaysAllow(),
+                canonicalUsername(from),
+              ]),
+            ],
+            'user'
+          );
+        }
+        return result.ok
+          ? jsonOk()
+          : new Response(result.message, { status: result.status });
+      }
+      case '/asks/decline': {
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const { id, reason, note } = (body ?? {}) as {
+          id?: unknown;
+          reason?: unknown;
+          note?: unknown;
+        };
+        if (
+          typeof id !== 'string' ||
+          !id ||
+          (reason !== undefined &&
+            (typeof reason !== 'string' || !(reason in DECLINE_REASONS))) ||
+          (note !== undefined &&
+            (typeof note !== 'string' || note.length > 500))
+        )
+          return new Response(
+            'expected { id: string, reason?: "busy" | "not-my-area" | "later", note?: string (500 max) }',
+            { status: 400 }
+          );
+        const result = declineAsk(
+          id,
+          {
+            ...(reason ? { reason: reason as DeclineReason } : {}),
+            ...(note ? { note } : {}),
+          },
+          askDeps(await cache.get())
+        );
+        return result.ok
+          ? jsonOk()
+          : new Response(result.message, { status: result.status });
+      }
+      case '/asks/always-allow': {
+        if (req.method !== 'POST')
+          return new Response('method not allowed', { status: 405 });
+        if (!isLocalRequest(req, server))
+          return new Response('forbidden', { status: 403 });
+        {
+          const notJson = requireJsonBody(req);
+          if (notJson) return notJson;
+        }
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return new Response('invalid json', { status: 400 });
+        }
+        const { username, allow } = (body ?? {}) as {
+          username?: unknown;
+          allow?: unknown;
+        };
+        if (
+          typeof username !== 'string' ||
+          !username.trim() ||
+          typeof allow !== 'boolean'
+        )
+          return new Response('expected { username: string, allow: boolean }', {
+            status: 400,
+          });
+        const who = canonicalUsername(username);
+        const next = loadPeerAsksAlwaysAllow();
+        if (allow) next.add(who);
+        else next.delete(who);
+        setSetting('board.peerAsksAlwaysAllow', [...next], 'user');
+        return jsonOk();
       }
       case '/nudge/dismiss': {
         // The sent-ask band's dismiss: drop this board's own record of the
