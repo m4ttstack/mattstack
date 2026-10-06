@@ -40,6 +40,19 @@ describe('useAppRoute: /config/:key', () => {
   });
 });
 
+describe('useAppRoute: /embed/settings/:group', () => {
+  it('matches one framed settings group', () => {
+    expect(routeAt('/embed/settings/board')).toEqual({
+      name: 'settings-embed',
+      group: 'board',
+    });
+  });
+
+  it('reads a malformed group escape as not-found', () => {
+    expect(routeAt('/embed/settings/%E0%A4%A')).toEqual({ name: 'not-found' });
+  });
+});
+
 describe('useAppRoute: /runs/:repo/:runId', () => {
   it('a serialized identity survives the route unchanged (wouter hands the param back raw; the route re-canonicalizes)', () => {
     const wire = serializeIdentity({

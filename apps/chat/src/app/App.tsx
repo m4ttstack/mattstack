@@ -63,6 +63,7 @@ import { isMsgTopic, useRelayFrames, useRelayOpen } from './relay-socket';
 import { FleetDrawer, RoomRail } from './RoomRail';
 import type { RosterBuddy } from './roster-types';
 import { useAppRoute, useHash } from './routes';
+import { SettingsEntry } from './SettingsEntry';
 import { PAGE_SIZE, Transcript } from './Transcript';
 import { visibleRooms } from './visible-rooms';
 
@@ -1432,6 +1433,9 @@ export function App({ initialState }: { initialState?: AppInitialState } = {}) {
               active={route.name === 'room'}
             />
           </MattstackShell.Rail>
+          <MattstackShell.RailBottom>
+            <SettingsEntry />
+          </MattstackShell.RailBottom>
           {chatRoute ? (
             <ChatPage
               rooms={rooms}

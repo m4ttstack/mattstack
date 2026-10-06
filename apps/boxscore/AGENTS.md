@@ -48,8 +48,9 @@ than trusting the store... the store can lag GitLab.
   mismatch) or delete the sqlite file; a plain `--refresh` will not re-fetch a
   settled merged MR.
 - **Settings live in the rt store, not a config file** (`rt settings get
-boxscore.*`, `rt settings get mattstack.roster`), edited in console at
-  `/settings#boxscore`. boxscore has no settings page.
+boxscore.*`, `rt settings get mattstack.roster`), edited in console's
+  boxscore group. boxscore has no settings page of its own: the header gear
+  frames that group in a modal (`SettingsEmbedModal`).
 - **GitLab transport is `@mattstack/glance`, not this repo.** Field-name or
   pagination bugs get fixed there; boxscore surfaces the failure in the response
   `warnings`.

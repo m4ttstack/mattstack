@@ -32,11 +32,15 @@ shelling out to `rt` and nothing proxied through to another service. The dev ser
 ## Routes and chrome (`src/app/App.tsx`, `src/app/routes.ts`)
 
 Routing is `wouter`, via `useAppRoute()` (`src/app/routes.ts`), which maps the current location to
-a structured `AppRoute` union: `board`, `run`, `search`, `wiring`, `settings`, `config`, `not-found`.
+a structured `AppRoute` union: `board`, `run`, `search`, `wiring`, `settings`, `settings-embed`,
+`config`, `not-found`.
 `/settings` is the grouped, filterable page over every registered key (`src/app/settings/`);
 one row at a time opens in place on its Value | Where it's set panel, kept in `?explain=<key>`
 (with `?tab=value` and `?fix=<layer>` when they apply) through replaced history entries, so a
-reload or a link reopens that row and scrolls to it; old `/config/:key` links redirect there. Run
+reload or a link reopens that row and scrolls to it; old `/config/:key` links redirect there. `/embed/settings/<group>` renders one group with no
+shell for another app to frame in a modal (`SettingsEmbed.tsx`): it takes the host's `?scheme=`,
+paints no background, and talks to the host only through `@mattstack/settings-kit/embed`'s
+messages (`height`, `saved`, `close`). Run
 detail shows the same panel in a thin modal (`ExplainModal`). The
 `/runs/:repo/:runId` route carries a percent-encoded, possibly `remote:`/`path:`-prefixed repo
 identity in the `repo` segment; `canonicalRepo()` decodes and re-serializes it back to the exact

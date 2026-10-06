@@ -18,6 +18,9 @@ export interface MountOptions {
   theme?: MantineThemeOverride;
   /** Caps a tall toast so its body scrolls instead of growing. @default 400 */
   notificationMaxHeight?: number;
+  /** Pins the scheme instead of following the stored preference, for a page
+      framed by another app that must match its host. */
+  forceColorScheme?: 'light' | 'dark';
   /** @default document.getElementById('root') */
   container?: HTMLElement;
 }
@@ -41,7 +44,11 @@ export function mountMattstackApp(
   const root = createRoot(container);
   root.render(
     <StrictMode>
-      <MantineProvider theme={theme} defaultColorScheme="auto">
+      <MantineProvider
+        theme={theme}
+        defaultColorScheme="auto"
+        forceColorScheme={opts.forceColorScheme}
+      >
         <ModalsProvider>
           {node}
           <Notifications
