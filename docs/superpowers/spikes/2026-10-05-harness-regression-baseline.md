@@ -1,6 +1,6 @@
 # Harness regression baseline — 2026-10-05
 
-**Status: current automated suites GREEN; B0 admission still BLOCKED.** The inventory and added characterizations are complete. The final root run passed 14,400 tests, the compiled selection passed 42, and all 12 static tasks passed. Historical deadline-only failures still lack complete causal disposition, so production extraction remains blocked under the approved B0 rule. Test inventory is not a GREEN result. This records B0 in the [baseline plan](../plans/2026-10-05-harness-integrations-0-regression-baseline.md).
+**Status: latest post-rebase verification BLOCKED by a native watcher timeout.** The earlier B0 run passed 14,400 root tests, 42 compiled tests and all static tasks; those historical results remain below. The approved isolated F2a implementation is now code-reviewed, but its full root run passed 14,575 tests and failed one existing watcher test. See the [F2a checkpoint](2026-10-05-harness-foundation-f2a.md). General B0 admission and F2a completion remain blocked; no live integration is admitted.
 
 ## Reference
 

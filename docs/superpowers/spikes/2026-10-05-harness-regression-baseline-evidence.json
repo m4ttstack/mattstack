@@ -1,7 +1,7 @@
 {
   "referenceCommit": "10d4cdc366b54a35b7af487a77a16dfaff2372fb",
   "productionBase": "bbd55bae1e41699047b2b7114ad0962810de4214",
-  "status": "automated-green-admission-blocked",
+  "status": "post-rebase-verification-blocked",
   "toolVersions": {
     "bun": "1.4.2",
     "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
@@ -2096,5 +2096,13 @@
       "constraint": "Isolated worktrees only; canonical checkout untouched",
       "scope": "F2a only; general B0 admission blocked"
     }
+  },
+  "latestF2aCheckpoint": {
+    "report": "docs/superpowers/spikes/2026-10-05-harness-foundation-f2a.md",
+    "evidence": "docs/superpowers/spikes/2026-10-05-harness-foundation-f2a-evidence.json",
+    "status": "implementation-reviewed-completion-blocked",
+    "rootPassed": 14575,
+    "rootFailed": 1,
+    "rootSkipped": 3
   }
 }

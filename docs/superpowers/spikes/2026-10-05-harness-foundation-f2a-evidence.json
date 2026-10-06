@@ -1,0 +1,477 @@
+{
+  "status": "implementation-reviewed-completion-blocked",
+  "executionBase": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+  "rebaseOnto": "7a62b66d2",
+  "sourceSha256": {
+    "packages/rt-client/src/agent-integrations.ts": "05bc705931ea5894902607d9c2e53a0fa8936e29c614d9471cbea7e15d592b70",
+    "lib/agent-integrations/contracts.ts": "71959aef40fc585ae65039d9670fd5c676cbf039a98d287d5989e95ddd764a71",
+    "lib/agent-integrations/registry.ts": "579b8d1351df4b6d9ac976fe5d8d4df1ec59689e82dc5c2d427bd90082e4202c",
+    "lib/agent-integrations/admission.ts": "20f58c5bfce7815a4b5e0cb0d1acb38afe20ccc81b1330df7954ce6c98d72ed8",
+    "lib/agent-integrations/__tests__/registry.test.ts": "fc173f0be4a462b3cfc4a0189813da77b9d4bc002d7a2817eb2b10ad7f727af6"
+  },
+  "runs": [
+    {
+      "command": [
+        "bun",
+        "test",
+        "lib/__tests__/agent-argv.test.ts",
+        "lib/__tests__/agent-argv-codex.test.ts",
+        "lib/daemon/__tests__/agent-handlers.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:29:10.011129+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 1.34,
+      "finishedAt": "2026-10-06T04:29:11.371856+00:00",
+      "logSha256": "654df076ada277da26b4c2947932947e26d14100e7a43795daaf23a4ab854e3f",
+      "evidence": ".harness-spike/baseline-01/f2a-after-01.json",
+      "purpose": "verification"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "lib/__tests__/agent-argv.test.ts",
+        "lib/__tests__/agent-argv-codex.test.ts",
+        "lib/daemon/__tests__/agent-handlers.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:20:07.415511+00:00",
+      "commit": "07894f9b0dcc108165eb45570add4d6258e6e31b",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 1.21,
+      "finishedAt": "2026-10-06T04:20:08.637078+00:00",
+      "logSha256": "dcd0aab96b3f6af97f7cfb8c4db1fb21c3a797451abefbbfaa29519d0e01ea4d",
+      "evidence": ".harness-spike/baseline-01/f2a-before-01.json",
+      "purpose": "verification"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "lib/__tests__/agent-argv.test.ts",
+        "lib/__tests__/agent-argv-codex.test.ts",
+        "lib/daemon/__tests__/agent-handlers.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:26:42.510590+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 1.44,
+      "finishedAt": "2026-10-06T04:26:43.970685+00:00",
+      "logSha256": "1a1dab4459e357b1c4b8180054497e24ab2a362908dd8150483ae0f0107bce8e",
+      "evidence": ".harness-spike/baseline-01/f2a-before-rebased-01.json",
+      "purpose": "verification"
+    },
+    {
+      "command": [
+        "bun",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan/apps/board",
+      "startedAt": "2026-10-06T04:30:45.387348+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 1.94,
+      "finishedAt": "2026-10-06T04:30:47.341029+00:00",
+      "logSha256": "2b9263ef7f29de334334a1c38a1fc8d65befe030b84ab60f6ccbfdd8baff6aa5",
+      "evidence": ".harness-spike/baseline-01/f2a-board-typecheck-01.json",
+      "purpose": "verification"
+    },
+    {
+      "command": [
+        "bun",
+        "run",
+        "--cwd",
+        "packages/rt-client",
+        "build"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:29:11.423494+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 1.66,
+      "finishedAt": "2026-10-06T04:29:13.095867+00:00",
+      "logSha256": "d2a33eebfc6941837decabdc8c855c01c51d6d118b4235cb3a63ded892f22cb1",
+      "evidence": ".harness-spike/baseline-01/f2a-client-build-01.json",
+      "purpose": "verification"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "--preload",
+        "./e2e/setup.ts",
+        "--timeout",
+        "60000",
+        "e2e/tests/agent.test.ts",
+        "e2e/tests/chat-inbox-delivery.test.ts",
+        "e2e/tests/chat-presence-roster.test.ts",
+        "e2e/tests/gate-ask-cli.test.ts",
+        "e2e/tests/gate-answer.test.ts",
+        "e2e/tests/gate-fork-check-cli.test.ts",
+        "e2e/tests/herd.test.ts",
+        "e2e/tests/herd-watchdog.test.ts",
+        "e2e/tests/runs.test.ts",
+        "e2e/tests/relocation-announce.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:38:37.977828+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 19.64,
+      "finishedAt": "2026-10-06T04:38:57.645535+00:00",
+      "logSha256": "8e9c1bcddc252ba237ed07a0e946a2c7fc53098ea0990a79d99b8a5561d8ab0f",
+      "evidence": ".harness-spike/baseline-01/f2a-compiled-01.json",
+      "purpose": "verification"
+    },
+    {
+      "command": [
+        "bun",
+        "install",
+        "--frozen-lockfile",
+        "--ignore-scripts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:30:31.560170+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 0.13,
+      "finishedAt": "2026-10-06T04:30:31.702183+00:00",
+      "logSha256": "80e77ce3492485ffb9f144da2fa92c3dc116a971f9fd8bd432aa08cd73f36f88",
+      "evidence": ".harness-spike/baseline-01/f2a-dependencies-01.json",
+      "purpose": "verification"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "lib/agent-integrations/__tests__/registry.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:27:10.292331+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 0.05,
+      "finishedAt": "2026-10-06T04:27:10.361825+00:00",
+      "logSha256": "dd995bee0b064a47aa97934c02d1a8ebd8edc5bea0ce0f0be3e5ad181ca17c25",
+      "evidence": ".harness-spike/baseline-01/f2a-focused-green-01.json",
+      "purpose": "verification"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "lib/agent-integrations/__tests__/registry.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:24:14.211192+00:00",
+      "commit": "07894f9b0dcc108165eb45570add4d6258e6e31b",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 1,
+      "elapsedSeconds": 0.12,
+      "finishedAt": "2026-10-06T04:24:14.350134+00:00",
+      "logSha256": "4e79a575a3027e492e72e940e44062e50a9a586f7af84d6a67ef817c8fca829e",
+      "evidence": ".harness-spike/baseline-01/f2a-focused-red-01.json",
+      "purpose": "expected-red-control"
+    },
+    {
+      "command": [
+        "bun",
+        "run",
+        "test"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:38:57.683805+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 1,
+      "elapsedSeconds": 755.98,
+      "finishedAt": "2026-10-06T04:51:33.678871+00:00",
+      "logSha256": "fcce02771ab5670699d0f6fec174e2335295df4aa0e7a381af6014f6aec95bfc",
+      "evidence": ".harness-spike/baseline-01/f2a-root-01.json",
+      "purpose": "verification"
+    },
+    {
+      "command": [
+        "bun",
+        "run",
+        "check"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:29:13.131958+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 1,
+      "elapsedSeconds": 27.71,
+      "finishedAt": "2026-10-06T04:29:40.853753+00:00",
+      "logSha256": "06a4b986432c7bc492b5f7d615b5a676771c9e6f3508bf7c008c1837c4157ffc",
+      "evidence": ".harness-spike/baseline-01/f2a-static-01.json",
+      "purpose": "verification"
+    },
+    {
+      "command": [
+        "bun",
+        "run",
+        "check"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:32:00.163727+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 397.62,
+      "finishedAt": "2026-10-06T04:38:37.864310+00:00",
+      "logSha256": "7f5391c83cff6338bcf042f74d57c07630319fbd912a1e5c777d7f366488f6bf",
+      "evidence": ".harness-spike/baseline-01/f2a-static-02.json",
+      "purpose": "verification"
+    },
+    {
+      "command": [
+        "bun",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:27:19.552879+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 7.27,
+      "finishedAt": "2026-10-06T04:27:26.838632+00:00",
+      "logSha256": "0a7cbec9e31e5ab1dc3f62bf0e9994201b491a121c31235f27316f5151281817",
+      "evidence": ".harness-spike/baseline-01/f2a-typecheck-01.json",
+      "purpose": "verification"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "./.harness-spike/f2a/hooks-guard-candidate.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:55:46.840844+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 1,
+      "elapsedSeconds": 7.96,
+      "finishedAt": "2026-10-06T04:55:54.813241+00:00",
+      "logSha256": "45fcfe29069621c0ee17d2fb2fedccdedee64618ea1e075464fa89fa19fee722",
+      "evidence": ".harness-spike/baseline-01/f2a-watch-candidate-01.json",
+      "purpose": "diagnostic"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "./.harness-spike/f2a/hooks-guard-candidate.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:58:10.316151+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 0.39,
+      "finishedAt": "2026-10-06T04:58:10.717833+00:00",
+      "logSha256": "3baf87f5414181af90c3200c7ad2ec95dc3e070e4eff81e51d5058d858470863",
+      "evidence": ".harness-spike/baseline-01/f2a-watch-candidate-02.json",
+      "purpose": "diagnostic"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "./.harness-spike/f2a/hooks-guard-candidate-mutant.test.ts",
+        "--test-name-pattern",
+        "refreshWatchedRepos closes and drops"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:58:22.058019+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 1,
+      "elapsedSeconds": 0.04,
+      "finishedAt": "2026-10-06T04:58:22.109937+00:00",
+      "logSha256": "5a27cdf077f85db729b0d225301e66436913b929942ac9b01809b64cc580805a",
+      "evidence": ".harness-spike/baseline-01/f2a-watch-candidate-mutation-01.json",
+      "purpose": "expected-red-control"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "./.harness-spike/f2a/hooks-guard-diagnostic.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:52:00.559593+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 3.89,
+      "finishedAt": "2026-10-06T04:52:04.472118+00:00",
+      "logSha256": "fb53c141f45d667605e26c40293e06b67ef82cee137a9caca8165bed09707501",
+      "evidence": ".harness-spike/baseline-01/f2a-watch-diagnostic-01.json",
+      "purpose": "diagnostic"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "./.harness-spike/f2a/hooks-guard-error-mutant.test.ts",
+        "--test-name-pattern",
+        "an emitted 'error' event"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T04:59:10.268086+00:00",
+      "commit": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 1,
+      "elapsedSeconds": 0.29,
+      "finishedAt": "2026-10-06T04:59:10.570356+00:00",
+      "logSha256": "69c1e73e37a36888071246f9665001f95831951540a0c666550b7ee35909b6b2",
+      "evidence": ".harness-spike/baseline-01/f2a-watch-error-mutation-01.json",
+      "purpose": "expected-red-control"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": ".harness-spike/f2a/canonical-before-status.bin",
+      "sha256": "de5ff2257b5a5955e7d9a4d0275e180a65cd0cbbce434990bbd12a85ed85ab42"
+    },
+    {
+      "path": ".harness-spike/f2a/dependency-disposition.json",
+      "sha256": "138d0b6ef2052f59b0454ce1f170a37d53f47245d95f67b7f02f50a612799919"
+    },
+    {
+      "path": ".harness-spike/f2a/frozen-fixtures.json",
+      "sha256": "d0d6ddaee80e56de53c875b761fe8678e17bac48b94c7c978ab807e870228c13"
+    },
+    {
+      "path": ".harness-spike/f2a/hooks-guard-candidate-mutant.test.ts",
+      "sha256": "4d0361ecbb37b6abb4ff8f63cd08e1095c2e107fca9f2e2acf968e4bafbe23f7"
+    },
+    {
+      "path": ".harness-spike/f2a/hooks-guard-candidate.patch",
+      "sha256": "445e0145133d0d267341b7d9a36454c2de0e48bec55ac12ce8b21b9dc19d64de"
+    },
+    {
+      "path": ".harness-spike/f2a/hooks-guard-candidate.patch.one-test",
+      "sha256": "385fdc85ab99f9e203f5c3aec7c32c863cd0dd03ed74b6a0b06bc41f9831d494"
+    },
+    {
+      "path": ".harness-spike/f2a/hooks-guard-candidate.test.ts",
+      "sha256": "171c917fbd37c712a6f021311ff2c931a76efcc631618e73ab5a2faf6757d8fd"
+    },
+    {
+      "path": ".harness-spike/f2a/hooks-guard-candidate.test.ts.one-test",
+      "sha256": "441138bdc4b02fc4c6ff6b50c449646a2d3db680db091becf8c6e486fb19f687"
+    },
+    {
+      "path": ".harness-spike/f2a/hooks-guard-diagnostic.test.ts",
+      "sha256": "8667cc95590d1050e32207dfd608a1fdadb691572dbb90f853f380ec5a519d84"
+    },
+    {
+      "path": ".harness-spike/f2a/hooks-guard-error-mutant.test.ts",
+      "sha256": "4fa22fd10da8cd84a7f50f179f691040d5664772fc239ac527a2fc3b7c6c27e6"
+    },
+    {
+      "path": ".harness-spike/f2a/hooks-guard-error-mutant.ts",
+      "sha256": "33928eedd248029b95010c76828620f3c5160ca94a7e6cbcd3d484339dfdba80"
+    },
+    {
+      "path": ".harness-spike/f2a/hooks-guard-mutant.ts",
+      "sha256": "e9b0b48967e56ba1d7511c89e6945f758fd17936d2812d5ada2bd82de66c1274"
+    },
+    {
+      "path": ".harness-spike/f2a/implementation-report.md",
+      "sha256": "07261802c7af6a612f8c7f322f2a1c5aaf69381d569b99be949c1d439eed2c21"
+    },
+    {
+      "path": ".harness-spike/f2a/pre-rebase/lib/agent-integrations/__tests__/registry.test.ts",
+      "sha256": "fc173f0be4a462b3cfc4a0189813da77b9d4bc002d7a2817eb2b10ad7f727af6"
+    },
+    {
+      "path": ".harness-spike/f2a/pre-rebase/lib/agent-integrations/admission.ts",
+      "sha256": "20f58c5bfce7815a4b5e0cb0d1acb38afe20ccc81b1330df7954ce6c98d72ed8"
+    },
+    {
+      "path": ".harness-spike/f2a/pre-rebase/lib/agent-integrations/contracts.ts",
+      "sha256": "71959aef40fc585ae65039d9670fd5c676cbf039a98d287d5989e95ddd764a71"
+    },
+    {
+      "path": ".harness-spike/f2a/pre-rebase/lib/agent-integrations/registry.ts",
+      "sha256": "579b8d1351df4b6d9ac976fe5d8d4df1ec59689e82dc5c2d427bd90082e4202c"
+    },
+    {
+      "path": ".harness-spike/f2a/pre-rebase/packages/rt-client/src/agent-integrations.ts",
+      "sha256": "05bc705931ea5894902607d9c2e53a0fa8936e29c614d9471cbea7e15d592b70"
+    },
+    {
+      "path": ".harness-spike/f2a/pre-rebase/state.json",
+      "sha256": "1191a9e59490723b3ec801aabcb80f2b84e5fd49456958c3de708afa24600251"
+    },
+    {
+      "path": ".harness-spike/f2a/root-git-trace.jsonl",
+      "sha256": "7dcca5317ed3257da66a217e5f5908b5e727db70edfb6519cced3c64b904c3cd"
+    },
+    {
+      "path": ".harness-spike/f2a/run-watcher-diagnostic.py",
+      "sha256": "70aac7f56ae663d85f61615ecf1120b43500d07ce9a22808799f7c87aa4b9ee5"
+    },
+    {
+      "path": ".harness-spike/f2a/verification-quick-state.json",
+      "sha256": "738d711a54be36968fac654fabd969e4ff092eb24417495066e8dd53c89fabd6"
+    },
+    {
+      "path": ".harness-spike/f2a/verification-remaining-state.json",
+      "sha256": "76c0c12e1079147c0046d4f151bb32511616c98e06201bda5ad9507e9f22961f"
+    },
+    {
+      "path": ".harness-spike/f2a/verify.py",
+      "sha256": "c37b25aee187c10c6a9be6798ae49de74c7cbe951da7b7ab2181d01475b24c74"
+    },
+    {
+      "path": ".harness-spike/f2a/watch-01-recorder.log",
+      "sha256": "100c794a38bd29931664fd4a998420f120f3486714c3ccd4afd0c070a6a4adf5"
+    },
+    {
+      "path": ".harness-spike/f2a/watch-01-sample-result.json",
+      "sha256": "3d078a57c948aabc1d75ed0ca132c5d9315185c6046e8574eee0281989ba6674"
+    },
+    {
+      "path": ".harness-spike/f2a/watch-01.jsonl",
+      "sha256": "f9b94eb1658c98022ba317a1fa8b2dd2503faa97eef5a81385d575c2190177b4"
+    },
+    {
+      "path": ".harness-spike/f2a/watch-01.sample",
+      "sha256": "aa8a8f1c07d7d26c2de2e198594d5fe8e83f257657381176c35f78a496cf1bed"
+    },
+    {
+      "path": ".harness-spike/f2a/watcher-diagnostic-summary.json",
+      "sha256": "750f9d66fdfc33ffecb7db4506a297e998ad88463e285ccb0e68aae597635877"
+    }
+  ],
+  "review": {
+    "agent": "/root/f2a_review",
+    "codeScope": "Approved, no findings; full gates pending",
+    "dependencyDisposition": "Approved; stale installed version corrected without source/lock changes",
+    "watcherDisposition": "Approved as a concrete test-only proposal, no findings; patch unapplied, user decision pending, root failure remains blocking",
+    "proposalReviewedOn": "2026-10-06"
+  },
+  "proposedPatch": {
+    "path": "docs/superpowers/spikes/2026-10-05-f2a-hooks-guard-test.patch",
+    "sha256": "1cb6d680af66dc3c67d07fa87a4e92065fe3233690c1f8a6a9dbc68ac380a9b6",
+    "targetSha256": "93987f489b4f15ceef304cd841d36f3648054a3a47d161c03fc2dc65f55c3e99",
+    "status": "not-applied-user-decision-pending"
+  }
+}

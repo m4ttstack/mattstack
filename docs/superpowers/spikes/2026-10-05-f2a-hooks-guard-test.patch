@@ -1,0 +1,62 @@
+--- a/lib/daemon/__tests__/hooks-guard.test.ts
++++ b/lib/daemon/__tests__/hooks-guard.test.ts
+@@ -18,0 +19 @@
++import { EventEmitter } from "events";
+@@ -66,0 +68,23 @@
++/** Bookkeeping fixtures: deliberately do not register native filesystem watches. */
++function makeControlledWatch() {
++  class ControlledWatcher extends EventEmitter {
++    closeCalls = 0;
++    close(): void { this.closeCalls++; this.emit("close"); }
++    ref(): this { return this; }
++    unref(): this { return this; }
++  }
++  const watchers = new Map<string, ControlledWatcher>();
++  let watchCalls = 0;
++  const watchFn = (path: string) => {
++    watchCalls++;
++    const watcher = new ControlledWatcher();
++    watchers.set(path, watcher);
++    return watcher;
++  };
++  return {
++    watchers,
++    watchFn: watchFn as unknown as typeof import("fs").watch,
++    get watchCalls() { return watchCalls; },
++  };
++}
++
+@@ -69 +93,2 @@
+-  const guard = createHooksGuard(log);
++  const watches = makeControlledWatch();
++  const guard = createHooksGuard(log, { watchFn: watches.watchFn });
+@@ -77,0 +103,2 @@
++  const controlledWatcher = watches.watchers.get(join(repoPath, ".git"))!;
++  expect(controlledWatcher.closeCalls).toBe(1);
+@@ -78,0 +106 @@
++  expect(controlledWatcher.closeCalls).toBe(1);
+@@ -81,0 +110 @@
++  const watches = makeControlledWatch();
+@@ -85 +114,4 @@
+-  const guard = createHooksGuard(log, { loadRepoIndexFn: () => index });
++  const guard = createHooksGuard(log, {
++    loadRepoIndexFn: () => index,
++    watchFn: watches.watchFn,
++  });
+@@ -88,0 +121,2 @@
++  const watcherA = watches.watchers.get(join(repoPathA, ".git"))!;
++  const watcherB = watches.watchers.get(join(repoPathB, ".git"))!;
+@@ -93,0 +128,5 @@
++  expect(guard.watchedConfigs.get(join(repoPathA, ".git", "config"))).toBe(watcherA);
++  expect(watcherB.closeCalls).toBe(1);
++  expect(watcherA.closeCalls).toBe(0);
++  expect(watches.watchCalls).toBe(2);
++
+@@ -94,0 +134,7 @@
++  expect(guard.watchedConfigs.size).toBe(0);
++  expect(watcherA.closeCalls).toBe(1);
++  expect(watcherB.closeCalls).toBe(1);
++
++  guard.closeAll();
++  expect(watcherA.closeCalls).toBe(1);
++  expect(watcherB.closeCalls).toBe(1);

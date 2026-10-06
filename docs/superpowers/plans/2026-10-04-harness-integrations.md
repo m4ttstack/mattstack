@@ -45,6 +45,9 @@ records progress, not a presumption of GREEN.
 `abb49cb7e`: only disconnected contracts, registry, capability checks and tests,
 in an isolated worktree. F2b and all other implementation remain blocked.
 This scoped decision takes precedence over the general execution hold below.
+F2a now has a [reviewed implementation checkpoint](../spikes/2026-10-05-harness-foundation-f2a.md);
+completion is stopped on the post-rebase root-suite watcher timeout. A separate
+[unapplied test proposal](2026-10-05-f2a-watcher-test-proposal.md) needs user approval.
 
 ## Review Focus
 
@@ -368,7 +371,8 @@ the [focused hook follow-up](../spikes/2026-10-05-codex-hooks-followup.md) and i
 [evidence](../spikes/2026-10-05-codex-hooks-evidence.json). G1/G2/G3/G5/G6 are
 proven; G4/G7 are partial. The spec and revised package plans incorporate
 the proven hook loading/trust lifecycle and exact native protocol contracts. G7 restart coverage remains
-deferred acceptance work. F2 onward is revised and unexecuted; await the execution handoff.
+deferred acceptance work. F2a has the scoped implementation checkpoint linked above; F2b onward remains
+unexecuted. F2a completion is still held by its verification gate.
 
 
 **Reference refresh limit (2026-10-05):** The available authenticated Linear

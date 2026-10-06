@@ -5,6 +5,12 @@ The user approved this scope with the constraint that work stays in isolated
 worktrees and never edits the canonical checkout. General B0 admission remains
 BLOCKED; only the exact F2a exception below is active.
 
+**Execution status:** F2a code is implemented and reviewed, but completion is
+stopped by one root-suite watcher timeout. The [checkpoint](../spikes/2026-10-05-harness-foundation-f2a.md)
+and [separate unapplied test proposal](2026-10-05-f2a-watcher-test-proposal.md)
+record the evidence and next decision. This exception does not authorize the
+extra-file test edit.
+
 ## Decision requested
 
 Permit only a separated **F2a** slice of the existing foundation task: shared
