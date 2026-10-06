@@ -5,12 +5,16 @@ import { CSS_VARS, distinctSprites, hashStr } from 'invadrs';
     schemes. */
 const YELLOW = 'color-mix(in oklch, var(--gold), var(--fg) 25%)';
 
+/** The theme's green is a teal that sits right next to cyan; pulled toward
+    gold it reads as a true green, a clear step from both neighbours. */
+const GREEN = 'color-mix(in oklch, var(--green), var(--gold) 40%)';
+
 /** The theme's hues in colour-wheel order, so mixing two neighbours lands on
     a hue between them instead of a muddy blend. */
 const RING = [
   'var(--accent)',
   'var(--cyan)',
-  'var(--green)',
+  GREEN,
   YELLOW,
   'var(--amber)',
   'var(--red)',
@@ -41,10 +45,14 @@ export function themePalette(n: number): string[] {
   return out;
 }
 
+/** invadrs' css-vars colours, in its frozen order, as this palette spells
+    them: its green is the palette's GREEN. */
+const HASHED = CSS_VARS.colors.map(c => (c === 'var(--green)' ? GREEN : c));
+
 /** invadrs' own pick for an id, so a member with no clash keeps the colour
-    their avatar has always had. */
-function hashedColor(id: string): string {
-  return CSS_VARS.colors[(hashStr(id) >>> 4) % CSS_VARS.colors.length]!;
+    their avatar has always had (green members get the truer green). */
+export function hashedColor(id: string): string {
+  return HASHED[(hashStr(id) >>> 4) % HASHED.length]!;
 }
 
 /** One colour per id, distinct across the whole set. Ids are taken in
