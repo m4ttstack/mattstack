@@ -487,9 +487,9 @@ export function filterByShow<T extends ShowRow>(
   return { rows, counts };
 }
 
-/** The items the toolbar renders. Drafts never appear on an "all" board
-    (buildBoard drops every draft when no single seat owns one), Needs me is
-    already turn-based, and none of your own MRs waits on its author. */
+/** The items the toolbar renders. My drafts shows only on your own roster
+    entry, Needs me is already turn-based, and none of your own MRs waits on
+    its author. */
 export function offeredShowItems(o: {
   slackEnabled: boolean;
   seatTab: boolean;
@@ -500,7 +500,7 @@ export function offeredShowItems(o: {
   return [
     ...(o.slackEnabled ? (['posted', 'notPosted'] as const) : []),
     ...(o.seatTab || own ? [] : (['authorTurn'] as const)),
-    ...(o.seat !== null ? (['myDrafts'] as const) : []),
+    ...(own ? (['myDrafts'] as const) : []),
   ];
 }
 
