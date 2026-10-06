@@ -109,6 +109,13 @@ describe('filterByShow', () => {
   const list = [posted, notPosted, unresolved, draft, authorsTurn];
   const ALL = ['posted', 'notPosted', 'authorTurn', 'myDrafts'] as const;
 
+  test('drafts stay hidden wherever My drafts is not offered', () => {
+    const offered = ['posted', 'notPosted', 'authorTurn'] as const;
+    const r = filterByShow(list, [], offered, ALL_TURN);
+    expect(r.rows).not.toContain(draft);
+    expect(r.rows).toHaveLength(4);
+  });
+
   test('nothing off shows everything, and counts cover every row', () => {
     const r = filterByShow(list, [], ALL, ALL_TURN);
     expect(r.rows).toHaveLength(5);

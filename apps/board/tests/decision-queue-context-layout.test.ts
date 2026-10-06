@@ -85,7 +85,8 @@ async function openQueue(
     width: number;
     height: number;
   },
-  extraGates: unknown[] = []
+  extraGates: unknown[] = [],
+  query = 'member=all&off='
 ): Promise<Page> {
   const ctx = await browser.newContext({ viewport });
   await ctx.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, route =>
@@ -104,7 +105,7 @@ async function openQueue(
       await route.fulfill({ response: res, json: body });
     });
   const page = await ctx.newPage();
-  await page.goto(`${BASE}/?member=all&off=`);
+  await page.goto(`${BASE}/?${query}`);
   await page.waitForSelector('.tui-row');
   await page.click('.tui-dq-open');
   await page.waitForSelector('.tui-gate-sheet');
@@ -216,7 +217,9 @@ test('laptop: a respond gate lists every thread at full height beside a docked s
 }, 30_000);
 
 test('very short: a stage gate scrolls its questions and keeps the docked submit on screen', async () => {
-  const page = await openQueue(VERY_SHORT);
+  // The seat's own draft carries the long stage gate, and drafts show only
+  // on the seat's own roster entry.
+  const page = await openQueue(VERY_SHORT, [], 'member=rmarlow&off=');
   await nextUntil(page, ANSWERABLE_STAGE);
   const m = await measure(page);
   expect(m.kind).toBe('stage');

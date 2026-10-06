@@ -460,7 +460,9 @@ export function matchesShowItem(
 
 /** `offered` is what the toolbar renders on this board: a stored "off" for
     an item that isn't offered (Slack disabled, seatless board) must not hide
-    rows behind a control nobody can see. */
+    rows behind a control nobody can see. Drafts are the exception: they show
+    only on your own roster entry, so wherever My drafts isn't offered they
+    stay hidden and out of every count. */
 export function filterByShow<T extends ShowRow>(
   mrs: T[],
   off: readonly ShowItem[],
@@ -475,6 +477,7 @@ export function filterByShow<T extends ShowRow>(
     myDrafts: 0,
   };
   const active = off.filter(i => offered.includes(i));
+  if (!offered.includes('myDrafts')) active.push('myDrafts');
   const rows = mrs.filter(mr => {
     const matched = SHOW_ITEMS.filter(i => matchesShowItem(mr, i, cfg, seat));
     const hiding = matched.filter(i => active.includes(i));
