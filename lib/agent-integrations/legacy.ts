@@ -5,7 +5,12 @@
  *
  * Migration binds only what a record itself proves. An agents row names its
  * provider explicitly, so it binds under that harness when exactly one
- * identity claims the session. A chat session file proves an identity but
+ * identity claims the session and its stored id is the native one. Only
+ * Claude's is: rt minted it and passed it to Claude at launch. A Codex row
+ * stores rt's placeholder until a capture overwrites it in place, and no
+ * stored field says whether that capture happened, so it binds only to a
+ * binding a verified launch already made for that exact native session.
+ * A chat session file proves an identity but
  * not a harness, so on its own it stays unbound. Every record processed
  * leaves an alias row saying what it proved, and an unbound alias needs
  * reconciliation; nothing here guesses from directories, recency or ID
@@ -26,7 +31,10 @@ import { createSessionStore, listBindingsByNativeValue, type SessionStore } from
 export const LEGACY_DEFAULT_PROFILE = "default";
 
 type AliasSource = "agents" | "chat-session";
-type UnboundReason = "no-identity" | "conflicting-identity" | "unknown-provenance";
+type UnboundReason = "no-identity" | "conflicting-identity" | "unknown-provenance" | "unverified-native-id";
+
+/** Providers whose legacy session id rt minted and handed to the harness, so the stored id is the native one. */
+const RT_MINTED_SESSION_IDS = new Set<HarnessId>(["claude"]);
 type AliasReason = "proven" | "signed-in" | UnboundReason;
 
 interface AliasRow {
@@ -43,6 +51,7 @@ const UNBOUND_REASON: Record<UnboundReason, string> = {
   "no-identity": "its record names no identity",
   "conflicting-identity": "its records name different identities",
   "unknown-provenance": "its record does not say which harness ran it",
+  "unverified-native-id": "its record does not show that the stored id is the native session's own",
 };
 
 type Alias = { source: AliasSource; sourceId: string; raw: string; harness: string | null; identity: string | null; key: string | null; reason: AliasReason };
@@ -70,6 +79,10 @@ function migrateAgent(db: Database, store: SessionStore, row: AgentRecord, chat:
   if (existing) {
     const agrees = existing.identity === identity;
     recordAlias(db, { ...base, identity: agrees ? identity : null, key: agrees ? existing.key : null, reason: agrees ? "proven" : "conflicting-identity" }, now);
+    return;
+  }
+  if (!RT_MINTED_SESSION_IDS.has(row.provider)) {
+    recordAlias(db, { ...base, identity, key: null, reason: "unverified-native-id" }, now);
     return;
   }
   const bound = store.bind(store.reserve({ identity, agentId: row.id }), native, {

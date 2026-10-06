@@ -170,16 +170,32 @@ describe("legacy migration", () => {
   test("migration preserves explicit Codex", () => {
     const db = freshDb();
     const { explicitCodex } = legacyFixture(db);
-    const codex = resolveLegacySession(explicitCodex.sessionId, undefined, db);
-
-    expect(codex.ok).toBe(true);
-    if (codex.ok) {
-      expect(codex.data.native).toEqual({ harness: "codex", profile: "default", kind: "id", value: explicitCodex.sessionId });
-      expect(codex.data.identity).toBe("kai.cd34");
+    for (const harness of [undefined, "codex", "claude"]) {
+      const result = resolveLegacySession(explicitCodex.sessionId, harness, db);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe("ambiguous");
     }
-    const asClaude = resolveLegacySession(explicitCodex.sessionId, "claude", db);
-    expect(asClaude.ok).toBe(false);
-    if (!asClaude.ok) expect(asClaude.error.code).toBe("ambiguous");
+    expect(createSessionStore(db).find(ref({ harness: "codex", value: explicitCodex.sessionId }))).toBeNull();
+    expect(db.query("SELECT harness, identity, key, reason FROM agent_session_aliases WHERE source = 'agents' AND source_id = ?;").get(explicitCodex.id))
+      .toEqual({ harness: "codex", identity: "kai.cd34", key: null, reason: "unverified-native-id" });
+  });
+
+  test("a legacy Codex row binds only to a verified binding of its exact native session", () => {
+    const db = freshDb();
+    const captured = bound(db, "kai.cd34", ref({ harness: "codex", value: "019a0000-0000-7000-8000-00000000cafe" }));
+    insertAgent(agent({ provider: "codex", handle: "kai.cd34", sessionId: captured.native.value }), db);
+
+    const result = resolveLegacySession(captured.native.value, "codex", db);
+    expect(result.ok && result.data).toEqual(captured);
+  });
+
+  test("a verified Codex binding made after migration resolves the unproven row it agrees with", () => {
+    const db = freshDb();
+    const { explicitCodex } = legacyFixture(db);
+    migrateLegacySessions(db);
+    const later = bound(db, "kai.cd34", ref({ harness: "codex", value: explicitCodex.sessionId }));
+    const result = resolveLegacySession(explicitCodex.sessionId, undefined, db);
+    expect(result.ok && result.data).toEqual(later);
   });
 
   test("an ambiguous raw ID stays unbound", () => {
