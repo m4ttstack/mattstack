@@ -1894,22 +1894,6 @@ body {
   flex-shrink: 0;
 }
 
-/* ── text input shared by the config modal ─────────────────────────── */
-.tui-invite-input {
-  flex: 1;
-  min-width: 0;
-  padding: 3px 8px;
-  font: inherit;
-  font-size: 0.8rem;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-1);
-}
-.tui-invite-input::placeholder {
-  color: var(--text-3);
-}
-
 /* ── stacked chains ───────────────────────────────────────────────── */
 /* A chain reads as one unit: a single thread rail spans the children
    (cyan, the stacked flag's hue), the row dividers inside the
@@ -3280,10 +3264,6 @@ a.tui-id-card-ref:focus-visible {
   min-width: 0;
   font-size: 0.8125rem;
 }
-.tui-roster-who .tui-invite-input {
-  flex: 1;
-  min-width: 0;
-}
 .tui-roster-handle {
   color: var(--text-4);
   font-family: var(--font-sans);
@@ -3363,11 +3343,6 @@ a.tui-id-card-ref:focus-visible {
   align-items: center;
   gap: 12px;
 }
-.tui-tabs-item-head .tui-invite-input {
-  flex: 1;
-  min-width: 0;
-  font-size: 0.875rem;
-}
 .tui-tabs-fields {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -3382,11 +3357,6 @@ a.tui-id-card-ref:focus-visible {
   font-family: var(--font-sans);
   font-size: 0.6875rem;
   white-space: nowrap;
-}
-.tui-tabs-field .tui-invite-input {
-  width: 100%;
-  max-width: 420px;
-  min-width: 0;
 }
 .tui-tabs-check {
   display: flex;
