@@ -1,3 +1,5 @@
+import { ScrollArea } from '@mattstack/app-kit/core';
+
 import { GROUP_ORDER } from '../../shared/metrics';
 import type {
   LeaderboardResponse,
@@ -72,7 +74,19 @@ function StatCard({
           </span>
         </div>
       ) : (
-        <div className={classes.ranking}>
+        <ScrollArea
+          type="hover"
+          scrollbars="y"
+          scrollbarSize={6}
+          scrollHideDelay={300}
+          classNames={{
+            root: classes.ranking,
+            viewport: classes.rankingViewport,
+            content: classes.rankingList,
+            scrollbar: classes.rankingScrollbar,
+            thumb: classes.rankingThumb,
+          }}
+        >
           {rows.map(r => {
             const name = r.user.name ?? r.user.username;
             const delta = trend ? userDelta(r.user.metrics, stat) : null;
@@ -97,7 +111,7 @@ function StatCard({
               </div>
             );
           })}
-        </div>
+        </ScrollArea>
       )}
     </section>
   );

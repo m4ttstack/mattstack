@@ -532,41 +532,46 @@
 }
 
 .ranking {
-  display: flex;
   flex: 1 1 0;
+  min-height: 0;
+  /* The scrollbar lives in the card's right padding, clear of the values. */
+  margin-right: -10px;
+}
+
+.ranking .rankingViewport {
+  padding-right: 10px;
+}
+
+/* Scoped under .ranking to out-rank Mantine's own single-class ScrollArea rules. */
+.ranking .rankingList {
+  display: flex;
   flex-direction: column;
   gap: 2px;
-  min-height: 0;
-  overflow-y: auto;
 }
 
-/* Standard scrollbar properties would switch the webkit pseudo-elements off, so they are the fallback only. */
-@supports not selector(::-webkit-scrollbar) {
-  .ranking {
-    scrollbar-color: transparent transparent;
-    scrollbar-width: thin;
-  }
-
-  .ranking:hover {
-    scrollbar-color: var(--tk-border-soft) transparent;
-  }
+/* Mantine hides a hover scrollbar with display: none, which cannot fade. */
+.ranking .rankingScrollbar {
+  padding: 1px;
+  transition: opacity 350ms cubic-bezier(0.33, 1, 0.68, 1);
 }
 
-.ranking::-webkit-scrollbar {
-  width: 4px;
+.ranking .rankingScrollbar[data-state='hidden'] {
+  display: flex;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 350ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.ranking::-webkit-scrollbar-thumb {
-  border-radius: 2px;
-  background: transparent;
+.ranking .rankingScrollbar:hover {
+  background-color: transparent;
 }
 
-.ranking:hover::-webkit-scrollbar-thumb {
-  background: var(--tk-border-soft);
+.ranking .rankingThumb {
+  background-color: var(--tk-border-soft);
 }
 
-.ranking > * {
-  flex-shrink: 0;
+.ranking .rankingScrollbar:hover > .rankingThumb {
+  background-color: var(--tk-text-3);
 }
 
 .rankHit {
