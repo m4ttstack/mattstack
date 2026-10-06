@@ -179,12 +179,18 @@ export function slugTabId(label: string, taken: Iterable<string>): string {
 
 const SCOPE_ORDER = ['org', 'team', 'user', 'machine'] as const;
 
+/** The roster row sits with the org: it edits `mattstack.roster`, not the
+    user-scope key it is hosted on. */
+function groupScope(def: ConfigDef): string | undefined {
+  return shapeOf(def)?.kind === 'roster' ? 'org' : def.scopes[0];
+}
+
 export function groupByScope(
   defs: ConfigDef[]
 ): Array<{ scope: string; defs: ConfigDef[] }> {
   return SCOPE_ORDER.map(scope => ({
     scope,
-    defs: defs.filter(d => d.scopes[0] === scope),
+    defs: defs.filter(d => groupScope(d) === scope),
   })).filter(g => g.defs.length > 0);
 }
 

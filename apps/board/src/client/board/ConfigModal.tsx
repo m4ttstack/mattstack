@@ -18,7 +18,7 @@ import {
   type ReviewerSignal,
 } from '../../turn.ts';
 import { postAction } from '../api.ts';
-import type { ConfigMember } from '../types.ts';
+import type { ConfigMember, RosterView } from '../types.ts';
 import {
   addToList,
   filterDefs,
@@ -490,6 +490,7 @@ function RosterControl({
   members,
   hidden,
   self,
+  view,
   onSaved,
   onOpenRoster,
 }: {
@@ -497,6 +498,7 @@ function RosterControl({
   hidden: unknown;
   /** defaultMember: the board's own identity, which cannot be dropped. */
   self: string | null;
+  view: RosterView | null;
   /** Re-read the store so the list reflects the write. */
   onSaved: () => void;
   onOpenRoster: () => void;
@@ -510,6 +512,10 @@ function RosterControl({
   const [armed, setArmed] = useState<string | null>(null);
   // The username whose display name is being edited inline, if any.
   const [renaming, setRenaming] = useState<string | null>(null);
+  // In the everyone view a remove takes someone out of the whole org, which
+  // only an org admin may do.
+  const everyone = view?.everyone === true;
+  const canRemove = !everyone || view?.orgAdmin === true;
 
   const roster = Array.isArray(members)
     ? (members as Array<{
@@ -609,21 +615,29 @@ function RosterControl({
                 <span className="tui-roster-out" title="this board runs as you">
                   you
                 </span>
-              ) : armed === username ? (
+              ) : !canRemove ? null : armed === username ? (
                 <button
                   className="tui-modal-btn danger"
                   disabled={busy}
                   onClick={() => void edit('remove', username)}
                 >
-                  confirm drop
+                  {everyone ? 'confirm remove from the org' : 'confirm drop'}
                 </button>
               ) : (
                 <button
                   className="tui-modal-btn"
                   disabled={busy}
                   onClick={() => setArmed(username)}
-                  title="drop from the roster (checking out only hides them)"
-                  aria-label={`drop ${username}`}
+                  title={
+                    everyone
+                      ? 'remove from the org'
+                      : 'drop from the roster (checking out only hides them)'
+                  }
+                  aria-label={
+                    everyone
+                      ? `remove ${username} from the org`
+                      : `drop ${username}`
+                  }
                 >
                   ✕
                 </button>
@@ -1092,6 +1106,7 @@ function SettingRow({
   def,
   store,
   members,
+  rosterView,
   tabs,
   knownSections,
   open,
@@ -1104,6 +1119,7 @@ function SettingRow({
   store: SettingsScopeState;
   /** The active team's members as the server resolved them, which is the list POST /roster edits. */
   members: ConfigMember[];
+  rosterView: RosterView | null;
   tabs: TabConfig[];
   knownSections: string[] | null;
   /** Expanded, for a collapsible row; ignored otherwise. */
@@ -1169,6 +1185,7 @@ function SettingRow({
         members={members}
         hidden={hidden}
         self={typeof self === 'string' ? self : null}
+        view={rosterView}
         onSaved={() => {
           store.refresh();
           onRosterSaved();
@@ -1288,6 +1305,7 @@ function SettingRow({
 function ConfigModal({
   tabs,
   members,
+  rosterView = null,
   knownSections,
   onClose,
   onOpenRoster,
@@ -1301,6 +1319,8 @@ function ConfigModal({
   tabs: TabConfig[];
   /** The active team's members from /data.json. */
   members: ConfigMember[];
+  /** Which roster /roster edits, from /data.json; null when unknown. */
+  rosterView?: RosterView | null;
   /** Section headers rt saw in the projects' CODEOWNERS; null when rt did not report them. */
   knownSections: string[] | null;
   onClose: () => void;
@@ -1362,6 +1382,7 @@ function ConfigModal({
                   def={def}
                   store={store}
                   members={members}
+                  rosterView={rosterView}
                   tabs={tabs}
                   knownSections={knownSections}
                   open={openRows.has(def.key)}

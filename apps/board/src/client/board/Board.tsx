@@ -1625,6 +1625,7 @@ export function Board() {
           <ConfigModal
             tabs={data.tabs}
             members={data.allMembers}
+            rosterView={data.rosterView ?? null}
             knownSections={data.scopeKnownSections}
             focusKey={configFocus}
             onSaved={() => load()}

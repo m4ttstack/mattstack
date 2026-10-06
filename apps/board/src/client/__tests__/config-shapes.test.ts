@@ -328,6 +328,17 @@ describe('groupByScope', () => {
       ['machine', ['m', 'm2']],
     ]);
   });
+
+  test('puts the roster row with the org, whatever scope its host key has', () => {
+    const groups = groupByScope([
+      def({ key: 'board.hiddenMembers', scopes: ['user'] }),
+      def({ key: 'u', scopes: ['user'] }),
+    ]);
+    expect(groups.map(g => [g.scope, g.defs.map(d => d.key)])).toEqual([
+      ['org', ['board.hiddenMembers']],
+      ['user', ['u']],
+    ]);
+  });
 });
 
 describe('rosterSummary', () => {

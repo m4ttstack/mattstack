@@ -72,6 +72,7 @@ import {
   readSwitchboardToken,
   repoIdentityField,
   resolveLaunchRepo,
+  rosterView,
   saveMemberHidden,
   saveRosterMembers,
   saveTabs,
@@ -1516,6 +1517,7 @@ const httpServer = Bun.serve({
             local: isLocalRequest(req, server),
             canInvite: isLocalRequest(req, server) && !!switchboardAdminToken,
             peering: peering.current() ? peering.current()!.health() : null,
+            rosterView: rosterView(),
             switchboardTokenMissing: switchboardTokenBanner({
               inTeam: inTeam(),
               peering: !!peering.current(),
