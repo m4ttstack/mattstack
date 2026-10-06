@@ -8,7 +8,7 @@ import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { captureOut, type CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import type { StackGuardRunners, StackRefusal } from "../../lib/stack-guard.ts";
 import { conflictFailure } from "../git/rebase.ts";
-import { BRANCH_GAP, branchEnding, compactFailure, reportSync, syncAllBlocks, syncBranch, syncCommand, type SyncSummary } from "../sync.ts";
+import { BRANCH_GAP, branchEnding, compactFailure, reportSync, syncAllBlocks, syncAllExitCode, syncBranch, syncCommand, type SyncSummary } from "../sync.ts";
 import { ctxFor, exitCodeOf, git, makeRepo, trapExit } from "../git/__tests__/helpers.ts";
 
 const refusal: StackRefusal = {
@@ -149,6 +149,13 @@ describe("sync all's summary", () => {
 
   test("with no failure it is one done line", () => {
     expect(renderPlain(syncAllBlocks([ok("feature/a", { pushed: true })]))).toBe("[ok] 1 of 1 branch synced  1 pushed, 0 up to date\n");
+  });
+
+  test("the exit code is 1 when any branch failed or was refused, else 0", () => {
+    expect(syncAllExitCode([ok("feature/a", { pushed: true }), ok("feature/b", { rebaseResult: upToDate })])).toBe(0);
+    expect(syncAllExitCode([ok("feature/a", { pushed: true }), ok("feature/stacked", { error: "refused", refusal: stacked })])).toBe(1);
+    expect(syncAllExitCode([ok("feature/a"), ok("feature/dirty", { error: uncommitted.title, failure: uncommitted, refused: true })])).toBe(1);
+    expect(syncAllExitCode([ok("feature/a"), ok("feature/login", { error: fetchFailed.title, failure: fetchFailed })])).toBe(1);
   });
 });
 
