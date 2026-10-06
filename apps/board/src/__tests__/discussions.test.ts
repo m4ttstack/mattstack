@@ -260,6 +260,42 @@ describe('summarizeDiscussions', () => {
     ]);
   });
 
+  test('drops a resolvable thread only bots took part in (e.g. a Danger diff note)', () => {
+    const d = detail([
+      { notes: [note('project_1234_bot_abc', { body: 'lz-string is old' })] },
+      { notes: [note('mr_mr', { body: 'lint warning' })] },
+      { notes: [note('reviewer', { body: 'please fix' })] },
+    ]);
+    const { threads } = summarizeDiscussions(d, AUTHOR, ['mr_mr']);
+    expect(threads.map(t => t.notes[0]!.body)).toEqual(['please fix']);
+  });
+
+  test('a bot thread with only the author replying is still dropped', () => {
+    const d = detail([
+      {
+        notes: [
+          note('project_1234_bot_abc', { body: 'lz-string is old' }),
+          note('dorothy', { body: 'it is fine' }),
+        ],
+      },
+    ]);
+    expect(summarizeDiscussions(d, AUTHOR).threads).toEqual([]);
+  });
+
+  test('a bot thread a human reviewer joined is kept', () => {
+    const d = detail([
+      {
+        notes: [
+          note('project_1234_bot_abc', { body: 'lz-string is old' }),
+          note('reviewer', { body: 'agreed, swap it' }),
+        ],
+      },
+    ]);
+    const { threads } = summarizeDiscussions(d, AUTHOR);
+    expect(threads).toHaveLength(1);
+    expect(threads[0]!.status).toBe('awaiting');
+  });
+
   test('summarizeThreads still returns just the (flipped) threads', () => {
     const d = detail([{ notes: [note('reviewer', { body: 'fix' })] }]);
     expect(summarizeThreads(d, AUTHOR)).toEqual(
