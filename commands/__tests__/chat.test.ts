@@ -1861,4 +1861,25 @@ describe("a signed-in pane whose session id changed", () => {
       expect(r.stderr).toStartWith("[refused] This pane is signed in as tyler; post as tyler");
     }
   });
+
+  test("integrations on: a forked session no binding names keeps the pane's identity", async () => {
+    const { tyler } = await signInPaneThenFork();
+    setSetting("agent.integrations.enabled", true, "machine");
+    registryDeps = { resolve: (s) => (s === "orig" ? live : null), alive: () => true, resolveAll: () => new Map([["orig", live]]) };
+    await runChat(["join", "r"]);
+    await runChat(["post", "r", "hello"]);
+    expect(authors()).toEqual([tyler]);
+  });
+
+  test("integrations on: a session a binding names is never given the pane's identity", async () => {
+    const { tyler } = await signInPaneThenFork();
+    setSetting("agent.integrations.enabled", true, "machine");
+    registryDeps = { resolve: (s) => (s === "orig" ? live : null), alive: () => true, resolveAll: () => new Map([["orig", live]]) };
+    const store = createSessionStore(getStateDb());
+    const bound = store.bind(store.reserve({ identity: "nova.0001" }), { harness: "claude", profile: "default", kind: "id", value: "forked" }, { mode: "herdr", pane: PANE });
+    if (!bound.ok) throw new Error(bound.error.message);
+    await runChatRaw(["join", "r"]).catch(() => undefined);
+    await runChatRaw(["post", "r", "hello"]).catch(() => undefined);
+    expect(authors()).not.toContain(tyler);
+  });
 });

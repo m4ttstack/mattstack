@@ -59,6 +59,7 @@ import {
   currentSessionId,
   deleteChatSession,
   isValidSessionId,
+  paneContinuationApplies,
   readChatSession,
   sessionName,
   signInSession,
@@ -428,7 +429,7 @@ const PANE_LOOKUP_TIMEOUT_MS = 2000;
  */
 async function paneIdentity(args: string[]): Promise<ChatIdentity | null> {
   const pane = selfPaneRef();
-  if (!pane) return null;
+  if (!pane || !paneContinuationApplies(args)) return null;
   const res = await chatBuddies({ ...sockOpts(args), timeoutMs: PANE_LOOKUP_TIMEOUT_MS });
   if (!res.ok || !res.data) return null;
   const row = res.data.buddies.find((b) => b.pane === pane && b.status !== "offline");

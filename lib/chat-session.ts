@@ -126,6 +126,19 @@ export function currentSessionId(args: string[]): string | undefined {
   return process.env.CLAUDE_CODE_SESSION_ID || undefined;
 }
 
+/**
+ * Whether a chat verb may take the identity signed in at this pane when its
+ * session has no session file (a fork or a background move keeps the pane but
+ * gets a new session id). With agent.integrations.enabled on, that stays the
+ * environment path's fallback: a session a binding names, which includes any
+ * explicit --session, is that binding's and never the pane's.
+ */
+export function paneContinuationApplies(args: string[]): boolean {
+  if (!integrationsEnabled()) return true;
+  const bound = resolveCliSession(args, process.env, {}, { bindingsOnly: true });
+  return !(bound.ok && bound.data !== undefined);
+}
+
 function unattributed(why: string): UserActionableError {
   return new UserActionableError("caller-unattributed", "rt cannot tell which agent session ran this command", {}, { why });
 }

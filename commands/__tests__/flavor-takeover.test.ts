@@ -19,7 +19,7 @@ import { flavorTakeover, takeoverBlocks, type TakeoverSeams } from "../flavor.ts
 import type { FailureInput } from "../../lib/ui/out.ts";
 import type { Block } from "../../lib/ui/protocol.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
-import { DEV_MODE_PRELOAD } from "../settings.ts";
+import { devModePreloadPath } from "../settings.ts";
 import { TRAY_SOCK_PATH } from "../../lib/daemon-config.ts";
 import { DEV_TRAY_APP_NAME, TRAY_APP_BUNDLE, TRAY_APP_NAME } from "../../lib/rt-paths.ts";
 import { deleteKvValue, getKvValue, hasKvValue } from "../../lib/state/index.ts";
@@ -27,7 +27,7 @@ import { deleteKvValue, getKvValue, hasKvValue } from "../../lib/state/index.ts"
 const HOME = process.env.HOME!;
 const fixtureSocket = join(process.env.RT_TEST_SOCKET_DIR!, "takeover.sock");
 const WRAPPER_PATH = join(HOME, ".local", "bin", "rt");
-const PRELOAD = DEV_MODE_PRELOAD;
+const PRELOAD = devModePreloadPath();
 const FAKE_PROD_APP = join(HOME, "Applications", TRAY_APP_BUNDLE);
 const FAKE_PROD_RT = join(FAKE_PROD_APP, "Contents", "MacOS", "rt");
 const HAND_DECK_PLIST = join(HOME, "Library", "LaunchAgents", "com.mattstack.deck.plist");

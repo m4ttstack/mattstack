@@ -611,6 +611,23 @@ describe("chat tools: resolved caller sessions", () => {
     expect(f.calls).toEqual([]);
   });
 
+  const PANE_ROW = { sessionId: "orig", handle: "tyler.gb3v", baseHandle: "tyler", name: "tyler", pane: "w1:p2", status: "live" };
+
+  test.each(HANDLE_TOOLS)("%s never gives a bound session with no session file the pane's identity", async (name, input) => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const f = fake({ signedIn: false, buddiesRows: [PANE_ROW] });
+    const r = await f.tool(name).handler(input, ENV, undefined, RESOLVED);
+    expect(r).toEqual({ ok: false, body: undefined, error: SIGN_IN_HINT });
+    expect(f.calls).toEqual([]);
+  });
+
+  test.each(HANDLE_TOOLS)("%s keeps the pane's identity on the environment path, as with the switch off", async (name, input) => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const f = fake({ signedIn: false, buddiesRows: [PANE_ROW] });
+    await f.tool(name).handler(input, ENV, undefined, { caller: async () => null });
+    expect(f.calls[1]!.a.handle).toBe("tyler.gb3v");
+  });
+
   test.each(ALL_HANDLE_TOOLS)("%s is unchanged when integrations are off, even for an unresolvable caller", async (name, input) => {
     const before = fake();
     const r1 = await before.tool(name).handler(input, ENV);

@@ -103,7 +103,7 @@ export async function sendTestPushNotification(): Promise<void> {
 // ─── Dev app source checkout and the ~/.local/bin/rt it runs ─────────────────
 
 // Resolve with the wrapper at call time: a HOME change must move both artifacts.
-function devModePreloadPath(): string {
+export function devModePreloadPath(): string {
   return join(rtDir(), "dev-restore-cwd.ts");
 }
 
