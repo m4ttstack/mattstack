@@ -8,6 +8,8 @@ import classes from "./Popover.module.css";
     scripts/derive.ts to build the kit's manifest; not dead code. */
 export const recipeCategory = 2 as const;
 
+const VIEWPORT_MARGIN = 8;
+
 const POPOVER_SELECTORS = ["root", "positioner", "popup"] as const;
 
 /** Stable selector surface for app-side CSS, stamped in the non-overridable
@@ -46,7 +48,7 @@ export const Popover = defineComponent<
     const [wrapper, setWrapper] = useState<HTMLDivElement | null>(null);
 
     return (
-      <BasePopover.Root open={open} onOpenChange={(next) => onOpenChange(next)}>
+      <BasePopover.Root open={open} onOpenChange={onOpenChange}>
         <BasePopover.Trigger render={trigger} />
         {/* Portals into an in-place, out-of-flow wrapper rather than `<body>`
             so a scoped `.dark` or theme wrapper around the caller still
@@ -65,6 +67,7 @@ export const Popover = defineComponent<
             side={side ?? "bottom"}
             align={align ?? "center"}
             sideOffset={sideOffset ?? 4}
+            collisionPadding={VIEWPORT_MARGIN}
             {...getStyles("positioner")}
             data-part={POPOVER_PARTS.positioner}
           >

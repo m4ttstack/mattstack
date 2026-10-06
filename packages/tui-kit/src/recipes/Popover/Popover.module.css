@@ -5,15 +5,14 @@
     left: 0;
     width: 0;
     height: 0;
-  }
-
-  .positioner {
     z-index: 200;
   }
 
   .popup {
     box-sizing: border-box;
     width: max-content;
+    max-width: var(--available-width);
+    overflow: auto;
     color: var(--text-1);
     font-family: var(--font-sans);
     padding: var(--spacing-px4);

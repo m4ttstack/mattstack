@@ -30,6 +30,7 @@ describe("Popover (browser)", () => {
     await expect.element(page.getByRole("dialog", { name: "Asks" })).toBeInTheDocument();
     await userEvent.keyboard("{Escape}");
     await expect.element(page.getByRole("dialog", { name: "Asks" })).not.toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "inbox" })).toHaveFocus();
     await userEvent.click(page.getByRole("button", { name: "inbox" }));
     await expect.element(page.getByRole("dialog", { name: "Asks" })).toBeInTheDocument();
     await userEvent.click(page.getByRole("button", { name: "outside" }));
