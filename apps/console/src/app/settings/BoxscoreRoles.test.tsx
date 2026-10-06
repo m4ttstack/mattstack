@@ -35,7 +35,10 @@ const row = () => ({
   move: vi.fn(),
 });
 
-function serve(access: 'owner' | 'member' | 'no-team') {
+function serve(
+  access: 'owner' | 'member' | 'no-team',
+  self: string | null = null
+) {
   vi.stubGlobal(
     'fetch',
     vi.fn(
@@ -47,6 +50,7 @@ function serve(access: 'owner' | 'member' | 'no-team') {
               { username: 'bob', name: null },
             ],
             access,
+            self,
           })
         )
     )
@@ -93,14 +97,30 @@ describe('BoxscoreRolesBody', () => {
     );
   });
 
-  it('tells the owner their own Mac sees the whole team', async () => {
+  it("fixes the owner's own row on Team, labelled owner", async () => {
+    serve('owner', 'bob');
+    renderWithProviders(
+      <BoxscoreRolesBody def={def({ bob: 'self' })} row={row() as never} />
+    );
+    const bob = await screen.findByRole('radiogroup', { name: 'Role for bob' });
+    expect(within(bob).getByRole('radio', { name: 'Team' })).toBeChecked();
+    for (const radio of within(bob).getAllByRole('radio'))
+      expect(radio).toBeDisabled();
+    expect(screen.getByText('owner')).toBeInTheDocument();
+    const ada = screen.getByRole('radiogroup', { name: 'Role for ada' });
+    for (const radio of within(ada).getAllByRole('radio'))
+      expect(radio).toBeEnabled();
+  });
+
+  it('locks no row when the owner is not known', async () => {
     serve('owner');
     renderWithProviders(
       <BoxscoreRolesBody def={def({})} row={row() as never} />
     );
-    expect(
-      await screen.findByText('Your own Mac always sees the whole team.')
-    ).toBeInTheDocument();
+    await screen.findByText('Ada L');
+    expect(screen.queryByText('owner')).toBeNull();
+    for (const radio of screen.getAllByRole('radio'))
+      expect(radio).toBeEnabled();
   });
 
   it('saves a grant for the owner', async () => {

@@ -1,24 +1,32 @@
 import { getSetting, isJoinedTeam, listTeams } from '@mattstack/rt-client';
 
+import { gitlabUsername } from './gitlab-user';
+
 export interface RolesInfo {
   members: { username: string; name: string | null }[];
   /** owner: this Mac created the team and may write team settings. */
   access: 'owner' | 'member' | 'no-team';
+  /** The roster username of the person at this owner Mac; null when unknown. */
+  self: string | null;
 }
 
 export interface RolesDeps {
   teams: () => string[];
   isJoined: (team: string) => boolean;
   roster: () => unknown;
+  whoami: () => Promise<string | null>;
 }
 
 const realDeps: RolesDeps = {
-  teams: listTeams,
-  isJoined: isJoinedTeam,
+  teams: () => listTeams(),
+  isJoined: team => isJoinedTeam(team),
   roster: () => getSetting<unknown>('mattstack.roster').value,
+  whoami: () => gitlabUsername(),
 };
 
-export function rolesInfo(deps: RolesDeps = realDeps): RolesInfo {
+export async function rolesInfo(
+  deps: RolesDeps = realDeps
+): Promise<RolesInfo> {
   const teams = deps.teams();
   const raw = deps.roster();
   const members = (Array.isArray(raw) ? raw : []).flatMap(e =>
@@ -37,5 +45,11 @@ export function rolesInfo(deps: RolesDeps = realDeps): RolesInfo {
       : teams.some(deps.isJoined)
         ? 'member'
         : 'owner';
-  return { members, access };
+  let self: string | null = null;
+  if (access === 'owner') {
+    const who = (await deps.whoami())?.toLowerCase();
+    self =
+      members.find(m => m.username.toLowerCase() === who)?.username ?? null;
+  }
+  return { members, access, self };
 }
