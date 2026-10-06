@@ -7,7 +7,6 @@ import {
   type EventBridgeRule,
 } from '@mattstack/app-server/event-bridge';
 import { shellHandoff } from '@mattstack/app-server/shell-handoff';
-import { panesForOrigin, resolveOriginFocus } from '@mattstack/gate-kit/server';
 import type { MRDetail, PullRequest } from '@mattstack/glance';
 import {
   GitLabProvider,
@@ -156,6 +155,7 @@ import {
 import { normalizeMrUrl, RunMrResolver } from './gates/run-mr.ts';
 import { type GateAnswers } from './gates/store.ts';
 import { domainForKind, planSweep, pruneOffBoardGates } from './gates/sweep.ts';
+import { type FocusLane, resolveGateFocusTarget } from './gates/focus-target.ts';
 import { gateOrigin } from './gates/wait-meta.ts';
 import {
   closeTab,
@@ -1077,6 +1077,34 @@ const resolveSignalTabId: TabIdResolver = signal => {
     return readRespondStates().get(signal.mrUrl)?.tabId;
   return readDoctorStates().get(signal.mrUrl)?.tabId;
 };
+
+/** The board's own panes for a gate's MR, newest lane first. A gate's origin
+    pane can close while a later review, respond or doctor pane carries on
+    the same MR, and "focus pane" should land there. */
+function mrLanesForSubject(subject: string): FocusLane[] {
+  if (!subject.startsWith('mr:')) return [];
+  const mrUrl = subject.slice('mr:'.length);
+  return [
+    readReviewStates().get(mrUrl),
+    readRespondStates().get(mrUrl),
+    readDoctorStates().get(mrUrl),
+  ]
+    .filter(lane => lane !== undefined)
+    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+    .map(lane => ({ paneId: lane.paneId, tabId: lane.tabId }));
+}
+
+async function livePanesOrNull(): Promise<Array<{
+  paneId: string;
+  cwd?: string;
+}> | null> {
+  try {
+    const res = await paneList();
+    return res.ok && res.data ? res.data.panes : null;
+  } catch {
+    return null;
+  }
+}
 
 /** When that same state store was last written, from the same three maps
     resolveSignalTabId reads. */
@@ -2810,21 +2838,19 @@ const httpServer = Bun.serve({
         const row = gateCache.rows().find(r => r.id === gateId);
         if (!row)
           return new Response(`unknown gate "${gateId}"`, { status: 404 });
-        const origin = gateOrigin(row);
-        const { panes, fetchFailed } = await panesForOrigin(origin, paneList);
-        const resolved = resolveOriginFocus(origin, panes, {
-          carryTabId: true,
-        });
+        const resolved = resolveGateFocusTarget(
+          gateOrigin(row),
+          await livePanesOrNull(),
+          mrLanesForSubject(row.subject)
+        );
         if (!resolved.ok) {
-          // The pane-list fetch itself failing is a different fact than the
-          // fetch succeeding with no matching pane; say which one happened.
-          const reason = fetchFailed
-            ? 'could not list panes to match the origin worktree'
-            : resolved.reason;
-          return new Response(JSON.stringify({ ok: false, error: reason }), {
-            status: 400,
-            headers: { 'content-type': 'application/json' },
-          });
+          return new Response(
+            JSON.stringify({ ok: false, error: resolved.reason }),
+            {
+              status: 400,
+              headers: { 'content-type': 'application/json' },
+            }
+          );
         }
         try {
           const { focused } = await focusPane({

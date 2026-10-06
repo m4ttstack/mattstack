@@ -113,6 +113,34 @@ describe("reconciler expectations: leave-blocked", () => {
     await reconciler.sweep();
     expect(emitted).toHaveLength(0); // dropped: nothing more happens on the stale gate
   });
+
+  test("a pane that consumed the answer and then closed is confirmed, not stuck", async () => {
+    const gate = makeGate();
+    store.answer(gate.id, { q: "a" }, "board");
+    store.markConsumed(gate.id);
+    reconciler.expect({ gateId: gate.id, hints: HINTS, expect: "leave-blocked", deadlineSweeps: 1, retriesLeft: 2 });
+    panesValue = [];
+
+    await reconciler.sweep();
+
+    expect(injectCalls).toHaveLength(0);
+    expect(store.get(gate.id)!.delivery).toMatchObject({ outcome: "confirmed" });
+    expect(emitted).toContainEqual({
+      topic: "reconciler.delivery",
+      payload: { gateId: gate.id, outcome: "confirmed" },
+    });
+  });
+
+  test("a pane that closed without consuming the answer still runs out to stuck", async () => {
+    const gate = makeGate();
+    store.answer(gate.id, { q: "a" }, "board");
+    reconciler.expect({ gateId: gate.id, hints: HINTS, expect: "leave-blocked", deadlineSweeps: 1, retriesLeft: 0 });
+    panesValue = [];
+
+    await reconciler.sweep();
+
+    expect(store.get(gate.id)!.delivery).toMatchObject({ outcome: "stuck" });
+  });
 });
 
 describe("reconciler expectations: appear-live", () => {
