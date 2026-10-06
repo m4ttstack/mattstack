@@ -9,12 +9,13 @@
  * own explicit HOME when spawning the binary, so this never reaches them.
  */
 import { afterAll, afterEach, beforeEach } from "bun:test";
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "fs";
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "fs";
 import { spawn } from "child_process";
 import { tmpdir } from "os";
 import { join } from "path";
 import { guardTestDaemonEnv } from "./packages/rt-client/src/test-isolation.ts";
 import { homeProblem } from "./lib/__tests__/home-env.ts";
+import { removeTree } from "./lib/__tests__/remove-tree.ts";
 
 // Before the HOME repoint, while HOME still names the real home: strips
 // ambient live-daemon pointers (RT_DAEMON_SOCK is set in herdr panes and
@@ -143,21 +144,6 @@ afterEach(() => {
   }
   if (problems.length > 0) throw new Error(problems.join(" | "));
 });
-
-function removeTree(path: string): void {
-  try {
-    rmSync(path, { recursive: true, force: true });
-  } catch {
-    makeDirsWritable(path);
-    rmSync(path, { recursive: true, force: true });
-  }
-}
-
-function makeDirsWritable(path: string): void {
-  if (!lstatSync(path).isDirectory()) return;
-  chmodSync(path, 0o700);
-  for (const name of readdirSync(path)) makeDirsWritable(join(path, name));
-}
 
 function pidIsAlive(pid: number): boolean {
   try {
