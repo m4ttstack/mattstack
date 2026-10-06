@@ -53,3 +53,19 @@ export function rewriteLink(href: string, opts: { gitq?: boolean } = {}): string
   const to = mapPath(path);
   return to ? to + anchor : href;
 }
+
+export function rtCoolRedirects(): string {
+  const lines: string[] = [];
+  for (const m of DOCS_MOVES) {
+    const to = `${DOCS_HOST}${m.to}`;
+    if (m.prefix) {
+      lines.push(`${m.from} ${to} 301`, `${m.from}/* ${to}/:splat 301`);
+    } else if (m.from === "/") {
+      lines.push(`/ ${to} 301`);
+    } else {
+      lines.push(`${m.from} ${to} 301`, `${m.from}/ ${to} 301`);
+    }
+  }
+  lines.push(`/* ${DOCS_HOST}/ 301`);
+  return lines.join("\n") + "\n";
+}

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DOCS_MOVES, resolveRedirect, rewriteLink } from "../lib/docs-moves.ts";
+import { DOCS_MOVES, resolveRedirect, rewriteLink, rtCoolRedirects } from "../lib/docs-moves.ts";
 
 describe("resolveRedirect", () => {
   test("old home goes to the rt tab", () => {
@@ -49,4 +49,13 @@ test("every from is unique and every to is under a tab folder", () => {
   const froms = DOCS_MOVES.map((m) => m.from);
   expect(new Set(froms).size).toBe(froms.length);
   for (const m of DOCS_MOVES) expect(m.to).toMatch(/^\/(start|apps|rt|gitq|skills)(\/|$)/);
+});
+
+test("redirects cover bare and trailing-slash forms, end with a catch-all", () => {
+  const lines = rtCoolRedirects().trim().split("\n");
+  expect(lines).toContain("/guides/daemon https://docs.mattstack.dev/start/daemon 301");
+  expect(lines).toContain("/guides/daemon/ https://docs.mattstack.dev/start/daemon 301");
+  expect(lines).toContain("/reference/* https://docs.mattstack.dev/rt/reference/:splat 301");
+  expect(lines).toContain("/ https://docs.mattstack.dev/rt 301");
+  expect(lines.at(-1)).toBe("/* https://docs.mattstack.dev/ 301");
 });
