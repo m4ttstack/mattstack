@@ -588,14 +588,12 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     }
   });
 
-  test("integrations on: an explicit --session that no live Claude session answers to is refused before the daemon hears it", async () => {
+  test("integrations on: an explicit --session that no live Claude session answers to signs in unbound, as before bindings", async () => {
     setSetting("agent.integrations.enabled", true, "machine");
-    // Thrown to the dispatch seam, which draws it, like every other unattributed caller.
-    const refused = await runChatRaw(["sign-in", "--no-room", "--session", "s-nowhere"]).catch((err: unknown) => err);
-    expect(refused).toBeInstanceOf(UserActionableError);
-    expect((refused as UserActionableError).why).toContain("not a live Claude Code session");
-    expect(seen.find((s) => s.cmd === "chat:sign-in")).toBeUndefined();
-    expect(existsSync(sessionFilePath("s-nowhere"))).toBe(false);
+    expect(await runChat(["sign-in", "--no-room", "--session", "s-nowhere"])).toMatch(/signed in as /);
+    expect(existsSync(sessionFilePath("s-nowhere"))).toBe(true);
+    expect(listBindingsByNativeValue(getStateDb(), "s-nowhere")).toEqual([]);
+    expect(presenceForSession("s-nowhere", getStateDb())?.signedOutAt).toBeUndefined();
   });
 
   test("resolveSignInRequest: --as continues, --name and chat.handle ask for a fresh identity with that name, neither draws", () => {

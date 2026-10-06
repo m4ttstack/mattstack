@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { LaunchRequest, NativeLaunch, SessionAdapter } from "../contracts.ts";
+import { createObservationSweep, type LaunchRequest, type NativeLaunch, type SessionAdapter } from "../contracts.ts";
 import type { ClaudeRegistry, ClaudeSessionDeps, PaneLaunch, PaneOpened } from "../claude/sessions.ts";
 import type { AgentOptions, NativeSessionRef, Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import type { AgentEntry } from "../../runs/liveness.ts";
@@ -277,6 +277,29 @@ describe("observations", () => {
     expect(await createClaudeSessions(h.deps).observe(codex)).toMatchObject({ ok: false, error: { code: "invalid" } });
   });
 
+  test("a recorded process that is gone is not read and never makes the session dead or detached", async () => {
+    let pidReads = 0;
+    const registry = { ...registryOf({}), sessionForPid: () => { pidReads++; return "sess-other"; } };
+    const h = harness({ agents: async () => null, registry, processAlive: () => false });
+    const seen = data(await createClaudeSessions(h.deps).observe(binding({ generation: 1, mode: "herdr", pid: 4242 })));
+    expect(seen).toMatchObject({ execution: "unknown", generation: 1 });
+    expect(pidReads).toBe(0);
+  });
+
+  test("one sweep reads the registry and asks herdr once for every binding it observes", async () => {
+    let rootReads = 0;
+    let agentCalls = 0;
+    const base = registryOf({ [DEFAULT_ROOT]: { a: inbox(1), b: inbox(2), c: inbox(3) } }, { 1: "a", 2: "b", 3: "c" });
+    const registry: ClaudeRegistry = { ...base, read: (root) => { rootReads++; return base.read(root); }, sessionForPid: () => { throw new Error("per-pid read"); } };
+    const sessions = createClaudeSessions(harness({ registry, agents: async () => { agentCalls++; return []; } }).deps);
+    const sweep = createObservationSweep();
+    for (const [value, pid] of [["a", 1], ["b", 2], ["c", 3]] as const) {
+      expect(data(await sessions.observe(binding({ generation: 1, mode: "herdr", pid }, value), sweep))).toMatchObject({ connectivity: "connected", generation: 1 });
+    }
+    expect(rootReads).toBe(1);
+    expect(agentCalls).toBe(1);
+  });
+
   test("submitting work to a bound session is not built yet and says so", async () => {
     const outcome = await createClaudeSessions(harness().deps).startWork(binding({ generation: 1, mode: "herdr" }), { id: "w1", text: "go" });
     expect(outcome).toMatchObject({ ok: false, error: { code: "unsupported" } });
@@ -323,11 +346,17 @@ describe("registration", () => {
 describe("binding at sign-in", () => {
   const signIn = (db: Database, sessionId: string, env: NodeJS.ProcessEnv, over: Partial<ClaudeSessionDeps> = {}, explicit = false) =>
     prepareClaudeSignIn({ sessionId, explicit }, env, { db, ...harness(over).deps });
+  const bindings = (db: Database) => (db.query("SELECT count(*) AS n FROM agent_session_bindings").get() as { n: number }).n;
+  function boundBy(outcome: Outcome<SessionBinding | null>): SessionBinding {
+    const binding = data(outcome);
+    if (binding === null) throw new Error("expected a binding, got an unbound sign-in");
+    return binding;
+  }
 
   test("a manually started session binds under the ambient \"default\" profile, then resolves through its MCP environment", async () => {
     const db = freshDb();
-    const commit = data(await signIn(db, "sess-manual", { HERDR_PANE_ID: "w2:p1" }, { registry: registryOf({ [DEFAULT_ROOT]: { "sess-manual": inbox(777) } }) }));
-    const bound = data(commit("remy.ab12"));
+    const commit = await signIn(db, "sess-manual", { HERDR_PANE_ID: "w2:p1" }, { registry: registryOf({ [DEFAULT_ROOT]: { "sess-manual": inbox(777) } }) });
+    const bound = boundBy(commit("remy.ab12"));
     expect(bound.native).toEqual(claudeRef("sess-manual"));
     expect(bound.attachment).toEqual({ generation: 1, mode: "herdr", pane: "w2:p1", pid: 777 });
 
@@ -346,19 +375,25 @@ describe("binding at sign-in", () => {
 
   test("a cswap session binds under its account, from the registry root or the config dir", async () => {
     const db = freshDb();
-    const fromRoot = data(await signIn(db, "sess-swap", {}, { registry: registryOf({ [SWAP_ROOT]: { "sess-swap": inbox(31) } }) }));
-    expect(data(fromRoot("kai.cd34")).native.profile).toBe("sam@example.com");
-    const fromEnv = data(await signIn(db, "sess-env", { CLAUDE_CONFIG_DIR: `${HOME}/.claude-swap-backup/sessions/1-alex_acme.test` }));
-    expect(data(fromEnv("ivy.ef56")).native.profile).toBe("alex@acme.test");
-    const unknownSlot = await signIn(db, "sess-x", { CLAUDE_CONFIG_DIR: `${HOME}/.claude-swap-backup/sessions/9-gone_example.com` });
-    expect(unknownSlot).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    const fromRoot = await signIn(db, "sess-swap", {}, { registry: registryOf({ [SWAP_ROOT]: { "sess-swap": inbox(31) } }) });
+    expect(boundBy(fromRoot("kai.cd34")).native.profile).toBe("sam@example.com");
+    const fromEnv = await signIn(db, "sess-env", { CLAUDE_CONFIG_DIR: `${HOME}/.claude-swap-backup/sessions/1-alex_acme.test` });
+    expect(boundBy(fromEnv("ivy.ef56")).native.profile).toBe("alex@acme.test");
   });
 
-  test("an explicit --session binds only a live registry session", async () => {
+  test("a cswap slot cswap does not list signs in unbound, as before bindings", async () => {
     const db = freshDb();
-    expect(await signIn(db, "sess-elsewhere", {}, {}, true)).toMatchObject({ ok: false, error: { code: "ambiguous" } });
-    const live = data(await signIn(db, "sess-live", {}, { registry: registryOf({ [DEFAULT_ROOT]: { "sess-live": inbox(55) } }) }, true));
-    expect(data(live("remy.ab12")).attachment.pid).toBe(55);
+    const commit = await signIn(db, "sess-x", { CLAUDE_CONFIG_DIR: `${HOME}/.claude-swap-backup/sessions/9-gone_example.com` });
+    expect(commit("remy.ab12")).toEqual({ ok: true, data: null });
+    expect(bindings(db)).toBe(0);
+  });
+
+  test("an explicit --session binds only a live registry session, and an id that is not live signs in unbound", async () => {
+    const db = freshDb();
+    expect((await signIn(db, "sess-elsewhere", {}, {}, true))("remy.ab12")).toEqual({ ok: true, data: null });
+    expect(bindings(db)).toBe(0);
+    const live = await signIn(db, "sess-live", {}, { registry: registryOf({ [DEFAULT_ROOT]: { "sess-live": inbox(55) } }) }, true);
+    expect(boundBy(live("remy.ab12")).attachment.pid).toBe(55);
   });
 
   test("a migrated legacy agent row is reused under its own account, never bound a second time", async () => {
@@ -368,32 +403,39 @@ describe("binding at sign-in", () => {
       createdAt: 1, handle: "remy.ab12", account: "before@example.com", paneId: "w1:p1",
     };
     insertAgent(row, db);
-    const commit = data(await signIn(db, UUID, {}));
-    const bound = data(commit("remy.ab12"));
+    const commit = await signIn(db, UUID, {});
+    const bound = boundBy(commit("remy.ab12"));
     expect(bound.native).toEqual(claudeRef(UUID, "before@example.com"));
     expect(bound.agentId).toBe("ag-1");
-    expect(data(commit("remy.ab12")).key).toBe(bound.key);
+    expect(boundBy(commit("remy.ab12")).key).toBe(bound.key);
     expect(commit("otto.0001")).toMatchObject({ ok: false, error: { code: "refused" } });
   });
 
-  test("a detached binding re-attaches only when the registry shows the session live again", async () => {
+  test("a detached binding re-attaches when the registry shows the session live; otherwise the session signs in unbound", async () => {
     const db = freshDb();
     const store = createSessionStore(db);
     const before = bindClaude(db, "remy.ab12", "sess-back", { pid: 10 });
     data(store.replaceAttachment(before.key, 1, { mode: "herdr" }));
-    expect(await signIn(db, "sess-back", {})).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+    // The pre-clear id a cleared MCP server passes: no binding to attach, so today's sign-in.
+    const notLive = await signIn(db, "sess-back", {}, {}, true);
+    expect(notLive("remy.ab12")).toEqual({ ok: true, data: null });
+    expect(notLive("otto.0001")).toMatchObject({ ok: false, error: { code: "refused" } });
+    expect(store.get(before.key)!.attachment.generation).toBe(2);
 
-    const commit = data(await signIn(db, "sess-back", { HERDR_PANE_ID: "w5:p1" }, { registry: registryOf({ [DEFAULT_ROOT]: { "sess-back": inbox(99) } }) }));
-    const reattached = data(commit("remy.ab12"));
+    const commit = await signIn(db, "sess-back", { HERDR_PANE_ID: "w5:p1" }, { registry: registryOf({ [DEFAULT_ROOT]: { "sess-back": inbox(99) } }) });
+    const reattached = boundBy(commit("remy.ab12"));
     expect(reattached.key).toBe(before.key);
     expect(reattached.attachment).toEqual({ generation: 3, mode: "herdr", pane: "w5:p1", pid: 99 });
     expect(isDetachedClaudeBinding(reattached)).toBe(false);
   });
 
-  test("two recorded profiles for one session refuse rather than pick", async () => {
+  test("two recorded profiles for one session sign in unbound rather than pick, and refuse another identity", async () => {
     const db = freshDb();
     bindClaude(db, "remy.ab12", "sess-dup", {}, "default");
     bindClaude(db, "remy.ab12", "sess-dup", {}, "sam@example.com");
-    expect(await signIn(db, "sess-dup", {})).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    const commit = await signIn(db, "sess-dup", {});
+    expect(commit("remy.ab12")).toEqual({ ok: true, data: null });
+    expect(commit("otto.0001")).toMatchObject({ ok: false, error: { code: "refused" } });
+    expect(bindings(db)).toBe(2);
   });
 });

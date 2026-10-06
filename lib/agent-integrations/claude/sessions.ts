@@ -33,6 +33,7 @@ import { parsePaneRef } from "../../../packages/rt-client/src/pane-ref.ts";
 import type { AgentInvocation } from "../../agent-argv/types.ts";
 import { registryRoots, resolveAllInboxes, sessionForPid, type InboxBinding } from "../../claude-registry.ts";
 import type { AgentEntry } from "../../runs/liveness.ts";
+import { isAlive } from "../../runner/workspace-registry.ts";
 import { isBusyError } from "../../state/busy.ts";
 import type { LaunchRequest, NativeLaunch, SessionAdapter } from "../contracts.ts";
 import {
@@ -148,13 +149,17 @@ const defaultRegistry: ClaudeRegistry = {
   sessionForPid: (pid) => sessionForPid(pid, { roots: registryRoots(home()) }),
 };
 
-function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === "EPERM";
-  }
+/** Every root read once; a pid's session comes from those same rows, so a pass never re-reads a file. */
+function snapshotRegistry(registry: ClaudeRegistry): ClaudeRegistry {
+  const roots = registry.roots();
+  const reads = new Map(roots.map((root) => [root, registry.read(root)] as const));
+  const byPid = new Map<number, string>();
+  for (const rows of reads.values()) for (const [sessionId, row] of rows) if (!byPid.has(row.pid)) byPid.set(row.pid, sessionId);
+  return {
+    roots: () => roots,
+    read: (root) => reads.get(root) ?? new Map(),
+    sessionForPid: (pid) => byPid.get(pid) ?? null,
+  };
 }
 
 function fail<T>(code: FaultCode, message: string): Outcome<T> {
@@ -201,7 +206,7 @@ function defaultDeps(): ClaudeSessionDeps {
     },
     agents: async () => (await import("../../runs/liveness.ts")).recentAgents(),
     registry: defaultRegistry,
-    processAlive,
+    processAlive: isAlive,
     socketExists: existsSync,
     cswapAccounts: defaultCswapAccounts,
   };
@@ -259,10 +264,11 @@ const REGISTRY_EXECUTION: Partial<Record<NonNullable<InboxBinding["status"]>, Ob
 };
 
 /** Positive evidence that another session now holds this binding's process or pane. A recorded process outranks a pane, which may have been an inherited hint. */
-function movedBy(binding: SessionBinding, agents: AgentEntry[] | null, registry: ClaudeRegistry): string | null {
+function movedBy(binding: SessionBinding, agents: AgentEntry[] | null, registry: ClaudeRegistry, alive: (pid: number) => boolean): string | null {
   const { pid, pane } = binding.attachment;
   const value = binding.native.value;
   if (pid !== undefined) {
+    if (!alive(pid)) return null;
     const now = registry.sessionForPid(pid);
     return now !== null && now !== value ? "claude-registry" : null;
   }
@@ -351,23 +357,25 @@ export function createClaudeSessions(overrides: Partial<ClaudeSessionDeps> = {})
       return found;
     },
 
-    async observe(binding) {
+    async observe(binding, sweep) {
       const { native, attachment } = binding;
       if (native.harness !== HARNESS || native.kind !== "id") return fail("invalid", "only a Claude Code session id is observed here");
       const at = deps.now();
+      // Background stays unknown and execution is never dead: screen and process parsing still live in the herd watchdog.
       const seen = (o: Pick<Observation, "connectivity" | "execution" | "source">, generation = attachment.generation): Outcome<Observation> =>
         ok({ ...o, background: "unknown", observedAt: at, generation });
       if (isDetachedClaudeBinding(binding)) return seen({ connectivity: "unknown", execution: "unknown", source: "store" });
 
-      const agents = await deps.agents();
-      const moved = movedBy(binding, agents, deps.registry);
+      const registry = sweep ? sweep.memo("claude:registry", () => snapshotRegistry(deps.registry)) : deps.registry;
+      const agents = await (sweep ? sweep.memo("claude:agents", () => deps.agents()) : deps.agents());
+      const moved = movedBy(binding, agents, registry, deps.processAlive);
       if (moved) {
         const detached = (await deps.store()).replaceAttachment(binding.key, attachment.generation, { mode: attachment.mode });
         if (!detached.ok) return detached;
         return seen({ connectivity: "disconnected", execution: "unknown", source: moved }, detached.data.attachment.generation);
       }
 
-      const found = registryRow(deps.registry, deps.processAlive, native.value);
+      const found = registryRow(registry, deps.processAlive, native.value);
       // A disconnected inbox is a transport fact: it never makes the session dead.
       const connectivity: Observation["connectivity"] = !found ? "unknown"
         : found.live && deps.socketExists(found.row.socketPath) ? "connected" : "disconnected";
@@ -388,17 +396,20 @@ export function createClaudeSessions(overrides: Partial<ClaudeSessionDeps> = {})
 
 export type SignInClaim = { sessionId: string; explicit: boolean };
 export type SignInDeps = Partial<Pick<ClaudeSessionDeps, "registry" | "processAlive" | "cswapAccounts">> & { db?: Database };
+/** Commits once the daemon names the identity: the binding, null for a sign-in that stays unbound, or a refusal. */
+export type SignInCommit = (identity: string) => Outcome<SessionBinding | null>;
 
 /**
  * Sign-in is a trusted binding point: the session's own environment carries
  * its id. An explicit id, and a binding observed detached, bind only while
  * Claude Code's registry shows that session live, since the id a /clear
- * leaves behind in an older process looks like any other. The identity is
- * the one the daemon signs the session in as, so binding commits after it.
+ * leaves behind in an older process looks like any other. When no binding
+ * can be prepared the session signs in unbound, as it always has; only a
+ * binding of this session held by another identity refuses.
  */
 export async function prepareClaudeSignIn(
   claim: SignInClaim, env: NodeJS.ProcessEnv, overrides: SignInDeps = {},
-): Promise<Outcome<(identity: string) => Outcome<SessionBinding>>> {
+): Promise<SignInCommit> {
   const { sessionId } = claim;
   const registry = overrides.registry ?? defaultRegistry;
   const accounts = memo(overrides.cswapAccounts ?? defaultCswapAccounts);
@@ -406,34 +417,31 @@ export async function prepareClaudeSignIn(
   try {
     (await import("../legacy.ts")).migrateLegacySessions(db);
   } catch (err) {
-    if (isBusyError(err)) return fail("transient", "the state database is busy; try again");
-    throw err;
+    // A busy migration is retried by the next resolve; this sign-in reads what is recorded now.
+    if (!isBusyError(err)) throw err;
   }
 
-  const found = registryRow(registry, overrides.processAlive ?? processAlive, sessionId);
+  const found = registryRow(registry, overrides.processAlive ?? isAlive, sessionId);
   const live = found?.live ? found : undefined;
-  if (claim.explicit && !live) return fail("ambiguous", `session ${sessionId} is not a live Claude Code session on this machine`);
   const attachment: AttachmentInput = {
     mode: "herdr", ...(text(env.HERDR_PANE_ID) && { pane: env.HERDR_PANE_ID }), ...(live && { pid: live.row.pid }),
   };
   const store = createSessionStore(db);
-  const refused = fail<SessionBinding>("refused", `Claude Code session ${sessionId} already belongs to another identity`);
-
   const recorded = listBindingsByNativeValue(db, sessionId).filter((b) => b.native.harness === HARNESS && b.native.kind === "id");
-  if (recorded.length > 1) return fail("ambiguous", `Claude Code session ${sessionId} is recorded under more than one profile`);
+  const refused = fail<SessionBinding | null>("refused", `Claude Code session ${sessionId} already belongs to another identity`);
+  const held = (identity: string) => recorded.some((b) => b.identity !== identity);
+  const unbound: SignInCommit = (identity) => (held(identity) ? refused : ok(null));
+
+  if ((claim.explicit && !live) || recorded.length > 1) return unbound;
   const current = recorded[0];
-  if (current && !isDetachedClaudeBinding(current)) {
-    return ok((identity) => (identity === current.identity ? ok(current) : refused));
-  }
+  if (current && !isDetachedClaudeBinding(current)) return (identity) => (held(identity) ? refused : ok(current));
   if (current) {
-    if (!live) return fail("stale-binding", `Claude Code session ${sessionId} left its last attachment and is not live on this machine`);
-    return ok((identity) => (identity === current.identity
-      ? store.replaceAttachment(current.key, current.attachment.generation, attachment)
-      : refused));
+    if (!live) return unbound;
+    return (identity) => (held(identity) ? refused : store.replaceAttachment(current.key, current.attachment.generation, attachment));
   }
 
   const profile = await profileForConfigDir(live ? dirname(live.root) : env.CLAUDE_CONFIG_DIR, accounts);
-  if (profile === undefined) return fail("ambiguous", "rt could not tell which Claude account this session runs under");
+  if (profile === undefined) return unbound;
   const native = claudeRef(profile, sessionId);
-  return ok((identity) => store.bind(store.reserve({ identity }), native, attachment));
+  return (identity) => store.bind(store.reserve({ identity }), native, attachment);
 }

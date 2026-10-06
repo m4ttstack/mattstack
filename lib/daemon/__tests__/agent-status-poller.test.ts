@@ -11,7 +11,8 @@ import { claudeIntegration } from "../../agent-integrations/claude/integration.t
 import { codexIntegration } from "../../agent-integrations/codex/integration.ts";
 import type { SessionAdapter } from "../../agent-integrations/contracts.ts";
 import { createRegistry } from "../../agent-integrations/registry.ts";
-import { createSessionStore } from "../../agent-integrations/session-store.ts";
+import { createSessionStore, listAttachedBindings } from "../../agent-integrations/session-store.ts";
+import { createClaudeSessions, type ClaudeRegistry } from "../../agent-integrations/claude/sessions.ts";
 import { openStateDb } from "../../state/db.ts";
 
 const quietLog = { info: () => {}, warn: () => {} };
@@ -190,18 +191,103 @@ test("with the switch on, every attached binding of a harness with a session ada
     };
     const attached = bind("claude", "c-attached", { pane: "w1:p1" });
     const byPid = bind("claude", "c-pid", { pid: 7 });
+    bind("claude", "c-dead-pid", { pid: 9, pane: "w3:p1" });
     bind("claude", "c-nothing", {});
     const detached = bind("claude", "c-detached", { pid: 8 });
     if (!store.replaceAttachment(detached.key, 1, { mode: "herdr" }).ok) throw new Error("detach failed");
     bind("codex", "x-attached", { pane: "w2:p1" });
 
     const seen: SessionBinding[] = [];
-    const adapter = { observe: async (b: SessionBinding) => { seen.push(b); return { ok: true, data: {} }; } } as unknown as SessionAdapter;
+    const sweeps = new Set<unknown>();
+    const adapter = {
+      observe: async (b: SessionBinding, sweep: unknown) => { seen.push(b); sweeps.add(sweep); return { ok: true, data: {} }; },
+    } as unknown as SessionAdapter;
     await observeBoundSessions({
       enabled: () => true,
       db: () => db,
+      alive: (pid) => pid !== 9,
       integrations: () => createRegistry([{ ...claudeIntegration, loadSessions: async () => adapter }, codexIntegration]),
     });
+    // A dead recorded process is skipped, never marked.
     expect(seen.map((b) => b.key).sort()).toEqual([attached.key, byPid.key].sort());
+    expect(sweeps.size).toBe(1);
+    expect(listAttachedBindings(db, "claude").map((b) => b.native.value)).toContain("c-dead-pid");
   });
+});
+
+test("a sweep over many Claude bindings reads the registry once", async () => {
+  await withDb(async (db) => {
+    const store = createSessionStore(db);
+    const values = ["a", "b", "c", "d"];
+    for (const [i, value] of values.entries()) {
+      const r = store.bind(store.reserve({ identity: `id-${value}` }), { harness: "claude", profile: "default", kind: "id", value }, { mode: "herdr", pid: 100 + i });
+      if (!r.ok) throw new Error(r.error.message);
+    }
+    let rootReads = 0;
+    let rootLists = 0;
+    const rows = new Map(values.map((value, i) => [value, { pid: 100 + i, socketPath: `/sock/${i}`, status: "idle" as const }]));
+    const registry: ClaudeRegistry = {
+      roots: () => { rootLists++; return ["/h/.claude/sessions"]; },
+      read: () => { rootReads++; return rows; },
+      sessionForPid: () => { throw new Error("a per-pid registry read"); },
+    };
+    const sessions = createClaudeSessions({ registry, agents: async () => [], processAlive: () => true, socketExists: () => true, store: () => store });
+    await observeBoundSessions({
+      enabled: () => true,
+      db: () => db,
+      alive: () => true,
+      integrations: () => createRegistry([{ ...claudeIntegration, loadSessions: async () => sessions }]),
+    });
+    expect(rootLists).toBe(1);
+    expect(rootReads).toBe(1);
+  });
+});
+
+test("an observe that throws is logged by key and never stops the bindings after it", async () => {
+  await withDb(async (db) => {
+    const store = createSessionStore(db);
+    const keys = ["first", "second", "third"].map((value, i) => {
+      const r = store.bind(store.reserve({ identity: `id-${value}` }), { harness: "claude", profile: "default", kind: "id", value }, { mode: "herdr", pane: `w${i}:p1` });
+      if (!r.ok) throw new Error(r.error.message);
+      return r.data.key;
+    });
+    const seen: string[] = [];
+    const warned: unknown[] = [];
+    const adapter = {
+      observe: async (b: SessionBinding) => {
+        seen.push(b.key);
+        if (seen.length === 1) throw new Error("registry exploded");
+        return { ok: true, data: {} };
+      },
+    } as unknown as SessionAdapter;
+    await observeBoundSessions({
+      enabled: () => true,
+      db: () => db,
+      log: { warn: (obj) => warned.push(obj) },
+      integrations: () => createRegistry([{ ...claudeIntegration, loadSessions: async () => adapter }]),
+    });
+    expect([...seen].sort()).toEqual([...keys].sort());
+    expect(warned).toEqual([{ key: seen[0] }]);
+  });
+});
+
+test("a tick still in flight makes the next one a no-op", async () => {
+  let probes = 0;
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  handle = startAgentStatusPoller({
+    emitEvent: () => {},
+    log: quietLog,
+    intervalMs: 3_600_000,
+    probe: async () => { probes++; await gate; return []; },
+    list: () => [],
+    observeSessions: async () => {},
+  });
+  const first = handle.tick();
+  await handle.tick();
+  expect(probes).toBe(1);
+  release();
+  await first;
+  await handle.tick();
+  expect(probes).toBe(2);
 });

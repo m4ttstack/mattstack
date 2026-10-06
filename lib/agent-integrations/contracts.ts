@@ -29,11 +29,25 @@ export type ActiveQuestionHandle = {
   connection: string; requestId: string | number;
   threadId: string; turnId: string; itemId: string;
 };
+/** A per-pass cache an integration fills on first use; opaque to the caller. */
+export interface ObservationSweep {
+  memo<T>(key: string, load: () => T): T;
+}
+export function createObservationSweep(): ObservationSweep {
+  const values = new Map<string, unknown>();
+  return {
+    memo<T>(key: string, load: () => T): T {
+      if (!values.has(key)) values.set(key, load());
+      return values.get(key) as T;
+    },
+  };
+}
 export interface SessionAdapter {
   launch(request: LaunchRequest): Promise<Outcome<NativeLaunch>>;
   resume(ref: NativeSessionRef, request: LaunchRequest): Promise<Outcome<NativeLaunch>>;
   discover(): Promise<NativeLaunch[]>;
-  observe(binding: SessionBinding): Promise<Outcome<Observation>>;
+  /** `sweep` is shared by every observe of one pass, so a native source is read once per pass, not per binding. */
+  observe(binding: SessionBinding, sweep?: ObservationSweep): Promise<Outcome<Observation>>;
   startWork(binding: SessionBinding, input: WorkInput): Promise<Outcome<DeliveryReceipt>>;
 }
 export interface MessageAdapter {

@@ -105,7 +105,7 @@ function codexMcpClaim(meta: unknown, env: NodeJS.ProcessEnv, profile: string): 
   return { ok: true, data: { harness: "codex", profile, kind: "id", value: thread } };
 }
 
-/** After /clear the MCP process still carries the pre-clear id; it stops resolving once the Claude session adapter observes the clear and detaches that binding. */
+/** After /clear the MCP process still carries the pre-clear id; once the Claude session adapter observes the clear and detaches that binding, the id no longer resolves to it. */
 function claudeEnvClaim(env: NodeJS.ProcessEnv): NativeClaim | undefined {
   return text(env.CLAUDE_CODE_SESSION_ID)
     ? { harness: "claude", kind: "id", value: env.CLAUDE_CODE_SESSION_ID }
@@ -138,10 +138,10 @@ export function extractCliEvidence(args: string[], env: NodeJS.ProcessEnv): Outc
   return { ok: true, data: { ...(native && { native }), ...extra } };
 }
 
-/** A frozen Claude environment id never names the session it left. */
+/** A detached Claude binding grants nothing; its own environment caller falls back to the environment path (unboundClaudeCaller). */
 function resolvedAs(binding: SessionBinding): Outcome<CallerContext> {
   if (isDetachedClaudeBinding(binding)) {
-    return fail("stale-binding", `claude session ${binding.native.value} has left its attachment (a /clear, a fork, or a resume elsewhere); sign in again from the session it became`);
+    return fail("stale-binding", `claude session ${binding.native.value} left its attachment (a /clear, a fork, or a resume elsewhere), so it no longer names a bound session`);
   }
   return { ok: true, data: { binding } };
 }
@@ -213,16 +213,20 @@ export function resolveCallerContextNow(input: CallerEvidence, deps: ResolveDeps
 }
 
 /**
- * A Claude Code session that has never been bound, named by its own
- * environment, keeps the environment path rather than refusing: until it
- * signs in, there is no identity to bind it under. A bound or detached
- * Claude session, an explicit id and every Codex caller go through bindings.
+ * A Claude Code session named by its own environment keeps the environment
+ * path, with no binding and so no assignment, when it was never bound (until
+ * it signs in there is no identity to bind it under) or when every binding of
+ * it was detached (after a /clear the MCP process still carries the old id).
+ * A bound Claude session, an explicit id and every Codex caller go through
+ * bindings.
  */
 function unboundClaudeCaller(input: CallerEvidence, outcome: Outcome<CallerContext>, deps: ResolveDeps): boolean {
-  if (outcome.ok || outcome.error.code !== "ambiguous") return false;
+  if (outcome.ok) return false;
   const claim = input.native;
   if (!claim || claim.harness !== "claude" || claim.profile !== undefined || input.connection || input.raw !== undefined) return false;
-  return !listBindingsByNativeValue(deps.db ?? getStateDb(), claim.value).some((b) => b.native.harness === "claude");
+  const recorded = listBindingsByNativeValue(deps.db ?? getStateDb(), claim.value).filter((b) => b.native.harness === "claude");
+  if (outcome.error.code === "ambiguous") return recorded.length === 0;
+  return outcome.error.code === "stale-binding" && recorded.length > 0 && recorded.every(isDetachedClaudeBinding);
 }
 
 /** resolveCallerContextNow, or null for an unbound Claude caller, which keeps its environment path. */

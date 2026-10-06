@@ -14,7 +14,8 @@ import type { RunSummary } from "../../packages/rt-client/src/commands.ts";
 import type { Database } from "bun:sqlite";
 import { builtinRegistry } from "../agent-integrations/builtins.ts";
 import { integrationsEnabled } from "../agent-integrations/context.ts";
-import type { IntegrationRegistry } from "../agent-integrations/contracts.ts";
+import { createObservationSweep, type IntegrationRegistry } from "../agent-integrations/contracts.ts";
+import { isAlive } from "../runner/workspace-registry.ts";
 import { listAttachedBindings } from "../agent-integrations/session-store.ts";
 import { livenessFrom, primeLivenessCache, probeAgents, type AgentEntry } from "../runs/liveness.ts";
 import type { RunLiveness } from "../runs/attention.ts";
@@ -39,21 +40,33 @@ export interface AgentStatusPollerHandle {
 /**
  * With agent.integrations.enabled on, each harness's session adapter observes
  * its attached bindings, which is where a Claude session that left its
- * attachment is detached. Off, nothing is read.
+ * attachment is detached. Off, nothing is read. A binding whose recorded
+ * process is gone is skipped, never marked: a dead pid is not a dead session.
  */
 export async function observeBoundSessions(deps: {
   enabled?: () => boolean;
   db?: () => Database;
   integrations?: () => IntegrationRegistry;
+  alive?: (pid: number) => boolean;
+  log?: Pick<Log, "warn">;
 } = {}): Promise<void> {
   if (!(deps.enabled ?? integrationsEnabled)()) return;
   const db = (deps.db ?? getStateDb)();
+  const alive = deps.alive ?? isAlive;
+  const sweep = createObservationSweep();
   for (const integration of (deps.integrations ?? builtinRegistry)().list()) {
     if (!integration.loadSessions) continue;
-    const bindings = listAttachedBindings(db, integration.id);
+    const bindings = listAttachedBindings(db, integration.id)
+      .filter((b) => b.attachment.pid === undefined || alive(b.attachment.pid));
     if (bindings.length === 0) continue;
     const sessions = await integration.loadSessions();
-    for (const binding of bindings) await sessions.observe(binding);
+    for (const binding of bindings) {
+      try {
+        await sessions.observe(binding, sweep);
+      } catch {
+        deps.log?.warn({ key: binding.key }, "agent-status poller could not observe a bound session");
+      }
+    }
   }
 }
 
@@ -67,13 +80,25 @@ export function startAgentStatusPoller(opts: {
 }): AgentStatusPollerHandle {
   const probe = opts.probe ?? (() => probeAgents());
   const list = opts.list ?? ((liveness: RunLiveness) => listRuns(undefined, liveness));
-  const observeSessions = opts.observeSessions ?? (() => observeBoundSessions());
+  const observeSessions = opts.observeSessions ?? (() => observeBoundSessions({ log: opts.log }));
   const last = new Map<string, string | null>();
   let seeded = false;
   let consecutiveFailures = 0;
   let ticksSkipped = 0;
+  let inFlight = false;
 
   const tick = async (): Promise<void> => {
+    // A slow tick (a herdr timeout, a long sweep) must not overlap the next one.
+    if (inFlight) return;
+    inFlight = true;
+    try {
+      await runTick();
+    } finally {
+      inFlight = false;
+    }
+  };
+
+  const runTick = async (): Promise<void> => {
     if (consecutiveFailures >= FAILURE_THRESHOLD) {
       if (++ticksSkipped < BACKOFF_TICKS) return;
       ticksSkipped = 0;

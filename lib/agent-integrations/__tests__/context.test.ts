@@ -13,7 +13,7 @@ import { createSessionStore } from "../session-store.ts";
 import { createClaudeSessions } from "../claude/sessions.ts";
 import {
   extractCliEvidence, extractMcpEvidence, integrationsEnabled, mcpTransportFromArgs, resolveCallerContext,
-  type CallerEvidence,
+  resolveCliSession, resolveToolCaller, type CallerEvidence,
 } from "../context.ts";
 import { createCallHandler } from "../../../commands/mcp.ts";
 import { ok, type McpToolDef } from "../../mcp/shared.ts";
@@ -124,9 +124,10 @@ describe("caller attribution", () => {
   });
 
   // The Claude compatibility branch reads the MCP process's own
-  // CLAUDE_CODE_SESSION_ID, which a clear does not change: only an observation
-  // that the session left its attachment stops the old id resolving.
-  test("Claude compatibility: a pre-clear session id refuses once the clear is observed", async () => {
+  // CLAUDE_CODE_SESSION_ID, which a clear does not change: once the clear is
+  // observed, that id stops naming the old binding and the caller acts as its
+  // environment says, as an unbound session does.
+  test("Claude compatibility: a pre-clear session id is an unbound environment caller once the clear is observed", async () => {
     const db = freshDb();
     const claude = (value: string): NativeSessionRef => ({ harness: "claude", profile: "default", kind: "id", value });
     const store = createSessionStore(db);
@@ -141,14 +142,20 @@ describe("caller attribution", () => {
     const sessions = createClaudeSessions({
       store: () => store,
       agents: async () => null,
+      processAlive: () => true,
       registry: { roots: () => [], read: () => new Map(), sessionForPid: (pid) => (pid === 4242 ? "sess-after" : null) },
     });
     const seen = await sessions.observe(before);
     expect(seen).toMatchObject({ ok: true, data: { generation: 2 } });
     const after = bound(db, "otto.0001", claude("sess-after"), "w1:p1");
 
+    // Not the old binding and not a refusal: the environment path, with no binding and so no assignment.
+    expect(await resolveToolCaller(staleEnv, { db })).toBeNull();
     expect(await resolveCallerContext(staleEnv, { db })).toMatchObject({ ok: false, error: { code: "stale-binding" } });
-    expect(await resolveCallerContext({ raw: "sess-before" }, { db })).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+    expect(resolveCliSession([], { CLAUDE_CODE_SESSION_ID: "sess-before" }, { db })).toEqual({ ok: true, data: "sess-before" });
+    // An explicit id is not the caller's own environment: it still names nothing.
+    expect(await resolveToolCaller({ raw: "sess-before" }, { db })).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+    expect(createSessionStore(db).get(before.key)!.attachment).toEqual({ generation: 2, mode: "herdr" });
     const fresh = resolved(await resolveCallerContext(evidence(extractMcpEvidence(undefined, { CLAUDE_CODE_SESSION_ID: "sess-after" }, {})), { db }));
     expect(fresh.binding.key).toBe(after.key);
   });

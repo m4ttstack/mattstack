@@ -187,7 +187,7 @@ describe("currentSessionId through session bindings", () => {
     if (!bound.ok) throw new Error(bound.error.message);
   }
 
-  test("integrations on: a never-bound Claude session keeps its environment id, creating no binding; a detached one refuses", () => {
+  test("integrations on: a never-bound or detached Claude session keeps its environment id, creating no binding", () => {
     setSetting("agent.integrations.enabled", true, "machine");
     process.env.CLAUDE_CODE_SESSION_ID = "claude-unsigned";
     expect(currentSessionId(["post", "r", "hi"])).toBe("claude-unsigned");
@@ -200,7 +200,8 @@ describe("currentSessionId through session bindings", () => {
     const bound = store.bind(store.reserve({ identity: "remy.ab12" }), { harness: "claude", profile: "default", kind: "id", value: "claude-unsigned" }, { mode: "herdr", pid: 4242 });
     if (!bound.ok) throw new Error(bound.error.message);
     if (!store.replaceAttachment(bound.data.key, 1, { mode: "herdr" }).ok) throw new Error("detach failed");
-    expect(() => currentSessionId(["post", "r", "hi"])).toThrow(UserActionableError);
+    expect(currentSessionId(["post", "r", "hi"])).toBe("claude-unsigned");
+    expect(db.query("SELECT count(*) AS n FROM agent_session_bindings").get()).toEqual({ n: 1 });
   });
 
   test("integrations on: a Codex CLI caller resolves through CODEX_THREAD_ID", () => {

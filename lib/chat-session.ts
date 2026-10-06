@@ -137,7 +137,8 @@ export type SignInSession = { sessionId: string | undefined; bind?: (identity: s
  * currentSessionId, except that with agent.integrations.enabled on a Claude
  * Code session with no binding is bound here rather than refused: sign-in is
  * where a manually started session joins, and its identity is the one the
- * daemon signs it in as. The bound session must then resolve like any other.
+ * daemon signs it in as. The bound session must then resolve like any other;
+ * one that cannot be bound signs in unbound, as it did before bindings.
  */
 export async function signInSession(args: string[]): Promise<SignInSession> {
   if (!integrationsEnabled()) return { sessionId: currentSessionId(args) };
@@ -150,13 +151,13 @@ export async function signInSession(args: string[]): Promise<SignInSession> {
     : undefined;
   if (!claim) throw unattributed(resolved.error.message);
   const { prepareClaudeSignIn } = await import("./agent-integrations/claude/sessions.ts");
-  const prepared = await prepareClaudeSignIn(claim, process.env);
-  if (!prepared.ok) throw unattributed(prepared.error.message);
+  const commit = await prepareClaudeSignIn(claim, process.env);
   return {
     sessionId: claim.sessionId,
     bind: (identity) => {
-      const bound = prepared.data(identity);
+      const bound = commit(identity);
       if (!bound.ok) throw unattributed(bound.error.message);
+      if (bound.data === null) return;
       const confirmed = resolveCliSession(args, process.env, {}, { bindingsOnly: true });
       if (!confirmed.ok) throw unattributed(confirmed.error.message);
     },
