@@ -52,6 +52,26 @@ describe('readSettings', () => {
     expect(s.baseUrl).toBe('https://gitlab.example');
   });
 
+  it('keeps only org roster entries that carry a string username', () => {
+    store({
+      'mattstack.roster': [
+        'dev1',
+        null,
+        { username: 5 },
+        { name: 'no handle' },
+        { username: 'dev2', teams: ['gadgets'] },
+      ],
+    });
+    expect(readSettings().orgRoster).toEqual([
+      { username: 'dev2', teams: ['gadgets'] },
+    ]);
+  });
+
+  it('reads a non-list org roster as empty', () => {
+    store({ 'mattstack.roster': { username: 'dev1' } });
+    expect(readSettings().orgRoster).toEqual([]);
+  });
+
   it('applies fallbacks when every key is unset', () => {
     store({});
     const s = readSettings();

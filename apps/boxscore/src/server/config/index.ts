@@ -12,6 +12,7 @@ export class ConfigError extends Error {
 export interface RosterEntry {
   username: string;
   name?: string;
+  teams?: string[];
 }
 
 /** The fetchers' connection envelope; assembled per run from settings + secrets. */
@@ -65,6 +66,16 @@ function teamRoster(): RosterEntry[] {
   return activeTeamRoster() as RosterEntry[];
 }
 
+function rosterEntries(value: unknown): RosterEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (e): e is RosterEntry =>
+      e !== null &&
+      typeof e === 'object' &&
+      typeof (e as { username?: unknown }).username === 'string'
+  );
+}
+
 function read<T>(key: string): T | undefined {
   if (reader) return reader<T>(key);
   if (process.env.VITEST)
@@ -91,7 +102,7 @@ export function readSettings(): BoxscoreSettings {
   return {
     projects: read<string[]>('boxscore.projects') ?? [],
     roster,
-    orgRoster: read<RosterEntry[]>('mattstack.roster') ?? [],
+    orgRoster: rosterEntries(read<unknown>('mattstack.roster')),
     hiddenMembers,
     users: roster.filter(m => !hidden.has(m.username)).map(m => m.username),
     doneStates: read<string[]>('boxscore.linearDoneStates') ?? [],

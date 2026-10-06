@@ -9,6 +9,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  activeTeam,
   getOrgSetting,
   getSetting,
   rtCommand,
@@ -54,19 +55,33 @@ const LEGACY_FILES = [
   'server/env.ts',
 ];
 
-/** Existing roster entries win on name; legacy usernames missing from the roster are appended, nameless. */
+/** Existing roster entries win on name; legacy usernames missing from the roster are appended, nameless, on `team` when there is one. */
 export function mergeRoster(
   existing: RosterEntry[],
-  legacyUsernames: string[]
+  legacyUsernames: string[],
+  team: string | null = null
 ): RosterEntry[] {
   const seen = new Set(existing.map(m => m.username));
   const merged = [...existing];
   for (const username of legacyUsernames) {
     if (seen.has(username)) continue;
     seen.add(username);
-    merged.push({ username });
+    merged.push(team === null ? { username } : { username, teams: [team] });
   }
   return merged;
+}
+
+/** The legacy usernames mergeRoster appends with no team, so the active team's leaderboard never shows them. */
+export function teamlessUsernames(
+  existing: RosterEntry[],
+  legacyUsernames: string[],
+  team: string | null
+): string[] {
+  if (team !== null) return [];
+  const before = new Set(existing.map(m => m.username));
+  return mergeRoster(existing, legacyUsernames)
+    .map(m => m.username)
+    .filter(u => !before.has(u));
 }
 
 /** Fills only the fields `current` is missing; never overwrites an already-present forge.host / linear.teamKey. */
@@ -151,10 +166,13 @@ async function main(): Promise<void> {
   const existing =
     getSetting<RosterEntry[] | undefined>('mattstack.roster').value ?? [];
 
+  const team = activeTeam().team;
+  const teamless = teamlessUsernames(existing, settingsJson.users, team);
+
   const writes: PlannedWrite[] = [
     {
       key: 'mattstack.roster',
-      value: mergeRoster(existing, settingsJson.users),
+      value: mergeRoster(existing, settingsJson.users, team),
       scope: 'org',
     },
     {
@@ -199,6 +217,13 @@ async function main(): Promise<void> {
       value: mergedIntegrations,
       scope: 'org',
     });
+  }
+
+  if (teamless.length > 0) {
+    console.log(
+      `[import-legacy-settings] this Mac is on no team, so these usernames join the org roster on no team: ${teamless.join(', ')}. ` +
+        'Put each on a team with rt team members set <username> --teams <team>.'
+    );
   }
 
   if (dryRun) {
