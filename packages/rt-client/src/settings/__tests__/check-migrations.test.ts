@@ -9,13 +9,14 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { teamSettingsPath, userSettingsPath } from "../paths.ts";
+import { userSettingsPath } from "../paths.ts";
 import type { MigrationStep } from "../registry-machinery.ts";
 import { valueHash } from "../migrate.ts";
 import { renameProperty } from "../migrations/helpers.ts";
 import { checkStores } from "../check.ts";
 import { storeSections } from "../migrate-stores.ts";
 import { withMigration } from "./with-migration.ts";
+import { seedOrg, sharedStorePath } from "../../../test/org-fixture.ts";
 
 const IDENTITY = "gitlab.example.com/acme/app";
 const TEAM = "acme";
@@ -61,14 +62,16 @@ describe("settings/check over versioned store names", () => {
     writeFileSync(file, JSON.stringify(obj, null, 2));
   }
   const writeUser = (obj: unknown) => write(userSettingsPath(), obj);
-  const writeTeam = (name: string, obj: unknown) => write(teamSettingsPath(name), obj);
+  const writeTeam = (name: string, obj: unknown) => write(sharedStorePath(name), obj);
 
-  test("storeSections walks team, user and machine stores, global then repo sections", () => {
-    writeTeam(TEAM, { a: 1, repos: { [IDENTITY]: { b: 2 } } });
+  test("storeSections walks the org store, every team folder, user and machine stores, global then repo sections", () => {
+    seedOrg({ org: TEAM, settings: { a: 1, repos: { [IDENTITY]: { b: 2 } } }, teams: { gadgets: { d: 4 }, widgets: { e: 5 } } });
     writeUser({ c: 3 });
     expect(storeSections().map((s) => [s.scope, s.team ?? null, s.repo ?? null])).toEqual([
-      ["team", TEAM, null],
-      ["team", TEAM, IDENTITY],
+      ["org", null, null],
+      ["org", null, IDENTITY],
+      ["team", "gadgets", null],
+      ["team", "widgets", null],
       ["user", null, null],
     ]);
   });
@@ -115,11 +118,11 @@ describe("settings/check over versioned store names", () => {
     });
   });
 
-  test("a diverged older name in a team repo section is found and names the repo", () => {
+  test("a diverged older name in an org repo section is found and names the repo", () => {
     withMigration("rt.roles", ROLES_BUMP, () => {
       writeTeam(TEAM, { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } }, "rt.roles@2": { web: { devHook: "./other.sh" } } } } });
       const f = checkStores().findings.find((x) => x.kind === "diverged")!;
-      expect(f).toMatchObject({ key: "rt.roles", scope: "team", repo: IDENTITY, storeName: "rt.roles" });
+      expect(f).toMatchObject({ key: "rt.roles", scope: "org", repo: IDENTITY, storeName: "rt.roles" });
     });
   });
 

@@ -4,26 +4,31 @@
  * pruneStoreName.
  */
 
-import { machineSettingsPath, teamSettingsPath, userSettingsPath } from "./paths.ts";
+import { machineSettingsPath, orgSettingsPath, teamSettingsPath, userSettingsPath } from "./paths.ts";
 import { allDefs, type SettingScope } from "./registry-machinery.ts";
 import { currentStoreName, readSection, type OlderLabel } from "./migrate.ts";
-import { listTeams, readStore } from "./stores.ts";
+import { currentOrg, listTeamFolders, readStore } from "./stores.ts";
 
 export interface StoreSection {
   scope: SettingScope;
-  /** The team's name, for a team store. */
+  /** The team folder's name, for a team store. */
   team?: string;
   file: string;
   repo?: string;
   section: Record<string, unknown>;
 }
 
+/** Every team folder, not only the active one: check and migrate are about the clone, not about this member's view. */
 export function storeSections(): StoreSection[] {
-  const stores: { scope: SettingScope; team?: string; file: string }[] = [
-    ...[...listTeams()].sort().map((team) => ({ scope: "team" as const, team, file: teamSettingsPath(team) })),
-    { scope: "user", file: userSettingsPath() },
-    { scope: "machine", file: machineSettingsPath() },
-  ];
+  const org = currentOrg();
+  const shared: { scope: SettingScope; team?: string; file: string }[] =
+    org === null
+      ? []
+      : [
+          { scope: "org", file: orgSettingsPath(org) },
+          ...listTeamFolders(org).map((team) => ({ scope: "team" as const, team, file: teamSettingsPath(org, team) })),
+        ];
+  const stores = [...shared, { scope: "user" as const, file: userSettingsPath() }, { scope: "machine" as const, file: machineSettingsPath() }];
   const out: StoreSection[] = [];
   for (const s of stores) {
     const store = readStore(s.file);

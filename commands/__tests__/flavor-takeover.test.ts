@@ -8,7 +8,7 @@
  * `exists` denies the real /Applications so a machine's own installs never
  * decide an outcome.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync,
   readFileSync, readlinkSync, rmSync, writeFileSync,
@@ -19,13 +19,14 @@ import { flavorTakeover, takeoverBlocks, type TakeoverSeams } from "../flavor.ts
 import type { FailureInput } from "../../lib/ui/out.ts";
 import type { Block } from "../../lib/ui/protocol.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
+import { DEV_MODE_PRELOAD } from "../settings.ts";
 import { TRAY_SOCK_PATH } from "../../lib/daemon-config.ts";
 import { DEV_TRAY_APP_NAME, TRAY_APP_BUNDLE, TRAY_APP_NAME } from "../../lib/rt-paths.ts";
 import { deleteKvValue, getKvValue, hasKvValue } from "../../lib/state/index.ts";
 
 const HOME = process.env.HOME!;
 const WRAPPER_PATH = join(HOME, ".local", "bin", "rt");
-const PRELOAD = join(HOME, ".mattstack", "rt", "dev-restore-cwd.ts");
+const PRELOAD = DEV_MODE_PRELOAD;
 const FAKE_PROD_APP = join(HOME, "Applications", TRAY_APP_BUNDLE);
 const FAKE_PROD_RT = join(FAKE_PROD_APP, "Contents", "MacOS", "rt");
 const HAND_DECK_PLIST = join(HOME, "Library", "LaunchAgents", "com.mattstack.deck.plist");
@@ -34,6 +35,15 @@ const UID = process.getuid?.() ?? 501;
 const STANDALONE_25_WRAPPER = `#!/bin/zsh\nexec "/Users/someone/.bun/bin/bun" run "/Users/someone/repo-tools/cli.ts" "$@"\n`;
 const LEGACY_DEV_CONFIG = JSON.stringify({ sourcePath: "/Users/someone/repo-tools", bunPath: "/Users/someone/.bun/bin/bun" });
 const LEGACY_DEV_CONFIGS = [join(HOME, ".rt", "dev-mode.json"), join(HOME, ".mattstack", "rt", "dev-mode.json")];
+
+let originalAppSocket: string | undefined;
+beforeEach(() => {
+  for (const path of [HOME, TRAY_SOCK_PATH, PRELOAD]) {
+    expect(path).toMatch(/^\/(?:private\/)?(?:tmp\/|var\/folders\/)/);
+  }
+  originalAppSocket = process.env.RT_APP_SOCKET;
+  process.env.RT_APP_SOCKET = TRAY_SOCK_PATH;
+});
 
 let fakeBinDir = "";
 let logPath = "";
@@ -98,6 +108,7 @@ function setUpFakes(loaded: string[]): void {
   originalShell = process.env.SHELL;
   process.env.SHELL = "/bin/nonexistent-shell-for-tests";
   mkdirSync(join(HOME, ".mattstack", "rt"), { recursive: true });
+  mkdirSync(dirname(PRELOAD), { recursive: true });
 }
 
 /** A tray answering /health as `flavor`; a retire unloads its daemon label and closes the socket shortly after. */
@@ -155,6 +166,8 @@ async function run(args: string[], seams: Partial<TakeoverSeams> = {}): Promise<
 }
 
 afterEach(() => {
+  if (originalAppSocket === undefined) delete process.env.RT_APP_SOCKET;
+  else process.env.RT_APP_SOCKET = originalAppSocket;
   try { server?.stop(true); } catch { /* already stopped */ }
   server = null;
   if (originalPath) process.env.PATH = originalPath;

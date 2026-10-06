@@ -1109,11 +1109,11 @@ describe('SettingRow', () => {
   it('an external row summarises and names its owner', () => {
     renderWithProviders(
       <SettingRow
-        def={def('board.members', {
+        def={def('board.hiddenMembers', {
           type: 'array',
-          scopes: ['team'],
+          scopes: ['user'],
           writable: false,
-          effective: { scope: 'team', file: '/t', value: [{}, {}, {}] },
+          effective: { scope: 'user', file: '/u', value: ['a', 'b', 'c'] },
         })}
         store={store()}
         subhead={null}
@@ -1220,7 +1220,13 @@ describe('with a repo picked', () => {
         query=""
       />
     );
-    expect(screen.getByText('team · repo')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        (_, el) =>
+          !!el?.matches('.mantine-Badge-label') &&
+          el.textContent === 'team · repo'
+      )
+    ).toBeInTheDocument();
     await openRow('rt.worktreeCwd');
     const rung = await screen.findByTestId('layer-team.repo');
     expect(within(rung).queryByRole('button', { name: /^move / })).toBeNull();

@@ -150,6 +150,7 @@ function settings(over: Partial<BoxscoreSettings> = {}): BoxscoreSettings {
   return {
     projects: ['g/p'],
     roster,
+    orgRoster: roster,
     hiddenMembers,
     users: roster.filter(r => !hidden.has(r.username)).map(r => r.username),
     doneStates: [],

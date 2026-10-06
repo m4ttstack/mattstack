@@ -8,10 +8,10 @@ import { execSync } from "child_process";
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { teamSettingsPath } from "../../rt-paths.ts";
 import { readyLadderHash, writeReadyApproval } from "../../worktree/ready-approval.ts";
 import { resetHeldReadyLaddersCache } from "../../worktree/ready-held.ts";
 import { createStatusHandlers } from "../handlers/status.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 const IDENTITY = "gitlab.com/acme/tray-held";
 const WIRE = "remote:gitlab.com%2Facme%2Ftray-held";
@@ -40,7 +40,7 @@ function fakeCtx(repoIndex: Record<string, string> = {}): any {
 function repoWithTeamLadder(): string {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "rttrayheld-")));
   execSync(`git init -q && git remote add origin ${REMOTE}`, { cwd: dir, shell: "/bin/zsh" });
-  const file = teamSettingsPath("acme");
+  const file = sharedStorePath("acme");
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(
     file,

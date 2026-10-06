@@ -70,7 +70,7 @@ function fakeStep(id: StepId, outcome: StepOutcome | ((ctx: ApplyContext) => Pro
   };
 }
 
-/** Never invoked — proves a branch that must short-circuit before touching the engine really does. */
+/** Never invoked: proves a branch that must short-circuit before touching the engine really does. */
 function neverRunsStep(id: StepId): StepDef {
   return {
     id,
@@ -122,13 +122,13 @@ async function runExpectingExit(fn: () => Promise<void>): Promise<void> {
   }
 }
 
-describe("setupApply — NDJSON discipline", () => {
+describe("setupApply: NDJSON discipline", () => {
   test("--json: stdout lines parse as plan, step, step, done for one done stub step", async () => {
     const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "done", detail: "ok" })] });
 
     await setupApply(["--json"], {}, deps);
 
-    // Every line is valid, self-contained JSON — the NDJSON contract's own
+    // Every line is valid, self-contained JSON: the NDJSON contract's own
     // invariant, asserted directly rather than trusted from the emitter.
     const events = deps.lines.map((l) => JSON.parse(l) as ApplyEvent);
     expect(events.map((e) => e.event)).toEqual(["plan", "step", "step", "done"]);
@@ -182,7 +182,7 @@ describe("setupApply — NDJSON discipline", () => {
   });
 });
 
-describe("setupApply — exit-code table", () => {
+describe("setupApply: exit-code table", () => {
   test("a failed step: exit 2, the NDJSON stream already carries the failure", async () => {
     const deps = baseApplyDeps({ steps: [fakeStep("path.link", { state: "failed", detail: "boom" })] });
 
@@ -199,7 +199,7 @@ describe("setupApply — exit-code table", () => {
     });
 
     await expect(setupApply(["--json"], {}, deps)).rejects.toThrow("real bug");
-    expect(deps.exitCodes).toEqual([]); // deps.exit is never called for a bug — it propagates instead
+    expect(deps.exitCodes).toEqual([]); // deps.exit is never called for a bug; it propagates instead
   });
 
   test("createApplyContext throwing a real bug rethrows past setupApply exactly like a step bug does", async () => {
@@ -211,11 +211,11 @@ describe("setupApply — exit-code table", () => {
     expect(deps.lines).toEqual([]); // nothing reached the stream before the throw
   });
 
-  test("createApplyContext throwing a UserActionableError prints the same exit-2 envelope a step failure gets — never a silently swallowed dead stream", async () => {
+  test("createApplyContext throwing a UserActionableError prints the same exit-2 envelope a step failure gets, never a silently swallowed dead stream", async () => {
     const deps = baseApplyDeps();
     deps.probes = { ...deps.probes, readDir: () => { throw new UserActionableError("team-discovery-failed", "readDir boom"); } };
 
-    // createApplyContext's discoverTeams() calls p.readDir — this proves a
+    // createApplyContext's discoverOrgs() calls p.readDir... this proves a
     // UserActionableError thrown from inside context creation is caught by
     // setupApply's own try/catch (not left to propagate uncaught, which
     // would abandon the stream with no terminal event and no exit code).
@@ -260,7 +260,7 @@ describe("setupApply — exit-code table", () => {
   });
 
   test("--from a real but gated-out step resumes there, never a silent full re-run", async () => {
-    const gatedOut: StepDef = { id: "home.init", title: "home.init", kind: "rt", applies: () => false, run: async () => { throw new Error("must never run — gated out"); } };
+    const gatedOut: StepDef = { id: "home.init", title: "home.init", kind: "rt", applies: () => false, run: async () => { throw new Error("must never run: gated out"); } };
     const deps = baseApplyDeps({
       steps: [gatedOut, fakeStep("path.link", { state: "done" })],
     });
@@ -327,7 +327,7 @@ describe("setupApply — exit-code table", () => {
   });
 });
 
-describe("setupApply — flags reach the engine", () => {
+describe("setupApply: flags reach the engine", () => {
   test("--non-interactive and --team-of-one flow into ctx", async () => {
     const seen: { nonInteractive: boolean; teamOfOne: boolean }[] = [];
     const deps = baseApplyDeps({
@@ -351,7 +351,7 @@ describe("setupApply — flags reach the engine", () => {
   });
 });
 
-describe("setupInteractive — TTY-vs-json branch", () => {
+describe("setupInteractive: TTY-vs-json branch", () => {
   const readyExec: ExecScript = (argv) => (argv[0] === "sw_vers" ? ok("15.6") : ok());
 
   test("non-TTY behaves as `setup status`: prints the plan groups, never confirms", async () => {
@@ -395,7 +395,7 @@ describe("setupInteractive — TTY-vs-json branch", () => {
     expect(deps.confirmCalls).toEqual([]);
   });
 
-  // `--force` bypasses the canInstall gate deterministically — a real
+  // `--force` bypasses the canInstall gate deterministically. A real
   // fakeProbes environment reaching composePlan's actual canInstall:true
   // would need every validator group satisfied, which isn't this test's
   // concern; --force exercises the exact same "proceed to confirm" branch.
@@ -416,7 +416,7 @@ describe("setupInteractive — TTY-vs-json branch", () => {
     }
 
     // `confirm` is overridden above (to resolve false), which bypasses the
-    // default's own confirmCalls tracking — the real proof a decline works
+    // default's own confirmCalls tracking; the real proof a decline works
     // is that the never-runs step really never ran (no throw) and nothing
     // exited.
     expect(deps.exitCodes).toEqual([]);
@@ -521,7 +521,7 @@ describe("setupIntent", () => {
   test("rt setup intent solo refuses with team-exists when a team clone is on disk, and writes nothing", async () => {
     const deps = baseIntentDeps({
       probes: fakeProbes({
-        files: { "/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc": "{}" },
+        files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
         dirs: { "/fake-home/.mattstack/teams": ["acme"] },
       }),
     });
@@ -645,7 +645,7 @@ describe("setupApply: a full run with nothing left to finish records Finish", ()
   });
 });
 
-describe("setupApply — hard-precondition gate", () => {
+describe("setupApply: hard-precondition gate", () => {
   test("refuses before any step when tool.clt is missing", async () => {
     const deps = baseApplyDeps({ steps: [neverRunsStep("home.init")], planForGate: async () => ({ requiredMissing: ["tool.clt"] }) });
 
@@ -729,7 +729,7 @@ describe("setup apply --json bytes", () => {
   });
 });
 
-describe("setupApply — the background settles before any step runs", () => {
+describe("setupApply: the background settles before any step runs", () => {
   const preloadBlock = process.env.RT_UI_NO_TERMINAL_QUERY;
   let dir: string;
   beforeEach(() => {

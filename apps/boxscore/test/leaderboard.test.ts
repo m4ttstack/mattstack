@@ -15,7 +15,10 @@ import type {
   FetchMergeRequestIndexOptions,
   MergeRequestIndexRow,
 } from '@mattstack/glance';
-import { __setSettingReader } from '../src/server/config/index.js';
+import {
+  __setRosterReader,
+  __setSettingReader,
+} from '../src/server/config/index.js';
 import type {
   GitProvider,
   SourceProvider,
@@ -43,7 +46,6 @@ const { ViewerForbiddenError, LOCKED_MESSAGE } =
 const PROJECT = 'acme/app';
 const SETTINGS: Record<string, unknown> = {
   'boxscore.projects': [PROJECT],
-  'mattstack.roster': [{ username: 'alice' }],
   'mattstack.integrations': { forge: { host: 'gl.example' } },
 };
 
@@ -81,11 +83,13 @@ function fakeProvider(
 
 beforeAll(() => {
   __setSettingReader(<T>(k: string) => SETTINGS[k] as T | undefined);
+  __setRosterReader(() => [{ username: 'alice' }]);
   // resolveEnv() reads GITLAB_TOKEN through the env-first secrets seam.
   process.env.GITLAB_TOKEN = 'test-token';
 });
 afterAll(() => {
   __setSettingReader(null);
+  __setRosterReader(null);
   __setProviderFactory(null);
   __resetStore();
   rmSync(dir, { recursive: true, force: true });
@@ -240,12 +244,14 @@ describe('viewer roles', () => {
 
   beforeEach(() => {
     __setSettingReader(<T>(k: string) => ROLES_SETTINGS[k] as T | undefined);
+    __setRosterReader(() => [{ username: 'alice' }, { username: 'bob' }]);
     fakeProvider();
-    __setTeamReader(() => ({ joined: true }));
+    __setTeamReader(() => ({ seesTeam: false }));
     __setCurrentUser({ username: 'Alice', name: null });
   });
   afterEach(() => {
     __setTeamReader(null);
+    __setRosterReader(() => [{ username: 'alice' }]);
     __resetCurrentUser();
     __setSettingReader(<T>(k: string) => SETTINGS[k] as T | undefined);
   });

@@ -97,7 +97,7 @@ const tab = z.looseObject({
     .meta({ title: "Shows" }),
   slackChannel: z.string().optional().meta({ title: "Slack channel", inherits: "board.slack.channel" }),
   reviewSkill: z.string().optional().meta({ title: "Review skill", placeholder: "inherits the repo's review skill" }),
-  pack: z.string().optional().meta({ title: "Pack", inherits: "board.defaultPack" }),
+  pack: z.string().optional().meta({ title: "Pack", placeholder: "inherits your team's pack" }),
   dimEmpty: z.boolean().optional().meta({
     title: "Fade people with nothing here",
     description: "Fade roster members with no MRs on this tab. Unset, every tab but a team roster one fades them.",
@@ -184,7 +184,13 @@ export const SCHEMAS = {
   }),
   "mattstack.tracking": z.looseObject({ repos: z.record(z.string(), z.looseObject({ caches: z.array(z.string()).optional() })).optional() }),
   "setup.waived": z.array(z.string()),
-  "mattstack.roster": z.array(z.looseObject({ username: z.string(), name: z.string().optional(), agePublicKey: z.string().optional() })),
+  "mattstack.roster": z.array(
+    z.looseObject({ username: z.string(), name: z.string().optional(), agePublicKey: z.string().optional(), teams: z.array(z.string()).optional() }),
+  ),
+  "mattstack.org": z.looseObject({
+    admins: z.array(z.string()),
+    teams: z.record(z.string(), z.looseObject({ owners: z.array(z.string()) })),
+  }),
   "claude.marketplaces": z.array(z.string()),
   "claude.plugins": z.array(z.string()),
   "deck.apps": z.record(
@@ -206,7 +212,6 @@ export const SCHEMAS = {
     railway: z.looseObject({ projectId: z.string(), environmentId: z.string() }).nullable().optional(),
   }),
   "board.projects": z.array(z.string()),
-  "board.members": z.array(z.looseObject({ username: z.string(), name: z.string().optional(), hidden: z.boolean().optional(), agePublicKey: z.string().optional() })),
   "board.botUsernames": z.array(z.string()),
   "board.ticketPrefixes": z.array(z.string()),
   "board.slack": z.looseObject({

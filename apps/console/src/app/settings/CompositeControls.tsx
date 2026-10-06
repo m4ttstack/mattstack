@@ -18,6 +18,7 @@ import {
   Switch,
   Text,
   TextInput,
+  Tooltip,
   UnstyledButton,
 } from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
@@ -53,6 +54,7 @@ import listClasses from './StringList.module.css';
 import { unitOf } from './units';
 import {
   useKeyExplain,
+  useSettingsOrg,
   useSettingsRepo,
   useSettingsTeam,
 } from './useConsoleSettings';
@@ -60,6 +62,7 @@ import type { useRowSave } from './useRowSave';
 import {
   EDITOR_KINDS,
   fieldSource,
+  layerLabel,
   leafWrite,
   rungBase,
   rungOf,
@@ -132,11 +135,12 @@ function FieldRow({
 function LiveHeader({ row, onJson }: { row: Row; onJson: () => void }) {
   const { text } = useSchemeColors();
   const team = useSettingsTeam();
+  const org = useSettingsOrg();
   return (
     <PanelToolbar>
       <Group justify="space-between" wrap="nowrap" gap={8} pt={4} pb={6}>
         <Text fz={12} c={text.muted}>
-          {`Editing the ${targetLabel(row.target, team)} layer`}
+          {`Editing the ${targetLabel(row.target, team, org)} layer`}
         </Text>
         <ModeToggle value="form" onChange={m => m === 'json' && onJson()} />
       </Group>
@@ -165,6 +169,116 @@ function strings(v: unknown): string[] {
     : [];
 }
 
+interface Inherited {
+  item: string;
+  /** Null while the layers are still loading and the source is not known. */
+  scope: string | null;
+}
+
+/** An add key's list as the row's target layer stores it, and the items
+    every other layer adds. An edit writes `own` only: seeding it from the
+    merged value would copy the org's and the team's items into the target
+    layer, where they would count as that layer's own. Until the layers load,
+    every item shows as inherited from an unknown layer. */
+function addListParts(
+  def: SettingDefWire,
+  row: Row,
+  rows: ExplainRowWire[]
+): { own: string[]; inherited: Inherited[] } {
+  if (rows.length === 0)
+    return {
+      own: [],
+      inherited: strings(def.effective.value).map(item => ({
+        item,
+        scope: null,
+      })),
+    };
+  const at = rungOf(row.target.scope, row.target.repo ?? null);
+  const own = strings(
+    rows.find(r => r.scope === at && r.present && !r.invalid)?.value
+  );
+  const seen = new Set(own);
+  const inherited: Inherited[] = [];
+  for (const r of rows) {
+    if (r.scope === at || !r.present || r.invalid || r.shadowed) continue;
+    for (const item of strings(r.value)) {
+      if (seen.has(item)) continue;
+      seen.add(item);
+      inherited.push({ item, scope: r.scope });
+    }
+  }
+  return { own, inherited };
+}
+
+function useLayerName(): (scope: string) => string {
+  const team = useSettingsTeam();
+  const org = useSettingsOrg();
+  return scope =>
+    rungBase(scope) ? layerLabel(scope as LayerScope, team, org) : scope;
+}
+
+/** An item another layer adds: shown, never removable from this one. */
+function InheritedTag({
+  entry,
+  className,
+  styles,
+}: {
+  entry: Inherited;
+  className?: string;
+  styles?: typeof TAG_STYLES;
+}) {
+  const name = useLayerName();
+  const { text } = useSchemeColors();
+  return (
+    <Tooltip
+      label={entry.scope === null ? '' : `from ${name(entry.scope)}`}
+      disabled={entry.scope === null}
+      position="top"
+    >
+      {className ? (
+        <span className={className} style={{ color: text.muted }}>
+          {entry.item}
+        </span>
+      ) : (
+        <Pill ff="monospace" styles={styles} c={text.muted}>
+          {entry.item}
+        </Pill>
+      )}
+    </Tooltip>
+  );
+}
+
+function AddInlineTags({ def, row }: { def: SettingDefWire; row: Row }) {
+  const explained = useKeyExplain(def.key, useSettingsRepo());
+  const { own, inherited } = addListParts(def, row, explained.rows);
+  return (
+    <Stack gap={4}>
+      <InlineTags
+        def={def}
+        row={row}
+        list={own}
+        inherited={inherited}
+        ready={!explained.loading && explained.error === null}
+        save={value =>
+          row.save(value).then(ok => {
+            explained.refresh();
+            return ok;
+          })
+        }
+      />
+      {explained.error && <ExplainError message={explained.error} />}
+    </Stack>
+  );
+}
+
+function ExplainError({ message }: { message: string }) {
+  return (
+    <Text fz={12} ff="monospace" c="var(--tk-text-bad-small)">
+      {message}
+    </Text>
+  );
+}
+
 function StringListBody({
   def,
   row,
@@ -174,10 +288,14 @@ function StringListBody({
   row: Row;
   onEditJson: () => void;
 }) {
-  const list = strings(def.effective.value);
-  const saving = row.status === 'saving';
   const [draft, setDraft] = useState('');
   const explained = useKeyExplain(def.key, useSettingsRepo());
+  const add =
+    def.merge === 'add' ? addListParts(def, row, explained.rows) : null;
+  const list = add ? add.own : strings(def.effective.value);
+  const saving =
+    row.status === 'saving' ||
+    (add !== null && (explained.loading || explained.error !== null));
   const save = (value: unknown) =>
     row.save(value).then(ok => {
       explained.refresh();
@@ -196,6 +314,13 @@ function StringListBody({
     <Body>
       <LiveHeader row={row} onJson={onEditJson} />
       <div className={listClasses.cloud}>
+        {add?.inherited.map(entry => (
+          <InheritedTag
+            key={`${entry.scope}:${entry.item}`}
+            entry={entry}
+            className={listClasses.tag}
+          />
+        ))}
         {list.map((item, i) => (
           <span key={`${i}:${item}`} className={listClasses.tag}>
             {item}
@@ -233,6 +358,7 @@ function StringListBody({
           }}
         />
       </div>
+      {add && explained.error && <ExplainError message={explained.error} />}
       {resettable && (
         <Group gap={4} pb={2}>
           <Button
@@ -255,7 +381,7 @@ const TAG_STYLES = {
   root: {
     height: TAG_HEIGHT,
     borderRadius: 4,
-    background: 'var(--tk-raised)',
+    background: 'var(--tag-fill, var(--tk-raised))',
     color: 'var(--tk-text-1)',
   },
   remove: { color: 'var(--tk-text-3)' },
@@ -267,13 +393,19 @@ function InlineTags({
   def,
   row,
   list,
+  inherited = [],
+  ready = true,
+  save = row.save,
 }: {
   def: SettingDefWire;
   row: Row;
   list: string[];
+  inherited?: Inherited[];
+  ready?: boolean;
+  save?: (value: unknown) => Promise<boolean>;
 }) {
   const { text } = useSchemeColors();
-  const saving = row.status === 'saving';
+  const saving = row.status === 'saving' || !ready;
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
   const plus = useRef<HTMLButtonElement>(null);
@@ -290,20 +422,27 @@ function InlineTags({
   const commit = () => {
     if (saving) return;
     const next = addToList(list, draft);
-    if (next) void row.save(next).then(ok => ok && setDraft(''));
+    if (next) void save(next).then(ok => ok && setDraft(''));
   };
   const remove = (at: number) => {
     if (saving) return;
-    void row.save(list.filter((_, i) => i !== at));
+    void save(list.filter((_, i) => i !== at));
   };
 
   return (
     <Group gap={6} wrap="wrap">
-      {list.length === 0 && !adding && (
+      {list.length === 0 && inherited.length === 0 && !adding && (
         <Text fz={12} c={text.muted}>
           {def.effective.value === undefined ? 'unset' : 'none'}
         </Text>
       )}
+      {inherited.map(entry => (
+        <InheritedTag
+          key={`${entry.scope}:${entry.item}`}
+          entry={entry}
+          styles={TAG_STYLES}
+        />
+      ))}
       {list.map((item, i) => (
         <Pill
           key={`${i}:${item}`}
@@ -808,10 +947,10 @@ export function rowSummary(def: SettingDefWire): string {
   return `${n} ${n === 1 ? 'entry' : 'entries'}`;
 }
 
-/** A form or JSON draft over the target layer's own value. A deep key's
-    draft starts from that layer's authored value, never the merged view, so
-    defaults and other layers are never copied into it; a replace key starts
-    from the value in effect, as the list editors do. */
+/** A form or JSON draft over the target layer's own value. A deep or add
+    key's draft starts from that layer's authored value, never the merged
+    view, so defaults and other layers are never copied into it; a replace
+    key starts from the value in effect, as the list editors do. */
 function DraftBody({
   def,
   row,
@@ -829,23 +968,23 @@ function DraftBody({
 }) {
   const repo = useSettingsRepo();
   const team = useSettingsTeam();
+  const org = useSettingsOrg();
   const explained = useKeyExplain(def.key, repo);
   const [resets, setResets] = useState(0);
   const at = rungOf(row.target.scope, row.target.repo ?? null);
   const deep = def.merge === 'deep';
-  if (deep && explained.rows.length === 0)
+  const layered = deep || def.merge === 'add';
+  if (layered && explained.rows.length === 0)
     return (
       <Body>
         {explained.error ? (
-          <Text fz={12} ff="monospace" c="var(--tk-text-bad-small)">
-            {explained.error}
-          </Text>
+          <ExplainError message={explained.error} />
         ) : (
           <Skeleton h={48} />
         )}
       </Body>
     );
-  const initial = deep
+  const initial = layered
     ? explained.rows.find(r => r.scope === at && r.present)?.value
     : def.effective.value;
   return (
@@ -856,7 +995,7 @@ function DraftBody({
         form={form}
         initial={initial}
         startIn={startIn}
-        targetLabel={targetLabel(row.target, team)}
+        targetLabel={targetLabel(row.target, team, org)}
         saving={row.status === 'saving'}
         onForm={onForm}
         onCancel={() => {
@@ -968,7 +1107,12 @@ export function compositeParts(
     const list = strings(value);
     if (isInlineList(value))
       return {
-        control: <InlineTags def={def} row={row} list={list} />,
+        control:
+          def.merge === 'add' ? (
+            <AddInlineTags def={def} row={row} />
+          ) : (
+            <InlineTags def={def} row={row} list={list} />
+          ),
         body: null,
         toolbar: <LiveHeader row={row} onJson={onEditJson} />,
       };

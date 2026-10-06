@@ -6,17 +6,24 @@
  * scratch file a viewer regenerates on every launch.
  */
 
-import { describe, expect, test, afterEach } from "bun:test";
+import { describe, expect, test, afterEach, beforeEach } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { materializeLogdyConfig } from "../daemon.ts";
-import { rtDir, tmpDir } from "../../lib/rt-paths.ts";
+import { tmpDir } from "../../lib/rt-paths.ts";
 
-const legacyPath = () => join(rtDir(), "logdy-pino-columns.json");
+import { RT_DIR } from "../../lib/daemon-config.ts";
+
+const legacyPath = () => join(RT_DIR, "logdy-pino-columns.json");
 const newPath = () => join(tmpDir(), "logdy-pino-columns.json");
 
 describe("materializeLogdyConfig", () => {
+  beforeEach(() => {
+    for (const path of [legacyPath(), newPath()]) {
+      expect(path).toMatch(/^\/(?:private\/)?(?:tmp\/|var\/folders\/)/);
+    }
+  });
   afterEach(() => {
     rmSync(newPath(), { force: true });
     rmSync(legacyPath(), { force: true });
@@ -35,7 +42,7 @@ describe("materializeLogdyConfig", () => {
   });
 
   test("best-effort removes a lingering top-level rt/logdy-pino-columns.json", () => {
-    mkdirSync(rtDir(), { recursive: true });
+    mkdirSync(RT_DIR, { recursive: true });
     writeFileSync(legacyPath(), "{}");
 
     materializeLogdyConfig();

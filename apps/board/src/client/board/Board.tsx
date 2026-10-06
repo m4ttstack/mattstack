@@ -1537,7 +1537,7 @@ export function Board() {
                 </>
               ) : (
                 <>
-                  ask the team owner to invite you again (
+                  ask your org admin to invite you again (
                   <code>rt team invite</code>), then run{' '}
                   <code>rt team join</code> with the new invite
                 </>

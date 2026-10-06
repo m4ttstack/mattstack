@@ -37,7 +37,7 @@ const row = () => ({
 
 function serve(
   access: 'owner' | 'member' | 'no-team',
-  self: string | null = null
+  fixed: Record<string, 'admin' | 'owner'> = {}
 ) {
   vi.stubGlobal(
     'fetch',
@@ -46,11 +46,10 @@ function serve(
         new Response(
           JSON.stringify({
             members: [
-              { username: 'ada', name: 'Ada L' },
-              { username: 'bob', name: null },
+              { username: 'ada', name: 'Ada L', fixed: fixed.ada ?? null },
+              { username: 'bob', name: null, fixed: fixed.bob ?? null },
             ],
             access,
-            self,
           })
         )
     )
@@ -97,8 +96,8 @@ describe('BoxscoreRolesBody', () => {
     );
   });
 
-  it("fixes the owner's own row on Team, labelled owner", async () => {
-    serve('owner', 'bob');
+  it("fixes a team owner's row on Team, labelled owner", async () => {
+    serve('owner', { bob: 'owner' });
     renderWithProviders(
       <BoxscoreRolesBody def={def({ bob: 'self' })} row={row() as never} />
     );
@@ -111,13 +110,24 @@ describe('BoxscoreRolesBody', () => {
       expect(radio).toBeEnabled();
   });
 
-  it('locks no row when the owner is not known', async () => {
+  it("fixes an org admin's row on Team, labelled org admin", async () => {
+    serve('member', { ada: 'admin' });
+    renderWithProviders(
+      <BoxscoreRolesBody def={def({})} row={row() as never} />
+    );
+    expect(await screen.findByText('Team · org admin')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('radiogroup', { name: 'Role for ada' })
+    ).toBeNull();
+  });
+
+  it('locks no row when no member sees the team by their org role', async () => {
     serve('owner');
     renderWithProviders(
       <BoxscoreRolesBody def={def({})} row={row() as never} />
     );
     await screen.findByText('Ada L');
-    expect(screen.queryByText('Team · owner')).toBeNull();
+    expect(screen.queryByText(/Team · /)).toBeNull();
     for (const radio of screen.getAllByRole('radio'))
       expect(radio).toBeEnabled();
   });
@@ -139,7 +149,9 @@ describe('BoxscoreRolesBody', () => {
       <BoxscoreRolesBody def={def({})} row={row() as never} />
     );
     expect(
-      await screen.findByText('Only the team owner can change roles.')
+      await screen.findByText(
+        'Only an owner of your team or an org admin can change roles.'
+      )
     ).toBeInTheDocument();
     for (const radio of screen.getAllByRole('radio'))
       expect(radio).toBeDisabled();

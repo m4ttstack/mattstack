@@ -15,14 +15,16 @@ import { dirname, join } from "path";
 import { settingsMigrate } from "../settings-keys.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { teamSettingsPath, userSettingsPath } from "../../packages/rt-client/src/settings/paths.ts";
+import { orgSettingsPath, teamLocalPath, userSettingsPath } from "../../packages/rt-client/src/settings/paths.ts";
 import { valueHash } from "../../packages/rt-client/src/settings/migrate.ts";
 import { getDef } from "../../packages/rt-client/src/settings/registry-machinery.ts";
 import { renameProperty } from "../../packages/rt-client/src/settings/migrations/helpers.ts";
 import { withMigrationAsync } from "../../packages/rt-client/src/settings/__tests__/with-migration.ts";
+import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 
 const IDENTITY = "gitlab.example.com/acme/app";
 const TEAM = "acme";
+const ROLES = { "mattstack.org": { admins: ["dev1"], teams: {} } };
 const EB = "rt.notify.eventBridges";
 const EB_V1 = [{ pattern: "gate/opened/*", category: "gate", title: "Gate", message: "{question}" }];
 const EB_V2 = [{ match: "gate/opened/*", category: "gate", title: "Gate", message: "{question}" }];
@@ -71,6 +73,10 @@ describe("rt settings migrate", () => {
   function write(file: string, obj: unknown): void {
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, JSON.stringify(obj, null, 2));
+  }
+  function writeShared(obj: Record<string, unknown>): void {
+    write(sharedStorePath(TEAM), { ...ROLES, ...obj });
+    write(teamLocalPath(TEAM), { forgeUsername: "dev1" });
   }
   const read = (file: string) => parse(readFileSync(file, "utf8")) as Record<string, unknown>;
   const printed = () => cap.stdout();
@@ -136,9 +142,9 @@ describe("rt settings migrate", () => {
 
   test("--write reaches the team store", async () => {
     await withMigrationAsync("rt.roles", ROLES_BUMP, async () => {
-      write(teamSettingsPath(TEAM), { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } } } } });
+      writeShared({ repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } } } } });
       await settingsMigrate(["--write"], noPrompt);
-      expect((read(teamSettingsPath(TEAM)).repos as Record<string, Record<string, unknown>>)[IDENTITY]!["rt.roles@2"]).toEqual({ web: { devHook: "./dev.sh" } });
+      expect((read(sharedStorePath(TEAM)).repos as Record<string, Record<string, unknown>>)[IDENTITY]!["rt.roles@2"]).toEqual({ web: { devHook: "./dev.sh" } });
     });
   });
 
@@ -169,15 +175,15 @@ describe("rt settings migrate", () => {
     });
   });
 
-  test("--prune leaves the team store alone without --team, and prunes it with --team", async () => {
+  test("--prune leaves the org store alone without --team, and prunes it with --team", async () => {
     await withMigrationAsync("rt.roles", ROLES_BUMP, async () => {
-      write(teamSettingsPath(TEAM), { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } }, "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
+      writeShared({ repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } }, "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
       await settingsMigrate(["--prune", "--yes"], noPrompt);
-      expect((read(teamSettingsPath(TEAM)).repos as Record<string, Record<string, unknown>>)[IDENTITY]!["rt.roles"]).toBeDefined();
+      expect((read(orgSettingsPath(TEAM)).repos as Record<string, Record<string, unknown>>)[IDENTITY]!["rt.roles"]).toBeDefined();
       expect(process.exitCode).toBe(1);
       process.exitCode = 0;
       await settingsMigrate(["--prune", "--team", "--yes"], noPrompt);
-      expect(read(teamSettingsPath(TEAM))).toEqual({ repos: { [IDENTITY]: { "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
+      expect(read(orgSettingsPath(TEAM))).toEqual({ ...ROLES, repos: { [IDENTITY]: { "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
       expect(process.exitCode).toBe(0);
     });
   });
@@ -280,18 +286,18 @@ describe("rt settings migrate", () => {
 
   test("--prune refuses a diverged older name inside a repo section exactly as the global section, and --force clears it there too", async () => {
     await withMigrationAsync("rt.roles", ROLES_BUMP, async () => {
-      write(teamSettingsPath(TEAM), {
+      writeShared({
         repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./other.sh" } }, "rt.roles@2": { web: { devHook: "./dev.sh" } } } },
       });
       await settingsMigrate(["--prune", "--team", "--yes"], noPrompt);
-      const before = read(teamSettingsPath(TEAM));
+      const before = read(sharedStorePath(TEAM));
       expect((before.repos as Record<string, unknown>)[IDENTITY]).toMatchObject({ "rt.roles": { web: { hook: "./other.sh" } } });
       expect(process.exitCode).toBe(1);
       process.exitCode = 0;
 
       await settingsMigrate(["--prune", "--team", "--yes", "--force", "rt.roles"], noPrompt);
-      const after = read(teamSettingsPath(TEAM));
-      expect(after).toEqual({ repos: { [IDENTITY]: { "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
+      const after = read(sharedStorePath(TEAM));
+      expect(after).toEqual({ ...ROLES, repos: { [IDENTITY]: { "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
       expect(process.exitCode).toBe(0);
     });
   });

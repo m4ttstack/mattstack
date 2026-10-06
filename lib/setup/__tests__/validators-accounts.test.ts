@@ -38,7 +38,7 @@ const JOIN_INTENT: SetupIntent = {
   v: 1,
   at: "2026-08-21T00:00:00.000Z",
   mode: "join",
-  join: { id: "inv1", keyB64: "abc", pointer: { v: 1, team: "acme", name: "Acme", remote: "https://gitlab.example.com/acme/mattstack.git", owner: "owner1", forge: "gitlab.example.com", createdAt: "2026-08-01T00:00:00.000Z" } },
+  join: { id: "inv1", keyB64: "abc", pointer: { v: 2, username: "dev2", teams: ["widgets"], team: "acme", name: "Acme", remote: "https://gitlab.example.com/acme/mattstack.git", owner: "owner1", forge: "gitlab.example.com", createdAt: "2026-08-01T00:00:00.000Z" } },
 };
 const RESTORE_INTENT: SetupIntent = { v: 1, at: "2026-08-21T00:00:00.000Z", mode: "restore", restore: { homeRepo: "/x" } };
 
@@ -89,15 +89,6 @@ describe("accountRows — account.gitlab", () => {
     });
   });
 
-  test("no intent (Install cleared it): a clone rt joined stays a member, any other team is the owner's", async () => {
-    const team = baseTeam({ integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } });
-    const joined = fakeProbes({ files: { "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ joinedByRt: true }) } });
-    const member = await pickRow(accountRows(joined, team, [], fakeSecrets(), null), "account.gitlab");
-    expect((member.action as { fields: { hint?: string }[] }).fields[0]!.hint).toBe("api");
-    const owner = await pickRow(accountRows(fakeProbes(), team, [], fakeSecrets(), null), "account.gitlab");
-    expect((owner.action as { fields: { hint?: string }[] }).fields[0]!.hint).toBe("api");
-  });
-
   test("the create link opens the host the user confirmed over the one the team declares", async () => {
     const team = baseTeam({ integrations: { forge: { host: "gitlab.example.com", provider: "gitlab" } } });
     const r = await pickRow(accountRows(fakeProbes(), team, [], fakeSecrets(), JOIN_INTENT, { forgeHost: "git.internal.example" }), "account.gitlab");
@@ -124,7 +115,10 @@ describe("accountRows — account.gitlab", () => {
       return { status: 200, body: "{}", headers: {} };
     };
     const r = await pickRow(
-      accountRows(fakeProbes({ fetch }), team, [], fakeSecrets({ "rt.gitlabToken": "tok123" }), null, { forgeHost: "gitlab.example.com" }),
+      accountRows(fakeProbes({ fetch, files: {
+        [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
+        "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      } }), team, [], fakeSecrets({ "rt.gitlabToken": "tok123" }), null, { forgeHost: "gitlab.example.com" }),
       "account.gitlab",
     );
     expect(r.status).toBe("needs-you");
@@ -389,7 +383,7 @@ describe("accountRows — account.slack + account.slack-app", () => {
   describe("a joined member waiting on the owner to accept them", () => {
     const MINE = "age1mine0000000000000000000000000000000000000000000000000000000";
     const OWNER = "age1owner000000000000000000000000000000000000000000000000000000";
-    const BOARD = "/fake-home/.mattstack/teams/acme/mattstack/secrets/board.json";
+    const BOARD = "/fake-home/.mattstack/teams/acme/mattstack/org/secrets/board.json";
     const PULL: Action = { type: "run", label: "Re-check", verb: ["team", "pull", "--team", "acme"] };
     const team = baseTeam({ integrations: { slack: { clientId: "abc" } } });
 
@@ -480,7 +474,7 @@ describe("accountRows: account.board-peering", () => {
   function machine(teams: Record<string, { joinedByRt: boolean }>, opts: { extra?: Record<string, string>; fetch?: typeof reachable; env?: Record<string, string> } = {}) {
     const files: Record<string, string> = { ...(opts.extra ?? {}) };
     for (const [slug, t] of Object.entries(teams)) {
-      files[`${TEAMS}/${slug}/mattstack/settings.team.jsonc`] = "// team settings\n{}\n";
+      files[`${TEAMS}/${slug}/mattstack/org/settings.org.jsonc`] = "// team settings\n{}\n";
       files[`${HOME}/.mattstack/rt/teams/${slug}.json`] = JSON.stringify({ createdByRt: !t.joinedByRt, joinedByRt: t.joinedByRt, rtMayManageMembership: false });
     }
     return fakeProbes({ home: HOME, files, dirs: { [TEAMS]: Object.keys(teams) }, fetch: opts.fetch ?? reachable, env: opts.env ?? {} });
@@ -499,7 +493,7 @@ describe("accountRows: account.board-peering", () => {
     expect(r.required).toBe(false);
     expect(r.finishGated).toBeUndefined();
     expect(r.detail).toContain("acme");
-    expect(r.detail).toContain("Ask the team's owner to invite you again (rt team invite --handle <your forge username>)");
+    expect(r.detail).toContain("Ask your org admin to invite you again (rt team invite --handle <your forge username>)");
     expect(r.action?.type).toBe("steps");
     expect(p.calls.fetch).toEqual([]);
   });
@@ -583,7 +577,7 @@ describe("accountRows: account.board-peering", () => {
     expect(r.status).toBe("needs-you");
     expect(r.required).toBe(false);
     expect(r.finishGated).toBeUndefined();
-    expect(r.detail).toContain("You created acme on this Mac");
+    expect(r.detail).toContain("This Mac holds the switchboard admin token");
     expect(r.detail).not.toContain("invite you again");
     expect(r.optionalNote).not.toContain("owner");
     expect(r.optionalNote?.toLowerCase().startsWith("works without")).toBe(false);
@@ -594,6 +588,13 @@ describe("accountRows: account.board-peering", () => {
     });
   });
 
+  test("a joined Mac that holds the admin token is pointed at rt team peer, not at asking for an invite", async () => {
+    const r = await peeringRow(machine({ acme: { joinedByRt: true } }), withAdmin);
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toContain("This Mac holds the switchboard admin token");
+    expect(r.detail).not.toContain("invite you again");
+  });
+
   test("the creator's Mac without the admin token has no way to peer, so it gets no row", async () => {
     const rows = await rowsFor(machine({ acme: { joinedByRt: false } }));
     expect(rows.find((r) => r.id === "account.board-peering")).toBeUndefined();
@@ -602,7 +603,7 @@ describe("accountRows: account.board-peering", () => {
   test("the admin token in the board's own .env counts for the creator's Mac", async () => {
     const r = await peeringRow(machine({ acme: { joinedByRt: false } }, { extra: { [`${HOME}/.mattstack/board/.env`]: "SWITCHBOARD_ADMIN_TOKEN=admin-1\n" } }));
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toContain("You created acme on this Mac");
+    expect(r.detail).toContain("This Mac holds the switchboard admin token");
   });
 
   test("a creator without the admin token who also joined another team keeps the re-invite remedy", async () => {
@@ -916,6 +917,25 @@ describe("accountRows, credential_health integration (rt-132)", () => {
       expect(r.detail).not.toContain("last checked");
     } finally {
       neutralize("gitlab");
+    }
+  });
+});
+
+describe("forge reconnect role", () => {
+  test("account validation uses recorded ownership regardless of joinedByRt", async () => {
+    for (const [username, joinedByRt, reason] of [
+      ["dev1", true, "needs api for the home-repo push and members sync"],
+      ["dev2", true, "needs api for the home-repo push and members sync"],
+      ["dev9", false, "needs api to post board review comments"],
+    ] as const) {
+      const p = fakeProbes({ files: {
+        [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ forgeUsername: username, joinedByRt }),
+        "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+      }, fetch: async (url) => ({ status: 200, body: JSON.stringify(url.includes("personal_access_tokens/self") ? { scopes: ["read_api"] } : { username }), headers: {} }) });
+      const r = await pickRow(accountRows(p, baseTeam({ integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }), [], fakeSecrets({ "rt.gitlabToken": "fixture-token" }), null), "account.gitlab");
+      expect(r.status).toBe("needs-you");
+      expect(r.detail).toBe(`This token is missing api (${reason})`);
+      expect(r.action).toMatchObject({ type: "connect", fields: [{ hint: "api" }], create: { url: "https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api" } });
     }
   });
 });

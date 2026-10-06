@@ -54,10 +54,10 @@ mattstack's own switchboard; an invite link on any other host is refused.
 Everything degrades cleanly when peer features are not set up: no badges, no
 nudge action, and `POST /nudge` returns `400`.
 
-On a Mac in an rt team, `rt team join` with the invite your team owner sent
+On a Mac in an rt team, `rt team join` with the invite your org admin sent
 stores the board's switchboard token for you. If the switchboard ever stops
-accepting this board's token, because the owner removed or re-minted it for
-instance, ask the owner for a fresh invite (`rt team invite`) and run
+accepting this board's token, because the admin removed or re-minted it for
+instance, ask the admin for a fresh invite (`rt team invite`) and run
 `rt team join` with it.
 
 ## Operator setup: run a switchboard

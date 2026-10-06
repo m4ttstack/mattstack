@@ -6,7 +6,7 @@
  * `loadWorktreeRepoConfig` goes through `lib/settings/resolve.ts#getSetting`,
  * which layers the authored stores:
  *
- *   default < team < user < team.repo < user.repo < machine < machine.repo
+ *   default < org < team < user < org.repo < team.repo < user.repo < machine < machine.repo
  *
  * `rt.worktrees` is a **deep-merge** key (registry: `merge: "deep"`): the team
  * store can own `onDeck`/`ready`, the user store can add a personal
@@ -47,7 +47,7 @@
  * ── The app-level toggle ──────────────────────────────────────────────────
  * `rt.worktreeApp` (a DIFFERENT key from `rt.worktrees` above: a single
  * on/off switch, not per-repo) resolves through `getSetting` like any other
- * key, `default < team < user < machine`, merged per field. `enabled` is on
+ * key, `default < org < team < user < machine`, merged per field. `enabled` is on
  * only when the resolved value says `true` outright (S077) and
  * `killProcesses` is on unless it says `false`.
  */
@@ -58,7 +58,7 @@ import { join } from "path";
 import { repoLabel } from "../repo-label.ts";
 import { worktreePoolRoot } from "../rt-paths.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../settings/identity.ts";
-import { explainSetting, getSetting, SCOPE_ORDER, type ResolveOpts, type Scope } from "../settings/resolve.ts";
+import { explainSetting, getSetting, isSharedScope, SCOPE_ORDER, type ResolveOpts, type Scope } from "../settings/resolve.ts";
 import * as out from "../ui/out.ts";
 import { warn } from "../ui/warn.ts";
 import { readReadyApproval, readyLadderHash } from "./ready-approval.ts";
@@ -425,7 +425,7 @@ function readyLadderOwner(repoIdentity: string | null, repoPath: string): Scope 
 }
 
 export interface ReadyGateInfo {
-  /** Whether the winning `ready` ladder is team-authored (team / team.repo). */
+  /** Whether the winning `ready` ladder is org or team authored (org, team, or either per repo). */
   teamOwned: boolean;
   /** Whether a team-owned ladder matches the user's recorded approval. */
   approved: boolean;
@@ -442,16 +442,16 @@ export async function inspectReadyGate(cfg: WorktreeRepoConfig, repoPath: string
   const derived = await deriveRepoIdentity(repoPath);
   const identity = derived.kind === "remote" ? derived.id : null;
   const owner = readyLadderOwner(identity, repoPath);
-  const teamOwned = owner === "team" || owner === "team.repo";
+  const teamOwned = owner !== null && isSharedScope(owner);
   const hash = readyLadderHash(cfg.ready);
   const approved = teamOwned && readReadyApproval(identity) === hash;
   return { teamOwned, approved, hash, ladder: cfg.ready, identity };
 }
 
 /**
- * The ready steps to actually run, and whether a team-authored ladder is being
- * held pending approval. Fail-closed: a team-owned ladder (team / team.repo)
- * with no matching user-scope approval is dropped, leaving only rt's own
+ * The ready steps to actually run, and whether an org or team authored ladder
+ * is being held pending approval. Fail-closed: such a ladder (org, team, or
+ * either per repo) with no matching user-scope approval is dropped, leaving only rt's own
  * implicit install; user/machine-authored ladders and the implicit install are
  * never gated (RT-89). The daemon never prompts... approval is recorded out of
  * band by `rt worktree ready-approve` and only checked here.

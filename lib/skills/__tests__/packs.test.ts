@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { pathToFileURL } from "url";
-import { detectLayout, discoverPacks } from "../packs.ts";
+import { detectLayout, discoverPacks, orgFolderPacks, solePack } from "../packs.ts";
 
 function writeFile(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -231,5 +231,79 @@ describe("pluginDirOf through discoverPacks", () => {
     const settingsPath = join(tmp("rt-packs-settings3-"), "settings.json");
     writeFile(settingsPath, JSON.stringify({ extraKnownMarketplaces: { local: { source: { source: "directory", path: market } } } }));
     expect(discoverPacks({ settingsPath })).toEqual([]);
+  });
+});
+
+describe("orgFolderPacks", () => {
+  function makeOrg() {
+    const root = tmp("rt-packs-org-");
+    const org = join(root, "teams", "acme");
+    writeFile(join(org, "mattstack", "mattstack.jsonc"), `{ "role": "org", "org": "acme" }`);
+    writeFile(join(org, ".claude-plugin", "marketplace.json"), `{ "name": "acme-market", "plugins": [] }`);
+    const widgets = join(org, "mattstack", "teams", "widgets", "packs", "widgets");
+    writeFile(join(widgets, "pack", "surface.jsonc"), `{ "public": ["work"] }`);
+    const base = join(org, "mattstack", "org", "packs", "acme-base");
+    writeFile(join(base, "pack", "surface.jsonc"), `{ "public": [] }`);
+    writeFile(join(base, "pack", "skills.jsonc"), `{ "base": true }`);
+    writeFile(join(org, "mattstack", "teams", "gadgets", "settings.team.jsonc"), `{}`);
+    return { root, org, widgets, base };
+  }
+
+  test("finds each team's pack and the org base pack, by folder", () => {
+    const { root, widgets, base } = makeOrg();
+    expect(orgFolderPacks(root).map((p) => [p.name, p.dir, p.marketplace, p.base])).toEqual([
+      ["acme-base", base, null, true],
+      ["widgets", widgets, "acme-market", undefined],
+    ]);
+  });
+
+  test("a folder under the org's packs is a base only when its fragment says so", () => {
+    const { root, org } = makeOrg();
+    const plain = join(org, "mattstack", "org", "packs", "acme-tools");
+    writeFile(join(plain, "pack", "surface.jsonc"), `{ "public": [] }`);
+    writeFile(join(plain, "pack", "skills.jsonc"), `{ "bindings": {} }`);
+    const broken = join(org, "mattstack", "org", "packs", "acme-broken");
+    writeFile(join(broken, "pack", "surface.jsonc"), `{ "public": [] }`);
+    writeFile(join(broken, "pack", "skills.jsonc"), `{ not json`);
+    expect(orgFolderPacks(root).map((p) => [p.name, p.base])).toEqual([
+      ["acme-base", true],
+      ["acme-broken", undefined],
+      ["acme-tools", undefined],
+      ["widgets", undefined],
+    ]);
+  });
+
+  test("a base pack is never picked for you: one team pack plus a base picks the team pack", () => {
+    const { root } = makeOrg();
+    const packs = discoverPacks({ settingsPath: join(tmp("rt-packs-nosettings-"), "settings.json"), mattstackRoot: root });
+    expect(packs.map((p) => p.name)).toEqual(["acme-base", "widgets"]);
+    expect(solePack(packs)?.name).toBe("widgets");
+    expect(solePack(packs.filter((p) => p.base))).toBeUndefined();
+    expect(solePack([])).toBeUndefined();
+  });
+
+  test("a clone that is not an org, or a root with no teams dir, yields nothing", () => {
+    const root = tmp("rt-packs-org-");
+    writeFile(join(root, "teams", "old", "mattstack", "mattstack.jsonc"), `{ "role": "team" }`);
+    writeFile(join(root, "teams", "old", "mattstack", "packs", "old", "pack", "surface.jsonc"), `{ "public": [] }`);
+    expect(orgFolderPacks(root)).toEqual([]);
+    expect(orgFolderPacks(tmp("rt-packs-empty-"))).toEqual([]);
+  });
+
+  test("a folder whose name is not a valid team or pack name never becomes a pack", () => {
+    const { root, org } = makeOrg();
+    writeFile(join(org, "mattstack", "teams", "Bad_Team", "packs", "Bad_Team", "pack", "surface.jsonc"), `{ "public": [] }`);
+    writeFile(join(org, "mattstack", "org", "packs", "Bad Base", "pack", "surface.jsonc"), `{ "public": [] }`);
+    expect(orgFolderPacks(root).map((p) => p.name)).toEqual(["acme-base", "widgets"]);
+  });
+
+  test("discoverPacks adds folder packs, and a marketplace entry of the same name wins", () => {
+    const { root, widgets } = makeOrg();
+    const { settingsPath } = makeMarketplaceFixture();
+    const names = discoverPacks({ settingsPath, mattstackRoot: root }).map((p) => p.name);
+    expect(names).toEqual(["acme", "acme-base", "mattstack", "widgets"]);
+    expect(discoverPacks({ settingsPath, mattstackRoot: null }).map((p) => p.name)).toEqual(["acme", "mattstack"]);
+    const viaExtra = discoverPacks({ settingsPath, mattstackRoot: root, extraPackDirs: [{ name: "widgets", dir: widgets }] });
+    expect(viaExtra.filter((p) => p.name === "widgets").length).toBe(1);
   });
 });

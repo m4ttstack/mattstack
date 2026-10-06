@@ -50,14 +50,18 @@
   --row-hover: var(--mantine-color-dark-5);
 }
 
+/* A tag's resting fill matches the dark row hover, so tags in a hovered
+   header take the line fill instead (CompositeControls' TAG_STYLES). */
 @media (hover: hover) {
   .item:not([data-open]) .header:hover {
     background-color: var(--row-hover);
+    --tag-fill: var(--tk-line-2);
   }
 }
 
 .item:not([data-open]) .header:focus-within {
   background-color: var(--row-hover);
+  --tag-fill: var(--tk-line-2);
 }
 
 .text {
