@@ -95,6 +95,17 @@ While you have outstanding invites, the daemon checks each one for a reply every
 
 The daemon keeps each Mac's clone in step with the org repo. It pulls on a timer, and on an admin's or owner's Mac it also commits and pushes the changes that Mac's role owns, such as a `rt settings set --scope org` or `--scope team` write, with no hand commit. Packs are the exception: the pack's author commits and pushes a pack's edits, and `rt skills sync` brings the installed copies current. A member's Mac only pulls, so its clone never drifts from the org's.
 
+## Trying a change on a branch
+
+Your clone of the org follows whatever branch it has checked out: the daemon syncs that branch, `rt team publish` pushes it, and your apps read it. Everyone else stays on `main`, so you can try a breaking change without touching their Macs:
+
+```bash
+git -C ~/.mattstack/teams/acme switch -c org-trial
+git -C ~/.mattstack/teams/acme push -u origin org-trial
+```
+
+Make and test the change, then merge `org-trial` into `main` on your forge and switch your clone back with `git switch main`. `rt team status` names the branch while it isn't `main`. `rt team invite` refuses on a branch, because the people you invite clone `main`.
+
 ## Forge grants
 
 When rt created the org repo itself (via `--create-repo`), it can manage forge membership on that repo:
