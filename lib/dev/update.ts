@@ -1,7 +1,7 @@
 import { join } from "path";
 import { UserActionableError } from "../errors.ts";
 import { readPins } from "./tools.ts";
-import { ensureDevApp, ensureTools } from "./stages.ts";
+import { buildRtUi, ensureDevApp, ensureTools } from "./stages.ts";
 import { registerApps } from "./setup.ts";
 import type { DevSeams, StageEnding, StageRunner } from "./seams.ts";
 
@@ -34,9 +34,7 @@ export async function runDevUpdate(s: DevSeams, stage: StageRunner): Promise<Dev
   stages.push(
     await stage("Rebuild rt's terminal helper", async () => {
       if (!(await rtUiStale(s, clone))) return { status: "skipped", title: "rt's terminal helper is current" };
-      const path = `${join(goPath, "..")}:${join(bunPath, "..")}:${s.probes.env.PATH ?? ""}`;
-      const r = await s.probes.exec([bunPath, "run", "ui:build"], { cwd: clone, env: { PATH: path }, timeoutMs: 10 * 60_000 });
-      if (r.code !== 0) throw new UserActionableError("dev-build-failed", "Building rt's terminal helper failed", {}, { log: r.stderr || r.stdout });
+      await buildRtUi(s, clone, { bunPath, goPath });
       return { status: "done", title: "Rebuilt rt's terminal helper" };
     }),
   );

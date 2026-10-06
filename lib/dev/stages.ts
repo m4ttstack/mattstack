@@ -1,3 +1,4 @@
+import { dirname } from "path";
 import { UserActionableError } from "../errors.ts";
 import { chooseDevRelease, installDevAppFromRelease, listDevReleases, readInstalledDevApp } from "./dev-app.ts";
 import type { ChosenDevRelease, DevSeams, StageEnding, StageIO } from "./seams.ts";
@@ -51,6 +52,20 @@ export async function ensureTools(s: DevSeams, pins: DevPins, io: StageIO): Prom
     bunPath: tools.find((x) => x.name === "bun")!.found!,
     goPath: tools.find((x) => x.name === "go")!.found!,
   };
+}
+
+export interface DevToolPaths {
+  bunPath: string;
+  goPath: string;
+}
+
+export function toolchainEnv(s: DevSeams, tools: DevToolPaths): { PATH: string } {
+  return { PATH: `${dirname(tools.goPath)}:${dirname(tools.bunPath)}:${s.probes.env.PATH ?? ""}` };
+}
+
+export async function buildRtUi(s: DevSeams, clone: string, tools: DevToolPaths): Promise<void> {
+  const r = await s.probes.exec([tools.bunPath, "run", "ui:build"], { cwd: clone, env: toolchainEnv(s, tools), timeoutMs: 10 * 60_000 });
+  if (r.code !== 0) throw new UserActionableError("dev-build-failed", "Building rt's terminal helper failed", {}, { log: r.stderr || r.stdout });
 }
 
 export function requireGh(s: DevSeams): string[] {

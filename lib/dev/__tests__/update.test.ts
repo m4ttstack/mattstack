@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { basename } from "path";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { DevSeams, StageRunner } from "../seams.ts";
 import { runDevUpdate, rtUiStale } from "../update.ts";
@@ -18,13 +19,15 @@ function seams(opts: { flavor?: "dev" | "prod"; source?: string | null; uiBinary
     "/Applications/mattstack-dev.app/Contents/Info.plist": "",
   };
   if (opts.uiBinary !== false) files[`${CLONE}/ui/dist/rt-ui`] = "";
+  const uiBuilds: { cwd?: string; path?: string }[] = [];
   const probes = fakeProbes({
     home: "/Users/collab",
     env: { PATH: "/usr/bin" },
     files,
     fetch: async () => ({ status: 200, headers: {}, body: "abc123  mattstack-dev-2.23.0.zip\n" }),
-    exec: (argv) => {
+    exec: (argv, execOpts) => {
       const a = argv.join(" ");
+      if (a === `${BUN} run ui:build`) uiBuilds.push({ cwd: execOpts?.cwd, path: execOpts?.env?.PATH });
       if (a === "/usr/bin/git --version") return { code: 0, stdout: "git version 2.50.1", stderr: "" };
       if (a === `${BUN} --version`) return { code: 0, stdout: "1.4.2", stderr: "" };
       if (a === `${GO} version`) return { code: 0, stdout: "go version go1.26.5 darwin/arm64", stderr: "" };
@@ -75,7 +78,7 @@ function seams(opts: { flavor?: "dev" | "prod"; source?: string | null; uiBinary
     gh: () => ["gh"],
     devWrapperOwnsRt: () => true,
   };
-  return { s, probes, swapCmds };
+  return { s, probes, swapCmds, uiBuilds };
 }
 
 describe("runDevUpdate", () => {
@@ -98,10 +101,10 @@ describe("runDevUpdate", () => {
   });
 
   test("a stale rt-ui binary is rebuilt with bun", async () => {
-    const { s, probes } = seams({ newerUnderUi: true });
+    const { s, uiBuilds } = seams({ newerUnderUi: true });
     const r = await runDevUpdate(s, runner);
     expect(r.stages[1]!.status).toBe("done");
-    expect(probes.calls.exec.map((a) => a.join(" "))).toContain(`${BUN} run ui:build`);
+    expect(uiBuilds).toEqual([{ cwd: CLONE, path: "/opt/homebrew/bin:/Users/collab/.bun/bin:/usr/bin" }]);
   });
 
   test("a locally built dev app is left alone", async () => {
@@ -114,7 +117,10 @@ describe("runDevUpdate", () => {
   test("never pulls, rebases or checks out the clone", async () => {
     const { s, probes } = seams({});
     await runDevUpdate(s, runner);
-    expect(probes.calls.exec.some((a) => a[0] === "git" && ["pull", "rebase", "checkout", "fetch", "reset"].some((v) => a.includes(v)))).toBe(false);
+    const gitCalls = probes.calls.exec.filter((a) => basename(a[0]!) === "git");
+    expect(gitCalls.length).toBeGreaterThan(0);
+    const changing = ["pull", "rebase", "checkout", "fetch", "reset", "switch", "merge", "stash"];
+    expect(gitCalls.filter((a) => changing.some((v) => a.includes(v)))).toEqual([]);
   });
 });
 

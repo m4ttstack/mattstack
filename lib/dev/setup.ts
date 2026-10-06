@@ -5,7 +5,7 @@ import { DEV_APP_PATH, OPEN_DEV_APP, PROD_APP_PATH } from "../release/app-swap.t
 import { REGISTERED_APPS } from "../release/update-machine.ts";
 import { expandHome } from "../setup/repo-root.ts";
 import type { ChosenDevRelease, DevSeams, StageEnding, StageRunner } from "./seams.ts";
-import { ensureDevApp, ensureTools, findDevRelease, isMattstackRemote, requireGh } from "./stages.ts";
+import { buildRtUi, ensureDevApp, ensureTools, findDevRelease, isMattstackRemote, requireGh, toolchainEnv } from "./stages.ts";
 import { readPins } from "./tools.ts";
 
 export type DevSetupResult = { kind: "already"; clone: string } | { kind: "done"; clone: string; stages: StageEnding[] };
@@ -109,13 +109,11 @@ export async function runDevSetup(s: DevSeams, stage: StageRunner): Promise<DevS
 
   stages.push(
     await stage("Build your clone", async (io) => {
-      const env = { PATH: `${join(goPath, "..")}:${join(bunPath, "..")}:${p.env.PATH ?? ""}` };
       io.sub("Installing packages");
-      const install = await p.exec([bunPath, "install"], { cwd: dir, env, timeoutMs: 30 * 60_000 });
+      const install = await p.exec([bunPath, "install"], { cwd: dir, env: toolchainEnv(s, { bunPath, goPath }), timeoutMs: 30 * 60_000 });
       if (install.code !== 0) throw new UserActionableError("dev-build-failed", "Installing packages in your clone failed", {}, { log: install.stderr || install.stdout });
       io.sub("Building rt's terminal helper");
-      const ui = await p.exec([bunPath, "run", "ui:build"], { cwd: dir, env, timeoutMs: 10 * 60_000 });
-      if (ui.code !== 0) throw new UserActionableError("dev-build-failed", "Building rt's terminal helper failed", {}, { log: ui.stderr || ui.stdout });
+      await buildRtUi(s, dir, { bunPath, goPath });
       return { status: "done", title: "Built your clone" };
     }),
   );
