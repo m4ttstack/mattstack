@@ -2003,6 +2003,16 @@ body {
 .tui-stack-children .tui-row {
   border-top: none;
 }
+/* Parent and children still read as separate MRs: a quiet divider that
+   starts past the gutter, so it never crosses the chain's rail. */
+.tui-stack-children .tui-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: calc(var(--stack-indent) + var(--gutter-w));
+  border-top: 1px solid var(--border-soft);
+}
 /* One indent level regardless of depth: chain order alone carries the
    hierarchy, so a deep stack never marches off the right edge. */
 /* Padding, not margin: the row box (and its attention bar) stays flush to
