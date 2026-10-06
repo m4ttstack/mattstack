@@ -10,7 +10,7 @@
  *
  * Usage:
  *   rt sync                  sync current worktree
- *   rt sync all              sync all worktrees with open MRs
+ *   rt sync all              sync all worktrees with open MRs; exit 1 if any branch failed or was refused
  *   rt sync --dry-run        show what would happen
  *   rt sync --json           on conflict: emit a JSON conflict bundle, exit 3, leave rebase paused;
  *                            on a stack member: emit a JSON refusal, exit 4, touch nothing
@@ -380,10 +380,15 @@ export function syncAllBlocks(summaries: SyncSummary[]): Block[] {
   ];
 }
 
+/** 1 when any branch failed or was refused, so a caller checking the code never reads a partial sync as a whole one. */
+export function syncAllExitCode(summaries: SyncSummary[]): number {
+  return summaries.some((s) => s.refusal || s.error) ? 1 : 0;
+}
+
 async function syncAll(
   repoIdentity: string,
   opts: { dryRun?: boolean; repoRoot?: string },
-): Promise<void> {
+): Promise<number> {
   const { daemonQuery, isDaemonRunning } = await import("../lib/daemon-client.ts");
   const running = await isDaemonRunning();
 
@@ -422,7 +427,7 @@ async function syncAll(
 
   if (syncable.length === 0) {
     out.print(out.line("skipped", "There are no feature branches to sync"));
-    return;
+    return 0;
   }
 
   const { createRealProbes } = await import("../lib/setup/probes.ts");
@@ -456,6 +461,7 @@ async function syncAll(
   }
 
   out.print(...syncAllBlocks(summaries));
+  return syncAllExitCode(summaries);
 }
 
 // ─── CLI handler ─────────────────────────────────────────────────────────────
@@ -469,11 +475,14 @@ export async function syncAllCommand(
   const repoName = ctx.identity!.repoName;
   if (!ensureOriginRemote(ctx.identity!.repoRoot)) return;
   syncLog.start(`rt sync all  repo=${repoName}${dryRun ? "  --dry-run" : ""}`);
+  let code: number;
+  // Exit only after the finally: in Bun, process.exit() inside a try skips it.
   try {
-    await syncAll(ctx.identity!.identity, { dryRun, repoRoot: ctx.identity!.repoRoot });
+    code = await syncAll(ctx.identity!.identity, { dryRun, repoRoot: ctx.identity!.repoRoot });
   } finally {
     syncLog.end();
   }
+  if (code !== 0) process.exit(code);
 }
 
 /**
