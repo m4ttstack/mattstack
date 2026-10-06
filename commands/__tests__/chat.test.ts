@@ -31,7 +31,8 @@ import { createChatHandlers } from "../../lib/daemon/handlers/chat.ts";
 import { getStateDb, closeStateDb, type RegistryDeps } from "../../lib/state/index.ts";
 import type { InboxBinding } from "../../lib/claude-registry.ts";
 import { sessionFilePath } from "../../lib/chat-session.ts";
-import { listBindingsByNativeValue } from "../../lib/agent-integrations/session-store.ts";
+import { createSessionStore, listBindingsByNativeValue } from "../../lib/agent-integrations/session-store.ts";
+import { presenceForSession } from "../../lib/state/presence-store.ts";
 import { UserActionableError } from "../../lib/errors.ts";
 import { AGENT_NAMES } from "../../lib/chat-names.ts";
 import { setSetting } from "../../packages/rt-client/src/settings/write.ts";
@@ -552,6 +553,36 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
       ]);
       expect(await runChat(["sign-in", "--no-room"])).toMatch(/signed in as /);
       expect(listBindingsByNativeValue(getStateDb(), "s-bind-1")).toHaveLength(1);
+    } finally {
+      if (savedConfigDir !== undefined) process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
+    }
+  });
+
+  test("integrations on: a binding that fails after the daemon signed in signs the session back out, leaving no session file", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    delete process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CODE_SESSION_ID = "s-conflict";
+    try {
+      // Live in Claude Code's registry (this test process stands in for it),
+      // and bound to another identity that a /clear detached: the re-attach
+      // is prepared before the daemon is asked, and refused once the daemon
+      // names a different identity.
+      const registry = join(home, ".claude", "sessions");
+      mkdirSync(registry, { recursive: true });
+      writeFileSync(join(registry, `${process.pid}.json`), JSON.stringify({ sessionId: "s-conflict", pid: process.pid, messagingSocketPath: join(home, "inbox.sock") }));
+      const store = createSessionStore(getStateDb());
+      const held = store.bind(store.reserve({ identity: "otto.0001" }), { harness: "claude", profile: "default", kind: "id", value: "s-conflict" }, { mode: "herdr", pid: process.pid });
+      if (!held.ok) throw new Error(held.error.message);
+      if (!store.replaceAttachment(held.data.key, 1, { mode: "herdr" }).ok) throw new Error("detach failed");
+
+      const refused = await runChatRaw(["sign-in", "--no-room"]).catch((err: unknown) => err);
+      expect(refused).toBeInstanceOf(UserActionableError);
+      expect((refused as UserActionableError).why).toContain("already belongs to another identity");
+      expect(seen.map((s) => s.cmd)).toEqual(["chat:sign-in", "chat:sign-out"]);
+      expect(presenceForSession("s-conflict", getStateDb())?.signedOutAt).toBeDefined();
+      expect(existsSync(sessionFilePath("s-conflict"))).toBe(false);
+      expect(store.get(held.data.key)!.identity).toBe("otto.0001");
     } finally {
       if (savedConfigDir !== undefined) process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
     }

@@ -45,7 +45,8 @@ function bound(db: Database, identity: string, native: NativeSessionRef, pane = 
   return result.data;
 }
 
-function resolved(outcome: Outcome<CallerContext>): CallerContext {
+function resolved(outcome: Outcome<CallerContext> | null): CallerContext {
+  if (outcome === null) throw new Error("expected a resolved caller, got the environment path");
   if (!outcome.ok) throw new Error(`expected a resolved caller, got ${outcome.error.code}: ${outcome.error.message}`);
   return outcome.data;
 }
@@ -196,7 +197,7 @@ describe("MCP extraction", () => {
     const db = freshDb();
     const one = bound(db, "remy.ab12", codex("thread-one"));
     bound(db, "kai.cd34", codex("thread-two"));
-    const seen: Array<Outcome<CallerContext>> = [];
+    const seen: Array<Outcome<CallerContext> | null> = [];
     const probe: McpToolDef = {
       name: "probe", description: "records the resolved caller", shellForms: { none: "test" },
       inputSchema: { type: "object", properties: {}, additionalProperties: true },

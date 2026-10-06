@@ -27,15 +27,16 @@ export interface McpToolDef {
 
 /** Built by the server from transport evidence, never from a tool's input. */
 export interface ToolContext {
-  caller(): Promise<Outcome<CallerContext>>;
+  /** null: an unbound Claude Code caller, which acts as its environment says. */
+  caller(): Promise<Outcome<CallerContext> | null>;
 }
 
 /** Resolves at most once per call, and only for a tool that asks. */
 export function toolContext(
   evidence: Outcome<CallerEvidence>,
-  resolve: (e: CallerEvidence) => Promise<Outcome<CallerContext>>,
+  resolve: (e: CallerEvidence) => Promise<Outcome<CallerContext> | null>,
 ): ToolContext {
-  let pending: Promise<Outcome<CallerContext>> | undefined;
+  let pending: Promise<Outcome<CallerContext> | null> | undefined;
   return {
     caller: () => (pending ??= evidence.ok ? resolve(evidence.data) : Promise.resolve(evidence)),
   };
@@ -138,7 +139,7 @@ export function callerRefusal(error: { message: string }): string {
   return `this call cannot be attributed to a session: ${error.message}`;
 }
 
-/** The resolved caller when agent.integrations.enabled is on; null when it is off, so the caller keeps its environment path. */
+/** The resolved caller when agent.integrations.enabled is on; null when it is off or the caller is an unbound Claude session, so the caller keeps its environment path. */
 export async function boundCaller(context?: ToolContext): Promise<Outcome<CallerContext> | null> {
   if (!integrationsEnabled()) return null;
   if (!context) return { ok: false, error: { code: "ambiguous", message: "no trusted session evidence reached this tool" } };

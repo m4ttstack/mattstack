@@ -108,7 +108,8 @@ export function sessionName(s: Pick<ChatSession, "handle" | "name">): string {
  * session on this machine but undocumented — the CLI's own Bash calls rely
  * on it, `--session` stays the supported override for everything else).
  * With agent.integrations.enabled on, either source (or CODEX_THREAD_ID)
- * must resolve to exactly one session binding, else the command refuses.
+ * must resolve to exactly one session binding, else the command refuses,
+ * except a never-bound Claude session, which keeps its environment id.
  */
 export function currentSessionId(args: string[]): string | undefined {
   if (integrationsEnabled()) {
@@ -140,7 +141,7 @@ export type SignInSession = { sessionId: string | undefined; bind?: (identity: s
  */
 export async function signInSession(args: string[]): Promise<SignInSession> {
   if (!integrationsEnabled()) return { sessionId: currentSessionId(args) };
-  const resolved = resolveCliSession(args, process.env);
+  const resolved = resolveCliSession(args, process.env, {}, { bindingsOnly: true });
   if (resolved.ok) return { sessionId: resolved.data };
   const evidence = extractCliEvidence(args, process.env);
   const claim = !evidence.ok ? undefined
@@ -156,7 +157,7 @@ export async function signInSession(args: string[]): Promise<SignInSession> {
     bind: (identity) => {
       const bound = prepared.data(identity);
       if (!bound.ok) throw unattributed(bound.error.message);
-      const confirmed = resolveCliSession(args, process.env);
+      const confirmed = resolveCliSession(args, process.env, {}, { bindingsOnly: true });
       if (!confirmed.ok) throw unattributed(confirmed.error.message);
     },
   };

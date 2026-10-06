@@ -187,6 +187,22 @@ describe("currentSessionId through session bindings", () => {
     if (!bound.ok) throw new Error(bound.error.message);
   }
 
+  test("integrations on: a never-bound Claude session keeps its environment id, creating no binding; a detached one refuses", () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    process.env.CLAUDE_CODE_SESSION_ID = "claude-unsigned";
+    expect(currentSessionId(["post", "r", "hi"])).toBe("claude-unsigned");
+    const db = getStateDb();
+    expect(db.query("SELECT count(*) AS n FROM agent_session_bindings").get()).toEqual({ n: 0 });
+    // An explicit id still needs a record.
+    expect(() => currentSessionId(["post", "r", "hi", "--session", "claude-unsigned"])).toThrow(UserActionableError);
+
+    const store = createSessionStore(db);
+    const bound = store.bind(store.reserve({ identity: "remy.ab12" }), { harness: "claude", profile: "default", kind: "id", value: "claude-unsigned" }, { mode: "herdr", pid: 4242 });
+    if (!bound.ok) throw new Error(bound.error.message);
+    if (!store.replaceAttachment(bound.data.key, 1, { mode: "herdr" }).ok) throw new Error("detach failed");
+    expect(() => currentSessionId(["post", "r", "hi"])).toThrow(UserActionableError);
+  });
+
   test("integrations on: a Codex CLI caller resolves through CODEX_THREAD_ID", () => {
     setSetting("agent.integrations.enabled", true, "machine");
     bindCodex("kai.cd34", "thread-one");
@@ -233,11 +249,11 @@ describe("currentSessionId through session bindings", () => {
   test("integrations on: sign-in binds an unbound Claude session first, and every verb then resolves it", async () => {
     setSetting("agent.integrations.enabled", true, "machine");
     process.env.CLAUDE_CODE_SESSION_ID = "claude-manual";
-    expect(() => currentSessionId(["post", "r", "hi"])).toThrow(UserActionableError);
     const target = await signInSession(["sign-in"]);
     expect(target.sessionId).toBe("claude-manual");
     await target.bind!("remy.ab12");
     expect(currentSessionId(["post", "r", "hi"])).toBe("claude-manual");
+    expect(createSessionStore(getStateDb()).find({ harness: "claude", profile: "default", kind: "id", value: "claude-manual" })?.identity).toBe("remy.ab12");
     // A repeat sign-in resolves the binding it already has.
     const again = await signInSession(["sign-in"]);
     expect(again).toEqual({ sessionId: "claude-manual" });

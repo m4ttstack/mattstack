@@ -1252,7 +1252,13 @@ async function runSignIn(args: string[]): Promise<void> {
   const signInRes = await chatSignIn({ sessionId, ...request, cwd, repo, branch, pane, statusText });
   const { handle, baseHandle, name, continued } = unwrap(signInRes, "sign-in");
   const displayName = name ?? handle;
-  target.bind?.(handle);
+  try {
+    target.bind?.(handle);
+  } catch (err) {
+    // All or nothing: a session the binding refused must not stay signed in.
+    await chatSignOut({ sessionId }, { timeoutMs: 3000 });
+    throw err;
+  }
 
   writeChatSession({ sessionId, handle, baseHandle, name: displayName, signedInAt: Date.now(), room: roomName ?? undefined });
 

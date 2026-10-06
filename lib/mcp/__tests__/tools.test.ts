@@ -9,7 +9,9 @@ import { REPO_INDEX_NS } from "../../repo-index.ts";
 import { closeStateDb, setKvValue } from "../../state/index.ts";
 import { writeChatSession } from "../../chat-session.ts";
 import { setSetting } from "../../settings/write.ts";
-import type { ToolContext } from "../shared.ts";
+import { SIGN_IN_HINT, toolContext, type ToolContext } from "../shared.ts";
+import { extractMcpEvidence, resolveToolCaller, type McpTransport } from "../../agent-integrations/context.ts";
+import { openStateDb } from "../../state/db.ts";
 
 const NAMES = ["gate_answer","gate_ask","gate_list","chat_post","chat_dm","chat_ack","chat_claim","chat_release","mr_reply_thread","mr_update_note","mr_comment_inline","mr_comment","mr_review_submit","mr_create","mr_update","mr_upload","mr_approve","mr_resolve_thread","mr_ready","mr_retry","mr_rebase","mr_map","herd_gates","herd_ask","herd_answer","herd_report","rt_verb","run_start","run_stage","run_field_set","run_field_get","run_decision","run_status","run_snapshot","run_list","mr_view","mr_list","mr_for_branch","mr_threads","mr_pipeline","mr_job_trace","mr_merge","git_push","git_pull","git_rebase","branch_sync","worktree_provision","worktree_dispose","worktree_stop_holders","herd_start","herd_spawn","herd_brief","herd_close","herd_follow_up","herd_status","herd_list","herd_attend","herd_wrap_up","herd_resume","herd_milestone","chat_read","chat_mark","chat_rooms","chat_who","chat_buddies","chat_join","chat_leave","chat_away","chat_back","chat_sign_in","chat_sign_out","chat_archive","chat_invite","whoami","ci_lease_claim","ci_lease_heartbeat","ci_lease_release","ci_lease_read","ci_watch","project_labels","pipeline_list","gitlab_get","branch_stack"];
 
@@ -1489,6 +1491,58 @@ describe("resolved caller sessions", () => {
       expect(bare.ok, c.tool).toBe(false);
     }
     expect(calls).toEqual([]);
+  });
+
+  /** The server's real resolver over a state db of its own, as `rt mcp serve` builds it per call. */
+  function served(env: NodeJS.ProcessEnv, meta?: unknown, transport: McpTransport = {}) {
+    const db = openStateDb(join(process.env.HOME!, "caller.db"));
+    return { db, context: toolContext(extractMcpEvidence(meta, env, transport), (e) => resolveToolCaller(e, { db })) };
+  }
+
+  test("integrations on: an unsigned, unbound Claude session gate_asks and herd_answers as its environment session, binding nothing", async () => {
+    const env = { CLAUDE_CODE_SESSION_ID: "sess-unsigned", HERDR_PANE_ID: "pane-1" } as NodeJS.ProcessEnv;
+    const owners = CASES.filter((c) => c.tool === "gate_ask" || c.tool === "herd_answer");
+    const before = [];
+    for (const c of owners) before.push(await tool(c.tool).handler(c.input, env));
+    const whoamiBefore = await tool("whoami").handler({}, env);
+    const legacyCalls = calls;
+    calls = [];
+    setSetting("agent.integrations.enabled", true, "machine");
+    const { db, context } = served(env);
+    expect(await tool("whoami").handler({}, env, undefined, context)).toEqual(whoamiBefore);
+    for (const [i, c] of owners.entries()) expect(await tool(c.tool).handler(c.input, env, undefined, context), c.tool).toEqual(before[i]!);
+    expect(calls).toEqual(legacyCalls);
+    const sent = Object.fromEntries(calls.map((c) => [c.cmd, c.payload]));
+    expect(sent["gate:ask"]).toMatchObject({ sessionId: "sess-unsigned", paneId: "pane-1" });
+    expect(sent["herd:answer"]).toMatchObject({ sessionId: "sess-unsigned" });
+    expect(db.query("SELECT count(*) AS n FROM agent_session_bindings").get()).toEqual({ n: 0 });
+    db.close();
+  });
+
+  test("integrations on: an unsigned Claude session's chat_post gets today's sign-in hint", async () => {
+    const env = { CLAUDE_CODE_SESSION_ID: "sess-unsigned" } as NodeJS.ProcessEnv;
+    const input = { room: "rt", body: "hi" };
+    const before = await tool("chat_post").handler(input, env);
+    setSetting("agent.integrations.enabled", true, "machine");
+    const { db, context } = served(env);
+    const after = await tool("chat_post").handler(input, env, undefined, context);
+    expect(after).toEqual(before);
+    expect(after).toMatchObject({ ok: false, error: SIGN_IN_HINT });
+    expect(calls).toEqual([]);
+    db.close();
+  });
+
+  test("integrations on: an unbound Codex caller still refuses", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const env = {} as NodeJS.ProcessEnv;
+    const { db, context } = served(env, { threadId: "thread-unbound" }, { harness: "codex", profile: "default" });
+    for (const c of CASES) {
+      const refused = await tool(c.tool).handler(c.input, env, undefined, context);
+      expect(refused.ok, c.tool).toBe(false);
+      expect(refused.error, c.tool).toContain("cannot be attributed");
+    }
+    expect(calls).toEqual([]);
+    db.close();
   });
 
   for (const c of CASES) {

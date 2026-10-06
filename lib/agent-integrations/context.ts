@@ -213,14 +213,44 @@ export function resolveCallerContextNow(input: CallerEvidence, deps: ResolveDeps
 }
 
 /**
+ * A Claude Code session that has never been bound, named by its own
+ * environment, keeps the environment path rather than refusing: until it
+ * signs in, there is no identity to bind it under. A bound or detached
+ * Claude session, an explicit id and every Codex caller go through bindings.
+ */
+function unboundClaudeCaller(input: CallerEvidence, outcome: Outcome<CallerContext>, deps: ResolveDeps): boolean {
+  if (outcome.ok || outcome.error.code !== "ambiguous") return false;
+  const claim = input.native;
+  if (!claim || claim.harness !== "claude" || claim.profile !== undefined || input.connection || input.raw !== undefined) return false;
+  return !listBindingsByNativeValue(deps.db ?? getStateDb(), claim.value).some((b) => b.native.harness === "claude");
+}
+
+/** resolveCallerContextNow, or null for an unbound Claude caller, which keeps its environment path. */
+export function resolveCallerOrEnvironmentNow(input: CallerEvidence, deps: ResolveDeps = {}): Outcome<CallerContext> | null {
+  const outcome = resolveCallerContextNow(input, deps);
+  return unboundClaudeCaller(input, outcome, deps) ? null : outcome;
+}
+
+/** The MCP server's resolver: null tells a tool to act as its environment says, as it does with the switch off. */
+export async function resolveToolCaller(input: CallerEvidence, deps: ResolveDeps = {}): Promise<Outcome<CallerContext> | null> {
+  return resolveCallerOrEnvironmentNow(input, deps);
+}
+
+/**
  * The native session id a CLI command acts as. No session evidence at all
  * is a plain shell, which the chat verbs already handle without a session;
- * evidence that does not resolve to one binding is refused.
+ * an unbound Claude session keeps its environment id; any other evidence
+ * that does not resolve to one binding is refused. `bindingsOnly` refuses
+ * the unbound Claude session too, for sign-in, which binds it.
  */
-export function resolveCliSession(args: string[], env: NodeJS.ProcessEnv, deps: ResolveDeps = {}): Outcome<string | undefined> {
+export function resolveCliSession(
+  args: string[], env: NodeJS.ProcessEnv, deps: ResolveDeps = {}, opts: { bindingsOnly?: boolean } = {},
+): Outcome<string | undefined> {
   const evidence = extractCliEvidence(args, env);
   if (!evidence.ok) return evidence;
-  if (!evidence.data.native && evidence.data.raw === undefined) return { ok: true, data: undefined };
-  const caller = resolveCallerContextNow(evidence.data, deps);
+  const { native, raw } = evidence.data;
+  if (!native && raw === undefined) return { ok: true, data: undefined };
+  const caller = opts.bindingsOnly ? resolveCallerContextNow(evidence.data, deps) : resolveCallerOrEnvironmentNow(evidence.data, deps);
+  if (caller === null) return { ok: true, data: native!.value };
   return caller.ok ? { ok: true, data: caller.data.binding.native.value } : caller;
 }

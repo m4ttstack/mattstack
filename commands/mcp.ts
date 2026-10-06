@@ -1,6 +1,6 @@
 import type { CallerContext, Outcome } from "../packages/rt-client/src/agent-integrations.ts";
 import {
-  extractMcpEvidence, mcpTransportFromArgs, resolveCallerContext, type CallerEvidence, type McpTransport,
+  extractMcpEvidence, mcpTransportFromArgs, resolveToolCaller, type CallerEvidence, type McpTransport,
 } from "../lib/agent-integrations/context.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { mcpTools, type McpToolDef } from "../lib/mcp/tools.ts";
@@ -34,7 +34,7 @@ export function createCallHandler(
   tools: McpToolDef[],
   transport: McpTransport,
   env: NodeJS.ProcessEnv,
-  resolve: (evidence: CallerEvidence) => Promise<Outcome<CallerContext>> = (evidence) => resolveCallerContext(evidence),
+  resolve: (evidence: CallerEvidence) => Promise<Outcome<CallerContext> | null> = (evidence) => resolveToolCaller(evidence),
 ): (params: CallParams, signal?: AbortSignal) => Promise<Awaited<ReturnType<typeof callTool>>> {
   const toolByName = new Map(tools.map((tool) => [tool.name, tool]));
   return async (params, signal) => {
