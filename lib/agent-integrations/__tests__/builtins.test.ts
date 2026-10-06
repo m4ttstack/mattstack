@@ -31,12 +31,13 @@ describe("builtinRegistry", () => {
     expect(await names("codex")).not.toContain("account");
   });
 
-  test("no built-in advertises session capabilities before its session adapter exists", async () => {
+  test("a built-in advertises session capabilities only with its session adapter", async () => {
     for (const integration of builtinRegistry().list()) {
-      expect("loadSessions" in integration).toBe(false);
       const report = await integration.capabilities("herdr");
-      expect(report.supported).toEqual([]);
-      expect(report.readiness.ready).toBe(false);
+      if (integration.loadSessions) expect(report.supported).toEqual(["launch", "resume", "observe"]);
+      else expect(report).toMatchObject({ supported: [], readiness: { ready: false } });
     }
+    expect(typeof builtinRegistry().get("claude")!.loadSessions).toBe("function");
+    expect("loadSessions" in builtinRegistry().get("codex")!).toBe(false);
   });
 });

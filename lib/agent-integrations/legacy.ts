@@ -25,10 +25,9 @@ import { listChatSessions, type ChatSession } from "../chat-session.ts";
 import { listAgentsAwaitingSessionMigration, type AgentRecord } from "../state/agents-store.ts";
 import { isBusyError } from "../state/busy.ts";
 import { getStateDb } from "../state/db.ts";
-import { createSessionStore, listBindingsByNativeValue, type SessionStore } from "./session-store.ts";
+import { createSessionStore, LEGACY_DEFAULT_PROFILE, listBindingsByNativeValue, type SessionStore } from "./session-store.ts";
 
-/** The profile of a legacy record that names no account. */
-export const LEGACY_DEFAULT_PROFILE = "default";
+export { LEGACY_DEFAULT_PROFILE };
 
 type AliasSource = "agents" | "chat-session";
 type UnboundReason = "no-identity" | "conflicting-identity" | "unknown-provenance" | "unverified-native-id";

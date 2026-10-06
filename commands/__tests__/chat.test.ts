@@ -31,6 +31,8 @@ import { createChatHandlers } from "../../lib/daemon/handlers/chat.ts";
 import { getStateDb, closeStateDb, type RegistryDeps } from "../../lib/state/index.ts";
 import type { InboxBinding } from "../../lib/claude-registry.ts";
 import { sessionFilePath } from "../../lib/chat-session.ts";
+import { listBindingsByNativeValue } from "../../lib/agent-integrations/session-store.ts";
+import { UserActionableError } from "../../lib/errors.ts";
 import { AGENT_NAMES } from "../../lib/chat-names.ts";
 import { setSetting } from "../../packages/rt-client/src/settings/write.ts";
 import { drainNotifications, peekNotifications } from "../../lib/notifier.ts";
@@ -534,6 +536,35 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     const again = await runChat(["sign-in", "--no-room", "--session", "s7"]);
     expect(again).toMatch(new RegExp(`signed in as ${name}\\b`));
     expect(JSON.parse(readFileSync(sessionFilePath("s7"), "utf8")).handle).toBe(id);
+  });
+
+  test("integrations on: sign-in binds this Claude session to the identity it signed in as, and a repeat sign-in resolves that binding", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    delete process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CODE_SESSION_ID = "s-bind-1";
+    try {
+      expect(await runChat(["sign-in", "--no-room"])).toMatch(/signed in as /);
+      const handle = JSON.parse(readFileSync(sessionFilePath("s-bind-1"), "utf8")).handle;
+      const bindings = listBindingsByNativeValue(getStateDb(), "s-bind-1");
+      expect(bindings.map((b) => ({ identity: b.identity, native: b.native }))).toEqual([
+        { identity: handle, native: { harness: "claude", profile: "default", kind: "id", value: "s-bind-1" } },
+      ]);
+      expect(await runChat(["sign-in", "--no-room"])).toMatch(/signed in as /);
+      expect(listBindingsByNativeValue(getStateDb(), "s-bind-1")).toHaveLength(1);
+    } finally {
+      if (savedConfigDir !== undefined) process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
+    }
+  });
+
+  test("integrations on: an explicit --session that no live Claude session answers to is refused before the daemon hears it", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    // Thrown to the dispatch seam, which draws it, like every other unattributed caller.
+    const refused = await runChatRaw(["sign-in", "--no-room", "--session", "s-nowhere"]).catch((err: unknown) => err);
+    expect(refused).toBeInstanceOf(UserActionableError);
+    expect((refused as UserActionableError).why).toContain("not a live Claude Code session");
+    expect(seen.find((s) => s.cmd === "chat:sign-in")).toBeUndefined();
+    expect(existsSync(sessionFilePath("s-nowhere"))).toBe(false);
   });
 
   test("resolveSignInRequest: --as continues, --name and chat.handle ask for a fresh identity with that name, neither draws", () => {

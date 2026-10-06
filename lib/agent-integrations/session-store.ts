@@ -15,6 +15,9 @@ import type {
 } from "../../packages/rt-client/src/agent-integrations.ts";
 import { isBusyError } from "../state/busy.ts";
 
+/** The profile of a session that names no account: the ambient one. */
+export const LEGACY_DEFAULT_PROFILE = "default";
+
 export type ReservationInput = { identity: string; agentId?: string; attemptId?: string };
 export type AttachmentInput = Omit<Attachment, "generation">;
 
@@ -38,6 +41,8 @@ const SELECT_BY_KEY_SQL = `SELECT ${BINDING_COLUMNS} FROM agent_session_bindings
 const SELECT_BY_NATIVE_SQL =
   `SELECT ${BINDING_COLUMNS} FROM agent_session_bindings WHERE harness = ? AND profile = ? AND native_kind = ? AND native_value = ?;`;
 const SELECT_BY_VALUE_SQL = `SELECT ${BINDING_COLUMNS} FROM agent_session_bindings WHERE native_value = ? ORDER BY bound_at, key;`;
+const SELECT_ATTACHED_SQL = `SELECT ${BINDING_COLUMNS} FROM agent_session_bindings
+WHERE harness = ? AND (pane IS NOT NULL OR socket IS NOT NULL OR pid IS NOT NULL) ORDER BY bound_at, key;`;
 const INSERT_BINDING_SQL = `INSERT INTO agent_session_bindings (${BINDING_COLUMNS}, bound_at, attached_at)
 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?);`;
 const REBIND_SQL = `UPDATE agent_session_bindings
@@ -115,6 +120,11 @@ function guarded(op: () => Outcome<SessionBinding>): Outcome<SessionBinding> {
 /** Every binding whose native value is `value`, across harnesses, profiles and kinds. */
 export function listBindingsByNativeValue(db: Database, value: string): SessionBinding[] {
   return (db.query(SELECT_BY_VALUE_SQL).all(value) as BindingRow[]).map(toBinding);
+}
+
+/** A harness's bindings whose attachment still names a pane, socket or process. */
+export function listAttachedBindings(db: Database, harness: string): SessionBinding[] {
+  return (db.query(SELECT_ATTACHED_SQL).all(harness) as BindingRow[]).map(toBinding);
 }
 
 export function createSessionStore(db: Database): SessionStore {

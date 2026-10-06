@@ -3,10 +3,10 @@ import type { HarnessIntegration } from "../contracts.ts";
 export const claudeIntegration: HarnessIntegration = {
   id: "claude",
   label: "Claude Code",
-  // Readiness and session support arrive with the session adapter.
-  capabilities: async (mode) => ({
-    mode, supported: [], readiness: { ready: false, reason: "Claude Code's session adapter is not built yet" },
-  }),
+  capabilities: async (mode) => {
+    const { claudeReadiness, claudeSupported } = await import("./sessions.ts");
+    return { mode, supported: claudeSupported(mode), readiness: claudeReadiness() };
+  },
   validateOptions: (options) => ({ ok: true, data: options }),
   options: async () => [
     { name: "model", kind: "text" },
@@ -15,4 +15,5 @@ export const claudeIntegration: HarnessIntegration = {
     { name: "extraArgs", kind: "text" },
     { name: "yolo", kind: "boolean" },
   ],
+  loadSessions: async () => (await import("./sessions.ts")).createClaudeSessions(),
 };

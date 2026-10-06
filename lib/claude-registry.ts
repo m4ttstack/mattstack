@@ -18,8 +18,7 @@ export interface InboxBinding {
   nameSource?: "user" | "derived";
 }
 
-export function registryRoots(): string[] {
-  const home = homedir();
+export function registryRoots(home: string = homedir()): string[] {
   const roots = [join(home, ".claude", "sessions")];
   const swap = join(home, ".claude-swap-backup", "sessions");
   try {

@@ -1,7 +1,8 @@
 /**
  * lib/agent-argv/index.ts -- barrel + provider dispatch for `rt agent`.
  * lib/daemon/handlers/agent.ts calls buildAgentArgv/buildAgentPaneCommand
- * here instead of reaching into claude.ts or codex.ts directly.
+ * here instead of reaching into a harness's builders directly. Claude's
+ * builders live in its integration; claude.ts forwards them.
  */
 export * from "./types.ts";
 export * from "./claude.ts";
@@ -9,7 +10,7 @@ export * from "./codex.ts";
 export * from "./prompt-file.ts";
 
 import type { AgentInvocation, AgentProvider } from "./types.ts";
-import { buildClaudeArgv, buildPaneCommand as buildClaudePaneCommand } from "./claude.ts";
+import { buildClaudeArgv, buildPaneCommand as buildClaudePaneCommand } from "../agent-integrations/claude/sessions.ts";
 import { buildCodexArgv, buildCodexPaneCommand } from "./codex.ts";
 
 export function buildAgentArgv(

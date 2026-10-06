@@ -10,7 +10,7 @@
  */
 import { readdirSync, unlinkSync } from "fs";
 import { join } from "path";
-import { integrationsEnabled, resolveCliSession } from "./agent-integrations/context.ts";
+import { extractCliEvidence, integrationsEnabled, resolveCliSession } from "./agent-integrations/context.ts";
 import { UserActionableError } from "./errors.ts";
 import { readJson, writeJson } from "./json-store.ts";
 import { rtDir } from "./rt-paths.ts";
@@ -113,9 +113,7 @@ export function sessionName(s: Pick<ChatSession, "handle" | "name">): string {
 export function currentSessionId(args: string[]): string | undefined {
   if (integrationsEnabled()) {
     const resolved = resolveCliSession(args, process.env);
-    if (!resolved.ok) {
-      throw new UserActionableError("caller-unattributed", "rt cannot tell which agent session ran this command", {}, { why: resolved.error.message });
-    }
+    if (!resolved.ok) throw unattributed(resolved.error.message);
     return resolved.data;
   }
   const i = args.indexOf("--session");
@@ -125,4 +123,41 @@ export function currentSessionId(args: string[]): string | undefined {
   // in as the literal next flag's name.
   if (value !== undefined && !value.startsWith("--")) return value;
   return process.env.CLAUDE_CODE_SESSION_ID || undefined;
+}
+
+function unattributed(why: string): UserActionableError {
+  return new UserActionableError("caller-unattributed", "rt cannot tell which agent session ran this command", {}, { why });
+}
+
+/** The session `rt chat sign-in` acts as, and, for a Claude Code session not bound yet, how to bind it once the daemon names its identity. */
+export type SignInSession = { sessionId: string | undefined; bind?: (identity: string) => void };
+
+/**
+ * currentSessionId, except that with agent.integrations.enabled on a Claude
+ * Code session with no binding is bound here rather than refused: sign-in is
+ * where a manually started session joins, and its identity is the one the
+ * daemon signs it in as. The bound session must then resolve like any other.
+ */
+export async function signInSession(args: string[]): Promise<SignInSession> {
+  if (!integrationsEnabled()) return { sessionId: currentSessionId(args) };
+  const resolved = resolveCliSession(args, process.env);
+  if (resolved.ok) return { sessionId: resolved.data };
+  const evidence = extractCliEvidence(args, process.env);
+  const claim = !evidence.ok ? undefined
+    : evidence.data.raw !== undefined ? { sessionId: evidence.data.raw, explicit: true }
+    : evidence.data.native?.harness === "claude" ? { sessionId: evidence.data.native.value, explicit: false }
+    : undefined;
+  if (!claim) throw unattributed(resolved.error.message);
+  const { prepareClaudeSignIn } = await import("./agent-integrations/claude/sessions.ts");
+  const prepared = await prepareClaudeSignIn(claim, process.env);
+  if (!prepared.ok) throw unattributed(prepared.error.message);
+  return {
+    sessionId: claim.sessionId,
+    bind: (identity) => {
+      const bound = prepared.data(identity);
+      if (!bound.ok) throw unattributed(bound.error.message);
+      const confirmed = resolveCliSession(args, process.env);
+      if (!confirmed.ok) throw unattributed(confirmed.error.message);
+    },
+  };
 }

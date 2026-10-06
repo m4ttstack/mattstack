@@ -159,6 +159,17 @@ export function primeLivenessCache(entries: AgentEntry[], now: number = Date.now
   agentCache = { at: now, entries };
 }
 
+/** The poller-primed herdr answer while it is fresh, else a new probe; null when herdr could not be asked. */
+export async function recentAgents(
+  exec: typeof runCapture = runCapture,
+  now: number = Date.now(),
+): Promise<AgentEntry[] | null> {
+  if (agentCache && now - agentCache.at <= AGENT_CACHE_TTL_MS) return agentCache.entries;
+  const entries = await probeAgents(exec);
+  if (entries !== null) agentCache = { at: now, entries };
+  return entries;
+}
+
 /**
  * One liveness snapshot for a whole runs:list/runs:get request. The herdr
  * probe is cached briefly so the console's per-tab polling doesn't spawn a

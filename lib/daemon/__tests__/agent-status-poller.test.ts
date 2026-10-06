@@ -1,7 +1,18 @@
 import { afterEach, expect, test } from "bun:test";
+import type { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import type { RunSummary } from "../../../packages/rt-client/src/commands.ts";
+import type { SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { resetLivenessCache, type AgentEntry } from "../../runs/liveness.ts";
-import { startAgentStatusPoller, type AgentStatusPollerHandle } from "../agent-status-poller.ts";
+import { observeBoundSessions, startAgentStatusPoller, type AgentStatusPollerHandle } from "../agent-status-poller.ts";
+import { claudeIntegration } from "../../agent-integrations/claude/integration.ts";
+import { codexIntegration } from "../../agent-integrations/codex/integration.ts";
+import type { SessionAdapter } from "../../agent-integrations/contracts.ts";
+import { createRegistry } from "../../agent-integrations/registry.ts";
+import { createSessionStore } from "../../agent-integrations/session-store.ts";
+import { openStateDb } from "../../state/db.ts";
 
 const quietLog = { info: () => {}, warn: () => {} };
 
@@ -114,4 +125,83 @@ test("a successful probe after backoff resets consecutiveFailures and resumes pe
   // tick is not gated by backoff ... it probes right away instead of
   // waiting out another BACKOFF_TICKS window.
   expect(probeCalls).toBe(callsBeforeRecovery + 1);
+});
+
+test("each answered probe observes bound sessions after the run diff; a failed probe holds", async () => {
+  let observed = 0;
+  const events: unknown[] = [];
+  const results: (AgentEntry[] | null)[] = [[], null, []];
+  let p = 0;
+  handle = startAgentStatusPoller({
+    emitEvent: (topic, payload) => events.push({ topic, payload }),
+    log: quietLog,
+    intervalMs: 3_600_000,
+    probe: async () => results[p++] ?? null,
+    list: () => [],
+    observeSessions: async () => { observed++; },
+  });
+  for (let i = 0; i < 3; i++) await handle.tick();
+  expect(observed).toBe(2);
+  expect(events).toEqual([]);
+});
+
+test("an observation that throws is logged and never costs the run diff", async () => {
+  const warned: unknown[] = [];
+  const events: unknown[] = [];
+  let l = 0;
+  const lists = [[runOf("r1", "running", "working")], [runOf("r1", "running", "blocked")]];
+  handle = startAgentStatusPoller({
+    emitEvent: (topic, payload) => events.push({ topic, payload }),
+    log: { info: () => {}, warn: (obj, msg) => warned.push({ obj, msg }) },
+    intervalMs: 3_600_000,
+    probe: async () => [],
+    list: () => lists[Math.min(l++, lists.length - 1)]!,
+    observeSessions: async () => { throw new Error("state.db busy"); },
+  });
+  await handle.tick();
+  await handle.tick();
+  expect(events).toHaveLength(1);
+  expect(warned).toHaveLength(2);
+});
+
+function withDb<T>(fn: (db: Database) => Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(tmpdir(), "rt-poller-observe-"));
+  const db = openStateDb(join(dir, "state.db"));
+  return fn(db).finally(() => { db.close(); rmSync(dir, { recursive: true, force: true }); });
+}
+
+test("with the switch off, bound-session observation reads nothing at all", async () => {
+  let loaded = 0;
+  await observeBoundSessions({
+    enabled: () => false,
+    db: () => { throw new Error("the state db was opened"); },
+    integrations: () => { loaded++; return createRegistry([]); },
+  });
+  expect(loaded).toBe(0);
+});
+
+test("with the switch on, every attached binding of a harness with a session adapter is observed", async () => {
+  await withDb(async (db) => {
+    const store = createSessionStore(db);
+    const bind = (harness: string, value: string, attachment: { pane?: string; pid?: number }) => {
+      const r = store.bind(store.reserve({ identity: `id-${value}` }), { harness, profile: "default", kind: "id", value }, { mode: "herdr", ...attachment });
+      if (!r.ok) throw new Error(r.error.message);
+      return r.data;
+    };
+    const attached = bind("claude", "c-attached", { pane: "w1:p1" });
+    const byPid = bind("claude", "c-pid", { pid: 7 });
+    bind("claude", "c-nothing", {});
+    const detached = bind("claude", "c-detached", { pid: 8 });
+    if (!store.replaceAttachment(detached.key, 1, { mode: "herdr" }).ok) throw new Error("detach failed");
+    bind("codex", "x-attached", { pane: "w2:p1" });
+
+    const seen: SessionBinding[] = [];
+    const adapter = { observe: async (b: SessionBinding) => { seen.push(b); return { ok: true, data: {} }; } } as unknown as SessionAdapter;
+    await observeBoundSessions({
+      enabled: () => true,
+      db: () => db,
+      integrations: () => createRegistry([{ ...claudeIntegration, loadSessions: async () => adapter }, codexIntegration]),
+    });
+    expect(seen.map((b) => b.key).sort()).toEqual([attached.key, byPid.key].sort());
+  });
 });

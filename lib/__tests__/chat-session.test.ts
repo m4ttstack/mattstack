@@ -14,6 +14,7 @@ import {
   readChatSession,
   sessionFilePath,
   sessionName,
+  signInSession,
   writeChatSession,
   type ChatSession,
 } from "../chat-session.ts";
@@ -161,7 +162,7 @@ describe("chat-session", () => {
 describe("currentSessionId through session bindings", () => {
   let home = "";
   const saved: Record<string, string | undefined> = {};
-  const KEYS = ["HOME", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CODEX_HOME"] as const;
+  const KEYS = ["HOME", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "HERDR_PANE_ID"] as const;
 
   beforeEach(() => {
     for (const k of KEYS) saved[k] = process.env[k];
@@ -227,6 +228,32 @@ describe("currentSessionId through session bindings", () => {
   test("integrations on: no session evidence at all is a plain shell, as before", () => {
     setSetting("agent.integrations.enabled", true, "machine");
     expect(currentSessionId(["post", "r", "hi"])).toBeUndefined();
+  });
+
+  test("integrations on: sign-in binds an unbound Claude session first, and every verb then resolves it", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    process.env.CLAUDE_CODE_SESSION_ID = "claude-manual";
+    expect(() => currentSessionId(["post", "r", "hi"])).toThrow(UserActionableError);
+    const target = await signInSession(["sign-in"]);
+    expect(target.sessionId).toBe("claude-manual");
+    await target.bind!("remy.ab12");
+    expect(currentSessionId(["post", "r", "hi"])).toBe("claude-manual");
+    // A repeat sign-in resolves the binding it already has.
+    const again = await signInSession(["sign-in"]);
+    expect(again).toEqual({ sessionId: "claude-manual" });
+  });
+
+  test("integrations on: a Codex thread with no binding still refuses at sign-in", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    process.env.CODEX_THREAD_ID = "thread-unbound";
+    await expect(signInSession(["sign-in"])).rejects.toBeInstanceOf(UserActionableError);
+  });
+
+  test("integrations off: sign-in is the environment lookup and binds nothing", async () => {
+    process.env.CLAUDE_CODE_SESSION_ID = "env-id";
+    expect(await signInSession(["sign-in"])).toEqual({ sessionId: "env-id" });
+    expect(await signInSession(["sign-in", "--session", "flag-id"])).toEqual({ sessionId: "flag-id" });
+    expect(existsSync(join(home, ".mattstack", "rt", "state.db"))).toBe(false);
   });
 
   test("integrations off: byte-identical to the environment lookup, even with unbound or conflicting ids", () => {

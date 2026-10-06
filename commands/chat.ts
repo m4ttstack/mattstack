@@ -61,6 +61,7 @@ import {
   isValidSessionId,
   readChatSession,
   sessionName,
+  signInSession,
   writeChatSession,
 } from "../lib/chat-session.ts";
 import { chatViewerUrl, readChatViewerUrlSetting } from "../lib/chat-viewer-url.ts";
@@ -1219,7 +1220,8 @@ async function runSignIn(args: string[]): Promise<void> {
     return;
   }
 
-  const sessionId = currentSessionId(args);
+  const target = await signInSession(args);
+  const sessionId = target.sessionId;
   if (!sessionId) fail(noSession("sign-in"));
   requireValidSessionId(sessionId);
 
@@ -1250,6 +1252,7 @@ async function runSignIn(args: string[]): Promise<void> {
   const signInRes = await chatSignIn({ sessionId, ...request, cwd, repo, branch, pane, statusText });
   const { handle, baseHandle, name, continued } = unwrap(signInRes, "sign-in");
   const displayName = name ?? handle;
+  target.bind?.(handle);
 
   writeChatSession({ sessionId, handle, baseHandle, name: displayName, signedInAt: Date.now(), room: roomName ?? undefined });
 

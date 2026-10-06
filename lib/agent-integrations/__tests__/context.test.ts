@@ -10,6 +10,7 @@ import { insertAgent, type AgentRecord } from "../../state/agents-store.ts";
 import { writeChatSession } from "../../chat-session.ts";
 import { setSetting } from "../../settings/write.ts";
 import { createSessionStore } from "../session-store.ts";
+import { createClaudeSessions } from "../claude/sessions.ts";
 import {
   extractCliEvidence, extractMcpEvidence, integrationsEnabled, mcpTransportFromArgs, resolveCallerContext,
   type CallerEvidence,
@@ -121,22 +122,34 @@ describe("caller attribution", () => {
     expect(fresh.binding.key).not.toBe(before.key);
   });
 
-  // Pins today's limitation, not the invariant: the Claude compatibility
-  // branch reads the MCP process's own CLAUDE_CODE_SESSION_ID, which a clear
-  // does not change, and nothing marks the old binding detached yet.
-  test("Claude compatibility: a pre-clear session id still resolves to its old binding after a clear", async () => {
+  // The Claude compatibility branch reads the MCP process's own
+  // CLAUDE_CODE_SESSION_ID, which a clear does not change: only an observation
+  // that the session left its attachment stops the old id resolving.
+  test("Claude compatibility: a pre-clear session id refuses once the clear is observed", async () => {
     const db = freshDb();
-    const store = createSessionStore(db);
     const claude = (value: string): NativeSessionRef => ({ harness: "claude", profile: "default", kind: "id", value });
-    const before = bound(db, "remy.ab12", claude("sess-before"), "w1:p1");
-    const detached = store.replaceAttachment(before.key, before.attachment.generation, { mode: "headless" });
-    if (!detached.ok) throw new Error(detached.error.message);
+    const store = createSessionStore(db);
+    const reserved = store.bind(store.reserve({ identity: "remy.ab12" }), claude("sess-before"), { mode: "herdr", pane: "w1:p1", pid: 4242 });
+    if (!reserved.ok) throw new Error(reserved.error.message);
+    const before = reserved.data;
+    const staleEnv = evidence(extractMcpEvidence(undefined, { CLAUDE_CODE_SESSION_ID: "sess-before", HERDR_PANE_ID: "w1:p1" }, {}));
+
+    // Before anything observes the clear, the frozen id still names its binding.
+    expect(resolved(await resolveCallerContext(staleEnv, { db })).binding.key).toBe(before.key);
+
+    const sessions = createClaudeSessions({
+      store: () => store,
+      agents: async () => null,
+      registry: { roots: () => [], read: () => new Map(), sessionForPid: (pid) => (pid === 4242 ? "sess-after" : null) },
+    });
+    const seen = await sessions.observe(before);
+    expect(seen).toMatchObject({ ok: true, data: { generation: 2 } });
     const after = bound(db, "otto.0001", claude("sess-after"), "w1:p1");
 
-    const staleEnv = evidence(extractMcpEvidence(undefined, { CLAUDE_CODE_SESSION_ID: "sess-before", HERDR_PANE_ID: "w1:p1" }, {}));
-    const caller = resolved(await resolveCallerContext(staleEnv, { db }));
-    expect(caller.binding.key).toBe(before.key);
-    expect(caller.binding.key).not.toBe(after.key);
+    expect(await resolveCallerContext(staleEnv, { db })).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+    expect(await resolveCallerContext({ raw: "sess-before" }, { db })).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+    const fresh = resolved(await resolveCallerContext(evidence(extractMcpEvidence(undefined, { CLAUDE_CODE_SESSION_ID: "sess-after" }, {})), { db }));
+    expect(fresh.binding.key).toBe(after.key);
   });
 });
 

@@ -20,6 +20,7 @@ import type {
 } from "../../packages/rt-client/src/agent-integrations.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { getStateDb } from "../state/db.ts";
+import { isDetachedClaudeBinding } from "./claude/sessions.ts";
 import { LEGACY_DEFAULT_PROFILE, resolveLegacySession } from "./legacy.ts";
 import { createSessionStore, listBindingsByNativeValue } from "./session-store.ts";
 
@@ -104,7 +105,7 @@ function codexMcpClaim(meta: unknown, env: NodeJS.ProcessEnv, profile: string): 
   return { ok: true, data: { harness: "codex", profile, kind: "id", value: thread } };
 }
 
-/** Limitation: after /clear the MCP process still carries the pre-clear id, which resolves to the old binding until F5b's observations make a detached Claude binding unresolvable or the Claude mod supplies a connection key. */
+/** After /clear the MCP process still carries the pre-clear id; it stops resolving once the Claude session adapter observes the clear and detaches that binding. */
 function claudeEnvClaim(env: NodeJS.ProcessEnv): NativeClaim | undefined {
   return text(env.CLAUDE_CODE_SESSION_ID)
     ? { harness: "claude", kind: "id", value: env.CLAUDE_CODE_SESSION_ID }
@@ -137,7 +138,13 @@ export function extractCliEvidence(args: string[], env: NodeJS.ProcessEnv): Outc
   return { ok: true, data: { ...(native && { native }), ...extra } };
 }
 
-const resolvedAs = (binding: SessionBinding): Outcome<CallerContext> => ({ ok: true, data: { binding } });
+/** A frozen Claude environment id never names the session it left. */
+function resolvedAs(binding: SessionBinding): Outcome<CallerContext> {
+  if (isDetachedClaudeBinding(binding)) {
+    return fail("stale-binding", `claude session ${binding.native.value} has left its attachment (a /clear, a fork, or a resume elsewhere); sign in again from the session it became`);
+  }
+  return { ok: true, data: { binding } };
+}
 
 function sameSession(claim: NativeClaim, native: NativeSessionRef): boolean {
   return claim.harness === native.harness && claim.kind === native.kind && claim.value === native.value
