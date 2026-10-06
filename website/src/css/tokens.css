@@ -7,7 +7,8 @@
   --ms-border-soft: #eaeaee;
   --ms-fg: #16161b;
   --ms-muted: #5f5f6a;
-  --ms-dim: #767680;
+  /* Darker than the landing's #767680 (4.31:1 on #fafafa); this is 4.83:1, so small dim text passes WCAG AA. */
+  --ms-dim: #6e6e78;
   --ms-accent: #e64980;
   /* #e64980 is 3.57:1 on #fafafa; this shade is 5.42:1, so accent text passes WCAG AA. */
   --ms-accent-text: #c2255c;

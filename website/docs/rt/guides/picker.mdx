@@ -11,8 +11,6 @@ Every interactive selection in rt (repos, worktrees, branches, scripts, argument
 
 The picker fills the terminal. A breadcrumb header and the filter input sit at the top, rows fill the middle, and a keybar docks to the bottom. Exiting the picker restores whatever was on screen before. A count in the header shows filtered and total rows (`6/118`); when the list overflows, a range appears in the footer (`4-17 of 118`) alongside a scroll thumb in the right margin.
 
-*A screenshot of a populated picker (e.g. `rt cd`) would help readers see the row layout, the keybar, and the scroll thumb together.*
-
 ## Filtering
 
 The picker uses fzf's own `FuzzyMatchV2` algorithm as a Go library (not a subprocess), so ranking quality matches what fzf produces. Type to filter; matching is case-insensitive. Extended search syntax (`|`, `!` operators) is not supported.
@@ -37,13 +35,9 @@ Holding alt with rows that support alt-enter arg forms dims rows that do not sup
 
 The full action list is always accessible via **ctrl-k** or a **right-click** context menu, which lists every registered action.
 
-*A screenshot comparing the keybar at rest vs. with a modifier held would help readers understand the swap.*
-
 ## Multi-select
 
 When enabled, rows show a mint `◉` prefix when selected and a faint `○` when not. Space toggles the current row, tab toggles and advances, and ctrl-a toggles all/none of the rows the filter shows. While anything is selected, a pinned "selected" strip under the filter lists the picked rows' labels, and the header count gains a `◉ 3 selected` prefix.
-
-*A screenshot of a multi-select with the pinned selected panel would illustrate this clearly.*
 
 ## Group headers
 
@@ -52,8 +46,6 @@ Rows with a `group` field render a faint uppercase header above the group. Group
 ## Modal overlays
 
 Sort pickers, the ctrl-k action menu, and right-click context menus render as a modal overlay on top of the live picker. The parent dims underneath; the modal sits in a bordered panel. Esc or click-outside dismisses. The parent picker never tears down: filter, cursor, and all state survive.
-
-*A screenshot of a modal overlay (e.g. the ctrl-k menu or a sort picker) would show the parent dimming and modal panel together.*
 
 ## Mouse
 
