@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
-# Build the mattstack docs site and deploy it to Cloudflare Pages.
+# Build the mattstack docs site and deploy it to the Cloudflare Worker
+# mattstack-docs, which serves build/ as static assets. The Worker's name and
+# settings live in website/wrangler.jsonc.
 #
 # One-time setup (maintainer, outside this script):
-#   1. Create the Pages project mattstack-docs.
-#   2. Authenticate wrangler: `wrangler login`, or set CLOUDFLARE_API_TOKEN.
-#   3. Add docs.mattstack.dev as the Pages project's custom domain.
+#   1. Authenticate wrangler: `wrangler login`, or set CLOUDFLARE_API_TOKEN.
+#   2. Run this script once. The first `wrangler deploy` creates the
+#      mattstack-docs Worker from website/wrangler.jsonc.
+#   3. Add docs.mattstack.dev as a Custom Domain on that Worker in the
+#      Cloudflare dashboard (Workers & Pages, mattstack-docs, Settings,
+#      Domains & Routes).
 #
 # Usage:
 #   bash scripts/deploy-docs.sh            # build + deploy to production
 #   bash scripts/deploy-docs.sh --check    # build only, verify wrangler is present, no deploy
-#
-# Env:
-#   CF_PAGES_PROJECT   Pages project name (default: mattstack-docs)
 set -euo pipefail
 
-PROJECT="${CF_PAGES_PROJECT:-mattstack-docs}"
 CHECK_ONLY=0
 [ "${1:-}" = "--check" ] && CHECK_ONLY=1
 
@@ -30,8 +31,8 @@ if [ ! -f build/index.html ]; then
   exit 1
 fi
 
-# Run wrangler on the Node runtime, not Bun's ... `bunx --bun wrangler pages
-# deploy` silently uploads nothing (it bails right after fetching the project).
+# Run wrangler on the Node runtime, not Bun's: under `bunx --bun`, a wrangler
+# deploy has been seen to upload nothing, silently.
 WRANGLER="bunx wrangler"
 if ! command -v wrangler >/dev/null 2>&1 && ! $WRANGLER --version >/dev/null 2>&1; then
   echo "error: wrangler not found. Install it (bun add -g wrangler) or run via bunx." >&2
@@ -39,10 +40,10 @@ if ! command -v wrangler >/dev/null 2>&1 && ! $WRANGLER --version >/dev/null 2>&
 fi
 
 if [ "$CHECK_ONLY" -eq 1 ]; then
-  echo "==> --check: build OK, wrangler available, project=$PROJECT. Not deploying."
+  echo "==> --check: build OK, wrangler available, worker=mattstack-docs. Not deploying."
   exit 0
 fi
 
-echo "==> Deploying build/ to Cloudflare Pages project '$PROJECT'"
-$WRANGLER pages deploy build --project-name "$PROJECT" --branch main
+echo "==> Deploying build/ to the Cloudflare Worker mattstack-docs"
+$WRANGLER deploy
 echo "==> Deployed. Run bun run docs:smoke to confirm docs.mattstack.dev is live."

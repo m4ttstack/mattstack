@@ -331,8 +331,8 @@ Take: Matt published the draft himself. Iterate: Matt fixed the cause, and the f
 The deploy is not done until the site answers. `bun run docs:smoke` requests four URLs without
 following redirects, each with a 15 second timeout: 200 from the docs home
 `https://docs.mattstack.dev/`, from `/rt/reference/cd/` and from `/gitq/` (the slash forms, since
-Pages answers a bare path with a 308), and a 301 from `https://rt.cool/reference/cd` to
-`https://docs.mattstack.dev/rt/reference/cd`. A failing check is retried once after 5 seconds,
+the host answers a bare path with a 307 to its slash form), and a 301 from
+`https://rt.cool/reference/cd` to `https://docs.mattstack.dev/rt/reference/cd`. A failing check is retried once after 5 seconds,
 as a grace window for the fresh deploy. It prints `docs smoke: <ok>/4 ok`, writes one line per
 check that still fails to stderr (the URL and what it expected and got, or `fetch failed
 (<message>)` when the request itself failed) and exits 1 on any failure. Pass means every check
@@ -344,11 +344,12 @@ line fails, say so in the gate: the fix is on that project, not the docs deploy.
 
 ### Off-script gate: docs site setup missing
 
-`scripts/deploy-docs.sh` builds the site and deploys it to the Cloudflare Pages project
-`mattstack-docs` through wrangler (`CF_PAGES_PROJECT` overrides the name). It needs the
-`mattstack-docs` project, wrangler auth (`wrangler login` or `CLOUDFLARE_API_TOKEN`) and
-docs.mattstack.dev added as the project's custom domain, all one-time setup described in the
-script's header. Quote what is missing and give Matt those steps; never log in for him. Take:
+`scripts/deploy-docs.sh` builds the site and deploys it with `wrangler deploy` to the Cloudflare
+Worker `mattstack-docs`, which serves the build as static assets (config in
+`website/wrangler.jsonc`), with docs.mattstack.dev as its custom domain. It needs wrangler auth
+(`wrangler login` or `CLOUDFLARE_API_TOKEN`), and docs.mattstack.dev added as a Custom Domain on
+the Worker after the first deploy creates it, all one-time setup described in the script's
+header. Quote what is missing and give Matt those steps; never log in for him. Take:
 Matt deployed the docs site himself. Iterate: Matt did the setup, and the deploy runs again.
 
 ### Off-script gate: docs site deploy failing
