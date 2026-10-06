@@ -512,10 +512,10 @@ function RosterControl({
   const [armed, setArmed] = useState<string | null>(null);
   // The username whose display name is being edited inline, if any.
   const [renaming, setRenaming] = useState<string | null>(null);
-  // In the everyone view an edit changes the whole org's roster, which only
-  // an org admin may do.
+  // A store-owned roster lives in the org store in either view, which only
+  // an org admin may write.
   const everyone = view?.everyone === true;
-  const canEdit = !everyone || view?.orgAdmin === true;
+  const canEdit = view === null || view.orgAdmin;
 
   const roster = Array.isArray(members)
     ? (members as Array<{

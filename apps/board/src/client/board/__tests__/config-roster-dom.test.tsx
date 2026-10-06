@@ -1,6 +1,7 @@
-/** The roster row edits the org roster. In the everyone view a remove takes
-    someone out of the org, so only an org admin is offered it, and it says
-    so; in a team view the row keeps its drop. */
+/** The roster row edits the org roster, which only an org admin may write,
+    so only an org admin is offered an edit in either view. In the everyone
+    view a remove takes someone out of the org, and it says so; in a team
+    view it is a drop. */
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import {
   afterAll,
@@ -150,10 +151,30 @@ test('the everyone view offers an org admin a remove from the org, and confirms 
   ]);
 });
 
-test('a team view keeps its drop', async () => {
-  await render({ everyone: false, orgAdmin: false });
+test('a team view offers an org admin its drop, add and rename', async () => {
+  await render({ everyone: false, orgAdmin: true });
   expect(button('drop dev2')).not.toBeNull();
+  expect(button('rename dev2')).not.toBeNull();
+  expect(document.querySelector('.tui-roster-add')).not.toBeNull();
   expect(button('remove dev2 from the org')).toBeNull();
+});
+
+test('a team view offers a member who is not an org admin no edit at all', async () => {
+  await render({ everyone: false, orgAdmin: false });
+  expect(document.querySelector('.tui-roster-item')).not.toBeNull();
+  expect(button('drop dev2')).toBeNull();
+  expect(button('rename dev2')).toBeNull();
+  expect(document.querySelector('.tui-roster-add')).toBeNull();
+  expect(document.querySelector('.tui-roster-list')!.textContent).toContain(
+    'dev2'
+  );
+});
+
+test('a roster config.json owns stays editable', async () => {
+  await render(null);
+  expect(button('drop dev2')).not.toBeNull();
+  expect(button('rename dev2')).not.toBeNull();
+  expect(document.querySelector('.tui-roster-add')).not.toBeNull();
 });
 
 test('the roster row sits under the org group, the scope of the roster it edits', async () => {
