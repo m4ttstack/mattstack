@@ -133,4 +133,66 @@ describe("rt settings set / unset output", () => {
       expect(cap.stderr()).toContain("why: The scopes are user, org, team and machine.");
     });
   });
+
+  describe("a role that does not own the store", () => {
+    const ORG_REFUSAL = "[refused] The org's shared files belong to its admins\n  why: Ask dev1 (an org admin) to make this change.\n";
+
+    function seedAs(username: string | undefined): { orgStore: string; teamStores: Record<string, string> } {
+      return seedOrg({
+        org: "acme",
+        username,
+        roles: { admins: ["dev1"], teams: { gadgets: { owners: ["dev2"] } } },
+        roster: [{ username: "dev1", teams: ["widgets"] }, { username: "dev2", teams: ["gadgets"] }, { username: "dev3", teams: ["widgets"] }],
+        settings: { "board.gitlabHost": "gitlab.example.com" },
+        teams: { widgets: { "board.title": "Widgets" }, gadgets: {} },
+      });
+    }
+
+    test("a member's org write is a refused note, exits 1 and leaves the store alone", async () => {
+      const { orgStore } = seedAs("dev3");
+      const before = readFileSync(orgStore);
+      await expect(settingsSet(["board.gitlabHost", '"x"', "--scope", "org"])).rejects.toThrow("__exit_1");
+      expect(cap.stderr()).toBe(ORG_REFUSAL);
+      expect(cap.stdout()).toBe("");
+      expect(readFileSync(orgStore).equals(before)).toBe(true);
+    });
+
+    test("a member's org unset is a refused note and exits 1", async () => {
+      const { orgStore } = seedAs("dev3");
+      const before = readFileSync(orgStore);
+      await expect(settingsUnset(["board.gitlabHost", "--scope", "org"])).rejects.toThrow("__exit_1");
+      expect(cap.stderr()).toBe(ORG_REFUSAL);
+      expect(readFileSync(orgStore).equals(before)).toBe(true);
+    });
+
+    test("a member's team write names the team's owners and the admins", async () => {
+      const { teamStores } = seedAs("dev3");
+      const before = readFileSync(teamStores.gadgets!);
+      await expect(settingsSet(["board.title", '"x"', "--scope", "team", "--team", "gadgets"])).rejects.toThrow("__exit_1");
+      expect(cap.stderr()).toBe(
+        "[refused] The gadgets team's files belong to its owners\n  why: Ask dev2 (the team's owner) or dev1 (an org admin) to make this change.\n",
+      );
+      expect(readFileSync(teamStores.gadgets!).equals(before)).toBe(true);
+    });
+
+    test("an owner's org write is a refused note", async () => {
+      seedAs("dev2");
+      await expect(settingsSet(["board.gitlabHost", '"x"', "--scope", "org"])).rejects.toThrow("__exit_1");
+      expect(cap.stderr()).toBe(ORG_REFUSAL);
+    });
+
+    test("an owner's unset in another team's folder is a refused note", async () => {
+      const { teamStores } = seedAs("dev2");
+      const before = readFileSync(teamStores.widgets!);
+      await expect(settingsUnset(["board.title", "--scope", "team", "--team", "widgets"])).rejects.toThrow("__exit_1");
+      expect(cap.stderr()).toStartWith("[refused] The widgets team's files belong to its owners\n");
+      expect(readFileSync(teamStores.widgets!).equals(before)).toBe(true);
+    });
+
+    test("a Mac that cannot tell who you are still fails, since connecting the forge account fixes it", async () => {
+      seedAs(undefined);
+      await expect(settingsSet(["board.gitlabHost", '"x"', "--scope", "org"])).rejects.toThrow("__exit_1");
+      expect(cap.stderr()).toStartWith("can't tell who you are");
+    });
+  });
 });

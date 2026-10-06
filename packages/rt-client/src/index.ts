@@ -179,7 +179,7 @@ export type {
   ExpandCtx,
 } from "./settings/resolve.ts";
 
-export { setSetting, setSettingsNoticeSink, unsetSetting, pruneStoreName } from "./settings/write.ts";
+export { setSetting, setSettingsNoticeSink, unsetSetting, pruneStoreName, SettingsOwnershipRefusal } from "./settings/write.ts";
 export type { SetSettingOpts, PruneOpts, SettingsNoticeSink, SettingsNotice } from "./settings/write.ts";
 export { validateWrite } from "./settings/validate-write.ts";
 export type { WriteRefusalKind, WriteVerdict } from "./settings/validate-write.ts";

@@ -372,9 +372,19 @@ function ownershipRefusal(org: string, storePath: string): { role: OrgRole; refu
   return { role, refusal: writeRefusalFor(role, roles, relPath) };
 }
 
+/** A shared write this Mac's role does not own. Its message is the same `rt: ` sentence every other refusal throws. */
+export class SettingsOwnershipRefusal extends Error {
+  constructor(
+    readonly role: OrgRole,
+    readonly refusal: { message: string; why: string },
+  ) {
+    super(`rt: ${refusal.message.replace(/^rt /, "")}. ${refusal.why}`);
+  }
+}
+
 function refuseUnlessOwned(org: string, storePath: string): void {
-  const { refusal } = ownershipRefusal(org, storePath);
-  if (refusal) refuse(`${refusal.message.replace(/^rt /, "")}. ${refusal.why}`);
+  const { role, refusal } = ownershipRefusal(org, storePath);
+  if (refusal) throw new SettingsOwnershipRefusal(role, refusal);
 }
 
 function requireOrg(): string {

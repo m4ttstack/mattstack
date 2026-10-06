@@ -41,7 +41,7 @@ import {
   type Resolved,
   type Scope,
 } from "../lib/settings/resolve.ts";
-import { pruneStoreName, setSetting, setSettingsNoticeSink, unsetSetting, type SettingsNotice } from "../lib/settings/write.ts";
+import { pruneStoreName, setSetting, setSettingsNoticeSink, SettingsOwnershipRefusal, unsetSetting, type SettingsNotice } from "../lib/settings/write.ts";
 import { noticeBlocks } from "../lib/settings/notice-blocks.ts";
 import { currentStoreName } from "../lib/settings/migrate.ts";
 import { getDef, isMigrated, type SettingDef, type SettingScope } from "../lib/settings/registry.ts";
@@ -79,6 +79,10 @@ function fail(f: string | FailureInput): never {
 
 /** The resolver and writer prefix their messages with "rt: "; the failure block already says who is talking. */
 function failWithError(err: unknown): never {
+  if (err instanceof SettingsOwnershipRefusal && (err.role.kind === "member" || err.role.kind === "owner")) {
+    out.note(out.line("refused", err.refusal.message), out.callout("why", err.refusal.why));
+    process.exit(1);
+  }
   const message = err instanceof Error ? err.message : String(err);
   out.fail({ title: message.replace(/^rt: /, "") });
   process.exit(1);
