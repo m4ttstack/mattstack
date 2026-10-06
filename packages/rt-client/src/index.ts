@@ -10,6 +10,7 @@ export {
   readMrsByBranch,
   readBranchCache,
   resolveForgeToken,
+  readGitlabToken,
   listRuns,
   getRun,
   abandonRun,
