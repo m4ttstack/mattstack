@@ -6,7 +6,7 @@ import { join } from "path";
 const WALK = join(import.meta.dir, "..", "..", "walkthrough.sh");
 const RUN_MS = 90_000;
 
-type Screens = "hang" | "drop";
+type Screens = "hang" | "drop" | "dropok";
 
 interface World {
   root: string;
@@ -70,6 +70,7 @@ case "$last" in
     case "$(cat "$ROOT/screens")" in
       hang) sleep ${marker} & echo $! > "$ROOT/driver.pid"; wait;;
       drop) echo "Timeout, server 127.0.0.1 not responding." >&2; exit 255;;
+      dropok) echo 0 > "$VM_RUN_DIR/logs/screens.rc"; echo "Timeout, server 127.0.0.1 not responding." >&2; exit 255;;
     esac;;
 esac
 exit 0
@@ -109,6 +110,9 @@ esac
       VM_SSH_KEY: join(root, "key"),
       MATTSTACK_VMTEST_PAT: "test-token",
       MATTSTACK_VMTEST_GITLAB_GROUP: "vmtest-group",
+      // A dropped screens ssh waits for the guest's own exit code until the
+      // phase deadline; the stub guest never reports one.
+      VM_PHASE_LIMIT_SCREENS: "3",
       ...opts.env,
     },
   };
@@ -206,6 +210,13 @@ describe("walkthrough.sh ends a cut phase and still tears down", () => {
     expect(screens?.reason).toMatch(/^ssh to the guest failed or dropped after \d+s in screens \(exit 255\); last lines of logs\/drive\.log: /);
     expectTornDown(w);
     expect(calls(w)).toContain("gh repo delete mattstack-vmtest/mattstack-vmtest-team-");
+  }, RUN_MS);
+
+  test("a dropped ssh whose guest script still finishes passes the phase", async () => {
+    const w = world({ screens: "dropok", env: { VM_PHASE_LIMIT_SCREENS: "30" } });
+    await walk(w);
+    expect(phase(w, "screens")?.status).toBe("pass");
+    expectTornDown(w);
   }, RUN_MS);
 
   test("every guest ssh, keyed or password, carries keepalives", async () => {
