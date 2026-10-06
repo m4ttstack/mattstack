@@ -4,7 +4,10 @@ package background
 
 import (
 	"image/color"
+	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,39 +42,73 @@ func (p *probeCount) probe() (color.Color, bool) {
 	return p.answer, p.answer != nil
 }
 
-func TestOneRunAsksTheTerminalOnce(t *testing.T) {
+func TestEveryProbeThatFinishesRemovesTheLockFile(t *testing.T) {
 	lock := filepath.Join(t.TempDir(), "bg.lock")
 	p := &probeCount{answer: color.RGBA{0x1a, 0x1b, 0x26, 0xff}}
-	for i := 0; i < 3; i++ {
-		c, ok := shared(lock, "run-1", 50*time.Millisecond, p.probe)
+	for i, run := range []string{"run-1", "run-1", ""} {
+		c, ok := shared(lock, run, 50*time.Millisecond, p.probe)
 		if !ok || Of(c) != Dark {
 			t.Fatalf("call %d: %v %v", i, c, ok)
 		}
+		if _, err := os.Lstat(lock); !os.IsNotExist(err) {
+			t.Fatalf("call %d left the lock file: %v", i, err)
+		}
 	}
-	if p.n != 1 {
-		t.Fatalf("asked %d times in one run", p.n)
+	if p.n != 3 {
+		t.Fatalf("a probe that started after the last one finished asked %d times, want 3", p.n)
 	}
-	if _, ok := shared(lock, "run-2", 50*time.Millisecond, p.probe); !ok || p.n != 2 {
-		t.Fatalf("a new run did not ask: %d", p.n)
+}
+
+func TestProbesNeverOverlapWhileTheLockFileComesAndGoes(t *testing.T) {
+	lock := filepath.Join(t.TempDir(), "bg.lock")
+	var active, overlaps, asked atomic.Int32
+	probe := func() (color.Color, bool) {
+		if active.Add(1) > 1 {
+			overlaps.Add(1)
+		}
+		asked.Add(1)
+		time.Sleep(2 * time.Millisecond)
+		active.Add(-1)
+		return nil, false
 	}
-	shared(lock, "", 50*time.Millisecond, p.probe)
-	shared(lock, "", 50*time.Millisecond, p.probe)
-	if p.n != 4 {
-		t.Fatalf("no run id should ask every time: %d", p.n)
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 15; i++ {
+				shared(lock, "", 5*time.Second, probe)
+			}
+		}()
+	}
+	wg.Wait()
+	if overlaps.Load() != 0 || asked.Load() != 120 {
+		t.Fatalf("%d of %d probes overlapped another", overlaps.Load(), asked.Load())
+	}
+	if _, err := os.Lstat(lock); !os.IsNotExist(err) {
+		t.Fatalf("the lock file was left: %v", err)
 	}
 }
 
 func TestNoAnswerIsSharedToo(t *testing.T) {
 	lock := filepath.Join(t.TempDir(), "bg.lock")
-	p := &probeCount{}
-	for i := 0; i < 2; i++ {
-		if _, ok := shared(lock, "run-1", 50*time.Millisecond, p.probe); ok {
-			t.Fatal("silence gave a color")
-		}
+	holding := make(chan struct{})
+	silent := func() (color.Color, bool) {
+		close(holding)
+		time.Sleep(80 * time.Millisecond)
+		return nil, false
 	}
-	p.answer = color.White
-	if _, ok := shared(lock, "run-1", 50*time.Millisecond, p.probe); ok || p.n != 1 {
-		t.Fatalf("the run's first answer did not stick: asked %d", p.n)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		shared(lock, "run-1", 200*time.Millisecond, silent)
+	}()
+	<-holding
+	waiter := &probeCount{answer: color.White}
+	_, ok := shared(lock, "run-1", 200*time.Millisecond, waiter.probe)
+	<-done
+	if ok || waiter.n != 0 {
+		t.Fatalf("the run's silence did not stick: ok %v, waiter asked %d", ok, waiter.n)
 	}
 }
 
@@ -95,6 +132,9 @@ func TestAProbeWaitsForTheOneInFlightAndTakesItsAnswer(t *testing.T) {
 	<-done
 	if !ok || Of(c) != Dark || waiter.n != 0 || holder.n != 1 {
 		t.Fatalf("got %v %v, waiter asked %d, holder asked %d", c, ok, waiter.n, holder.n)
+	}
+	if _, err := os.Lstat(lock); !os.IsNotExist(err) {
+		t.Fatalf("the lock file was left: %v", err)
 	}
 }
 

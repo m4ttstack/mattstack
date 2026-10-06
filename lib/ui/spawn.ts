@@ -32,7 +32,7 @@ function killLiveOnExit(): void {
 /**
  * Resolves an auto background in a render with nothing to draw, so a step's
  * helper starts with the answer. The query holds the tty in raw mode for up
- * to 250 ms, and a step's task may start a child that reads /dev/tty itself
+ * to 750 ms, and a step's task may start a child that reads /dev/tty itself
  * (an ssh passphrase), so await this before opening a step whose task
  * follows. A failed run leaves auto for the steps helper to resolve.
  */

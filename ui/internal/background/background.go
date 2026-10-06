@@ -236,20 +236,22 @@ func configValue(data []byte, key string) (string, bool) {
 type TTY interface {
 	// Pending counts the input bytes waiting to be read.
 	Pending() (int, error)
-	// Raw turns off echo and line buffering; the restore it returns keeps
-	// any unread input.
+	// Raw turns off echo and line buffering and leaves Ctrl-C a signal; the
+	// restore it returns keeps any unread input.
 	Raw() (restore func(), err error)
 	Write(p []byte) (int, error)
 	// ReadTimeout waits at most d for input; (0, nil) means it timed out.
 	ReadTimeout(p []byte, d time.Duration) (int, error)
 }
 
-// queryCap bounds a terminal that answers neither query. It also cuts off a
-// link slower than itself: those replies then arrive after the mode is
-// restored, echo on screen and reach the shell as input, which is why
-// rt.ui.background set to dark or light skips the query. 250 ms clears a
-// typical ssh round trip.
-const queryCap = 250 * time.Millisecond
+// queryCap bounds a terminal that answers neither query. Every terminal
+// answers DA1, so the wait normally ends the moment the reply lands, and the
+// cap is set past a slow ssh round trip: a reply cut off by it arrives after
+// the mode is restored, echoes on screen and reaches the shell as input. A
+// helper waiting on another's probe waits out this cap and then its own, and
+// both must fit inside rt's 2 s render timeout. rt.ui.background set to
+// dark or light skips the query.
+const queryCap = 750 * time.Millisecond
 
 const queryBytes = "\x1b]11;?\x1b\\\x1b[c"
 

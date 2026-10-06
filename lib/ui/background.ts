@@ -51,8 +51,8 @@ function word(): string | undefined {
   return (["stdin", "stdout", "stderr"] as const).every(isTTY) ? "auto" : undefined;
 }
 
-// Helpers given one run id share one terminal answer, whatever order they
-// start in.
+// Helpers given one run id share one terminal answer when their probes
+// overlap; a later helper gets the word a render reported instead.
 let run: string | undefined;
 
 /** The environment rt-ui's render and steps verbs run under. */
