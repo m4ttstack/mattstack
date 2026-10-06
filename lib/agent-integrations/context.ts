@@ -1,0 +1,200 @@
+/**
+ * Caller context: which session binding a CLI or MCP call comes from.
+ *
+ * Evidence is built at the process or transport boundary, never from tool
+ * arguments, and only a native session reference or a connection-bound
+ * session key can name a caller. Pane, process, working directory and a
+ * requested herd job ride along as hints: they never pick a binding, so a
+ * call that carries nothing else refuses as ambiguous.
+ *
+ * Each harness has its own extractor. Codex names a CLI caller by
+ * CODEX_THREAD_ID and an MCP caller by the host's per-request
+ * `_meta.threadId`; its shared MCP process environment names no thread.
+ * Claude names both by CLAUDE_CODE_SESSION_ID in the process environment,
+ * the mechanism rt has always used, with no profile the server can observe.
+ */
+
+import type { Database } from "bun:sqlite";
+import type {
+  CallerContext, FaultCode, HarnessId, NativeSessionRef, Outcome, SessionBinding,
+} from "../../packages/rt-client/src/agent-integrations.ts";
+import { getSetting } from "../settings/resolve.ts";
+import { getStateDb } from "../state/db.ts";
+import { LEGACY_DEFAULT_PROFILE, resolveLegacySession } from "./legacy.ts";
+import { createSessionStore, listBindingsByNativeValue } from "./session-store.ts";
+
+/** A native reference whose profile the boundary may not be able to observe. */
+export type NativeClaim = Omit<NativeSessionRef, "profile"> & { profile?: string };
+
+export type CallerEvidence = {
+  native?: NativeClaim;
+  /** An id the caller named explicitly, with no harness: resolved only when exactly one record matches. */
+  raw?: string;
+  connection?: { key: string; generation: number };
+  hints?: { pane?: string; pid?: number; cwd?: string };
+  requested?: { herd?: string; job?: string };
+};
+
+/** What the MCP server's own launch configuration says about its host. */
+export type McpTransport = { harness?: HarnessId; profile?: string };
+
+export type ResolveDeps = { db?: Database; legacy?: typeof resolveLegacySession };
+
+const SETTING = "agent.integrations.enabled";
+
+/** Read at call time: a machine can flip the switch under a running server. Unreadable settings keep it off. */
+export function integrationsEnabled(): boolean {
+  try {
+    return getSetting<boolean>(SETTING).value === true;
+  } catch {
+    return false;
+  }
+}
+
+function fail<T>(code: FaultCode, message: string): Outcome<T> {
+  return { ok: false, error: { code, message } };
+}
+
+const text = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
+
+/** The Codex home is the profile: two homes hold separate thread stores. F5c binds under the same string. */
+export function codexProfile(env: NodeJS.ProcessEnv): string {
+  return text(env.CODEX_HOME) ? env.CODEX_HOME : LEGACY_DEFAULT_PROFILE;
+}
+
+function hintsFrom(env: NodeJS.ProcessEnv, pid?: number): Pick<CallerEvidence, "hints" | "requested"> {
+  const hints: NonNullable<CallerEvidence["hints"]> = {};
+  if (text(env.HERDR_PANE_ID)) hints.pane = env.HERDR_PANE_ID;
+  if (pid !== undefined) hints.pid = pid;
+  const requested: NonNullable<CallerEvidence["requested"]> = {};
+  if (text(env.HERD_ID)) requested.herd = env.HERD_ID;
+  if (text(env.HERD_JOB)) requested.job = env.HERD_JOB;
+  return {
+    ...(Object.keys(hints).length > 0 && { hints }),
+    ...(Object.keys(requested).length > 0 && { requested }),
+  };
+}
+
+function flagValue(args: string[], flag: string): { value?: string; missing: boolean } {
+  const i = args.indexOf(flag);
+  if (i < 0) return { missing: false };
+  const value = args[i + 1];
+  return value === undefined || value.startsWith("--") ? { missing: true } : { value, missing: false };
+}
+
+/** Only Codex is proven to name its caller per request, so only Codex may be declared. */
+export function mcpTransportFromArgs(args: string[], env: NodeJS.ProcessEnv): Outcome<McpTransport> {
+  const harness = flagValue(args, "--harness");
+  const profile = flagValue(args, "--profile");
+  if (harness.missing || profile.missing) return fail("invalid", "--harness and --profile each take a value");
+  if (harness.value === undefined) {
+    return profile.value === undefined ? { ok: true, data: {} } : fail("invalid", "--profile needs --harness");
+  }
+  if (harness.value !== "codex") return fail("unsupported", `no ${harness.value} host is supported for per-call attribution`);
+  return { ok: true, data: { harness: "codex", profile: profile.value ?? codexProfile(env) } };
+}
+
+function codexMcpClaim(meta: unknown, env: NodeJS.ProcessEnv, profile: string): Outcome<NativeClaim | undefined> {
+  const thread = meta !== null && typeof meta === "object" ? (meta as Record<string, unknown>).threadId : undefined;
+  if (thread === undefined) return { ok: true, data: undefined };
+  if (!text(thread)) return fail("invalid", "the host sent a thread id that is not a non-empty string");
+  if (text(env.CODEX_THREAD_ID) && env.CODEX_THREAD_ID !== thread) {
+    return fail("ambiguous", "the host's thread id disagrees with the thread this server was started in");
+  }
+  return { ok: true, data: { harness: "codex", profile, kind: "id", value: thread } };
+}
+
+function claudeEnvClaim(env: NodeJS.ProcessEnv): NativeClaim | undefined {
+  return text(env.CLAUDE_CODE_SESSION_ID)
+    ? { harness: "claude", kind: "id", value: env.CLAUDE_CODE_SESSION_ID }
+    : undefined;
+}
+
+/** `meta` is the request's own `params._meta`; tool arguments never reach this function. */
+export function extractMcpEvidence(meta: unknown, env: NodeJS.ProcessEnv, transport: McpTransport): Outcome<CallerEvidence> {
+  const extra = hintsFrom(env);
+  if (transport.harness === "codex") {
+    const claim = codexMcpClaim(meta, env, transport.profile ?? codexProfile(env));
+    if (!claim.ok) return claim;
+    return { ok: true, data: { ...(claim.data && { native: claim.data }), ...extra } };
+  }
+  const native = claudeEnvClaim(env);
+  return { ok: true, data: { ...(native && { native }), ...extra } };
+}
+
+/** `--session <id>` stays the explicit override, as in currentSessionId. */
+export function extractCliEvidence(args: string[], env: NodeJS.ProcessEnv): Outcome<CallerEvidence> {
+  const extra = hintsFrom(env, process.pid);
+  const explicit = flagValue(args, "--session").value;
+  if (text(explicit)) return { ok: true, data: { raw: explicit, ...extra } };
+  const codexThread = text(env.CODEX_THREAD_ID) ? env.CODEX_THREAD_ID : undefined;
+  const claude = claudeEnvClaim(env);
+  if (codexThread && claude) return fail("ambiguous", "both a Codex thread and a Claude Code session are set in this environment");
+  const native: NativeClaim | undefined = codexThread
+    ? { harness: "codex", profile: codexProfile(env), kind: "id", value: codexThread }
+    : claude;
+  return { ok: true, data: { ...(native && { native }), ...extra } };
+}
+
+const resolvedAs = (binding: SessionBinding): Outcome<CallerContext> => ({ ok: true, data: { binding } });
+
+function sameSession(claim: NativeClaim, native: NativeSessionRef): boolean {
+  return claim.harness === native.harness && claim.kind === native.kind && claim.value === native.value
+    && (claim.profile === undefined || claim.profile === native.profile);
+}
+
+/** A thrown legacy read (a malformed old row) is an unattributed caller, not a failed tool call. */
+function legacyLookup(deps: ResolveDeps, db: Database, raw: string, harness?: HarnessId): Outcome<SessionBinding> {
+  try {
+    return (deps.legacy ?? resolveLegacySession)(raw, harness, db);
+  } catch {
+    return fail("ambiguous", `session ${raw} cannot be attributed: its older records could not be read`);
+  }
+}
+
+function byConnection(db: Database, input: CallerEvidence & { connection: { key: string; generation: number } }): Outcome<CallerContext> {
+  const binding = createSessionStore(db).get(input.connection.key);
+  if (!binding) return fail("ambiguous", "this connection's session is no longer recorded");
+  if (binding.attachment.generation !== input.connection.generation) {
+    return fail("stale-binding", `this connection belongs to attachment ${input.connection.generation} of its session, which has since moved to ${binding.attachment.generation}`);
+  }
+  if (input.native && !sameSession(input.native, binding.native)) {
+    return fail("ambiguous", "this call names a different session than its connection");
+  }
+  return resolvedAs(binding);
+}
+
+function byNative(db: Database, claim: NativeClaim, deps: ResolveDeps): Outcome<CallerContext> {
+  if (claim.profile !== undefined) {
+    const hit = createSessionStore(db).find({ ...claim, profile: claim.profile });
+    if (hit) return resolvedAs(hit);
+  } else {
+    const matches = listBindingsByNativeValue(db, claim.value)
+      .filter((b) => b.native.harness === claim.harness && b.native.kind === claim.kind);
+    if (matches.length === 1) return resolvedAs(matches[0]!);
+    if (matches.length > 1) return fail("ambiguous", `${claim.harness} session ${claim.value} is recorded under more than one profile`);
+  }
+  const legacy = legacyLookup(deps, db, claim.value, claim.harness);
+  if (!legacy.ok) return legacy;
+  if (!sameSession(claim, legacy.data.native)) {
+    return fail("ambiguous", `${claim.harness} session ${claim.value} is recorded under another profile`);
+  }
+  return resolvedAs(legacy.data);
+}
+
+/**
+ * The binding a call comes from. A native miss falls back to the legacy
+ * records once; nothing else (a pane, a job, a working directory, the
+ * newest run) can stand in for a missing or contradicted reference.
+ */
+export async function resolveCallerContext(input: CallerEvidence, deps: ResolveDeps = {}): Promise<Outcome<CallerContext>> {
+  if (!input.connection && !input.native && !text(input.raw)) {
+    return fail("ambiguous", "no trusted session evidence came with this call; a pane, job or working directory does not identify a caller");
+  }
+  if (input.native && !text(input.native.value)) return fail("invalid", "a native session reference needs a value");
+  const db = deps.db ?? getStateDb();
+  if (input.connection) return byConnection(db, { ...input, connection: input.connection });
+  if (input.native) return byNative(db, input.native, deps);
+  const legacy = legacyLookup(deps, db, input.raw!);
+  return legacy.ok ? resolvedAs(legacy.data) : legacy;
+}

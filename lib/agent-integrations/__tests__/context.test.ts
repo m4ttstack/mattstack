@@ -1,0 +1,262 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import type { NativeSessionRef, Outcome, CallerContext } from "../../../packages/rt-client/src/agent-integrations.ts";
+import { openStateDb } from "../../state/db.ts";
+import { insertAgent, type AgentRecord } from "../../state/agents-store.ts";
+import { writeChatSession } from "../../chat-session.ts";
+import { setSetting } from "../../settings/write.ts";
+import { createSessionStore } from "../session-store.ts";
+import {
+  extractCliEvidence, extractMcpEvidence, integrationsEnabled, mcpTransportFromArgs, resolveCallerContext,
+  type CallerEvidence,
+} from "../context.ts";
+import { createCallHandler } from "../../../commands/mcp.ts";
+import { ok, type McpToolDef } from "../../mcp/shared.ts";
+
+let dir = "";
+let origHome: string | undefined;
+
+beforeEach(() => {
+  origHome = process.env.HOME;
+  dir = mkdtempSync(join(tmpdir(), "rt-caller-context-"));
+  process.env.HOME = join(dir, "home");
+});
+
+afterEach(() => {
+  process.env.HOME = origHome;
+  rmSync(dir, { recursive: true, force: true });
+});
+
+function freshDb(): Database {
+  return openStateDb(join(dir, "state.db"));
+}
+
+const codex = (value: string, profile = "default"): NativeSessionRef => ({ harness: "codex", profile, kind: "id", value });
+
+function bound(db: Database, identity: string, native: NativeSessionRef, pane = "w1:p1", attemptId?: string) {
+  const store = createSessionStore(db);
+  const result = store.bind(store.reserve({ identity, ...(attemptId && { attemptId }) }), native, { mode: "herdr", pane });
+  if (!result.ok) throw new Error(result.error.message);
+  return result.data;
+}
+
+function resolved(outcome: Outcome<CallerContext>): CallerContext {
+  if (!outcome.ok) throw new Error(`expected a resolved caller, got ${outcome.error.code}: ${outcome.error.message}`);
+  return outcome.data;
+}
+
+function evidence(outcome: Outcome<CallerEvidence>): CallerEvidence {
+  if (!outcome.ok) throw new Error(`expected evidence, got ${outcome.error.code}: ${outcome.error.message}`);
+  return outcome.data;
+}
+
+const CODEX_SERVER = { harness: "codex", profile: "default" } as const;
+const SHARED_ENV = { HERDR_PANE_ID: "wMP:p0", HERD_ID: "hd-1", HERD_JOB: "job-1" } as NodeJS.ProcessEnv;
+
+describe("caller attribution", () => {
+  test("shared server resolves two callers independently", async () => {
+    const db = freshDb();
+    const one = bound(db, "remy.ab12", codex("thread-one"), "wTK:p1");
+    const two = bound(db, "kai.cd34", codex("thread-two"), "wTM:p1");
+
+    const a = resolved(await resolveCallerContext(evidence(extractMcpEvidence({ threadId: "thread-one" }, SHARED_ENV, CODEX_SERVER)), { db }));
+    const b = resolved(await resolveCallerContext(evidence(extractMcpEvidence({ threadId: "thread-two" }, SHARED_ENV, CODEX_SERVER)), { db }));
+    expect(a.binding.key).toBe(one.key);
+    expect(b.binding.key).toBe(two.key);
+    expect(a.binding.key).not.toBe(b.binding.key);
+    expect(a.binding.native.value).toBe("thread-one");
+    expect(b.binding.native.value).toBe("thread-two");
+
+    // The same server, a call with no host metadata: a valid job id and a
+    // working directory that matches a bound worker's do not identify it.
+    const uncorrelated = await resolveCallerContext(
+      { ...evidence(extractMcpEvidence(undefined, SHARED_ENV, CODEX_SERVER)), hints: { pane: "wTK:p1", cwd: dir } },
+      { db },
+    );
+    expect(uncorrelated).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+  });
+
+  test("inherited pane is only a hint", async () => {
+    const db = freshDb();
+    const one = bound(db, "remy.ab12", codex("thread-one"), "wTH:p1");
+    const two = bound(db, "kai.cd34", codex("thread-two"), "wTJ:p1");
+    const inherited = { HERDR_PANE_ID: "wMP:p0", HERD_ID: "hd-1", HERD_JOB: "job-1" };
+
+    const a = resolved(await resolveCallerContext(evidence(extractCliEvidence([], { ...inherited, CODEX_THREAD_ID: "thread-one" })), { db }));
+    const b = resolved(await resolveCallerContext(evidence(extractCliEvidence([], { ...inherited, CODEX_THREAD_ID: "thread-two" })), { db }));
+    expect(a.binding.key).toBe(one.key);
+    expect(b.binding.key).toBe(two.key);
+    expect(a.binding.key).not.toBe(b.binding.key);
+
+    // A pane that IS a bound worker's attachment still names nobody on its own.
+    const paneOnly = await resolveCallerContext(evidence(extractCliEvidence([], { HERDR_PANE_ID: "wTH:p1", HERD_ID: "hd-1", HERD_JOB: "job-1" })), { db });
+    expect(paneOnly).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+  });
+
+  test("cleared session cannot reuse MCP owner", async () => {
+    const db = freshDb();
+    const store = createSessionStore(db);
+    const before = bound(db, "remy.ab12", codex("thread-before"), "w1:p1", "attempt-1");
+    // The clear: the old session leaves the pane and a fresh session takes it,
+    // with a fresh identity, the same pane and the same working directory.
+    const detached = store.replaceAttachment(before.key, before.attachment.generation, { mode: "headless" });
+    if (!detached.ok) throw new Error(detached.error.message);
+    const after = bound(db, "otto.0001", codex("thread-after"), "w1:p1", "attempt-1");
+
+    const stale = await resolveCallerContext({ connection: { key: before.key, generation: before.attachment.generation }, hints: { pane: "w1:p1", cwd: dir } }, { db });
+    expect(stale).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+
+    const crossed = await resolveCallerContext({ connection: { key: before.key, generation: detached.data.attachment.generation }, native: { harness: "codex", profile: "default", kind: "id", value: "thread-after" } }, { db });
+    expect(crossed).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+
+    const gone = await resolveCallerContext({ native: { harness: "codex", profile: "default", kind: "id", value: "thread-cleared-never-bound" }, hints: { pane: "w1:p1", cwd: dir } }, { db });
+    expect(gone).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+
+    const fresh = resolved(await resolveCallerContext({ native: { harness: "codex", profile: "default", kind: "id", value: "thread-after" } }, { db }));
+    expect(fresh.binding.key).toBe(after.key);
+    expect(fresh.binding.key).not.toBe(before.key);
+  });
+});
+
+describe("MCP extraction", () => {
+  test("missing metadata and metadata on a server not configured for that host carry no native session", () => {
+    expect(evidence(extractMcpEvidence(undefined, {}, CODEX_SERVER)).native).toBeUndefined();
+    expect(evidence(extractMcpEvidence({}, {}, CODEX_SERVER)).native).toBeUndefined();
+    // A Claude-configured server never trusts a threadId just because one arrived.
+    const claudeServer = evidence(extractMcpEvidence({ threadId: "thread-one" }, {}, {}));
+    expect(claudeServer.native).toBeUndefined();
+  });
+
+  test("zero and empty thread ids are refused", () => {
+    for (const threadId of [0, "", "   ", null, 42, { id: "x" }]) {
+      const result = extractMcpEvidence({ threadId }, {}, CODEX_SERVER);
+      expect(result.ok, JSON.stringify(threadId)).toBe(false);
+    }
+  });
+
+  test("a thread id that disagrees with the server's own environment is refused", () => {
+    const result = extractMcpEvidence({ threadId: "thread-two" }, { CODEX_THREAD_ID: "thread-one" }, CODEX_SERVER);
+    expect(result).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(evidence(extractMcpEvidence({ threadId: "thread-one" }, { CODEX_THREAD_ID: "thread-one" }, CODEX_SERVER)).native?.value).toBe("thread-one");
+  });
+
+  test("foreign-profile metadata is refused", async () => {
+    const db = freshDb();
+    bound(db, "remy.ab12", codex("thread-one", "work"));
+    const server = evidence(extractMcpEvidence({ threadId: "thread-one" }, {}, { harness: "codex", profile: "personal" }));
+    expect(server.native).toEqual({ harness: "codex", profile: "personal", kind: "id", value: "thread-one" });
+    expect(await resolveCallerContext(server, { db })).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+  });
+
+  test("the transport names its harness and profile from its own launch arguments", () => {
+    expect(mcpTransportFromArgs([], {})).toEqual({ ok: true, data: {} });
+    expect(mcpTransportFromArgs(["--harness", "codex"], {})).toEqual({ ok: true, data: { harness: "codex", profile: "default" } });
+    expect(mcpTransportFromArgs(["--harness", "codex"], { CODEX_HOME: "/x/.codex-work" })).toEqual({ ok: true, data: { harness: "codex", profile: "/x/.codex-work" } });
+    expect(mcpTransportFromArgs(["--harness", "codex", "--profile", "work"], {})).toEqual({ ok: true, data: { harness: "codex", profile: "work" } });
+    expect(mcpTransportFromArgs(["--harness", "gemini"], {}).ok).toBe(false);
+    expect(mcpTransportFromArgs(["--harness"], {}).ok).toBe(false);
+  });
+
+  test("a caller-supplied lookalike in tool arguments never reaches the evidence", async () => {
+    const db = freshDb();
+    const one = bound(db, "remy.ab12", codex("thread-one"));
+    bound(db, "kai.cd34", codex("thread-two"));
+    const seen: Array<Outcome<CallerContext>> = [];
+    const probe: McpToolDef = {
+      name: "probe", description: "records the resolved caller", shellForms: { none: "test" },
+      inputSchema: { type: "object", properties: {}, additionalProperties: true },
+      async handler(_input, _env, _signal, context) {
+        seen.push(await context!.caller());
+        return ok(null);
+      },
+    };
+    const call = createCallHandler([probe], { harness: "codex", profile: "default" }, {}, (e) => resolveCallerContext(e, { db }));
+    const parse = (params: Record<string, unknown>) => CallToolRequestSchema.parse({ method: "tools/call", params }).params;
+
+    await call(parse({ name: "probe", arguments: { threadId: "thread-two", _meta: { threadId: "thread-two" } }, _meta: { threadId: "thread-one" } }));
+    await call(parse({ name: "probe", arguments: { threadId: "thread-two", _meta: { threadId: "thread-two" } } }));
+    expect(resolved(seen[0]!).binding.key).toBe(one.key);
+    expect(seen[1]).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+  });
+});
+
+describe("CLI extraction", () => {
+  test("Codex CLI callers are named by CODEX_THREAD_ID under the Codex home's profile", () => {
+    expect(evidence(extractCliEvidence([], { CODEX_THREAD_ID: "thread-one" })).native).toEqual(codex("thread-one"));
+    expect(evidence(extractCliEvidence([], { CODEX_THREAD_ID: "thread-one", CODEX_HOME: "/x/.codex-work" })).native).toEqual(codex("thread-one", "/x/.codex-work"));
+  });
+
+  test("conflicting harness environments and empty ids are refused", () => {
+    expect(extractCliEvidence([], { CODEX_THREAD_ID: "thread-one", CLAUDE_CODE_SESSION_ID: "sess-1" })).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(evidence(extractCliEvidence([], { CODEX_THREAD_ID: "" })).native).toBeUndefined();
+  });
+
+  test("an explicit --session resolves a unique recorded session and refuses an ambiguous raw id", async () => {
+    const db = freshDb();
+    const work = bound(db, "remy.ab12", codex("shared", "work"));
+    bound(db, "ivy.ef56", { harness: "claude", profile: "default", kind: "id", value: "shared" });
+    bound(db, "kai.cd34", codex("only-one"));
+    const explicit = evidence(extractCliEvidence(["--session", "only-one"], { CODEX_THREAD_ID: "thread-ignored" }));
+    expect(explicit.raw).toBe("only-one");
+    expect(resolved(await resolveCallerContext(explicit, { db })).binding.native.value).toBe("only-one");
+    expect(await resolveCallerContext(evidence(extractCliEvidence(["--session", "shared"], {})), { db }))
+      .toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(work.native.profile).toBe("work");
+  });
+});
+
+describe("resolution fallbacks", () => {
+  function claudeAgent(over: Partial<AgentRecord> = {}): AgentRecord {
+    return {
+      id: "ag-1", repo: "remote:gitlab.com%2Facme%2Facme-dev", cwd: "/tmp/repo", provider: "claude", surface: "herdr",
+      sessionId: "c1a0de00-0000-4000-8000-000000000001", handle: "remy.ab12", paneId: "w1:p2", createdAt: 1, ...over,
+    } as AgentRecord;
+  }
+
+  test("a Claude caller binds through its legacy agent record on a native miss", async () => {
+    const db = freshDb();
+    insertAgent(claudeAgent({ account: "work" }), db);
+    const caller = resolved(await resolveCallerContext(evidence(extractMcpEvidence(undefined, { CLAUDE_CODE_SESSION_ID: "c1a0de00-0000-4000-8000-000000000001" }, {})), { db }));
+    expect(caller.binding.identity).toBe("remy.ab12");
+    expect(caller.binding.native).toEqual({ harness: "claude", profile: "work", kind: "id", value: "c1a0de00-0000-4000-8000-000000000001" });
+  });
+
+  test("a chat sign-in alone does not attribute a caller", async () => {
+    const db = freshDb();
+    writeChatSession({ sessionId: "u0000000-0000-4000-8000-00000000000c", handle: "nell.9f9f", baseHandle: "nell", signedInAt: 1 });
+    const result = await resolveCallerContext(evidence(extractMcpEvidence(undefined, { CLAUDE_CODE_SESSION_ID: "u0000000-0000-4000-8000-00000000000c" }, {})), { db });
+    expect(result).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+  });
+
+  test("a throw from the legacy reader refuses the caller instead of crashing", async () => {
+    const db = freshDb();
+    const result = await resolveCallerContext(
+      { native: { harness: "claude", kind: "id", value: "sess-x" } },
+      { db, legacy: () => { throw new Error("malformed legacy row"); } },
+    );
+    expect(result).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+  });
+
+  test("a bound caller never touches the legacy reader", async () => {
+    const db = freshDb();
+    bound(db, "remy.ab12", codex("thread-one"));
+    let legacyCalls = 0;
+    const result = await resolveCallerContext({ native: codex("thread-one") }, { db, legacy: () => { legacyCalls++; throw new Error("unreachable"); } });
+    expect(result.ok).toBe(true);
+    expect(legacyCalls).toBe(0);
+  });
+});
+
+describe("the agent.integrations.enabled switch", () => {
+  test("is off unless this machine turns it on", () => {
+    expect(integrationsEnabled()).toBe(false);
+    setSetting("agent.integrations.enabled", true, "machine");
+    expect(integrationsEnabled()).toBe(true);
+    setSetting("agent.integrations.enabled", false, "machine");
+    expect(integrationsEnabled()).toBe(false);
+  });
+});

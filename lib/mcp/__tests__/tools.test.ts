@@ -7,6 +7,9 @@ import { normalizeGateQuestions } from "../../../packages/rt-client/src/gate-opt
 import type { GateQuestion } from "../../../packages/rt-client/src/commands.ts";
 import { REPO_INDEX_NS } from "../../repo-index.ts";
 import { closeStateDb, setKvValue } from "../../state/index.ts";
+import { writeChatSession } from "../../chat-session.ts";
+import { setSetting } from "../../settings/write.ts";
+import type { ToolContext } from "../shared.ts";
 
 const NAMES = ["gate_answer","gate_ask","gate_list","chat_post","chat_dm","chat_ack","chat_claim","chat_release","mr_reply_thread","mr_update_note","mr_comment_inline","mr_comment","mr_review_submit","mr_create","mr_update","mr_upload","mr_approve","mr_resolve_thread","mr_ready","mr_retry","mr_rebase","mr_map","herd_gates","herd_ask","herd_answer","herd_report","rt_verb","run_start","run_stage","run_field_set","run_field_get","run_decision","run_status","run_snapshot","run_list","mr_view","mr_list","mr_for_branch","mr_threads","mr_pipeline","mr_job_trace","mr_merge","git_push","git_pull","git_rebase","branch_sync","worktree_provision","worktree_dispose","worktree_stop_holders","herd_start","herd_spawn","herd_brief","herd_close","herd_follow_up","herd_status","herd_list","herd_attend","herd_wrap_up","herd_resume","herd_milestone","chat_read","chat_mark","chat_rooms","chat_who","chat_buddies","chat_join","chat_leave","chat_away","chat_back","chat_sign_in","chat_sign_out","chat_archive","chat_invite","whoami","ci_lease_claim","ci_lease_heartbeat","ci_lease_release","ci_lease_read","ci_watch","project_labels","pipeline_list","gitlab_get","branch_stack"];
 
@@ -1414,6 +1417,142 @@ describe("mcpTools", () => {
       expect(withRemove.ok).toBe(false);
       expect(calls).toEqual([]);
     });
+  });
+});
+
+describe("resolved caller sessions", () => {
+  let originalHome: string | undefined;
+  let calls: Array<{ cmd: string; payload: Record<string, unknown> }> = [];
+
+  const BINDING = {
+    key: "sk-fixture", identity: "remy.ab12",
+    native: { harness: "codex", profile: "default", kind: "id" as const, value: "thread-one" },
+    attachment: { generation: 3, mode: "herdr" as const, pane: "wTK:p1" },
+  };
+  const RESOLVED: ToolContext = { caller: async () => ({ ok: true, data: { binding: BINDING } }) };
+  function unresolvable() {
+    let asked = 0;
+    const context: ToolContext = {
+      caller: async () => { asked++; return { ok: false, error: { code: "ambiguous", message: "no trusted session evidence came with this call" } }; },
+    };
+    return { context, asked: () => asked };
+  }
+
+  const GATE = [{ id: "q1", label: "Proceed?", multi: false, options: ["yes", "no"] }];
+  const CASES: Array<{ tool: string; input: Record<string, unknown>; cmd: string }> = [
+    { tool: "gate_ask", input: { questions: GATE, subject: "mr:x", context: "x" }, cmd: "gate:ask" },
+    { tool: "chat_post", input: { room: "rt", body: "hi" }, cmd: "chat:post" },
+    { tool: "chat_dm", input: { to: "kai", body: "hi" }, cmd: "chat:dm" },
+    { tool: "herd_answer", input: { gate: "g1" }, cmd: "herd:answer" },
+  ];
+  const tool = (name: string) => mcpTools().find((t) => t.name === name)!;
+
+  beforeEach(() => {
+    originalHome = process.env.HOME;
+    process.env.HOME = mkdtempSync(join(tmpdir(), "rt-mcp-caller-test-"));
+    calls = [];
+    mock.module("../../../packages/rt-client/src/transport.ts", () => ({
+      ...realTransport,
+      rtCommand: async (cmd: string, payload: Record<string, unknown>) => {
+        calls.push({ cmd, payload });
+        return { ok: true, data: { id: "g1" } };
+      },
+    }));
+    writeChatSession({ sessionId: "thread-one", handle: "remy.ab12", baseHandle: "remy", signedInAt: 1 });
+    writeChatSession({ sessionId: "sess-1", handle: "ann", baseHandle: "ann", signedInAt: 1 });
+  });
+
+  afterEach(() => {
+    mock.module("../../../packages/rt-client/src/transport.ts", () => ({ ...realTransport, rtCommand: realRtCommand }));
+    process.env.HOME = originalHome;
+  });
+
+  test("gate_ask, chat_post, chat_dm and herd_answer take the resolved session", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const env = { HERDR_PANE_ID: "wMP:p0" } as NodeJS.ProcessEnv;
+    for (const c of CASES) {
+      const res = await tool(c.tool).handler(c.input, env, undefined, RESOLVED);
+      expect(res.ok, c.tool).toBe(true);
+    }
+    const sent = Object.fromEntries(calls.map((c) => [c.cmd, c.payload]));
+    expect(sent["gate:ask"]).toMatchObject({ sessionId: "thread-one", paneId: "wTK:p1" });
+    expect(sent["chat:post"]).toMatchObject({ handle: "remy.ab12" });
+    expect(sent["chat:dm"]).toMatchObject({ from: "remy.ab12", sessionId: "thread-one" });
+    expect(sent["herd:answer"]).toMatchObject({ gate: "g1", sessionId: "thread-one" });
+
+    calls = [];
+    for (const c of CASES) {
+      const refused = await tool(c.tool).handler(c.input, { CLAUDE_CODE_SESSION_ID: "sess-1" } as NodeJS.ProcessEnv, undefined, unresolvable().context);
+      expect(refused.ok, c.tool).toBe(false);
+      expect(refused.error, c.tool).toContain("cannot be attributed");
+      const bare = await tool(c.tool).handler(c.input, { CLAUDE_CODE_SESSION_ID: "sess-1" } as NodeJS.ProcessEnv);
+      expect(bare.ok, c.tool).toBe(false);
+    }
+    expect(calls).toEqual([]);
+  });
+
+  for (const c of CASES) {
+    test(`${c.tool} keeps its environment session when integrations are off, even for an unresolvable caller`, async () => {
+      const env = { CLAUDE_CODE_SESSION_ID: "sess-1", HERDR_PANE_ID: "pane-1" } as NodeJS.ProcessEnv;
+      const before = await tool(c.tool).handler(c.input, env);
+      const legacyCalls = calls;
+      calls = [];
+      const { context, asked } = unresolvable();
+      const after = await tool(c.tool).handler(c.input, env, undefined, context);
+      expect(after).toEqual(before);
+      expect(after.ok).toBe(true);
+      expect(calls).toEqual(legacyCalls);
+      expect(asked()).toBe(0);
+    });
+  }
+
+  const OTHER_CONSUMERS: Array<{ tool: string; input: Record<string, unknown>; cmd: string }> = [
+    { tool: "chat_ack", input: { id: 1 }, cmd: "chat:ack" },
+    { tool: "chat_claim", input: { id: 1 }, cmd: "chat:claim" },
+    { tool: "chat_release", input: { id: 1 }, cmd: "chat:release" },
+    { tool: "herd_ask", input: { questions: GATE }, cmd: "herd:ask" },
+  ];
+
+  test("the other session-handle and worker consumers take the resolved session", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const env = { HERD_ID: "hd-1", HERD_JOB: "j", HERDR_PANE_ID: "wMP:p0" } as NodeJS.ProcessEnv;
+    for (const c of OTHER_CONSUMERS) {
+      const res = await tool(c.tool).handler(c.input, env, undefined, RESOLVED);
+      expect(res.ok, c.tool).toBe(true);
+    }
+    const sent = Object.fromEntries(calls.map((c) => [c.cmd, c.payload]));
+    for (const cmd of ["chat:ack", "chat:claim", "chat:release"]) expect(sent[cmd], cmd).toMatchObject({ handle: "remy.ab12" });
+    expect(sent["herd:ask"]).toMatchObject({ herd: "hd-1", job: "j", session: "thread-one", pane: "wTK:p1" });
+
+    calls = [];
+    for (const c of OTHER_CONSUMERS) {
+      const refused = await tool(c.tool).handler(c.input, { ...env, CLAUDE_CODE_SESSION_ID: "sess-1" } as NodeJS.ProcessEnv, undefined, unresolvable().context);
+      expect(refused.error, c.tool).toContain("cannot be attributed");
+    }
+    expect(calls).toEqual([]);
+  });
+
+  for (const c of OTHER_CONSUMERS) {
+    test(`${c.tool} keeps its environment identity when integrations are off, even for an unresolvable caller`, async () => {
+      const env = { CLAUDE_CODE_SESSION_ID: "sess-1", HERDR_PANE_ID: "pane-1", HERD_ID: "hd-1", HERD_JOB: "j" } as NodeJS.ProcessEnv;
+      const before = await tool(c.tool).handler(c.input, env);
+      const legacyCalls = calls;
+      calls = [];
+      const { context, asked } = unresolvable();
+      const after = await tool(c.tool).handler(c.input, env, undefined, context);
+      expect(after).toEqual(before);
+      expect(after.ok).toBe(true);
+      expect(calls).toEqual(legacyCalls);
+      expect(asked()).toBe(0);
+    });
+  }
+
+  test("integrations off: a tool with no environment session still answers exactly as before", async () => {
+    for (const c of [...CASES, ...OTHER_CONSUMERS]) {
+      const before = await tool(c.tool).handler(c.input, {} as NodeJS.ProcessEnv);
+      const after = await tool(c.tool).handler(c.input, {} as NodeJS.ProcessEnv, undefined, unresolvable().context);
+      expect(after, c.tool).toEqual(before);
+    }
   });
 });
 

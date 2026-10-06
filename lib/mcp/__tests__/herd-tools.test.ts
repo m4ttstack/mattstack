@@ -1,8 +1,10 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
+import { setSetting } from "../../settings/write.ts";
 import { herdToolDefs, type HerdToolDeps } from "../herd-tools.ts";
+import type { ToolContext } from "../shared.ts";
 
 /** A real directory standing in for the Claude Code temp root -- checkTempRootPath realpaths the parent, so the root must actually exist on disk. */
 const FAKE_TEMP_ROOT = realpathSync(mkdtempSync(join(tmpdir(), "rt-herd-brief-out-")));
@@ -342,5 +344,51 @@ describe("herd_milestone", () => {
     const { tool } = fake();
     const r = await tool("herd_milestone").handler({ artifact: "/a.md" }, {} as NodeJS.ProcessEnv);
     expect(r.error).toContain("HERD_ID and HERD_JOB are not set");
+  });
+});
+
+describe("herd_milestone: resolved caller sessions", () => {
+  let originalHome: string | undefined;
+  beforeEach(() => {
+    originalHome = process.env.HOME;
+    process.env.HOME = mkdtempSync(join(tmpdir(), "rt-herd-tools-caller-"));
+  });
+  afterEach(() => {
+    process.env.HOME = originalHome;
+  });
+
+  const RESOLVED: ToolContext = {
+    caller: async () => ({ ok: true, data: { binding: {
+      key: "sk-fixture", identity: "remy.ab12", native: { harness: "codex", profile: "default", kind: "id", value: "thread-one" },
+      attachment: { generation: 1, mode: "herdr", pane: "wTK:p1" },
+    } } }),
+  };
+  const UNRESOLVED: ToolContext = { caller: async () => ({ ok: false, error: { code: "ambiguous", message: "no trusted session evidence came with this call" } }) };
+  const CODEX_WORKER = { HERD_ID: "hd-1", HERD_JOB: "j", HERDR_PANE_ID: "wMP:p0" } as NodeJS.ProcessEnv;
+
+  test("sends the bound session and its pane, not the inherited environment, when integrations are on", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const { tool, calls } = fake();
+    const r = await tool("herd_milestone").handler({ artifact: "/a.md" }, CODEX_WORKER, undefined, RESOLVED);
+    expect(r.ok).toBe(true);
+    expect(calls[0]).toMatchObject({ fn: "milestone", a: { herd: "hd-1", job: "j", session: "thread-one", pane: "wTK:p1", artifact: "/a.md" } });
+  });
+
+  test("refuses an unresolved caller when integrations are on", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const { tool, calls } = fake();
+    const r = await tool("herd_milestone").handler({ artifact: "/a.md" }, WORKER, undefined, UNRESOLVED);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("cannot be attributed");
+    expect(calls).toEqual([]);
+  });
+
+  test("is unchanged when integrations are off, even for an unresolvable caller", async () => {
+    const before = fake();
+    const r1 = await before.tool("herd_milestone").handler({ artifact: "/a.md" }, WORKER);
+    const after = fake();
+    const r2 = await after.tool("herd_milestone").handler({ artifact: "/a.md" }, WORKER, undefined, UNRESOLVED);
+    expect(r2).toEqual(r1);
+    expect(after.calls).toEqual(before.calls);
   });
 });

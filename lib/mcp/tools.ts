@@ -35,7 +35,7 @@ import { worktreeToolDefs } from "./worktree-tools.ts";
 import {
   checkOptional, checkPositiveInts, checkRequired, checkStringArray,
   err, fromResponse, HERD_ENV_ERROR, isTimeoutError, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok,
-  REPO_NAME_RULE, REPO_TARGET_PROPS, requireChatHandle, requireJobEnv, requireWorkerEnv,
+  REPO_NAME_RULE, REPO_TARGET_PROPS, callerChatHandle, callerSession, callerWorker, requireJobEnv,
   resolveSoleHerd, withLandingHint,
   type McpToolDef, type ToolResult,
 } from "./shared.ts";
@@ -242,9 +242,11 @@ export function mcpTools(): McpToolDef[] {
         additionalProperties: false,
       },
       shellForms: ["rt gate ask"],
-      async handler(input, env) {
+      async handler(input, env, _signal, context) {
         const bad = checkRequired(input, [{ name: "questions", type: "array" }]);
         if (bad) return err(bad);
+        const caller = await callerSession(env, context);
+        if ("error" in caller) return err(caller.error);
         const payload: Commands["gate:ask"]["payload"] = {
           questions: input.questions as GateQuestion[],
         };
@@ -255,8 +257,8 @@ export function mcpTools(): McpToolDef[] {
         // ladder's run rung; absent an input subject, the daemon resolves
         // session -> run -> the agent record's own subject.
         if (input.subject !== undefined) payload.subject = input.subject as string;
-        if (env.CLAUDE_CODE_SESSION_ID) payload.sessionId = env.CLAUDE_CODE_SESSION_ID;
-        if (env.HERDR_PANE_ID) payload.paneId = env.HERDR_PANE_ID;
+        if (caller.session) payload.sessionId = caller.session;
+        if (caller.pane) payload.paneId = caller.pane;
         return fromResponse(await gateAsk(payload));
       },
     },
@@ -275,8 +277,8 @@ export function mcpTools(): McpToolDef[] {
         additionalProperties: false,
       },
       shellForms: ["rt chat post"],
-      async handler(input, env) {
-        const identity = await requireChatHandle(env);
+      async handler(input, env, _signal, context) {
+        const identity = await callerChatHandle(env, context);
         if ("error" in identity) return err(identity.error);
         const bad = checkRequired(input, [{ name: "room", type: "string" }, { name: "body", type: "string" }]);
         if (bad) return err(bad);
@@ -298,8 +300,8 @@ export function mcpTools(): McpToolDef[] {
         additionalProperties: false,
       },
       shellForms: ["rt chat dm"],
-      async handler(input, env) {
-        const identity = await requireChatHandle(env);
+      async handler(input, env, _signal, context) {
+        const identity = await callerChatHandle(env, context);
         if ("error" in identity) return err(identity.error);
         const bad = checkRequired(input, [{ name: "to", type: "string" }, { name: "body", type: "string" }]);
         if (bad) return err(bad);
@@ -316,8 +318,8 @@ export function mcpTools(): McpToolDef[] {
         additionalProperties: false,
       },
       shellForms: ["rt chat ack"],
-      async handler(input, env) {
-        const identity = await requireChatHandle(env);
+      async handler(input, env, _signal, context) {
+        const identity = await callerChatHandle(env, context);
         if ("error" in identity) return err(identity.error);
         const bad = checkRequired(input, [{ name: "id", type: "number" }]);
         if (bad) return err(bad);
@@ -334,8 +336,8 @@ export function mcpTools(): McpToolDef[] {
         additionalProperties: false,
       },
       shellForms: ["rt chat claim"],
-      async handler(input, env) {
-        const identity = await requireChatHandle(env);
+      async handler(input, env, _signal, context) {
+        const identity = await callerChatHandle(env, context);
         if ("error" in identity) return err(identity.error);
         const bad = checkRequired(input, [{ name: "id", type: "number" }]);
         if (bad) return err(bad);
@@ -352,8 +354,8 @@ export function mcpTools(): McpToolDef[] {
         additionalProperties: false,
       },
       shellForms: ["rt chat release"],
-      async handler(input, env) {
-        const identity = await requireChatHandle(env);
+      async handler(input, env, _signal, context) {
+        const identity = await callerChatHandle(env, context);
         if ("error" in identity) return err(identity.error);
         const bad = checkRequired(input, [{ name: "id", type: "number" }]);
         if (bad) return err(bad);
@@ -816,8 +818,8 @@ export function mcpTools(): McpToolDef[] {
         additionalProperties: false,
       },
       shellForms: ["rt herd ask"],
-      async handler(input, env) {
-        const w = requireWorkerEnv(env);
+      async handler(input, env, _signal, context) {
+        const w = await callerWorker(env, context);
         if ("error" in w) return err(w.error);
         const bad = checkRequired(input, [{ name: "questions", type: "array" }]);
         if (bad) return err(bad);
@@ -836,10 +838,12 @@ export function mcpTools(): McpToolDef[] {
         additionalProperties: false,
       },
       shellForms: ["rt herd answer"],
-      async handler(input, env) {
+      async handler(input, env, _signal, context) {
         const bad = checkRequired(input, [{ name: "gate", type: "string" }]);
         if (bad) return err(bad);
-        return fromResponse(await herdAnswer({ gate: input.gate as string, ...(env.CLAUDE_CODE_SESSION_ID ? { sessionId: env.CLAUDE_CODE_SESSION_ID } : {}) }));
+        const caller = await callerSession(env, context);
+        if ("error" in caller) return err(caller.error);
+        return fromResponse(await herdAnswer({ gate: input.gate as string, ...(caller.session ? { sessionId: caller.session } : {}) }));
       },
     },
     {

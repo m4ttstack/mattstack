@@ -835,6 +835,14 @@ const ROWS: readonly SettingDef[] = [
     merge: "replace",
     description: "Default --yolo (--dangerously-bypass-approvals-and-sandbox) for codex rt agent launches; unset behaves as false. codex has no per-agent account setting (see spec's Non-goals).",
   },
+  {
+    key: "agent.integrations.enabled",
+    type: "boolean",
+    scopes: ["machine"],
+    default: false,
+    merge: "replace",
+    description: "Kill switch for harness integrations: when true, MCP tools that act as this session (gate_ask, the chat tools, the herd worker tools, whoami) resolve their caller through a recorded session binding and refuse one they cannot attribute. When false they read CLAUDE_CODE_SESSION_ID as before. Machine scope: each Mac opts in on its own.",
+  },
 
   // --- gates (escalation) ----------------------------------------------------
   {

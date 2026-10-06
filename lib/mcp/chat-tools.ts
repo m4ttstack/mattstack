@@ -16,7 +16,7 @@ import { inboxAlive, resolveInbox } from "../claude-registry.ts";
 import { parseDuration } from "../duration.ts";
 import { selfPaneRef } from "../self-pane.ts";
 import { spawnRtJson, type RtVerbResult } from "./rt-verb.ts";
-import { checkChatName, checkOptional, checkRequired, err, fromResponse, ok, requireChatHandle, type McpToolDef } from "./shared.ts";
+import { callerChatHandle, checkChatName, checkOptional, checkRequired, err, fromResponse, ok, type McpToolDef, type ToolContext } from "./shared.ts";
 
 export interface ChatToolDeps {
   read: typeof chatRead; messages: typeof chatMessages; mark: typeof chatMark; rooms: typeof chatRooms;
@@ -103,15 +103,15 @@ function checkCwd(input: Record<string, unknown>, isDir: (p: string) => boolean)
 }
 
 export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[] {
-  const handleOf = (env: NodeJS.ProcessEnv) => requireChatHandle(env, deps.session, deps.buddies);
+  const handleOf = (env: NodeJS.ProcessEnv, context?: ToolContext) => callerChatHandle(env, context, deps.session, deps.buddies);
   return [
     {
       name: "chat_read",
       description: "Read unread chat messages as this session's handle (every room, or one), advancing this handle's read cursor. since (30s, 5m, 500ms, bare seconds) peeks without advancing; last returns a room's newest N regardless of the cursor, then marks it read.",
       inputSchema: { type: "object", properties: { ...ROOM_PROP, limit: { type: "number" }, since: { type: "string" }, last: { type: "number" } }, additionalProperties: false },
       shellForms: ["rt chat read"],
-      async handler(input, env) {
-        const id = await handleOf(env);
+      async handler(input, env, _signal, context) {
+        const id = await handleOf(env, context);
         if ("error" in id) return err(id.error);
         const bad = checkOptional(input, [{ name: "room", type: "string" }, { name: "since", type: "string" }]) ?? checkPositiveInt(input, "limit") ?? checkPositiveInt(input, "last")
           ?? (input.room !== undefined ? checkChatName("room", input.room) : undefined);
@@ -153,8 +153,8 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       description: "Mark chat messages read for this session's handle: every open room, one room, or one room up to a message id (upto).",
       inputSchema: { type: "object", properties: { ...ROOM_PROP, upto: { type: "number" } }, additionalProperties: false },
       shellForms: ["rt chat mark"],
-      async handler(input, env) {
-        const id = await handleOf(env);
+      async handler(input, env, _signal, context) {
+        const id = await handleOf(env, context);
         if ("error" in id) return err(id.error);
         const bad = (input.room !== undefined ? checkChatName("room", input.room) : undefined) ?? checkPositiveInt(input, "upto");
         if (bad) return err(bad);
@@ -170,8 +170,8 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       description: "List the chat rooms this session's handle belongs to, with unread counts.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       shellForms: ["rt chat rooms"],
-      async handler(_input, env) {
-        const id = await handleOf(env);
+      async handler(_input, env, _signal, context) {
+        const id = await handleOf(env, context);
         if ("error" in id) return err(id.error);
         return fromResponse(await deps.rooms({ handle: id.handle }));
       },
@@ -202,8 +202,8 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       description: "Join a chat room as this session's handle. wakeOn (mention, all, none) sets when a message is delivered; cwd is the checkout this session works in (the server's own directory is fixed at session start).",
       inputSchema: { type: "object", properties: { ...ROOM_PROP, wakeOn: { type: "string", enum: ["mention", "all", "none"] }, cwd: { type: "string" } }, required: ["room"], additionalProperties: false },
       shellForms: ["rt chat join"],
-      async handler(input, env) {
-        const id = await handleOf(env);
+      async handler(input, env, _signal, context) {
+        const id = await handleOf(env, context);
         if ("error" in id) return err(id.error);
         const bad = checkChatName("room", input.room) ?? checkCwd(input, deps.isDir);
         if (bad) return err(bad);
@@ -224,8 +224,8 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       description: "Leave a chat room as this session's handle.",
       inputSchema: { type: "object", properties: { ...ROOM_PROP }, required: ["room"], additionalProperties: false },
       shellForms: ["rt chat leave"],
-      async handler(input, env) {
-        const id = await handleOf(env);
+      async handler(input, env, _signal, context) {
+        const id = await handleOf(env, context);
         if ("error" in id) return err(id.error);
         const bad = checkChatName("room", input.room);
         if (bad) return err(bad);
@@ -352,8 +352,8 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       description: "Archive a chat room this session's handle belongs to (hidden from every member's room list until someone posts into it), or reopen it with reopen: true.",
       inputSchema: { type: "object", properties: { ...ROOM_PROP, reopen: { type: "boolean" } }, required: ["room"], additionalProperties: false },
       shellForms: ["rt chat archive"],
-      async handler(input, env) {
-        const id = await handleOf(env);
+      async handler(input, env, _signal, context) {
+        const id = await handleOf(env, context);
         if ("error" in id) return err(id.error);
         const bad = checkChatName("room", input.room) ?? checkOptional(input, [{ name: "reopen", type: "boolean" }]);
         if (bad) return err(bad);
@@ -371,8 +371,8 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       description: "Invite another herdr pane into a chat room: types /chat:join <room> (with an optional one-line note from this session's handle) into that pane. pane is a herdr pane id or ref; note is at most 300 characters; newlines become spaces and other control characters are refused.",
       inputSchema: { type: "object", properties: { pane: { type: "string" }, ...ROOM_PROP, note: { type: "string" } }, required: ["pane", "room"], additionalProperties: false },
       shellForms: ["rt chat invite"],
-      async handler(input, env) {
-        const id = await handleOf(env);
+      async handler(input, env, _signal, context) {
+        const id = await handleOf(env, context);
         if ("error" in id) return err(id.error);
         const bad = checkRequired(input, [{ name: "pane", type: "string" }]) ?? checkChatName("room", input.room) ?? checkOptional(input, [{ name: "note", type: "string" }]);
         if (bad) return err(bad);

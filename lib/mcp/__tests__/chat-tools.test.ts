@@ -1,6 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { setSetting } from "../../settings/write.ts";
 import { chatToolDefs, type ChatToolDeps } from "../chat-tools.ts";
-import { requireChatHandle, SIGN_IN_HINT } from "../shared.ts";
+import { requireChatHandle, SIGN_IN_HINT, type ToolContext } from "../shared.ts";
 
 const SESSION = { sessionId: "s1", handle: "ann", baseHandle: "ann", signedInAt: 1 };
 const ENV = { CLAUDE_CODE_SESSION_ID: "s1", HERDR_PANE_ID: "w1:p2" } as NodeJS.ProcessEnv;
@@ -565,5 +569,54 @@ describe("requireChatHandle", () => {
     const r = await f.tool("chat_read").handler({ room: "build", last: 5 }, ENV);
     expect(r.ok).toBe(false);
     expect(r.error).toBe("ann is not a member of #build; join it first");
+  });
+});
+
+describe("chat tools: resolved caller sessions", () => {
+  let originalHome: string | undefined;
+  beforeEach(() => {
+    originalHome = process.env.HOME;
+    process.env.HOME = mkdtempSync(join(tmpdir(), "rt-chat-tools-caller-"));
+  });
+  afterEach(() => {
+    process.env.HOME = originalHome;
+  });
+
+  const RESOLVED: ToolContext = {
+    caller: async () => ({ ok: true, data: { binding: {
+      key: "sk-fixture", identity: "ann", native: { harness: "codex", profile: "default", kind: "id", value: "s1" },
+      attachment: { generation: 1, mode: "herdr", pane: "wTK:p1" },
+    } } }),
+  };
+  const UNRESOLVED: ToolContext = { caller: async () => ({ ok: false, error: { code: "ambiguous", message: "no trusted session evidence came with this call" } }) };
+  const ALL_HANDLE_TOOLS: Array<[string, Record<string, unknown>]> = [
+    ...HANDLE_TOOLS, ["chat_archive", { room: "build" }], ["chat_invite", { pane: "w2:p1", room: "build" }],
+  ];
+
+  test.each(ALL_HANDLE_TOOLS)("%s acts as the bound session's handle when integrations are on", async (name, input) => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const f = fake();
+    const r = await f.tool(name).handler(input, { HERDR_PANE_ID: "w1:p2" } as NodeJS.ProcessEnv, undefined, RESOLVED);
+    expect(r.ok).toBe(true);
+    const sent = f.calls.find((c) => c.a?.handle !== undefined || c.a?.from !== undefined)!;
+    expect(sent.a.handle ?? sent.a.from).toBe("ann");
+  });
+
+  test.each(ALL_HANDLE_TOOLS)("%s refuses an unresolved caller when integrations are on", async (name, input) => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const f = fake();
+    const r = await f.tool(name).handler(input, ENV, undefined, UNRESOLVED);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("cannot be attributed");
+    expect(f.calls).toEqual([]);
+  });
+
+  test.each(ALL_HANDLE_TOOLS)("%s is unchanged when integrations are off, even for an unresolvable caller", async (name, input) => {
+    const before = fake();
+    const r1 = await before.tool(name).handler(input, ENV);
+    const after = fake();
+    const r2 = await after.tool(name).handler(input, ENV, undefined, UNRESOLVED);
+    expect(r2).toEqual(r1);
+    expect(after.calls).toEqual(before.calls);
   });
 });

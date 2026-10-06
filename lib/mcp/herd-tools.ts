@@ -11,7 +11,7 @@ import type { Commands } from "../../packages/rt-client/src/index.ts";
 import { readFileSync } from "fs";
 import { resolveRepoTarget } from "./mr-target.ts";
 import { runRtVerb } from "./rt-verb.ts";
-import { checkOptional, checkRequired, checkStringArray, err, fromResponse, ok, requireWorkerEnv, resolveSoleHerd, type McpToolDef } from "./shared.ts";
+import { callerWorker, checkOptional, checkRequired, checkStringArray, err, fromResponse, ok, resolveSoleHerd, type McpToolDef } from "./shared.ts";
 import { checkReadRootPath, checkTempRootPath, readRootsForThisProcess, tempRootsForThisProcess, type ReadRoots } from "./temp-root-guard.ts";
 
 export interface HerdToolDeps {
@@ -257,8 +257,8 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       description: "Worker side: announce an artifact (a spec, a plan, a PR) to the shepherd and open the milestone gate, using HERD_ID, HERD_JOB and this pane's session.",
       inputSchema: { type: "object", properties: { artifact: { type: "string" }, summary: { type: "string" } }, required: ["artifact"], additionalProperties: false },
       shellForms: ["rt herd milestone"],
-      async handler(input, env) {
-        const w = requireWorkerEnv(env);
+      async handler(input, env, _signal, context) {
+        const w = await callerWorker(env, context);
         if ("error" in w) return err(w.error);
         const bad = checkRequired(input, [{ name: "artifact", type: "string" }]) ?? checkOptional(input, [{ name: "summary", type: "string" }]);
         if (bad) return err(bad);

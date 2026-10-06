@@ -6,6 +6,8 @@
  */
 import { chatBuddies, herdList } from "../../packages/rt-client/src/index.ts";
 import type { RtResponse } from "../../packages/rt-client/src/index.ts";
+import type { CallerContext, Outcome } from "../../packages/rt-client/src/agent-integrations.ts";
+import { integrationsEnabled, type CallerEvidence } from "../agent-integrations/context.ts";
 import { readChatSession, sessionName, type ChatSession } from "../chat-session.ts";
 import { explainError } from "../explain-error.ts";
 import { selfPaneRef } from "../self-pane.ts";
@@ -20,7 +22,23 @@ export interface McpToolDef {
   description: string;
   inputSchema: Record<string, unknown>;
   shellForms: ShellForms;
-  handler(input: Record<string, unknown>, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<{ ok: boolean; body: unknown; error?: string }>;
+  handler(input: Record<string, unknown>, env: NodeJS.ProcessEnv, signal?: AbortSignal, context?: ToolContext): Promise<{ ok: boolean; body: unknown; error?: string }>;
+}
+
+/** Built by the server from transport evidence, never from a tool's input. */
+export interface ToolContext {
+  caller(): Promise<Outcome<CallerContext>>;
+}
+
+/** Resolves at most once per call, and only for a tool that asks. */
+export function toolContext(
+  evidence: Outcome<CallerEvidence>,
+  resolve: (e: CallerEvidence) => Promise<Outcome<CallerContext>>,
+): ToolContext {
+  let pending: Promise<Outcome<CallerContext>> | undefined;
+  return {
+    caller: () => (pending ??= evidence.ok ? resolve(evidence.data) : Promise.resolve(evidence)),
+  };
 }
 
 export type ToolResult = { ok: boolean; body: unknown; error?: string };
@@ -116,6 +134,26 @@ export function withLandingHint(res: ToolResult, check: string): ToolResult {
   return err(`${res.error}; the write may still land, so check ${check} before retrying`);
 }
 
+export function callerRefusal(error: { message: string }): string {
+  return `this call cannot be attributed to a session: ${error.message}`;
+}
+
+/** The resolved caller when agent.integrations.enabled is on; null when it is off, so the caller keeps its environment path. */
+export async function boundCaller(context?: ToolContext): Promise<Outcome<CallerContext> | null> {
+  if (!integrationsEnabled()) return null;
+  if (!context) return { ok: false, error: { code: "ambiguous", message: "no trusted session evidence reached this tool" } };
+  return context.caller();
+}
+
+/** The session a gate or an answer belongs to: the bound native session when on, CLAUDE_CODE_SESSION_ID when off. */
+export async function callerSession(env: NodeJS.ProcessEnv, context?: ToolContext): Promise<{ session?: string; pane?: string } | { error: string }> {
+  const caller = await boundCaller(context);
+  if (caller === null) return { session: env.CLAUDE_CODE_SESSION_ID || undefined, pane: env.HERDR_PANE_ID || undefined };
+  if (!caller.ok) return { error: callerRefusal(caller.error) };
+  const { native, attachment } = caller.data.binding;
+  return { session: native.value, ...(attachment.pane && { pane: attachment.pane }) };
+}
+
 export function requireJobEnv(env: NodeJS.ProcessEnv): { herd: string; job: string } | { error: string } {
   const herd = env.HERD_ID, job = env.HERD_JOB;
   if (!herd || !job) return { error: HERD_ENV_ERROR };
@@ -128,6 +166,20 @@ export function requireWorkerEnv(env: NodeJS.ProcessEnv): { herd: string; job: s
   const session = env.CLAUDE_CODE_SESSION_ID;
   if (!session) return { error: "CLAUDE_CODE_SESSION_ID is not set; this verb runs inside a Claude Code session" };
   return { ...j, session, ...(env.HERDR_PANE_ID && { pane: env.HERDR_PANE_ID }) };
+}
+
+/** requireWorkerEnv through the resolved session when on. HERD_ID and HERD_JOB stay a request: the daemon checks the session owns that job. */
+export async function callerWorker(
+  env: NodeJS.ProcessEnv,
+  context?: ToolContext,
+): Promise<{ herd: string; job: string; session: string; pane?: string } | { error: string }> {
+  const caller = await boundCaller(context);
+  if (caller === null) return requireWorkerEnv(env);
+  const j = requireJobEnv(env);
+  if ("error" in j) return j;
+  if (!caller.ok) return { error: callerRefusal(caller.error) };
+  const { native, attachment } = caller.data.binding;
+  return { ...j, session: native.value, ...(attachment.pane && { pane: attachment.pane }) };
 }
 
 /** Mirrors herd.ts's soleHerdId without importing it (that module pulls in lib/repo-arg.ts). */
@@ -165,6 +217,28 @@ export async function requireChatHandle(
   const row = res.ok ? res.data?.buddies.find((b) => b.pane === pane && b.status !== "offline") : undefined;
   if (!row) return { error: SIGN_IN_HINT };
   return { handle: row.handle, name: row.name ?? row.handle, sessionId: row.sessionId };
+}
+
+/**
+ * requireChatHandle through the resolved session when on: the chat file read
+ * is the bound native session's own. Only the environment path (switch off,
+ * or a Claude session with no live binding) falls back to the identity signed
+ * in at this pane; a bound caller is named by its binding alone, since its
+ * environment's pane can belong to a host process rather than the session.
+ */
+export async function callerChatHandle(
+  env: NodeJS.ProcessEnv,
+  context?: ToolContext,
+  read: (id: string | undefined) => ChatSession | null = readChatSession,
+  buddies: ChatBuddiesFn = chatBuddies,
+): Promise<{ handle: string; name: string; sessionId?: string } | { error: string }> {
+  const caller = await boundCaller(context);
+  if (caller === null) return requireChatHandle(env, read, buddies);
+  if (!caller.ok) return { error: callerRefusal(caller.error) };
+  const sessionId = caller.data.binding.native.value;
+  const session = read(sessionId);
+  if (!session) return { error: SIGN_IN_HINT };
+  return { handle: session.handle, name: sessionName(session), sessionId };
 }
 
 /** Mirrors isValidChatName (lib/state/chat-store.ts), which lib/mcp does not import. */
