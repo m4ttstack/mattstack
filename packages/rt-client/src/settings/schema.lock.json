@@ -402,6 +402,23 @@
       "type": "object",
       "properties": {
         "author": {
+          "title": "Author's turn",
+          "labels": {
+            "threads": "Unanswered comments",
+            "changesRequested": "Changes requested",
+            "conflicts": "Merge conflicts",
+            "rebase": "Needs a rebase",
+            "ciFailing": "CI failing",
+            "readyToMerge": "Approved, ready to merge"
+          },
+          "default": [
+            "threads",
+            "changesRequested",
+            "conflicts",
+            "rebase",
+            "ciFailing",
+            "readyToMerge"
+          ],
           "type": "array",
           "items": {
             "type": "string",
@@ -416,6 +433,17 @@
           }
         },
         "reviewer": {
+          "title": "Reviewer's turn",
+          "labels": {
+            "assigned": "Assigned and haven't finished",
+            "approvalReset": "A push reset my approval",
+            "repliedThreads": "The author answered my comment"
+          },
+          "default": [
+            "assigned",
+            "approvalReset",
+            "repliedThreads"
+          ],
           "type": "array",
           "items": {
             "type": "string",

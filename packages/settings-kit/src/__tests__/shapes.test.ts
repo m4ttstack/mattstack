@@ -44,6 +44,21 @@ describe("recognize", () => {
     expect(r).toMatchObject({ kind: "objectMap", required: ["port"] });
   });
 
+  test("a list of enum values is a leaf of options, with its labels and what unset means", () => {
+    const r = recognize(schemaOf("board.turn"));
+    expect(r.kind).toBe("leaves");
+    if (r.kind !== "leaves") return;
+    const author = r.fields.author;
+    expect(author).toMatchObject({ enumSet: ["threads", "changesRequested", "conflicts", "rebase", "ciFailing", "readyToMerge"] });
+    expect(author).toMatchObject({ labels: { threads: "Unanswered comments" }, whenUnset: ["threads", "changesRequested", "conflicts", "rebase", "ciFailing", "readyToMerge"] });
+    expect(r.fields.reviewer).toMatchObject({ enumSet: ["assigned", "approvalReset", "repliedThreads"] });
+    expect(recognize({ type: "object", properties: { a: { type: "array", items: { enum: ["x", "y"] } } } })).toEqual({ kind: "leaves", fields: { a: { enumSet: ["x", "y"] } }, placeholders: {} });
+  });
+
+  test("a list of free strings inside an object is still json", () => {
+    expect(recognize({ type: "object", properties: { a: { type: "array", items: { type: "string" } } } }).kind).toBe("json");
+  });
+
   test("anything deeper is json", () => {
     expect(recognize({ type: "object", properties: { a: { type: "object", properties: { b: { type: "array", items: { type: "object" } } } } } }).kind).toBe("json");
     expect(recognize(schemaOf("deck.apps")).kind).toBe("json");
