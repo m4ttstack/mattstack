@@ -1,6 +1,6 @@
 import Foundation
 
-/// The rt.cool docs site (`website/docusaurus.config.ts` serves it at the root).
+/// The mattstack docs site (`website/`, deployed to docs.mattstack.dev).
 public enum DocsSite {
-    public static let home = URL(string: "https://rt.cool/")!
+    public static let home = URL(string: "https://docs.mattstack.dev/")!
 }

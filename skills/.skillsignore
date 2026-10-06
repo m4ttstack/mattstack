@@ -10,7 +10,7 @@
 # Cutting and tagging an rt release. Maintainer action.
 rt-release
 
-# Regenerating the rt.cool docs site after command changes. Maintainer action.
+# Regenerating the mattstack docs site after command changes. Maintainer action.
 rt-docs
 
 # The internal codec contract for state.db keys and daemon payloads. Applies

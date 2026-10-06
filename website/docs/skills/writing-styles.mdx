@@ -1,0 +1,36 @@
+---
+sidebar_position: 5
+title: Writing styles
+---
+
+# Writing styles
+
+Every review or reply an agent drafts for you is written in one writing style. Three presets ship in the mattstack plugin:
+
+| Preset | Voice |
+| --- | --- |
+| `mattstack:writing-style-conversational` | Short, friendly sentences in sentence case, like talking to a teammate. This is the default. |
+| `mattstack:writing-style-sparse` | Terse, lowercase technical prose, one tight paragraph per point. |
+| `mattstack:writing-style-structured` | Labelled lines and short bullets, for teams that prefer formal write-ups. |
+
+They cover review comments, replies, PR descriptions and commit messages posted under your name.
+
+## Rules every style shares
+
+The preset sets the voice; a shared floor binds all three. Among other things, a draft never uses em or en dashes, praise or thanks as an opener, or corporate filler, and it compresses the first draft before posting. A review summary is one line, each finding is its own comment anchored to an exact `file.ts:123`, and code you suggest goes in a fenced block rather than inline.
+
+## Choose one
+
+Which style applies is resolved in this order: the `skills.writingStyle` setting (your user scope beats the team's), then a `writing-style:` line in `~/.mattstack/user/skills/preferences.md`, then `mattstack:writing-style-conversational`.
+
+```bash
+rt skills writing-style show                                # the style in use, and where it comes from
+rt skills writing-style list                                # the three presets, plus your own and installed styles
+rt skills writing-style use mattstack:writing-style-sparse  # choose one, by its full skill id
+rt skills writing-style new my-voice                        # start your own from a preset
+```
+
+- [`use`](/rt/reference/skills/writing-style/use) takes a preset or any installed skill id, and refuses an id that is not installed. `--scope team` sets the team default instead of your own.
+- [`new`](/rt/reference/skills/writing-style/new) copies a preset (the conversational one unless you pass `--from`) into a skill of your own, in your home repo.
+
+The setup checklist's `skills.writing-style` row is finish-gated and not waivable, so a Mac with no resolvable style cannot finish setup. The full command list is under [`rt skills writing-style`](/rt/reference/skills/writing-style).

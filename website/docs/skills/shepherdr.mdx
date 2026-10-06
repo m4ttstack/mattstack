@@ -1,0 +1,39 @@
+---
+sidebar_position: 3
+title: shepherdr
+---
+
+# shepherdr
+
+`mattstack:shepherdr` fans work out across parallel Claude Code agents, each in its own [herdr](https://github.com/herdrdev/herdr) pane and its own git worktree. Where a team pack compiles its own shepherdr for its repo, that one wins over this generic version.
+
+## What you ask for
+
+Say "shepherdr", "fan out", "spawn agents", "split this across agents", "run these in parallel" or "spread this across my accounts", or type `/mattstack:shepherdr` with the work.
+
+It needs a running herdr instance (a session with `HERDR_ENV=1`) and the rt daemon. Without herdr it says so and stops.
+
+## What you get
+
+The session you talk to is the shepherd. It does not read specs, diffs or code and does no hands-on work; it breaks the work into jobs, spawns an agent per job, presents what the agents send back, and routes messages between you and the herd.
+
+1. **Jobs.** It decomposes the work into independent jobs with disjoint file ownership and a clear deliverable each. Work that needs another job's output joins the live herd later.
+2. **Your choices.** For each job it asks one question with a recommended strategy and model first and alternates after. With `cswap` installed and two or more accounts, it asks once per herd how to use your accounts, after the models are chosen.
+3. **Spawn.** Each job's brief is assembled from a template and the chosen strategy. Each agent gets its own pane and worktree, never your checkout. Spawns are staggered from the fourth on, with at most six jobs per batch.
+4. **Watch.** After the spawns it does nothing until something arrives. Agents ask through gates and report in the herd's chat room, and what arrives is pushed into the shepherd's session. Open gates are shown to you as a form; a milestone gate's options are Approve, Revise or Spawn a reviewer.
+5. **Integrate.** A report is a claim, not a merge. An integration job brings the branches together and runs full verification, and the shepherd never merges, fixes or pushes on the agents' behalf.
+6. **Wrap-up.** One form asks whether to close the panes, which worktrees to dispose, whether to delete the job directories and whether to archive the room. Nothing is removed unless that form says so.
+
+## When it pushes back
+
+- **One job only.** Exactly one job with no live herd is not worth a herd. It says so and does the work itself, in an isolated worktree.
+- **No herd features needed.** A small, fully specified fan-out that needs no account distribution, question relay, live view or crash survival belongs on Claude's own subagents, and it says that instead.
+
+## Good to know
+
+- **Hidden herds.** Ask for the herd to stay out of sight ("invisible", "background", "headless") and its panes live on a shared background herdr server. `herd_attend` opens one worker in a focused tab when you want to watch it.
+- **Picking a herd back up.** In a fresh session, `herd_resume` re-points the herd's gates and the shepherd's chat identity to that session and returns the open gates, unread room messages and every job's state.
+- **Talking to a worker.** Messages to one worker go as a direct message over [rt chat](/rt/guides/chat), not to the whole room.
+- **What it will not claim.** It reports a worker's claims about servers, ports or CI as the worker's own unless it has measured them.
+
+The herd's tools are on the [MCP server](/skills/mcp), and its questions ride [gates](/skills/gates).
