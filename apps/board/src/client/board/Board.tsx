@@ -1578,6 +1578,8 @@ export function Board() {
             </div>
             {controlProps.show && <ShowChips show={controlProps.show} />}
             <div className="tui-header-corner">
+              <RefreshControl onRefresh={refreshNow} refreshing={refreshing} />
+              <ThemeControl theme={theme} pickTheme={pickTheme} />
               <AsksButton
                 asks={data.local ? data.asks : undefined}
                 open={asksOpen}
@@ -1590,8 +1592,6 @@ export function Board() {
                 onFocus={handleAskFocus}
                 onNotice={addToast}
               />
-              <RefreshControl onRefresh={refreshNow} refreshing={refreshing} />
-              <ThemeControl theme={theme} pickTheme={pickTheme} />
             </div>
             {/* A selection takes over the tab band: the actions sit where
                 the tabs were, and clearing it brings the tabs back. */}
