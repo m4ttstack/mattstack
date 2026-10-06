@@ -31,6 +31,9 @@ digraph fast_path_release_apps {
     "rt:docs staged a change?" [shape=diamond];
     "git log --oneline origin/main..main --grep \"docs: app pages for the next release\"" [shape=plaintext];
     "An app docs commit only on local main?" [shape=diamond];
+    "Gate: confirm the resumed app docs push" [shape=box];
+    "Resumed push answer?" [shape=diamond];
+    "STOP: the resumed push waits for Matt's confirmation" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Gate: approve the app docs diff" [shape=box];
     "App docs answer?" [shape=diamond];
     "STOP: the app docs commit waits for Matt's approval" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -80,7 +83,13 @@ digraph fast_path_release_apps {
     "rt:docs staged a change?" -> "Gate: approve the app docs diff" [label="yes"];
     "rt:docs staged a change?" -> "git log --oneline origin/main..main --grep \"docs: app pages for the next release\"" [label="no: no page needed a change"];
     "git log --oneline origin/main..main --grep \"docs: app pages for the next release\"" -> "An app docs commit only on local main?";
-    "An app docs commit only on local main?" -> "Push main: the app docs commit" [label="yes: approved earlier, its push never landed"];
+    "An app docs commit only on local main?" -> "Gate: confirm the resumed app docs push" [label="yes: approved earlier, its push never landed"];
+    "Gate: confirm the resumed app docs push" -> "Resumed push answer?";
+    "Resumed push answer?" -> "Push main: the app docs commit" [label="approve: push main"];
+    "Resumed push answer?" -> "Held: release paused, resume point named" [label="hold"];
+    "Resumed push answer?" -> "Handed back to Matt" [label="hand back"];
+    "Resumed push answer?" -> "STOP: the resumed push waits for Matt's confirmation" [label="tempted to push before the answer"];
+    "STOP: the resumed push waits for Matt's confirmation" -> "Gate: confirm the resumed app docs push";
     "An app docs commit only on local main?" -> "rt release apps --dry-run --json" [label="no"];
     "Gate: approve the app docs diff" -> "App docs answer?";
     "App docs answer?" -> "git commit -m \"docs: app pages for the next release\"" [label="approve: commit and push main"];
@@ -212,9 +221,17 @@ pages were last updated. Their pages get a second docs commit with the same subj
 
 The log prints a docs commit when Matt approved it earlier but its push never landed (a refused
 push he held or handed back, then a resume). The verb releases origin/main, so that commit would
-be left out of the tag: push it, with the approval it already has. That approval covers the
-commits the gate listed from `git log --oneline origin/main..main`. No output means every docs
-commit is on origin/main, and the verb runs.
+be left out of the tag: it needs a push, confirmed at its own gate first. No output means every
+docs commit is on origin/main, and the verb runs.
+
+### Gate: confirm the resumed app docs push
+
+The push sends every commit on local main, and a resumed session cannot tell which of them the
+earlier app docs gate listed: commits made in the release checkout since then ride along. Show
+`git log --oneline origin/main..main` and name every commit it lists as part of the push. Approve
+is Matt's confirmation for the push to main, covering exactly those listed commits, the same
+confirmation Prepare the release (`prepare.md`) asks before its main push: a standing "get it out
+today" pre-authorizes no answer here. Hold and hand back leave local main as it is, unpushed.
 
 ### Update the app pages with rt:docs
 
