@@ -18,10 +18,15 @@ digraph fast_path_release_apps {
     "Fast path verified: continue at Publish and finish" [shape=doublecircle style=filled fillcolor=lightgreen];
     "Take the full path instead" [shape=doublecircle];
     "Trigger: preflight says fast path" [shape=ellipse];
+    "git log --oneline <newest-tag>..main --grep \"docs: app pages for the next release\"" [shape=plaintext];
+    "An app docs commit since the newest tag?" [shape=diamond];
     "bun scripts/update-docs.ts --dry-run --no-agent, for the apps that moved" [shape=plaintext];
+    "bun scripts/update-docs.ts --dry-run --no-agent --range <newest docs commit>" [shape=plaintext];
     "Docs to review?" [shape=diamond];
     "Update the app pages with rt:docs" [shape=box];
     "rt:docs staged a change?" [shape=diamond];
+    "git log --oneline origin/main..main --grep \"docs: app pages for the next release\"" [shape=plaintext];
+    "An app docs commit only on local main?" [shape=diamond];
     "Gate: approve the app docs diff" [shape=box];
     "App docs answer?" [shape=diamond];
     "STOP: the app docs commit waits for Matt's approval" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -50,13 +55,20 @@ digraph fast_path_release_apps {
     "Off-script gate: fast path declined" [shape=box];
     "Fast path declined: gate rounds = 2?" [shape=diamond];
 
-    "Trigger: preflight says fast path" -> "bun scripts/update-docs.ts --dry-run --no-agent, for the apps that moved";
+    "Trigger: preflight says fast path" -> "git log --oneline <newest-tag>..main --grep \"docs: app pages for the next release\"";
+    "git log --oneline <newest-tag>..main --grep \"docs: app pages for the next release\"" -> "An app docs commit since the newest tag?";
+    "An app docs commit since the newest tag?" -> "bun scripts/update-docs.ts --dry-run --no-agent, for the apps that moved" [label="no"];
+    "An app docs commit since the newest tag?" -> "bun scripts/update-docs.ts --dry-run --no-agent --range <newest docs commit>" [label="yes: a resume, review only what landed after it"];
     "bun scripts/update-docs.ts --dry-run --no-agent, for the apps that moved" -> "Docs to review?";
-    "Docs to review?" -> "rt release apps --dry-run --json" [label="none, or this release's app docs commit is on origin/main"];
+    "bun scripts/update-docs.ts --dry-run --no-agent --range <newest docs commit>" -> "Docs to review?";
+    "Docs to review?" -> "git log --oneline origin/main..main --grep \"docs: app pages for the next release\"" [label="none"];
     "Docs to review?" -> "Update the app pages with rt:docs" [label="listed"];
     "Update the app pages with rt:docs" -> "rt:docs staged a change?";
     "rt:docs staged a change?" -> "Gate: approve the app docs diff" [label="yes"];
-    "rt:docs staged a change?" -> "rt release apps --dry-run --json" [label="no: no page needed a change"];
+    "rt:docs staged a change?" -> "git log --oneline origin/main..main --grep \"docs: app pages for the next release\"" [label="no: no page needed a change"];
+    "git log --oneline origin/main..main --grep \"docs: app pages for the next release\"" -> "An app docs commit only on local main?";
+    "An app docs commit only on local main?" -> "Push main: the app docs commit" [label="yes: approved earlier, its push never landed"];
+    "An app docs commit only on local main?" -> "rt release apps --dry-run --json" [label="no"];
     "Gate: approve the app docs diff" -> "App docs answer?";
     "App docs answer?" -> "git commit -m \"docs: app pages for the next release\"" [label="approve: commit and push main"];
     "App docs answer?" -> "Held: release paused, resume point named" [label="hold"];
@@ -145,20 +157,35 @@ the first failure, so it is yes after the second resume also fails. Every
 `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes once
 Matt has answered iterate twice.
 
+### An app docs commit since the newest tag?
+
+Run the log in the release checkout on main. It reads local main, so it finds a docs commit
+whether or not its push landed; the impact list alone cannot tell, since it names the same pages
+after that commit as before it. No match is a first pass. A match is a resume: the newest match
+(the first line) is `<newest docs commit>`, and only what landed after it needs review.
+
 ### bun scripts/update-docs.ts --dry-run --no-agent, for the apps that moved
 
-Run it in the release checkout on main. The dry run changes nothing and prints the impact list,
-the `docs to review:` block rt:docs describes, for the newest tag to HEAD: on this path, an
-`apps:` line naming each moved app's page (`website/docs/apps/<app>.mdx`) and a `gitq:` line
-when gitq moved. Never run it without `--dry-run`: a full run writes `RELEASE_NOTES.md`, and on
-this path the verb writes the notes.
+The dry run changes nothing and prints the impact list, the `docs to review:` block rt:docs
+describes, for the newest tag to HEAD: on this path, an `apps:` line naming each moved app's page
+(`website/docs/apps/<app>.mdx`) and a `gitq:` line when gitq moved. Never run update-docs without
+`--dry-run`: a full run writes `RELEASE_NOTES.md`, and on this path the verb writes the notes.
+
+### bun scripts/update-docs.ts --dry-run --no-agent --range <newest docs commit>
+
+The same dry run over `<newest docs commit>..HEAD`: only the app commits that landed after the
+pages were last updated. Their pages get a second docs commit with the same subject.
 
 ### Docs to review?
 
-`docs to review: none` takes `none`, and the stage is skipped. So does a resume after the docs
-commit landed: `git log --oneline <newest-tag>..origin/main --grep "docs: app pages for the next release"`
-prints it. The list alone cannot tell, since it names the same pages after that commit as
-before it. Anything else takes `listed`.
+`docs to review: none` takes `none`, and nothing is left to update. Anything else takes `listed`.
+
+### An app docs commit only on local main?
+
+The log prints a docs commit when Matt approved it earlier but its push never landed (a refused
+push he held or handed back, then a resume). The verb releases origin/main, so that commit would
+be left out of the tag: push it, with the approval it already has. No output means every docs
+commit is on origin/main, and the verb runs.
 
 ### Update the app pages with rt:docs
 
