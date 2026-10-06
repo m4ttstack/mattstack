@@ -5,7 +5,7 @@ sidebar_position: 4
 
 # Configuration
 
-gitq has two independent local configuration surfaces, read by two different processes, plus a shared settings store that can override individual keys of either. The CLI reads a settings file inside its own config directory. The board reads a `config.json` sitting in the app root. Neither reads the other's file, and nothing in the CLI reads anything from the board's `config.json`. The [rt](https://rt.cool) settings store sits above both: when it owns a key (or, for `gitq.workSlots`, a field of one), that value wins over whichever file would otherwise have answered.
+gitq has two independent local configuration surfaces, read by two different processes, plus a shared settings store that can override individual keys of either. The CLI reads a settings file inside its own config directory. The board reads a `config.json` sitting in the app root. Neither reads the other's file, and nothing in the CLI reads anything from the board's `config.json`. The [rt](/rt) settings store sits above both: when it owns a key (or, for `gitq.workSlots`, a field of one), that value wins over whichever file would otherwise have answered.
 
 ## The app root
 
