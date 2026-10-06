@@ -5,6 +5,7 @@
  * plus one function, never a change to the transport itself.
  */
 import type { PullRequest, MRDetail, Pipeline, PipelineJob } from "@mattstack/glance";
+import type { HarnessId, IntegrationSummary, Mode } from "./agent-integrations.ts";
 
 export type Discussion = MRDetail["discussions"][number];
 
@@ -343,6 +344,8 @@ export interface ChatPane {
   presence?: { handle: string; name: string; status: BuddyStatus; rooms: string[] };
   /** herdr's per-pane focus flag; false when herdr itself is backgrounded */
   focused?: boolean;
+  /** The harness running in the pane; set only while agent.integrations.enabled is on. */
+  provider?: HarnessId;
 }
 
 export interface PaneAccount { slot: number; email: string; alias?: string; headroom?: string }
@@ -818,13 +821,16 @@ export interface Commands {
   "agent:resume": { payload: { id: string; prompt?: string; surface?: AgentSurface; workspace?: string; tab?: string; env?: Record<string, string> }; data: AgentRecord };
   "agent:get": { payload: { id: string }; data: AgentRecord };
   "agent:list": { payload: { repo?: string }; data: { agents: AgentRecord[] } };
+  /** Every registered harness, in registry order; reading it starts no session or connection. */
+  "agent:integrations": { payload: { mode: Mode }; data: { integrations: IntegrationSummary[] } };
   "chat:invite": { payload: { paneId: string; room: string; note?: string; from: string; callerPane?: string }; data: InviteResult };
   "pane:list": { payload: Record<string, never>; data: { panes: ChatPane[] } };
   "pane:peek": { payload: { paneId: string; lines?: number }; data: { paneId: string; lines: string[] } };
   "pane:accounts": { payload: Record<string, never>; data: { accounts: PaneAccount[] } };
   "pane:directories": { payload: { q?: string }; data: { directories: PaneDirectory[] } };
   "pane:spawn": {
-    payload: { cwd: string; account?: string; model?: string; effort?: string; prompt?: string; workspace?: string };
+    /** `provider` names a registered harness; omitted, the pane runs Claude Code. */
+    payload: { cwd: string; provider?: HarnessId; account?: string; model?: string; effort?: string; prompt?: string; workspace?: string };
     data: { pane: ChatPane; ready: boolean };
   };
   "pane:send": { payload: { paneId: string; text: string; callerPane?: string; continuation?: string }; data: PaneSendResult };
@@ -1164,6 +1170,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "agent:resume",
   "agent:get",
   "agent:list",
+  "agent:integrations",
   "chat:invite",
   "pane:list",
   "pane:peek",

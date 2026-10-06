@@ -410,6 +410,13 @@ export function agentList(a: { repo?: string }, o: RtClientOptions = {}): Promis
   return rtCommand<{ agents: AgentRecord[] }>("agent:list", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
+/** Registry metadata only: the daemon reads each harness's readiness without starting a session or a connection. */
+export function agentIntegrations(
+  a: Commands["agent:integrations"]["payload"], o: RtClientOptions = {},
+): Promise<RtResponse<Commands["agent:integrations"]["data"]>> {
+  return rtCommand<Commands["agent:integrations"]["data"]>("agent:integrations", { mode: a.mode }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+}
+
 // ─── Panes (rt chat invite) ────────────────────────────────────────────────
 // herdr-facing verbs; the daemon answers `herdr unavailable` without herdr.
 
@@ -423,13 +430,13 @@ export function panePeek(a: Commands["pane:peek"]["payload"], o: RtClientOptions
   return rtCommand<Commands["pane:peek"]["data"]>("pane:peek", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
-/** The spawn waits on claude starting, so its budget is minutes, not seconds. */
+/** The spawn waits on the agent starting, so its budget is minutes, not seconds. */
 export function paneSpawn(
   a: Commands["pane:spawn"]["payload"],
   o: RtClientOptions = {},
 ): Promise<RtResponse<Commands["pane:spawn"]["data"]>> {
   const payload: Record<string, unknown> = { cwd: a.cwd };
-  for (const k of ["account", "model", "effort", "prompt", "workspace"] as const) if (a[k] !== undefined) payload[k] = a[k];
+  for (const k of ["provider", "account", "model", "effort", "prompt", "workspace"] as const) if (a[k] !== undefined) payload[k] = a[k];
   return rtCommand<Commands["pane:spawn"]["data"]>("pane:spawn", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 90_000 });
 }
 

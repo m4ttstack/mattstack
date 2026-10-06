@@ -38,6 +38,15 @@ export type CapabilityReport = { readiness: Readiness; supported: Capability[]; 
 export type OptionDescriptor = {
   name: keyof AgentOptions; kind: "text" | "boolean" | "choice"; choices?: string[];
 };
+/** What `agent:integrations` reports for one registered harness, for the asked mode. */
+export type IntegrationSummary = {
+  id: HarnessId; label: string;
+  /** The user enabled it; whether it can run now is `readiness`. */
+  enabled: boolean;
+  readiness: Readiness;
+  capabilities: Capability[];
+  options: OptionDescriptor[];
+};
 export type PeerInput = { id: string; body: string; sender: string; recipient: string };
 export type DeliveryReceipt = {
   id: string; evidence: "submitted" | "queued" | "consumed";

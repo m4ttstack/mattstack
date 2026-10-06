@@ -841,7 +841,7 @@ const ROWS: readonly SettingDef[] = [
     scopes: ["machine"],
     default: false,
     merge: "replace",
-    description: "Kill switch for harness integrations: when true, MCP tools that act as this session (gate_ask, the chat tools, the herd worker tools, whoami) resolve their caller through a recorded session binding and refuse one they cannot attribute. When false they read CLAUDE_CODE_SESSION_ID as before. Machine scope: each Mac opts in on its own.",
+    description: "Kill switch for harness integrations: when true, agent launches, caller identity and pane discovery go through the Claude Code and Codex integrations, and a call rt cannot attribute to a recorded session is refused. When false, rt launches agents, attributes callers and lists panes as it did before. Machine scope: each Mac opts in on its own.",
   },
 
   // --- gates (escalation) ----------------------------------------------------
