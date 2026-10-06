@@ -50,6 +50,11 @@ describe("classifyLockDiff", () => {
     expect(classifyLockDiff(lock({ type: "string" }), lock({ type: "string", pattern: "^x" }))[0]).toMatchObject({ kind: "breaking" });
   });
 
+  test("key order inside a oneOf branch is not a change", () => {
+    const branch = (b: Record<string, unknown>) => lock({ oneOf: [b] });
+    expect(classifyLockDiff(branch({ type: "boolean", title: "x" }), branch({ title: "x", type: "boolean" }))).toEqual([]);
+  });
+
   test("uniqueBy added or changed is breaking; removed is safe", () => {
     const list = (extra: Record<string, unknown> = {}) => lock({ type: "array", items: { type: "object" }, ...extra });
     expect(classifyLockDiff(list(), list({ uniqueBy: "id" }))[0]).toMatchObject({ kind: "breaking" });

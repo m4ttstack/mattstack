@@ -32,6 +32,7 @@ export const MIGRATION_SCHEMAS: MigrationSchema[] = [
         { id: "team", label: "Team again", source: { kind: "authors" } },
         { id: "", label: "No id", source: { kind: "authors" } },
         { id: "api", label: "API", source: { kind: "codeowners", section: "" } },
+        { id: "docs", label: "Docs", source: { kind: "authors" }, pack: 5 },
       ],
       [],
     ],

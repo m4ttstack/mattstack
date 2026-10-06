@@ -8,7 +8,9 @@
 
 import { isSchema, type JsonSchema } from "./schema.ts";
 
-const ANNOTATIONS = new Set(["$schema", "$id", "title", "description", "default", "examples", "labels", "placeholder", "deprecated", "readOnly", "writeOnly"]);
+const ANNOTATIONS = new Set(["$schema", "$id", "title", "description", "default", "examples", "labels", "placeholder", "deprecated", "readOnly", "writeOnly", "inherits", "suggest", "slugFrom"]);
+// Carried back as `.meta()`, so a rebuilt branch of a oneOf (compared whole) matches its lock entry.
+const NOT_META = new Set(["$schema", "$id"]);
 const HANDLED = new Set([
   "type", "properties", "required", "additionalProperties", "propertyNames", "items", "prefixItems", "enum", "const", "anyOf", "oneOf",
   "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "minItems", "maxItems", "pattern",
@@ -20,7 +22,12 @@ const propKey = (name: string) => (/^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON
 
 export function zodSource(s: JsonSchema): string {
   const extra = Object.keys(s).filter((k) => !HANDLED.has(k) && !ANNOTATIONS.has(k));
-  return `${build(s)}${extra.length > 0 ? ` /* not rebuilt: ${extra.join(", ")} */` : ""}`;
+  return `${build(s)}${metaOf(s)}${extra.length > 0 ? ` /* not rebuilt: ${extra.join(", ")} */` : ""}`;
+}
+
+function metaOf(s: JsonSchema): string {
+  const meta = Object.fromEntries(Object.entries(s).filter(([k]) => (ANNOTATIONS.has(k) && !NOT_META.has(k)) || k === "uniqueBy"));
+  return Object.keys(meta).length > 0 ? `.meta(${JSON.stringify(meta)})` : "";
 }
 
 /** The property every branch requires as a distinct `const`: what zod's
@@ -85,8 +92,7 @@ function arraySource(s: JsonSchema): string {
     return `z.tuple([${(s.prefixItems as JsonSchema[]).map(zodSource).join(", ")}]${rest})`;
   }
   const item = isSchema(s.items) ? zodSource(s.items) : "z.unknown()";
-  const unique = typeof s.uniqueBy === "string" ? `.meta({ uniqueBy: ${JSON.stringify(s.uniqueBy)} })` : "";
-  return `z.array(${item})${bound("min", s.minItems)}${bound("max", s.maxItems)}${unique}`;
+  return `z.array(${item})${bound("min", s.minItems)}${bound("max", s.maxItems)}`;
 }
 
 function objectSource(s: JsonSchema): string {

@@ -177,12 +177,14 @@
             "type": "string",
             "minLength": 1,
             "title": "Id",
-            "description": "Stable id the board's URL and state key on."
+            "description": "Stable id the board's URL and per-tab state key on; unique across tabs.",
+            "slugFrom": "label"
           },
           "label": {
             "type": "string",
             "minLength": 1,
-            "title": "Label"
+            "title": "Label",
+            "placeholder": "Web reviews"
           },
           "source": {
             "oneOf": [
@@ -191,26 +193,21 @@
                 "properties": {
                   "kind": {
                     "type": "string",
-                    "const": "authors"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "additionalProperties": {}
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "const": "codeowners"
+                    "const": "codeowners",
+                    "title": "CODEOWNERS section"
                   },
                   "section": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "title": "Section",
+                    "description": "A CODEOWNERS section header, matched exactly. A new section's MRs show once rt has backfilled it.",
+                    "placeholder": "CODEOWNERS section",
+                    "suggest": "codeowners-sections"
                   },
                   "excludeMembers": {
+                    "title": "Hide roster authors",
+                    "description": "Leave out MRs by roster members, who have their own tab.",
+                    "default": true,
                     "type": "boolean"
                   }
                 },
@@ -219,20 +216,37 @@
                   "section"
                 ],
                 "additionalProperties": {}
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "authors",
+                    "title": "Team roster"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": {}
               }
             ],
             "title": "Shows"
           },
           "slackChannel": {
             "title": "Slack channel",
+            "inherits": "board.slack.channel",
             "type": "string"
           },
           "reviewSkill": {
             "title": "Review skill",
+            "placeholder": "inherits the repo's review skill",
             "type": "string"
           },
           "pack": {
             "title": "Pack",
+            "inherits": "board.defaultPack",
             "type": "string"
           }
         },

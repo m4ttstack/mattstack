@@ -14,6 +14,13 @@ export interface FieldSpec {
   placeholder?: string;
   default?: unknown;
   suggestions?: string[];
+  /** A setting whose value this field falls back to when empty
+      (`board.slack.channel`: key `board.slack`, leaf `channel`). */
+  inherits?: string;
+  /** A named list of values the console server suggests for this field. */
+  suggest?: string;
+  /** A sibling field a new entry's value follows, slugged, until edited. */
+  slugFrom?: string;
 }
 
 /** A property that is one of several objects told apart by a tag (zod's
@@ -23,11 +30,14 @@ export interface UnionSpec {
   title?: string;
   description?: string;
   tag: string;
-  branches: {
-    value: string;
-    fields: Record<string, FieldSpec>;
-    required: string[];
-  }[];
+  branches: UnionBranch[];
+}
+
+export interface UnionBranch {
+  value: string;
+  title?: string;
+  fields: Record<string, FieldSpec>;
+  required: string[];
 }
 
 /** A list or map of objects drawn as cards or sections. `nested` names
@@ -42,6 +52,10 @@ export interface FormShape {
   nested: string[];
   required: string[];
   labels: [string, string];
+  /** A list's own floor, so the form never offers to go below it. */
+  minItems?: number;
+  /** The field no two entries may share (the schema's `uniqueBy`). */
+  uniqueBy?: string;
 }
 
 type Entry = Record<string, unknown>;
@@ -73,6 +87,9 @@ function fieldOf(s: JsonSchema): FieldSpec | null {
   if (s.default !== undefined) f.default = s.default;
   if (Array.isArray(s.examples) && s.examples.every(e => typeof e === 'string'))
     f.suggestions = s.examples as string[];
+  if (typeof s.inherits === 'string') f.inherits = s.inherits;
+  if (typeof s.suggest === 'string') f.suggest = s.suggest;
+  if (typeof s.slugFrom === 'string') f.slugFrom = s.slugFrom;
   return f;
 }
 
@@ -81,6 +98,7 @@ function unionOf(s: JsonSchema): UnionSpec | null {
   if (!union) return null;
   const branches: UnionSpec['branches'] = [];
   for (const { value, schema } of union.branches) {
+    const props = (schema.properties ?? {}) as Record<string, JsonSchema>;
     const fields: Record<string, FieldSpec> = {};
     for (const [name, prop] of Object.entries(
       (schema.properties ?? {}) as Record<string, JsonSchema>
@@ -93,7 +111,13 @@ function unionOf(s: JsonSchema): UnionSpec | null {
     const required = Array.isArray(schema.required)
       ? (schema.required as string[]).filter(r => r !== union.tag)
       : [];
-    branches.push({ value, fields, required });
+    const tagTitle = props[union.tag]?.title;
+    branches.push({
+      value,
+      ...(typeof tagTitle === 'string' ? { title: tagTitle } : {}),
+      fields,
+      required,
+    });
   }
   const spec: UnionSpec = { tag: union.tag, branches };
   if (typeof s.title === 'string') spec.title = s.title;
@@ -141,7 +165,7 @@ export function formShape(schema: JsonSchema | undefined): FormShape | null {
   const required = Array.isArray(item.required)
     ? (item.required as string[])
     : [];
-  if (Object.keys(fields).length === 0) return null;
+  if (order.length === 0) return null;
   if (required.some(r => !(r in fields) && !(r in unions))) return null;
   const labels = schema.labels as { key?: string; value?: string } | undefined;
   return {
@@ -152,6 +176,12 @@ export function formShape(schema: JsonSchema | undefined): FormShape | null {
     nested,
     required,
     labels: [labels?.key ?? 'name', labels?.value ?? 'value'],
+    ...(typeof schema.minItems === 'number'
+      ? { minItems: schema.minItems }
+      : {}),
+    ...(typeof schema.uniqueBy === 'string'
+      ? { uniqueBy: schema.uniqueBy }
+      : {}),
   };
 }
 
@@ -194,14 +224,24 @@ export function canDraw(shape: FormShape, value: unknown): boolean {
   );
 }
 
+/** A branch's starting value: its tag and every field default it
+    declares. */
+export function branchSeed(union: UnionSpec, branch: UnionBranch): Entry {
+  const out: Entry = { [union.tag]: branch.value };
+  for (const [name, f] of Object.entries(branch.fields))
+    if (f.default !== undefined) out[name] = f.default;
+  return out;
+}
+
 /** Required scalars from their schema defaults; a required switch with no
-    default starts off, since a switch has no empty state. */
+    default starts off, since a switch has no empty state. A required union
+    starts on its first branch. */
 export function newEntry(shape: FormShape): Entry {
   const out: Entry = {};
   for (const name of shape.required) {
     const u = shape.unions[name];
     if (u) {
-      out[name] = { [u.tag]: u.branches[0]!.value };
+      out[name] = branchSeed(u, u.branches[0]!);
       continue;
     }
     const f = shape.fields[name]!;
@@ -227,12 +267,26 @@ export function addableFields(
   entry: Entry,
   shown: readonly string[]
 ): string[] {
-  return Object.keys(shape.fields).filter(
+  return shape.order.filter(
     k =>
       !shape.required.includes(k) &&
       entry[k] === undefined &&
       !shown.includes(k)
   );
+}
+
+/** A lowercase, dash-joined id from free text, made unique against
+    `taken` with a numeric suffix. */
+export function slugOf(text: string, taken: readonly string[]): string {
+  const base =
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'item';
+  if (!taken.includes(base)) return base;
+  let n = 2;
+  while (taken.includes(`${base}-${n}`)) n++;
+  return `${base}-${n}`;
 }
 
 export function extraKeys(shape: FormShape, entry: Entry): string[] {

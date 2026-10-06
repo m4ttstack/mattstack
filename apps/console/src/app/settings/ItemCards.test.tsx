@@ -510,3 +510,108 @@ describe('ItemCards with a tagged union field', () => {
     ).not.toHaveTextContent('duplicate');
   });
 });
+
+describe('ItemCards with annotated fields', () => {
+  const SCHEMA = {
+    type: 'array',
+    minItems: 1,
+    uniqueBy: 'id',
+    items: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', minLength: 1, slugFrom: 'label' },
+        label: { type: 'string', minLength: 1 },
+        source: {
+          oneOf: [
+            {
+              type: 'object',
+              properties: {
+                kind: {
+                  type: 'string',
+                  const: 'codeowners',
+                  title: 'CODEOWNERS section',
+                },
+                section: { type: 'string', minLength: 1 },
+                hide: { type: 'boolean', default: true },
+              },
+              required: ['kind', 'section'],
+            },
+            {
+              type: 'object',
+              properties: {
+                kind: {
+                  type: 'string',
+                  const: 'authors',
+                  title: 'Team roster',
+                },
+              },
+              required: ['kind'],
+            },
+          ],
+        },
+      },
+      required: ['id', 'label', 'source'],
+    },
+  };
+  const SHAPE = formShape(SCHEMA)!;
+  let latest: Record<string, unknown>[] = [];
+
+  function Harness({ initial }: { initial: Record<string, unknown>[] }) {
+    const [value, setValue] = useState(initial);
+    latest = value;
+    return (
+      <ItemCards
+        shape={SHAPE}
+        value={value}
+        onChange={setValue}
+        disabled={false}
+        issues={checkValue(SCHEMA, value)}
+        footerEnd={null}
+      />
+    );
+  }
+  const team = { id: 'team', label: 'Team', source: { kind: 'authors' } };
+
+  it("a new card's id follows its label until the id is edited", async () => {
+    renderWithProviders(<Harness initial={[team]} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
+    const card = screen.getByTestId('item-1');
+    await userEvent.type(within(card).getByLabelText('label'), 'Web Reviews');
+    expect(latest[1]).toMatchObject({
+      id: 'web-reviews',
+      label: 'Web Reviews',
+    });
+    const id = within(card).getByLabelText('id');
+    await userEvent.clear(id);
+    await userEvent.type(id, 'web');
+    await userEvent.type(within(card).getByLabelText('label'), ' Two');
+    expect(latest[1]).toMatchObject({ id: 'web', label: 'Web Reviews Two' });
+  });
+
+  it("a stored card's id never follows its label", async () => {
+    renderWithProviders(<Harness initial={[team]} />);
+    const card = screen.getByTestId('item-0');
+    await userEvent.type(within(card).getByLabelText('label'), 's');
+    expect(latest[0]).toMatchObject({ id: 'team', label: 'Teams' });
+  });
+
+  it('a new card starts on the first branch with its defaults, labelled by title', async () => {
+    renderWithProviders(<Harness initial={[team]} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Add item' }));
+    expect(latest[1]).toEqual({ source: { kind: 'codeowners', hide: true } });
+    expect(
+      within(screen.getByTestId('item-0')).getByRole('combobox', {
+        name: 'source',
+      })
+    ).toHaveValue('Team roster');
+  });
+
+  it('the last card cannot be removed below the list floor', async () => {
+    renderWithProviders(<Harness initial={[team]} />);
+    expect(
+      within(screen.getByTestId('item-0')).getByRole('button', {
+        name: /cannot be removed/,
+      })
+    ).toBeDisabled();
+  });
+});

@@ -34,7 +34,12 @@ export const MIGRATION_STEPS: KeyedMigrationStep[] = [
         seen.add(id);
         return true;
       });
-      return kept.length > 0 ? kept : [{ id: "team", label: "Team", source: { kind: "authors" } }];
+      // v1 never declared pack, so any type passed; board only ever read a string.
+      const tabs = kept.map((t) => {
+        const { pack, ...rest } = t as Record<string, unknown>;
+        return pack === undefined || typeof pack === "string" ? t : rest;
+      });
+      return tabs.length > 0 ? tabs : [{ id: "team", label: "Team", source: { kind: "authors" } }];
     },
   },
   // @draft-steps

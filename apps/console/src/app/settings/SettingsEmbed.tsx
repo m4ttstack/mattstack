@@ -9,6 +9,7 @@ import { useOpenRow } from './explainParam';
 import { ROW_MOTION_MS } from './SettingRow';
 import { SettingsSection } from './SettingsSection';
 import {
+  SettingsDefsContext,
   SettingsRepoContext,
   SettingsTeamContext,
   useConsoleSettings,
@@ -128,54 +129,56 @@ export function SettingsEmbed({ group }: { group: string }) {
   return (
     <SettingsRepoContext.Provider value={repo}>
       <SettingsTeamContext.Provider value={store.team}>
-        {/* Right inset only: a host bleeds the frame to its edge on that
+        <SettingsDefsContext.Provider value={store.defs}>
+          {/* Right inset only: a host bleeds the frame to its edge on that
             side so the scrollbar sits there, and pads the other three. */}
-        <Box ref={frame} pr={18} style={{ contain: 'inline-size' }}>
-          {store.error && (
-            <Alert
-              color="bad"
-              variant="light"
-              mt="md"
-              icon={<Icons.error size={14} />}
-            >
-              <Text fz={12}>{store.error}</Text>
-            </Alert>
-          )}
-          {!loadedOnce ? (
-            <Stack gap="md" pt={28}>
-              {[220, 280, 180].map(w => (
-                <Stack key={w} gap={8}>
-                  <Skeleton h={12} w={w} />
-                  <Skeleton h={10} w={w + 160} />
-                </Stack>
-              ))}
-            </Stack>
-          ) : section === null ? (
-            <Text fz={14} c={text.muted} pt={28}>
-              {`No settings in the ${group} group.`}
-            </Text>
-          ) : (
-            <SettingsSection
-              section={section}
-              store={store}
-              query=""
-              filtering={false}
-              agentProvider={agentProvider}
-              bare
-              open={openRow.open}
-              onOpenChange={(key, next) =>
-                openRow.set(next ? { key, ...next } : null)
-              }
-              onPickRepo={setRepo}
-              onFix={(key, issue) =>
-                openRow.set(
-                  { key, tab: 'where', fix: issue?.scope ?? null },
-                  { repo: issue?.repo }
-                )
-              }
-            />
-          )}
-        </Box>
+          <Box ref={frame} pr={18} style={{ contain: 'inline-size' }}>
+            {store.error && (
+              <Alert
+                color="bad"
+                variant="light"
+                mt="md"
+                icon={<Icons.error size={14} />}
+              >
+                <Text fz={12}>{store.error}</Text>
+              </Alert>
+            )}
+            {!loadedOnce ? (
+              <Stack gap="md" pt={28}>
+                {[220, 280, 180].map(w => (
+                  <Stack key={w} gap={8}>
+                    <Skeleton h={12} w={w} />
+                    <Skeleton h={10} w={w + 160} />
+                  </Stack>
+                ))}
+              </Stack>
+            ) : section === null ? (
+              <Text fz={14} c={text.muted} pt={28}>
+                {`No settings in the ${group} group.`}
+              </Text>
+            ) : (
+              <SettingsSection
+                section={section}
+                store={store}
+                query=""
+                filtering={false}
+                agentProvider={agentProvider}
+                bare
+                open={openRow.open}
+                onOpenChange={(key, next) =>
+                  openRow.set(next ? { key, ...next } : null)
+                }
+                onPickRepo={setRepo}
+                onFix={(key, issue) =>
+                  openRow.set(
+                    { key, tab: 'where', fix: issue?.scope ?? null },
+                    { repo: issue?.repo }
+                  )
+                }
+              />
+            )}
+          </Box>
+        </SettingsDefsContext.Provider>
       </SettingsTeamContext.Provider>
     </SettingsRepoContext.Provider>
   );

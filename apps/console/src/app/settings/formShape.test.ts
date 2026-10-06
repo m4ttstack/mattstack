@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   addableFields,
+  branchSeed,
   canDraw,
   extraKeys,
   formShape,
   newEntry,
+  slugOf,
   visibleFields,
 } from './formShape';
 import { layerOf, TEST_SCHEMAS } from './testSchemas';
@@ -188,5 +190,105 @@ describe('tagged unions', () => {
     expect(
       extraKeys(formShape(tabs)!, { id: 'a', source: { kind: 'authors' } })
     ).toEqual([]);
+  });
+});
+
+describe('field annotations', () => {
+  const schema = {
+    type: 'array',
+    minItems: 1,
+    uniqueBy: 'id',
+    items: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', slugFrom: 'label' },
+        label: { type: 'string' },
+        channel: { type: 'string', inherits: 'board.slack.channel' },
+        source: {
+          oneOf: [
+            {
+              type: 'object',
+              properties: {
+                kind: {
+                  type: 'string',
+                  const: 'codeowners',
+                  title: 'CODEOWNERS section',
+                },
+                section: { type: 'string', suggest: 'codeowners-sections' },
+                hide: { type: 'boolean', default: true },
+              },
+              required: ['kind', 'section'],
+            },
+            {
+              type: 'object',
+              properties: { kind: { type: 'string', const: 'authors' } },
+              required: ['kind'],
+            },
+          ],
+        },
+        extra: {
+          oneOf: [
+            {
+              type: 'object',
+              properties: { t: { const: 'a' } },
+              required: ['t'],
+            },
+            {
+              type: 'object',
+              properties: { t: { const: 'b' } },
+              required: ['t'],
+            },
+          ],
+        },
+      },
+      required: ['id', 'label', 'source'],
+    },
+  };
+
+  it('reads slugFrom, inherits, suggest, list floor and uniqueBy', () => {
+    const shape = formShape(schema)!;
+    expect(shape.fields.id!.slugFrom).toBe('label');
+    expect(shape.fields.channel!.inherits).toBe('board.slack.channel');
+    expect(shape.unions.source!.branches[0]!.fields.section!.suggest).toBe(
+      'codeowners-sections'
+    );
+    expect(shape.unions.source!.branches[0]!.title).toBe('CODEOWNERS section');
+    expect(shape.minItems).toBe(1);
+    expect(shape.uniqueBy).toBe('id');
+  });
+
+  it('a branch starts with its tag and its declared defaults', () => {
+    const u = formShape(schema)!.unions.source!;
+    expect(branchSeed(u, u.branches[0]!)).toEqual({
+      kind: 'codeowners',
+      hide: true,
+    });
+    expect(newEntry(formShape(schema)!)).toEqual({
+      source: { kind: 'codeowners', hide: true },
+    });
+  });
+
+  it('offers an optional union under Add property', () => {
+    expect(addableFields(formShape(schema)!, {}, [])).toEqual([
+      'channel',
+      'extra',
+    ]);
+  });
+
+  it('draws a list whose items hold only a union', () => {
+    const only = {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { source: schema.items.properties.source },
+      },
+    };
+    expect(formShape(only)?.order).toEqual(['source']);
+  });
+
+  it('slugs free text and keeps it unique', () => {
+    expect(slugOf('Web Reviews!', [])).toBe('web-reviews');
+    expect(slugOf('Web', ['web', 'web-2'])).toBe('web-3');
+    expect(slugOf('!!!', [])).toBe('item');
   });
 });

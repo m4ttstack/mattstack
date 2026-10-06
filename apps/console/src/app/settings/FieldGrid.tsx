@@ -25,7 +25,9 @@ import {
 } from './controlStyles';
 import {
   addableFields,
+  branchSeed,
   extraKeys,
+  slugOf,
   visibleFields,
   type FieldSpec,
   type FormShape,
@@ -33,6 +35,8 @@ import {
 } from './formShape';
 import { shortIssue } from './issues';
 import { BLOCK_STYLE } from './JsonBlock';
+import { useSuggestions } from './suggestions';
+import { useInheritedValue } from './useConsoleSettings';
 
 type Entry = Record<string, unknown>;
 
@@ -49,6 +53,7 @@ function FieldInput({
   value,
   disabled,
   error,
+  options,
   onChange,
   onTouch,
 }: {
@@ -57,12 +62,20 @@ function FieldInput({
   value: unknown;
   disabled: boolean;
   error: boolean;
+  /** Labels for an enum's values, where the values alone read poorly. */
+  options?: { value: string; label: string }[];
   onChange: (v: unknown) => void;
   onTouch: () => void;
 }) {
   const [raw, setRaw] = useState<string | number>(
     typeof value === 'number' ? value : ''
   );
+  const inherited = useInheritedValue(spec.inherits);
+  const suggested = useSuggestions(spec.suggest);
+  const placeholder = spec.inherits
+    ? `inherits ${inherited ?? spec.inherits}`
+    : spec.placeholder;
+  const suggestions = spec.suggestions ?? suggested ?? undefined;
   if (spec.type === 'boolean') {
     const checked = value === true;
     return (
@@ -96,11 +109,11 @@ function FieldInput({
       <Select
         aria-label={label}
         size="xs"
-        w={enumWidth(spec.type.enum)}
+        w={enumWidth(options?.map(o => o.label) ?? spec.type.enum)}
         styles={INPUT_TYPE.label}
         disabled={disabled}
         error={error}
-        data={[...spec.type.enum]}
+        data={options ?? [...spec.type.enum]}
         value={typeof value === 'string' ? value : null}
         allowDeselect={false}
         onChange={v => {
@@ -119,7 +132,7 @@ function FieldInput({
         size="xs"
         w={numberWidth(value)}
         styles={INPUT_TYPE.number}
-        placeholder={spec.placeholder}
+        placeholder={placeholder}
         hideControls
         disabled={disabled}
         error={error}
@@ -138,16 +151,16 @@ function FieldInput({
     onTouch();
     onChange(v === '' ? undefined : v);
   };
-  return spec.suggestions ? (
+  return suggestions ? (
     <Autocomplete
       aria-label={label}
       size="xs"
       w="100%"
       styles={INPUT_TYPE.code}
-      placeholder={spec.placeholder}
+      placeholder={placeholder}
       disabled={disabled}
       error={error}
-      data={spec.suggestions}
+      data={suggestions}
       value={text}
       onChange={change}
       onBlur={onTouch}
@@ -158,7 +171,7 @@ function FieldInput({
       size="xs"
       w="100%"
       styles={INPUT_TYPE.code}
-      placeholder={spec.placeholder}
+      placeholder={placeholder}
       disabled={disabled}
       error={error}
       value={text}
@@ -203,13 +216,45 @@ function FieldName({ label, hint }: { label: string; hint?: string }) {
   );
 }
 
-function IssueText({ issue }: { issue: SchemaIssue | undefined }) {
-  if (!issue) return null;
-  return (
-    <Text fz={12} c="var(--tk-text-bad-small)" truncate title={issue.message}>
-      {shortIssue(issue)}
-    </Text>
-  );
+/** A field's message slot: its issue, else a note when its value is not in
+    the server's suggestion list (a CODEOWNERS section rt has not seen). */
+function FieldMessage({
+  issue,
+  spec,
+  name,
+  value,
+}: {
+  issue: SchemaIssue | undefined;
+  spec?: FieldSpec;
+  name: string;
+  value: unknown;
+}) {
+  const known = useSuggestions(spec?.suggest);
+  if (issue)
+    return (
+      <Text fz={12} c="var(--tk-text-bad-small)" truncate title={issue.message}>
+        {shortIssue(issue)}
+      </Text>
+    );
+  if (
+    known &&
+    typeof value === 'string' &&
+    value !== '' &&
+    !known.includes(value)
+  ) {
+    const what = (spec?.title ?? name).toLowerCase();
+    return (
+      <Text
+        fz={12}
+        c="var(--tk-text-3)"
+        truncate
+        title={`rt has not seen this ${what} yet`}
+      >
+        {`not a known ${what}`}
+      </Text>
+    );
+  }
+  return null;
 }
 
 /** A tagged union property: its tag as a picker, then the chosen branch's
@@ -222,6 +267,7 @@ function UnionRows({
   disabled,
   issues,
   showIssues,
+  remove,
   onChange,
   onTouch,
 }: {
@@ -231,6 +277,7 @@ function UnionRows({
   disabled: boolean;
   issues: SchemaIssue[];
   showIssues: boolean;
+  remove?: ReactNode;
   onChange: (next: Entry) => void;
   onTouch: () => void;
 }) {
@@ -244,6 +291,12 @@ function UnionRows({
     showIssues
       ? issues.find(i => i.path[0] === name && i.path[1] === field)
       : undefined;
+  // A missing union reports at the property itself.
+  const tagIssue =
+    issueAt(spec.tag) ??
+    (showIssues
+      ? issues.find(i => i.path.length === 1 && i.path[0] === name)
+      : undefined);
   const setField = (field: string, v: unknown) => {
     const next: Entry = {};
     for (const [k, x] of Object.entries({ ...current, [field]: v }))
@@ -255,15 +308,23 @@ function UnionRows({
       <Row
         testId={`field-row-${name}`}
         name={<FieldName label={spec.title ?? name} hint={spec.description} />}
-        message={<IssueText issue={issueAt(spec.tag)} />}
+        message={<FieldMessage issue={tagIssue} name={name} value={tagValue} />}
+        remove={remove}
       >
         <FieldInput
           label={name}
           spec={{ type: { enum: spec.branches.map(b => b.value) } }}
+          options={spec.branches.map(b => ({
+            value: b.value,
+            label: b.title ?? b.value,
+          }))}
           value={tagValue}
           disabled={disabled}
-          error={issueAt(spec.tag) !== undefined}
-          onChange={v => onChange({ [spec.tag]: v })}
+          error={tagIssue !== undefined}
+          onChange={v => {
+            const next = spec.branches.find(b => b.value === v);
+            if (next) onChange(branchSeed(spec, next));
+          }}
           onTouch={onTouch}
         />
       </Row>
@@ -280,7 +341,14 @@ function UnionRows({
                 />
               </Box>
             }
-            message={<IssueText issue={issueAt(field)} />}
+            message={
+              <FieldMessage
+                issue={issueAt(field)}
+                spec={fieldSpec}
+                name={field}
+                value={current[field]}
+              />
+            }
           >
             <FieldInput
               label={`${name} ${field}`}
@@ -308,6 +376,8 @@ export function FieldGrid({
   issues,
   touched,
   onTouch,
+  isNew = false,
+  taken = [],
 }: {
   shape: FormShape;
   entry: Entry;
@@ -316,6 +386,12 @@ export function FieldGrid({
   issues: SchemaIssue[];
   touched: ReadonlySet<string>;
   onTouch: (name: string) => void;
+  /** An entry added in this draft: a `slugFrom` field follows its source
+      until edited. A stored entry's slug is a stable id and never moves. */
+  isNew?: boolean;
+  /** Other entries' values of the shape's `uniqueBy` field, so a derived
+      slug never collides. */
+  taken?: readonly string[];
 }) {
   const { text } = useSchemeColors();
   // Seeded from what's already set, so clearing a stored optional field's
@@ -323,7 +399,8 @@ export function FieldGrid({
   // only the remove control below does that.
   const [shown, setShown] = useState<string[]>(() =>
     Object.keys(entry).filter(
-      k => k in shape.fields && !shape.required.includes(k)
+      k =>
+        (k in shape.fields || k in shape.unions) && !shape.required.includes(k)
     )
   );
   // The written object's key order, seeded from the entry's own order and
@@ -331,7 +408,14 @@ export function FieldGrid({
   // retyping a field returns it to its original position instead of the end.
   const order = useRef<string[]>(Object.keys(entry));
   const set = (name: string, v: unknown) => {
-    if (!order.current.includes(name)) order.current = [...order.current, name];
+    const patch: Entry = { [name]: v };
+    if (isNew)
+      for (const [target, f] of Object.entries(shape.fields))
+        if (f.slugFrom === name && !touched.has(target))
+          patch[target] =
+            typeof v === 'string' && v !== '' ? slugOf(v, taken) : undefined;
+    for (const k of Object.keys(patch))
+      if (!order.current.includes(k)) order.current = [...order.current, k];
     // A key present in the entry but missing from order.current (a stale
     // instance sharing state across an entry swap it never remounted for)
     // would otherwise drop that key on this write.
@@ -341,7 +425,7 @@ export function FieldGrid({
     ];
     const next: Entry = {};
     for (const k of keys) {
-      const value = k === name ? v : entry[k];
+      const value = k in patch ? patch[k] : entry[k];
       if (value !== undefined) next[k] = value;
     }
     onChange(next);
@@ -368,6 +452,21 @@ export function FieldGrid({
               disabled={disabled}
               issues={issues}
               showIssues={touched.has(name)}
+              remove={
+                !shape.required.includes(name) && (
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    c={text.muted}
+                    size="sm"
+                    aria-label={`remove ${name}`}
+                    disabled={disabled}
+                    onClick={() => drop(name)}
+                  >
+                    <Icons.close size={14} />
+                  </ActionIcon>
+                )
+              }
               onChange={v => set(name, v)}
               onTouch={() => onTouch(name)}
             />
@@ -392,16 +491,12 @@ export function FieldGrid({
               </Text>
             }
             message={
-              showIssue && (
-                <Text
-                  fz={12}
-                  c="var(--tk-text-bad-small)"
-                  truncate
-                  title={issue.message}
-                >
-                  {shortIssue(issue)}
-                </Text>
-              )
+              <FieldMessage
+                issue={showIssue ? issue : undefined}
+                spec={spec}
+                name={name}
+                value={entry[name]}
+              />
             }
             remove={
               !required && (
@@ -488,7 +583,7 @@ export function FieldGrid({
                   key={name}
                   onClick={() => setShown(s => [...s, name])}
                 >
-                  {shape.fields[name]!.title ?? name}
+                  {(shape.fields[name] ?? shape.unions[name])?.title ?? name}
                 </Menu.Item>
               ))}
             </Menu.Dropdown>

@@ -19,7 +19,7 @@ export type Lock = Record<string, LockEntry>;
 export interface Change { key: string; kind: "safe" | "breaking"; detail: string }
 type NodeChange = Omit<Change, "key">;
 
-const ANNOTATIONS = new Set(["title", "description", "default", "$schema", "$id", "examples", "labels", "placeholder", "deprecated", "readOnly", "writeOnly"]);
+const ANNOTATIONS = new Set(["title", "description", "default", "$schema", "$id", "examples", "labels", "placeholder", "deprecated", "readOnly", "writeOnly", "inherits", "suggest", "slugFrom"]);
 const KNOWN = new Set(["type", "properties", "required", "additionalProperties", "propertyNames", "items", "prefixItems", "enum", "const", "anyOf", "oneOf", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "minItems", "maxItems", "pattern", "format", "uniqueBy"]);
 
 /** True only for git show's own "that path is not in this tree" failure; any other failure is a real error. */
@@ -115,7 +115,10 @@ function chainProblems(label: string, was: LockEntry, now: LockEntry, mode: "ci"
 }
 
 const openExtras = (v: unknown): boolean => v === undefined || v === true || (isSchema(v) && Object.keys(v).length === 0);
-const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+/** Key order is serialization noise, never a schema change. */
+const sortKeys = (v: unknown): unknown =>
+  Array.isArray(v) ? v.map(sortKeys) : isSchema(v) ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeys(v[k])])) : v;
+const same = (a: unknown, b: unknown): boolean => JSON.stringify(sortKeys(a)) === JSON.stringify(sortKeys(b));
 const safeOnly = (a: JsonSchema, b: JsonSchema): boolean => diffNode(a, b, "").every((c) => c.kind === "safe");
 
 /** const x and enum [x] accept the same values; required order never counts as a change. */

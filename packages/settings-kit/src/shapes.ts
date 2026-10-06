@@ -134,7 +134,7 @@ function discriminated(schema: unknown): unknown {
     type: "object",
     required: [tag],
     properties: { [tag]: { enum: values } },
-    allOf: branches.map((b, i) => ({ if: { properties: { [tag]: { const: values[i] } }, required: [tag] }, then: b })),
+    allOf: branches.map((b, i) => ({ if: { type: "object", properties: { [tag]: { const: values[i] } }, required: [tag] }, then: b })),
   };
 }
 
