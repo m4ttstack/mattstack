@@ -13,7 +13,7 @@ test("an app change points at its own page, gitq at its tab", () => {
 });
 
 test("plugins point at Skills; tray, setup, team and settings at Get started", () => {
-  expect(docsImpact(["plugins/mattstack/skills/review/SKILL.md"])).toEqual([{ area: "skills" }]);
+  expect(docsImpact(["plugins/example-plugin/skills/example/SKILL.md"])).toEqual([{ area: "skills" }]);
   expect(docsImpact(["rt-tray/Sources/A.swift", "lib/setup/x.ts", "lib/team/y.ts", "packages/rt-client/src/settings/z.ts"])).toEqual([{ area: "start" }]);
 });
 
