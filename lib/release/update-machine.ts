@@ -10,8 +10,17 @@
  */
 import { homedir } from "os";
 import { join } from "path";
-import type { RunResult } from "../subprocess.ts";
 import { UserActionableError } from "../errors.ts";
+import {
+  DEV_APP_ANCHOR,
+  DEV_APP_PATH,
+  PROD_APP_PATH,
+  execTail,
+  pgrepPids,
+  replaceApp,
+  swapDevApp,
+  type AppSwapSeams,
+} from "./app-swap.ts";
 
 export type LegId = "prod-app" | "dev-bundle" | "checkout-sync" | "daemon" | "served-suite" | "verify";
 export type LegStatus = "ok" | "skipped" | "aborted" | "error" | "planned";
@@ -38,7 +47,7 @@ export interface UpdateMachineOptions {
   yes?: boolean;
 }
 
-export interface UpdateMachineSeams {
+export interface UpdateMachineSeams extends AppSwapSeams {
   /** This rt checkout's root, for reading its own rt-tray/deps.lock (the deck version pin). */
   repoRoot: string;
   /** The shared checkout (`~/Documents/GitHub/mattstack`, or the older `repo-tools` folder) the dev daemon and deck's from-source apps run from. */
@@ -49,26 +58,16 @@ export interface UpdateMachineSeams {
   uid: number;
   /** True only when a human can answer a confirm prompt right now (a real TTY, RT_BATCH unset). */
   isTTY: boolean;
-  exec(argv: [string, ...string[]], opts?: { cwd?: string; timeoutMs?: number }): Promise<RunResult>;
   download(url: string, destPath: string): Promise<void>;
   readFile(path: string): string | null;
   confirm(message: string): Promise<boolean>;
   /** Posts to the #rt chat room; returns whether the post succeeded. */
   announce(message: string): Promise<boolean>;
   clock(): Date;
-  sleep(ms: number): Promise<void>;
 }
 
 export const RELEASE_REPO = "m4ttstack/mattstack";
 export const CHAT_ROOM = "rt";
-const PROD_APP_PATH = "/Applications/mattstack.app";
-const DEV_APP_PATH = "/Applications/mattstack-dev.app";
-// open hands its caller's environment to the app it launches; a dev app
-// opened from an agent shell would carry NODE, npm_* and session vars.
-const OPEN_DEV_APP: [string, ...string[]] = ["/usr/bin/env", "-i", "/usr/bin/open", DEV_APP_PATH];
-/** Anchored to the executable inside the bundle so pgrep never catches an unrelated
- *  process that merely mentions the bundle path (a `tail -f` on its log, an editor). */
-const DEV_APP_ANCHOR = `${DEV_APP_PATH}/Contents/MacOS/`;
 const DEV_DECK_LABEL = "com.mattstack.deck.dev";
 
 /** The deck serving this Mac is the bundle's own; a `deck` on PATH can be a stale hand install. */
@@ -84,7 +83,7 @@ const SERVED_SUITE_LABEL = "served suite restart";
 const VERIFY_LABEL = "verification sweep";
 
 /** deck's from-source apps this machine serves; each one's registry entry is re-pointed at the shared checkout when it still names the old one. */
-const REGISTERED_APPS = ["board", "console", "chat", "boxscore", "deck"] as const;
+export const REGISTERED_APPS = ["board", "console", "chat", "boxscore", "deck"] as const;
 
 interface ReleaseContext {
   tag: string;
@@ -103,11 +102,6 @@ function abortedLeg(id: LegId, label: string, detail: string): LegResult {
 }
 function skippedLeg(id: LegId, label: string, detail: string): LegResult {
   return { id, label, status: "skipped", detail };
-}
-
-/** The tail of a failed command's output, for an error leg's detail. */
-function execTail(r: RunResult): string {
-  return (r.stderr || r.stdout).trim() || "no output";
 }
 
 function versionFromTag(tag: string): string {
@@ -249,85 +243,6 @@ function parsePsStartTime(stdout: string): Date | null {
   if (!trimmed) return null;
   const d = new Date(trimmed);
   return Number.isNaN(d.getTime()) ? null : d;
-}
-
-async function pgrepPids(seams: UpdateMachineSeams, pattern: string): Promise<number[]> {
-  const r = await seams.exec(["pgrep", "-f", pattern]);
-  return r.stdout
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map(Number)
-    .filter((n) => !Number.isNaN(n));
-}
-
-/** open(1) hands off to LaunchServices and returns before the app is actually up, so a single immediate pgrep cannot tell "still launching" from "never launched". */
-async function pollForPids(seams: UpdateMachineSeams, pattern: string, attempts: number, delayMs: number): Promise<number[]> {
-  for (let i = 0; i < attempts; i++) {
-    const pids = await pgrepPids(seams, pattern);
-    if (pids.length > 0) return pids;
-    if (i < attempts - 1) await seams.sleep(delayMs);
-  }
-  return [];
-}
-
-async function waitForNoPids(seams: UpdateMachineSeams, pattern: string, attempts: number, delayMs: number): Promise<boolean> {
-  for (let i = 0; i < attempts; i++) {
-    if ((await pgrepPids(seams, pattern)).length === 0) return true;
-    if (i < attempts - 1) await seams.sleep(delayMs);
-  }
-  return (await pgrepPids(seams, pattern)).length === 0;
-}
-
-/**
- * `ditto` onto an existing .app MERGES rather than replaces: stale files linger
- * and extras can break the code-signature seal. Move the current bundle aside,
- * ditto the new one into its place, and only delete the aside copy once that
- * succeeds; a failed ditto restores it so the machine is never left without
- * a working app.
- *
- * POSIX `mv src dst` moves src INSIDE dst instead of renaming it when dst
- * already exists as a directory, so every mv here is preceded by a checked
- * `rm -rf` of its own destination: a stale aside from a prior failed run
- * would otherwise break the first move, and a partially-ditto'd destPath
- * would break the rollback move the same way. Returns null on success, or
- * an error detail plus what is left at destPath: the previous app, the new
- * one, or nothing safe to launch (a partial copy, or nothing at all).
- */
-type ReplaceFailure = { error: string; atDest: "previous" | "new" | "unsafe" };
-
-async function replaceApp(seams: UpdateMachineSeams, sourcePath: string, destPath: string): Promise<ReplaceFailure | null> {
-  const asidePath = `${destPath}.update-machine-old`;
-
-  const clearAside = await seams.exec(["rm", "-rf", asidePath]);
-  if (clearAside.exitCode !== 0) {
-    return { error: `could not clear a stale aside copy at ${asidePath}: ${execTail(clearAside)}`, atDest: "previous" };
-  }
-
-  const mv = await seams.exec(["mv", destPath, asidePath]);
-  if (mv.exitCode !== 0) return { error: `could not move the current app aside: ${execTail(mv)}`, atDest: "previous" };
-
-  const ditto = await seams.exec(["ditto", sourcePath, destPath]);
-  if (ditto.exitCode !== 0) {
-    const clearDest = await seams.exec(["rm", "-rf", destPath]);
-    if (clearDest.exitCode !== 0) {
-      return {
-        error: `ditto failed and the broken app at ${destPath} could not be cleared to roll back (the previous app is at ${asidePath}): ${execTail(clearDest)}`,
-        atDest: "unsafe",
-      };
-    }
-    const rollback = await seams.exec(["mv", asidePath, destPath]);
-    if (rollback.exitCode !== 0) {
-      return { error: `ditto failed and rollback failed (the previous app is at ${asidePath}): ${execTail(rollback)}`, atDest: "unsafe" };
-    }
-    return { error: `ditto failed, restored the previous app: ${execTail(ditto)}`, atDest: "previous" };
-  }
-
-  const cleanup = await seams.exec(["rm", "-rf", asidePath]);
-  if (cleanup.exitCode !== 0) {
-    return { error: `replaced ${destPath}, but could not remove the aside copy at ${asidePath}: ${execTail(cleanup)}`, atDest: "new" };
-  }
-  return null;
 }
 
 /** deck has no JSON list; its table row is `name port health owner`, with
@@ -476,52 +391,15 @@ async function runDevBundleLeg(seams: UpdateMachineSeams, ctx: ReleaseContext, o
 
   // Opening the dev app by hand takes the Mac over from mattstack.app, so it
   // is relaunched only when it was the app running before.
-  const runningBefore = await pgrepPids(seams, DEV_APP_ANCHOR);
-  const wasRunning = runningBefore.length > 0;
-  if (!wasRunning) onNotRunning();
-  for (const pid of runningBefore) {
-    const kill = await seams.exec(["kill", String(pid)]);
-    if (kill.exitCode !== 0) {
-      // A process that already exited between pgrep and kill (ESRCH) is not a failure.
-      const stillRunning = (await pgrepPids(seams, DEV_APP_ANCHOR)).includes(pid);
-      if (stillRunning) return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `kill ${pid} failed: ${execTail(kill)}`);
-    }
-  }
-  if (!(await waitForNoPids(seams, DEV_APP_ANCHOR, 5, 500))) {
-    return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, "the running dev app did not exit after kill");
-  }
+  const wasRunningBefore = (await pgrepPids(seams, DEV_APP_ANCHOR)).length > 0;
+  if (!wasRunningBefore) onNotRunning();
 
-  // Never rebuilds the blessed bundle in place; replaceApp swaps it wholesale.
-  const failure = await replaceApp(seams, `${bundleDir}/rt-tray/mattstack-dev.app`, DEV_APP_PATH);
-  if (failure) {
-    // The running copy was already quit above, so a failed swap reopens the
-    // app replaceApp left in place, unless what is there is not safe to launch.
-    if (failure.atDest === "unsafe") {
-      return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `${failure.error}; not reopened, ${DEV_APP_PATH} is not safe to launch`);
-    }
-    if (!wasRunning) return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `${failure.error}; not reopened, it was not running`);
-    const which = failure.atDest === "previous" ? "reopened the previous app" : "opened the new app";
-    const reopen = await seams.exec(OPEN_DEV_APP);
-    const pids = reopen.exitCode === 0 ? await pollForPids(seams, DEV_APP_ANCHOR, 5, 500) : [];
-    const tail = pids.length > 0 ? `${which} (pid ${pids[0]})` : `opening ${DEV_APP_PATH} did not bring up a process${reopen.exitCode === 0 ? "" : `: ${execTail(reopen)}`}`;
-    return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `${failure.error}; ${tail}`);
-  }
-
-  if (!wasRunning) {
+  const swap = await swapDevApp(seams, `${bundleDir}/rt-tray/mattstack-dev.app`);
+  if (!swap.ok) return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, swap.error);
+  if (!swap.wasRunning) {
     return okLeg("dev-bundle", DEV_BUNDLE_LABEL, `${DEV_APP_PATH} rebuilt at ${ctx.sha.slice(0, 12)}; not relaunched, it was not running`);
   }
-
-  const open = await seams.exec(OPEN_DEV_APP);
-  if (open.exitCode !== 0) return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `open failed: ${execTail(open)}`);
-
-  const pids = await pollForPids(seams, DEV_APP_ANCHOR, 5, 500);
-  if (pids.length === 0) return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, "dev app did not relaunch with a fresh pid");
-
-  return okLeg(
-    "dev-bundle",
-    DEV_BUNDLE_LABEL,
-    `${DEV_APP_PATH} rebuilt at ${ctx.sha.slice(0, 12)} and relaunched (pid ${pids[0]})`,
-  );
+  return okLeg("dev-bundle", DEV_BUNDLE_LABEL, `${DEV_APP_PATH} rebuilt at ${ctx.sha.slice(0, 12)} and relaunched (pid ${swap.pid})`);
 }
 
 /** The ref lands in a gh api URL path, so anything shaped like a path

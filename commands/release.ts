@@ -34,7 +34,7 @@ import { UserActionableError, exitUserError, failureFor, logFailureDetail } from
 import { refusalNote } from "./git/shared.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
-import { runCapture } from "../lib/subprocess.ts";
+import { childEnv, runCapture } from "../lib/subprocess.ts";
 import { runPreflight, type CheckRow, type PreflightSeams } from "../lib/release/preflight.ts";
 import { runVerify, type VerifyRow, type VerifySeams } from "../lib/release/verify.ts";
 import {
@@ -165,7 +165,7 @@ export async function createRealUpdateMachineSeams(options: UpdateMachineOptions
     workDir: needsWorkDir ? mkdtempSync(join(tmpdir(), "rt-update-machine-")) : "",
     uid: process.getuid ? process.getuid() : 501,
     isTTY: interactive(),
-    exec: (argv, opts) => runCapture(argv, { stderr: "pipe", timeoutMs: 600_000, ...opts }),
+    exec: (argv, opts) => runCapture(argv, { stderr: "pipe", timeoutMs: 600_000, ...opts, ...(opts?.env ? { env: { ...childEnv(), ...opts.env } } : {}) }),
     download: async (url, destPath) => {
       const res = await fetch(url, { signal: AbortSignal.timeout(300_000) });
       if (!res.ok) throw new Error(`${url} answered ${res.status}`);
