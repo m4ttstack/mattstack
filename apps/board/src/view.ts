@@ -555,6 +555,8 @@ export function sortMRs<M extends BoardMR>(mrs: M[], sort: SortKey): M[] {
 export interface Group<M extends BoardMR = BoardMR> {
   label: string;
   mrs: M[];
+  /** The author's username, on an author grouping's groups. */
+  author?: string;
 }
 
 /** Age band by last activity: by day for the first week, then weekly. Uses the
@@ -688,6 +690,7 @@ function groupByAuthor<M extends BoardMR>(
     .map(([username, list]) => ({
       label: list[0]!.author.name || username,
       mrs: list,
+      author: username,
     }));
 }
 
@@ -725,7 +728,7 @@ function pullStacksIntoParentGroups<M extends BoardMR>(
     for (const m of g.mrs) moved[rootGroupOf(m)]!.push(m);
   }
   return groups
-    .map((g, i) => ({ label: g.label, mrs: moved[i]! }))
+    .map((g, i) => ({ ...g, mrs: moved[i]! }))
     .filter(g => g.mrs.length > 0);
 }
 

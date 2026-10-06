@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { Invadr } from 'invadrs/react';
+
+import { MemberInvadr } from './MemberInvadr.tsx';
 
 /** A person as the sheets name them everywhere: their invader and their
     name in the author colour, one inline unit. */
@@ -13,7 +14,7 @@ export function PersonTag({
 }) {
   return (
     <span className="tui-person">
-      <Invadr id={id} palette="css-vars" className="tui-person-avatar" />
+      <MemberInvadr id={id} className="tui-person-avatar" />
       <strong className="tui-person-name">{name}</strong>
     </span>
   );

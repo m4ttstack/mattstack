@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Invadr } from 'invadrs/react';
 
 import { CopyButton, Modal } from '@mattstack/tui-kit';
 import { useRevealOnChange } from '@mattstack/tui-kit/hooks';
@@ -10,6 +9,7 @@ import {
   offRosterPeers,
 } from '../../view.ts';
 import type { BoardData, ConfigMember } from '../types.ts';
+import { MemberInvadr } from './MemberInvadr.tsx';
 
 /** Check members in/out, and (on a board that can hand out invites) put each
     teammate on a board of their own. Toggling persists the hidden flag to
@@ -234,11 +234,7 @@ function SettingsModal({
                     onChange={() => onToggle(m.username, !m.hidden)}
                   />
                 )}
-                <Invadr
-                  id={m.username}
-                  palette="css-vars"
-                  className="tui-avatar"
-                />{' '}
+                <MemberInvadr id={m.username} className="tui-avatar" />{' '}
                 {m.name ?? m.username}
               </label>
               <span className="tui-modal-right">
@@ -325,8 +321,7 @@ function SettingsModal({
             {strays.map(u => (
               <li key={u} className="tui-modal-row">
                 <span className="tui-modal-name">
-                  <Invadr id={u} palette="css-vars" className="tui-avatar" />{' '}
-                  {u}
+                  <MemberInvadr id={u} className="tui-avatar" /> {u}
                 </span>
                 <span className="tui-modal-right">
                   <span className="tui-peered" title="on peer boards">
