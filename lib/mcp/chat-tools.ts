@@ -103,7 +103,7 @@ function checkCwd(input: Record<string, unknown>, isDir: (p: string) => boolean)
 }
 
 export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[] {
-  const handleOf = (env: NodeJS.ProcessEnv) => requireChatHandle(env, deps.session);
+  const handleOf = (env: NodeJS.ProcessEnv) => requireChatHandle(env, deps.session, deps.buddies);
   return [
     {
       name: "chat_read",
@@ -111,7 +111,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       inputSchema: { type: "object", properties: { ...ROOM_PROP, limit: { type: "number" }, since: { type: "string" }, last: { type: "number" } }, additionalProperties: false },
       shellForms: ["rt chat read"],
       async handler(input, env) {
-        const id = handleOf(env);
+        const id = await handleOf(env);
         if ("error" in id) return err(id.error);
         const bad = checkOptional(input, [{ name: "room", type: "string" }, { name: "since", type: "string" }]) ?? checkPositiveInt(input, "limit") ?? checkPositiveInt(input, "last")
           ?? (input.room !== undefined ? checkChatName("room", input.room) : undefined);
@@ -154,7 +154,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       inputSchema: { type: "object", properties: { ...ROOM_PROP, upto: { type: "number" } }, additionalProperties: false },
       shellForms: ["rt chat mark"],
       async handler(input, env) {
-        const id = handleOf(env);
+        const id = await handleOf(env);
         if ("error" in id) return err(id.error);
         const bad = (input.room !== undefined ? checkChatName("room", input.room) : undefined) ?? checkPositiveInt(input, "upto");
         if (bad) return err(bad);
@@ -171,7 +171,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       shellForms: ["rt chat rooms"],
       async handler(_input, env) {
-        const id = handleOf(env);
+        const id = await handleOf(env);
         if ("error" in id) return err(id.error);
         return fromResponse(await deps.rooms({ handle: id.handle }));
       },
@@ -203,7 +203,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       inputSchema: { type: "object", properties: { ...ROOM_PROP, wakeOn: { type: "string", enum: ["mention", "all", "none"] }, cwd: { type: "string" } }, required: ["room"], additionalProperties: false },
       shellForms: ["rt chat join"],
       async handler(input, env) {
-        const id = handleOf(env);
+        const id = await handleOf(env);
         if ("error" in id) return err(id.error);
         const bad = checkChatName("room", input.room) ?? checkCwd(input, deps.isDir);
         if (bad) return err(bad);
@@ -225,7 +225,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       inputSchema: { type: "object", properties: { ...ROOM_PROP }, required: ["room"], additionalProperties: false },
       shellForms: ["rt chat leave"],
       async handler(input, env) {
-        const id = handleOf(env);
+        const id = await handleOf(env);
         if ("error" in id) return err(id.error);
         const bad = checkChatName("room", input.room);
         if (bad) return err(bad);
@@ -353,7 +353,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       inputSchema: { type: "object", properties: { ...ROOM_PROP, reopen: { type: "boolean" } }, required: ["room"], additionalProperties: false },
       shellForms: ["rt chat archive"],
       async handler(input, env) {
-        const id = handleOf(env);
+        const id = await handleOf(env);
         if ("error" in id) return err(id.error);
         const bad = checkChatName("room", input.room) ?? checkOptional(input, [{ name: "reopen", type: "boolean" }]);
         if (bad) return err(bad);
@@ -372,7 +372,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       inputSchema: { type: "object", properties: { pane: { type: "string" }, ...ROOM_PROP, note: { type: "string" } }, required: ["pane", "room"], additionalProperties: false },
       shellForms: ["rt chat invite"],
       async handler(input, env) {
-        const id = handleOf(env);
+        const id = await handleOf(env);
         if ("error" in id) return err(id.error);
         const bad = checkRequired(input, [{ name: "pane", type: "string" }]) ?? checkChatName("room", input.room) ?? checkOptional(input, [{ name: "note", type: "string" }]);
         if (bad) return err(bad);

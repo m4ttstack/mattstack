@@ -1726,3 +1726,79 @@ describe("missing chat presence", () => {
     }
   });
 });
+
+describe("a signed-in pane whose session id changed", () => {
+  const PANE = "wMP:p17";
+  const live: InboxBinding = { pid: process.pid, socketPath: "/fake.sock", status: "busy" };
+
+  async function signInPaneThenFork(): Promise<{ tyler: string }> {
+    await signInInProcess({ as: "kai", session: "s-kai", noRoom: true });
+    process.env.HERDR_PANE_ID = PANE;
+    await signInInProcess({ as: "tyler", session: "orig", noRoom: true });
+    process.env.CLAUDE_CODE_SESSION_ID = "forked";
+    return { tyler: JSON.parse(readFileSync(sessionFilePath("orig"), "utf8")).handle };
+  }
+
+  function authors(): string[] {
+    return (getStateDb().query("SELECT handle FROM chat_messages ORDER BY id").all() as { handle: string }[]).map((r) => r.handle);
+  }
+
+  test("posts and DMs as the identity the pane is signed in as", async () => {
+    const { tyler } = await signInPaneThenFork();
+    registryDeps = { resolve: (s) => (s === "orig" ? live : null), alive: () => true, resolveAll: () => new Map([["orig", live]]) };
+    await runChat(["join", "r"]);
+    await runChat(["post", "r", "hello"]);
+    expect(await runChat(["dm", "kai", "hi"])).toMatch(/^dm → kai #\d+/);
+    expect(authors()).toEqual([tyler, tyler]);
+  });
+
+  test("--as alongside the pane's identity is refused", async () => {
+    await signInPaneThenFork();
+    registryDeps = { resolve: (s) => (s === "orig" ? live : null), alive: () => true, resolveAll: () => new Map([["orig", live]]) };
+    const r = await runChatRaw(["post", "r", "hello", "--as", "scout"]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toStartWith("[refused] You are signed in as tyler");
+  });
+
+  test("a pane whose signed-in session is gone falls through to the old chain", async () => {
+    await signInPaneThenFork();
+    await runChat(["join", "r", "--as", "scout"]);
+    await runChat(["post", "r", "hello", "--as", "scout"]);
+    expect(authors()).toEqual(["scout"]);
+  });
+
+  test("a pane with no presence row falls through to the old chain", async () => {
+    process.env.HERDR_PANE_ID = "w5:p5";
+    process.env.CLAUDE_CODE_SESSION_ID = "unsigned";
+    await runChat(["join", "r", "--as", "scout"]);
+    await runChat(["post", "r", "hello", "--as", "scout"]);
+    expect(authors()).toEqual(["scout"]);
+  });
+
+  test("a daemon that cannot list presence falls through to the old chain", async () => {
+    await signInPaneThenFork();
+    canned["chat:buddies"] = { ok: false, error: "unknown command: chat:buddies" };
+    await runChat(["join", "r", "--as", "scout"]);
+    await runChat(["post", "r", "hello", "--as", "scout"]);
+    expect(authors()).toEqual(["scout"]);
+  });
+
+  test("post and dm tell the daemon which pane they came from", async () => {
+    await signInPaneThenFork();
+    await runChat(["join", "r", "--as", "scout"]);
+    await runChat(["post", "r", "hello", "--as", "scout"]);
+    await runChat(["dm", "kai", "hi", "--as", "scout"]);
+    expect(seen.find((s) => s.cmd === "chat:post")!.payload).toMatchObject({ pane: PANE });
+    expect(seen.find((s) => s.cmd === "chat:dm")!.payload).toMatchObject({ pane: PANE });
+  });
+
+  test("the daemon's refusal of an unreachable sender is a refused note naming the identity", async () => {
+    canned["chat:post"] = { ok: false, error: "chat: This pane is signed in as tyler; post as tyler", failure: { code: "pane-signed-in", message: "This pane is signed in as tyler; post as tyler" } };
+    for (const flags of [[], ["--json"]]) {
+      const r = await runChatRaw(["post", "r", "hello", "--as", "scout", ...flags]);
+      expect(r.code).toBe(1);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toStartWith("[refused] This pane is signed in as tyler; post as tyler");
+    }
+  });
+});
