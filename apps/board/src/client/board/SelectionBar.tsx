@@ -86,6 +86,7 @@ function SelectionBar({
             alongside the `.tui-copy` its two plain sibling buttons still use. */}
         <CopyButton
           text={boardSummary(selectedMrs, templates, header.copy)}
+          title={`copy ${count} selected for slack`}
           label={`copy ${count}`}
         />
         {slackPost && (
