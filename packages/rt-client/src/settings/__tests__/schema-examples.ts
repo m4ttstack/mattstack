@@ -273,7 +273,6 @@ export const EXAMPLES: Record<string, Example> = {
   },
   "board.tabs": {
     good: [
-      [],
       [
         { id: "team", label: "Team", source: { kind: "authors" } },
         { id: "platform", label: "Platform", source: { kind: "codeowners", section: "Platform", excludeMembers: true }, slackChannel: "acme-platform", reviewSkill: "review" },
@@ -282,6 +281,9 @@ export const EXAMPLES: Record<string, Example> = {
     bad: [
       { value: [{ id: "team", source: { kind: "authors" } }], path: [0, "label"] },
       { value: [{ id: "team", label: "Team", source: { kind: "authors" }, slackChannel: 7 }], path: [0, "slackChannel"] },
+      { value: [], path: [] },
+      { value: [{ id: "", label: "Team", source: { kind: "authors" } }], path: [0, "id"] },
+      { value: [{ id: "team", label: "Team", source: { kind: "authors" } }, { id: "team", label: "Again", source: { kind: "authors" } }], path: [1, "id"] },
     ],
   },
   "board.workspaces": {

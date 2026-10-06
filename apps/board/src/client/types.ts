@@ -182,11 +182,6 @@ export type BoardMRWithReview = BoardMR & {
   orphan?: ExecutorView;
 };
 
-export interface RosterView {
-  everyone: boolean;
-  orgAdmin: boolean;
-}
-
 export interface BoardData {
   title: string;
   defaultMember: string;
@@ -248,11 +243,6 @@ export interface BoardData {
       peering never starts and no ask can arrive. Absent from an older
       server. */
   switchboardTokenMissing?: boolean;
-  /** The roster the settings editor changes: everyone in the org, or the
-      active team's members; `orgAdmin` says whether this Mac may remove
-      someone from the org. null when config.json owns the roster. Absent
-      from an older server. */
-  rosterView?: RosterView | null;
   /** Board tabs, in display order. Always non-empty (config.tabs falls back to
       IMPLICIT_TABS server-side). */
   tabs: TabConfig[];

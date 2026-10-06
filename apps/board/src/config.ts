@@ -4,7 +4,6 @@ import { join } from 'path';
 import {
   activeTeam,
   activeTeamPack,
-  currentRole,
   getSetting,
   identityFromRemote,
   mergeTeamRoster,
@@ -642,15 +641,10 @@ function agentCommand(resolve: GetSettingFn): string | undefined {
 export const teamView: {
   pack: () => string | null;
   team: () => string | null;
-  orgAdmin: () => boolean;
   rosterRefusal: () => string | null;
 } = {
   pack: activeTeamPack,
   team: () => activeTeam().team,
-  orgAdmin: () => {
-    const { org } = activeTeam();
-    return org !== null && currentRole(org).kind === 'admin';
-  },
   rosterRefusal: () => {
     const { org } = activeTeam();
     return org === null ? null : orgStoreRefusal(org);
@@ -679,16 +673,6 @@ function rosterFromStore(
   return onTeam.length > 0
     ? { key: 'mattstack.roster', members: onTeam, team }
     : { key: 'mattstack.roster', members: all, team: null };
-}
-
-/** Whether the roster the board edits is everyone in the org, and whether
-    this Mac may remove someone from it. Null when config.json owns the roster. */
-export function rosterView(
-  resolve: GetSettingFn = getSetting
-): { everyone: boolean; orgAdmin: boolean } | null {
-  const owner = rosterFromStore(resolve);
-  if (!owner) return null;
-  return { everyone: owner.team === null, orgAdmin: teamView.orgAdmin() };
 }
 
 /** Why this Mac may not change a store-owned roster (it lives in the org

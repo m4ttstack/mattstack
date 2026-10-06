@@ -19,8 +19,8 @@ export type Lock = Record<string, LockEntry>;
 export interface Change { key: string; kind: "safe" | "breaking"; detail: string }
 type NodeChange = Omit<Change, "key">;
 
-const ANNOTATIONS = new Set(["title", "description", "default", "$schema", "$id", "examples", "labels", "placeholder", "deprecated", "readOnly", "writeOnly"]);
-const KNOWN = new Set(["type", "properties", "required", "additionalProperties", "propertyNames", "items", "prefixItems", "enum", "const", "anyOf", "oneOf", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "minItems", "maxItems", "pattern", "format"]);
+const ANNOTATIONS = new Set(["title", "description", "default", "$schema", "$id", "examples", "labels", "placeholder", "deprecated", "readOnly", "writeOnly", "inherits", "suggest", "slugFrom", "initial"]);
+const KNOWN = new Set(["type", "properties", "required", "additionalProperties", "propertyNames", "items", "prefixItems", "enum", "const", "anyOf", "oneOf", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "minItems", "maxItems", "pattern", "format", "uniqueBy"]);
 
 /** True only for git show's own "that path is not in this tree" failure; any other failure is a real error. */
 export function isMissingPathAtRef(stderr: string): boolean {
@@ -115,7 +115,27 @@ function chainProblems(label: string, was: LockEntry, now: LockEntry, mode: "ci"
 }
 
 const openExtras = (v: unknown): boolean => v === undefined || v === true || (isSchema(v) && Object.keys(v).length === 0);
-const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+/** Key order is serialization noise, never a schema change. */
+const sortKeys = (v: unknown): unknown =>
+  Array.isArray(v) ? v.map(sortKeys) : isSchema(v) ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeys(v[k])])) : v;
+const same = (a: unknown, b: unknown): boolean => JSON.stringify(sortKeys(a)) === JSON.stringify(sortKeys(b));
+const SUBSCHEMA_MAPS = new Set(["properties", "patternProperties", "$defs"]);
+const SUBSCHEMA_LISTS = new Set(["anyOf", "oneOf", "allOf", "prefixItems"]);
+/** A schema with annotation keywords removed at every schema position, never
+    from a properties map, where "title" or "description" is a property name. */
+function withoutAnnotations(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(withoutAnnotations);
+  if (!isSchema(v)) return v;
+  const out: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(v)) {
+    if (ANNOTATIONS.has(k)) continue;
+    if (SUBSCHEMA_MAPS.has(k) && isSchema(x)) out[k] = Object.fromEntries(Object.entries(x).map(([n, s]) => [n, withoutAnnotations(s)]));
+    else if (SUBSCHEMA_LISTS.has(k) && Array.isArray(x)) out[k] = x.map(withoutAnnotations);
+    else if (isSchema(x)) out[k] = withoutAnnotations(x);
+    else out[k] = x;
+  }
+  return out;
+}
 const safeOnly = (a: JsonSchema, b: JsonSchema): boolean => diffNode(a, b, "").every((c) => c.kind === "safe");
 
 /** const x and enum [x] accept the same values; required order never counts as a change. */
@@ -175,12 +195,16 @@ function diffNode(a0: JsonSchema, b0: JsonSchema, at: string): NodeChange[] {
         verdict(bv === undefined || (Array.isArray(av) && Array.isArray(bv) && av.every((x) => bv.some((y) => isSchema(x) && isSchema(y) && safeOnly(x, y)))), "anyOf changed");
         break;
       // An added branch can make a value match twice, which oneOf rejects.
-      case "oneOf": verdict(bv === undefined, "oneOf changed"); break;
+      case "oneOf":
+        // Branches compare whole, but a wording change inside one is no change.
+        if (bv !== undefined && same(withoutAnnotations(av), withoutAnnotations(bv))) break;
+        verdict(bv === undefined, "oneOf changed");
+        break;
       case "minimum": case "exclusiveMinimum": case "minLength": case "minItems":
         verdict(bv === undefined || (av !== undefined && (bv as number) <= (av as number)), `${k} ${av} -> ${bv}`); break;
       case "maximum": case "exclusiveMaximum": case "maxLength": case "maxItems":
         verdict(bv === undefined || (av !== undefined && (bv as number) >= (av as number)), `${k} ${av} -> ${bv}`); break;
-      case "pattern": case "format": verdict(bv === undefined, `${k} ${bv === undefined ? "removed" : "changed"}`); break;
+      case "pattern": case "format": case "uniqueBy": verdict(bv === undefined, `${k} ${bv === undefined ? "removed" : "changed"}`); break;
     }
   }
   return out;

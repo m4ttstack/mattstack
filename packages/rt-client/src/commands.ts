@@ -753,7 +753,7 @@ export interface Commands {
   "chat:join": { payload: { room: string; handle: string; wakeOn?: WakeMode; cwd?: string; pane?: string }; data: { handle: string; name: string; memberCount: number; unread: number } };
   "chat:leave": { payload: { room: string; handle: string }; data: Record<string, never> };
   /** `others` counts the room's members besides the author, so a caller can tell "woke nobody of 7" from "nobody else is here". */
-  "chat:post": { payload: { room: string; handle: string; body: string; mentions?: string[]; quiet?: boolean }; data: { id: number; recipients: string[]; recipientNames: string[]; others: number } };
+  "chat:post": { payload: { room: string; handle: string; body: string; mentions?: string[]; quiet?: boolean; pane?: string }; data: { id: number; recipients: string[]; recipientNames: string[]; others: number } };
   "chat:ack": { payload: { id: number; handle: string }; data: { author: string; authorName: string; room: string; already: boolean } };
   "chat:claim": { payload: { id: number; handle: string }; data: ChatClaimOutcome };
   "chat:release": { payload: { id: number; handle: string }; data: { holder: string; holderName: string } };
@@ -809,7 +809,7 @@ export interface Commands {
   "chat:away": { payload: { sessionId: string; text: string }; data: Record<string, never> };
   "chat:back": { payload: { sessionId: string }; data: Record<string, never> };
   "chat:buddies": { payload: Record<string, never>; data: { buddies: Array<PresenceRow & { status: BuddyStatus }> } };
-  "chat:dm": { payload: { from: string; to: string; body: string; sessionId?: string }; data: { room: string; id: number; recipients: string[]; recipientNames: string[] } };
+  "chat:dm": { payload: { from: string; to: string; body: string; sessionId?: string; pane?: string }; data: { room: string; id: number; recipients: string[]; recipientNames: string[] } };
   "chat:archive": { payload: { room: string; handle: string; archived: boolean }; data: { room: string; archivedAt: number | null } };
   "chat:dm-open": { payload: { from: string; to: string; sessionId?: string }; data: { room: string; created: boolean } };
 

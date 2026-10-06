@@ -496,7 +496,8 @@ const ROWS: readonly SettingDef[] = [
     type: "array",
     scopes: ["team"],
     merge: "replace",
-    description: "Board tabs ({id, label, source, slackChannel?, reviewSkill?, pack?, dimEmpty?}), editable from the board's settings modal; pack picks which team pack's bindings a launch from that tab uses; dimEmpty fades roster members with nothing on that tab (absent: every tab but an authors one fades). source.kind 'authors' is the classic roster board; 'codeowners' lists any author's open MRs carrying a CODE_OWNER rule for the section, until merge/close. Absent = one implicit authors tab (fallback lives in the board reader, never here).",
+    storeVersion: 2,
+    description: "Board tabs ({id, label, source, slackChannel?, reviewSkill?, pack?, dimEmpty?}), at least one, each id unique; pack picks which team pack's bindings a launch from that tab uses; dimEmpty fades roster members with nothing on that tab (absent: every tab but an authors one fades). source.kind 'authors' is the classic roster board; 'codeowners' lists any author's open MRs carrying a CODE_OWNER rule for the section, until merge/close. Absent = one implicit authors tab (fallback lives in the board reader, never here).",
   },
   {
     key: "board.turn",

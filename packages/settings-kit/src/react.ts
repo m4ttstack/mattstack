@@ -6,6 +6,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { consoleOrigin, embedSrc, readEmbedMessage } from "./embed.ts";
 import { moveTargetFrom, moveValue } from "./move.ts";
 import type { EffectiveWire, ExplainRowWire, SettingDefWire } from "./server.ts";
 
@@ -291,4 +292,65 @@ export function useSettingKey(key: string, opts: SettingsKitOptions = {}): Setti
     () => ({ def, rows, loading, error, staged, stage, reset, apply, applying, applyError, refresh }),
     [def, rows, loading, error, staged, stage, reset, apply, applying, applyError, refresh],
   );
+}
+
+const EMBED_MIN_HEIGHT = 120;
+
+export interface SettingsEmbedOptions {
+  /** A console settings group id (`board`, `chat`, `deck`, `boxscore`, ...). */
+  group: string;
+  /** The host page's scheme, read once when the frame mounts. */
+  scheme: "light" | "dark";
+  focusKey?: string;
+  /** Console's origin; derived from this page's host when omitted. */
+  origin?: string;
+  onSaved?: (key: string) => void;
+  onClose?: () => void;
+}
+
+/** The few browser globals the embed hook reads, typed here because this
+    package also type-checks without the DOM lib. */
+interface EmbedHost {
+  location: { protocol: string; hostname: string };
+  addEventListener(type: "message", listener: (e: { source: unknown; data: unknown }) => void): void;
+  removeEventListener(type: "message", listener: (e: { source: unknown; data: unknown }) => void): void;
+}
+
+/** One console settings group framed in the caller's own modal: put `ref`,
+    `src` and `height` on an `<iframe>`. The src is fixed at mount, so the
+    frame never reloads under an open row. Messages are matched on the
+    frame's window, not its origin: console may redirect to its canonical
+    host, so the origin that answers is not always the one `src` named. */
+export function useSettingsEmbed(opts: SettingsEmbedOptions) {
+  const host = globalThis as unknown as EmbedHost;
+  const frame = useRef<{ contentWindow: unknown } | null>(null);
+  const ref = useCallback((el: { contentWindow: unknown } | null) => {
+    frame.current = el;
+  }, []);
+  const [height, setHeight] = useState(EMBED_MIN_HEIGHT);
+  const [src] = useState(() =>
+    embedSrc({
+      origin: opts.origin ?? consoleOrigin(host.location),
+      group: opts.group,
+      scheme: opts.scheme,
+      focusKey: opts.focusKey,
+    }),
+  );
+  const handlers = useRef(opts);
+  handlers.current = opts;
+
+  useEffect(() => {
+    const onMessage = (e: { source: unknown; data: unknown }) => {
+      if (!frame.current || e.source !== frame.current.contentWindow) return;
+      const msg = readEmbedMessage(e.data);
+      if (!msg) return;
+      if (msg.type === "height") setHeight(Math.max(EMBED_MIN_HEIGHT, Math.ceil(msg.height)));
+      else if (msg.type === "saved") handlers.current.onSaved?.(msg.key);
+      else handlers.current.onClose?.();
+    };
+    host.addEventListener("message", onMessage);
+    return () => host.removeEventListener("message", onMessage);
+  }, [host]);
+
+  return { ref, src, height };
 }

@@ -65,6 +65,27 @@ describe("checkValue", () => {
     }
   });
 
+  test("a tagged oneOf reports only the branch its tag names", () => {
+    const tagged = {
+      oneOf: [
+        { type: "object", properties: { kind: { type: "string", const: "a" } }, required: ["kind"] },
+        { type: "object", properties: { kind: { type: "string", const: "b" }, name: { type: "string", minLength: 1 } }, required: ["kind", "name"] },
+      ],
+    };
+    expect(checkValue(tagged, { kind: "b" })).toEqual([{ path: ["name"], message: 'required property "name" is missing' }]);
+    expect(checkValue(tagged, { kind: "c" })).toEqual([{ path: ["kind"], message: "expected one of a, b" }]);
+    expect(checkValue(tagged, { kind: "a" })).toEqual([]);
+  });
+
+  test("uniqueBy flags each later item that repeats the field, on that field", () => {
+    const schema = { type: "array", items: { type: "object" }, uniqueBy: "id" };
+    expect(checkValue(schema, [{ id: "a" }, { id: "b" }, { id: "a" }, {}, { id: "b" }])).toEqual([
+      { path: [2, "id"], message: 'duplicate id "a"' },
+      { path: [4, "id"], message: 'duplicate id "b"' },
+    ]);
+    expect(checkValue(schema, [{ id: "a" }, { id: "b" }])).toEqual([]);
+  });
+
   test("never drifts from rt-client's validateJson: same fixtures, same issues", () => {
     const ruleSchema = {
       type: "object",
@@ -81,7 +102,16 @@ describe("checkValue", () => {
       [{ type: "object", properties: { a: { type: "string" } }, additionalProperties: false }, { a: "x", b: 1 }],
       [{ type: "object", additionalProperties: { type: "string" } }, { "remote:gitlab.example.com%2Facme%2Fapp": 1 }],
       [listSchema, [{ pattern: "gate/*", category: "gate", extra: true }]],
+      [{ ...listSchema, uniqueBy: "pattern" }, [{ pattern: "a", category: "x" }, { pattern: "b", category: "x" }, { pattern: "a", category: "y" }]],
+      [{ type: "object", properties: { rules: { ...listSchema, uniqueBy: "category" } } }, { rules: [{ pattern: "a", category: "x" }, { pattern: "b", category: "x" }] }],
     ];
+    const tagged = {
+      oneOf: [
+        { type: "object", properties: { kind: { type: "string", const: "a" } }, required: ["kind"] },
+        { type: "object", properties: { kind: { type: "string", const: "b" }, name: { type: "string", minLength: 1 } }, required: ["kind", "name"] },
+      ],
+    };
+    cases.push([tagged, { kind: "b" }], [tagged, { kind: "b", name: "" }], [tagged, { kind: "c" }], [tagged, { kind: "a" }]);
     for (const [schema, value] of cases) {
       expect(checkValue(schema, value)).toEqual(validateJson(schema, value));
     }

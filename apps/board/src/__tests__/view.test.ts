@@ -1204,6 +1204,11 @@ describe('parseViewState', () => {
         .sort
     ).toBe(DEFAULT_VIEW.sort);
   });
+  test('a legacy sort in the URL beats a stored split and reads as the default', () => {
+    expect(
+      parseViewState('?sort=oldest', { sort: 'author' }, members).sort
+    ).toBe(DEFAULT_VIEW.sort);
+  });
   test('ignores unknown member and invalid group/sort', () => {
     expect(
       parseViewState('?member=ghost&group=bogus&sort=bogus', null, members)

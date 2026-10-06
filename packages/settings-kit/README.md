@@ -43,6 +43,25 @@ Hooks return state and actions only. Scope semantics are the resolver's:
 `machine` writes apply immediately; `user`/`team` writes land in the home
 repo's working copy and are local until committed and pushed.
 
+## Console's settings in a modal
+
+Console serves one settings group with no chrome at
+`/embed/settings/<group>`, so any app can show it in its own modal instead
+of building a settings UI:
+
+```tsx
+import { useSettingsEmbed } from "@mattstack/settings-kit/react";
+
+const frame = useSettingsEmbed({ group: "deck", scheme: "dark", onSaved, onClose });
+<iframe ref={frame.ref} src={frame.src} style={{ height: frame.height }} />;
+```
+
+Console's origin is derived from the page's own host (`chat.mattstack` →
+`console.mattstack`) unless `origin` is passed. The frame posts `height`,
+`saved` (after each write that lands) and `close` (Escape);
+`@mattstack/settings-kit/embed` holds the message contract both sides use.
+A Mantine app uses app-kit's `SettingsEmbedModal`, which wraps this hook.
+
 ## Schemas and editors
 
 ```ts
@@ -60,8 +79,14 @@ collapsed line, and `targetScope` says where an edit lands (the winning
 layer when allowed, else the key's first scope). A deep-merged `leaves` row
 counts only fields some store layer sets (`effective.authored`), so a
 registry default alone reads as "0 of N set". `SHAPES` holds only the
-`external` keys (`board.tabs`, `board.hiddenMembers`),
+`external` key (`board.hiddenMembers`),
 whose editor board owns.
+
+A tagged `oneOf` (zod's `discriminatedUnion`) is checked as if/then on its
+tag, so a value reports only its own branch's problems; `taggedUnion(schema)`
+reads its tag and branches for a form. `uniqueBy` on an array schema (zod
+`.meta({ uniqueBy: "id" })`) is rt's one keyword beyond JSON Schema: no two
+items may share that property, and the issue lands on the repeat's field.
 
 `checkValue(schema, value)` checks one value in the browser with the same
 validator and messages as the server (`[{ path: [0, "pattern"], message:

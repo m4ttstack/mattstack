@@ -103,10 +103,3 @@ test.each([
     expect(readFileSync(storePath, 'utf8')).toBe(original);
   }
 );
-
-test('the board tells the page this Mac is not an org admin', async () => {
-  const data = (await (
-    await fetch(`http://127.0.0.1:${PORT}/data.json`)
-  ).json()) as { rosterView: unknown };
-  expect(data.rosterView).toEqual({ everyone: true, orgAdmin: false });
-});

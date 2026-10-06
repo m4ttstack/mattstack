@@ -24,7 +24,6 @@ import {
   DEFAULT_SLACK_EMOJI,
   displayName,
   loadConfigFrom,
-  rosterView,
   rosterWriteRefusal,
   saveMemberHidden,
   saveRosterMembers,
@@ -53,7 +52,6 @@ const realView = { ...teamView };
 beforeEach(() => {
   teamView.pack = () => null;
   teamView.team = () => null;
-  teamView.orgAdmin = () => false;
   teamView.rosterRefusal = () => null;
 });
 afterEach(() => {
@@ -672,26 +670,6 @@ describe('saveRosterMembers: latch-gated writer', () => {
     if (!edit.ok) return;
     saveRosterMembers(edit.members, tmpConfig(), resolve, fakeWrite(calls));
     expect(calls[0]!.value).toEqual([{ username: 'dev1', teams: ['widgets'] }]);
-  });
-});
-
-describe('rosterView: which roster the board edits, and who may remove from the org', () => {
-  test('a team view is not the everyone view', () => {
-    teamView.team = () => 'widgets';
-    expect(
-      rosterView(fakeResolve({ 'mattstack.roster': twoTeamsRoster }))
-    ).toEqual({ everyone: false, orgAdmin: false });
-  });
-
-  test('a Mac on no team edits everyone, and says whether this Mac is an org admin', () => {
-    const resolve = fakeResolve({ 'mattstack.roster': twoTeamsRoster });
-    expect(rosterView(resolve)).toEqual({ everyone: true, orgAdmin: false });
-    teamView.orgAdmin = () => true;
-    expect(rosterView(resolve)).toEqual({ everyone: true, orgAdmin: true });
-  });
-
-  test('a roster config.json owns has no view', () => {
-    expect(rosterView(fakeResolve({}))).toBeNull();
   });
 });
 

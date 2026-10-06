@@ -74,7 +74,6 @@ const FAST_PATH_FILES = new Set(["RELEASE_NOTES.md"]);
  */
 export const SERVED_ONLY_PACKAGES: Readonly<Record<string, readonly (typeof SERVE_ONLY_APPS)[number][]>> = {
   "gate-kit": ["board", "console"],
-  "settings-kit": ["board", "console"],
   tokyo: ["boxscore", "chat", "console"],
   ui: ["boxscore", "chat", "console"],
 };

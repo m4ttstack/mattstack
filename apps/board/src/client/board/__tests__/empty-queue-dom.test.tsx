@@ -13,7 +13,11 @@ import {
   test,
 } from 'bun:test';
 
-GlobalRegistrator.register({ url: 'http://localhost/' });
+// The settings modal frames console; a test must never fetch it.
+GlobalRegistrator.register({
+  url: 'http://localhost/',
+  settings: { disableIframePageLoading: true },
+});
 
 // Frozen for the whole suite (via setSystemTime in beforeAll below) so every
 // fixture built from Date.now() -- module-level BOARD_DATA included, since
@@ -76,20 +80,6 @@ let servedData: Record<string, unknown> = BOARD_DATA;
 let posts: string[] = [];
 let dataLoads = 0;
 
-const TURN_DEF = {
-  key: 'board.turn',
-  type: 'object',
-  scopes: ['user'],
-  merge: 'replace',
-  secret: false,
-  teamLocked: false,
-  repoScoped: false,
-  writable: true,
-  description: 'whose turn',
-  hasDefault: false,
-  effective: { scope: null, value: undefined },
-};
-
 function needsMeMr(iid: number) {
   return {
     iid,
@@ -124,23 +114,6 @@ beforeAll(async () => {
     if (url.startsWith('/data.json')) {
       dataLoads += 1;
       return new Response(JSON.stringify(servedData), { status: 200 });
-    }
-    if (url.startsWith('/api/settings/defs')) {
-      return new Response(JSON.stringify({ defs: [TURN_DEF] }), {
-        status: 200,
-      });
-    }
-    if (url.startsWith('/api/settings/explain/')) {
-      return new Response(JSON.stringify({ def: null, rows: [] }), {
-        status: 200,
-      });
-    }
-    if (url === '/api/settings/set') {
-      const { value } = JSON.parse(String(init?.body));
-      return new Response(
-        JSON.stringify({ effective: { scope: 'user', value } }),
-        { status: 200 }
-      );
     }
     return new Response('{}', { status: 200 });
   }) as typeof fetch;
@@ -451,7 +424,7 @@ test('Needs me keeps its rows under a stored Waiting on author pick and offers n
   });
 });
 
-test('saving a Whose turn signal reloads the board', async () => {
+test('Whose turn opens console on board.turn, and a save there reloads the board', async () => {
   servedData = withRows([needsMeMr(1)]);
   await mount(async container => {
     await React.act(async () =>
@@ -459,19 +432,29 @@ test('saving a Whose turn signal reloads the board', async () => {
         .querySelector<HTMLButtonElement>('.tui-show-chips-settings')!
         .click()
     );
-    await React.act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 0));
-    });
-    const box = [
-      ...document.querySelectorAll<HTMLLabelElement>('.tui-config-turn label'),
-    ]
-      .find(l => l.textContent?.includes('merge conflicts'))!
-      .querySelector('input')!;
+    const frame = document.querySelector<HTMLIFrameElement>(
+      'iframe.tui-console-settings-frame'
+    )!;
+    const src = new URL(frame.src);
+    expect(src.pathname).toBe('/embed/settings/board');
+    expect(src.searchParams.get('explain')).toBe('board.turn');
+
     const before = dataLoads;
-    await React.act(async () => box.click());
     await React.act(async () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            source: 'mattstack-settings-embed',
+            type: 'saved',
+            key: 'board.turn',
+            group: 'board',
+          },
+          source: frame.contentWindow,
+        })
+      );
       await new Promise(resolve => setTimeout(resolve, 0));
     });
+    expect(posts).toContain('/api/config/reload');
     expect(dataLoads).toBe(before + 1);
   });
 });

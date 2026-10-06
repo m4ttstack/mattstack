@@ -1894,22 +1894,6 @@ body {
   flex-shrink: 0;
 }
 
-/* ── text input shared by the config modal ─────────────────────────── */
-.tui-invite-input {
-  flex: 1;
-  min-width: 0;
-  padding: 3px 8px;
-  font: inherit;
-  font-size: 0.8rem;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-1);
-}
-.tui-invite-input::placeholder {
-  color: var(--text-3);
-}
-
 /* ── stacked chains ───────────────────────────────────────────────── */
 /* A chain reads as one unit: a single thread rail spans the children
    (cyan, the stacked flag's hue), the row dividers inside the
@@ -3061,61 +3045,23 @@ a.tui-id-card-ref:focus-visible {
   cursor: pointer;
 }
 
-/* ── board settings (ConfigModal) ─────────────────────────────────────────── */
-.tui-config-modal {
+/* ── board settings (console embed) ─────────────────────────────────────── */
+.tui-console-settings-modal {
   max-width: min(920px, 94vw);
+  width: min(920px, 94vw);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.tui-config-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding-right: 0.4rem;
-  margin-right: -0.4rem;
-}
-.tui-config-filter {
-  width: 100%;
-  margin: 0.6rem 0 0.5rem;
-}
-.tui-config-group {
-  margin: 0.9rem 0 0.25rem;
-  color: var(--text-4);
-  font-size: 0.68rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-}
-.tui-config-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.tui-config-row {
-  position: relative;
-  padding: 7px 8px 8px 14px;
-  border-radius: 6px;
-}
-.tui-config-row + .tui-config-row {
-  border-top: 1px solid var(--border-soft);
-}
-/* the bar means "present in a store": board.* rows carry no registry
-   defaults, so the alternative is the app-side fallback, not a default */
-.tui-config-row.set::before {
-  content: '';
-  position: absolute;
-  left: 4px;
-  top: 9px;
-  bottom: 9px;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--fill-accent);
-}
-.tui-config-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* Bleeds past the modal's right padding so the frame's scrollbar sits on
+   the modal edge; the embedded page keeps its rows clear of it. */
+.tui-console-settings-frame {
+  display: block;
+  width: calc(100% + var(--spacing-xxl));
+  margin: 0.6rem calc(-1 * var(--spacing-xxl)) 0 0;
+  max-height: calc(80vh - 4.5rem);
+  border: 0;
+  background: transparent;
 }
 .tui-disclosure-head {
   cursor: pointer;
@@ -3152,9 +3098,6 @@ a.tui-id-card-ref:focus-visible {
 .tui-disclosure-head:hover .tui-disclosure-chevron {
   color: var(--text-1);
 }
-.tui-config-tip {
-  display: inline-flex;
-}
 .tui-disclosure {
   display: grid;
   grid-template-rows: 0fr;
@@ -3176,129 +3119,6 @@ a.tui-id-card-ref:focus-visible {
     transition: none;
   }
 }
-.tui-config-keyname {
-  font-weight: 600;
-  font-family: var(--font-sans);
-  font-size: 0.84rem;
-}
-.tui-config-badge {
-  margin-left: auto;
-  color: var(--text-4);
-  font-size: 0.66rem;
-  white-space: nowrap;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.tui-config-clear {
-  background: none;
-  border: none;
-  color: var(--text-2);
-  cursor: pointer;
-  padding: 0 4px;
-  font: inherit;
-  line-height: 1;
-}
-.tui-config-clear:hover:not(:disabled) {
-  color: var(--text-1);
-}
-.tui-config-clear:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.tui-info {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 15px;
-  height: 15px;
-  padding: 0;
-  border-radius: 50%;
-  border: 1px solid var(--muted);
-  background: none;
-  color: var(--text-4);
-  font: 600 10px/1 var(--font-sans);
-  cursor: help;
-}
-.tui-info:hover,
-.tui-info:focus-visible {
-  color: var(--text-1);
-  border-color: var(--fg);
-}
-.tui-info-card {
-  max-width: 400px;
-  font-family: var(--font-sans);
-  background: var(--fg);
-  color: var(--bg);
-  border-color: transparent;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
-}
-.tui-config-turns {
-  display: flex;
-  flex-direction: column;
-}
-.tui-config-turn {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0 0 8px;
-  padding: 0;
-  border: 0;
-}
-.tui-config-turn legend {
-  padding: 0;
-  margin-bottom: 4px;
-  color: var(--text-1);
-}
-.tui-config-turn label {
-  color: var(--text-2);
-}
-.tui-config-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.tui-config-control > .tui-invite-input {
-  flex: 1;
-  max-width: 440px;
-}
-.tui-config-control .tui-invite-input.dirty {
-  border-color: var(--fill-accent);
-}
-.tui-config-control select {
-  font: inherit;
-  font-size: 0.8rem;
-  padding: 3px 6px;
-  color: var(--text-1);
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-.tui-config-status {
-  min-width: 4.5em;
-  color: var(--text-ok-vivid);
-  font-size: 0.72rem;
-  white-space: nowrap;
-}
-.tui-config-status.busy {
-  color: var(--text-4);
-}
-.tui-config-error {
-  margin: 4px 0 0;
-  color: var(--text-bad-small, #d66);
-  font-size: 0.78rem;
-}
-.tui-config-value {
-  font-family: var(--font-sans);
-  font-size: 0.78rem;
-  color: var(--text-3);
-  word-break: break-all;
-}
-.tui-config-flag {
-  margin-left: 6px;
-  color: var(--text-warn-vivid);
-  font-family: var(--font-sans);
-  font-size: 0.72rem;
-}
 .tui-config-link {
   background: none;
   border: none;
@@ -3307,70 +3127,6 @@ a.tui-id-card-ref:focus-visible {
   cursor: pointer;
   font: inherit;
   font-size: 0.78rem;
-}
-.tui-config-leaves {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 4px 10px;
-  align-items: center;
-  flex: 1;
-}
-.tui-config-leaf {
-  display: contents;
-}
-.tui-config-leaves-error {
-  grid-column: 1 / -1;
-}
-.tui-config-leaf-label {
-  font-family: var(--font-sans);
-  font-size: 0.76rem;
-  color: var(--text-3);
-}
-.tui-config-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  align-items: center;
-  flex: 1;
-}
-.tui-config-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 1px 7px;
-  font-family: var(--font-sans);
-  font-size: 0.76rem;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-}
-.tui-config-chip button {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--text-3);
-  cursor: pointer;
-  font: inherit;
-  line-height: 1;
-}
-.tui-config-chip button:hover:not(:disabled) {
-  color: var(--text-bad-small);
-}
-.tui-config-chips .tui-invite-input {
-  flex: 0 1 150px;
-  min-width: 90px;
-}
-.tui-config-pairs {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1;
-}
-.tui-config-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1.4em;
-  gap: 8px;
-  align-items: center;
 }
 
 /* ── board tabs ──────────────────────────────────────────────────────────── */
@@ -3508,10 +3264,6 @@ a.tui-id-card-ref:focus-visible {
   min-width: 0;
   font-size: 0.8125rem;
 }
-.tui-roster-who .tui-invite-input {
-  flex: 1;
-  min-width: 0;
-}
 .tui-roster-handle {
   color: var(--text-4);
   font-family: var(--font-sans);
@@ -3591,11 +3343,6 @@ a.tui-id-card-ref:focus-visible {
   align-items: center;
   gap: 12px;
 }
-.tui-tabs-item-head .tui-invite-input {
-  flex: 1;
-  min-width: 0;
-  font-size: 0.875rem;
-}
 .tui-tabs-fields {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -3610,11 +3357,6 @@ a.tui-id-card-ref:focus-visible {
   font-family: var(--font-sans);
   font-size: 0.6875rem;
   white-space: nowrap;
-}
-.tui-tabs-field .tui-invite-input {
-  width: 100%;
-  max-width: 420px;
-  min-width: 0;
 }
 .tui-tabs-check {
   display: flex;

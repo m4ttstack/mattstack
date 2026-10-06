@@ -41,12 +41,15 @@ import {
   listBuddies,
   presenceForHandle,
   presenceForSession,
+  signedInPresenceForPane,
+  fixedIdentityRefusal,
   assertSessionOwnsHandle,
   assertSessionSignedIn,
   buddyStatus,
   presenceThresholds,
   snapshotRegistryDeps,
   type BuddyStatus,
+  type PresenceRow,
   type RegistryDeps,
   type WakeMode,
   type StalePendingRow,
@@ -859,6 +862,29 @@ function postAndNotify(
   return posted;
 }
 
+/**
+ * A handle with no identity and no presence row can still post (unsigned
+ * scripts, legacy handles), except from a pane or session signed in as
+ * someone else: every reply hint would name an address no session reads.
+ */
+function unreachableSenderRefusal(
+  handle: string,
+  origin: { pane?: string; sessionId?: string },
+  db: Database,
+  registryDeps: RegistryDeps | undefined,
+): { ok: false; error: string; failure: { code: string; message: string } } | null {
+  if (fixedIdentityRefusal(handle) !== undefined || getIdentity(handle, db) || presenceForHandle(handle, db)) return null;
+  const now = Date.now();
+  const th = presenceThresholds();
+  const live = (row: PresenceRow | null): row is PresenceRow => row !== null && row.handle !== handle && buddyStatus(row, now, th, registryDeps) !== "offline";
+  const byPane = typeof origin.pane === "string" ? signedInPresenceForPane(origin.pane, db) : null;
+  const bySession = typeof origin.sessionId === "string" ? presenceForSession(origin.sessionId, db) : null;
+  const holder = live(byPane) ? { row: byPane, where: "pane" } : live(bySession) ? { row: bySession, where: "session" } : null;
+  if (!holder) return null;
+  const message = `This ${holder.where} is signed in as ${holder.row.name}; post as ${holder.row.name}`;
+  return { ok: false, error: `chat: ${message}`, failure: { code: "pane-signed-in", message } };
+}
+
 /** One line, because Claude Code dispatches a slash command from the first line only. */
 export function inviteText(room: string, from: string, note?: string): string {
   const head = `/chat:join ${room}`;
@@ -954,6 +980,8 @@ export function createChatHandlers(opts: {
       const invalidMention = payload.mentions?.find((m) => !isValidChatName(m));
       if (invalidMention !== undefined) return { ok: false, error: `invalid handle "${invalidMention}"` };
       const handle = resolveHandle(payload.handle, db);
+      const unreachable = unreachableSenderRefusal(handle, { pane: payload.pane }, db, registryDeps);
+      if (unreachable) return unreachable;
       const mentions = payload.mentions?.map(resolveMention);
       // A typo'd room previously no-op'd through postMessage's REVIVE (a
       // no-op for a room with no chat_rooms row) and returned ok with no
@@ -1316,7 +1344,7 @@ export function createChatHandlers(opts: {
       if (!isValidBody(body)) return { ok: false, error: `body must be a non-empty string under ${MAX_BODY_BYTES} bytes` };
       const fromId = resolveHandle(from, db);
       const toId = resolveHandle(to, db);
-      const refused = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db));
+      const refused = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db)) ?? unreachableSenderRefusal(fromId, { pane: payload.pane, sessionId }, db, registryDeps);
       if (refused) return refused;
       const humanHandle = getSetting<string>("chat.humanHandle").value;
       if (!isValidChatName(humanHandle)) {
