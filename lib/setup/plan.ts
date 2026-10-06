@@ -43,15 +43,15 @@ export interface PlanInputs {
 const EMPTY_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
 
 /** A named team the user asked for that isn't actually cloned must never silently substitute a different (or empty) plan — that's exactly the honesty rule this repo enforces everywhere else. */
-function resolveTeam(intent: SetupIntent | null, teams: string[], teamOverride: string | undefined): OrgRef {
+function resolveTeam(intent: SetupIntent | null, orgs: string[], teamOverride: string | undefined): OrgRef {
   if (teamOverride) {
-    if (!teams.includes(teamOverride)) {
-      const discovered = teams.length ? teams.join(", ") : "(none)";
+    if (!orgs.includes(teamOverride)) {
+      const discovered = orgs.length ? orgs.join(", ") : "(none)";
       throw new UserActionableError("unknown-team", `No team named ${teamOverride} is cloned on this Mac. Teams here: ${discovered}`);
     }
     return { slug: teamOverride, name: teamOverride, mode: "none" };
   }
-  return orgRefFromIntent(intent, teams);
+  return orgRefFromIntent(intent, orgs);
 }
 
 /**

@@ -69,6 +69,15 @@ describe("orgRows", () => {
     }
   });
 
+  test("missing identity with a team from the setting says the team is in use but changes are refused", async () => {
+    const p = probes();
+    p.writeFile(`${HOME}/.mattstack/user/settings.user.jsonc`, JSON.stringify({ "mattstack.activeTeam": "widgets" }));
+    const [row] = await orgRows(p, "acme", { forge: GITHUB, readStatus: noStatus });
+    expect(row).toMatchObject({ id: "team.identity", status: "needs-you" });
+    expect(row!.detail).toBe("rt is using widgets from your setting, but can't tell who you are on GitHub, so org and team changes are refused");
+    expect(row!.action).toMatchObject({ type: "connect", integration: "github" });
+  });
+
   test("missing identity without a recognized forge offers steps", async () => {
     const [row] = await orgRows(probes(), "acme", { forge: null, readStatus: noStatus });
     expect(row!.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Run: rt setup apply --only team.identity", "Then run: rt setup status"] });

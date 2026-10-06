@@ -35,7 +35,8 @@ async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
   for (const slug of slugs) {
     try {
       const res = (await ctx.p.daemon("team:pull", { slug }, PULL_TIMEOUT_MS)) as PullReply | null;
-      if (res === null) skips.push("The rt daemon is not running, so the org is pulled once it is");
+      if (res === null)
+        skips.push((await ctx.p.daemon("ping")) === null ? "The rt daemon is not running, so the org is pulled once it is" : "The pull is still running in the daemon");
       else if (!res.ok && res.failure?.code === "no-team") skips.push(`Team sync has not started for ${slug} yet, so it is pulled once it does`);
       else if (!res.ok || !res.data || ["conflict", "skipped"].includes(res.data.outcome))
         stuck.push(`${slug} was not pulled: ${res.data?.detail ?? res.failure?.message ?? res.error ?? res.data?.outcome ?? "the daemon gave no reason"}`);
@@ -71,11 +72,13 @@ export async function recordForgeIdentity(
   forge: { provider: "github" | "gitlab"; host: string } | null,
   token: string | null,
   login: typeof forgeLogin = identitySeams.login,
+  opts: { claim?: boolean } = {},
 ): Promise<{ username: string | null; outcome: "already" | "recorded" | "unknown"; admin?: { claimed: boolean; published: boolean; detail?: string } }> {
   const stored = readTeamLocal(p, slug).forgeUsername;
   const username = stored ?? (forge ? await login(p, forge.provider, forge.host, token) : (p.env.USER ?? null));
   if (!username) return { username: null, outcome: "unknown" };
   if (!stored) updateTeamLocal(p, slug, { forgeUsername: username });
+  if (opts.claim === false) return { username, outcome: stored ? "already" : "recorded" };
   const admin = await claimPendingAdmin(p, slug, username, token);
   return { username, outcome: stored ? "already" : "recorded", ...(admin.claimed ? { admin } : {}) };
 }

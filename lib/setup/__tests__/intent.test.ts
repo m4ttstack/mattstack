@@ -64,7 +64,7 @@ describe("clearIntent", () => {
 });
 
 describe("orgRefFromIntent", () => {
-  test("create intent yields the team slug/name with mode create", () => {
+  test("create intent yields the org slug/name with mode create", () => {
     const intent: SetupIntent = {
       v: 1,
       at: "x",
@@ -74,7 +74,7 @@ describe("orgRefFromIntent", () => {
     expect(orgRefFromIntent(intent, [])).toEqual({ slug: "acme", name: "Acme", mode: "create" });
   });
 
-  test("join intent yields the invite pointer's team/name with mode join", () => {
+  test("join intent yields the invite pointer's org slug/name with mode join", () => {
     const intent: SetupIntent = {
       v: 1,
       at: "x",
@@ -88,20 +88,20 @@ describe("orgRefFromIntent", () => {
     expect(orgRefFromIntent(intent, [])).toEqual({ slug: "acme", name: "Acme HQ", mode: "join" });
   });
 
-  test("restore intent yields the first discovered team with mode restore", () => {
+  test("restore intent yields the first discovered org with mode restore", () => {
     const intent: SetupIntent = { v: 1, at: "x", mode: "restore", restore: { homeRepo: "r" } };
     expect(orgRefFromIntent(intent, ["acme", "beta"])).toEqual({ slug: "acme", name: "acme", mode: "restore" });
   });
 
-  test("null intent with discovered teams yields the first team with mode none", () => {
+  test("null intent with discovered orgs yields the first org with mode none", () => {
     expect(orgRefFromIntent(null, ["acme", "beta"])).toEqual({ slug: "acme", name: "acme", mode: "none" });
   });
 
-  test("null intent with no discovered teams yields an empty ref", () => {
+  test("null intent with no discovered orgs yields an empty ref", () => {
     expect(orgRefFromIntent(null, [])).toEqual({ slug: "", name: "", mode: "none" });
   });
 
-  test("round-trips a solo intent and maps it to the no-team ref", () => {
+  test("round-trips a solo intent and maps it to the no-org ref", () => {
     const p = fakeProbes();
     const intent: SetupIntent = { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "solo" };
     writeIntent(p, intent);

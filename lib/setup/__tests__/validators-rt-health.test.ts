@@ -869,6 +869,13 @@ describe("teamSyncRow", () => {
     expect(r?.detail).toBe("acme: a new pack is not shared yet, so its marketplace entry stays on this Mac");
     expect(r?.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Run: rt team publish --team acme"] });
   });
+  test("a hold reads first, ahead of the push failure it causes", async () => {
+    const entry = { ...inSync, heldBack: [".claude-plugin/marketplace.json"], lastPushError: "! [rejected] main -> main (fetch first)" };
+    const r = await teamSyncRow(["acme"], async () => [entry as never], now, 300);
+    expect(r?.status).toBe("needs-you");
+    expect(r?.detail).toBe("acme: a new pack is not shared yet, so its marketplace entry stays on this Mac; acme: pushes are failing: ! [rejected] main -> main (fetch first)");
+    expect(r?.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Run: rt team publish --team acme"] });
+  });
   test("an entry from a daemon that predates the field reads as nothing stray", async () => {
     expect((await teamSyncRow(["acme"], async () => [inSync as never], now, 300))?.status).toBe("ready");
   });

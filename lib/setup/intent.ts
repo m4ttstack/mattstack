@@ -65,12 +65,12 @@ export function clearIntent(p: Pick<Probes, "removeFile" | "home">): void {
 }
 
 /**
- * create/join carry the team identity on the intent itself; restore and the
+ * create/join carry the org identity on the intent itself; restore and the
  * no-intent case fall back to whatever the daemon already discovered on
- * disk. Multi-team fallback takes teams[0] on the assumption the caller
- * passes teams pre-sorted alphabetically — a real picker is a §14 follow-up.
+ * disk. With more than one org, `orgs[0]` wins, so the caller passes `orgs`
+ * sorted alphabetically.
  */
-export function orgRefFromIntent(intent: SetupIntent | null, teams: string[]): OrgRef {
+export function orgRefFromIntent(intent: SetupIntent | null, orgs: string[]): OrgRef {
   if (intent?.mode === "create" && intent.team) {
     return { slug: intent.team.slug, name: intent.team.name, mode: "create" };
   }
@@ -78,8 +78,8 @@ export function orgRefFromIntent(intent: SetupIntent | null, teams: string[]): O
     return { slug: intent.join.pointer.team, name: intent.join.pointer.name, mode: "join" };
   }
   if (intent?.mode === "restore") {
-    return { slug: teams[0] ?? "", name: teams[0] ?? "", mode: "restore" };
+    return { slug: orgs[0] ?? "", name: orgs[0] ?? "", mode: "restore" };
   }
   // solo carries no team; the discovered clones still decide the ref so a machine that later has a team never reads as solo.
-  return teams.length ? { slug: teams[0]!, name: teams[0]!, mode: "none" } : { slug: "", name: "", mode: "none" };
+  return orgs.length ? { slug: orgs[0]!, name: orgs[0]!, mode: "none" } : { slug: "", name: "", mode: "none" };
 }

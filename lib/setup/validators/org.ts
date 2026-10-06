@@ -44,7 +44,9 @@ export async function orgRows(
       title: "Who you are",
       why: "Your team, and what you may change, come from your username on the org's forge.",
       status: "needs-you",
-      detail: `rt can't tell who you are${where} yet, so it does not know your team and no team pack is available`,
+      detail: active.team !== null
+        ? `rt is using ${active.team} from your setting, but can't tell who you are${where}, so org and team changes are refused`
+        : `rt can't tell who you are${where} yet, so it does not know your team and no team pack is available`,
       action: opts.forge ? connect(p, opts.forge, "member") : steps(["Run: rt setup apply --only team.identity", "Then run: rt setup status"]),
     })];
   }

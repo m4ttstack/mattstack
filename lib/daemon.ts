@@ -1029,8 +1029,8 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         const accountsProbes = createRealProbes();
         const accountsSecretsSeams: SecretsSeams = { ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() };
         accountsSweepFn = async () => {
-          const teams = discoverOrgs(accountsProbes);
-          const team = teams[0] ? readTeamSnapshot(accountsProbes, teams[0]) : EMPTY_TEAM_SNAPSHOT;
+          const orgs = discoverOrgs(accountsProbes);
+          const team = orgs[0] ? readTeamSnapshot(accountsProbes, orgs[0]) : EMPTY_TEAM_SNAPSHOT;
           const overrides = readUserIntegrationOverrides();
 
           const targets: IntegrationTarget[] = [];

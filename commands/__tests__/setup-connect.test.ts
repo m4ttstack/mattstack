@@ -471,6 +471,59 @@ describe("integrationConnect: forge token scopes", () => {
       expectPublicationInspection(probes.calls.exec);
     });
 
+  test("a confirmed self-hosted GitLab connect on an unconverted clone reads the forge its old team store declares", async () => {
+    const probes = fakeProbes({
+      fetch: gitlabWithScopes(["api", "read_user"]),
+      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+      files: {
+        "/fake-home/.mattstack/teams/acme/.git/config": '[remote "origin"]\nurl = https://git.example.com/acme/org.git\n',
+        "/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc": JSON.stringify({ "mattstack.integrations": { forge: { host: "git.example.com", provider: "gitlab" } } }),
+      },
+    });
+    const asked: unknown[][] = [];
+    const deps = baseDeps({
+      probes,
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      writeSetting: () => {},
+      userIntegrationOverrides: () => ({ forgeHost: "git.example.com" }),
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", remote: null, integrations: {} }),
+      forgeLogin: async (...args: unknown[]) => { asked.push(args.slice(1)); return "dev1"; },
+    });
+    await integrationConnect("gitlab", ["--json"], deps);
+    expect(JSON.parse(deps.lines[0]!).status).toBe("ready");
+    expect(asked).toEqual([["gitlab", "git.example.com", "glpat-x"]]);
+    expect(readTeamLocal(probes, "acme").forgeUsername).toBe("dev1");
+  });
+
+  test("a forge connect before the org clone has git records the username and leaves the admin claim to Install", async () => {
+    const orgStore = "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc";
+    const probes = fakeProbes({
+      fetch: gitlabWithScopes(["api"]),
+      dirs: { "/fake-home/.mattstack/teams/acme": [] },
+      files: {
+        [orgStore]: "{}",
+        [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ creatorPending: { team: "widgets" } }),
+      },
+    });
+    const deps = baseDeps({
+      probes,
+      stdin: async () => ({ token: "glpat-x" }),
+      writer: { storeReady: async () => false, write: neverCalled("writer.write") },
+      writeSetting: () => {},
+      userIntegrationOverrides: () => ({ forgeHost: "gitlab.com" }),
+      teamSnapshot: () => ({ ...slackTeamSnapshot(), slug: "acme", remote: "https://gitlab.com/acme/org.git", integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }),
+      forgeLogin: async () => "dev1",
+    });
+    await integrationConnect("gitlab", ["--json"], deps);
+    const result = JSON.parse(deps.lines[0]!);
+    expect(result.status).toBe("ready");
+    expect(result.detail).toBe("You are dev1. Install finishes setting you up as admin");
+    expect(readTeamLocal(probes, "acme")).toMatchObject({ forgeUsername: "dev1", creatorPending: { team: "widgets" } });
+    expect(probes.readFile(orgStore)).toBe("{}");
+    expect(probes.calls.exec).toEqual([]);
+  });
+
   const CREATE_INTENT = JSON.stringify({ v: 1, at: "2026-09-24T00:00:00.000Z", mode: "create", team: { slug: "acme", name: "Acme", remote: "https://gitlab.com/acme/mattstack.git", others: false } });
 
   test("a member's gitlab token that validates but lacks api is refused before storage, naming the scope and why", async () => {

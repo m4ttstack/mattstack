@@ -615,17 +615,15 @@ export async function teamSyncRow(
       problems.push(`${slug}: last pulled ${Math.round((now() - e.lastPullAt) / 60_000)} minutes ago`);
     }
   }
-  if (problems.length > 0) {
-    const detail = neverPulled.length === problems.length ? `${FIRST_PULL_PENDING}: ${neverPulled.join(", ")}` : problems.join("; ");
-    return row({ ...base, status: "needs-you", detail, action: RECHECK_ACTION });
-  }
-
+  const problemDetail = problems.length === 0 ? null : neverPulled.length === problems.length ? `${FIRST_PULL_PENDING}: ${neverPulled.join(", ")}` : problems.join("; ");
+  // A held marketplace can be what makes a rebase refuse or a push bounce, so the hold leads.
   const held = slugs.filter((slug) => (entries.find((x) => x.slug === slug)?.heldBack ?? []).length > 0);
   if (held.length > 0) {
     const action: Action = { type: "steps", label: "Show steps…", steps: held.map((slug) => `Run: rt team publish --team ${slug}`) };
-    const detail = held.map((slug) => `${slug}: a new pack is not shared yet, so its marketplace entry stays on this Mac`).join("; ");
-    return row({ ...base, status: "needs-you", detail, action });
+    const holds = held.map((slug) => `${slug}: a new pack is not shared yet, so its marketplace entry stays on this Mac`);
+    return row({ ...base, status: "needs-you", detail: [...holds, ...(problemDetail ? [problemDetail] : [])].join("; "), action });
   }
+  if (problemDetail !== null) return row({ ...base, status: "needs-you", detail: problemDetail, action: RECHECK_ACTION });
 
   // A pull skipped every tick (a dirty src/ refusing the rebase) is not a
   // failure, but it is why a member's store edits are not moving; say so

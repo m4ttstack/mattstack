@@ -111,6 +111,16 @@ describe("org.pull", () => {
     expect(await pullWith(async () => null)).toEqual({ state: "skipped", detail: "The rt daemon is not running, so the org is pulled once it is" });
   });
 
+  test("a pull that outlasts its wait while the daemon still answers says the pull is still running", async () => {
+    const asked: string[] = [];
+    const outcome = await pullWith(async (cmd) => {
+      asked.push(cmd);
+      return cmd === "ping" ? { ok: true, data: { pong: true } } : null;
+    });
+    expect(outcome).toEqual({ state: "skipped", detail: "The pull is still running in the daemon" });
+    expect(asked).toEqual(["team:pull", "ping"]);
+  });
+
   test("team sync that is off, or has not started for this clone yet, is a skip: Install must not stop on it", async () => {
     const noTeam = async () => ({ ok: false, error: "no team", failure: { code: "no-team", message: "The acme team is not syncing on this Mac" } });
     expect(await pullWith(noTeam)).toEqual({ state: "skipped", detail: "Team sync has not started for acme yet, so it is pulled once it does" });

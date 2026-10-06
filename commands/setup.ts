@@ -44,7 +44,7 @@ import { clearIntent, readIntent, orgRefFromIntent, writeIntent } from "../lib/s
 import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
 import type { forgeLogin } from "../lib/team/forge.ts";
 import { cloneSlugs, cloneOrigin, recordForgeIdentity } from "../lib/setup/steps/org.ts";
-import { forgeFromRemote, hostFromRemote } from "../lib/setup/team-settings.ts";
+import { forgeFromRemote, hostFromRemote, legacyDeclaredForge } from "../lib/setup/team-settings.ts";
 import { readTeamLocal } from "../lib/team/team-local.ts";
 import { roleFor } from "../lib/team/roles.ts";
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
@@ -529,12 +529,12 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
       return;
     }
     if (sub === "solo") {
-      const teams = discoverOrgs(deps.probes);
-      if (teams.length > 0) {
-        const folders = teams.map((slug) => `~/.mattstack/teams/${slug}`).join(" and ");
+      const orgs = discoverOrgs(deps.probes);
+      if (orgs.length > 0) {
+        const folders = orgs.map((slug) => `~/.mattstack/teams/${slug}`).join(" and ");
         throw new UserActionableError(
           "team-exists",
-          `A team is already set up on this Mac (${teams.join(", ")}), and Just me needs a Mac with no team. Remove ${folders}, or pick Join or Create instead.`,
+          `A team is already set up on this Mac (${orgs.join(", ")}), and Just me needs a Mac with no team. Remove ${folders}, or pick Join or Create instead.`,
         );
       }
       writeIntent(deps.probes, { v: 1, at: deps.probes.now().toISOString(), mode: "solo" });
@@ -1346,12 +1346,14 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
     const slug = team.slug || cloneSlugs(deps.probes)[0] || "";
     const origin = slug ? cloneOrigin(deps.probes, slug) : null;
     const remote = team.remote ?? origin;
-    const forge = team.integrations.forge ?? (remote ? forgeFromRemote(remote) : null);
+    const forge = team.integrations.forge ?? (slug ? legacyDeclaredForge(deps.probes, slug) : null) ?? (remote ? forgeFromRemote(remote) : null);
     const host = id === "github" ? "github.com" : (ctx.host ?? "gitlab.com");
     const explicitlyMatched = team.integrations.forge === undefined && id === "gitlab" && hostFlag !== undefined && origin !== null && hostFromRemote(origin) === host;
     if (slug && ((forge?.provider === id && forge.host === host) || explicitlyMatched)) {
-      const identity = await recordForgeIdentity(deps.probes, slug, { provider: id, host }, value, deps.forgeLogin);
-      if (identity.admin?.claimed && !identity.admin.published) {
+      const identity = await recordForgeIdentity(deps.probes, slug, { provider: id, host }, value, deps.forgeLogin, { claim: origin !== null });
+      if (origin === null && identity.username && readTeamLocal(deps.probes, slug).creatorPending !== undefined) {
+        identityDetail = `You are ${identity.username}. Install finishes setting you up as admin`;
+      } else if (identity.admin?.claimed && !identity.admin.published) {
         const pending = readTeamLocal(deps.probes, slug).creatorPending !== undefined;
         identityDetail = `You are ${identity.username} and this org's admin now, but rt could not ${pending ? "save" : "push"} that. ${pending ? "Run rt setup apply --only team.identity" : "Run rt team publish"}`;
       }
