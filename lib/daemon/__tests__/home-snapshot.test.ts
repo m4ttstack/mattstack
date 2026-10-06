@@ -3453,6 +3453,31 @@ describe("current snapshot authorization", () => {
     } finally { handle.stop(); }
   });
 
+  test("a branch origin does not have yet holds the push and names the push that creates it", async () => {
+    const { spec } = world();
+    const exec = makeFakeExec([
+      (argv) => {
+        if (gitVerb(argv) === "symbolic-ref") return { stdout: "org-trial\n", stderr: "", exitCode: 0 };
+        if (gitVerb(argv) === "rev-list" && !argv.includes("--count")) return { stdout: "", stderr: "fatal: unknown remote ref", exitCode: 128 };
+        if (gitVerb(argv) === "rev-parse" && argv.includes("refs/remotes/origin/org-trial")) return { stdout: "", stderr: "", exitCode: 1 };
+        return undefined;
+      },
+      ...pullResponders({ behind: 0, ahead: 1 }),
+      ...defaultResponders({ statusZ: " M mattstack/teams/widgets/settings.team.jsonc\0" }),
+    ]);
+    const { deps, timers } = baseDeps({ exec: exec.fn });
+    const { repoDir: _r, ...rest } = deps;
+    const handle = startSnapshot(spec, rest);
+    try {
+      await handle.ready;
+      await handle.runNow("watch");
+      timers.fire((timer) => timer.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+      await flushAsync();
+      expect(exec.calls.filter((argv) => gitVerb(argv) === "push")).toEqual([]);
+      expect(handle.status()).toMatchObject({ pushPending: true, lastPushError: "This copy is on org-trial, which origin does not have yet. Push it once with git push -u origin org-trial" });
+    } finally { handle.stop(); }
+  });
+
   test("partial revocation refuses pending commits outside the remaining owned team", async () => {
     const { spec } = world();
     let roots = ["mattstack/teams/widgets", "mattstack/teams/gadgets"];

@@ -1070,7 +1070,11 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     }, `refs/remotes/origin/${branch.stdout.trim()}..HEAD`);
     if (paths === null) {
       pushPending = true;
-      lastPushError = "rt could not check your pending changes";
+      const name = branch.stdout.trim();
+      const known = await deps.exec(["git", "rev-parse", "--verify", "-q", `refs/remotes/origin/${name}`], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+      lastPushError = known.exitCode === 1
+        ? `This copy is on ${name}, which origin does not have yet. Push it once with git push -u origin ${name}`
+        : "rt could not check your pending changes";
       return false;
     }
     const current = authorization();

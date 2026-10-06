@@ -12,6 +12,7 @@ import { fakeProbes as baseFakeProbes } from "./fakes.ts";
 function fakeProbes(opts: Parameters<typeof baseFakeProbes>[0] = {}) {
   return baseFakeProbes({ ...opts, exec: (argv, execOpts) => {
     if (argv.includes("get-url")) return { code: 0, stdout: "https://github.com/acme/org.git\n", stderr: "" };
+    if (argv.includes("symbolic-ref")) return { code: 0, stdout: "main\n", stderr: "" };
     return opts.exec?.(argv, execOpts) ?? { code: 0, stdout: "", stderr: "" };
   } });
 }

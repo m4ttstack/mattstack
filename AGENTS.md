@@ -27,6 +27,14 @@ refused unless this Mac's role owns the file
 `docs/superpowers/specs/2026-10-01-org-and-teams-design.md` for the layout,
 selection and ownership rules.
 
+The branch an org clone has checked out is the branch rt reads, syncs and
+publishes on that Mac (`orgBranch` in `lib/team/org-branch.ts`), so an admin
+can try a breaking change on a branch while every other member stays on main.
+Never hard-code `main` for the org clone: publish, team sync, pack sync,
+`rt team status` and the conversion script all follow the checkout. Two
+exceptions: `rt team create` starts a new org on main, and `rt team invite`
+refuses off main, because joiners clone main.
+
 ## Repo identity
 
 Every per-repo store, daemon payload and REST path keys on a serialized repo

@@ -59,6 +59,7 @@ import { publishTeam } from "../lib/team/publish.ts";
 import { commitPendingPackShares, droppedShareBlocks, droppedShares, packShareBlocks, rememberPackShare, sharePack } from "../lib/team/share-pack.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient } from "../lib/team/relay-client.ts";
+import { checkedOutBranch } from "../lib/team/org-branch.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
 import { daemonQuery } from "../lib/daemon-client.ts";
@@ -170,6 +171,8 @@ const REFUSAL_CODES = new Set([
   "team-exists",
   "team-remote-mismatch",
   "org-first-team-set",
+  "invite-off-main",
+  "org-detached",
   "peer-needs-admin",
   "board-registered-elsewhere",
 ]);
@@ -836,7 +839,8 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
       }),
     );
 
-    const log = await deps.probes.exec(["git", "-C", dir, "log", "-1", "--format=%cI", "origin/main"]);
+    const branch = await checkedOutBranch(deps.probes, dir);
+    const log = await deps.probes.exec(["git", "-C", dir, "log", "-1", "--format=%cI", `origin/${branch ?? "main"}`]);
     const lastPush = log.code === 0 ? log.stdout.trim() || null : null;
 
     const remote = snapshot.remote !== null ? stripUserinfo(snapshot.remote) : null;
@@ -849,7 +853,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     const membersWithPeering = members.map((m) => ({ ...m, peered: peeredBoards ? peeredBoards.has(canonicalHandle(m.username)) : null }));
     const peeredCount = membersWithPeering.filter((m) => m.peered === true).length;
 
-    const result = { slug, name, remote, lastPush, members: membersWithPeering, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };
+    const result = { slug, name, remote, branch, lastPush, members: membersWithPeering, role, activeTeam: active.team, teams: active.listedOn, orgTeams, ...sync };
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
@@ -864,6 +868,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
         name,
         name === slug ? undefined : slug,
         out.kv("remote", result.remote ?? "none"),
+        ...(branch !== null && branch !== "main" ? [out.kv("branch", branch, "this Mac reads and publishes this branch, not main")] : []),
         out.kv("last push", lastPush ?? "never"),
         out.kv("members", String(members.length), peeredBoards ? `${peeredCount} with a connected board` : undefined),
         out.kv("your team", active.team ?? "none"),

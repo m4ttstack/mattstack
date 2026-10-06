@@ -89,6 +89,7 @@ describe("setup team create records the cause of a failure", () => {
     const pendingMain = "a".repeat(40);
     const rejected: ExecResult = { code: 1, stdout: "", stderr: "! [rejected] main -> main (fetch first) marker-publish-zz" };
     const p = fakeProbes({ home: "/fake-home", exec: async (argv) => {
+      if (argv.includes("symbolic-ref")) return { ...ok, stdout: "main\n" };
       if (argv[1] === "remote" && argv[2] === "get-url") {
         expect(argv).toEqual(["git", "remote", "get-url", "--push", "--all", "origin"]);
         return { ...ok, stdout: `${remote}\n` };

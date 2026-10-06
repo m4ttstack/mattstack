@@ -119,6 +119,7 @@ function probes(): Probes {
       }
       if (bin === "git" && argv[1] === "init" && opts?.cwd) mkdirSync(join(opts.cwd, ".git"), { recursive: true });
       if (bin === "git" && argv[1] === "remote" && argv[2] === "add" && opts?.cwd) writeFileSync(join(opts.cwd, ".git", "config"), origin(argv[4]!));
+      if (bin === "git" && argv.includes("symbolic-ref")) return ok("main\n");
       if (bin === "git" && argv[1] === "remote" && argv[2] === "get-url") {
         expect(argv).toEqual(["git", "remote", "get-url", "--push", "--all", "origin"]);
         return ok(`${REMOTE}\n`);

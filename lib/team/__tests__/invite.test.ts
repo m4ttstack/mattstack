@@ -883,7 +883,7 @@ describe("real invite git seams", () => {
   test("a known org pulls with rebase and autostash, credentials only in env", async () => {
     const seen: { argv: string[]; env?: Record<string, string> }[] = [];
     const p = probesWithRemote("https://github.com/acme/widgets.git");
-    p.exec = async (argv, opts) => { seen.push({ argv, env: opts?.env }); return { code: 0, stdout: "", stderr: "" }; };
+    p.exec = async (argv, opts) => { seen.push({ argv, env: opts?.env }); return { code: 0, stdout: argv.includes("symbolic-ref") ? "main\n" : "", stderr: "" }; };
     await realMintInviteSeams().pullOrg(p, SLUG, "https://github.com/acme/widgets.git", "private-token");
     expect(seen.map((call) => call.argv)).toContainEqual(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"]);
     const pull = seen.find((call) => call.argv.includes("pull"))!;
@@ -892,9 +892,27 @@ describe("real invite git seams", () => {
     expect(pull.env).toMatchObject({ GIT_TERMINAL_PROMPT: "0", RT_GIT_TOKEN: "private-token", RT_GIT_HOST: "github.com" });
   });
 
+  test("a clone on another branch is refused before anything is pulled, since joiners clone main", async () => {
+    const p = probesWithRemote(REMOTE);
+    p.exec = async (argv) => { p.calls.exec.push(argv); return argv.includes("symbolic-ref") ? { code: 0, stdout: "org-trial\n", stderr: "" } : { code: 0, stdout: "", stderr: "" }; };
+    await expect(realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null)).rejects.toMatchObject({
+      code: "invite-off-main",
+      message: "Your copy of the org is on org-trial, so rt made no invite",
+      next: "git -C /home/.mattstack/teams/acme switch main",
+    });
+    expect(p.calls.exec.some((argv) => argv.includes("pull"))).toBe(false);
+  });
+
+  test("a clone with no branch checked out is refused before anything is pulled or written", async () => {
+    const p = probesWithRemote(REMOTE);
+    p.exec = async (argv) => { p.calls.exec.push(argv); return argv.includes("symbolic-ref") ? { code: 1, stdout: "", stderr: "" } : { code: 0, stdout: "", stderr: "" }; };
+    await expect(realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null)).rejects.toMatchObject({ code: "org-detached" });
+    expect(p.calls.exec.some((argv) => argv.includes("pull"))).toBe(false);
+  });
+
   test("a never-published org has nothing to pull", async () => {
     const p = probesWithRemote(REMOTE);
-    p.exec = async (argv) => { p.calls.exec.push(argv); return { code: 1, stdout: "", stderr: "" }; };
+    p.exec = async (argv) => { p.calls.exec.push(argv); return argv.includes("symbolic-ref") ? { code: 0, stdout: "main\n", stderr: "" } : { code: 1, stdout: "", stderr: "" }; };
     await realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null);
     expect(p.calls.exec).toContainEqual(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"]);
     expect(p.calls.exec.some((argv) => argv.includes("pull"))).toBe(false);
@@ -922,6 +940,7 @@ describe("real invite git seams", () => {
     const p = probesWithRemote(REMOTE, { "/home/.mattstack/teams/acme/.git/rebase-merge": "" });
     let pulled = false;
     p.exec = async (argv) => {
+      if (argv.includes("symbolic-ref")) return { code: 0, stdout: "main\n", stderr: "" };
       if (argv.includes("pull")) { pulled = true; return { code: 1, stdout: "", stderr: "CONFLICT (content)" }; }
       if (argv.includes("--git-path")) return { code: 0, stdout: `.git/${pulled ? argv.at(-1) : "absent"}\n`, stderr: "" };
       if (argv.includes("--abort")) return { code: 128, stdout: "", stderr: "fatal: could not abort" };
