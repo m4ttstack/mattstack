@@ -61,10 +61,11 @@ wiring, public exports, generic argv changes and built-in composition are F2b
 and remain blocked. The checklist below describes the whole original F2;
 F2a completion must not mark the entire task complete.
 
-**Current F2a progress:** the five files are implemented and code-reviewed, but
-completion is stopped on one existing watcher timeout in the full root suite.
-The [checkpoint](../spikes/2026-10-05-harness-foundation-f2a.md) carries results
-and the proposed additional test-only prerequisite; F2b has not begun.
+**Current F2a progress:** the five files are implemented and code-reviewed.
+The approved watcher-test prerequisite is applied and passes. Completion is
+stopped by three other root-suite failures (API bind and marketplace timeouts).
+The [checkpoint](../spikes/2026-10-05-harness-foundation-f2a.md) carries the full
+results and bounded diagnostic; F2b has not begun.
 
 **Files:** Create `packages/rt-client/src/agent-integrations.ts`,
 `lib/agent-integrations/contracts.ts`, `lib/agent-integrations/registry.ts`,

@@ -2100,9 +2100,9 @@
   "latestF2aCheckpoint": {
     "report": "docs/superpowers/spikes/2026-10-05-harness-foundation-f2a.md",
     "evidence": "docs/superpowers/spikes/2026-10-05-harness-foundation-f2a-evidence.json",
-    "status": "implementation-reviewed-completion-blocked",
-    "rootPassed": 14575,
-    "rootFailed": 1,
+    "status": "approved-watcher-prerequisite-applied-completion-blocked",
+    "rootPassed": 14573,
+    "rootFailed": 3,
     "rootSkipped": 3
   }
 }

@@ -1,6 +1,6 @@
 # Proposed watcher-test prerequisite for F2a
 
-**Status: independently reviewed and approved as a proposal; not applied; user decision pending.**
+**Status: user approved at checkpoint `9e3d77e36`; exact patch applied in huan; watcher checks pass, full F2a verification remains blocked.**
 
 ## Exact decision
 
@@ -40,7 +40,8 @@ The revised ignored candidate passes all five tests and 26 assertions at the
 normal deadlines. A controlled ignored copy of production code with only the
 stale-watcher close removed causes the strengthened test to fail (expected one
 close, observed zero). A separate control omitting error-path closure also fails
-its new close-count assertion. Original source and tests have not been changed. Exact
+its new close-count assertion. Original source and tests were unchanged when
+this candidate evidence was collected. Exact
 commands and hashes are in the [F2a evidence manifest](../spikes/2026-10-05-harness-foundation-f2a-evidence.json); the failed root and failed
 first candidate are not replaced by the passing candidate.
 
@@ -70,5 +71,16 @@ implementation checkpoint and mark F2a stopped; do not silently weaken its gate.
 Independent candidate review: Approved by `/root/f2a_review` on 2026-10-06,
 with no remaining findings. The reviewer verified the final patch against the
 tested candidate, target and artifact hashes, both failed runs, and both
-expected-red mutation controls. User decision: pending. Review approval only
-makes this a concrete proposal; it does not authorize applying the patch.
+expected-red mutation controls. User decision: approved in this session on
+2026-10-06 (exact reply: “approved”), against checkpoint `9e3d77e36`. This
+authorizes only the attached test prerequisite and its verification in huan.
+
+Applied-diff review: `/root/f2a_review` approved on 2026-10-06. The applied
+change matches the reviewed patch and tested candidate exactly; original
+assertions and deadlines are preserved, with no production change. Focused
+verification `f2a-watch-applied-01`: five tests passed, 26 assertions. Required
+serial full verification finished: compatibility, foundation, client build, static
+and compiled checks passed. The root suite passed 14,573 tests and failed three
+other cases (one API bind collision and two marketplace timeouts). Watcher
+tests passed in that run. See the [updated checkpoint](../spikes/2026-10-05-harness-foundation-f2a.md);
+this prerequisite does not waive those failures or complete F2a.

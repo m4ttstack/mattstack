@@ -46,8 +46,9 @@ records progress, not a presumption of GREEN.
 in an isolated worktree. F2b and all other implementation remain blocked.
 This scoped decision takes precedence over the general execution hold below.
 F2a now has a [reviewed implementation checkpoint](../spikes/2026-10-05-harness-foundation-f2a.md);
-completion is stopped on the post-rebase root-suite watcher timeout. A separate
-[unapplied test proposal](2026-10-05-f2a-watcher-test-proposal.md) needs user approval.
+the separately [approved watcher prerequisite](2026-10-05-f2a-watcher-test-proposal.md)
+is applied and its tests pass. Completion remains stopped: the latest root run
+passed 14,573 tests and failed an API bind case plus two marketplace timeouts.
 
 ## Review Focus
 

@@ -1,6 +1,12 @@
 # Harness regression baseline — 2026-10-05
 
-**Status: latest post-rebase verification BLOCKED by a native watcher timeout.** The earlier B0 run passed 14,400 root tests, 42 compiled tests and all static tasks; those historical results remain below. The approved isolated F2a implementation is now code-reviewed, but its full root run passed 14,575 tests and failed one existing watcher test. See the [F2a checkpoint](2026-10-05-harness-foundation-f2a.md). General B0 admission and F2a completion remain blocked; no live integration is admitted.
+**Status: latest post-rebase verification BLOCKED by three root-suite failures.**
+The separately approved watcher-test prerequisite is applied and passes. Latest
+F2a checks pass compatibility, foundation, client build, static and 42 compiled
+tests; the full root suite passed 14,573 and failed one API bind case plus two
+marketplace timeouts. See the [F2a checkpoint](2026-10-05-harness-foundation-f2a.md).
+Earlier results below remain historical evidence. General B0 admission and F2a
+completion remain blocked; no live integration is admitted.
 
 ## Reference
 
