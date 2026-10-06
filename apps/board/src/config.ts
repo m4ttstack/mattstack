@@ -136,6 +136,9 @@ export interface TabConfig {
   reviewSkill?: string;
   /** Which team pack's bindings a launch from this tab uses; empty/absent = board.defaultPack. */
   pack?: string;
+  /** Fade roster members with nothing on this tab. Absent = fade on every
+      tab but an authors one (tabDimsEmpty). */
+  dimEmpty?: boolean;
 }
 
 /** No config.json/store tabs = one classic authors-roster tab, never zero tabs. */
@@ -475,6 +478,9 @@ export function parseTabs(raw: unknown, source: string): TabConfig[] {
     if (t.pack !== undefined && typeof t.pack !== 'string') {
       throw new Error(`${source} "${label}.pack" must be a string`);
     }
+    if (t.dimEmpty !== undefined && typeof t.dimEmpty !== 'boolean') {
+      throw new Error(`${source} "${label}.dimEmpty" must be a boolean`);
+    }
     return {
       id: t.id,
       label: t.label,
@@ -482,6 +488,7 @@ export function parseTabs(raw: unknown, source: string): TabConfig[] {
       ...(t.slackChannel !== undefined ? { slackChannel: t.slackChannel } : {}),
       ...(t.reviewSkill !== undefined ? { reviewSkill: t.reviewSkill } : {}),
       ...(t.pack !== undefined ? { pack: t.pack } : {}),
+      ...(t.dimEmpty !== undefined ? { dimEmpty: t.dimEmpty } : {}),
     };
   });
 }

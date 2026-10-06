@@ -847,7 +847,7 @@ describe("joinRedeem", () => {
     expect(shown).toContainEqual({ title: "rt could not register your board with the switchboard", hint: "keychain sulking" });
   });
 
-  test("a 2xx register with no parsable token → peering:unavailable, nothing written, and the message names the board-panel re-invite repair", async () => {
+  test("a 2xx register with no parsable token → peering:unavailable, nothing written, and the message names the re-invite repair", async () => {
     const p = redeemProbes({ fetch: async () => ({ status: 201, body: "not json", headers: {} }) });
     const relay = fakeRelay();
     const { seams, calls } = baseJoinRedeemSeams({
@@ -859,7 +859,7 @@ describe("joinRedeem", () => {
     expect(result.peering).toBe("unavailable");
     expect(result.access).toBe("ok");
     expect(calls.secretWrites).toEqual([]);
-    expect(result.message).toContain("invite your board again");
+    expect(result.message).toContain("invite zaphod again and join with the new invite");
   });
 
   test("a minted board token that cannot be stored stops the join before the reply, keeping the intent so a plain rerun finishes it", async () => {
@@ -1009,7 +1009,7 @@ describe("joinRedeem", () => {
       expect(result.access).toBe("ok");
       expect(result.peering).toBe("unavailable");
       expect(result.peeringFix).toContain("Ask matt to invite zaphod again");
-      expect(result.peeringFix).toContain("or ask them to invite your board again from the board's members panel");
+      expect(result.peeringFix).not.toContain("members panel");
       expect(result.message).toContain(result.peeringFix!);
     });
 

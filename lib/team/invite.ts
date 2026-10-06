@@ -246,7 +246,7 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   // at join time (their age key is not yet a recipient), so the per-board
   // token must be minted HERE, where the admin token is readable, and sealed
   // into the pointer. Every failure degrades to an invite without peering
-  // plus a warning; the board panel's re-invite remains the repair.
+  // plus a warning; a fresh invite and a re-join remain the repair.
   let peeringWarning: string | undefined;
   let embedFailure: string | null = null;
   let adminToken: string | null = null;
@@ -287,14 +287,14 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
     }
   }
   if (embedFailure) {
-    peeringWarning = "This invite will not connect their board. After they join, invite their board again from the board's members panel.";
+    peeringWarning = "This invite will not connect their board. Once it can, invite them again and have them join with the new invite.";
     if (opts.requirePeering) {
       throw new UserActionableError("peering-not-embedded", "rt did not make the invite, because it could not connect their board", {}, {
         why: "It could not register their board with the switchboard.",
         log: embedFailure,
       });
     }
-    seams.warn(`board peering: ${embedFailure}`, { title: "This invite will not connect their board", hint: "invite their board again from the board's members panel after they join" });
+    seams.warn(`board peering: ${embedFailure}`, { title: "This invite will not connect their board", hint: "invite them again later and have them join with the new invite" });
   }
   const peering: InviteResult["peering"] = pointer.switchboard ? "embedded" : embedFailure ? "missing" : "none";
 

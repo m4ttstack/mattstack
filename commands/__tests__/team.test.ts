@@ -4,7 +4,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { realTeamDeps, teamCreate, teamInvite, teamManageMembership, teamPublish, teamPull, teamStatus, type TeamDeps } from "../team.ts";
+import { setWarningLog, __test__ as warnTest } from "../../lib/ui/warn.ts";
+import { realTeamDeps, teamCreate, teamInvite, teamManageMembership, teamPeer, teamPublish, teamPull, teamStatus, type TeamDeps } from "../team.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import type { ExecScript } from "../../lib/setup/__tests__/fakes.ts";
@@ -35,6 +36,7 @@ function baseDeps(overrides: Partial<TeamDeps> = {}): TeamDeps & { lines: string
       throw new Error("exit sentinel");
     },
     ageKeySeam: new FakeAgeKeySeam(),
+    readLocalSecret: async () => null,
     lines,
     exitCodes,
     ...overrides,
@@ -154,6 +156,82 @@ describe("teamCreate", () => {
     try {
       realTeamDeps().print('{"contract":1}');
       expect(io.stdout()).toBe('{"contract":1}\n');
+    } finally {
+      io.restore();
+    }
+  });
+});
+
+describe("teamCreate connects the creator's board", () => {
+  const register = (status: number) =>
+    fakeProbes({
+      home: "/home/x",
+      fetch: async (url, init) =>
+        init?.method === "POST" ? { status, body: JSON.stringify({ token: "board-tok" }), headers: {} } : url.endsWith("/boards") ? { status: 200, body: JSON.stringify({ boards: [] }), headers: {} } : { status: 404, body: "", headers: {} },
+    });
+
+  test("with the admin token, create registers the board and stores its token, leaving the envelope as it was", async () => {
+    const written: Array<[string, string]> = [];
+    const deps = baseDeps({
+      probes: register(200),
+      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin" : null),
+      peerSeams: { boardUsername: async () => "matt", localStoreReady: async () => true, writeLocalSecret: async (k, v) => void written.push([k, v]) },
+    });
+
+    await teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git", "--json"], {}, deps);
+
+    expect(written).toEqual([["switchboardToken", "board-tok"]]);
+    expect(Object.keys(JSON.parse(deps.lines[0]!)).sort()).toEqual(["at", "contract", "created", "dir", "name", "remote", "slug"]);
+  });
+
+  test("a switchboard that refuses is a warning, never a failed create", async () => {
+    const deps = baseDeps({
+      probes: register(503),
+      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin" : null),
+      peerSeams: { boardUsername: async () => "matt", localStoreReady: async () => true, writeLocalSecret: async () => {} },
+    });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    warnTest.reset();
+    setWarningLog(() => {});
+    try {
+      await teamCreate(["Acme", "--remote", "https://github.com/acme/repo.git"], {}, deps);
+      expect(io.stdout()).toContain("Created the acme team");
+      expect(io.stderr()).toContain("The team is ready, but rt could not connect your board");
+    } finally {
+      warnTest.reset();
+      io.restore();
+    }
+  });
+});
+
+describe("teamPeer", () => {
+  test("--json prints the outcome and the username the board registered as", async () => {
+    const deps = depsWithZone({
+      probes: fakeProbes({
+        home: "/home/x",
+        dirs: { [ZONE_DIR]: [] },
+        fetch: async (url, init) => (init?.method === "POST" ? { status: 200, body: JSON.stringify({ token: "t" }), headers: {} } : url.endsWith("/boards") ? { status: 200, body: JSON.stringify({ boards: [] }), headers: {} } : { status: 404, body: "", headers: {} }),
+      }),
+      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin" : null),
+      peerSeams: { boardUsername: async () => "Matt", localStoreReady: async () => true, writeLocalSecret: async () => {} },
+    });
+
+    await teamPeer(["--team", "acme", "--json"], {}, deps);
+
+    const { at: _at, ...body } = JSON.parse(deps.lines[0]!);
+    expect(body).toEqual({ contract: 1, outcome: "connected", username: "matt", boardEnvOverrides: false });
+  });
+
+  test("without the admin token a person reads a refusal pointing at an invite", async () => {
+    const deps = depsWithZone({ peerSeams: { boardUsername: async () => "matt" } });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => teamPeer(["--team", "acme"], {}, deps));
+      expect(code).toBe(2);
+      expect(io.stderr()).toContain("[refused] Only the team's owner can connect a board from their own Mac");
+      expect(io.stderr()).toContain("rt team join");
     } finally {
       io.restore();
     }

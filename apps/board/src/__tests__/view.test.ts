@@ -5,12 +5,13 @@ import type { BoardMR, BoardSyncError } from '../data.ts';
 import { ALL_TURN } from '../turn.ts';
 import {
   ageText,
+  arrangeGroups,
   behindToken,
   dataAgeLabel,
   DEFAULT_VIEW,
   descendantsOf,
-  dropPeer,
   effectiveSeat,
+  effectiveSort,
   filterByMember,
   filterByShow,
   filterByTab,
@@ -19,18 +20,18 @@ import {
   groupOnLeavingSeat,
   hasStackDescendants,
   isOwnMr,
-  joinRowState,
-  memberPeerState,
+  isPeered,
   NEEDS_ME_TAB,
   nestStacks,
-  offRosterPeers,
+  oldestFirst,
   parseViewState,
   resolveStandDownTarget,
   rosterUsernamesFor,
   seatOf,
   serializeViewState,
-  sortMRs,
+  sortKeysFor,
   statusFlags,
+  tabDimsEmpty,
 } from '../view.ts';
 
 function mr(overrides: Partial<BoardMR>): BoardMR {
@@ -688,80 +689,117 @@ test('dataAgeLabel: epoch-zero syncedAt (cold shell record) reads as unknown, no
   });
 });
 
-describe('sortMRs', () => {
-  test('oldest: oldest last activity (updatedAt) first, nulls last', () => {
+describe('tabDimsEmpty', () => {
+  test('an authors tab keeps everyone at full strength by default', () => {
+    expect(tabDimsEmpty({ source: { kind: 'authors' } })).toBe(false);
+  });
+  test('every other kind fades empty members by default', () => {
+    expect(tabDimsEmpty({ source: { kind: 'codeowners', section: 'x' } })).toBe(
+      true
+    );
+    expect(tabDimsEmpty({ source: { kind: 'needs-me' } })).toBe(true);
+  });
+  test("the tab's own dimEmpty wins", () => {
+    expect(tabDimsEmpty({ source: { kind: 'authors' }, dimEmpty: true })).toBe(
+      true
+    );
+  });
+});
+
+describe('oldestFirst', () => {
+  test('oldest last activity (updatedAt) first, nulls last', () => {
     const list = [
       mr({ iid: 1, updatedAt: '2026-07-05T00:00:00Z' }),
       mr({ iid: 2, updatedAt: null }),
       mr({ iid: 3, updatedAt: '2026-07-01T00:00:00Z' }),
     ];
-    expect(sortMRs(list, 'oldest').map(m => m.iid)).toEqual([3, 1, 2]);
-  });
-
-  test('progress: highest approval ratio first', () => {
-    const list = [
-      mr({
-        iid: 1,
-        reviews: {
-          required: 2,
-          given: 0,
-          remaining: 2,
-          isApproved: false,
-        } as any,
-      }),
-      mr({
-        iid: 2,
-        reviews: {
-          required: 2,
-          given: 2,
-          remaining: 0,
-          isApproved: true,
-        } as any,
-      }),
-      mr({
-        iid: 3,
-        reviews: {
-          required: 2,
-          given: 1,
-          remaining: 1,
-          isApproved: false,
-        } as any,
-      }),
-    ];
-    expect(sortMRs(list, 'progress').map(m => m.iid)).toEqual([2, 3, 1]);
-  });
-
-  test('progress counts rule slots filled, not approvers', () => {
-    const list = [
-      mr({
-        iid: 1,
-        reviews: {
-          required: 4,
-          given: 2,
-          remaining: 2,
-          isApproved: false,
-        } as any,
-      }),
-      mr({
-        iid: 2,
-        reviews: {
-          required: 4,
-          given: 1,
-          remaining: 1,
-          isApproved: false,
-        } as any,
-      }),
-    ];
-    expect(sortMRs(list, 'progress').map(m => m.iid)).toEqual([2, 1]);
+    expect(oldestFirst(list).map(m => m.iid)).toEqual([3, 1, 2]);
   });
 
   test('does not mutate input', () => {
     const list = [
-      mr({ iid: 1, createdAt: '2026-07-05T00:00:00Z' }),
-      mr({ iid: 2, createdAt: '2026-07-01T00:00:00Z' }),
+      mr({ iid: 1, updatedAt: '2026-07-05T00:00:00Z' }),
+      mr({ iid: 2, updatedAt: '2026-07-01T00:00:00Z' }),
     ];
-    sortMRs(list, 'oldest');
+    oldestFirst(list);
     expect(list.map(m => m.iid)).toEqual([1, 2]);
+  });
+});
+
+describe('arrangeGroups', () => {
+  const bob = { id: 'y', username: 'bob', name: 'Bob', avatarUrl: null };
+  const list = [
+    mr({ iid: 1, updatedAt: '2026-07-05T00:00:00Z' }),
+    mr({ iid: 2, author: bob, updatedAt: '2026-07-04T00:00:00Z' }),
+    mr({ iid: 3, updatedAt: '2026-07-01T00:00:00Z' }),
+  ];
+  const at = Date.parse('2026-07-06T00:00:00Z');
+
+  test("'none' keeps each group whole, rows oldest first", () => {
+    const groups = arrangeGroups(list, 'status', 'none', [], at);
+    expect(groups.every(g => g.sub === undefined)).toBe(true);
+    expect(groups.flatMap(g => g.mrs.map(m => m.iid))).toEqual([3, 2, 1]);
+  });
+
+  test('a Sort grouping splits each group into labelled sub-groups', () => {
+    const [group] = arrangeGroups(
+      list,
+      'status',
+      'author',
+      ['bob', 'alice'],
+      at
+    );
+    expect(group!.sub!.map(p => [p.label, p.author])).toEqual([
+      ['Bob', 'bob'],
+      ['Alice', 'alice'],
+    ]);
+    expect(group!.sub![1]!.mrs.map(m => m.iid)).toEqual([3, 1]);
+    expect(group!.mrs.map(m => m.iid)).toEqual([2, 3, 1]);
+  });
+
+  test('a stack stays in its root’s sub-group when the child’s age differs', () => {
+    const parent = mr({
+      iid: 1,
+      webUrl: 'https://gitlab.com/acme/webapp/-/merge_requests/1',
+      sourceBranch: 'feat-a',
+      targetBranch: 'master',
+      updatedAt: '2026-07-05T00:00:00Z',
+    } as any);
+    const child = mr({
+      iid: 2,
+      webUrl: 'https://gitlab.com/acme/webapp/-/merge_requests/2',
+      sourceBranch: 'feat-b',
+      targetBranch: 'feat-a',
+      isStacked: true,
+      updatedAt: '2026-06-01T00:00:00Z',
+    } as any);
+    const [group] = arrangeGroups([parent, child], 'status', 'age', [], at);
+    expect(group!.sub!.map(p => p.mrs.map(m => m.iid).sort())).toEqual([
+      [1, 2],
+    ]);
+  });
+
+  test('a Sort matching the grouping splits nothing', () => {
+    const groups = arrangeGroups(list, 'author', 'author', [], at);
+    expect(groups.every(g => g.sub === undefined)).toBe(true);
+  });
+});
+
+describe('sortKeysFor and effectiveSort', () => {
+  const keys = ['age', 'author', 'status'] as const;
+  test('offers none plus every other grouping', () => {
+    expect(sortKeysFor('status', keys)).toEqual(['none', 'age', 'author']);
+  });
+  test('looking at one person, author is not offered and an author pick reads as age', () => {
+    expect(sortKeysFor('status', keys, 'alice')).toEqual(['none', 'age']);
+    expect(effectiveSort('author', 'status', keys, 'alice')).toBe('age');
+    expect(effectiveSort('author', 'age', keys, 'alice')).toBe('none');
+    expect(effectiveSort('author', 'status', keys, 'all')).toBe('author');
+  });
+  test('a Sort the tab does not offer falls back to none', () => {
+    expect(effectiveSort('status', 'status', keys)).toBe('none');
+    expect(effectiveSort('needs', 'status', keys)).toBe('none');
+    expect(effectiveSort('author', 'status', keys)).toBe('author');
   });
 });
 
@@ -1149,16 +1187,27 @@ describe('parseViewState', () => {
     expect(
       parseViewState(
         '?member=bob&group=status',
-        { member: 'alice', sort: 'progress' },
+        { member: 'alice', sort: 'author' },
         members
       )
     ).toEqual({
       member: 'bob',
       group: 'status',
-      sort: 'progress',
+      sort: 'author',
       tab: '',
-      off: [],
+      off: DEFAULT_VIEW.off,
     });
+  });
+  test('a pre-split sort value (oldest, progress) reads as the default', () => {
+    expect(
+      parseViewState('?sort=progress', { sort: 'oldest' } as never, members)
+        .sort
+    ).toBe(DEFAULT_VIEW.sort);
+  });
+  test('a legacy sort in the URL beats a stored split and reads as the default', () => {
+    expect(
+      parseViewState('?sort=oldest', { sort: 'author' }, members).sort
+    ).toBe(DEFAULT_VIEW.sort);
   });
   test('ignores unknown member and invalid group/sort', () => {
     expect(
@@ -1206,8 +1255,15 @@ describe('parseViewState', () => {
     expect(parseViewState('', null, members, 'all', ['t', 'q']).tab).toBe('t');
   });
 
-  test('off defaults to empty', () => {
-    expect(parseViewState('', null, members).off).toEqual([]);
+  test('off defaults to only Posted on', () => {
+    expect(parseViewState('', null, members).off).toEqual([
+      'notPosted',
+      'authorTurn',
+      'myDrafts',
+    ]);
+  });
+  test('an empty off in the url means everything on', () => {
+    expect(parseViewState('?off=', null, members).off).toEqual([]);
   });
 
   test('off: url wins, unknown items dropped', () => {
@@ -1262,27 +1318,18 @@ describe('serializeViewState', () => {
   });
   test('includes non-defaults', () => {
     expect(
-      serializeViewState({
-        member: 'bob',
-        group: 'age',
-        sort: 'oldest',
-        tab: '',
-        off: [],
-      })
+      serializeViewState({ ...DEFAULT_VIEW, member: 'bob', group: 'age' })
     ).toBe('?member=bob&group=age');
   });
   test('includes a set tab, even a first-tab id', () => {
-    expect(
-      serializeViewState({
-        member: 'all',
-        group: 'status',
-        sort: 'oldest',
-        tab: 'team',
-        off: [],
-      })
-    ).toBe('?tab=team');
+    expect(serializeViewState({ ...DEFAULT_VIEW, tab: 'team' })).toBe(
+      '?tab=team'
+    );
   });
-  test('off serializes in canonical order and drops when empty', () => {
+  test('everything on serializes as an empty off', () => {
+    expect(serializeViewState({ ...DEFAULT_VIEW, off: [] })).toBe('?off=');
+  });
+  test('off serializes in canonical order and drops when default', () => {
     expect(
       serializeViewState({ ...DEFAULT_VIEW, off: ['myDrafts', 'notPosted'] })
     ).toBe('?off=notPosted%2CmyDrafts');
@@ -1290,52 +1337,14 @@ describe('serializeViewState', () => {
   });
 });
 
-describe('memberPeerState', () => {
-  test('peered when listed, invitable when not, unknown before load', () => {
-    expect(memberPeerState('grace', ['grace', 'bob'])).toBe('peered');
-    expect(memberPeerState('dana', ['grace'])).toBe('invitable');
-    expect(memberPeerState('dana', null)).toBe('unknown');
+describe('isPeered', () => {
+  test('peered only when listed, never before the list loads', () => {
+    expect(isPeered('grace', ['grace', 'bob'])).toBe(true);
+    expect(isPeered('dana', ['grace'])).toBe(false);
+    expect(isPeered('grace', null)).toBe(false);
   });
   test('comparison is canonical: case and padding do not hide a peer', () => {
-    expect(memberPeerState('Grace ', ['grace'])).toBe('peered');
-  });
-});
-
-describe('joinRowState', () => {
-  test('unconfigured board: open join row', () => {
-    expect(joinRowState(false, null)).toEqual({
-      label: 'join peer boards',
-      collapsed: false,
-    });
-  });
-  test('configured + healthy: collapsed re-join affordance', () => {
-    expect(joinRowState(true, 'ok')).toEqual({
-      label: 're-join with a new invite',
-      collapsed: true,
-    });
-  });
-  test('token rejected: expanded with warning copy', () => {
-    const s = joinRowState(true, 'unauthorized');
-    expect(s.collapsed).toBe(false);
-    expect(s.warning).toContain('re-join');
-  });
-});
-
-describe('dropPeer', () => {
-  test('drops by canonical comparison, so relay case never strands a row', () => {
-    expect(dropPeer(['Grace', 'ada'], 'grace')).toEqual(['ada']);
-    expect(dropPeer(['grace'], ' GRACE ')).toEqual([]);
-    expect(dropPeer(null, 'grace')).toBeNull();
-  });
-});
-
-describe('offRosterPeers', () => {
-  test('peered handles not on the roster and not the operator, in listing order', () => {
-    const members = [{ username: 'grace' }, { username: 'ada' }] as never;
-    expect(
-      offRosterPeers(['ada', 'smoketest', 'me', 'grace'], members, 'me')
-    ).toEqual(['smoketest']);
-    expect(offRosterPeers(null, members, 'me')).toEqual([]);
+    expect(isPeered('Grace ', ['grace'])).toBe(true);
   });
 });
 

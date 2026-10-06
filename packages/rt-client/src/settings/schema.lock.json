@@ -248,6 +248,11 @@
             "title": "Pack",
             "inherits": "board.defaultPack",
             "type": "string"
+          },
+          "dimEmpty": {
+            "title": "Fade people with nothing here",
+            "description": "Fade roster members with no MRs on this tab. Unset, every tab but a team roster one fades them.",
+            "type": "boolean"
           }
         },
         "required": [
