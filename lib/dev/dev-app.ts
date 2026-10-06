@@ -118,6 +118,9 @@ export async function installDevAppFromRelease(
   const unzip = await p.exec(["ditto", "-x", "-k", zip, unpacked], { timeoutMs: 120_000 });
   if (unzip.code !== 0) throw new UserActionableError("dev-zip-unpack", "rt could not unpack the dev app", {}, { log: unzip.stderr });
   const app = join(unpacked, "mattstack-dev.app");
+  if (!p.exists(join(app, "Contents", "Info.plist"))) {
+    throw new UserActionableError("dev-zip-unpack", "The downloaded dev app is incomplete", {}, { why: "rt did not install it. Tell the maintainers." });
+  }
 
   // ditto onto an existing bundle merges into it, so anything already there, readable or not, is swapped.
   if (!p.exists(DEV_APP_PATH)) {

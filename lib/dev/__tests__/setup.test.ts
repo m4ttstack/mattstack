@@ -54,7 +54,7 @@ interface World {
 }
 
 function world(w: World = {}) {
-  const files: Record<string, string> = { "/usr/bin/git": "", [GO]: "", "/opt/homebrew/bin/node": "" };
+  const files: Record<string, string> = { "/usr/bin/git": "", [GO]: "", "/opt/homebrew/bin/node": "", "/scratch/unpacked/mattstack-dev.app/Contents/Info.plist": "" };
   if (w.bun !== "missing") files[BUN] = "";
   const dirs: Record<string, string[]> = {};
   if (w.clone === "ours" || w.clone === "other") {

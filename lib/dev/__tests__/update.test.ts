@@ -26,6 +26,7 @@ function seams(opts: {
     [BUN]: "",
     [GO]: "",
     "/Applications/mattstack-dev.app/Contents/Info.plist": "",
+    "/scratch/unpacked/mattstack-dev.app/Contents/Info.plist": "",
   };
   if (opts.uiBinary !== false) files[`${CLONE}/ui/dist/rt-ui`] = "";
   if (opts.cloneGone) for (const k of Object.keys(files).filter((f) => f.startsWith(`${CLONE}/`))) delete files[k];
