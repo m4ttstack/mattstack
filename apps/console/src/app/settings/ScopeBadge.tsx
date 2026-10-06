@@ -15,8 +15,12 @@ export const SCOPE_COLOR: Record<StoreScope, string> = {
   org: 'gold',
   team: 'purple',
   user: 'cyan',
-  machine: 'bad',
+  machine: 'warn',
 };
+
+export function scopeTextColor(scope: StoreScope): string {
+  return `var(--tk-text-${SCOPE_COLOR[scope]}-small)`;
+}
 
 type BadgeBase = StoreScope | 'default';
 
@@ -56,7 +60,7 @@ export function ScopeBadge({ scope }: { scope: LayerScope | 'default' }) {
         tt="none"
         fw={500}
         lts={0}
-        c={hue ? `var(--tk-text-${hue}-small)` : undefined}
+        c={base === 'default' ? undefined : scopeTextColor(base)}
         leftSection={<ScopeDot scope={base} />}
         style={{
           '--badge-height': '17px',

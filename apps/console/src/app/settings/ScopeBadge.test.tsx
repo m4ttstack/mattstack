@@ -3,7 +3,12 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { SCOPE_COLOR, ScopeBadge } from './ScopeBadge';
+import {
+  SCOPE_COLOR,
+  ScopeBadge,
+  ScopeDot,
+  scopeTextColor,
+} from './ScopeBadge';
 import { SettingsOrgContext } from './useConsoleSettings';
 
 afterEach(() => vi.restoreAllMocks());
@@ -12,6 +17,15 @@ describe('ScopeBadge', () => {
   it('gives every store its own hue', () => {
     const hues = Object.values(SCOPE_COLOR);
     expect(new Set(hues).size).toBe(hues.length);
+  });
+
+  it('paints machine orange in its dot, badge text and subhead', () => {
+    expect(SCOPE_COLOR.machine).toBe('warn');
+    expect(scopeTextColor('machine')).toBe('var(--tk-text-warn-small)');
+    const { container } = renderWithProviders(<ScopeDot scope="machine" />);
+    expect(container.querySelector('span')).toHaveStyle({
+      background: 'var(--mantine-color-warn-filled)',
+    });
   });
 
   it('shows a label cut short in the column whole in a tooltip', async () => {
