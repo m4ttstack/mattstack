@@ -94,6 +94,7 @@ export function makeResponse(
     baseUrl: 'https://gitlab.com',
     currentUser,
     viewer: { username: currentUser, role: 'team' },
+    previewing: false,
     generatedAt: '2026-05-31T00:00:00.000Z',
     fromCache: false,
     metricNotes: {},

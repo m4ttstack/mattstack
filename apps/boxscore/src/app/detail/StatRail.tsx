@@ -9,9 +9,9 @@ import {
 } from '../../shared/metrics';
 import type { MetricKey, UserRow } from '../../shared/types';
 import { cardValue } from '../leaderboard/format';
-import { statHref } from '../leaderboard/StandingsTable';
 import { hueVar, statsInGroup } from '../model/groups';
 import { descriptor } from '../model/standings';
+import { usePersonHref } from '../preview/preview';
 import classes from './detail.module.css';
 
 function RankPill({ rank }: { rank: number | null }) {
@@ -37,6 +37,7 @@ export function StatRail({
   selected: MetricKey;
   self?: boolean;
 }) {
+  const personHref = usePersonHref();
   return (
     <nav
       className={classes.statRail}
@@ -69,7 +70,7 @@ export function StatRail({
               return (
                 <Link
                   key={key}
-                  href={statHref(person.username, key)}
+                  href={personHref(person.username, key)}
                   aria-current={on ? 'page' : undefined}
                   className={`${classes.statRow} ${on ? classes.statRowSelected : ''}`}
                   data-parity={on ? `Stat ${d.label}` : undefined}

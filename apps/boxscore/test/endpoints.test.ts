@@ -175,11 +175,16 @@ describe('deleted routes', () => {
 
 describe('viewer roles over HTTP', () => {
   beforeEach(() => {
+    __setRosterReader(() => [
+      { username: 'alexrivera', name: 'Alex Rivera' },
+      { username: 'bob', name: 'Bob' },
+    ]);
     __setTeamReader(() => ({ seesTeam: false }));
     __setCurrentUser({ username: 'alexrivera', name: 'Alex Rivera' });
   });
   afterEach(() => {
     __setTeamReader(null);
+    __setRosterReader(() => [{ username: 'alexrivera', name: 'Alex Rivera' }]);
     __resetCurrentUser();
   });
 
@@ -189,5 +194,38 @@ describe('viewer roles over HTTP', () => {
     expect(((await res.json()) as { error: string }).error).toMatch(
       /only your own/i
     );
+  });
+
+  it('answers 404 for a viewAs target not on the roster', async () => {
+    SETTINGS['boxscore.roles'] = { alexrivera: 'team' };
+    const res = await app.request(
+      '/api/leaderboard?range=30d&viewAs=mallory&cacheOnly=0'
+    );
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      'unknown user: mallory'
+    );
+    const detail = await app.request(
+      '/api/detail?user=bob&range=30d&viewAs=mallory'
+    );
+    expect(detail.status).toBe(404);
+    delete SETTINGS['boxscore.roles'];
+  });
+
+  it('ignores viewAs for a Self viewer', async () => {
+    const res = await app.request('/api/detail?user=bob&range=30d&viewAs=bob');
+    expect(res.status).toBe(403);
+  });
+
+  it("refuses another user's detail while previewing", async () => {
+    SETTINGS['boxscore.roles'] = { alexrivera: 'team' };
+    try {
+      const res = await app.request(
+        '/api/detail?user=alexrivera&range=30d&viewAs=bob'
+      );
+      expect(res.status).toBe(403);
+    } finally {
+      delete SETTINGS['boxscore.roles'];
+    }
   });
 });

@@ -24,7 +24,9 @@ const selection = { range: '30d', trend: false };
 const respond = (tag: string) => ({ json: async () => ({ tag }) });
 
 describe('useUserDetail', () => {
-  beforeEach(() => detailGet.mockReset());
+  beforeEach(() => {
+    detailGet.mockReset();
+  });
 
   it('refetches the evidence when the standings are regenerated, keeping the old rows until then', async () => {
     let release!: () => void;
@@ -35,7 +37,7 @@ describe('useUserDetail', () => {
     );
 
     const { result, rerender } = renderHook(
-      ({ at }: { at: string }) => useUserDetail('srivera', selection, at),
+      ({ at }: { at: string }) => useUserDetail('srivera', selection, at, null),
       { wrapper, initialProps: { at: '2026-08-31T12:00:00.000Z' } }
     );
     await waitFor(() => expect(result.current.data).toEqual({ tag: 'first' }));
@@ -55,12 +57,38 @@ describe('useUserDetail', () => {
 
     const { result, rerender } = renderHook(
       ({ user }: { user: string }) =>
-        useUserDetail(user, selection, '2026-08-31T12:00:00.000Z'),
+        useUserDetail(user, selection, '2026-08-31T12:00:00.000Z', null),
       { wrapper, initialProps: { user: 'srivera' } }
     );
     await waitFor(() => expect(result.current.data).toEqual({ tag: 'sam' }));
 
     rerender({ user: 'nvance' });
     expect(result.current.data).toBeUndefined();
+  });
+
+  it("keeps a preview's evidence apart from the normal view's", async () => {
+    detailGet.mockImplementation(
+      async ({ query }: { query: Record<string, string> }) => ({
+        json: async () => ({ tag: query.viewAs ?? 'team' }),
+      })
+    );
+    const at = '2026-08-31T12:00:00.000Z';
+
+    const { result, rerender } = renderHook(
+      ({ viewAs }: { viewAs: string | null }) =>
+        useUserDetail('srivera', selection, at, viewAs),
+      { wrapper, initialProps: { viewAs: null as string | null } }
+    );
+    await waitFor(() => expect(result.current.data).toEqual({ tag: 'team' }));
+
+    rerender({ viewAs: 'srivera' });
+    expect(result.current.data).toBeUndefined();
+    await waitFor(() =>
+      expect(result.current.data).toEqual({ tag: 'srivera' })
+    );
+    expect(detailGet.mock.calls[1]![0].query).toMatchObject({
+      user: 'srivera',
+      viewAs: 'srivera',
+    });
   });
 });

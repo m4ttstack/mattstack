@@ -41,4 +41,54 @@ describe('useAppRoute', () => {
       username: 'alice@example.com',
     });
   });
+
+  it('routes /as/:name to that person, previewed as them', () => {
+    const { result } = renderHook(() => useAppRoute(), {
+      wrapper: atPath('/as/alice'),
+    });
+    expect(result.current).toEqual({
+      name: 'user',
+      username: 'alice',
+      as: 'alice',
+    });
+  });
+
+  it('routes /as/:name/:stat to their stat page', () => {
+    const { result } = renderHook(() => useAppRoute(), {
+      wrapper: atPath('/as/alice/mrsMerged'),
+    });
+    expect(result.current).toEqual({
+      name: 'stat',
+      username: 'alice',
+      stat: 'mrsMerged',
+      as: 'alice',
+    });
+  });
+
+  it("routes /as/:name/user/:other[/:stat] to someone else's page inside the preview", () => {
+    const user = renderHook(() => useAppRoute(), {
+      wrapper: atPath('/as/alice/user/bob'),
+    });
+    expect(user.result.current).toEqual({
+      name: 'user',
+      username: 'bob',
+      as: 'alice',
+    });
+    const stat = renderHook(() => useAppRoute(), {
+      wrapper: atPath('/as/alice/user/bob/mrsMerged'),
+    });
+    expect(stat.result.current).toEqual({
+      name: 'stat',
+      username: 'bob',
+      stat: 'mrsMerged',
+      as: 'alice',
+    });
+  });
+
+  it('routes /as/:name/:stat to not-found when the stat is not a known metric key', () => {
+    const { result } = renderHook(() => useAppRoute(), {
+      wrapper: atPath('/as/alice/not-a-real-metric'),
+    });
+    expect(result.current).toEqual({ name: 'not-found' });
+  });
 });

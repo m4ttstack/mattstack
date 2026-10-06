@@ -3,6 +3,7 @@ import type { LeaderboardResponse, MetricKey } from '../../shared/types';
 import type { RangeSelection } from '../api';
 import { useUserDetail } from '../hooks/useLeaderboard';
 import { scopeLabel, windowLabel } from '../model/labels';
+import { usePreviewAs } from '../preview/preview';
 import classes from './detail.module.css';
 import { PersonSummary } from './PersonSummary';
 import { ProfileHeader } from './ProfileHeader';
@@ -22,7 +23,8 @@ export function DetailPage({
   stat: MetricKey;
   selection: RangeSelection;
 }) {
-  const detail = useUserDetail(username, selection, data.generatedAt);
+  const viewAs = usePreviewAs();
+  const detail = useUserDetail(username, selection, data.generatedAt, viewAs);
   const self = data.viewer.role === 'self';
   const people = data.users.filter(
     u =>
@@ -47,6 +49,7 @@ export function DetailPage({
         stat={stat}
         meta={meta}
         self={self}
+        canPreview={data.viewer.role === 'team' && !data.previewing}
       />
       <PersonSummary
         users={data.users}

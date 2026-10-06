@@ -18,7 +18,7 @@ import type {
 } from '../../shared/types.js';
 import { applyRankings } from '../metrics/ranking.js';
 import { mean, percentile, round, streaks } from '../metrics/stats.js';
-import { canSeeUser, narrowForViewer } from '../viewer-scope.js';
+import { applyViewAs, canSeeUser, narrowForViewer } from '../viewer-scope.js';
 import {
   BASE_URL,
   CURRENT_USER,
@@ -126,10 +126,21 @@ function buildUsers(trend: boolean): UserRow[] {
 const generatedAt = (): string =>
   new Date(Date.now() - SYNCED_MINUTES_AGO * 60_000).toISOString();
 
-export function fixtureLeaderboard(trend: boolean): LeaderboardResponse {
-  const users = buildUsers(trend);
+export function fixtureLeaderboard(
+  trend: boolean,
+  viewAs?: string
+): LeaderboardResponse {
+  const { viewer, previewing } = applyViewAs(
+    fixtureViewer(),
+    viewAs,
+    ROSTER.map(([username]) => ({ username }))
+  );
+  const currentUser = previewing ? (viewer.username ?? '') : CURRENT_USER;
+  const users = buildUsers(trend).map(u => ({
+    ...u,
+    isCurrentUser: u.username === currentUser,
+  }));
   const leaders = applyRankings(users);
-  const viewer = fixtureViewer();
   return narrowForViewer(
     {
       scope: SCOPE,
@@ -137,8 +148,9 @@ export function fixtureLeaderboard(trend: boolean): LeaderboardResponse {
       priorWindow: trend ? { ...PRIOR_WINDOW } : null,
       hasTrend: trend,
       baseUrl: BASE_URL,
-      currentUser: CURRENT_USER,
+      currentUser,
       viewer,
+      previewing,
       generatedAt: generatedAt(),
       fromCache: true,
       metricNotes: {},
@@ -152,10 +164,11 @@ export function fixtureLeaderboard(trend: boolean): LeaderboardResponse {
 
 export function fixtureDetail(
   user: string,
-  trend: boolean
+  trend: boolean,
+  viewAs?: string
 ): UserDetailResponse | null | 'forbidden' {
-  if (!canSeeUser(fixtureViewer(), user)) return 'forbidden';
-  const board = fixtureLeaderboard(trend);
+  const board = fixtureLeaderboard(trend, viewAs);
+  if (!canSeeUser(board.viewer, user)) return 'forbidden';
   const want = user.toLowerCase();
   const row = board.users.find(u => u.username.toLowerCase() === want);
   if (!row) return null;
@@ -168,6 +181,7 @@ export function fixtureDetail(
     baseUrl: board.baseUrl,
     currentUser: board.currentUser,
     viewer: board.viewer,
+    previewing: board.previewing,
     generatedAt: board.generatedAt,
     fromCache: board.fromCache,
     user: row,

@@ -26,7 +26,11 @@ import {
 } from './refresh/index.js';
 import { getStore } from './store/index.js';
 import { resolveWindowArgs } from './util/window.js';
-import { SELF_ONLY_MESSAGE, ViewerForbiddenError } from './viewer-scope.js';
+import {
+  SELF_ONLY_MESSAGE,
+  UnknownViewAsError,
+  ViewerForbiddenError,
+} from './viewer-scope.js';
 
 const boolQuery = (c: Context, name: string): boolean =>
   c.req.query(name) === '1' || c.req.query(name) === 'true';
@@ -49,10 +53,19 @@ function windowFromQuery(c: Context) {
 
 const leaderboard = new Hono()
   .get('/api/leaderboard', async c => {
-    if (fixtureMode())
-      return fixtureScenario() === 'cold-stalled'
-        ? c.json(fixtureColdCache(), 200)
-        : c.json(fixtureLeaderboard(boolQuery(c, 'trend')));
+    if (fixtureMode()) {
+      if (fixtureScenario() === 'cold-stalled')
+        return c.json(fixtureColdCache(), 200);
+      try {
+        return c.json(
+          fixtureLeaderboard(boolQuery(c, 'trend'), c.req.query('viewAs'))
+        );
+      } catch (err) {
+        if (err instanceof UnknownViewAsError)
+          return c.json({ error: err.message }, 404);
+        throw err;
+      }
+    }
     const window = windowFromQuery(c);
     if (window instanceof Response) return window;
 
@@ -66,6 +79,7 @@ const leaderboard = new Hono()
         refresh,
         trend,
         cacheOnly,
+        viewAs: c.req.query('viewAs'),
       });
       return c.json(result);
     } catch (err) {
@@ -77,6 +91,8 @@ const leaderboard = new Hono()
         };
         return c.json(cold, 200);
       }
+      if (err instanceof UnknownViewAsError)
+        return c.json({ error: err.message }, 404);
       if (err instanceof ConfigError)
         return c.json({ error: err.message }, 400);
       console.error('[leaderboard] failed:', err);
@@ -87,7 +103,18 @@ const leaderboard = new Hono()
     const user = c.req.query('user');
     if (!user) return c.json({ error: 'user query param is required' }, 400);
     if (fixtureMode()) {
-      const detail = fixtureDetail(user, boolQuery(c, 'trend'));
+      let detail: ReturnType<typeof fixtureDetail>;
+      try {
+        detail = fixtureDetail(
+          user,
+          boolQuery(c, 'trend'),
+          c.req.query('viewAs')
+        );
+      } catch (err) {
+        if (err instanceof UnknownViewAsError)
+          return c.json({ error: err.message }, 404);
+        throw err;
+      }
       if (detail === 'forbidden')
         return c.json({ error: SELF_ONLY_MESSAGE }, 403);
       return detail
@@ -102,12 +129,18 @@ const leaderboard = new Hono()
     const trend = boolQuery(c, 'trend');
 
     try {
-      const result = await getUserDetail({ window, refresh, trend, user });
+      const result = await getUserDetail({
+        window,
+        refresh,
+        trend,
+        user,
+        viewAs: c.req.query('viewAs'),
+      });
       return c.json(result);
     } catch (err) {
       if (err instanceof ViewerForbiddenError)
         return c.json({ error: err.message }, 403);
-      if (err instanceof UnknownUserError)
+      if (err instanceof UnknownUserError || err instanceof UnknownViewAsError)
         return c.json({ error: err.message }, 404);
       if (err instanceof ConfigError)
         return c.json({ error: err.message }, 400);

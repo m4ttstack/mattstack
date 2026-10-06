@@ -78,6 +78,7 @@ export function buildResponse(
     baseUrl: ctx.baseUrl,
     currentUser: ctx.currentUser,
     viewer: ctx.viewer,
+    previewing: false,
     generatedAt: ctx.generatedAt,
     fromCache: ctx.fromCache,
     metricNotes,

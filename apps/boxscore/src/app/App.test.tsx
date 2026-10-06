@@ -35,6 +35,7 @@ const EMPTY: LeaderboardResponse = {
   baseUrl: 'https://gitlab.example.com',
   currentUser: '',
   viewer: { username: '', role: 'team' },
+  previewing: false,
   generatedAt: '2026-08-31T12:00:00.000Z',
   fromCache: true,
   metricNotes: {},
@@ -248,7 +249,8 @@ describe('App: refresh on the person page', () => {
     expect(useUserDetail).toHaveBeenLastCalledWith(
       'srivera',
       expect.anything(),
-      after.generatedAt
+      after.generatedAt,
+      null
     );
     expect(rows()).toHaveLength(2);
   });
