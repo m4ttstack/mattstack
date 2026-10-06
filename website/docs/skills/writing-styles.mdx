@@ -24,10 +24,10 @@ The preset sets the voice; a shared floor binds all three. Among other things, a
 Which style applies is resolved in this order: the `skills.writingStyle` setting (your user scope beats the team's), then a `writing-style:` line in `~/.mattstack/user/skills/preferences.md`, then `mattstack:writing-style-conversational`.
 
 ```bash
-rt skills writing-style show           # the style in use, and where it comes from
-rt skills writing-style list           # the three presets, plus your own and installed styles
-rt skills writing-style use sparse     # choose one
-rt skills writing-style new my-voice   # start your own from a preset
+rt skills writing-style show                                # the style in use, and where it comes from
+rt skills writing-style list                                # the three presets, plus your own and installed styles
+rt skills writing-style use mattstack:writing-style-sparse  # choose one, by its full skill id
+rt skills writing-style new my-voice                        # start your own from a preset
 ```
 
 - [`use`](/rt/reference/skills/writing-style/use) takes a preset or any installed skill id, and refuses an id that is not installed. `--scope team` sets the team default instead of your own.

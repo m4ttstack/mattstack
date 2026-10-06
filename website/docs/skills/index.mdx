@@ -16,7 +16,7 @@ Only a handful of skills are directly invocable once the plugin is installed:
 - [`mattstack:wrap-up`](/skills/wrap-up) turns open decisions into a form.
 - [`mattstack:writing-style-conversational`, `-sparse` and `-structured`](/skills/writing-styles) are the voice presets for prose posted under your name.
 - [`mattstack:creating-a-pack` and `mattstack:extending-a-pack`](/skills/packs) put the pipeline on your team's repo and teach it your rules.
-- `mattstack:editing-skills`, `mattstack:getting-current-time` and `mattstack:process-digraphs` are the other public doors. The first triggers when a skill change is not showing up where it should, and the second almost never, because a hook already stamps the time into context on every prompt.
+- `mattstack:editing-skills`, `mattstack:getting-current-time` and `mattstack:process-digraphs` are the other public doors. The first triggers when a skill change is not showing up where it should. The second almost never does, because a hook already stamps the time into context on every prompt. The third triggers when you write or revise a skill that walks an agent through a process from start to end, such as a pipeline stage or a release, and draws that process as a graph the agent follows.
 
 Everything else in the plugin is an engine: it is not on any slash menu and becomes runnable only once a team's own pack compiles it into a verb. Those are the pipeline stages, the review cluster and the forge adapters, so a team pack, not the plugin on its own, is what gives you `/<team>:work`. See [Packs](/skills/packs).
 

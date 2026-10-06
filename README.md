@@ -12,7 +12,9 @@ the project at **[mattstack.dev](https://mattstack.dev)**.
 
 ## What's inside
 
-Every app shares rt's background daemon and one settings store.
+mattstack.app runs the served apps (board, deck, console, chat and boxscore),
+and they read one shared settings store. fast-browser and flock come from
+their own repos and keep their own settings.
 
 | Piece | What it is | Docs | Folder |
 |---|---|---|---|
