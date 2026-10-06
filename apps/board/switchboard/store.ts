@@ -34,6 +34,7 @@ export class SwitchboardStore {
       token_hash TEXT NOT NULL,
       created_at INTEGER NOT NULL
     )`);
+    db.run(`CREATE TABLE IF NOT EXISTS asks_off (username TEXT PRIMARY KEY)`);
     db.run(`CREATE TABLE IF NOT EXISTS envelopes (
       id TEXT NOT NULL,
       recipient TEXT NOT NULL,
@@ -142,8 +143,25 @@ export class SwitchboardStore {
       if (gone === 0) return false;
       this.db.run(`DELETE FROM envelopes WHERE recipient = ?`, [canonical]);
       this.db.run(`DELETE FROM invites WHERE username = ?`, [canonical]);
+      this.db.run(`DELETE FROM asks_off WHERE username = ?`, [canonical]);
       return true;
     })();
+  }
+
+  setAsksEnabled(username: string, enabled: boolean): void {
+    const u = canonicalUsername(username);
+    if (enabled) this.db.run(`DELETE FROM asks_off WHERE username = ?`, [u]);
+    else
+      this.db.run(`INSERT OR IGNORE INTO asks_off (username) VALUES (?)`, [u]);
+  }
+
+  listAskableUsernames(): string[] {
+    return this.db
+      .query<{ username: string }, []>(
+        `SELECT username FROM boards WHERE username NOT IN (SELECT username FROM asks_off) ORDER BY username`
+      )
+      .all()
+      .map(r => r.username);
   }
 
   listBoards(): Array<{ username: string; createdAt: number }> {

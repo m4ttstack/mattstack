@@ -1097,96 +1097,37 @@ describe('rowStatus: doctor lane', () => {
 });
 
 describe('rowStatus: social lanes', () => {
-  test('an inbound nudge is warn with the re-review verb and the age', () => {
-    const [line] = candidateLines(
-      mr({ nudges: [{ from: 'jo', receivedAt: NOW - 30 * 60_000 }] }),
-      NOW,
-      NONE,
-      ME
+  test('an inbound ask a stale row still carries is ignored', () => {
+    const stale = mr({
+      nudges: [{ from: 'jo', receivedAt: NOW - 30 * 60_000 }],
+    } as never);
+    expect(candidateLines(stale, NOW, NONE, ME)).toEqual(
+      candidateLines(mr({}), NOW, NONE, ME)
     );
-    expect(line).toMatchObject({
-      tone: 'warn',
-      word: 'jo asked for a re-review',
-      detail: '30m ago',
-    });
-    expect(line!.verbs[0]).toEqual({ kind: 're-review', label: 're-review' });
   });
 
-  test('an inbound first-look ask words a review and verbs a plain launch', () => {
-    const [line] = candidateLines(
-      mr({
-        nudges: [{ from: 'jo', receivedAt: NOW - 30 * 60_000, kind: 'review' }],
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(line).toMatchObject({
-      tone: 'warn',
-      word: 'jo asked for a review',
-      detail: '30m ago',
-    });
-    expect(line!.verbs[0]).toEqual({ kind: 'launch-review', label: 'review' });
-  });
-
-  test('an ask that waits for a click says which verb starts it', () => {
-    const [line] = candidateLines(
-      mr({
-        nudges: [
-          {
-            from: 'jo',
-            receivedAt: NOW - 30 * 60_000,
-            kind: 'review',
-            awaitsClick: true,
-          },
-        ],
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(line).toMatchObject({
-      word: 'jo asked for a review',
-      detail: '30m ago · click review to start',
-    });
-  });
-
-  test('an inbound respond ask words a response and verbs a respond launch', () => {
-    const [line] = candidateLines(
-      own({
-        nudges: [
-          { from: 'jo', receivedAt: NOW - 10 * 60_000, kind: 'respond' },
-        ],
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(line).toMatchObject({
-      tone: 'warn',
-      word: 'jo asked for a response',
-      detail: '10m ago',
-    });
-    expect(line!.verbs[0]).toEqual({
-      kind: 'launch-respond',
-      label: 'respond',
-    });
-  });
-
-  test('the longest-waiting inbound nudge wins the line', () => {
-    const s = rowStatus(
-      mr({
-        nudges: [
-          { from: 'kim', receivedAt: NOW - 5 * 60_000 },
-          { from: 'jo', receivedAt: NOW - 30 * 60_000 },
-        ],
-      }),
-      NOW,
-      NONE,
-      ME
-    );
-    expect(s.line.word).toBe('jo asked for a re-review');
-    expect(s.more.map(l => l.word)).toEqual(['kim asked for a re-review']);
+  test("a pending ask hides that peer's own reviewing line like a requested one", () => {
+    const peerReviews = [
+      {
+        mrUrl: 'u',
+        iid: 1,
+        reviewer: 'mira',
+        status: 'reviewing',
+        updatedAt: NOW,
+      },
+    ];
+    const words = (display: 'pending' | 'requested') =>
+      candidateLines(
+        mr({
+          peerReviews,
+          sentNudge: { display, reviewer: 'mira', sentAt: NOW },
+        }),
+        NOW,
+        NONE,
+        ME
+      ).map(l => l.word);
+    expect(words('pending')).toEqual(words('requested'));
+    expect(words('pending')).not.toContain('mira is reviewing…');
   });
 
   test('a held draft is warn with the read verb carrying the draft; a resolved one is skipped', () => {
@@ -1838,12 +1779,6 @@ describe("author-only verbs stay off someone else's row", () => {
     ['a stuck doctor', { doctor: { status: 'error' } }],
     ['a running doctor', { doctor: { status: 'fixing' } }],
     ['a running response', { respond: { status: 'drafting' } }],
-    [
-      'an inbound respond ask',
-      {
-        nudges: [{ from: 'jo', receivedAt: NOW - 60_000, kind: 'respond' }],
-      },
-    ],
     [
       'an interrupted response',
       { respond: { status: 'implementing', sessionId: 'sess-1' }, orphan },

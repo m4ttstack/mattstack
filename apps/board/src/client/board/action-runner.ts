@@ -227,6 +227,7 @@ function postSpec(req: PostRequest): PostSpec {
           iid: mr.iid,
           reviewer,
           kind: req.ask,
+          ...(req.note ? { note: req.note } : {}),
         }),
         pending: mr =>
           `requesting ${req.ask} of ${mrRef(mr)} from ${reviewer}…`,

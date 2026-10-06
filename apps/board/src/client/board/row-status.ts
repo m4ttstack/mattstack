@@ -593,29 +593,10 @@ function draftLines(mr: BoardMRWithReview, resolved: Resolved): Candidate[] {
     reviews of this MR, and GitLab reviewers with a review open right now. */
 function peerLines(mr: BoardMRWithReview, now: number): Candidate[] {
   const out: Candidate[] = [];
-  const nudges = [...(mr.nudges ?? [])].sort(
-    (a, b) => a.receivedAt - b.receivedAt
-  );
-  for (const n of nudges) {
-    const kind = n.kind ?? 're-review';
-    const verb: Verb =
-      kind === 'review'
-        ? { kind: 'launch-review', label: 'review' }
-        : kind === 'respond'
-          ? { kind: 'launch-respond', label: 'respond' }
-          : { kind: 're-review', label: 're-review' };
-    const age = agoMs(n.receivedAt, now);
-    const hint = n.awaitsClick ? `click ${verb.label} to start` : undefined;
-    out.push({
-      tone: 'warn',
-      word: `${n.from} asked for a ${kind === 'respond' ? 'response' : kind}`,
-      detail: [age, hint].filter(Boolean).join(' · ') || undefined,
-      verbs: [verb],
-    });
-  }
   const asked = mr.sentNudge;
   const askInFlight =
     asked?.display === 'requested' ||
+    asked?.display === 'pending' ||
     asked?.display === 'confirmed' ||
     asked?.display === 'launched'
       ? asked.reviewer

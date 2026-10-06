@@ -22,6 +22,10 @@ export interface PeeringHost {
   makeClient(url: string, token: string): SwitchboardClient;
   deps: Omit<MaterializeDeps, 'reportAuth'>;
   tickMs?: number;
+  /** Whether this board takes asks; the tick tells the relay when it changes. */
+  asksEnabled?: () => boolean;
+  /** Called after each tick; a throw is logged, never raised. */
+  onTick?: () => void;
   /** Outbox db to drain on each tick. Defaults to the shared state db, which
       is what production wants; tests must pin a temp db so a run never
       drains the real queue. */
@@ -37,6 +41,8 @@ export function makePeering(host: PeeringHost) {
   let timer: ReturnType<typeof setInterval> | null = null;
   let strikes = 0;
   let peers: string[] | null = null;
+  let asksSent: boolean | null = null;
+  let asksUnsupported = false;
   const deps: MaterializeDeps = {
     ...host.deps,
     reportAuth: state => {
@@ -53,6 +59,24 @@ export function makePeering(host: PeeringHost) {
       await runPeerTick(runtime.client, deps, host.outboxDb);
       const fetched = await runtime.client.peers();
       if (fetched) peers = fetched;
+      const want = host.asksEnabled?.();
+      if (want !== undefined && !asksUnsupported && want !== asksSent) {
+        const r = await runtime.client.setAsksEnabled(want);
+        if (r === 'ok') asksSent = want;
+        if (r === 'unsupported') {
+          asksUnsupported = true;
+          host.deps.log(
+            'peer: this switchboard cannot take boards off ask pickers; update the relay'
+          );
+        }
+      }
+      try {
+        host.onTick?.();
+      } catch (err) {
+        host.deps.log(
+          `peer: tick hook failed: ${err instanceof Error ? err.message : err}`
+        );
+      }
     })().finally(() => {
       running = null;
     });
@@ -80,6 +104,8 @@ export function makePeering(host: PeeringHost) {
   function start(url: string, token: string): PeerRuntime {
     if (timer) clearInterval(timer);
     strikes = 0;
+    asksSent = null;
+    asksUnsupported = false;
     const client = host.makeClient(url, token);
     runtime = {
       client,

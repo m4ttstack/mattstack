@@ -153,6 +153,32 @@ export function askBandModel(
         }
       );
     case 'rejected':
+      if (sent.declined)
+        return band(
+          {
+            tone: 'bad',
+            icon: 'ban',
+            label: sent.reason
+              ? `${name} declined: ${sent.reason}`
+              : `${name} declined`,
+            actions: ['dismiss'],
+          },
+          {
+            name: 'Declined',
+            detail: sent.declineNote ?? sent.reason ?? `${name} said no`,
+            at: sent.resolvedAt,
+          }
+        );
+      if (sent.reason === 'asks-off')
+        return band(
+          {
+            tone: 'bad',
+            icon: 'ban',
+            label: `${name} has asks turned off`,
+            actions: ['dismiss'],
+          },
+          { name: 'Declined', detail: `${name}'s board takes no asks` }
+        );
       return band(
         {
           tone: 'bad',
@@ -186,6 +212,21 @@ export function askBandModel(
         },
         { name: 'Started', detail: `${name}'s agent`, at: sent.resolvedAt },
         { name: 'No update', detail: `${name}'s agent has been quiet for 30m` }
+      );
+    case 'pending':
+      return band(
+        {
+          tone: 'neutral',
+          icon: 'hourglass',
+          label: `waiting for ${name}'s go ahead`,
+          actions: ['dismiss'],
+          ...(sent.sentAt ? { note: `Sent ${clock(sent.sentAt, now)}` } : {}),
+        },
+        {
+          name: 'Waiting',
+          detail: `for ${name}'s go ahead`,
+          at: sent.resolvedAt,
+        }
       );
     case 'requested':
       return band({
