@@ -363,10 +363,8 @@ body {
 .tui-side-item:focus-visible,
 .tui-side-gear:focus-visible,
 .tui-burger:focus-visible,
-.tui-invite-btn:focus-visible,
 .tui-draft-act:focus-visible,
 .tui-modal-x:focus-visible,
-.tui-join-toggle:focus-visible,
 .tui-drawer-action:focus-visible,
 .tui-menu-button:focus-visible,
 .tui-tab:focus-visible {
@@ -1896,55 +1894,7 @@ body {
   flex-shrink: 0;
 }
 
-/* ── peering: invite / re-invite / join ───────────────────────────────── */
-/* "already has a board" marker, in the quiet small-caps register of .tui-modal-count */
-.tui-peered {
-  flex-shrink: 0;
-  color: var(--text-4);
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-/* small action button, in the .tui-draft-act family but sized for a list row */
-.tui-invite-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex-shrink: 0;
-  padding: 2px 8px;
-  font: inherit;
-  font-size: 0.75rem;
-  cursor: pointer;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-1);
-}
-.tui-invite-btn:hover:not(:disabled) {
-  background: var(--card);
-}
-.tui-invite-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-/* One green, TWO producers, signalled differently -- both selectors are
-   load-bearing. The CopyButton recipe ("copy invite") stamps `data-copied`
-   after a successful write; the ARMED RE-INVITE is a plain board button that
-   sets the `copied` CLASS itself while it waits for its confirm click. Drop
-   the class half and the armed state goes unstyled -- and no capture arms a
-   re-invite, so the pixel gate would not catch it. */
-.tui-invite-btn.copied,
-.tui-invite-btn[data-copied] {
-  color: var(--text-ok-small);
-  border-color: var(--fill-ok);
-}
-/* free-text handle entry, and the join input: field + button on one line */
-.tui-invite-new {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 0.7rem;
-}
+/* ── text input shared by the config modal ─────────────────────────── */
 .tui-invite-input {
   flex: 1;
   min-width: 0;
@@ -1958,64 +1908,6 @@ body {
 }
 .tui-invite-input::placeholder {
   color: var(--text-3);
-}
-/* the issued invite: the string itself, its copy button, and what it's good for */
-.tui-invite-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 0.7rem;
-  padding: 0.5rem 0.6rem;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-.tui-invite-code {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  color: var(--text-1);
-  overflow-wrap: anywhere;
-}
-.tui-invite-note {
-  flex-basis: 100%;
-  color: var(--text-4);
-  font-size: 0.72rem;
-}
-.tui-invite-error {
-  color: var(--text-bad-small);
-  margin: 0.6rem 0 0;
-}
-/* join / re-join sits below the roster, separated the way the modal separates
-   its own sections: a hairline rule, not a heading. */
-.tui-join-row {
-  margin-top: 0.9rem;
-  padding-top: 0.8rem;
-  border-top: 1px solid var(--border);
-}
-.tui-join-label {
-  color: var(--text-3);
-  font-size: 0.76rem;
-}
-.tui-join-warning {
-  color: var(--text-bad-small);
-  margin: 0 0 0.5rem;
-}
-/* collapsed affordance: a text button, so a healthy board isn't nagged by a form */
-.tui-join-toggle {
-  padding: 0;
-  font: inherit;
-  font-size: 0.76rem;
-  cursor: pointer;
-  background: none;
-  border: none;
-  color: var(--text-3);
-  text-decoration: underline;
-}
-.tui-join-toggle:hover {
-  color: var(--text-1);
 }
 
 /* ── stacked chains ───────────────────────────────────────────────── */
