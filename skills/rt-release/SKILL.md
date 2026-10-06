@@ -134,8 +134,8 @@ digraph rt_release {
 anything else takes the full path. The fast path ships every served app that moved in one
 patch release, however many there are: the diff since the last tag touches only served-app
 directories (`apps/board`, `apps/boxscore`, `apps/chat`, `apps/console`, `apps/gitq`), the
-kits only those apps build from (`packages/ui`, `packages/tokyo`, `packages/settings-kit`,
-`packages/gate-kit`, each counting as every app built from it), `RELEASE_NOTES.md` and
+kits only those apps build from (`packages/ui`, `packages/tokyo`, `packages/gate-kit`, each
+counting as every app built from it), `RELEASE_NOTES.md` and
 `website/`. A deck change, a tool row, fast-browser, any other package, or any rt file takes
 the full path.
 

@@ -6,7 +6,7 @@ import { afterAll, expect, test } from 'bun:test';
 // Proves server.ts's settingsHandler mount refreshes the module-level `config`
 // singleton after a successful write. Before that fix, `config` was only
 // resolved once at boot and reloaded on config.json changes -- a write
-// through this very API (e.g. the ConfigModal) persisted correctly but never
+// through this very API persisted correctly but never
 // reached a running process without a restart. Real (non-fixture) boot, so
 // server.ts's actual settingsHandler mount and reload path both run for real.
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-settings-reload-'));

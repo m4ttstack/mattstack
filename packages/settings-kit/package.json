@@ -13,6 +13,10 @@
       "types": "./dist/shapes.d.ts",
       "default": "./dist/shapes.js"
     },
+    "./embed": {
+      "types": "./dist/embed.d.ts",
+      "default": "./dist/embed.js"
+    },
     "./react": {
       "types": "./dist/react.d.ts",
       "default": "./dist/react.js"
@@ -25,7 +29,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "bun build src/server.ts --outdir dist --target node --format esm --packages external && bun build src/react.ts --outdir dist --target browser --format esm --packages external && bun build src/shapes.ts --outdir dist --target browser --format esm --packages external && tsc -p tsconfig.json",
+    "build": "bun build src/server.ts --outdir dist --target node --format esm --packages external && bun build src/react.ts --outdir dist --target browser --format esm --packages external && bun build src/shapes.ts --outdir dist --target browser --format esm --packages external && bun build src/embed.ts --outdir dist --target browser --format esm --packages external && tsc -p tsconfig.json",
     "check-types": "tsc --noEmit -p tsconfig.json",
     "prepack": "bun run build"
   },

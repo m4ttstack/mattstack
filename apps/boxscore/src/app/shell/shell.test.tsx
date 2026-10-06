@@ -45,40 +45,28 @@ describe('kit shell', () => {
     const controls = Array.from(banner.querySelectorAll('button, a')).map(
       el => el.getAttribute('aria-label') ?? el.textContent
     );
-    expect(controls).toEqual([
-      'Refresh',
-      'Settings, opens console in a new tab',
-      'Color scheme: System',
-    ]);
+    expect(controls).toEqual(['Refresh', 'Settings', 'Color scheme: System']);
   });
 
-  it('links settings out to the console boxscore section in a new tab', () => {
-    renderAt('/');
-    const link = within(screen.getByRole('banner')).getByRole('link', {
-      name: 'Settings, opens console in a new tab',
-    });
-    expect(link.getAttribute('href')).toMatch(/\/settings#boxscore$/);
-    expect(link).toHaveAttribute('target', '_blank');
-  });
-
-  it('names the console destination in the settings tooltip', async () => {
+  it("opens console's boxscore settings in a modal", async () => {
     const user = userEvent.setup();
     renderAt('/');
-    await user.hover(
-      within(screen.getByRole('banner')).getByRole('link', {
-        name: 'Settings, opens console in a new tab',
+    await user.click(
+      within(screen.getByRole('banner')).getByRole('button', {
+        name: 'Settings',
       })
     );
-    expect(
-      await screen.findByText('Opens console › boxscore', {}, { timeout: 2000 })
-    ).toBeInTheDocument();
+    const frame = await screen.findByTitle('boxscore settings');
+    const src = new URL(frame.getAttribute('src')!);
+    expect(src.origin).toBe('https://console.mattstack');
+    expect(src.pathname).toBe('/embed/settings/boxscore');
   });
 
   it('keeps the same top bar on a person page', () => {
     renderAt('/user/srivera');
     const banner = within(screen.getByRole('banner'));
     expect(
-      banner.getByRole('link', { name: 'Settings, opens console in a new tab' })
+      banner.getByRole('button', { name: 'Settings' })
     ).toBeInTheDocument();
     expect(
       banner.getByRole('button', { name: 'Color scheme: System' })

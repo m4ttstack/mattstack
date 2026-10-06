@@ -42,12 +42,50 @@ function relax(node: unknown, insideArray: boolean): unknown {
   return out;
 }
 
+/** A `oneOf` whose branches each require a distinct `const` on one property
+    (zod's discriminatedUnion) is checked as if/then on that tag: plain
+    `oneOf` reports every failing branch, so a codeowners tab would read
+    "expected authors" and never name its missing section. */
+function discriminated(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(discriminated);
+  if (!isSchema(schema)) return schema;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(schema)) out[k] = discriminated(v);
+  const branches = out.oneOf;
+  if (!Array.isArray(branches)) return out;
+  const tag = tagOf(branches);
+  if (!tag) return out;
+  const values = branches.map((b) => ((b as Record<string, Record<string, Record<string, unknown>>>).properties![tag]!).const);
+  const { oneOf: _drop, ...rest } = out;
+  return {
+    ...rest,
+    type: "object",
+    required: [tag],
+    properties: { [tag]: { enum: values } },
+    allOf: branches.map((b, i) => ({ if: { type: "object", properties: { [tag]: { const: values[i] } }, required: [tag] }, then: b })),
+  };
+}
+
+function tagOf(branches: unknown[]): string | null {
+  const first = isSchema(branches[0]) ? branches[0].properties : undefined;
+  if (!isSchema(first)) return null;
+  for (const name of Object.keys(first)) {
+    const tags = branches.map((b) => {
+      if (!isSchema(b) || !isSchema(b.properties) || !Array.isArray(b.required) || !b.required.includes(name)) return undefined;
+      const prop = b.properties[name];
+      return isSchema(prop) && "const" in prop ? prop.const : undefined;
+    });
+    if (tags.every((t) => t !== undefined) && new Set(tags).size === tags.length) return name;
+  }
+  return null;
+}
+
 const validators = new WeakMap<JsonSchema, Validator>();
 
 function validatorFor(json: JsonSchema): Validator {
   let v = validators.get(json);
   if (!v) {
-    v = new Validator(json as never, "2020-12", false);
+    v = new Validator(discriminated(json) as never, "2020-12", false);
     validators.set(json, v);
   }
   return v;
@@ -56,10 +94,43 @@ function validatorFor(json: JsonSchema): Validator {
 /** Browser and server share this: a JSON Schema check with rt's issue shape. */
 export function validateJson(json: JsonSchema, value: unknown): SchemaIssue[] {
   const out = validatorFor(json).validate(value);
-  return out.valid ? [] : toIssues(out.errors);
+  return [...(out.valid ? [] : toIssues(out.errors)), ...uniqueByIssues(json, value)];
 }
 
-const SUMMARY_KEYWORDS = new Set(["properties", "items", "additionalProperties", "prefixItems", "allOf", "anyOf", "oneOf", "propertyNames"]);
+/** `uniqueBy` is rt's one schema keyword beyond JSON Schema (zod `.meta()`
+    carries it into the lock): no two items of that array may share the named
+    property's value. JSON Schema cannot say "unique by a field", so both
+    validators check it after the standard pass. */
+function uniqueByIssues(schema: JsonSchema, value: unknown, path: (string | number)[] = []): SchemaIssue[] {
+  const out: SchemaIssue[] = [];
+  if (Array.isArray(value)) {
+    const field = schema.uniqueBy;
+    if (typeof field === "string") {
+      const seen = new Set<unknown>();
+      value.forEach((item, i) => {
+        if (item === null || typeof item !== "object") return;
+        const v = (item as Record<string, unknown>)[field];
+        if (v === undefined) return;
+        if (seen.has(v)) out.push({ path: [...path, i, field], message: `duplicate ${field} "${String(v)}"` });
+        seen.add(v);
+      });
+    }
+    const items = schema.items;
+    if (isSchema(items)) value.forEach((item, i) => out.push(...uniqueByIssues(items, item, [...path, i])));
+  } else if (value !== null && typeof value === "object") {
+    const props = schema.properties;
+    const extra = schema.additionalProperties;
+    for (const [k, v] of Object.entries(value)) {
+      const own = isSchema(props) ? (props as Record<string, unknown>)[k] : undefined;
+      const sub = isSchema(own) ? own : isSchema(extra) ? extra : null;
+      if (sub) out.push(...uniqueByIssues(sub, v, [...path, k]));
+    }
+  }
+  return out;
+}
+
+
+const SUMMARY_KEYWORDS = new Set(["properties", "items", "additionalProperties", "prefixItems", "allOf", "anyOf", "oneOf", "propertyNames", "if", "then", "else"]);
 
 /** cfworker reports outer-first with a summary unit per container; only the deepest units are issues. */
 function toIssues(units: OutputUnit[]): SchemaIssue[] {

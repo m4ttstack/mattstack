@@ -22,3 +22,5 @@ export { NotFoundPage } from './NotFoundPage';
 export { useDaemonHealth } from './useDaemonHealth';
 export { useShellRail } from './shell-context';
 export type { ShellRailState } from './shell-context';
+export { SettingsEmbedModal } from './SettingsEmbedModal';
+export type { SettingsEmbedModalProps } from './SettingsEmbedModal';

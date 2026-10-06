@@ -173,6 +173,10 @@ export function ItemCards({
   onTouched?: (touched: ReadonlyMap<CardKey, ReadonlySet<string>>) => void;
 }) {
   const next = useRef(value.length);
+  // Card ids below this mounted with the stored value; above it, added here.
+  const stored = useRef(value.length);
+  const atFloor = value.length <= (shape.minItems ?? 0);
+  const unique = shape.uniqueBy;
   const [ids, setIds] = useState(() => value.map((_, i) => i));
   // Seeded from the mount-time issues (ids[i] === i at mount, before any
   // reorder), so a card opened already nonconforming starts touched on its
@@ -247,9 +251,13 @@ export function ItemCards({
                 onClick={() => move(i, i + 1)}
               />
               <CardAction
-                label={`remove item ${i + 1}`}
+                label={
+                  atFloor
+                    ? `item ${i + 1} cannot be removed: at least ${shape.minItems} needed`
+                    : `remove item ${i + 1}`
+                }
                 icon={<Icons.trash size={14} />}
-                disabled={disabled}
+                disabled={disabled || atFloor}
                 onClick={() => remove(i)}
               />
             </Group>
@@ -261,6 +269,16 @@ export function ItemCards({
             issues={issuesUnder(issues, i)}
             touched={touched[ids[i]!] ?? NO_TOUCHED}
             onTouch={name => markTouched(ids[i]!, name)}
+            isNew={ids[i]! >= stored.current}
+            taken={
+              unique
+                ? value.flatMap((x, j) =>
+                    j !== i && typeof x[unique] === 'string'
+                      ? [x[unique] as string]
+                      : []
+                  )
+                : []
+            }
             onChange={e => onChange(value.map((x, j) => (j === i ? e : x)))}
           />
         </Box>

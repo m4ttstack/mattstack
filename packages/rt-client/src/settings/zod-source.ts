@@ -8,10 +8,13 @@
 
 import { isSchema, type JsonSchema } from "./schema.ts";
 
-const ANNOTATIONS = new Set(["$schema", "$id", "title", "description", "default", "examples", "labels", "placeholder", "deprecated", "readOnly", "writeOnly"]);
+const ANNOTATIONS = new Set(["$schema", "$id", "title", "description", "default", "examples", "labels", "placeholder", "deprecated", "readOnly", "writeOnly", "inherits", "suggest", "slugFrom", "initial"]);
+// Carried back as `.meta()`, so a rebuilt branch of a oneOf (compared whole) matches its lock entry.
+const NOT_META = new Set(["$schema", "$id"]);
 const HANDLED = new Set([
   "type", "properties", "required", "additionalProperties", "propertyNames", "items", "prefixItems", "enum", "const", "anyOf", "oneOf",
   "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "minItems", "maxItems", "pattern",
+  "uniqueBy",
 ]);
 
 const bound = (method: string, v: unknown) => (typeof v === "number" ? `.${method}(${v})` : "");
@@ -19,7 +22,28 @@ const propKey = (name: string) => (/^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON
 
 export function zodSource(s: JsonSchema): string {
   const extra = Object.keys(s).filter((k) => !HANDLED.has(k) && !ANNOTATIONS.has(k));
-  return `${build(s)}${extra.length > 0 ? ` /* not rebuilt: ${extra.join(", ")} */` : ""}`;
+  return `${build(s)}${metaOf(s)}${extra.length > 0 ? ` /* not rebuilt: ${extra.join(", ")} */` : ""}`;
+}
+
+function metaOf(s: JsonSchema): string {
+  const meta = Object.fromEntries(Object.entries(s).filter(([k]) => (ANNOTATIONS.has(k) && !NOT_META.has(k)) || k === "uniqueBy"));
+  return Object.keys(meta).length > 0 ? `.meta(${JSON.stringify(meta)})` : "";
+}
+
+/** The property every branch requires as a distinct `const`: what zod's
+    discriminatedUnion emits as `oneOf`. */
+function discriminator(branches: JsonSchema[]): string | null {
+  const first = branches[0]?.properties;
+  if (!isSchema(first)) return null;
+  for (const name of Object.keys(first)) {
+    const tags = branches.map((b) => {
+      const prop = isSchema(b.properties) ? (b.properties as Record<string, unknown>)[name] : undefined;
+      const required = Array.isArray(b.required) && b.required.includes(name);
+      return required && isSchema(prop) && "const" in prop ? prop.const : undefined;
+    });
+    if (tags.every((t) => t !== undefined) && new Set(tags).size === tags.length) return name;
+  }
+  return null;
 }
 
 function build(s: JsonSchema): string {
@@ -30,7 +54,13 @@ function build(s: JsonSchema): string {
       : `z.union([${s.enum.map((v) => `z.literal(${JSON.stringify(v)})`).join(", ")}])`;
   }
   if (Array.isArray(s.anyOf)) return `z.union([${(s.anyOf as JsonSchema[]).map(zodSource).join(", ")}])`;
-  if (Array.isArray(s.oneOf)) return `z.union([${(s.oneOf as JsonSchema[]).map(zodSource).join(", ")}]) /* oneOf in the lock */`;
+  if (Array.isArray(s.oneOf)) {
+    const branches = s.oneOf as JsonSchema[];
+    const tag = discriminator(branches);
+    return tag
+      ? `z.discriminatedUnion(${JSON.stringify(tag)}, [${branches.map(zodSource).join(", ")}])`
+      : `z.union([${branches.map(zodSource).join(", ")}]) /* oneOf in the lock */`;
+  }
   if (Array.isArray(s.type)) return `z.union([${(s.type as string[]).map((t) => build({ ...s, type: t })).join(", ")}])`;
   switch (s.type) {
     case "string":

@@ -8,6 +8,7 @@ export type AppRoute =
   | { name: 'search' }
   | { name: 'wiring' }
   | { name: 'settings' }
+  | { name: 'settings-embed'; group: string }
   | { name: 'config'; key: string }
   | { name: 'not-found' };
 
@@ -49,6 +50,7 @@ export function useAppRoute(): AppRoute {
   const [isSearch] = useRoute('/search');
   const [isWiring] = useRoute('/wiring');
   const [isSettings] = useRoute('/settings');
+  const [isEmbed, embedParams] = useRoute('/embed/settings/:group');
   const [isRun, runParams] = useRoute('/runs/:repo/:runId');
   const [isGate, gateParams] = useRoute('/gates/:id');
   const [isConfig, configParams] = useRoute('/config/:key');
@@ -57,6 +59,12 @@ export function useAppRoute(): AppRoute {
   if (isSearch) return { name: 'search' };
   if (isWiring) return { name: 'wiring' };
   if (isSettings) return { name: 'settings' };
+  if (isEmbed) {
+    const group = decodeParam(embedParams.group ?? '');
+    return group !== undefined
+      ? { name: 'settings-embed', group }
+      : { name: 'not-found' };
+  }
   if (isRun) {
     const repo = canonicalRepo(runParams.repo ?? '');
     const runId = decodeParam(runParams.runId ?? '');

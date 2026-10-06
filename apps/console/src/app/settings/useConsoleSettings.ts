@@ -66,6 +66,35 @@ export function useSettingsRepo(): string | null {
 }
 
 /** The machine's one team, as the defs response names it, or null. */
+/** Every def the page has loaded, so a form field can show what an empty
+    value inherits from another setting. */
+export const SettingsDefsContext = createContext<SettingDefWire[]>([]);
+
+/** The display value of a setting path (`board.slack.channel`: the longest
+    loaded key it starts with, then the leaf under it), or undefined when
+    nothing is set there. */
+export function useInheritedValue(
+  path: string | undefined
+): string | undefined {
+  const defs = useContext(SettingsDefsContext);
+  if (!path) return undefined;
+  const def = defs
+    .filter(d => path === d.key || path.startsWith(`${d.key}.`))
+    .sort((a, b) => b.key.length - a.key.length)[0];
+  if (!def) return undefined;
+  const rest = path.slice(def.key.length + 1);
+  let v: unknown = def.effective.value;
+  for (const part of rest ? rest.split('.') : []) {
+    v =
+      typeof v === 'object' && v !== null && !Array.isArray(v)
+        ? (v as Record<string, unknown>)[part]
+        : undefined;
+  }
+  if (typeof v === 'string') return v === '' ? undefined : v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  return undefined;
+}
+
 export const SettingsTeamContext = createContext<string | null>(null);
 
 export function useSettingsTeam(): string | null {
