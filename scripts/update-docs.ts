@@ -14,6 +14,7 @@
 import { spawnSync } from "child_process";
 import { writeFileSync } from "fs";
 import { parseCommit, buildReleaseNotes } from "./lib/release-notes.ts";
+import { REFERENCE_ROOT } from "./lib/docs-hand.ts";
 
 const REPO_URL = "https://github.com/m4ttstack/mattstack";
 const SKILL_PATH = "skills/rt-docs/SKILL.md";
@@ -76,5 +77,5 @@ if (!noAgent) {
 }
 
 // 4. Stage (never commit). Guides staged by the agent; stage the deterministic outputs here.
-spawnSync("git", ["add", "website/docs/reference", NOTES_FILE], { stdio: "inherit" });
+spawnSync("git", ["add", REFERENCE_ROOT, NOTES_FILE], { stdio: "inherit" });
 console.log("update-docs: staged reference + notes. Review, then commit as part of the release.");
