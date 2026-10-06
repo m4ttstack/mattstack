@@ -184,12 +184,11 @@ describe('offeredShowItems', () => {
     seat: 'alice',
     member: 'all',
   };
-  test('a seated board offers every item', () => {
+  test('the All view offers everything but your drafts', () => {
     expect(offeredShowItems(base)).toEqual([
       'posted',
       'notPosted',
       'authorTurn',
-      'myDrafts',
     ]);
   });
   test('picking yourself drops waiting on author', () => {
@@ -199,10 +198,10 @@ describe('offeredShowItems', () => {
       'myDrafts',
     ]);
   });
-  test('picking someone else keeps waiting on author', () => {
-    expect(offeredShowItems({ ...base, member: 'bob' })).toContain(
-      'authorTurn'
-    );
+  test('picking someone else keeps waiting on author, not your drafts', () => {
+    const items = offeredShowItems({ ...base, member: 'bob' });
+    expect(items).toContain('authorTurn');
+    expect(items).not.toContain('myDrafts');
   });
   test('the seat tab, a seatless board and no slack drop their items', () => {
     expect(offeredShowItems({ ...base, seatTab: true })).not.toContain(
