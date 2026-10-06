@@ -462652,6 +462652,167 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "Hy9aE",
+      "x": 16909.5,
+      "y": 6876.52,
+      "name": "Show chips · options",
+      "fill": "#FFFFFF",
+      "layout": "vertical",
+      "gap": 36,
+      "padding": 48,
+      "children": [
+        {
+          "type": "text",
+          "id": "a9v7S",
+          "name": "Title",
+          "fill": "#1C2024",
+          "content": "Show picker as always-visible checkbox chips (replaces the Showing dropdown and the Also show line). Light left, dark right.",
+          "fontFamily": "Inter",
+          "fontSize": 22,
+          "fontWeight": "600"
+        },
+        {
+          "type": "frame",
+          "id": "qwFkm",
+          "name": "A · Neutral chips",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "rZ7CK",
+              "name": "Label",
+              "fill": "#1C2024",
+              "content": "A · Neutral chips",
+              "fontFamily": "Inter",
+              "fontSize": 16,
+              "fontWeight": "600"
+            },
+            {
+              "type": "text",
+              "id": "JcE2N",
+              "name": "Note",
+              "fill": "#60646C",
+              "content": "Checked chips sit on the control fill; an unchecked chip goes dashed and muted, its count dimmed.",
+              "fontFamily": "Inter",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "sRIku",
+              "name": "Light / dark",
+              "gap": 40,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "id": "wJ9iP",
+                  "name": "A · Neutral chips · light",
+                  "fill": [
+                    "#ffffff",
+                    {
+                      "type": "image",
+                      "enabled": true,
+                      "url": "screenshot-localhost-16.png",
+                      "mode": "cover"
+                    }
+                  ],
+                  "width": 980,
+                  "height": 520
+                },
+                {
+                  "type": "rectangle",
+                  "id": "UX3HS",
+                  "name": "A · Neutral chips · dark",
+                  "fill": [
+                    "#ffffff",
+                    {
+                      "type": "image",
+                      "enabled": true,
+                      "url": "screenshot-localhost-18.png",
+                      "mode": "cover"
+                    }
+                  ],
+                  "width": 980,
+                  "height": 520
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "ohCaa",
+          "name": "B · Accent chips",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "gF3oD",
+              "name": "Label",
+              "fill": "#1C2024",
+              "content": "B · Accent chips",
+              "fontFamily": "Inter",
+              "fontSize": 16,
+              "fontWeight": "600"
+            },
+            {
+              "type": "text",
+              "id": "Mc8m0",
+              "name": "Note",
+              "fill": "#60646C",
+              "content": "Checked chips take the accent wash and edge, so what's on the board reads at a glance; unchecked stays dashed and neutral.",
+              "fontFamily": "Inter",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "CPPM3",
+              "name": "Light / dark",
+              "gap": 40,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "id": "i4wW3",
+                  "name": "B · Accent chips · light",
+                  "fill": [
+                    "#ffffff",
+                    {
+                      "type": "image",
+                      "enabled": true,
+                      "url": "screenshot-localhost-17.png",
+                      "mode": "cover"
+                    }
+                  ],
+                  "width": 980,
+                  "height": 520
+                },
+                {
+                  "type": "rectangle",
+                  "id": "C53Ruz",
+                  "name": "B · Accent chips · dark",
+                  "fill": [
+                    "#ffffff",
+                    {
+                      "type": "image",
+                      "enabled": true,
+                      "url": "screenshot-localhost-19.png",
+                      "mode": "cover"
+                    }
+                  ],
+                  "width": 980,
+                  "height": 520
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "themes": {
