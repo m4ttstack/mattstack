@@ -15,6 +15,7 @@ import { withoutUrls } from "./redact.ts";
 import { assertMayWrite, roleFor } from "./roles.ts";
 import { mayWritePath, ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { GIT_OBJECT_ID, unpublishedPaths } from "./publish-history.ts";
+import { orgBranch } from "./org-branch.ts";
 
 export interface PublishTeamResult {
   remote: string;
@@ -29,7 +30,7 @@ export const AUTH_FAILURE_PATTERN = /authentication failed|permission denied|cou
 const REJECTED_PATTERN = /\[rejected\]|fetch first|non-fast-forward|failed to push some refs/i;
 
 /** Classifies a failed `git push` into a typed, redacted error — never a plain `Error` that would crash the caller instead of rendering. */
-function classifyPushFailure(result: ExecResult): UserActionableError {
+function classifyPushFailure(result: ExecResult, branch: string): UserActionableError {
   const text = `${result.stdout}\n${result.stderr}`;
   if (result.code === 128 && AUTH_FAILURE_PATTERN.test(text)) {
     return new UserActionableError("push-denied", "The forge would not let rt push to the team repo", {}, { why: "Check that you can push to it.", log: withoutUrls(text.trim()) });
@@ -40,7 +41,7 @@ function classifyPushFailure(result: ExecResult): UserActionableError {
       log: `the remote already has commits rt can't fast-forward past; rt team create expects an existing EMPTY repository: ${withoutUrls(text.trim())}`,
     });
   }
-  return new UserActionableError("push-failed", "rt could not push the team repo", {}, { log: `git push -u origin main failed (exit ${result.code}): ${withoutUrls(text.trim())}` });
+  return new UserActionableError("push-failed", "rt could not push the team repo", {}, { log: `git push -u origin ${branch} failed (exit ${result.code}): ${withoutUrls(text.trim())}` });
 }
 
 async function currentOrigin(p: Probes, dir: string): Promise<string | null> {
@@ -77,20 +78,22 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
     }
   }
 
+  const branch = await orgBranch(p, dir);
+  const ref = `refs/heads/${branch}`;
   const activeRemote = remote ?? (await currentOrigin(p, dir)) ?? "";
   const inspectionFailure = () => new UserActionableError("team-pull-only", "rt could not check your pending changes", {}, { next: "rt team pull" });
   const destination = await p.exec(["git", "remote", "get-url", "--push", "--all", "origin"], { cwd: dir });
   const urls = destination.stdout.trim().split("\n").filter(Boolean);
   if (destination.code !== 0 || urls.length !== 1) throw inspectionFailure();
-  const lookup = gitWithToken(["ls-remote", "--refs", "--", urls[0]!, "refs/heads/main"], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
+  const lookup = gitWithToken(["ls-remote", "--refs", "--", urls[0]!, ref], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
   const published = await p.exec(lookup.argv, { cwd: dir, env: lookup.env });
   const rows = published.stdout.trim().split("\n").filter(Boolean);
   if (published.code !== 0 || rows.length > 1) throw inspectionFailure();
   const base = rows[0]?.split("\t");
-  if (base && (base.length !== 2 || !GIT_OBJECT_ID.test(base[0]!) || base[1] !== "refs/heads/main")) throw inspectionFailure();
-  const pending = await unpublishedPaths((argv) => p.exec(argv, { cwd: dir }), base ? `${base[0]}..refs/heads/main` : "refs/heads/main");
+  if (base && (base.length !== 2 || !GIT_OBJECT_ID.test(base[0]!) || base[1] !== ref)) throw inspectionFailure();
+  const pending = await unpublishedPaths((argv) => p.exec(argv, { cwd: dir }), base ? `${base[0]}..${ref}` : ref);
   if (pending === null) throw inspectionFailure();
-  const cmd = gitWithToken(["push", "-u", "origin", "main"], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
+  const cmd = gitWithToken(["push", "-u", "origin", branch], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
   const current = roleFor(p, slug);
   if (ownedRoots(current).length === 0) assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
   for (const path of pending) {
@@ -101,7 +104,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
 
   if (push.code !== 0) {
     const text = `${push.stdout}\n${push.stderr}`;
-    if (REJECTED_PATTERN.test(text) && (await p.exec(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"], { cwd: dir })).code === 0) {
+    if (REJECTED_PATTERN.test(text) && (await p.exec(["git", "rev-parse", "--verify", "-q", `refs/remotes/origin/${branch}`], { cwd: dir })).code === 0) {
       throw new UserActionableError("org-moved", "The org repo has changes this Mac does not have yet", {}, {
         why: "Someone else pushed first, so pull their changes before you publish again.",
         next: `rt team pull --team ${slug}`,
@@ -109,7 +112,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
         log: withoutUrls(text.trim()),
       });
     }
-    throw classifyPushFailure(push);
+    throw classifyPushFailure(push, branch);
   }
 
   const publicRemote = stripUserinfo(activeRemote);

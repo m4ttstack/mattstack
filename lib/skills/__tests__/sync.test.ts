@@ -798,6 +798,18 @@ describe("syncPack", () => {
     expect(report.steps[0]!.detail).not.toContain("Unexpected end of JSON input");
   });
 
+  test("20b: a pack inside an org clone follows that clone's branch, so another branch passes the guards", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps = { ...makeDeps(pack, engine, { calls, branchByDir: { [engine.dir]: "main", [pack.dir]: "org-trial" } }), orgsRoot: dirname(pack.dir) };
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps[0]!.status).not.toBe("refused");
+    expect(report.steps[0]!.detail).not.toContain("not main");
+  });
+
   test("20: pack checkout off main refuses guards", async () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");

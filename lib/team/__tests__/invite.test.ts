@@ -892,6 +892,17 @@ describe("real invite git seams", () => {
     expect(pull.env).toMatchObject({ GIT_TERMINAL_PROMPT: "0", RT_GIT_TOKEN: "private-token", RT_GIT_HOST: "github.com" });
   });
 
+  test("a clone on another branch is refused before anything is pulled, since joiners clone main", async () => {
+    const p = probesWithRemote(REMOTE);
+    p.exec = async (argv) => { p.calls.exec.push(argv); return argv.includes("symbolic-ref") ? { code: 0, stdout: "org-trial\n", stderr: "" } : { code: 0, stdout: "", stderr: "" }; };
+    await expect(realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null)).rejects.toMatchObject({
+      code: "invite-off-main",
+      message: "Your copy of the org is on org-trial, so rt made no invite",
+      next: "git -C /home/.mattstack/teams/acme switch main",
+    });
+    expect(p.calls.exec.some((argv) => argv.includes("pull"))).toBe(false);
+  });
+
   test("a never-published org has nothing to pull", async () => {
     const p = probesWithRemote(REMOTE);
     p.exec = async (argv) => { p.calls.exec.push(argv); return { code: 1, stdout: "", stderr: "" }; };

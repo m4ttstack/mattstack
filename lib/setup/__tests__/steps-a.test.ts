@@ -334,6 +334,7 @@ function gitExecFor(remote: string, pushResult: ExecResult = ok("main -> main"))
   return async (argv) => {
     const [bin, sub] = argv;
     if (bin === "git" && sub === "remote" && argv[2] === "get-url") return ok(`${remote}\n`);
+    if (bin === "git" && sub === "symbolic-ref") return ok("main\n");
     if (bin === "git" && sub === "init") return ok();
     if (bin === "git" && sub === "remote" && argv[2] === "add") return ok();
     if (bin === "git" && sub === "add") return ok();

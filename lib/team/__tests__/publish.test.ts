@@ -12,9 +12,10 @@ import { UserActionableError } from "../../errors.ts";
 const DIR = "/home/x/.mattstack/teams/acme";
 
 /** publishTeam prechecks the zone exists (finding 7) — every test that means to reach the git steps must seed the dir. */
-function probesWithZone(overrides: Parameters<typeof fakeProbes>[0] = {}) {
+function probesWithZone(overrides: Parameters<typeof fakeProbes>[0] = {}, branch = "main") {
   return fakeProbes({ home: "/home/x", dirs: { [DIR]: [] }, ...overrides,
     exec: (argv, opts) => {
+      if (argv.includes("symbolic-ref")) return { code: 0, stdout: `${branch}\n`, stderr: "" };
       if (argv.includes("get-url")) return { code: 0, stdout: "https://github.com/acme/repo.git\n", stderr: "" };
       if (argv.includes("ls-remote") || argv.includes("rev-list")) return { code: 0, stdout: "", stderr: "" };
       return overrides.exec?.(argv, opts) ?? { code: 0, stdout: "", stderr: "" };
@@ -30,11 +31,27 @@ describe("publishTeam", () => {
     const p = probesWithZone({ home: "/home/x" });
     const result = await publishTeam(p, "acme", "https://github.com/acme/repo.git");
 
-    expect(p.calls.exec.filter((argv) => !argv.includes("get-url") && !argv.includes("ls-remote") && !argv.includes("rev-list"))).toEqual([
+    expect(p.calls.exec.filter((argv) => !argv.includes("get-url") && !argv.includes("ls-remote") && !argv.includes("rev-list") && !argv.includes("symbolic-ref"))).toEqual([
       ["git", "remote", "set-url", "origin", "https://github.com/acme/repo.git"],
       ["git", "push", "-u", "origin", "main"],
     ]);
     expect(result).toEqual({ remote: "https://github.com/acme/repo.git", pushed: true, detail: "pushed to https://github.com/acme/repo.git" });
+  });
+
+  test("a clone on another branch publishes that branch, never main", async () => {
+    const p = probesWithZone({ home: "/home/x" }, "org-trial");
+    await publishTeam(p, "acme", null);
+    const remoteCalls = p.calls.exec.filter((argv) => argv.includes("ls-remote") || argv.includes("push") || argv.includes("rev-list"));
+    expect(remoteCalls.find((argv) => argv.includes("ls-remote"))!.at(-1)).toBe("refs/heads/org-trial");
+    expect(remoteCalls.find((argv) => argv.includes("push"))!.slice(-3)).toEqual(["-u", "origin", "org-trial"]);
+    expect(remoteCalls.find((argv) => argv.includes("rev-list"))!.join(" ")).toContain("refs/heads/org-trial");
+    expect(p.calls.exec.flat().join(" ")).not.toContain("refs/heads/main");
+  });
+
+  test("a clone with no branch checked out is refused before anything is pushed", async () => {
+    const p = probesWithZone({ home: "/home/x" }, "");
+    await expect(publishTeam(p, "acme", null)).rejects.toMatchObject({ code: "org-detached" });
+    expect(p.calls.exec.some((argv) => argv.includes("push"))).toBe(false);
   });
 
   // Install pushes before git has any credential of its own on a fresh
@@ -44,7 +61,7 @@ describe("publishTeam", () => {
     const seen: { argv: string[]; env?: Record<string, string> }[] = [];
     p.exec = async (argv, opts) => {
       seen.push({ argv, env: opts?.env });
-      return { code: 0, stdout: argv.includes("get-url") ? "https://github.com/acme/repo.git\n" : "", stderr: "" };
+      return { code: 0, stdout: argv.includes("get-url") ? "https://github.com/acme/repo.git\n" : argv.includes("symbolic-ref") ? "main\n" : "", stderr: "" };
     };
     const result = await publishTeam(p, "acme", "https://github.com/acme/repo.git", { token: "ghp_secret" });
     const push = seen.find((c) => c.argv.includes("push"))!;
@@ -61,7 +78,7 @@ describe("publishTeam", () => {
     });
     await publishTeam(p, "acme", "https://github.com/acme/repo.git");
 
-    expect(p.calls.exec.filter((argv) => !argv.includes("get-url") && !argv.includes("ls-remote") && !argv.includes("rev-list"))).toEqual([
+    expect(p.calls.exec.filter((argv) => !argv.includes("get-url") && !argv.includes("ls-remote") && !argv.includes("rev-list") && !argv.includes("symbolic-ref"))).toEqual([
       ["git", "remote", "set-url", "origin", "https://github.com/acme/repo.git"],
       ["git", "remote", "add", "origin", "https://github.com/acme/repo.git"],
       ["git", "push", "-u", "origin", "main"],
@@ -75,7 +92,7 @@ describe("publishTeam", () => {
     });
     const result = await publishTeam(p, "acme", null);
 
-    expect(p.calls.exec.filter((argv) => !argv.includes("get-url") && !argv.includes("ls-remote") && !argv.includes("rev-list"))).toEqual([["git", "push", "-u", "origin", "main"]]);
+    expect(p.calls.exec.filter((argv) => !argv.includes("get-url") && !argv.includes("ls-remote") && !argv.includes("rev-list") && !argv.includes("symbolic-ref"))).toEqual([["git", "push", "-u", "origin", "main"]]);
     expect(result.remote).toBe("https://github.com/acme/repo.git");
   });
 
@@ -317,13 +334,18 @@ describe("publication authorizes the actual main history and destination", () =>
     await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" }); expect(w.pushes()).toBe(0);
   });
 
-  for (const mainUnowned of [false, true]) test(`a different checked-out branch does not replace selected main (${mainUnowned})`, async () => {
+  for (const branchUnowned of [false, true]) test(`the checked-out branch's own history is what is authorized and pushed, never main's (${branchUnowned})`, async () => {
     const w = historyWorld();
-    w.commit(mainUnowned ? "mattstack/teams/widgets/source.txt" : "mattstack/teams/gadgets/destination.txt", "main pending\n");
-    w.git("checkout", "-q", "-b", "other", w.base); w.commit(mainUnowned ? "mattstack/teams/gadgets/destination.txt" : "mattstack/teams/widgets/source.txt", "other pending\n"); w.roles(["gadgets"]);
-    if (mainUnowned) await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
+    w.git("push", "-q", w.remote, `${w.base}:refs/heads/other`);
+    w.git("update-ref", "refs/remotes/origin/other", w.base);
+    w.commit(branchUnowned ? "mattstack/teams/gadgets/destination.txt" : "mattstack/teams/widgets/source.txt", "main pending\n");
+    w.git("checkout", "-q", "-b", "other", w.base); w.commit(branchUnowned ? "mattstack/teams/widgets/source.txt" : "mattstack/teams/gadgets/destination.txt", "other pending\n"); w.roles(["gadgets"]);
+    const pushed: string[][] = [];
+    const exec = w.p.exec;
+    w.p.exec = async (argv, opts) => { if (argv.includes("push")) pushed.push(argv); return exec(argv, opts); };
+    if (branchUnowned) await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
     else await expect(publishTeam(w.p, "acme", null)).resolves.toMatchObject({ pushed: true });
-    expect(w.pushes()).toBe(mainUnowned ? 0 : 1);
+    expect(pushed.map((argv) => argv.at(-1))).toEqual(branchUnowned ? [] : ["other"]);
   });
 
   for (const destination of ["explicit", "pushurl"] as const) test(`a changed ${destination} cannot reuse the old origin baseline`, async () => {

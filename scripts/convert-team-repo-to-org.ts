@@ -102,8 +102,8 @@ function main(): void {
   } catch {
     branch = null;
   }
-  if (branch !== "main") {
-    refuse("The clone is not on main", `${branch === null ? "It has no branch checked out." : `It is on ${branch}.`} The conversion commits to the branch you are on, and rt publishes the org from main.`, `git -C ${shellQuote(clone)} switch main`);
+  if (branch === null) {
+    refuse("The clone has no branch checked out", "The conversion commits to the branch you are on, and rt publishes that branch.", `git -C ${shellQuote(clone)} switch main`);
   }
   const targets = [...plan.moves.map(([, to]) => to), ...Object.keys(plan.writes)];
   const newTargets = new Set([...plan.moves.map(([, to]) => to), ...Object.keys(plan.writes).filter((rel) => files[rel] === undefined)]);
@@ -138,17 +138,17 @@ function main(): void {
     const stderr = (err as { stderr?: string }).stderr;
     throw new UserActionableError("fetch-failed", "Could not fetch origin to check that the clone is current", {}, { next: `git -C ${quoted} fetch origin`, log: stderr || (err instanceof Error ? err.message : String(err)) });
   }
-  let originMain: string;
+  let originBranch: string;
   try {
-    originMain = git("rev-parse", "--verify", "-q", "refs/remotes/origin/main").trim();
+    originBranch = git("rev-parse", "--verify", "-q", `refs/remotes/origin/${branch}`).trim();
   } catch {
-    refuse("Origin has no main branch", "rt publishes the org to origin's main, so the clone has to match it before converting.", `git -C ${quoted} branch -r`);
+    refuse(`Origin has no ${branch} branch`, "rt publishes the branch you are on, so origin needs it before converting. Push it once.", `git -C ${quoted} push -u origin ${branch}`);
   }
-  const [ahead, behind] = git("rev-list", "--left-right", "--count", `HEAD...${originMain}`).trim().split(/\s+/).map(Number);
+  const [ahead, behind] = git("rev-list", "--left-right", "--count", `HEAD...${originBranch}`).trim().split(/\s+/).map(Number);
   if (ahead === 0 && behind! > 0) {
     refuse("The clone is behind origin", `Origin has ${behind} commit${behind === 1 ? "" : "s"} this clone does not. Converting now would leave them out, and the publish would be refused.`, `git -C ${quoted} pull --ff-only`);
   }
-  if (ahead! > 0) refuse("The clone has commits origin does not have", "Publish or drop them first, so the conversion is the only change you publish.", `git -C ${quoted} log --oneline origin/main..HEAD`);
+  if (ahead! > 0) refuse("The clone has commits origin does not have", "Publish or drop them first, so the conversion is the only change you publish.", `git -C ${quoted} log --oneline origin/${branch}..HEAD`);
   const start = git("rev-parse", "HEAD").trim();
   try {
     for (const [from, to] of plan.moves) {

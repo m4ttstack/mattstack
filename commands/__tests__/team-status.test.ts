@@ -129,6 +129,7 @@ describe("teamStatus", () => {
         if (argv[0] === "git" && argv[2] === TEAM_DIR && argv[3] === "log") {
           return { code: 0, stdout: "2026-08-21T10:00:00+00:00\n", stderr: "" };
         }
+        if (argv.includes("symbolic-ref")) return { code: 0, stdout: "main\n", stderr: "" };
         return { code: 0, stdout: "", stderr: "" };
       },
       read: { "board.title": "Acme Team", "mattstack.roster": [{ username: "dev1", teams: ["widgets"] }] },
@@ -144,6 +145,7 @@ describe("teamStatus", () => {
       slug: "acme",
       name: "Acme Team",
       remote: "git@github.com:acme/widgets.git",
+      branch: "main",
       lastPush: "2026-08-21T10:00:00+00:00",
       members: [{ username: "dev1", peered: null }],
       role: "unknown",
@@ -203,6 +205,44 @@ describe("teamStatus", () => {
     try {
       await teamStatus(["--team", SLUG], {}, deps);
       expect(io.stdout()).toContain("members: 2\n  1 with a connected board\n");
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("a clone on another branch reports it, and its last push is read from that branch", async () => {
+    const calls: string[][] = [];
+    const deps = clonedDeps({
+      exec: async (argv) => {
+        calls.push(argv);
+        if (argv.includes("symbolic-ref")) return { code: 0, stdout: "org-trial\n", stderr: "" };
+        return { code: 0, stdout: "2026-08-21T10:00:00+00:00\n", stderr: "" };
+      },
+    });
+
+    await teamStatus(["--team", SLUG, "--json"], {}, deps);
+    expect(JSON.parse(deps.lines[0]!).branch).toBe("org-trial");
+    expect(calls.find((argv) => argv.includes("log"))!.at(-1)).toBe("origin/org-trial");
+
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamStatus(["--team", SLUG], {}, deps);
+      expect(io.stdout()).toContain("branch: org-trial");
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("a clone on main shows no branch line", async () => {
+    const deps = clonedDeps({
+      exec: async (argv) => (argv.includes("symbolic-ref") ? { code: 0, stdout: "main\n", stderr: "" } : { code: 0, stdout: "2026-08-21T10:00:00+00:00\n", stderr: "" }),
+    });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await teamStatus(["--team", SLUG], {}, deps);
+      expect(io.stdout()).not.toContain("branch:");
     } finally {
       io.restore();
     }
