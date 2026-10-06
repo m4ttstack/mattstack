@@ -18,7 +18,7 @@ export function showTip(item: ShowItem, turn: TurnConfig): string {
         ? 'No signal counts as the author’s move in Display Settings, so this covers nothing.'
         : 'MRs waiting on the author to act. Display Settings picks what counts.';
     case 'myDrafts':
-      return 'Show or hide your own draft MRs. Other people’s drafts are never shown.';
+      return 'Show or hide your own draft MRs. Other users’ drafts are never shown.';
   }
 }
 
