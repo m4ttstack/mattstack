@@ -247,6 +247,9 @@ export const SCHEMAS = {
   "boxscore.ignoredMrs": z.array(z.string()),
   "boxscore.botPatterns": z.array(z.string()),
   "boxscore.hiddenMembers": z.array(z.string()),
+  "boxscore.roles": z
+    .record(z.string(), z.enum(["team", "self"]))
+    .meta({ labels: { key: "member", value: "role" } }),
   "gitq.workSlots": z.looseObject({ workSlotLocation: z.string().optional(), maxWorkSlots: z.number().optional() }),
   "gitq.forges": z.record(
     z.string(),
