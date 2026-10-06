@@ -30,7 +30,7 @@
 
 1. A teammate sends two asks for the same MR before you answer: both cards show, accepting one must not leave the other startable into a duplicate run (the second accept hits the in-flight refusal and says so). Test in Task 6.
 2. Accept clicked on an ask that expired or was handled between render and click: the route answers 409 with a plain reason and the dropdown reloads, never launching. Test in Task 6.
-3. `board.peerAsks` turned off with asks already waiting: the next pass declines them with `asks-off` so askers are not left on "waiting" for 48h. Test in Task 4.
+3. `board.peerAsks` turned off with asks already waiting: the board server's next peer tick declines them with `asks-off` (the nudge pass does the same when it runs), so askers are not left on "waiting" for 48h. Tests in Tasks 6 (`declineWhileOff`), 7 (`onTick`) and 4 (the pass).
 4. A relay that predates `PUT /boards/self/asks` (404): the board logs once and stops retrying each tick, and asks still flow. Test in Task 7.
 5. An ask whose MR is not on the receiver's board (review asks on an MR outside the team view): the card renders from the payload's title, and pruning does not delete it before it is answered or expires. Tests in Tasks 2 and 3.
 
@@ -395,7 +395,7 @@ export interface AskView {
   sourceBranch?: string;
   note?: string;
   receivedAt: number;
-  handled?: { at: number; result: NudgeResult; reason?: string; note?: string };
+  handled?: { at: number; result: NudgeResult; reason?: string; note?: string; declined?: true };
 }
 
 function view(n: NudgeState): AskView {
@@ -957,7 +957,7 @@ Expected: PASS.
   - The same request again answers 409.
   - `POST /asks/decline` with `{ id: 'n1', reason: 'whatever' }` answers 400.
   - A request with a non-JSON content type answers what `requireJsonBody` answers for `/nudge` (copy the expected status from `server-dismiss.test.ts` or the `/nudge` tests).
-  - `GET /data.json` carries `asks.history[0].id === 'n1'`.
+  - `GET /data.json` carries `asks.history[0].id === 'n1'` (the test runs with no daemon, so the snapshot carries a `fetchError` and no MRs; assert nothing about MRs).
 
 - [ ] **Step 6: Typecheck and run the touched tests**
 
@@ -986,7 +986,7 @@ git commit -m "board: accept, decline and always-allow routes, and the asks payl
 **Interfaces:**
 - Produces:
   - `SwitchboardStore.setAsksEnabled(username: string, enabled: boolean): void`, `SwitchboardStore.listAskableUsernames(): string[]`
-  - `SwitchboardClient.setAsksEnabled(enabled: boolean): Promise<'ok' | 'unsupported' | 'failed'>` (404 → `unsupported`). Required on the interface: update every test fake that builds a `SwitchboardClient` (find them with `grep -rln "peers()" apps/board/src/__tests__ apps/board/src/client`) to add `setAsksEnabled: async () => 'ok'`.
+  - `SwitchboardClient.setAsksEnabled(enabled: boolean): Promise<'ok' | 'unsupported' | 'failed'>` (404 → `unsupported`). Required on the interface: update every test fake that builds a `SwitchboardClient` (they are written `peers: async () => null` in the `peer-closed-pane`, `peer-tick`, `peer-outbox` and `peer-runtime` tests; `grep -rln "peers:" apps/board/src/__tests__` finds them, and `bun run board:typecheck` names any left) to add `setAsksEnabled: async () => 'ok'`.
   - `/peers` answers `{ peers: string[] /* every enrolled board, unchanged */, askable: string[] }`; `SwitchboardClient.peers()` returns `askable` when it is a string array, else `peers` (an older relay).
   - `PeeringHost.asksEnabled?: () => boolean` and `PeeringHost.onTick?: () => void` (called after each tick; the board server uses it to run `declineWhileOff` while asks are off)
 
@@ -1025,7 +1025,7 @@ test('the tick sends asks state only when it changes, and stops on an old relay'
   let enabled = true;
   const sent: boolean[] = [];
   let answer: 'ok' | 'unsupported' = 'ok';
-  const client = { ...fakeClient(), setAsksEnabled: async (e: boolean) => (sent.push(e), answer) };
+  const client = { ...fakeClient(() => []), setAsksEnabled: async (e: boolean) => (sent.push(e), answer) };
   const p = makePeering({ makeClient: () => client, deps: noDeps, asksEnabled: () => enabled, outboxDb: freshDb() });
   p.start('http://relay', 't');
   await p.tickNow(); await p.tickNow();
