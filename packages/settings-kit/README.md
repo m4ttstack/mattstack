@@ -43,6 +43,25 @@ Hooks return state and actions only. Scope semantics are the resolver's:
 `machine` writes apply immediately; `user`/`team` writes land in the home
 repo's working copy and are local until committed and pushed.
 
+## Console's settings in a modal
+
+Console serves one settings group with no chrome at
+`/embed/settings/<group>`, so any app can show it in its own modal instead
+of building a settings UI:
+
+```tsx
+import { useSettingsEmbed } from "@mattstack/settings-kit/react";
+
+const frame = useSettingsEmbed({ group: "deck", scheme: "dark", onSaved, onClose });
+<iframe ref={frame.ref} src={frame.src} style={{ height: frame.height }} />;
+```
+
+Console's origin is derived from the page's own host (`chat.mattstack` →
+`console.mattstack`) unless `origin` is passed. The frame posts `height`,
+`saved` (after each write that lands) and `close` (Escape);
+`@mattstack/settings-kit/embed` holds the message contract both sides use.
+A Mantine app uses app-kit's `SettingsEmbedModal`, which wraps this hook.
+
 ## Schemas and editors
 
 ```ts

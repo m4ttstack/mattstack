@@ -51,6 +51,22 @@ body {
   align-items: center;
   gap: var(--spacing-xs);
 }
+
+/* The frame bleeds past the modal's right padding so its scrollbar sits on
+   the modal edge; the embedded page keeps its rows clear of it. */
+.settings-modal {
+  max-width: min(920px, 94vw);
+  width: min(920px, 94vw);
+  overflow: hidden;
+}
+.settings-frame {
+  display: block;
+  width: calc(100% + var(--spacing-xxl));
+  margin: 0.6rem calc(-1 * var(--spacing-xxl)) 0 0;
+  max-height: calc(80vh - 4.5rem);
+  border: 0;
+  background: transparent;
+}
 .mt-6 {
   margin-top: 1.5rem;
 }

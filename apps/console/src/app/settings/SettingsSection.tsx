@@ -168,6 +168,7 @@ export function SettingsSection({
   store,
   filtering,
   agentProvider,
+  bare = false,
   query,
   open,
   onOpenChange,
@@ -178,6 +179,8 @@ export function SettingsSection({
   store: PanelStore;
   filtering: boolean;
   agentProvider: Provider;
+  /** Drops the group's title row, for a host that already titles it. */
+  bare?: boolean;
 } & RowWiring) {
   const { text } = useSchemeColors();
   const team = useSettingsTeam();
@@ -197,16 +200,18 @@ export function SettingsSection({
     );
   return (
     <Box component="section" id={`settings-${section.group.id}`}>
-      <Header
-        section={section}
-        count={countText(filtering, section.shown, section.total)}
-      />
-      {section.subsections.map(sub => (
+      {!bare && (
+        <Header
+          section={section}
+          count={countText(filtering, section.shown, section.total)}
+        />
+      )}
+      {section.subsections.map((sub, i) => (
         <Box key={sub.scope ?? 'all'}>
           {sub.scope && (
             <Group
               gap={8}
-              pt={22}
+              pt={bare && i === 0 ? 4 : 22}
               pb={6}
               wrap="nowrap"
               style={{ borderBottom: '1px solid var(--tk-line-2)' }}
