@@ -42,6 +42,11 @@ digraph rt_docs {
     "Regeneration rounds = 2?" [shape=diamond];
     "bun run docs:gen, rerun for the drift" [shape=plaintext];
     "STOP: flag tables come only from docs:gen" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "bun run docs:build" [shape=plaintext];
+    "docs:build result?" [shape=diamond];
+    "Off-script gate: docs site build failed" [shape=box];
+    "Docs site build failed: gate rounds = 2?" [shape=diamond];
+    "Fix the links the build names" [shape=box];
     "git add <each changed file>" [shape=plaintext];
     "Off-script gate: docs:gen failed" [shape=box];
     "Docs:gen failed: gate rounds = 2?" [shape=diamond];
@@ -69,19 +74,19 @@ digraph rt_docs {
     "Update the hand-written pages" -> "bun run docs:check";
     "bun run docs:check" -> "docs:check result?";
     "bun run docs:gen, rerun for the drift" -> "bun run docs:check";
-    "docs:check result?" -> "git add <each changed file>" [label="clean"];
+    "docs:check result?" -> "bun run docs:build" [label="clean"];
     "docs:check result?" -> "List the commands missing args as a TODO" [label="coverage gaps"];
-    "List the commands missing args as a TODO" -> "git add <each changed file>";
+    "List the commands missing args as a TODO" -> "bun run docs:build";
     "docs:check result?" -> "Regeneration rounds = 2?" [label="reference drift"];
     "Regeneration rounds = 2?" -> "bun run docs:gen, rerun for the drift" [label="no"];
-    "Off-script gate: drift docs:gen cannot clear" -> "git add <each changed file>" [label="take: Matt accepts the drift for now"];
+    "Off-script gate: drift docs:gen cannot clear" -> "bun run docs:build" [label="take: Matt accepts the drift for now"];
     "Off-script gate: drift docs:gen cannot clear" -> "Drift docs:gen cannot clear: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: drift docs:gen cannot clear" -> "Held: the turn ends naming the gate" [label="hold"];
     "Off-script gate: drift docs:gen cannot clear" -> "Handed back to Matt" [label="hand back"];
     "Drift docs:gen cannot clear: gate rounds = 2?" -> "bun run docs:gen, rerun for the drift" [label="no: retry"];
     "Drift docs:gen cannot clear: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Regeneration rounds = 2?" -> "Off-script gate: drift docs:gen cannot clear" [label="yes: budget spent"];
-    "Off-script gate: docs:check failed" -> "git add <each changed file>" [label="take: Matt ran it clean himself"];
+    "Off-script gate: docs:check failed" -> "bun run docs:build" [label="take: Matt ran it clean himself"];
     "Off-script gate: docs:check failed" -> "Docs:check failed: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: docs:check failed" -> "Held: the turn ends naming the gate" [label="hold"];
     "Off-script gate: docs:check failed" -> "Handed back to Matt" [label="hand back"];
@@ -90,6 +95,16 @@ digraph rt_docs {
     "docs:check result?" -> "Off-script gate: docs:check failed" [label="failed outright"];
     "docs:check result?" -> "STOP: flag tables come only from docs:gen" [label="tempted to patch a generated table"];
     "STOP: flag tables come only from docs:gen" -> "bun run docs:gen, rerun for the drift";
+    "bun run docs:build" -> "docs:build result?";
+    "docs:build result?" -> "git add <each changed file>" [label="built"];
+    "docs:build result?" -> "Off-script gate: docs site build failed" [label="failed: quote the broken links"];
+    "Off-script gate: docs site build failed" -> "git add <each changed file>" [label="take: Matt built it clean himself"];
+    "Off-script gate: docs site build failed" -> "Docs site build failed: gate rounds = 2?" [label="iterate: fix the links and rebuild"];
+    "Off-script gate: docs site build failed" -> "Held: the turn ends naming the gate" [label="hold"];
+    "Off-script gate: docs site build failed" -> "Handed back to Matt" [label="hand back"];
+    "Docs site build failed: gate rounds = 2?" -> "Fix the links the build names" [label="no"];
+    "Docs site build failed: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "Fix the links the build names" -> "bun run docs:build";
     "git add <each changed file>" -> "Staged for review";
 }
 ```
@@ -142,11 +157,25 @@ Quote the `docs:gen` failure output. Take means Matt fixed the generator and ran
 
 ### Off-script gate: drift docs:gen cannot clear
 
-Quote the reference drift `docs:check` still reports after two regeneration rounds. Take means Matt accepts the drift for now; the add proceeds on the files as they stand. Iterate means he fixed the cause and `bun run docs:gen, rerun for the drift` runs again, counted by `Drift docs:gen cannot clear: gate rounds = 2?`. Hold ends the turn naming this gate. Hand back reports the unresolved drift.
+Quote the reference drift `docs:check` still reports after two regeneration rounds. Take means Matt accepts the drift for now; the site build runs on the files as they stand. Iterate means he fixed the cause and `bun run docs:gen, rerun for the drift` runs again, counted by `Drift docs:gen cannot clear: gate rounds = 2?`. Hold ends the turn naming this gate. Hand back reports the unresolved drift.
 
 ### Off-script gate: docs:check failed
 
-Quote the `docs:check` failure output (a failure outright, not reference drift or coverage gaps). Take means Matt ran it clean himself; the add proceeds. Iterate means he fixed the cause and `bun run docs:check` runs again, counted by `Docs:check failed: gate rounds = 2?`. Hold ends the turn naming this gate. Hand back reports the failure.
+Quote the `docs:check` failure output (a failure outright, not reference drift or coverage gaps). Take means Matt ran it clean himself; the site build runs. Iterate means he fixed the cause and `bun run docs:check` runs again, counted by `Docs:check failed: gate rounds = 2?`. Hold ends the turn naming this gate. Hand back reports the failure.
+
+### bun run docs:build
+
+`docs:check` reads only the generated reference; the Docusaurus build is what proves the whole site holds together. It installs the site's dependencies and builds `website/`, and the site config makes every broken link, broken anchor and broken Markdown link fail the build. A release commits these pages straight to main and tags without waiting on CI's site build, so the deploy after the tag would be the first build to see a broken link. Every pass through this skill builds the site before anything is staged.
+
+A failed build prints each broken link with the page that holds it. Pass means the build finished and wrote `website/build/`.
+
+### Off-script gate: docs site build failed
+
+Quote the build's broken-link lines (or its error, when it failed some other way), each with the page that holds it, and propose the fix for each. Take means Matt built it clean himself; the add proceeds. Iterate means fix the links the build names and build again, counted by `Docs site build failed: gate rounds = 2?`. Hold ends the turn naming this gate. Hand back reports the broken links unresolved.
+
+### Fix the links the build names
+
+Fix each broken link in the hand-written page that holds it, using the URL facts below for the target. A broken link inside a generated page under `website/docs/rt/reference/` is fixed by `bun run docs:gen` after the source is fixed, never by a hand edit. When a link points at a page that no longer exists, link the page that now covers the topic, or drop the link; never create a page only to satisfy the link.
 
 ## How gates ask
 

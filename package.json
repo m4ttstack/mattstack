@@ -67,6 +67,7 @@
     "docs:redirects": "bun scripts/gen-rt-cool-redirects.ts",
     "docs:redirects:check": "bun scripts/check-rt-cool-redirects.ts",
     "docs:check": "bun scripts/check-docs.ts",
+    "docs:build": "cd website && bun install --frozen-lockfile && bun run build",
     "docs:smoke": "bun scripts/docs-smoke.ts",
     "picker:check": "bun scripts/lib/picker-conformance.ts",
     "skills:expand:board": "bun cli.ts skills expand --src apps/board/skills-src --out apps/board/skills --mattstack-dir . --strict",

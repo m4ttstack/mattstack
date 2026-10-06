@@ -18,6 +18,10 @@ digraph fast_path_release_apps {
     "Fast path verified: continue at Publish and finish" [shape=doublecircle style=filled fillcolor=lightgreen];
     "Take the full path instead" [shape=doublecircle];
     "Trigger: preflight says fast path" [shape=ellipse];
+    "git_pull {tree: <release checkout>}, before the app docs" [shape=plaintext];
+    "Pull before the app docs result?" [shape=diamond];
+    "Off-script gate: local main diverged before the app docs" [shape=box];
+    "Local main diverged before the app docs: gate rounds = 2?" [shape=diamond];
     "git log --oneline <newest-tag>..main --grep \"docs: app pages for the next release\"" [shape=plaintext];
     "An app docs commit since the newest tag?" [shape=diamond];
     "bun scripts/update-docs.ts --dry-run --no-agent, for the apps that moved" [shape=plaintext];
@@ -55,7 +59,16 @@ digraph fast_path_release_apps {
     "Off-script gate: fast path declined" [shape=box];
     "Fast path declined: gate rounds = 2?" [shape=diamond];
 
-    "Trigger: preflight says fast path" -> "git log --oneline <newest-tag>..main --grep \"docs: app pages for the next release\"";
+    "Trigger: preflight says fast path" -> "git_pull {tree: <release checkout>}, before the app docs";
+    "git_pull {tree: <release checkout>}, before the app docs" -> "Pull before the app docs result?";
+    "Pull before the app docs result?" -> "git log --oneline <newest-tag>..main --grep \"docs: app pages for the next release\"" [label="ok: main is not behind origin/main"];
+    "Pull before the app docs result?" -> "Off-script gate: local main diverged before the app docs" [label="refused"];
+    "Off-script gate: local main diverged before the app docs" -> "git log --oneline <newest-tag>..main --grep \"docs: app pages for the next release\"" [label="take: Matt synced main himself"];
+    "Off-script gate: local main diverged before the app docs" -> "Local main diverged before the app docs: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: local main diverged before the app docs" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: local main diverged before the app docs" -> "Handed back to Matt" [label="hand back"];
+    "Local main diverged before the app docs: gate rounds = 2?" -> "git_pull {tree: <release checkout>}, before the app docs" [label="no: retry"];
+    "Local main diverged before the app docs: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "git log --oneline <newest-tag>..main --grep \"docs: app pages for the next release\"" -> "An app docs commit since the newest tag?";
     "An app docs commit since the newest tag?" -> "bun scripts/update-docs.ts --dry-run --no-agent, for the apps that moved" [label="no"];
     "An app docs commit since the newest tag?" -> "bun scripts/update-docs.ts --dry-run --no-agent --range <newest docs commit>" [label="yes: a resume, review only what landed after it"];
@@ -157,6 +170,21 @@ the first failure, so it is yes after the second resume also fails. Every
 `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes once
 Matt has answered iterate twice.
 
+### git_pull {tree: <release checkout>}, before the app docs
+
+The docs commit goes on top of local main and the push sends all of local main, so local main
+must not be behind origin/main before anything is reviewed. The pull fast-forwards a main that is
+behind (staged pages from a held gate ride along when the pull touches none of them) and changes
+nothing on a main that is current or only ahead. It refuses a main that has diverged from
+origin/main, or one whose fast-forward would overwrite a staged or modified file.
+
+### Off-script gate: local main diverged before the app docs
+
+Quote `git_pull`'s refusal, `git log --oneline origin/main..main` and `git log --oneline
+main..origin/main`. Never reset, rebase or stash to get past it. Take: Matt synced main himself.
+Iterate: Matt fixed the cause, and the pull runs again, counted by `Local main diverged before the
+app docs: gate rounds = 2?`.
+
 ### An app docs commit since the newest tag?
 
 Run the log in the release checkout on main. It reads local main, so it finds a docs commit
@@ -184,7 +212,8 @@ pages were last updated. Their pages get a second docs commit with the same subj
 
 The log prints a docs commit when Matt approved it earlier but its push never landed (a refused
 push he held or handed back, then a resume). The verb releases origin/main, so that commit would
-be left out of the tag: push it, with the approval it already has. No output means every docs
+be left out of the tag: push it, with the approval it already has. That approval covers the
+commits the gate listed from `git log --oneline origin/main..main`. No output means every docs
 commit is on origin/main, and the verb runs.
 
 ### Update the app pages with rt:docs
@@ -198,10 +227,12 @@ session; never shell out to a nested headless Claude.
 
 ### Gate: approve the app docs diff
 
-Show the impact list, `git diff --staged --stat`, and the staged diff of each page. Everything
-staged must sit under `website/`. Approve is Matt's confirmation for both the commit and the
-push to main, the same confirmation Prepare the release (`prepare.md`) asks before its main
-push: a standing "get it out today" pre-authorizes no answer here. Hold and hand back leave the
+Show the impact list, `git diff --staged --stat`, the staged diff of each page, and
+`git log --oneline origin/main..main`. Everything staged must sit under `website/`. The push sends
+every commit that log lists along with the docs commit, so name them as part of the push, or say
+the log is empty. Approve is Matt's confirmation for both the commit and the push to main,
+covering those listed commits, the same confirmation Prepare the release (`prepare.md`) asks
+before its main push: a standing "get it out today" pre-authorizes no answer here. Hold and hand back leave the
 pages staged and uncommitted.
 
 ### Push main: the app docs commit
