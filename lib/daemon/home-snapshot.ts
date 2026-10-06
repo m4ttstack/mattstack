@@ -175,6 +175,8 @@ export type SnapshotDeps = Omit<HomeSnapshotDeps, "repoDir">;
 export type SnapshotHandle = HomeSnapshotHandle;
 
 const GIT_TIMEOUT_MS = 15_000;
+const GIT_PROBE_RETRY_BASE_MS = 30_000;
+const GIT_PROBE_RETRY_MAX_MS = 600_000;
 const PUSH_TIMEOUT_MS = 30_000;
 const FETCH_TIMEOUT_MS = 30_000;
 /** Cap for schedulePushRetry's geometric backoff (R042): an unreachable
@@ -440,6 +442,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   let pushRetryTimer: ReturnType<typeof setTimeout> | null = null;
   let janitorTimer: ReturnType<typeof setTimeout> | null = null;
   let pullTimer: ReturnType<typeof setTimeout> | null = null;
+  let gitProbeRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  let gitProbeFailures = 0;
   let runInFlight: Promise<SnapshotResult> | null = null;
   let pullInFlight: Promise<PullResult> | null = null;
   /** The post-pull hook runs outside `pullInFlight`, so without this a second pull starting during one converge would run a second converge on the same clone. */
@@ -608,51 +612,15 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
 
   async function init(): Promise<void> {
     try {
-      // Checked before spawning git at all: a missing repoDir (never `rt
-      // home init`'d) otherwise reaches the same exitCode === -1 branch as a
-      // genuinely missing git binary, misdiagnosing "not provisioned" as
-      // "could not run git".
-      if (!existsSync(deps.repoDir)) {
-        disabledReason = "not-provisioned";
-        deps.log.warn({ repoDir: deps.repoDir }, `${label}: ${missingRepo}; inert`);
-        return;
-      }
-      const check = await deps.exec(["git", "rev-parse", "--is-inside-work-tree"], {
-        cwd: deps.repoDir,
-        timeoutMs: GIT_TIMEOUT_MS,
-        stderr: "pipe",
-      });
-      if (stopped) return;
-      if (check.exitCode === -1) {
-        // runCapture's own convention for "the process never even started"
-        // (spawn failure — git missing from PATH, permissions, ...), distinct
-        // from git itself running and saying "not a repository".
-        disabledReason = "init-failed";
-        deps.log.warn({ repoDir: deps.repoDir }, `${label}: could not run git (is it on PATH?); inert`);
-        return;
-      }
-      if (check.exitCode !== 0 || check.stdout.trim() !== "true") {
-        disabledReason = "not-a-repo";
-        deps.log.warn({ repoDir: deps.repoDir }, `${label}: repoDir is not a git repository; inert`);
-        return;
-      }
-      // First real db touch: this await already put us past the daemon's
-      // synchronous boot pass, so by now startDaemon() has opened state.db
-      // daemon-flavored via openBranchCacheStore (see resolveDb above).
-      firstSeenDirty = loadState(spec, resolveDb(), deps.log);
-      // A conflict outlives the daemon: a restart must not resume pushing a
-      // clone whose rebase a human has not yet finished.
-      conflicted = getKvValue<{ at: number; detail: string } | null>(spec.kvNamespace, CONFLICT_KEY, null, resolveDb());
-      if (deps.readSettings().enabled !== false) {
-        tryArm();
-        // tryArm arms the interval; this is the boot pull, so a daemon that
-        // just started does not wait a whole interval to see the remote.
-        // Same reasoning as schedulePull's catch, and it matters more here:
-        // this runs inside the daemon's boot window.
-        if (spec.pull && !disabledReason) {
-          void pullNow().catch((err) => { deps.log.warn({ err }, `${label}: boot pull failed; continuing`); });
-        }
-      }
+      await probeOrInert();
+    } finally {
+      resolveReady();
+    }
+  }
+
+  async function probeOrInert(): Promise<void> {
+    try {
+      await probeAndArm();
     } catch (err) {
       // The is-inside-work-tree exec call itself never throws per its own
       // contract, but this still guards resolveReady() unconditionally —
@@ -660,8 +628,68 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       // the home:snapshot IPC handler) awaiting readyPromise forever.
       disabledReason = "init-failed";
       deps.log.warn({ err }, `${label}: startup arming failed; inert`);
-    } finally {
-      resolveReady();
+    }
+  }
+
+  async function probeAndArm(): Promise<void> {
+    // Checked before spawning git at all: a missing repoDir (never `rt
+    // home init`'d) otherwise reaches the same exitCode === -1 branch as a
+    // genuinely missing git binary, misdiagnosing "not provisioned" as
+    // "could not run git".
+    if (!existsSync(deps.repoDir)) {
+      disabledReason = "not-provisioned";
+      deps.log.warn({ repoDir: deps.repoDir }, `${label}: ${missingRepo}; inert`);
+      return;
+    }
+    const check = await deps.exec(["git", "rev-parse", "--is-inside-work-tree"], {
+      cwd: deps.repoDir,
+      timeoutMs: GIT_TIMEOUT_MS,
+      stderr: "pipe",
+    });
+    if (stopped) return;
+    if (check.exitCode === -1) {
+      // runCapture's code for a git that never answered (spawn failure, or
+      // a GIT_TIMEOUT_MS kill while the daemon's event loop was stalled),
+      // distinct from git itself running and saying "not a repository".
+      // Neither is a verdict on the repo, so the probe runs again later.
+      disabledReason = "init-failed";
+      const delayMs = Math.min(GIT_PROBE_RETRY_BASE_MS * 2 ** gitProbeFailures, GIT_PROBE_RETRY_MAX_MS);
+      gitProbeFailures++;
+      if (gitProbeFailures === 1) {
+        deps.log.warn({ repoDir: deps.repoDir }, `${label}: could not run git (timed out, or not on PATH); retrying in ${delayMs / 1000}s`);
+      } else {
+        deps.log.debug({ repoDir: deps.repoDir, attempt: gitProbeFailures }, `${label}: git still not answering; retrying in ${delayMs / 1000}s`);
+      }
+      gitProbeRetryTimer = deps.setTimeout(() => {
+        gitProbeRetryTimer = null;
+        void probeOrInert();
+      }, delayMs);
+      return;
+    }
+    if (gitProbeFailures > 0) deps.log.info(`${label}: git answered after ${gitProbeFailures} failed probe(s); arming`);
+    gitProbeFailures = 0;
+    disabledReason = null;
+    if (check.exitCode !== 0 || check.stdout.trim() !== "true") {
+      disabledReason = "not-a-repo";
+      deps.log.warn({ repoDir: deps.repoDir }, `${label}: repoDir is not a git repository; inert`);
+      return;
+    }
+    // First real db touch: this await already put us past the daemon's
+    // synchronous boot pass, so by now startDaemon() has opened state.db
+    // daemon-flavored via openBranchCacheStore (see resolveDb above).
+    firstSeenDirty = loadState(spec, resolveDb(), deps.log);
+    // A conflict outlives the daemon: a restart must not resume pushing a
+    // clone whose rebase a human has not yet finished.
+    conflicted = getKvValue<{ at: number; detail: string } | null>(spec.kvNamespace, CONFLICT_KEY, null, resolveDb());
+    if (deps.readSettings().enabled !== false) {
+      tryArm();
+      // tryArm arms the interval; this is the boot pull, so a daemon that
+      // just started does not wait a whole interval to see the remote.
+      // Same reasoning as schedulePull's catch, and it matters more here:
+      // this runs inside the daemon's boot window.
+      if (spec.pull && !disabledReason) {
+        void pullNow().catch((err) => { deps.log.warn({ err }, `${label}: boot pull failed; continuing`); });
+      }
     }
   }
 
@@ -1351,6 +1379,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (pushRetryTimer) deps.clearTimeout(pushRetryTimer);
     if (janitorTimer) deps.clearTimeout(janitorTimer);
     if (pullTimer) deps.clearTimeout(pullTimer);
+    if (gitProbeRetryTimer) deps.clearTimeout(gitProbeRetryTimer);
   }
 
   return { stop, runNow, pullNow, status, ready: readyPromise };

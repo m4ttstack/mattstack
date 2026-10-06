@@ -21,8 +21,8 @@ export interface HooksGuard {
   checkAndRepairHooksPath(repoName: string, repoPath: string): Promise<boolean>;
   /** Start a directory watch over a repo's .git/config and run an initial check. */
   startWatchingRepo(repoName: string, repoPath: string): void;
-  /** Discover repos from the index and ensure each is watched. */
-  refreshWatchedRepos(): void;
+  /** Discover repos from the index and ensure each is watched; resolves once every watch is in place. */
+  refreshWatchedRepos(): Promise<void>;
   /** Close every watcher (shutdown). */
   closeAll(): void;
 }
@@ -126,14 +126,37 @@ export function createHooksGuard(
     void checkAndRepairHooksPath(repoName, repoPath);
   }
 
-  function refreshWatchedRepos(): void {
+  // A refresh asked for mid-pass joins it and reruns it on the newest index.
+  let passInFlight: Promise<void> | null = null;
+  let rerunRequested = false;
+  // closeAll bumps this so a pass in flight stops arming new watches.
+  let generation = 0;
+
+  function refreshWatchedRepos(): Promise<void> {
+    if (passInFlight) {
+      rerunRequested = true;
+      return passInFlight;
+    }
+    passInFlight = (async () => {
+      do {
+        rerunRequested = false;
+        await refreshPass(generation);
+      } while (rerunRequested);
+    })()
+      .catch((err) => { log.warn({ err }, "hooks-guard: refreshing repo watches failed"); })
+      .finally(() => { passInFlight = null; });
+    return passInFlight;
+  }
+
+  async function refreshPass(passGeneration: number): Promise<void> {
     const repos = loadRepoIndexFn();
+    const live: [string, string][] = [];
     const liveConfigPaths = new Set<string>();
     for (const [repoName, repoPath] of Object.entries(repos)) {
       if (!existsSync(repoPath)) continue;
       const configPath = resolveGitConfigPath(repoPath);
       if (configPath) liveConfigPaths.add(configPath);
-      startWatchingRepo(repoName, repoPath);
+      live.push([repoName, repoPath]);
     }
     // Reconcile, not just add: a repo relocated (rt repos locate) or removed
     // from the index leaves its old watcher pointed at a dead .git dir, and
@@ -143,9 +166,18 @@ export function createHooksGuard(
       try { watcher.close(); } catch { /* already gone */ }
       watchedConfigs.delete(configPath);
     }
+    // fs.watch blocks the thread until fseventsd answers, seconds per call
+    // when it is saturated, so each watch gets its own macrotask: the daemon
+    // serves requests between them instead of stalling for the whole set.
+    for (const [repoName, repoPath] of live) {
+      await new Promise<void>((resolveTick) => setTimeout(resolveTick, 0));
+      if (passGeneration !== generation) return;
+      startWatchingRepo(repoName, repoPath);
+    }
   }
 
   function closeAll(): void {
+    generation++;
     for (const [, watcher] of watchedConfigs.entries()) {
       try { watcher.close(); } catch { /* */ }
     }
