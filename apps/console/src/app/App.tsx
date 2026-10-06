@@ -15,6 +15,7 @@ import { RunBoard } from './runs/RunBoard';
 import { RunDetail } from './runs/RunDetail';
 import { RunSearch } from './runs/RunSearch';
 import { explainHref } from './settings/explainParam';
+import { SettingsEmbed } from './settings/SettingsEmbed';
 import { SettingsPage } from './settings/SettingsPage';
 import { WiringMap } from './wiring/WiringMap';
 import { WiringRailEntry } from './wiring/WiringRailEntry';
@@ -74,6 +75,8 @@ function RouteContent({ route }: { route: AppRoute }) {
       return <WiringMap />;
     case 'settings':
       return <SettingsPage />;
+    case 'settings-embed':
+      return <SettingsEmbed group={route.group} />;
     case 'config':
       return <Redirect to={explainHref(route.key)} replace />;
     case 'not-found':
@@ -89,6 +92,16 @@ export function App() {
   const [path] = useLocation();
   const route = useAppRoute();
   const section = chromeSection(route);
+
+  // Framed by another app: no shell, no palette, only the group itself.
+  if (route.name === 'settings-embed')
+    return (
+      <QueryClientProvider client={queryClient}>
+        <RouteErrorBoundary key={path}>
+          <RouteContent route={route} />
+        </RouteErrorBoundary>
+      </QueryClientProvider>
+    );
 
   return (
     <QueryClientProvider client={queryClient}>

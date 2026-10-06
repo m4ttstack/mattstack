@@ -154,3 +154,40 @@ func TestAStepUnderNoColorNeverAsksTheTerminal(t *testing.T) {
 		t.Fatalf("out %q", out)
 	}
 }
+
+func TestCtrlCDuringTheProbeExits130AndLeavesTheTerminalCooked(t *testing.T) {
+	out := shellAfter(t, "trap : INT; "+report+`; echo "EXIT:$?"; stty -a`, "", "\x03", "", 50*time.Millisecond)
+	if !strings.Contains(out, "EXIT:130") {
+		t.Fatalf("Ctrl-C did not end the probe with 130: %q", out)
+	}
+	if strings.Contains(out, "-icanon") || strings.Contains(out, "-echo ") || strings.Contains(out, "-isig") || !strings.Contains(out, "icanon") {
+		t.Fatalf("the terminal was not left cooked: %q", out)
+	}
+}
+
+func TestASlowReplyIsReadInsteadOfReachingTheShell(t *testing.T) {
+	out := shellAfter(t, report+`; read line; echo "GOT:[$line]"`, "", "\x1b]11;rgb:1a1a/1b1b/2626\x1b\\\x1b[?62;22c", "done\n", 400*time.Millisecond)
+	if !strings.Contains(out, "GOT:[done]") || strings.Contains(out, "^[]11") {
+		t.Fatalf("the late reply reached the shell: %q", out)
+	}
+	if !strings.Contains(out, "background=dark") {
+		t.Fatalf("the late reply was not used: %q", out)
+	}
+}
+
+func TestAProbeLeavesNoLockFileBehind(t *testing.T) {
+	out := shell(t, report+`; ls -a "$TMPDIR"; echo END`, "", "\x1b]11;rgb:1a1a/1b1b/2626\x1b\\\x1b[?62;22c", "")
+	if !strings.Contains(out, "END") || strings.Contains(out, "rt-ui-background") {
+		t.Fatalf("a lock file was left: %q", out)
+	}
+}
+
+func TestADarkOrLightSettingNeverAsksTheTerminal(t *testing.T) {
+	for _, word := range []string{"dark", "light"} {
+		script := `printf '%s\n' "$HELLO" | RT_UI_BACKGROUND=` + word + ` "$BIN" render --report-background 2>&1 >/dev/null`
+		out := shell(t, script, "", "\x1b]11;rgb:1a1a/1b1b/2626\x1b\\\x1b[?62;22c", "")
+		if strings.Contains(out, "\x1b]11;?") || !strings.Contains(out, "background="+word) {
+			t.Fatalf("%s: %q", word, out)
+		}
+	}
+}

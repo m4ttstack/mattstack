@@ -61,17 +61,42 @@ const oauthRule = z.union([
   z.looseObject({ mode: z.literal("domains"), domains: z.array(z.string()).min(1) }),
 ]);
 
+// Mirrors board's own loader (parseTabs), which refuses to start on a tab
+// list these rules would reject.
 const tab = z.looseObject({
-  id: z.string(),
-  label: z.string(),
-  source: z.union([
-    z.looseObject({ kind: z.literal("authors") }),
-    z.looseObject({ kind: z.literal("codeowners"), section: z.string(), excludeMembers: z.boolean().optional() }),
-  ]),
-  slackChannel: z.string().optional(),
-  reviewSkill: z.string().optional(),
-  pack: z.string().optional(),
-  dimEmpty: z.boolean().optional(),
+  id: z.string().min(1).meta({
+    title: "Id",
+    description: "Stable id the board's URL and per-tab state key on; unique across tabs.",
+    slugFrom: "label",
+  }),
+  label: z.string().min(1).meta({ title: "Label", placeholder: "Web reviews" }),
+  source: z
+    .discriminatedUnion("kind", [
+      z.looseObject({
+        kind: z.literal("codeowners").meta({ title: "CODEOWNERS section" }),
+        section: z.string().min(1).meta({
+          title: "Section",
+          description: "A CODEOWNERS section header, matched exactly. A new section's MRs show once rt has backfilled it.",
+          placeholder: "CODEOWNERS section",
+          suggest: "codeowners-sections",
+        }),
+        excludeMembers: z.boolean().optional().meta({
+          title: "Hide roster authors",
+          description: "Leave out MRs by roster members, who have their own tab.",
+          // Board reads a missing value as false; a tab added here starts on.
+          initial: true,
+        }),
+      }),
+      z.looseObject({ kind: z.literal("authors").meta({ title: "Team roster" }) }),
+    ])
+    .meta({ title: "Shows" }),
+  slackChannel: z.string().optional().meta({ title: "Slack channel", inherits: "board.slack.channel" }),
+  reviewSkill: z.string().optional().meta({ title: "Review skill", placeholder: "inherits the repo's review skill" }),
+  pack: z.string().optional().meta({ title: "Pack", inherits: "board.defaultPack" }),
+  dimEmpty: z.boolean().optional().meta({
+    title: "Fade people with nothing here",
+    description: "Fade roster members with no MRs on this tab. Unset, every tab but a team roster one fades them.",
+  }),
 });
 
 // rt's board.keys setup step writes bare repo names; gitq's own loader reads { path, name? }.
@@ -191,7 +216,7 @@ export const SCHEMAS = {
       approved: z.string().optional().meta({ placeholder: "white_check_mark" }),
     }).optional(),
   }),
-  "board.tabs": z.array(tab),
+  "board.tabs": z.array(tab).min(1).meta({ uniqueBy: "id" }),
   "board.workspaces": z.looseObject({ reviews: z.string().optional(), responds: z.string().optional(), doctors: z.string().optional() }),
   "board.hiddenMembers": z.array(z.string()),
   "board.turn": z.looseObject({

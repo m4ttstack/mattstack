@@ -4,10 +4,11 @@
  * commands/chat.ts (both pull in TUI-adjacent modules that lib/mcp must
  * stay clear of).
  */
-import { herdList } from "../../packages/rt-client/src/index.ts";
+import { chatBuddies, herdList } from "../../packages/rt-client/src/index.ts";
 import type { RtResponse } from "../../packages/rt-client/src/index.ts";
 import { readChatSession, sessionName, type ChatSession } from "../chat-session.ts";
 import { explainError } from "../explain-error.ts";
+import { selfPaneRef } from "../self-pane.ts";
 
 /** A string is a literal command prefix; an object carries a pattern a prefix
     cannot express, and an example line the pattern must hit. */
@@ -141,14 +142,29 @@ export async function resolveSoleHerd(): Promise<{ herd: string } | { error: str
 
 export const SIGN_IN_HINT = "no signed-in chat session for this session; call chat_sign_in first, or, if this session was /cleared, run `rt chat sign-in` and the other chat verbs in Bash";
 
-/** No derived-handle fallback: a tool call with no session file is a hard error, unlike the CLI's resolveHandle. */
-export function requireChatHandle(
+export type ChatBuddiesFn = (o?: { timeoutMs?: number }) => ReturnType<typeof chatBuddies>;
+
+const PANE_LOOKUP_TIMEOUT_MS = 2000;
+
+/**
+ * No derived-handle fallback: a tool call with no signed-in identity is a
+ * hard error, unlike the CLI's resolveHandle. With no session file for this
+ * session id, the live identity signed in at this herdr pane stands in: a
+ * forked or resumed session keeps its pane but not its session file.
+ */
+export async function requireChatHandle(
   env: NodeJS.ProcessEnv,
   read: (id: string | undefined) => ChatSession | null = readChatSession,
-): { handle: string; name: string } | { error: string } {
+  buddies: ChatBuddiesFn = chatBuddies,
+): Promise<{ handle: string; name: string; sessionId: string } | { error: string }> {
   const session = read(env.CLAUDE_CODE_SESSION_ID);
-  if (!session) return { error: SIGN_IN_HINT };
-  return { handle: session.handle, name: sessionName(session) };
+  if (session) return { handle: session.handle, name: sessionName(session), sessionId: session.sessionId };
+  const pane = selfPaneRef(env);
+  if (!pane) return { error: SIGN_IN_HINT };
+  const res = await buddies({ timeoutMs: PANE_LOOKUP_TIMEOUT_MS });
+  const row = res.ok ? res.data?.buddies.find((b) => b.pane === pane && b.status !== "offline") : undefined;
+  if (!row) return { error: SIGN_IN_HINT };
+  return { handle: row.handle, name: row.name ?? row.handle, sessionId: row.sessionId };
 }
 
 /** Mirrors isValidChatName (lib/state/chat-store.ts), which lib/mcp does not import. */

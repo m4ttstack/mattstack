@@ -133,6 +133,7 @@ const PRUNABLE_SQL = `(signed_out_at IS NOT NULL AND signed_out_at < ?) OR (sign
 const SELECT_PRESENCE_BY_HANDLE_SQL = `SELECT ${PRESENCE_COLUMNS} FROM chat_presence WHERE handle = ?;`;
 const SELECT_PRESENCE_BY_SESSION_SQL = `SELECT ${PRESENCE_COLUMNS} FROM chat_presence WHERE session_id = ?;`;
 const SELECT_ALL_PRESENCE_SQL = `SELECT ${PRESENCE_COLUMNS} FROM chat_presence;`;
+const SELECT_SIGNED_IN_BY_PANE_SQL = `SELECT ${PRESENCE_COLUMNS} FROM chat_presence WHERE pane = ? AND signed_out_at IS NULL ORDER BY signed_in_at DESC LIMIT 1;`;
 // The roster's own cutoff is the signed-out leg alone, never last_seen_at:
 // a stale-but-live-binding row must reach buddyStatus to be classified
 // live/idle, not disappear from the list before buddyStatus ever sees it.
@@ -438,6 +439,11 @@ export function presenceForHandle(handle: string, db: Database = getStateDb()): 
 
 export function presenceForSession(sessionId: string, db: Database = getStateDb()): PresenceRow | null {
   const row = db.query(SELECT_PRESENCE_BY_SESSION_SQL).get(sessionId) as PresenceRawRow | null;
+  return row ? rowToPresence(row, identityName(row.handle, db)) : null;
+}
+
+export function signedInPresenceForPane(pane: string, db: Database = getStateDb()): PresenceRow | null {
+  const row = db.query(SELECT_SIGNED_IN_BY_PANE_SQL).get(pane) as PresenceRawRow | null;
   return row ? rowToPresence(row, identityName(row.handle, db)) : null;
 }
 

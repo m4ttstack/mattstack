@@ -1,33 +1,40 @@
-import { MATTSTACK_HEADER_ICON_SIZE } from '@mattstack/app-kit/app';
-import { ActionIcon, Stack, Text, Tooltip } from '@mattstack/app-kit/core';
+import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+
+import {
+  MATTSTACK_HEADER_ICON_SIZE,
+  SettingsEmbedModal,
+} from '@mattstack/app-kit/app';
+import { ActionIcon, Tooltip } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import { useLinks } from './useLinks';
 
-/** boxscore has no settings page: its settings live in console. */
+/** boxscore's settings live in console: this opens console's boxscore group
+    in a modal. */
 export function SettingsLink() {
   const { console: consoleUrl } = useLinks();
+  const queryClient = useQueryClient();
+  const [opened, setOpened] = useState(false);
   return (
-    <Tooltip
-      label={
-        <Stack gap={2}>
-          <Text size="xs" fw={500}>
-            Settings ↗
-          </Text>
-          <Text size="xs">Opens console › boxscore</Text>
-        </Stack>
-      }
-    >
-      <ActionIcon
-        component="a"
-        href={`${consoleUrl}/settings#boxscore`}
-        target="_blank"
-        rel="noreferrer"
-        variant="subtle"
-        size={MATTSTACK_HEADER_ICON_SIZE}
-        aria-label="Settings, opens console in a new tab"
-      >
-        <Icon name="settings" size={16} />
-      </ActionIcon>
-    </Tooltip>
+    <>
+      <Tooltip label="Settings">
+        <ActionIcon
+          variant="subtle"
+          size={MATTSTACK_HEADER_ICON_SIZE}
+          aria-label="Settings"
+          onClick={() => setOpened(true)}
+        >
+          <Icon name="settings" size={16} />
+        </ActionIcon>
+      </Tooltip>
+      <SettingsEmbedModal
+        opened={opened}
+        onClose={() => setOpened(false)}
+        group="boxscore"
+        title="boxscore settings"
+        origin={new URL(consoleUrl).origin}
+        onSaved={() => void queryClient.invalidateQueries()}
+      />
+    </>
   );
 }

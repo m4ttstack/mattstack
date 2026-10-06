@@ -9,8 +9,10 @@ import {
 } from '@mattstack/settings-kit/server';
 import { Hono } from 'hono';
 
+import { suggestValues } from './suggest';
+
 /**
- * Console's three typed reads, then settings-kit for defs/explain/set/unset.
+ * Console's typed reads and suggestion lists, then settings-kit for defs/explain/set/unset.
  * The typed routes must be registered first: Hono matches in order, and the
  * catch-all would otherwise answer them with a 404.
  */
@@ -52,6 +54,14 @@ export function createSettingsRoutes(
           'mattstack.integrations'
         );
         return c.json({ workspace: value?.linear?.workspace ?? null }, 200);
+      })
+      /** A named suggestion list a form field asks for with `suggest`;
+          `values: null` when its source has nothing to say yet. */
+      .get('/api/settings/suggest/:source', async c => {
+        const values = await suggestValues(c.req.param('source'));
+        if (values === undefined)
+          return c.json({ error: 'unknown suggestion list' }, 404);
+        return c.json({ values }, 200);
       })
       .all('/api/settings/*', async c => {
         // Under Bun.serve, Hono's `c.env` is the Bun server, which lets the

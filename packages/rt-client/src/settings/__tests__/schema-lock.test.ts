@@ -50,6 +50,25 @@ describe("classifyLockDiff", () => {
     expect(classifyLockDiff(lock({ type: "string" }), lock({ type: "string", pattern: "^x" }))[0]).toMatchObject({ kind: "breaking" });
   });
 
+  test("an annotation inside a oneOf branch is not a change; a property named like one is", () => {
+    const branch = (b: Record<string, unknown>) => lock({ oneOf: [b] });
+    expect(classifyLockDiff(branch({ type: "string", title: "a" }), branch({ type: "string", title: "b", description: "x" }))).toEqual([]);
+    const named = (t: Record<string, unknown>) => branch({ type: "object", properties: { title: t } });
+    expect(classifyLockDiff(named({ type: "string" }), named({ type: "number" }))[0]).toMatchObject({ kind: "breaking" });
+  });
+
+  test("key order inside a oneOf branch is not a change", () => {
+    const branch = (b: Record<string, unknown>) => lock({ oneOf: [b] });
+    expect(classifyLockDiff(branch({ type: "boolean", title: "x" }), branch({ title: "x", type: "boolean" }))).toEqual([]);
+  });
+
+  test("uniqueBy added or changed is breaking; removed is safe", () => {
+    const list = (extra: Record<string, unknown> = {}) => lock({ type: "array", items: { type: "object" }, ...extra });
+    expect(classifyLockDiff(list(), list({ uniqueBy: "id" }))[0]).toMatchObject({ kind: "breaking" });
+    expect(classifyLockDiff(list({ uniqueBy: "id" }), list({ uniqueBy: "name" }))[0]).toMatchObject({ kind: "breaking" });
+    expect(classifyLockDiff(list({ uniqueBy: "id" }), list())[0]).toMatchObject({ kind: "safe" });
+  });
+
   test("property removed is safe when extras are allowed and breaking when not", () => {
     expect(classifyLockDiff(lock(obj({ a: { type: "string" } })), lock(obj({})))[0]).toMatchObject({ kind: "safe" });
     expect(classifyLockDiff(lock(obj({ a: { type: "string" } }, [], { additionalProperties: false })), lock(obj({}, [], { additionalProperties: false })))[0]).toMatchObject({ kind: "breaking" });

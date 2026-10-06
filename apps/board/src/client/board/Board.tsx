@@ -69,7 +69,7 @@ import {
 import { ActionMenu } from './ActionMenu.tsx';
 import { AppMark } from './AppMark.tsx';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
-import { ConfigModal } from './ConfigModal.tsx';
+import { ConsoleSettingsModal } from './ConsoleSettingsModal.tsx';
 import {
   Controls,
   RefreshControl,
@@ -1686,16 +1686,12 @@ export function Board() {
         )}
 
         {showConfig && (
-          <ConfigModal
-            tabs={data.tabs}
-            knownSections={data.scopeKnownSections}
+          <ConsoleSettingsModal
             focusKey={configFocus}
-            onSaved={() => load()}
+            onSaved={() =>
+              void postAction('/api/config/reload', {}).then(() => load())
+            }
             onClose={() => setShowConfig(false)}
-            onOpenRoster={() => {
-              setShowConfig(false);
-              setShowSettings(true);
-            }}
           />
         )}
 

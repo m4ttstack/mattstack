@@ -1289,9 +1289,21 @@ const httpServer = Bun.serve({
           headers: { 'content-type': 'text/javascript; charset=utf-8' },
         });
     }
-    // Store-backed settings for the ConfigModal — settings-kit answers its
-    // own routes and falls through for everything else. Writes ride board's
-    // locality rule; reads are as public as /data.json already is.
+    // Board's settings are edited in console's embedded settings page, which
+    // writes the store without passing through this process: the modal
+    // posts here after each write so the running config picks it up.
+    if (pathname === '/api/config/reload' && req.method === 'POST') {
+      if (!isLocalRequest(req, server))
+        return Response.json({ error: 'local only' }, { status: 403 });
+      const notJson = requireJsonBody(req);
+      if (notJson) return notJson;
+      if (!FIXTURE_DIR) reloadConfig('settings changed');
+      return Response.json({ ok: true });
+    }
+
+    // Store-backed settings over HTTP: settings-kit answers its own routes
+    // and falls through for everything else. Writes ride board's locality
+    // rule; reads are as public as /data.json already is.
     if (pathname.startsWith('/api/settings/')) {
       const settingsRes = await settingsHandler(req, {
         allowWrite: r => isLocalRequest(r, server),
@@ -4289,9 +4301,9 @@ if (writer) {
 // effect without a restart. Watch the directory — that survives editors that
 // save atomically by swapping the file — and filter to our file. A mid-edit
 // invalid file is ignored, keeping the last good config. A store-backed
-// setting (rt settings set, or anything outside the /api/settings/ mount
-// above) still needs a restart to be picked up here -- only a write through
-// this process's own API refreshes live.
+// setting refreshes live only through this process's /api/settings/ mount
+// or /api/config/reload (which the console settings modal posts after each
+// write); `rt settings set` from a shell still needs a restart.
 let reloadTimer: ReturnType<typeof setTimeout> | undefined;
 function reloadConfig(reason: string): void {
   try {

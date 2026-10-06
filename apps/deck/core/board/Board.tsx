@@ -12,6 +12,7 @@ import { AppsTable } from './AppsTable.tsx';
 import { AppDrawer } from './drawer/AppDrawer.tsx';
 import { sublineHealthy, type Row } from './logic.ts';
 import { AddAppModal, RemoveConfirm, UnlinkConfirm } from './modals.tsx';
+import { SettingsModal } from './SettingsModal.tsx';
 import { useBoardState } from './useBoardState.ts';
 
 /** Aggregate cloudflare-tunnel health, collapsed to a single header badge that
@@ -83,6 +84,7 @@ export function Board() {
     else chevronRefs.delete(name);
   };
   const [openRowName, setOpenRowName] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   // Table display order: apps, then strays, then tunnels -- what ↑/↓ walks.
   const allRows = useMemo(
     () => [...sections.flatMap(s => s.rows), ...tunnels],
@@ -123,6 +125,15 @@ export function Board() {
               </Button>
             </>
           )}
+          <Tooltip tip="settings">
+            <Button
+              size="sm"
+              aria-label="settings"
+              onClick={() => setShowSettings(true)}
+            >
+              {ICONS.settings}
+            </Button>
+          </Tooltip>
         </span>
       </header>
       <p className="board-subline">
@@ -184,6 +195,7 @@ export function Board() {
         </>
       )}
       <AddAppModal board={board} />
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       <RemoveConfirm board={board} />
       <UnlinkConfirm board={board} />
       <ToastHost toasts={board.toasts} />

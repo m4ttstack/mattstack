@@ -10,6 +10,10 @@ import { runs } from './runs';
 import { settings } from './settings';
 import { mountSkills } from './skills';
 
+// The embed page writes settings, so only the suite's own pages may frame it.
+export const EMBED_FRAME_ANCESTORS =
+  "frame-ancestors 'self' https://*.mattstack http://*.mattstack https://*.localhost http://*.localhost http://localhost:* http://127.0.0.1:*";
+
 const scenario = fixtureMode(process.env);
 const fixture = scenario ? fixtureRt(scenario) : null;
 
@@ -19,6 +23,10 @@ const fixture = scenario ? fixtureRt(scenario) : null;
  * and an unchained `app.get(...)` never reaches `typeof routes`.
  */
 export const routes = new Hono()
+  .use('/embed/*', async (c, next) => {
+    await next();
+    c.header('Content-Security-Policy', EMBED_FRAME_ANCESTORS);
+  })
   .route('/', runs)
   .route('/', enrich)
   .route('/', panes)

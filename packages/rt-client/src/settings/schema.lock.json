@@ -165,45 +165,49 @@
     }
   },
   "board.tabs": {
-    "storeVersion": 1,
+    "storeVersion": 2,
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "minItems": 1,
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "title": "Id",
+            "description": "Stable id the board's URL and per-tab state key on; unique across tabs.",
+            "slugFrom": "label"
           },
           "label": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "title": "Label",
+            "placeholder": "Web reviews"
           },
           "source": {
-            "anyOf": [
+            "oneOf": [
               {
                 "type": "object",
                 "properties": {
                   "kind": {
                     "type": "string",
-                    "const": "authors"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "additionalProperties": {}
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "const": "codeowners"
+                    "const": "codeowners",
+                    "title": "CODEOWNERS section"
                   },
                   "section": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1,
+                    "title": "Section",
+                    "description": "A CODEOWNERS section header, matched exactly. A new section's MRs show once rt has backfilled it.",
+                    "placeholder": "CODEOWNERS section",
+                    "suggest": "codeowners-sections"
                   },
                   "excludeMembers": {
+                    "title": "Hide roster authors",
+                    "description": "Leave out MRs by roster members, who have their own tab.",
+                    "initial": true,
                     "type": "boolean"
                   }
                 },
@@ -212,19 +216,42 @@
                   "section"
                 ],
                 "additionalProperties": {}
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "authors",
+                    "title": "Team roster"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": {}
               }
-            ]
+            ],
+            "title": "Shows"
           },
           "slackChannel": {
+            "title": "Slack channel",
+            "inherits": "board.slack.channel",
             "type": "string"
           },
           "reviewSkill": {
+            "title": "Review skill",
+            "placeholder": "inherits the repo's review skill",
             "type": "string"
           },
           "pack": {
+            "title": "Pack",
+            "inherits": "board.defaultPack",
             "type": "string"
           },
           "dimEmpty": {
+            "title": "Fade people with nothing here",
+            "description": "Fade roster members with no MRs on this tab. Unset, every tab but a team roster one fades them.",
             "type": "boolean"
           }
         },
@@ -234,6 +261,73 @@
           "source"
         ],
         "additionalProperties": {}
+      },
+      "uniqueBy": "id"
+    },
+    "migrateFrom": {
+      "1": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "authors"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": {}
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "codeowners"
+                    },
+                    "section": {
+                      "type": "string"
+                    },
+                    "excludeMembers": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "section"
+                  ],
+                  "additionalProperties": {}
+                }
+              ]
+            },
+            "slackChannel": {
+              "type": "string"
+            },
+            "reviewSkill": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "source"
+          ],
+          "additionalProperties": {}
+        }
       }
     }
   },
