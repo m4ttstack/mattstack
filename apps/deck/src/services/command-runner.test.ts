@@ -51,8 +51,16 @@ test("every run is spawned in its own process group, so deck's own restart never
 
 test("any app's run still in flight keeps it busy after deck restarts", () => {
   const logDir = mkdtempSync(join(tmpdir(), 'runlog-'));
-  const spawn = () => ({ exited: new Promise<number>(() => {}), pid: process.pid });
-  const input = { name: 'console', cmd: 'deploy', shell: 's', workingDirectory: '/tmp' };
+  const spawn = () => ({
+    exited: new Promise<number>(() => {}),
+    pid: process.pid,
+  });
+  const input = {
+    name: 'console',
+    cmd: 'deploy',
+    shell: 's',
+    workingDirectory: '/tmp',
+  };
   expect(startCommandRun(input, { spawn, logDir }).started).toBe(true);
   resetRuns();
   expect(startCommandRun(input, { spawn, logDir })).toEqual({
@@ -116,7 +124,7 @@ test('a pid file naming a live but unrelated process is stale: the run starts an
       cmd: 'deploy',
       shell: 'bun run deploy',
       workingDirectory: '/tmp',
-      },
+    },
     { spawn, logDir }
   );
   expect(r.started).toBe(true);
@@ -134,7 +142,7 @@ test('a run that exits in the same deck removes its pid file', async () => {
       cmd: 'deploy',
       shell: 's',
       workingDirectory: '/tmp',
-      },
+    },
     { spawn, logDir }
   );
   await new Promise(res => setTimeout(res, 10));
@@ -166,7 +174,7 @@ test('the default spawn really gives a run its own process group', async () => {
       cmd: 'pgid',
       shell: 'ps -o pgid= -p $$',
       workingDirectory: logDir,
-      },
+    },
     { logDir }
   );
   if (!r.started) throw new Error('unreachable');

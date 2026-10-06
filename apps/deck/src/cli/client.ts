@@ -45,9 +45,12 @@ export async function apiFetch(
   path: string,
   init?: RequestInit
 ): Promise<Response> {
-  return withDeckWait(async () => {
-    const info = resolveApiInfo();
-    if (!info) throw new Error(await deckNotRunning());
+  // No record at all is a deck that is not installed, which no wait fixes;
+  // a restarting deck keeps its record and only refuses the connection.
+  const first = resolveApiInfo();
+  if (!first) throw new Error(await deckNotRunning());
+  return withDeckWait(() => {
+    const info = resolveApiInfo() ?? first;
     return fetch(`http://127.0.0.1:${info.port}${path}`, init);
   });
 }
