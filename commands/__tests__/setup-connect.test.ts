@@ -20,6 +20,7 @@ function pendingRolePublication(argv: string[]) {
   const remote = "https://gitlab.com/acme/org.git";
   const pendingMain = "a".repeat(40);
   const publishedMain = "b".repeat(40);
+  if (argv.includes("symbolic-ref")) return ok("main\n");
   if (argv[1] === "remote" && argv[2] === "get-url") {
     expect(argv).toEqual(["git", "remote", "get-url", "--push", "--all", "origin"]);
     return ok(`${remote}\n`);

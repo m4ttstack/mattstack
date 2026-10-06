@@ -54,6 +54,7 @@ function gitAwareFakeProbes(home: string, intercept?: Intercept) {
     home,
     exec: (argv, execOpts) => {
       if (argv.includes("get-url")) return { code: 0, stdout: "https://github.com/acme/repo.git\n", stderr: "" };
+      if (argv.includes("symbolic-ref")) return { code: 0, stdout: "main\n", stderr: "" };
       if (argv.includes("ls-remote")) return { code: 0, stdout: "", stderr: "" };
       const override = intercept?.(argv, execOpts);
       if (override) return override;

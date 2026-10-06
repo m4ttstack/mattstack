@@ -334,6 +334,7 @@ function gitExecFor(remote: string, pushResult: ExecResult = ok("main -> main"))
   return async (argv) => {
     const [bin, sub] = argv;
     if (bin === "git" && sub === "remote" && argv[2] === "get-url") return ok(`${remote}\n`);
+    if (bin === "git" && sub === "symbolic-ref") return ok("main\n");
     if (bin === "git" && sub === "init") return ok();
     if (bin === "git" && sub === "remote" && argv[2] === "add") return ok();
     if (bin === "git" && sub === "add") return ok();
@@ -489,10 +490,11 @@ describe("team.create", () => {
       ["git", "cat-file", "-e", "HEAD:.claude-plugin/marketplace.json"],
       ["git", "cat-file", "-e", "HEAD:.sops.yaml"],
       ["git", "cat-file", "-e", "HEAD:.gitignore"],
+      ["git", "symbolic-ref", "-q", "--short", "HEAD"],
       ["git", "remote", "get-url", "--push", "--all", "origin"],
       ["git", "ls-remote", "--refs", "--", remote, "refs/heads/main"],
       ["git", "rev-list", "--max-count=1001", "refs/heads/main"],
-      ["git", "push", "-u", "origin", "main"],
+      ["git", "push", "-u", "origin", "refs/heads/main:refs/heads/main"],
     ]);
   });
 

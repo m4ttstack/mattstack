@@ -34,6 +34,7 @@ import { assertCurrentOrg, readTeamLocal } from "./team-local.ts";
 import { encodeCode, generateId, generateKey, seal } from "./invite-crypto.ts";
 import { readInviteRecords, upsertInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
+import { orgBranch, shellQuote } from "./org-branch.ts";
 import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import { warn as warnLine, type ShownWarning } from "../ui/warn.ts";
 
@@ -156,10 +157,6 @@ function defaultWarn(message: string, shown?: ShownWarning): void {
   warnLine("team", message, { show: shown ?? { title: message } });
 }
 
-function shellQuote(s: string): string {
-  return /^[\w./:@=-]+$/.test(s) ? s : `'${s.replaceAll("'", "'\\''")}'`;
-}
-
 async function gitPathExists(p: Probes, dir: string, name: string): Promise<boolean> {
   const res = await p.exec(["git", "rev-parse", "--git-path", name], { cwd: dir });
   if (res.code !== 0) return false;
@@ -224,7 +221,14 @@ export function realMintInviteSeams(): MintInviteSeams {
     pullOrg: async (p, slug, remote, token) => {
       const dir = join(p.home, ".mattstack", "teams", slug);
       await refuseIfBusy(p, dir);
-      const known = await p.exec(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"], { cwd: dir });
+      const branch = await orgBranch(p, dir);
+      if (branch !== "main") {
+        throw new UserActionableError("invite-off-main", `Your copy of the org is on ${branch}, so rt made no invite`, {}, {
+          why: "The people you invite clone main, so their roster entry has to land there. Switch back to main to invite.",
+          next: `git -C ${shellQuote(dir)} switch main`,
+        });
+      }
+      const known =await p.exec(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"], { cwd: dir });
       if (known.code !== 0) return;
       const pull = gitWithToken(["pull", "--rebase", "--autostash", "origin", "main"], token, { GIT_TERMINAL_PROMPT: "0" }, { remote });
       const res = await p.exec(pull.argv, { cwd: dir, env: pull.env });
