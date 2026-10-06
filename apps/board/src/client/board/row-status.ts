@@ -114,6 +114,12 @@ const PILL_HUE: Record<string, PillHue> = {
   'needs review': 'amber',
 };
 
+/** A status group's hue: the same one its rows' pills wear, so the group's
+    header band matches every badge beneath it. */
+export function statusGroupHue(label: string): PillHue | undefined {
+  return PILL_HUE[label];
+}
+
 /** The pill's phrase: GitLab's review state, read off the very bucket the
     status grouping uses, so a row's badge can never contradict the header it
     sits under. Mechanical blockers stay flags beside it, and how far the
