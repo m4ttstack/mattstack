@@ -243,8 +243,8 @@ out.
 ### Gate: approve the update-machine legs
 
 Show each leg's `label` and `detail` from the `--plan` envelope. Say plainly that `--yes` skips
-every per-leg confirm: the prod app replace, the dev app replace, and the daemon restart announced
-in #rt. From Bash there is no TTY, and without `--yes` the verb refuses outright rather than guess
+every per-leg confirm: the prod app replace, the dev app replace, the dev app upload to the release,
+and the daemon restart announced in #rt. From Bash there is no TTY, and without `--yes` the verb refuses outright rather than guess
 at consent; that refusal is why this gate comes first, not a reason to pass `--yes` unasked. The
 legs, in order:
 
@@ -254,6 +254,14 @@ legs, in order:
 - **Dev bundle**: builds in a scratch tree at the released commit, replaces
   `/Applications/mattstack-dev.app` the same way, and, only if it was running, reopens it and
   waits for a fresh pid.
+- **Dev app publish**: notarizes the dev app the previous leg built, zips it as
+  `mattstack-dev-<version>.zip`, and attaches it and its line in `SHA256SUMS` to the release, so
+  collaborators' `rt dev setup` and `rt dev update` can install it. It needs a saved notary profile
+  (`NOTARY_PROFILE`, default `mattstack-notary`), checked once before any leg runs; without one this
+  leg is skipped, with no prompt, and its detail carries the one-time
+  `xcrun notarytool store-credentials` command. It is skipped the same way when the dev bundle leg
+  did not build. A failed publish never halts the legs after it: it shows as an error in the
+  summary while checkout sync, the daemon and the served suite still run.
 - **Shared checkout sync**: the shared `~/Documents/GitHub/mattstack` checkout (or the older
   `~/Documents/GitHub/repo-tools` folder on a machine that has not moved it); refuses unless it is
   on main, then fast-forwards it and runs a frozen install.
@@ -265,8 +273,8 @@ legs, in order:
   restarts deck's managed apps and restarts stragglers; user-managed rows are left alone.
 - **Verify**: a read-only sweep of all of the above.
 
-A leg that ends aborted or in error halts every later state-changing leg; the verify sweep still
-runs and the envelope's `haltedAfter` names the leg that halted. `--verify-only` runs the sweep
+A leg that ends aborted or in error halts every later state-changing leg, except a failed dev app
+publish, which halts none; the verify sweep still runs and the envelope's `haltedAfter` names the leg that halted. `--verify-only` runs the sweep
 alone (refused with `--plan`). Hand back means Matt runs the verb on a terminal and answers each
 leg's prompt himself; declining a prompt skips only that leg.
 

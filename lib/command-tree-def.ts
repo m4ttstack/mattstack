@@ -1534,6 +1534,24 @@ export const TREE: Record<string, CommandNode> = {
     },
   },
 
+  dev: {
+    description: "Build mattstack from your own clone",
+    subcommands: {
+      setup: {
+        description: "Set this Mac up to build mattstack from your own clone",
+        module: "./commands/dev.ts",
+        fn: "devSetup",
+        args: [SETUP_JSON_ARG],
+      },
+      update: {
+        description: "Update your tools and dev app",
+        module: "./commands/dev.ts",
+        fn: "devUpdate",
+        args: [SETUP_JSON_ARG],
+      },
+    },
+  },
+
   events: {
     description: "Optional event bus for panes and skills",
     subcommands: eventsSubcommands,

@@ -35,7 +35,7 @@ export const VENDOR_INSTALLERS: Record<string, string> = {
 };
 
 /** The only hosts a hardcoded VENDOR_INSTALLERS entry may point at — closes the door on a future entry (or a typo) silently widening what rt will fetch-and-run. */
-const VENDOR_ALLOWED_HOSTS = new Set(["herdr.dev", "claude.ai"]);
+const VENDOR_ALLOWED_HOSTS = new Set(["herdr.dev", "claude.ai", "bun.sh"]);
 
 export const BREW_FORMULAE: Record<string, string> = { herdr: "herdr", claude: "claude-code" };
 
@@ -219,17 +219,55 @@ export async function installTool(p: Probes, tool: string, reqs: PackRequirement
   throw new UserActionableError("no-installer", `no install method known for ${tool}`);
 }
 
+export const BUN_INSTALLER_URL = "https://bun.sh/install";
+const DEV_TOOL_DOWNLOAD: Record<"go" | "node", string> = { go: "https://go.dev/dl/", node: "https://nodejs.org/en/download" };
+
+/**
+ * The dev toolchain `rt dev setup` needs, installed for real rather than
+ * linked from the app bundle: a dev checkout must keep working when the app
+ * that shipped a binary is retired or updated. The version and arguments are
+ * rt's own, never caller text.
+ */
+export async function installDevTool(p: Probes, tool: "bun" | "go" | "node", version: string): Promise<InstallResult> {
+  if (tool === "bun") {
+    return runVendorInstaller(p, "bun", BUN_INSTALLER_URL, { shell: "bash", args: [`bun-v${version}`], verify: [join(p.home, ".bun", "bin", "bun"), "--version"] });
+  }
+  const brew = await p.exec(["brew", "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
+  if (brew.code !== 0) {
+    throw new UserActionableError(
+      "dev-tool-no-brew",
+      `${tool} needs installing, and this Mac has no Homebrew`,
+      {},
+      {
+        why: "Install it from its download page, then run this again.",
+        next: `open ${DEV_TOOL_DOWNLOAD[tool]}`,
+      },
+    );
+  }
+  const prefix = (await p.exec(["brew", "--prefix"], { timeoutMs: PROBE_TIMEOUT_MS })).stdout.trim() || "/opt/homebrew";
+  const verify = [join(prefix, "bin", tool), tool === "go" ? "version" : "--version"];
+  return runInstallerAndVerify(p, tool, "brew", ["brew", "install", tool], `brew install ${tool}`, `installed via brew (${tool})`, verify);
+}
+
 /**
  * Runs the installer argv, then re-probes `<tool> --version` before
  * reporting success — an installer's own exit code is never sufficient
  * proof by itself (brew/vendor can exit 0 over a broken shim).
  */
-async function runInstallerAndVerify(p: Probes, tool: string, via: "brew" | "vendor", argv: string[], label: string, successDetail: string): Promise<InstallResult> {
+async function runInstallerAndVerify(
+  p: Probes,
+  tool: string,
+  via: "brew" | "vendor",
+  argv: string[],
+  label: string,
+  successDetail: string,
+  verifyArgv: string[] = [tool, "--version"],
+): Promise<InstallResult> {
   const res = await p.exec(argv, { timeoutMs: INSTALL_TIMEOUT_MS });
   if (res.code === 124) return { via, ok: false, detail: `${label} did not finish in time` };
   if (res.code !== 0) return { via, ok: false, detail: `${label} failed (exit ${res.code}): ${firstLine(res.stderr || res.stdout)}` };
 
-  const verify = await p.exec([tool, "--version"], { timeoutMs: PROBE_TIMEOUT_MS });
+  const verify = await p.exec(verifyArgv, { timeoutMs: PROBE_TIMEOUT_MS });
   if (verify.code !== 0) {
     return { via, ok: false, detail: `${label} finished, but ${tool} still does not run (exit ${verify.code})` };
   }
@@ -262,7 +300,7 @@ function vendorDownloadPath(p: Pick<Probes, "env">, tool: string): string {
  * step (`["sh", path]` — a script FILE argument, not a `-c` command string)
  * — no pipe-to-shell anywhere in the sequence.
  */
-async function runVendorInstaller(p: Probes, tool: string, url: string): Promise<InstallResult> {
+async function runVendorInstaller(p: Probes, tool: string, url: string, opts: { shell?: "sh" | "bash"; args?: string[]; verify?: string[] } = {}): Promise<InstallResult> {
   const validated = validateVendorUrl(url);
   if (!validated.ok) return { via: "vendor", ok: false, detail: validated.detail };
 
@@ -273,7 +311,7 @@ async function runVendorInstaller(p: Probes, tool: string, url: string): Promise
   if (fetchRes.code === 124) return { via: "vendor", ok: false, detail: "Downloading the install script did not finish in time" };
   if (fetchRes.code !== 0) return { via: "vendor", ok: false, detail: `Downloading the install script failed (exit ${fetchRes.code}): ${firstLine(fetchRes.stderr || fetchRes.stdout)}` };
 
-  return runInstallerAndVerify(p, tool, "vendor", ["sh", path], "install script", "installed via vendor script");
+  return runInstallerAndVerify(p, tool, "vendor", [opts.shell ?? "sh", path, ...(opts.args ?? [])], "install script", "installed via vendor script", opts.verify);
 }
 
 // ─── setupTool ───────────────────────────────────────────────────────────

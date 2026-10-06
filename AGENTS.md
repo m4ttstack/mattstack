@@ -901,7 +901,9 @@ The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
   then `rt-tray/build.sh dev`, never in the shared checkout's `rt-tray/`.
   Then replace
   `/Applications/mattstack-dev.app` by moving the old one aside, the way the
-  dev-bundle leg of the `rt:release` skill does.
+  dev-bundle leg of the `rt:release` skill does. A collaborator's dev app
+  comes from the release (`rt dev setup`, `rt dev update`); the `dev-publish`
+  leg of `rt release update-machine` attaches it on the maintainer's Mac.
 
 ## Footguns
 

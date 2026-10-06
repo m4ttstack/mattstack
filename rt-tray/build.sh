@@ -402,6 +402,10 @@ if [ "$IS_DEV" = true ] && [ -n "${MS_BUILD_SHA:-}" ]; then
     plutil -replace MSBuildDiffHash -string "$MS_BUILD_DIFF_HASH" "$INFO"
     plutil -replace MSBuildVersion -string "$MS_BUILD_VERSION" "$INFO"
 fi
+if [ "$IS_DEV" = true ] && [ "${MS_DEV_RELEASE_BUILD:-0}" = 1 ]; then
+    plutil -replace MSDevReleaseBuild -bool true "$INFO"
+    echo "  ✓ Marked as a release-built dev app"
+fi
 plist_set LSMinimumSystemVersion string 14.0
 
 if [ "$RT_VERSION" != "dev" ]; then

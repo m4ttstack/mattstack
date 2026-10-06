@@ -203,6 +203,38 @@ describe("rt setup update", () => {
     expect(deps.notifications).toEqual([{ category: "setup_update", title: "Setup needs you after the update to 2.15.0", message: "verify: to connect: Slack", id: "setup_update:2.15.0" }]);
   });
 
+  test("a newer dev app posts its notice under its own id and leaves the exit code alone", async () => {
+    const deps = updateDeps({
+      probes: fakeProbes({ files: { [DAEMON]: "{}" } }),
+      devAppNotice: async () => ({ id: "dev_app:2.23.0", title: "t", message: "m" }),
+    });
+    await run(deps, []);
+    expect(deps.exitCodes).toEqual([]);
+    expect(deps.notifications).toEqual([{ category: "setup_update", title: "t", message: "m", id: "dev_app:2.23.0" }]);
+  });
+
+  test("a dev app notice that throws neither fails the run nor loses the stamp", async () => {
+    const deps = updateDeps({
+      probes: fakeProbes({ files: { [DAEMON]: "{}" } }),
+      devAppNotice: async () => { throw new Error("offline"); },
+    });
+    await run(deps, []);
+    expect(deps.exitCodes).toEqual([]);
+    expect(deps.notifications).toEqual([]);
+    expect(readSetupState(deps.probes).lastUpdate?.version).toBe("2.15.0");
+  });
+
+  test("a dev app notice rides beside a needs-you notification and the exit stays 2", async () => {
+    const deps = updateDeps({
+      probes: fakeProbes({ files: { [DAEMON]: "{}" } }),
+      steps: [updateStep("verify", { state: "needs-you", detail: "to connect: Slack" })],
+      devAppNotice: async () => ({ id: "dev_app:2.23.0", title: "t", message: "m" }),
+    });
+    await run(deps, []);
+    expect(deps.exitCodes).toEqual([2]);
+    expect(deps.notifications.map((n) => n.id)).toEqual(["setup_update:2.15.0", "dev_app:2.23.0"]);
+  });
+
   test("a needs-you item for a person ends in a needs-you summary and exits 2 after it", async () => {
     const cap = capturePlain();
     try {

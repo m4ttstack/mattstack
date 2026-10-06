@@ -31,8 +31,10 @@ import { homedir, tmpdir } from "os";
 import { dirname, join } from "path";
 import { createRealUpdateMachineSeams } from "../commands/release.ts";
 import { UserActionableError } from "../lib/errors.ts";
+import { notify } from "../lib/notifier.ts";
 import { runCapture } from "../lib/subprocess.ts";
 import { devAppStagePaths, stageLocalDevApp } from "../lib/release/dev-app-stage.ts";
+import { rebuildGuard } from "../lib/release/signing-identity.ts";
 import { assertDevAppRef, runDevAppRebuild } from "../lib/release/update-machine.ts";
 
 const USAGE = "usage: bun scripts/build-dev-app.ts [--local | --ref <branch|tag|sha>] [--yes]";
@@ -59,6 +61,17 @@ const parsed = parseArgs(process.argv.slice(2));
 if (!parsed) {
   console.error(USAGE);
   process.exit(2);
+}
+
+if (
+  parsed.yes &&
+  !(await rebuildGuard({
+    exec: (argv) => runCapture(argv, { stderr: "pipe", timeoutMs: 30_000 }),
+    notify: (title, message) => notify(title, message, undefined, "general", undefined, "dev-app-rebuild-needs-cert"),
+    print: (line) => console.error(line),
+  }))
+) {
+  process.exit(1);
 }
 
 if (parsed.local) {

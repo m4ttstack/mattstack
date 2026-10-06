@@ -1,0 +1,45 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`rt dev --json envelopes are pinned 1`] = `
+{
+  "at": "2026-10-06T15:00:00.000Z",
+  "clone": "/c/mattstack",
+  "contract": 1,
+  "kind": "done",
+  "ok": true,
+  "stages": [
+    {
+      "hint": "bun 1.4.2 · go 1.26.5",
+      "status": "done",
+      "title": "Your tools are ready",
+    },
+  ],
+}
+`;
+
+exports[`rt dev --json envelopes are pinned 2`] = `
+{
+  "at": "2026-10-06T15:00:00.000Z",
+  "clone": "/c/mattstack",
+  "contract": 1,
+  "kind": "already",
+  "ok": true,
+  "stages": [],
+}
+`;
+
+exports[`rt dev --json envelopes are pinned 3`] = `
+{
+  "at": "2026-10-06T15:00:00.000Z",
+  "clone": "/c/mattstack",
+  "contract": 1,
+  "ok": true,
+  "stages": [
+    {
+      "hint": "bun 1.4.2 · go 1.26.5",
+      "status": "done",
+      "title": "Your tools are ready",
+    },
+  ],
+}
+`;

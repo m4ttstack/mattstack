@@ -51,6 +51,8 @@ function fakeSeams(overrides: Partial<UpdateMachineSeams> = {}): UpdateMachineSe
       return ok("");
     },
     download: async () => {},
+    writeFile: async () => {},
+    notaryProfile: "mattstack-notary",
     readFile: (p) => (p.endsWith("SHA256SUMS") ? "cafefeed  mattstack-2.11.0.dmg\n" : p.endsWith("deps.lock") ? JSON.stringify({ tools: [{ name: "deck", version: "3.4.0" }] }) : null),
     confirm: async () => true,
     announce: async () => true,
@@ -106,7 +108,7 @@ describe("rt release update-machine", () => {
     expect(body.contract).toBe(1);
     expect(body.tag).toBe("v2.11.0");
     expect(body.ok).toBe(true);
-    expect(body.legs).toHaveLength(6);
+    expect(body.legs).toHaveLength(7);
     expect(exitCode ?? 0).toBe(0);
   });
 
@@ -210,7 +212,7 @@ describe("rt release update-machine", () => {
 
   test("--plan in human mode lists every leg as not yet run and says nothing changed", async () => {
     const { logs, exitCode } = await run(["--plan"], fakeSeams());
-    expect(logs.slice(0, 6).every((l) => l.startsWith("[not yet] "))).toBe(true);
+    expect(logs.slice(0, 7).every((l) => l.startsWith("[not yet] "))).toBe(true);
     expect(logs.at(-1)).toBe("[not yet] tag v2.11.0  plan only, nothing changed");
     expect(exitCode ?? 0).toBe(0);
   });

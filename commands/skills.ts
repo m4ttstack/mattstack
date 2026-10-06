@@ -33,6 +33,7 @@ import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as rela
 import { mattstackHome } from "../lib/rt-paths.ts";
 import { childEnv, runCapture } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
+import { readDevModeConfig } from "./settings.ts";
 import { insideCheckout } from "../lib/skills/sync.ts";
 import { interactive } from "../lib/ui/gate.ts";
 import * as out from "../lib/ui/out.ts";
@@ -1900,7 +1901,7 @@ export type DiscardIo = {
 const REAL_DISCARD_IO: DiscardIo = {
   interactive,
   confirm: async (message) => (await import("../lib/ui/prompts.ts")).confirm({ message, destructive: true }),
-  sharedCheckout: () => resolveSharedCheckout(homedir()),
+  sharedCheckout: () => resolveSharedCheckout(homedir(), existsSync, readDevModeConfig().sourcePath ?? null),
 };
 
 /**
