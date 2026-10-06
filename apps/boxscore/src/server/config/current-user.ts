@@ -9,6 +9,10 @@ export function __resetCurrentUser(): void {
   cached = null;
 }
 
+export function __setCurrentUser(u: CurrentUser | null): void {
+  cached = u;
+}
+
 /**
  * The token's own user, from GET /api/v4/user; SP4 swaps this to
  * provider.validateToken(). Failure is null: no row is highlighted as "you".

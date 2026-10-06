@@ -35,6 +35,8 @@ export interface BoxscoreSettings {
   defaultRange: RangePreset;
   /** "" = GitLab unconfigured. */
   baseUrl: string;
+  /** Raw `boxscore.roles`; resolveViewer validates it. */
+  roles: unknown;
 }
 
 export type SettingReader = <T>(key: string) => T | undefined;
@@ -86,5 +88,6 @@ export function readSettings(): BoxscoreSettings {
     botPatterns: read<string[]>('boxscore.botPatterns') ?? [],
     defaultRange: read<RangePreset>('boxscore.defaultRange') ?? '30d',
     baseUrl: baseUrlFrom(integrations.forge?.host),
+    roles: read<unknown>('boxscore.roles') ?? {},
   };
 }

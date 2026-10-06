@@ -17,15 +17,11 @@ import {
   METRICS,
   metricValue,
 } from '../shared/metrics.js';
-import type {
-  LeaderboardResponse,
-  MetricKey,
-  UserDetailResponse,
-} from '../shared/types.js';
+import type { MetricKey, UserDetailResponse } from '../shared/types.js';
 import { scanSuspectedBots } from './bots.js';
 import { readSettings } from './config/index.js';
 import { getLeaderboard, getUserDetail } from './leaderboard.js';
-import { validateLeaderboard } from './metrics/validate.js';
+import { standingsOutcome } from './standings-text.js';
 import { resolveWindowArgs } from './util/window.js';
 
 interface Args {
@@ -58,62 +54,6 @@ function parseArgs(argv: string[]): Args {
     else if (arg === '--detail') a.detail = argv[++i];
   }
   return a;
-}
-
-function printStandings(res: LeaderboardResponse): void {
-  const w = res.window;
-  console.log(
-    `\nBoxscore ... ${scopeLabel(res)}  ${w.start.slice(0, 10)} → ${w.end.slice(0, 10)}`
-  );
-  console.log(
-    `${res.fromCache ? 'cached' : 'fresh'}${res.hasTrend ? ' · trend on' : ''} · ${res.users.filter(u => u.resolved).length}/${res.users.length} resolved\n`
-  );
-
-  console.log('STANDINGS BY METRIC (1 = best):');
-  for (const d of METRICS) {
-    const ranked = res.users
-      .filter(u => u.resolved && metricValue(u.metrics, d) !== null)
-      .sort(
-        (a, b) =>
-          (metricRank(a.metrics, d) ?? 99) - (metricRank(b.metrics, d) ?? 99)
-      );
-    const line = ranked
-      .map(
-        u =>
-          `${metricRank(u.metrics, d)}.${u.name ?? u.username}(${fmt(metricValue(u.metrics, d), d)})`
-      )
-      .join('  ');
-    console.log(`  ${d.label.padEnd(16)} ${line || '(no data)'}`);
-  }
-
-  console.log('\nLEADERS:');
-  for (const d of METRICS) {
-    console.log(`  ${d.label.padEnd(16)} ${res.leaders[d.key] ?? '...'}`);
-  }
-
-  if (res.warnings.length) {
-    console.log('\nWARNINGS:');
-    for (const wn of res.warnings)
-      console.log(`  ⚠ [${wn.code}] ${wn.message.slice(0, 160)}`);
-  }
-}
-
-function scopeLabel(res: LeaderboardResponse): string {
-  return res.scope.type === 'group'
-    ? (res.scope.groupPath ?? 'group')
-    : (res.scope.projectPaths ?? []).join(', ');
-}
-
-function printValidation(res: LeaderboardResponse): number {
-  const report = validateLeaderboard(res);
-  console.log(
-    `\nVALIDATION: ${report.ok ? 'PASS' : 'FAIL'} · ${report.errors} error(s), ${report.warnings} warning(s)`
-  );
-  for (const issue of report.issues) {
-    const icon = issue.severity === 'error' ? '✗' : '⚠';
-    console.log(`  ${icon} [${issue.code}] ${issue.message}`);
-  }
-  return report.ok ? 0 : 1;
 }
 
 function printDetail(res: UserDetailResponse): void {
@@ -217,12 +157,10 @@ async function main() {
     return;
   }
 
-  printStandings(res);
-
-  if (args.format === 'validate') {
-    const code = printValidation(res);
-    process.exit(code);
-  }
+  const outcome = standingsOutcome(res, args.format === 'validate');
+  for (const line of outcome.stdout) console.log(line);
+  for (const line of outcome.stderr) console.error(line);
+  if (outcome.exitCode !== 0) process.exit(outcome.exitCode);
 }
 
 main().catch(err => {

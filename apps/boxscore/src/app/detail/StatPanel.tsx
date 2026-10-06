@@ -70,18 +70,20 @@ export function StatPanel({
   stat,
   window,
   evidence,
+  self = false,
 }: {
   users: UserRow[];
   person: UserRow;
   stat: MetricKey;
   window: TimeWindow;
   evidence: EvidenceState;
+  self?: boolean;
 }) {
   const d = descriptor(stat);
   const copy = PANEL_COPY[stat];
   const value = metricValue(person.metrics, d);
-  const rank = metricRank(person.metrics, d);
-  const ranked = rankedFor(users, stat);
+  const rank = self ? null : metricRank(person.metrics, d);
+  const ranked = self ? [] : rankedFor(users, stat);
   // Dots stack in roster order, as the canvas draws them, so a leader can sit over you.
   const points = [...ranked]
     .sort((a, b) => users.indexOf(a.user) - users.indexOf(b.user))
@@ -128,48 +130,52 @@ export function StatPanel({
               {subOf(stat, window)}
             </span>
           </div>
-          <div className={classes.block} data-parity="Rank Block">
-            <span
-              className={`${classes.t} ${classes.blockLabel}`}
-              data-parity="RL"
-            >
-              Rank
-            </span>
-            <div className={classes.rankValue}>
-              <span
-                className={`${classes.t} ${classes.num} ${classes.rankR}`}
-                data-parity="R"
-              >
-                {rank === null ? '—' : `#${rank}`}
-              </span>
-              <span className={classes.rankOfPad}>
+          {!self && (
+            <>
+              <div className={classes.block} data-parity="Rank Block">
                 <span
                   className={`${classes.t} ${classes.blockLabel}`}
-                  data-parity="of"
+                  data-parity="RL"
                 >
-                  {`of ${points.length}`}
+                  Rank
                 </span>
-              </span>
-            </div>
-          </div>
-          <Leader users={users} stat={stat} />
-          <div
-            className={`${classes.block} ${classes.field}`}
-            data-parity="Field"
-          >
-            <span
-              className={`${classes.t} ${classes.blockLabel}`}
-              data-parity="FL"
-            >
-              Where the team sits
-            </span>
-            <TeamStrip
-              key={`${person.username}/${stat}`}
-              points={points}
-              max={max}
-              maxLabel={scaleLabel(stat, max)}
-            />
-          </div>
+                <div className={classes.rankValue}>
+                  <span
+                    className={`${classes.t} ${classes.num} ${classes.rankR}`}
+                    data-parity="R"
+                  >
+                    {rank === null ? '—' : `#${rank}`}
+                  </span>
+                  <span className={classes.rankOfPad}>
+                    <span
+                      className={`${classes.t} ${classes.blockLabel}`}
+                      data-parity="of"
+                    >
+                      {`of ${points.length}`}
+                    </span>
+                  </span>
+                </div>
+              </div>
+              <Leader users={users} stat={stat} />
+              <div
+                className={`${classes.block} ${classes.field}`}
+                data-parity="Field"
+              >
+                <span
+                  className={`${classes.t} ${classes.blockLabel}`}
+                  data-parity="FL"
+                >
+                  Where the team sits
+                </span>
+                <TeamStrip
+                  key={`${person.username}/${stat}`}
+                  points={points}
+                  max={max}
+                  maxLabel={scaleLabel(stat, max)}
+                />
+              </div>
+            </>
+          )}
         </div>
         <p className={classes.definition} data-parity="Definition">
           {definitionOf(stat, ev?.facts)}

@@ -9,6 +9,7 @@ import {
 } from '@mattstack/settings-kit/server';
 import { Hono } from 'hono';
 
+import { rolesInfo } from './boxscore-roles';
 import { suggestValues } from './suggest';
 
 /**
@@ -55,6 +56,10 @@ export function createSettingsRoutes(
         );
         return c.json({ workspace: value?.linear?.workspace ?? null }, 200);
       })
+      /** The roster and whether this Mac may set boxscore.roles (owner only). */
+      .get('/api/settings/boxscore-roles', async c =>
+        c.json(await rolesInfo(), 200)
+      )
       /** A named suggestion list a form field asks for with `suggest`;
           `values: null` when its source has nothing to say yet. */
       .get('/api/settings/suggest/:source', async c => {

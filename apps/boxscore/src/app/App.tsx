@@ -14,6 +14,8 @@ import type {
   LeaderboardResponse,
   MetricKey,
 } from '../shared/types';
+import { LockedPage } from './access/LockedPage';
+import { NotAvailablePage } from './access/NotAvailablePage';
 import { isColdCache, type RangeSelection } from './api';
 import { DetailPage, FIRST_STAT } from './detail/DetailPage';
 import { useLeaderboard } from './hooks/useLeaderboard';
@@ -225,8 +227,29 @@ function AppShell() {
   const isPerson = route.name === 'user' || route.name === 'stat';
   const stat = route.name === 'stat' ? route.stat : FIRST_STAT;
 
+  const self = data?.viewer.role === 'self';
+  const own = data?.viewer.username ?? null;
+  const locked = self && own === null;
+  const foreign =
+    self &&
+    own !== null &&
+    isPerson &&
+    route.username.toLowerCase() !== own.toLowerCase();
+  const redirectHome = self && own !== null && route.name === 'leaderboard';
+
+  useEffect(() => {
+    if (redirectHome)
+      navigate(`/user/${encodeURIComponent(own)}`, { replace: true });
+  }, [redirectHome, own, navigate]);
+
   let page: ReactNode;
-  if (isPerson) {
+  if (redirectHome) {
+    page = null;
+  } else if (locked) {
+    page = <LockedPage />;
+  } else if (foreign) {
+    page = <NotAvailablePage own={own} />;
+  } else if (isPerson) {
     page = (
       <>
         {status}
@@ -238,7 +261,7 @@ function AppShell() {
         {data && (
           <DetailPage
             data={data}
-            username={route.username}
+            username={self && own ? own : route.username}
             stat={stat}
             selection={selection}
           />
@@ -290,13 +313,21 @@ function AppShell() {
     );
   }
 
-  const personName = isPerson
-    ? (data?.users.find(u => u.username === route.username)?.name ??
-      route.username)
+  const shownUsername =
+    isPerson && self && own ? own : isPerson ? route.username : null;
+  const personName = shownUsername
+    ? (data?.users.find(u => u.username === shownUsername)?.name ??
+      shownUsername)
     : null;
-  const crumbs = isPerson
-    ? ['boxscore', personName!, descriptor(stat).label]
-    : ['boxscore', route.name === 'not-found' ? 'Not found' : 'Leaderboard'];
+  const crumbs =
+    locked || foreign
+      ? ['boxscore', 'Not available']
+      : isPerson
+        ? ['boxscore', personName!, descriptor(stat).label]
+        : [
+            'boxscore',
+            route.name === 'not-found' ? 'Not found' : 'Leaderboard',
+          ];
 
   return (
     <MattstackShell

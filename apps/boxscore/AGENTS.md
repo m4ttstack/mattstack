@@ -51,6 +51,10 @@ than trusting the store... the store can lag GitLab.
 boxscore.*`, `rt settings get mattstack.roster`), edited in console's
   boxscore group. boxscore has no settings page of its own: the header gear
   frames that group in a modal (`SettingsEmbedModal`).
+- **`viewer.role` narrows every response.** A Self view viewer's
+  `/api/leaderboard` carries only their own row with ranks blanked; to debug the
+  full board locally, run on the owner's Mac or grant yourself `team` in
+  `boxscore.roles`.
 - **GitLab transport is `@mattstack/glance`, not this repo.** Field-name or
   pagination bugs get fixed there; boxscore surfaces the failure in the response
   `warnings`.

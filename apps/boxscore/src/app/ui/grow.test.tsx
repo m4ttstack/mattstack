@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { renderWithProviders as render } from '@mattstack/app-kit/test-utils';
 import { fixtureDetail, fixtureLeaderboard } from '../../server/fixture/index';
+import type { UserDetailResponse } from '../../shared/types';
 import { ReciprocityEvidence } from '../detail/evidence/ReciprocityEvidence';
 import grow from './grow.module.css';
 import { TeamStrip } from './TeamStrip';
@@ -26,7 +27,7 @@ function preferReducedMotion() {
 }
 
 function renderReciprocity() {
-  const detail = fixtureDetail('srivera', false)!;
+  const detail = fixtureDetail('srivera', false) as UserDetailResponse;
   return render(
     <ReciprocityEvidence
       ev={detail.evidence.reciprocity!}

@@ -9,6 +9,7 @@ import {
   fixtureDetail,
   fixtureLeaderboard,
 } from '../../../server/fixture/index';
+import type { UserDetailResponse } from '../../../shared/types';
 import { App } from '../../App';
 import { quietWeekdays } from './CodingDaysEvidence';
 
@@ -28,7 +29,7 @@ beforeEach(() => {
     isFetching: false,
   });
   useUserDetail.mockImplementation((username: string) => ({
-    data: fixtureDetail(username, false),
+    data: fixtureDetail(username, false) as UserDetailResponse,
     error: null,
     isLoading: false,
   }));
@@ -198,7 +199,7 @@ function withEvidence(
   edit: (ev: { rows: unknown[] }) => void
 ) {
   useUserDetail.mockImplementation((username: string) => {
-    const data = fixtureDetail(username, false)!;
+    const data = fixtureDetail(username, false) as UserDetailResponse;
     edit(data.evidence[stat]!);
     return { data, error: null, isLoading: false };
   });

@@ -68,11 +68,14 @@ export function PersonSummary({
   users,
   person,
   window,
+  self = false,
 }: {
   users: UserRow[];
   person: UserRow;
   window: TimeWindow;
+  self?: boolean;
 }) {
+  if (self) return null;
   const s = personSummary(users, person.username);
   const rankedCount = users.filter(u => u.resolved).length;
   const m = person.metrics;

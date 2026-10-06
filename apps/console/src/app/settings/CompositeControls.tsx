@@ -36,6 +36,7 @@ import {
   type RowKind,
 } from '@mattstack/settings-kit/shapes';
 
+import { BoxscoreRolesBody, ROLES_KEY, useRolesSummary } from './BoxscoreRoles';
 import {
   enumWidth,
   INPUT_TYPE,
@@ -82,6 +83,10 @@ function Summary({ label }: { label: string }) {
       {label}
     </Text>
   );
+}
+
+function RolesSummary({ def }: { def: SettingDefWire }) {
+  return <Summary label={useRolesSummary(def, summarize(def))} />;
 }
 
 function Body({ children }: { children: ReactNode }) {
@@ -974,15 +979,18 @@ export function compositeParts(
   }
   if (shape.kind === 'stringMap')
     return {
-      control: summary,
-      body: (
-        <StringMapBody
-          def={def}
-          row={row}
-          labels={shape.labels}
-          onEditJson={onEditJson}
-        />
-      ),
+      control: def.key === ROLES_KEY ? <RolesSummary def={def} /> : summary,
+      body:
+        def.key === ROLES_KEY ? (
+          <BoxscoreRolesBody def={def} row={row} />
+        ) : (
+          <StringMapBody
+            def={def}
+            row={row}
+            labels={shape.labels}
+            onEditJson={onEditJson}
+          />
+        ),
     };
   if (shape.kind === 'leaves')
     return {

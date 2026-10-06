@@ -5,10 +5,13 @@ import type {
   Scope,
   TimeWindow,
   UserDetailResponse,
+  Viewer,
 } from '../shared/types.js';
 import { getCurrentUser } from './config/current-user.js';
 import { ConfigError, readSettings, type Env } from './config/index.js';
 import { readSecrets } from './config/secrets.js';
+import { readTeamMembership } from './config/team.js';
+import { resolveViewer } from './config/viewer.js';
 import { buildUserEvidence } from './metrics/evidence.js';
 import { computeSnapshot, type Snapshot } from './metrics/snapshot.js';
 import { buildResponse, type BuildContext } from './metrics/trend.js';
@@ -22,6 +25,14 @@ import {
   storedIdentities,
 } from './store/query.js';
 import { baseWindow, covers, priorWindow } from './util/window.js';
+import {
+  canSeeUser,
+  LOCKED_MESSAGE,
+  narrowForViewer,
+  SELF_ONLY_MESSAGE,
+  unrankedRow,
+  ViewerForbiddenError,
+} from './viewer-scope.js';
 
 /** Thrown by getLeaderboard when cacheOnly is set and the store has never been populated. */
 export class ColdCacheError extends Error {
@@ -98,10 +109,10 @@ function resolveScope(): Scope {
 }
 
 /** The settings-derived options shared by snapshot and evidence computation. */
-function metricOptionsFromSettings() {
+function metricOptionsFromSettings(users?: string[]) {
   const s = readSettings();
   return {
-    users: s.users,
+    users: users ?? s.users,
     sizeBand: s.sizeBand,
     doneStates: s.doneStates,
     extraBotPatterns: s.botPatterns,
@@ -110,8 +121,12 @@ function metricOptionsFromSettings() {
   };
 }
 
-const snapshotFor = (result: FetchResult, window: TimeWindow): Snapshot =>
-  computeSnapshot(result, { window, ...metricOptionsFromSettings() });
+const snapshotFor = (
+  result: FetchResult,
+  window: TimeWindow,
+  users?: string[]
+): Snapshot =>
+  computeSnapshot(result, { window, ...metricOptionsFromSettings(users) });
 
 /**
  * Shared core: refresh the store when asked -> read current + prior windows straight from
@@ -159,10 +174,32 @@ async function buildLeaderboard(
     );
   }
 
+  const who = await getCurrentUser(env.baseUrl, env.token);
+  if (!who) {
+    warnings.push({
+      code: 'user_lookup_failed',
+      message: 'GitLab /user lookup failed; no row is highlighted as you',
+    });
+  }
+
+  const viewer: Viewer = resolveViewer({
+    currentUser: who?.username ?? null,
+    roster: settings.roster,
+    roles: settings.roles,
+    team: readTeamMembership(),
+  });
+  // A Self viewer is computed alone: hiddenMembers is a Team view overlay.
+  const compared =
+    viewer.role === 'team'
+      ? undefined
+      : viewer.username === null
+        ? []
+        : [viewer.username];
+
   const rosterUsernames = settings.roster.map(r => r.username);
   const current = buildFetchResult(store, opts.window, rosterUsernames);
   const priorSnapshot: Snapshot | null = opts.trend
-    ? snapshotFor(buildFetchResult(store, pw, rosterUsernames), pw)
+    ? snapshotFor(buildFetchResult(store, pw, rosterUsernames), pw, compared)
     : null;
 
   opts.onProgress?.({
@@ -173,20 +210,13 @@ async function buildLeaderboard(
     window: 'current',
   });
 
-  const who = await getCurrentUser(env.baseUrl, env.token);
-  if (!who) {
-    warnings.push({
-      code: 'user_lookup_failed',
-      message: 'GitLab /user lookup failed; no row is highlighted as you',
-    });
-  }
-
   const ctx: BuildContext = {
     scope,
     window: opts.window,
     priorWindow: priorSnapshot ? pw : null,
     baseUrl: env.baseUrl,
     currentUser: who?.username ?? '',
+    viewer,
     generatedAt: new Date().toISOString(),
     // No refresh ran on this request: everything served came from data already in the store.
     fromCache: !opts.refresh,
@@ -195,10 +225,13 @@ async function buildLeaderboard(
   };
 
   return {
-    response: buildResponse(
-      snapshotFor(current, opts.window),
-      priorSnapshot,
-      ctx
+    response: narrowForViewer(
+      buildResponse(
+        snapshotFor(current, opts.window, compared),
+        priorSnapshot,
+        ctx
+      ),
+      viewer
     ),
     current,
     env,
@@ -220,7 +253,13 @@ export async function getUserDetail(
   opts: DetailOptions
 ): Promise<UserDetailResponse> {
   const { response, current, env } = await buildLeaderboard(opts);
-  const userRow = response.users.find(u => u.username === opts.user);
+  if (!canSeeUser(response.viewer, opts.user)) {
+    throw new ViewerForbiddenError(
+      response.viewer.username === null ? LOCKED_MESSAGE : SELF_ONLY_MESSAGE
+    );
+  }
+  const want = opts.user.toLowerCase();
+  const userRow = response.users.find(u => u.username.toLowerCase() === want);
   if (!userRow) {
     throw new UnknownUserError(
       `Unknown user "${opts.user}" (not in the configured set).`
@@ -231,7 +270,7 @@ export async function getUserDetail(
   // field; buildUserEvidence takes the one user to build evidence for via `opts.user` instead.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- rest-destructure exclusion, not a real binding
   const { users: _users, ...evidenceOpts } = metricOptionsFromSettings();
-  const evidence = buildUserEvidence(current, opts.user, {
+  const evidence = buildUserEvidence(current, userRow.username, {
     window: opts.window,
     baseUrl: env.baseUrl,
     ...evidenceOpts,
@@ -243,9 +282,10 @@ export async function getUserDetail(
     hasTrend: response.hasTrend,
     baseUrl: response.baseUrl,
     currentUser: response.currentUser,
+    viewer: response.viewer,
     generatedAt: response.generatedAt,
     fromCache: response.fromCache,
-    user: userRow,
+    user: response.viewer.role === 'team' ? userRow : unrankedRow(userRow),
     evidence,
     warnings: response.warnings,
   };

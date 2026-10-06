@@ -22,7 +22,7 @@ beforeEach(() => {
   });
   useUserDetail.mockImplementation((username: string) => {
     const detail = fixtureDetail(username, false);
-    return detail
+    return detail && detail !== 'forbidden'
       ? { data: detail, error: null, isLoading: false }
       : {
           data: undefined,

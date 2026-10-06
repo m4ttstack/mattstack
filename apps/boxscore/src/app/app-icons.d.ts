@@ -8,6 +8,7 @@ declare module '@mattstack/app-kit/icons' {
     table2: true;
     trophy: true;
     undo2: true;
+    userX: true;
   }
 }
 export {};

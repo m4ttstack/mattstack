@@ -1,6 +1,7 @@
 import type { Board } from '../../../../scripts/parity/config';
 
-export type Scenario = 'warm' | 'refreshing' | 'cold-stalled';
+export type Scenario =
+  'warm' | 'refreshing' | 'cold-stalled' | 'self-view' | 'locked';
 
 const DYNAMIC_TEXT = ['Fresh Label', 'RS Sub'];
 const SETTLE_TEXT = 'Loading…';
@@ -153,6 +154,42 @@ export const BOARDS: Board<Scenario>[] = [
       'Footnote',
     ],
     height: 1000,
+    dynamicText: DYNAMIC_TEXT,
+    settleText: SETTLE_TEXT,
+  },
+  {
+    slug: '08-person-self-view',
+    frame: '08 · Person · Self view',
+    frameId: 'cM0i5',
+    route: '/user/srivera/issuesCompleted',
+    storage: {},
+    scenario: 'self-view',
+    roots: ['Crumbs', 'Top Right', 'Profile Header', 'Body'],
+    height: 1300,
+    dynamicText: DYNAMIC_TEXT,
+    settleText: SETTLE_TEXT,
+  },
+  {
+    slug: '09-not-available',
+    frame: '09 · Not available',
+    frameId: 'IyB3G',
+    route: '/user/someone-else',
+    storage: {},
+    scenario: 'self-view',
+    roots: ['Crumbs', 'Top Right', 'Not Available'],
+    height: 800,
+    dynamicText: DYNAMIC_TEXT,
+    settleText: SETTLE_TEXT,
+  },
+  {
+    slug: '10-locked',
+    frame: '10 · Not available · Locked',
+    frameId: 'K3P22c',
+    route: '/',
+    storage: {},
+    scenario: 'locked',
+    roots: ['Crumbs', 'Top Right', 'Not Available'],
+    height: 800,
     dynamicText: DYNAMIC_TEXT,
     settleText: SETTLE_TEXT,
   },

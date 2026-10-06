@@ -96,6 +96,14 @@ export interface UserRow {
   metrics: UserMetrics;
 }
 
+export type ViewerRole = 'team' | 'self';
+
+/** Who is looking, and what they may see. `username: null` = not identified. */
+export interface Viewer {
+  username: string | null;
+  role: ViewerRole;
+}
+
 export interface Scope {
   type: 'group' | 'projects';
   groupPath?: string;
@@ -148,6 +156,7 @@ export interface UserDetailResponse {
   hasTrend: boolean;
   baseUrl: string;
   currentUser: string;
+  viewer: Viewer;
   generatedAt: string;
   fromCache: boolean;
   /** The same ranked row the leaderboard shows, so the rail has value + rank + delta. */
@@ -165,6 +174,7 @@ export interface LeaderboardResponse {
   hasTrend: boolean;
   baseUrl: string;
   currentUser: string;
+  viewer: Viewer;
   generatedAt: string;
   fromCache: boolean;
   /** Per-metric labels, e.g. a tier-fallback note on `mrsReviewed`. */
