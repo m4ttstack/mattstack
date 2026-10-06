@@ -86,6 +86,24 @@ describe("probeDevTools", () => {
     expect(s.find((t) => t.name === "node")).toMatchObject({ state: "missing", need: "warning" });
   });
 
+  test("a ready copy in a fallback dir beats an older one earlier on PATH", async () => {
+    const p = probes(
+      { "/usr/bin/git": ok("git version 2.50.1"), "/usr/local/bin/bun": ok("1.3.0"), [`${HOME}/.bun/bin/bun`]: ok("1.4.2") },
+      { "/usr/bin/git": "", "/usr/local/bin/bun": "", [`${HOME}/.bun/bin/bun`]: "" },
+    );
+    const bun = (await probeDevTools(p, pins)).find((t) => t.name === "bun")!;
+    expect(bun).toMatchObject({ state: "ready", version: "1.4.2", found: `${HOME}/.bun/bin/bun` });
+  });
+
+  test("when every copy is old, the highest version is reported too-old", async () => {
+    const p = probes(
+      { "/usr/bin/git": ok("git version 2.50.1"), "/usr/local/bin/bun": ok("1.3.0"), [`${HOME}/.bun/bin/bun`]: ok("1.3.9") },
+      { "/usr/bin/git": "", "/usr/local/bin/bun": "", [`${HOME}/.bun/bin/bun`]: "" },
+    );
+    const bun = (await probeDevTools(p, pins)).find((t) => t.name === "bun")!;
+    expect(bun).toMatchObject({ state: "too-old", version: "1.3.9", found: `${HOME}/.bun/bin/bun`, wanted: "1.4.2" });
+  });
+
   test("a bun on PATH that is an app bundle's copy is ignored (Review Focus 3)", async () => {
     const p = probes(
       { "/usr/bin/git": ok("git version 2.50.1"), "/usr/local/bin/bun": ok("1.4.2") },

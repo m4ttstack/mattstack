@@ -129,8 +129,13 @@ export async function probeDevTools(p: Probes, pins: DevPins): Promise<DevToolSt
       const version = r.code === 0 ? spec.parse(r.stdout) : null;
       if (!version) continue;
       const state: DevToolState = wanted && compareVersions(version, wanted) < 0 ? "too-old" : "ready";
-      status = { ...status, state, found: path, version };
-      break;
+      if (state === "ready") {
+        status = { ...status, state, found: path, version };
+        break;
+      }
+      if (status.version === null || compareVersions(version, status.version) > 0) {
+        status = { ...status, state, found: path, version };
+      }
     }
     result.push(status);
   }
