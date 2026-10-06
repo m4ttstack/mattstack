@@ -10,6 +10,8 @@
  */
 import { readdirSync, unlinkSync } from "fs";
 import { join } from "path";
+import { integrationsEnabled, resolveCliSession } from "./agent-integrations/context.ts";
+import { UserActionableError } from "./errors.ts";
 import { readJson, writeJson } from "./json-store.ts";
 import { rtDir } from "./rt-paths.ts";
 
@@ -105,8 +107,17 @@ export function sessionName(s: Pick<ChatSession, "handle" | "name">): string {
  * variable) else `CLAUDE_CODE_SESSION_ID` (present in every Claude Code
  * session on this machine but undocumented — the CLI's own Bash calls rely
  * on it, `--session` stays the supported override for everything else).
+ * With agent.integrations.enabled on, either source (or CODEX_THREAD_ID)
+ * must resolve to exactly one session binding, else the command refuses.
  */
 export function currentSessionId(args: string[]): string | undefined {
+  if (integrationsEnabled()) {
+    const resolved = resolveCliSession(args, process.env);
+    if (!resolved.ok) {
+      throw new UserActionableError("caller-unattributed", "rt cannot tell which agent session ran this command", {}, { why: resolved.error.message });
+    }
+    return resolved.data;
+  }
   const i = args.indexOf("--session");
   const value = i >= 0 ? args[i + 1] : undefined;
   // A value slot that is itself a flag means --session was given no value

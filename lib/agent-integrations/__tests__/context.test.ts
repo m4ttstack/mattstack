@@ -97,7 +97,7 @@ describe("caller attribution", () => {
     expect(paneOnly).toMatchObject({ ok: false, error: { code: "ambiguous" } });
   });
 
-  test("cleared session cannot reuse MCP owner", async () => {
+  test("cleared session cannot reuse MCP owner through a connection key", async () => {
     const db = freshDb();
     const store = createSessionStore(db);
     const before = bound(db, "remy.ab12", codex("thread-before"), "w1:p1", "attempt-1");
@@ -119,6 +119,24 @@ describe("caller attribution", () => {
     const fresh = resolved(await resolveCallerContext({ native: { harness: "codex", profile: "default", kind: "id", value: "thread-after" } }, { db }));
     expect(fresh.binding.key).toBe(after.key);
     expect(fresh.binding.key).not.toBe(before.key);
+  });
+
+  // Pins today's limitation, not the invariant: the Claude compatibility
+  // branch reads the MCP process's own CLAUDE_CODE_SESSION_ID, which a clear
+  // does not change, and nothing marks the old binding detached yet.
+  test("Claude compatibility: a pre-clear session id still resolves to its old binding after a clear", async () => {
+    const db = freshDb();
+    const store = createSessionStore(db);
+    const claude = (value: string): NativeSessionRef => ({ harness: "claude", profile: "default", kind: "id", value });
+    const before = bound(db, "remy.ab12", claude("sess-before"), "w1:p1");
+    const detached = store.replaceAttachment(before.key, before.attachment.generation, { mode: "headless" });
+    if (!detached.ok) throw new Error(detached.error.message);
+    const after = bound(db, "otto.0001", claude("sess-after"), "w1:p1");
+
+    const staleEnv = evidence(extractMcpEvidence(undefined, { CLAUDE_CODE_SESSION_ID: "sess-before", HERDR_PANE_ID: "w1:p1" }, {}));
+    const caller = resolved(await resolveCallerContext(staleEnv, { db }));
+    expect(caller.binding.key).toBe(before.key);
+    expect(caller.binding.key).not.toBe(after.key);
   });
 });
 

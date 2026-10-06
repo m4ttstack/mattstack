@@ -17,6 +17,10 @@ import {
   writeChatSession,
   type ChatSession,
 } from "../chat-session.ts";
+import { createSessionStore } from "../agent-integrations/session-store.ts";
+import { UserActionableError } from "../errors.ts";
+import { setSetting } from "../settings/write.ts";
+import { closeStateDb, getStateDb } from "../state/db.ts";
 
 describe("chat-session", () => {
   let home = "";
@@ -151,5 +155,87 @@ describe("chat-session", () => {
     expect(read.name).toBe("remy");
     expect(sessionName(read)).toBe("remy");
     expect(sessionName({ handle: "kai" })).toBe("kai");
+  });
+});
+
+describe("currentSessionId through session bindings", () => {
+  let home = "";
+  const saved: Record<string, string | undefined> = {};
+  const KEYS = ["HOME", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CODEX_HOME"] as const;
+
+  beforeEach(() => {
+    for (const k of KEYS) saved[k] = process.env[k];
+    for (const k of KEYS) delete process.env[k];
+    home = mkdtempSync(join(tmpdir(), "rt-chat-session-caller-"));
+    process.env.HOME = home;
+    closeStateDb();
+  });
+
+  afterEach(() => {
+    closeStateDb();
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  function bindCodex(identity: string, value: string, profile = "default") {
+    const store = createSessionStore(getStateDb());
+    const bound = store.bind(store.reserve({ identity }), { harness: "codex", profile, kind: "id", value }, { mode: "herdr", pane: "w1:p1" });
+    if (!bound.ok) throw new Error(bound.error.message);
+  }
+
+  test("integrations on: a Codex CLI caller resolves through CODEX_THREAD_ID", () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    bindCodex("kai.cd34", "thread-one");
+    process.env.CODEX_THREAD_ID = "thread-one";
+    expect(currentSessionId(["post", "r", "hi"])).toBe("thread-one");
+  });
+
+  test("integrations on: an unbound Codex thread is refused, never passed through", () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    process.env.CODEX_THREAD_ID = "thread-unbound";
+    expect(() => currentSessionId(["post", "r", "hi"])).toThrow(UserActionableError);
+  });
+
+  test("integrations on: both CODEX_THREAD_ID and CLAUDE_CODE_SESSION_ID set refuses as ambiguous", () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    bindCodex("kai.cd34", "thread-one");
+    process.env.CODEX_THREAD_ID = "thread-one";
+    process.env.CLAUDE_CODE_SESSION_ID = "env-id";
+    let thrown: unknown;
+    try {
+      currentSessionId(["post", "r", "hi"]);
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(UserActionableError);
+    expect((thrown as UserActionableError).why).toContain("both a Codex thread and a Claude Code session");
+  });
+
+  test("integrations on: an explicit --session looks up its one recorded session and refuses an ambiguous raw id", () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    bindCodex("kai.cd34", "only-one");
+    bindCodex("remy.ab12", "shared", "work");
+    bindCodex("ivy.ef56", "shared", "personal");
+    process.env.CODEX_THREAD_ID = "thread-ignored";
+    expect(currentSessionId(["post", "r", "hi", "--session", "only-one"])).toBe("only-one");
+    expect(() => currentSessionId(["post", "r", "hi", "--session", "shared"])).toThrow(UserActionableError);
+  });
+
+  test("integrations on: no session evidence at all is a plain shell, as before", () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    expect(currentSessionId(["post", "r", "hi"])).toBeUndefined();
+  });
+
+  test("integrations off: byte-identical to the environment lookup, even with unbound or conflicting ids", () => {
+    process.env.CODEX_THREAD_ID = "thread-unbound";
+    expect(currentSessionId(["post", "r", "hi"])).toBeUndefined();
+    process.env.CLAUDE_CODE_SESSION_ID = "env-id";
+    expect(currentSessionId(["post", "r", "hi"])).toBe("env-id");
+    expect(currentSessionId(["post", "r", "hi", "--session", "flag-id"])).toBe("flag-id");
+    expect(currentSessionId(["sign-in", "--session", "--no-room"])).toBe("env-id");
+    expect(existsSync(join(home, ".mattstack", "rt", "state.db"))).toBe(false);
   });
 });

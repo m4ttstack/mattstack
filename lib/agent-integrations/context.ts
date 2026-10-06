@@ -104,6 +104,7 @@ function codexMcpClaim(meta: unknown, env: NodeJS.ProcessEnv, profile: string): 
   return { ok: true, data: { harness: "codex", profile, kind: "id", value: thread } };
 }
 
+/** Limitation: after /clear the MCP process still carries the pre-clear id, which resolves to the old binding until F5b's observations make a detached Claude binding unresolvable or the Claude mod supplies a connection key. */
 function claudeEnvClaim(env: NodeJS.ProcessEnv): NativeClaim | undefined {
   return text(env.CLAUDE_CODE_SESSION_ID)
     ? { harness: "claude", kind: "id", value: env.CLAUDE_CODE_SESSION_ID }
@@ -188,6 +189,11 @@ function byNative(db: Database, claim: NativeClaim, deps: ResolveDeps): Outcome<
  * newest run) can stand in for a missing or contradicted reference.
  */
 export async function resolveCallerContext(input: CallerEvidence, deps: ResolveDeps = {}): Promise<Outcome<CallerContext>> {
+  return resolveCallerContextNow(input, deps);
+}
+
+/** The CLI's session lookup is synchronous, so it resolves through this. */
+export function resolveCallerContextNow(input: CallerEvidence, deps: ResolveDeps = {}): Outcome<CallerContext> {
   if (!input.connection && !input.native && !text(input.raw)) {
     return fail("ambiguous", "no trusted session evidence came with this call; a pane, job or working directory does not identify a caller");
   }
@@ -197,4 +203,17 @@ export async function resolveCallerContext(input: CallerEvidence, deps: ResolveD
   if (input.native) return byNative(db, input.native, deps);
   const legacy = legacyLookup(deps, db, input.raw!);
   return legacy.ok ? resolvedAs(legacy.data) : legacy;
+}
+
+/**
+ * The native session id a CLI command acts as. No session evidence at all
+ * is a plain shell, which the chat verbs already handle without a session;
+ * evidence that does not resolve to one binding is refused.
+ */
+export function resolveCliSession(args: string[], env: NodeJS.ProcessEnv, deps: ResolveDeps = {}): Outcome<string | undefined> {
+  const evidence = extractCliEvidence(args, env);
+  if (!evidence.ok) return evidence;
+  if (!evidence.data.native && evidence.data.raw === undefined) return { ok: true, data: undefined };
+  const caller = resolveCallerContextNow(evidence.data, deps);
+  return caller.ok ? { ok: true, data: caller.data.binding.native.value } : caller;
 }
