@@ -184,3 +184,18 @@ renders. The row note (B10) adds `src/row-note.ts` (the kv-backed store and
 `note-*` / `noteedit-*` captures.
 
 Implemented on branch `mr-row-b`.
+
+## Asks for your agent (approved 2026-10-06)
+
+Receiver consent for peer asks, specced in
+`docs/superpowers/specs/2026-10-06-board-peer-ask-consent-design.md`.
+Drawn on the fixture board, light only, invented names throughout:
+
+- `R1 · Where asks for your agent land`: three placements; C, the header
+  inbox button and dropdown, is the chosen one
+- `R2 · The push lands you on the ask`: the banner, the board opening with
+  the dropdown open, the slow flash, and the asker's band steps
+- `R3 · Dropdown states`: the inline decline form, the brief confirm after
+  accepting, nothing waiting, and history with the always-allowed list
+- `R4 · Sending an ask, with a note`: the row menu, the peer submenu with
+  the cloud and agent glyph, and the kit confirm dialog

@@ -8,6 +8,6 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": ["bun"]
   },
-  "include": ["./**/*"],
+  "include": ["./**/*", "../asks/__tests__/**/*"],
   "exclude": []
 }

@@ -135,7 +135,10 @@ async function newPage(
 async function shoot(
   page: Page,
   name: string,
-  opts: { viewportOnly?: boolean } = {}
+  opts: {
+    viewportOnly?: boolean;
+    clip?: { x: number; y: number; width: number; height: number };
+  } = {}
 ): Promise<void> {
   await page.evaluate(async () => {
     const { document, requestAnimationFrame } = globalThis as unknown as {
@@ -158,7 +161,8 @@ async function shoot(
   });
   await page.screenshot({
     path: join(OUT, `${name}.png`),
-    fullPage: !opts.viewportOnly,
+    fullPage: !opts.viewportOnly && !opts.clip,
+    ...(opts.clip ? { clip: opts.clip } : {}),
   });
   console.log(`  ✓ ${name}`);
 }
@@ -168,6 +172,17 @@ try {
     // rows view, desktop
     let page = await newPage(1280, theme);
     await shoot(page, `rows-${theme}`);
+    // the asks inbox: the header button with its waiting badge, then the
+    // dropdown it opens over the board.
+    await required(page.locator('.tui-asks-badge'), 'the asks badge');
+    await shoot(page, `asksbadge-${theme}`, {
+      clip: { x: 0, y: 0, width: 1280, height: 290 },
+    });
+    await page.click('.tui-asks-button');
+    await page.waitForSelector('.tui-asks .tui-ask-card');
+    await shoot(page, `asks-${theme}`, { viewportOnly: true });
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.tui-asks', { state: 'detached' });
     // a row under the pointer: the checkbox swaps in, the secondary verbs
     // appear left of the primary verb, which must not move
     await page.locator('.tui-row').first().hover();

@@ -15,6 +15,7 @@ import { useState } from "react";
 
 export function ConfirmDialogs() {
   const [open, setOpen] = useState(false);
+  const [openAccent, setOpenAccent] = useState(false);
 
   return (
     <div>
@@ -40,6 +41,22 @@ export function ConfirmDialogs() {
         onCancel={() => setOpen(false)}
       >
         This deletes its service and route.
+      </ConfirmDialog>
+
+      <button type="button" onClick={() => setOpenAccent(true)}>
+        send ask (filled accent confirm)
+      </button>
+
+      <ConfirmDialog
+        open={openAccent}
+        title="Ask Rae's agent to review !1271?"
+        intent="accent"
+        confirmVariant="filled"
+        confirmLabel="Send ask"
+        onConfirm={() => setOpenAccent(false)}
+        onCancel={() => setOpenAccent(false)}
+      >
+        A confirm that is not destructive takes a filled, non-bad intent.
       </ConfirmDialog>
     </div>
   );

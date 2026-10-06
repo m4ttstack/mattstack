@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  askParam,
   gateDeepLinkAction,
   gateParam,
   linkedGroupLabel,
@@ -371,4 +372,10 @@ describe('gateDeepLinkAction', () => {
   test('an empty queue always falls back to the row flash', () => {
     expect(gateDeepLinkAction([], 'g1')).toBe('flash');
   });
+});
+
+test('ask param reads and strips', () => {
+  expect(askParam('?ask=n%2F1&member=all')).toBe('n/1');
+  expect(askParam('?ask=')).toBeNull();
+  expect(stripDeepLinkParams('?ask=n1&member=all')).toBe('?member=all');
 });

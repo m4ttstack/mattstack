@@ -1,6 +1,21 @@
 import { describe, expect, test } from 'bun:test';
 
-import { parseTriageBlock } from '../triage/config.ts';
+import type { getSetting } from '@mattstack/rt-client';
+import { loadPeerAsksAlwaysAllow, parseTriageBlock } from '../triage/config.ts';
+
+describe('loadPeerAsksAlwaysAllow', () => {
+  const resolve = (v: unknown) =>
+    (() => ({ value: v, provenance: [] })) as unknown as typeof getSetting;
+
+  test('reads canonical usernames, empty when unset or malformed', () => {
+    expect([...loadPeerAsksAlwaysAllow(resolve([' Rae ', 'tom']))]).toEqual([
+      'rae',
+      'tom',
+    ]);
+    expect(loadPeerAsksAlwaysAllow(resolve(undefined)).size).toBe(0);
+    expect(loadPeerAsksAlwaysAllow(resolve('rae')).size).toBe(0);
+  });
+});
 
 describe('parseTriageBlock', () => {
   test('absent block yields disabled defaults', () => {

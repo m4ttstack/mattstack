@@ -484,7 +484,15 @@
         "reactions": [],
         "posted": false
       },
-      "gates": []
+      "gates": [],
+      "sentNudge": {
+        "display": "pending",
+        "reviewer": "tclearwater",
+        "reviewerName": "Tom Clearwater",
+        "kind": "review",
+        "sentAt": 1755601500000,
+        "resolvedAt": 1755601560000
+      }
     },
     {
       "provider": "gitlab",
@@ -1677,7 +1685,16 @@
             }
           ]
         }
-      ]
+      ],
+      "sentNudge": {
+        "display": "rejected",
+        "reviewer": "pquist",
+        "reviewerName": "Pia Quist",
+        "kind": "respond",
+        "reason": "asks-off",
+        "sentAt": 1755600600000,
+        "resolvedAt": 1755600600000
+      }
     },
     {
       "provider": "gitlab",
@@ -2463,7 +2480,18 @@
             }
           ]
         }
-      ]
+      ],
+      "sentNudge": {
+        "display": "rejected",
+        "reviewer": "bfinch",
+        "reviewerName": "Bea Finch",
+        "kind": "review",
+        "declined": true,
+        "reason": "busy right now",
+        "declineNote": "on call until Friday, try Dani",
+        "sentAt": 1755592800000,
+        "resolvedAt": 1755596400000
+      }
     }
   ],
   "local": true,
@@ -2506,5 +2534,99 @@
     }
   ],
   "scopeUncoveredSections": [],
-  "scopeKnownSections": ["Acme - #pod-acme", "Docs"]
+  "scopeKnownSections": ["Acme - #pod-acme", "Docs"],
+  "peers": ["tclearwater", "bfinch", "dolveira", "pquist"],
+  "asks": {
+    "pending": [
+      {
+        "id": "bfinch/1236",
+        "from": "bfinch",
+        "fromName": "Bea Finch",
+        "kind": "respond",
+        "mrUrl": "https://gitlab.example.com/acme/webapp/-/merge_requests/1236",
+        "iid": 1236,
+        "title": "ACME-1236: compress stored cache entries in redis",
+        "sourceBranch": "acme-1236-compress-cache",
+        "note": "left four threads, two are blocking",
+        "receivedAt": 1755600000000
+      },
+      {
+        "id": "jvasquez/1235",
+        "from": "jvasquez",
+        "fromName": "Joel Vasquez",
+        "kind": "re-review",
+        "mrUrl": "https://gitlab.example.com/acme/webapp/-/merge_requests/1235",
+        "iid": 1235,
+        "title": "ACME-1235: add a temperature factor to the highlights panel",
+        "sourceBranch": "feature/ACME-1235-highlights-temperature-factor",
+        "receivedAt": 1755602280000
+      },
+      {
+        "id": "dolveira/1374",
+        "from": "dolveira",
+        "fromName": "Dani Oliveira",
+        "kind": "review",
+        "mrUrl": "https://gitlab.example.com/acme/webapp/-/merge_requests/1374",
+        "iid": 1374,
+        "title": "ACME-1374: attribute panel summaries to secondary contributors",
+        "sourceBranch": "acme-1374-summary-attribution",
+        "note": "mostly the retry path in the summary client, the UI bits are trivial",
+        "receivedAt": 1755603360000
+      }
+    ],
+    "history": [
+      {
+        "id": "tclearwater/1350",
+        "from": "tclearwater",
+        "fromName": "Tom Clearwater",
+        "kind": "review",
+        "mrUrl": "https://gitlab.example.com/acme/webapp/-/merge_requests/1350",
+        "iid": 1350,
+        "title": "ACME-1350: retry flaky uploads in the attachments step",
+        "sourceBranch": "acme-1350-upload-retry",
+        "receivedAt": 1755513600000,
+        "handled": {
+          "at": 1755517200000,
+          "result": "launched",
+          "reason": "always-allowed"
+        }
+      },
+      {
+        "id": "jvasquez/1329",
+        "from": "jvasquez",
+        "fromName": "Joel Vasquez",
+        "kind": "re-review",
+        "mrUrl": "https://gitlab.example.com/acme/webapp/-/merge_requests/1329",
+        "iid": 1329,
+        "title": "ACME-1329: rename the claim status enum to match the API",
+        "sourceBranch": "acme-1329-status-enum",
+        "receivedAt": 1755427200000,
+        "handled": {
+          "at": 1755430800000,
+          "result": "rejected",
+          "declined": true,
+          "reason": "busy right now",
+          "note": "back on Thursday, Tom knows this area too"
+        }
+      },
+      {
+        "id": "pquist/1317",
+        "from": "pquist",
+        "fromName": "Pia Quist",
+        "kind": "review",
+        "mrUrl": "https://gitlab.example.com/acme/webapp/-/merge_requests/1317",
+        "iid": 1317,
+        "title": "ACME-1317: bump the PDF renderer and pin its fonts",
+        "sourceBranch": "acme-1317-pdf-fonts",
+        "receivedAt": 1755085200000,
+        "handled": {
+          "at": 1755258000000,
+          "result": "expired",
+          "reason": "stale",
+          "reasonText": "No answer in 48h"
+        }
+      }
+    ],
+    "alwaysAllow": ["tclearwater"]
+  }
 }

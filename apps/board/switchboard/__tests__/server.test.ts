@@ -207,3 +207,67 @@ describe('switchboard http', () => {
     ).toBe(400);
   });
 });
+
+describe('asks toggle', () => {
+  test('a board with asks off leaves askable but stays in peers; turning them on brings it back', async () => {
+    const { call } = setup();
+    const reg = async (u: string) =>
+      (
+        (await (
+          await call('/boards', { token: ADMIN, body: { username: u } })
+        ).json()) as { token: string }
+      ).token;
+    const ada = await reg('ada');
+    const grace = await reg('grace');
+    expect(
+      (
+        await call('/boards/self/asks', {
+          method: 'PUT',
+          token: grace,
+          body: { enabled: false },
+        })
+      ).status
+    ).toBe(200);
+    const list = async () =>
+      (await (await call('/peers', { token: ada })).json()) as {
+        peers: string[];
+        askable: string[];
+      };
+    expect((await list()).askable.sort()).toEqual(['ada']);
+    expect((await list()).peers.sort()).toEqual(['ada', 'grace']);
+    await call('/boards/self/asks', {
+      method: 'PUT',
+      token: grace,
+      body: { enabled: true },
+    });
+    expect((await list()).askable.sort()).toEqual(['ada', 'grace']);
+  });
+  test('asks toggle needs a board token and a boolean', async () => {
+    const { call } = setup();
+    expect(
+      (
+        await call('/boards/self/asks', {
+          method: 'PUT',
+          body: { enabled: false },
+        })
+      ).status
+    ).toBe(401);
+    const t = (
+      (await (
+        await call('/boards', { token: ADMIN, body: { username: 'ada' } })
+      ).json()) as { token: string }
+    ).token;
+    expect(
+      (
+        await call('/boards/self/asks', {
+          method: 'PUT',
+          token: t,
+          body: { enabled: 'no' },
+        })
+      ).status
+    ).toBe(400);
+    expect(
+      (await call('/boards/self/asks', { method: 'GET', token: t })).status
+    ).toBe(405);
+  });
+});

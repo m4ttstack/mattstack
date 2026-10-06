@@ -2,7 +2,14 @@
     switchboard relay. The relay never inspects payloads; every payload parser
     here is used only by the RECEIVING board when it materializes. */
 
-export type NudgeResult = 'launched' | 'rejected' | 'expired';
+export type NudgeResult = 'pending' | 'launched' | 'rejected' | 'expired';
+
+export const DECLINE_REASONS = {
+  busy: 'busy right now',
+  'not-my-area': 'not my area',
+  later: 'ask me later',
+} as const;
+export type DeclineReason = keyof typeof DECLINE_REASONS;
 
 /** The ask flavors boards send each other. `review-request` (first look) and
     `re-review-request` go author -> reviewer about the author's MR;
@@ -44,6 +51,8 @@ export interface ReReviewRequestPayload {
   mrUrl: string;
   iid: number;
   note?: string;
+  title?: string;
+  sourceBranch?: string;
 }
 
 export interface NudgeOutcomePayload {
@@ -53,6 +62,9 @@ export interface NudgeOutcomePayload {
   nudgeId: string;
   result: NudgeResult;
   reason?: string;
+  /** A person declined, as opposed to a board rule refusing. */
+  declined?: true;
+  declineNote?: string;
 }
 
 /** Switchboard usernames are GitLab usernames, canonicalized. One board per username. */
@@ -154,19 +166,35 @@ export function parseReReviewRequestPayload(
 ): ReReviewRequestPayload | null {
   const base = mrBase(p);
   if (!base) return null;
-  const { note } = p as Record<string, unknown>;
+  const { note, title, sourceBranch } = p as Record<string, unknown>;
   if (note !== undefined && typeof note !== 'string') return null;
-  return { ...base, note: note as string | undefined };
+  if (title !== undefined && typeof title !== 'string') return null;
+  if (sourceBranch !== undefined && typeof sourceBranch !== 'string')
+    return null;
+  return {
+    ...base,
+    note: note as string | undefined,
+    title: title as string | undefined,
+    sourceBranch: sourceBranch as string | undefined,
+  };
 }
 
-const NUDGE_RESULTS: NudgeResult[] = ['launched', 'rejected', 'expired'];
+const NUDGE_RESULTS: NudgeResult[] = [
+  'pending',
+  'launched',
+  'rejected',
+  'expired',
+];
 
 export function parseNudgeOutcomePayload(
   p: unknown
 ): NudgeOutcomePayload | null {
   const base = mrBase(p);
   if (!base) return null;
-  const { nudgeId, result, reason } = p as Record<string, unknown>;
+  const { nudgeId, result, reason, declined, declineNote } = p as Record<
+    string,
+    unknown
+  >;
   if (typeof nudgeId !== 'string' || !nudgeId) return null;
   if (
     typeof result !== 'string' ||
@@ -174,10 +202,14 @@ export function parseNudgeOutcomePayload(
   )
     return null;
   if (reason !== undefined && typeof reason !== 'string') return null;
+  if (declined !== undefined && declined !== true) return null;
+  if (declineNote !== undefined && typeof declineNote !== 'string') return null;
   return {
     ...base,
     nudgeId,
     result: result as NudgeResult,
     reason: reason as string | undefined,
+    ...(declined === true ? { declined: true as const } : {}),
+    ...(typeof declineNote === 'string' ? { declineNote } : {}),
   };
 }

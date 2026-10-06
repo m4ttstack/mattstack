@@ -1,7 +1,7 @@
 import type { ComponentProps, ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { defineComponent } from "../../builders.ts";
-import { Button } from "../Button/Button.tsx";
+import { Button, type ButtonProps } from "../Button/Button.tsx";
 import { Modal } from "../Modal/Modal.tsx";
 import classes from "./ConfirmDialog.module.css";
 
@@ -39,7 +39,9 @@ export interface ConfirmDialogOwnProps {
   cancelLabel?: ReactNode;
   /** The confirm button's intent. Destructive by default; "accent" is for a
       confirm that isn't itself destructive (only the copy is a warning). */
-  intent?: "bad" | "accent";
+  intent?: "bad" | "accent" | "ok";
+  /** The confirm button's variant; the Button default when omitted. */
+  confirmVariant?: ButtonProps["variant"];
   ariaLabel?: string;
   children?: ReactNode;
 }
@@ -55,8 +57,18 @@ export const ConfirmDialog = defineComponent<
   selectors: CONFIRMDIALOG_SELECTORS,
   classes,
   render: ({ props, getStyles, ref }) => {
-    const { open, title, onConfirm, onCancel, confirmLabel, cancelLabel, intent, ariaLabel, children } =
-      props;
+    const {
+      open,
+      title,
+      onConfirm,
+      onCancel,
+      confirmLabel,
+      cancelLabel,
+      intent,
+      confirmVariant,
+      ariaLabel,
+      children,
+    } = props;
 
     const cancelRef = useRef<HTMLButtonElement>(null);
 
@@ -89,7 +101,7 @@ export const ConfirmDialog = defineComponent<
           <Button ref={cancelRef} size="sm" onClick={onCancel}>
             {cancelLabel ?? "Cancel"}
           </Button>
-          <Button size="sm" intent={intent ?? "bad"} onClick={onConfirm}>
+          <Button size="sm" intent={intent ?? "bad"} variant={confirmVariant} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </div>

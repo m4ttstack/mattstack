@@ -45,6 +45,20 @@ against its own roster), which is what makes the client append the built-in
 "Needs me" tab; every shot but that tab's opens with `?member=all` so the
 seat does not narrow the team view.
 
+Peer asks ride two places. `data.json`'s `asks` is the inbox the header
+button opens: three waiting asks for the seat's agent, one of each kind
+(`bfinch` respond on !1236 with a note, `jvasquez` re-review on !1235,
+`dolveira` review on !1374 with a note), three handled rows for the history
+view (an always-allowed launch, a decline with "busy right now" and a note,
+an expiry), and `tclearwater` in `alwaysAllow`. Their `receivedAt` and
+`handled.at` hang off `meta.json`'s `now`, so the cards read 1h, 22m and
+4m. The seat's own asks are `sentNudge` on the rows: !1210 waits for
+Tom's go ahead, !1429 was declined by Bea with a note, and !1271's respond
+ask met Pia's asks turned off. `peers` names the enrolled teammates, which
+is what fills !1236's "request review from" submenu (the one own MR left
+with no ask out) and its send dialog. Inbox ids are `<from>/<iid>`, so the
+`?ask=jvasquez/1235` landing can be tried by hand.
+
 The thread link's "new activity" weight is derived from `localStorage`
 (`board.threads.seen:<url>`) rather than from this data, so a capture on a
 fresh browser context always shows every thread link at its rest weight.

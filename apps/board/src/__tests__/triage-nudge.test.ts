@@ -1,9 +1,18 @@
+import { mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { describe, expect, test } from 'bun:test';
 
 import type { NudgeOutcomePayload, NudgeResult } from '../peer/envelope.ts';
-import type { NudgeState } from '../peer/nudges.ts';
+import {
+  markNudgeHandled,
+  readNudges,
+  writeNudge,
+  type NudgeState,
+} from '../peer/nudges.ts';
 import type { ReReviewLaunch } from '../review-launch.ts';
 import type { ReviewState } from '../review-state.ts';
+import { openStateDb } from '../state/db.ts';
 import type { AuditEntry } from '../triage/audit.ts';
 import { parseTriageBlock } from '../triage/config.ts';
 import {
@@ -187,11 +196,20 @@ function deps(over: Partial<NudgePassDeps> = {}) {
   const published: Array<{ to: string; payload: NudgeOutcomePayload }> = [];
   const handled: Array<{ id: string; result: NudgeResult; reason?: string }> =
     [];
+  const notified: string[] = [];
+  const asked: string[] = [];
   const memory: DispatchMemory = { identity: null, mrs: {} };
   const base: NudgePassDeps = {
+    alwaysAllow: new Set(['alice']),
+    markNudgeNotified: id => notified.push(id),
+    notifyAsk: async n => {
+      asked.push(n.id);
+    },
     readNudges: () => [nudge],
-    markNudgeHandled: (id, result, reason) =>
-      handled.push({ id, result, reason }),
+    markNudgeHandled: (id, result, reason) => {
+      handled.push({ id, result, reason });
+      return true;
+    },
     readReviewStates: () => new Map([[nudge.mrUrl, commentedReview]]),
     readRespondStates: () => new Map(),
     isOwnMr: () => true,
@@ -212,6 +230,8 @@ function deps(over: Partial<NudgePassDeps> = {}) {
     notifyCalls,
     published,
     handled,
+    notified,
+    asked,
     memory,
   });
 }
@@ -283,9 +303,10 @@ describe('runNudgePass', () => {
       rejected: 0,
       expired: 0,
       skipped: 0,
+      held: 0,
     });
     expect(d.handled).toEqual([
-      { id: 'n1', result: 'launched', reason: undefined },
+      { id: 'n1', result: 'launched', reason: 'always-allowed' },
     ]);
     expect(d.published).toEqual([
       {
@@ -400,6 +421,7 @@ describe('runNudgePass', () => {
       rejected: 1,
       expired: 0,
       skipped: 0,
+      held: 0,
     });
     expect(d.handled).toEqual([
       { id: 'n1', result: 'rejected', reason: 'no-commented-review' },
@@ -422,6 +444,7 @@ describe('runNudgePass', () => {
       rejected: 0,
       expired: 1,
       skipped: 0,
+      held: 0,
     });
     expect(d.handled).toEqual([
       { id: 'n1', result: 'expired', reason: 'stale' },
@@ -443,10 +466,13 @@ describe('runNudgePass', () => {
       rejected: 1,
       expired: 0,
       skipped: 0,
+      held: 0,
     });
     expect(d.handled).toEqual([
+      { id: 'n1', result: 'launched', reason: 'always-allowed' },
       { id: 'n1', result: 'rejected', reason: 'launch-failed' },
     ]);
+    expect(d.published).toHaveLength(1);
     expect(d.published[0]?.payload.reason).toBe('launch-failed');
     expect(d.memory.mrs[nudge.mrUrl]?.attemptsToday).toBe(0);
     expect(d.memory.mrs[nudge.mrUrl]?.lastDispatchAt).toBeNull();
@@ -465,6 +491,7 @@ describe('runNudgePass', () => {
       rejected: 0,
       expired: 0,
       skipped: 1,
+      held: 0,
     });
     expect(d.handled).toHaveLength(0);
     expect(d.published).toHaveLength(0);
@@ -571,6 +598,9 @@ describe('runNudgePass notification copy', () => {
 describe('plainReason', () => {
   test('every code decideRequest produces maps to a plain phrase', () => {
     expect(plainReason('stale', cfg)).toBe('The ask is over 48 hours old');
+    expect(plainReason('launch-failed', cfg)).toBe(
+      'Your agent could not start'
+    );
     expect(plainReason('review-in-flight', cfg)).toBe(
       'A review is already running'
     );
@@ -667,5 +697,187 @@ describe('decideRequest', () => {
       action: 'expire',
       reason: 'stale',
     });
+  });
+});
+
+describe('runNudgePass consent', () => {
+  test('an ask from someone not always-allowed is held, published pending and notified once', async () => {
+    const d = deps({ alwaysAllow: new Set() });
+    const r = await runNudgePass(d);
+    expect(r).toEqual({
+      dispatched: 0,
+      rejected: 0,
+      expired: 0,
+      skipped: 0,
+      held: 1,
+    });
+    expect(d.published).toEqual([
+      {
+        to: 'alice',
+        payload: {
+          mrUrl: nudge.mrUrl,
+          iid: 1,
+          nudgeId: 'n1',
+          result: 'pending',
+        },
+      },
+    ]);
+    expect(d.asked).toEqual(['n1']);
+    expect(d.notified).toEqual(['n1']);
+    expect(d.handled).toEqual([]);
+  });
+  test('a held ask already notified stays quiet', async () => {
+    const d = deps({
+      alwaysAllow: new Set(),
+      readNudges: () => [{ ...nudge, notifiedAt: NOW - 1 }],
+    });
+    const r = await runNudgePass(d);
+    expect(r.held).toBe(1);
+    expect(d.published).toEqual([]);
+    expect(d.asked).toEqual([]);
+    expect(d.audit).toEqual([]);
+  });
+  test('the first held pass audits a hold decision', async () => {
+    const d = deps({ alwaysAllow: new Set() });
+    await runNudgePass(d);
+    expect(d.audit.map(e => e.decision)).toEqual(['hold']);
+  });
+  test('budget and cooldown never hold back a human decision', async () => {
+    const d = deps({ alwaysAllow: new Set() });
+    d.memory.mrs[nudge.mrUrl] = {
+      ...emptyMrMemory('1970-01-12'),
+      attemptsToday: cfg.dailyAttemptBudget,
+    };
+    expect((await runNudgePass(d)).held).toBe(1);
+  });
+  test('a kind rule still refuses a held ask outright', async () => {
+    const d = deps({
+      alwaysAllow: new Set(),
+      readReviewStates: () =>
+        new Map([[nudge.mrUrl, { ...commentedReview, status: 'reviewing' }]]),
+    });
+    const r = await runNudgePass(d);
+    expect(r.rejected).toBe(1);
+    expect(d.published[0]?.payload).toMatchObject({
+      result: 'rejected',
+      reason: 'review-in-flight',
+    });
+  });
+  test('asks off declines a waiting ask with asks-off', async () => {
+    const d = deps({ cfg: { ...cfg, enabled: false } });
+    const r = await runNudgePass(d);
+    expect(r.rejected).toBe(1);
+    expect(d.handled).toEqual([
+      { id: 'n1', result: 'rejected', reason: 'asks-off' },
+    ]);
+    expect(d.published[0]?.payload).toMatchObject({
+      result: 'rejected',
+      reason: 'asks-off',
+    });
+  });
+  test('asks off leaves already-handled asks alone', async () => {
+    const d = deps({
+      cfg: { ...cfg, enabled: false },
+      readNudges: () => [{ ...nudge, handled: { at: 1, result: 'launched' } }],
+    });
+    expect((await runNudgePass(d)).skipped).toBe(1);
+  });
+});
+
+describe('runNudgePass racing the board server', () => {
+  function dbPass(over: Partial<NudgePassDeps> = {}) {
+    const db = openStateDb(
+      join(mkdtempSync(join(tmpdir(), 'nudge-pass-')), 'state.db')
+    );
+    const launched: string[] = [];
+    const d = deps({
+      readNudges: () => readNudges(db),
+      markNudgeHandled: (id, result, reason, opts) =>
+        markNudgeHandled(id, result, reason, db, NOW, opts),
+      launchAsk: async (mrUrl): Promise<ReReviewLaunch> => {
+        launched.push(mrUrl);
+        return { kind: 'launched' };
+      },
+      ...over,
+    });
+    return Object.assign(d, { db, launched });
+  }
+
+  test('an ask answered by the server after the pass read it is neither launched nor answered again', async () => {
+    const d = dbPass();
+    writeNudge(nudge, d.db);
+    let reads = 0;
+    d.readNudges = () => {
+      const rows = readNudges(d.db);
+      if (reads++ === 0)
+        markNudgeHandled('n1', 'rejected', 'busy right now', d.db, NOW, {
+          declined: true,
+        });
+      return rows;
+    };
+    const result = await runNudgePass(d);
+    expect(result.dispatched).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(d.launched).toEqual([]);
+    expect(d.published).toEqual([]);
+    expect(readNudges(d.db)[0]?.handled).toMatchObject({
+      result: 'rejected',
+      declined: true,
+    });
+  });
+
+  test('a run started on the MR after the pass read the review states holds the launch', async () => {
+    const d = dbPass();
+    writeNudge(nudge, d.db);
+    let reads = 0;
+    d.readReviewStates = () =>
+      new Map([
+        [
+          nudge.mrUrl,
+          reads++ === 0
+            ? commentedReview
+            : { ...commentedReview, status: 'reviewing', outcome: undefined },
+        ],
+      ]);
+    const result = await runNudgePass(d);
+    expect(result.dispatched).toBe(0);
+    expect(d.launched).toEqual([]);
+    expect(d.published).toEqual([]);
+    expect(readNudges(d.db)[0]?.handled).toBeUndefined();
+  });
+
+  test('a launcher that throws ends as launch-failed, sent once, never launched', async () => {
+    const d = dbPass({
+      launchAsk: async () => {
+        throw new Error('no tab for this MR');
+      },
+    });
+    writeNudge(nudge, d.db);
+    const result = await runNudgePass(d);
+    expect(result.rejected).toBe(1);
+    expect(result.dispatched).toBe(0);
+    expect(readNudges(d.db)[0]?.handled).toMatchObject({
+      result: 'rejected',
+      reason: 'launch-failed',
+    });
+    expect(d.published.map(p => [p.payload.result, p.payload.reason])).toEqual([
+      ['rejected', 'launch-failed'],
+    ]);
+  });
+
+  test('the pass claims the row before its launch', async () => {
+    const d = dbPass();
+    writeNudge(nudge, d.db);
+    let duringLaunch: NudgeState['handled'];
+    d.launchAsk = async () => {
+      duringLaunch = readNudges(d.db)[0]?.handled;
+      return { kind: 'launched' };
+    };
+    expect((await runNudgePass(d)).dispatched).toBe(1);
+    expect(duringLaunch).toMatchObject({
+      result: 'launched',
+      reason: 'always-allowed',
+    });
+    expect(d.published.map(p => p.payload.result)).toEqual(['launched']);
   });
 });

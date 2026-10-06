@@ -94,3 +94,15 @@ describe('prune', () => {
     expect(s.inbox('grace').map(e => e.id)).toEqual(['new']);
   });
 });
+
+describe('asks off', () => {
+  test('deleteBoard clears the asks-off row, so a re-registered name is askable again', () => {
+    const s = makeStore();
+    s.registerBoard('ada');
+    s.setAsksEnabled('ada', false);
+    expect(s.listAskableUsernames()).toEqual([]);
+    s.deleteBoard('ada');
+    s.registerBoard('ada');
+    expect(s.listAskableUsernames()).toEqual(['ada']);
+  });
+});

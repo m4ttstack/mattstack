@@ -15,9 +15,9 @@ monorepo, alongside the apps that consume it.
 
 ## Features
 
-- **26 components** across 23 recipes: Alert, Badge, Button, Chip,
+- **27 components** across 24 recipes: Alert, Badge, Button, Chip,
   ConfirmDialog, ContextMenu, CopyButton, Drawer, Icon, ListGroup, Markdown,
-  Modal, Panel, RadioGroup, Segmented (plus LabeledSeg), SelectBox, SideDrawer,
+  Modal, Panel, Popover, RadioGroup, Segmented (plus LabeledSeg), SelectBox, SideDrawer,
   Spinner, StatusDot, Switch, Table, TextArea, TextField, ToastHost, Tooltip.
 - **Light and dark from one theme.** Every token carries both schemes through
   `light-dark()`, driven by a `.dark` class on `<html>`. No second stylesheet,

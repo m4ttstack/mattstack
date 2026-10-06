@@ -1,6 +1,8 @@
 import { homedir } from 'os';
 import { join } from 'path';
 
+import type { AskKind } from '../peer/envelope.ts';
+
 /** rt-tray's notify socket; contract matches repo-tools commands/settings.ts
     test-push: POST /notify {id, title, message, category, timestamp, url?}.
     The tray opens `url` on a banner click only when it is http(s). */
@@ -10,6 +12,28 @@ export const TRAY_SOCK = join(homedir(), '.mattstack', 'rt', 'tray.sock');
     deep link that lands on that MR's row. */
 export function boardMrLink(boardUrl: string, mrUrl: string): string {
   return `${boardUrl}/?mr=${encodeURIComponent(mrUrl)}`;
+}
+
+/** The board page a notification about a held ask opens on click. */
+export function boardAskLink(boardUrl: string, askId: string): string {
+  return `${boardUrl}/?ask=${encodeURIComponent(askId)}`;
+}
+
+const ASKED: Record<AskKind, string> = {
+  review: 'asked for a review',
+  're-review': 'asked for a re-review',
+  respond: 'asked your agent to respond',
+};
+
+export function askNotice(
+  n: { kind?: AskKind; iid: number; title?: string },
+  fromName: string
+): { title: string; message: string } {
+  const mr = n.title ? `!${n.iid} ${n.title}` : `!${n.iid}`;
+  return {
+    title: `${fromName} ${ASKED[n.kind ?? 're-review']}`,
+    message: `${mr}\nYour agent waits for your go ahead.`,
+  };
 }
 
 const SNIPPET_MAX = 120;
@@ -51,14 +75,14 @@ export async function notifyEscalation(
   title: string,
   message: string,
   mode: 'rt' | 'badge-only',
-  opts: { url?: string | null; traySock?: string } = {}
+  opts: { url?: string | null; traySock?: string; category?: string } = {}
 ): Promise<void> {
   if (mode !== 'rt') return;
   const event = {
     id: crypto.randomUUID(),
     title,
     message,
-    category: 'mr-doctor',
+    category: opts.category ?? 'mr-doctor',
     timestamp: Date.now(),
     ...(opts.url ? { url: opts.url } : {}),
   };

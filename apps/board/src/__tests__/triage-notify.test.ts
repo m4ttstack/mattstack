@@ -4,6 +4,8 @@ import { join } from 'path';
 import { afterAll, describe, expect, test } from 'bun:test';
 
 import {
+  askNotice,
+  boardAskLink,
   boardMrLink,
   doctorStuckNotice,
   escalationBody,
@@ -139,5 +141,32 @@ describe('doctorStuckNotice', () => {
     expect(
       doctorStuckNotice({ iid: 45, mrUrl: MR, message: '  ' }, null).message
     ).toBe('No reason given, over to you');
+  });
+});
+
+describe('ask notification', () => {
+  test('the link opens the board on that ask', () => {
+    expect(boardAskLink('http://localhost:11006', 'a/b')).toBe(
+      'http://localhost:11006/?ask=a%2Fb'
+    );
+  });
+  test('copy per kind', () => {
+    expect(
+      askNotice(
+        { kind: 'review', iid: 1388, title: 'debounce the claim search input' },
+        'Rae Marlow'
+      )
+    ).toEqual({
+      title: 'Rae Marlow asked for a review',
+      message:
+        '!1388 debounce the claim search input\nYour agent waits for your go ahead.',
+    });
+    expect(askNotice({ iid: 1391 }, 'Tom Clearwater').title).toBe(
+      'Tom Clearwater asked for a re-review'
+    );
+    expect(askNotice({ kind: 'respond', iid: 1366 }, 'Bea Finch')).toEqual({
+      title: 'Bea Finch asked your agent to respond',
+      message: '!1366\nYour agent waits for your go ahead.',
+    });
   });
 });

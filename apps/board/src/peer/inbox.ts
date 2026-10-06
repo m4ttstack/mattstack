@@ -20,6 +20,8 @@ export interface MaterializeDeps {
     resolution: {
       result: NudgeResult | 'confirmed';
       reason?: string;
+      declined?: true;
+      declineNote?: string;
       at: number;
     },
     /** Who sent the report: only the teammate that was asked can answer. */
@@ -118,6 +120,8 @@ export function materializeEnvelope(
       iid: p.iid,
       from: e.from,
       note: p.note,
+      ...(p.title ? { title: p.title } : {}),
+      ...(p.sourceBranch ? { sourceBranch: p.sourceBranch } : {}),
       receivedAt: e.receivedAt,
       materializedAt: now,
       // Absence means re-review, so rows written before kinds existed keep
@@ -136,7 +140,13 @@ export function materializeEnvelope(
       return deps.log(`peer: malformed nudge-outcome from ${e.from} (${e.id})`);
     deps.resolveSentNudge(
       p.mrUrl,
-      { result: p.result, reason: p.reason, at: now },
+      {
+        result: p.result,
+        reason: p.reason,
+        ...(p.declined ? { declined: true as const } : {}),
+        ...(p.declineNote ? { declineNote: p.declineNote } : {}),
+        at: now,
+      },
       e.from
     );
     return;

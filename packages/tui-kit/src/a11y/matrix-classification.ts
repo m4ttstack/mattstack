@@ -55,6 +55,9 @@ export const MATRIX_CLASSIFICATION: Record<string, MatrixClassification> = {
   Panel: {
     exempt: "structural chrome: fixed --bg/--accent/--muted/--surface-wash-* pairs, no intent axis",
   },
+  Popover: {
+    exempt: "structural chrome: fixed --card/--fg/--border pairs, no intent axis",
+  },
   RadioGroup: {
     exempt: "shares Field.module.css structural chrome (fixed --fg/--muted/--red pairs), no intent axis",
   },

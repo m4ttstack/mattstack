@@ -150,6 +150,72 @@ describe('askBandModel', () => {
     expect(askBandModel(sent({ display: 'rejected' })).label).toBe('declined');
   });
 
+  test('pending waits for the go ahead', () => {
+    const b = askBandModel(
+      sent({ display: 'pending', reviewerName: 'Mira Holt', resolvedAt: 10 }),
+      NOW
+    );
+    expect(b).toMatchObject({
+      tone: 'neutral',
+      icon: 'hourglass',
+      label: "waiting for Mira's go ahead",
+      actions: ['dismiss'],
+    });
+    expect(b.steps.map(s => s.name)).toEqual(['Requested', 'Waiting']);
+  });
+
+  test('a decline names the reason, keeps the note in the trail, offers only dismiss', () => {
+    const b = askBandModel(
+      sent({
+        display: 'rejected',
+        reviewerName: 'Mira Holt',
+        declined: true,
+        reason: 'busy right now',
+        declineNote: 'after standup',
+      })
+    );
+    expect(b).toMatchObject({
+      tone: 'bad',
+      icon: 'ban',
+      label: 'Mira declined: busy right now',
+      actions: ['dismiss'],
+    });
+    expect(b.steps.at(-1)).toMatchObject({
+      name: 'Declined',
+      detail: 'after standup',
+    });
+  });
+
+  test('a decline with no reason reads bare', () => {
+    expect(
+      askBandModel(
+        sent({ display: 'rejected', reviewerName: 'Mira Holt', declined: true })
+      ).label
+    ).toBe('Mira declined');
+  });
+
+  test('asks off has its own words', () => {
+    expect(
+      askBandModel(
+        sent({
+          display: 'rejected',
+          reviewerName: 'Mira Holt',
+          reason: 'asks-off',
+        })
+      )
+    ).toMatchObject({
+      label: 'Mira has asks turned off',
+      actions: ['dismiss'],
+    });
+  });
+
+  test('a board refusal still offers retry', () => {
+    expect(
+      askBandModel(sent({ display: 'rejected', reason: 'review-in-flight' }))
+        .actions
+    ).toEqual(['retry', 'dismiss']);
+  });
+
   test('no answer: warn tone, retry; expired reads the same', () => {
     for (const display of ['no-response', 'expired'] as const) {
       expect(askBandModel(sent({ display }))).toMatchObject({

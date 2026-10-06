@@ -181,3 +181,32 @@ describe('makeSwitchboardClient.peers', () => {
     expect(await dead.peers()).toBeNull();
   });
 });
+
+describe('makeSwitchboardClient.peers askable', () => {
+  const clientFor = (body: unknown) =>
+    makeSwitchboardClient(
+      'https://relay.example',
+      'tok-1',
+      (async () =>
+        new Response(JSON.stringify(body))) as unknown as typeof fetch
+    );
+
+  test('prefers askable, and falls back to peers on an older relay', async () => {
+    expect(
+      await clientFor({ peers: ['ada', 'grace'], askable: ['ada'] }).peers()
+    ).toEqual(['ada']);
+    expect(await clientFor({ peers: ['ada'] }).peers()).toEqual(['ada']);
+  });
+
+  test('setAsksEnabled maps 404 to unsupported', async () => {
+    const mk = (status: number) =>
+      makeSwitchboardClient(
+        'https://relay.example',
+        't',
+        (async () => new Response('', { status })) as unknown as typeof fetch
+      );
+    expect(await mk(200).setAsksEnabled(false)).toBe('ok');
+    expect(await mk(404).setAsksEnabled(false)).toBe('unsupported');
+    expect(await mk(500).setAsksEnabled(false)).toBe('failed');
+  });
+});

@@ -107,6 +107,7 @@ a record.
 | Markdown | `"markdown"` (single slot: everything ReactMarkdown renders inside it is unaddressed, styled via plain descendant selectors) |
 | Modal | `{ root: "modal", overlay: "modal-overlay", head: "modal-head", title: "modal-title", close: "modal-close" }` |
 | Panel | `{ root: "panel", title: "panel-title", caret: "panel-caret", count: "panel-count", body: "panel-body" }` |
+| Popover | `{ root: "popover", positioner: "popover-positioner", popup: "popover-popup" }` |
 | Segmented / LabeledSeg | `{ root: "segmented", option: "segmented-option" }` (one CSS shape, shared by both) |
 | SelectBox | `"selectbox"` (single slot) |
 | SideDrawer | `{ root: "sidedrawer", overlay: "sidedrawer-overlay" }` |

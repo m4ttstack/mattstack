@@ -126,6 +126,10 @@ export function plainReason(reason: string, cfg: TriageConfig): string {
       return `Last run was under ${cfg.cooldownMinutes} minutes ago`;
     case 'disabled':
       return 'Automatic asks are off';
+    case 'asks-off':
+      return 'Asks are turned off';
+    case 'launch-failed':
+      return 'Your agent could not start';
     case 'already-handled':
       return 'Already handled';
     case 'not-your-mr':
@@ -188,9 +192,38 @@ export function decideNudge(
   );
 }
 
+/** A launch that throws ends the same way as one that reports an error, so a
+    claimed ask always gets its launch-failed outcome. */
+export async function launchSettled(
+  launchAsk: NudgePassDeps['launchAsk'],
+  mrUrl: string,
+  iid: number,
+  kind: AskKind
+): Promise<ReReviewLaunch> {
+  try {
+    return await launchAsk(mrUrl, iid, kind);
+  } catch (err) {
+    console.error(
+      `ask launch on ${mrUrl} threw: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return { kind: 'error', message: 'Your agent could not start' };
+  }
+}
+
 export interface NudgePassDeps {
   readNudges(): NudgeState[];
-  markNudgeHandled(id: string, result: NudgeResult, reason?: string): void;
+  /** Canonical usernames whose asks start without a go-ahead. */
+  alwaysAllow: ReadonlySet<string>;
+  markNudgeNotified(id: string): void;
+  notifyAsk(nudge: NudgeState): Promise<void>;
+  /** False when another answer got there first; the caller then publishes
+      nothing. */
+  markNudgeHandled(
+    id: string,
+    result: NudgeResult,
+    reason?: string,
+    opts?: { replacing?: NudgeResult }
+  ): boolean;
   readReviewStates(): Map<string, ReviewState>;
   /** The respond lane per MR, the one lane a respond ask can collide with. */
   readRespondStates(): Map<string, { status: string }>;
@@ -210,8 +243,15 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
   rejected: number;
   expired: number;
   skipped: number;
+  held: number;
 }> {
-  const result = { dispatched: 0, rejected: 0, expired: 0, skipped: 0 };
+  const result = {
+    dispatched: 0,
+    rejected: 0,
+    expired: 0,
+    skipped: 0,
+    held: 0,
+  };
   const reviews = deps.readReviewStates();
   const responds = deps.readRespondStates();
   const now = deps.now();
@@ -223,11 +263,39 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
       dayStamp
     );
     deps.memory.mrs[nudge.mrUrl] = m;
+    if (!deps.cfg.enabled) {
+      if (nudge.handled) {
+        result.skipped++;
+        continue;
+      }
+      if (!deps.markNudgeHandled(nudge.id, 'rejected', 'asks-off')) {
+        result.skipped++;
+        continue;
+      }
+      deps.publishOutcome(nudge.from, {
+        mrUrl: nudge.mrUrl,
+        iid: nudge.iid,
+        nudgeId: nudge.id,
+        result: 'rejected',
+        reason: 'asks-off',
+      });
+      result.rejected++;
+      continue;
+    }
+    const allowed = deps.alwaysAllow.has(nudge.from);
+    // Budget and cooldown pace automatic runs; a person's go-ahead is not one.
+    const decideCfg = allowed
+      ? deps.cfg
+      : {
+          ...deps.cfg,
+          dailyAttemptBudget: Number.POSITIVE_INFINITY,
+          cooldownMinutes: 0,
+        };
     const decision = decideNudge(
       nudge,
       reviews.get(nudge.mrUrl),
       m,
-      deps.cfg,
+      decideCfg,
       now,
       responds.get(nudge.mrUrl),
       deps.isOwnMr(nudge.mrUrl)
@@ -239,20 +307,26 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
       result.skipped++;
       continue;
     }
-    deps.appendAudit({
-      ts: now,
-      mrUrl: nudge.mrUrl,
-      iid: nudge.iid,
-      event: 'nudge',
-      decision: decision.action,
-      reason: decision.reason,
-      attempt: m.attemptsToday + 1,
-    });
+    const held = !allowed && decision.action === 'dispatch';
+    if (!held || !nudge.notifiedAt) {
+      deps.appendAudit({
+        ts: now,
+        mrUrl: nudge.mrUrl,
+        iid: nudge.iid,
+        event: 'nudge',
+        decision: held ? 'hold' : decision.action,
+        reason: decision.reason,
+        attempt: m.attemptsToday + 1,
+      });
+    }
     const kind: AskKind = nudge.kind ?? 're-review';
     if (decision.action === 'expire' || decision.action === 'reject') {
       const outcome: NudgeResult =
         decision.action === 'expire' ? 'expired' : 'rejected';
-      deps.markNudgeHandled(nudge.id, outcome, decision.reason);
+      if (!deps.markNudgeHandled(nudge.id, outcome, decision.reason)) {
+        result.skipped++;
+        continue;
+      }
       deps.publishOutcome(nudge.from, {
         mrUrl: nudge.mrUrl,
         iid: nudge.iid,
@@ -269,9 +343,53 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
       result[outcome === 'expired' ? 'expired' : 'rejected']++;
       continue;
     }
-    const launch = await deps.launchAsk(nudge.mrUrl, nudge.iid, kind);
+    if (held) {
+      result.held++;
+      if (nudge.notifiedAt) continue;
+      const latest = deps.readNudges().find(x => x.id === nudge.id);
+      if (!latest || latest.handled || latest.notifiedAt) continue;
+      deps.publishOutcome(nudge.from, {
+        mrUrl: nudge.mrUrl,
+        iid: nudge.iid,
+        nudgeId: nudge.id,
+        result: 'pending',
+      });
+      await deps.notifyAsk(nudge);
+      deps.markNudgeNotified(nudge.id);
+      continue;
+    }
+    // The pass awaits each launch, so the snapshot taken at its start can be
+    // stale by now: the board server may have answered this ask, or a run on
+    // this MR may have started. The claim is what keeps the launch single.
+    const current = deps.readNudges().find(x => x.id === nudge.id);
+    const recheck =
+      current &&
+      decideNudge(
+        current,
+        deps.readReviewStates().get(nudge.mrUrl),
+        m,
+        decideCfg,
+        now,
+        deps.readRespondStates().get(nudge.mrUrl),
+        deps.isOwnMr(nudge.mrUrl)
+      );
+    if (
+      recheck?.action !== 'dispatch' ||
+      !deps.markNudgeHandled(nudge.id, 'launched', 'always-allowed')
+    ) {
+      result.skipped++;
+      continue;
+    }
+    const launch = await launchSettled(
+      deps.launchAsk,
+      nudge.mrUrl,
+      nudge.iid,
+      kind
+    );
     if (launch.kind === 'error') {
-      deps.markNudgeHandled(nudge.id, 'rejected', 'launch-failed');
+      deps.markNudgeHandled(nudge.id, 'rejected', 'launch-failed', {
+        replacing: 'launched',
+      });
       deps.publishOutcome(nudge.from, {
         mrUrl: nudge.mrUrl,
         iid: nudge.iid,
@@ -290,7 +408,6 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
       result.rejected++;
       continue;
     }
-    deps.markNudgeHandled(nudge.id, 'launched');
     deps.publishOutcome(nudge.from, {
       mrUrl: nudge.mrUrl,
       iid: nudge.iid,

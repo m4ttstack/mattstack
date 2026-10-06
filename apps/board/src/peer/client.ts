@@ -17,6 +17,9 @@ export interface SwitchboardClient {
       without /peers, a bad body, or a network failure) -- callers treat
       null as "don't filter". */
   peers(): Promise<string[] | null>;
+  /** Tells the relay whether this board takes asks, so senders' pickers drop
+      it. "unsupported" is a relay that predates the route (404). */
+  setAsksEnabled(enabled: boolean): Promise<'ok' | 'unsupported' | 'failed'>;
 }
 
 export function makeSwitchboardClient(
@@ -60,15 +63,34 @@ export function makeSwitchboardClient(
       try {
         const res = await fetchFn(`${base}/peers`, { headers });
         if (!res.ok) return null;
-        const body = (await res.json()) as { peers?: unknown };
+        const body = (await res.json()) as {
+          peers?: unknown;
+          askable?: unknown;
+        };
         if (
           !Array.isArray(body.peers) ||
           body.peers.some(p => typeof p !== 'string')
         )
           return null;
+        const askable = body.askable;
+        if (Array.isArray(askable) && askable.every(p => typeof p === 'string'))
+          return askable as string[];
         return body.peers as string[];
       } catch {
         return null;
+      }
+    },
+    async setAsksEnabled(enabled) {
+      try {
+        const res = await fetchFn(`${base}/boards/self/asks`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ enabled }),
+        });
+        if (res.status === 404) return 'unsupported';
+        return res.ok ? 'ok' : 'failed';
+      } catch {
+        return 'failed';
       }
     },
     async ack(ids) {

@@ -34,6 +34,7 @@ function fakeClient(
     inbox: async () => inboxResult(),
     ack: async () => true,
     peers: async () => null,
+    setAsksEnabled: async () => 'ok',
   };
 }
 const noDeps = {
@@ -69,6 +70,7 @@ describe('makePeering', () => {
       publish: async () => 201,
       ack: async () => true,
       peers: async () => null,
+      setAsksEnabled: async () => 'ok',
       inbox: async () => {
         inFlight++;
         peak = Math.max(peak, inFlight);
@@ -130,6 +132,7 @@ describe('makePeering: enrolled peers cache', () => {
       inbox: async () => [],
       ack: async () => true,
       peers: async () => answer,
+      setAsksEnabled: async () => 'ok',
     };
     const peering = makePeering({
       makeClient: () => client,
@@ -285,5 +288,63 @@ describe('tickOnPeerInbox', () => {
   test('the event name matches the daemon waker', async () => {
     const { PEER_INBOX_EVENT } = await import('../peer/runtime.ts');
     expect(PEER_INBOX_EVENT).toBe('peer-inbox');
+  });
+});
+
+describe('makePeering: asks state and tick hook', () => {
+  test('the tick sends asks state only when it changes, and stops on an old relay', async () => {
+    let enabled = true;
+    const sent: boolean[] = [];
+    let answer: 'ok' | 'unsupported' = 'ok';
+    const logs: string[] = [];
+    const client = {
+      ...fakeClient(() => []),
+      setAsksEnabled: async (e: boolean) => (sent.push(e), answer),
+    };
+    const p = makePeering({
+      makeClient: () => client,
+      deps: { ...noDeps, log: l => logs.push(l) },
+      asksEnabled: () => enabled,
+      tickMs: 999_999,
+      outboxDb: freshDb(),
+    });
+    p.start('http://relay', 't');
+    await p.tickNow();
+    await p.tickNow();
+    expect(sent).toEqual([true]);
+    enabled = false;
+    await p.tickNow();
+    expect(sent).toEqual([true, false]);
+    answer = 'unsupported';
+    enabled = true;
+    await p.tickNow();
+    enabled = false;
+    await p.tickNow();
+    await p.tickNow();
+    expect(sent).toEqual([true, false, true]);
+    expect(logs.filter(l => l.includes('update the relay'))).toHaveLength(1);
+    p.stop();
+  });
+
+  test('onTick runs once per tick and a throwing onTick is logged, not thrown', async () => {
+    let ran = 0;
+    const logs: string[] = [];
+    const p = makePeering({
+      makeClient: () => fakeClient(() => []),
+      deps: { ...noDeps, log: l => logs.push(l) },
+      onTick: () => {
+        ran++;
+        throw new Error('boom');
+      },
+      tickMs: 999_999,
+      outboxDb: freshDb(),
+    });
+    p.start('http://relay', 't');
+    await p.tickNow();
+    const before = ran;
+    await p.tickNow();
+    expect(ran).toBe(before + 1);
+    expect(logs.some(l => l.includes('boom'))).toBe(true);
+    p.stop();
   });
 });

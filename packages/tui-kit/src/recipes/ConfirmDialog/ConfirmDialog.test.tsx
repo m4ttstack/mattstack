@@ -185,6 +185,26 @@ describe("ConfirmDialog (browser)", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
+  it("passes confirmVariant and intent through to the confirm button", async () => {
+    const screen = await renderWithTheme(
+      <ConfirmDialog
+        open
+        title="t"
+        intent="ok"
+        confirmVariant="filled"
+        confirmLabel="Send"
+        onConfirm={noop}
+        onCancel={noop}
+      >
+        body
+      </ConfirmDialog>,
+    );
+
+    const confirm = screen.getByRole("button", { name: "Send" }).element();
+    expect(confirm.getAttribute("data-variant")).toBe("filled");
+    expect(confirm.getAttribute("data-intent")).toBe("ok");
+  });
+
   it("focuses the cancel button on mount (destructive default-safe)", async () => {
     const screen = await renderWithTheme(
       <ConfirmDialog

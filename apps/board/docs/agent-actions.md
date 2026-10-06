@@ -160,7 +160,8 @@ auto-doctor job is off unless `triage.enabled` is `true`; the nudge job is on
 unless `board.peerAsks` turns it off; the latch job is on unless the
 `board.reReview` setting turns it off. `bun run triage --peer` is the nudge
 job alone: rt's `board-peer` trigger runs it the moment the daemon hears from
-the relay that an ask arrived, so an ask starts in seconds.
+the relay that an ask arrived, so an allowed ask starts in seconds and a held
+one reaches the inbox and the push in seconds.
 
 **Auto-doctor.** It looks for mechanical breakage on the board identity's own
 MRs and dispatches a doctor pane at the configured `tier`. Which repairs it is
@@ -179,8 +180,11 @@ gated to the board identity's own MRs at dispatch time, whatever their toggles
 say.
 
 **Nudge handling.** An incoming review, re-review or reply ask from a peer
-board is picked up and dispatched as soon as it arrives, if `board.peerAsks`
-is on (the default) and every guardrail clears:
+board waits in the receiver's "Asks for your agent" inbox for their go ahead,
+and they get a push. A teammate they always allow is dispatched as soon as the
+ask arrives. Stale (48 hours), not-your-MR and already-in-flight refusals still
+answer at once. With `board.peerAsks` off, the board declines asks. Once an ask
+is allowed, it launches only if every guardrail clears:
 
 - For a re-review ask: the reviewer's prior review on that MR is `done` with a
   `comment` outcome. For a first-look ask ("request review from"): the

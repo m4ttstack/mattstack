@@ -159,7 +159,24 @@ export function makeFetchHandler(
         return new Response('method not allowed', { status: 405 });
       return json(200, {
         peers: store.listBoards().map(b => b.username),
+        askable: store.listAskableUsernames(),
       });
+    }
+
+    if (pathname === '/boards/self/asks') {
+      if (req.method !== 'PUT')
+        return new Response('method not allowed', { status: 405 });
+      let body: unknown;
+      try {
+        body = await req.json();
+      } catch {
+        return new Response('invalid json', { status: 400 });
+      }
+      const enabled = (body as { enabled?: unknown })?.enabled;
+      if (typeof enabled !== 'boolean')
+        return new Response('expected { enabled: boolean }', { status: 400 });
+      store.setAsksEnabled(username, enabled);
+      return json(200, { ok: true });
     }
 
     if (pathname === '/envelopes') {
