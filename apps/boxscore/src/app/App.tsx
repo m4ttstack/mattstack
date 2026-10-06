@@ -243,7 +243,9 @@ function AppShell() {
   }, [redirectHome, own, navigate]);
 
   let page: ReactNode;
-  if (locked) {
+  if (redirectHome) {
+    page = null;
+  } else if (locked) {
     page = <LockedPage />;
   } else if (foreign) {
     page = <NotAvailablePage own={own} />;

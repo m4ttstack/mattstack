@@ -89,7 +89,9 @@ describe('Self view routing', () => {
     expect(
       await screen.findByText("boxscore couldn't tell who you are")
     ).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /open console/i })).toBeVisible();
+    const link = screen.getByRole('link', { name: /open console/i });
+    expect(link).toBeVisible();
+    expect(link.getAttribute('href')).toMatch(/\/settings#boxscore$/);
     expect(layer(container, 'Not Available')).not.toBeNull();
   });
 });
