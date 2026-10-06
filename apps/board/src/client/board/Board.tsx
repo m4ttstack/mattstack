@@ -96,6 +96,7 @@ import {
   DecisionQueueModal,
 } from './DecisionQueueModal.tsx';
 import {
+  askParam,
   gateDeepLinkAction,
   gateParam,
   linkedGroupLabel,
@@ -736,10 +737,41 @@ export function Board() {
     [addToast, load]
   );
 
-  // The header inbox. Task 10's `?ask=` deep link opens it and sets the
-  // card to flash.
   const [asksOpen, setAsksOpen] = useState(false);
-  const [askFlashId] = useState<string | null>(null);
+  const [askFlashId, setAskFlashId] = useState<string | null>(null);
+  const askLinkConsumed = useRef(false);
+
+  // `?ask=<id>`: open the inbox once, flash the card only when it is still
+  // pending, and strip the param so a refresh doesn't replay it.
+  useEffect(() => {
+    if (!data || askLinkConsumed.current) return;
+    const id = askParam(location.search);
+    if (id === null) return;
+    askLinkConsumed.current = true;
+    history.replaceState(
+      null,
+      '',
+      stripDeepLinkParams(location.search) || location.pathname
+    );
+    setAsksOpen(true);
+    if (data.asks?.pending.some(a => a.id === id)) setAskFlashId(id);
+  }, [data]);
+
+  useEffect(() => {
+    if (askFlashId === null || !asksOpen) return;
+    const frame = requestAnimationFrame(() =>
+      document
+        .querySelector(`[data-ask-id="${CSS.escape(askFlashId)}"]`)
+        ?.scrollIntoView({ block: 'nearest' })
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [askFlashId, asksOpen]);
+
+  useEffect(() => {
+    if (askFlashId === null) return;
+    const timer = setTimeout(() => setAskFlashId(null), 2600);
+    return () => clearTimeout(timer);
+  }, [askFlashId]);
   const askFailure = (r: ActionResult) =>
     r.text || (r.status ? `failed (${r.status})` : "couldn't reach the board");
   const handleAskAccept = useCallback(

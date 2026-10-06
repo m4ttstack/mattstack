@@ -1,4 +1,4 @@
-/** Pure helpers behind the `?gate=<id>` and `?mr=<url>` deep links -- the DOM
+/** Pure helpers behind the `?gate=<id>`, `?mr=<url>` and `?ask=<id>` deep links -- the DOM
     effect (scroll, flash, strip) that consumes them lives in Board.tsx. */
 
 import type { TabConfig } from '../../config.ts';
@@ -7,11 +7,18 @@ import { ALL_TURN, type TurnConfig } from '../../turn.ts';
 import { filterByTab, matchesShowItem, SHOW_ITEMS } from '../../view.ts';
 import type { ShowItem, ViewState } from '../../view.ts';
 
-const LINK_PARAMS = ['gate', 'mr'];
+const LINK_PARAMS = ['gate', 'mr', 'ask'];
 
 /** The `gate` query param, or null when absent or empty. */
 export function gateParam(search: string): string | null {
   const value = new URLSearchParams(search).get('gate');
+  return value ? value : null;
+}
+
+/** The `ask` query param (a peer ask id, already decoded), or null when
+    absent or empty. */
+export function askParam(search: string): string | null {
+  const value = new URLSearchParams(search).get('ask');
   return value ? value : null;
 }
 
@@ -105,7 +112,7 @@ export function linkedGroupLabel(
   return groups.find(g => g.mrs.some(isLinked))?.label ?? null;
 }
 
-/** `search` without its `gate` and `mr` params; every other param rides
+/** `search` without its `gate`, `mr` and `ask` params; every other param rides
     along untouched. */
 export function stripDeepLinkParams(search: string): string {
   const params = new URLSearchParams(search);
