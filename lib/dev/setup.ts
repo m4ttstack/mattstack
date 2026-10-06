@@ -23,30 +23,36 @@ function clonePath(s: DevSeams): string {
   return join(expandHome(s.probes, root), "mattstack");
 }
 
-type CloneFolder = "missing" | "empty" | "ours" | "other";
+/** "unknown": git itself did not run (no Command Line Tools), so the folder is checked again once the tools stage has passed. */
+type CloneFolder = "missing" | "empty" | "ours" | "other" | "unknown";
 
 async function cloneFolder(s: DevSeams, dir: string): Promise<CloneFolder> {
   if (!s.probes.exists(dir)) return "missing";
   if (s.probes.readDir(dir).length === 0) return "empty";
   const r = await s.probes.exec(["git", "-C", dir, "remote", "get-url", "origin"], { timeoutMs: 5000 });
-  return r.code === 0 && isMattstackRemote(r.stdout) ? "ours" : "other";
+  if (r.code === 0) return isMattstackRemote(r.stdout) ? "ours" : "other";
+  const git = await s.probes.exec(["git", "--version"], { timeoutMs: 5000 });
+  return git.code === 0 ? "other" : "unknown";
+}
+
+function clonePathTaken(dir: string): UserActionableError {
+  return new UserActionableError(
+    "dev-clone-path-taken",
+    "Your repo folder already has a mattstack folder that is not a clone of mattstack",
+    { path: dir },
+    { why: "Move it aside, then run this again.", next: `mv ${shellQuote(dir)} ${shellQuote(`${dir}-old`)}` },
+  );
 }
 
 export async function runDevSetup(s: DevSeams, stage: StageRunner): Promise<DevSetupResult> {
   const p = s.probes;
   const stored = s.storedSourcePath();
-  if (s.flavor === "dev" && s.devWrapperOwnsRt() && stored) return { kind: "already", clone: stored };
+  // A stored clone with no cli.ts was moved or deleted; `rt dev update` sends that Mac here to set it up again.
+  if (s.flavor === "dev" && s.devWrapperOwnsRt() && stored && p.exists(join(stored, "cli.ts"))) return { kind: "already", clone: stored };
 
   const dir = clonePath(s);
-  const folder = await cloneFolder(s, dir);
-  if (folder === "other") {
-    throw new UserActionableError(
-      "dev-clone-path-taken",
-      "Your repo folder already has a mattstack folder that is not a clone of mattstack",
-      { path: dir },
-      { why: "Move it aside, then run this again.", next: `mv ${shellQuote(dir)} ${shellQuote(`${dir}-old`)}` },
-    );
-  }
+  let folder = await cloneFolder(s, dir);
+  if (folder === "other") throw clonePathTaken(dir);
   const pins = await readPins(p, folder === "ours" ? dir : null);
 
   const stages: StageEnding[] = [];
@@ -62,6 +68,10 @@ export async function runDevSetup(s: DevSeams, stage: StageRunner): Promise<DevS
       return t.ending;
     }),
   );
+  if (folder === "unknown") {
+    folder = await cloneFolder(s, dir);
+    if (folder === "other" || folder === "unknown") throw clonePathTaken(dir);
+  }
 
   stages.push(
     await stage("Check you can push to mattstack", async (io) => {

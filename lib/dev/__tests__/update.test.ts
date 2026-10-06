@@ -9,8 +9,17 @@ const BUN = "/Users/collab/.bun/bin/bun";
 const GO = "/opt/homebrew/bin/go";
 const runner: StageRunner = async (_t, task) => task({ sub: () => {}, pause: (fn) => fn() });
 
-function seams(opts: { flavor?: "dev" | "prod"; source?: string | null; uiBinary?: boolean; newerUnderUi?: boolean; installedVersion?: string; releaseBuild?: boolean }) {
+function seams(opts: {
+  flavor?: "dev" | "prod";
+  source?: string | null;
+  uiBinary?: boolean;
+  newerUnderUi?: boolean;
+  installedVersion?: string;
+  releaseBuild?: boolean;
+  cloneGone?: boolean;
+}) {
   const files: Record<string, string> = {
+    [`${CLONE}/cli.ts`]: "",
     [`${CLONE}/package.json`]: JSON.stringify({ packageManager: "bun@1.4.2" }),
     [`${CLONE}/ui/go.mod`]: "go 1.26.5\n",
     "/usr/bin/git": "",
@@ -19,11 +28,13 @@ function seams(opts: { flavor?: "dev" | "prod"; source?: string | null; uiBinary
     "/Applications/mattstack-dev.app/Contents/Info.plist": "",
   };
   if (opts.uiBinary !== false) files[`${CLONE}/ui/dist/rt-ui`] = "";
+  if (opts.cloneGone) for (const k of Object.keys(files).filter((f) => f.startsWith(`${CLONE}/`))) delete files[k];
   const uiBuilds: { cwd?: string; path?: string }[] = [];
   const probes = fakeProbes({
     home: "/Users/collab",
     env: { PATH: "/usr/bin" },
     files,
+    dirs: { "/Applications/mattstack-dev.app": ["Contents"] },
     fetch: async () => ({ status: 200, headers: {}, body: "abc123  mattstack-dev-2.23.0.zip\n" }),
     exec: (argv, execOpts) => {
       const a = argv.join(" ");
@@ -90,6 +101,12 @@ describe("runDevUpdate", () => {
   test("on dev with no stored clone: refuses, pointing at setup", async () => {
     const { s } = seams({ source: null });
     await expect(runDevUpdate(s, runner)).rejects.toMatchObject({ code: "dev-not-set-up", next: "rt dev setup" });
+  });
+
+  test("a stored clone with no cli.ts: refuses as gone, pointing at setup, before reading pins", async () => {
+    const { s, probes } = seams({ cloneGone: true });
+    await expect(runDevUpdate(s, runner)).rejects.toMatchObject({ code: "dev-clone-missing", next: "rt dev setup" });
+    expect(probes.calls.exec).toEqual([]);
   });
 
   test("swaps in a newer release dev app, then re-registers the apps", async () => {

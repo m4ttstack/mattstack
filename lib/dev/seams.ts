@@ -32,9 +32,10 @@ export interface DevSeams extends DevAppInstallSeams {
   storedSourcePath(): string | null;
   saveSourcePath(sourcePath: string, bunPath: string): void;
   installDevTool(tool: "bun" | "go" | "node", version: string): Promise<InstallResult>;
-  /** The bundled gh argv, or null when the app ships none. */
+  /** The gh argv to run: the app's copy, else one on PATH; null when neither exists. */
   gh(): string[] | null;
   devWrapperOwnsRt(): boolean;
 }
 
-export const DEV_REFUSAL_CODES: ReadonlySet<string> = new Set(["dev-no-push-access", "dev-clone-path-taken", "dev-not-set-up"]);
+export const DEV_REFUSAL_CODES: ReadonlySet<string> = new Set(["dev-no-push-access", "dev-clone-path-taken", "dev-not-set-up", "dev-gh-login"]);
+export const DEV_NEEDS_YOU_CODES: ReadonlySet<string> = new Set(["dev-no-repo-root", "dev-tool-missing", "dev-clone-missing"]);

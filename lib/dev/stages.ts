@@ -36,7 +36,10 @@ export async function ensureTools(s: DevSeams, pins: DevPins, io: StageIO): Prom
       `${stillMissing.name} ${stillMissing.wanted} is still not available`,
       {},
       {
-        why: "Open a new terminal so it can find the new install, then run this again.",
+        why:
+          stillMissing.state === "too-old"
+            ? `The ${stillMissing.name} installed is ${stillMissing.version}, older than the ${stillMissing.wanted} mattstack needs.`
+            : "Open a new terminal so it can find the new install, then run this again.",
         next: installCommandFor(stillMissing.name, stillMissing.wanted),
       },
     );
@@ -99,7 +102,7 @@ export async function ensureDevApp(s: DevSeams, io: StageIO, mode: "setup" | "up
     return { status: "skipped", title: `Dev app ${installed.version} is current` };
   }
   io.sub(`Downloading the dev app ${pick.release.version}`);
-  const r = await installDevAppFromRelease(s, pick, installed);
+  const r = await installDevAppFromRelease(s, pick);
   const version = pick.release.version !== s.prodVersion ? `${pick.release.version}, the newest release with a dev app` : pick.release.version;
   const relaunched = r.relaunchedPid !== null ? " and reopened it" : "";
   return { status: "done", title: `Installed the dev app${relaunched}`, hint: version };

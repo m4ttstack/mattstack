@@ -10,7 +10,7 @@ import type { CommandContext } from "../lib/command-tree.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
 import { resolveTool } from "../lib/deps/resolve.ts";
 import { devWrapperOwnsRt } from "../lib/dev-mode.ts";
-import { DEV_REFUSAL_CODES, type DevSeams, type StageEnding, type StageIO, type StageRunner } from "../lib/dev/seams.ts";
+import { DEV_NEEDS_YOU_CODES, DEV_REFUSAL_CODES, type DevSeams, type StageEnding, type StageIO, type StageRunner } from "../lib/dev/seams.ts";
 import { runDevSetup, type DevSetupResult } from "../lib/dev/setup.ts";
 import { runDevUpdate, type DevUpdateResult } from "../lib/dev/update.ts";
 import { exitUserError, failureFor, logFailureDetail, UserActionableError } from "../lib/errors.ts";
@@ -133,11 +133,12 @@ export function devEnvelope(body: Record<string, unknown>, now: Date) {
   return envelope(body, now);
 }
 
-export type FailureView = { refused: true; blocks: Block[] } | { refused: false; failure: out.FailureInput; after: Block[] };
+export type FailureView = { note: true; status: "refused" | "needs-you"; blocks: Block[] } | { note: false; failure: out.FailureInput; after: Block[] };
 
 export function failureBlocks(err: UserActionableError): FailureView {
-  if (DEV_REFUSAL_CODES.has(err.code)) {
-    return { refused: true, blocks: [out.line("refused", err.message, err.why), ...(err.next ? [out.callout("next", out.cmd(err.next))] : [])] };
+  const status = DEV_REFUSAL_CODES.has(err.code) ? "refused" : DEV_NEEDS_YOU_CODES.has(err.code) ? "needs-you" : null;
+  if (status) {
+    return { note: true, status, blocks: [out.line(status, err.message, err.why), ...(err.next ? [out.callout("next", out.cmd(err.next))] : [])] };
   }
   const tail = err.log
     ? withoutUrls(err.log)
@@ -145,7 +146,7 @@ export function failureBlocks(err: UserActionableError): FailureView {
         .filter((l) => l.trim() !== "")
         .slice(-OUTPUT_TAIL_LINES)
     : [];
-  return { refused: false, failure: failureFor(err), after: tail.length > 0 ? [out.verbatim(tail, OUTPUT_CAPTION)] : [] };
+  return { note: false, failure: failureFor(err), after: tail.length > 0 ? [out.verbatim(tail, OUTPUT_CAPTION)] : [] };
 }
 
 /** `cleanup` runs first: process.exit skips the caller's finally. */
@@ -156,7 +157,7 @@ function fail(err: unknown, json: boolean, cleanup: () => void): never {
   if (json) exitUserError(safe, true);
   logFailureDetail(safe);
   const f = failureBlocks(safe);
-  if (f.refused) out.note(...f.blocks);
+  if (f.note) out.note(...f.blocks);
   else out.fail(f.failure, ...f.after);
   process.exit(2);
 }

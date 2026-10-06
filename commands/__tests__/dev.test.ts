@@ -44,20 +44,41 @@ describe("rt dev", () => {
     const f = failureBlocks(
       new UserActionableError("dev-no-push-access", "You can't push to mattstack yet", {}, { why: "Ask the mattstack maintainers to add you as a collaborator.", next: "rt dev setup" }),
     );
-    if (!f.refused) throw new Error("expected a refusal");
+    if (!f.note || f.status !== "refused") throw new Error("expected a refusal");
     const text = renderPlain(f.blocks);
     expect(text).toContain("You can't push to mattstack yet");
     expect(text).toContain("rt dev setup");
   });
 
+  test("not logged in to GitHub is a refusal with the login command as next", () => {
+    const f = failureBlocks(new UserActionableError("dev-gh-login", "You're not logged in to GitHub", {}, { why: "Pushing your branches needs it.", next: "gh auth login" }));
+    if (!f.note || f.status !== "refused") throw new Error("expected a refusal");
+    const text = renderPlain(f.blocks);
+    expect(text).toStartWith("[refused] You're not logged in to GitHub");
+    expect(text).toContain("gh auth login");
+  });
+
+  test.each([
+    ["dev-no-repo-root", "This Mac has no repo folder chosen yet", "rt setup repo-root set <folder>"],
+    ["dev-tool-missing", "go is not installed", "brew install go"],
+    ["dev-clone-missing", "Your mattstack clone is gone", "rt dev setup"],
+  ])("%s is a needs-you note with its next command, not a failure", (code, message, next) => {
+    const f = failureBlocks(new UserActionableError(code, message, {}, { next }));
+    if (!f.note || f.status !== "needs-you") throw new Error("expected a needs-you note");
+    const text = renderPlain(f.blocks);
+    expect(text).toStartWith(`[needs you] ${message}`);
+    expect(text).not.toContain("[failed]");
+    expect(text).toContain(next);
+  });
+
   test("a failed access check is a failure, not a refusal", () => {
-    expect(failureBlocks(new UserActionableError("dev-access-unreadable", "rt could not check your access", {})).refused).toBe(false);
+    expect(failureBlocks(new UserActionableError("dev-access-unreadable", "rt could not check your access", {})).note).toBe(false);
   });
 
   test("a failure shows the last lines of the child's output, with urls stripped", () => {
     const log = ["line 1", "line 2", "line 3", "line 4", "line 5", "fatal: could not read from https://user:tok@github.com/x.git", "line 7"].join("\n");
     const f = failureBlocks(new UserActionableError("dev-clone-failed", "Cloning mattstack failed", {}, { log }));
-    if (f.refused) throw new Error("expected a failure, not a refusal");
+    if (f.note) throw new Error("expected a failure, not a note");
     expect(f.failure.title).toBe("Cloning mattstack failed");
     const text = renderPlain(f.after);
     expect(text).toContain("line 7");

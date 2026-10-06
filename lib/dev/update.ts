@@ -19,6 +19,14 @@ export async function runDevUpdate(s: DevSeams, stage: StageRunner): Promise<Dev
   if (s.flavor !== "dev" || !clone) {
     throw new UserActionableError("dev-not-set-up", "This Mac isn't set up to run mattstack from a clone", {}, { next: "rt dev setup" });
   }
+  if (!s.probes.exists(join(clone, "cli.ts"))) {
+    throw new UserActionableError(
+      "dev-clone-missing",
+      "Your mattstack clone is gone",
+      { path: clone },
+      { why: "It was moved or deleted. Setup finds or clones it again and points rt at it.", next: "rt dev setup" },
+    );
+  }
   const pins = await readPins(s.probes, clone);
   const stages: StageEnding[] = [];
   let bunPath = "";

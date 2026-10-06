@@ -42,10 +42,15 @@ interface World {
   flavor?: "dev" | "prod";
   wrapperOwns?: boolean;
   stored?: string | null;
+  storedGone?: boolean;
   noDevZip?: boolean;
   pushExit?: number;
   installedDevApp?: string;
   ownsAfterInstall?: boolean;
+  /** No Command Line Tools: /usr/bin/git is the xcrun shim that exits 1 with nothing on stdout. */
+  noClt?: boolean;
+  go?: string;
+  goAfterInstall?: string;
 }
 
 function world(w: World = {}) {
@@ -61,7 +66,13 @@ function world(w: World = {}) {
   let opened = false;
   let downloaded = false;
   const swapCalls: string[] = [];
-  if (w.installedDevApp) files[PLIST] = "";
+  if (w.installedDevApp) {
+    files[PLIST] = "";
+    dirs["/Applications/mattstack-dev.app"] = ["Contents"];
+  }
+  if (w.go === "missing") delete files[GO];
+  if (w.stored && !w.storedGone) files[`${w.stored}/cli.ts`] = "";
+  const installedTools = new Set<string>();
   const saved: Array<[string, string]> = [];
   const installs: string[] = [];
   const probes = fakeProbes({
@@ -79,9 +90,14 @@ function world(w: World = {}) {
             : { status: 200, body: `${SHA}  mattstack-dev-2.22.0.zip\n`, headers: {} },
     exec: (argv) => {
       const a = argv.join(" ");
+      const shim = { code: 1, stdout: "", stderr: "xcrun: error: invalid active developer path (/Library/Developer/CommandLineTools)" };
+      if (w.noClt && (argv[0] === "git" || argv[0] === "/usr/bin/git")) return shim;
       if (a === "/usr/bin/git --version") return { code: 0, stdout: "git version 2.50.1", stderr: "" };
       if (a === `${BUN} --version`) return { code: 0, stdout: w.bun ?? "1.4.2", stderr: "" };
-      if (a === `${GO} version`) return { code: 0, stdout: "go version go1.26.5 darwin/arm64", stderr: "" };
+      if (a === `${GO} version`) {
+        const v = installedTools.has("go") ? (w.goAfterInstall ?? w.go ?? "1.26.5") : (w.go ?? "1.26.5");
+        return { code: 0, stdout: `go version go${v} darwin/arm64`, stderr: "" };
+      }
       if (a === "/opt/homebrew/bin/node --version") return { code: 0, stdout: "v22.0.0", stderr: "" };
       if (a.endsWith("auth status")) return { code: w.ghLoggedIn === false ? 1 : 0, stdout: "", stderr: "" };
       if (a.includes("--jq .permissions.push")) {
@@ -140,6 +156,7 @@ function world(w: World = {}) {
     },
     installDevTool: async (tool, version) => {
       installs.push(`${tool}@${version}`);
+      installedTools.add(tool);
       return { via: "vendor", ok: true, detail: "ok" };
     },
     gh: () => GH,
@@ -193,6 +210,12 @@ describe("runDevSetup", () => {
     expect(probes.calls.exec).toEqual([]);
   });
 
+  test("on dev with a stored clone that is gone: sets up again instead of answering already", async () => {
+    const { seams, saved } = world({ flavor: "dev", wrapperOwns: true, stored: "/Users/collab/old/mattstack", storedGone: true });
+    expect(await runDevSetup(seams, runner)).toMatchObject({ kind: "done", clone: CLONE });
+    expect(saved).toEqual([[CLONE, BUN]]);
+  });
+
   test("no repo root: refuses before cloning (Review Focus 1)", async () => {
     const { seams, probes } = world({ repoRoot: null });
     await expect(runDevSetup(seams, runner)).rejects.toMatchObject({ code: "dev-no-repo-root", next: "rt setup repo-root set <folder>" });
@@ -215,6 +238,32 @@ describe("runDevSetup", () => {
   test("a folder holding something else is a refusal", async () => {
     const { seams, probes } = world({ clone: "other" });
     await expect(runDevSetup(seams, runner)).rejects.toMatchObject({ code: "dev-clone-path-taken" });
+    expect(cloned(probes)).toBe(false);
+  });
+
+  test("no Command Line Tools and a non-empty folder: the tools stage reports git missing, not a taken folder", async () => {
+    const { seams, probes } = world({ clone: "ours", noClt: true });
+    await expect(runDevSetup(seams, runner)).rejects.toMatchObject({ code: "dev-tool-missing", message: "git is not installed", next: "xcode-select --install" });
+    expect(cloned(probes)).toBe(false);
+  });
+
+  test("a folder git cannot read is checked again once the tools are ready", async () => {
+    const { seams, probes } = world({ clone: "other" });
+    const exec = probes.exec.bind(probes);
+    let remoteCalls = 0;
+    probes.exec = async (argv, opts) => {
+      const a = argv.join(" ");
+      if (a === `git -C ${CLONE} remote get-url origin` && remoteCalls++ === 0) return { code: 1, stdout: "", stderr: "" };
+      if (a === "git --version" && remoteCalls === 1) return { code: 1, stdout: "", stderr: "" };
+      return exec(argv, opts);
+    };
+    const titles: string[] = [];
+    const order: StageRunner = async (title, task) => {
+      titles.push(title);
+      return task({ sub: () => {}, pause: (fn) => fn() });
+    };
+    await expect(runDevSetup(seams, order)).rejects.toMatchObject({ code: "dev-clone-path-taken" });
+    expect(titles).toEqual(["Check your tools"]);
     expect(cloned(probes)).toBe(false);
   });
 
@@ -273,6 +322,22 @@ describe("runDevSetup", () => {
     await expect(runDevSetup(seams, r)).rejects.toMatchObject({ code: "dev-tool-install-failed" });
     expect(installs).toEqual(["bun@1.4.2"]);
     expect(paused).toContain("Check your tools");
+  });
+
+  test("a tool still missing after its install says to open a new terminal", async () => {
+    const { seams } = world({ go: "missing" });
+    const err = await runDevSetup(seams, runner).catch((e) => e);
+    expect(err).toMatchObject({ code: "dev-tool-install-failed", message: "go 1.26.5 is still not available" });
+    expect(err.why).toContain("Open a new terminal");
+  });
+
+  test("a tool still too old after its install says the installed version is older than mattstack needs", async () => {
+    const { seams, installs } = world({ go: "1.26.3", goAfterInstall: "1.26.4" });
+    const err = await runDevSetup(seams, runner).catch((e) => e);
+    expect(installs).toEqual(["go@1.26.5"]);
+    expect(err).toMatchObject({ code: "dev-tool-install-failed", message: "go 1.26.5 is still not available" });
+    expect(err.why).toBe("The go installed is 1.26.4, older than the 1.26.5 mattstack needs.");
+    expect(err.why).not.toContain("new terminal");
   });
 
   test("offline before the clone: plain error, nothing changed (Review Focus 5)", async () => {

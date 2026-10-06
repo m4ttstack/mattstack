@@ -94,7 +94,6 @@ export interface DevAppInstallSeams {
 export async function installDevAppFromRelease(
   s: DevAppInstallSeams,
   chosen: { release: DevRelease; sha: string },
-  installed: InstalledDevApp | null,
 ): Promise<{ swapped: boolean; relaunchedPid: number | null }> {
   const p = s.probes;
   const scratch = s.scratchDir();
@@ -120,9 +119,10 @@ export async function installDevAppFromRelease(
   if (unzip.code !== 0) throw new UserActionableError("dev-zip-unpack", "rt could not unpack the dev app", {}, { log: unzip.stderr });
   const app = join(unpacked, "mattstack-dev.app");
 
-  if (!installed) {
+  // ditto onto an existing bundle merges into it, so anything already there, readable or not, is swapped.
+  if (!p.exists(DEV_APP_PATH)) {
     const copy = await p.exec(["ditto", app, DEV_APP_PATH], { timeoutMs: 120_000 });
-    if (copy.code !== 0) throw new UserActionableError("dev-app-swap", `rt could not copy the dev app into ${DEV_APP_PATH}`, {}, { log: copy.stderr });
+    if (copy.code !== 0) throw new UserActionableError("dev-app-swap", "Copying the dev app into Applications failed", {}, { log: copy.stderr || copy.stdout });
     return { swapped: false, relaunchedPid: null };
   }
   const swap = await swapDevApp(s.swap, app);
