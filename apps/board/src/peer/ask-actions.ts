@@ -159,7 +159,12 @@ export function declineAsk(
   return { ok: true };
 }
 
-export function declineWhileOff(deps: AskActionDeps): number {
+export function declineWhileOff(
+  deps: Pick<
+    AskActionDeps,
+    'readNudges' | 'markNudgeHandled' | 'publishOutcome'
+  >
+): number {
   let count = 0;
   for (const ask of deps.readNudges()) {
     if (ask.handled) continue;

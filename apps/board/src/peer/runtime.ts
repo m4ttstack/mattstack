@@ -105,6 +105,7 @@ export function makePeering(host: PeeringHost) {
     if (timer) clearInterval(timer);
     strikes = 0;
     asksSent = null;
+    asksUnsupported = false;
     const client = host.makeClient(url, token);
     runtime = {
       client,

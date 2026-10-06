@@ -523,18 +523,9 @@ const peerDeps = boardMaterializeDeps(line => console.error(line));
 const peering = makePeering({
   makeClient: makeSwitchboardClient,
   deps: peerDeps,
-  asksEnabled: () => asksOn(),
+  asksEnabled: asksOn,
   onTick: () => {
-    if (!asksOn()) {
-      void cache
-        .get()
-        .then(snapshot => declineWhileOff(askDeps(snapshot)))
-        .catch(err =>
-          console.error(
-            `peer: declining asks while off failed: ${err instanceof Error ? err.message : err}`
-          )
-        );
-    }
+    if (!asksOn()) declineWhileOff(declineDeps());
   },
 });
 // Fire-and-forget: the daemon round trips must not hold up Bun.serve below.
@@ -577,11 +568,13 @@ function asksOn(): boolean {
   }
 }
 
-/** What the accept, decline and always-allow routes act through. The snapshot
-    is the caller's, so the own-MR guard answers from what it just rendered. */
-function askDeps(snapshot: { mrs: BoardMR[] }): AskActionDeps {
+/** The slice of the ask deps that needs no board snapshot, so the peer tick
+    can decline waiting asks without touching GitLab. */
+function declineDeps(): Pick<
+  AskActionDeps,
+  'readNudges' | 'markNudgeHandled' | 'publishOutcome'
+> {
   return {
-    asksOn,
     readNudges: () => readNudges(),
     markNudgeHandled: (id, result, reason, opts) =>
       markNudgeHandled(id, result, reason, getStateDb(), Date.now(), opts),
@@ -589,6 +582,15 @@ function askDeps(snapshot: { mrs: BoardMR[] }): AskActionDeps {
       enqueueOutbox(makeEnvelope(to, 'nudge-outcome', p));
       void peering.tickNow();
     },
+  };
+}
+
+/** What the accept, decline and always-allow routes act through. The snapshot
+    is the caller's, so the own-MR guard answers from what it just rendered. */
+function askDeps(snapshot: { mrs: BoardMR[] }): AskActionDeps {
+  return {
+    asksOn,
+    ...declineDeps(),
     readReviewStates: () => readReviewStates(),
     readRespondStates: () => readRespondStates(),
     isOwnMr: mrUrl => {
