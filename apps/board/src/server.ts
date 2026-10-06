@@ -1305,6 +1305,8 @@ const httpServer = Bun.serve({
     if (pathname === '/api/config/reload' && req.method === 'POST') {
       if (!isLocalRequest(req, server))
         return Response.json({ error: 'local only' }, { status: 403 });
+      const notJson = requireJsonBody(req);
+      if (notJson) return notJson;
       if (!FIXTURE_DIR) reloadConfig('settings changed');
       return Response.json({ ok: true });
     }
@@ -4431,9 +4433,9 @@ if (writer) {
 // effect without a restart. Watch the directory — that survives editors that
 // save atomically by swapping the file — and filter to our file. A mid-edit
 // invalid file is ignored, keeping the last good config. A store-backed
-// setting (rt settings set, or anything outside the /api/settings/ mount
-// above) still needs a restart to be picked up here -- only a write through
-// this process's own API refreshes live.
+// setting refreshes live only through this process's /api/settings/ mount
+// or /api/config/reload (which the console settings modal posts after each
+// write); `rt settings set` from a shell still needs a restart.
 let reloadTimer: ReturnType<typeof setTimeout> | undefined;
 function reloadConfig(reason: string): void {
   try {

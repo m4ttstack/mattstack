@@ -14,7 +14,7 @@ import {
   useConsoleSettings,
   type ConsoleStore,
 } from './useConsoleSettings';
-import { buildSections, NO_FILTER, type Provider } from './view';
+import { buildSections, ESCAPE_OWNERS, NO_FILTER, type Provider } from './view';
 
 const REVEAL_GAP = 24;
 const REVEAL_WATCH_MS = 1500;
@@ -66,9 +66,14 @@ export function SettingsEmbed({ group }: { group: string }) {
   }, []);
 
   useEffect(() => {
+    // Escape in a field or an open dropdown belongs to that control: a
+    // Combobox closes itself without marking the event handled.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented)
-        postToHost(embedMessage('close'));
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const target = e.target instanceof Element ? e.target : null;
+      if (target?.closest(ESCAPE_OWNERS)) return;
+      if (target?.getAttribute('aria-expanded') === 'true') return;
+      postToHost(embedMessage('close'));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

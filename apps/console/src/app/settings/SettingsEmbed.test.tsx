@@ -89,6 +89,22 @@ describe('SettingsEmbed', () => {
     expect(posted).toContainEqual(expect.objectContaining({ type: 'close' }));
   });
 
+  it('leaves Escape in a field to the field', async () => {
+    const { container } = renderEmbed();
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-key="board.title"] input')
+      ).not.toBeNull()
+    );
+    fireEvent.keyDown(
+      container.querySelector('[data-key="board.title"] input')!,
+      { key: 'Escape' }
+    );
+    expect(posted).not.toContainEqual(
+      expect.objectContaining({ type: 'close' })
+    );
+  });
+
   it('reports its height to the host', async () => {
     renderEmbed();
     expect(posted).toContainEqual(expect.objectContaining({ type: 'height' }));
