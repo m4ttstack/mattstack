@@ -35,6 +35,7 @@ import {
   type RowKind,
 } from '@mattstack/settings-kit/shapes';
 
+import { BoxscoreRolesBody, ROLES_KEY } from './BoxscoreRoles';
 import {
   enumWidth,
   INPUT_TYPE,
@@ -936,14 +937,17 @@ export function compositeParts(
   if (shape.kind === 'stringMap')
     return {
       control: summary,
-      body: (
-        <StringMapBody
-          def={def}
-          row={row}
-          labels={shape.labels}
-          onEditJson={onEditJson}
-        />
-      ),
+      body:
+        def.key === ROLES_KEY ? (
+          <BoxscoreRolesBody def={def} row={row} />
+        ) : (
+          <StringMapBody
+            def={def}
+            row={row}
+            labels={shape.labels}
+            onEditJson={onEditJson}
+          />
+        ),
     };
   if (shape.kind === 'leaves')
     return {
