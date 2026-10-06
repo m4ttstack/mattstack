@@ -379,6 +379,7 @@ export const NUDGE_QUIET_MS = 30 * 60_000;
 export type SentNudgeDisplay =
   | 'requested'
   | 'confirmed'
+  | 'pending'
   | 'launched'
   | 'no-update'
   | 'rejected'
