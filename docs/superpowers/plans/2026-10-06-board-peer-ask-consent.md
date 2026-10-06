@@ -193,9 +193,16 @@ git commit -m "board: pending outcome and decline fields on the peer wire"
 
 - [ ] **Step 1: Write the failing tests**
 
-In `peer-state.test.ts` (use the file's existing temp-db helper for `writeSentNudge`/`resolveSentNudge`):
+In `peer-state.test.ts`. The file opens a fresh module-level `db` in `beforeEach` (`db = openStateDb(join(dir, 'state.db'))`, line ~51); add these tests inside it and drop each `const db = freshDb();` line, so they use that `db`. The same applies to Task 3's `peer-state.test.ts` snippets.
 
 ```ts
+test('a late pending never overwrites a started ask', () => {
+  const db = freshDb();
+  writeSentNudge({ nudgeId: 'n1', mrUrl: 'u', iid: 1, reviewer: 'mira', sentAt: 0 }, db);
+  resolveSentNudge('u', { result: 'confirmed', at: 1 }, db);
+  resolveSentNudge('u', { result: 'pending', at: 2 }, db);
+  expect(readSentNudges(db).get('u')?.resolution?.result).toBe('confirmed');
+});
 test('pending is replaced by any later answer', () => {
   const db = freshDb();
   writeSentNudge({ nudgeId: 'n1', mrUrl: 'u', iid: 1, reviewer: 'mira', sentAt: 0, kind: 'review' }, db);
@@ -233,14 +240,14 @@ test('a nudge-outcome passes decline fields to the resolver', () => {
   materializeEnvelope(
     { id: 'e', to: 'rae', from: 'mira', type: 'nudge-outcome', sentAt: 1, receivedAt: 1,
       payload: { mrUrl: 'u', iid: 1, nudgeId: 'n', result: 'rejected', reason: 'not my area', declined: true, declineNote: 'ask Tom' } },
-    { ...noopDeps, resolveSentNudge: (_u, r) => calls.push(r) },
+    { ...fakeDeps(), resolveSentNudge: (_u, r) => calls.push(r) },
     5
   );
   expect(calls).toEqual([{ result: 'rejected', reason: 'not my area', declined: true, declineNote: 'ask Tom', at: 5 }]);
 });
 ```
 
-(`noopDeps` is the file's existing no-op `MaterializeDeps`; add it if the file builds deps inline.)
+(`fakeDeps()` is the file's existing `MaterializeDeps` factory.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -251,7 +258,7 @@ Expected: FAIL.
 
 `nudges.ts`:
 - `SentNudgeResolution` gains `declined?: true; declineNote?: string`.
-- `resolveSentNudge`: replace the guard with `if (was && was !== 'confirmed' && was !== 'pending' && !refreshesLaunch) return;`.
+- `resolveSentNudge`: a `pending` lands only on an unresolved ask (`if (resolution.result === 'pending' && was) return;`), and the existing guard becomes `if (was && was !== 'confirmed' && was !== 'pending' && !refreshesLaunch) return;`.
 - `finishSentNudge`: allow `r === 'pending'` alongside `confirmed`/`launched`.
 - `SentNudgeDisplay` adds `'pending'`. `sentNudgeDisplay`: when `r.result === 'pending'`, return `now - r.at > NUDGE_NO_RESPONSE_MS ? 'no-response' : 'pending'`; the rest unchanged.
 - `SentNudgeView` adds `declined?: true; declineNote?: string`; `sentNudgeView` spreads `...(r?.declined ? { declined: true } : {})` and `...(r?.declineNote ? { declineNote: r.declineNote } : {})`.
@@ -287,12 +294,12 @@ git commit -m "board: the asker tracks pending and declined asks"
 **Interfaces:**
 - Consumes: Task 1 payload fields.
 - Produces:
-  - `NudgeState` adds `title?: string; sourceBranch?: string; notifiedAt?: number`, and `handled?: { at: number; result: NudgeResult; reason?: string; note?: string }`
-  - `markNudgeHandled(id: string, result: NudgeResult, reason?: string, db?: Database, now?: number, note?: string): void`
+  - `NudgeState` adds `title?: string; sourceBranch?: string; notifiedAt?: number`, and `handled?: { at: number; result: NudgeResult; reason?: string; note?: string; declined?: true }`
+  - `markNudgeHandled(id: string, result: NudgeResult, reason?: string, db?: Database, now?: number, opts?: { note?: string; declined?: true }): void`
   - `markNudgeNotified(id: string, db?: Database, now?: number): void`
   - `pruneNudges(keepUrls: ReadonlySet<string>, db?: Database, now?: number): void`
   - `ASK_HISTORY_MS = 14 * 24 * 60 * 60_000` (exported from `ask-inbox.ts`)
-  - `interface AskView { id: string; from: string; kind: AskKind; mrUrl: string; iid: number; title?: string; sourceBranch?: string; note?: string; receivedAt: number; handled?: { at: number; result: NudgeResult; reason?: string; note?: string } }`
+  - `interface AskView { id: string; from: string; kind: AskKind; mrUrl: string; iid: number; title?: string; sourceBranch?: string; note?: string; receivedAt: number; handled?: { at: number; result: NudgeResult; reason?: string; note?: string; declined?: true } }`
   - `buildAskInbox(nudges: NudgeState[], now: number): { pending: AskView[]; history: AskView[] }` — pending oldest first; history newest first, handled within `ASK_HISTORY_MS`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -338,8 +345,8 @@ test('notified marker and handled note persist', () => {
   const db = freshDb();
   writeNudge({ id: 'n', mrUrl: 'u', iid: 1, from: 'rae', receivedAt: 1 }, db);
   markNudgeNotified('n', db, 7);
-  markNudgeHandled('n', 'rejected', 'busy right now', db, 9, 'after standup');
-  expect(readNudges(db)[0]).toMatchObject({ notifiedAt: 7, handled: { at: 9, result: 'rejected', reason: 'busy right now', note: 'after standup' } });
+  markNudgeHandled('n', 'rejected', 'busy right now', db, 9, { note: 'after standup', declined: true });
+  expect(readNudges(db)[0]).toMatchObject({ notifiedAt: 7, handled: { at: 9, result: 'rejected', reason: 'busy right now', note: 'after standup', declined: true } });
 });
 test('prune keeps a waiting ask off the board, drops history past 14 days', () => {
   const db = freshDb();
@@ -364,7 +371,7 @@ Expected: FAIL.
 
 `nudges.ts`:
 - Extend `NudgeState` as listed.
-- `markNudgeHandled(id, result, reason?, db = getStateDb(), now = Date.now(), note?)`: build `handled: { at: now, result, ...(reason ? { reason } : {}), ...(note ? { note } : {}) }`.
+- `markNudgeHandled(id, result, reason?, db = getStateDb(), now = Date.now(), opts = {})`: build `handled: { at: now, result, ...(reason ? { reason } : {}), ...(opts.note ? { note: opts.note } : {}), ...(opts.declined ? { declined: true } : {}) }`.
 - `markNudgeNotified(id, db = getStateDb(), now = Date.now())`: read-merge-write like `markNudgeHandled`, setting `notifiedAt: now`; no-op without a row.
 - `pruneNudges(keepUrls, db = getStateDb(), now = Date.now())`: a row is stale when `(n.handled && now - n.handled.at > ASK_HISTORY_MS) || (!n.handled && !keepUrls.has(n.mrUrl) && now - n.receivedAt > ASK_HISTORY_MS)`. Import `ASK_HISTORY_MS` from `./ask-inbox.ts`. Update the doc comment to say why: history outlives the MR, and a waiting ask need not be on this board.
 
@@ -439,8 +446,11 @@ git commit -m "board: the receiver keeps asks with title, note and 14 days of hi
 ### Task 4: Settings and the triage hold
 
 **Files:**
+- Read first: `docs/settings-architecture.md` (the registry checklist) and the `rt-settings` skill (`skills/rt-settings/SKILL.md`)
 - Modify: `packages/rt-client/src/settings/registry-defs.ts` (new row; reword `board.peerAsks` description)
 - Modify: `packages/rt-client/src/settings/registry-schemas.ts` (`"board.peerAsksAlwaysAllow": z.array(z.string())`)
+- Modify: `packages/rt-client/src/settings/__tests__/schema-examples.ts` (an `EXAMPLES` entry, required for every array or object key)
+- Regenerate: `packages/rt-client/src/settings/schema.lock.json` (`bun run cli.ts settings schema lock` from the repo root)
 - Modify: `apps/board/src/triage/config.ts` (new `loadPeerAsksAlwaysAllow`)
 - Modify: `apps/board/src/triage/nudge.ts` (hold, asks-off, plainReason)
 - Test: `apps/board/src/__tests__/triage-nudge.test.ts`, `apps/board/src/__tests__/triage-config.test.ts` (create if absent; follow `config.test.ts`'s resolve-stub style)
@@ -454,7 +464,7 @@ git commit -m "board: the receiver keeps asks with title, note and 14 days of hi
 
 - [ ] **Step 1: Write the failing tests**
 
-In `triage-nudge.test.ts`, first make the existing suite keep its meaning: in `deps()`'s `base`, add `alwaysAllow: new Set(['alice'])`, `markNudgeNotified: id => notified.push(id)` (declare `const notified: string[] = []` and return it), and `notifyAsk: async n => asked.push(n.id)` (declare `const asked: string[] = []` and return it). Every existing `toEqual` on the pass result gains `held: 0`.
+In `triage-nudge.test.ts`, first make the existing suite keep its meaning: in `deps()`'s `base`, add `alwaysAllow: new Set(['alice'])`, `markNudgeNotified: id => notified.push(id)` (declare `const notified: string[] = []` and return it), and `notifyAsk: async n => asked.push(n.id)` (declare `const asked: string[] = []` and return it). Every existing `toEqual` on the pass result gains `held: 0`, and the dispatch test's handled expectation becomes `{ id: 'n1', result: 'launched', reason: 'always-allowed' }` (the history view tells an always-allowed start from an accepted one by this reason).
 
 Then add:
 
@@ -538,7 +548,13 @@ Registry row in `registry-defs.ts`, beside `board.peerAsks`:
 
 Reword `board.peerAsks`'s description: "Whether teammates' boards can ask this board's agent for a review, re-review or replies ({enabled}). On, asks wait in the asks inbox for a go-ahead unless the asker is in board.peerAsksAlwaysAllow; off, this board leaves every ask picker and declines what still arrives. rt's cron.triage step installs the board-peer trigger only while this is on."
 
-Schema line: `"board.peerAsksAlwaysAllow": z.array(z.string()),`. Run `bun run build` in `packages/rt-client` afterwards (its `dist/` feeds the board).
+Schema line: `"board.peerAsksAlwaysAllow": z.array(z.string()),`. Example entry in `schema-examples.ts`, beside `board.hiddenMembers`:
+
+```ts
+  "board.peerAsksAlwaysAllow": { good: [[], ["rmarlow"]], bad: [{ value: [{ username: "rmarlow" }], path: [0] }] },
+```
+
+Then from the repo root `bun run cli.ts settings schema lock` (regenerates `schema.lock.json`; CI fails on a stale lock), and `bun run build` in `packages/rt-client` (its `dist/` feeds the board).
 
 `triage/config.ts`:
 
@@ -593,10 +609,11 @@ export function loadPeerAsksAlwaysAllow(
 
   The audit line above it records `decision: 'dispatch'` today; for a held ask write `decision: 'hold'` instead (widen `AuditEntry['decision']` in `triage/audit.ts` if it is a union), and only on the first pass (`!nudge.notifiedAt`), so a waiting ask does not grow the log every run.
 - The result object starts `{ dispatched: 0, rejected: 0, expired: 0, skipped: 0, held: 0 }`.
+- The successful launch marks `deps.markNudgeHandled(nudge.id, 'launched', 'always-allowed')` (only always-allowed senders reach it).
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `cd apps/board && bun test src/__tests__/triage-nudge.test.ts src/__tests__/triage-config.test.ts` and, from the repo root, `bun test packages/rt-client/test` filtered to the registry tests (`bun test packages/rt-client/test/registry`).
+Run: `cd apps/board && bun test src/__tests__/triage-nudge.test.ts src/__tests__/triage-config.test.ts` and, from the repo root, `bun test packages/rt-client/src/settings/__tests__/`, then `git diff --exit-code packages/rt-client/src/settings/schema.lock.json` after re-running the lock command (it must be committed fresh).
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -619,7 +636,8 @@ git commit -m "board: hold asks for consent unless the asker is always allowed"
 **Interfaces:**
 - Consumes: Task 3 `markNudgeNotified`, Task 4 `NudgePassDeps` additions and `loadPeerAsksAlwaysAllow`.
 - Produces:
-  - `makeAskLauncher(boardConfig: BoardConfig): (mrUrl: string, iid: number, kind: AskKind) => Promise<ReReviewLaunch>` — the exact closure `bin/triage.ts` passes as `launchAsk` today, moved verbatim with its imports (`launchRespondAsk`, `launchReReview`, `repoForMrUrl`, `resolveLaunchSkill`, `packForLaunch`, `loadAgentSettings`, `reviewLaunchForTab`).
+  - `makeRepoForMrUrl(boardConfig: BoardConfig): (mrUrl: string) => string` — the `repoForMrUrl` closure `bin/triage.ts` builds today (~line 143: `projectPathFromWebUrl` + `resolveLaunchRepo` over `boardConfig.rtRepos`), moved verbatim. `bin/triage.ts` replaces its local closure with `const repoForMrUrl = makeRepoForMrUrl(boardConfig);`, so its other uses (`runTriage`'s `repoForMr`, the latch launch) keep working.
+  - `makeAskLauncher(boardConfig: BoardConfig): (mrUrl: string, iid: number, kind: AskKind) => Promise<ReReviewLaunch>` — the exact closure `bin/triage.ts` passes as `launchAsk` today, moved verbatim with its imports (`launchRespondAsk`, `launchReReview`, `resolveLaunchSkill`, `packForLaunch`, `loadAgentSettings`, `reviewLaunchForTab`), using `makeRepoForMrUrl(boardConfig)` for the repo.
   - `boardAskLink(boardUrl: string, askId: string): string` → `${boardUrl}/?ask=${encodeURIComponent(askId)}`
   - `askNotice(n: { kind?: AskKind; iid: number; title?: string }, fromName: string): { title: string; message: string }`
   - `notifyEscalation(..., opts: { url?: string | null; traySock?: string; category?: string })`, category default `'mr-doctor'`.
@@ -682,7 +700,7 @@ export function askNotice(
 
 `notifyEscalation`'s event uses `category: opts.category ?? 'mr-doctor'`.
 
-`launch-ask.ts`: move the `launchAsk` closure body from `bin/triage.ts` (lines ~300-326 today) into `makeAskLauncher(boardConfig)`, computing `launchPack = packForLaunch(boardConfig, undefined)` inside. `bin/triage.ts` then passes `launchAsk: makeAskLauncher(boardConfig)`.
+`launch-ask.ts`: move the `repoForMrUrl` closure into `makeRepoForMrUrl(boardConfig)` and the `launchAsk` closure body (lines ~300-326 today) into `makeAskLauncher(boardConfig)`, computing `launchPack = packForLaunch(boardConfig, undefined)` and `repoForMrUrl = makeRepoForMrUrl(boardConfig)` inside. `bin/triage.ts` then uses `makeRepoForMrUrl(boardConfig)` for its own closure and passes `launchAsk: makeAskLauncher(boardConfig)`. Add a test in `triage-notify.test.ts`'s neighbour `src/__tests__/launch-ask.test.ts`: `makeRepoForMrUrl` returns the `rtRepos` entry for a known project path and the derived identity otherwise (use a minimal `BoardConfig` literal with `gitlabHost: 'https://gitlab.example.com'` and `rtRepos: { 'g/p': 'gl-g-p' }`; assert against what `resolveLaunchRepo` returns for those inputs).
 
 `bin/triage.ts` nudge pass wiring adds:
 
@@ -705,13 +723,13 @@ export function askNotice(
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `cd apps/board && bun test src/__tests__/triage-notify.test.ts src/__tests__/triage-nudge.test.ts`, then `cd apps/board && bunx tsc --noEmit -p .` (or the app's `typecheck` script via `bun run board:typecheck` from the repo root).
+Run: `cd apps/board && bun test src/__tests__/triage-notify.test.ts src/__tests__/launch-ask.test.ts src/__tests__/triage-nudge.test.ts`, then `cd apps/board && bunx tsc --noEmit -p .` (or the app's `typecheck` script via `bun run board:typecheck` from the repo root).
 Expected: PASS, no type errors.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/board/src/peer/launch-ask.ts apps/board/bin/triage.ts apps/board/src/triage/notify.ts apps/board/src/__tests__/triage-notify.test.ts
+git add apps/board/src/peer/launch-ask.ts apps/board/bin/triage.ts apps/board/src/triage/notify.ts apps/board/src/__tests__/triage-notify.test.ts apps/board/src/__tests__/launch-ask.test.ts
 git commit -m "board: one ask launcher, and a push that lands on the ask"
 ```
 
@@ -730,7 +748,8 @@ git commit -m "board: one ask launcher, and a push that lands on the ask"
 - Produces:
   - `acceptAsk(id: string, deps: AskActionDeps): Promise<{ ok: true } | { ok: false; status: 404 | 409 | 502; message: string }>`
   - `declineAsk(id: string, input: { reason?: DeclineReason; note?: string }, deps: AskActionDeps): { ok: true } | { ok: false; status: 404 | 409; message: string }`
-  - `interface AskActionDeps { readNudges(): NudgeState[]; markNudgeHandled(id: string, result: NudgeResult, reason?: string, note?: string): void; publishOutcome(to: string, p: NudgeOutcomePayload): void; readReviewStates(): Map<string, ReviewState>; readRespondStates(): Map<string, { status: string }>; isOwnMr(mrUrl: string): boolean; launchAsk(mrUrl: string, iid: number, kind: AskKind): Promise<ReReviewLaunch>; cfg: TriageConfig; now(): number }`
+  - `declineWhileOff(deps: AskActionDeps): number` — declines every unhandled ask with `asks-off`; Task 7 calls it from the peer tick while `board.peerAsks` is off.
+  - `interface AskActionDeps { readNudges(): NudgeState[]; markNudgeHandled(id: string, result: NudgeResult, reason?: string, opts?: { note?: string; declined?: true }): void; publishOutcome(to: string, p: NudgeOutcomePayload): void; readReviewStates(): Map<string, ReviewState>; readRespondStates(): Map<string, { status: string }>; isOwnMr(mrUrl: string): boolean; launchAsk(mrUrl: string, iid: number, kind: AskKind): Promise<ReReviewLaunch>; cfg: TriageConfig; now(): number }`
   - `/data.json` gains `asks: { pending: AskCardData[]; history: AskCardData[]; alwaysAllow: string[] }` where `AskCardData = AskView & { fromName?: string }`, and `title` falls back to the board's own snapshot of the MR when the row has none.
   - Routes: `POST /asks/accept {id, alwaysAllow?}`, `POST /asks/decline {id, reason?, note?}`, `POST /asks/always-allow {username, allow}`, all `isLocalRequest`-guarded and `requireJsonBody`-checked like `/nudge`.
 
@@ -751,7 +770,7 @@ function deps(over: Partial<AskActionDeps> = {}) {
   const launched: unknown[] = [];
   const d: AskActionDeps = {
     readNudges: () => [ask],
-    markNudgeHandled: (id, result, reason, note) => handled.push({ id, result, reason, note }),
+    markNudgeHandled: (id, result, reason, opts) => handled.push({ id, result, reason, ...opts }),
     publishOutcome: (to, p) => published.push({ to, p }),
     readReviewStates: () => new Map(),
     readRespondStates: () => new Map(),
@@ -769,7 +788,7 @@ describe('acceptAsk', () => {
     const d = deps();
     expect(await acceptAsk('n1', d)).toEqual({ ok: true });
     expect(d.launched).toEqual([{ mrUrl: ask.mrUrl, iid: 1, kind: 'review' }]);
-    expect(d.handled).toEqual([{ id: 'n1', result: 'launched', reason: 'accepted', note: undefined }]);
+    expect(d.handled).toEqual([{ id: 'n1', result: 'launched', reason: 'accepted' }]);
     expect(d.published).toEqual([{ to: 'rae', p: { mrUrl: ask.mrUrl, iid: 1, nudgeId: 'n1', result: 'launched' } }]);
   });
   test('an unknown id is 404, a handled one 409, and nothing launches', async () => {
@@ -781,7 +800,7 @@ describe('acceptAsk', () => {
   test('a second ask for an MR already reviewing refuses with the reason', async () => {
     const d = deps({ readReviewStates: () => new Map([[ask.mrUrl, { mrUrl: ask.mrUrl, iid: 1, status: 'reviewing', startedAt: 0, updatedAt: 0 }]]) });
     expect(await acceptAsk('n1', d)).toEqual({ ok: false, status: 409, message: 'A review is already running' });
-    expect(d.handled).toEqual([{ id: 'n1', result: 'rejected', reason: 'review-in-flight', note: undefined }]);
+    expect(d.handled).toEqual([{ id: 'n1', result: 'rejected', reason: 'review-in-flight' }]);
     expect(d.launched).toEqual([]);
   });
   test('an ask that went stale while open expires instead', async () => {
@@ -800,7 +819,7 @@ describe('declineAsk', () => {
   test('publishes the chip words, the flag and the note', () => {
     const d = deps();
     expect(declineAsk('n1', { reason: 'busy', note: 'after standup' }, d)).toEqual({ ok: true });
-    expect(d.handled).toEqual([{ id: 'n1', result: 'rejected', reason: 'busy right now', note: 'after standup' }]);
+    expect(d.handled).toEqual([{ id: 'n1', result: 'rejected', reason: 'busy right now', declined: true, note: 'after standup' }]);
     expect(d.published).toEqual([{ to: 'rae', p: { mrUrl: ask.mrUrl, iid: 1, nudgeId: 'n1', result: 'rejected', reason: 'busy right now', declined: true, declineNote: 'after standup' } }]);
   });
   test('no reason picked sends none', () => {
@@ -813,7 +832,18 @@ describe('declineAsk', () => {
     expect(declineAsk('n1', {}, d)).toMatchObject({ ok: false, status: 409 });
   });
 });
+
+describe('declineWhileOff', () => {
+  test('answers every waiting ask with asks-off and leaves handled ones alone', () => {
+    const d = deps({ readNudges: () => [ask, { ...ask, id: 'n2', handled: { at: 1, result: 'launched' } }] });
+    expect(declineWhileOff(d)).toBe(1);
+    expect(d.handled).toEqual([{ id: 'n1', result: 'rejected', reason: 'asks-off' }]);
+    expect(d.published).toEqual([{ to: 'rae', p: { mrUrl: ask.mrUrl, iid: 1, nudgeId: 'n1', result: 'rejected', reason: 'asks-off' } }]);
+  });
+});
 ```
+
+(Import `declineWhileOff` alongside `acceptAsk` and `declineAsk`.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -882,7 +912,7 @@ export function declineAsk(
   if ('ok' in n) return n;
   const words = input.reason ? DECLINE_REASONS[input.reason] : undefined;
   const note = input.note?.trim() || undefined;
-  deps.markNudgeHandled(n.id, 'rejected', words, note);
+  deps.markNudgeHandled(n.id, 'rejected', words, { declined: true, ...(note ? { note } : {}) });
   deps.publishOutcome(
     n.from,
     outcome(n, 'rejected', { ...(words ? { reason: words } : {}), declined: true, ...(note ? { declineNote: note } : {}) })
@@ -891,7 +921,20 @@ export function declineAsk(
 }
 ```
 
-(The `decideNudge` "skip" result cannot occur here: `enabled` is forced true and the row is unhandled.)
+```ts
+export function declineWhileOff(deps: AskActionDeps): number {
+  let n = 0;
+  for (const ask of deps.readNudges()) {
+    if (ask.handled) continue;
+    deps.markNudgeHandled(ask.id, 'rejected', 'asks-off');
+    deps.publishOutcome(ask.from, outcome(ask, 'rejected', { reason: 'asks-off' }));
+    n++;
+  }
+  return n;
+}
+```
+
+(The `decideNudge` "skip" result cannot occur in `acceptAsk`: `enabled` is forced true and the row is unhandled.)
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -900,24 +943,31 @@ Expected: PASS.
 
 - [ ] **Step 5: Wire the routes and payload in `server.ts`**
 
-- Build one `askDeps(): AskActionDeps` in `server.ts` from: `readNudges`, `markNudgeHandled(id, r, reason, getStateDb(), Date.now(), note)`, `publishOutcome: (to, p) => { enqueueOutbox(makeEnvelope(to, 'nudge-outcome', p)); void peering.tickNow(); }`, `readReviewStates`, `readRespondStates`, `isOwnMr` from the current snapshot (`ownedHere` on the matching MR, `false` when the MR is absent), `launchAsk: makeAskLauncher(config)`, `cfg: loadTriageConfig()`, `now: Date.now`.
-- `case '/asks/accept'`: parse `{ id: string; alwaysAllow?: boolean }`; on `alwaysAllow === true`, before accepting, add the sender: read the nudge's `from`, then `setSetting('board.peerAsksAlwaysAllow', [...loadPeerAsksAlwaysAllow(), from], { scope: 'user' })` (match rt-client's real `setSetting` signature; see the `rt-settings` skill). Return `{ ok: true }` (200) or the failure's `status` with its `message` as text.
+- Build one `askDeps(): AskActionDeps` in `server.ts` from: `readNudges`, `markNudgeHandled: (id, r, reason, opts) => markNudgeHandled(id, r, reason, getStateDb(), Date.now(), opts)`, `publishOutcome: (to, p) => { enqueueOutbox(makeEnvelope(to, 'nudge-outcome', p)); void peering.tickNow(); }`, `readReviewStates`, `readRespondStates`, `isOwnMr` from the current snapshot (`ownedHere` on the matching MR, `false` when the MR is absent), `launchAsk: makeAskLauncher(config)`, `cfg: loadTriageConfig()`, `now: Date.now`.
+- `case '/asks/accept'`: parse `{ id: string; alwaysAllow?: boolean }`; read the nudge's `from` first, run `acceptAsk(id, askDeps())`, and only then, on `alwaysAllow === true` and a result other than 404, add the sender with `setSetting('board.peerAsksAlwaysAllow', [...loadPeerAsksAlwaysAllow(), from], { scope: 'user' })` (match rt-client's real `setSetting` signature; see the `rt-settings` skill). Writing the list after `acceptAsk` has marked the nudge handled means a triage pass running at the same moment cannot launch it a second time. Return `{ ok: true }` (200) or the failure's `status` with its `message` as text.
 - `case '/asks/decline'`: parse `{ id: string; reason?: DeclineReason; note?: string }`; reject an unknown `reason` key or a note over 500 characters with 400.
 - `case '/asks/always-allow'`: parse `{ username: string; allow: boolean }`; write the set with the username added or removed (canonicalized).
-- `/data.json` (where `peers` is set, ~line 1516): add `asks: asksPayload(snapshot)`, where `asksPayload` runs `buildAskInbox(readNudges(), Date.now())`, maps each view to `{ ...v, fromName: reviewerDisplayName(v.from, config.members, memberNames), title: v.title ?? snapshot.mrs.find(m => m.webUrl === v.mrUrl)?.title, sourceBranch: v.sourceBranch ?? snapshot.mrs.find(m => m.webUrl === v.mrUrl)?.sourceBranch }`, and adds `alwaysAllow: [...loadPeerAsksAlwaysAllow()]`.
+- `/data.json` (where `peers` is set, ~line 1516): add `asks: asksPayload(snapshot)`, where `asksPayload` runs `buildAskInbox(readNudges(), Date.now())`, maps each view to `{ ...v, fromName: reviewerDisplayName(v.from, config.members, memberNames), title: v.title ?? snapshot.mrs.find(m => m.webUrl === v.mrUrl)?.title, sourceBranch: v.sourceBranch ?? snapshot.mrs.find(m => m.webUrl === v.mrUrl)?.sourceBranch }`, adds `reasonText: plainReason(v.handled.reason, cfg)` to `handled` on a `rejected` row without `declined` and on an `expired` row (the history's "skipped: …" words), and adds `alwaysAllow: [...loadPeerAsksAlwaysAllow()]`.
 - `/nudge`: `buildAskDraft(reviewer, kind, { mrUrl, iid, title: mr.title, ...(mr.sourceBranch ? { sourceBranch: mr.sourceBranch } : {}), ...(note ? { note } : {}) })`, where `note` is the body's optional `note` string, trimmed, max 500 characters (400 above that).
 - `attachPeerState`: drop the inbound map and the `nudges` field; delete `peerAsksEnabled`. Delete `PendingNudge` and `pendingNudgesByMr` from `nudges.ts` and their tests.
 - `pruneNudges(onBoard)` at ~line 1455 now runs with its new `now` default; no call change.
 
+- Route test `src/__tests__/server-asks.test.ts`, built on `server-dismiss.test.ts`'s recipe (fake home under `mkdtempSync`, a team `settings.team.jsonc`, a state db opened with `openStateDb` at the path the server reads, the server booted on its own port as that file does). Seed one nudge with `writeNudge({ id: 'n1', mrUrl: MR, iid: 7, from: 'rae', receivedAt: Date.now() })`. Assert:
+  - `POST /asks/decline` with `{ id: 'n1', reason: 'busy' }` answers 200, and `readNudges(db)[0].handled` is `{ result: 'rejected', reason: 'busy right now', declined: true }` (plus `at`).
+  - The same request again answers 409.
+  - `POST /asks/decline` with `{ id: 'n1', reason: 'whatever' }` answers 400.
+  - A request with a non-JSON content type answers what `requireJsonBody` answers for `/nudge` (copy the expected status from `server-dismiss.test.ts` or the `/nudge` tests).
+  - `GET /data.json` carries `asks.history[0].id === 'n1'`.
+
 - [ ] **Step 6: Typecheck and run the touched tests**
 
-Run: `bun run board:typecheck` (repo root), then `cd apps/board && bun test src/__tests__/peer-ask-actions.test.ts src/__tests__/peer-state.test.ts`.
+Run: `bun run board:typecheck` (repo root), then `cd apps/board && bun test src/__tests__/peer-ask-actions.test.ts src/__tests__/peer-state.test.ts src/__tests__/server-asks.test.ts`.
 Expected: no type errors (the compiler lists every remaining `nudges`/`awaitsClick` reader; Task 12 removes the client ones, so for now keep `InboundNudgeInfo` in `client/types.ts` and leave client readers compiling against an always-absent field), tests PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add apps/board/src/peer/ask-actions.ts apps/board/src/peer/nudges.ts apps/board/src/server.ts apps/board/src/__tests__/peer-ask-actions.test.ts
+git add apps/board/src/peer/ask-actions.ts apps/board/src/peer/nudges.ts apps/board/src/server.ts apps/board/src/__tests__/peer-ask-actions.test.ts apps/board/src/__tests__/peer-state.test.ts apps/board/src/__tests__/server-asks.test.ts
 git commit -m "board: accept, decline and always-allow routes, and the asks payload"
 ```
 
@@ -936,24 +986,26 @@ git commit -m "board: accept, decline and always-allow routes, and the asks payl
 **Interfaces:**
 - Produces:
   - `SwitchboardStore.setAsksEnabled(username: string, enabled: boolean): void`, `SwitchboardStore.listAskableUsernames(): string[]`
-  - `SwitchboardClient.setAsksEnabled(enabled: boolean): Promise<'ok' | 'unsupported' | 'failed'>` (404 → `unsupported`)
-  - `PeeringHost.asksEnabled?: () => boolean`
+  - `SwitchboardClient.setAsksEnabled(enabled: boolean): Promise<'ok' | 'unsupported' | 'failed'>` (404 → `unsupported`). Required on the interface: update every test fake that builds a `SwitchboardClient` (find them with `grep -rln "peers()" apps/board/src/__tests__ apps/board/src/client`) to add `setAsksEnabled: async () => 'ok'`.
+  - `/peers` answers `{ peers: string[] /* every enrolled board, unchanged */, askable: string[] }`; `SwitchboardClient.peers()` returns `askable` when it is a string array, else `peers` (an older relay).
+  - `PeeringHost.asksEnabled?: () => boolean` and `PeeringHost.onTick?: () => void` (called after each tick; the board server uses it to run `declineWhileOff` while asks are off)
 
 - [ ] **Step 1: Write the failing tests**
 
 `server.test.ts`:
 
 ```ts
-test('a board with asks off leaves /peers; turning them on brings it back', async () => {
+test('a board with asks off leaves askable but stays in peers; turning them on brings it back', async () => {
   const { call } = setup();
   const reg = async (u: string) => ((await (await call('/boards', { token: ADMIN, body: { username: u } })).json()) as { token: string }).token;
   const ada = await reg('ada');
   const grace = await reg('grace');
   expect((await call('/boards/self/asks', { method: 'PUT', token: grace, body: { enabled: false } })).status).toBe(200);
-  const peers = async () => ((await (await call('/peers', { token: ada })).json()) as { peers: string[] }).peers.sort();
-  expect(await peers()).toEqual(['ada']);
+  const list = async () => (await (await call('/peers', { token: ada })).json()) as { peers: string[]; askable: string[] };
+  expect((await list()).askable.sort()).toEqual(['ada']);
+  expect((await list()).peers.sort()).toEqual(['ada', 'grace']);
   await call('/boards/self/asks', { method: 'PUT', token: grace, body: { enabled: true } });
-  expect(await peers()).toEqual(['ada', 'grace']);
+  expect((await list()).askable.sort()).toEqual(['ada', 'grace']);
 });
 test('asks toggle needs a board token and a boolean', async () => {
   const { call } = setup();
@@ -974,7 +1026,7 @@ test('the tick sends asks state only when it changes, and stops on an old relay'
   const sent: boolean[] = [];
   let answer: 'ok' | 'unsupported' = 'ok';
   const client = { ...fakeClient(), setAsksEnabled: async (e: boolean) => (sent.push(e), answer) };
-  const p = makePeering({ makeClient: () => client, deps: noopDeps, asksEnabled: () => enabled, outboxDb: tempDb() });
+  const p = makePeering({ makeClient: () => client, deps: noDeps, asksEnabled: () => enabled, outboxDb: freshDb() });
   p.start('http://relay', 't');
   await p.tickNow(); await p.tickNow();
   expect(sent).toEqual([true]);
@@ -986,7 +1038,7 @@ test('the tick sends asks state only when it changes, and stops on an old relay'
 });
 ```
 
-(`fakeClient`, `noopDeps`, `tempDb` are the file's existing helpers; add any that are missing.)
+(`fakeClient`, `noDeps` and `freshDb` are `peer-runtime.test.ts`'s own helpers at lines ~20-40; `fakeClient` gains `setAsksEnabled` as part of updating the fakes above.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1020,7 +1072,7 @@ Expected: FAIL.
 
 `deleteBoard`'s transaction also runs `DELETE FROM asks_off WHERE username = ?`.
 
-`server.ts` (relay), after the bearer check: `/peers` returns `{ peers: store.listAskableUsernames() }`; new branch:
+`server.ts` (relay), after the bearer check: `/peers` returns `{ peers: store.listBoards().map(b => b.username), askable: store.listAskableUsernames() }` (`peers` unchanged, because `rt team status` reads it through `lib/team/board-peers.ts`); new branch:
 
 ```ts
     if (pathname === '/boards/self/asks') {
@@ -1034,7 +1086,7 @@ Expected: FAIL.
     }
 ```
 
-`client.ts`:
+`client.ts`: `peers()` keeps its validation and returns `body.askable` when it is an array of strings, else `body.peers` as today (add a `peer-runtime.test.ts` or client test with a fake fetch answering `{ peers: ['ada', 'grace'], askable: ['ada'] }` → `['ada']`, and `{ peers: ['ada'] }` → `['ada']`). Then:
 
 ```ts
     async setAsksEnabled(enabled) {
@@ -1062,9 +1114,9 @@ Expected: FAIL.
       }
 ```
 
-`start()` resets `asksSent = null` (a new token may be a new board).
+`start()` resets `asksSent = null` (a new token may be a new board). After the asks block, `runTick` calls `host.onTick?.()` inside a try/catch that logs through `host.deps.log`, so a throwing hook never breaks the tick.
 
-Board `server.ts`'s `makePeering({...})` call adds `asksEnabled: () => { try { return loadPeerAsksConfig().enabled; } catch { return true; } }`.
+Board `server.ts`'s `makePeering({...})` call adds `asksEnabled: () => { try { return loadPeerAsksConfig().enabled; } catch { return true; } }` and `onTick: () => { if (!asksOn()) declineWhileOff(askDeps()); }`, where `asksOn` is that same reader. Add to `peer-runtime.test.ts`: `onTick` runs once per tick and a throwing `onTick` is logged, not thrown.
 
 The relay ships on merge to main (Railway); note it in the PR body.
 
@@ -1076,7 +1128,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/board/switchboard apps/board/src/peer/client.ts apps/board/src/peer/runtime.ts apps/board/src/server.ts apps/board/src/__tests__/peer-runtime.test.ts
+git add apps/board/switchboard apps/board/src/peer/client.ts apps/board/src/peer/runtime.ts apps/board/src/server.ts apps/board/src/__tests__ apps/board/src/client
 git commit -m "switchboard: a board with asks off leaves every ask picker"
 ```
 
@@ -1150,7 +1202,7 @@ Build `Popover` with `defineComponent` (category 2, transient overlay, like `Con
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: the Step 2 command, then `bun run tui-kit:typecheck` and `bun run --filter @mattstack/tui-kit build` (root scripts per `apps/AGENTS.md`).
+Run: the Step 2 command, then `cd packages/tui-kit && bun run typecheck && bun run build`. Export `recipeCategory` from `Popover.tsx` (as `ConfirmDialog.tsx` does) and run whatever `scripts/derive.ts` step `packages/tui-kit/src/index.ts`'s comments and `docs/development.md` require for a new recipe, so the manifest picks it up; `bun run check` from the root runs `@mattstack/tui-kit#gates`, which fails on a stale manifest.
 Expected: PASS; build writes `dist/`.
 
 - [ ] **Step 5: Commit**
@@ -1175,7 +1227,7 @@ git commit -m "tui-kit: Popover recipe for anchored panels"
 **Interfaces:**
 - Consumes: Task 6 `/data.json` `asks` and routes; Task 8 `Popover`; `MrLinks` (`client/board/MrLinks.tsx`), roster avatars (whatever `Sidebar.tsx` renders per member: reuse that component).
 - Produces:
-  - client `AskCardData { id; from; fromName?; kind: 'review' | 're-review' | 'respond'; mrUrl; iid; title?; sourceBranch?; note?; receivedAt; handled?: { at; result: 'pending' | 'launched' | 'rejected' | 'expired'; reason?; note? } }`
+  - client `AskCardData { id; from; fromName?; kind: 'review' | 're-review' | 'respond'; mrUrl; iid; title?; sourceBranch?; note?; receivedAt; handled?: { at; result: 'pending' | 'launched' | 'rejected' | 'expired'; reason?; note?; declined?: boolean; reasonText?: string } }`
   - `BoardData.asks?: { pending: AskCardData[]; history: AskCardData[]; alwaysAllow: string[] }`
   - `ask-copy.ts`: `askedPhrase(kind)`, `verbLabel(kind)` ('Review' | 'Re-review' | 'Respond'), `verbLane(kind)` ('review' | 'respond'), `firstName(fromName | from)`, `historyOutcome(view)` → `{ text: string; tone: 'ok' | 'quiet' | 'warn' }`, `confirmLine(kind, iid)` → 'Your agent is reviewing !1388' / 're-reviewing' / 'is responding on'.
   - `AsksDropdown` props: `{ asks: NonNullable<BoardData['asks']>; flashId: string | null; onAccept(id: string, alwaysAllow: boolean): Promise<void>; onDecline(id: string, reason: DeclineReason | null, note: string): Promise<void>; onAllow(username: string, allow: boolean): Promise<void>; onFocus(mrUrl: string): void }`
@@ -1199,13 +1251,17 @@ describe('ask copy', () => {
     expect(firstName('Rae Marlow', 'rae')).toBe('Rae');
     expect(firstName(undefined, 'tom')).toBe('Tom');
   });
-  test('history outcome words', () => {
-    const h = (result: string, reason?: string) => historyOutcome({ handled: { at: 0, result, reason } } as never);
-    expect(h('launched', 'accepted')).toEqual({ text: 'reviewed', tone: 'ok' });
-    expect(h('launched', undefined)).toEqual({ text: 'reviewed · always allowed', tone: 'ok' });
-    expect(h('rejected', 'busy right now')).toEqual({ text: 'declined: busy right now', tone: 'quiet' });
-    expect(h('rejected', undefined)).toEqual({ text: 'declined', tone: 'quiet' });
-    expect(h('expired', 'stale')).toEqual({ text: 'expired, no answer in 48h', tone: 'warn' });
+  test('history outcome words follow the spec table', () => {
+    const h = (handled: object, kind = 'review') => historyOutcome({ kind, handled: { at: 0, ...handled } } as never);
+    expect(h({ result: 'launched', reason: 'accepted' })).toEqual({ text: 'reviewed', tone: 'ok' });
+    expect(h({ result: 'launched', reason: 'accepted' }, 're-review')).toEqual({ text: 're-reviewed', tone: 'ok' });
+    expect(h({ result: 'launched', reason: 'accepted' }, 'respond')).toEqual({ text: 'responded', tone: 'ok' });
+    expect(h({ result: 'launched', reason: 'always-allowed' })).toEqual({ text: 'reviewed · always allowed', tone: 'ok' });
+    expect(h({ result: 'launched' })).toEqual({ text: 'reviewed', tone: 'ok' });
+    expect(h({ result: 'rejected', declined: true, reason: 'busy right now' })).toEqual({ text: 'declined: busy right now', tone: 'quiet' });
+    expect(h({ result: 'rejected', declined: true })).toEqual({ text: 'declined', tone: 'quiet' });
+    expect(h({ result: 'rejected', reason: 'review-in-flight', reasonText: 'A review is already running' })).toEqual({ text: 'skipped: a review is already running', tone: 'quiet' });
+    expect(h({ result: 'expired', reason: 'stale' })).toEqual({ text: 'expired, no answer in 48h', tone: 'warn' });
   });
   test('the brief confirm line', () => {
     expect(confirmLine('review', 1388)).toBe('Your agent is reviewing !1388');
@@ -1214,7 +1270,7 @@ describe('ask copy', () => {
 });
 ```
 
-(For respond history, `historyOutcome` reads `responded` instead of `reviewed`; add that case to the test with `{ kind: 'respond', handled: {...} }`.)
+(A `launched` row with no reason was written before this change; it reads as a plain start, never "always allowed".)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1223,12 +1279,12 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement the copy module, then the components**
 
-`ask-copy.ts` implements the functions above; the "always allowed" history case is a `launched` row whose `reason` is not `accepted` (the triage pass marks those with no reason).
+`ask-copy.ts` implements the functions above; "always allowed" is exactly a `launched` row with reason `always-allowed` (Task 4), and a board-rule rejection reads "skipped: " plus `reasonText` with its first letter lowercased.
 
 Components, matching boards R1 C and R3 exactly (open `board.pen` in Pen or the renders before writing CSS):
 - `AsksButton`: tui-kit `Icon` button in the header icon group, same classes as `RefreshControl` (`tui-theme-control`), inbox glyph (lucide `inbox` path; add the path constant beside the file's other lucide constants), count badge with the accent fill while `pending.length > 0`, tinted when open. `aria-label` "Asks for your agent, N waiting".
 - `AsksDropdown`: head ("Asks for your agent", "N waiting" or "nothing waiting", a "history" link that swaps the body to `AskHistory` with a back chevron), the list of `AskCard`s or the empty state ("No one has asked for your agent." with the inbox glyph), and the foot ("Asks run on this Mac with your Claude usage." with a cpu glyph). Width 424px.
-- `AskCard` (`data-ask-id={id}`): row 1 avatar + bold name + `askedPhrase` + `· !iid` + age right (reuse the row's age formatter); row 2 title with `MrLinks` on the right (build the minimal `BoardMRWithReview`-compatible object `MrLinks` needs from `mrUrl`, `iid`, `sourceBranch`, `title`, or widen `MrLinks` to take `{ webUrl, iid, sourceBranch, title, provider? }`); row 3 the note band when `note`; row 4 tui-kit `Button` with the bot mark in `verbLane`'s colour and `verbLabel`, a quiet `Button` "Decline", and a tui-kit checkbox "always allow {First}" (local state, sent with accept). After a successful accept, the card renders the one-line confirm (`confirmLine`, circle-check glyph, a "focus" link calling `onFocus`) for 4 seconds, then disappears (the next `/data.json` reload moves it to history). A failed accept shows the route's text as a tui-kit `Alert` line on the card and reloads.
+- `AskCard` (`data-ask-id={id}`): row 1 avatar + bold name + `askedPhrase` + `· !iid` + age right (reuse the row's age formatter); row 2 title with `MrLinks` on the right (build the minimal `BoardMRWithReview`-compatible object `MrLinks` needs from `mrUrl`, `iid`, `sourceBranch`, `title`, or widen `MrLinks` to take `{ webUrl, iid, sourceBranch, title, provider? }`); row 3 the note band when `note`; row 4 tui-kit `Button` with the bot mark in `verbLane`'s colour and `verbLabel`, a quiet `Button` "Decline", and tui-kit's `SelectBox` (its role=checkbox recipe; tui-kit has no other checkbox) labelled "always allow {First}" (local state, sent with accept). After a successful accept, the card renders the one-line confirm (`confirmLine`, circle-check glyph, a "focus" link calling `onFocus`) for 4 seconds, then disappears (the next `/data.json` reload moves it to history). A failed accept shows the route's text as a tui-kit `Alert` line on the card and reloads.
 - `AskDeclineForm`: replaces row 4 while declining: label "Decline {First}'s ask. Tell {First} why? (optional)", tui-kit `Chip`s for the three reasons (single choice, click again to clear), a one-line input "add a note for {First}" (tui-kit `Field`), Cancel (restores row 4) and a destructive `Button` "Decline" with the ban glyph.
 - `AskHistory`: rows of who + kind, `!iid` + title, outcome in its tone, age; then "Always allowed" with one removable `Chip` per username (display name from the roster) and the hint "Their asks start without waiting for you. Remove someone to confirm theirs again."; empty list hides the section.
 - Flash: when `flashId` matches a card, add `tui-ask-flash`; CSS:
@@ -1310,7 +1366,7 @@ Expected: FAIL.
 - [ ] **Step 4: Run to verify pass, then check by hand**
 
 Run: `cd apps/board && bun test src/__tests__/deep-link.test.ts`.
-Then with the fixture board (Task 13 adds asks to the fixture; until then, a temporary local edit of `tests/fixture/state.db` is fine but must not be committed) open `http://localhost:7941/?member=all&ask=<id>` with Fast Browser and record a short GIF of the flash (fast-browser:capturing-flows) in light and dark.
+Then with the fixture board (Task 13 adds asks to the fixture; until then, add a temporary `asks` block to `apps/board/tests/fixture/data.json`, the canned payload the fixture server serves, and do not commit it) open `http://localhost:7941/?member=all&ask=<id>` with Fast Browser and record a short GIF of the flash (fast-browser:capturing-flows) in light and dark.
 Expected: PASS; the dropdown opens under its button and the card pulses twice.
 
 - [ ] **Step 5: Commit**
@@ -1330,7 +1386,7 @@ git commit -m "board: a push lands on its ask with a slow flash"
 - Create: `apps/board/src/client/board/AskConfirmDialog.tsx`
 - Modify: `apps/board/src/client/board/Board.tsx` (intercept asks; one dialog per row or bulk ask)
 - Modify: `apps/board/src/client/board/icons.tsx` (`AgentCloudGlyph`), `ActionMenu.tsx` (render the new glyph kind)
-- Test: `apps/board/src/__tests__/client-api.test.ts` or the action-runner test file that covers `/nudge` payloads (find it with `grep -rln "'/nudge'" apps/board/src/client`)
+- Test: `apps/board/src/client/board/__tests__/action-runner.test.ts`
 
 **Interfaces:**
 - Consumes: Task 6 `/nudge` accepting `note`.
@@ -1350,11 +1406,11 @@ test('an ask carries its note to /nudge', async () => {
 });
 ```
 
-(Use the action-runner test file's existing fake deps and MR fixture; name them as that file does.)
+(Read `action-runner.test.ts` first: replace `fakeRunnerDeps` and `mr` with that file's own deps factory and MR fixture, keeping the assertion.)
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cd apps/board && bun test <that test file>`
+Run: `cd apps/board && bun test src/client/board/__tests__/action-runner.test.ts`
 Expected: FAIL (no `note` in payload).
 
 - [ ] **Step 3: Implement**
@@ -1385,10 +1441,11 @@ git commit -m "board: every ask confirms with an optional note"
 
 **Files:**
 - Modify: `apps/board/src/client/board/ask-band.ts` (pending, declined, asks-off)
-- Modify: `apps/board/src/client/board/row-status.ts` (drop the inbound-nudge loop in `peerLines`)
+- Modify: `apps/board/src/client/board/row-status.ts` (drop the inbound-nudge loop in `peerLines`; `askInFlight` counts `pending`)
+- Modify: `apps/board/src/client/board/format.ts` (`nudgeTargets` filters on `peers`; `respondAskBlock`'s last reason)
 - Modify: `apps/board/src/client/types.ts` (delete `InboundNudgeInfo`, `nudges`)
 - Modify: any reader the compiler then names (`StatusLine.tsx`'s `awaitsClick` verbs, `needs-me.ts`, `AskBand.stories.tsx`, gallery fixtures)
-- Test: `apps/board/src/client/board/__tests__/ask-band.test.ts` (or the file that tests `askBandModel`; find it with `grep -rln askBandModel apps/board/src`), `apps/board/src/client/board/__tests__/row-status.test.ts`
+- Test: `apps/board/src/client/board/__tests__/ask-band.test.ts`, `apps/board/src/client/board/__tests__/row-status.test.ts`
 
 **Interfaces:**
 - Consumes: Task 2 `SentNudgeInfo` with `pending`, `declined`, `declineNote`.
@@ -1420,11 +1477,16 @@ test('a board refusal still offers retry', () => {
 });
 ```
 
-`row-status.test.ts`: an MR carrying an inbound ask no longer produces a status-line candidate for it (delete the old `awaitsClick` / "asked for a review" expectations and assert `peerLines` ignores the field).
+`row-status.test.ts`: an MR carrying an inbound ask no longer produces a status-line candidate for it (delete the old `awaitsClick` / "asked for a review" expectations and assert `peerLines` ignores the field). A `sentNudge` with `display: 'pending'` from Mira suppresses Mira's own "is reviewing…" peer line, as `requested` does today.
+
+`client/board/__tests__/row-actions.test.ts` (reuse its MR and env fixtures):
+- With `env.peers` set to `['tom']`, an own MR whose `peerReviews` hold finished commented reviews from `tom` and `mira` offers "ask tom's agent to re-review" and no item for `mira`.
+- With `env.peers` absent (older relay), both are offered, as today.
+- The respond item's blocked reason for an author outside `peers` now reads "author's board isn't taking asks" (update the existing expectation at line ~250 that reads "author not enrolled").
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cd apps/board && bun test <ask-band test> src/client/board/__tests__/row-status.test.ts`
+Run: `cd apps/board && bun test src/client/board/__tests__/ask-band.test.ts src/client/board/__tests__/row-status.test.ts src/client/board/__tests__/row-actions.test.ts`
 Expected: FAIL.
 
 - [ ] **Step 3: Implement**
@@ -1458,7 +1520,9 @@ and the `rejected` case becomes:
     }
 ```
 
-`row-status.ts`: delete the `for (const n of nudges)` loop in `peerLines` and its `verb` helper if unused. Delete `InboundNudgeInfo` and `nudges` from `types.ts`, then fix every reader the compiler names; update `AskBand.stories.tsx` with a `pending` and two `rejected` (declined, asks-off) entries.
+`row-status.ts`: delete the `for (const n of nudges)` loop in `peerLines` and its `verb` helper if unused; add `asked?.display === 'pending' ||` to `askInFlight`'s condition.
+
+`format.ts`: `nudgeTargets(mrx, peers?: readonly string[])` keeps its current filter and, when `peers` is given, also requires `peers.includes(p.reviewer)` (peer usernames are canonical on both sides); `row-actions.ts` passes `env.peers`. `respondAskBlock`'s final `return 'author not enrolled'` becomes `return "author's board isn't taking asks"`. Delete `InboundNudgeInfo` and `nudges` from `types.ts`, then fix every reader the compiler names; update `AskBand.stories.tsx` with a `pending` and two `rejected` (declined, asks-off) entries.
 
 - [ ] **Step 4: Run to verify pass, then check in Storybook**
 

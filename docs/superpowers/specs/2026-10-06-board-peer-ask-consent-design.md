@@ -64,23 +64,42 @@ the sender fills from its own row, so the card renders even when the MR is
 not on the recipient's board: `title?: string` and `sourceBranch?: string`
 (the Linear link is read off the branch with `extractTicketId`, as
 `MrLinks` does). `note?` already exists on the wire and in `NudgeState`;
-this spec is the first thing that sets it. An older sender's ask carries
-none of them; the card falls back to the recipient's own row data, then to
-`!iid` alone.
+this spec is the first thing that sets it. `parseReReviewRequestPayload`,
+the materializer (`peer/inbox.ts:115`) and `NudgeState` all carry `title`
+and `sourceBranch`. An older sender's ask carries none of them; the card
+falls back to the recipient's own row data, then to `!iid` alone.
+
+A waiting ask is kept whether or not its MR is on this board: today
+`pruneNudges` (`nudges.ts:113`, run on every healthy snapshot) deletes any
+nudge whose MR left the board, pending ones included. It changes to delete
+only handled rows older than 14 days (history) and, as a safety net,
+unhandled rows older than 14 days; a waiting ask is otherwise answered or
+expired by the triage pass at 48h.
 
 ### The decision
 
-`decideRequest` (`triage/nudge.ts:49-103`) keeps its order (handled, peer
-asks off, stale, kind-specific rejects) and adds one step before dispatch:
+The hold lives in `runNudgePass` (`triage/nudge.ts:208-318`), not in
+`decideRequest`, which the re-review latch pass also calls
+(`latch.ts:284`, with no sender). For each nudge, the pass reads the
+sender (`nudge.from`, already canonical) against
+`board.peerAsksAlwaysAllow` (canonicalized with `canonicalUsername`):
 
-- Sender in `board.peerAsksAlwaysAllow`: dispatch as today, budget and
-  cooldown included.
-- Otherwise: a new action `hold`. The nudge stays unhandled, the pass
-  publishes a `nudge-outcome` with the new result `pending`, and notifies
-  once (below). A held nudge is not re-notified on later passes; `NudgeState`
-  gains `notifiedAt?` to remember that.
+- Always-allowed: `decideRequest` exactly as today, budget and cooldown
+  included, and a dispatch marks the nudge handled `launched` with reason
+  `always-allowed`.
+- Everyone else: `decideRequest` with budget and cooldown lifted (a person
+  will decide). Its kind-specific refusals (in flight, already reviewed, not
+  your MR) and stale expiry still answer the asker at once. A would-be
+  dispatch becomes a hold instead: the nudge stays unhandled, the pass
+  publishes a `nudge-outcome` with the new result `pending` and notifies once
+  (below). `NudgeState` gains `notifiedAt?` so later passes stay quiet.
 
 Stale asks still expire at 48h (`NUDGE_FRESH_MS`) and publish `expired`.
+
+With `board.peerAsks` off, `runNudgePass` declines every unhandled nudge with
+reason `asks-off` before it calls `decideRequest` (the board server's tick
+does the same; see the relay section); `decideRequest`'s own `disabled` skip
+stays as it is for the latch.
 
 ### Accepting and declining
 
@@ -92,12 +111,18 @@ matches whole paths:
   kind-specific reject rules (an in-flight review still refuses), skips
   budget and cooldown (a click is an explicit human choice, like a row verb
   today), launches through the same launcher `bin/triage.ts:298-335` builds
-  for the triage pass, marks the nudge handled and publishes `launched`.
-  With `alwaysAllow` it also adds the sender to the always-allow list.
-  Moving the launcher into a module both the server and triage import is
-  part of this work; the route must not shell out to `board triage`.
+  for the triage pass, marks the nudge handled `launched` with reason
+  `accepted` and publishes `launched`. When a kind rule refuses or the ask
+  went stale, the nudge is marked handled `rejected` or `expired`, the
+  outcome goes to the asker, and the route answers 409 with the plain reason
+  for the card to show. With `alwaysAllow` it adds the sender to the
+  always-allow list only after the nudge is marked handled, so a triage pass
+  running at the same moment cannot launch it a second time. Moving the
+  launcher into a module both the server and triage import is part of this
+  work; the route must not shell out to `board triage`.
 - `POST /asks/decline` with `{ id, reason?: 'busy' | 'not-my-area' | 'later', note?: string }`:
-  marks the nudge handled with result `rejected` and publishes it.
+  marks the nudge handled with result `rejected`, `declined: true`, the
+  chip's words as its reason and the note, and publishes it.
 - `POST /asks/always-allow` with `{ username, allow: boolean }`: adds to or
   removes from the always-allow list (the history view's chips).
 
@@ -142,16 +167,30 @@ withdraw itself. The relay gains:
   board's own token, recorded in a new `asks_off` table (one row per board
   that turned asks off), so the existing `boards` table needs no migration.
   Deleting a board clears its row.
-- `/peers` returns only boards with asks enabled. Its shape (usernames) does
-  not change, so every client's picker filters with no client change.
+- `/peers` keeps `peers` as every enrolled board, because `rt team status`
+  reads it for its `peered` field (`lib/team/board-peers.ts`), and adds
+  `askable`: the enrolled boards with asks on. The board's
+  `SwitchboardClient.peers()` reads `askable` when present and falls back to
+  `peers` against an older relay, so `/data.json`'s `peers` (what every
+  picker filters on) becomes the askable list. `firstReviewTargets` and
+  `respondAskTarget` already filter on it; `nudgeTargets`
+  (`client/board/format.ts:124`, the "ask Tom's agent to re-review" items)
+  does not, and gains the same filter. An older client still offers asks to
+  a board with asks off; the receiver answers that below.
 
 The board's peer tick sends its current `board.peerAsks.enabled` whenever it
 differs from the last value the relay accepted, so startup and a settings
-change both reach the relay within one tick. A relay that predates the route answers 404;
-the board logs once and carries on, and the receiver still declines anything
-that arrives while off (`decideRequest`'s existing `disabled` skip, which now
-also publishes `rejected` with reason `asks-off` so the asker is not left
-waiting).
+change both reach the relay within one tick. A relay that predates the route
+answers 404; the board logs once and carries on.
+
+An ask that still arrives while asks are off, and any ask already waiting
+when they are turned off, is declined with reason `asks-off` by the board
+server's peer tick, which runs every minute whether or not a triage pass
+does (with `board.peerAsks` off the board-peer trigger is uninstalled, and
+the full pass runs only with `board.triage` or `board.reReview` on). The nudge
+pass declines the same way when it runs, for a Mac whose board server is
+down; both skip handled rows, so neither answers twice. While asks are off
+the inbox therefore empties within a tick, and Accept answers 409.
 
 ## The notification
 
@@ -214,10 +253,22 @@ States (R3):
 - **Nothing waiting**: "No one has asked for your agent." with history one
   click away.
 - **History** replaces the list: the last 14 days of handled asks, each with
-  who, kind, `!iid`, title and outcome (reviewed, responded, always allowed,
-  declined with its reason, expired), then the always-allowed chips with
+  who, kind, `!iid`, title and outcome, then the always-allowed chips with
   their remove buttons. Handled rows are kept 14 days even after their MR
-  leaves the board (`pruneNudges` changes accordingly).
+  leaves the board (`pruneNudges` changes accordingly). The outcome reads
+  off the handled row:
+
+  | Handled row | History says |
+  |---|---|
+  | `launched`, reason `accepted` | reviewed / re-reviewed / responded |
+  | `launched`, reason `always-allowed` | the same, then "· always allowed" |
+  | `rejected`, `declined` | "declined: busy right now", or "declined" |
+  | `rejected`, any other reason (a board rule) | "skipped: " and `plainReason`'s words, e.g. "skipped: a review is already running" |
+  | `expired` | "expired, no answer in 48h" |
+
+  The handled record therefore gains `declined?: true` and `note?: string`
+  beside `reason`, and the payload carries a `reasonText` the server fills
+  from `plainReason` for board-rule rejections.
 
 The data rides `/data.json` as a top-level `asks: { pending, history,
 alwaysAllow }`, not on MR rows.
@@ -245,7 +296,8 @@ Picking a peer, or clicking the re-review or respond item, opens tui-kit's
 - buttons: Cancel, Send ask
 
 The bulk menu's "request review from…" opens one dialog for the whole
-selection, and its note rides every ask. The client's ask request gains
+selection ("Ask Mira's agent to review 3 MRs?"), and its note rides every
+ask. The client's ask request gains
 `note`; `/nudge` passes it to `buildAskDraft` along with `title` and
 `sourceBranch`, which the server reads off its own snapshot of the MR.
 
@@ -255,8 +307,16 @@ selection, and its note rides every ask. The client's ask request gains
 outcome. `NudgeResult` (`peer/envelope.ts:5`) becomes
 `'pending' | 'launched' | 'rejected' | 'expired'`, and
 `NudgeOutcomePayload` gains `declined?: true` (a person said no, as opposed
-to a board rule refusing) and `declineNote?: string`. The overwrite rules
-(`nudges.ts:211-214`) let any later result replace `pending`.
+to a board rule refusing) and `declineNote?: string`; `SentNudgeResolution`
+and the materializer carry both. The overwrite rules (`nudges.ts:211-214`)
+let any later result replace `pending`.
+
+Today an unanswered ask turns into `no-response` after 48h only because it
+has no resolution; `pending` is a resolution, so `sentNudgeDisplay` treats a
+`pending` older than `NUDGE_NO_RESPONSE_MS` as `no-response` too. A receiver
+that goes offline after saying "pending" still ends in "no answer" with
+Retry and Dismiss. `askInFlight` (`row-status.ts:617-620`) counts `pending`
+as in flight beside `requested`, `confirmed` and `launched`.
 
 `client/board/ask-band.ts`:
 
@@ -284,16 +344,23 @@ absent when none was picked, so an older asker's band, which prints
 
 ## Testing
 
-- `decideRequest`: always-allowed dispatches, everyone else holds, held asks
-  notify once, stale still expires, off now publishes `rejected: asks-off`.
+- `runNudgePass`: always-allowed dispatches, everyone else holds, held asks
+  notify once, stale still expires, asks off publishes `rejected: asks-off`.
 - Envelope: `pending` and `declineNote` round-trip; an unknown result is
   still dropped.
-- `sentNudgeDisplay`: `pending` replaced by every later result.
+- `sentNudgeDisplay`: `pending` replaced by every later result, and read as
+  `no-response` past 48h.
+- The latch pass is unchanged: `decideRequest` gains no hold, and a latch
+  re-review still dispatches.
+- `pruneNudges`: a waiting ask for an MR off this board survives a snapshot.
+- `nudgeTargets` drops a peer that is not in `peers`.
 - Accept and decline routes: local-only guards, accept skips budget and
   cooldown but keeps the in-flight refusal, decline publishes the reason and
   note.
-- Relay: `PUT /boards/self/asks` needs the board's own token; `/peers` omits
-  a board with asks off.
+- Relay: `PUT /boards/self/asks` needs the board's own token; `/peers`'
+  `askable` omits a board with asks off while `peers` still lists it.
+- The board server's peer tick declines waiting asks with `asks-off` while
+  asks are off, and leaves handled ones alone.
 - `deep-link.ts`: `?ask=` opens and strips; a stale id flashes nothing.
 - Stories in `Gates/Board/Gallery`'s neighbourhood for the dropdown (three
   kinds, decline form, brief confirm, empty, history) and the new ask bands,
