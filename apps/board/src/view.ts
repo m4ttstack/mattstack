@@ -785,21 +785,34 @@ export function arrangeGroups<M extends ReviewedMR>(
 }
 
 /** The Sort choices beside a grouping: no split, or any other grouping
-    this tab offers. */
+    this tab offers. Looking at one person's MRs, an author split has
+    nothing to split. */
 export function sortKeysFor(
   group: GroupKey,
-  groupKeys: readonly GroupKey[]
+  groupKeys: readonly GroupKey[],
+  member = 'all'
 ): SortKey[] {
-  return ['none', ...groupKeys.filter(k => k !== group)];
+  return [
+    'none',
+    ...groupKeys.filter(
+      k => k !== group && !(k === 'author' && member !== 'all')
+    ),
+  ];
 }
 
-/** The Sort that actually applies: one this tab doesn't offer splits nothing. */
+/** The Sort that actually applies. An author split hidden by picking one
+    person stands in as age, and the stored pick is left alone so it comes
+    back on All; any other Sort this tab doesn't offer splits nothing. */
 export function effectiveSort(
   sort: SortKey,
   group: GroupKey,
-  groupKeys: readonly GroupKey[]
+  groupKeys: readonly GroupKey[],
+  member = 'all'
 ): SortKey {
-  return sortKeysFor(group, groupKeys).includes(sort) ? sort : 'none';
+  const offered = sortKeysFor(group, groupKeys, member);
+  if (offered.includes(sort)) return sort;
+  if (sort === 'author' && offered.includes('age')) return 'age';
+  return 'none';
 }
 
 export interface ViewState {
@@ -887,66 +900,13 @@ export function parseViewState(
   };
 }
 
-/** Settings-modal peering state for one roster member. A null peered list means
-    the GET /peer/boards fetch hasn't resolved: render nothing rather than a
-    wrong "invitable". Comparison is canonical (trimmed, lowercased) so a roster
-    handle typed with different case never hides a board that is already peered. */
-export function memberPeerState(
-  username: string,
-  peered: string[] | null
-): 'peered' | 'invitable' | 'unknown' {
-  if (peered === null) return 'unknown';
+/** Whether a roster member has a board on the switchboard. A null peered
+    list means GET /peer/boards has not answered, which is never "peered".
+    Comparison is canonical (trimmed, lowercased), mirroring the relay. */
+export function isPeered(username: string, peered: string[] | null): boolean {
+  if (peered === null) return false;
   const canonical = username.trim().toLowerCase();
-  return peered.some(p => p.trim().toLowerCase() === canonical)
-    ? 'peered'
-    : 'invitable';
-}
-
-/** Drop one handle from the peered list by canonical comparison, mirroring
-    the relay's own canonicalization, so a case difference between roster and
-    relay never strands a removed row until reload. */
-export function dropPeer(
-  peered: string[] | null,
-  username: string
-): string[] | null {
-  if (peered === null) return null;
-  const canonical = username.trim().toLowerCase();
-  return peered.filter(p => p.trim().toLowerCase() !== canonical);
-}
-
-/** Peered handles with no roster row: test boards, departed teammates, or a
-    handle invited free-text and later dropped from the roster. These are the
-    registrations only the remove action can reach, so the settings modal
-    lists them separately. Canonical comparison, same as memberPeerState. */
-export function offRosterPeers(
-  peered: string[] | null,
-  members: ReadonlyArray<{ username: string }>,
-  defaultMember: string
-): string[] {
-  if (peered === null) return [];
-  const roster = new Set(members.map(m => m.username.trim().toLowerCase()));
-  roster.add(defaultMember.trim().toLowerCase());
-  return peered.filter(p => !roster.has(p.trim().toLowerCase()));
-}
-
-/** What the settings modal's join row should say and whether it starts folded.
-    `switchboardConfigured` is the client's read of `data.peering !== null`; a
-    configured board whose token is missing also reports null peering, and gets
-    the open join row, which is exactly right. */
-export function joinRowState(
-  switchboardConfigured: boolean,
-  peering: 'ok' | 'unauthorized' | null
-): { label: string; collapsed: boolean; warning?: string } {
-  if (peering === 'unauthorized') {
-    return {
-      label: 're-join with a new invite',
-      collapsed: false,
-      warning: 'peering token rejected -- re-join with a new invite',
-    };
-  }
-  if (switchboardConfigured)
-    return { label: 're-join with a new invite', collapsed: true };
-  return { label: 'join peer boards', collapsed: false };
+  return peered.some(p => p.trim().toLowerCase() === canonical);
 }
 
 /** Query string (with leading "?") carrying only non-default values; "" when all default. */

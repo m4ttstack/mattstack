@@ -35,6 +35,7 @@ function baseDeps(overrides: Partial<TeamDeps> = {}): TeamDeps & { lines: string
       throw new Error("exit sentinel");
     },
     ageKeySeam: new FakeAgeKeySeam(),
+    readLocalSecret: async () => null,
     lines,
     exitCodes,
     ...overrides,

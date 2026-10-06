@@ -230,7 +230,6 @@ import {
   createInvite,
   joinSwitchboard,
   listPeerBoards,
-  removePeerBoard,
 } from './peer/onboard.ts';
 import { classifySend, drainOutbox, enqueueOutbox } from './peer/outbox.ts';
 import {
@@ -3187,45 +3186,6 @@ const httpServer = Bun.serve({
           status: r.status,
           headers:
             r.status === 200
-              ? { 'content-type': 'application/json' }
-              : undefined,
-        });
-      }
-      case '/peer/remove': {
-        // Operator-only: delete a board registration on the relay outright
-        // (token revoked, pending envelopes dropped). Same gates as invite.
-        if (req.method !== 'POST')
-          return new Response('method not allowed', { status: 405 });
-        if (!isLocalRequest(req, server))
-          return new Response('forbidden', { status: 403 });
-        {
-          const notJson = requireJsonBody(req);
-          if (notJson) return notJson;
-        }
-        if (!switchboardAdminToken)
-          return new Response('inviting is not set up on this board', {
-            status: 400,
-          });
-        let removeBody: unknown;
-        try {
-          removeBody = await req.json();
-        } catch {
-          return new Response('invalid json', { status: 400 });
-        }
-        const removeUsername = (removeBody as { username?: unknown })?.username;
-        if (typeof removeUsername !== 'string' || !removeUsername.trim())
-          return new Response('expected { username }', { status: 400 });
-        const removed = await removePeerBoard(
-          {
-            url: config.switchboard.url,
-            adminToken: switchboardAdminToken,
-          },
-          canonicalUsername(removeUsername)
-        );
-        return new Response(removed.body, {
-          status: removed.status,
-          headers:
-            removed.status === 200
               ? { 'content-type': 'application/json' }
               : undefined,
         });

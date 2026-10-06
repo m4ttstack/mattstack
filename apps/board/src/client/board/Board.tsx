@@ -982,7 +982,12 @@ export function Board() {
       turnCfg,
       self === null ? null : mr => need(mr) !== null
     );
-    const sub = effectiveSort(state.sort, state.group, groupKeysFor(isSeatTab));
+    const sub = effectiveSort(
+      state.sort,
+      state.group,
+      groupKeysFor(isSeatTab),
+      state.member
+    );
     const groups = arrangeGroups(
       filtered,
       state.group,
@@ -1517,17 +1522,8 @@ export function Board() {
           {data.switchboardTokenMissing && (
             <div className="tui-banner" data-intent="bad" role="alert">
               ⚠ no switchboard token, so peer asks can't reach this board · ask
-              the team owner to re-invite it from their members panel (
-              <code>rt team invite</code>)
-              {data.local && (
-                <button
-                  type="button"
-                  className="tui-banner-btn"
-                  onClick={openSettings}
-                >
-                  paste an invite
-                </button>
-              )}
+              the team owner to invite you again (<code>rt team invite</code>),
+              then run <code>rt team join</code> with the new invite
             </div>
           )}
 
@@ -1647,7 +1643,7 @@ export function Board() {
                 setMenuOpen(false);
               }}
               onSettings={openSettings}
-                  scopeUncovered={data.scopeUncovered}
+              scopeUncovered={data.scopeUncovered}
               note={inferredNote}
               empty={rosterEmpty}
               dimEmpty={tabDimsEmpty(activeTab)}
@@ -1674,10 +1670,8 @@ export function Board() {
             members={data.allMembers}
             canInvite={data.canInvite}
             local={data.local}
-            peering={data.peering}
             defaultMember={data.defaultMember}
             onToggle={toggleMember}
-            onJoined={() => load()}
             onClose={() => setShowSettings(false)}
           />
         )}

@@ -34,6 +34,7 @@ import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
 import { revokeRead, type RevokeAccess } from "./forge.ts";
+import { realReadLocalSecret, revokeBoard, type ReadLocalSecret } from "./board-peers.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { scrub } from "./redact.ts";
 import { assertNotJoined, readTeamLocal } from "./team-local.ts";
@@ -171,6 +172,8 @@ export interface MembersSeams {
   forgeToken: typeof storedForgeToken;
   /** `message` is the log text; `shown` is what a person reads, and a warning without it shows its message. */
   warn: (message: string, shown?: ShownWarning) => void;
+  /** An rt-scope secret (the switchboard admin token), seamed like invite.ts's. */
+  readLocalSecret: ReadLocalSecret;
 }
 
 function defaultReadTeamStore(slug: string): Record<string, unknown> {
@@ -182,7 +185,15 @@ function defaultWarn(message: string, shown?: ShownWarning): void {
 }
 
 export function realMembersSeams(): MembersSeams {
-  return { readTeamStore: defaultReadTeamStore, writeSetting: setSetting, revokeRead, readTeamLocal, forgeToken: storedForgeToken, warn: defaultWarn };
+  return {
+    readTeamStore: defaultReadTeamStore,
+    writeSetting: setSetting,
+    revokeRead,
+    readTeamLocal,
+    forgeToken: storedForgeToken,
+    warn: defaultWarn,
+    readLocalSecret: realReadLocalSecret,
+  };
 }
 
 export function teamRemote(p: Probes, slug: string): string | null {
@@ -322,8 +333,12 @@ export async function membersSync(
   return { added, addedHandles, pending, reencrypted: [...reencrypted].sort() };
 }
 
+/** What happened to the member's board on the switchboard: disconnected, never connected, or still connected because this Mac cannot disconnect it (`left-peered`) or the switchboard refused (`failed`). */
+export type BoardPeeringOutcome = "revoked" | "not-peered" | "left-peered" | "failed";
+
 export interface MembersRemoveResult {
   forgeAccess: RevokeAccess;
+  boardPeering: BoardPeeringOutcome;
   manualSteps: string[];
   reencrypted: string[];
   rosterRemoved: boolean;
@@ -411,6 +426,19 @@ export async function membersRemove(
               : [`${handle} can still see the team repo. Remove them there too: mattstack does not manage who can see this repo.`],
         };
 
+  // A removed member's board must not keep receiving the team's peer traffic.
+  // Like forge access, this fails open, so a board left connected is said
+  // plainly rather than read as removed.
+  const board = await revokeBoard(p, seams.readLocalSecret, handle);
+  const boardPeering: BoardPeeringOutcome =
+    board.kind === "revoked" ? "revoked" : board.kind === "not-peered" ? "not-peered" : board.kind === "no-admin-token" ? "left-peered" : "failed";
+  const boardSteps =
+    board.kind === "no-admin-token"
+      ? [`${handle}'s board is still connected. Only the switchboard owner can disconnect it, by running this command on their Mac.`]
+      : board.kind === "failed"
+        ? [`rt could not disconnect ${handle}'s board: ${board.detail}. Run this command again to retry.`]
+        : [];
+
   // Each key is removed on its own contents (a store can carry either roster
   // alone), never by writing one key's rows onto the other; removal from
   // either counts as a roster removal.
@@ -443,7 +471,8 @@ export async function membersRemove(
 
   return {
     forgeAccess: revoke.access,
-    manualSteps: revoke.manualSteps,
+    boardPeering,
+    manualSteps: [...revoke.manualSteps, ...boardSteps],
     reencrypted,
     rosterRemoved,
     residueNote: RESIDUE_NOTE,

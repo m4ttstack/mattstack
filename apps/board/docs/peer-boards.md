@@ -54,14 +54,11 @@ mattstack's own switchboard; an invite link on any other host is refused.
 Everything degrades cleanly when peer features are not set up: no badges, no
 nudge action, and `POST /nudge` returns `400`.
 
-A board that is already running does not need a restart to join or re-join.
-Open settings and use "join peer boards", or "re-join with a new invite" if it
-is already peered, and paste the link there instead.
-
-If the switchboard ever stops accepting this board's token, because the
-operator re-minted it for instance, the settings modal starts showing "peering
-token rejected, re-join with a new invite" after a few failed polls. The fix is
-the same either way: get a fresh invite from your operator and re-join.
+On a Mac in an rt team, `rt team join` with the invite your team owner sent
+stores the board's switchboard token for you. If the switchboard ever stops
+accepting this board's token, because the owner removed or re-minted it for
+instance, ask the owner for a fresh invite (`rt team invite`) and run
+`rt team join` with it.
 
 ## Operator setup: run a switchboard
 
@@ -101,27 +98,24 @@ change is additive and older boards keep polling.
 
 ## Inviting teammates
 
-To invite from the board's own UI instead of curl, put the admin token where
-the board (not the relay) reads it: the `SWITCHBOARD_ADMIN_TOKEN` env var, or
-`switchboardAdminToken` in the rt daemon's secrets (`rt secrets set rt
-switchboardAdminToken`) on the machine running your own board.
+Inviting and removing teammates is the CLI's job, run on the Mac that holds
+the switchboard admin token (`rt secrets set rt switchboardAdminToken`):
 
-With the admin token in place, open settings ("team members") locally and each roster member
-gets an **invite** button. Anyone already peered shows **peered** with a
-**re-invite** button instead, and a free-text row at the bottom invites handles
-that are not on your roster at all. Either action mints a one-time invite link
-(`<url>/invite/<code>`, expiring in 7 days) shown right there to copy and paste
-to that teammate.
+- `rt team invite --handle <username>` mints the teammate's board token and
+  seals it into their team invite, so `rt team join` peers their board.
+- `rt team members remove <username>` takes them off the team and deletes
+  their board's registration on the switchboard. Their token stops working
+  immediately, pending envelopes for them are dropped, and the handle leaves
+  every board's enrolled list on its next refresh. Run on a Mac without the
+  admin token, it does everything else and says their board is still
+  connected: only the switchboard owner can disconnect it. Scripted, it is
+  `DELETE $URL/boards/<username>` with the admin bearer.
+- `rt team status --json` carries a `peered` flag per member: true or false
+  when the switchboard answered, null when nothing on this Mac can ask it.
 
-Re-invite is the rotation story, with one caveat: minting the new invite
-changes nothing by itself. Their current board keeps working, and their access
-ends only when the new invite is actually redeemed and the token behind it
-rotates. A true revoke is **remove**: each peered row (and each peered handle
-with no roster row, listed below the roster) carries a remove button that
-deletes the board's registration on the relay outright. Their token stops
-working immediately, pending envelopes for them are dropped, and the handle
-leaves every board's enrolled list on its next refresh. Scripted, it is
-`DELETE $URL/boards/<username>` with the admin bearer.
+The board's settings ("team members") shows the same thing read-only: with
+the admin token in place, a teammate whose board is connected gets a
+**peered** badge beside their name.
 
 The invite code travels in the URL path, so it shows up in the relay host's
 access logs (the platform's edge logs) even though the relay itself never logs
@@ -143,7 +137,7 @@ curl -X POST $URL/boards \
   -H "content-type: application/json" \
   -d '{"username":"grace"}'
 
-# Or mint an invite link, the same way the settings modal does.
+# Or mint a one-time invite link.
 curl -X POST $URL/invites \
   -H "Authorization: Bearer $SWITCHBOARD_ADMIN_TOKEN" \
   -H "content-type: application/json" \
@@ -151,8 +145,7 @@ curl -X POST $URL/invites \
 # -> {"code":"...","username":"grace","expiresAt":...}; hand out "$URL/invite/<code>"
 ```
 
-The invite link works everywhere: `bun run setup`'s prompt and the board's own
-"join peer boards". A raw `POST /boards` token is for headless operator setups
+The invite link works in `bun run setup`'s prompt. A raw `POST /boards` token is for headless operator setups
 only: put it in `.env` as `SWITCHBOARD_TOKEN` yourself.
 
 ## Privacy

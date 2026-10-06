@@ -39,7 +39,8 @@ import { extractInviteCode } from "../lib/team/invite-crypto.ts";
 import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeams } from "../lib/team/invite.ts";
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
-import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSync, preferredRoster, teamRemote, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
+import { canonicalHandle, readPeeredBoards, realReadLocalSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
+import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSync, preferredRoster, teamRemote, type BoardPeeringOutcome, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient } from "../lib/team/relay-client.ts";
@@ -70,6 +71,8 @@ export interface TeamDeps {
   confirm?: (message: string) => Promise<boolean>;
   /** The TTY gate, seamed for the same reason. */
   interactive?: () => boolean;
+  /** An rt-scope secret (the switchboard tokens `teamStatus` asks with); real store by default. */
+  readLocalSecret?: ReadLocalSecret;
 }
 
 async function defaultReadCode(json: boolean): Promise<string> {
@@ -304,11 +307,24 @@ export function membersSyncBlocks(result: MembersSyncResult): Block[] {
   ];
 }
 
+const BOARD_LINES: Record<BoardPeeringOutcome, [RenderStatus, string]> = {
+  revoked: ["done", "Disconnected their board"],
+  "not-peered": ["skipped", "Their board was not connected"],
+  "left-peered": ["needs-you", "Their board is still connected"],
+  failed: ["failed", "Could not disconnect their board"],
+};
+
+function boardLine(handle: string, outcome: BoardPeeringOutcome): Block {
+  const [status, title] = BOARD_LINES[outcome];
+  return out.line(status, title, handle);
+}
+
 export function membersRemoveBlocks(handle: string, slug: string, result: MembersRemoveResult): Block[] {
   return [
     result.rosterRemoved
       ? out.line("done", `Removed ${handle} from the team`, `forge access: ${result.forgeAccess}`)
       : out.line("skipped", `${handle} was not on the team list`, `forge access: ${result.forgeAccess}`),
+    boardLine(handle, result.boardPeering),
     ...(result.manualSteps.length > 0 ? [out.callout("fix", ...result.manualSteps)] : []),
     out.callout("note", result.residueNote),
     out.callout("next", out.cmd(`rt secrets rotate --team ${slug} <domain> <key>`)),
@@ -651,7 +667,13 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
 
     const { reachable, ...sync } = await readTeamSyncFields(deps, slug);
 
-    const result = { slug, name, remote, lastPush, members, ...sync };
+    // null when nothing on this Mac can ask the switchboard, so "not peered"
+    // is only ever said when the switchboard said it.
+    const peeredBoards = await readPeeredBoards(deps.probes, deps.readLocalSecret ?? realReadLocalSecret);
+    const membersWithPeering = members.map((m) => ({ ...m, peered: peeredBoards ? peeredBoards.has(canonicalHandle(m.username)) : null }));
+    const peeredCount = membersWithPeering.filter((m) => m.peered === true).length;
+
+    const result = { slug, name, remote, lastPush, members: membersWithPeering, ...sync };
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
@@ -667,7 +689,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
         name === slug ? undefined : slug,
         out.kv("remote", result.remote ?? "none"),
         out.kv("last push", lastPush ?? "never"),
-        out.kv("members", String(members.length)),
+        out.kv("members", String(members.length), peeredBoards ? `${peeredCount} with a connected board` : undefined),
         out.kv("sync", syncState, syncNotes.length > 0 ? syncNotes.join("; ") : undefined),
         ...(sync.conflicted !== null ? [out.line("needs-you", "The team has changes that clash with yours", sync.conflicted.detail)] : []),
       ),

@@ -178,9 +178,14 @@ function Controls({
           <span className="tui-ctl-label">sort</span>
           <LabeledSeg
             legend="sort"
-            options={sortKeysFor(state.group, groupKeys)}
+            options={sortKeysFor(state.group, groupKeys, state.member)}
             labels={SORT_LABEL}
-            value={effectiveSort(state.sort, state.group, groupKeys)}
+            value={effectiveSort(
+              state.sort,
+              state.group,
+              groupKeys,
+              state.member
+            )}
             onChange={s => update({ sort: s })}
           />
         </div>
@@ -268,20 +273,34 @@ function Controls({
       <MenuButton
         icon={<Icon d={SORT_ICON} />}
         label="Sort"
-        value={SORT_LABEL[effectiveSort(state.sort, state.group, groupKeys)]}
+        value={
+          SORT_LABEL[
+            effectiveSort(state.sort, state.group, groupKeys, state.member)
+          ]
+        }
         ariaLabel="sort by"
       >
         {close =>
-          sortKeysFor(state.group, groupKeys).map(k => (
+          sortKeysFor(state.group, groupKeys, state.member).map(k => (
             <ContextMenu.Item
               key={k}
               role="menuitemradio"
               aria-checked={
-                effectiveSort(state.sort, state.group, groupKeys) === k
+                effectiveSort(
+                  state.sort,
+                  state.group,
+                  groupKeys,
+                  state.member
+                ) === k
               }
               label={SORT_LABEL[k]}
               trailing={
-                effectiveSort(state.sort, state.group, groupKeys) === k ? (
+                effectiveSort(
+                  state.sort,
+                  state.group,
+                  groupKeys,
+                  state.member
+                ) === k ? (
                   <Icon d={CHECK_ICON} />
                 ) : null
               }
