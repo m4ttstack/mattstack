@@ -26,6 +26,7 @@ import { scanSuspectedBots } from './bots.js';
 import { readSettings } from './config/index.js';
 import { getLeaderboard, getUserDetail } from './leaderboard.js';
 import { validateLeaderboard } from './metrics/validate.js';
+import { isLocked, LOCKED_MESSAGE, standingsLines } from './standings-text.js';
 import { resolveWindowArgs } from './util/window.js';
 
 interface Args {
@@ -61,47 +62,7 @@ function parseArgs(argv: string[]): Args {
 }
 
 function printStandings(res: LeaderboardResponse): void {
-  const w = res.window;
-  console.log(
-    `\nBoxscore ... ${scopeLabel(res)}  ${w.start.slice(0, 10)} → ${w.end.slice(0, 10)}`
-  );
-  console.log(
-    `${res.fromCache ? 'cached' : 'fresh'}${res.hasTrend ? ' · trend on' : ''} · ${res.users.filter(u => u.resolved).length}/${res.users.length} resolved\n`
-  );
-
-  console.log('STANDINGS BY METRIC (1 = best):');
-  for (const d of METRICS) {
-    const ranked = res.users
-      .filter(u => u.resolved && metricValue(u.metrics, d) !== null)
-      .sort(
-        (a, b) =>
-          (metricRank(a.metrics, d) ?? 99) - (metricRank(b.metrics, d) ?? 99)
-      );
-    const line = ranked
-      .map(
-        u =>
-          `${metricRank(u.metrics, d)}.${u.name ?? u.username}(${fmt(metricValue(u.metrics, d), d)})`
-      )
-      .join('  ');
-    console.log(`  ${d.label.padEnd(16)} ${line || '(no data)'}`);
-  }
-
-  console.log('\nLEADERS:');
-  for (const d of METRICS) {
-    console.log(`  ${d.label.padEnd(16)} ${res.leaders[d.key] ?? '...'}`);
-  }
-
-  if (res.warnings.length) {
-    console.log('\nWARNINGS:');
-    for (const wn of res.warnings)
-      console.log(`  ⚠ [${wn.code}] ${wn.message.slice(0, 160)}`);
-  }
-}
-
-function scopeLabel(res: LeaderboardResponse): string {
-  return res.scope.type === 'group'
-    ? (res.scope.groupPath ?? 'group')
-    : (res.scope.projectPaths ?? []).join(', ');
+  for (const line of standingsLines(res)) console.log(line);
 }
 
 function printValidation(res: LeaderboardResponse): number {
@@ -214,6 +175,12 @@ async function main() {
 
   if (args.format === 'json') {
     console.log(JSON.stringify(res, null, 2));
+    return;
+  }
+
+  if (isLocked(res)) {
+    console.error(LOCKED_MESSAGE);
+    process.exitCode = 1;
     return;
   }
 
