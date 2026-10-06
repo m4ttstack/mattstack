@@ -8,6 +8,7 @@ import {
 import {
   ActionIcon,
   Button,
+  Checkbox,
   Group,
   NumberInput,
   Pill,
@@ -94,14 +95,22 @@ function Body({ children }: { children: ReactNode }) {
 function FieldRow({
   label,
   source,
+  top = false,
   children,
 }: {
   label: ReactNode;
   source?: ReactNode;
+  top?: boolean;
   children: ReactNode;
 }) {
   return (
-    <Group gap={24} wrap="nowrap" mih={38}>
+    <Group
+      gap={24}
+      wrap="nowrap"
+      mih={38}
+      align={top ? 'flex-start' : 'center'}
+      py={top ? 10 : 0}
+    >
       <Group gap={8} wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
         {label}
         {source}
@@ -478,6 +487,31 @@ function LeafInput({
   onSave: (v: unknown) => void;
 }) {
   const { text } = useSchemeColors();
+  if (typeof type === 'object' && 'enumSet' in type) {
+    const on = Array.isArray(value) ? value : (type.whenUnset ?? []);
+    return (
+      <Stack gap={8} role="group" aria-label={label}>
+        {type.enumSet.map(option => (
+          <Checkbox
+            key={option}
+            size="xs"
+            disabled={disabled}
+            label={type.labels?.[option] ?? option}
+            styles={{ label: { fontSize: 14 } }}
+            checked={on.includes(option)}
+            onChange={e => {
+              const checked = e.currentTarget.checked;
+              onSave(
+                type.enumSet.filter(o =>
+                  o === option ? checked : on.includes(o)
+                )
+              );
+            }}
+          />
+        ))}
+      </Stack>
+    );
+  }
   if (type === 'boolean')
     return (
       <Switch
@@ -555,6 +589,10 @@ function LeafInput({
   );
 }
 
+function isEnumSet(type: LeafType): boolean {
+  return typeof type === 'object' && 'enumSet' in type;
+}
+
 function LeavesBody({
   def,
   row,
@@ -613,6 +651,7 @@ function LeavesBody({
         return (
           <FieldRow
             key={path}
+            top={isEnumSet(shape.fields[path]!)}
             label={
               <Text fz={12} ff="monospace">
                 {path}
