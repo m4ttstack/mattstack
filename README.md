@@ -5,7 +5,7 @@ team. It runs your agents in parallel, lets them talk to each other, and shows
 the work landing. It ships as **mattstack.app** for Macs with Apple silicon
 running macOS 14 or newer, and this repo is where most of it lives.
 
-![rt --help output](docs/assets/rt-help.png)
+![The mattstack docs site, showing the rt picker guide](docs/assets/docs-site.png)
 
 Read the docs at **[docs.mattstack.dev](https://docs.mattstack.dev)**, or see
 the project at **[mattstack.dev](https://mattstack.dev)**.
