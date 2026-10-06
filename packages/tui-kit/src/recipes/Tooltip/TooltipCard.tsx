@@ -160,7 +160,11 @@ export function TooltipCard({
   children,
 }: TooltipCardProps) {
   const cardRef = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const [pos, setPos] = useState<{
+    left: number;
+    top: number;
+    arrowX: number;
+  } | null>(null);
   // Portal creation deferred to an effect, not computed during render — the
   // deck server does renderToStaticMarkup of OTHER components in this same
   // bundle, and `visible` starts false so this branch is unreached during any
@@ -190,7 +194,10 @@ export function TooltipCard({
       0,
       Math.min(rect.left, window.innerWidth - width - VIEWPORT_MARGIN)
     );
-    setPos({ left, top: rect.bottom + gap });
+    // Exposed as --tooltip-arrow-x so app CSS can point an arrow at the
+    // trigger's centre; the card itself stays left-aligned to the trigger.
+    const arrowX = rect.left + rect.width / 2 - left;
+    setPos({ left, top: rect.bottom + gap, arrowX });
   }, [visible, triggerRef, gapVar]);
 
   if (!mounted || !visible) return null;
@@ -198,7 +205,12 @@ export function TooltipCard({
   const trigger = triggerRef.current;
   const fallback = trigger?.getBoundingClientRect();
   const style: CSSProperties = pos
-    ? { ...cardProps.style, left: pos.left, top: pos.top }
+    ? ({
+        ...cardProps.style,
+        left: pos.left,
+        top: pos.top,
+        '--tooltip-arrow-x': `${pos.arrowX}px`,
+      } as CSSProperties)
     : {
         ...cardProps.style,
         left: fallback?.left ?? 0,

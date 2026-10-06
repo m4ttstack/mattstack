@@ -5234,16 +5234,19 @@ a.tui-id-card-ref:focus-visible {
 
 /* Tooltips read as an inverted label, not another panel: the kit's pale
    card on a hairline vanished against the white header and looked like a
-   stray box over the tabs. */
+   stray box over the tabs. The arrow points at the trigger's centre, which
+   the kit hands over as --tooltip-arrow-x. */
 [data-part='tooltip-card'] {
-  max-width: 280px;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: 6px;
-  background: light-dark(
+  --tip-bg: light-dark(
     color-mix(in srgb, var(--fg) 92%, var(--card)),
     color-mix(in srgb, var(--fg) 88%, var(--card))
   );
+  max-width: 280px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--tip-bg);
   color: var(--card);
   box-shadow:
     0 1px 2px rgb(0 0 0 / 18%),
@@ -5251,4 +5254,30 @@ a.tui-id-card-ref:focus-visible {
   font-size: 12px;
   font-weight: 500;
   line-height: 1.4;
+  transform-origin: var(--tooltip-arrow-x, 50%) top;
+  animation: tui-tip-in 140ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+[data-part='tooltip-card']::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: clamp(6px, calc(var(--tooltip-arrow-x, 50%) - 6px), calc(100% - 18px));
+  width: 12px;
+  height: 6px;
+  background: var(--tip-bg);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+@keyframes tui-tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-part='tooltip-card'] {
+    animation: none;
+  }
 }
