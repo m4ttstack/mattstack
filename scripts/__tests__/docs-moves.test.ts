@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DOCS_MOVES, resolveRedirect, rewriteLink, rtCoolRedirects } from "../lib/docs-moves.ts";
+import { DOCS_MOVES, hasRule, resolveRedirect, rewriteLink, rtCoolRedirects } from "../lib/docs-moves.ts";
 
 describe("resolveRedirect", () => {
   test("old home goes to the rt tab", () => {
@@ -58,4 +58,21 @@ test("redirects cover bare and trailing-slash forms, end with a catch-all", () =
   expect(lines).toContain("/reference/* https://docs.mattstack.dev/rt/reference/:splat 301");
   expect(lines).toContain("/ https://docs.mattstack.dev/rt 301");
   expect(lines.at(-1)).toBe("/* https://docs.mattstack.dev/ 301");
+});
+
+test("the old command-reference category page lands on the rt tab home (the reference has no index page)", () => {
+  expect(resolveRedirect("/category/command-reference")).toBe("/rt");
+});
+
+describe("hasRule", () => {
+  test("true for mapped pages, with or without a trailing slash, prefix paths and root", () => {
+    expect(hasRule("/guides/daemon")).toBe(true);
+    expect(hasRule("/guides/daemon/")).toBe(true);
+    expect(hasRule("/reference/git/rebase")).toBe(true);
+    expect(hasRule("/")).toBe(true);
+  });
+  test("false for a path no row maps", () => {
+    expect(hasRule("/category/nonexistent")).toBe(false);
+    expect(hasRule("/guides/foo")).toBe(false);
+  });
 });

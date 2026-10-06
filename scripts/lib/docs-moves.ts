@@ -10,6 +10,7 @@ const RT_GUIDES = [
 export const DOCS_MOVES: readonly DocsMove[] = [
   { from: "/", to: "/rt" },
   { from: "/reference", to: "/rt/reference", prefix: true },
+  { from: "/category/command-reference", to: "/rt" },
   { from: "/getting-started/install", to: "/start/install" },
   { from: "/getting-started/just-me", to: "/start/setup" },
   { from: "/getting-started/onboard-a-repo", to: "/start/onboard-a-repo" },
@@ -34,6 +35,10 @@ function mapPath(path: string): string | undefined {
     if (m.prefix && p.startsWith(`${m.from}/`)) return m.to + p.slice(m.from.length);
   }
   return undefined;
+}
+
+export function hasRule(path: string): boolean {
+  return mapPath(path) !== undefined;
 }
 
 export function resolveRedirect(path: string): string {
