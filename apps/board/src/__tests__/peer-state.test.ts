@@ -426,6 +426,55 @@ describe('markNudgeHandled', () => {
   });
 });
 
+describe('markNudgeHandled answers once', () => {
+  const row = { id: 'n1', mrUrl: URL_A, iid: 4821, from: 'ada', receivedAt: 1 };
+
+  test('the first answer wins and a second returns false, leaving it', () => {
+    writeNudge(row, db);
+    expect(markNudgeHandled('n1', 'launched', 'accepted', db, 5)).toBe(true);
+    expect(markNudgeHandled('n1', 'rejected', 'asks-off', db, 6)).toBe(false);
+    expect(readNudges(db)[0]?.handled).toEqual({
+      at: 5,
+      result: 'launched',
+      reason: 'accepted',
+    });
+  });
+
+  test('a missing row returns false', () => {
+    expect(markNudgeHandled('gone', 'expired', 'stale', db, 5)).toBe(false);
+  });
+
+  test('replacing rewrites only a claim of that result', () => {
+    writeNudge(row, db);
+    markNudgeHandled('n1', 'launched', 'accepted', db, 5);
+    expect(
+      markNudgeHandled('n1', 'rejected', 'launch-failed', db, 6, {
+        replacing: 'expired',
+      })
+    ).toBe(false);
+    expect(
+      markNudgeHandled('n1', 'rejected', 'launch-failed', db, 7, {
+        replacing: 'launched',
+      })
+    ).toBe(true);
+    expect(readNudges(db)[0]?.handled).toEqual({
+      at: 7,
+      result: 'rejected',
+      reason: 'launch-failed',
+    });
+  });
+
+  test('a notified write keeps a handled outcome already on the row', () => {
+    writeNudge(row, db);
+    markNudgeHandled('n1', 'rejected', 'asks-off', db, 5);
+    markNudgeNotified('n1', db, 8);
+    expect(readNudges(db)[0]).toMatchObject({
+      notifiedAt: 8,
+      handled: { at: 5, result: 'rejected', reason: 'asks-off' },
+    });
+  });
+});
+
 describe('ask consent rows', () => {
   test('notified marker and handled note persist', () => {
     writeNudge({ id: 'n', mrUrl: 'u', iid: 1, from: 'rae', receivedAt: 1 }, db);

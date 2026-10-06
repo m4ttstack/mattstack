@@ -1,6 +1,6 @@
 /** POST /asks/decline and the asks block on /data.json, against a real state
     db. Minimal boot, same recipe as server-dismiss.test.ts. */
-import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, expect, test } from 'bun:test';
@@ -127,6 +127,33 @@ test('data.json carries the handled ask in the history', async () => {
   };
   expect(body.asks.history[0]!.id).toBe('n1');
   expect(body.asks.pending).toEqual([]);
+}, 15_000);
+
+test('an accept that does not go through saves no always-allow', async () => {
+  await ready();
+  const res = await postTo('/asks/accept', { id: 'n1', alwaysAllow: true });
+  expect(res.status).toBe(409);
+  const body = (await (
+    await fetch(`http://127.0.0.1:${PORT}/data.json`)
+  ).json()) as { asks: { alwaysAllow: string[] } };
+  expect(body.asks.alwaysAllow).toEqual([]);
+}, 15_000);
+
+test('always-allow answers a plain 500 when the setting cannot be saved', async () => {
+  await ready();
+  const userDir = join(fakeHome, '.mattstack', 'user');
+  mkdirSync(userDir, { recursive: true });
+  chmodSync(userDir, 0o500);
+  try {
+    const res = await postTo('/asks/always-allow', {
+      username: 'rae',
+      allow: true,
+    });
+    expect(res.status).toBe(500);
+    expect(await res.text()).toBe('could not save always-allow');
+  } finally {
+    chmodSync(userDir, 0o700);
+  }
 }, 15_000);
 
 test('the ask routes refuse every public edge marker', async () => {

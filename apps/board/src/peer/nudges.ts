@@ -71,48 +71,54 @@ function readNudgeRow(id: string, db: Database): NudgeState | null {
   }
 }
 
-function writeNudgeRow(
-  next: NudgeState,
-  now: number,
-  label: string,
-  db: Database
-): void {
-  runCriticalWrite(label, () => {
-    db.query('UPDATE nudges SET nudge = ?, updated_at = ? WHERE id = ?').run(
-      JSON.stringify(next),
-      now,
-      next.id
-    );
-  });
+function writeNudgeRow(next: NudgeState, now: number, db: Database): void {
+  db.query('UPDATE nudges SET nudge = ?, updated_at = ? WHERE id = ?').run(
+    JSON.stringify(next),
+    now,
+    next.id
+  );
 }
 
-/** Read-merge-write a nudge's handled outcome. No-op if no row exists for
-    this id. */
+/** Answer a nudge, once. The board server and the cron triage pass share this
+    db, so the read and the write sit in one immediate transaction: the first
+    answer wins and every later one returns false and must publish nothing.
+    `replacing` lets the winner rewrite its own claim (a `launched` claim
+    whose launch then failed). False too when no row exists for this id. */
 export function markNudgeHandled(
   id: string,
   result: NudgeResult,
   reason?: string,
   db: Database = getStateDb(),
   now: number = Date.now(),
-  opts: { note?: string; declined?: true } = {}
-): void {
-  const prev = readNudgeRow(id, db);
-  if (!prev) return;
-  writeNudgeRow(
-    {
-      ...prev,
-      handled: {
-        at: now,
-        result,
-        ...(reason ? { reason } : {}),
-        ...(opts.note ? { note: opts.note } : {}),
-        ...(opts.declined ? { declined: true as const } : {}),
-      },
-    },
-    now,
-    'nudge handled write',
-    db
-  );
+  opts: { note?: string; declined?: true; replacing?: NudgeResult } = {}
+): boolean {
+  let won = false;
+  runCriticalWrite('nudge handled write', () => {
+    won = db
+      .transaction(() => {
+        const prev = readNudgeRow(id, db);
+        if (!prev) return false;
+        if (prev.handled && prev.handled.result !== opts.replacing)
+          return false;
+        writeNudgeRow(
+          {
+            ...prev,
+            handled: {
+              at: now,
+              result,
+              ...(reason ? { reason } : {}),
+              ...(opts.note ? { note: opts.note } : {}),
+              ...(opts.declined ? { declined: true as const } : {}),
+            },
+          },
+          now,
+          db
+        );
+        return true;
+      })
+      .immediate();
+  });
+  return won;
 }
 
 /** Record that the desktop notification for this ask has fired. No-op if no
@@ -122,9 +128,13 @@ export function markNudgeNotified(
   db: Database = getStateDb(),
   now: number = Date.now()
 ): void {
-  const prev = readNudgeRow(id, db);
-  if (!prev) return;
-  writeNudgeRow({ ...prev, notifiedAt: now }, now, 'nudge notified write', db);
+  runCriticalWrite('nudge notified write', () => {
+    db.transaction(() => {
+      const prev = readNudgeRow(id, db);
+      if (!prev) return;
+      writeNudgeRow({ ...prev, notifiedAt: now }, now, db);
+    }).immediate();
+  });
 }
 
 /** Delete stale inbound nudges. Handled history outlives its MR for

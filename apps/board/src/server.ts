@@ -198,6 +198,7 @@ import {
   acceptAsk,
   declineAsk,
   declineWhileOff,
+  expireStaleAsks,
   type AskActionDeps,
 } from './peer/ask-actions.ts';
 import { askIdForRun } from './peer/ask-echo.ts';
@@ -528,6 +529,7 @@ const peering = makePeering({
   asksEnabled: asksOn,
   onTick: () => {
     if (!asksOn()) declineWhileOff(declineDeps());
+    else expireStaleAsks(declineDeps(), Date.now());
   },
 });
 // Fire-and-forget: the daemon round trips must not hold up Bun.serve below.
@@ -3261,13 +3263,9 @@ const httpServer = Bun.serve({
           );
         const from = readNudges().find(n => n.id === id)?.from;
         const result = await acceptAsk(id, askDeps(await cache.get()));
-        // Written after acceptAsk has marked the ask handled, so a triage
-        // pass running at the same moment cannot launch it a second time.
-        if (
-          alwaysAllow === true &&
-          from &&
-          (result.ok || result.status !== 404)
-        ) {
+        // Saved only once the accept went through: a refused or failed
+        // accept leaves the teammate's next ask waiting for a go-ahead.
+        if (alwaysAllow === true && from && result.ok) {
           try {
             setSetting(
               'board.peerAsksAlwaysAllow',
@@ -3365,7 +3363,14 @@ const httpServer = Bun.serve({
         const next = loadPeerAsksAlwaysAllow();
         if (allow) next.add(who);
         else next.delete(who);
-        setSetting('board.peerAsksAlwaysAllow', [...next], 'user');
+        try {
+          setSetting('board.peerAsksAlwaysAllow', [...next], 'user');
+        } catch (err) {
+          console.error(
+            `board: could not save always-allow for ${who}: ${err instanceof Error ? err.message : err}`
+          );
+          return new Response('could not save always-allow', { status: 500 });
+        }
         return jsonOk();
       }
       case '/nudge/dismiss': {

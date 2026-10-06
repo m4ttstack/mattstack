@@ -2,7 +2,7 @@ import type { ReReviewLaunch } from '../review-launch.ts';
 import type { ReviewState } from '../review-state.ts';
 import type { TriageConfig } from '../triage/config.ts';
 import { emptyMrMemory } from '../triage/memory.ts';
-import { decideNudge, plainReason } from '../triage/nudge.ts';
+import { decideNudge, NUDGE_FRESH_MS, plainReason } from '../triage/nudge.ts';
 import {
   DECLINE_REASONS,
   type AskKind,
@@ -12,8 +12,8 @@ import {
 } from './envelope.ts';
 import type { NudgeState } from './nudges.ts';
 
-/** MRs with an accept in flight. The ask is only marked handled after the
-    launch resolves, so a second click must be refused before the first await. */
+/** MRs with an accept in flight, so a second click on another ask for the
+    same MR is refused before the first launch resolves. */
 const accepting = new Set<string>();
 
 export interface AskActionDeps {
@@ -23,8 +23,8 @@ export interface AskActionDeps {
     id: string,
     result: NudgeResult,
     reason?: string,
-    opts?: { note?: string; declined?: true }
-  ): void;
+    opts?: { note?: string; declined?: true; replacing?: NudgeResult }
+  ): boolean;
   publishOutcome(to: string, p: NudgeOutcomePayload): void;
   readReviewStates(): Map<string, ReviewState>;
   readRespondStates(): Map<string, { status: string }>;
@@ -36,11 +36,16 @@ export interface AskActionDeps {
 
 type Fail<S extends number> = { ok: false; status: S; message: string };
 
+const answered: Fail<409> = {
+  ok: false,
+  status: 409,
+  message: 'That ask was already answered',
+};
+
 function find(id: string, deps: AskActionDeps): NudgeState | Fail<404 | 409> {
   const n = deps.readNudges().find(x => x.id === id);
   if (!n) return { ok: false, status: 404, message: 'That ask is gone' };
-  if (n.handled)
-    return { ok: false, status: 409, message: 'That ask was already answered' };
+  if (n.handled) return answered;
   return n;
 }
 
@@ -107,7 +112,7 @@ async function accept(
   if (decision.action === 'expire' || decision.action === 'reject') {
     const result: NudgeResult =
       decision.action === 'expire' ? 'expired' : 'rejected';
-    deps.markNudgeHandled(n.id, result, decision.reason);
+    if (!deps.markNudgeHandled(n.id, result, decision.reason)) return answered;
     deps.publishOutcome(
       n.from,
       outcome(n, result, { reason: decision.reason })
@@ -118,20 +123,21 @@ async function accept(
       message: plainReason(decision.reason, deps.cfg),
     };
   }
+  // The claim comes before the launch: a triage pass in another process
+  // reads the same row, and only the claim's winner may start a run.
+  if (!deps.markNudgeHandled(n.id, 'launched', 'accepted')) return answered;
   const launch = await deps.launchAsk(n.mrUrl, n.iid, kind);
   if (launch.kind === 'error') {
-    deps.markNudgeHandled(n.id, 'rejected', 'launch-failed');
+    deps.markNudgeHandled(n.id, 'rejected', 'launch-failed', {
+      replacing: 'launched',
+    });
     deps.publishOutcome(
       n.from,
       outcome(n, 'rejected', { reason: 'launch-failed' })
     );
     return { ok: false, status: 502, message: launch.message };
   }
-  // Another answer may have landed while the launch was in flight.
-  if (!deps.readNudges().find(x => x.id === n.id)?.handled) {
-    deps.markNudgeHandled(n.id, 'launched', 'accepted');
-    deps.publishOutcome(n.from, outcome(n, 'launched'));
-  }
+  deps.publishOutcome(n.from, outcome(n, 'launched'));
   return { ok: true };
 }
 
@@ -144,10 +150,13 @@ export function declineAsk(
   if ('ok' in n) return n;
   const words = input.reason ? DECLINE_REASONS[input.reason] : undefined;
   const note = input.note?.trim() || undefined;
-  deps.markNudgeHandled(n.id, 'rejected', words, {
-    declined: true,
-    ...(note ? { note } : {}),
-  });
+  if (
+    !deps.markNudgeHandled(n.id, 'rejected', words, {
+      declined: true,
+      ...(note ? { note } : {}),
+    })
+  )
+    return answered;
   deps.publishOutcome(
     n.from,
     outcome(n, 'rejected', {
@@ -168,11 +177,30 @@ export function declineWhileOff(
   let count = 0;
   for (const ask of deps.readNudges()) {
     if (ask.handled) continue;
-    deps.markNudgeHandled(ask.id, 'rejected', 'asks-off');
+    if (!deps.markNudgeHandled(ask.id, 'rejected', 'asks-off')) continue;
     deps.publishOutcome(
       ask.from,
       outcome(ask, 'rejected', { reason: 'asks-off' })
     );
+    count++;
+  }
+  return count;
+}
+
+/** Expire waiting asks past NUDGE_FRESH_MS. The triage pass does the same,
+    but a board with no cron pass would otherwise hold them forever. */
+export function expireStaleAsks(
+  deps: Pick<
+    AskActionDeps,
+    'readNudges' | 'markNudgeHandled' | 'publishOutcome'
+  >,
+  now: number
+): number {
+  let count = 0;
+  for (const ask of deps.readNudges()) {
+    if (ask.handled || now - ask.receivedAt <= NUDGE_FRESH_MS) continue;
+    if (!deps.markNudgeHandled(ask.id, 'expired', 'stale')) continue;
+    deps.publishOutcome(ask.from, outcome(ask, 'expired', { reason: 'stale' }));
     count++;
   }
   return count;

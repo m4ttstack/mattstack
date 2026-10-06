@@ -291,7 +291,8 @@ try {
     if (nudgeReady) {
       const nudgeResult = await runNudgePass({
         readNudges,
-        markNudgeHandled: (id, r, reason) => markNudgeHandled(id, r, reason),
+        markNudgeHandled: (id, r, reason, opts) =>
+          markNudgeHandled(id, r, reason, undefined, undefined, opts),
         readReviewStates,
         readRespondStates,
         isOwnMr: mrUrl => ownUrls.has(mrUrl),
