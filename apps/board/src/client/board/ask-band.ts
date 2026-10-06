@@ -187,6 +187,7 @@ export function askBandModel(
         { name: 'Started', detail: `${name}'s agent`, at: sent.resolvedAt },
         { name: 'No update', detail: `${name}'s agent has been quiet for 30m` }
       );
+    case 'pending':
     case 'requested':
       return band({
         tone: 'neutral',

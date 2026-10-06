@@ -1101,6 +1101,12 @@ describe('pending and declined asks', () => {
     resolveSentNudge('u', { result: 'launched', at: 2 }, db);
     expect(readSentNudges(db).get('u')?.resolution?.result).toBe('launched');
   });
+  test('a late pending never overwrites a rejected ask', () => {
+    writeSentNudge({ nudgeId: 'n1', mrUrl: 'u', iid: 1, reviewer: 'mira', sentAt: 0 }, db);
+    resolveSentNudge('u', { result: 'rejected', reason: 'busy', at: 1 }, db);
+    resolveSentNudge('u', { result: 'pending', at: 2 }, db);
+    expect(readSentNudges(db).get('u')?.resolution?.result).toBe('rejected');
+  });
   test('a decline keeps its flag and note', () => {
     writeSentNudge({ nudgeId: 'n1', mrUrl: 'u', iid: 1, reviewer: 'mira', sentAt: 0 }, db);
     resolveSentNudge('u', { result: 'pending', at: 1 }, db);
