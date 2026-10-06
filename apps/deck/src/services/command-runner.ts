@@ -23,7 +23,10 @@ export type SpawnFn = (
   }
 ) => { exited: Promise<number>; pid?: number };
 
-// A detached run outlives the deck that started it, and with it the in-memory
+// Every run is detached: launchd kills deck's whole process group when deck
+// exits, and deck's own deploy restarts deck, so a run left in that group dies
+// with SIGTERM part-way through whenever deck redeploys itself. A run can
+// therefore outlive the deck that started it, and with it the in-memory
 // `runs` entry, so it is also recorded on disk for the next deck to see. A pid
 // alone could be reused by an unrelated process after the run ends, so the
 // record also holds the process's start time; the command line cannot serve,
@@ -93,7 +96,6 @@ export function startCommandRun(
     cmd: string;
     shell: string;
     workingDirectory: string;
-    detached?: boolean;
   },
   deps: { spawn?: SpawnFn; logDir?: string } = {}
 ): { started: true; runId: string } | { started: false; reason: 'busy' } {
@@ -119,9 +121,15 @@ export function startCommandRun(
       cwd: input.workingDirectory,
       stdout: out,
       stderr: errFd,
-      detached: input.detached ?? false,
+      detached: true,
       // Explicit env: Bun otherwise spawns with the PATH the process started on.
-      env: { ...process.env, PATH: composeCommandPath() },
+      // DECK_COMMAND_RUN lets the deck CLI inside the run wait out a deck
+      // restart rather than fail on it.
+      env: {
+        ...process.env,
+        PATH: composeCommandPath(),
+        DECK_COMMAND_RUN: '1',
+      },
     });
   } catch (err) {
     // A synchronous spawn failure must not leave the app permanently busy or
@@ -140,7 +148,7 @@ export function startCommandRun(
     throw err;
   }
   const pidFile = runPidFile(dir, input.name);
-  const recorded = input.detached && proc.pid !== undefined;
+  const recorded = proc.pid !== undefined;
   if (recorded) {
     try {
       writeFileSync(
