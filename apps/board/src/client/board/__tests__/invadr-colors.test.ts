@@ -1,20 +1,17 @@
 import { describe, expect, test } from 'bun:test';
-import { CSS_VARS, hashStr } from 'invadrs';
 
 import {
   assignInvadrColors,
   assignMemberLooks,
+  hashedColor as hashed,
   themePalette,
 } from '../invadr-colors.ts';
 
-const hashed = (id: string) =>
-  CSS_VARS.colors[(hashStr(id) >>> 4) % CSS_VARS.colors.length];
-
 describe('themePalette', () => {
-  test('a small roster gets the base hues, which include every invadrs colour', () => {
+  test('a small roster gets the base hues, which include every hashed colour', () => {
     const p = themePalette(4);
     expect(p).toHaveLength(8);
-    for (const c of CSS_VARS.colors) expect(p).toContain(c);
+    for (let i = 0; i < 64; i++) expect(p).toContain(hashed(`member-${i}`));
   });
 
   test('grows with the roster, every entry distinct', () => {

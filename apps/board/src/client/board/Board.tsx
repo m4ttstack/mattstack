@@ -1280,6 +1280,11 @@ export function Board() {
     : isSeatTab
       ? 'authors needing you'
       : undefined;
+  const rosterEmpty = isCodeownersTab
+    ? 'nobody in this queue'
+    : isSeatTab
+      ? 'nobody needs you right now ✓'
+      : 'no one on the roster yet';
   const controlProps = {
     state,
     update,
@@ -1349,6 +1354,7 @@ export function Board() {
           onConfig={openConfig}
           scopeUncovered={data.scopeUncovered}
           note={inferredNote}
+          empty={rosterEmpty}
           queue={
             queueEntries.length > 0
               ? { count: queueEntries.length, open: queue.openAtStart }
@@ -1561,6 +1567,7 @@ export function Board() {
               onConfig={openConfig}
               scopeUncovered={data.scopeUncovered}
               note={inferredNote}
+              empty={rosterEmpty}
               queue={
                 queueEntries.length > 0
                   ? {

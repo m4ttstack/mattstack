@@ -11,6 +11,7 @@ function Sidebar({
   onConfig,
   scopeUncovered,
   note,
+  empty,
   queue,
 }: {
   members: RosterMember[];
@@ -24,6 +25,8 @@ function Sidebar({
   scopeUncovered: string[];
   /** Caption under the roster, for when it is not the configured team. */
   note?: string;
+  /** What the list says when it names no one. */
+  empty?: string;
   /** Pending decision queue -- null when empty. Rendered above the roster
       because it means the user owes an action, not just information. */
   queue?: { count: number; open: () => void } | null;
@@ -69,6 +72,9 @@ function Sidebar({
           {ICONS.settings}
         </button>
       </div>
+      {members.length === 0 && empty && (
+        <p className="tui-side-placeholder">{empty}</p>
+      )}
       {members.map(m => (
         <button
           key={m.username}

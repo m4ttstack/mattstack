@@ -32,6 +32,16 @@ html {
      doctor lane (row and menu) read amber, distinct from ci-running and
      decide, which read the warn hue via --text-warn-vivid. */
   --orange: light-dark(#9e5c00, #ffca16);
+  /* The lift every board card (header, roster, MR groups) shares, so they
+     sit a step off the grid paper together. The page is near black in dark,
+     so dark needs far denser shadows, and a third, wider one, to show. */
+  /* Interactive controls on a card take the ramp step above it, so they
+     don't read white-on-white: panel in light, raised in dark. */
+  --control-fill: light-dark(var(--surface-panel), var(--surface-raised));
+  --card-shadow:
+    0 1px 2px light-dark(rgb(16 24 40 / 6%), rgb(0 0 0 / 70%)),
+    0 6px 16px -6px light-dark(rgb(16 24 40 / 16%), rgb(0 0 0 / 90%)),
+    0 12px 32px -12px light-dark(transparent, rgb(0 0 0 / 80%));
 }
 body {
   font-size: 0.84375rem;
@@ -62,14 +72,23 @@ body {
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   background: var(--card);
+  box-shadow: var(--card-shadow);
   position: relative;
 }
 /* The MR groups are the kit's Panel recipe, which paints its own fill. This
    file is unlayered, so it outranks the recipe's @layer soribashi rule without
    !important. */
+/* The soft border, like the header card's: the recipe's --border is the
+   on-card control edge here, and in dark that bright line beside a row's
+   coloured status bar read as a shimmering double edge. The card clips its
+   contents so the tinted label band follows the card's own corner, rather
+   than drawing a second rounded edge that anti-aliases against it. */
 [data-part='panel'] {
   background: var(--card);
   padding-top: 0;
+  border-color: var(--border-soft);
+  overflow: clip;
+  box-shadow: var(--card-shadow);
 }
 /* The group label is the card's first row, a band tinted with the group's
    status hue (the pill colours below) when grouped by status and a neutral
@@ -82,7 +101,6 @@ body {
   box-sizing: border-box;
   padding: 9px 18px 8px;
   border-bottom: 1px solid var(--border-soft);
-  border-radius: 7px 7px 0 0;
   background: color-mix(in srgb, var(--pill) 10%, var(--card));
   color: var(--pill-text);
 }
@@ -103,8 +121,8 @@ body {
 [data-part='panel-title']:hover {
   text-decoration: none;
   background-image: linear-gradient(
-    color-mix(in srgb, var(--fg) 6%, transparent),
-    color-mix(in srgb, var(--fg) 6%, transparent)
+    color-mix(in srgb, var(--fg) 3%, transparent),
+    color-mix(in srgb, var(--fg) 3%, transparent)
   );
 }
 /* The recipe's bottom padding left a sliver of panel under the last row, and
@@ -1480,6 +1498,14 @@ body {
     transition: none;
   }
 }
+/* The list's own line when it names no one, set apart under All. */
+.tui-side-placeholder {
+  margin: 0;
+  padding: 14px 8px 10px;
+  color: var(--text-4);
+  font-size: 0.75rem;
+  text-align: center;
+}
 /* Caption for a roster that is not the configured team (a codeowners tab's is
    inferred from the MRs in view). */
 .tui-side-note {
@@ -1501,9 +1527,10 @@ body {
   position: sticky;
   top: 20px;
   padding: 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
   border-radius: 8px;
   background: var(--card);
+  box-shadow: var(--card-shadow);
 }
 /* Pending-decision callout above the roster: renders as the kit's filled
    accent button (Sidebar.tsx), the same accent blue the rest of the chrome
@@ -3379,7 +3406,7 @@ a.tui-id-card-ref:focus-visible {
 /* The header card's last row: a tinted band bled to the card's edges, so the
    tabs read as part of the header they scope instead of floating on the
    grid paper. The margins undo .tui-header's padding; the radius sits inside
-   its 1px border. */
+   its 1px border. The header cannot clip instead: its menus open inside it. */
 .tui-header .tui-tabs {
   order: 99;
   flex-basis: calc(100% + 1.8rem);
@@ -4948,7 +4975,7 @@ a.tui-id-card-ref:focus-visible {
   padding: 0 10px;
   border: 1px solid var(--border-control-on-card);
   border-radius: 7px;
-  background: var(--card);
+  background: var(--control-fill);
   color: var(--text-1);
   font: inherit;
   font-size: 12px;
@@ -4959,7 +4986,7 @@ a.tui-id-card-ref:focus-visible {
 }
 .tui-menu-button[data-open] {
   border-color: var(--fill-accent);
-  background: color-mix(in srgb, var(--fill-accent) 12%, var(--card));
+  background: color-mix(in srgb, var(--fill-accent) 12%, var(--control-fill));
 }
 .tui-menu-button-label {
   color: var(--text-2);
@@ -5042,7 +5069,7 @@ a.tui-id-card-ref:focus-visible {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 3px 9px 3px 7px;
-  background: transparent;
+  background: var(--control-fill);
   color: var(--text-accent-small);
   font: inherit;
   font-weight: 500;
@@ -5051,12 +5078,17 @@ a.tui-id-card-ref:focus-visible {
 .tui-also-show-pill:hover {
   border-color: var(--fill-accent);
 }
+/* A verb in merge's neutral: bold body text that takes a grey wash on hover. */
 .tui-also-show .tui-also-show-all {
-  font-size: 11px;
-  color: var(--text-3);
+  padding: 1px 6px;
+  border-radius: var(--radius-px5);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 16px;
+  color: var(--text-1);
 }
 .tui-also-show .tui-also-show-all:hover {
-  color: var(--text-accent-small);
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
 }
 
 /* ── whose-turn summary ───────────────────────────────────────────── */
