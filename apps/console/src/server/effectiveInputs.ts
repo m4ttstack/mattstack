@@ -217,7 +217,7 @@ export function mountEffectiveInputs(
 
       // git resolves `<rev>:<path>` from the repo root, not from `-C`'s cwd;
       // the `./` anchors the path to the pack dir, which is a subdirectory of
-      // its repo for a team pack (teams/<team>/mattstack/packs/<pack>).
+      // its repo for a team pack (teams/<org>/mattstack/teams/<team>/packs/<team>).
       const show = await runGit([
         '-C',
         packDir,

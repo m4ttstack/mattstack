@@ -21,6 +21,11 @@ const base = {
 
 const cfg = parseConfig(JSON.stringify(base));
 
+/** A parsed config whose active team's pack is `teamPack`. */
+function withTeamPack(raw: Record<string, unknown>, teamPack: string) {
+  return { ...parseConfig(JSON.stringify(raw)), teamPack };
+}
+
 /** A fresh mkdtemp mattstackHome with `repos/<slug>/packs/<pack>/skills.jsonc`
     written from `contents`, or no `repos` dir at all when `slug` is null. */
 function makeHome(
@@ -173,16 +178,16 @@ describe('resolveBoardSkill', () => {
 });
 
 describe('packForLaunch', () => {
-  test('tab pack, then defaultPack, then null', () => {
-    const withTabs = parseConfig(
-      JSON.stringify({
+  test("tab pack, then the active team's pack, then null", () => {
+    const withTabs = withTeamPack(
+      {
         ...base,
-        defaultPack: 'gadgets',
         tabs: [
           { id: 'w', label: 'W', source: { kind: 'authors' }, pack: 'widgets' },
           { id: 'g', label: 'G', source: { kind: 'authors' } },
         ],
-      })
+      },
+      'gadgets'
     );
     expect(packForLaunch(withTabs, 'w')).toBe('widgets');
     expect(packForLaunch(withTabs, 'g')).toBe('gadgets');
@@ -194,46 +199,33 @@ describe('packForLaunch', () => {
 
   test('a pack that could leave packs/ counts as no pack', () => {
     for (const pack of ['../x', 'a/b', 'a\\b', '..']) {
-      const cfg = parseConfig(
-        JSON.stringify({
+      const cfg = withTeamPack(
+        {
           ...base,
-          defaultPack: 'gadgets',
           tabs: [{ id: 'w', label: 'W', source: { kind: 'authors' }, pack }],
-        })
+        },
+        'gadgets'
       );
       expect(packForLaunch(cfg, 'w')).toBeNull();
     }
-    expect(
-      packForLaunch(
-        parseConfig(JSON.stringify({ ...base, defaultPack: '../x' })),
-        undefined
-      )
-    ).toBeNull();
+    expect(packForLaunch(withTeamPack(base, '../x'), undefined)).toBeNull();
   });
 
   test('a pack outside the pack-name grammar counts as no pack', () => {
     for (const pack of ['Widgets', 'widgets.v2', '-widgets', 'wid gets']) {
-      const cfg = parseConfig(
-        JSON.stringify({
+      const cfg = withTeamPack(
+        {
           ...base,
-          defaultPack: 'gadgets',
           tabs: [{ id: 'w', label: 'W', source: { kind: 'authors' }, pack }],
-        })
+        },
+        'gadgets'
       );
       expect(packForLaunch(cfg, 'w')).toBeNull();
     }
-    expect(
-      packForLaunch(
-        parseConfig(JSON.stringify({ ...base, defaultPack: 'Gadgets' })),
-        undefined
-      )
-    ).toBeNull();
-    expect(
-      packForLaunch(
-        parseConfig(JSON.stringify({ ...base, defaultPack: 'gadgets-2' })),
-        undefined
-      )
-    ).toBe('gadgets-2');
+    expect(packForLaunch(withTeamPack(base, 'Gadgets'), undefined)).toBeNull();
+    expect(packForLaunch(withTeamPack(base, 'gadgets-2'), undefined)).toBe(
+      'gadgets-2'
+    );
   });
 });
 
@@ -288,11 +280,10 @@ describe('resolveLaunchSkill', () => {
     ]);
   });
 
-  test("respond and doctor launch with the requesting tab's pack, else the default pack", () => {
-    const tabbed = parseConfig(
-      JSON.stringify({
+  test("respond and doctor launch with the requesting tab's pack, else the active team's pack", () => {
+    const tabbed = withTeamPack(
+      {
         ...base,
-        defaultPack: 'widgets',
         tabs: [
           {
             id: 'gadgets-tab',
@@ -301,7 +292,8 @@ describe('resolveLaunchSkill', () => {
             pack: 'gadgets',
           },
         ],
-      })
+      },
+      'widgets'
     );
     const fill = (pack: string) =>
       JSON.stringify({

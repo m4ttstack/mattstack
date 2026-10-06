@@ -1,25 +1,25 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { join } from "path";
 import { tmpdir } from "os";
 import { getSetting } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
-import { teamSettingsPath } from "../rt-paths.ts";
-import { teamLocalPath } from "../team/team-local.ts";
 import {
   loadVariations,
   saveVariation,
   variationKey,
   type Variation,
 } from "../variations.ts";
+import { seedOrg, sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
+import { readStore } from "../settings/stores.ts";
 
 const IDENTITY = "gitlab.com/acme/test-repo";
 
-/** saveVariation writes to team scope, which refuses without a local team store. */
-function seedTeam(): void {
-  const path = teamSettingsPath("acme");
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, "// team store\n{}\n");
+const ROLES = { admins: ["dev1"], teams: {} };
+
+/** saveVariation writes to org scope, which refuses without a local org store and a role that owns it. */
+function seedTeam(username = "dev1"): void {
+  seedOrg({ org: "acme", username, roles: ROLES, roster: [{ username: "dev1" }, { username: "dev4" }] });
 }
 
 describe("variations", () => {
@@ -63,7 +63,7 @@ describe("variations", () => {
       });
 
       test("an unexpandable ${repoRoot} in a stored value degrades to empty instead of throwing", () => {
-        setSetting("rt.variations", { "pkg/a:dev": [{ name: "root", command: "${repoRoot}/dev" }] }, "team", { repoIdentity: IDENTITY });
+        setSetting("rt.variations", { "pkg/a:dev": [{ name: "root", command: "${repoRoot}/dev" }] }, "org", { repoIdentity: IDENTITY });
 
         expect(() => loadVariations(IDENTITY)).not.toThrow();
         expect(loadVariations(IDENTITY)).toEqual({});
@@ -122,7 +122,24 @@ describe("variations", () => {
         expect(loadVariations(null)).toEqual({});
       });
 
-      test("lands in the team store (scope decision: team.repo)", () => {
+      test("a team folder's variation is never copied into the org store", () => {
+        seedOrg({
+          org: "acme",
+          username: "dev1",
+          roles: { admins: ["dev1"], teams: {} },
+          roster: [{ username: "dev1", teams: ["widgets"] }],
+          teams: { widgets: { repos: { [IDENTITY]: { "rt.variations": { "pkg/a:dev": [{ name: "team-only", command: "x" }] } } } } },
+        });
+        expect(loadVariations(IDENTITY)["pkg/a:dev"]).toEqual([{ name: "team-only", command: "x" }]);
+
+        expect(saveVariation(IDENTITY, "/repo", "/repo/pkg/a", "dev", { name: "debug", command: "DEBUG=1 pnpm run dev" })).toEqual({ ok: true });
+
+        expect(readStore(sharedStorePath("acme")).repos[IDENTITY]!["rt.variations"]).toEqual({
+          "pkg/a:dev": [{ name: "debug", command: "DEBUG=1 pnpm run dev" }],
+        });
+      });
+
+      test("lands in the org store (scope decision: org.repo)", () => {
         saveVariation(IDENTITY, "/repo", "/repo/pkg/a", "dev", {
           name: "debug",
           command: "DEBUG=1 pnpm run dev",
@@ -152,14 +169,14 @@ describe("variations", () => {
       rmSync(home, { recursive: true, force: true });
     });
 
-    test("surfaces the team-store refusal instead of silently dropping the save", () => {
+    test("surfaces the org-store refusal instead of silently dropping the save", () => {
       const result = saveVariation(IDENTITY, "/repo", "/repo/pkg/a", "dev", {
         name: "debug",
         command: "DEBUG=1 pnpm run dev",
       });
       expect(result.ok).toBe(false);
       if (!result.ok && result.reason === "write-failed") {
-        expect(result.message).toContain("no local team store");
+        expect(result.message).toContain("this Mac has no org yet");
       } else {
         throw new Error(`expected a write-failed refusal, got ${JSON.stringify(result)}`);
       }
@@ -167,20 +184,14 @@ describe("variations", () => {
     });
   });
 
-  describe("saveVariation on a joined (pull-only) clone", () => {
+  describe("saveVariation by someone who does not own the org store", () => {
     const origHome = process.env.HOME;
     let home: string;
 
     beforeEach(() => {
-      home = realpathSync(mkdtempSync(join(tmpdir(), "rt-variations-joined-")));
+      home = realpathSync(mkdtempSync(join(tmpdir(), "rt-variations-member-")));
       process.env.HOME = home;
-      seedTeam();
-      const recordPath = teamLocalPath(home, "acme");
-      mkdirSync(dirname(recordPath), { recursive: true });
-      writeFileSync(
-        recordPath,
-        JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false }),
-      );
+      seedTeam("dev4");
     });
 
     afterEach(() => {
@@ -188,8 +199,6 @@ describe("variations", () => {
       rmSync(home, { recursive: true, force: true });
     });
 
-    // lib/variations.ts:96 already wraps the write in try/catch: this proves
-    // the existing degrade path, it does not add new behavior.
     test("degrades to a structured failure, never a crash", () => {
       const result = saveVariation(IDENTITY, "/repo", "/repo/pkg/a", "build", {
         name: "debug",
@@ -197,7 +206,7 @@ describe("variations", () => {
       });
       expect(result.ok).toBe(false);
       if (!result.ok && result.reason === "write-failed") {
-        expect(result.message).toContain("pull-only");
+        expect(result.message).toContain("belong to its admins");
       } else {
         throw new Error(`expected a write-failed refusal, got ${JSON.stringify(result)}`);
       }

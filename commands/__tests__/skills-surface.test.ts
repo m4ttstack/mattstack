@@ -1,9 +1,10 @@
+import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { captureSkills, runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
 import type { CapturedOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { HEADER_COMMENT } from "../../lib/skills/compile.ts";
 import { execFileSync } from "child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "fs";
 import { Readable } from "node:stream";
 import { tmpdir } from "os";
 import { dirname, join, resolve } from "path";
@@ -11,6 +12,7 @@ import { installFakePick, type PickFakeStep } from "../../lib/ui/pick-fake.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
 import * as prompts from "../../lib/ui/prompts.ts";
+import * as packsModule from "../../lib/skills/packs.ts";
 import { computeRows, decidePaletteAction, skillsSurface, surfaceBlocks } from "../skills.ts";
 
 describe("surfaceBlocks", () => {
@@ -937,6 +939,23 @@ describe("grouped packs and pack selection", () => {
     expect(io.lines().join("\n")).toContain("[ok] checkout  moved attachments/forge/ -> skills/forge/");
   });
 
+  test("a lone base pack and no tty: asks for --pack without calling it more than one", async () => {
+    const packDir = makePackDir();
+    writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": [] }\n`);
+    const discovery = spyOn(packsModule, "discoverPacks").mockReturnValue([{ name: "acme-base", dir: packDir, layout: "flat", surfacePath: join(packDir, "pack", "surface.jsonc"), marketplace: null, base: true }]);
+    const previousIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+    try {
+      const { exitCode } = await runExpectingCleanExit(() => skillsSurface(["list"]));
+      expect(exitCode).toBe(1);
+      expect(io.stderr()).toContain("why: Only base packs are here (acme-base), and rt never picks one for you.");
+      expect(io.stderr()).not.toContain("more than one");
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { value: previousIsTTY, configurable: true });
+      discovery.mockRestore();
+    }
+  });
+
   test("no pack named and no tty: clean error that names the flag instead of guessing", async () => {
     const { mattstackDir } = makeEngineFixture();
     const { exitCode, errors } = await runExpectingCleanExit(() => skillsSurface(["list", "--mattstack-dir", mattstackDir]));
@@ -1151,3 +1170,111 @@ for (const json of [false, true]) {
     expect(readFileSync(join(packDir, "skills", "beta"), "utf8")).toBe("blocks the directory rename\n");
   });
 }
+
+describe("pack role refusals", () => {
+  for (const username of ["dev4", "dev2"]) for (const target of ["team", "root", "..pack"]) for (const json of [[], ["--json"]]) {
+    if (username === "dev2" && target === "team") continue;
+    test(`${username} writes to ${target} are refused ${json.length ? "as JSON" : "for a person"}`, async () => {
+      const savedHome = process.env.HOME;
+      process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-pack-role-")));
+      try {
+        seedOrg({ org: "acme", username, roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
+        const orgRoot = join(process.env.HOME!, ".mattstack", "teams", "acme");
+        const packDir = target === "root" ? orgRoot : target === "..pack" ? join(orgRoot, "..pack") : join(orgRoot, "mattstack", "teams", "widgets", "packs", "widgets");
+        writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
+        const title = target === "team" ? "The widgets team's files belong to its owners" : "The org's shared files belong to its admins";
+        const refusal = `${title}. ${target === "team" ? "Ask dev2 (the team's owner) or dev1 (an org admin) to make this change." : "Ask dev1 (an org admin) to make this change."}`;
+
+      writeFile(join(packDir, "pack", "surface.jsonc"), '{"public":["helper"]}');
+      writeFile(join(packDir, "skills", "helper", "SKILL.md"), "---\nname: helper\ndescription: Help\n---\nHelp.\n");
+      const before = readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8");
+      for (const mode of [["set", "helper", "--internal"], ["apply"]]) {
+        const result = await runExpectingCleanExit(() => skillsSurface([...mode, "--pack-dir", packDir, ...json]));
+        expect(result.exitCode).toBe(2);
+        if (json.length) expect(JSON.parse(io.lines().at(-1)!)).toEqual({ ok: false, dryRun: false, ...(mode[0] === "set" ? { set: [{ name: "helper", want: "internal" }] } : {}), moved: [], recorded: [], compileErrors: [refusal] });
+        else expect(io.stderr()).toStartWith(`[refused] ${title}`);
+        expect(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8")).toBe(before);
+        expect(readFileSync(join(packDir, "skills", "helper", "SKILL.md"), "utf8")).toBe("---\nname: helper\ndescription: Help\n---\nHelp.\n");
+        expect(existsSync(join(packDir, "pack", "skills", "helper", "SKILL.md"))).toBe(false);
+        expect((await runExpectingCleanExit(() => skillsSurface([...mode, "--pack-dir", packDir, "--dry-run", ...json]))).exitCode).toBeUndefined();
+        expect(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8")).toBe(before);
+      }
+
+      } finally { process.env.HOME = savedHome; }
+    });
+  }
+
+  test("a member's write in a copy of the current org repo outside its clone is refused like one in the clone", async () => {
+    const savedHome = process.env.HOME;
+    process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-pack-role-")));
+    try {
+      seedOrg({ org: "acme", username: "dev4", roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
+      const copy = join(realpathSync(mkdtempSync(join(tmpdir(), "rt-pack-role-copy-"))), "acme-wt");
+      cpSync(join(process.env.HOME!, ".mattstack", "teams", "acme"), copy, { recursive: true });
+      const packDir = join(copy, "mattstack", "teams", "widgets", "packs", "widgets");
+      writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
+      writeFile(join(packDir, "pack", "surface.jsonc"), '{"public":["helper"]}');
+      writeFile(join(packDir, "skills", "helper", "SKILL.md"), "---\nname: helper\ndescription: Help\n---\nHelp.\n");
+      const before = readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8");
+
+      const result = await runExpectingCleanExit(() => skillsSurface(["set", "helper", "--internal", "--pack-dir", packDir]));
+
+      expect(result.exitCode).toBe(2);
+      expect(io.stderr()).toStartWith("[refused] The widgets team's files belong to its owners");
+      expect(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8")).toBe(before);
+    } finally {
+      process.env.HOME = savedHome;
+    }
+  });
+
+  test("a member's palette is refused before the picker opens", async () => {
+    const savedHome = process.env.HOME;
+    process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-pack-role-")));
+    const fake = installFakePick([resultStep({ action: "select", values: [] })]);
+    try {
+      seedOrg({ org: "acme", username: "dev4", roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
+      const packDir = join(process.env.HOME!, ".mattstack", "teams", "acme", "mattstack", "teams", "widgets", "packs", "widgets");
+      writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
+      writeFile(join(packDir, "skills", "helper", "SKILL.md"), "---\nname: helper\ndescription: Help\n---\nHelp.\n");
+
+      const result = await withPaletteTTY("y", () => runExpectingCleanExit(() => skillsSurface(["--pack-dir", packDir])));
+
+      expect(result.exitCode).toBe(2);
+      expect(io.stderr()).toStartWith("[refused] The widgets team's files belong to its owners");
+      expect(fake.calls).toHaveLength(0);
+      expect(existsSync(join(packDir, "pack", "surface.jsonc"))).toBe(false);
+    } finally {
+      fake.restore();
+      process.env.HOME = savedHome;
+    }
+  });
+});
+
+
+describe("a Mac with two org clones", () => {
+  for (const json of [[], ["--json"]]) test(`a member's surface change in the other org's pack is refused ${json.length ? "as JSON" : "for a person"}`, async () => {
+    const savedHome = process.env.HOME;
+    process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-two-orgs-")));
+    const seed = seedOrg;
+    try {
+        const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } };
+        seed({ org: "acme", username: "dev4", roles, teams: { widgets: {} } });
+        seed({ org: "beta", username: "dev4", roles, teams: { widgets: {} } });
+        const packDir = join(process.env.HOME!, ".mattstack", "teams", "beta", "mattstack", "teams", "widgets", "packs", "widgets");
+        writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
+        const title = "This pack is in the beta org, not the one this Mac uses";
+        const refusal = `${title}. rt works with one org per Mac, and this Mac uses acme`;
+      writeFile(join(packDir, "pack", "surface.jsonc"), '{"public":["helper"]}');
+      writeFile(join(packDir, "skills", "helper", "SKILL.md"), "---\nname: helper\ndescription: Help\n---\nHelp.\n");
+      const before = readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8");
+      for (const mode of [["set", "helper", "--internal"], ["apply"]]) {
+        const result = await runExpectingCleanExit(() => skillsSurface([...mode, "--pack-dir", packDir, ...json]));
+        expect(result.exitCode).toBe(2);
+        if (json.length) expect(JSON.parse(io.lines().at(-1)!).compileErrors).toEqual([refusal]);
+        else expect(io.stderr()).toStartWith(`[refused] ${title}\n  why: rt works with one org per Mac, and this Mac uses acme`);
+        expect(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8")).toBe(before);
+        expect(existsSync(join(packDir, "attachments", "helper", "SKILL.md"))).toBe(false);
+      }
+    } finally { process.env.HOME = savedHome; }
+  });
+});

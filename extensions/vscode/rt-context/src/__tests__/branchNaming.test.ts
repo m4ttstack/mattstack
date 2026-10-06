@@ -10,12 +10,12 @@ import { loadBranchNamingConfig } from '../branchNaming';
 // docs/settings-architecture.md's store table.
 const userSettingsPath = (home: string) => join(home, '.mattstack', 'user', 'settings.user.jsonc');
 const teamSettingsPath = (home: string, team: string) =>
-  join(home, '.mattstack', 'teams', team, 'mattstack', 'settings.team.jsonc');
+  join(home, '.mattstack', 'teams', team, 'mattstack', 'org', 'settings.org.jsonc');
 
 // Every test repoints HOME at a fresh temp dir (call-time HOME resolution,
 // same convention as rt-client's own settings tests) so the settings store
 // this exercises is never the real ~/.mattstack.
-const IDENTITY = 'github.com/example/repo';
+const IDENTITY = 'github.com/acme/widgets';
 
 describe('loadBranchNamingConfig', () => {
   const origHome = process.env.HOME;
@@ -45,18 +45,23 @@ describe('loadBranchNamingConfig', () => {
   const legacyPath = () => join(dataDir, 'branch-naming.json');
   const writeLegacy = (contents: string) => writeFileSync(legacyPath(), contents);
 
-  /** A cloned team store, so `setSetting(..., "team", ...)`'s single-team auto-detection has exactly one candidate. */
-  function seedTeamStore(team: string): void {
+  /** An org clone, so `setSetting(..., "org", ...)` has a store to write. */
+  function seedTeamStore(team: string, username: string | null = 'dev1'): void {
     const path = teamSettingsPath(home, team);
-    mkdirSync(join(home, '.mattstack', 'teams', team, 'mattstack'), { recursive: true });
-    writeFileSync(path, '{}\n');
+    mkdirSync(join(home, '.mattstack', 'teams', team, 'mattstack', 'org'), { recursive: true });
+    writeFileSync(path, JSON.stringify({ 'mattstack.org': { admins: ['dev1'], teams: { widgets: { owners: ['dev2'] } } } }));
+    if (username !== null) {
+      const localDir = join(home, '.mattstack', 'rt', 'teams');
+      mkdirSync(localDir, { recursive: true });
+      writeFileSync(join(localDir, `${team}.json`), JSON.stringify({ forgeUsername: username }));
+    }
   }
 
   test('no store value, no legacy file -> null', () => {
     expect(loadBranchNamingConfig(dataDir, IDENTITY)).toBeNull();
   });
 
-  test('no store value, valid legacy file, exactly one cloned team -> imports into the team.repo rung, renames the file, and returns the template', () => {
+  test('no store value, valid legacy file, an org clone -> imports into the org.repo rung, renames the file, and returns the template', () => {
     seedTeamStore('acme');
     writeLegacy(JSON.stringify({ template: '${teamPrefix}-${ticketNumber}' }));
 
@@ -73,7 +78,7 @@ describe('loadBranchNamingConfig', () => {
     expect(teamStoreRaw.repos[IDENTITY]['rt.branchNaming']).toEqual({ template: '${teamPrefix}-${ticketNumber}' });
   });
 
-  test('no store value, valid legacy file, no cloned team store -> setSetting refuses; returns the template from the file, leaves it in place, warns', () => {
+  test('no store value, valid legacy file, no org clone -> returns the template from the file, leaves it in place quietly', () => {
     writeLegacy(JSON.stringify({ template: '${identifier}-legacy' }));
 
     const result = loadBranchNamingConfig(dataDir, IDENTITY);
@@ -81,8 +86,24 @@ describe('loadBranchNamingConfig', () => {
     expect(result).toEqual({ template: '${identifier}-legacy' });
     expect(existsSync(legacyPath())).toBe(true);
     expect(existsSync(`${legacyPath()}.migrated`)).toBe(false);
-    expect(warnSpy).toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
   });
+
+  for (const username of ['dev2', 'dev4', null]) {
+    test(`a Mac without org write permission (${username ?? 'unknown'}) keeps the legacy file quietly`, () => {
+      seedTeamStore('acme', username);
+      const legacy = JSON.stringify({ template: '${identifier}-legacy' });
+      writeLegacy(legacy);
+      const storeBefore = readFileSync(teamSettingsPath(home, 'acme'), 'utf8');
+      for (let activation = 0; activation < 2; activation++) {
+        expect(loadBranchNamingConfig(dataDir, IDENTITY)).toEqual({ template: '${identifier}-legacy' });
+      }
+      expect(readFileSync(legacyPath(), 'utf8')).toBe(legacy);
+      expect(existsSync(`${legacyPath()}.migrated`)).toBe(false);
+      expect(readFileSync(teamSettingsPath(home, 'acme'), 'utf8')).toBe(storeBefore);
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+  }
 
   test('store already owns the key -> store wins, legacy file (even if present) is left untouched', () => {
     // Ownership doesn't care WHICH scope owns the key; hand-authoring straight

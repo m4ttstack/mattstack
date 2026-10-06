@@ -38,8 +38,8 @@ for (const [name, sink] of Object.entries(sinks)) {
   });
 
   test(`${name}: a warning with no copy of its own shows its message`, () => {
-    sink()("board.members is not a list");
-    expect(io.stderr()).toBe("[warning] board.members is not a list\n");
+    sink()("mattstack.roster is not a list");
+    expect(io.stderr()).toBe("[warning] mattstack.roster is not a list\n");
     expect(io.stdout()).toBe("");
   });
 }

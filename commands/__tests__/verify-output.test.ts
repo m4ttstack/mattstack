@@ -16,7 +16,7 @@ function deps(): VerifyDeps & { exitCodes: number[] } {
   return {
     probes: fakeProbes({ exec: readyExec }),
     secrets,
-    teams: () => [],
+    orgs: () => [],
     compose: composePlan,
     exit: ((code: number) => { exitCodes.push(code); throw new Error("exit sentinel"); }) as VerifyDeps["exit"],
     exitCodes,
@@ -49,7 +49,7 @@ describe("rt verify --json", () => {
     cap = capturePlain();
     const d = deps();
     await run(d, ["--json"]);
-    const plan: Plan = await composePlan({ p: d.probes, secrets, ci: false, mode: "status", teams: [] });
+    const plan: Plan = await composePlan({ p: d.probes, secrets, ci: false, mode: "status", orgs: [] });
     const expected = verifyPayload(rowsToChecks(plan, { ci: false }), plan);
     expect(cap.stdout()).toBe(JSON.stringify(expected, null, 2) + "\n");
     expect(Object.keys(expected)).toEqual(["passed", "summary", "checks", "plan"]);
@@ -62,7 +62,7 @@ describe("rt verify for a person", () => {
     cap = capturePlain();
     const d = deps();
     await run(d, []);
-    const plan: Plan = await composePlan({ p: d.probes, secrets, ci: false, mode: "status", teams: [] });
+    const plan: Plan = await composePlan({ p: d.probes, secrets, ci: false, mode: "status", orgs: [] });
     const rows = cap.stdout().trimEnd().split("\n");
     for (const g of plan.groups) {
       if (g.rows.length > 0) expect(rows).toContain(g.title);

@@ -435,7 +435,7 @@ describe('SettingsPage', () => {
     expect([...team.children].map(c => c.textContent)).toEqual([
       'Team',
       '7',
-      '· shared with everyone through the team repo',
+      '· shared with your team through the org repo',
     ]);
     expect(
       within(board).queryAllByText('team', { selector: '.mantine-Badge-label' })
@@ -843,26 +843,51 @@ describe('page overflow', () => {
   });
 });
 
-describe('team name', () => {
-  it('names the machine team on the team subhead when defs carry one', async () => {
+describe('org and team names', () => {
+  const WITH_ORG = [
+    ...DEFS,
+    def('board.o0', {
+      scopes: ['team', 'org'],
+      effective: { scope: 'org', file: '/o', value: 'y' },
+    }),
+  ];
+
+  it('names the org on the org subhead and the active team on the team subhead', async () => {
     defsResponse = () => ({
       ok: true,
       status: 200,
-      json: async () => ({ defs: DEFS, team: 'acme' }),
+      json: async () => ({
+        defs: WITH_ORG,
+        org: 'acme',
+        activeTeam: 'widgets',
+      }),
     });
     renderPage();
     await screen.findByRole('heading', { name: 'Board' });
     expect(
-      screen.getByText('· shared with everyone through the acme team repo')
+      screen.getByText('· shared with every team through the acme org repo')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('· shared with the widgets team through the org repo')
     ).toBeInTheDocument();
   });
 
-  it('stays bare when the defs name no team', async () => {
+  it('stays bare when the defs name no org and no team', async () => {
+    defsResponse = serve(WITH_ORG);
     renderPage();
     await screen.findByRole('heading', { name: 'Board' });
     expect(
-      screen.getByText('· shared with everyone through the team repo')
+      screen.getByText('· shared with every team through the org repo')
     ).toBeInTheDocument();
+    expect(
+      screen.getByText('· shared with your team through the org repo')
+    ).toBeInTheDocument();
+  });
+
+  it('offers org in the scope filter', async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: 'Board' });
+    expect(screen.getByRole('radio', { name: 'org' })).toBeInTheDocument();
   });
 });
 
@@ -901,7 +926,13 @@ describe('repo picker', () => {
     await waitFor(() =>
       expect(new URLSearchParams(window.location.search).get('repo')).toBe(REPO)
     );
-    expect(await screen.findByText('team · repo')).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        (_, el) =>
+          !!el?.matches('.mantine-Badge-label') &&
+          el.textContent === 'team · repo'
+      )
+    ).toBeInTheDocument();
     expect(screen.getByText('for acme/app')).toBeInTheDocument();
   });
 

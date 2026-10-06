@@ -48,6 +48,28 @@ export interface TeamLocalRecord {
    * personal recipients file.
    */
   agePublicKey?: string;
+  /**
+   * This member's username on the org's forge, recorded at join, at create
+   * and by setup. The resolver reads it to pick the active team and the write
+   * guard reads it for the member's role, so it has to be on disk: neither
+   * may spawn a forge CLI.
+   */
+  forgeUsername?: string;
+  /** This Mac's creator roles still need a forge login or a commit. */
+  creatorPending?: { team: string; agePublicKey?: string };
+  /** New packs (with their org-relative paths) whose share commit has not landed; `rt team publish` commits them. */
+  pendingPackShares?: PendingPackShare[];
+}
+
+export interface PendingPackShare {
+  pack: string;
+  paths: string[];
+}
+
+function pendingPackShares(raw: unknown): PendingPackShare[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((entry): entry is PendingPackShare =>
+    typeof entry?.pack === "string" && Array.isArray(entry.paths) && entry.paths.length > 0 && entry.paths.every((path: unknown) => typeof path === "string"));
 }
 
 const RECORD_MODE = 0o600;
@@ -70,37 +92,85 @@ export function readTeamLocal(p: Pick<Probes, "readFile" | "home">, slug: string
       joinedByRt: parsed.joinedByRt === true,
       rtMayManageMembership: parsed.rtMayManageMembership === true,
       ...(typeof parsed.agePublicKey === "string" && parsed.agePublicKey.startsWith("age1") ? { agePublicKey: parsed.agePublicKey } : {}),
+      ...(parsed.creatorPending && typeof parsed.creatorPending.team === "string" ? {
+        creatorPending: { team: parsed.creatorPending.team, ...(typeof parsed.creatorPending.agePublicKey === "string" ? { agePublicKey: parsed.creatorPending.agePublicKey } : {}) },
+      } : {}),
+      ...(typeof parsed.forgeUsername === "string" && parsed.forgeUsername.trim() !== "" ? { forgeUsername: parsed.forgeUsername.trim() } : {}),
+      ...(pendingPackShares(parsed.pendingPackShares).length > 0 ? { pendingPackShares: pendingPackShares(parsed.pendingPackShares) } : {}),
     };
   } catch {
     return { ...EMPTY };
   }
 }
 
-export function writeTeamLocal(
-  p: Pick<Probes, "home" | "mkdirp" | "writeFile" | "chmod">,
-  slug: string,
-  record: TeamLocalRecord,
-): void {
+type RecordWriter = Pick<Probes, "home" | "mkdirp" | "writeFile" | "chmod" | "rename">;
+
+/** Written beside the record and renamed over it: the daemon reads this file every snapshot round, and a torn read would drop a pending share's hold. */
+export function writeTeamLocal(p: RecordWriter, slug: string, record: TeamLocalRecord): void {
   const path = teamLocalPath(p.home, slug);
+  const temp = `${path}.${process.pid}.tmp`;
   p.mkdirp(dirname(path));
   p.chmod(dirname(path), RECORD_DIR_MODE);
-  p.writeFile(path, `${JSON.stringify(record, null, 2)}\n`);
-  p.chmod(path, RECORD_MODE);
+  p.writeFile(temp, `${JSON.stringify(record, null, 2)}\n`, RECORD_MODE);
+  p.chmod(temp, RECORD_MODE);
+  p.rename(temp, path);
 }
 
-/** The one refusal every owner-shaped team verb raises on a joined machine, so the wording cannot drift between them. */
-export function assertNotJoined(p: Pick<Probes, "readFile" | "home">, slug: string): void {
-  if (!readTeamLocal(p, slug).joinedByRt) return;
-  throw new UserActionableError("team-pull-only", `This Mac joined the ${slug} team by invite, so its copy is pull-only.`, {}, { why: "Ask the team's owner to make this change." });
+const LOCK_TRIES = 50;
+const LOCK_WAIT_MS = 20;
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** Several rt processes update one record (a share, setup, a publish); without the lock a read-modify-write can drop another's field. A lock still there after a second is a dead writer's, so it is taken over. */
+function withRecordLock<T>(p: RecordWriter & Pick<Probes, "mkdirExclusive" | "removeDir">, slug: string, fn: () => T): T {
+  const lock = `${teamLocalPath(p.home, slug)}.lock`;
+  p.mkdirp(dirname(lock));
+  let held = false;
+  for (let i = 0; i < LOCK_TRIES && !held; i++) {
+    held = p.mkdirExclusive(lock);
+    if (!held) sleepSync(LOCK_WAIT_MS);
+  }
+  if (!held) {
+    p.removeDir(lock);
+    held = p.mkdirExclusive(lock);
+  }
+  try {
+    return fn();
+  } finally {
+    if (held) p.removeDir(lock);
+  }
+}
+
+/** A roster write lands in the org this Mac reads settings from, so a verb named for any other org would read one store and write another. */
+export function assertCurrentOrg(slug: string, current: string | null, verb: string): void {
+  if (current === slug) return;
+  if (current === null) {
+    throw new UserActionableError("org-not-on-this-mac", `This Mac has no clone of the ${slug} org, so its roster can't change here.`, {}, { next: "rt team join" });
+  }
+  throw new UserActionableError("org-not-current", `This Mac reads settings from the ${current} org, not ${slug}, so the ${slug} roster can't change here.`, {}, { next: `rt ${verb} --team ${current}` });
 }
 
 /** Merges one field without clobbering the rest — callers set `createdByRt` and the operator sets the permission, at different times. */
 export function updateTeamLocal(
-  p: Pick<Probes, "readFile" | "home" | "mkdirp" | "writeFile" | "chmod">,
+  p: RecordWriter & Pick<Probes, "readFile" | "mkdirExclusive" | "removeDir">,
   slug: string,
   patch: Partial<TeamLocalRecord>,
 ): TeamLocalRecord {
-  const next = { ...readTeamLocal(p, slug), ...patch };
-  writeTeamLocal(p, slug, next);
-  return next;
+  return editTeamLocal(p, slug, () => patch);
+}
+
+/** Like updateTeamLocal, with the patch computed from the record as it stands under the lock. */
+export function editTeamLocal(
+  p: RecordWriter & Pick<Probes, "readFile" | "mkdirExclusive" | "removeDir">,
+  slug: string,
+  edit: (current: TeamLocalRecord) => Partial<TeamLocalRecord>,
+): TeamLocalRecord {
+  return withRecordLock(p, slug, () => {
+    const current = readTeamLocal(p, slug);
+    const next = { ...current, ...edit(current) };
+    writeTeamLocal(p, slug, next);
+    return next;
+  });
 }

@@ -197,13 +197,9 @@ export function userSettingsPath(): string {
   return join(home(), ".mattstack", "user", "settings.user.jsonc");
 }
 
-/**
- * ~/.mattstack/teams/<team>/mattstack/settings.team.jsonc — the team store
- * (in the team repo zone): shared keys plus `repos.<identity>` sections.
- * `team` is a team NAME (directory name under teamsDir()), not an identity.
- */
-export function teamSettingsPath(team: string): string {
-  return join(teamsDir(), team, "mattstack", "settings.team.jsonc");
+/** ~/.mattstack/teams/<org>/mattstack/teams/<team>/settings.team.jsonc: one team folder's store. */
+export function teamSettingsPath(org: string, team: string): string {
+  return join(teamFolderDir(org, team), "settings.team.jsonc");
 }
 
 /**
@@ -219,6 +215,40 @@ export function machineSettingsPath(): string {
 /** ~/.mattstack/teams — the container every team's local clone lives under. */
 export function teamsDir(): string {
   return join(home(), ".mattstack", "teams");
+}
+
+/** ~/.mattstack/teams/<org>: the org clone. The parent folder keeps its `teams` name. */
+export function orgDir(org: string): string {
+  return join(teamsDir(), org);
+}
+
+export function orgMarkerPath(org: string): string {
+  return join(orgDir(org), "mattstack", "mattstack.jsonc");
+}
+
+export function orgSettingsPath(org: string): string {
+  return join(orgDir(org), "mattstack", "org", "settings.org.jsonc");
+}
+
+export function orgSecretsDir(org: string): string {
+  return join(orgDir(org), "mattstack", "org", "secrets");
+}
+
+export function orgPacksDir(org: string): string {
+  return join(orgDir(org), "mattstack", "org", "packs");
+}
+
+export function teamFoldersDir(org: string): string {
+  return join(orgDir(org), "mattstack", "teams");
+}
+
+export function teamFolderDir(org: string, team: string): string {
+  return join(teamFoldersDir(org), team);
+}
+
+/** A team's pack carries the team's name. */
+export function teamPackDir(org: string, team: string): string {
+  return join(teamFolderDir(org, team), "packs", team);
 }
 
 /**

@@ -13,8 +13,9 @@ import { useAgentModels } from '../config/useSettings';
 import type { OpenRow } from './explainParam';
 import type { WireIssue } from './issues';
 import type { PanelStore } from './KeyPanel';
+import { scopeTextColor } from './ScopeBadge';
 import { SettingRow, type RowOpen } from './SettingRow';
-import { useSettingsTeam } from './useConsoleSettings';
+import { useSettingsOrg, useSettingsTeam } from './useConsoleSettings';
 import {
   providerOf,
   type Provider,
@@ -22,30 +23,34 @@ import {
   type StoreScope,
 } from './view';
 
-const SUBHEAD: Record<
-  StoreScope,
-  { label: string; note: string; color: string }
-> = {
+const SUBHEAD: Record<StoreScope, { label: string; note: string }> = {
+  org: {
+    label: 'Org',
+    note: 'shared with every team through the org repo',
+  },
   team: {
     label: 'Team',
-    note: 'shared with everyone through the team repo',
-    color: 'var(--tk-text-purple-small)',
+    note: 'shared with your team through the org repo',
   },
   user: {
     label: 'You',
     note: 'your home repo, follows you to every machine',
-    color: 'var(--tk-text-cyan-small)',
   },
   machine: {
     label: 'This machine',
     note: 'never leaves this Mac',
-    color: 'var(--tk-text-accent-small)',
   },
 };
 
-function subheadNote(scope: StoreScope, team: string | null): string {
+function subheadNote(
+  scope: StoreScope,
+  team: string | null,
+  org: string | null
+): string {
+  if (scope === 'org' && org)
+    return `shared with every team through the ${org} org repo`;
   if (scope === 'team' && team)
-    return `shared with everyone through the ${team} team repo`;
+    return `shared with the ${team} team through the org repo`;
   return SUBHEAD[scope].note;
 }
 
@@ -184,6 +189,7 @@ export function SettingsSection({
 } & RowWiring) {
   const { text } = useSchemeColors();
   const team = useSettingsTeam();
+  const org = useSettingsOrg();
   if (section.group.id === 'agents')
     return (
       <AgentsSection
@@ -221,7 +227,7 @@ export function SettingsSection({
                 fw={500}
                 tt="uppercase"
                 lts={0.6}
-                c={SUBHEAD[sub.scope].color}
+                c={scopeTextColor(sub.scope)}
               >
                 {SUBHEAD[sub.scope].label}
               </Text>
@@ -229,7 +235,7 @@ export function SettingsSection({
                 {sub.defs.length}
               </Text>
               <Text fz={12} c={text.muted}>
-                {`· ${subheadNote(sub.scope, team)}`}
+                {`· ${subheadNote(sub.scope, team, org)}`}
               </Text>
             </Group>
           )}

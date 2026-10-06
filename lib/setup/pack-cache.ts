@@ -8,6 +8,7 @@
 import { join } from "path";
 import { resolveTool } from "../deps/resolve.ts";
 import { stripJsonc } from "../jsonc.ts";
+import { activeTeamFor } from "../team/active-team.ts";
 import type { ExecResult, Probes } from "./probes.ts";
 import { claudeConfigDirs } from "./tools-install.ts";
 import type { Logger } from "pino";
@@ -85,8 +86,11 @@ function readVersion(p: Pick<Probes, "readFile">, pluginDir: string): string | n
  * A null `servedVersion` means rt cannot read a version for that pack (an
  * object-form source, or an unreadable plugin.json). Callers must treat that
  * as "outside the converge", never as a version mismatch.
+ *
+ * `only` unset serves every entry; a name serves that pack alone; null serves
+ * none, for a Mac on no team.
  */
-export function readServedPacks(p: Pick<Probes, "readFile" | "home">, slug: string): ServedPacks {
+export function readServedPacks(p: Pick<Probes, "readFile" | "home">, slug: string, opts: { only?: string | null } = {}): ServedPacks {
   const clone = teamCloneDir(p.home, slug);
   const path = join(clone, ".claude-plugin", "marketplace.json");
   const raw = p.readFile(path);
@@ -104,6 +108,7 @@ export function readServedPacks(p: Pick<Probes, "readFile" | "home">, slug: stri
   const packs: ServedPack[] = [];
   for (const entry of entries) {
     if (!isPlainObject(entry) || typeof entry.name !== "string" || entry.name.length === 0) continue;
+    if (opts.only !== undefined && entry.name !== opts.only) continue;
     const servedVersion = typeof entry.source === "string" ? readVersion(p, join(clone, entry.source)) : null;
     packs.push({ id: `${entry.name}@${marketplace}`, name: entry.name, servedVersion });
   }
@@ -213,13 +218,14 @@ export function isNotFound(res: ExecResult): boolean {
  * Brings the Claude plugin cache in line with what the team clone serves.
  * Never installs a pack whose served version it cannot read: that version is
  * the only evidence the pack is a local directory copy, which is what the
- * settlement's timeouts were measured against.
+ * settlement's timeouts were measured against. Only the active team's pack is
+ * converged; a Mac on no team converges none.
  */
 export async function convergePackCache(
   p: Probes,
   slug: string,
   log: Logger,
-  opts: { now?: () => number } = {},
+  opts: { now?: () => number; activeTeam?: () => string | null } = {},
 ): Promise<ConvergeResult> {
   const now = opts.now ?? Date.now;
   const result = emptyResult();
@@ -230,7 +236,8 @@ export async function convergePackCache(
     return result;
   }
 
-  const servedPacks = readServedPacks(p, slug);
+  const team = (opts.activeTeam ?? (() => activeTeamFor(p, slug).team))();
+  const servedPacks = readServedPacks(p, slug, { only: team });
   if (servedPacks.error) {
     result.failed.push({ id: "*", detail: servedPacks.error });
     return result;

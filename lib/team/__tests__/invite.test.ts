@@ -1,3 +1,9 @@
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
+import { childEnv } from "../../subprocess.ts";
+import { createRealProbes } from "../../setup/probes.ts";
+import { teamLocalPath } from "../team-local.ts";
 import { describe, test, expect } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { UserActionableError } from "../../errors.ts";
@@ -5,7 +11,7 @@ import type { Probes } from "../../setup/probes.ts";
 import type { SettingsReader } from "../../setup/team-settings.ts";
 import { decodeCode, open } from "../invite-crypto.ts";
 import { readInviteRecords } from "../invite-records.ts";
-import { INVITE_TTL_DAYS, joinLink, joinLinkBase, mintInvite, pasteBlock, type MintInviteSeams } from "../invite.ts";
+import { INVITE_TTL_DAYS, joinLink, joinLinkBase, mintInvite, pasteBlock, realMintInviteSeams, type MintInviteSeams } from "../invite.ts";
 import type { RelayClient } from "../relay-client.ts";
 import { SWITCHBOARD_URL } from "../../../packages/rt-client/src/switchboard.ts";
 import type { setSetting } from "../../settings/write.ts";
@@ -104,8 +110,11 @@ function baseSeams(overrides: Partial<MintInviteSeams> = {}): { seams: MintInvit
       "mattstack.integrations": { forge: { host: "github.com", provider: "github" } },
       "board.title": "Acme Team",
     }),
-    readTeamStore: () => ({ "board.members": [] }),
+    readTeamStore: () => ({ "mattstack.roster": [] }),
     writeSetting: spy,
+    currentOrg: () => SLUG,
+    pullOrg: async () => {},
+    publishRoster: async () => {},
     grantRead: async () => ({ access: "granted", manualSteps: [] }),
     // Default ON so the existing suite keeps exercising the grant path it was
     // written for; the tests below cover the default-off behaviour explicitly.
@@ -120,8 +129,13 @@ function baseSeams(overrides: Partial<MintInviteSeams> = {}): { seams: MintInvit
 }
 
 function probesWithRemote(remote: string, extraFiles: Record<string, string> = {}): ReturnType<typeof fakeProbes> {
-  return fakeProbes({ home: HOME, files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(remote), ...extraFiles } });
+  return fakeProbes({ home: HOME, files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(remote), ...TEAM_FILES, ...extraFiles } });
 }
+
+const TEAM_FILES = {
+  "/home/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc": "{}",
+  "/home/.mattstack/teams/acme/mattstack/teams/gadgets/settings.team.jsonc": "{}",
+};
 
 const REMOTE = "git@github.com:acme/widgets.git";
 
@@ -168,16 +182,16 @@ describe("mintInvite", () => {
     const { seams } = baseSeams();
     const relay = fakeRelayClient();
 
-    await expect(mintInvite(p, relay.client, { slug: SLUG, handle: "bad handle!", now: NOW }, seams)).rejects.toThrow(UserActionableError);
+    await expect(mintInvite(p, relay.client, { slug: SLUG, handle: "bad handle!", teams: ["widgets"], now: NOW }, seams)).rejects.toThrow(UserActionableError);
     expect(relay.createCalls).toHaveLength(0);
   });
 
   test("throws no-team-remote when the team has no git remote configured", async () => {
-    const p = fakeProbes({ home: HOME });
+    const p = fakeProbes({ home: HOME, files: { [`${HOME}/.mattstack/teams/${SLUG}/mattstack/teams/widgets/settings.team.jsonc`]: "{}" } });
     const { seams } = baseSeams();
     const relay = fakeRelayClient();
 
-    await expect(mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams)).rejects.toThrow(UserActionableError);
+    await expect(mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams)).rejects.toMatchObject({ code: "no-team-remote" });
   });
 
   test("posts only ciphertext to the relay — the pointer's plaintext AND the code's key never appear in the request", async () => {
@@ -186,7 +200,7 @@ describe("mintInvite", () => {
     const { seams } = baseSeams();
     const relay = fakeRelayClient();
 
-    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(relay.createCalls).toHaveLength(1);
     const body = relay.createCalls[0]!.ciphertext;
@@ -208,68 +222,69 @@ describe("mintInvite", () => {
     const { seams } = baseSeams();
     const relay = fakeRelayClient();
 
-    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     const expected = new Date(NOW.getTime() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
     expect(result.expiresAt).toBe(expected);
     expect(relay.createCalls[0]!.expiresAt).toBe(expected);
   });
 
-  test("appends the handle to both board.members and mattstack.roster via the writeSetting seam, unless already present", async () => {
+  test("an invite for an org this Mac does not read settings from is refused before anything is minted or written", async () => {
+    const p = probesWithRemote(REMOTE);
+    const relay = fakeRelayClient();
+    const { seams, writeCalls } = baseSeams({ currentOrg: () => "zeta" });
+
+    await expect(mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams)).rejects.toMatchObject({
+      code: "org-not-current",
+      next: "rt team invite zaphod --team zeta",
+    });
+    expect(writeCalls).toEqual([]);
+    expect(relay.callOrder).toEqual([]);
+
+    const none = baseSeams({ currentOrg: () => null });
+    await expect(mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, none.seams)).rejects.toMatchObject({ code: "org-not-on-this-mac", next: "rt team join" });
+  });
+
+  test("appends the handle to mattstack.roster at org via the writeSetting seam", async () => {
     const p = probesWithRemote(REMOTE);
     const { seams, writeCalls } = baseSeams();
     const relay = fakeRelayClient();
 
-    await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(writeCalls).toEqual([
-      { key: "board.members", value: [{ username: "zaphod" }], scope: "team", opts: { team: SLUG } },
-      { key: "mattstack.roster", value: [{ username: "zaphod" }], scope: "team", opts: { team: SLUG } },
+      { key: "mattstack.roster", value: [{ username: "zaphod", teams: ["widgets"] }], scope: "org", opts: undefined },
     ]);
   });
 
   test("does not re-add a handle already on the team's own roster", async () => {
     const p = probesWithRemote(REMOTE);
     const { seams, writeCalls } = baseSeams({
-      readTeamStore: () => ({ "board.members": [{ username: "zaphod" }], "mattstack.roster": [{ username: "zaphod" }] }),
+      readTeamStore: () => ({ "mattstack.roster": [{ username: "zaphod", teams: ["widgets"] }] }),
     });
     const relay = fakeRelayClient();
 
-    await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(writeCalls).toHaveLength(0);
   });
 
-  test("each roster key is judged on its own contents: a handle on one and not the other gets the missing write only", async () => {
+  test("addToRoster consults the org store's own roster, not the merged view `read` exposes", async () => {
     const p = probesWithRemote(REMOTE);
-    const { seams, writeCalls } = baseSeams({
-      readTeamStore: () => ({ "board.members": [{ username: "zaphod" }], "mattstack.roster": [] }),
-    });
-    const relay = fakeRelayClient();
-
-    await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
-
-    expect(writeCalls).toEqual([
-      { key: "mattstack.roster", value: [{ username: "zaphod" }], scope: "team", opts: { team: SLUG } },
-    ]);
-  });
-
-  test("addToRoster consults the team's OWN store, not the multi-team overlay `read` exposes", async () => {
-    const p = probesWithRemote(REMOTE);
-    // The overlay (`read`) claims zaphod is already on some team's roster; this team's own store says otherwise.
+    // The merged view (`read`) claims zaphod is already on the roster; the org store's own roster says otherwise.
     const { seams, writeCalls } = baseSeams({
       read: fakeRead({
         "mattstack.integrations": { forge: { host: "github.com", provider: "github" } },
         "board.title": "Acme Team",
-        "board.members": [{ username: "zaphod" }],
+        "mattstack.roster": [{ username: "zaphod", teams: ["widgets"] }],
       }),
-      readTeamStore: () => ({ "board.members": [] }),
+      readTeamStore: () => ({ "mattstack.roster": [] }),
     });
     const relay = fakeRelayClient();
 
-    await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
-    expect(writeCalls.map((c) => c.key)).toEqual(["board.members", "mattstack.roster"]);
+    expect(writeCalls.map((c) => c.key)).toEqual(["mattstack.roster"]);
   });
 
   test("replace-on-mint creates the new invite before revoking the old one; a failed old-delete does not wedge the mint", async () => {
@@ -285,7 +300,7 @@ describe("mintInvite", () => {
       },
     });
 
-    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(result.code).toBeTruthy();
     expect(relay.callOrder).toEqual(["create", "delete"]);
@@ -298,14 +313,16 @@ describe("mintInvite", () => {
     const { seams } = baseSeams();
     const relay = fakeRelayClient();
 
-    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     const { idHex, key } = decodeCode(result.code);
     expect(idHex).toBe(relay.createCalls[0]!.id!);
 
     const pointer = await open(relay.createCalls[0]!.ciphertext, key, idHex);
     expect(pointer).toEqual({
-      v: 1,
+      v: 2,
+      username: "zaphod",
+      teams: ["widgets"],
       team: SLUG,
       name: "Acme Team",
       remote: REMOTE,
@@ -325,7 +342,7 @@ describe("mintInvite", () => {
     });
     const relay = fakeRelayClient();
 
-    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     const { idHex, key } = decodeCode(result.code);
     const pointer = await open(relay.createCalls[0]!.ciphertext, key, idHex);
@@ -336,7 +353,7 @@ describe("mintInvite", () => {
     const fetchCalls: { url: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }[] = [];
     const p = fakeProbes({
       home: HOME,
-      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE) },
+      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES },
       fetch: async (url, init) => {
         fetchCalls.push({ url, init });
         return { status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-9" }), headers: {} };
@@ -345,7 +362,7 @@ describe("mintInvite", () => {
     const { seams } = baseSeams({ readLocalSecret: async () => "admin-1" });
     const relay = fakeRelayClient();
 
-    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(fetchCalls).toHaveLength(1);
     expect(fetchCalls[0]!.url).toBe(`${SWITCHBOARD_URL}/boards`);
@@ -361,7 +378,7 @@ describe("mintInvite", () => {
     const p = fakeProbes({
       home: HOME,
       env: { RT_SWITCHBOARD_URL: "http://127.0.0.1:7940" },
-      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE) },
+      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES },
       fetch: async (url) => {
         urls.push(url);
         return { status: 201, body: JSON.stringify({ token: "tok-9" }), headers: {} };
@@ -369,7 +386,7 @@ describe("mintInvite", () => {
     });
     const { seams } = baseSeams({ readLocalSecret: async () => "admin-1" });
 
-    await mintInvite(p, fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    await mintInvite(p, fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(urls).toEqual(["http://127.0.0.1:7940/boards"]);
   });
@@ -379,7 +396,7 @@ describe("mintInvite", () => {
     const { seams, warnings } = baseSeams({ readLocalSecret: async () => null });
     const relay = fakeRelayClient();
 
-    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(p.calls.fetch).toHaveLength(0);
     const { idHex, key } = decodeCode(result.code);
@@ -397,7 +414,7 @@ describe("mintInvite", () => {
     });
     const relay = fakeRelayClient();
 
-    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(result.code).toBeTruthy();
     expect(result.peering).toBe("missing");
@@ -410,13 +427,13 @@ describe("mintInvite", () => {
   test("a failing switchboard register: the mint still succeeds without a sealed token, warned", async () => {
     const p = fakeProbes({
       home: HOME,
-      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE) },
+      files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES },
       fetch: async () => ({ status: 500, body: "", headers: {} }),
     });
     const { seams, warnings } = baseSeams({ readLocalSecret: async () => "admin-1" });
     const relay = fakeRelayClient();
 
-    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(result.code).toBeTruthy();
     const { idHex, key } = decodeCode(result.code);
@@ -429,20 +446,20 @@ describe("mintInvite", () => {
     const registered = () =>
       fakeProbes({
         home: HOME,
-        files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE) },
+        files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES },
         fetch: async () => ({ status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-9" }), headers: {} }),
       });
     const refused = () =>
       fakeProbes({
         home: HOME,
-        files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE) },
+        files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES },
         fetch: async () => ({ status: 401, body: "", headers: {} }),
       });
 
     test("an embedded board token reports peering embedded, with no warning", async () => {
       const { seams } = baseSeams({ readLocalSecret: async () => "admin-1" });
 
-      const result = await mintInvite(registered(), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+      const result = await mintInvite(registered(), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
       expect(result.peering).toBe("embedded");
       expect(result.peeringWarning).toBeUndefined();
@@ -451,7 +468,7 @@ describe("mintInvite", () => {
     test("no admin token reports peering none", async () => {
       const { seams } = baseSeams();
 
-      const result = await mintInvite(probesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+      const result = await mintInvite(probesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
       expect(result.peering).toBe("none");
       expect(result.peeringWarning).toBeUndefined();
@@ -460,32 +477,43 @@ describe("mintInvite", () => {
     test("a token that could not be minted reports peering missing, and the reason goes to the warning's log text", async () => {
       const { seams, warnings } = baseSeams({ readLocalSecret: async () => "admin-1" });
 
-      const result = await mintInvite(refused(), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+      const result = await mintInvite(refused(), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
       expect(result.peering).toBe("missing");
       expect(result.peeringWarning).toBe("This invite will not connect their board. Once it can, invite them again and have them join with the new invite.");
       expect(warnings).toContain("board peering: the switchboard register answered 401");
     });
 
-    test("requirePeering refuses a missing token before anything reaches the relay or the roster", async () => {
-      const { seams, writeCalls } = baseSeams({ readLocalSecret: async () => "admin-1" });
+    test("requirePeering refuses a token that could not be minted before anything reaches the relay", async () => {
+      const { seams } = baseSeams({ readLocalSecret: async () => "admin-1" });
       const relay = fakeRelayClient();
 
-      const caught = await mintInvite(refused(), relay.client, { slug: SLUG, handle: "zaphod", now: NOW, requirePeering: true }, seams).catch((err: unknown) => err);
+      const caught = await mintInvite(refused(), relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW, requirePeering: true }, seams).catch((err: unknown) => err);
 
       expect(caught).toBeInstanceOf(UserActionableError);
       expect((caught as UserActionableError).code).toBe("peering-not-embedded");
       expect((caught as UserActionableError).log).toContain("the switchboard register answered 401");
       expect(relay.createCalls).toEqual([]);
-      expect(writeCalls).toEqual([]);
     });
+
+    for (const step of ["pull", "roster push"] as const) {
+      test(`a ${step} that fails registers no board, so no board token is left unused`, async () => {
+        const fail = async () => { throw new UserActionableError("org-changed-concurrently", "Someone else changed the org at the same time, so rt made no invite"); };
+        const { seams } = baseSeams({ readLocalSecret: async () => "admin-1", ...(step === "pull" ? { pullOrg: fail } : { publishRoster: fail }) });
+        const p = registered();
+
+        await expect(mintInvite(p, fakeRelayClient().client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams)).rejects.toBeInstanceOf(UserActionableError);
+
+        expect(p.calls.fetch).toEqual([]);
+      });
+    }
 
     test("requirePeering refuses a Mac with no admin token before anything reaches the relay or the roster", async () => {
       const { seams, writeCalls } = baseSeams();
       const relay = fakeRelayClient();
       const p = probesWithRemote(REMOTE);
 
-      const caught = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW, requirePeering: true }, seams).catch((err: unknown) => err);
+      const caught = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW, requirePeering: true }, seams).catch((err: unknown) => err);
 
       expect(caught).toBeInstanceOf(UserActionableError);
       expect((caught as UserActionableError).code).toBe("peering-not-embedded");
@@ -501,7 +529,7 @@ describe("mintInvite", () => {
     const { seams } = baseSeams({ read: fakeRead({ "board.title": "Acme Team" }) });
     const relay = fakeRelayClient();
 
-    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     const { idHex, key } = decodeCode(result.code);
     const pointer = await open(relay.createCalls[0]!.ciphertext, key, idHex);
@@ -509,11 +537,11 @@ describe("mintInvite", () => {
   });
 
   test("falls back to p.env.USER as owner when no forge login is available", async () => {
-    const p = fakeProbes({ home: HOME, env: { USER: "localuser" }, files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE) } });
+    const p = fakeProbes({ home: HOME, env: { USER: "localuser" }, files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE), ...TEAM_FILES } });
     const { seams } = baseSeams({ read: fakeRead({ "board.title": "Acme Team" }), forgeLogin: async () => null });
     const relay = fakeRelayClient();
 
-    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     const { idHex, key } = decodeCode(result.code);
     const pointer = await open(relay.createCalls[0]!.ciphertext, key, idHex);
@@ -527,7 +555,7 @@ describe("mintInvite", () => {
     });
     const relay = fakeRelayClient();
 
-    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(result.forgeAccess).toBe("manual");
     expect(result.manualSteps).toEqual(["Open https://github.com/acme/widgets/settings/access", "Invite zaphod with Read"]);
@@ -549,7 +577,7 @@ describe("mintInvite", () => {
     });
     const relay = fakeRelayClient();
 
-    await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(seen).toEqual({ login: "ghp-secret", grant: "ghp-secret" });
   });
@@ -567,7 +595,7 @@ describe("mintInvite", () => {
     });
     const relay = fakeRelayClient();
 
-    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(order).toEqual(["grantRead-saw-record"]);
     const records = readInviteRecords(p, SLUG);
@@ -576,7 +604,7 @@ describe("mintInvite", () => {
     expect(p.calls.modes["/home/.mattstack/rt/invites/acme.json"]).toBe(0o600);
   });
 
-  test("a throwing roster write still leaves the mint record recoverable", async () => {
+  test("a throwing roster write makes no invite or mint record", async () => {
     const p = probesWithRemote(REMOTE);
     const { seams } = baseSeams({
       writeSetting: (() => {
@@ -585,11 +613,11 @@ describe("mintInvite", () => {
     });
     const relay = fakeRelayClient();
 
-    await expect(mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams)).rejects.toThrow();
+    await expect(mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams)).rejects.toThrow();
 
     const records = readInviteRecords(p, SLUG);
-    expect(records.zaphod?.id).toBe(relay.createReturns[0]!.id);
-    expect(records.zaphod?.creatorSecret).toBe(relay.createReturns[0]!.creatorSecret);
+    expect(records).toEqual({});
+    expect(relay.createCalls).toEqual([]);
   });
 
   test("a failing record write throws, naming the invite id and code so it is recoverable by hand", async () => {
@@ -599,7 +627,7 @@ describe("mintInvite", () => {
 
     let caught: unknown;
     try {
-      await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+      await mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
     } catch (err) {
       caught = err;
     }
@@ -617,7 +645,7 @@ describe("mintInvite", () => {
     const { seams } = baseSeams();
     const relay = fakeRelayClient({ createId: () => "f".repeat(32) });
 
-    await expect(mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams)).rejects.toThrow(UserActionableError);
+    await expect(mintInvite(p, relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams)).rejects.toThrow(UserActionableError);
   });
 });
 
@@ -635,7 +663,7 @@ describe("mintInvite: forge membership is not rt's to grant", () => {
     });
     const relay = fakeRelayClient();
 
-    const result = await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "alice", now: NOW }, seams);
+    const result = await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "alice", teams: ["widgets"], now: NOW }, seams);
 
     expect(grantCalls).toEqual([]);
     expect(result.forgeAccess).toBe("skipped");
@@ -655,7 +683,7 @@ describe("mintInvite: forge membership is not rt's to grant", () => {
       },
     });
     const relay = fakeRelayClient();
-    await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "alice", now: NOW }, seams);
+    await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "alice", teams: ["widgets"], now: NOW }, seams);
     expect(grantCalls).toEqual([]);
   });
 
@@ -669,7 +697,7 @@ describe("mintInvite: forge membership is not rt's to grant", () => {
       },
     });
     const relay = fakeRelayClient();
-    const result = await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "alice", now: NOW }, seams);
+    const result = await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "alice", teams: ["widgets"], now: NOW }, seams);
     expect(grantCalls).toEqual(["alice"]);
     expect(result.forgeAccess).toBe("granted");
   });
@@ -679,7 +707,7 @@ describe("mintInvite: forge membership is not rt's to grant", () => {
   test("the invite is still minted and returned when rt cannot grant", async () => {
     const { seams } = baseSeams({ readTeamLocal: () => ({ createdByRt: false, joinedByRt: false, rtMayManageMembership: false }) });
     const relay = fakeRelayClient();
-    const result = await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "alice", now: NOW }, seams);
+    const result = await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "alice", teams: ["widgets"], now: NOW }, seams);
     expect(relay.createCalls.length).toBe(1);
     expect(result.code.length).toBeGreaterThan(0);
   });
@@ -691,7 +719,7 @@ describe("mintInvite: forge membership is not rt's to grant", () => {
       grantRead: async () => { called = true; return { access: "granted" as const, manualSteps: [] }; },
     });
     const relay = fakeRelayClient();
-    const result = await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(called).toBe(false);
     expect(result.forgeAccess).toBe("skipped");
@@ -706,7 +734,7 @@ describe("mintInvite: forge membership is not rt's to grant", () => {
       grantRead: async () => { called = true; return { access: "granted" as const, manualSteps: [] }; },
     });
     const relay = fakeRelayClient();
-    const result = await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(called).toBe(false);
     expect(result.forgeAccess).toBe("skipped");
@@ -715,7 +743,7 @@ describe("mintInvite: forge membership is not rt's to grant", () => {
   test("an unparseable remote still gets the admin sentence, never an empty steps list", async () => {
     const { seams } = baseSeams({ readTeamLocal: () => ({ createdByRt: false, joinedByRt: false, rtMayManageMembership: false }) });
     const relay = fakeRelayClient();
-    const result = await mintInvite(probesWithRemote("weird://host/thing"), relay.client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+    const result = await mintInvite(probesWithRemote("weird://host/thing"), relay.client, { slug: SLUG, handle: "zaphod", teams: ["widgets"], now: NOW }, seams);
 
     expect(result.manualSteps.length).toBeGreaterThan(0);
     expect(result.manualSteps.at(-1)).toContain("Ask whoever runs the team repo");
@@ -750,4 +778,351 @@ describe("joinLinkBase refuses a base the code could be intercepted on", () => {
   test("a value that is not a url at all is refused rather than pasted into a link", () => {
     expect(() => joinLinkBase({ RT_JOIN_BASE_URL: "mattstack.example/join" })).toThrow(/https/);
   });
+});
+
+  describe("teams", () => {
+    test("the pointer carries the invited username and the teams, at version 2", async () => {
+      const p = probesWithRemote(REMOTE);
+      const relay = fakeRelayClient();
+      const { seams } = baseSeams();
+      const result = await mintInvite(p, relay.client, { slug: SLUG, handle: "dev2", teams: ["widgets", "gadgets"], now: NOW }, seams);
+      const { idHex, key } = decodeCode(result.code);
+      const pointer = await open(relay.createCalls[0]!.ciphertext, key, idHex);
+      expect(pointer).toMatchObject({ v: 2, team: "acme", username: "dev2", teams: ["widgets", "gadgets"] });
+    });
+
+    test("a new roster entry carries the teams, first team first, written at org scope", async () => {
+      const { seams, writeCalls } = baseSeams();
+      await mintInvite(probesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "dev2", teams: ["widgets", "gadgets"], now: NOW }, seams);
+      expect(writeCalls).toEqual([{ key: "mattstack.roster", value: [{ username: "dev2", teams: ["widgets", "gadgets"] }], scope: "org", opts: undefined }]);
+    });
+
+    test("re-inviting someone already on the roster adds the new teams after their own and keeps their first team", async () => {
+      const { seams, writeCalls } = baseSeams({ readTeamStore: () => ({ "mattstack.roster": [{ username: "Dev2", name: "D", teams: ["gadgets"] }] }) });
+      await mintInvite(probesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "dev2", teams: ["widgets", "gadgets"], now: NOW }, seams);
+      expect(writeCalls[0]!.value).toEqual([{ username: "Dev2", name: "D", teams: ["gadgets", "widgets"] }]);
+    });
+
+    test("an invite with no team, or a team name that is not a folder name, is refused before anything is minted", async () => {
+      const relay = fakeRelayClient();
+      const { seams } = baseSeams();
+      await expect(mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "dev2", teams: [], now: NOW }, seams)).rejects.toMatchObject({ code: "invite-needs-team" });
+      await expect(mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "dev2", teams: ["../x"], now: NOW }, seams)).rejects.toMatchObject({ code: "bad-team-name" });
+      expect(relay.createCalls).toEqual([]);
+    });
+
+    test("the org is pulled, then the roster entry is written and pushed, all before the invite exists", async () => {
+      const relay = fakeRelayClient();
+      const order: string[] = [];
+      const { seams } = baseSeams({
+        pullOrg: async () => { order.push("pull"); },
+        readTeamStore: () => { order.push("read roster"); return { "mattstack.roster": [] }; },
+        writeSetting: (() => { order.push("write roster"); }) as unknown as MintInviteSeams["writeSetting"],
+        publishRoster: async (_p, slug, handle) => { order.push(`publish ${slug} ${handle}, invites so far: ${relay.createCalls.length}`); },
+      });
+      await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "dev2", teams: ["widgets"], now: NOW }, seams);
+      expect(order).toEqual(["pull", "read roster", "write roster", "publish acme dev2, invites so far: 0"]);
+      expect(relay.createCalls.length).toBe(1);
+    });
+
+    test("a pull that fails makes no invite and writes no roster", async () => {
+      const relay = fakeRelayClient();
+      const { seams, writeCalls } = baseSeams({ pullOrg: async () => { throw new Error("could not resolve host"); } });
+      await expect(mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "dev2", teams: ["widgets"], now: NOW }, seams)).rejects.toMatchObject({
+        code: "org-not-current",
+        message: "rt could not bring the org repo up to date, so it made no invite",
+        why: "could not resolve host",
+      });
+      expect(writeCalls).toEqual([]);
+      expect(relay.createCalls).toEqual([]);
+    });
+
+    test("a pull that clashes with someone else's change keeps its own plain refusal", async () => {
+      const relay = fakeRelayClient();
+      const clash = new UserActionableError("org-changed-concurrently", "Someone else changed the org at the same time, so rt made no invite", {}, { next: "git pull" });
+      const { seams, writeCalls } = baseSeams({ pullOrg: async () => { throw clash; } });
+      await expect(mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "dev2", teams: ["widgets"], now: NOW }, seams)).rejects.toBe(clash);
+      expect(writeCalls).toEqual([]);
+      expect(relay.createCalls).toEqual([]);
+    });
+
+    test("a re-invite whose entry needs no change still pushes: an earlier write may never have left this Mac", async () => {
+      let pushed = 0;
+      const { seams, writeCalls } = baseSeams({
+        readTeamStore: () => ({ "mattstack.roster": [{ username: "dev2", teams: ["widgets"] }] }),
+        publishRoster: async () => { pushed++; },
+      });
+      await mintInvite(probesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "dev2", teams: ["widgets"], now: NOW }, seams);
+      expect(writeCalls).toEqual([]);
+      expect(pushed).toBe(1);
+    });
+
+    test("a push that fails makes no invite, and says what to do", async () => {
+      const relay = fakeRelayClient();
+      const { seams } = baseSeams({ publishRoster: async () => { throw new UserActionableError("push-denied", "The org repo refused the push"); } });
+      await expect(mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "dev2", teams: ["widgets"], now: NOW }, seams)).rejects.toMatchObject({
+        code: "roster-not-published",
+        message: "rt could not push dev2's roster entry, so it made no invite",
+        why: "The org repo refused the push. Pull any change someone else pushed and settle any clash, publish, then invite again.",
+        next: "git -C /home/.mattstack/teams/acme pull --rebase --autostash origin main",
+        thenRun: "rt team publish --team acme",
+      });
+      expect(relay.createCalls).toEqual([]);
+    });
+
+    test("a team with no folder in the org is refused", async () => {
+      const relay = fakeRelayClient();
+      const { seams } = baseSeams();
+      const p = probesWithRemote(REMOTE, { "/home/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc": "{}" });
+      await expect(mintInvite(p, relay.client, { slug: SLUG, handle: "dev2", teams: ["sprockets"], now: NOW }, seams)).rejects.toMatchObject({ code: "no-such-team" });
+      expect(relay.createCalls).toEqual([]);
+    });
+  });
+
+describe("real invite git seams", () => {
+  test("a known org pulls with rebase and autostash, credentials only in env", async () => {
+    const seen: { argv: string[]; env?: Record<string, string> }[] = [];
+    const p = probesWithRemote("https://github.com/acme/widgets.git");
+    p.exec = async (argv, opts) => { seen.push({ argv, env: opts?.env }); return { code: 0, stdout: "", stderr: "" }; };
+    await realMintInviteSeams().pullOrg(p, SLUG, "https://github.com/acme/widgets.git", "private-token");
+    expect(seen.map((call) => call.argv)).toContainEqual(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"]);
+    const pull = seen.find((call) => call.argv.includes("pull"))!;
+    expect(pull.argv.slice(-5)).toEqual(["pull", "--rebase", "--autostash", "origin", "main"]);
+    expect(JSON.stringify(seen.map((call) => call.argv))).not.toContain("private-token");
+    expect(pull.env).toMatchObject({ GIT_TERMINAL_PROMPT: "0", RT_GIT_TOKEN: "private-token", RT_GIT_HOST: "github.com" });
+  });
+
+  test("a never-published org has nothing to pull", async () => {
+    const p = probesWithRemote(REMOTE);
+    p.exec = async (argv) => { p.calls.exec.push(argv); return { code: 1, stdout: "", stderr: "" }; };
+    await realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null);
+    expect(p.calls.exec).toContainEqual(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"]);
+    expect(p.calls.exec.some((argv) => argv.includes("pull"))).toBe(false);
+  });
+
+  test("a never-published org part way through a merge is refused, not pulled onto", async () => {
+    const p = probesWithRemote(REMOTE, { "/home/.mattstack/teams/acme/.git/MERGE_HEAD": "" });
+    p.exec = async (argv) => {
+      p.calls.exec.push(argv);
+      if (argv.includes("--git-path")) return { code: 0, stdout: `.git/${argv.at(-1)}\n`, stderr: "" };
+      return { code: 1, stdout: "", stderr: "" };
+    };
+    await expect(realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null)).rejects.toMatchObject({ code: "org-mid-merge" });
+  });
+
+  test("failed pulls redact urls before mint turns them into a visible reason", async () => {
+    const p = probesWithRemote(REMOTE);
+    p.exec = async (argv) => argv.includes("pull") ? { code: 1, stdout: "", stderr: "fatal: https://user:private-token@github.com/acme/widgets.git refused" } : { code: 0, stdout: "", stderr: "" };
+    const err = await realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null).catch((err: Error) => err);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).not.toContain("private-token");
+  });
+
+  test("a stopped rebase that will not abort says how to undo it by hand", async () => {
+    const p = probesWithRemote(REMOTE, { "/home/.mattstack/teams/acme/.git/rebase-merge": "" });
+    let pulled = false;
+    p.exec = async (argv) => {
+      if (argv.includes("pull")) { pulled = true; return { code: 1, stdout: "", stderr: "CONFLICT (content)" }; }
+      if (argv.includes("--git-path")) return { code: 0, stdout: `.git/${pulled ? argv.at(-1) : "absent"}\n`, stderr: "" };
+      if (argv.includes("--abort")) return { code: 128, stdout: "", stderr: "fatal: could not abort" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    await expect(realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null)).rejects.toMatchObject({
+      code: "org-mid-rebase",
+      next: "git -C /home/.mattstack/teams/acme rebase --abort",
+    });
+  });
+
+  for (const [state, marker] of [["rebase", "rebase-merge"], ["rebase", "rebase-apply"], ["merge", "MERGE_HEAD"]] as const) {
+    test(`a ${state} already in progress (${marker}) is refused before any pull and left alone`, async () => {
+      const p = probesWithRemote(REMOTE, { [`/home/.mattstack/teams/acme/.git/${marker}`]: "" });
+      const seen: string[][] = [];
+      p.exec = async (argv) => {
+        seen.push(argv);
+        if (argv.includes("--git-path")) return { code: 0, stdout: `.git/${argv.at(-1)}\n`, stderr: "" };
+        return { code: 0, stdout: "", stderr: "" };
+      };
+      await expect(realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null)).rejects.toMatchObject({
+        code: `org-mid-${state}`,
+        message: `Your copy of the org is part way through a git ${state}, so rt made no invite`,
+        next: "git -C /home/.mattstack/teams/acme status",
+      });
+      expect(seen.some((argv) => argv.includes("pull") || argv.includes("--abort"))).toBe(false);
+    });
+  }
+});
+
+describe("a rebase someone else started in the org clone", () => {
+  test("is refused before the pull and kept exactly as it was", async () => {
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-invite-busy-")));
+    const env = { ...childEnv(), HOME: home, GIT_AUTHOR_NAME: "dev1", GIT_AUTHOR_EMAIL: "dev1@example.com", GIT_COMMITTER_NAME: "dev1", GIT_COMMITTER_EMAIL: "dev1@example.com", GIT_CONFIG_NOSYSTEM: "1" };
+    const run = (cwd: string, args: string[]) => Bun.spawnSync(["git", ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
+    const git = (cwd: string, args: string[]) => {
+      const res = run(cwd, args);
+      expect(res.exitCode).toBe(0);
+      return res.stdout.toString();
+    };
+    try {
+      const remote = join(home, "remote.git");
+      const other = join(home, "other");
+      const dir = join(home, ".mattstack", "teams", "acme");
+      git(home, ["init", "--bare", "-b", "main", remote]);
+      git(home, ["clone", remote, other]);
+      writeFileSync(join(other, "notes.txt"), "original\n");
+      git(other, ["add", "--", "notes.txt"]);
+      git(other, ["commit", "-m", "fixture"]);
+      git(other, ["push", "origin", "main"]);
+      mkdirSync(join(home, ".mattstack", "teams"), { recursive: true });
+      git(home, ["clone", remote, dir]);
+
+      writeFileSync(join(other, "notes.txt"), "theirs\n");
+      git(other, ["commit", "-am", "their edit"]);
+      git(other, ["push", "origin", "main"]);
+
+      writeFileSync(join(dir, "notes.txt"), "mine\n");
+      git(dir, ["commit", "-am", "my edit"]);
+      git(dir, ["fetch", "origin"]);
+      expect(run(dir, ["rebase", "origin/main"]).exitCode).not.toBe(0);
+      writeFileSync(join(dir, "notes.txt"), "half resolved\n");
+      const rebaseDir = join(dir, ".git", "rebase-merge");
+      expect(existsSync(rebaseDir)).toBe(true);
+      const headName = readFileSync(join(rebaseDir, "head-name"), "utf8");
+      const head = git(dir, ["rev-parse", "HEAD"]);
+
+      const p = { ...createRealProbes(), home, env };
+      const seen: string[][] = [];
+      p.exec = async (argv, opts) => {
+        seen.push(argv);
+        const res = Bun.spawnSync(argv, { cwd: opts?.cwd, env: { ...env, ...opts?.env }, stdout: "pipe", stderr: "pipe" });
+        return { code: res.exitCode, stdout: res.stdout.toString(), stderr: res.stderr.toString() };
+      };
+      const err = await realMintInviteSeams().pullOrg(p, "acme", remote, null).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(UserActionableError);
+      expect(err).toMatchObject({ code: "org-mid-rebase", next: `git -C ${dir} status` });
+      expect(seen.some((argv) => argv.includes("pull") || argv.includes("--abort"))).toBe(false);
+
+      expect(readFileSync(join(rebaseDir, "head-name"), "utf8")).toBe(headName);
+      expect(git(dir, ["rev-parse", "HEAD"])).toBe(head);
+      expect(readFileSync(join(dir, "notes.txt"), "utf8")).toBe("half resolved\n");
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+});
+
+describe("a pull that conflicts with another admin's roster change", () => {
+  test("puts the clone back where it was and refuses in plain words", async () => {
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-invite-pull-")));
+    const env = { ...childEnv(), HOME: home, GIT_AUTHOR_NAME: "dev1", GIT_AUTHOR_EMAIL: "dev1@example.com", GIT_COMMITTER_NAME: "dev1", GIT_COMMITTER_EMAIL: "dev1@example.com", GIT_CONFIG_NOSYSTEM: "1" };
+    const git = (cwd: string, args: string[]) => {
+      const res = Bun.spawnSync(["git", ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
+      expect(res.exitCode).toBe(0);
+      return res.stdout.toString();
+    };
+    const roster = (names: string[]) => JSON.stringify({ "mattstack.org": { admins: ["dev1", "dev2"], teams: {} }, "mattstack.roster": names.map((username) => ({ username, teams: ["widgets"] })) });
+    const store = join("mattstack", "org", "settings.org.jsonc");
+    try {
+      const remote = join(home, "remote.git");
+      const other = join(home, "other");
+      const dir = join(home, ".mattstack", "teams", "acme");
+      git(home, ["init", "--bare", "-b", "main", remote]);
+      git(home, ["clone", remote, other]);
+      mkdirSync(join(other, "mattstack", "org"), { recursive: true });
+      writeFileSync(join(other, store), roster(["dev1", "dev2"]));
+      writeFileSync(join(other, "notes.txt"), "original\n");
+      git(other, ["add", "--", store, "notes.txt"]);
+      git(other, ["commit", "-m", "fixture"]);
+      git(other, ["push", "origin", "main"]);
+      mkdirSync(join(home, ".mattstack", "teams"), { recursive: true });
+      git(home, ["clone", remote, dir]);
+
+      writeFileSync(join(other, store), roster(["dev1", "dev2", "dev3"]));
+      git(other, ["commit", "-am", "team: invite dev3"]);
+      git(other, ["push", "origin", "main"]);
+
+      const local = roster(["dev1", "dev2", "dev4"]);
+      writeFileSync(join(dir, store), local);
+      git(dir, ["commit", "-am", "team: invite dev4"]);
+      writeFileSync(join(dir, "notes.txt"), "uncommitted\n");
+      const head = git(dir, ["rev-parse", "HEAD"]);
+
+      const p = { ...createRealProbes(), home, env };
+      p.exec = async (argv, opts) => {
+        const res = Bun.spawnSync(argv, { cwd: opts?.cwd, env: { ...env, ...opts?.env }, stdout: "pipe", stderr: "pipe" });
+        return { code: res.exitCode, stdout: res.stdout.toString(), stderr: res.stderr.toString() };
+      };
+      const err = await realMintInviteSeams().pullOrg(p, "acme", remote, null).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(UserActionableError);
+      expect(err).toMatchObject({ code: "org-changed-concurrently", message: "Someone else changed the org at the same time, so rt made no invite", next: `git -C ${dir} pull --rebase --autostash origin main`, thenRun: "rt team publish --team acme" });
+      expect((err as UserActionableError).why).toBe("rt put your copy of the org back as it was. Pull their change and settle any clash, publish, then invite again.");
+
+      expect(existsSync(join(dir, ".git", "rebase-merge"))).toBe(false);
+      expect(existsSync(join(dir, ".git", "rebase-apply"))).toBe(false);
+      expect(git(dir, ["symbolic-ref", "--short", "HEAD"]).trim()).toBe("main");
+      expect(git(dir, ["rev-parse", "HEAD"])).toBe(head);
+      expect(readFileSync(join(dir, store), "utf8")).toBe(local);
+      expect(readFileSync(join(dir, "notes.txt"), "utf8")).toBe("uncommitted\n");
+      expect(git(dir, ["stash", "list"])).toBe("");
+      expect(git(dir, ["status", "--porcelain"])).toBe(" M notes.txt\n");
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+});
+
+describe("roster publication in an existing clone", () => {
+  for (const mode of ["changed", "unchanged", "add-fails", "commit-fails"] as const) {
+    test(`${mode}: only the org store is committed and unrelated staged bytes survive`, async () => {
+      const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-invite-index-")));
+      const dir = join(home, ".mattstack", "teams", "acme");
+      mkdirSync(join(dir, "mattstack", "org"), { recursive: true });
+      const env = { ...childEnv(), HOME: home, GIT_AUTHOR_NAME: "dev1", GIT_AUTHOR_EMAIL: "dev1@example.com", GIT_COMMITTER_NAME: "dev1", GIT_COMMITTER_EMAIL: "dev1@example.com", GIT_CONFIG_NOSYSTEM: "1" };
+      const run = (args: string[]) => {
+        const res = Bun.spawnSync(["git", ...args], { cwd: dir, env, stdout: "pipe", stderr: "pipe" });
+        expect(res.exitCode).toBe(0);
+        return res.stdout.toString();
+      };
+      try {
+        run(["init", "-b", "main"]);
+        const file = join(dir, "mattstack", "org", "settings.org.jsonc");
+        writeFileSync(file, JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} }, "mattstack.roster": [] }));
+        writeFileSync(join(dir, "unrelated.txt"), "original\n");
+        run(["add", "--", "mattstack/org/settings.org.jsonc", "unrelated.txt"]);
+        run(["commit", "-m", "fixture"]);
+        const head = run(["rev-parse", "HEAD"]);
+        writeFileSync(join(dir, "unrelated.txt"), "staged\n");
+        run(["add", "--", "unrelated.txt"]);
+        writeFileSync(join(dir, "unrelated.txt"), "working\n");
+        const staged = run(["diff", "--cached", "--binary", "--", "unrelated.txt"]);
+        if (mode !== "unchanged") writeFileSync(file, JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} }, "mattstack.roster": [{ username: "dev2", teams: ["widgets"] }] }));
+        const local = teamLocalPath(home, "acme");
+        mkdirSync(join(local, ".."), { recursive: true });
+        writeFileSync(local, JSON.stringify({ forgeUsername: "dev1" }));
+        const p = { ...createRealProbes(), home, env };
+        const realExec: Probes["exec"] = async (argv, opts) => {
+          const res = Bun.spawnSync(argv, { cwd: opts?.cwd, env: { ...env, ...opts?.env }, stdout: "pipe", stderr: "pipe" });
+          return { code: res.exitCode, stdout: res.stdout.toString(), stderr: res.stderr.toString() };
+        };
+        let pushes = 0;
+        p.exec = async (argv, opts) => {
+          if (argv.includes("get-url")) return { code: 0, stdout: `${REMOTE}\n`, stderr: "" };
+          if (argv.includes("ls-remote")) return { code: 0, stdout: `${head.trim()}\trefs/heads/main\n`, stderr: "" };
+          if (argv.includes("push")) { pushes++; return { code: 0, stdout: "", stderr: "" }; }
+          if (argv[1] === (mode === "add-fails" ? "add" : mode === "commit-fails" ? "commit" : "")) return { code: 1, stdout: "", stderr: "fixture denied" };
+          return realExec(argv, opts);
+        };
+        const result = realMintInviteSeams().publishRoster(p, "acme", "dev2", REMOTE, null);
+        if (mode === "add-fails" || mode === "commit-fails") {
+          await expect(result).rejects.toMatchObject({ code: mode === "add-fails" ? "git-add-failed" : "git-commit-failed" });
+          expect(pushes).toBe(0);
+          expect(run(["rev-parse", "HEAD"])).toBe(head);
+        } else {
+          await result;
+          expect(pushes).toBe(1);
+          if (mode === "changed") expect(run(["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]).trim()).toBe("mattstack/org/settings.org.jsonc");
+          else expect(run(["rev-parse", "HEAD"])).toBe(head);
+        }
+        expect(run(["diff", "--cached", "--binary", "--", "unrelated.txt"])).toBe(staged);
+        expect(run(["show", ":unrelated.txt"])).toBe("staged\n");
+        expect(p.readFile(join(dir, "unrelated.txt"))).toBe("working\n");
+        expect(run(["show", "HEAD:unrelated.txt"])).toBe("original\n");
+      } finally { rmSync(home, { recursive: true, force: true }); }
+    });
+  }
 });

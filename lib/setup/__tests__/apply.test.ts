@@ -6,6 +6,7 @@ import { setSetting, setSettingsNoticeSink } from "../../settings/write.ts";
 import type { SecretsSeams } from "../../secrets/store.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
+import { teamIdentityStep } from "../steps/org.ts";
 import { createApplyContext, outcomeFromNeed, runApplyWith, runUpdateWith } from "../apply.ts";
 import type { MigrationDef } from "../migrations/index.ts";
 import type { Emit } from "../emit.ts";
@@ -985,7 +986,7 @@ describe("runApplyWith: --only runs unsatisfied prerequisites first", () => {
       p.mkdirp("/fake-home/.mattstack/teams/acme");
       p.mkdirp("/fake-home/.mattstack/teams/acme/.git");
       expect(await both()).toEqual([false, false]);
-      p.writeFile("/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc", "{}");
+      p.writeFile("/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc", "{}");
       expect(await both()).toEqual([false, false]);
       p.writeFile("/fake-home/.mattstack/teams/acme/.git/config", '[remote "upstream"]\n\turl = https://example.com/acme/other.git\n');
       expect(await both()).toEqual([false, false]);
@@ -1116,6 +1117,58 @@ describe("wire bytes", () => {
 });
 
 describe("createApplyContext", () => {
+  test("reloadTeam discovers an org and refreshes requirements after its identity changes", async () => {
+    const p = fakeProbes({ home: "/h", dirs: { "/h/.mattstack/teams": ["acme"], "/h/.mattstack/teams/acme/mattstack/teams": ["widgets"] } });
+    const ctx = await createApplyContext({
+      probes: p,
+      emit: () => {},
+      secrets: fakeSecrets,
+      teamSecrets: () => fakeSecrets,
+      secretPresence: { has: async () => null },
+      relay: fakeRelay,
+      snapshotRead: () => undefined,
+      flags: { nonInteractive: true, teamOfOne: false, ci: false },
+    });
+    expect(ctx.team.slug).toBe("");
+    p.writeFile("/h/.mattstack/teams/acme/mattstack/org/settings.org.jsonc", JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["widgets"] }] }));
+    p.writeFile("/h/.mattstack/teams/acme/.git/config", '[remote "origin"]\nurl = https://github.com/acme/org.git\n');
+    ctx.identity = { login: async () => "dev1" };
+    p.writeFile(
+      "/h/.mattstack/teams/acme/mattstack/teams/widgets/packs/widgets/requirements.jsonc",
+      JSON.stringify({ tools: [{ name: "acme-tool", why: "work" }], integrations: [] }),
+    );
+    await runApplyWith(
+      [
+        {
+          id: "org.pull",
+          title: "Pull your org",
+          kind: "rt",
+          applies: () => true,
+          run: async () => {
+            ctx.reloadTeam!();
+            expect(ctx.reqs).toEqual([]);
+            return { state: "done" };
+          },
+        },
+        teamIdentityStep,
+        {
+          id: "plugins.install",
+          title: "Install plugins",
+          kind: "rt",
+          applies: () => true,
+          run: async (later) => {
+            expect(later.team.slug).toBe("acme");
+            expect(later.snapshot?.remote).toBe("https://github.com/acme/org.git");
+            expect(later.reqs[0]?.pack).toBe("widgets");
+            expect(later.reqs[0]?.tools[0]?.name).toBe("acme-tool");
+            return { state: "done" };
+          },
+        },
+      ],
+      ctx,
+    );
+  });
+
   test("builds a context with no team when no intent and no cloned teams", async () => {
     const p = fakeProbes();
     const events: ApplyEvent[] = [];
@@ -1142,7 +1195,7 @@ describe("createApplyContext", () => {
     try {
       const p = fakeProbes({
         home: "/fake-home",
-        files: { "/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc": "{}" },
+        files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
         dirs: { "/fake-home/.mattstack/teams": ["acme"] },
       });
       const ctx = await createApplyContext({
@@ -1491,6 +1544,12 @@ describe("runUpdateWith and the finished state", () => {
 });
 
 describe("runUpdateWith", () => {
+  test("migrations precede org pull and identity, which precede plugins and verify", async () => {
+    const ran: string[] = [];
+    const step = (id: StepId): StepDef => ({ id, title: id, kind: "rt", updateSafe: true, applies: () => true, run: async () => { ran.push(id); return { state: "done" }; } });
+    await runUpdateWith([step("org.pull"), step("team.identity"), step("plugins.install"), step("skills.materialize"), step("verify")], [fakeMigration("2026-10-01-example", async () => { ran.push("migration"); return { state: "done" }; })], testCtx().ctx);
+    expect(ran).toEqual(["migration", "org.pull", "team.identity", "plugins.install", "skills.materialize", "verify"]);
+  });
   test("runs pending migrations, then update-safe steps in order, then verify; non-safe steps never run", async () => {
     const { ctx, events } = testCtx();
     const ran: string[] = [];

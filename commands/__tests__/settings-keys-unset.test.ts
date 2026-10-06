@@ -12,6 +12,7 @@ import { join } from "path";
 import { settingsUnset } from "../settings-keys.ts";
 import { setSetting } from "../../lib/settings/write.ts";
 import { userSettingsPath } from "../../lib/rt-paths.ts";
+import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { closeStateDb } from "../../lib/state/index.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
@@ -73,5 +74,28 @@ describe("rt settings unset", () => {
   test("an unknown scope is refused", async () => {
     await expect(settingsUnset([KEY, "--scope", "team.repo"])).rejects.toThrow(/__exit_/);
     expect(exits[0]).not.toBe(0);
+  });
+
+  describe("--scope org", () => {
+    test("an org admin removes the key from the org store", async () => {
+      const { orgStore } = seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} }, roster: [{ username: "dev1", teams: ["widgets"] }], settings: { "board.gitlabHost": "gitlab.example.com" }, teams: { widgets: {} } });
+
+      await settingsUnset(["board.gitlabHost", "--scope", "org"]);
+
+      expect(readFileSync(orgStore, "utf8")).not.toContain("board.gitlabHost");
+      expect(exits).toEqual([]);
+    });
+
+    test("a member is refused and the org store is byte-identical", async () => {
+      const { orgStore } = seedOrg({ org: "acme", username: "dev2", roles: { admins: ["dev1"], teams: {} }, roster: [{ username: "dev1", teams: ["widgets"] }, { username: "dev2", teams: ["widgets"] }], settings: { "board.gitlabHost": "gitlab.example.com" }, teams: { widgets: {} } });
+      const before = readFileSync(orgStore);
+
+      await expect(settingsUnset(["board.gitlabHost", "--scope", "org"])).rejects.toThrow(/__exit_/);
+
+      expect(exits[0]).not.toBe(0);
+      expect(cap.stderr()).toContain("belong to its admins");
+      expect(cap.stderr()).toContain("dev1");
+      expect(readFileSync(orgStore).equals(before)).toBe(true);
+    });
   });
 });

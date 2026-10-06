@@ -5,15 +5,16 @@
  */
 
 import { appBundlePath } from "../deps/resolve.ts";
+import type { forgeLogin } from "../team/forge.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
 import { setSettingsNoticeSink } from "../settings/write.ts";
 import { createRealTeamSecretsSeams } from "../secrets/team-store.ts";
 import type { SecretsSeamsFactory } from "../team/join.ts";
 import type { RelayClient } from "../team/relay-client.ts";
-import { STEP_IDS, type EventId, type NeedRequest, type StepId, type StepKind, type StepState, type TeamRef } from "./contract.ts";
+import { STEP_IDS, type EventId, type NeedRequest, type StepId, type StepKind, type StepState, type OrgRef } from "./contract.ts";
 import type { Emit } from "./emit.ts";
 import { logFailureDetail, UserActionableError } from "../errors.ts";
-import { readIntent, teamRefFromIntent, clearIntent, type SetupIntent } from "./intent.ts";
+import { readIntent, orgRefFromIntent, clearIntent, type SetupIntent } from "./intent.ts";
 import { askAppDirectly, awaitNeed, hasDirectRoute, type NeedReply } from "./need.ts";
 import type { Probes } from "./probes.ts";
 import { realSecretPresence } from "./plan.ts";
@@ -21,7 +22,7 @@ import { readPackRequirements, type PackRequirements } from "./requirements.ts";
 import { STEPS } from "./steps/index.ts";
 import { MIGRATIONS, migrationEventId, type MigrationDef } from "./migrations/index.ts";
 import { readSetupState, setupStatePath, storedVersion, updateSetupState } from "./state.ts";
-import { discoverTeams, readTeamSnapshot, type TeamSnapshot } from "./team-settings.ts";
+import { discoverOrgs, readTeamSnapshot, type TeamSnapshot, type SettingsReader } from "./team-settings.ts";
 import type { SecretPresence } from "./validators/accounts.ts";
 
 export type StepOutcome =
@@ -45,11 +46,14 @@ export interface ApplyContext {
   /** A settings tip raised while a step ran. Absent, the tip is a `log` line. A tip bypasses the redactor that wraps `emit`: it is rt's own copy, never a child's output. */
   tip?: (id: EventId, line: string) => void;
   intent: SetupIntent | null;
-  team: TeamRef;
+  team: OrgRef;
   snapshot: TeamSnapshot | null;
   reqs: PackRequirements[];
   /** Re-reads `snapshot` and `reqs` from disk; the engine calls it after a done or partial `reloadsTeam` step. */
   reloadTeam?: () => void;
+  /** Test seam: the active team's name. Production reads it from the org's roster through `p`. */
+  activeTeam?: () => string | null;
+  identity?: { login?: typeof forgeLogin; token?: (ctx: ApplyContext, host: string) => Promise<string | null> };
   nonInteractive: boolean;
   /** Set only for `rt setup update`: a step must not re-assert anything the member undid since rt put it there (a disabled or removed plugin, an editor rt never installed into). */
   update?: true;
@@ -430,6 +434,7 @@ export async function runUpdate(ctx: ApplyContext): Promise<UpdateRunResult> {
 }
 
 export interface CreateApplyContextDeps {
+  snapshotRead?: SettingsReader;
   probes: Probes;
   emit: Emit;
   tip?: (id: EventId, line: string) => void;
@@ -484,8 +489,8 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
   const { probes: p, secrets, relay, flags, needOpts } = deps;
 
   const intent = readIntent(p);
-  const team = teamRefFromIntent(intent, discoverTeams(p));
-  const snapshot = team.slug ? readTeamSnapshot(p, team.slug) : null;
+  const team = orgRefFromIntent(intent, discoverOrgs(p));
+  const snapshot = team.slug ? readTeamSnapshot(p, team.slug, { read: deps.snapshotRead }) : null;
   const reqs = team.slug ? readPackRequirements(p, team.slug) : [];
   const appPath = appBundlePath(p);
 
@@ -509,8 +514,9 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
     snapshot,
     reqs,
     reloadTeam() {
+      if (!ctx.team.slug) ctx.team = orgRefFromIntent(ctx.intent, discoverOrgs(p));
       if (!ctx.team.slug) return;
-      ctx.snapshot = readTeamSnapshot(p, ctx.team.slug);
+      ctx.snapshot = readTeamSnapshot(p, ctx.team.slug, { read: deps.snapshotRead });
       ctx.reqs = readPackRequirements(p, ctx.team.slug);
     },
     nonInteractive: flags.nonInteractive,

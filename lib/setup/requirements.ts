@@ -1,16 +1,15 @@
 /**
- * Pack requirements reader — discovers and parses each pack's
- * requirements.jsonc under a joined team's local clone
- * (~/.mattstack/teams/<slug>/**\/requirements.jsonc, e.g.
- * teams/<slug>/mattstack/packs/<pack>/requirements.jsonc), so `rt setup` can
- * fold pack-declared tools/integrations into the plan without any pack
- * hardcoding its own path here.
+ * Pack requirements reader: parses the active team's pack requirements at
+ * teams/<org>/mattstack/teams/<team>/packs/<team>/requirements.jsonc, the
+ * only pack this Mac installs, so `rt setup` can fold pack-declared
+ * tools/integrations into the plan.
  */
 
-import { basename, dirname, join } from "path";
+import { join } from "path";
 import type { Integration } from "./contract.ts";
 import { INTEGRATIONS } from "./integrations.ts";
 import { stripJsonc } from "../jsonc.ts";
+import { activeTeamFor } from "../team/active-team.ts";
 import type { Probes } from "./probes.ts";
 
 export interface ToolRequirement {
@@ -32,44 +31,18 @@ export interface PackRequirements {
 }
 
 const REQUIREMENTS_FILE = "requirements.jsonc";
-/** teams/<slug>/mattstack/packs/<pack>/requirements.jsonc is 4 path segments deep from the team root. */
-const MAX_DEPTH = 4;
-/** Never worth descending into on a real team clone — .git alone would cost a readdir per loose-object shard at every depth. */
-const SKIP_DIRS = new Set([".git", "node_modules"]);
 
 const KNOWN_INTEGRATION_IDS = new Set<Integration>(Object.keys(INTEGRATIONS) as Integration[]);
 
-function findRequirementsFiles(p: Pick<Probes, "readDir">, dir: string, depth: number, out: string[]): void {
-  if (depth > MAX_DEPTH) return;
-  for (const entry of p.readDir(dir)) {
-    if (SKIP_DIRS.has(entry)) continue;
-    const full = join(dir, entry);
-    if (entry === REQUIREMENTS_FILE) out.push(full);
-    else findRequirementsFiles(p, full, depth + 1, out);
-  }
-}
-
-/** [] when the team has no packs with a requirements.jsonc; a file that fails to read yields one error entry rather than being silently skipped. Sorted and deduped by pack name — discovery order is filesystem-dependent, and two directories sharing a pack name must still yield one entry. */
-export function readPackRequirements(p: Pick<Probes, "readDir" | "readFile" | "exists" | "home">, teamSlug: string): PackRequirements[] {
-  const root = join(p.home, ".mattstack", "teams", teamSlug);
-  const files: string[] = [];
-  findRequirementsFiles(p, root, 1, files);
-
-  const results = files.map((file) => {
-    const packName = basename(dirname(file));
-    const text = p.readFile(file);
-    if (text === null) return { pack: packName, tools: [], integrations: [], error: `could not read ${file}` };
-    return parseRequirements(packName, text);
-  });
-
-  const seen = new Set<string>();
-  const deduped: PackRequirements[] = [];
-  for (const r of results) {
-    if (seen.has(r.pack)) continue;
-    seen.add(r.pack);
-    deduped.push(r);
-  }
-  return deduped.sort((a, b) => a.pack.localeCompare(b.pack));
+/** The active team's pack requirements; [] when this Mac has no active team or the pack declares none. */
+export function readPackRequirements(p: Pick<Probes, "readDir" | "readFile" | "exists" | "home">, org: string, team: string | null = activeTeamFor(p, org).team): PackRequirements[] {
+  if (team === null) return [];
+  const file = join(p.home, ".mattstack", "teams", org, "mattstack", "teams", team, "packs", team, REQUIREMENTS_FILE);
+  if (!p.exists(file)) return [];
+  const text = p.readFile(file);
+  // A file that is there but cannot be read is reported, never skipped.
+  if (text === null) return [{ pack: team, tools: [], integrations: [], error: `could not read ${file}` }];
+  return [parseRequirements(team, text)];
 }
 
 /** Malformed entries and a dropped connect.integration are both reported through `error`, never silently — `index`/`packName` name which tool a pack author needs to fix, since two skipped entries in one file would otherwise render as identical, unactionable text. */

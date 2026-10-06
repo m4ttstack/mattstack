@@ -1,0 +1,1 @@
+{"ok":true,"settings":[{"key":"claude.marketplaces","value":["<HOME>/market"],"provenance":[{"scope":"user","file":"<HOME>/.mattstack/user/settings.user.jsonc"}],"migrated":true,"items":[{"value":"<HOME>/market","sources":[{"scope":"user","file":"<HOME>/.mattstack/user/settings.user.jsonc"}]}]}]}

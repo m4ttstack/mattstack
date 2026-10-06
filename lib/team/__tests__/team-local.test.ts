@@ -82,4 +82,41 @@ describe("team-local record", () => {
     expect(teamLocalPath(HOME, SLUG)).toBe(`${HOME}/.mattstack/rt/teams/${SLUG}.json`);
     expect(teamLocalPath(HOME, SLUG)).not.toContain("/teams/acme/.git");
   });
+
+  test("forgeUsername round-trips and a blank one reads as absent", () => {
+    const p = fakeProbes({ home: HOME });
+    writeTeamLocal(p, SLUG, { createdByRt: false, joinedByRt: true, rtMayManageMembership: false, forgeUsername: "dev1" });
+    expect(readTeamLocal(p, SLUG).forgeUsername).toBe("dev1");
+    updateTeamLocal(p, SLUG, { forgeUsername: "  " });
+    expect(readTeamLocal(p, SLUG).forgeUsername).toBeUndefined();
+  });
+
+  test("a write lands by rename, so a reader never sees half a record", () => {
+    const p = fakeProbes({ home: HOME });
+    writeTeamLocal(p, SLUG, { createdByRt: true, joinedByRt: false, rtMayManageMembership: false });
+    expect(p.calls.renames.map(([, to]) => to)).toEqual([teamLocalPath(HOME, SLUG)]);
+    expect(p.calls.renames[0]![0]).not.toBe(teamLocalPath(HOME, SLUG));
+    expect(readTeamLocal(p, SLUG).createdByRt).toBe(true);
+    expect(p.calls.modes[teamLocalPath(HOME, SLUG)]).toBe(0o600);
+  });
+
+  test("an update takes the record's lock and gives it back", () => {
+    const p = fakeProbes({ home: HOME });
+    const lock = `${teamLocalPath(HOME, SLUG)}.lock`;
+    let heldDuring = false;
+    const realWrite = p.writeFile.bind(p);
+    p.writeFile = (path, content, mode) => { if (path !== lock) heldDuring = p.exists(lock); realWrite(path, content, mode); };
+    updateTeamLocal(p, SLUG, { forgeUsername: "dev1" });
+    expect(heldDuring).toBe(true);
+    expect(p.exists(lock)).toBe(false);
+  });
+
+  test("a lock a dead writer left behind does not stop the update", () => {
+    const p = fakeProbes({ home: HOME });
+    p.mkdirp(`${HOME}/.mattstack/rt/teams`);
+    p.mkdirExclusive(`${teamLocalPath(HOME, SLUG)}.lock`);
+    updateTeamLocal(p, SLUG, { forgeUsername: "dev1" });
+    expect(readTeamLocal(p, SLUG).forgeUsername).toBe("dev1");
+    expect(p.exists(`${teamLocalPath(HOME, SLUG)}.lock`)).toBe(false);
+  });
 });

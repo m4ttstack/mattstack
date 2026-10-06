@@ -12,7 +12,8 @@ import type { Database } from "bun:sqlite";
 import { isDeepStrictEqual } from "util";
 import { deleteKvValue, getKvValue, getStateDb, hasKvValue, setKvValue } from "./index.ts";
 
-export type StoreStatus = "moved" | "already" | "none" | "refused";
+/** `skipped` is a shared store this Mac's role may not change: not a failure. */
+export type StoreStatus = "moved" | "already" | "none" | "refused" | "skipped";
 
 export interface StoreReport {
   store: string;

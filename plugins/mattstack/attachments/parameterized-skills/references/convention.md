@@ -329,20 +329,20 @@ its description is never loaded into context. Consequence: a library skill
 may hide
 without losing typed-slash access, at the cost of menu discoverability.
 
-## Zone markers
+## Org clone layout
 
-A **zone marker** is a `mattstack.jsonc` file at the top of a skill tree
-directory, declaring whether skills there belong to a user zone or a team
-zone. Discovery: `git ls-files | grep mattstack.jsonc`.
+An org repo is cloned at `~/.mattstack/teams/<org>/`, and
+`mattstack/mattstack.jsonc` marks it: `{"role":"org","org":"acme"}`.
 
-- **User zones** declare `{"role":"user"}` only. A repo holds at most one.
-- **Team zones** declare `{"role":"team","namespace":"acme","org":"widgets"}`.
-  The `namespace` is the plugin name users type (e.g. `/acme:run`); `org` is
-  the marketplace name and must match across all team zones in the repo.
-  A repo may hold many team zones, but only one per namespace.
-- Only `.claude-plugin/marketplace.json` sits at the repo root. Zone markers
-  live inside the skills directory tree, marking subtrees, never the root.
-- Schema: `plugin/schemas/zone-marker.schema.json`.
+- Each team is a folder `mattstack/teams/<team>/` (`^[a-z][a-z0-9-]*$`)
+  holding at most one pack, `packs/<team>/`, named after the team: the
+  plugin name users type (`/widgets:work`).
+- The org base pack, when the org has one, sits at
+  `mattstack/org/packs/<org>-base/`.
+- Only `.claude-plugin/marketplace.json` sits at the repo root. It lists
+  every team pack with its source under `mattstack/teams/<team>/packs/<team>`
+  and never the base pack.
+- Schema: `plugin/schemas/org-marker.schema.json`.
 
 ## Manifest layers
 
@@ -359,13 +359,13 @@ slots fail as unbound.
 `rt skills materialize` writes layer (2), one file per repo and pack, at pack
 install time and on demand (`merge-manifests.sh [--repo <path>]` is a thin
 wrapper over it). Each file is four layers, later winning per slot:
-mattstack's own `pack/skills.jsonc` (defaults), the base pack the fragment's
-`extends` names (one level, installed through the team's `claude.plugins`),
-the pack's own `pack/skills.jsonc`, then
+mattstack's own `pack/skills.jsonc` (defaults), the org base pack the
+fragment's `extends` names by bare name (one level, read from the org's
+`mattstack/org/packs/<name>/`), the pack's own `pack/skills.jsonc`, then
 `~/.mattstack/user/skills/overrides.jsonc`. Two packs never conflict: each
-gets its own file. Two packs in one team zone that both claim a repo is a
-per-pack error; a base pack says `"base": true` in its fragment, so it
-claims no repo, gets no file, and is not counted against its zone. The
+gets its own file. A team folder holds one pack, which claims the team's
+`board.projects`; a base pack says `"base": true` in its fragment, so it
+claims no repo, gets no file, and is never installed. The
 file's header names the layer each binding came from
 (`default`, `base:<pack>`, `pack`, `override`). Fragments and overrides are
 JSONC with full-line `//` comments only.

@@ -17,18 +17,13 @@ describe("forgeScopes", () => {
 });
 
 describe("forgeRole", () => {
-  test("a create intent is the owner, a join intent a member", () => {
-    expect(forgeRole({ intentMode: "create", joinedByRt: false, hasTeam: true })).toBe("owner");
-    expect(forgeRole({ intentMode: "join", joinedByRt: false, hasTeam: true })).toBe("member");
-  });
-
-  test("after Install clears the intent, the team-local record decides: a joined clone is a member, anything else the owner", () => {
-    expect(forgeRole({ intentMode: null, joinedByRt: true, hasTeam: true })).toBe("member");
-    expect(forgeRole({ intentMode: null, joinedByRt: false, hasTeam: true })).toBe("owner");
-  });
-
-  test("no team at all is a member: nothing to push or sync", () => {
-    expect(forgeRole({ intentMode: null, joinedByRt: false, hasTeam: false })).toBe("member");
+  test("intent takes priority, otherwise recorded role decides", () => {
+    expect(forgeRole({ intentMode: "create", role: "member", hasTeam: false })).toBe("owner");
+    expect(forgeRole({ intentMode: "join", role: "admin", hasTeam: true })).toBe("member");
+    for (const role of ["admin", "owner"] as const) expect(forgeRole({ intentMode: null, role, hasTeam: true })).toBe("owner");
+    for (const role of ["member", "unknown", null] as const) expect(forgeRole({ intentMode: null, role, hasTeam: true })).toBe("member");
+    expect(forgeRole({ intentMode: null, role: null, hasTeam: false })).toBe("member");
+    expect(forgeRole({ intentMode: null, role: "admin", hasTeam: false })).toBe("member");
   });
 });
 

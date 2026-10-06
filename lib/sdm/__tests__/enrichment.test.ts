@@ -3,10 +3,10 @@ import { loadEnrichment, stripJsonc } from "../enrichment.ts";
 import { mkdtempSync, writeFileSync, mkdirSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join, dirname } from "path";
-import { teamSettingsPath } from "../../rt-paths.ts";
 import * as out from "../../ui/out.ts";
 import { captureOut } from "../../ui/__tests__/capture-out.ts";
 import { setWarningLog, __test__ as warnings } from "../../ui/warn.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 function writeStore(file: string, obj: unknown): void {
   mkdirSync(dirname(file), { recursive: true });
@@ -43,7 +43,7 @@ describe("loadEnrichment", () => {
 
   test("store-owned: store wins wholesale, the file is never consulted", () => {
     const p = write(`{ "file-only": { "label": "from file" } }`);
-    writeStore(teamSettingsPath("acme"), {
+    writeStore(sharedStorePath("acme"), {
       "rt.sdmEnrichment": { "acme-db-qa": { label: "from store", tier: "gold" } },
     });
 
@@ -52,7 +52,7 @@ describe("loadEnrichment", () => {
 
   test("store shape validation: a non-object store value is refused, falling back to the file", () => {
     const p = write(`{ "acme-db-qa": { "label": "from file" } }`);
-    writeStore(teamSettingsPath("acme"), { "rt.sdmEnrichment": ["nope"] });
+    writeStore(sharedStorePath("acme"), { "rt.sdmEnrichment": ["nope"] });
 
     expect(loadEnrichment(p)).toEqual({ "acme-db-qa": { label: "from file" } });
   });
@@ -92,7 +92,7 @@ describe("enrichment warnings", () => {
   });
 
   test("a setting the store cannot resolve is logged and shown with the command that finds it", () => {
-    writeStore(teamSettingsPath("acme"), { "rt.sdmEnrichment": { "acme-db-qa": { label: "${team:../x}" } } });
+    writeStore(sharedStorePath("acme"), { "rt.sdmEnrichment": { "acme-db-qa": { label: "${team:../x}" } } });
 
     expect(loadEnrichment(join(tmpdir(), "no-such-enrichment.jsonc"))).toEqual({});
 

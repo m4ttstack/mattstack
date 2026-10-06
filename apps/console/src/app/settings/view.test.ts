@@ -12,6 +12,7 @@ import {
   fieldSource,
   firstSentence,
   isRung,
+  isStoreScope,
   layerLabel,
   leafWrite,
   moveTargets,
@@ -20,6 +21,7 @@ import {
   providerOf,
   rungBase,
   rungOf,
+  scopeLabel,
   sourceText,
   splitKey,
   targetAt,
@@ -144,6 +146,61 @@ describe('buildSections', () => {
       ['user', 5],
       ['machine', 2],
     ]);
+  });
+
+  it('puts a key the org and the team share under whichever of the two serves it', () => {
+    const shared = (key: string, scope: string | null) =>
+      def(key, {
+        scopes: ['team', 'org'],
+        effective: { scope, file: scope ? '/s' : null, value: 'x' },
+      });
+    const boards = [
+      shared('board.gitlabHost', 'org'),
+      shared('board.repoHost', 'org.repo'),
+      shared('board.title', 'team'),
+      shared('board.tabs', null),
+      def('board.roster', { scopes: ['org'] }),
+      ...Array.from({ length: 4 }, (_, i) =>
+        def(`board.u${i}`, {
+          scopes: ['user', 'machine'],
+          effective: { scope: 'machine', file: '/m', value: 'x' },
+        })
+      ),
+      ...Array.from({ length: 4 }, (_, i) =>
+        def(`board.m${i}`, { scopes: ['machine'] })
+      ),
+    ];
+    const [board] = buildSections(boards, NO_FILTER);
+    expect(
+      board!.subsections.map(x => [x.scope, x.defs.map(d => d.key).sort()])
+    ).toEqual([
+      ['org', ['board.gitlabHost', 'board.repoHost', 'board.roster']],
+      ['team', ['board.tabs', 'board.title']],
+      ['user', ['board.u0', 'board.u1', 'board.u2', 'board.u3']],
+      ['machine', ['board.m0', 'board.m1', 'board.m2', 'board.m3']],
+    ]);
+  });
+
+  it('puts a key served from a shared repo section under that store, whatever its first scope', () => {
+    const roles = (key: string, scope: string) =>
+      def(key, {
+        type: 'object',
+        scopes: ['user', 'team', 'machine'],
+        repoScoped: true,
+        effective: { scope, file: '/s', value: {} },
+      });
+    const boards = [
+      roles('board.roles', 'org.repo'),
+      roles('board.intercepts', 'team.repo'),
+      roles('board.mine', 'user.repo'),
+      ...Array.from({ length: 10 }, (_, i) => def(`board.u${i}`)),
+    ];
+    const [board] = buildSections(boards, NO_FILTER);
+    const where = (key: string) =>
+      board!.subsections.find(x => x.defs.some(d => d.key === key))?.scope;
+    expect(where('board.roles')).toBe('org');
+    expect(where('board.intercepts')).toBe('team');
+    expect(where('board.mine')).toBe('user');
   });
 
   it('orders rows selects, numbers, text, switches, then composites', () => {
@@ -292,16 +349,16 @@ describe('layer rungs and write targets', () => {
   });
 
   it('labels name the team on a team layer when one is known, and stay bare otherwise', () => {
-    expect(targetLabel({ scope: 'team' }, 'acme')).toBe('team (acme)');
-    expect(targetLabel({ scope: 'team', repo: REPO }, 'acme')).toBe(
-      'team (acme) · acme/app'
+    expect(targetLabel({ scope: 'team' }, 'widgets')).toBe('team (widgets)');
+    expect(targetLabel({ scope: 'team', repo: REPO }, 'widgets')).toBe(
+      'team (widgets) · acme/app'
     );
-    expect(targetLabel({ scope: 'user' }, 'acme')).toBe('user');
+    expect(targetLabel({ scope: 'user' }, 'widgets')).toBe('user');
     expect(targetLabel({ scope: 'team' }, null)).toBe('team');
     expect(targetLabel({ scope: 'team' })).toBe('team');
-    expect(layerLabel('team', 'acme')).toBe('team (acme)');
-    expect(layerLabel('team.repo', 'acme')).toBe('team (acme) · repo');
-    expect(layerLabel('user.repo', 'acme')).toBe('user · repo');
+    expect(layerLabel('team', 'widgets')).toBe('team (widgets)');
+    expect(layerLabel('team.repo', 'widgets')).toBe('team (widgets) · repo');
+    expect(layerLabel('user.repo', 'widgets')).toBe('user · repo');
     expect(layerLabel('team')).toBe('team');
   });
 
@@ -323,6 +380,17 @@ describe('layer rungs and write targets', () => {
     expect(targetAt('team.repo', null)).toBeNull();
     expect(targetAt('user', REPO)).toEqual({ scope: 'user' });
     expect(targetAt('default', REPO)).toBeNull();
+  });
+
+  it('badgeScope names no single layer for a list that adds up across layers', () => {
+    const plugins = def('claude.plugins', {
+      type: 'array',
+      scopes: ['user', 'team', 'org'],
+      merge: 'add',
+      effective: { scope: 'user', file: '/u', value: ['a', 'b'] },
+    });
+    expect(badgeScope(plugins, null)).toBeNull();
+    expect(sourceText(plugins)).toBe('merged');
   });
 
   it('badgeScope always shows a repo rung, even under a matching subhead', () => {
@@ -430,5 +498,44 @@ describe('moveTargets', () => {
     expect(at({ scope: 'user', file: '/u', invalid: 'bad' })).toEqual([]);
     expect(at({ scope: 'machine.repo', file: '/m', value: 'x' })).toEqual([]);
     expect(at({ scope: null, file: null })).toEqual([]);
+  });
+  it('offers nothing for a list that adds up across layers', () => {
+    expect(
+      moveTargets({
+        ...base,
+        key: 'claude.plugins',
+        type: 'array',
+        merge: 'add',
+        scopes: ['org', 'team', 'user', 'machine'],
+        effective: { scope: 'user', file: '/u', value: ['mine@other'] },
+      })
+    ).toEqual([]);
+  });
+});
+
+describe('org layer', () => {
+  it('names the org and the team stores apart', () => {
+    expect(scopeLabel('org', 'widgets', 'acme')).toBe('org (acme)');
+    expect(scopeLabel('team', 'widgets', 'acme')).toBe('team (widgets)');
+    expect(scopeLabel('team', null, 'acme')).toBe('team');
+    expect(scopeLabel('org', null, null)).toBe('org');
+  });
+
+  it('treats org and org.repo as a store and its repo section', () => {
+    expect(isStoreScope('org')).toBe(true);
+    expect(isRung('org.repo')).toBe(true);
+    expect(rungBase('org.repo')).toBe('org');
+    expect(layerLabel('org.repo', 'widgets', 'acme')).toBe('org (acme) · repo');
+  });
+
+  it('names the org on an org write target', () => {
+    expect(targetLabel({ scope: 'org' }, 'widgets', 'acme')).toBe('org (acme)');
+    expect(
+      targetLabel(
+        { scope: 'org', repo: 'gitlab.example.com/acme/app' },
+        'widgets',
+        'acme'
+      )
+    ).toBe('org (acme) · acme/app');
   });
 });

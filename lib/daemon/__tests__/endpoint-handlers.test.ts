@@ -4,13 +4,14 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import pino from "pino";
-import { rtDir, teamSettingsPath } from "../../rt-paths.ts";
+import { rtDir } from "../../rt-paths.ts";
 import { endpointsPath, loadClaims, rekeyEndpointClaimsTable } from "../../endpoint/store.ts";
 import { closeStateDb, listEndpointClaims } from "../../state/index.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
 import { saveRegistry } from "../../worktree/registry.ts";
 import type { HandlerContext, RepoIndex } from "../handlers/types.ts";
 import { createEndpointHandlers, releaseEndpointsForWorktree } from "../handlers/endpoint.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 /**
  * The daemon's repo index, as the handlers see it. Reset per test alongside
@@ -57,7 +58,7 @@ function declareRoles(repoName: string, roles: unknown = DEFAULT_ROLES): void {
   repoIndex[idOf(repoName)] = repoPath;
 
   const identity = `rttest/${repoName}`;
-  const store = teamSettingsPath("acme");
+  const store = sharedStorePath("acme");
   mkdirSync(dirname(store), { recursive: true });
   let existing: Record<string, unknown> = {};
   try {
@@ -200,7 +201,7 @@ describe("endpoint handlers", () => {
     const serialized = serializeIdentity({ kind: "remote", id: rawId });
     repoIndex[serialized] = repoPath;
 
-    const store = teamSettingsPath("acme");
+    const store = sharedStorePath("acme");
     mkdirSync(dirname(store), { recursive: true });
     writeFileSync(store, JSON.stringify({ repos: { [rawId]: { "rt.roles": DEFAULT_ROLES } } }));
 

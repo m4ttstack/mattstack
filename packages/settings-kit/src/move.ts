@@ -30,14 +30,17 @@ export function moveTargetFrom(
     deep-merged key the effective value includes defaults and other layers,
     which must not be baked into the target. A deep move merges into the
     target's own authored value in precedence order, so the effective value
-    is unchanged unless a populated layer sits between the two. */
+    is unchanged unless a populated layer sits between the two. An
+    add-merged list is refused: the target's own items are not the source's,
+    and a set would replace them. */
 export async function moveValue(
   api: MoveApi,
   from: string,
   to: string,
   authored: { present: boolean; value?: unknown },
-  opts: { deep?: boolean; target?: MoveTarget } = {},
+  opts: { deep?: boolean; add?: boolean; target?: MoveTarget } = {},
 ): Promise<string | null> {
+  if (opts.add) return "this list adds up across layers, so it cannot move; edit each layer's own items instead";
   if (from === to) return `already in ${to}`;
   if (!authored.present) return `${from} holds no value to move`;
   const target = opts.target;

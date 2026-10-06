@@ -6,7 +6,7 @@
 
 import { join, resolve } from "path";
 import type { Probes } from "../setup/probes.ts";
-import { discoverTeams } from "../setup/team-settings.ts";
+import { discoverOrgs } from "../setup/team-settings.ts";
 import { isCompiledRt } from "../rt-self.ts";
 
 function envLine(key: string): RegExp {
@@ -76,12 +76,12 @@ export type BoardPeering = { kind: "not-applicable" } | { kind: "peered" } | { k
  * answer is reported as such, never read as no token.
  */
 export async function boardPeering(p: Probes, has: SecretPresenceCheck, teamTracksProjects: boolean, extraRoots: string[] = sourceBoardRoots()): Promise<BoardPeering> {
-  const teams = discoverTeams(p);
-  if (teams.length === 0) return { kind: "not-applicable" };
+  const orgs = discoverOrgs(p);
+  if (orgs.length === 0) return { kind: "not-applicable" };
   if (!teamTracksProjects && !legacyConfigTracksProjects(p, extraRoots)) return { kind: "not-applicable" };
   if (boardEnvHas(p, "SWITCHBOARD_TOKEN", extraRoots)) return { kind: "peered" };
   try {
-    return (await has("rt", "switchboardToken")) === null ? { kind: "unpeered", teams } : { kind: "peered" };
+    return (await has("rt", "switchboardToken")) === null ? { kind: "unpeered", teams: orgs } : { kind: "peered" };
   } catch (err) {
     return { kind: "unreadable", error: err instanceof Error ? err.message : String(err) };
   }

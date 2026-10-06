@@ -63,95 +63,57 @@ describe("parseRequirements", () => {
 });
 
 describe("readPackRequirements", () => {
-  test("discovers requirements.jsonc under teams/<slug>/**", () => {
-    const root = "/fake-home/.mattstack/teams/acme";
-    const p = fakeProbes({
-      home: "/fake-home",
-      dirs: {
-        [root]: ["mattstack"],
-        [`${root}/mattstack`]: ["packs"],
-        [`${root}/mattstack/packs`]: ["acme"],
-        [`${root}/mattstack/packs/acme`]: ["requirements.jsonc"],
-      },
-      files: {
-        [`${root}/mattstack/packs/acme/requirements.jsonc`]: '{ "tools":[], "integrations":["github"] }',
-      },
-    });
+  const root = "/fake-home/.mattstack/teams/acme";
+  const file = `${root}/mattstack/teams/widgets/packs/widgets/requirements.jsonc`;
 
-    const result = readPackRequirements(p, "acme");
+  test("reads the team pack's requirements.jsonc under its team folder", () => {
+    const p = fakeProbes({ home: "/fake-home", files: { [file]: '{ "tools":[], "integrations":["github"] }' } });
+
+    const result = readPackRequirements(p, "acme", "widgets");
     expect(result).toHaveLength(1);
-    expect(result[0]!.pack).toBe("acme");
+    expect(result[0]!.pack).toBe("widgets");
     expect(result[0]!.integrations).toEqual(["github"]);
   });
 
   test("returns [] when the team has no packs", () => {
     const p = fakeProbes({ home: "/fake-home" });
-    expect(readPackRequirements(p, "acme")).toEqual([]);
+    expect(readPackRequirements(p, "acme", "widgets")).toEqual([]);
   });
 
   test("an unreadable file yields one error entry naming the file, not a silent skip", () => {
-    const root = "/fake-home/.mattstack/teams/acme";
-    const p = fakeProbes({
-      home: "/fake-home",
-      dirs: {
-        [root]: ["mattstack"],
-        [`${root}/mattstack`]: ["packs"],
-        [`${root}/mattstack/packs`]: ["acme"],
-        [`${root}/mattstack/packs/acme`]: ["requirements.jsonc"],
-      },
-      // No matching entry in `files` — readFile(path) returns null, simulating a permission error or a broken symlink.
-    });
+    const p = fakeProbes({ home: "/fake-home", files: { [file]: "{}" }, unreadable: [file] });
 
-    const result = readPackRequirements(p, "acme");
+    const result = readPackRequirements(p, "acme", "widgets");
     expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({ pack: "acme", tools: [], integrations: [], error: expect.stringContaining("requirements.jsonc") });
+    expect(result[0]).toEqual({ pack: "widgets", tools: [], integrations: [], error: expect.stringContaining("requirements.jsonc") });
   });
 
-  test("skips .git and node_modules rather than descending into them", () => {
-    const root = "/fake-home/.mattstack/teams/acme";
+  test("with no team named, the active team comes from the org's roster through probes", () => {
     const p = fakeProbes({
       home: "/fake-home",
-      dirs: {
-        [root]: ["mattstack", ".git", "node_modules"],
-        [`${root}/mattstack`]: ["packs"],
-        [`${root}/mattstack/packs`]: ["acme"],
-        [`${root}/mattstack/packs/acme`]: ["requirements.jsonc"],
-      },
       files: {
-        [`${root}/mattstack/packs/acme/requirements.jsonc`]: '{ "tools":[], "integrations":[] }',
-        [`${root}/.git/config`]: "[core]",
-        [`${root}/node_modules/pkg/requirements.jsonc`]: '{ "tools":[], "integrations":["github"] }',
+        [file]: '{ "tools":[], "integrations":["github"] }',
+        [`${root}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["widgets"] }] }),
+        "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }),
       },
     });
-
-    const result = readPackRequirements(p, "acme");
-    expect(result).toHaveLength(1);
-    expect(result[0]!.pack).toBe("acme");
+    expect(readPackRequirements(p, "acme").map((r) => r.pack)).toEqual(["widgets"]);
+    expect(readPackRequirements(fakeProbes({ home: "/fake-home", files: { [file]: "{}" } }), "acme")).toEqual([]);
   });
 
-  test("sorts and dedupes discovered packs by name", () => {
-    const root = "/fake-home/.mattstack/teams/acme";
-    const p = fakeProbes({
-      home: "/fake-home",
-      dirs: {
-        [root]: ["mattstack"],
-        [`${root}/mattstack`]: ["packs", "packs2"],
-        [`${root}/mattstack/packs`]: ["zeta", "alpha"],
-        [`${root}/mattstack/packs/zeta`]: ["requirements.jsonc"],
-        [`${root}/mattstack/packs/alpha`]: ["requirements.jsonc"],
-        [`${root}/mattstack/packs2`]: ["alpha"],
-        [`${root}/mattstack/packs2/alpha`]: ["requirements.jsonc"],
-      },
-      files: {
-        [`${root}/mattstack/packs/zeta/requirements.jsonc`]: '{ "tools":[], "integrations":[] }',
-        [`${root}/mattstack/packs/alpha/requirements.jsonc`]: '{ "tools":[], "integrations":["github"] }',
-        [`${root}/mattstack/packs2/alpha/requirements.jsonc`]: '{ "tools":[], "integrations":["gitlab"] }',
-      },
+  describe("the active team's pack", () => {
+    const REQ = JSON.stringify({ tools: [{ name: "jq", why: "parses json" }], integrations: [] });
+    const files = {
+      "/h/.mattstack/teams/acme/mattstack/teams/widgets/packs/widgets/requirements.jsonc": REQ,
+      "/h/.mattstack/teams/acme/mattstack/teams/gadgets/packs/gadgets/requirements.jsonc": JSON.stringify({ tools: [{ name: "yq", why: "parses yaml" }], integrations: [] }),
+    };
+    test("reads only the named team's pack", () => {
+      const reqs = readPackRequirements(fakeProbes({ home: "/h", files }), "acme", "widgets");
+      expect(reqs.map((r) => [r.pack, r.tools.map((t) => t.name)])).toEqual([["widgets", ["jq"]]]);
     });
-
-    const result = readPackRequirements(p, "acme");
-    expect(result.map((r) => r.pack)).toEqual(["alpha", "zeta"]);
-    // First discovery wins on a name collision — packs/alpha, not packs2/alpha.
-    expect(result[0]!.integrations).toEqual(["github"]);
+    test("no active team, or a pack with no requirements file, is no requirements", () => {
+      expect(readPackRequirements(fakeProbes({ home: "/h", files }), "acme", null)).toEqual([]);
+      expect(readPackRequirements(fakeProbes({ home: "/h", files }), "acme", "sprockets")).toEqual([]);
+    });
   });
 });

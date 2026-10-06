@@ -25,7 +25,9 @@ function idHexToBytes(idHex: string): Uint8Array {
 
 function samplePointer(): InvitePointer {
   return {
-    v: 1,
+    v: 2,
+    username: "dev2",
+    teams: ["widgets"],
     team: "acme",
     name: "Acme Claims",
     remote: "git@github.com:acme/repo.git",
@@ -390,3 +392,13 @@ describe("extractInviteCode", () => {
     }
   });
 });
+
+  test("open admits a version 1 and a version 2 pointer: which versions join accepts is validatePointer's call", async () => {
+    const key = generateKey();
+    const idHex = SAMPLE_ID_HEX;
+    const base = { team: "acme", name: "Acme", remote: "https://github.com/acme/org.git", owner: "dev1", forge: "github.com", createdAt: "2026-10-01T00:00:00.000Z" };
+    for (const pointer of [{ v: 1, ...base }, { v: 2, ...base, username: "dev2", teams: ["widgets"] }]) {
+      expect(await open(await seal(pointer as never, key, idHex), key, idHex)).toMatchObject({ v: pointer.v, team: "acme" });
+    }
+    await expect(open(await seal({ v: 3, ...base } as never, key, idHex), key, idHex)).rejects.toMatchObject({ code: "invite-unreadable" });
+  });

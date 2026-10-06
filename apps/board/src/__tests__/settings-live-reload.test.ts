@@ -11,20 +11,34 @@ import { afterAll, expect, test } from 'bun:test';
 // server.ts's actual settingsHandler mount and reload path both run for real.
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-settings-reload-'));
 
-const teamDir = join(fakeHome, '.mattstack', 'teams', 'testteam', 'mattstack');
+const teamDir = join(
+  fakeHome,
+  '.mattstack',
+  'teams',
+  'testteam',
+  'mattstack',
+  'org'
+);
 mkdirSync(teamDir, { recursive: true });
 writeFileSync(
-  join(teamDir, 'settings.team.jsonc'),
+  join(teamDir, 'settings.org.jsonc'),
   JSON.stringify({
     'board.gitlabHost': 'https://gitlab.example.com',
     'board.projects': ['g/p'],
-    'board.members': [{ username: 'alice' }],
+    'mattstack.org': { admins: ['dev1'], teams: {} },
+    'mattstack.roster': [{ username: 'alice' }],
   })
 );
 
 const rtDir = join(fakeHome, '.mattstack', 'rt');
 mkdirSync(rtDir, { recursive: true });
 writeFileSync(join(rtDir, 'api-token'), 'fake-token\n');
+const localTeams = join(rtDir, 'teams');
+mkdirSync(localTeams, { recursive: true });
+writeFileSync(
+  join(localTeams, 'testteam.json'),
+  JSON.stringify({ forgeUsername: 'dev1' })
+);
 
 const PORT = 47944;
 const proc = Bun.spawn(
@@ -84,7 +98,7 @@ test('a board.* setting written through /api/settings/set applies live, no resta
     body: JSON.stringify({
       key: 'board.title',
       value: 'Reload Proof',
-      scope: 'team',
+      scope: 'org',
     }),
   });
   expect(setRes.ok).toBe(true);

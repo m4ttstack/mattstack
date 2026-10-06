@@ -23,7 +23,7 @@
  * caller asked for "manual". Running it again gets a fresh manual cycle.
  */
 
-import { existsSync, watch as fsWatch } from "fs";
+import { existsSync, readdirSync, watch as fsWatch } from "fs";
 import { isAbsolute, join } from "path";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
@@ -42,7 +42,12 @@ import {
   setKvValue,
 } from "../state/index.ts";
 import { gitWithToken } from "../team/git-credential.ts";
+import { unpublishedPaths } from "../team/publish-history.ts";
+import { ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
+import { TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
+import { roleFor } from "../team/roles.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
+import { readTeamLocal, type PendingPackShare } from "../team/team-local.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
 import { HOME_SNAPSHOT_NS, recordHomePush, type HomePushRecord } from "../home/push-record.ts";
@@ -102,6 +107,10 @@ export interface SnapshotStatus {
   conflicted: { at: number; detail: string } | null;
   /** True when this clone only fetches and fast-forwards. */
   pullOnly: boolean;
+  /** Dirty managed paths this Mac may not push, as of the last pull cycle. */
+  unownedDirty: string[];
+  /** Paths the last round left out on purpose (a marketplace waiting for its pack's share). Absent from a daemon that predates it. */
+  heldBack?: string[];
   claimedZones: string[];
   firstSeenDirty: Record<string, number>;
   /** Set (and cleared) each time status() re-reads the owners file — surfaces a fail-closed readOwners throw without hiding it behind a stale cache. */
@@ -148,19 +157,18 @@ export interface SnapshotSpec {
   /** Paths (relative to repoDir) the engine may stage; undefined = everything outside claimed zones. */
   scope?: (relPath: string) => boolean;
   /** Zones claimed for as long as the spec runs, as if written to the owners file; a claim in the file wins over one here. */
-  standingZones?: Owners["zones"];
+  standingZones?: (repoDir: string, log: Logger) => Owners["zones"];
+  /** `held` paths are in scope but not staged this round, given the round's dirty paths; they are not reported as unowned. */
+  readAuthorization?: () => { scope: (relPath: string) => boolean; pullOnly: boolean; held?: (relPath: string, dirty: readonly string[]) => boolean };
+  /** Every managed path, including paths this Mac may not push. */
+  watch?: (relPath: string) => boolean;
   /** Fetch + rebase policy; absent = never pull (the home repo is single-writer). */
   pull?: {
     intervalSec: number;
     /** Fired after a pull that moved HEAD, outside the git lock. */
     onPulled?: (outcome: "fast-forwarded" | "rebased") => Promise<void>;
   };
-  /**
-   * This machine may not write the remote, so the engine only fetches and
-   * fast-forwards: no commit, no push. A clean tree is what keeps
-   * fast-forward always sufficient, so a member can never reach the rebase
-   * conflict path at all.
-   */
+  /** This Mac's role owns nothing in the clone, so the engine only fetches and fast-forwards. */
   pullOnly?: boolean;
   /** The forge token rt holds for origin; absent = git's own credentials. */
   tokenFor?: () => Promise<string | null>;
@@ -367,11 +375,50 @@ export function homeSnapshotSpec(repoDir: string = join(mattstackHome(), "user")
  * Packs publish through their own commit (the editing-skills flow, `rt skills
  * sync`), which a watch commit would preempt mid-edit and push under the
  * generic message. The janitor still commits a pack left dirty past its
- * threshold, so an abandoned edit is not lost.
+ * threshold, so an abandoned edit is not lost. Team folders come and go
+ * (`rt team add`), so the zones are re-listed on every read; an unconverted
+ * clone still keeps its packs in `mattstack/packs/`.
  */
-const TEAM_STANDING_ZONES: Owners["zones"] = {
-  "mattstack/packs/": { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" },
-};
+function teamStandingZones(repoDir: string, log: Logger): Owners["zones"] {
+  let teams: string[] = [];
+  try {
+    const folders = readdirSync(join(repoDir, "mattstack", "teams"), { withFileTypes: true }).filter((entry) => entry.isDirectory());
+    for (const folder of folders) {
+      if (!TEAM_NAME_RE.test(folder.name)) log.debug({ folder: folder.name }, "team snapshot: a folder under mattstack/teams is not a team name, so its packs get no zone");
+    }
+    teams = folders.map((entry) => entry.name).filter((name) => TEAM_NAME_RE.test(name)).sort();
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT" && code !== "ENOTDIR") throw err;
+  }
+  const legacy = !existsSync(join(repoDir, "mattstack", "org")) || existsSync(join(repoDir, "mattstack", "packs")) ? ["mattstack/packs/"] : [];
+  const zones = [...legacy, "mattstack/org/packs/", ...teams.map((team) => `mattstack/teams/${team}/packs/`)];
+  return Object.fromEntries(zones.map((zone) => [zone, { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" }]));
+}
+
+const MARKETPLACE_PATH = ".claude-plugin/marketplace.json";
+
+/** Names read off disk go to git as literal pathspecs: a file named `pa*` would otherwise stage every path it matches. */
+function literal(paths: string[]): string[] {
+  return paths.map((path) => `:(literal)${path}`);
+}
+
+/**
+ * A new pack whose share commit failed must reach origin with its marketplace
+ * entry, never after it, so the entry waits for `rt team publish`. The hold
+ * lasts only while a share that names the marketplace still has its pack
+ * folder on disk with something under it uncommitted: once that folder is
+ * clean (the janitor or a hand commit got there), the same push carries pack
+ * and entry together. The record itself is only ever changed by the CLI.
+ */
+function marketplaceOwed(shares: PendingPackShare[], repoDir: string, dirty: readonly string[]): boolean {
+  return shares.some((share) => {
+    const folder = share.paths[0]!;
+    return share.paths.includes(MARKETPLACE_PATH)
+      && existsSync(join(repoDir, folder))
+      && dirty.some((path) => path === folder || path.startsWith(`${folder}/`));
+  });
+}
 
 /** A team clone: no legacy state file (nothing predates it), and it pulls (multi-writer), unlike the home repo. */
 export function teamSnapshotSpec(
@@ -381,21 +428,32 @@ export function teamSnapshotSpec(
     pullIntervalSec: number;
     originUrl: string;
     probes: Probes;
-    pullOnly?: boolean;
+    ownedRoots: string[];
     readToken?: (p: Probes, remote: string) => Promise<string | null>;
     onPulled?: (outcome: "fast-forwarded" | "rebased") => Promise<void>;
   },
 ): SnapshotSpec {
   const readToken = opts.readToken ?? storedForgeToken;
+  const owns = (path: string) => opts.ownedRoots.some((root) => path === root || path.startsWith(`${root}/`));
   return {
     id: `team:${slug}`,
     repoDir,
     kvNamespace: `team-snapshot:${slug}`,
     eventPrefix: "team",
-    scope: teamScope,
-    standingZones: TEAM_STANDING_ZONES,
+    scope: (path) => teamScope(path) && owns(path),
+    standingZones: teamStandingZones,
+    readAuthorization: () => {
+      const roots = ownedRoots(roleFor(opts.probes, slug));
+      const shares = readTeamLocal(opts.probes, slug).pendingPackShares ?? [];
+      return {
+        scope: (path) => teamScope(path) && roots.some((root) => path === root || path.startsWith(`${root}/`)),
+        pullOnly: roots.length === 0,
+        held: (path, dirty) => path === MARKETPLACE_PATH && marketplaceOwed(shares, repoDir, dirty),
+      };
+    },
+    watch: teamScope,
     pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled },
-    pullOnly: opts.pullOnly === true,
+    pullOnly: opts.ownedRoots.length === 0,
     tokenFor: () => readToken(opts.probes, opts.originUrl),
     originUrl: opts.originUrl,
   };
@@ -430,7 +488,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   const ownersPath = ownersPathFor(deps.repoDir);
   const readClaims = (): Owners => {
     const owners = deps.readOwners(ownersPath);
-    return spec.standingZones ? { zones: { ...spec.standingZones, ...owners.zones } } : owners;
+    return spec.standingZones ? { zones: { ...spec.standingZones(deps.repoDir, deps.log), ...owners.zones } } : owners;
   };
   const { label, settingsKey, missingRepo } = vocabOf(spec);
 
@@ -458,6 +516,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
 
   let lastPullAt = 0;
   let lastPullError: string | null = null;
+  let unownedDirty: string[] = [];
+  let heldBack: string[] = [];
   let lastPullSkipped: string | null = null;
   let conflicted: { at: number; detail: string } | null = null;
   /** `spec.tokenFor` is a keychain read plus a sops decrypt, so it is resolved once per pull interval rather than per git call. */
@@ -848,6 +908,12 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // stale, or a joiner with a bad token would look in sync.
     lastPullAt = deps.now();
     lastPullError = null;
+    if (spec.watch) {
+      const dirty = await deps.exec(["git", "status", "--porcelain=v1", "-uall", "-z"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+      if (dirty.exitCode === 0) {
+        reportUnowned(parsePorcelainZ(dirty.stdout), authorization().scope);
+      }
+    }
     const counts = await deps.exec(["git", "rev-list", "--left-right", "--count", `refs/remotes/origin/${branch}...HEAD`], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
     if (counts.exitCode !== 0) return { outcome: "skipped", detail: "no remote-tracking ref yet" };
     const [behind, ahead] = counts.stdout.trim().split(/\s+/).map(Number);
@@ -891,7 +957,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (pushRetryTimer) { deps.clearTimeout(pushRetryTimer); pushRetryTimer = null; }
     // A pull-only clone cannot publish, so the remedy told to it must not name a verb it will
     // itself refuse (team-pull-only) the moment it is tried.
-    const remedy = spec.pullOnly ? "reset it to origin or ask the team's owner" : "rebase and `rt team publish` by hand, or reset the clone to origin";
+    const remedy = spec.pullOnly ? "reset it to origin or ask an org admin" : "rebase and `rt team publish` by hand, or reset the clone to origin";
     deps.log.warn({ id: spec.id, detail }, `${label}: rebase conflict; still fetching, but not applying pulls or pushing until you ${remedy}`);
     deps.broadcast(`${spec.eventPrefix}:conflict`, { id: spec.id, detail });
     return { outcome: "conflict", detail };
@@ -970,6 +1036,52 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     }
   }
 
+  function authorization() {
+    return spec.readAuthorization?.() ?? { scope: spec.scope, pullOnly: spec.pullOnly === true, held: undefined };
+  }
+
+  let observedEntries: ReturnType<typeof parsePorcelainZ> = [];
+
+  function reportUnowned(entries: ReturnType<typeof parsePorcelainZ>, scope: SnapshotSpec["scope"]): void {
+    observedEntries = entries;
+    if (!spec.watch) return;
+    unownedDirty = [...new Set(entries
+      .flatMap((entry) => entry.origPath && entry.xy.includes("R") ? [entry.path, entry.origPath] : [entry.path])
+      .filter((path) => spec.watch!(path) && !(scope?.(path) ?? true)))].sort();
+  }
+
+  function mayWrite(paths: string[], entries: ReturnType<typeof parsePorcelainZ>): boolean {
+    const current = authorization();
+    reportUnowned(entries, current.scope);
+    return !current.pullOnly && paths.every((path) => current.scope?.(path) ?? true);
+  }
+
+  async function mayPush(): Promise<boolean> {
+    if (!spec.readAuthorization) return !spec.pullOnly;
+    const branch = await deps.exec(["git", "symbolic-ref", "--quiet", "--short", "HEAD"], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+    if (branch.exitCode !== 0) {
+      pushPending = true;
+      lastPushError = "rt could not check your pending changes";
+      return false;
+    }
+    const paths = await unpublishedPaths(async (argv) => {
+      const result = await deps.exec(argv, { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+      return { code: result.exitCode, stdout: result.stdout };
+    }, `refs/remotes/origin/${branch.stdout.trim()}..HEAD`);
+    if (paths === null) {
+      pushPending = true;
+      lastPushError = "rt could not check your pending changes";
+      return false;
+    }
+    const current = authorization();
+    if (current.pullOnly || [...paths].some((path) => !(current.scope?.(path) ?? true))) {
+      pushPending = true;
+      lastPushError = "Your role no longer owns these pending changes. Ask an org admin before publishing them";
+      return false;
+    }
+    return true;
+  }
+
   async function doPushInner(): Promise<void> {
     // Kill switch, second door: doRun's own enabled check cancels a
     // scheduled push timer, but only when doRun ITSELF runs — a push
@@ -985,7 +1097,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // Backstop. A pull-only spec never commits, so nothing should ever arm a
     // push, but the timer is armed from more than one place and this costs
     // nothing.
-    if (spec.pullOnly) return;
+    if (!spec.readAuthorization && spec.pullOnly) return;
     // Local-only (rt home init with no remote attached) is a permanent,
     // supported state — not a push failure: no exec, no retry, no broadcast.
     // Clearing pushPending/lastPushError here matters for a remote that
@@ -1007,12 +1119,13 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       const pulled = await pullNow({ converge: false });
       if (pulled.outcome === "conflict" || conflicted) return;
     }
+    if (!(await mayPush())) return;
     let result = await remoteGit(["push", "-q", "origin", "HEAD"], PUSH_TIMEOUT_MS);
     if (result.exitCode !== 0 && spec.pull && pushRetryAttempt === 0 && /\[rejected\]|non-fast-forward|fetch first/i.test(result.stderr)) {
       // The remote moved between the pull above and this push; one inline
       // replay beats waiting out a whole retry-backoff window.
       await pullNow({ converge: false });
-      if (conflicted) return;
+      if (conflicted || !(await mayPush())) return;
       result = await remoteGit(["push", "-q", "origin", "HEAD"], PUSH_TIMEOUT_MS);
     }
     if (result.exitCode === 0) {
@@ -1069,6 +1182,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
 
   async function doRun(reason: SnapshotReason): Promise<SnapshotResult> {
     lastRunAt = deps.now();
+    heldBack = [];
 
     const settings = safeReadSettings();
     if (settings.enabled === false) {
@@ -1120,7 +1234,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (conflicted) {
       return { committed: false, sha: null, paths: [], reason, skipped: "conflict" };
     }
-    if (spec.pullOnly) {
+    if (!spec.readAuthorization && spec.pullOnly) {
       return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
     }
 
@@ -1130,7 +1244,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message !== lastLoggedOwnersError) {
-        deps.log.warn({ err }, `${label}: owners file unreadable; skipping cycle`);
+        deps.log.warn({ err }, `${label}: claimed zones unreadable; skipping cycle`);
         lastLoggedOwnersError = message;
       }
       return { committed: false, sha: null, paths: [], reason, skipped: "owners-read-error" };
@@ -1142,7 +1256,17 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       timeoutMs: GIT_TIMEOUT_MS,
       stderr: "pipe",
     });
-    const entries = scopeEntries(parsePorcelainZ(statusResult.stdout), spec.scope);
+    const rawEntries = parsePorcelainZ(statusResult.stdout);
+    const current = authorization();
+    reportUnowned(rawEntries, current.scope);
+    if (current.pullOnly) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
+    const dirtyPaths = [...new Set(rawEntries.flatMap((entry) => (entry.origPath ? [entry.path, entry.origPath] : [entry.path])))];
+    const holds = (path: string) => current.held?.(path, dirtyPaths) ?? false;
+    heldBack = dirtyPaths.filter(holds).sort();
+    const stageScope = current.held
+      ? (path: string) => (current.scope?.(path) ?? true) && !holds(path)
+      : current.scope;
+    const entries = scopeEntries(rawEntries, stageScope);
     // A scoped spec's pathspec is the scoped entries' own paths, never the
     // scope's roots: `git add -A -- mattstack .sops.yaml .claude-plugin`
     // exits 128 and stages nothing when any root is absent from both tree
@@ -1150,9 +1274,18 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // every cycle as add-failed. A rename's origPath rides along so the old
     // path's deletion lands in the same commit as the new path; scopeEntries
     // is what guarantees both halves are inside the scope.
-    const scopeArgs: string[] = spec.scope
+    const scopeArgs: string[] = stageScope
       ? [...new Set(entries.flatMap((e) => (e.origPath ? [e.origPath, e.path] : [e.path])))]
       : ["."];
+
+    // A staged deletion (including a rename source) is already absent from
+    // the index, so git add rejects it. It still belongs in the commit.
+    const addScopeArgs = stageScope
+      ? [...new Set(rawEntries.flatMap((entry) => [
+        ...(entry.origPath && entry.xy[0] !== "R" && stageScope!(entry.origPath) ? [entry.origPath] : []),
+        ...(entry.xy[0] !== "D" && stageScope!(entry.path) ? [entry.path] : []),
+      ]))]
+      : scopeArgs;
 
     const plan = planSnapshot({
       entries,
@@ -1213,8 +1346,17 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       const excludeArgs = plan.excludedZones.map((zone) => `:(exclude)${zone}`);
       // A scoped spec names each path; one inside a claimed zone would sit in
       // the pathspec beside its own exclude, so it is dropped here instead.
-      const autoArgs = spec.scope ? scopeArgs.filter((path) => !plan.excludedZones.some((zone) => isUnderZone(path, zone))) : scopeArgs;
-      const addResult = await deps.exec(["git", "add", "-A", "--", ...autoArgs, ...excludeArgs], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+      // Its add then carries no excludes: given an exclude outside the named
+      // files' folders, git add silently skips an untracked file in a new
+      // folder (git 2.54), and the commit that names it fails. The commit
+      // still carries them.
+      const outsideClaims = (path: string) => !plan.excludedZones.some((zone) => isUnderZone(path, zone));
+      const autoArgs = stageScope ? scopeArgs.filter(outsideClaims) : scopeArgs;
+      const autoAddArgs = stageScope ? addScopeArgs.filter(outsideClaims) : addScopeArgs;
+      if (!mayWrite(autoArgs, rawEntries)) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
+      const addResult = autoAddArgs.length > 0
+        ? await deps.exec(["git", "add", "-A", "--", ...(stageScope ? literal(autoAddArgs) : [...autoAddArgs, ...excludeArgs])], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" })
+        : { exitCode: 0, stderr: "" };
       if (addResult.exitCode !== 0) {
         const addSkipped: SkipReason = addResult.stderr.toLowerCase().includes("index.lock") ? "index-locked" : "add-failed";
         if (addResult.stderr !== lastLoggedAddError) {
@@ -1231,7 +1373,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       // a plain `git commit` afterward commits the WHOLE index regardless,
       // so content the user (or a stray earlier `git add`) staged inside a
       // claimed zone would ship under the daemon's message. Restricting the
-      // commit to the same pathspec makes it self-contained: only matched
+      // commit to its explicit pathspec makes it self-contained: only matched
       // paths are committed, whatever sits staged for the zone is left
       // exactly as it was.
       //
@@ -1240,7 +1382,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       // about an unattended backup commit needs a signature. (Git identity
       // is confirmed once, above, before either commit site runs.)
       const message = reason === "manual" ? plan.message!.replace(/^snapshot:/, "snapshot (manual):") : plan.message!;
-      const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", ...autoArgs, ...excludeArgs], {
+      if (!mayWrite(autoArgs, rawEntries)) return { committed: false, sha: null, paths: [], reason, skipped: "pull-only" };
+      const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", ...(stageScope ? literal(autoArgs) : autoArgs), ...excludeArgs], {
         cwd: deps.repoDir,
         timeoutMs: GIT_TIMEOUT_MS,
         stderr: "pipe",
@@ -1264,15 +1407,23 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
 
     if (willJanitorCommit) {
       for (const jz of plan.janitorZones) {
+        const inZone = (path: string) => jz.zone.endsWith("/") ? path.startsWith(jz.zone) : path === jz.zone;
+        const commitPaths = stageScope ? scopeArgs.filter(inZone) : [jz.zone];
+        const addPaths = stageScope ? addScopeArgs.filter(inZone) : [jz.zone];
+        if (commitPaths.length === 0) continue;
         const dirtyHours = Math.floor((deps.now() - jz.dirtySinceMs) / (60 * 60 * 1000));
         const message = `snapshot (janitor): ${jz.zone} dirty >${dirtyHours}h, owner ${jz.owner}`;
-        const addResult = await deps.exec(["git", "add", "-A", "--", jz.zone], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
+        if (!mayWrite(commitPaths, rawEntries)) continue;
+        const addResult = addPaths.length > 0
+          ? await deps.exec(["git", "add", "-A", "--", ...(stageScope ? literal(addPaths) : addPaths)], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" })
+          : { exitCode: 0, stderr: "" };
         if (addResult.exitCode !== 0) {
           deps.log.warn({ stderr: addResult.stderr, zone: jz.zone }, `${label}: janitor add failed; skipping this zone this cycle`);
           continue;
         }
         // Same self-contained-commit and unsigned-commit reasoning as the auto commit above.
-        const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", jz.zone], {
+        if (!mayWrite(commitPaths, rawEntries)) continue;
+        const commitResult = await deps.exec(["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", message, "--", ...(stageScope ? literal(commitPaths) : commitPaths)], {
           cwd: deps.repoDir,
           timeoutMs: GIT_TIMEOUT_MS,
           stderr: "pipe",
@@ -1283,8 +1434,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
           lastCommit = { sha, message, at: deps.now() };
           lastCommitError = null;
           lastLoggedCommitError = null;
-          deps.log.info({ sha, paths: 1, reason }, `${label}: committed`);
-          deps.broadcast(`${spec.eventPrefix}:snapshot`, { sha, paths: [jz.zone], reason });
+          deps.log.info({ sha, paths: commitPaths.length, reason }, `${label}: committed`);
+          deps.broadcast(`${spec.eventPrefix}:snapshot`, { sha, paths: commitPaths, reason });
         } else {
           lastCommitError = commitResult.stderr;
           if (commitResult.stderr !== lastLoggedCommitError) {
@@ -1329,6 +1480,8 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   }
 
   function status(): SnapshotStatus {
+    const current = authorization();
+    reportUnowned(observedEntries, current.scope);
     let claimedZones: string[] = [];
     let ownersError: string | null = null;
     try {
@@ -1363,7 +1516,9 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       lastPullError,
       lastPullSkipped,
       conflicted,
-      pullOnly: spec.pullOnly === true,
+      pullOnly: current.pullOnly,
+      unownedDirty: [...unownedDirty],
+      heldBack: [...heldBack],
       claimedZones,
       firstSeenDirty: { ...firstSeenDirty },
       ownersError,

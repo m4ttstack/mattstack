@@ -13,7 +13,7 @@ function joined(files: Record<string, string> = {}, env: Record<string, string> 
     env,
     dirs: { [TEAMS]: ["acme"] },
     files: {
-      [`${TEAMS}/acme/mattstack/settings.team.jsonc`]: "{}",
+      [`${TEAMS}/acme/mattstack/org/settings.org.jsonc`]: "{}",
       [`${HOME}/.mattstack/rt/teams/acme.json`]: JSON.stringify({ joinedByRt: true }),
       ...files,
     },
@@ -70,7 +70,7 @@ describe("boardPeering: which Macs it applies to", () => {
     const p = fakeProbes({
       home: HOME,
       dirs: { [TEAMS]: ["acme"] },
-      files: { [`${TEAMS}/acme/mattstack/settings.team.jsonc`]: "{}" },
+      files: { [`${TEAMS}/acme/mattstack/org/settings.org.jsonc`]: "{}" },
     });
     expect(await boardPeering(p, async () => null, false, [])).toEqual({ kind: "not-applicable" });
   });
@@ -80,7 +80,7 @@ describe("boardPeering: which Macs it applies to", () => {
       home: HOME,
       dirs: { [TEAMS]: ["acme"] },
       files: {
-        [`${TEAMS}/acme/mattstack/settings.team.jsonc`]: "{}",
+        [`${TEAMS}/acme/mattstack/org/settings.org.jsonc`]: "{}",
         [`${HOME}/.mattstack/board/config.json`]: JSON.stringify({ projects: ["group/app"] }),
       },
     });
@@ -92,7 +92,7 @@ describe("boardPeering: which Macs it applies to", () => {
       home: HOME,
       dirs: { [TEAMS]: ["acme"] },
       files: {
-        [`${TEAMS}/acme/mattstack/settings.team.jsonc`]: "{}",
+        [`${TEAMS}/acme/mattstack/org/settings.org.jsonc`]: "{}",
         [`${HOME}/.mattstack/rt/teams/acme.json`]: JSON.stringify({ createdByRt: true, joinedByRt: false }),
       },
     });

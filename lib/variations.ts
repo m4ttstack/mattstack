@@ -1,7 +1,7 @@
 /**
  * Per-repo script variations for rt run.
  *
- * Resolved through the settings resolver (`rt.variations`, team.repo scope):
+ * Resolved through the settings resolver (`rt.variations`, org.repo scope):
  * a single object keyed by `repoRelativePath:scriptName`, each value an array
  * of {name, command}.
  *
@@ -11,14 +11,13 @@
  *
  * Reads are best-effort — a broken/missing store value degrades to empty
  * rather than blocking the user's actual command invocation. Writes are NOT
- * silently swallowed: `saveVariation` reports success/failure (including a
- * team-store refusal, e.g. zero or multiple local team stores — see
- * settings/write.ts's team-selection rule) so a caller can tell the user the
+ * silently swallowed: `saveVariation` reports success/failure (including the
+ * write path's refusal on a Mac with no org) so a caller can tell the user the
  * truth instead of pretending the save landed.
  */
 
 import { relative } from "path";
-import { getSetting } from "./settings/resolve.ts";
+import { getOrgSetting, getSetting } from "./settings/resolve.ts";
 import { setSetting } from "./settings/write.ts";
 import type { Value } from "./settings/registry-schemas.ts";
 
@@ -66,13 +65,10 @@ export type SaveResult =
   | { ok: false; reason: "write-failed"; message: string };
 
 /**
- * Appends `variation` under its key and writes the whole map to team scope
- * (ruling: team.repo) — but the base it merges onto is the RESOLVED value
- * across every scope the key allows, not just what's already in the team
- * store. Variations are meant to live in team scope only, so this only
- * matters if one was ever hand-authored into user or machine: the next save
- * here copies the whole merged map — that foreign variation included — into
- * the team store too. Accepted, not guarded.
+ * Appends `variation` under its key and writes the whole map to the org's
+ * repo section. The base is the org store's own map, so a variation authored
+ * in a team folder, the user store or the machine store is never copied into
+ * the org layer.
  */
 export function saveVariation(
   repoIdentity: string | null,
@@ -84,12 +80,12 @@ export function saveVariation(
   if (repoIdentity === null) return { ok: false, reason: "no-identity" };
 
   const key = variationKey(repoRoot, packagePath, script);
-  const all = loadVariations(repoIdentity);
+  const all = { ...(getOrgSetting<Record<string, Variation[]>>("rt.variations", { repoIdentity }) ?? {}) };
   const list = all[key] ?? [];
   all[key] = [...list, variation];
 
   try {
-    setSetting("rt.variations", all, "team", { repoIdentity });
+    setSetting("rt.variations", all, "org", { repoIdentity });
     return { ok: true };
   } catch (err) {
     return { ok: false, reason: "write-failed", message: err instanceof Error ? err.message : String(err) };

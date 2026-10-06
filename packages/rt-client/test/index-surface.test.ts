@@ -91,3 +91,19 @@ describe("index.ts ci lease surface", () => {
     expect(new rtClient.CiLeaseLockBusyError("x")).toBeInstanceOf(rtClient.CiLeaseError);
   });
 });
+
+describe("index.ts org and active-team surface", () => {
+  test("exports the org and active-team API", () => {
+    expect(typeof rtClient.activeTeam).toBe("function");
+    expect(typeof rtClient.activeTeamRoster).toBe("function");
+    expect(typeof rtClient.readOrgRoles).toBe("function");
+    expect(typeof rtClient.readOrgRoster).toBe("function");
+    expect(typeof rtClient.readForgeUsername).toBe("function");
+    expect(typeof rtClient.listOrgs).toBe("function");
+    expect(typeof rtClient.currentOrg).toBe("function");
+    expect(rtClient.TEAM_NAME_RE.test("widgets")).toBe(true);
+    for (const name of ["sharedStoreFiles", "listTeamFolders", "getOrgSetting", "isSharedScope", "roleOf", "mergeTeamRoster", "sameUser", "decideActiveTeam"] as const) {
+      expect(typeof rtClient[name], name).toBe("function");
+    }
+  });
+});

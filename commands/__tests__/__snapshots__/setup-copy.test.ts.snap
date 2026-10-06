@@ -1030,3 +1030,16 @@ exports[`the setup plan's shape and copy status: the copy is what the copy table
   "tools.title": "Tools",
 }
 `;
+
+exports[`the setup plan's shape and copy apply emits the org pull and identity titles after a join 1`] = `
+[
+  {
+    "id": "org.pull",
+    "title": "Pull your org",
+  },
+  {
+    "id": "team.identity",
+    "title": "Record who you are",
+  },
+]
+`;

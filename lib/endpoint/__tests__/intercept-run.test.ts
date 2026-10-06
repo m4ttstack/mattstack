@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { teamSettingsPath } from "../../rt-paths.ts";
 import { closeStateDb } from "../../state/index.ts";
 import { runInterception } from "../run.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 /** Merges `identity`'s roles into the shared team store rather than clobbering earlier entries — every test in this describe shares one per-test HOME. */
 function writeRepoRoles(identity: string, roles: unknown): void {
-  const path = teamSettingsPath("acme");
+  const path = sharedStorePath("acme");
   mkdirSync(join(path, ".."), { recursive: true });
   let existing: { repos?: Record<string, unknown> } = {};
   try {

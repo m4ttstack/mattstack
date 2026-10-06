@@ -122,12 +122,12 @@ function homeSnapshot(): SettingDefWire {
   };
 }
 
-/** `board.members` is SHAPES-external (edited in board): writable, so
+/** `board.hiddenMembers` is SHAPES-external (edited in board): writable, so
     Remove still applies, but its kind is never in EDITOR_KINDS, so it is
     never editable regardless of the def's own writable flag. */
-function boardMembers(): SettingDefWire {
+function hiddenMembers(): SettingDefWire {
   return {
-    key: 'board.members',
+    key: 'board.hiddenMembers',
     type: 'array',
     scopes: ['user'],
     merge: 'replace',
@@ -135,13 +135,13 @@ function boardMembers(): SettingDefWire {
     teamLocked: false,
     repoScoped: false,
     writable: true,
-    description: 'Board members, edited in board.',
+    description: 'Hidden people, edited in board.',
     hasDefault: false,
     defaultValue: null,
     effective: {
       scope: 'user',
       file: USER_FILE,
-      value: [{ username: 'a' }],
+      value: [7],
     },
     storeVersion: 1,
     issues: [
@@ -149,11 +149,11 @@ function boardMembers(): SettingDefWire {
         scope: 'user',
         file: USER_FILE,
         kind: 'nonconforming',
-        path: [0, 'username'],
+        path: [0],
         message: 'expected string, got number',
       },
     ],
-    ...schemaFields('board.members'),
+    ...schemaFields('board.hiddenMembers'),
   };
 }
 
@@ -863,23 +863,25 @@ describe('Fix in the explain modal', () => {
   });
 
   it('a non-editable failing layer keeps Remove as the remedy, no editor opens', async () => {
-    openFix(boardMembers(), [
+    openFix(hiddenMembers(), [
       { scope: 'default', file: null, present: false },
       {
         scope: 'user',
         file: USER_FILE,
         present: true,
-        value: [{ username: 'a' }],
+        value: [7],
       },
     ]);
     const layer = await screen.findByTestId('layer-user');
     expect(within(layer).queryByText(/^Editing the/)).toBeNull();
     expect(
-      within(layer).queryByRole('button', { name: 'set board.members at user' })
+      within(layer).queryByRole('button', {
+        name: 'set board.hiddenMembers at user',
+      })
     ).toBeNull();
     expect(
       within(layer).getByRole('button', {
-        name: 'remove board.members from user',
+        name: 'remove board.hiddenMembers from user',
       })
     ).toBeInTheDocument();
   });

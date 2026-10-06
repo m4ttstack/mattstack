@@ -25,10 +25,10 @@
  */
 
 import { ensureAgeKey, readAgeKey } from "../home/age-key.ts";
-import { teamSettingsPath } from "../rt-paths.ts";
+import { orgSettingsPath } from "../rt-paths.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
 import { addTeamRecipient, readTeamRecipients, removeTeamRecipient } from "../secrets/team-store.ts";
-import { readStore } from "../settings/stores.ts";
+import { currentOrg, readStore } from "../settings/stores.ts";
 import { setSetting } from "../settings/write.ts";
 import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
@@ -37,7 +37,9 @@ import { revokeRead, type RevokeAccess } from "./forge.ts";
 import { canonicalHandle, realReadLocalSecret, revokeBoard, type ReadLocalSecret } from "./board-peers.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { scrub } from "./redact.ts";
-import { assertNotJoined, readTeamLocal } from "./team-local.ts";
+import { assertMayWrite } from "./roles.ts";
+import { assertTeamFolders } from "./team-names.ts";
+import { assertCurrentOrg, readTeamLocal } from "./team-local.ts";
 import { openReply } from "./invite-crypto.ts";
 import { readInviteRecords, removeInviteRecord } from "./invite-records.ts";
 import type { RelayClient } from "./relay-client.ts";
@@ -133,38 +135,38 @@ interface RosterMember {
   [key: string]: unknown;
 }
 
-/** The two roster keys a membership change touches: board.members is the board's own list, mattstack.roster the cross-app successor, mirroring invite.ts's addToRoster. */
-const ROSTER_KEYS = ["board.members", "mattstack.roster"] as const;
-type RosterKey = (typeof ROSTER_KEYS)[number];
-
-function readRoster(seams: MembersSeams, slug: string, key: RosterKey = "board.members"): RosterMember[] {
+function readRoster(seams: MembersSeams, slug: string): RosterMember[] {
   const store = seams.readTeamStore(slug);
-  return Array.isArray(store[key]) ? (store[key] as RosterMember[]) : [];
+  return Array.isArray(store["mattstack.roster"]) ? (store["mattstack.roster"] as RosterMember[]) : [];
 }
 
-/** The read-side roster: mattstack.roster is the cross-app key the suite apps read; board.members remains only as the fallback for stores minted before the successor key existed. Writers keep dual-writing both. */
-export function preferredRoster(store: Record<string, unknown>): RosterMember[] {
-  const next = store["mattstack.roster"];
-  if (Array.isArray(next)) return next as RosterMember[];
-  const legacy = store["board.members"];
-  return Array.isArray(legacy) ? (legacy as RosterMember[]) : [];
+/** Roster rows are hand-editable, so a row without a string username never matches and is written back untouched. Names compare the way the switchboard compares board names. */
+function isMember(m: RosterMember, handle: string): boolean {
+  return typeof m?.username === "string" && canonicalHandle(m.username) === canonicalHandle(handle);
 }
 
-/** Sets (or overwrites) one roster entry's `agePublicKey` on both roster keys: the sync-time record of which sops recipient a handle maps to, so `membersRemove` can find it later without a `--key` argument. Each key is read and written on its own contents, matching `addToRoster` in invite.ts. */
+export function withRosterKey(roster: RosterMember[], handle: string, agePublicKey: string): RosterMember[] {
+  return roster.some((m) => isMember(m, handle))
+    ? roster.map((m) => (isMember(m, handle) ? { ...m, agePublicKey } : m))
+    : [...roster, { username: handle, agePublicKey }];
+}
+
+export function withoutMember(roster: RosterMember[], handle: string): { roster: RosterMember[]; removed: RosterMember | null } {
+  const removed = roster.find((m) => isMember(m, handle)) ?? null;
+  return { roster: removed ? roster.filter((m) => !isMember(m, handle)) : roster, removed };
+}
+
+/** Sets (or overwrites) one roster entry's `agePublicKey`: the sync-time record of which sops recipient a handle maps to, so `membersRemove` can find it later without a `--key` argument. */
 function recordRosterKey(seams: MembersSeams, slug: string, handle: string, agePublicKey: string): void {
-  for (const key of ROSTER_KEYS) {
-    const existing = readRoster(seams, slug, key);
-    const updated = existing.some((m) => m.username === handle)
-      ? existing.map((m) => (m.username === handle ? { ...m, agePublicKey } : m))
-      : [...existing, { username: handle, agePublicKey }];
-    seams.writeSetting(key, updated, "team", { team: slug });
-  }
+  seams.writeSetting("mattstack.roster", withRosterKey(readRoster(seams, slug), handle, agePublicKey), "org");
 }
 
 export interface MembersSeams {
-  /** The ONE team's own store, unmixed with the resolver's multi-team overlay — mirrors invite.ts's own `readTeamStore` for the same reason: a roster read/write must target the team it's about, not the union of every locally-cloned team. */
+  /** The org store's own top-level keys, unmerged with the active team's, as in invite.ts: a roster read-modify-write targets the org layer. */
   readTeamStore: (slug: string) => Record<string, unknown>;
   writeSetting: typeof setSetting;
+  /** The org this Mac reads settings from, which is where an org write lands. */
+  currentOrg: () => string | null;
   revokeRead: typeof revokeRead;
   /** Local, per-machine team record — carries the membership permission. Seamed like invite.ts's, so a test grants it explicitly rather than by writing a real home. */
   readTeamLocal: typeof readTeamLocal;
@@ -177,7 +179,7 @@ export interface MembersSeams {
 }
 
 function defaultReadTeamStore(slug: string): Record<string, unknown> {
-  return readStore(teamSettingsPath(slug)).global;
+  return readStore(orgSettingsPath(slug)).global;
 }
 
 function defaultWarn(message: string, shown?: ShownWarning): void {
@@ -188,6 +190,7 @@ export function realMembersSeams(): MembersSeams {
   return {
     readTeamStore: defaultReadTeamStore,
     writeSetting: setSetting,
+    currentOrg,
     revokeRead,
     readTeamLocal,
     forgeToken: storedForgeToken,
@@ -199,6 +202,28 @@ export function realMembersSeams(): MembersSeams {
 export function teamRemote(p: Probes, slug: string): string | null {
   const raw = p.readFile(`${p.home}/.mattstack/teams/${slug}/.git/config`);
   return raw !== null ? parseOriginUrl(raw) : null;
+}
+
+export interface MembersSetResult {
+  username: string;
+  teams: string[];
+  previous: string[];
+}
+
+export function membersSetTeams(p: Probes, seams: MembersSeams, slug: string, handle: string, teams: string[]): MembersSetResult {
+  assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
+  assertCurrentOrg(slug, seams.currentOrg(), "team members set");
+  assertTeamFolders(p, slug, teams);
+  const roster = readRoster(seams, slug);
+  const entry = roster.find((member) => isMember(member, handle));
+  if (!entry) {
+    throw new UserActionableError("not-a-member", `${handle} is not in this org yet`, {}, { next: `rt team invite --handle ${handle} --teams <team>` });
+  }
+  const previous = Array.isArray(entry.teams) ? entry.teams.filter((team): team is string => typeof team === "string") : [];
+  const next = [...new Set(teams)];
+  assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
+  seams.writeSetting("mattstack.roster", roster.map((member) => member === entry ? { ...member, teams: next } : member), "org");
+  return { username: entry.username, teams: next, previous };
 }
 
 export interface MembersSyncResult {
@@ -259,7 +284,8 @@ export async function membersSync(
   slug: string,
   seams: MembersSeams = realMembersSeams(),
 ): Promise<MembersSyncResult> {
-  assertNotJoined(p, slug);
+  assertMayWrite(p, slug, ".sops.yaml");
+  assertCurrentOrg(slug, seams.currentOrg(), "team members sync");
 
   const added: string[] = [];
   const addedHandles: string[] = [];
@@ -373,7 +399,7 @@ export async function membersRemove(
   agePublicKey?: string,
   seams: MembersSeams = realMembersSeams(),
 ): Promise<MembersRemoveResult> {
-  assertNotJoined(p, slug);
+  assertMayWrite(p, slug, ".sops.yaml");
 
   if (agePublicKey !== undefined && !isValidAgePublicKey(agePublicKey)) {
     throw new UserActionableError("invalid-age-key", "That is not a valid age key", {}, {
@@ -382,20 +408,15 @@ export async function membersRemove(
       log: "the --key value is not a well-formed age1 recipient (bech32 checksum failed); pass the exact key from `rt team status` or the roster",
     });
   }
+  assertCurrentOrg(slug, seams.currentOrg(), `team members remove ${handle}`);
 
-  // Roster names match the way the switchboard matches board names, so a
-  // handle typed in another case still finds its entry and its keys.
-  const wanted = canonicalHandle(handle);
-  const isMember = (m: RosterMember): boolean => typeof m?.username === "string" && canonicalHandle(m.username) === wanted;
-  const boardRoster = readRoster(seams, slug, "board.members");
-  const crossAppRoster = readRoster(seams, slug, "mattstack.roster");
-  // The two rosters can diverge (dual-write is best-effort), so EVERY key
-  // recorded for the handle on either one is revoked: leaving any behind
-  // keeps the removed member able to decrypt team secrets.
+  const roster = readRoster(seams, slug);
+  // Every key recorded for the handle is revoked: leaving any behind keeps
+  // the removed member able to decrypt team secrets.
   const recordedKeys = [
     ...new Set(
-      [...crossAppRoster, ...boardRoster]
-        .filter(isMember)
+      roster
+        .filter((m) => isMember(m, handle))
         .map((m) => m.agePublicKey)
         .filter((k): k is string => typeof k === "string"),
     ),
@@ -430,7 +451,7 @@ export async function membersRemove(
               : [`${handle} can still see the team repo. Remove them there too: mattstack does not manage who can see this repo.`],
         };
 
-  // A removed member's board must not keep receiving the team's peer traffic.
+  // A removed member's board must not keep receiving the org's peer traffic.
   // Like forge access, this fails open, so a board left connected is said
   // plainly rather than read as removed.
   const board = await revokeBoard(p, seams.readLocalSecret, handle);
@@ -438,34 +459,14 @@ export async function membersRemove(
     board.kind === "revoked" ? "revoked" : board.kind === "not-peered" ? "not-peered" : board.kind === "no-admin-token" ? "left-peered" : "failed";
   const boardSteps =
     board.kind === "no-admin-token"
-      ? [`${handle}'s board is still connected. Only the switchboard owner can disconnect it, by running rt team members remove ${handle} on their Mac.`]
+      ? [`${handle}'s board is still connected. Only a Mac holding the switchboard admin token can disconnect it, by running rt team members remove ${handle} there.`]
       : board.kind === "failed"
         ? [`rt could not disconnect ${handle}'s board: ${board.detail}. Run this command again to retry.`]
         : [];
 
-  // Each key is removed on its own contents (a store can carry either roster
-  // alone), never by writing one key's rows onto the other; removal from
-  // either counts as a roster removal.
-  const boardHad = boardRoster.some(isMember);
-  if (boardHad) {
-    seams.writeSetting(
-      "board.members",
-      boardRoster.filter((m) => !isMember(m)),
-      "team",
-      { team: slug },
-    );
-  }
-
-  const crossAppHad = crossAppRoster.some(isMember);
-  if (crossAppHad) {
-    seams.writeSetting(
-      "mattstack.roster",
-      crossAppRoster.filter((m) => !isMember(m)),
-      "team",
-      { team: slug },
-    );
-  }
-  const rosterRemoved = boardHad || crossAppHad;
+  const removal = withoutMember(roster, handle);
+  const rosterRemoved = removal.removed !== null;
+  if (rosterRemoved) seams.writeSetting("mattstack.roster", removal.roster, "org");
 
   let reencrypted: string[] = [];
   for (const key of keysToRemove) {

@@ -4,6 +4,8 @@ import { MIGRATIONS } from "../migrations/index.ts";
 import type { StepId } from "../contract.ts";
 
 const UPDATE_SAFE: StepId[] = [
+  "org.pull",
+  "team.identity",
   "path.link",
   "settings.seed",
   "skills.materialize",

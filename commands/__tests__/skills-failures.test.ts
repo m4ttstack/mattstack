@@ -55,7 +55,7 @@ test("no packs found names both ways to say which pack", async () => {
   expect(exitCode).toBe(1);
   expect(errors).toEqual([
     "No packs found",
-    "  why: A pack is a plugin from a directory marketplace that has a surface file.",
+    "  why: A pack is a folder with a surface file: a plugin from a directory marketplace, or a team's or the org's pack folder in your org repo.",
     "  next: Run it again with --pack <name> or --pack-dir <folder>",
   ]);
 });

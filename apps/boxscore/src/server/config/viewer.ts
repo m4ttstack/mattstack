@@ -27,7 +27,7 @@ export function resolveViewer(input: ViewerInput): Viewer {
     want === undefined
       ? undefined
       : input.roster.find(r => r.username.toLowerCase() === want);
-  if (!input.team || !input.team.joined)
+  if (!input.team || input.team.seesTeam)
     return { username: entry?.username ?? input.currentUser, role: 'team' };
   if (!entry) return { username: null, role: 'self' };
   return {

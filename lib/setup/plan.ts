@@ -11,10 +11,10 @@
 import type { DaemonResponse } from "../daemon-client.ts";
 import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { createRealSecretsExecSeam, NoAgeKeyError, readSecret, type SecretsSeams } from "../secrets/store.ts";
-import { finalizePlan, GROUP_TITLES, isSolo, row, type Group, type GroupId, type Plan, type Row, type TeamRef } from "./contract.ts";
+import { finalizePlan, GROUP_TITLES, isSolo, row, type Group, type GroupId, type Plan, type Row, type OrgRef } from "./contract.ts";
 import { UserActionableError } from "../errors.ts";
 import { applyFinishGate, readWaived } from "./finish-gate.ts";
-import { readIntent, teamRefFromIntent, type SetupIntent } from "./intent.ts";
+import { readIntent, orgRefFromIntent, type SetupIntent } from "./intent.ts";
 import { fetchPermissions, permissionRows } from "./permissions.ts";
 import { createRealProbes, type Probes } from "./probes.ts";
 import { readPackRequirements } from "./requirements.ts";
@@ -24,7 +24,8 @@ import { accessRows } from "./validators/access.ts";
 import { accountRows, type SecretPresence } from "./validators/accounts.ts";
 import { macRows } from "./validators/mac.ts";
 import { repoRootRow } from "./validators/repo-root.ts";
-import { rtHealthRows } from "./validators/rt-health.ts";
+import { orgRows } from "./validators/org.ts";
+import { readTeamSnapshotStatus, rtHealthRows } from "./validators/rt-health.ts";
 import { INSTALLED_BY_INSTALL_NOTE, toolRows } from "./validators/tools.ts";
 
 export interface PlanInputs {
@@ -32,8 +33,8 @@ export interface PlanInputs {
   secrets: SecretPresence;
   ci: boolean;
   mode: "plan" | "status";
-  /** Discovered team slugs — the real caller passes `listTeams()`; tests inject their own list instead of swapping process.env.HOME. */
-  teams: string[];
+  /** Discovered org slugs: the real caller passes `listOrgs()`; tests inject their own list instead of swapping process.env.HOME. */
+  orgs: string[];
   teamOverride?: string;
   /** Row ids waived on this Mac; defaults to the resolver's `setup.waived`. Tests inject their own list instead of writing a store. */
   waived?: string[];
@@ -42,15 +43,15 @@ export interface PlanInputs {
 const EMPTY_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
 
 /** A named team the user asked for that isn't actually cloned must never silently substitute a different (or empty) plan — that's exactly the honesty rule this repo enforces everywhere else. */
-function resolveTeam(intent: SetupIntent | null, teams: string[], teamOverride: string | undefined): TeamRef {
+function resolveTeam(intent: SetupIntent | null, orgs: string[], teamOverride: string | undefined): OrgRef {
   if (teamOverride) {
-    if (!teams.includes(teamOverride)) {
-      const discovered = teams.length ? teams.join(", ") : "(none)";
+    if (!orgs.includes(teamOverride)) {
+      const discovered = orgs.length ? orgs.join(", ") : "(none)";
       throw new UserActionableError("unknown-team", `No team named ${teamOverride} is cloned on this Mac. Teams here: ${discovered}`);
     }
     return { slug: teamOverride, name: teamOverride, mode: "none" };
   }
-  return teamRefFromIntent(intent, teams);
+  return orgRefFromIntent(intent, orgs);
 }
 
 /**
@@ -149,9 +150,15 @@ export function applyInstallSatisfiedFlip(groups: Group[], mode: "plan" | "statu
   }));
 }
 
+export function pendingJoinTeam(intent: SetupIntent | null, orgs: string[]): string | null | undefined {
+  const pointer = intent?.mode === "join" ? intent.join?.pointer : undefined;
+  if (!pointer || orgs.includes(pointer.team)) return undefined;
+  return Array.isArray(pointer.teams) && typeof pointer.teams[0] === "string" ? pointer.teams[0] : null;
+}
+
 export async function composePlan(i: PlanInputs): Promise<Plan> {
   const intent = readIntent(i.p);
-  const team = resolveTeam(intent, i.teams, i.teamOverride);
+  const team = resolveTeam(intent, i.orgs, i.teamOverride);
 
   const snapshot = enrichSnapshotForge(team.slug ? readTeamSnapshot(i.p, team.slug) : EMPTY_SNAPSHOT, intent);
   const reqs = readPackRequirements(i.p, team.slug);
@@ -163,11 +170,18 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
       const [permReply, tccRes, macList] = await Promise.all([fetchPermissions(i.p.tray), i.p.daemon("tcc:check"), macRows(i.p)]);
       return [...permissionRows(permReply, tccSummary(tccRes)), ...macList];
     }),
-    buildGroup("accounts", () => accountRows(i.p, snapshot, reqs, i.secrets, intent, userOverrides, solo)),
+    buildGroup("accounts", async () => {
+      const accounts = await accountRows(i.p, snapshot, reqs, i.secrets, intent, userOverrides, solo);
+      const org = i.orgs.includes(team.slug) ? await orgRows(i.p, team.slug, {
+        forge: snapshot.integrations.forge ?? (snapshot.remote ? forgeFromRemote(snapshot.remote) : null),
+        readStatus: () => readTeamSnapshotStatus(i.p),
+      }) : [];
+      return [...accounts, ...org];
+    }),
     buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets, solo)),
     buildGroup("tools", async () => {
       const [hasBrew, healthRows] = await Promise.all([detectHasBrew(i.p), rtHealthRows(i.p, { ci: i.ci })]);
-      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo });
+      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo, activeTeam: pendingJoinTeam(intent, i.orgs) });
       const repoRoot = repoRootRow(i.p, team, snapshot);
       return [...tools, ...(repoRoot ? [repoRoot] : []), ...healthRows];
     }),

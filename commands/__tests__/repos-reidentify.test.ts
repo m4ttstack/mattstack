@@ -12,6 +12,7 @@ import { REPO_INDEX_NS } from "../../lib/repo-index.ts";
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
 import * as ui from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
+import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { reposReidentify } from "../repos-reidentify.ts";
 
 async function runExpectingProcessExit(fn: () => Promise<void>): Promise<number | undefined> {
@@ -84,6 +85,48 @@ describe("rt repos reidentify", () => {
       expect(lines[0]).toStartWith("[refused] The move stopped partway  ");
       expect(lines.some((l) => /kv:repo-index\s+refused/.test(l))).toBe(true);
       expect(lines.some((l) => /run_history\.repo\s+none/.test(l))).toBe(true);
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("a shared store that is not yours is skipped, and the run still succeeds", async () => {
+    setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fold", "/x");
+    seedOrg({
+      org: "acme",
+      username: "dev4",
+      roles: { admins: ["dev1"], teams: {} },
+      settings: { repos: { "github.com/acme/old": { "rt.branchNaming": { template: "x" } } } },
+    });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await reposReidentify(["github.com/acme/old", "github.com/acme/new", "--json"], {}, { print: (s) => out.push(s) });
+      const doc = JSON.parse(out.join("\n"));
+      expect(doc.ok).toBe(true);
+      expect(doc.data.ok).toBe(true);
+      expect(doc.data.stores.find((s: { store: string }) => s.store === "settings:shared:acme/mattstack/org/settings.org.jsonc")).toMatchObject({
+        status: "skipped",
+        detail: "Not yours to change. The org's shared files belong to its admins. Ask dev1 (an org admin) to make this change.",
+      });
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("nothing of yours to move says so when only shared stores name the repo", async () => {
+    seedOrg({
+      org: "acme",
+      username: "dev4",
+      roles: { admins: ["dev1"], teams: {} },
+      settings: { repos: { "github.com/acme/old": { "rt.branchNaming": { template: "x" } } } },
+    });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      await reposReidentify(["github.com/acme/old", "github.com/acme/new"], {}, { print: (s) => out.push(s) });
+      expect(io.lines()[0]).toBe("[skipped] Nothing of yours to move  Only shared settings name github.com/acme/old, and they are not yours to change");
+      expect(io.lines().some((l) => /settings:shared:acme\/mattstack\/org\/settings\.org\.jsonc\s+skipped/.test(l))).toBe(true);
     } finally {
       io.restore();
     }

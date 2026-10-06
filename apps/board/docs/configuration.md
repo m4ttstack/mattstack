@@ -29,7 +29,7 @@ install, or seed the team store once and point everyone at it.
 | `gitlabHost` | your GitLab instance, e.g. `https://gitlab.com` |
 | `projects` | GitLab project paths whose MRs are eligible, e.g. `["group/project"]` |
 | `rtRepos` | maps each `projects` entry to the rt repo identity that holds its MR store, e.g. `{"group/project": "gitlab.com/group/project"}`. An unmapped project surfaces as a fetch error on the board |
-| `members` | array of `{ "username", "name"?, "hidden"? }`: the teammates whose authored MRs the board shows, in sidebar order |
+| `members` | array of `{ "username", "name"?, "hidden"? }`: the teammates whose authored MRs the board shows, in sidebar order. From the store it is your active team's entries in the org roster (`mattstack.roster`), or the whole roster when this Mac has no team or nobody is listed on it |
 | `defaultMember` | member username the board opens to by default, or `"all"`. The URL and remembered state override it |
 | `title` | page heading and tab title |
 | `staleAfterDays` | hide MRs with no activity in more than this many days (default: each project's rt MR sync window; 30 when rt has not reported one) |
@@ -42,7 +42,6 @@ install, or seed the team store once and point everyone at it.
 | `respondsWorkspace` | herdr workspace label responses are grouped under (default `responses`) |
 | `doctorsWorkspace` | herdr workspace label doctor sessions are grouped under (default `doctors`) |
 | `doctorSkill` | domain skill the doctor wrapper delegates to, e.g. `acme:doctor`. Empty means the wrapper repairs generically. The launch pack's `board:doctor` binding for the MR's repo overrides it when present. See [skill bindings](agent-actions.md#skill-bindings-per-pack-skillsjsonc) |
-| `defaultPack` | team pack a launch resolves its skill bindings with when its tab names no `pack`, e.g. `widgets`. Read from the `board.defaultPack` user setting, which `rt setup` seeds with the team's first pack. Empty means launches use the generic skills |
 | `claudeCommand` | verbatim override for the command that starts Claude in every pane, with the prompt or resume flags appended after it. Normally unset: the board composes this from the `board.agent.*` settings. See below |
 | `slack` | review channel, post templates, sweep interval, and signal emoji. See [Slack integration](slack.md) |
 | `triage` | reviewer-side automation block. See [agent actions](agent-actions.md#reviewer-side-automation) |
@@ -102,8 +101,9 @@ Per-tab overrides:
   instead of `slack.channel`.
 - `reviewSkill`: skill binding for review launches from this tab, instead of
   the pack binding or the empty fallback.
-- `pack`: team pack whose bindings launches from this tab use, instead of
-  `board.defaultPack`. The launched pane gets it as `MATTSTACK_PACK`.
+- `pack`: team pack whose bindings launches from this tab use. The pack is
+  the tab's `pack`, else your active team's pack. The launched pane gets it
+  as `MATTSTACK_PACK`.
 
 ```json
 "tabs": [

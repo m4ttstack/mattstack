@@ -13,6 +13,8 @@ export interface UserActionableErrorOptions {
   why?: string;
   /** The command to run, as the person would type it: the `next` callout. */
   next?: string;
+  /** A second command, run after `next` succeeds. */
+  thenRun?: string;
   /** Technical detail (raw child output, paths) for the rt log; never shown. */
   log?: string;
 }
@@ -20,6 +22,7 @@ export interface UserActionableErrorOptions {
 export class UserActionableError extends Error {
   readonly why?: string;
   readonly next?: string;
+  readonly thenRun?: string;
   readonly log?: string;
 
   constructor(
@@ -31,6 +34,7 @@ export class UserActionableError extends Error {
     super(message);
     this.why = options.why;
     this.next = options.next;
+    this.thenRun = options.thenRun;
     this.log = options.log;
   }
 }
@@ -45,7 +49,7 @@ export function failureFor(err: UserActionableError): out.FailureInput {
   return {
     title: err.message,
     ...(err.why ? { why: err.why } : {}),
-    ...(err.next ? { next: out.cmd(err.next) } : {}),
+    ...(err.next ? { next: err.thenRun ? ["Run ", out.cmd(err.next), ", then ", out.cmd(err.thenRun)] : out.cmd(err.next) } : {}),
     ...(err.log ? { details: LOG_DETAILS } : {}),
   };
 }

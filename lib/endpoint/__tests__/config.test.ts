@@ -11,12 +11,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { machineSettingsPath, teamSettingsPath, teamsDir, userSettingsPath } from "../../rt-paths.ts";
+import { machineSettingsPath, teamsDir, userSettingsPath } from "../../rt-paths.ts";
 import { closeStateDb, setKvValue } from "../../state/index.ts";
 import { loadEndpointConfig } from "../config.ts";
 import { captureOut } from "../../ui/__tests__/capture-out.ts";
 import * as out from "../../ui/out.ts";
 import { setWarningLog, __test__ as warnings } from "../../ui/warn.ts";
+import { sharedStorePath } from "../../../packages/rt-client/test/org-fixture.ts";
 
 const IDENTITY = "gitlab.com/fake/endpoint-repo";
 const TEAM = "acme";
@@ -138,7 +139,7 @@ describe("loadEndpointConfig", () => {
   // ─── store rungs ───────────────────────────────────────────────────────────
 
   test("a team store's repo section supplies roles/intercepts, with ${team:x} expanded", () => {
-    write(teamSettingsPath(TEAM), {
+    write(sharedStorePath(TEAM), {
       repos: {
         [IDENTITY]: {
           "rt.roles": {
@@ -187,7 +188,7 @@ describe("loadEndpointConfig", () => {
   });
 
   test("rt.roles deep-merges across scopes; rt.intercepts replaces atomically", () => {
-    write(teamSettingsPath(TEAM), {
+    write(sharedStorePath(TEAM), {
       repos: {
         [IDENTITY]: {
           "rt.roles": { backend: { pool: [1000], preserveEnv: ["TEAM_ONLY"] }, teamOnly: { pool: [9000] } },
@@ -252,7 +253,7 @@ describe("loadEndpointConfig", () => {
   });
 
   test("a null identity makes repo store sections unreachable, even when one is authored", () => {
-    write(teamSettingsPath(TEAM), {
+    write(sharedStorePath(TEAM), {
       repos: { [IDENTITY]: { "rt.roles": { web: { pool: [{ from: 4000, to: 4000 }] } } } },
     });
     expect(loadEndpointConfig({ repoIdentity: null, repoName: "r-null" }).roles).toEqual({});

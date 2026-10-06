@@ -206,10 +206,18 @@ export const EXAMPLES: Record<string, Example> = {
   },
   "setup.waived": { good: [[], ["tool.fast-browser-extension"]], bad: [{ value: [true], path: [0] }] },
   "mattstack.roster": {
-    good: [[], [{ username: "dev1" }, { username: "dev2", name: "Dev Two", agePublicKey: "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq" }]],
+    good: [[], [{ username: "dev1" }, { username: "dev2", name: "Dev Two", agePublicKey: "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq" }, { username: "dev3", teams: ["widgets", "gadgets"] }]],
     bad: [
       { value: [{ name: "Dev One" }], path: [0, "username"] },
       { value: ["dev1"], path: [0] },
+      { value: [{ username: "dev1", teams: "widgets" }], path: [0, "teams"] },
+    ],
+  },
+  "mattstack.org": {
+    good: [{ admins: [], teams: {} }, { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] }, gadgets: { owners: [] } } }],
+    bad: [
+      { value: { admins: "dev1", teams: {} }, path: ["admins"] },
+      { value: { admins: [], teams: { widgets: {} } }, path: ["teams", "widgets", "owners"] },
     ],
   },
   "claude.marketplaces": { good: [[], ["acme/claude-plugins", "https://gitlab.example.com/acme/marketplace.git"]], bad: [{ value: [{ source: "acme/claude-plugins" }], path: [0] }] },
@@ -243,13 +251,6 @@ export const EXAMPLES: Record<string, Example> = {
     layer: [{ publicDomain: "apps.example.com" }, { tunnel: { uuid: "00000000-0000-4000-8000-000000000000" } }],
   },
   "board.projects": { good: [[], ["acme/app", "acme/docs"]], bad: [{ value: [{ path: "acme/app" }], path: [0] }] },
-  "board.members": {
-    good: [[], [{ username: "dev1" }, { username: "dev2", name: "Dev Two", hidden: true }]],
-    bad: [
-      { value: [{ name: "Dev One" }], path: [0, "username"] },
-      { value: [{ username: "dev1", hidden: "yes" }], path: [0, "hidden"] },
-    ],
-  },
   "board.botUsernames": { good: [[], ["release-bot"]], bad: [{ value: [false], path: [0] }] },
   "board.ticketPrefixes": { good: [[], ["ACME", "OPS"]], bad: [{ value: "ACME", path: [] }] },
   "board.slack": {

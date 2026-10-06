@@ -15,6 +15,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import {
   machineSettingsPath,
+  orgSettingsPath,
   teamSettingsPath,
   teamsDir,
   userSettingsPath,
@@ -23,6 +24,7 @@ import { getDef, type SettingDef, type SettingScope } from "../registry-machiner
 import {
   expandVariables,
   explainSetting,
+  getOrgSetting,
   getSetting,
   listSettings,
   listUnregisteredSettings,
@@ -34,11 +36,13 @@ import {
 import { withMigration } from "./with-migration.ts";
 import { withSchema } from "./with-schema.ts";
 import { suspendRepoOnly } from "./without-repo-only.ts";
+import { seedOrg } from "../../../test/org-fixture.ts";
 
 const SNAPSHOT = { type: "object", properties: { enabled: { type: "boolean" }, debounceSec: { type: "number" } }, required: ["enabled", "debounceSec"] };
 
 const IDENTITY = "gitlab.example.com/acme/app";
-const TEAM = "acme";
+const ORG = "acme";
+const TEAM = "widgets";
 
 describe("settings/resolve", () => {
   const origHome = process.env.HOME;
@@ -72,7 +76,11 @@ describe("settings/resolve", () => {
 
   const writeUser = (obj: unknown) => write(userSettingsPath(), obj);
   const writeMachine = (obj: unknown) => write(machineSettingsPath(), obj);
-  const writeTeam = (name: string, obj: unknown) => write(teamSettingsPath(name), obj);
+  const writeOrg = (obj: unknown) => write(orgSettingsPath(ORG), obj);
+  /** Puts this Mac on `TEAM` and writes that team's store. */
+  const writeTeam = (obj: unknown) => {
+    seedOrg({ org: ORG, username: "dev1", roster: [{ username: "dev1", teams: [TEAM] }], teams: { [TEAM]: obj as Record<string, unknown> } });
+  };
 
   /**
    * No wave-1 key carries `teamLocked` yet, but the resolver must implement
@@ -121,11 +129,11 @@ describe("settings/resolve", () => {
 
     test("a global value is refused: explain marks it invalid and getSetting ignores it", () => {
       writeUser({ "rt.intercepts": [{ id: "global" }] });
-      writeTeam(TEAM, { repos: { [IDENTITY]: { "rt.intercepts": [{ id: "team.repo" }] } } });
+      writeOrg({ repos: { [IDENTITY]: { "rt.intercepts": [{ id: "team.repo" }] } } });
 
       const got = getSetting("rt.intercepts", { repoIdentity: IDENTITY });
       expect(got.value).toEqual([{ id: "team.repo" }]);
-      expect(got.provenance).toEqual([{ scope: "team.repo", file: teamSettingsPath(TEAM) }]);
+      expect(got.provenance).toEqual([{ scope: "org.repo", file: orgSettingsPath(ORG) }]);
 
       const user = explainSetting("rt.intercepts", { repoIdentity: IDENTITY }).find((r) => r.scope === "user");
       expect(user?.present).toBe(true);
@@ -144,41 +152,35 @@ describe("settings/resolve", () => {
   // ─── precedence: the full scope ladder ─────────────────────────────────────
 
   describe("scope precedence", () => {
-    type Layer =
-      | "team"
-      | "user"
-      | "team.repo"
-      | "user.repo"
-      | "machine"
-      | "machine.repo";
+    type Layer = "org" | "team" | "user" | "org.repo" | "team.repo" | "user.repo" | "machine" | "machine.repo";
 
     // weakest → strongest, exactly the spec's ladder minus `default`
     // (rt.intercepts has no registry default; the default rung is covered by
     // its own test below with rt.worktrees).
-    const LADDER: Layer[] = [
-      "team",
-      "user",
-      "team.repo",
-      "user.repo",
-      "machine",
-      "machine.repo",
-    ];
+    const LADDER: Layer[] = ["org", "team", "user", "org.repo", "team.repo", "user.repo", "machine", "machine.repo"];
 
     const marker = (layer: Layer) => [{ id: layer }];
 
     function fileFor(layer: Layer): string {
-      if (layer === "team" || layer === "team.repo") return teamSettingsPath(TEAM);
+      if (layer === "org" || layer === "org.repo") return orgSettingsPath(ORG);
+      if (layer === "team" || layer === "team.repo") return teamSettingsPath(ORG, TEAM);
       if (layer === "user" || layer === "user.repo") return userSettingsPath();
       return machineSettingsPath();
     }
 
-    /** Writes all three stores so that exactly `active` layers hold a value. */
+    /** Writes every store so that exactly `active` layers hold a value. */
     function writeLayers(active: Layer[]): void {
       const on = (l: Layer) => active.includes(l);
       const global = (l: Layer) => (on(l) ? { "rt.intercepts": marker(l) } : {});
       const repos = (l: Layer) => (on(l) ? { [IDENTITY]: { "rt.intercepts": marker(l) } } : {});
 
-      writeTeam(TEAM, { ...global("team"), repos: repos("team.repo") });
+      seedOrg({
+        org: ORG,
+        username: "dev1",
+        roster: [{ username: "dev1", teams: [TEAM] }],
+        settings: { ...global("org"), repos: repos("org.repo") },
+        teams: { [TEAM]: { ...global("team"), repos: repos("team.repo") } },
+      });
       writeUser({ ...global("user"), repos: repos("user.repo") });
       writeMachine({ ...global("machine"), repos: repos("machine.repo") });
     }
@@ -213,11 +215,172 @@ describe("settings/resolve", () => {
     });
   });
 
+  describe("org and team layers", () => {
+    const roster = [
+      { username: "dev1", teams: ["widgets"] },
+      { username: "dev2", teams: ["widgets", "gadgets"] },
+    ];
+
+    function seed(username: string | undefined): void {
+      seedOrg({
+        org: ORG,
+        ...(username ? { username } : {}),
+        roster,
+        settings: { "board.title": "Acme", "board.gitlabHost": "gitlab.example.com" },
+        teams: { widgets: { "board.title": "Widgets" }, gadgets: { "board.title": "Gadgets" } },
+      });
+    }
+
+    test("the active team's value replaces the org's, and the org's shows through where the team is silent", () => {
+      seed("dev1");
+      expect(getSetting<string>("board.title")).toEqual({ value: "Widgets", provenance: [{ scope: "team", file: teamSettingsPath(ORG, "widgets") }] });
+      expect(getSetting<string>("board.gitlabHost")).toEqual({ value: "gitlab.example.com", provenance: [{ scope: "org", file: orgSettingsPath(ORG) }] });
+    });
+
+    test("a member on two teams reads the one mattstack.activeTeam names", () => {
+      seed("dev2");
+      expect(getSetting<string>("board.title").value).toBe("Widgets");
+      writeUser({ "mattstack.activeTeam": "gadgets" });
+      expect(getSetting<string>("board.title").value).toBe("Gadgets");
+    });
+
+    test("a Mac with no active team reads the org layer and skips the team rung", () => {
+      seed("stranger");
+      expect(getSetting<string>("board.title").value).toBe("Acme");
+      const rows = explainSetting("board.title");
+      expect(rows.map((r) => r.scope)).toEqual(["default", "org", "team", "user", "machine"]);
+      expect(rows.find((r) => r.scope === "team")).toEqual({ scope: "team", file: null, present: false });
+    });
+
+    test("opts.team reads as another team, and null reads the org alone", () => {
+      seed("dev1");
+      expect(getSetting<string>("board.title", { team: "gadgets" }).value).toBe("Gadgets");
+      expect(getSetting<string>("board.title", { team: null }).value).toBe("Acme");
+      expect(() => getSetting("board.title", { team: "../x" })).toThrow(/not a team name/);
+    });
+
+    test("a team the roster lists whose folder is not on disk reads as the org layer", () => {
+      seedOrg({ org: ORG, username: "dev1", roster: [{ username: "dev1", teams: ["sprockets"] }], settings: { "board.title": "Acme" } });
+      expect(getSetting<string>("board.title").value).toBe("Acme");
+      const team = explainSetting("board.title").find((r) => r.scope === "team");
+      expect(team).toEqual({ scope: "team", file: teamSettingsPath(ORG, "sprockets"), present: false });
+    });
+
+    test("an org-only key in a team store is refused as not settable there", () => {
+      seedOrg({ org: ORG, username: "dev1", roster, teams: { widgets: { "mattstack.roster": [{ username: "intruder", teams: ["widgets"] }] } } });
+      const got = getSetting<{ username: string }[]>("mattstack.roster");
+      expect(got.value.map((e) => e.username)).toEqual(["dev1", "dev2"]);
+      expect(got.provenance).toEqual([{ scope: "org", file: orgSettingsPath(ORG) }]);
+    });
+
+    test("getOrgSetting reads the org store alone, never the active team's override", () => {
+      seedOrg({
+        org: ORG,
+        username: "dev1",
+        roster,
+        settings: { "board.title": "Acme", repos: { [IDENTITY]: { "rt.intercepts": [{ id: "org" }] } } },
+        teams: { widgets: { "board.title": "Widgets", repos: { [IDENTITY]: { "rt.intercepts": [{ id: "team" }] } } } },
+      });
+      expect(getSetting<string>("board.title").value).toBe("Widgets");
+      expect(getOrgSetting<string>("board.title")).toBe("Acme");
+      expect(getOrgSetting<{ id: string }[]>("rt.intercepts", { repoIdentity: IDENTITY })).toEqual([{ id: "org" }]);
+      expect(getOrgSetting("board.gitlabHost")).toBeUndefined();
+    });
+
+    test("with two org clones only the first by name is read, and rt warns once", () => {
+      setSettingsWarnSink(null);
+      seedOrg({ org: "acme", settings: { "board.title": "Acme" } });
+      seedOrg({ org: "zeta", settings: { "board.title": "Zeta" } });
+      expect(getSetting<string>("board.title").value).toBe("Acme");
+      getSetting<string>("board.title");
+      const multi = warnSpy.mock.calls.filter(([msg]) => String(msg).includes("org clones"));
+      expect(multi.length).toBe(1);
+    });
+  });
+
+  // ─── add merge ─────────────────────────────────────────────────────────────
+
+  describe("add merge", () => {
+    const roster = [{ username: "dev1", teams: ["widgets"] }];
+
+    function seed(layers: { org?: unknown; team?: unknown; user?: unknown }): void {
+      seedOrg({
+        org: ORG,
+        username: "dev1",
+        roster,
+        settings: layers.org === undefined ? {} : { "claude.plugins": layers.org },
+        teams: { widgets: layers.team === undefined ? {} : { "claude.plugins": layers.team } },
+      });
+      if (layers.user !== undefined) writeUser({ "claude.plugins": layers.user });
+    }
+
+    test("every layer's list adds up, weakest first, without duplicates", () => {
+      seed({ org: ["acme-tools@acme", "shared@acme"], team: ["widgets@acme", "shared@acme"], user: ["mine@elsewhere"] });
+      const got = getSetting<string[]>("claude.plugins");
+      expect(got.value).toEqual(["acme-tools@acme", "shared@acme", "widgets@acme", "mine@elsewhere"]);
+      expect(got.provenance.map((p) => p.scope)).toEqual(["org", "team", "user"]);
+    });
+
+    test("each item names every layer it came from", () => {
+      seed({ org: ["shared@acme"], team: ["widgets@acme"], user: ["shared@acme"] });
+      const items = getSetting<string[]>("claude.plugins").items!;
+      expect(items.map((i) => [i.value, i.sources.map((s) => s.scope)])).toEqual([
+        ["shared@acme", ["org", "user"]],
+        ["widgets@acme", ["team"]],
+      ]);
+    });
+
+    test("a layer that holds a non-array is skipped as invalid and the others still add", () => {
+      seed({ org: ["shared@acme"], team: "widgets@acme", user: ["mine@elsewhere"] });
+      const got = getSetting<string[]>("claude.plugins");
+      expect(got.value).toEqual(["shared@acme", "mine@elsewhere"]);
+      expect(warnSpy.mock.calls.some(([msg]) => String(msg).includes('ignoring "claude.plugins" from the team scope'))).toBe(true);
+    });
+
+    test("an empty list everywhere resolves to [] and names the strongest layer", () => {
+      seed({ org: [], user: [] });
+      const got = getSetting<string[]>("claude.plugins");
+      expect(got.value).toEqual([]);
+      expect(got.provenance.map((p) => p.scope)).toEqual(["user"]);
+      expect(got.items).toEqual([]);
+    });
+
+    test("nothing set anywhere resolves to undefined with no items", () => {
+      const got = getSetting<string[]>("claude.plugins");
+      expect(got.value).toBeUndefined();
+      expect(got.items).toBeUndefined();
+    });
+
+    test("items are expanded the same way as the value", () => {
+      seedOrg({ org: ORG, username: "dev1", roster, settings: { "claude.marketplaces": ["${team:widgets}/market"] } });
+      writeUser({ "claude.marketplaces": ["${home}/market"] });
+      const expected = [join(teamsDir(), "widgets", "market"), join(home, "market")];
+      const got = getSetting<string[]>("claude.marketplaces");
+      expect(got.value).toEqual(expected);
+      expect(got.items!.map((i) => i.value)).toEqual(expected);
+      const listed = listSettings().find((s) => s.key === "claude.marketplaces")!;
+      expect(listed.items!.map((i) => i.value)).toEqual(expected);
+      expect(getSetting<string[]>("claude.marketplaces", { expand: false }).items!.map((i) => i.value)).toEqual(["${team:widgets}/market", "${home}/market"]);
+    });
+
+    test("list leaves items raw beside a value it could not expand", () => {
+      writeUser({ "claude.marketplaces": ["${repoRoot}/market"] });
+      const listed = listSettings().find((s) => s.key === "claude.marketplaces")!;
+      expect(listed.expandError).toBeDefined();
+      expect(listed.items!.map((i) => i.value)).toEqual(["${repoRoot}/market"]);
+    });
+
+    test("a replace key carries no items", () => {
+      writeOrg({ "board.title": "Acme" });
+      expect(getSetting<string>("board.title").items).toBeUndefined();
+    });
+  });
+
   // ─── deep merge ────────────────────────────────────────────────────────────
 
   describe("deep merge", () => {
     test("the spec proof case: team + user + machine fields all survive", () => {
-      writeTeam(TEAM, {
+      writeOrg({
         "rt.worktrees": { onDeck: 3, ready: [{ run: "bun install" }, { run: "bun run build" }] },
       });
       writeUser({ "rt.worktrees": { namePool: ["alpha", "bravo"] } });
@@ -242,7 +405,7 @@ describe("settings/resolve", () => {
         ready: [{ run: "bun install" }, { run: "bun run build" }], // team-only field
       });
       expect(got.provenance).toEqual([
-        { scope: "team", file: teamSettingsPath(TEAM) },
+        { scope: "org", file: orgSettingsPath(ORG) },
         { scope: "user", file: userSettingsPath() },
         { scope: "machine", file: machineSettingsPath() },
       ]);
@@ -259,7 +422,7 @@ describe("settings/resolve", () => {
     });
 
     test("arrays inside a deep key replace atomically — never element-wise", () => {
-      writeTeam(TEAM, { "rt.worktrees": { ready: [{ run: "team-1" }, { run: "team-2" }] } });
+      writeOrg({ "rt.worktrees": { ready: [{ run: "team-1" }, { run: "team-2" }] } });
       writeUser({ "rt.worktrees": { ready: [{ run: "user-only" }] } });
 
       const got = getSetting<{ ready: unknown[] }>("rt.worktrees", {
@@ -276,7 +439,7 @@ describe("settings/resolve", () => {
     });
 
     test("deep merge nests: a stronger scope overrides one field of one role", () => {
-      writeTeam(TEAM, {
+      writeOrg({
         repos: {
           [IDENTITY]: {
             "rt.roles": {
@@ -299,62 +462,25 @@ describe("settings/resolve", () => {
         frontend: { pool: [{ from: 3000, to: 3010 }] },
       });
       expect(got.provenance).toEqual([
-        { scope: "team.repo", file: teamSettingsPath(TEAM) },
+        { scope: "org.repo", file: orgSettingsPath(ORG) },
         { scope: "user.repo", file: userSettingsPath() },
       ]);
     });
 
-    test("wave 1 overlays every team alphabetically, and each team is its own provenance entry", () => {
-      writeTeam("alpha", { "rt.worktrees": { onDeck: 1, namePool: ["from-alpha"] } });
-      writeTeam("beta", { "rt.worktrees": { onDeck: 9 } });
-
-      const got = getSetting("rt.worktrees", { repoIdentity: IDENTITY });
-
-      expect(got.value).toEqual({ onDeck: 9, namePool: ["from-alpha"] });
-      expect(got.provenance).toEqual([
-        { scope: "team", file: teamSettingsPath("alpha") },
-        { scope: "team", file: teamSettingsPath("beta") },
-      ]);
-    });
-
-    test("folding more than one team store warns once per process, naming the teams", () => {
-      setSettingsWarnSink(null);
-      writeTeam("beta", { "rt.worktrees": { onDeck: 9 } });
-      writeTeam("alpha", { "rt.worktrees": { onDeck: 1 } });
-
-      getSetting("rt.worktrees", { repoIdentity: IDENTITY });
-      getSetting("rt.worktrees", { repoIdentity: IDENTITY });
-      listSettings();
-
-      const multiTeam = warnSpy.mock.calls.map((c) => String(c[0])).filter((m) => m.includes("team zones"));
-      expect(multiTeam).toEqual([
-        "rt: this machine has 2 team zones (alpha, beta); mattstack supports one team per machine today. Their team settings are folded together, and the later name wins.",
-      ]);
-    });
-
-    test("a bound sink gets the multi-team warning once, and once more after a rebind", () => {
-      writeTeam("alpha", { "rt.worktrees": { onDeck: 1 } });
-      writeTeam("beta", { "rt.worktrees": { onDeck: 9 } });
+    test("a bound sink gets the multi-org warning once, and once more after a rebind", () => {
+      seedOrg({ org: "acme" });
+      seedOrg({ org: "zeta" });
       const seen: string[] = [];
       setSettingsWarnSink((m) => seen.push(m));
 
       getSetting("rt.worktrees", { repoIdentity: IDENTITY });
       getSetting("rt.worktrees", { repoIdentity: IDENTITY });
-      expect(seen.filter((m) => m.includes("team zones"))).toHaveLength(1);
+      expect(seen.filter((m) => m.includes("org clones"))).toHaveLength(1);
 
       setSettingsWarnSink((m) => seen.push(m));
       getSetting("rt.worktrees", { repoIdentity: IDENTITY });
-      expect(seen.filter((m) => m.includes("team zones"))).toHaveLength(2);
+      expect(seen.filter((m) => m.includes("org clones"))).toHaveLength(2);
       setSettingsWarnSink(null);
-    });
-
-    test("one team store folds without the multi-team warning", () => {
-      setSettingsWarnSink(null);
-      writeTeam("alpha", { "rt.worktrees": { onDeck: 1 } });
-
-      getSetting("rt.worktrees", { repoIdentity: IDENTITY });
-
-      expect(warnSpy.mock.calls.map((c) => String(c[0])).filter((m) => m.includes("team zones"))).toEqual([]);
     });
 
     test("resolution never mutates the registry default", () => {
@@ -372,15 +498,15 @@ describe("settings/resolve", () => {
   // ─── teamLocked ────────────────────────────────────────────────────────────
 
   describe("teamLocked", () => {
-    test("team wins over user and machine, which explain reports as shadowed", () => {
-      writeTeam(TEAM, { "rt.intercepts": [{ id: "team" }] });
+    test("the org wins over user and machine, which explain reports as shadowed", () => {
+      writeOrg({ "rt.intercepts": [{ id: "team" }] });
       writeUser({ "rt.intercepts": [{ id: "user" }] });
       writeMachine({ "rt.intercepts": [{ id: "machine" }] });
 
       withTeamLocked("rt.intercepts", () => {
         const got = getSetting("rt.intercepts", { repoIdentity: IDENTITY });
         expect(got.value).toEqual([{ id: "team" }]);
-        expect(got.provenance).toEqual([{ scope: "team", file: teamSettingsPath(TEAM) }]);
+        expect(got.provenance).toEqual([{ scope: "org", file: orgSettingsPath(ORG) }]);
 
         const rows = explainSetting("rt.intercepts", { repoIdentity: IDENTITY });
         const user = rows.find((r) => r.scope === "user") as ExplainRow;
@@ -389,12 +515,12 @@ describe("settings/resolve", () => {
         expect(user.value).toEqual([{ id: "user" }]);
         expect(user.shadowed).toBe("teamLocked");
         expect(machine.shadowed).toBe("teamLocked");
-        expect(rows.find((r) => r.scope === "team")?.shadowed).toBeUndefined();
+        expect(rows.find((r) => r.scope === "org")?.shadowed).toBeUndefined();
       });
     });
 
-    test("team.repo still beats team for a locked key", () => {
-      writeTeam(TEAM, {
+    test("org.repo still beats org for a locked key", () => {
+      writeOrg({
         "rt.intercepts": [{ id: "team" }],
         repos: { [IDENTITY]: { "rt.intercepts": [{ id: "team.repo" }] } },
       });
@@ -403,6 +529,30 @@ describe("settings/resolve", () => {
         const got = getSetting("rt.intercepts", { repoIdentity: IDENTITY });
         expect(got.value).toEqual([{ id: "team.repo" }]);
       });
+    });
+
+    test("the team's value beats the org's for a locked key", () => {
+      seedOrg({
+        org: ORG,
+        username: "dev1",
+        roster: [{ username: "dev1", teams: [TEAM] }],
+        settings: { "rt.intercepts": [{ id: "org" }] },
+        teams: { [TEAM]: { "rt.intercepts": [{ id: "team" }] } },
+      });
+
+      withTeamLocked("rt.intercepts", () => {
+        expect(getSetting("rt.intercepts").value).toEqual([{ id: "team" }]);
+      });
+    });
+
+    test("a locked key still takes the org's value and ignores the user's", () => {
+      writeOrg({ "board.title": "Acme" });
+      writeUser({ "board.title": "Mine" });
+      withScope("board.title", "user", () =>
+        withTeamLocked("board.title", () => {
+          expect(getSetting<string>("board.title").value).toBe("Acme");
+        }),
+      );
     });
   });
 
@@ -452,13 +602,13 @@ describe("settings/resolve", () => {
     });
 
     test("a type-invalid value skips only its own scope; weaker scopes still apply", () => {
-      writeTeam(TEAM, { "rt.intercepts": [{ id: "team" }] });
+      writeOrg({ "rt.intercepts": [{ id: "team" }] });
       writeUser({ "rt.intercepts": { not: "an array" } }); // rt.intercepts is type array
 
       const got = getSetting("rt.intercepts", { repoIdentity: IDENTITY });
 
       expect(got.value).toEqual([{ id: "team" }]);
-      expect(got.provenance).toEqual([{ scope: "team", file: teamSettingsPath(TEAM) }]);
+      expect(got.provenance).toEqual([{ scope: "org", file: orgSettingsPath(ORG) }]);
       expect(warnSpy.mock.calls.some((c) => String(c[0]).includes("rt.intercepts"))).toBe(true);
     });
 
@@ -477,7 +627,7 @@ describe("settings/resolve", () => {
     });
 
     test("a shared-scope path literal on a guarded field is rejected, but the machine store may hold one", () => {
-      writeTeam(TEAM, { repos: { [IDENTITY]: { "rt.roles": { be: { hook: "/abs/hook.ts" } } } } });
+      writeOrg({ repos: { [IDENTITY]: { "rt.roles": { be: { hook: "/abs/hook.ts" } } } } });
       writeMachine({ repos: { [IDENTITY]: { "rt.roles": { be: { hook: "/abs/machine-hook.ts" } } } } });
 
       const got = getSetting<Record<string, Record<string, unknown>>>("rt.roles", {
@@ -609,7 +759,7 @@ describe("settings/resolve", () => {
 
   describe("repo sections", () => {
     test("a repoScoped key with a null identity skips repo sections but keeps global scopes", () => {
-      writeTeam(TEAM, {
+      writeOrg({
         "rt.intercepts": [{ id: "team-global" }],
         repos: { [IDENTITY]: { "rt.intercepts": [{ id: "team-repo" }] } },
       });
@@ -618,7 +768,7 @@ describe("settings/resolve", () => {
       const got = getSetting("rt.intercepts", { repoIdentity: null });
 
       expect(got.value).toEqual([{ id: "team-global" }]);
-      expect(got.provenance).toEqual([{ scope: "team", file: teamSettingsPath(TEAM) }]);
+      expect(got.provenance).toEqual([{ scope: "org", file: orgSettingsPath(ORG) }]);
     });
 
     test("an omitted repoIdentity behaves like a null one", () => {
@@ -653,14 +803,14 @@ describe("settings/resolve", () => {
     test("a broken entry in the teams dir never bricks resolution", () => {
       // Regression (opus review of task 4): a team clone symlinked in and later
       // moved leaves a dangling symlink under ~/.mattstack/teams, and the
-      // unguarded scan behind listTeams() made EVERY resolution throw ENOENT.
-      writeTeam(TEAM, { "rt.intercepts": [{ id: "team" }] });
+      // unguarded scan behind listOrgs() made EVERY resolution throw ENOENT.
+      writeOrg({ "rt.intercepts": [{ id: "team" }] });
       symlinkSync(join(home, "moved-away"), join(teamsDir(), "moved-team"));
 
       const got = getSetting("rt.intercepts", { repoIdentity: IDENTITY });
 
       expect(got.value).toEqual([{ id: "team" }]);
-      expect(got.provenance).toEqual([{ scope: "team", file: teamSettingsPath(TEAM) }]);
+      expect(got.provenance).toEqual([{ scope: "org", file: orgSettingsPath(ORG) }]);
       expect(() => listSettings({ repoIdentity: IDENTITY })).not.toThrow();
       expect(() => explainSetting("rt.intercepts", { repoIdentity: IDENTITY })).not.toThrow();
     });
@@ -679,14 +829,14 @@ describe("settings/resolve", () => {
     });
 
     test("resolved values flow into the listing, with multi-scope provenance", () => {
-      writeTeam(TEAM, { "rt.worktrees": { onDeck: 3, branchFormat: "x" } });
+      writeOrg({ "rt.worktrees": { onDeck: 3, branchFormat: "x" } });
       writeUser({ "rt.worktrees": { onDeck: 5 } });
 
       const entry = listSettings({ repoIdentity: IDENTITY }).find((e) => e.key === "rt.worktrees");
 
       expect(entry?.value).toEqual({ onDeck: 5, branchFormat: "x" });
       expect(entry?.provenance).toEqual([
-        { scope: "team", file: teamSettingsPath(TEAM) },
+        { scope: "org", file: orgSettingsPath(ORG) },
         { scope: "user", file: userSettingsPath() },
       ]);
     });
@@ -704,49 +854,38 @@ describe("settings/resolve", () => {
 
   describe("explainSetting", () => {
     test("returns one row per reachable rung, weakest-first, with files and presence", () => {
-      writeTeam(TEAM, { repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 3 } } } });
+      writeOrg({ repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 3 } } } });
 
       const rows = explainSetting("rt.worktrees", { repoIdentity: IDENTITY });
 
       expect(rows.map((r) => r.scope)).toEqual([
         "default",
+        "org",
         "team",
         "user",
+        "org.repo",
         "team.repo",
         "user.repo",
         "machine",
         "machine.repo",
       ]);
       expect(rows[0]).toEqual({ scope: "default", file: null, present: true, value: { onDeck: 0 } });
-      const teamRepo = rows.find((r) => r.scope === "team.repo") as ExplainRow;
+      const teamRepo = rows.find((r) => r.scope === "org.repo") as ExplainRow;
       expect(teamRepo.present).toBe(true);
-      expect(teamRepo.file).toBe(teamSettingsPath(TEAM));
+      expect(teamRepo.file).toBe(orgSettingsPath(ORG));
       expect(teamRepo.value).toEqual({ onDeck: 3 });
       expect(rows.find((r) => r.scope === "user")?.present).toBe(false);
     });
 
-    test("with no team cloned at all, the team rungs are still shown as absent", () => {
+    test("with no org cloned at all, the org and team rungs are still shown as absent", () => {
       const rows = explainSetting("rt.intercepts", { repoIdentity: IDENTITY });
-      const team = rows.find((r) => r.scope === "team") as ExplainRow;
 
-      expect(team).toBeDefined();
-      expect(team.present).toBe(false);
-      expect(team.file).toBeNull();
-    });
-
-    test("one row per team when several are cloned", () => {
-      writeTeam("alpha", { "rt.intercepts": [{ id: "a" }] });
-      writeTeam("beta", {});
-
-      const rows = explainSetting("rt.intercepts", { repoIdentity: IDENTITY });
-      const teamRows = rows.filter((r) => r.scope === "team");
-
-      expect(teamRows.map((r) => r.file)).toEqual([
-        teamSettingsPath("alpha"),
-        teamSettingsPath("beta"),
-      ]);
-      expect(teamRows[0]?.present).toBe(true);
-      expect(teamRows[1]?.present).toBe(false);
+      for (const scope of ["org", "team"]) {
+        const row = rows.find((r) => r.scope === scope) as ExplainRow;
+        expect(row).toBeDefined();
+        expect(row.present).toBe(false);
+        expect(row.file).toBeNull();
+      }
     });
   });
 
@@ -777,12 +916,12 @@ describe("settings/resolve", () => {
       });
     });
 
-    test("a team store written by an older rt is labeled nonconforming too, not invalid", () => {
+    test("an org store written by an older rt is labeled nonconforming too, not invalid", () => {
       withSchema("rt.homeSnapshot", SNAPSHOT, () => {
-        withScope("rt.homeSnapshot", "team", () => {
-          writeTeam(TEAM, { "rt.homeSnapshot": { enabled: "yes" } });
+        withScope("rt.homeSnapshot", "org", () => {
+          writeOrg({ "rt.homeSnapshot": { enabled: "yes" } });
           expect(getSetting<{ enabled: unknown }>("rt.homeSnapshot").value.enabled).toBe("yes");
-          const team = explainSetting("rt.homeSnapshot").find((r) => r.scope === "team")!;
+          const team = explainSetting("rt.homeSnapshot").find((r) => r.scope === "org")!;
           expect(team.invalid).toBeUndefined();
           expect(team.nonconforming?.[0]?.path).toEqual(["enabled"]);
         });
@@ -832,9 +971,14 @@ describe("settings/resolve", () => {
     });
 
     test("repoSectionsFor reports which stores set a key per repo", () => {
-      writeTeam(TEAM, { repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 1 } } } });
+      writeOrg({ repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 1 } } } });
       writeUser({ repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 2 } } } });
-      expect(repoSectionsFor("rt.worktrees")).toEqual([{ identity: IDENTITY, scopes: ["team", "user"] }]);
+      expect(repoSectionsFor("rt.worktrees")).toEqual([{ identity: IDENTITY, scopes: ["org", "user"] }]);
+    });
+
+    test("repoSectionsFor names the active team's store", () => {
+      writeTeam({ repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 1 } } } });
+      expect(repoSectionsFor("rt.worktrees")).toEqual([{ identity: IDENTITY, scopes: ["team"] }]);
     });
   });
 });

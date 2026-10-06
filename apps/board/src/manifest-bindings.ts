@@ -49,14 +49,14 @@ export function boardRepoSlug(gitlabHost: string, project: string): string {
 const PACK_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 /** The pack a launch resolves bindings with: the launching tab's pack, else
-    the board's default pack, else none. A pack becomes a path segment, so
+    the active team's pack, else none. A pack becomes a path segment, so
     one outside the pack-name grammar counts as none. */
 export function packForLaunch(
   cfg: BoardConfig,
   tabId: string | undefined
 ): string | null {
   const tab = tabId ? cfg.tabs.find(t => t.id === tabId) : undefined;
-  const pack = tab?.pack || cfg.defaultPack;
+  const pack = tab?.pack || cfg.teamPack;
   if (!pack || !PACK_NAME_RE.test(pack)) return null;
   return pack;
 }

@@ -11,7 +11,21 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import * as osReal from "os";
 import { tmpdir } from "os";
 import { join } from "path";
-import { machineKey, machineSettingsPath, teamSettingsPath, teamsDir, userSettingsPath } from "../paths.ts";
+import {
+  machineKey,
+  machineSettingsPath,
+  orgDir,
+  orgMarkerPath,
+  orgPacksDir,
+  orgSecretsDir,
+  orgSettingsPath,
+  teamFolderDir,
+  teamFoldersDir,
+  teamPackDir,
+  teamSettingsPath,
+  teamsDir,
+  userSettingsPath,
+} from "../paths.ts";
 
 // `mock.module` mutates the live "os" namespace object in place, so
 // `osReal.hostname` itself becomes the mock the moment it's installed —
@@ -38,9 +52,9 @@ describe("settings/paths", () => {
       rmSync(home, { recursive: true, force: true });
     });
 
-    test("teamSettingsPath nests under teams/<team>/mattstack/settings.team.jsonc", () => {
+    test("teamSettingsPath nests under teams/<org>/mattstack/teams/<team>/settings.team.jsonc", () => {
       process.env.HOME = "/tmp/fake-home-client-2";
-      expect(teamSettingsPath("acme")).toBe("/tmp/fake-home-client-2/.mattstack/teams/acme/mattstack/settings.team.jsonc");
+      expect(teamSettingsPath("acme", "widgets")).toBe("/tmp/fake-home-client-2/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc");
     });
 
     test("teamsDir resolves at call-time HOME", () => {
@@ -124,6 +138,21 @@ describe("settings/paths", () => {
       mock.module("os", () => ({ ...osReal, hostname: () => "!!!" }));
       expect(machineKey()).toBe("default");
       rmSync(home, { recursive: true, force: true });
+    });
+  });
+
+  describe("org and team folder paths", () => {
+    test("every org path hangs off teams/<org>", () => {
+      process.env.HOME = "/tmp/fake-home-org";
+      const root = "/tmp/fake-home-org/.mattstack/teams/acme";
+      expect(orgDir("acme")).toBe(root);
+      expect(orgMarkerPath("acme")).toBe(`${root}/mattstack/mattstack.jsonc`);
+      expect(orgSettingsPath("acme")).toBe(`${root}/mattstack/org/settings.org.jsonc`);
+      expect(orgSecretsDir("acme")).toBe(`${root}/mattstack/org/secrets`);
+      expect(orgPacksDir("acme")).toBe(`${root}/mattstack/org/packs`);
+      expect(teamFoldersDir("acme")).toBe(`${root}/mattstack/teams`);
+      expect(teamFolderDir("acme", "widgets")).toBe(`${root}/mattstack/teams/widgets`);
+      expect(teamPackDir("acme", "widgets")).toBe(`${root}/mattstack/teams/widgets/packs/widgets`);
     });
   });
 });

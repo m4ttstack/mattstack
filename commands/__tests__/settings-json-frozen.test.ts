@@ -91,6 +91,28 @@ describe("settings --json is frozen", () => {
     frozen("list", `${JSON.stringify(seeded)}\n`);
   });
 
+  test("list carries items for an add key", async () => {
+    write(userSettingsPath(), { "rt.logLevel": "debug", "claude.plugins": ["acme-tools@acme"] });
+    await settingsList(["--json"]);
+    const parsed = JSON.parse(cap.stdout()) as { settings: { key: string }[] };
+    const seeded = { ...parsed, settings: parsed.settings.filter((s) => s.key === "claude.plugins") };
+    frozen("list-add-key", `${JSON.stringify(seeded)}\n`);
+  });
+
+  test("list expands the items of an add key like its value", async () => {
+    write(userSettingsPath(), { "rt.logLevel": "debug", "claude.marketplaces": ["${home}/market"] });
+    await settingsList(["--json"]);
+    const parsed = JSON.parse(cap.stdout()) as { settings: { key: string }[] };
+    const seeded = { ...parsed, settings: parsed.settings.filter((s) => s.key === "claude.marketplaces") };
+    frozen("list-add-key-expanded", `${JSON.stringify(seeded)}\n`);
+  });
+
+  test("get carries items for an add key", async () => {
+    write(userSettingsPath(), { "rt.logLevel": "debug", "claude.plugins": ["acme-tools@acme"] });
+    await settingsGet(["claude.plugins", "--json"]);
+    frozen("get-add-key");
+  });
+
   test("explain", async () => {
     await settingsExplain(["rt.logLevel", "--json"]);
     frozen("explain");

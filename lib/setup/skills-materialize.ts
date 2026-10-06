@@ -130,7 +130,7 @@ export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: 
   if (!enginePackDir) {
     return { skipped: true, reason: `${ENGINE_PACK_MISSING_CODE}: install the mattstack plugin first, then run this again`, repos: [] };
   }
-  const deps = { fs: p, mattstackRoot: join(p.home, ".mattstack"), claudeHome: p.home, enginePackDir };
+  const deps = { fs: p, mattstackRoot: join(p.home, ".mattstack"), enginePackDir };
   const repos: MaterializeRepoResult[] = [];
   for (const target of await resolveTargets(opts)) {
     let outcome: MaterializeRepoOutcome;

@@ -42,7 +42,14 @@ const RT = {
     { scope: 'default', file: null, present: true, value: 'info' },
   ],
   validateValue: () => ({ ok: true }),
-  listTeams: () => [],
+  listOrgs: () => [],
+  activeTeam: () => ({
+    org: null,
+    team: null,
+    reason: 'no-org',
+    username: null,
+    listedOn: [],
+  }),
   setSetting: (...args: unknown[]) => {
     writes.push(args);
   },

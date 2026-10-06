@@ -51,7 +51,7 @@ test("a pack that is not installed here is pending, not failed", () => {
 });
 
 test("no packs is a line and a note", () => {
-  expect(renderPlain(packsBlocks([]))).toBe("[not yet] No packs found\n  note: A pack is a plugin from a directory marketplace that has a surface file.\n");
+  expect(renderPlain(packsBlocks([]))).toBe("[not yet] No packs found\n  note: A pack is a folder with a surface file: a plugin from a directory marketplace, or a team's or the org's pack folder in your org repo.\n");
 });
 
 test("packs are a table that carries each folder", () => {

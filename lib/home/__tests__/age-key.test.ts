@@ -304,8 +304,8 @@ describe("renderSopsYaml", () => {
 
 describe("renderSopsYamlFor", () => {
   test("emits a creation rule matching the given path_regex, one comma-separated age: value for every recipient", () => {
-    const yaml = renderSopsYamlFor("mattstack/secrets/.*", ["age1aaa", "age1bbb"]);
-    expect(yaml).toContain("path_regex: mattstack/secrets/.*");
+    const yaml = renderSopsYamlFor("mattstack/org/secrets/.*", ["age1aaa", "age1bbb"]);
+    expect(yaml).toContain("path_regex: mattstack/org/secrets/.*");
     expect(yaml).toContain("age: age1aaa,age1bbb");
   });
 

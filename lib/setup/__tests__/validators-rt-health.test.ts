@@ -836,8 +836,8 @@ describe("oneTeamRow", () => {
       home: "/home/two",
       dirs: { [teams]: ["acme", "globex"] },
       files: {
-        [join(teams, "acme", "mattstack", "settings.team.jsonc")]: "{}",
-        [join(teams, "globex", "mattstack", "settings.team.jsonc")]: "{}",
+        [join(teams, "acme", "mattstack", "org", "settings.org.jsonc")]: "{}",
+        [join(teams, "globex", "mattstack", "org", "settings.org.jsonc")]: "{}",
       },
     });
 
@@ -850,6 +850,35 @@ describe("oneTeamRow", () => {
 describe("teamSyncRow", () => {
   const now = () => 1_000_000;
 
+  const inSync = { slug: "acme", lastPullAt: 900_000, lastPushError: null, conflicted: null };
+  test("a hand edit this Mac may not push is named", async () => {
+    const entry = { ...inSync, pullOnly: true, unownedDirty: ["mattstack/org/settings.org.jsonc"] };
+    const r = await teamSyncRow(["acme"], async () => [entry as never], now, 300);
+    expect(r?.status).toBe("needs-you");
+    expect(r?.detail).toBe("acme: changed on this Mac but not yours to push: mattstack/org/settings.org.jsonc. Undo the change, or ask who owns it to make it");
+  });
+  test("the same edit is named as the reason a pull stopped", async () => {
+    const entry = { ...inSync, pullOnly: true, lastPullSkipped: "error: Your local changes would be overwritten", unownedDirty: ["mattstack/org/settings.org.jsonc"] };
+    const r = await teamSyncRow(["acme"], async () => [entry as never], now, 300);
+    expect(r?.detail).toBe("acme: a pull stopped on a change that is not yours to push: mattstack/org/settings.org.jsonc. Undo the change, then pull again");
+  });
+  test("a marketplace held for a new pack's share asks for the publish that releases it", async () => {
+    const entry = { ...inSync, heldBack: [".claude-plugin/marketplace.json"] };
+    const r = await teamSyncRow(["acme"], async () => [entry as never], now, 300);
+    expect(r?.status).toBe("needs-you");
+    expect(r?.detail).toBe("acme: a new pack is not shared yet, so its marketplace entry stays on this Mac");
+    expect(r?.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Run: rt team publish --team acme"] });
+  });
+  test("a hold reads first, ahead of the push failure it causes", async () => {
+    const entry = { ...inSync, heldBack: [".claude-plugin/marketplace.json"], lastPushError: "! [rejected] main -> main (fetch first)" };
+    const r = await teamSyncRow(["acme"], async () => [entry as never], now, 300);
+    expect(r?.status).toBe("needs-you");
+    expect(r?.detail).toBe("acme: a new pack is not shared yet, so its marketplace entry stays on this Mac; acme: pushes are failing: ! [rejected] main -> main (fetch first)");
+    expect(r?.action).toEqual({ type: "steps", label: "Show steps…", steps: ["Run: rt team publish --team acme"] });
+  });
+  test("an entry from a daemon that predates the field reads as nothing stray", async () => {
+    expect((await teamSyncRow(["acme"], async () => [inSync as never], now, 300))?.status).toBe("ready");
+  });
   test("no teams: no row", async () => {
     expect(await teamSyncRow([], async () => [], now, 300)).toBeNull();
   });
@@ -940,7 +969,7 @@ describe("teamSyncRow", () => {
     expect(r?.status).toBe("needs-you");
     expect(r?.detail).toContain("acme");
     expect(r?.detail).not.toContain("rt team publish");
-    expect(r?.detail).toContain("reset it to origin or ask the team's owner");
+    expect(r?.detail).toContain("reset it to origin or ask an org admin");
   });
 
   test("a standing fetch error is needs-you even when the last successful pull was recent", async () => {
@@ -1202,7 +1231,7 @@ describe("rtHealthRows: team.sync wiring", () => {
     const p = fakeProbes({
       home: "/fake-home",
       now: at,
-      files: { "/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc": "{}" },
+      files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
       dirs: { "/fake-home/.mattstack/teams": ["acme"] },
       daemon: async (cmd) => {
         if (cmd === "team:snapshot-status") return { ok: true, data: [{ slug: "acme", lastPullAt: at.getTime() - 300_000, lastPushError: null, conflicted: null }] };
@@ -1222,7 +1251,7 @@ describe("rtHealthRows: team.sync wiring", () => {
   test("rt.teamSnapshot.enabled=false: the row reports the setting instead of a permanent unwatched-clone verdict", async () => {
     const p = fakeProbes({
       home: "/fake-home",
-      files: { "/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc": "{}" },
+      files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
       dirs: { "/fake-home/.mattstack/teams": ["acme"] },
       daemon: async (cmd) => (cmd === "team:snapshot-status" ? { ok: true, data: [] } : null),
     });
@@ -1235,7 +1264,7 @@ describe("rtHealthRows: team.sync wiring", () => {
   test("a cloned team reads status through p.daemon and produces a team.sync row", async () => {
     const p = fakeProbes({
       home: "/fake-home",
-      files: { "/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc": "{}" },
+      files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
       dirs: { "/fake-home/.mattstack/teams": ["acme"] },
       daemon: async (cmd) => {
         if (cmd === "team:snapshot-status") return { ok: true, data: [{ slug: "acme", lastPullAt: Date.now(), lastPushError: null, conflicted: null }] };
@@ -1251,7 +1280,7 @@ describe("rtHealthRows: team.sync wiring", () => {
   test("daemon unreachable for the snapshot-status call: team.sync reads missing", async () => {
     const p = fakeProbes({
       home: "/fake-home",
-      files: { "/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc": "{}" },
+      files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
       dirs: { "/fake-home/.mattstack/teams": ["acme"] },
       daemon: async () => null,
     });

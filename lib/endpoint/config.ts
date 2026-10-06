@@ -7,7 +7,7 @@
  * Everything goes through `lib/settings/resolve.ts#getSetting`, which layers
  * the authored stores:
  *
- *   default < team < user < team.repo < user.repo < machine < machine.repo
+ *   default < org < team < user < org.repo < team.repo < user.repo < machine < machine.repo
  *
  * The store rungs are keyed by repo IDENTITY (a normalized remote), which is
  * why the entry point takes one. A null identity — a repo whose remote is a

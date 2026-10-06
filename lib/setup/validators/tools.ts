@@ -24,6 +24,7 @@ import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { integrationDef } from "../integrations.ts";
 import { callableBySkills, claudeJsonPath, linearServerNames, nameTaken, readClaudeConfig } from "../linear-mcp.ts";
 import { parsePluginList, readServedPacks, type ServedPack } from "../pack-cache.ts";
+import { activeTeamFor } from "../../team/active-team.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import type { PackRequirements, ToolRequirement } from "../requirements.ts";
 import { atLeast } from "../semver.ts";
@@ -766,7 +767,7 @@ export async function toolRows(
   // Optional, not required: the existing test call sites pass only
   // { hasBrew, secrets }, and tests are inside the root tsconfig, so a required
   // field turns `bunx tsc --noEmit` red while `bun test` stays green.
-  opts: { hasBrew: boolean; secrets: SecretPresence; teamSlug?: string; solo?: boolean },
+  opts: { hasBrew: boolean; secrets: SecretPresence; teamSlug?: string; solo?: boolean; activeTeam?: string | null },
   seams: ToolsSeams = REAL_SEAMS,
 ): Promise<Row[]> {
   const fastBrowser = await probeFastBrowser(p, seams);
@@ -795,7 +796,8 @@ export async function toolRows(
   rows.push(pluginsRow(pluginList));
   rows.push(writingStyleRowFor(p, pluginList));
 
-  const served = opts.teamSlug ? readServedPacks(p, opts.teamSlug) : { packs: [], error: null };
+  const only = opts.activeTeam !== undefined ? opts.activeTeam : opts.teamSlug ? activeTeamFor(p, opts.teamSlug).team : null;
+  const served = opts.teamSlug ? readServedPacks(p, opts.teamSlug, { only }) : { packs: [], error: null };
   if (served.error) {
     // `team.marketplace`, NOT `pack.marketplace`: isInstallSatisfied matches any
     // id starting with "pack.", and an error row can never become ready, so a

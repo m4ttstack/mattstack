@@ -25,11 +25,16 @@ import { createRealSecretsExecSeam, personalStoreReady, validateSlug, writeSecre
 import type { SecretsSeams } from "../secrets/store.ts";
 import { readTeamSecret } from "../secrets/team-store.ts";
 import { logFailureDetail, UserActionableError } from "../errors.ts";
-import { clearIntent, readIntent, writeIntent, type InvitePointer } from "../setup/intent.ts";
+import { clearIntent, readIntent, writeIntent, INVITE_POINTER_VERSION, type InvitePointer } from "../setup/intent.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
 import { forgeFromRemote, parseOriginUrl, readTeamSnapshot, readUserIntegrationOverrides, stripUserinfo, type SettingsReader } from "../setup/team-settings.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
+import { rosterFrom, sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
+import { parseStoreText, TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
+import { setSetting } from "../settings/write.ts";
+import { orgStoreFile } from "./org-store.ts";
+import { HANDLE_PATTERN } from "./invite.ts";
 import { forgeLogin } from "./forge.ts";
 import { gitWithToken } from "./git-credential.ts";
 import { decodeCode, open, sealReply } from "./invite-crypto.ts";
@@ -46,6 +51,7 @@ import { assertOnlyTeam } from "./one-team.ts";
 import { readTeamLocal, updateTeamLocal } from "./team-local.ts";
 
 export interface JoinResult {
+  teams: string[];
   team: { slug: string; name: string; owner: string };
   access: "ok" | "deferred" | "no-account" | "denied" | "unreachable" | "undetermined";
   peering: "applied" | "idle" | "unavailable";
@@ -90,6 +96,7 @@ function teamRefFrom(pointer: InvitePointer): JoinResult["team"] {
 function deniedResult(pointer: InvitePointer): JoinResult {
   return {
     team: teamRefFrom(pointer),
+    teams: pointer.teams,
     access: "denied",
     peering: "idle",
     message: `Ask ${pointer.owner} to let you into ${pointer.name}, since you don't have access yet.`,
@@ -97,8 +104,8 @@ function deniedResult(pointer: InvitePointer): JoinResult {
   };
 }
 
-function unreachableResult(team: JoinResult["team"], message: string, intent: JoinResult["intent"] = "written"): JoinResult {
-  return { team, access: "unreachable", peering: "idle", message, intent };
+function unreachableResult(team: JoinResult["team"], message: string, intent: JoinResult["intent"] = "written", teams: string[] = []): JoinResult {
+  return { team, teams, access: "unreachable", peering: "idle", message, intent };
 }
 
 // A real hostname/IP[:port] — starts and ends alnum, `.`/`-` in between, an
@@ -152,6 +159,12 @@ function sanitizeDisplay(s: string): string {
  * never the raw one `open()`/the intent handed back.
  */
 function validatePointer(pointer: InvitePointer): InvitePointer {
+  if (pointer.v !== INVITE_POINTER_VERSION) {
+    throw new UserActionableError("invite-outdated", "That invite was made by an older mattstack. Ask for a new invite.");
+  }
+  if (typeof pointer.username !== "string" || !HANDLE_PATTERN.test(pointer.username) || !Array.isArray(pointer.teams) || pointer.teams.length === 0 || !pointer.teams.every((team) => typeof team === "string" && TEAM_NAME_RE.test(team))) {
+    throw new UserActionableError("invite-malformed", "rt could not read that invite", {}, { log: "invite pointer's username or teams are not valid" });
+  }
   try {
     validateSlug(pointer.team);
   } catch {
@@ -229,7 +242,7 @@ function gitFailureMessage(kind: Exclude<GitFailureKind, "denied">, result: Exec
 function gitAccessResult(pointer: InvitePointer, result: ExecResult): JoinResult {
   const kind = classifyGitFailure(result);
   if (kind === "denied") return deniedResult(pointer);
-  return unreachableResult(teamRefFrom(pointer), gitFailureMessage(kind, result));
+  return unreachableResult(teamRefFrom(pointer), gitFailureMessage(kind, result), "written", pointer.teams);
 }
 
 function accessFromVerdict(v: RepoAccessVerdict, pointer: InvitePointer): { access: JoinResult["access"]; message: string } {
@@ -264,7 +277,7 @@ export async function joinDryRun(p: Probes, relay: RelayClient, code: string): P
   const confirmedHost = readUserIntegrationOverrides().forgeHost ?? null;
   const verdict = await probeTeamRepoAccess(p, pointer.remote, await forgeTokenLookupForRemote(p, pointer.remote, confirmedHost));
   writeIntent(p, { v: 1, at: p.now().toISOString(), mode: "join", join: { id: idHex, keyB64: Buffer.from(key).toString("base64"), pointer } });
-  return { team: teamRefFrom(pointer), ...accessFromVerdict(verdict, pointer), peering: "idle", intent: "written" };
+  return { team: teamRefFrom(pointer), teams: pointer.teams, ...accessFromVerdict(verdict, pointer), peering: "idle", intent: "written" };
 }
 
 export interface JoinRedeemOpts {
@@ -284,6 +297,7 @@ export interface JoinRedeemSeams {
   localStoreReady: () => Promise<boolean>;
   /** Stores a per-member secret in the LOCAL rt domain (never the team store): the switchboard board token belongs to this machine's member alone. */
   writeLocalSecret: (key: string, value: string) => Promise<void>;
+  writeUserSetting: (key: string, value: unknown) => void;
   /** `message` is the log text; `shown` is what a person reads, and a warning without it shows its message. */
   warn: (message: string, shown?: ShownWarning) => void;
 }
@@ -317,6 +331,7 @@ export function realJoinRedeemSeams(): JoinRedeemSeams {
     forgeToken: storedForgeToken,
     localStoreReady: () => personalStoreReady({ ageKeySeam, execSeam: createRealSecretsExecSeam() }),
     writeLocalSecret: (key, value) => writeSecret("rt", key, value, { ageKeySeam, execSeam: createRealSecretsExecSeam() }),
+    writeUserSetting: (key, value) => { setSetting(key, value, "user"); },
     warn: defaultWarn,
   };
 }
@@ -463,6 +478,12 @@ function readOrigin(p: Probes, dir: string): string | null {
   return raw !== null ? parseOriginUrl(raw) : null;
 }
 
+function rosterLists(p: Pick<Probes, "home" | "readFile">, org: string, username: string): boolean {
+  const file = orgStoreFile(p.home, org);
+  const raw = p.readFile(file);
+  return raw !== null && rosterFrom(parseStoreText(file, raw)).some((entry) => sameUser(entry.username, username));
+}
+
 export async function joinRedeem(
   p: Probes,
   relay: RelayClient,
@@ -473,7 +494,7 @@ export async function joinRedeem(
   const resolved = await resolveSource(p, relay, opts.code);
   if (!isJoinSource(resolved)) return resolved;
   const { idHex, key, pointer } = resolved;
-  assertNotRealStoreInTest(join(p.home, ".mattstack", "teams", pointer.team, "mattstack", "settings.team.jsonc"));
+  assertNotRealStoreInTest(orgStoreFile(p.home, pointer.team));
   assertOnlyTeam(p, pointer.team);
 
   // Checkpointed BEFORE any clone/redeem attempt (not just on the dry-run
@@ -529,6 +550,14 @@ export async function joinRedeem(
     }
   }
 
+  if (!rosterLists(p, pointer.team, pointer.username)) {
+    const pull = gitWithToken(["pull", "--ff-only"], token, GIT_ENV, { remote: pointer.remote });
+    await p.exec(pull.argv, { cwd: dir, env: pull.env });
+    if (!rosterLists(p, pointer.team, pointer.username)) {
+      throw new UserActionableError("roster-not-ready", "Your admin's roster change has not reached the org repo yet; try again in a minute", {}, { log: `the org roster does not list ${pointer.username}` });
+    }
+  }
+
   // Identity resolution runs BEFORE relay.redeem, deliberately: this is the
   // one precondition that can only be checked once the team is cloned
   // (it reads the just-cloned settings file), so it has to happen here rather
@@ -569,6 +598,12 @@ export async function joinRedeem(
     });
   }
 
+  if (!sameUser(handle, pointer.username)) {
+    throw new UserActionableError("invite-login-mismatch", `This invite is for ${pointer.username}; you're signed in as ${handle}.`, {}, {
+      why: `Ask for an invite for ${handle}, or connect ${pointer.username}'s token.`,
+    });
+  }
+
   let redeemed: "redeemed" | "already";
   try {
     redeemed = await relay.redeem(idHex);
@@ -577,6 +612,8 @@ export async function joinRedeem(
       return unreachableResult(
         teamRefFrom(pointer),
         "The team is on this Mac, but rt could not reach the invite service to finish. Join again once it is reachable; you do not need a new code.",
+        "written",
+        pointer.teams,
       );
     }
     throw err;
@@ -587,6 +624,9 @@ export async function joinRedeem(
   if (redeemed === "already" && !alreadyCloned) {
     throw inviteUnknownError("That invite was already used", `Ask ${pointer.owner} for a new one.`);
   }
+
+  updateTeamLocal(p, pointer.team, { forgeUsername: handle });
+  seams.writeUserSetting("mattstack.activeTeam", pointer.teams[0]!);
 
   const { peering, peeringFix } = await peerBoard(p, seams, secrets, pointer, switchboard, handle);
 
@@ -608,6 +648,7 @@ export async function joinRedeem(
     if (isRelayConnectivityError(err)) {
       return {
         team: teamRefFrom(pointer),
+        teams: pointer.teams,
         access: "ok",
         peering,
         ...(peeringFix !== undefined ? { peeringFix } : {}),
@@ -622,6 +663,7 @@ export async function joinRedeem(
   const peeringHint = peeringFix !== undefined ? ` Your board is not connected yet. ${peeringFix}` : "";
   return {
     team: teamRefFrom(pointer),
+    teams: pointer.teams,
     access: "ok",
     peering,
     ...(peeringFix !== undefined ? { peeringFix } : {}),

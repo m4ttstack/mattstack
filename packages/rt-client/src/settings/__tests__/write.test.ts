@@ -12,15 +12,19 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { machineSettingsPath, teamLocalPath, teamSettingsPath, teamsDir, userSettingsPath } from "../paths.ts";
-import { setSetting, setSettingsNoticeSink, unsetSetting, type SettingsNotice } from "../write.ts";
+import { machineSettingsPath, orgDir, orgSettingsPath, teamLocalPath, teamSettingsPath, teamsDir, userSettingsPath } from "../paths.ts";
+import { getSetting } from "../resolve.ts";
+import { readStore } from "../stores.ts";
+import { pruneStoreName, setSetting, setSettingsNoticeSink, unsetSetting, type SettingsNotice } from "../write.ts";
 import * as isolation from "../../test-isolation.ts";
 import { withSchema } from "./with-schema.ts";
 import { suspendRepoOnly } from "./without-repo-only.ts";
+import { withMigration } from "./with-migration.ts";
+import { seedOrg } from "../../../test/org-fixture.ts";
 
 const IDENTITY = "gitlab.com/acme/acme-dev";
-const TEAM = "acme";
-const OTHER_TEAM = "otherteam";
+const ORG = "acme";
+const ADMIN_ROLES = { admins: ["dev1"], teams: {} };
 
 // rt.worktrees stands in for any global key in these store-mechanics tests;
 // the repo-only refusal itself is pinned with rt.roles below.
@@ -51,8 +55,8 @@ describe("settings/write", () => {
     writeFileSync(file, content);
   }
 
-  function seedTeam(name: string): void {
-    write(teamSettingsPath(name), `// ${name} team store\n{}\n`);
+  function seedShared(name: string): void {
+    seedOrg({ org: name, username: "dev1", roles: ADMIN_ROLES });
   }
 
   function readUser(): string {
@@ -61,10 +65,6 @@ describe("settings/write", () => {
 
   function readMachine(): string {
     return readFileSync(machineSettingsPath(), "utf8");
-  }
-
-  function readTeam(name: string): string {
-    return readFileSync(teamSettingsPath(name), "utf8");
   }
 
   // ─── creating an absent store file ─────────────────────────────────────────
@@ -213,10 +213,10 @@ describe("settings/write", () => {
       ).toThrow(/path literal/i);
     });
 
-    test("refuses a path-literal hook at team scope too", () => {
-      seedTeam(TEAM);
+    test("refuses a path-literal hook at org scope too", () => {
+      seedShared(ORG);
       expect(() =>
-        setSetting("rt.roles", { backend: { hook: "/opt/dev.sh" } }, "team", { repoIdentity: IDENTITY }),
+        setSetting("rt.roles", { backend: { hook: "/opt/dev.sh" } }, "org", { repoIdentity: IDENTITY }),
       ).toThrow(/path literal/i);
     });
 
@@ -229,54 +229,70 @@ describe("settings/write", () => {
       expect(parsed.repos[IDENTITY]["rt.roles"]).toEqual({ backend: { hook: "/opt/dev.sh" } });
     });
 
-    test("refuses a team write when no team store exists", () => {
-      expect(() => setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY })).toThrow(
-        /team/i,
-      );
-      // and it must not have silently created one
-      expect(() => readFileSync(teamSettingsPath(TEAM), "utf8")).toThrow();
+  });
+
+  // ─── org and team stores ────────────────────────────────────────────────────
+
+  describe("org and team stores", () => {
+    const roster = [{ username: "dev1", teams: ["widgets"] }];
+
+    test("scope org writes the org store and keeps its comments", () => {
+      seedOrg({ org: "acme", username: "dev1", roles: ADMIN_ROLES, roster });
+      const file = orgSettingsPath("acme");
+      writeFileSync(file, `// org settings\n${readFileSync(file, "utf8")}`);
+      setSetting("board.gitlabHost", "gitlab.example.com", "org");
+      expect(readFileSync(file, "utf8")).toStartWith("// org settings\n");
+      expect(getSetting<string>("board.gitlabHost").provenance).toEqual([{ scope: "org", file }]);
     });
 
-    test("refuses a team write with an explicit opts.team whose store is missing", () => {
-      seedTeam(TEAM); // a DIFFERENT team exists, but not the one asked for
-      expect(() =>
-        setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY, team: "ghost-team" }),
-      ).toThrow(/ghost-team/);
+    test("scope team writes the active team's store", () => {
+      seedOrg({ org: "acme", username: "dev1", roles: ADMIN_ROLES, roster, teams: { widgets: {}, gadgets: {} } });
+      setSetting("board.title", "Widgets", "team");
+      expect(readStore(teamSettingsPath("acme", "widgets")).global["board.title"]).toBe("Widgets");
+      expect(readStore(teamSettingsPath("acme", "gadgets")).global["board.title"]).toBeUndefined();
     });
 
-    test("refuses an ambiguous team write when multiple team stores exist and no opts.team given", () => {
-      seedTeam(TEAM);
-      seedTeam(OTHER_TEAM);
-      expect(() => setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY })).toThrow(
-        /multiple|ambiguous|team/i,
-      );
+    test("opts.team names another team folder", () => {
+      seedOrg({ org: "acme", username: "dev1", roles: ADMIN_ROLES, roster, teams: { widgets: {}, gadgets: {} } });
+      setSetting("board.title", "Gadgets", "team", { team: "gadgets" });
+      expect(readStore(teamSettingsPath("acme", "gadgets")).global["board.title"]).toBe("Gadgets");
+    });
+
+    test("a team write with no active team and no name refuses", () => {
+      seedOrg({ org: "acme", username: "stranger", roster, teams: { widgets: {} } });
+      expect(() => setSetting("board.title", "x", "team")).toThrow(/no active team/);
+    });
+
+    test("a team name that is not a folder name refuses before touching disk", () => {
+      seedOrg({ org: "acme", username: "dev1", roles: ADMIN_ROLES, roster, teams: { widgets: {} } });
+      expect(() => setSetting("board.title", "x", "team", { team: "../x" })).toThrow(/not a team name/);
+    });
+
+    test("a team whose settings file is missing refuses and names the file", () => {
+      seedOrg({ org: "acme", username: "dev1", roles: ADMIN_ROLES, roster: [{ username: "dev1", teams: ["sprockets"] }] });
+      expect(() => setSetting("board.title", "x", "team")).toThrow(teamSettingsPath("acme", "sprockets"));
+      expect(existsSync(teamSettingsPath("acme", "sprockets"))).toBe(false);
+    });
+
+    test("an org write on a Mac with no org refuses", () => {
+      expect(() => setSetting("board.gitlabHost", "gitlab.example.com", "org")).toThrow(/no org/);
+    });
+
+    test("an org-only key refuses at team scope", () => {
+      seedOrg({ org: "acme", username: "dev1", roles: ADMIN_ROLES, roster, teams: { widgets: {} } });
+      expect(() => setSetting("mattstack.roster", [], "team")).toThrow(/cannot be set in the team store/);
+    });
+
+    test("unset on a Mac with no org, or with no active team, is a clean no-op", () => {
+      expect(unsetSetting("board.title", "org")).toBe(false);
+      seedOrg({ org: "acme", username: "stranger", roster, teams: { widgets: {} } });
+      expect(unsetSetting("board.title", "team")).toBe(false);
     });
   });
 
-  // ─── team writes ────────────────────────────────────────────────────────────
+  // ─── share tips ─────────────────────────────────────────────────────────────
 
-  describe("team writes", () => {
-    test("writes into the single existing team store when unambiguous", () => {
-      seedTeam(TEAM);
-
-      setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY });
-
-      const parsed = JSON.parse(readTeam(TEAM).replace(/^\/\/.*\n/, ""));
-      expect(parsed.repos[IDENTITY]["rt.roles"]).toEqual({ backend: {} });
-    });
-
-    test("writes into the team named by opts.team when multiple stores exist", () => {
-      seedTeam(TEAM);
-      seedTeam(OTHER_TEAM);
-
-      setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY, team: OTHER_TEAM });
-
-      const parsed = JSON.parse(readTeam(OTHER_TEAM).replace(/^\/\/.*\n/, ""));
-      expect(parsed.repos[IDENTITY]["rt.roles"]).toEqual({ backend: {} });
-      // the other team's store must be untouched
-      expect(readTeam(TEAM)).toBe(`// ${TEAM} team store\n{}\n`);
-    });
-
+  describe("share tips", () => {
     function captureStderr(run: () => void): string[] {
       const lines: string[] = [];
       const orig = console.error;
@@ -296,7 +312,7 @@ describe("settings/write", () => {
       writeFileSync(join(repo, ".git", "config"), `[core]\n\tbare = false\n[remote "origin"]\n\turl = https://example.com/acme/repo.git\n`);
     }
     const homeRepo = () => dirname(userSettingsPath());
-    const teamRepo = () => join(teamsDir(), TEAM);
+    const orgRepo = () => orgDir(ORG);
 
     test("a user write the daemon will sync prints nothing", () => {
       giveOrigin(homeRepo());
@@ -343,25 +359,32 @@ describe("settings/write", () => {
       ]);
     });
 
-    test("a team write the daemon will publish prints nothing", () => {
-      seedTeam(TEAM);
-      giveOrigin(teamRepo());
-      expect(captureStderr(() => setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY }))).toEqual([]);
+    test("an org write the daemon will publish prints nothing", () => {
+      seedShared(ORG);
+      giveOrigin(orgRepo());
+      expect(captureStderr(() => setSetting("rt.roles", { backend: {} }, "org", { repoIdentity: IDENTITY }))).toEqual([]);
     });
 
-    test("a team write with no team remote points at rt team publish --remote", () => {
-      seedTeam(TEAM);
-      expect(captureStderr(() => setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY }))).toEqual([
-        `Saved rt.roles in the ${TEAM} team's settings on this Mac only. The team repo has no remote yet. Run: rt team publish --team ${TEAM} --remote <url>`,
+    test("an org write with no org remote points at rt team publish --remote", () => {
+      seedShared(ORG);
+      expect(captureStderr(() => setSetting("rt.roles", { backend: {} }, "org", { repoIdentity: IDENTITY }))).toEqual([
+        `Saved rt.roles in the ${ORG} org's settings on this Mac only. The org repo has no remote yet. Run: rt team publish --remote <url>`,
       ]);
     });
 
-    test("a team write with team sync off points at rt team publish", () => {
-      seedTeam(TEAM);
-      giveOrigin(teamRepo());
+    test("a team write names the team folder it landed in", () => {
+      seedOrg({ org: ORG, username: "dev1", roles: ADMIN_ROLES, roster: [{ username: "dev1", teams: ["widgets"] }], teams: { widgets: {} } });
+      expect(captureStderr(() => setSetting("board.title", "Widgets", "team"))).toEqual([
+        `Saved board.title in the widgets team's settings on this Mac only. The org repo has no remote yet. Run: rt team publish --remote <url>`,
+      ]);
+    });
+
+    test("an org write with team sync off points at rt team publish", () => {
+      seedShared(ORG);
+      giveOrigin(orgRepo());
       setSetting("rt.teamSnapshot", { enabled: false }, "machine");
-      expect(captureStderr(() => setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY }))).toEqual([
-        `Saved rt.roles in the ${TEAM} team's settings, but automatic team sync is off. Run: rt team publish --team ${TEAM}`,
+      expect(captureStderr(() => setSetting("rt.roles", { backend: {} }, "org", { repoIdentity: IDENTITY }))).toEqual([
+        `Saved rt.roles in the ${ORG} org's settings, but automatic team sync is off. Run: rt team publish`,
       ]);
     });
 
@@ -391,13 +414,13 @@ describe("settings/write", () => {
     });
 
     test("removals follow the same rules", () => {
-      seedTeam(TEAM);
-      setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY });
+      seedShared(ORG);
+      setSetting("rt.roles", { backend: {} }, "org", { repoIdentity: IDENTITY });
       setSetting("rt.roles", { backend: {} }, "user", { repoIdentity: IDENTITY });
       setSetting("rt.roles", { backend: {} }, "machine", { repoIdentity: IDENTITY });
 
-      expect(captureStderr(() => unsetSetting("rt.roles", "team", { repoIdentity: IDENTITY }))).toEqual([
-        `Removed rt.roles from the ${TEAM} team's settings on this Mac only. The team repo has no remote yet. Run: rt team publish --team ${TEAM} --remote <url>`,
+      expect(captureStderr(() => unsetSetting("rt.roles", "org", { repoIdentity: IDENTITY }))).toEqual([
+        `Removed rt.roles from the ${ORG} org's settings on this Mac only. The org repo has no remote yet. Run: rt team publish --remote <url>`,
       ]);
       expect(captureStderr(() => unsetSetting("rt.roles", "user", { repoIdentity: IDENTITY }))).toEqual([
         `Removed rt.roles on this Mac only. Your home repo has no remote yet, so the change will not reach your other Macs. Run: rt home remote set`,
@@ -507,6 +530,23 @@ describe("settings/write", () => {
         expect(() => setSetting("rt.repoRoots", [1], "machine")).toThrow(/\[0\]: expected string/);
       });
     });
+
+    test("an org write that breaks another team's merge is refused before the org store changes", () => {
+      const roles = { type: "object", properties: { a: { type: "string" }, b: { type: "number" } }, required: ["a"] };
+      withSchema("rt.roles", roles, () => {
+        const { orgStore } = seedOrg({
+          org: "acme",
+          username: "dev1",
+          roles: ADMIN_ROLES,
+          roster: [{ username: "dev1", teams: ["widgets"] }],
+          settings: { repos: { [IDENTITY]: { "rt.roles": { a: "o" } } } },
+          teams: { widgets: { repos: { [IDENTITY]: { "rt.roles": { a: "w" } } } }, gadgets: { repos: { [IDENTITY]: { "rt.roles": { b: 2 } } } } },
+        });
+        const before = readFileSync(orgStore, "utf8");
+        expect(() => setSetting("rt.roles", { b: 1 }, "org", { repoIdentity: IDENTITY })).toThrow(/in team gadgets would fail/);
+        expect(readFileSync(orgStore, "utf8")).toBe(before);
+      });
+    });
   });
 
   // ─── sanity: teamsDir is honored ────────────────────────────────────────────
@@ -516,14 +556,14 @@ describe("settings/write", () => {
   });
 });
 
-// ─── refusing writes on a joined (pull-only) clone ─────────────────────────
+// ─── the write guard ───────────────────────────────────────────────────────
 
-describe("settings/write: joined-team guard", () => {
+describe("settings/write: write guard", () => {
   const origHome = process.env.HOME;
   let home: string;
 
   beforeEach(() => {
-    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-settings-joined-")));
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-settings-guard-")));
     process.env.HOME = home;
   });
 
@@ -532,75 +572,81 @@ describe("settings/write: joined-team guard", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  // The guard runs after resolveStorePath's existence check (write.ts:216-219),
-  // so every seed must create the team SETTINGS STORE too, not just the
-  // machine-local record (a seed of the record alone would refuse with
-  // "team store does not exist" before the guard is ever reached).
-  function seedTeamStore(team: string): void {
-    const path = teamSettingsPath(team);
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `// ${team} team store\n{}\n`);
-  }
+  const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] }, gadgets: { owners: ["dev3"] } } };
+  const roster = [
+    { username: "dev1", teams: ["widgets"] },
+    { username: "dev2", teams: ["widgets"] },
+    { username: "dev3", teams: ["gadgets"] },
+    { username: "dev4", teams: ["widgets"] },
+  ];
+  const seedAs = (username: string | undefined) =>
+    seedOrg({
+      org: "acme",
+      ...(username ? { username } : {}),
+      roster,
+      roles,
+      teams: { widgets: { "board.title": "W" }, gadgets: { "board.title": "G" } },
+    });
 
-  function seedJoinedTeam(team: string): void {
-    seedTeamStore(team);
-    const recordPath = teamLocalPath(team);
-    mkdirSync(dirname(recordPath), { recursive: true });
-    writeFileSync(recordPath, JSON.stringify({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false }));
-  }
-
-  function seedOwnerTeam(team: string): void {
-    seedTeamStore(team);
-    const recordPath = teamLocalPath(team);
-    mkdirSync(dirname(recordPath), { recursive: true });
-    writeFileSync(recordPath, JSON.stringify({ createdByRt: true, joinedByRt: false, rtMayManageMembership: false }));
-  }
-
-  function seedTeamWithNoRecord(team: string): void {
-    seedTeamStore(team);
-  }
-
-  test("set refuses a team write on a joined clone", () => {
-    seedJoinedTeam("acme");
-    expect(() => setSetting("board.title", "x", "team", { team: "acme" })).toThrow(/pull-only/);
+  test("an admin writes the org store and any team's store", () => {
+    seedAs("dev1");
+    setSetting("board.gitlabHost", "gitlab.example.com", "org");
+    setSetting("board.title", "Gadgets", "team", { team: "gadgets" });
+    expect(readStore(orgSettingsPath("acme")).global["board.gitlabHost"]).toBe("gitlab.example.com");
+    expect(readStore(teamSettingsPath("acme", "gadgets")).global["board.title"]).toBe("Gadgets");
   });
 
-  test("unset refuses on a joined clone too", () => {
-    seedJoinedTeam("acme");
-    expect(() => unsetSetting("board.title", "team", { team: "acme" })).toThrow(/pull-only/);
+  test("an owner writes their own team and is refused the org and another team, with the owner named", () => {
+    seedAs("dev2");
+    setSetting("board.title", "Widgets", "team");
+    expect(readStore(teamSettingsPath("acme", "widgets")).global["board.title"]).toBe("Widgets");
+    expect(() => setSetting("board.gitlabHost", "x", "org")).toThrow(
+      "The org's shared files belong to its admins. Ask dev1 (an org admin) to make this change.",
+    );
+    expect(() => setSetting("board.title", "x", "team", { team: "gadgets" })).toThrow(
+      "The gadgets team's files belong to its owners. Ask dev3 (the team's owner) or dev1 (an org admin) to make this change.",
+    );
+    expect(readStore(teamSettingsPath("acme", "gadgets")).global["board.title"]).toBe("G");
   });
 
-  test("an owner clone is unaffected", () => {
-    seedOwnerTeam("acme");
-    expect(() => setSetting("board.title", "x", "team", { team: "acme" })).not.toThrow();
+  test("a member writes nothing shared, and unset and prune refuse the same way", () => {
+    seedAs("dev4");
+    const before = readFileSync(teamSettingsPath("acme", "widgets"), "utf8");
+    expect(() => setSetting("board.title", "x", "team")).toThrow(/belong to its owners/);
+    expect(() => unsetSetting("board.title", "team")).toThrow(/belong to its owners/);
+    withMigration("board.title", { storeVersion: 2, migrateFrom: [{ version: 1, up: (v) => v }] }, () => {
+      expect(() => pruneStoreName("board.title", "board.title", "team")).toThrow(/belong to its owners/);
+    });
+    expect(readFileSync(teamSettingsPath("acme", "widgets"), "utf8")).toBe(before);
   });
 
-  test("a clone with no record at all is unaffected", () => {
-    seedTeamWithNoRecord("acme");
-    expect(() => setSetting("board.title", "x", "team", { team: "acme" })).not.toThrow();
+  test("a Mac with no stored username is told rt can't tell who it is", () => {
+    seedAs(undefined);
+    mkdirSync(dirname(userSettingsPath()), { recursive: true });
+    writeFileSync(userSettingsPath(), JSON.stringify({ "mattstack.activeTeam": "widgets" }));
+    try {
+      setSetting("board.title", "x", "team");
+      throw new Error("Expected an ownership refusal");
+    } catch (err) {
+      expect((err as Error).message).toBe(
+        "rt: can't tell who you are, so it will not change the org's shared files. Connect your forge account in Setup, then try again.",
+      );
+    }
   });
 
-  // NOT board.title: its scopes are ["team"] only (registry-defs.ts:386), so a
-  // user-scope write throws a scope refusal before the guard is ever reached,
-  // and the test would pass for the wrong reason. claude.plugins is user+team.
-  test("user and machine scope are never gated by a team record", () => {
-    seedJoinedTeam("acme");
-    expect(() => setSetting("claude.plugins", [], "user", {})).not.toThrow();
+  test("having joined by invite no longer decides anything: an owner who joined still writes", () => {
+    seedAs("dev2");
+    writeFileSync(teamLocalPath("acme"), JSON.stringify({ joinedByRt: true, forgeUsername: "dev2" }));
+    setSetting("board.title", "Widgets", "team");
+    expect(readStore(teamSettingsPath("acme", "widgets")).global["board.title"]).toBe("Widgets");
   });
 
-  test("the single-local-team resolution branch is guarded too, not just the explicit opts.team branch", () => {
-    seedJoinedTeam("acme");
-    expect(() => setSetting("board.title", "x", "team", {})).toThrow(/pull-only/);
-  });
-
-  test("unset's single-local-team resolution branch is guarded too, not just the explicit opts.team branch", () => {
-    seedJoinedTeam("acme");
-    expect(() => unsetSetting("board.title", "team", {})).toThrow(/pull-only/);
-  });
-
-  test("the refusal names the future proposal flow so a member knows this is not forbidden forever", () => {
-    seedJoinedTeam("acme");
-    expect(() => setSetting("board.title", "x", "team", { team: "acme" })).toThrow(/MAT-415/);
+  test("user and machine writes are never guarded", () => {
+    seedAs("dev4");
+    setSetting("rt.logLevel", "debug", "user");
+    setSetting("rt.logLevel", "debug", "machine");
+    expect(readStore(userSettingsPath()).global["rt.logLevel"]).toBe("debug");
+    expect(readStore(machineSettingsPath()).global["rt.logLevel"]).toBe("debug");
   });
 });
 
@@ -690,15 +736,6 @@ describe("settings/unset", () => {
     expect(unsetSetting("rt.roles", "team", { team: "ghost" })).toBe(false);
   });
 
-  test("ambiguous team selection still refuses", () => {
-    for (const t of [TEAM, OTHER_TEAM]) {
-      const p = teamSettingsPath(t);
-      mkdirSync(dirname(p), { recursive: true });
-      writeFileSync(p, `{}\n`);
-    }
-    expect(() => unsetSetting("rt.roles", "team")).toThrow(/multiple local team stores/);
-  });
-
   test("refuses to edit a malformed store", () => {
     seedUser(`{ "rt.roles": 1, "rt.roles": 2 }\n`);
     expect(() => unsetSetting("rt.roles", "user")).toThrow(/malformed store/);
@@ -740,13 +777,12 @@ describe("settings/write: test-run guard", () => {
     expect(existsSync(join(home, ".mattstack"))).toBe(false);
   });
 
-  test("refuses a team write and leaves the team store untouched", () => {
-    const store = teamSettingsPath(TEAM);
-    mkdirSync(dirname(store), { recursive: true });
-    writeFileSync(store, "// acme team store\n{}\n");
+  test("refuses an org write and leaves the org store untouched", () => {
+    const store = seedOrg({ org: ORG, username: "dev1", roles: ADMIN_ROLES }).orgStore;
+    const before = readFileSync(store, "utf8");
     actAsAccountHome(home);
-    expect(() => setSetting("rt.roles", { reviewer: {} }, "team", { repoIdentity: IDENTITY })).toThrow(/Run bun test from the repo root/);
-    expect(readFileSync(store, "utf8")).toBe("// acme team store\n{}\n");
+    expect(() => setSetting("rt.roles", { reviewer: {} }, "org", { repoIdentity: IDENTITY })).toThrow(/Run bun test from the repo root/);
+    expect(readFileSync(store, "utf8")).toBe(before);
   });
 
   test("refuses an unset against a real store and leaves it untouched", () => {

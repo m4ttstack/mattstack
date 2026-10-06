@@ -1,4 +1,5 @@
 {
   "rt.picker.show": "Replaced by rt.picker.hidden before any release shipped it.",
-  "rt.picker.hide": "Replaced by rt.picker.hidden before any release shipped it."
+  "rt.picker.hide": "Replaced by rt.picker.hidden before any release shipped it.",
+  "board.members": "Retired: the org roster (mattstack.roster) is the one member list."
 }

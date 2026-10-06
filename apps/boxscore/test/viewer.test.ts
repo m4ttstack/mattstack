@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { resolveViewer } from '../src/server/config/viewer.js';
 
 const roster = [{ username: 'alice' }, { username: 'bob', name: 'Bob B' }];
-const member = { joined: true };
-const owner = { joined: false };
+const member = { seesTeam: false };
+const owner = { seesTeam: true };
 
 describe('resolveViewer', () => {
   it('gives a Mac with no team Team view', () => {
@@ -13,7 +13,7 @@ describe('resolveViewer', () => {
     ).toEqual({ username: 'bob', role: 'team' });
   });
 
-  it("gives the owner's Mac Team view whatever the roles say", () => {
+  it("gives an org admin's or team owner's Mac Team view whatever the roles say", () => {
     expect(
       resolveViewer({
         currentUser: 'bob',
@@ -24,7 +24,7 @@ describe('resolveViewer', () => {
     ).toEqual({ username: 'bob', role: 'team' });
   });
 
-  it('gives the owner Team view even when the lookup failed', () => {
+  it('gives an admin or owner Team view even when the lookup failed', () => {
     expect(
       resolveViewer({ currentUser: null, roster, roles: {}, team: owner })
     ).toEqual({ username: null, role: 'team' });

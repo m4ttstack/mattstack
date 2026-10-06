@@ -1,0 +1,1 @@
+{"ok":true,"key":"claude.plugins","value":["acme-tools@acme"],"provenance":[{"scope":"user","file":"<HOME>/.mattstack/user/settings.user.jsonc"}],"migrated":true,"items":[{"value":"acme-tools@acme","sources":[{"scope":"user","file":"<HOME>/.mattstack/user/settings.user.jsonc"}]}]}

@@ -194,7 +194,7 @@ describe("scalars and lists", () => {
 
 describe("rowKind", () => {
   test("external wins even when unwritable", () => {
-    expect(rowKind(def({ key: "board.members", type: "array", writable: false }))).toBe("external");
+    expect(rowKind(def({ key: "board.hiddenMembers", type: "array", writable: false }))).toBe("external");
   });
   test("secrets and unwritable keys are read-only", () => {
     expect(rowKind(def({ key: "x.secret", secret: true }))).toBe("readonly");

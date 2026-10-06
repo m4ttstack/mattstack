@@ -1,9 +1,12 @@
 import { execFileSync } from "child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "fs";
-import { join, relative, sep } from "path";
+import { homedir } from "os";
+import { dirname, join, relative, sep } from "path";
 import { parse as parseYaml } from "yaml";
 import { resolveClaudeBin } from "../claude-bin.ts";
 import { stripJsonc } from "../jsonc.ts";
+import { TEAM_NAME_RE } from "../settings/stores.ts";
+import { validateSlug } from "../secrets/store.ts";
 import { warn } from "../ui/warn.ts";
 import { findPlaceholders } from "./placeholders.ts";
 import type { AttachmentSource, SlotSpec, StepSource, VerbDef } from "./types.ts";
@@ -35,7 +38,12 @@ export function stripFrontmatter(
 
 export type PluginListEntry = { id: string; installPath: string; enabled?: boolean; scope?: string; version?: string };
 
-export type PluginRoots = { byName: Record<string, { dir: string; version: string }>; list: PluginListEntry[] };
+export type PluginRoots = {
+  byName: Record<string, { dir: string; version: string }>;
+  list: PluginListEntry[];
+  /** Roots that are read from a folder and never installed: a fill found under their skills/ cannot be invoked at run time. */
+  folderOnly?: Set<string>;
+};
 
 export function listInstalledPlugins(opts: { timeoutMs?: number } = {}): PluginListEntry[] {
   const bin = resolveClaudeBin() ?? "claude";
@@ -208,6 +216,72 @@ function listDirs(dir: string): string[] {
   }
 }
 
+function readJsoncObject(path: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(stripJsonc(readFileSync(path, "utf8")));
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The org repo a pack folder sits in, whether the clone under `teams/` or a
+ * worktree or copy of it elsewhere: the nearest ancestor holding a
+ * `mattstack/mattstack.jsonc` marker, when that marker is an org marker with
+ * a valid slug. A nearer marker of any other kind ends the walk with null,
+ * and so does HOME, so a pack under HOME never answers to a folder above it.
+ */
+export function orgOfPackDir(packDir: string): { org: string; root: string } | null {
+  let dir: string;
+  try {
+    dir = realpathSync(packDir);
+  } catch {
+    return null;
+  }
+  const home = canonicalHome();
+  while (true) {
+    const markerPath = join(dir, "mattstack", "mattstack.jsonc");
+    if (existsSync(markerPath)) {
+      const marker = readJsoncObject(markerPath);
+      const org = marker?.org;
+      if (marker?.role !== "org" || typeof org !== "string") return null;
+      try {
+        validateSlug(org);
+        return { org, root: dir };
+      } catch {
+        return null;
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir || dir === home) return null;
+    dir = parent;
+  }
+}
+
+function canonicalHome(): string | null {
+  const home = process.env.HOME ?? homedir();
+  try {
+    return realpathSync(home);
+  } catch {
+    return home || null;
+  }
+}
+
+/** One org repo's base packs under `<orgRoot>/mattstack/org/packs/`: the folders materialize would admit as a base. */
+export function orgBasePackRoots(orgRoot: string): { name: string; dir: string; version: string }[] {
+  const out: { name: string; dir: string; version: string }[] = [];
+  if (readJsoncObject(join(orgRoot, "mattstack", "mattstack.jsonc"))?.role !== "org") return out;
+  const packs = join(orgRoot, "mattstack", "org", "packs");
+  for (const name of listDirs(packs)) {
+    if (!TEAM_NAME_RE.test(name)) continue;
+    const dir = join(packs, name);
+    if (readJsoncObject(join(dir, "pack", "skills.jsonc"))?.base !== true) continue;
+    out.push({ name, dir: realpathSync(dir), version: "org" });
+  }
+  return out;
+}
+
 function tokens(raw: unknown): string[] {
   if (typeof raw === "string") return raw.split(/\s+/).filter((t) => t && t !== "-");
   if (Array.isArray(raw)) return raw.filter((t): t is string => typeof t === "string").map((t) => t.trim()).filter(Boolean);
@@ -343,6 +417,12 @@ export function loadAttachment(binding: string, slot: string, roots: PluginRoots
   if (!foundDir) {
     throw new Error(
       `loadAttachment: slot "${slot}": binding "${binding}" not found; searched:\n${searched.join("\n")}`,
+    );
+  }
+
+  if (registered && roots.folderOnly?.has(plugin)) {
+    throw new Error(
+      `loadAttachment: slot "${slot}": "${binding}" sits under ${plugin}'s skills/, but ${plugin} is an org base pack that is never installed; move it under attachments/ so it is inlined`,
     );
   }
 

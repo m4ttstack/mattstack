@@ -18,7 +18,7 @@ type CheckResult = ReturnType<typeof rowsToChecks>[number];
 
 type MemberTask = { verb: "connect" | "install"; label: string };
 
-const UNPEERED_NOTE = "Board not peered: ask the team owner to re-invite you";
+const UNPEERED_NOTE = "Board not peered: ask your org admin to re-invite you";
 const SELF_INVITE_NOTE = "Board not peered: run rt team peer";
 const SEVERAL_TEAMS_NOTE = "More than one team on this Mac: open Setup status";
 
@@ -115,7 +115,7 @@ async function verifyRun(ctx: ApplyContext): Promise<StepOutcome> {
       secrets: ctx.secretPresence,
       ci: ctx.ci,
       mode: "status",
-      teams: ctx.team.slug ? [ctx.team.slug] : [],
+      orgs: ctx.team.slug ? [ctx.team.slug] : [],
     });
     rows = plan.groups.flatMap((g) => g.rows);
     return rowsToChecks(plan, { ci: ctx.ci });

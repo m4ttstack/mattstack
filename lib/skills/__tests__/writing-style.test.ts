@@ -12,7 +12,7 @@ beforeEach(() => { home = mkdtempSync(join(tmpdir(), "rt-writing-style-")); });
 afterEach(() => { rmSync(home, { recursive: true, force: true }); });
 
 const unset = (): Resolved<unknown> => ({ value: undefined, provenance: [] });
-const at = (value: unknown, scope: "user" | "team"): Resolved<unknown> => ({ value, provenance: [{ scope, file: `/x/${scope}.jsonc` }] });
+const at = (value: unknown, scope: "user" | "team" | "org"): Resolved<unknown> => ({ value, provenance: [{ scope, file: `/x/${scope}.jsonc` }] });
 
 function writePrefs(text: string) {
   const path = preferencesPath(home);
@@ -54,6 +54,9 @@ describe("resolveWritingStyle", () => {
   });
   test("a team value reads as the team default", () => {
     expect(resolveWritingStyle({ home, read: () => at("mattstack:writing-style-structured", "team") })).toEqual({ skill: "mattstack:writing-style-structured", source: "team" });
+  });
+  test("an org value reads as the team default too", () => {
+    expect(resolveWritingStyle({ home, read: () => at("mattstack:writing-style-conversational", "org") })).toEqual({ skill: "mattstack:writing-style-conversational", source: "team" });
   });
   test("preferences.md is the second rung", () => {
     writePrefs("## Writing style\nwriting-style: `acme:team-writing-style`\n");

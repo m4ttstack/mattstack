@@ -1,6 +1,12 @@
 import { describe, test, expect } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
+import { orgSettingsPath } from "../../rt-paths.ts";
+import { getOrgSetting, getSetting } from "../../settings/resolve.ts";
+import { readStore } from "../../settings/stores.ts";
+import { setSetting } from "../../settings/write.ts";
 import { buildSlackManifest, DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, missingSlackUserScopes, slackUserScopeFix } from "../slack-app.ts";
 import { setupSlackCreateApp, type ConnectDeps, type SecretWriter, type TeamSecrets } from "../../../commands/setup.ts";
 import { fakeProbes } from "./fakes.ts";
@@ -115,6 +121,7 @@ interface CreateAppDepsOpts {
   promptField?: ConnectDeps["promptField"];
   teamSecretsWrite?: TeamSecrets["write"];
   writeSetting?: ConnectDeps["writeSetting"];
+  readOrgSetting?: ConnectDeps["readOrgSetting"];
   snapshot?: TeamSnapshot;
 }
 
@@ -136,6 +143,8 @@ function createAppDeps(opts: CreateAppDepsOpts = {}): ConnectDeps & { lines: str
       write: opts.teamSecretsWrite ?? (async () => ({ staged: false })),
     } satisfies TeamSecrets,
     writeSetting: opts.writeSetting ?? neverCalled("writeSetting"),
+    // With one shared layer the org's own value is the snapshot's.
+    readOrgSetting: opts.readOrgSetting ?? ((() => (opts.snapshot ?? EXISTING_TEAM_SNAPSHOT).integrations) as unknown as ConnectDeps["readOrgSetting"]),
     listen: neverCalled("listen"),
     randomState: () => "unused",
     teamSnapshot: () => opts.snapshot ?? EXISTING_TEAM_SNAPSHOT,
@@ -176,8 +185,8 @@ describe("setupSlackCreateApp", () => {
       linear: { teamKey: "ENG" },
       slack: { appId: "A123", clientId: "cid", callbackPort: DEFAULT_CALLBACK_PORT },
     });
-    expect(scope).toBe("team");
-    expect(opts).toEqual({ team: "acme" });
+    expect(scope).toBe("org");
+    expect(opts).toBeUndefined();
 
     expect(teamSecretWrites).toContainEqual(["acme", "board", "slackClientSecret", "csecret"]);
     expect(teamSecretWrites).toContainEqual(["acme", "board", "slackSigningSecret", "ssecret"]);
@@ -186,6 +195,40 @@ describe("setupSlackCreateApp", () => {
     const body = JSON.parse(deps.lines[0]!) as { status: string; integration: string };
     expect(body.status).toBe("ready");
     expect(body.integration).toBe("slack");
+  });
+
+  test("the org store gets the slack block on the org's own integrations, never the active team's override", async () => {
+    const origHome = process.env.HOME;
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-slack-org-write-")));
+    process.env.HOME = home;
+    try {
+      seedOrg({
+        org: "acme",
+        username: "dev1",
+        roles: { admins: ["dev1"], teams: {} },
+        roster: [{ username: "dev1", teams: ["widgets"] }],
+        settings: { "mattstack.integrations": { forge: { host: "github.com", provider: "github" } } },
+        teams: { widgets: { "mattstack.integrations": { linear: { teamKey: "WID" } } } },
+      });
+      const merged = getSetting<TeamSnapshot["integrations"]>("mattstack.integrations").value;
+      expect(merged.linear).toEqual({ teamKey: "WID" });
+      const deps = createAppDeps({
+        fetch: async (url) => (url === "https://slack.com/api/apps.manifest.create" ? MANIFEST_CREATE_OK : { status: 0, body: "", headers: {} }),
+        snapshot: { ...EXISTING_TEAM_SNAPSHOT, integrations: merged },
+        writeSetting: setSetting,
+        readOrgSetting: getOrgSetting,
+      });
+
+      await setupSlackCreateApp(["--json"], {}, deps);
+
+      expect(readStore(orgSettingsPath("acme")).global["mattstack.integrations"]).toEqual({
+        forge: { host: "github.com", provider: "github" },
+        slack: { appId: "A123", clientId: "cid", callbackPort: DEFAULT_CALLBACK_PORT },
+      });
+    } finally {
+      process.env.HOME = origHome;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("an existing slack block in mattstack.integrations is itself overlaid, not replaced wholesale (e.g. a previously-set channel survives)", async () => {

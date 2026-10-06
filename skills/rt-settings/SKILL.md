@@ -1,6 +1,6 @@
 ---
 name: rt:settings
-description: Use when reading or writing any mattstack app setting (rt, deck, mr-board, gitq, console), adding or registering a settings key, choosing its scope (user/team/machine), porting an app's config file into ~/.mattstack, changing a setting from a script, or writing code that reads configuration from anywhere other than the settings resolver — a hand-edited settings jsonc, an invented config file or store path, an env var for something a human configures. Also use when a setting resolves undefined (or getSetting throws unknown-key) for a key that looks configured.
+description: Use when reading or writing any mattstack app setting (rt, deck, mr-board, gitq, console), adding or registering a settings key, choosing its scope (org/team/user/machine), reading or writing another team's value, porting an app's config file into ~/.mattstack, changing a setting from a script, or writing code that reads configuration from anywhere other than the settings resolver: a hand-edited settings jsonc, an invented config file or store path, an env var for something a human configures. Also use when a setting resolves undefined (or getSetting throws unknown-key) for a key that looks configured.
 ---
 
 # The settings contract
@@ -15,9 +15,10 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    `@mattstack/rt-client` in apps, from `lib/settings/resolve.ts` /
    `lib/settings/write.ts` inside repo-tools, and `rt settings
    get/set/list/explain` from shells and scripts (a `set` takes a JSON
-   value — wrap string values in JSON double-quotes: a literal as
-   `'"matt"'`, a shell variable as `"\"$var\""` — and always names its
-   scope with `--scope`; scope is never inferred). Never edit a settings `*.jsonc` by hand (sed/jq included),
+   value, so wrap string values in JSON double-quotes: a literal as
+   `'"matt"'`, a shell variable as `"\"$var\""`; and it always names its
+   scope with `--scope org|team|user|machine`, since scope is never
+   inferred). Never edit a settings `*.jsonc` by hand (sed/jq included),
    never invent an app config file, never construct a store path —
    `setSetting` preserves comments and refuses malformed or duplicate-key
    files that a hand edit would silently corrupt into a store that reads
@@ -39,19 +40,47 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    per-consumer delivery steps. A key that resolves undefined (or throws
    unknown-key) in one app while `rt settings` knows it is a stale
    `dist/` (rebuild rt-client), not a missing value.
-3. Scopes, weakest → strongest: `default < team < user < team.repo <
-   user.repo < machine < machine.repo` — most-specific wins; machine
-   outranks user outranks team. Pick the scope by whose intent it is: team
-   convention / this human on every machine / this machine only. Path
-   literals are legal only in the machine store.
+3. Scopes, weakest to strongest: `default < org < team < user < org.repo <
+   team.repo < user.repo < machine < machine.repo`. Most-specific wins:
+   machine outranks user outranks team outranks org. Pick the scope by whose
+   intent it is: the same for every team in the org goes to `org`, how one
+   team works goes to `team`, this human on every machine goes to `user`,
+   this machine only goes to `machine`. Every key that allows `team` also
+   allows `org`. Path literals are legal only in the machine store.
+   The `team` layer is the ACTIVE team's folder only; other teams' folders
+   are never folded in. The active team is the one `mattstack.activeTeam`
+   names when the roster lists you on it, else your first roster team; a
+   Mac with no stored forge username takes the folder `mattstack.activeTeam`
+   names when it exists. Name one to reach it: read with
+   `getSetting(key, { team: "gadgets" })`, write with
+   `setSetting(key, value, "team", { team: "gadgets" })` or
+   `rt settings set <key> <value> --scope team --team gadgets` (`--team`
+   goes only with `--scope team`). A team write that names no team lands in
+   the active team, and is refused when there is none. An `org` write takes
+   no name.
+   The row's `merge` says how layers combine: `replace` (strongest layer
+   wins), `deep` (objects merge field by field, so the org can hold
+   `board.slack`'s app id and a team its channel), `add` (arrays from every
+   layer, user and machine included, concatenate weakest first with
+   duplicates dropped; `claude.plugins` and `claude.marketplaces` use it,
+   and `getSetting` also returns `items` with each item's layers).
 4. The stores are git-backed and travel — scope lives in the filename. The
    user store (`user/settings.user.jsonc`) AND the machine store
    (`user/local/<machine-key>/settings.local.jsonc` — tracked, keyed per
    machine) live in the personal home repo (`~/.mattstack/user` IS that
    repo), and the home-snapshot daemon auto-commits and pushes them within
-   ~80s. Team stores (`teams/<team>/mattstack/settings.team.jsonc`) live in
-   the team's own repo — a team write stays local until committed and
-   pushed, and `setSetting` prints that reminder.
+   ~80s. The org store
+   (`~/.mattstack/teams/<org>/mattstack/org/settings.org.jsonc`) and each
+   team store
+   (`~/.mattstack/teams/<org>/mattstack/teams/<team>/settings.team.jsonc`)
+   live in the one org repo on this Mac, which the team sync engine
+   commits and pushes the same way, so an `org` or `team` write reaches
+   every member with no hand commit. `setSetting` prints a tip only when
+   that sync cannot run. Roles in the org's `mattstack.org` setting decide
+   who writes: an admin writes the org store and every team's, a team's
+   owner writes that team's store, and a member writes neither. A refused
+   team write names that team's owners, then the org's admins; a refused
+   org write names the admins.
 5. A registry `default` is the sharpest field on a row: it materializes as
    a present value on every install. The `board.*` block bans defaults
    OUTRIGHT — a new board.* row never carries `default:`, fresh key or
@@ -73,8 +102,9 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    `rt.presets`, `rt.variations`, `rt.dopplerTemplate`, `rt.ignoredMrs`)
    lives only in repo sections: every write names the repo (`--repo`,
    `repoIdentity`), and a global value is refused on read and write. The
-   same value for several repos is one write per repo; a team convention
-   goes in each repo's section of the team store. `rt.gitStatus` is the one
+   same value for several repos is one write per repo; a convention for
+   every team goes in each repo's section of the org store, one team's in
+   that repo's section of the team store. `rt.gitStatus` is the one
    per-repo key that also takes a global value.
 
 `rt settings explain <key>` shows per-scope provenance and is the first

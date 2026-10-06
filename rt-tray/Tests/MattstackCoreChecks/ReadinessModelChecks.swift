@@ -359,6 +359,23 @@ let readinessModelChecks: [Check] = [
         c.expectEqual(planA.fetches, 2, "A's own fetch count is untouched by B's activity")
         c.expectEqual(planB.fetches, 2, "B's own fetch count is untouched by A's activity")
     },
+    Check("outstandingManualRows lists team.none, whose action is steps, and not the two org rows whose action is a connect") { c in
+        let connect = RowAction(type: .connect, label: "Connect", integration: "github")
+        let rows = [
+            PlanRow(id: "team.none", kind: .access, title: "Your team", why: "w", required: false, status: .needsYou,
+                    detail: "No team lists dev9 yet, so you only get the org's shared settings",
+                    action: RowAction(type: .steps, label: "Show steps…", steps: ["Ask an org admin (dev1) to put dev9 on a team: rt team members set dev9 --teams <team>", "Then run: rt team pull"]),
+                    recheck: .onActivate),
+            PlanRow(id: "team.identity", kind: .access, title: "Who you are", why: "w", required: false, status: .needsYou, action: connect, recheck: .onActivate),
+            PlanRow(id: "team.push-access", kind: .access, title: "Push access", why: "w", required: false, status: .needsYou, action: connect, recheck: .onActivate),
+        ]
+        let plan = Plan(at: "t", team: TeamInfo(slug: "acme", name: "Acme", mode: .join),
+                        groups: [PlanGroup(id: "accounts", title: "Accounts", rows: rows)],
+                        canInstall: true, requiredMissing: [], finishBlockedBy: [])
+        let m = await MainActor.run { ReadinessModel(plans: FakePlans([plan]), permissions: FakePermissions(), ticker: FakeTicker()) }
+        await m.load()
+        await MainActor.run { c.expectEqual(m.outstandingManualRows.map(\.id), ["team.none"]) }
+    },
     // The extension row is waived in these two fixtures: unwaived it blocks
     // Finish and belongs to the Done screen's own section instead.
     Check("outstandingManualRows lists only optional, not-ready rows whose action a person can act on") { c in

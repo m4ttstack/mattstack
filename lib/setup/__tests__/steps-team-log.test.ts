@@ -10,6 +10,8 @@ import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import { outcomeFromJoinError, teamCreateStep } from "../steps/team.ts";
+import { teamLocalPath } from "../../team/team-local.ts";
+import { scaffoldFiles } from "../../team/create.ts";
 import { fakeProbes } from "./fakes.ts";
 
 function cliLog(): string {
@@ -83,13 +85,40 @@ describe("setup team create records the cause of a failure", () => {
 
   test("a publish failure reaches the CLI log and its why rides in the remedy", async () => {
     const slug = "marker-publish-zz";
+    const remote = "https://forge.example/someone/new.git";
+    const pendingMain = "a".repeat(40);
     const rejected: ExecResult = { code: 1, stdout: "", stderr: "! [rejected] main -> main (fetch first) marker-publish-zz" };
-    const p = fakeProbes({ home: "/fake-home", exec: async (argv) => (argv.includes("push") ? rejected : ok) });
+    const p = fakeProbes({ home: "/fake-home", exec: async (argv) => {
+      if (argv[1] === "remote" && argv[2] === "get-url") {
+        expect(argv).toEqual(["git", "remote", "get-url", "--push", "--all", "origin"]);
+        return { ...ok, stdout: `${remote}\n` };
+      }
+      if (argv.includes("ls-remote")) {
+        expect(argv.slice(-3)).toEqual(["--", remote, "refs/heads/main"]);
+        return ok;
+      }
+      if (argv[1] === "rev-list") {
+        expect(argv).toEqual(["git", "rev-list", "--max-count=1001", "refs/heads/main"]);
+        return { ...ok, stdout: `${pendingMain}\n` };
+      }
+      if (argv[1] === "diff-tree") {
+        expect(argv.at(-1)).toBe(pendingMain);
+        return { ...ok, stdout: `${Object.keys(scaffoldFiles(slug, slug, remote)).join("\0")}\0` };
+      }
+      return argv.includes("push") ? rejected : argv[1] === "rev-parse" ? { code: 1, stdout: "", stderr: "" } : ok;
+    }, files: {
+      [`/fake-home/.mattstack/teams/${slug}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      [teamLocalPath("/fake-home", slug)]: JSON.stringify({ forgeUsername: "dev1" }),
+    } });
 
-    const outcome = await teamCreateStep.run(createCtx(p, slug, "https://forge.example/someone/new.git"));
+    const outcome = await teamCreateStep.run(createCtx(p, slug, remote));
 
     expect(outcome).toEqual({ state: "failed", detail: "The team repo already has commits", remedy: "rt starts a team in an empty repo." });
     expect(cliLog()).toContain("marker-publish-zz");
+    const pushIndex = p.calls.exec.findIndex((argv) => argv.includes("push"));
+    expect(pushIndex).toBeGreaterThan(3);
+    expect(p.calls.exec.slice(pushIndex - 4, pushIndex).map((argv) => argv[1])).toEqual(["remote", "ls-remote", "rev-list", "diff-tree"]);
+    expect(p.calls.exec[pushIndex + 1]).toEqual(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"]);
   });
 });
 

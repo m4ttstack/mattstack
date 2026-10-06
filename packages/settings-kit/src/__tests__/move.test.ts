@@ -59,6 +59,15 @@ describe("moveValue", () => {
     expect(f.calls).toEqual(['set machine {"a":1}', "unset user"]);
   });
 
+  test("refuses to move an add-merged list and writes nothing", async () => {
+    const f = fakeApi();
+    const target = { present: true, value: ["widgets@acme"], outranksSource: false };
+    expect(
+      await moveValue(f.api, "user", "team", { present: true, value: ["mine@other"] }, { add: true, target }),
+    ).toBe("this list adds up across layers, so it cannot move; edit each layer's own items instead");
+    expect(f.calls).toEqual([]);
+  });
+
   test("refuses a move onto the same scope", async () => {
     const f = fakeApi();
     expect(await moveValue(f.api, "user", "user", { present: true, value: 1 })).toBe("already in user");

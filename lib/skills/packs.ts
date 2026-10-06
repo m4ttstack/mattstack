@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "path";
 import { fileURLToPath } from "url";
+import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { stripJsonc } from "./sources.ts";
 
 export type PackLayout = "flat" | "grouped";
@@ -12,11 +13,15 @@ export type PackInfo = {
   layout: PackLayout;
   surfacePath: string;
   marketplace: string | null;
+  /** An org base pack: never installed, so it has no marketplace and is never picked for you. */
+  base?: true;
 };
 
 export type DiscoverOpts = {
   settingsPath?: string;
   extraPackDirs?: { name: string; dir: string }[];
+  /** The `~/.mattstack` root to scan for org clones; defaults to the real one. Pass null to skip the folder scan. */
+  mattstackRoot?: string | null;
 };
 
 function claudeSettingsPath(): string {
@@ -98,11 +103,73 @@ function pluginDirOf(marketDir: string, source: MarketplaceEntry["source"]): str
   return source.source === "url" ? fileUrlPath(source.url) : null;
 }
 
+function subdirs(dir: string): string[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function isMarkedBase(dir: string): boolean {
+  try {
+    return (readJsonc(join(dir, "pack", "skills.jsonc")) as { base?: unknown } | null)?.base === true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * A pack is any plugin served from a directory marketplace that carries a
- * surface.jsonc -- discovery reads what is actually installed instead of a
- * hardcoded pack list, so a new team pack appears the moment its marketplace
- * is registered.
+ * Packs found by where they sit in an org clone rather than through a
+ * registered marketplace: the org base pack is never installed, and a team
+ * pack must be compilable before anyone has added the org's marketplace.
+ * A folder name reaches a path only when it is a valid team name.
+ */
+export function orgFolderPacks(mattstackRoot: string): PackInfo[] {
+  const found: PackInfo[] = [];
+  const teams = join(mattstackRoot, "teams");
+  for (const org of subdirs(teams)) {
+    const orgDir = join(teams, org);
+    let marker: { role?: unknown } | null;
+    try {
+      marker = readJsonc(join(orgDir, "mattstack", "mattstack.jsonc")) as { role?: unknown } | null;
+    } catch {
+      continue;
+    }
+    if (marker?.role !== "org") continue;
+    let marketplace: string | null = null;
+    try {
+      const name = (readJsonc(join(orgDir, ".claude-plugin", "marketplace.json")) as { name?: unknown } | null)?.name;
+      if (typeof name === "string") marketplace = name;
+    } catch {
+      marketplace = null;
+    }
+    const basesDir = join(orgDir, "mattstack", "org", "packs");
+    for (const base of subdirs(basesDir)) {
+      if (!TEAM_NAME_RE.test(base)) continue;
+      const pack = packFromDir(base, join(basesDir, base), null);
+      if (pack) found.push(isMarkedBase(pack.dir) ? { ...pack, base: true } : pack);
+    }
+    const teamsDir = join(orgDir, "mattstack", "teams");
+    for (const team of subdirs(teamsDir)) {
+      if (!TEAM_NAME_RE.test(team)) continue;
+      const pack = packFromDir(team, join(teamsDir, team, "packs", team), marketplace);
+      if (pack) found.push(pack);
+    }
+  }
+  return found.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * A pack is any folder carrying a surface.jsonc that is either a plugin served
+ * from a directory marketplace or a team or org base pack folder in an org
+ * clone under `<mattstackRoot>/teams/`. Discovery reads what is actually on
+ * this Mac instead of a hardcoded list, so a team pack appears the moment its
+ * folder or marketplace does. A marketplace entry wins over a folder pack of
+ * the same name.
  */
 export function discoverPacks(opts: DiscoverOpts = {}): PackInfo[] {
   const found = new Map<string, PackInfo>();
@@ -142,7 +209,24 @@ export function discoverPacks(opts: DiscoverOpts = {}): PackInfo[] {
     if (pack && !found.has(pack.name)) found.set(pack.name, pack);
   }
 
+  const root = opts.mattstackRoot === undefined ? join(process.env.HOME ?? homedir(), ".mattstack") : opts.mattstackRoot;
+  if (root !== null) {
+    for (const pack of orgFolderPacks(root)) if (!found.has(pack.name)) found.set(pack.name, pack);
+  }
+
   return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The pack a verb may pick without asking: the only discovered pack that is not an org base pack. */
+export function solePack(packs: PackInfo[]): PackInfo | undefined {
+  const pickable = packs.filter((p) => !p.base);
+  return pickable.length === 1 ? pickable[0] : undefined;
+}
+
+/** Why no pack was picked for you, for the "Which pack?" usage failure: several candidates, or only base packs. */
+export function whichPackWhy(packs: PackInfo[]): string {
+  const names = packs.map((p) => p.name).join(", ");
+  return packs.every((p) => p.base) ? `Only base packs are here (${names}), and rt never picks one for you.` : `There is more than one: ${names}.`;
 }
 
 /**

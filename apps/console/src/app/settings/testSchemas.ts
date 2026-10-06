@@ -18,6 +18,7 @@ const REVIEWER_SIGNALS = ['assigned', 'approvalReset', 'repliedThreads'];
     render. testSchemas.test.ts fails when one drifts from rt-client's. */
 export const TEST_SCHEMAS: Record<string, JsonSchema> = {
   'board.ticketPrefixes': STRING_LIST,
+  'claude.plugins': STRING_LIST,
   'boxscore.excludeFilePatterns': STRING_LIST,
   'rt.repoRoots': STRING_LIST,
   'rt.homeSnapshot': {
@@ -248,21 +249,7 @@ export const TEST_SCHEMAS: Record<string, JsonSchema> = {
       additionalProperties: {},
     },
   },
-  'board.members': {
-    $schema: D,
-    type: 'array',
-    items: {
-      type: 'object',
-      properties: {
-        username: { type: 'string' },
-        name: { type: 'string' },
-        hidden: { type: 'boolean' },
-        agePublicKey: { type: 'string' },
-      },
-      required: ['username'],
-      additionalProperties: {},
-    },
-  },
+  'board.hiddenMembers': STRING_LIST,
 };
 
 /** Keys whose registry def merges deep, so their wire def carries a layer

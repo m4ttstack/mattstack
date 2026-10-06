@@ -1,5 +1,6 @@
 import { describe, test, expect, spyOn } from "bun:test";
 import { teamMembersRemove, type TeamDeps } from "../team.ts";
+import { teamLocalPath } from "../../lib/team/team-local.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 
 const HOME = "/home/x";
@@ -7,7 +8,10 @@ const HOME = "/home/x";
 function baseDeps(overrides: Partial<TeamDeps> = {}): TeamDeps & { lines: string[] } {
   const lines: string[] = [];
   return {
-    probes: fakeProbes({ home: HOME }),
+    probes: fakeProbes({ home: HOME, files: {
+      [`${HOME}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      [teamLocalPath(HOME, "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
+    } }),
     print: (s: string) => lines.push(s),
     lines,
     ...overrides,

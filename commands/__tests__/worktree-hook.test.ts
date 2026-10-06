@@ -2,13 +2,14 @@ import { describe, expect, test, beforeEach, afterEach, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { machineSettingsPath, teamSettingsPath, userSettingsPath } from "../../lib/rt-paths.ts";
+import { machineSettingsPath, userSettingsPath } from "../../lib/rt-paths.ts";
 import { claudeHookCommand, hookResultBlocks, hookStatusBlocks, hookInstallCommand, hookStatusCommand, hookUninstallCommand, hookRepoIdentity, parseHookStdin, priorClaudeHookAnswer, recordClaudeHookAnswer, shouldOfferClaudeHook } from "../worktree-hook.ts";
 import { loadWorktreeAppConfig } from "../../lib/worktree/config.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { getSetting } from "../../lib/settings/resolve.ts";
+import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 
 describe("parseHookStdin", () => {
   test("create event yields cwd and name", () => {
@@ -101,7 +102,7 @@ describe("recordClaudeHookAnswer", () => {
 
   test("an unowned machine that answered the offer still follows a later team opt-in", () => {
     recordClaudeHookAnswer("declined");
-    const team = teamSettingsPath("acme");
+    const team = sharedStorePath("acme");
     mkdirSync(dirname(team), { recursive: true });
     writeFileSync(team, JSON.stringify({ "rt.worktreeApp": { enabled: true } }));
 
@@ -109,7 +110,7 @@ describe("recordClaudeHookAnswer", () => {
   });
 
   test("a team-owned key: the machine store gets only claudeHook, never a copy of the team's fields", () => {
-    const team = teamSettingsPath("acme");
+    const team = sharedStorePath("acme");
     mkdirSync(dirname(team), { recursive: true });
     writeFileSync(team, JSON.stringify({ "rt.worktreeApp": { enabled: true, killProcesses: false } }));
 
@@ -121,7 +122,7 @@ describe("recordClaudeHookAnswer", () => {
   });
 
   test("a team-scope claudeHook is ignored: the offer answer is this machine's alone", () => {
-    const team = teamSettingsPath("acme");
+    const team = sharedStorePath("acme");
     mkdirSync(dirname(team), { recursive: true });
     writeFileSync(team, JSON.stringify({ "rt.worktreeApp": { enabled: true, claudeHook: "declined" } }));
 

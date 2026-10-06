@@ -210,11 +210,11 @@ async function openJson(ciphertextB64: string, key: Uint8Array, aad: Uint8Array)
 }
 
 function assertInvitePointerShape(value: unknown): asserts value is InvitePointer {
-  const p = value as Partial<InvitePointer> | null;
+  const p = value as Record<string, unknown> | null;
   const ok =
     typeof p === "object" &&
     p !== null &&
-    p.v === 1 &&
+    (p.v === 1 || p.v === 2) &&
     typeof p.team === "string" &&
     typeof p.name === "string" &&
     typeof p.remote === "string" &&

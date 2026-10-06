@@ -3,7 +3,7 @@ import { basename, dirname, join } from "path";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
-import { teamSettingsPath, userSettingsPath } from "../../rt-paths.ts";
+import { userSettingsPath } from "../../rt-paths.ts";
 import { updateRepoIndex } from "../../repo-index.ts";
 import { setSetting } from "../../settings/write.ts";
 import type { SecretsSeams } from "../../secrets/store.ts";
@@ -19,7 +19,7 @@ import type { ToolResolution } from "../../deps/resolve.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import type { Probes } from "../probes.ts";
 
-import { MATTSTACK_MARKETPLACE_SOURCE, OFFICIAL_MARKETPLACE_SOURCE, pluginsInstallStep } from "../steps/plugins.ts";
+import { MATTSTACK_MARKETPLACE_SOURCE, OFFICIAL_MARKETPLACE_SOURCE, __test__ as pluginsTest, computePlugins, pluginsInstallStep } from "../steps/plugins.ts";
 import { gitIdentityStep } from "../steps/git-identity.ts";
 import { linearMcpStep } from "../steps/linear-mcp.ts";
 import { applyBaselinePermissions, claudePermissionsStep } from "../steps/claude-permissions.ts";
@@ -39,6 +39,7 @@ import { teamSyncRow } from "../validators/rt-health.ts";
 import { finalizePlan, type Row } from "../contract.ts";
 import { rowsToChecks } from "../../../commands/verify.ts";
 import { updateNotification } from "../update.ts";
+import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 
 // ─── shared fakes (mirrors steps-a/b.test.ts's trivial no-ops) ─────────────
 
@@ -167,6 +168,102 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(logs.some((l) => l.line.includes("claude.plugins") && l.line.includes("dropped 1"))).toBe(true);
     });
 
+    describe("trust split per item", () => {
+      const roster = [{ username: "dev1", teams: ["widgets"] }];
+      let ctx: ApplyContext;
+      beforeEach(() => {
+        ctx = makeCtx(fakeProbes({ home })).ctx;
+      });
+
+      test("a plugin only the org or a team lists is installed and never enabled; one you list yourself is enabled", () => {
+        seedOrg({
+          org: "acme",
+          username: "dev1",
+          roster,
+          settings: { "claude.plugins": ["org-tool@acme", "both@acme"] },
+          teams: { widgets: { "claude.plugins": ["team-tool@acme"] } },
+        });
+        setSetting("claude.plugins", ["mine@elsewhere", "both@acme"], "user");
+
+        const { trusted, teamAuthored } = computePlugins(ctx, null);
+
+        expect(trusted).toEqual(expect.arrayContaining(["mine@elsewhere", "both@acme"]));
+        expect(teamAuthored).toEqual(["org-tool@acme", "team-tool@acme"]);
+        expect(trusted).not.toContain("org-tool@acme");
+      });
+
+      test("a plugin listed only at org scope is installed but not enabled, like a team-scope one", () => {
+        seedOrg({ org: "acme", username: "dev1", roster, settings: { "claude.plugins": ["org-tool@acme"] }, teams: { widgets: {} } });
+
+        const { trusted, teamAuthored } = computePlugins(ctx, null);
+
+        expect(teamAuthored).toEqual(["org-tool@acme"]);
+        expect(trusted).not.toContain("org-tool@acme");
+      });
+
+      test("a plugin listed only at user scope is enabled", () => {
+        seedOrg({ org: "acme", username: "dev1", roster, teams: { widgets: {} } });
+        setSetting("claude.plugins", ["mine@elsewhere"], "user");
+
+        const { trusted, teamAuthored } = computePlugins(ctx, null);
+
+        expect(trusted).toContain("mine@elsewhere");
+        expect(teamAuthored).not.toContain("mine@elsewhere");
+      });
+    });
+
+    test("an item no layer claims reads as shared, so it is never enabled", () => {
+      expect(pluginsTest.sharedOnly([])).toBe(true);
+      expect(pluginsTest.sharedOnly([{ scope: "org", file: null }, { scope: "team", file: null }])).toBe(true);
+      expect(pluginsTest.sharedOnly([{ scope: "org", file: null }, { scope: "user", file: null }])).toBe(false);
+    });
+
+    test("only the active team's marketplace entry is team-authored; another team's pack is not installed", () => {
+      const { ctx } = makeCtx(fakeProbes({ home: "/h" }), { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "widgets" });
+      const market = { name: "acme", plugins: [{ name: "widgets" }, { name: "gadgets" }] };
+      expect(computePlugins(ctx, market).teamAuthored).toEqual(["widgets@acme"]);
+    });
+
+    test("a Mac with no active team installs no team pack", () => {
+      const { ctx } = makeCtx(fakeProbes({ home: "/h" }), { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => null });
+      expect(computePlugins(ctx, { name: "acme", plugins: [{ name: "widgets" }] }).teamAuthored).toEqual([]);
+    });
+
+    test("with no seam the active team comes from the org's roster through probes", () => {
+      const p = fakeProbes({
+        home: "/h",
+        files: {
+          "/h/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["gadgets"] }] }),
+          "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }),
+        },
+      });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      expect(computePlugins(ctx, { name: "acme", plugins: [{ name: "widgets" }, { name: "gadgets" }] }).teamAuthored).toEqual(["gadgets@acme"]);
+    });
+
+    test("after a switch, the previous team's pack is neither updated, reinstalled, enabled nor named as awaiting approval", async () => {
+      const marketplacePath = join(home, ".mattstack", "teams", "acme", ".claude-plugin", "marketplace.json");
+      const execCalls: string[][] = [];
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme", plugins: [{ name: "widgets" }, { name: "gadgets" }] }) },
+        exec: async (argv) => {
+          execCalls.push(argv);
+          return argv[2] === "list" ? ok(JSON.stringify([{ id: "gadgets@acme", version: "1.0.0", enabled: false }])) : ok("");
+        },
+      });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "widgets" });
+
+      const outcome = await pluginsInstallStep.run(ctx);
+
+      expect(outcome.state).toBe("done");
+      expect(execCalls.filter((a) => a.includes("gadgets@acme"))).toEqual([]);
+      expect(execCalls.filter((a) => a.at(-1) === "widgets@acme").map((a) => a[2])).toEqual(["install", "disable"]);
+      expect(detailOf(outcome)).toContain("awaiting your approval to enable: widgets@acme");
+      expect(detailOf(outcome)).not.toContain("gadgets@acme");
+    });
+
     test("superpowers installs as a trusted baseline plugin, its marketplace added right after rt's own and ahead of team/user sources", async () => {
       const teamDir = join(home, ".mattstack", "teams", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
@@ -182,7 +279,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return argv[2] === "list" ? ok("[]") : ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
       expect(outcome.state).toBe("done");
@@ -300,7 +397,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return argv[2] === "list" ? ok("[]") : ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
 
@@ -340,13 +437,14 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin", RT_ENGINE_PACK_DIR: "/fake/engine" },
-        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/packs`]: ["widgets"] },
+        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets/packs`]: ["widgets"] },
         files: {
           "/usr/local/bin/claude": "bin",
           "/fake/engine/pack/skills.jsonc": "{}",
-          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "team", namespace: "acme" }),
-          [`${zone}/team.jsonc`]: JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }),
-          [`${zone}/packs/widgets/pack/skills.jsonc`]: "{}",
+          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }),
+          [`${zone}/org/settings.org.jsonc`]: JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }),
+          [`${zone}/teams/widgets/settings.team.jsonc`]: "{}",
+          [`${zone}/teams/widgets/packs/widgets/pack/skills.jsonc`]: "{}",
         },
         exec: async (argv) => {
           if (argv[2] === "list") return ok("[]");
@@ -369,13 +467,14 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin", RT_ENGINE_PACK_DIR: "/fake/engine" },
-        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/packs`]: ["widgets"] },
+        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets/packs`]: ["widgets"] },
         files: {
           "/usr/local/bin/claude": "bin",
           "/fake/engine/pack/skills.jsonc": "{}",
-          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "team", namespace: "acme" }),
-          [`${zone}/team.jsonc`]: JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }),
-          [`${zone}/packs/widgets/pack/skills.jsonc`]: "{}",
+          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }),
+          [`${zone}/org/settings.org.jsonc`]: JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }),
+          [`${zone}/teams/widgets/settings.team.jsonc`]: "{}",
+          [`${zone}/teams/widgets/packs/widgets/pack/skills.jsonc`]: "{}",
         },
         exec: async (argv) => {
           if (argv[2] === "list") return ok("[]");
@@ -401,13 +500,14 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin", RT_ENGINE_PACK_DIR: "/fake/engine" },
-        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/packs`]: ["widgets"] },
+        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets/packs`]: ["widgets"] },
         files: {
           "/usr/local/bin/claude": "bin",
           "/fake/engine/pack/skills.jsonc": "{}",
-          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "team", namespace: "acme" }),
-          [`${zone}/team.jsonc`]: JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }),
-          [`${zone}/packs/widgets/pack/skills.jsonc`]: "{ nope",
+          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }),
+          [`${zone}/org/settings.org.jsonc`]: JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }),
+          [`${zone}/teams/widgets/settings.team.jsonc`]: "{}",
+          [`${zone}/teams/widgets/packs/widgets/pack/skills.jsonc`]: "{ nope",
         },
         exec: async (argv) => {
           if (argv[2] === "list") return ok("[]");
@@ -658,7 +758,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
 
@@ -706,7 +806,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
 
@@ -747,7 +847,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       await pluginsInstallStep.run(ctx);
 
@@ -784,7 +884,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
 
@@ -807,7 +907,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       await pluginsInstallStep.run(ctx);
 
@@ -828,7 +928,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx, logs } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx, logs } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
 
@@ -850,7 +950,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           files: { "/usr/local/bin/claude": "bin", [marketplacePath]: JSON.stringify({ name: "acme-market", plugins: [{ name: "acme-skills" }] }) },
           exec: async (argv) => (argv[2] === "list" ? ok(JSON.stringify(installed)) : ok("")),
         });
-        const { ctx, logs } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+        const { ctx, logs } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
         const outcome = await pluginsInstallStep.run(ctx);
 
@@ -884,7 +984,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
 
@@ -918,7 +1018,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           return ok("");
         },
       });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" }, activeTeam: () => "acme-skills" });
 
       const outcome = await pluginsInstallStep.run(ctx);
 
@@ -1857,7 +1957,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           fetch: async () => ({ status: 200, body: "", headers: {} }),
           dirs: { [teams]: ["acme"] },
           files: {
-            [`${teams}/acme/mattstack/settings.team.jsonc`]: "{}",
+            [`${teams}/acme/mattstack/org/settings.org.jsonc`]: "{}",
             "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ joinedByRt: true }),
           },
         });
@@ -1871,9 +1971,9 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         expect(plan.finishBlockedBy).toEqual([]);
 
         const outcome = outcomeFromChecks(rowsToChecks(plan, { ci: false }), rows);
-        expect(outcome).toEqual({ state: "needs-you", detail: "Board not peered: ask the team owner to re-invite you" });
+        expect(outcome).toEqual({ state: "needs-you", detail: "Board not peered: ask your org admin to re-invite you" });
         expect(updateNotification("1.2.3", [{ id: "verify", state: outcome.state, detail: (outcome as { detail: string }).detail }])?.message).toBe(
-          "verify: Board not peered: ask the team owner to re-invite you",
+          "verify: Board not peered: ask your org admin to re-invite you",
         );
       });
 
@@ -1883,7 +1983,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           fetch: async () => ({ status: 200, body: "", headers: {} }),
           dirs: { [teams]: ["acme"] },
           files: {
-            [`${teams}/acme/mattstack/settings.team.jsonc`]: "{}",
+            [`${teams}/acme/mattstack/org/settings.org.jsonc`]: "{}",
             "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ createdByRt: true, joinedByRt: false }),
           },
         });
@@ -1898,7 +1998,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         const rows = [rowOf("account.slack", "account", "Slack", "missing"), { ...rowOf("account.board-peering", "account", "Board peering", "needs-you"), required: false }];
         expect(outcomeFromChecks([fail("account.slack"), { name: "account.board-peering", status: "warn", detail: "", severity: "warning" }], rows)).toEqual({
           state: "needs-you",
-          detail: "To connect: Slack. Board not peered: ask the team owner to re-invite you",
+          detail: "To connect: Slack. Board not peered: ask your org admin to re-invite you",
         });
       });
 
@@ -2022,10 +2122,8 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
         // real (if minimal) settings.team.jsonc plus the integration setting,
         // the same seeding pattern lib/daemon/__tests__/repo-tracking.test.ts
         // uses for a `scope: "team"` write.
-        const teamPath = teamSettingsPath("acme");
-        mkdirSync(dirname(teamPath), { recursive: true });
-        writeFileSync(teamPath, "// team store\n{}\n");
-        setSetting("mattstack.integrations", { forge: { host: "github.com", provider: "github" } }, "team", { team: "acme" });
+        seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
+        setSetting("mattstack.integrations", { forge: { host: "github.com", provider: "github" } }, "org");
 
         let calls = 0;
         const p = fakeProbes({ home });

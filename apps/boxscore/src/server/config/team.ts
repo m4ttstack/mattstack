@@ -1,17 +1,21 @@
-import { isJoinedTeam, listTeams } from '@mattstack/rt-client';
+import {
+  activeTeam,
+  currentOrg,
+  currentRole,
+  type OrgRole,
+} from '@mattstack/rt-client';
 
 export interface TeamMembership {
-  /** true = this Mac joined by invite (a member); false = it created the team (the owner). */
-  joined: boolean;
+  /** This Mac's role shows it the whole team whatever `boxscore.roles` says: an org admin, or an owner of the active team. */
+  seesTeam: boolean;
 }
 
-/** One team per Mac is the rule, but two clones can exist; any joined one counts as joined. */
-export function joinedOf(
-  teams: string[],
-  isJoined: (team: string) => boolean
-): TeamMembership | null {
-  if (teams.length === 0) return null;
-  return { joined: teams.some(isJoined) };
+export function standingOf(role: OrgRole, team: string | null): TeamMembership {
+  return {
+    seesTeam:
+      role.kind === 'admin' ||
+      (role.kind === 'owner' && team !== null && role.teams.includes(team)),
+  };
 }
 
 let reader: (() => TeamMembership | null) | null = null;
@@ -21,8 +25,11 @@ export function __setTeamReader(r: (() => TeamMembership | null) | null): void {
   reader = r;
 }
 
+/** Null on a Mac in no org. */
 export function readTeamMembership(): TeamMembership | null {
   if (reader) return reader();
   if (process.env.VITEST) return null;
-  return joinedOf(listTeams(), isJoinedTeam);
+  const org = currentOrg();
+  if (org === null) return null;
+  return standingOf(currentRole(org), activeTeam().team);
 }

@@ -2,7 +2,7 @@
  * Reading the four settings store files (RT-47).
  *
  * `readStore` is the shared "raw JSONC → {global, repos}" step every store
- * (user/team/machine) goes through before the resolver layers them by scope.
+ * (user/org/team/machine) goes through before the resolver layers them by scope.
  * It uses jsonc-parser (`parse`) rather than lib/jsonc.ts's stripJsonc: this
  * is the one place in rt that also needs to WRITE these files back with
  * comments/formatting intact (via jsonc-parser's `modify`/`applyEdits`, added
@@ -19,7 +19,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "fs";
 import { parse, type ParseError } from "jsonc-parser";
 import { join } from "path";
-import { teamsDir, teamSettingsPath } from "./paths.ts";
+import { orgSettingsPath, teamFoldersDir, teamsDir, teamSettingsPath } from "./paths.ts";
 
 export interface StoreFile {
   /** Top-level keys other than "repos" — the global scope for this store. */
@@ -58,6 +58,11 @@ export function readStore(file: string): StoreFile {
     return EMPTY_STORE(file, true);
   }
 
+  return parseStoreText(file, raw);
+}
+
+/** `readStore`'s parse step, for a caller that already holds the file's text. Never throws. */
+export function parseStoreText(file: string, raw: string): StoreFile {
   if (raw.trim() === "") return EMPTY_STORE(file, true);
 
   const errors: ParseError[] = [];
@@ -80,50 +85,66 @@ export function readStore(file: string): StoreFile {
   return { global, repos: reposValid, file, exists: true };
 }
 
+export const TEAM_NAME_RE = /^[a-z][a-z0-9-]*$/;
+
 /**
- * Names of every team that has a local settings store — i.e. subdirectories
- * of teamsDir() that contain mattstack/settings.team.jsonc. A team dir without a
- * settings file (a clone mid-setup, or an unrelated directory) is not yet a
- * team as far as the resolver is concerned.
+ * Org clones on this Mac: folders under teamsDir() that hold
+ * mattstack/org/settings.org.jsonc. A folder without that file (a clone
+ * mid-setup, or an unrelated directory) is not an org as far as the resolver
+ * is concerned.
  *
  * Honest-degrade like readStore, and for a sharper reason: this scan is on the
  * path of EVERY settings resolution, so one bad directory entry must never
- * brick `rt settings` or any reader behind it. A team clone that was symlinked
- * in and later moved leaves a dangling symlink here, and the follow-the-link
- * stat that keeps symlinked clones working throws ENOENT on exactly that — so
- * the scan is guarded twice: around the readdir (an unreadable teams dir means
- * no teams), and around EACH entry (a dangling link, an EACCES, or a stat that
+ * brick `rt settings` or any reader behind it. A clone that was symlinked in
+ * and later moved leaves a dangling symlink here, and the follow-the-link stat
+ * that keeps symlinked clones working throws ENOENT on exactly that, so the
+ * scan is guarded twice: around the readdir (an unreadable teams dir means no
+ * orgs), and around EACH entry (a dangling link, an EACCES, or a stat that
  * loses a race with a concurrent move skips that entry and leaves the healthy
- * teams intact).
+ * clones intact).
  */
-export function listTeams(): string[] {
+export function listOrgs(): string[] {
   const dir = teamsDir();
   if (!existsSync(dir)) return [];
-
   let entries: Dirent[];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch (err) {
-    console.warn(`rt: failed to list teams in ${dir}, treating as no teams: ${(err as Error).message}`);
+    console.warn(`rt: failed to list orgs in ${dir}, treating as none: ${(err as Error).message}`);
     return [];
   }
-
-  const teams: string[] = [];
+  const orgs: string[] = [];
   for (const entry of entries) {
     try {
-      // isDirectory() is false for a symlink, but a symlinked team clone is a
-      // real team — those resolve through stat, which is also what throws on a
-      // dangling link, hence the per-entry try.
-      const isDir =
-        entry.isDirectory() ||
-        (entry.isSymbolicLink() && statSync(join(dir, entry.name)).isDirectory());
-      if (!isDir) continue;
-      if (existsSync(teamSettingsPath(entry.name))) teams.push(entry.name);
+      const isDir = entry.isDirectory() || (entry.isSymbolicLink() && statSync(join(dir, entry.name)).isDirectory());
+      if (isDir && existsSync(orgSettingsPath(entry.name))) orgs.push(entry.name);
     } catch (err) {
-      console.warn(
-        `rt: skipping unreadable teams entry ${join(dir, entry.name)}: ${(err as Error).message}`,
-      );
+      console.warn(`rt: skipping unreadable entry ${join(dir, entry.name)}: ${(err as Error).message}`);
     }
   }
-  return teams;
+  return orgs;
+}
+
+/** One org per Mac; with several clones the first by name is the one read. */
+export function currentOrg(): string | null {
+  return [...listOrgs()].sort()[0] ?? null;
+}
+
+export function listTeamFolders(org: string): string[] {
+  try {
+    return readdirSync(teamFoldersDir(org), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && TEAM_NAME_RE.test(entry.name))
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/** The org store and every team folder's store that exists, for the one org on this Mac. */
+export function sharedStoreFiles(): string[] {
+  const org = currentOrg();
+  if (org === null) return [];
+  const teamFiles = listTeamFolders(org).map((team) => teamSettingsPath(org, team));
+  return [orgSettingsPath(org), ...teamFiles.filter((file) => existsSync(file))];
 }

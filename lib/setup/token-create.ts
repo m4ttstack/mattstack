@@ -11,6 +11,7 @@
  * clone, push and PR review comments together.
  */
 
+import type { OrgRole } from "../../packages/rt-client/src/settings/org-roles.ts";
 import type { ConnectField } from "./contract.ts";
 
 export type ForgeProvider = "github" | "gitlab";
@@ -39,15 +40,10 @@ const REASONS: Partial<Record<ForgeProvider, Record<ForgeRole, Record<string, st
 const TITLES: Record<ForgeProvider, string> = { github: "GitHub", gitlab: "GitLab" };
 const TOKEN_NAME = "mattstack";
 
-/**
- * Install clears the setup intent, so a reconnect after it has only the
- * team-local record to go on: a clone rt joined is a member's, any other
- * team on the machine is the owner's. No team means nothing to push or sync.
- */
-export function forgeRole(input: { intentMode: string | null; joinedByRt: boolean; hasTeam: boolean }): ForgeRole {
+export function forgeRole(input: { intentMode: string | null; role: OrgRole["kind"] | null; hasTeam: boolean }): ForgeRole {
   if (input.intentMode === "create") return "owner";
   if (input.intentMode === "join") return "member";
-  return input.hasTeam && !input.joinedByRt ? "owner" : "member";
+  return input.hasTeam && (input.role === "admin" || input.role === "owner") ? "owner" : "member";
 }
 
 export function forgeScopes(provider: ForgeProvider, role: ForgeRole): string[] {

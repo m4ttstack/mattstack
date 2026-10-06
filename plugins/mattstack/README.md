@@ -125,7 +125,7 @@ The parameterized-skill primitive ships as a Claude Code plugin from the
 `pack/skills.jsonc`, which `rt skills materialize` layers into one file per
 repo and pack under `~/.mattstack/repos/<slug>/packs/<pack>/`; the wrapper's
 vendored `scripts/resolve-args.sh` reads that file (the board launches with
-`MATTSTACK_PACK` set from the tab's `pack`, else `board.defaultPack`) and
+`MATTSTACK_PACK` set from the tab's `pack`, else your active team's pack) and
 resolves and validates the bindings deterministically (POSIX sh,
 machine-readable JSON both ways). Enforcement lives in the script, never in
 prose.
@@ -326,11 +326,11 @@ their own description).
 
 ```
 $ claude
-> we want the mattstack work pipeline on this repo, our team is acme
+> we want the mattstack work pipeline on this repo, our team is widgets
 ```
 
-`mattstack:creating-a-pack` runs `rt skills init`, has you restart and run
-`/acme:work <ticket>` once, and asks whether any team rules are already
+`mattstack:creating-a-pack` runs `rt skills init`, has you run
+`/reload-plugins` and `/widgets:work <ticket>` once, and asks whether any team rules are already
 written down. See [Getting started](#getting-started-your-teams-pack) and
 [docs/your-first-pack.md](docs/your-first-pack.md).
 
@@ -372,7 +372,8 @@ see [Configuration](#configuration).
 
 A domain team does not fork this repo. It runs `rt skills init` in its repo
 (the `creating-a-pack` skill walks through it), which scaffolds a pack in
-the team's zone: a `work` verb compiled from the engines here with every
+the team's folder of the org repo (`mattstack/teams/<team>/packs/<team>/`,
+named after the team): a `work` verb compiled from the engines here with every
 domain slot unbound, so the generic pipeline runs on day one. Rules are
 added later as fills, one slot at a time, through the `extending-a-pack`
 skill; each fill is a small skill declaring `metadata.provides` and bound
@@ -380,11 +381,12 @@ with `rt skills bind`.
 
 The bindings manifest schema lives at
 `plugin/schemas/skills-manifest.schema.json`, with a worked explanation in
-`plugin/schemas/skills-manifest.md`. A pack may declare
-`"extends": "<plugin>@<marketplace>"` to build on a base pack, overriding its
-fills slot by slot; the base marks itself `"base": true` so it never
-claims a repo of its own. The team installs the base by listing it in
-`claude.plugins`; members do not join the base's team. `pack/skills.jsonc` in this repo is a
+`plugin/schemas/skills-manifest.md`. A team pack may declare
+`"extends": "acme-base"` to build on its org's base pack, overriding its
+fills slot by slot. The base lives at `mattstack/org/packs/acme-base/` in
+the org repo, marks itself `"base": true`, keeps its fills under
+`attachments/`, and is never installed: a team's compile inlines its fills.
+`pack/skills.jsonc` in this repo is a
 real example: it binds `mattstack:shepherdr`'s `tiering`, `strategy`, and
 `accounts` slots and leaves `domain` unbound.
 

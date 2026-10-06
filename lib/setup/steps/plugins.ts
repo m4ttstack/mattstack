@@ -19,7 +19,7 @@
 import { join } from "path";
 import { resolveTool } from "../../deps/resolve.ts";
 import { stripJsonc } from "../../jsonc.ts";
-import { getSetting } from "../../settings/resolve.ts";
+import { getSetting, isSharedScope, type Provenance } from "../../settings/resolve.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
@@ -27,6 +27,7 @@ import { materializeSkills, materializeTally } from "../skills-materialize.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import { childOutput, isAlready, isNotFound, parsePluginList, settlePack, PACK_EXEC_TIMEOUT_MS, type ClaudeRunner } from "../pack-cache.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
+import { activeTeamFor } from "../../team/active-team.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
@@ -165,10 +166,12 @@ function teamMarketplaceDir(p: Pick<Probes, "home">, slug: string): string {
   return join(p.home, ".mattstack", "teams", slug);
 }
 
-/** A scope's resolved value is team-authored the moment `team`/`team.repo` is anywhere in its provenance — for a `merge:"replace"` key that's a single entry, present only when no stronger (user) scope overrode it. */
-function isTeamAuthored(provenance: { scope: string }[]): boolean {
-  return provenance.some((p) => p.scope === "team" || p.scope === "team.repo");
+/** An item is the org's or a team's only when no layer of your own lists it too; one with no layer at all fails closed. */
+function sharedOnly(sources: Provenance[]): boolean {
+  return sources.length === 0 || sources.every((s) => isSharedScope(s.scope));
 }
+
+export const __test__ = { sharedOnly };
 
 /**
  * The marketplaces BASE_PLUGINS install from are added FIRST, ahead of
@@ -187,25 +190,31 @@ function computeMarketplaces(ctx: ApplyContext, teamMarketplace: TeamMarketplace
 }
 
 interface ComputedPlugins {
-  /** rt's own baseline, plus anything the USER explicitly chose (claude.plugins resolved from user/machine scope) — installed and enabled. */
+  /** rt's own baseline, plus anything one of your own layers lists. */
   trusted: string[];
-  /** Reached this list only via team-scope settings or the team's marketplace.json — installed, never auto-enabled; a joined team does not get to grant itself execution on the strength of its own settings file. */
+  /** Listed only by the org or a team, or the active team's entry in the org's marketplace.json. */
   teamAuthored: string[];
 }
 
-function computePlugins(ctx: ApplyContext, teamMarketplace: TeamMarketplaceFile | null): ComputedPlugins {
-  const resolved = getSetting<unknown>("claude.plugins");
-  const settingPlugins = stringSettingArray(ctx, "claude.plugins", resolved.value);
-  const settingIsTeamAuthored = isTeamAuthored(resolved.provenance);
+export function computePlugins(ctx: ApplyContext, teamMarketplace: TeamMarketplaceFile | null): ComputedPlugins {
+  const items = getSetting<unknown>("claude.plugins").items ?? [];
+  const named = items.filter((item): item is typeof item & { value: string } => typeof item.value === "string");
+  if (named.length !== items.length) {
+    const dropped = items.length - named.length;
+    ctx.log("plugins.install", `claude.plugins: dropped ${dropped} non-string entr${dropped === 1 ? "y" : "ies"}`);
+  }
+  const own = named.filter((item) => !sharedOnly(item.sources)).map((item) => item.value);
+  const shared = named.filter((item) => sharedOnly(item.sources)).map((item) => item.value);
 
   const marketplaceName = teamMarketplace?.name ?? ctx.team.slug;
+  const active = ctx.activeTeam ? ctx.activeTeam() : ctx.team.slug ? activeTeamFor(ctx.p, ctx.team.slug).team : null;
   const teamPlugins = (teamMarketplace?.plugins ?? [])
     .map((plugin) => plugin.name)
-    .filter((name): name is string => typeof name === "string" && name.length > 0)
+    .filter((name): name is string => typeof name === "string" && name.length > 0 && name === active)
     .map((name) => `${name}@${marketplaceName}`);
 
-  const trusted = dedupe([...(settingIsTeamAuthored ? [] : settingPlugins), ...BASE_PLUGINS]);
-  const teamAuthored = dedupe([...(settingIsTeamAuthored ? settingPlugins : []), ...teamPlugins]).filter((p) => !trusted.includes(p));
+  const trusted = dedupe([...own, ...BASE_PLUGINS]);
+  const teamAuthored = dedupe([...shared, ...teamPlugins]).filter((p) => !trusted.includes(p));
   return { trusted, teamAuthored };
 }
 
