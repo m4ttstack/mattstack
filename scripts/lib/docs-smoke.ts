@@ -2,7 +2,7 @@ import { DOCS_HOST } from "./docs-moves.ts";
 
 export type SmokeCheck = { url: string; status: number; location?: string };
 
-// Pages answers a bare path with a 308 to its slash form, so page checks name the slash form.
+// The host answers a bare path with a 307 to its slash form, so page checks name the slash form.
 export const SMOKE_CHECKS: SmokeCheck[] = [
   { url: `${DOCS_HOST}/`, status: 200 },
   { url: `${DOCS_HOST}/rt/reference/cd/`, status: 200 },

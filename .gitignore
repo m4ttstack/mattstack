@@ -30,6 +30,7 @@ e2e/artifacts/*
 # Docusaurus site build output
 website/build/
 website/.docusaurus/
+website/.wrangler/
 
 rt-tray/deps/
 rt-tray/out/
