@@ -5,11 +5,9 @@ import { Modal } from '@mattstack/tui-kit';
     row, control and write; this modal only sizes the frame and reloads the
     board after each write lands. */
 export function ConsoleSettingsModal({
-  focusKey,
   onSaved,
   onClose,
 }: {
-  focusKey?: string;
   onSaved: () => void;
   onClose: () => void;
 }) {
@@ -18,7 +16,6 @@ export function ConsoleSettingsModal({
     scheme: document.documentElement.classList.contains('dark')
       ? 'dark'
       : 'light',
-    focusKey,
     onSaved,
     onClose,
   });

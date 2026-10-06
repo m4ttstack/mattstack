@@ -3,12 +3,12 @@ import {
   rowKind,
   taggedUnion,
   type JsonSchema,
-  type LeafType,
   type RowKind,
+  type ScalarLeaf,
 } from '@mattstack/settings-kit/shapes';
 
 export interface FieldSpec {
-  type: LeafType;
+  type: ScalarLeaf;
   title?: string;
   description?: string;
   placeholder?: string;
@@ -67,7 +67,7 @@ function isRecord(v: unknown): v is Entry {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-function leafOf(s: JsonSchema): LeafType | null {
+function leafOf(s: JsonSchema): ScalarLeaf | null {
   if (typeof s.const === 'string') return { enum: [s.const] };
   if (Array.isArray(s.enum) && s.enum.every(e => typeof e === 'string'))
     return { enum: s.enum as string[] };
