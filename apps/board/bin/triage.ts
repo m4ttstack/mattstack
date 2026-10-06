@@ -14,7 +14,6 @@ import {
   loadGitLabToken,
   loadSwitchboardToken,
   repoIdentityField,
-  resolveLaunchRepo,
 } from '../src/config.ts';
 import { buildBoard, projectPathFromWebUrl } from '../src/data.ts';
 import {
@@ -24,19 +23,21 @@ import {
 } from '../src/doctor-state.ts';
 import { launchDoctor, sendPaneText } from '../src/herdr.ts';
 import { latchGateway } from '../src/latch/gateway.ts';
-import { packForLaunch, resolveLaunchSkill } from '../src/manifest-bindings.ts';
+import { packForLaunch } from '../src/manifest-bindings.ts';
 import { makeSwitchboardClient } from '../src/peer/client.ts';
 import { makeEnvelope } from '../src/peer/envelope.ts';
 import { runPeerTick } from '../src/peer/inbox.ts';
+import { makeAskLauncher, makeRepoForMrUrl } from '../src/peer/launch-ask.ts';
 import { boardMaterializeDeps } from '../src/peer/materialize-deps.ts';
-import { markNudgeHandled, readNudges } from '../src/peer/nudges.ts';
+import {
+  markNudgeHandled,
+  markNudgeNotified,
+  readNudges,
+  reviewerDisplayName,
+} from '../src/peer/nudges.ts';
 import { drainOutbox, enqueueOutbox } from '../src/peer/outbox.ts';
 import { readRespondStates } from '../src/respond-state.ts';
-import {
-  launchReReview,
-  launchRespondAsk,
-  reviewLaunchForTab,
-} from '../src/review-launch.ts';
+import { launchReReview, reviewLaunchForTab } from '../src/review-launch.ts';
 import {
   dropPrunedReviewState,
   readPrunedReviewStates,
@@ -46,6 +47,7 @@ import {
 import { createBoardAttendants } from '../src/triage/attendant.ts';
 import { appendAudit } from '../src/triage/audit.ts';
 import {
+  loadPeerAsksAlwaysAllow,
   loadPeerAsksConfig,
   loadReReviewConfig,
   loadTriageConfig,
@@ -59,7 +61,12 @@ import {
   tryClaimCron,
   writeMemory,
 } from '../src/triage/memory-store.ts';
-import { boardMrLink, notifyEscalation } from '../src/triage/notify.ts';
+import {
+  askNotice,
+  boardAskLink,
+  boardMrLink,
+  notifyEscalation,
+} from '../src/triage/notify.ts';
 import { runNudgePass } from '../src/triage/nudge.ts';
 import {
   claimCronWaiting,
@@ -137,20 +144,7 @@ try {
     });
   };
 
-  // The rt agent daemon's `repo` identity for a launch, resolved the same
-  // way BoardMR.rtRepo is (config.rtRepos keyed by the MR's GitLab project
-  // path), since this pipeline works from mrUrl alone and never builds a
-  // BoardMR of its own.
-  const repoForMrUrl = (mrUrl: string): string => {
-    const projectPath =
-      projectPathFromWebUrl(mrUrl, boardConfig.gitlabHost) ?? '';
-    return resolveLaunchRepo(
-      boardConfig.rtRepos[projectPath] ?? null,
-      boardConfig.gitlabHost,
-      projectPath,
-      mrUrl
-    );
-  };
+  const repoForMrUrl = makeRepoForMrUrl(boardConfig);
 
   // The GitLab token's user, cached so steady-state runs are pure socket
   // reads. An MR is triage's only when this user AND the seat authored it
@@ -301,30 +295,27 @@ try {
         readReviewStates,
         readRespondStates,
         isOwnMr: mrUrl => ownUrls.has(mrUrl),
-        launchAsk: (mrUrl, iid, kind) =>
-          kind === 'respond'
-            ? launchRespondAsk(mrUrl, iid, {
-                cwd: boardConfig.respondCwd || boardConfig.reviewCwd,
-                repo: repoForMrUrl(mrUrl),
-                workspaceLabel: boardConfig.respondsWorkspace,
-                skill: resolveLaunchSkill(
-                  'respond',
-                  mrUrl,
-                  boardConfig,
-                  launchPack
-                ),
-                pack: launchPack ?? undefined,
-                ...loadAgentSettings(),
-              })
-            : launchReReview(mrUrl, iid, {
-                reReview: kind !== 'review',
-                cwd: boardConfig.reviewCwd,
-                repo: repoForMrUrl(mrUrl),
-                workspaceLabel: boardConfig.reviewsWorkspace,
-                forTab: tab => reviewLaunchForTab(boardConfig, mrUrl, tab),
-                ...loadAgentSettings(),
-                claudeCommand: boardConfig.claudeCommand,
-              }),
+        launchAsk: makeAskLauncher(boardConfig),
+        alwaysAllow: loadPeerAsksAlwaysAllow(),
+        markNudgeNotified: id => markNudgeNotified(id),
+        // Best effort: runNudgePass awaits this before marking the ask
+        // notified, so a throw here would abort the pass.
+        notifyAsk: async n => {
+          try {
+            boardUrl ??= deckAppUrl('board');
+            const base = await boardUrl;
+            const fromName =
+              reviewerDisplayName(n.from, boardConfig.members, new Map()) ??
+              n.from;
+            const { title, message } = askNotice(n, fromName);
+            await notifyEscalation(title, message, 'rt', {
+              url: base ? boardAskLink(base, n.id) : null,
+              category: 'peer-ask',
+            });
+          } catch {
+            // the held ask still shows in the inbox
+          }
+        },
         publishOutcome: (to, payload) =>
           enqueueOutbox(makeEnvelope(to, 'nudge-outcome', payload)),
         memory,
@@ -335,7 +326,7 @@ try {
       });
       await drainOutbox(d => client.publish(d));
       console.log(
-        `nudges: dispatched ${nudgeResult.dispatched}, rejected ${nudgeResult.rejected}, expired ${nudgeResult.expired}, skipped ${nudgeResult.skipped}`
+        `nudges: dispatched ${nudgeResult.dispatched}, rejected ${nudgeResult.rejected}, expired ${nudgeResult.expired}, held ${nudgeResult.held}, skipped ${nudgeResult.skipped}`
       );
     }
   }

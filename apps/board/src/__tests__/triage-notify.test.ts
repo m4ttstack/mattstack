@@ -4,6 +4,8 @@ import { join } from 'path';
 import { afterAll, describe, expect, test } from 'bun:test';
 
 import {
+  askNotice,
+  boardAskLink,
   boardMrLink,
   doctorStuckNotice,
   escalationBody,
