@@ -16,7 +16,8 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execFileSync } from "child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { EventEmitter } from "events";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, type FSWatcher } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import pino from "pino";
@@ -33,6 +34,14 @@ function makeFakeLog() {
     debug: () => {},
   };
   return { log: fake as unknown as typeof log, warnings };
+}
+
+/** Real fs.watch costs seconds per call while fseventsd is saturated. */
+function fakeWatch(onWatch: (path: string) => void = () => {}) {
+  return ((path: string) => {
+    onWatch(path);
+    return Object.assign(new EventEmitter(), { close() {} }) as unknown as FSWatcher;
+  }) as unknown as typeof import("fs").watch;
 }
 
 let dir: string;
@@ -66,7 +75,7 @@ function makeRtManagedRepo(name: string): { repoPath: string; shimsDir: string }
 
 test("an emitted 'error' event on the watcher does not throw, and self-heals the bookkeeping", async () => {
   const repoPath = makeRepo("a");
-  const guard = createHooksGuard(log);
+  const guard = createHooksGuard(log, { watchFn: fakeWatch() });
   guard.startWatchingRepo("a", repoPath);
   expect(guard.watchedConfigs.size).toBe(1);
 
@@ -78,20 +87,64 @@ test("an emitted 'error' event on the watcher does not throw, and self-heals the
   guard.closeAll();
 });
 
-test("refreshWatchedRepos closes and drops a watcher whose repo left the index (relocated or removed)", () => {
+test("refreshWatchedRepos closes and drops a watcher whose repo left the index (relocated or removed)", async () => {
   const repoPathA = makeRepo("a");
   const repoPathB = makeRepo("b");
   let index: Record<string, string> = { a: repoPathA, b: repoPathB };
-  const guard = createHooksGuard(log, { loadRepoIndexFn: () => index });
+  const guard = createHooksGuard(log, { loadRepoIndexFn: () => index, watchFn: fakeWatch() });
 
-  guard.refreshWatchedRepos();
+  await guard.refreshWatchedRepos();
   expect(guard.watchedConfigs.size).toBe(2);
 
   // "b" is relocated/removed: the index no longer carries it.
   index = { a: repoPathA };
-  guard.refreshWatchedRepos();
+  await guard.refreshWatchedRepos();
   expect(guard.watchedConfigs.size).toBe(1);
   guard.closeAll();
+});
+
+test("refreshWatchedRepos never creates a watch synchronously, and yields to the event loop between repos", async () => {
+  // fs.watch blocks the thread for seconds each when fseventsd is saturated;
+  // run inline at boot, 27 of them stalled the daemon for 41s.
+  const index = { a: makeRepo("a"), b: makeRepo("b"), c: makeRepo("c") };
+  const order: string[] = [];
+  const guard = createHooksGuard(log, { loadRepoIndexFn: () => index, watchFn: fakeWatch((path) => order.push(`watch:${path}`)) });
+
+  const done = guard.refreshWatchedRepos();
+  expect(order).toHaveLength(0);
+  setTimeout(() => order.push("tick"), 0);
+  await done;
+
+  expect(order.filter((e) => e.startsWith("watch:"))).toHaveLength(3);
+  expect(order.indexOf("tick")).toBeGreaterThan(0);
+  expect(order.indexOf("tick")).toBeLessThan(order.length - 1);
+  expect(guard.watchedConfigs.size).toBe(3);
+  guard.closeAll();
+});
+
+test("a refresh requested mid-pass runs again on the newest index, and closeAll stops a pass in flight", async () => {
+  const repoPathA = makeRepo("a");
+  const repoPathB = makeRepo("b");
+  let index: Record<string, string> = { a: repoPathA };
+  const guard = createHooksGuard(log, { loadRepoIndexFn: () => index, watchFn: fakeWatch() });
+
+  const first = guard.refreshWatchedRepos();
+  index = { a: repoPathA, b: repoPathB };
+  void guard.refreshWatchedRepos();
+  await first;
+  expect(guard.watchedConfigs.size).toBe(2);
+  guard.closeAll();
+
+  const third = guard.refreshWatchedRepos();
+  guard.closeAll();
+  await third;
+  expect(guard.watchedConfigs.size).toBe(0);
+
+  const fourth = guard.refreshWatchedRepos();
+  void guard.refreshWatchedRepos();
+  guard.closeAll();
+  await fourth;
+  expect(guard.watchedConfigs.size).toBe(0);
 });
 
 test("checkAndRepairHooksPath reclaims core.hooksPath every time another tool overwrites it", async () => {

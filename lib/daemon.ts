@@ -1414,8 +1414,8 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
       start() {
         // Wire notification broadcasts to WebSocket clients.
         onNotification(emit);
-        // Discover and watch repos.
-        hooksGuard.refreshWatchedRepos();
+        // Not awaited: the watches arm one per tick after boot.
+        void hooksGuard.refreshWatchedRepos();
         // Team tracking intent resolves through a primed identity→name map;
         // the 60s hooks-scan poller is the only re-prime mechanism now that the
         // repo index lives in state.db.
