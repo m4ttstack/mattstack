@@ -141,8 +141,9 @@ Behavior, keyed off `viewer.role` in the response:
   - the rank pills in the stat list (`StatRail`)
   - Rank, Leader and "Where the team sits" (`StatPanel`)
 - It keeps the header bar (project chip, Refresh, gear), the "you" badge, stat
-  values and the viewer's own trend, Coding days, the stat description and its
-  counted/excluded chips, and the evidence.
+  values, Coding days, the stat description and its counted/excluded chips,
+  and the evidence. The person page draws no deltas today and gains none; the
+  response keeps the viewer's own deltas for a later trend view.
 
 The same components serve both views through a `self` prop, so the two cannot
 drift. The breadcrumb stays `boxscore / <name> / <stat>`.
