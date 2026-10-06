@@ -595,4 +595,15 @@ describe('materializeEnvelope', () => {
       expect(deps.nudges[0]?.materializedAt).toBe(1234);
     });
   });
+
+  test('a nudge-outcome passes decline fields to the resolver', () => {
+    const calls: unknown[] = [];
+    materializeEnvelope(
+      { id: 'e', to: 'rae', from: 'mira', type: 'nudge-outcome', sentAt: 1, receivedAt: 1,
+        payload: { mrUrl: 'u', iid: 1, nudgeId: 'n', result: 'rejected', reason: 'not my area', declined: true, declineNote: 'ask Tom' } },
+      { ...fakeDeps(), resolveSentNudge: (_u, r) => calls.push(r) },
+      5
+    );
+    expect(calls).toEqual([{ result: 'rejected', reason: 'not my area', declined: true, declineNote: 'ask Tom', at: 5 }]);
+  });
 });

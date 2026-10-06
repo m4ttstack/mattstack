@@ -1087,3 +1087,36 @@ describe('pendingNudgesByMr', () => {
     ]);
   });
 });
+
+describe('pending and declined asks', () => {
+  test('a late pending never overwrites a started ask', () => {
+    writeSentNudge({ nudgeId: 'n1', mrUrl: 'u', iid: 1, reviewer: 'mira', sentAt: 0 }, db);
+    resolveSentNudge('u', { result: 'confirmed', at: 1 }, db);
+    resolveSentNudge('u', { result: 'pending', at: 2 }, db);
+    expect(readSentNudges(db).get('u')?.resolution?.result).toBe('confirmed');
+  });
+  test('pending is replaced by any later answer', () => {
+    writeSentNudge({ nudgeId: 'n1', mrUrl: 'u', iid: 1, reviewer: 'mira', sentAt: 0, kind: 'review' }, db);
+    resolveSentNudge('u', { result: 'pending', at: 1 }, db);
+    resolveSentNudge('u', { result: 'launched', at: 2 }, db);
+    expect(readSentNudges(db).get('u')?.resolution?.result).toBe('launched');
+  });
+  test('a decline keeps its flag and note', () => {
+    writeSentNudge({ nudgeId: 'n1', mrUrl: 'u', iid: 1, reviewer: 'mira', sentAt: 0 }, db);
+    resolveSentNudge('u', { result: 'pending', at: 1 }, db);
+    resolveSentNudge('u', { result: 'rejected', reason: 'busy right now', declined: true, declineNote: 'after standup', at: 2 }, db);
+    const view = sentNudgeView(readSentNudges(db).get('u')!, 3);
+    expect(view).toMatchObject({ display: 'rejected', reason: 'busy right now', declined: true, declineNote: 'after standup' });
+  });
+  test('pending reads no-response after 48h like an unanswered ask', () => {
+    const n = { nudgeId: 'n', mrUrl: 'u', iid: 1, reviewer: 'mira', sentAt: 0, resolution: { result: 'pending' as const, at: 10 } };
+    expect(sentNudgeDisplay(n, 10 + NUDGE_NO_RESPONSE_MS - 1)).toBe('pending');
+    expect(sentNudgeDisplay(n, 10 + NUDGE_NO_RESPONSE_MS + 1)).toBe('no-response');
+  });
+  test('a pending ask can still finish when the run reports done', () => {
+    writeSentNudge({ nudgeId: 'n1', mrUrl: 'u', iid: 1, reviewer: 'mira', sentAt: 0 }, db);
+    resolveSentNudge('u', { result: 'pending', at: 1 }, db);
+    finishSentNudge('u', { result: 'done', outcome: 'comment', at: 5 }, 9, db, 'n1');
+    expect(readSentNudges(db).get('u')?.resolution?.result).toBe('done');
+  });
+});

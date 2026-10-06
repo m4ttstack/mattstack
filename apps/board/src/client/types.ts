@@ -125,6 +125,7 @@ export interface SentNudgeInfo {
   display:
     | 'requested'
     | 'confirmed'
+    | 'pending'
     | 'launched'
     | 'no-update'
     | 'rejected'
@@ -142,6 +143,8 @@ export interface SentNudgeInfo {
   resolvedAt?: number;
   /** The finished run's verdict word ('approve', 'comment'), on 'done'. */
   outcome?: string;
+  declined?: boolean;
+  declineNote?: string;
   finishedAt?: number;
   /** Absent means re-review (older boards never send the other kinds). */
   kind?: 'review' | 're-review' | 'respond';

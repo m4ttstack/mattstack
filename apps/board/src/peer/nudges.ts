@@ -146,6 +146,8 @@ export interface SentNudgeResolution {
   /** The finished run's verdict word ('comment', 'approve'), on 'done'. */
   outcome?: string;
   at: number;
+  declined?: true;
+  declineNote?: string;
 }
 
 /** Write a sent nudge, replacing any prior row for the same MR -- a board
@@ -211,7 +213,9 @@ export function resolveSentNudge(
       const was = prev.resolution?.result;
       const refreshesLaunch =
         was === 'launched' && resolution.result === 'confirmed';
-      if (was && was !== 'confirmed' && !refreshesLaunch) return;
+      if (resolution.result === 'pending' && was) return;
+      if (was && was !== 'confirmed' && was !== 'pending' && !refreshesLaunch)
+        return;
       const next: SentNudge = { ...prev, resolution };
       db.query(
         'UPDATE nudges_sent SET nudge = ?, updated_at = ? WHERE mr_url = ?'
@@ -258,7 +262,14 @@ export function finishSentNudge(
       } else if (prev.sentAt >= ifSentBefore) return;
       const r = prev.resolution?.result;
       const doneAfterStop = r === 'failed' && finish.result === 'done';
-      if (r && r !== 'confirmed' && r !== 'launched' && !doneAfterStop) return;
+      if (
+        r &&
+        r !== 'confirmed' &&
+        r !== 'launched' &&
+        r !== 'pending' &&
+        !doneAfterStop
+      )
+        return;
       const next: SentNudge = { ...prev, resolution: finish };
       db.query(
         'UPDATE nudges_sent SET nudge = ?, updated_at = ? WHERE mr_url = ?'
@@ -348,6 +359,8 @@ export interface SentNudgeView {
   sentAt: number;
   reason?: string;
   outcome?: string;
+  declined?: true;
+  declineNote?: string;
   resolvedAt?: number;
   finishedAt?: number;
 }
@@ -363,6 +376,8 @@ export function sentNudgeView(n: SentNudge, now: number): SentNudgeView | null {
     sentAt: n.sentAt,
     ...(r?.reason ? { reason: r.reason } : {}),
     ...(r?.outcome ? { outcome: r.outcome } : {}),
+    ...(r?.declined ? { declined: true as const } : {}),
+    ...(r?.declineNote ? { declineNote: r.declineNote } : {}),
     ...(r ? { resolvedAt: r.at } : {}),
     ...(finished && r ? { finishedAt: r.at } : {}),
   };
@@ -394,6 +409,8 @@ export type SentNudgeDisplay =
 export function sentNudgeDisplay(n: SentNudge, now: number): SentNudgeDisplay {
   const r = n.resolution;
   if (r) {
+    if (r.result === 'pending')
+      return now - r.at > NUDGE_NO_RESPONSE_MS ? 'no-response' : 'pending';
     const running = r.result === 'launched' || r.result === 'confirmed';
     return running && now - r.at > NUDGE_QUIET_MS ? 'no-update' : r.result;
   }
