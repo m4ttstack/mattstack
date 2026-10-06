@@ -771,6 +771,49 @@ exec "$RT_CONVERT_REAL_GIT" "$@"
     expect(existsSync(join(dir, "mattstack", "org", "settings.org.jsonc"))).toBe(true);
   });
 
+  test("--write refuses a clone on another branch, names the switch, and changes nothing", () => {
+    ready();
+    const dir = tempClone();
+    execFileSync("git", ["-C", dir, "switch", "-q", "-c", "prep"], { env: childEnv() });
+    const before = snapshot(dir);
+    const result = runScript(dir, "--write", "--roster-confirmed");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr.toString()).toContain("[refused]");
+    expect(result.stderr.toString()).toContain("The clone is not on main");
+    expect(result.stderr.toString()).toContain("It is on prep.");
+    expect(result.stderr.toString()).toContain(`git -C ${dir} switch main`);
+    expect(snapshot(dir)).toBe(before);
+    expect(execFileSync("git", ["-C", dir, "symbolic-ref", "--short", "HEAD"], { encoding: "utf8", env: childEnv() }).trim()).toBe("prep");
+    execFileSync("git", ["-C", dir, "switch", "-q", "main"], { env: childEnv() });
+    expect(runScript(dir, "--write", "--roster-confirmed").exitCode).toBe(0);
+  });
+
+  test("--write refuses a detached HEAD and changes nothing", () => {
+    ready();
+    const dir = tempClone();
+    execFileSync("git", ["-C", dir, "switch", "-q", "--detach"], { env: childEnv() });
+    const before = snapshot(dir);
+    const result = runScript(dir, "--write", "--roster-confirmed");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr.toString()).toContain("The clone is not on main");
+    expect(result.stderr.toString()).toContain("It has no branch checked out.");
+    expect(result.stderr.toString()).toContain(`git -C ${dir} switch main`);
+    expect(snapshot(dir)).toBe(before);
+  });
+
+  test("--write accepts the branch origin's HEAD names", () => {
+    ready();
+    const dir = tempClone();
+    execFileSync("git", ["-C", dir, "push", "-q", "origin", "main:trunk"], { env: childEnv() });
+    execFileSync("git", ["-C", dir, "fetch", "-q", "origin"], { env: childEnv() });
+    execFileSync("git", ["-C", dir, "remote", "set-head", "origin", "trunk"], { env: childEnv() });
+    execFileSync("git", ["-C", dir, "switch", "-q", "-c", "trunk", "--track", "origin/trunk"], { env: childEnv() });
+    const result = runScript(dir, "--write", "--roster-confirmed");
+    expect(result.stderr.toString()).not.toContain("is not on");
+    expect(result.exitCode).toBe(0);
+    expect(execFileSync("git", ["-C", dir, "log", "-1", "--format=%s", "trunk"], { encoding: "utf8", env: childEnv() }).trim()).toBe("org: convert to the org layout");
+  });
+
   test("--write stops before writing when origin cannot be fetched", () => {
     ready();
     const dir = tempClone();
