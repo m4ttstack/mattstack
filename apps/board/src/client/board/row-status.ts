@@ -120,6 +120,19 @@ export function statusGroupHue(label: string): PillHue | undefined {
   return PILL_HUE[label];
 }
 
+const REVIEW_GROUP_HUE: Record<string, PillHue> = {
+  reviewing: 'purple',
+  queued: 'cyan',
+  'review ready': 'green',
+  'review failed': 'red',
+};
+
+/** A review-grouping group's hue, keyed to the board-launched review's
+    state; "not reviewed" stays neutral. */
+export function reviewGroupHue(label: string): PillHue | undefined {
+  return REVIEW_GROUP_HUE[label];
+}
+
 /** The pill's phrase: GitLab's review state, read off the very bucket the
     status grouping uses, so a row's badge can never contradict the header it
     sits under. Mechanical blockers stay flags beside it, and how far the
