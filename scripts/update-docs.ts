@@ -15,6 +15,7 @@ import { spawnSync } from "child_process";
 import { writeFileSync } from "fs";
 import { parseCommit, buildReleaseNotes } from "./lib/release-notes.ts";
 import { REFERENCE_ROOT } from "./lib/docs-hand.ts";
+import { docsImpact, formatImpact } from "./lib/docs-impact.ts";
 
 const REPO_URL = "https://github.com/m4ttstack/mattstack";
 const SKILL_PATH = "skills/rt-docs/SKILL.md";
@@ -41,18 +42,18 @@ const base = explicitBase ?? latestTag();
 const subjects = base
   ? sh("git", ["log", "--pretty=%s", `${base}..HEAD`]).split("\n").filter(Boolean)
   : sh("git", ["log", "--pretty=%s"]).split("\n").filter(Boolean);
+const changedPaths = sh("git", ["diff", "--name-only", base ? `${base}..HEAD` : "HEAD"]).split("\n").filter(Boolean);
+const impact = formatImpact(docsImpact(changedPaths));
 const notes = buildReleaseNotes(subjects.map(parseCommit), base || "(root)", "HEAD", REPO_URL);
 
 const agentPrompt =
-  `Read and follow ${SKILL_PATH}. Update the rt.cool concept guides for the ` +
-  `release covering commit range ${base || "(root)"}..HEAD. Regenerate the ` +
-  `reference, update only the hand-written guides/partials that changed ` +
-  `behavior requires, leave everything staged, and do not commit.`;
+  `Read and follow ${SKILL_PATH}. Update the mattstack docs (docs.mattstack.dev) for the release covering ${base || "(root)"}..HEAD. Review these first:\n${impact}Regenerate the reference, update only the hand-written pages that changed behavior requires, leave everything staged, and do not commit.`;
 
 if (dryRun) {
   console.log(`[dry-run] base=${base || "(root)"}  commits=${subjects.length}`);
   console.log(`[dry-run] would write ${NOTES_FILE}:\n${notes}`);
   console.log(`[dry-run] would run: bun run docs:gen && bun run docs:check`);
+  console.log(`[dry-run] ${impact}`);
   console.log(`[dry-run] agent step: ${noAgent ? "skipped (--no-agent)" : `claude -p <<prompt>>`}`);
   if (!noAgent) console.log(`[dry-run] prompt:\n${agentPrompt}`);
   process.exit(0);
@@ -67,6 +68,7 @@ if (check.status !== 0) process.stderr.write(check.stderr);
 // 2. Write the notes scaffold.
 writeFileSync(NOTES_FILE, notes);
 console.log(`update-docs: wrote ${NOTES_FILE} (${subjects.length} commits from ${base || "root"})`);
+console.log(impact);
 
 // 3. Judgment (optional): let Claude update the guides.
 if (!noAgent) {
