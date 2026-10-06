@@ -1335,7 +1335,7 @@ export async function runDevSetup(s: DevSeams, stage: StageRunner): Promise<DevS
   const stages: StageEnding[] = [];
   let bunPath = "";
   let goPath = "";
-  let chosen: ChosenDevRelease | null = null;
+  const found: { chosen: ChosenDevRelease | null } = { chosen: null };
 
   stages.push(
     await stage("Check your tools", async (io) => {
@@ -1372,8 +1372,8 @@ export async function runDevSetup(s: DevSeams, stage: StageRunner): Promise<DevS
 
   stages.push(
     await stage("Find the dev app", async () => {
-      chosen = await findDevRelease(s);
-      return { status: "done", title: `Found the dev app ${chosen.release.version}` };
+      found.chosen = await findDevRelease(s);
+      return { status: "done", title: `Found the dev app ${found.chosen.release.version}` };
     }),
   );
 
@@ -1408,7 +1408,7 @@ export async function runDevSetup(s: DevSeams, stage: StageRunner): Promise<DevS
     }),
   );
 
-  stages.push(await stage("Install the dev app", (io) => ensureDevApp(s, io, "setup", chosen!)));
+  stages.push(await stage("Install the dev app", (io) => ensureDevApp(s, io, "setup", found.chosen ?? undefined)));
 
   stages.push(
     await stage("Switch to the dev app", async () => {
@@ -1669,7 +1669,8 @@ git commit -m "feat(dev): rt dev update orchestration"
   - handlers `devSetup(args, ctx)`, `devUpdate(args, ctx)`
   - pure `devSetupBlocks(r: DevSetupResult): Block[]`, `devUpdateBlocks(r: DevUpdateResult): Block[]`
   - pure `devEnvelope(body: Record<string, unknown>, now: Date)` — the `--json` success envelope, pinned by snapshot
-  - pure `failureBlocks(err: UserActionableError): { refused: boolean; blocks: Block[] }` — the human failure: a `refused` note for `DEV_REFUSAL_CODES`, otherwise the failure plus the last child-output lines
+  - `type FailureView = { refused: true; blocks: Block[] } | { refused: false; failure: out.FailureInput; after: Block[] }`
+  - pure `failureBlocks(err: UserActionableError): FailureView` — the human failure: a `refused` note for `DEV_REFUSAL_CODES`, otherwise the failure (from `failureFor`) plus a verbatim tail of the last child-output lines to print after it
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1726,9 +1727,9 @@ describe("rt dev", () => {
   test("a failure shows the last lines of the child's output, with urls stripped", () => {
     const log = ["line 1", "line 2", "line 3", "line 4", "line 5", "fatal: could not read from https://user:tok@github.com/x.git", "line 7"].join("\n");
     const f = failureBlocks(new UserActionableError("dev-clone-failed", "Cloning mattstack failed", {}, { log }));
-    const text = renderPlain(f.blocks);
-    expect(f.refused).toBe(false);
-    expect(text).toContain("Cloning mattstack failed");
+    if (f.refused) throw new Error("expected a failure, not a refusal");
+    expect(f.failure.title).toBe("Cloning mattstack failed");
+    const text = renderPlain(f.after);
     expect(text).toContain("line 7");
     expect(text).not.toContain("line 1");
     expect(text).not.toContain("tok@");
@@ -1915,7 +1916,9 @@ export function devEnvelope(body: Record<string, unknown>, now: Date) {
   return envelope(body, now);
 }
 
-export function failureBlocks(err: UserActionableError): { refused: boolean; blocks: Block[] } {
+export type FailureView = { refused: true; blocks: Block[] } | { refused: false; failure: out.FailureInput; after: Block[] };
+
+export function failureBlocks(err: UserActionableError): FailureView {
   if (DEV_REFUSAL_CODES.has(err.code)) {
     return { refused: true, blocks: [out.line("refused", err.message, err.why), ...(err.next ? [out.callout("next", out.cmd(err.next))] : [])] };
   }
@@ -1925,17 +1928,19 @@ export function failureBlocks(err: UserActionableError): { refused: boolean; blo
         .filter((l) => l.trim() !== "")
         .slice(-OUTPUT_TAIL_LINES)
     : [];
-  return { refused: false, blocks: tail.length > 0 ? [out.verbatim(tail, OUTPUT_CAPTION)] : [] };
+  return { refused: false, failure: failureFor(err), after: tail.length > 0 ? [out.verbatim(tail, OUTPUT_CAPTION)] : [] };
 }
 
-function fail(err: unknown, json: boolean): never {
+/** `cleanup` runs first: process.exit skips the caller's finally. */
+function fail(err: unknown, json: boolean, cleanup: () => void): never {
+  cleanup();
   if (!(err instanceof UserActionableError)) throw err;
   const safe = new UserActionableError(err.code, err.message, err.extra, { why: err.why, next: err.next, log: err.log ? withoutUrls(err.log) : undefined });
   if (json) exitUserError(safe, true);
   logFailureDetail(safe);
   const f = failureBlocks(safe);
   if (f.refused) out.note(...f.blocks);
-  else out.fail(failureFor(safe), ...f.blocks);
+  else out.fail(f.failure, ...f.after);
   process.exit(2);
 }
 
@@ -1944,12 +1949,16 @@ async function run<T>(args: string[], verb: (s: DevSeams, r: StageRunner) => Pro
   if (json) out.payloadOnStdout();
   const endings: StageEnding[] = [];
   const scratch: { dir: string | null } = { dir: null };
+  const cleanup = () => {
+    if (scratch.dir) rmSync(scratch.dir, { recursive: true, force: true });
+    scratch.dir = null;
+  };
   try {
     done(await verb(realSeams(json, scratch), stageRunner(json, endings)), endings, json);
   } catch (err) {
-    fail(err, json);
+    fail(err, json, cleanup);
   } finally {
-    if (scratch.dir) rmSync(scratch.dir, { recursive: true, force: true });
+    cleanup();
   }
 }
 
@@ -1967,8 +1976,6 @@ export async function devUpdate(args: string[], _ctx: CommandContext = {}): Prom
   });
 }
 ```
-
-`process.exit` inside `fail` skips the `finally`, so the scratch folder of a failed run stays behind in the system temp dir; that is acceptable (macOS cleans it), and the log line names nothing in it.
 
 - [ ] **Step 7: Run the tests, the guards and the docs generator**
 
@@ -2243,7 +2250,7 @@ In `commands/release.ts`'s `createRealUpdateMachineSeams`, add:
 In `lib/release/__tests__/update-machine.test.ts`:
 
 1. Add to `Options`: `notaryMissing?: boolean; publishUploadExit?: number;`.
-2. In `fakeSeams`, record exec options and add the new seams. Change the `exec` member's signature to `exec: (argv, opts) => {` and push `{ cmd, opts }` onto a new `execOpts: { cmd: string; opts?: { env?: Record<string, string> } }[]` array returned beside `calls` (add `execOpts` to the return value: `return { seams, calls, execOpts };`). Add these handlers before the final `unhandled` return:
+2. In `fakeSeams`, record exec options and add the new seams. Change the `exec` member's signature to `exec: (argv, execOptions) => {` (not `opts`: that name is `fakeSeams`'s own `Options` parameter, which every handler reads) and push `{ cmd, opts: execOptions }` onto a new `execOpts: { cmd: string; opts?: { env?: Record<string, string> } }[]` array returned beside `calls` (add `execOpts` to the return value: `return { seams, calls, execOpts };`). Add these handlers before the final `unhandled` return:
 
 ```ts
       if (cmd.startsWith("xcrun notarytool history")) return opts.notaryMissing ? fail("No Keychain password item found") : ok("");
@@ -2262,7 +2269,7 @@ and to the seams object:
 
 The existing `shasum` handler (`cafefeed ...`) and the `readFile` handler for `SHA256SUMS` already serve the publish leg.
 
-3. Change the "runs all six legs" test to seven, with the order `["prod-app", "dev-bundle", "dev-publish", "checkout-sync", "daemon", "served-suite", "verify"]`, and add `"dev-publish"` after `"dev-bundle"` wherever the `--plan` test lists ids.
+3. Change the "runs all six legs" test to seven, with the order `["prod-app", "dev-bundle", "dev-publish", "checkout-sync", "daemon", "served-suite", "verify"]`, and add `"dev-publish"` after `"dev-bundle"` wherever the `--plan` test lists ids. In `describe("halt-on-failure")`, the sha256-mismatch test's status array gains one `"skipped"` (seven entries: `["aborted", "skipped", "skipped", "skipped", "skipped", "skipped", "ok"]`), `legs[5]` becomes `legs[6]`, and `legs.slice(1, 5)` becomes `legs.slice(1, 6)`. Grep the file for any other fixed leg count or index (`grep -n "legs\[\|toHaveLength\|slice(1," lib/release/__tests__/update-machine.test.ts`) and shift it the same way.
 
 4. Add these tests inside `describe("rt release update-machine", ...)`:
 
