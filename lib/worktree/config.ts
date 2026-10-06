@@ -6,7 +6,7 @@
  * `loadWorktreeRepoConfig` goes through `lib/settings/resolve.ts#getSetting`,
  * which layers the authored stores:
  *
- *   default < team < user < team.repo < user.repo < machine < machine.repo
+ *   default < org < team < user < org.repo < team.repo < user.repo < machine < machine.repo
  *
  * `rt.worktrees` is a **deep-merge** key (registry: `merge: "deep"`): the team
  * store can own `onDeck`/`ready`, the user store can add a personal
@@ -47,7 +47,7 @@
  * ── The app-level toggle ──────────────────────────────────────────────────
  * `rt.worktreeApp` (a DIFFERENT key from `rt.worktrees` above: a single
  * on/off switch, not per-repo) resolves through `getSetting` like any other
- * key, `default < team < user < machine`, merged per field. `enabled` is on
+ * key, `default < org < team < user < machine`, merged per field. `enabled` is on
  * only when the resolved value says `true` outright (S077) and
  * `killProcesses` is on unless it says `false`.
  */

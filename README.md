@@ -263,21 +263,21 @@ Change settings on the console's settings page. From a terminal:
 
 ```bash
 rt settings get <key>          # resolved value and where it came from
-rt settings set <key> <value>  # write it into one store (user, team or machine)
+rt settings set <key> <value>  # write it into one store (user, org, team or machine)
 rt settings explain <key>      # the full scope chain
 rt settings extension          # install the rt-context extension into local editors
 rt settings source-path        # show or set the rt checkout the dev app runs
 ```
 
 Every key any mattstack app reads goes through one settings resolver, which
-layers scopes as `default < team < user < team.repo < user.repo < machine <
-machine.repo`, so a user value outranks the team default and a machine value
-outranks both:
+layers scopes as `default < org < team < user < org.repo < team.repo <
+user.repo < machine < machine.repo`, so a team value outranks the org's, a
+user value outranks both, and a machine value outranks all three:
 
 ```bash
 rt settings list                            # every registered setting and its resolved value
 rt settings get <key>                       # a value plus where it came from
-rt settings set <key> <value> --scope user  # write into one store: user, team, or machine
+rt settings set <key> <value> --scope user  # write into one store: user, org, team or machine
 rt settings explain <key>                   # the full scope chain, weakest first
 ```
 
