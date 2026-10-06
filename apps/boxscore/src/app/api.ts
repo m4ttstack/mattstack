@@ -42,6 +42,19 @@ export function selectionQuery(s: RangeSelection): Record<string, string> {
   return q;
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+export const isNotFound = (err: unknown): boolean =>
+  err instanceof ApiError && err.status === 404;
+
 /** The server returns `{ error }` envelopes on failure; unwrap them into thrown Errors so every hook has the same failure semantics. */
 export async function readOrThrow<T>(
   res: { ok: boolean; status: number; json(): Promise<unknown> },
@@ -56,7 +69,7 @@ export async function readOrThrow<T>(
       typeof (body as { error?: unknown }).error === 'string'
         ? (body as { error: string }).error
         : `${label} failed: ${res.status}`;
-    throw new Error(message);
+    throw new ApiError(message, res.status);
   }
   return body as T;
 }

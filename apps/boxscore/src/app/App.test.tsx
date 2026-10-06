@@ -249,7 +249,8 @@ describe('App: refresh on the person page', () => {
     expect(useUserDetail).toHaveBeenLastCalledWith(
       'srivera',
       expect.anything(),
-      after.generatedAt
+      after.generatedAt,
+      null
     );
     expect(rows()).toHaveLength(2);
   });

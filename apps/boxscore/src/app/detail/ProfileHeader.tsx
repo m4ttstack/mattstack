@@ -1,8 +1,8 @@
-import { ActionIcon, Avatar, Menu } from '@mattstack/app-kit/core';
+import { ActionIcon, Avatar, Button, Menu } from '@mattstack/app-kit/core';
 import { Link } from '@mattstack/app-kit/router';
 import type { MetricKey, UserRow } from '../../shared/types';
-import { statHref } from '../leaderboard/StandingsTable';
 import { initials } from '../model/labels';
+import { previewHref, usePersonHref } from '../preview/preview';
 import { Glyph } from '../ui/Glyph';
 import { YouBadge } from '../ui/YouBadge';
 import classes from './detail.module.css';
@@ -22,6 +22,7 @@ function Step({
   to: UserRow | undefined;
   stat: MetricKey;
 }) {
+  const personHref = usePersonHref();
   const parity = `Step ${glyphParity}`;
   const glyph = (
     <Glyph name={icon} size={15} color="currentColor" parity={glyphParity} />
@@ -42,7 +43,7 @@ function Step({
   return (
     <ActionIcon
       component={Link}
-      href={statHref(to.username, stat)}
+      href={personHref(to.username, stat)}
       variant="default"
       size={32}
       data-parity={parity}
@@ -59,13 +60,16 @@ export function ProfileHeader({
   stat,
   meta,
   self = false,
+  canPreview = false,
 }: {
   person: UserRow;
   people: UserRow[];
   stat: MetricKey;
   meta: string;
   self?: boolean;
+  canPreview?: boolean;
 }) {
+  const personHref = usePersonHref();
   const name = displayName(person);
   const at = people.findIndex(u => u.username === person.username);
   const you = person.isCurrentUser;
@@ -111,6 +115,25 @@ export function ProfileHeader({
         </div>
         {!self && (
           <div className={classes.switcher}>
+            {canPreview && (
+              <Button
+                component={Link}
+                href={previewHref(person.username)}
+                variant="default"
+                size="compact-sm"
+                data-parity="Preview Button"
+                leftSection={
+                  <Glyph
+                    name="eye"
+                    size={14}
+                    color="currentColor"
+                    parity="Preview Icon"
+                  />
+                }
+              >
+                <span data-parity="Preview Label">Preview Self view</span>
+              </Button>
+            )}
             <Step
               label="Previous person"
               icon="chevronLeft"
@@ -145,7 +168,7 @@ export function ProfileHeader({
                   <Menu.Item
                     key={u.username}
                     component={Link}
-                    href={statHref(u.username, stat)}
+                    href={personHref(u.username, stat)}
                     aria-current={
                       u.username === person.username ? 'page' : undefined
                     }
