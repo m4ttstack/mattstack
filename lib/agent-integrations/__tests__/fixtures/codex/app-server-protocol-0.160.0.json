@@ -1,0 +1,704 @@
+{
+  "codexVersion": "0.160.0",
+  "source": "codex app-server generate-json-schema --experimental (and without --experimental for the stable set); method and field names only",
+  "clientRequests": {
+    "initialize": {
+      "experimental": false,
+      "params": {
+        "properties": [
+          "capabilities",
+          "clientInfo"
+        ],
+        "required": [
+          "clientInfo"
+        ],
+        "experimental": []
+      }
+    },
+    "thread/loaded/list": {
+      "experimental": false,
+      "params": {
+        "properties": [
+          "cursor",
+          "limit"
+        ],
+        "required": [],
+        "experimental": []
+      }
+    },
+    "hooks/list": {
+      "experimental": false,
+      "params": {
+        "properties": [
+          "cwds"
+        ],
+        "required": [],
+        "experimental": []
+      }
+    },
+    "config/read": {
+      "experimental": false,
+      "params": {
+        "properties": [
+          "cwd",
+          "includeLayers"
+        ],
+        "required": [],
+        "experimental": []
+      }
+    },
+    "model/list": {
+      "experimental": false,
+      "params": {
+        "properties": [
+          "cursor",
+          "includeHidden",
+          "limit"
+        ],
+        "required": [],
+        "experimental": []
+      }
+    },
+    "experimentalFeature/list": {
+      "experimental": false,
+      "params": {
+        "properties": [
+          "cursor",
+          "limit",
+          "threadId"
+        ],
+        "required": [],
+        "experimental": []
+      }
+    },
+    "thread/start": {
+      "experimental": false,
+      "params": {
+        "properties": [
+          "allowProviderModelFallback",
+          "approvalPolicy",
+          "approvalsReviewer",
+          "baseInstructions",
+          "config",
+          "cwd",
+          "daybreakEnabled",
+          "developerInstructions",
+          "dynamicTools",
+          "environments",
+          "ephemeral",
+          "experimentalRawEvents",
+          "historyMode",
+          "mockExperimentalField",
+          "model",
+          "modelProvider",
+          "multiAgentMode",
+          "permissions",
+          "personality",
+          "projectId",
+          "runtimeWorkspaceRoots",
+          "sandbox",
+          "selectedCapabilityRoots",
+          "serviceName",
+          "serviceTier",
+          "sessionStartSource",
+          "threadSource"
+        ],
+        "required": [],
+        "experimental": [
+          "allowProviderModelFallback",
+          "daybreakEnabled",
+          "dynamicTools",
+          "environments",
+          "experimentalRawEvents",
+          "historyMode",
+          "mockExperimentalField",
+          "multiAgentMode",
+          "permissions",
+          "projectId",
+          "runtimeWorkspaceRoots",
+          "selectedCapabilityRoots"
+        ]
+      }
+    },
+    "thread/resume": {
+      "experimental": false,
+      "params": {
+        "properties": [
+          "approvalPolicy",
+          "approvalsReviewer",
+          "baseInstructions",
+          "config",
+          "cwd",
+          "developerInstructions",
+          "excludeTurns",
+          "history",
+          "initialTurnsPage",
+          "model",
+          "modelProvider",
+          "path",
+          "permissions",
+          "personality",
+          "runtimeWorkspaceRoots",
+          "sandbox",
+          "serviceTier",
+          "threadId"
+        ],
+        "required": [
+          "threadId"
+        ],
+        "experimental": [
+          "history",
+          "initialTurnsPage",
+          "path",
+          "permissions",
+          "runtimeWorkspaceRoots"
+        ]
+      }
+    },
+    "thread/read": {
+      "experimental": false,
+      "params": {
+        "properties": [
+          "includeTurns",
+          "threadId"
+        ],
+        "required": [
+          "threadId"
+        ],
+        "experimental": []
+      }
+    },
+    "turn/start": {
+      "experimental": false,
+      "params": {
+        "properties": [
+          "additionalContext",
+          "approvalPolicy",
+          "approvalsReviewer",
+          "clientUserMessageId",
+          "collaborationMode",
+          "cwd",
+          "cyberAccessProgram",
+          "disabledPluginIds",
+          "effort",
+          "environments",
+          "input",
+          "model",
+          "multiAgentMode",
+          "outputSchema",
+          "permissions",
+          "personality",
+          "responsesapiClientMetadata",
+          "runtimeWorkspaceRoots",
+          "sandboxPolicy",
+          "serviceTier",
+          "serviceTierForTurn",
+          "summary",
+          "threadId",
+          "toolOutput",
+          "turnTrigger"
+        ],
+        "required": [
+          "input",
+          "threadId"
+        ],
+        "experimental": [
+          "additionalContext",
+          "collaborationMode",
+          "cyberAccessProgram",
+          "environments",
+          "multiAgentMode",
+          "permissions",
+          "responsesapiClientMetadata",
+          "runtimeWorkspaceRoots"
+        ]
+      }
+    },
+    "thread/queue/add": {
+      "experimental": true,
+      "params": {
+        "properties": [
+          "clientUserMessageId",
+          "input",
+          "threadId"
+        ],
+        "required": [
+          "clientUserMessageId",
+          "input",
+          "threadId"
+        ],
+        "experimental": [
+          "clientUserMessageId",
+          "input",
+          "threadId"
+        ]
+      }
+    },
+    "thread/queue/list": {
+      "experimental": true,
+      "params": {
+        "properties": [
+          "cursor",
+          "limit",
+          "threadId"
+        ],
+        "required": [
+          "threadId"
+        ],
+        "experimental": [
+          "cursor",
+          "limit",
+          "threadId"
+        ]
+      }
+    }
+  },
+  "serverRequests": {
+    "item/tool/requestUserInput": {
+      "params": {
+        "properties": [
+          "autoResolutionMs",
+          "isBlocking",
+          "itemId",
+          "questions",
+          "threadId",
+          "turnId"
+        ],
+        "required": [
+          "isBlocking",
+          "itemId",
+          "questions",
+          "threadId",
+          "turnId"
+        ]
+      },
+      "question": {
+        "properties": [
+          "header",
+          "id",
+          "isOther",
+          "isSecret",
+          "options",
+          "question"
+        ],
+        "required": [
+          "header",
+          "id",
+          "question"
+        ]
+      },
+      "option": {
+        "properties": [
+          "description",
+          "label"
+        ],
+        "required": [
+          "description",
+          "label"
+        ]
+      },
+      "response": {
+        "properties": [
+          "answers"
+        ],
+        "required": [
+          "answers"
+        ],
+        "answer": {
+          "properties": [
+            "answers"
+          ],
+          "required": [
+            "answers"
+          ]
+        }
+      }
+    }
+  },
+  "serverNotifications": {
+    "thread/started": {
+      "params": {
+        "properties": [
+          "thread"
+        ],
+        "required": [
+          "thread"
+        ]
+      }
+    },
+    "thread/status/changed": {
+      "params": {
+        "properties": [
+          "status",
+          "threadId"
+        ],
+        "required": [
+          "status",
+          "threadId"
+        ]
+      }
+    },
+    "thread/closed": {
+      "params": {
+        "properties": [
+          "threadId"
+        ],
+        "required": [
+          "threadId"
+        ]
+      }
+    },
+    "thread/queue/changed": {
+      "params": {
+        "properties": [
+          "threadId"
+        ],
+        "required": [
+          "threadId"
+        ]
+      }
+    },
+    "turn/started": {
+      "params": {
+        "properties": [
+          "threadId",
+          "turn"
+        ],
+        "required": [
+          "threadId",
+          "turn"
+        ]
+      }
+    },
+    "turn/completed": {
+      "params": {
+        "properties": [
+          "threadId",
+          "turn"
+        ],
+        "required": [
+          "threadId",
+          "turn"
+        ]
+      }
+    },
+    "item/started": {
+      "params": {
+        "properties": [
+          "item",
+          "startedAtMs",
+          "threadId",
+          "turnId"
+        ],
+        "required": [
+          "item",
+          "startedAtMs",
+          "threadId",
+          "turnId"
+        ]
+      }
+    },
+    "item/completed": {
+      "params": {
+        "properties": [
+          "completedAtMs",
+          "item",
+          "threadId",
+          "turnId"
+        ],
+        "required": [
+          "completedAtMs",
+          "item",
+          "threadId",
+          "turnId"
+        ]
+      }
+    },
+    "serverRequest/resolved": {
+      "params": {
+        "properties": [
+          "requestId",
+          "threadId"
+        ],
+        "required": [
+          "requestId",
+          "threadId"
+        ]
+      }
+    },
+    "hook/started": {
+      "params": {
+        "properties": [
+          "run",
+          "threadId",
+          "turnId"
+        ],
+        "required": [
+          "run",
+          "threadId"
+        ]
+      }
+    },
+    "hook/completed": {
+      "params": {
+        "properties": [
+          "run",
+          "threadId",
+          "turnId"
+        ],
+        "required": [
+          "run",
+          "threadId"
+        ]
+      }
+    }
+  },
+  "clientNotifications": [
+    "initialized"
+  ],
+  "types": {
+    "Thread": {
+      "properties": [
+        "agentNickname",
+        "agentRole",
+        "canAcceptDirectInput",
+        "cliVersion",
+        "createdAt",
+        "cwd",
+        "daybreakEnabled",
+        "environments",
+        "ephemeral",
+        "extra",
+        "forkedFromId",
+        "gitInfo",
+        "historyMode",
+        "id",
+        "model",
+        "modelProvider",
+        "name",
+        "originator",
+        "parentThreadId",
+        "path",
+        "preview",
+        "projectId",
+        "reasoningEffort",
+        "recencyAt",
+        "section",
+        "sectionEnteredAt",
+        "sessionId",
+        "source",
+        "status",
+        "threadSource",
+        "turns",
+        "updatedAt"
+      ],
+      "required": [
+        "cliVersion",
+        "createdAt",
+        "cwd",
+        "ephemeral",
+        "id",
+        "modelProvider",
+        "preview",
+        "projectId",
+        "sessionId",
+        "source",
+        "status",
+        "turns",
+        "updatedAt"
+      ]
+    },
+    "Turn": {
+      "properties": [
+        "completedAt",
+        "durationMs",
+        "error",
+        "id",
+        "items",
+        "itemsView",
+        "startedAt",
+        "status"
+      ],
+      "required": [
+        "id",
+        "items",
+        "status"
+      ]
+    },
+    "HookRunSummary": {
+      "properties": [
+        "completedAt",
+        "displayOrder",
+        "durationMs",
+        "entries",
+        "eventName",
+        "executionMode",
+        "handlerType",
+        "id",
+        "scope",
+        "source",
+        "sourcePath",
+        "startedAt",
+        "status",
+        "statusMessage"
+      ],
+      "required": [
+        "displayOrder",
+        "entries",
+        "eventName",
+        "executionMode",
+        "handlerType",
+        "id",
+        "scope",
+        "sourcePath",
+        "startedAt",
+        "status"
+      ]
+    },
+    "ThreadStatus": [
+      "notLoaded",
+      "idle",
+      "systemError",
+      "active"
+    ],
+    "ThreadActiveFlag": [
+      "waitingOnApproval",
+      "waitingOnUserInput"
+    ],
+    "TurnStatus": [
+      "completed",
+      "interrupted",
+      "failed",
+      "inProgress"
+    ],
+    "HookEventName": [
+      "preToolUse",
+      "permissionRequest",
+      "postToolUse",
+      "preCompact",
+      "postCompact",
+      "sessionStart",
+      "sessionEnd",
+      "userPromptSubmit",
+      "subagentStart",
+      "subagentStop",
+      "stop",
+      "interrupt"
+    ],
+    "HookRunStatus": [
+      "running",
+      "completed",
+      "failed",
+      "blocked",
+      "stopped"
+    ],
+    "ThreadItemTypes": [
+      "userMessage",
+      "hookPrompt",
+      "agentMessage",
+      "functionCallOutput",
+      "plan",
+      "reasoning",
+      "commandExecution",
+      "fileChange",
+      "mcpToolCall",
+      "dynamicToolCall",
+      "collabAgentToolCall",
+      "subAgentActivity",
+      "webSearch",
+      "imageView",
+      "sleep",
+      "imageGeneration",
+      "enteredReviewMode",
+      "exitedReviewMode",
+      "contextCompaction"
+    ],
+    "userMessage": {
+      "properties": [
+        "clientId",
+        "content",
+        "id",
+        "type"
+      ],
+      "required": [
+        "content",
+        "id",
+        "type"
+      ]
+    },
+    "agentMessage": {
+      "properties": [
+        "delivery",
+        "id",
+        "memoryCitation",
+        "phase",
+        "questions",
+        "text",
+        "type"
+      ],
+      "required": [
+        "id",
+        "text",
+        "type"
+      ]
+    },
+    "AgentMessageDelivery": [
+      "async"
+    ],
+    "RequestId": [
+      "string",
+      "integer"
+    ]
+  },
+  "responses": {
+    "initialize": {
+      "properties": [
+        "codexHome",
+        "platformFamily",
+        "platformOs",
+        "userAgent"
+      ],
+      "required": [
+        "codexHome",
+        "platformFamily",
+        "platformOs",
+        "userAgent"
+      ]
+    },
+    "thread/start": {
+      "properties": [
+        "activePermissionProfile",
+        "approvalPolicy",
+        "approvalsReviewer",
+        "cwd",
+        "disabledPluginIds",
+        "instructionSources",
+        "model",
+        "modelProvider",
+        "multiAgentMode",
+        "reasoningEffort",
+        "runtimeWorkspaceRoots",
+        "sandbox",
+        "serviceTier",
+        "thread"
+      ],
+      "required": [
+        "approvalPolicy",
+        "approvalsReviewer",
+        "cwd",
+        "model",
+        "modelProvider",
+        "sandbox",
+        "thread"
+      ]
+    }
+  },
+  "initializeCapabilities": [
+    "experimentalApi",
+    "explicitGatewayOauth",
+    "extensions",
+    "mcpServerOpenaiFormElicitation",
+    "optOutNotificationMethods",
+    "requestAttestation"
+  ]
+}
