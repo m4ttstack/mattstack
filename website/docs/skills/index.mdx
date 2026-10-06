@@ -1,0 +1,47 @@
+---
+sidebar_position: 1
+title: Skills
+---
+
+# Skills
+
+mattstack's skills are Claude Code skills: fanning work out across parallel agents, picking the right model for each, running a ticket through a repeatable pipeline, and reviewing work before it merges. They install as the `mattstack` plugin, so every skill carries the `mattstack:` prefix.
+
+## What you can ask for
+
+Only a handful of skills are directly invocable once the plugin is installed:
+
+- [`mattstack:shepherdr`](/skills/shepherdr) fans work out across parallel agents.
+- [`mattstack:subagent-review-loop`](/skills/review) gets a spec or plan reviewed until a reviewer signs off.
+- [`mattstack:wrap-up`](/skills/wrap-up) turns open decisions into a form.
+- [`mattstack:writing-style-conversational`, `-sparse` and `-structured`](/skills/writing-styles) are the voice presets for prose posted under your name.
+- [`mattstack:creating-a-pack` and `mattstack:extending-a-pack`](/skills/packs) put the pipeline on your team's repo and teach it your rules.
+- `mattstack:editing-skills`, `mattstack:getting-current-time` and `mattstack:process-digraphs` are the other public doors. The first triggers when a skill change is not showing up where it should, and the second almost never, because a hook already stamps the time into context on every prompt.
+
+Everything else in the plugin is an engine: it is not on any slash menu and becomes runnable only once a team's own pack compiles it into a verb. Those are the pipeline stages, the review cluster and the forge adapters, so a team pack, not the plugin on its own, is what gives you `/<team>:work`. See [Packs](/skills/packs).
+
+## Install
+
+[Setup](/start/setup) installs the plugin from the mattstack marketplace. By hand:
+
+```bash
+claude plugin marketplace add m4ttstack/mattstack-marketplace
+claude plugin install mattstack@mattstack
+```
+
+## Pick up an update
+
+```bash
+claude plugin update mattstack@mattstack
+```
+
+Then run `/reload-plugins` in your Claude Code session. It reloads plugins, skills, agents, hooks and plugin MCP servers in place, so you never restart the session for an update.
+
+If you maintain a team pack, [`rt skills sync`](/rt/reference/skills/sync) brings the pack's compiled skills and installed plugin caches current. It refuses on content drift.
+
+## Also on this tab
+
+- [Gates](/skills/gates): decisions that pause a subject until someone answers.
+- [MCP server](/skills/mcp): the tools agents call instead of shell commands.
+- [herdr-chat](/skills/herdr-chat): chat controls inside herdr panes.
+- [gitq skills](/skills/gitq-skills): the Claude skills that drive gitq.
