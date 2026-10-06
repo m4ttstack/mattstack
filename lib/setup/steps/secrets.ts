@@ -3,7 +3,7 @@
  * real sops-backed store(s). The drain callback dispatches by domain shape:
  * a staged domain matching `team-<slug>-(rt|board)` — the exact shape
  * `commands/setup.ts`'s `teamScopedDomain` stages under — goes through the
- * TEAM store (`writeTeamSecret`, at `teams/<slug>/mattstack/secrets/<domain>.json`,
+ * TEAM store (`writeTeamSecret`, at `teams/<slug>/mattstack/org/secrets/<domain>.json`,
  * `realTeamSecrets.read`'s only read path); everything else is a personal
  * domain and goes through `writeSecret`. Neither call goes through
  * `SecretWriter.write`, which is type-narrowed to `"rt" | "board"` and would

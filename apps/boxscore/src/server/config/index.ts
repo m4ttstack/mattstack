@@ -1,4 +1,4 @@
-import { getSetting } from '@mattstack/rt-client';
+import { activeTeamRoster, getSetting } from '@mattstack/rt-client';
 import type { RangePreset } from '../../shared/types.js';
 
 /** Politeness cap on concurrent GitLab requests; a code constant since the fold. */
@@ -12,6 +12,7 @@ export class ConfigError extends Error {
 export interface RosterEntry {
   username: string;
   name?: string;
+  teams?: string[];
 }
 
 /** The fetchers' connection envelope; assembled per run from settings + secrets. */
@@ -24,6 +25,8 @@ export interface Env {
 export interface BoxscoreSettings {
   projects: string[];
   roster: RosterEntry[];
+  /** Everyone in the org, whatever their team: who counts as a known person rather than a bot. */
+  orgRoster: RosterEntry[];
   hiddenMembers: string[];
   /** Roster usernames minus hiddenMembers: the leaderboard's comparison set. */
   users: string[];
@@ -51,6 +54,30 @@ export function __setSettingReader(r: SettingReader | null): void {
   reader = r;
 }
 
+let rosterReader: (() => RosterEntry[]) | null = null;
+
+/** Test seam, like __setSettingReader. */
+export function __setRosterReader(r: (() => RosterEntry[]) | null): void {
+  rosterReader = r;
+}
+
+function teamRoster(): RosterEntry[] {
+  if (rosterReader) return rosterReader();
+  if (process.env.VITEST)
+    throw new Error('tests must inject a roster reader (__setRosterReader)');
+  return activeTeamRoster() as RosterEntry[];
+}
+
+function rosterEntries(value: unknown): RosterEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (e): e is RosterEntry =>
+      e !== null &&
+      typeof e === 'object' &&
+      typeof (e as { username?: unknown }).username === 'string'
+  );
+}
+
 function read<T>(key: string): T | undefined {
   if (reader) return reader<T>(key);
   if (process.env.VITEST)
@@ -70,13 +97,14 @@ function baseUrlFrom(host: string | undefined): string {
 
 /** Every read resolves the stores fresh; nothing here caches across calls (spec 5.3). */
 export function readSettings(): BoxscoreSettings {
-  const roster = read<RosterEntry[]>('mattstack.roster') ?? [];
+  const roster = teamRoster();
   const hiddenMembers = read<string[]>('boxscore.hiddenMembers') ?? [];
   const hidden = new Set(hiddenMembers);
   const integrations = read<Integrations>('mattstack.integrations') ?? {};
   return {
     projects: read<string[]>('boxscore.projects') ?? [],
     roster,
+    orgRoster: rosterEntries(read<unknown>('mattstack.roster')),
     hiddenMembers,
     users: roster.filter(m => !hidden.has(m.username)).map(m => m.username),
     doneStates: read<string[]>('boxscore.linearDoneStates') ?? [],

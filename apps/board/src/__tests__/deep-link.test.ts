@@ -219,6 +219,32 @@ describe('viewStateForMr', () => {
     ).toEqual(['authorTurn']);
   });
 
+  test('a link to your own MR leaves Waiting on author off', () => {
+    const mrs = [
+      mr({
+        iid: 5,
+        blockers: { any: true, hasConflicts: true },
+        reviews: { isApproved: false, reviewers: [] },
+      } as unknown as Partial<GateLinkMR>),
+    ];
+    const state = {
+      ...DEFAULT_VIEW,
+      tab: 'team',
+      off: ['authorTurn' as const],
+    };
+    expect(
+      viewStateForMr(
+        state,
+        mrs,
+        [teamTab],
+        new Set(['bob']),
+        byIid(5),
+        undefined,
+        'bob'
+      ).off
+    ).toEqual(['authorTurn']);
+  });
+
   test('returns state unchanged when no row matches', () => {
     const mrs = [mr({ iid: 6 })];
     const state = { ...DEFAULT_VIEW, off: [], tab: 'team', member: 'bob' };

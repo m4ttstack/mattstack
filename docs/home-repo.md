@@ -101,23 +101,34 @@ pushed stays pushed. Re-enabling picks a pending push back up on the next run.
 
 ## Team clones
 
-Every git clone under `~/.mattstack/teams/<slug>/` with an `origin` gets its
-own instance of the same engine, supervised by the daemon (a clone created by
-`rt team create` or `rt team join` is picked up within the debounce window; a
-clone with no remote is skipped until `rt team publish --remote` gives it one).
-A machine holds one team: `rt team join` and `rt team create` refuse a second
-zone while one exists, since every team store is folded into one settings view.
+Every org clone under `~/.mattstack/teams/<org>/` with an `origin`, each
+holding `mattstack/org/` and one folder per team under `mattstack/teams/`,
+gets its own instance of the same engine, supervised by the daemon (a clone
+created by `rt team create` or `rt team join` is picked up within the debounce
+window; a clone with no remote is skipped until `rt team publish --remote`
+gives it one). The folder keeps the name `teams/` because renaming it is out
+of scope. A machine holds one org: `rt team join` and `rt team create` refuse
+a second clone while one exists.
 The team instance differs from the home one in four ways:
 
 - **Scope.** It stages only `mattstack/**`, `.sops.yaml` and
   `.claude-plugin/**`. A team clone that is also a working repo keeps its
   `src/` and `docs/` hand-committed.
-- **Packs are janitor-only.** `mattstack/packs/` is a standing claimed zone
-  (owner `skills-publish`): a pack is published by its own commit (the
-  `mattstack:editing-skills` flow, `rt skills sync`), so a watch never commits
-  a half-made pack edit. The janitor still commits a pack left dirty past
-  `janitorThresholdHours`. A claim on the same path in the clone's own
-  `snapshot-owners.jsonc` wins over the standing one.
+- **Packs are janitor-only.** Every pack folder (`mattstack/org/packs/`, each
+  `mattstack/teams/<team>/packs/`, and `mattstack/packs/` on a clone not yet
+  converted) is a standing claimed zone (owner `skills-publish`): a pack is
+  published by its own commit (the `mattstack:editing-skills` flow,
+  `rt skills sync`), so a watch never commits a half-made pack edit. A new
+  pack goes up with its marketplace entry in one commit and push, made by
+  `rt team add` or `rt skills init` itself; when that commit or push fails,
+  the command says so and names `rt team publish --team <org>`, which makes
+  the commit this Mac still owes (rt remembers it on this Mac) and pushes it.
+  While that commit is owed and the pack's folder still has uncommitted
+  files, the snapshot leaves `marketplace.json` alone, and `rt team status`
+  and the Team sync setup row say so; the next share or publish commits the
+  owed pack first, so the entry never reaches origin ahead of its pack. The janitor still commits
+  a pack left dirty past `janitorThresholdHours`. A claim on the same path in the clone's
+  own `snapshot-owners.jsonc` wins over the standing one.
 - **Pull.** Before every push, at daemon boot and every `pullIntervalSec`, it
   fetches `origin` with rt's stored forge token (env, never argv) and either
   fast-forwards or rebases its own commits onto the remote. A rebase that stops
@@ -135,9 +146,9 @@ The team instance differs from the home one in four ways:
   (`git var GIT_COMMITTER_IDENT`) and goes inert with a warning when even that
   fails.
 
-`rt team pull [--team <slug>]` runs one fetch + rebase cycle now and prints the
+`rt team pull [--team <org>]` runs one fetch + rebase cycle now and prints the
 engine's result; `rt team status` shows `lastPull`, `lastPushAt`,
-`lastPullSkipped` and `conflicted` per team. The `rt.teamSnapshot` key
+`lastPullSkipped` and `conflicted` per org clone. The `rt.teamSnapshot` key
 (machine scope) carries the same fields as `rt.homeSnapshot` plus
 `pullIntervalSec` (default 300, floor 30).
 

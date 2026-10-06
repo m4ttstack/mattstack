@@ -4,7 +4,7 @@
 import { deckAppUrl } from '@mattstack/app-server/event-bridge';
 import { GitLabProvider, parseRepoId, type MRDetail } from '@mattstack/glance';
 import {
-  listTeams,
+  listOrgs,
   readDiscussions,
   readProjectMRs,
 } from '@mattstack/rt-client';
@@ -86,7 +86,7 @@ import { triageOwns } from '../src/triage/seat.ts';
 // queueing behind a full pass.
 async function peerPreflight(): Promise<boolean> {
   try {
-    return listTeams().length > 0 && !!(await loadSwitchboardToken());
+    return listOrgs().length > 0 && !!(await loadSwitchboardToken());
   } catch {
     return false;
   }
@@ -263,7 +263,7 @@ try {
   }
 
   const switchboardToken = await loadSwitchboardToken();
-  if (listTeams().length > 0 && switchboardToken) {
+  if (listOrgs().length > 0 && switchboardToken) {
     const client = makeSwitchboardClient(
       boardConfig.switchboard.url,
       switchboardToken

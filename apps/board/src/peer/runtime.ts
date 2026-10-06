@@ -147,7 +147,7 @@ export function tickOnPeerInbox(
 }
 
 export const TOKEN_MISSING_LOG =
-  "board: this Mac is in a team but no switchboard token is stored, so peer asks cannot arrive; re-invite this board from the team owner's members panel (rt team invite on the owner's machine)";
+  'board: this Mac is in a team but no switchboard token is stored, so peer asks cannot arrive; ask your org admin to invite you again (rt team invite on their Mac), then run rt team join';
 
 /** Tracks whether the last read found no token, for the board banner, and
     logs that once per process: the boot retry reads every minute forever. */

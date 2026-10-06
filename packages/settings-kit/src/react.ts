@@ -187,6 +187,7 @@ export function useSettingsScope(prefix: string, opts: SettingsKitOptions = {}):
         { present: source?.present === true && "value" in source, value: source?.value },
         {
           deep: def.merge === "deep" && def.type === "object",
+          add: def.merge === "add",
           target: moveTargetFrom(rows, from, to),
         },
       );

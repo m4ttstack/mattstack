@@ -18,6 +18,15 @@ The working rules for `getSetting`/`setSetting`, scope choice and latches are
 the `rt-settings` skill (`skills/rt-settings/SKILL.md`); this file does not
 repeat them.
 
+Shared settings live in an org clone (`~/.mattstack/teams/<org>/`) as an
+org store and one store per team folder. The resolver reads the org layer
+and the active team's layer (`activeTeam()` in rt-client). A shared write is
+refused unless this Mac's role owns the file
+(`packages/rt-client/src/settings/org-roles.ts`, `lib/team/roles.ts`). Read
+`docs/settings-architecture.md` and
+`docs/superpowers/specs/2026-10-01-org-and-teams-design.md` for the layout,
+selection and ownership rules.
+
 ## Repo identity
 
 Every per-repo store, daemon payload and REST path keys on a serialized repo
@@ -666,6 +675,11 @@ the `rt-chat` and gate skills under `skills/`.
 
 ## Switchboard and `rt team join`
 
+Join refuses an invite whose `username` is not the signed-in forge login,
+checks that the cloned roster lists that username, records `forgeUsername`
+on this Mac, and sets `mattstack.activeTeam` to the invite's first team.
+`rt team invite` pushes the roster entry before it makes the invite.
+
 The switchboard URL is a built-in constant, `SWITCHBOARD_URL` in
 `packages/rt-client/src/switchboard.ts`, read only through `switchboardUrl()`.
 No setting holds it and no setup row asks for it; the hidden
@@ -675,12 +689,12 @@ to `switchboardUrl()`. `rt team invite` mints the invitee's board token there
 when this Mac holds the switchboard admin token and seals only the token into
 the invite; `rt team join` stores it under the rt secrets scope, writes no URL
 setting, and refuses a pointer from an older rt whose URL is not
-`switchboardUrl()`. `rt team peer` is the creator's path for their own
-board (`lib/team/peer.ts`): with the admin token readable it registers the
-board under `board.defaultMember` (else the team forge's login, the handle
-join registers), stores the token in that same `switchboardToken` secret,
-and leaves a board whose token already works alone; `rt team create` runs
-it and degrades to a warning. `rt team members remove` deletes the member's
+`switchboardUrl()`. `rt team peer` connects the own board of a Mac holding
+the switchboard admin token, in practice the org admin's (`lib/team/peer.ts`): with the admin token readable it registers the
+board under the username this Mac recorded for the org, the handle join
+registers (else `board.defaultMember`, else the org forge's login), stores the
+token in that same `switchboardToken` secret, and leaves a board whose token
+already works alone; `rt team create` runs it and degrades to a warning. `rt team members remove` deletes the member's
 board registration and `rt team status --json` reports `peered` per member.
 The board's own roster only shows a read-only peered badge; it no longer
 invites, removes or joins.
@@ -691,10 +705,10 @@ nor on a creator's Mac that lacks the switchboard admin token (in rt's
 secrets, the environment or the board's `.env`) and joined no other team,
 since nothing there can peer it. It reads `needs-you` when neither the
 board's `.env` nor rt's `switchboardToken` holds a token (with the
-re-invite remedy, or, on a creator's Mac holding the admin token, the
+re-invite remedy, or, on any Mac holding the admin token, the
 `rt team peer` steps, which `verify`'s note names too), `error` with a re-check when
 `<url>/healthz` (no auth header; `/health` is not a route) does not answer
-200, `ready` otherwise. It is never required or finish-gated (only the owner
+200, `ready` otherwise. It is never required or finish-gated (only the org admin
 can fix it), but `verify` reports it, so `rt setup update` notifies. The
 stored copies older rt wrote (`board.switchboardUrl`,
 `rt.integrations.switchboardUrl`, the board's `config.json` `switchboard.url`)
@@ -749,8 +763,9 @@ settle (`AppDelegate.settleAgentsAfterLaunch`); rt decides whether anything
 happens (`lib/setup/update.ts`: setup not finished, already stamped for
 this version, or run), and only one run at a time holds
 `~/.mattstack/rt/setup-update.lock` (`lib/setup/update-lock.ts`); a second
-one reports `skipped: "running"`. A run is pending migrations, then every
-`StepDef` with `updateSafe: true`, then `verify`, through `runUpdateWith` in
+one reports `skipped: "running"`. A run is pending migrations, then
+`org.pull` and `team.identity`, then the other `StepDef`s with
+`updateSafe: true`, then `verify`, through `runUpdateWith` in
 `lib/setup/apply.ts`. No failed outcome stops it, and a migration that
 throws is one more failed item; only a step that throws a plain error
 ends the run, as a bug (exit 1, no stamp). Otherwise the version is
@@ -901,7 +916,9 @@ The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
   then `rt-tray/build.sh dev`, never in the shared checkout's `rt-tray/`.
   Then replace
   `/Applications/mattstack-dev.app` by moving the old one aside, the way the
-  dev-bundle leg of the `rt:release` skill does.
+  dev-bundle leg of the `rt:release` skill does. A collaborator's dev app
+  comes from the release (`rt dev setup`, `rt dev update`); the `dev-publish`
+  leg of `rt release update-machine` attaches it on the maintainer's Mac.
 
 ## Footguns
 

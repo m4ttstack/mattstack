@@ -1,11 +1,11 @@
 /**
- * The settings resolver (RT-47): one read path that layers the four stores
- * and the registry default into a single answer plus the provenance that
- * explains it.
+ * The settings resolver (RT-47): one read path that layers the stores and
+ * the registry default into a single answer plus the provenance that explains
+ * it. The shared layers are the one org on this Mac and its active team.
  *
  * Scope ladder, weakest → strongest:
  *
- *   default < team < user < team.repo < user.repo < machine < machine.repo
+ *   default < org < team < user < org.repo < team.repo < user.repo < machine < machine.repo
  *
  * Merge is per-key schema, never global (`SettingDef.merge`):
  *  - `replace` — the strongest valid scope wins atomically; provenance has
@@ -15,6 +15,10 @@
  *    lists every scope that still owns at least one leaf of the resolved value,
  *    weakest-first — a scope whose every field was overridden is NOT listed
  *    (same honesty rule that makes `replace` provenance length 1).
+ *  - `add`: array values concatenate walking weakest → strongest, duplicates
+ *    dropped, and nothing subtracts an inherited item. `items` carries each
+ *    resolved item, expanded like the value, with every layer that lists it;
+ *    provenance lists every scope that contributed at least one item.
  *
  * Degrade rules (teammates run version-skewed binaries; one unknown key in the
  * team store must never brick resolution):
@@ -29,8 +33,8 @@
  * implementation:
  *  1. **The path-literal guard is scope-aware.** `validateValue`'s guarded
  *     fields (`rt.roles.hook`) are only illegal in SHARED scopes. The machine
- *     store is explicitly allowed path literals. So team/user rungs get the
- *     full check, the machine rung gets the type check alone.
+ *     store is explicitly allowed path literals. So org, team and user rungs
+ *     get the full check, the machine rung gets the type check alone.
  *  2. **A value found in a store the def does not allow is skipped**, labeled
  *     like any other invalid value (`rt.repoIdentityOverrides` is machine-only;
  *     honouring a team-store copy of it would defeat the schema).
@@ -52,16 +56,12 @@
 
 import { homedir } from "os";
 import { join } from "path";
-import {
-  machineSettingsPath,
-  teamSettingsPath,
-  teamsDir,
-  userSettingsPath,
-} from "./paths.ts";
+import { activeTeamFrom } from "./active-team.ts";
+import { machineSettingsPath, orgSettingsPath, teamSettingsPath, teamsDir, userSettingsPath } from "./paths.ts";
 import { currentStoreName, readSection, storeNameStatus, worstLabel, type OlderLabel, type OlderNameRead, type SectionRead } from "./migrate.ts";
 import { allDefs, getDef, isMigrated, validateValue, type SettingDef, type SettingScope } from "./registry-machinery.ts";
 import { checkSchema, type SchemaIssue } from "./schema.ts";
-import { listTeams, readStore, type StoreFile } from "./stores.ts";
+import { listOrgs, readStore, TEAM_NAME_RE, type StoreFile } from "./stores.ts";
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -70,15 +70,19 @@ export type Scope =
   | "machine"
   | "user.repo"
   | "team.repo"
+  | "org.repo"
   | "user"
   | "team"
+  | "org"
   | "default";
 
 /** The scope ladder, weakest first. Also the order every result is built in. */
 export const SCOPE_ORDER: Scope[] = [
   "default",
+  "org",
   "team",
   "user",
+  "org.repo",
   "team.repo",
   "user.repo",
   "machine",
@@ -91,18 +95,28 @@ export interface Provenance {
   file: string | null;
 }
 
+export interface ItemSource {
+  value: unknown;
+  /** Every layer that lists this item, weakest first. */
+  sources: Provenance[];
+}
+
 export interface ResolveOpts {
   /** Normalized repo identity (identity.ts). Null/absent = repo rungs are unreachable. */
   repoIdentity?: string | null;
   /** Expand closed-set variables in the resolved value. Default true. */
   expand?: boolean;
   expandCtx?: { repoRoot?: string; worktree?: string };
+  /** Read as this team folder instead of the active team; null reads the org layer alone. */
+  team?: string | null;
 }
 
 export interface Resolved<T> {
   value: T;
   /** ALWAYS an array, weakest-first. Length 1 for replace keys. */
   provenance: Provenance[];
+  /** Present only for a `merge: "add"` key: each item of `value`, in order, with the layers it came from. */
+  items?: ItemSource[];
 }
 
 /** A scope whose authored value was found but refused (type, path guard, or store). */
@@ -116,6 +130,8 @@ export interface ListedSetting {
   key: string;
   value: unknown;
   provenance: Provenance[];
+  /** Present only for a `merge: "add"` key: each item of `value` with the layers it came from. */
+  items?: ItemSource[];
   migrated: boolean;
   /** Present only for keys found in files but absent from the registry. */
   unregistered?: true;
@@ -235,65 +251,65 @@ function required(value: string | undefined, name: string, needs: string): strin
 interface StoreBundle {
   user: StoreFile;
   machine: StoreFile;
-  /** One per team that has a local settings file, alphabetical (wave 1: overlay all). */
-  teams: StoreFile[];
+  /** Null on a Mac with no org clone. */
+  org: StoreFile | null;
+  /** Null with no org, or with no active team. A team whose file is missing is a store with `exists: false`. */
+  team: StoreFile | null;
 }
 
-function readStores(): StoreBundle {
-  const teams = [...listTeams()].sort();
-  if (teams.length > 1) warnMultipleTeams(teams);
-  return {
-    user: readStore(userSettingsPath()),
-    machine: readStore(machineSettingsPath()),
-    teams: teams.map((team) => readStore(teamSettingsPath(team))),
-  };
+function assertTeamName(team: string): void {
+  if (!TEAM_NAME_RE.test(team)) throw new Error(`rt: "${team}" is not a team name (lowercase letters, digits and dashes, starting with a letter)`);
 }
 
-let multiTeamWarned: string | null = null;
+function readStores(view: { team?: string | null } = {}): StoreBundle {
+  const user = readStore(userSettingsPath());
+  const machine = readStore(machineSettingsPath());
+  const orgs = [...listOrgs()].sort();
+  if (orgs.length > 1) warnMultipleOrgs(orgs);
+  const org = orgs[0];
+  if (org === undefined) return { user, machine, org: null, team: null };
+  const orgStore = readStore(orgSettingsPath(org));
+  if (typeof view.team === "string") assertTeamName(view.team);
+  const team = view.team !== undefined ? view.team : activeTeamFrom(org, orgStore, user).team;
+  return { user, machine, org: orgStore, team: team === null ? null : readStore(teamSettingsPath(org, team)) };
+}
 
-/** Once per process and per set of teams, with or without a sink: every
- *  settings read folds the stores, so an unguarded warning would repeat on
- *  each one. */
-function warnMultipleTeams(teams: string[]): void {
-  const names = teams.join(", ");
-  if (multiTeamWarned === names) return;
-  multiTeamWarned = names;
+let multiOrgWarned: string | null = null;
+
+/** Once per process and per set of clones: every settings read folds the stores, so an unguarded warning would repeat on each one. */
+function warnMultipleOrgs(orgs: string[]): void {
+  const names = orgs.join(", ");
+  if (multiOrgWarned === names) return;
+  multiOrgWarned = names;
   emitSettingsWarning(
-    `rt: this machine has ${teams.length} team zones (${names}); mattstack supports one team per machine today. Their team settings are folded together, and the later name wins.`,
+    `rt: this machine has ${orgs.length} org clones (${names}); mattstack supports one org per machine today. Only ${orgs[0]} is read.`,
   );
 }
 
 /**
  * The merged value the resolver would produce if `override.scope` (and its
- * repo section, when given) held `override.value`. The write gate uses it
- * to refuse a write that breaks the merge; reads never call it.
- *
- * `override.team` mirrors `setSetting`'s own team-selection rule: a named
- * team patches only that team's store, matching where the real write would
- * land (`write.ts#resolveStorePath`). With no team named, every local team
- * store is patched, since a global (non-team-scoped) write has no single
- * team to prefer. Patching every team store when one IS named would corrupt
- * every OTHER team's real value for this key in the merge check, producing a
- * false refusal for a write that only ever touches its own team's file.
+ * repo section, when given) held `override.value`. A team write is judged in
+ * the view of the team it lands in, never the caller's own active team.
  */
 export function mergedValueWith(
   def: SettingDef,
   override: { scope: SettingScope; repoIdentity?: string; team?: string; value: unknown },
   opts: ResolveOpts = {},
 ): unknown {
-  const stores = readStores();
-  const patched: StoreBundle = { user: cloneStore(stores.user), machine: cloneStore(stores.machine), teams: stores.teams.map(cloneStore) };
-  const targets =
-    override.scope !== "team"
-      ? [override.scope === "user" ? patched.user : patched.machine]
-      : override.team === undefined
-        ? patched.teams
-        : patched.teams.filter((store) => store.file === teamSettingsPath(override.team as string));
-  for (const store of targets) {
+  const view = override.scope === "team" && override.team !== undefined ? override.team : opts.team;
+  const stores = readStores({ team: view });
+  const patched: StoreBundle = {
+    user: cloneStore(stores.user),
+    machine: cloneStore(stores.machine),
+    org: stores.org ? cloneStore(stores.org) : null,
+    team: stores.team ? cloneStore(stores.team) : null,
+  };
+  const target = { user: patched.user, machine: patched.machine, org: patched.org, team: patched.team }[override.scope];
+  if (target) {
     if (override.repoIdentity !== undefined) {
-      store.repos[override.repoIdentity] = { ...(store.repos[override.repoIdentity] ?? {}), [currentStoreName(def)]: override.value };
+      target.repos[override.repoIdentity] = { ...(target.repos[override.repoIdentity] ?? {}), [currentStoreName(def)]: override.value };
     } else {
-      store.global = { ...store.global, [currentStoreName(def)]: override.value };
+      target.global = { ...target.global, [currentStoreName(def)]: override.value };
     }
   }
   return resolveDef(def, patched, opts).value;
@@ -302,18 +318,22 @@ export function mergedValueWith(
 /** The merged value `getSetting` would return, without its warnings for
     skipped layers; the write gate and the check audit read it silently. */
 export function currentMergedValue(def: SettingDef, opts: ResolveOpts = {}): unknown {
-  return resolveDef(def, readStores(), opts).value;
+  return resolveDef(def, readStores({ team: opts.team }), opts).value;
 }
 
 function cloneStore(store: StoreFile): StoreFile {
   return { ...store, global: { ...store.global }, repos: Object.fromEntries(Object.entries(store.repos).map(([k, v]) => [k, { ...v }])) };
 }
 
-/** Every repo identity that has a `repos.<id>` section in any store. */
-export function listStoreRepoIdentities(): string[] {
-  const stores = readStores();
+function sharedStores(stores: StoreBundle): StoreFile[] {
+  return [stores.org, stores.team].filter((s): s is StoreFile => s !== null);
+}
+
+/** Every repo identity that has a `repos.<id>` section in any store, read as `view.team` (the active team when left out). */
+export function listStoreRepoIdentities(view: { team?: string | null } = {}): string[] {
+  const stores = readStores(view);
   const ids = new Set<string>();
-  for (const store of [stores.user, stores.machine, ...stores.teams]) for (const id of Object.keys(store.repos)) ids.add(id);
+  for (const store of [stores.user, stores.machine, ...sharedStores(stores)]) for (const id of Object.keys(store.repos)) ids.add(id);
   return [...ids].sort();
 }
 
@@ -333,9 +353,13 @@ export function listUnregisteredSettings(): { key: string; scope: Scope; file: s
       else if (status === "newer") out.push({ key, scope, file, newer: true });
     }
   };
-  for (const store of stores.teams) {
-    scan("team", store.file, store.global);
-    for (const s of Object.values(store.repos)) scan("team.repo", store.file, s);
+  if (stores.org) {
+    scan("org", stores.org.file, stores.org.global);
+    for (const s of Object.values(stores.org.repos)) scan("org.repo", stores.org.file, s);
+  }
+  if (stores.team) {
+    scan("team", stores.team.file, stores.team.global);
+    for (const s of Object.values(stores.team.repos)) scan("team.repo", stores.team.file, s);
   }
   scan("user", stores.user.file, stores.user.global);
   for (const s of Object.values(stores.user.repos)) scan("user.repo", stores.user.file, s);
@@ -358,7 +382,8 @@ export function repoSectionsFor(key: string): { identity: string; scopes: Settin
       byId.set(id, list);
     }
   };
-  for (const store of stores.teams) note("team", store);
+  if (stores.org) note("org", stores.org);
+  if (stores.team) note("team", stores.team);
   note("user", stores.user);
   note("machine", stores.machine);
   return [...byId.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([identity, scopes]) => ({ identity, scopes }));
@@ -387,18 +412,13 @@ function collectSlots(def: SettingDef, stores: StoreBundle, opts: ResolveOpts): 
     else slots.push({ scope, file, present: true, value: read.value, read });
   };
 
-  /**
-   * Wave 1 overlays EVERY cloned team, alphabetically, so the result is
-   * deterministic; multi-team precedence is explicitly deferred (spec: out of
-   * scope — one team exists today). With no team cloned at all we still emit
-   * one absent rung so `explain` shows the ladder in full.
-   */
-  const pushTeams = (scope: Scope, section: (store: StoreFile) => Record<string, unknown> | undefined) => {
-    if (stores.teams.length === 0) {
+  /** A layer this Mac has no store for still gets its rung, absent, so `explain` shows the ladder in full. */
+  const pushShared = (scope: Scope, store: StoreFile | null, section: (store: StoreFile) => Record<string, unknown> | undefined) => {
+    if (store === null) {
       slots.push({ scope, file: null, present: false });
       return;
     }
-    for (const store of stores.teams) push(scope, store.file, section(store));
+    push(scope, store.file, section(store));
   };
 
   // default — cloned so a caller mutating the resolved value cannot corrupt
@@ -412,9 +432,11 @@ function collectSlots(def: SettingDef, stores: StoreBundle, opts: ResolveOpts): 
   // The ladder itself, weakest → strongest. Repo rungs are omitted entirely
   // when they are unreachable (key not repoScoped, or no identity in hand) —
   // an unreachable rung in `explain` would be noise, not honesty.
-  pushTeams("team", (store) => store.global);
+  pushShared("org", stores.org, (store) => store.global);
+  pushShared("team", stores.team, (store) => store.global);
   push("user", stores.user.file, stores.user.global);
-  if (useRepo) pushTeams("team.repo", repoSection);
+  if (useRepo) pushShared("org.repo", stores.org, repoSection);
+  if (useRepo) pushShared("team.repo", stores.team, repoSection);
   if (useRepo) push("user.repo", stores.user.file, repoSection(stores.user));
   push("machine", stores.machine.file, stores.machine.global);
   if (useRepo) push("machine.repo", stores.machine.file, repoSection(stores.machine));
@@ -427,23 +449,30 @@ function collectSlots(def: SettingDef, stores: StoreBundle, opts: ResolveOpts): 
 interface Resolution {
   value: unknown;
   provenance: Provenance[];
+  items?: ItemSource[];
   invalid: InvalidScope[];
   rows: ExplainRow[];
   mergedIssues: SchemaIssue[];
 }
 
-const TEAM_LOCKED_SCOPES: Scope[] = ["default", "team", "team.repo"];
+const TEAM_LOCKED_SCOPES: Scope[] = ["default", "org", "team", "org.repo", "team.repo"];
 
-/** The store a scope's value is authored in — the rung's write-side scope. */
 function isRepoRung(scope: Scope): boolean {
-  return scope === "team.repo" || scope === "user.repo" || scope === "machine.repo";
+  return scope === "org.repo" || scope === "team.repo" || scope === "user.repo" || scope === "machine.repo";
 }
 
+/** The store a scope's value is authored in: the rung's write-side scope. */
 function baseScope(scope: Scope): SettingScope | null {
+  if (scope === "org" || scope === "org.repo") return "org";
   if (scope === "team" || scope === "team.repo") return "team";
   if (scope === "user" || scope === "user.repo") return "user";
   if (scope === "machine" || scope === "machine.repo") return "machine";
   return null; // default is not authored in a store
+}
+
+/** A layer other people author: the org's or a team's, global or per repo. Every gate that distrusts team-authored values asks this. */
+export function isSharedScope(scope: Scope): boolean {
+  return scope === "org" || scope === "org.repo" || scope === "team" || scope === "team.repo";
 }
 
 /**
@@ -455,7 +484,7 @@ function validateForScope(
   scope: Scope,
   value: unknown,
 ): { ok: true } | { ok: false; reason: string } {
-  const shared = scope === "team" || scope === "user" || scope === "team.repo" || scope === "user.repo";
+  const shared = scope !== "default" && scope !== "machine" && scope !== "machine.repo";
   return validateValue(shared ? def : { ...def, pathGuardFields: undefined }, value);
 }
 
@@ -482,7 +511,7 @@ function resolveDef(def: SettingDef, stores: StoreBundle, opts: ResolveOpts): Re
       }
     }
 
-    // teamLocked: team.repo > team > default and nothing else. Other scopes'
+    // teamLocked: the shared rungs and default and nothing else. Other scopes'
     // values are reported, never applied.
     if (def.teamLocked && !TEAM_LOCKED_SCOPES.includes(slot.scope)) {
       row.shadowed = "teamLocked";
@@ -533,13 +562,13 @@ function resolveDef(def: SettingDef, stores: StoreBundle, opts: ResolveOpts): Re
 
   const merged = mergeApplied(def, applied);
   const mergedIssues = merged.value === undefined ? [] : checkSchema(def, merged.value, { layer: false });
-  return { value: merged.value, provenance: merged.provenance, invalid, rows, mergedIssues };
+  return { value: merged.value, provenance: merged.provenance, invalid, rows, mergedIssues, ...(merged.items ? { items: merged.items } : {}) };
 }
 
 function mergeApplied(
   def: SettingDef,
   applied: Array<{ scope: Scope; file: string | null; value: unknown }>,
-): { value: unknown; provenance: Provenance[] } {
+): { value: unknown; provenance: Provenance[]; items?: ItemSource[] } {
   if (applied.length === 0) return { value: undefined, provenance: [] };
 
   // Deep merge is only meaningful for objects; a `deep` def with any other
@@ -556,6 +585,38 @@ function mergeApplied(
           const layer = objectLayers[i] as (typeof applied)[number];
           return { scope: layer.scope, file: layer.file };
         }),
+      };
+    }
+  }
+
+  if (def.merge === "add" && def.type === "array") {
+    const lists = applied.filter((layer) => Array.isArray(layer.value));
+    if (lists.length > 0) {
+      const items: ItemSource[] = [];
+      const byId = new Map<string, ItemSource>();
+      const contributors: Provenance[] = [];
+      for (const layer of lists) {
+        const source: Provenance = { scope: layer.scope, file: layer.file };
+        const seenHere = new Set<string>();
+        for (const value of layer.value as unknown[]) {
+          const id = JSON.stringify(value);
+          if (seenHere.has(id)) continue;
+          seenHere.add(id);
+          let item = byId.get(id);
+          if (!item) {
+            item = { value, sources: [] };
+            byId.set(id, item);
+            items.push(item);
+          }
+          item.sources.push(source);
+        }
+        if (seenHere.size > 0) contributors.push(source);
+      }
+      const strongest = lists[lists.length - 1] as (typeof applied)[number];
+      return {
+        value: items.map((item) => item.value),
+        provenance: contributors.length > 0 ? contributors : [{ scope: strongest.scope, file: strongest.file }],
+        items,
       };
     }
   }
@@ -668,7 +729,7 @@ const warnedOnce = new Set<string>();
 export function setSettingsWarnSink(sink: ((msg: string) => void) | null): void {
   warnSink = sink;
   warnedOnce.clear();
-  multiTeamWarned = null;
+  multiOrgWarned = null;
 }
 
 export function emitSettingsWarning(msg: string): void {
@@ -696,16 +757,21 @@ export function getSetting<T>(key: string, opts: ResolveOpts = {}): Resolved<T> 
   const def = getDef(key);
   if (!def) throw unknownKey(key);
 
-  const resolution = resolveDef(def, readStores(), opts);
+  const resolution = resolveDef(def, readStores({ team: opts.team }), opts);
   for (const entry of resolution.invalid) warnInvalid(key, entry);
 
   const shouldExpand = opts.expand ?? true;
-  const value =
-    shouldExpand && resolution.value !== undefined
-      ? expandVariables(resolution.value, expandCtxFrom(opts))
-      : resolution.value;
+  if (!shouldExpand || resolution.value === undefined) {
+    return { value: resolution.value as T, provenance: resolution.provenance, ...(resolution.items ? { items: resolution.items } : {}) };
+  }
+  const ctx = expandCtxFrom(opts);
+  const value = expandVariables(resolution.value, ctx);
+  const items = resolution.items ? expandItems(resolution.items, ctx) : undefined;
+  return { value: value as T, provenance: resolution.provenance, ...(items ? { items } : {}) };
+}
 
-  return { value: value as T, provenance: resolution.provenance };
+function expandItems(items: ItemSource[], ctx: ExpandCtx): ItemSource[] {
+  return items.map((item) => ({ ...item, value: expandVariables(item.value, ctx) }));
 }
 
 /**
@@ -715,7 +781,7 @@ export function getSetting<T>(key: string, opts: ResolveOpts = {}): Resolved<T> 
  * degrades to its raw form plus an `expandError` label.
  */
 export function listSettings(opts: ResolveOpts = {}): ListedSetting[] {
-  const stores = readStores();
+  const stores = readStores({ team: opts.team });
   const ctx = expandCtxFrom(opts);
   const shouldExpand = opts.expand ?? true;
   const out: ListedSetting[] = [];
@@ -731,6 +797,7 @@ export function listSettings(opts: ResolveOpts = {}): ListedSetting[] {
       migrated: isMigrated(def),
     };
     if (resolution.invalid.length > 0) listed.invalid = resolution.invalid;
+    if (resolution.items) listed.items = resolution.items;
 
     const nonconforming = resolution.rows.filter((r) => r.nonconforming).map((r) => ({ scope: r.scope, file: r.file, issues: r.nonconforming! }));
     if (nonconforming.length > 0) listed.nonconforming = nonconforming;
@@ -744,6 +811,7 @@ export function listSettings(opts: ResolveOpts = {}): ListedSetting[] {
     if (shouldExpand && resolution.value !== undefined) {
       try {
         listed.value = expandVariables(resolution.value, ctx);
+        if (resolution.items) listed.items = expandItems(resolution.items, ctx);
       } catch (err) {
         listed.expandError = (err as Error).message;
         emitSettingsWarning(`rt: showing "${def.key}" unexpanded — ${listed.expandError}`);
@@ -777,9 +845,11 @@ function listUnregistered(stores: StoreBundle, opts: ResolveOpts): ListedSetting
   const repoSection = (store: StoreFile) =>
     typeof identity === "string" && identity !== "" ? store.repos[identity] : undefined;
 
-  for (const store of stores.teams) scan("team", store.file, store.global);
+  if (stores.org) scan("org", stores.org.file, stores.org.global);
+  if (stores.team) scan("team", stores.team.file, stores.team.global);
   scan("user", stores.user.file, stores.user.global);
-  for (const store of stores.teams) scan("team.repo", store.file, repoSection(store));
+  if (stores.org) scan("org.repo", stores.org.file, repoSection(stores.org));
+  if (stores.team) scan("team.repo", stores.team.file, repoSection(stores.team));
   scan("user.repo", stores.user.file, repoSection(stores.user));
   scan("machine", stores.machine.file, stores.machine.global);
   scan("machine.repo", stores.machine.file, repoSection(stores.machine));
@@ -806,6 +876,23 @@ function listUnregistered(stores: StoreBundle, opts: ResolveOpts): ListedSetting
 }
 
 /**
+ * The org store's own value for `key` (its repo section when `repoIdentity` is
+ * given), migrated but never merged or expanded; undefined when absent or
+ * invalid. A read-modify-write at `scope: "org"` starts from this, so the
+ * active team's overrides are never copied into the org layer.
+ */
+export function getOrgSetting<T>(key: string, opts: { repoIdentity?: string } = {}): T | undefined {
+  const def = getDef(key);
+  if (!def) throw unknownKey(key);
+  const org = readStores({ team: null }).org;
+  if (org === null) return undefined;
+  const section = opts.repoIdentity !== undefined ? org.repos[opts.repoIdentity] : org.global;
+  const read = readSection(def, section, { layer: true });
+  if (!read.present || !validateForScope(def, "org", read.value).ok) return undefined;
+  return read.value as T;
+}
+
+/**
  * One row per reachable rung, weakest-first, with `value` migrated to the
  * current shape and `authored` as stored. Repo rungs are omitted entirely
  * when the key is not repoScoped or no identity was supplied... showing rungs
@@ -814,5 +901,5 @@ function listUnregistered(stores: StoreBundle, opts: ResolveOpts): ListedSetting
 export function explainSetting(key: string, opts: ResolveOpts = {}): ExplainRow[] {
   const def = getDef(key);
   if (!def) throw unknownKey(key);
-  return resolveDef(def, readStores(), opts).rows;
+  return resolveDef(def, readStores({ team: opts.team }), opts).rows;
 }

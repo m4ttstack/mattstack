@@ -8,16 +8,19 @@ type Row = ReturnType<typeof useRowSave>;
 type Role = 'team' | 'self';
 type Roles = Record<string, Role>;
 interface RolesInfo {
-  members: { username: string; name: string | null }[];
+  members: {
+    username: string;
+    name: string | null;
+    fixed: 'admin' | 'owner' | null;
+  }[];
   access: 'owner' | 'member' | 'no-team';
-  self: string | null;
 }
 
 export const ROLES_KEY = 'boxscore.roles';
 
 const NOTE: Record<Exclude<RolesInfo['access'], 'owner'>, string> = {
-  member: 'Only the team owner can change roles.',
-  'no-team': 'Roles live in team settings, and this Mac has no team.',
+  member: 'Only an owner of your team or an org admin can change roles.',
+  'no-team': 'Roles live in team settings, and this Mac is in no org.',
 };
 
 let pending: Promise<RolesInfo | null> | null = null;
@@ -67,10 +70,7 @@ const ROLE_DATA = [
   { value: 'self', label: 'Self' },
 ];
 
-/** The owner's Mac always sees the whole team, whatever is stored for them. */
-function isOwner(info: RolesInfo, u: string): boolean {
-  return info.access === 'owner' && info.self === u;
-}
+const FIXED_LABEL = { admin: 'Team · org admin', owner: 'Team · owner' };
 
 /** "N of M on Team view" over the roster, or `fallback` until it loads. */
 export function useRolesSummary(def: SettingDefWire, fallback: string): string {
@@ -78,7 +78,7 @@ export function useRolesSummary(def: SettingDefWire, fallback: string): string {
   if (!info) return fallback;
   const stored = storedRoles(def);
   const team = info.members.filter(
-    m => isOwner(info, m.username) || roleOf(stored, m.username) === 'team'
+    m => m.fixed !== null || roleOf(stored, m.username) === 'team'
   ).length;
   return `${team} of ${info.members.length} on Team view`;
 }
@@ -118,9 +118,9 @@ export function BoxscoreRolesBody({
           <Text fz={13} w={240} truncate="end">
             {m.name ?? m.username}
           </Text>
-          {isOwner(info, m.username) ? (
+          {m.fixed ? (
             <Text fz="xs" fw={500} c="dimmed" pl={10}>
-              Team · owner
+              {FIXED_LABEL[m.fixed]}
             </Text>
           ) : (
             <SegmentedControl

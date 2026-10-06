@@ -5,17 +5,21 @@
  */
 
 import { dirname, join } from "path";
-import type { TeamRef } from "./contract.ts";
+import type { OrgRef } from "./contract.ts";
 import type { Probes } from "./probes.ts";
 
+export const INVITE_POINTER_VERSION = 2;
+
 export interface InvitePointer {
-  v: 1;
+  v: 2;
   team: string;
   name: string;
   remote: string;
   owner: string;
   forge: string;
   createdAt: string;
+  username: string;
+  teams: string[];
   /** Board peering, pre-minted at invite time: the owner's machine registers
       the invitee's board on the switchboard and seals the per-board token
       here, because at join time the invitee cannot yet decrypt team secrets
@@ -29,7 +33,7 @@ export interface SetupIntent {
   v: 1;
   at: string;
   mode: "create" | "join" | "restore" | "solo";
-  team?: { slug: string; name: string; remote: string; others: boolean };
+  team?: { slug: string; name: string; remote: string; others: boolean; firstTeam?: string };
   join?: { id: string; keyB64: string; pointer: InvitePointer };
   restore?: { homeRepo: string };
   /** Orthogonal to `mode` — create and join both need one; restore keeps its own under `restore.homeRepo`. */
@@ -61,12 +65,12 @@ export function clearIntent(p: Pick<Probes, "removeFile" | "home">): void {
 }
 
 /**
- * create/join carry the team identity on the intent itself; restore and the
+ * create/join carry the org identity on the intent itself; restore and the
  * no-intent case fall back to whatever the daemon already discovered on
- * disk. Multi-team fallback takes teams[0] on the assumption the caller
- * passes teams pre-sorted alphabetically — a real picker is a §14 follow-up.
+ * disk. With more than one org, `orgs[0]` wins, so the caller passes `orgs`
+ * sorted alphabetically.
  */
-export function teamRefFromIntent(intent: SetupIntent | null, teams: string[]): TeamRef {
+export function orgRefFromIntent(intent: SetupIntent | null, orgs: string[]): OrgRef {
   if (intent?.mode === "create" && intent.team) {
     return { slug: intent.team.slug, name: intent.team.name, mode: "create" };
   }
@@ -74,8 +78,8 @@ export function teamRefFromIntent(intent: SetupIntent | null, teams: string[]): 
     return { slug: intent.join.pointer.team, name: intent.join.pointer.name, mode: "join" };
   }
   if (intent?.mode === "restore") {
-    return { slug: teams[0] ?? "", name: teams[0] ?? "", mode: "restore" };
+    return { slug: orgs[0] ?? "", name: orgs[0] ?? "", mode: "restore" };
   }
   // solo carries no team; the discovered clones still decide the ref so a machine that later has a team never reads as solo.
-  return teams.length ? { slug: teams[0]!, name: teams[0]!, mode: "none" } : { slug: "", name: "", mode: "none" };
+  return orgs.length ? { slug: orgs[0]!, name: orgs[0]!, mode: "none" } : { slug: "", name: "", mode: "none" };
 }

@@ -25,7 +25,7 @@ import {
 } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { machineSettingsPath, repoDataDir, rtDir, teamSettingsPath } from "../rt-paths.ts";
+import { machineSettingsPath, repoDataDir, rtDir } from "../rt-paths.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
 import { closeStateDb, getStateDb, setKvValue } from "../state/index.ts";
@@ -34,6 +34,7 @@ import { getKnownRepos, loadRepoIndex, updateRepoIndex, __test__ } from "../repo
 import * as ui from "../ui/out.ts";
 import { captureOut } from "../ui/__tests__/capture-out.ts";
 import { setWarningLog, __test__ as warnTest } from "../ui/warn.ts";
+import { sharedStorePath } from "../../packages/rt-client/test/org-fixture.ts";
 
 const TEAM = "acme";
 const REPO_INDEX_NS = "repo-index";
@@ -106,13 +107,13 @@ describe("repo-index — rt.repoRoots (RT-49)", () => {
   }
 
   function seedTeam(name: string): void {
-    const p = teamSettingsPath(name);
+    const p = sharedStorePath(name);
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, `// ${name} team store\n{}\n`);
   }
 
   function writeTeamGlobal(name: string, obj: Record<string, unknown>): void {
-    const p = teamSettingsPath(name);
+    const p = sharedStorePath(name);
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, JSON.stringify(obj, null, 2));
   }

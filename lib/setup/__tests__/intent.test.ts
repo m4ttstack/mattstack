@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { fakeProbes } from "./fakes.ts";
-import { intentPath, readIntent, writeIntent, clearIntent, teamRefFromIntent, type SetupIntent } from "../intent.ts";
+import { intentPath, readIntent, writeIntent, clearIntent, orgRefFromIntent, type SetupIntent } from "../intent.ts";
 
 describe("intentPath", () => {
   test("joins home/.mattstack/rt/setup-intent.json", () => {
@@ -30,7 +30,7 @@ describe("writeIntent / readIntent", () => {
       join: {
         id: "inv1",
         keyB64: "a2V5",
-        pointer: { v: 1, team: "acme", name: "Acme", remote: "git@host:acme/rt-home.git", owner: "matt", forge: "github", createdAt: "2026-08-20T00:00:00.000Z" },
+        pointer: { v: 2, username: "dev2", teams: ["widgets"], team: "acme", name: "Acme", remote: "git@host:acme/rt-home.git", owner: "matt", forge: "github", createdAt: "2026-08-20T00:00:00.000Z" },
       },
     };
     writeIntent(p, intent);
@@ -63,18 +63,18 @@ describe("clearIntent", () => {
   });
 });
 
-describe("teamRefFromIntent", () => {
-  test("create intent yields the team slug/name with mode create", () => {
+describe("orgRefFromIntent", () => {
+  test("create intent yields the org slug/name with mode create", () => {
     const intent: SetupIntent = {
       v: 1,
       at: "x",
       mode: "create",
       team: { slug: "acme", name: "Acme", remote: "r", others: false },
     };
-    expect(teamRefFromIntent(intent, [])).toEqual({ slug: "acme", name: "Acme", mode: "create" });
+    expect(orgRefFromIntent(intent, [])).toEqual({ slug: "acme", name: "Acme", mode: "create" });
   });
 
-  test("join intent yields the invite pointer's team/name with mode join", () => {
+  test("join intent yields the invite pointer's org slug/name with mode join", () => {
     const intent: SetupIntent = {
       v: 1,
       at: "x",
@@ -82,31 +82,31 @@ describe("teamRefFromIntent", () => {
       join: {
         id: "inv1",
         keyB64: "k",
-        pointer: { v: 1, team: "acme", name: "Acme HQ", remote: "r", owner: "o", forge: "github", createdAt: "x" },
+        pointer: { v: 2, username: "dev2", teams: ["widgets"], team: "acme", name: "Acme HQ", remote: "r", owner: "o", forge: "github", createdAt: "x" },
       },
     };
-    expect(teamRefFromIntent(intent, [])).toEqual({ slug: "acme", name: "Acme HQ", mode: "join" });
+    expect(orgRefFromIntent(intent, [])).toEqual({ slug: "acme", name: "Acme HQ", mode: "join" });
   });
 
-  test("restore intent yields the first discovered team with mode restore", () => {
+  test("restore intent yields the first discovered org with mode restore", () => {
     const intent: SetupIntent = { v: 1, at: "x", mode: "restore", restore: { homeRepo: "r" } };
-    expect(teamRefFromIntent(intent, ["acme", "beta"])).toEqual({ slug: "acme", name: "acme", mode: "restore" });
+    expect(orgRefFromIntent(intent, ["acme", "beta"])).toEqual({ slug: "acme", name: "acme", mode: "restore" });
   });
 
-  test("null intent with discovered teams yields the first team with mode none", () => {
-    expect(teamRefFromIntent(null, ["acme", "beta"])).toEqual({ slug: "acme", name: "acme", mode: "none" });
+  test("null intent with discovered orgs yields the first org with mode none", () => {
+    expect(orgRefFromIntent(null, ["acme", "beta"])).toEqual({ slug: "acme", name: "acme", mode: "none" });
   });
 
-  test("null intent with no discovered teams yields an empty ref", () => {
-    expect(teamRefFromIntent(null, [])).toEqual({ slug: "", name: "", mode: "none" });
+  test("null intent with no discovered orgs yields an empty ref", () => {
+    expect(orgRefFromIntent(null, [])).toEqual({ slug: "", name: "", mode: "none" });
   });
 
-  test("round-trips a solo intent and maps it to the no-team ref", () => {
+  test("round-trips a solo intent and maps it to the no-org ref", () => {
     const p = fakeProbes();
     const intent: SetupIntent = { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "solo" };
     writeIntent(p, intent);
     expect(readIntent(p)).toEqual(intent);
-    expect(teamRefFromIntent(intent, [])).toEqual({ slug: "", name: "", mode: "none" });
-    expect(teamRefFromIntent(intent, ["acme"])).toEqual({ slug: "acme", name: "acme", mode: "none" });
+    expect(orgRefFromIntent(intent, [])).toEqual({ slug: "", name: "", mode: "none" });
+    expect(orgRefFromIntent(intent, ["acme"])).toEqual({ slug: "acme", name: "acme", mode: "none" });
   });
 });

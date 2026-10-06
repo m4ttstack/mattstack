@@ -21,8 +21,8 @@ import { createRealAgeKeySeam } from "../lib/home/age-key.ts";
 import { promptSecret } from "../lib/prompt-secret.ts";
 import { NoAgeKeyError, createRealSecretsExecSeam, personalStoreReady, writeSecret, type SecretsSeams } from "../lib/secrets/store.ts";
 import { NoTeamRecipientsError, createRealTeamSecretsSeams, readTeamSecret, writeTeamSecret } from "../lib/secrets/team-store.ts";
-import { listTeams } from "../lib/settings/stores.ts";
-import { getSetting } from "../lib/settings/resolve.ts";
+import { listOrgs } from "../lib/settings/stores.ts";
+import { getOrgSetting, getSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import * as out from "../lib/ui/out.ts";
 import { createApplyContext, runApplyWith, runUpdateWith, type ApplyContext, type CreateApplyContextDeps, type StepDef, type UpdateRunResult } from "../lib/setup/apply.ts";
@@ -36,13 +36,20 @@ import { createStepEmitter, type Emit, type StepEmitterLabels } from "../lib/set
 import { exitWithUserError, type UserErrorSink } from "../lib/setup/user-failure.ts";
 import type { RenderStatus } from "../lib/ui/protocol.ts";
 import { logCliEvent } from "../lib/cli-logger.ts";
+import { resolveTool } from "../lib/deps/resolve.ts";
+import { devAppNotice, type DevAppNotice } from "../lib/dev/notice.ts";
+import { processFlavor } from "../lib/flavor.ts";
 import { UserActionableError } from "../lib/errors.ts";
 import { realWaiverStore, unwaiveRow, waiveRow, type WaiverChange, type WaiverStore } from "../lib/setup/finish-gate.ts";
 import { isValidHostname } from "../lib/setup/host-validate.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";
-import { clearIntent, readIntent, teamRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
+import { clearIntent, readIntent, orgRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
 import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
+import type { forgeLogin } from "../lib/team/forge.ts";
+import { cloneSlugs, cloneOrigin, recordForgeIdentity } from "../lib/setup/steps/org.ts";
+import { forgeFromRemote, hostFromRemote, legacyDeclaredForge } from "../lib/setup/team-settings.ts";
 import { readTeamLocal } from "../lib/team/team-local.ts";
+import { roleFor } from "../lib/team/roles.ts";
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
 import { planBlocks, rowTitles } from "../lib/setup/plan-blocks.ts";
 import { composePlan, enrichSnapshotForge, realSecretPresence } from "../lib/setup/plan.ts";
@@ -54,7 +61,7 @@ import { STEPS } from "../lib/setup/steps/index.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
 import { markSetupFinished } from "../lib/setup/state.ts";
-import { discoverTeams, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
+import { discoverOrgs, readTeamSnapshot, readUserIntegrationOverrides, type TeamIntegrations, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
 import type { Plan } from "../lib/setup/contract.ts";
 import { createRelayClient, type RelayClient } from "../lib/team/relay-client.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
@@ -116,7 +123,7 @@ async function runPlan(args: string[], deps: SetupDeps, mode: "plan" | "status")
       secrets: deps.secrets,
       ci: process.env.CI === "true",
       mode,
-      teams: listTeams(),
+      orgs: listOrgs(),
       teamOverride: flagValue(args, "--team"),
     });
   } catch (err) {
@@ -165,6 +172,8 @@ export interface ApplyDeps {
   migrations?: MigrationDef[];
   /** Posts the update run's needs-you notification; defaults to the preference-gated notifier. */
   notify?: (category: string, title: string, message: string, id: string) => void;
+  /** Looks for a newer dev app after an update run; absent means no check. Never touches the exit code or the stamp. */
+  devAppNotice?: () => Promise<DevAppNotice | null>;
   /** Single flight for `rt setup update`; absent means the run is not guarded. */
   updateLock?: UpdateLock;
 }
@@ -183,6 +192,7 @@ export function realApplyDeps(): ApplyDeps {
       return confirm({ message });
     },
     notify: (category, title, message, id) => notifyEnabled(category, title, message, undefined, undefined, id),
+    devAppNotice: () => devAppNotice({ probes, flavor: processFlavor(), gh: () => resolveTool(probes, "gh").exec }),
     updateLock: createUpdateLock(updateLockPath(probes.home)),
   };
 }
@@ -247,7 +257,7 @@ const HARD_PRECONDITION_COPY: Record<string, { why: string; next?: string }> = {
 async function gateHardPreconditions(args: string[], deps: ApplyDeps): Promise<void> {
   if (args.includes("--force")) return;
   const plan = await (deps.planForGate?.() ??
-    composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", teams: listTeams() }));
+    composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", orgs: listOrgs() }));
   const hard = plan.requiredMissing.filter((id) => HARD_PRECONDITION_IDS.has(id));
   if (hard.length === 0) return;
   // A hard id with no copy entry still names itself, so the person is never told nothing.
@@ -327,7 +337,7 @@ function stampUpdateWhenNothingPends(deps: ApplyDeps, json: boolean): void {
 async function finishIfClear(deps: ApplyDeps, json: boolean): Promise<void> {
   try {
     const plan = await (deps.planForFinish?.() ??
-      composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", teams: listTeams() }));
+      composePlan({ p: deps.probes, secrets: deps.secretPresence ?? realSecretPresence(), ci: process.env.CI === "true", mode: "plan", orgs: listOrgs() }));
     if (plan.finishBlockedBy.length === 0) markSetupFinished(deps.probes);
   } catch (err) {
     warnLine(json, "Setup was left unfinished because the finish check failed", err instanceof Error ? err.message : String(err));
@@ -411,6 +421,13 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
     const notification = updateNotification(version, result.outcomes);
     if (notification) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, notification.title, notification.message, notification.id);
 
+    try {
+      const devNotice = await deps.devAppNotice?.();
+      if (devNotice) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, devNotice.title, devNotice.message, devNotice.id);
+    } catch (err) {
+      logCliEvent("warn", "setup.update", `dev app notice skipped: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
     needsAttention = notification !== null;
   } finally {
     lock?.release();
@@ -466,7 +483,7 @@ export async function setupInteractive(args: string[], _ctx: CommandContext = {}
 
   if (!deps.isTTY() || json) return setupStatus(args, _ctx, setupDeps);
 
-  const plan = await composePlan({ p: deps.probes, secrets: setupDeps.secrets, ci: process.env.CI === "true", mode: "plan", teams: listTeams() });
+  const plan = await composePlan({ p: deps.probes, secrets: setupDeps.secrets, ci: process.env.CI === "true", mode: "plan", orgs: listOrgs() });
   out.print(...planBlocks(plan, "plan"));
 
   if (!plan.canInstall && !args.includes("--force")) {
@@ -525,12 +542,12 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
       return;
     }
     if (sub === "solo") {
-      const teams = discoverTeams(deps.probes);
-      if (teams.length > 0) {
-        const folders = teams.map((slug) => `~/.mattstack/teams/${slug}`).join(" and ");
+      const orgs = discoverOrgs(deps.probes);
+      if (orgs.length > 0) {
+        const folders = orgs.map((slug) => `~/.mattstack/teams/${slug}`).join(" and ");
         throw new UserActionableError(
           "team-exists",
-          `A team is already set up on this Mac (${teams.join(", ")}), and Just me needs a Mac with no team. Remove ${folders}, or pick Join or Create instead.`,
+          `A team is already set up on this Mac (${orgs.join(", ")}), and Just me needs a Mac with no team. Remove ${folders}, or pick Join or Create instead.`,
         );
       }
       writeIntent(deps.probes, { v: 1, at: deps.probes.now().toISOString(), mode: "solo" });
@@ -828,7 +845,7 @@ export function realSecretWriter(): SecretWriter {
 /**
  * Team-scoped secrets (Slack's client/signing secret, a future shared service
  * token). Backed by the real N-recipient team store (lib/secrets/team-store.ts):
- * `teams/<slug>/mattstack/secrets/<domain>.json`, encrypted to every team
+ * `teams/<slug>/mattstack/org/secrets/<domain>.json`, encrypted to every team
  * member's age key via `teams/<slug>/.sops.yaml`. `write` mirrors
  * `storeCredential`'s own age-key-gated fallback (stage when there's no key
  * yet) so a team secret written before `rt home init` still lands somewhere
@@ -891,6 +908,7 @@ export function realTeamSecrets(p: Probes): TeamSecrets {
 }
 
 export interface ConnectDeps extends SetupDeps {
+  forgeLogin?: typeof forgeLogin;
   exit: (code: number) => never;
   /** Reads the full stdin body: valid JSON parses to its value; anything else (a bare token line) comes back as the trimmed raw string; empty stdin is null. Never throws. */
   stdin: () => Promise<unknown>;
@@ -899,6 +917,8 @@ export interface ConnectDeps extends SetupDeps {
   writer: SecretWriter;
   teamSecrets: TeamSecrets;
   writeSetting: typeof setSetting;
+  /** The org store's own value for a key, unmerged; what an org write starts from. */
+  readOrgSetting?: typeof getOrgSetting;
   /** Opens one OAuth callback listener on `port`, checks the callback's `state` against `expectedState`, and resolves with the `code` query param. Rejects (never hangs past its own timeout) on a state mismatch, a missing code, or a listen failure. */
   listen: (port: number, expectedState: string) => Promise<string>;
   /** Unguessable per-request token (CSRF-style) — never `Math.random`; the OAuth `state` param is the one consumer today. */
@@ -980,6 +1000,7 @@ export function realConnectDeps(): ConnectDeps {
     writer: realSecretWriter(),
     teamSecrets: realTeamSecrets(probes),
     writeSetting: setSetting,
+    readOrgSetting: getOrgSetting,
     listen: realOAuthListen,
     randomState: () => randomBytes(16).toString("hex"),
   };
@@ -990,10 +1011,10 @@ const EMPTY_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdent
 /** A connect that took its token from gh reports this, and the scope shortfall reads it back to offer a gh refresh. */
 const GH_SOURCE_DETAIL = "Signed in through the gh CLI";
 
-/** Mirrors composePlan's own team resolution (readIntent → teamRefFromIntent → readTeamSnapshot → forge enrichment) without the `--team` override these single-integration verbs don't take. */
+/** Mirrors composePlan's own team resolution (readIntent → orgRefFromIntent → readTeamSnapshot → forge enrichment) without the `--team` override these single-integration verbs don't take. */
 function realResolveTeamSnapshot(p: Probes): TeamSnapshot {
   const intent = readIntent(p);
-  const ref = teamRefFromIntent(intent, listTeams());
+  const ref = orgRefFromIntent(intent, listOrgs());
   const snapshot = ref.slug ? readTeamSnapshot(p, ref.slug) : EMPTY_SNAPSHOT;
   return enrichSnapshotForge(snapshot, intent);
 }
@@ -1302,8 +1323,8 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
   // A token the forge accepts can still lack what the owner's push or the members API needs later, so the shortfall is named here, at the paste, not at the clone.
   if (id === "github" || id === "gitlab") {
     const team = snapshotFor(deps);
-    const joinedByRt = team.slug ? readTeamLocal(deps.probes, team.slug).joinedByRt : false;
-    const role = forgeRole({ intentMode: readIntent(deps.probes)?.mode ?? null, joinedByRt, hasTeam: team.slug !== "" });
+    const orgRole = team.slug ? roleFor(deps.probes, team.slug).kind : null;
+    const role = forgeRole({ intentMode: readIntent(deps.probes)?.mode ?? null, role: orgRole, hasTeam: team.slug !== "" });
     const missing = missingScopes(id, role, result.scopesSeen);
     if (missing.length > 0) {
       const how = sourceDetail === GH_SOURCE_DETAIL ? ` (run: gh auth refresh -s ${missing.join(",")})` : "";
@@ -1332,11 +1353,31 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
     staged = (await storeCredential(deps, def.secret.domain, def.secret.key, value)).staged;
   }
 
-  const detail = staged
+  let identityDetail: string | null = null;
+  if (id === "github" || id === "gitlab") {
+    const team = snapshotFor(deps);
+    const slug = team.slug || cloneSlugs(deps.probes)[0] || "";
+    const origin = slug ? cloneOrigin(deps.probes, slug) : null;
+    const remote = team.remote ?? origin;
+    const forge = team.integrations.forge ?? (slug ? legacyDeclaredForge(deps.probes, slug) : null) ?? (remote ? forgeFromRemote(remote) : null);
+    const host = id === "github" ? "github.com" : (ctx.host ?? "gitlab.com");
+    const explicitlyMatched = team.integrations.forge === undefined && id === "gitlab" && hostFlag !== undefined && origin !== null && hostFromRemote(origin) === host;
+    if (slug && ((forge?.provider === id && forge.host === host) || explicitlyMatched)) {
+      const identity = await recordForgeIdentity(deps.probes, slug, { provider: id, host }, value, deps.forgeLogin, { claim: origin !== null });
+      if (origin === null && identity.username && readTeamLocal(deps.probes, slug).creatorPending !== undefined) {
+        identityDetail = `You are ${identity.username}. Install finishes setting you up as admin`;
+      } else if (identity.admin?.claimed && !identity.admin.published) {
+        const pending = readTeamLocal(deps.probes, slug).creatorPending !== undefined;
+        identityDetail = `You are ${identity.username} and this org's admin now, but rt could not ${pending ? "save" : "push"} that. ${pending ? "Run rt setup apply --only team.identity" : "Run rt team publish"}`;
+      }
+    }
+  }
+
+  const detail = identityDetail ?? (staged
     ? sourceDetail
       ? `${sourceDetail}. Saved for now; Install stores it once your key exists`
       : "Saved for now; Install stores it once your key exists"
-    : (sourceDetail ?? result.detail);
+    : (sourceDetail ?? result.detail));
 
   printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "ready", detail, scopesSeen: result.scopesSeen });
 }
@@ -1545,14 +1586,14 @@ export async function setupSlackCreateApp(args: string[], _ctx: CommandContext =
     }
 
     // Deep-merge by hand: setSetting REPLACES the key's whole value, it does not merge (the registry's
-    // `merge: "deep"` is a read-side overlay across scopes, not a write-side behavior) — writing `{slack:{...}}`
-    // bare would silently drop the team's forge/linear config out from under every other verb
-    // that reads it (ctxFor, snapshotFor).
+    // `merge: "deep"` is a read-side overlay across scopes, not a write-side behavior), so writing `{slack:{...}}`
+    // bare would drop the org's forge/linear config. The base is the org store's own value, never the
+    // merged snapshot, which would copy the active team's overrides into the org layer.
+    const orgIntegrations = (deps.readOrgSetting ?? getOrgSetting)<TeamIntegrations>("mattstack.integrations") ?? {};
     deps.writeSetting(
       "mattstack.integrations",
-      { ...snapshot.integrations, slack: { ...snapshot.integrations.slack, appId: data.app_id, clientId: data.credentials.client_id, callbackPort } },
-      "team",
-      { team: snapshot.slug },
+      { ...orgIntegrations, slack: { ...orgIntegrations.slack, appId: data.app_id, clientId: data.credentials.client_id, callbackPort } },
+      "org",
     );
 
     printIntegrationResult(deps, json, {

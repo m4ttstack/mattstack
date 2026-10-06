@@ -13,15 +13,18 @@
 
 import { homedir } from "os";
 import { join } from "path";
-import { discoverPacks, packFromDir, type PackInfo } from "../lib/skills/packs.ts";
+import { existsSync, realpathSync } from "fs";
+import { otherOrgRefusal, packOrg } from "../lib/skills/pack-org.ts";
+import { currentRole, mayWritePath } from "../packages/rt-client/src/settings/org-roles.ts";
+import { discoverPacks, packFromDir, solePack, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts";
-import { realpathSync } from "fs";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import { syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
 import { SIGNATURE_RE } from "../lib/skills/changes.ts";
-import { checkPack, compilePackAll } from "./skills.ts";
+import { checkPack, compilePackAll, NO_PACKS_WHY } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
+import { readDevModeConfig } from "./settings.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
@@ -207,20 +210,34 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
 
   const packs = overrides?.packs ?? discoverPacks();
   if (packs.length === 0) {
-    fail("no packs discovered (no directory marketplace plugin carries a surface.jsonc); pass --pack <name>", {
+    fail("no packs discovered (no directory marketplace plugin, team folder or org folder carries a surface.jsonc); pass --pack <name>", {
       title: "No packs found",
-      why: "A pack is a plugin from a directory marketplace that has a surface file.",
+      why: NO_PACKS_WHY,
     });
   }
 
-  const pack = packFlag ? packs.find((p) => p.name === packFlag) : packs.length === 1 ? packs[0] : undefined;
+  const pack = packFlag ? packs.find((p) => p.name === packFlag) : solePack(packs);
   if (!pack) {
     const names = packs.map((p) => p.name).join(", ");
     if (packFlag) fail(`no pack named "${packFlag}" (discovered: ${names})`, { title: `No pack is called ${packFlag}`, next: out.cmd("rt skills packs"), details: `Packs here: ${names}` });
-    else fail(`which pack? pass --pack <name> (discovered: ${names})`, usageFailure("Which pack?", "rt skills sync --pack <name>", `There is more than one: ${names}.`));
+    else fail(`which pack? pass --pack <name> (discovered: ${names})`, usageFailure("Which pack?", "rt skills sync --pack <name>", whichPackWhy(packs)));
+  }
+  const owner = packOrg(pack!.dir);
+  if (owner.kind === "other") {
+    const { message, why } = otherOrgRefusal(owner.org, owner.current);
+    if (json) out.json({ ok: false, error: `${message}. ${why}` });
+    else out.note(out.line("refused", message), out.callout("why", why));
+    process.exit(2);
   }
   const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
   const deps: SyncDeps = overrides?.deps ?? {
+    mayCompile: (name) => {
+      const dir = packs.find(p => p.name === name)?.dir;
+      if (dir === undefined) return true;
+      const found = packOrg(dir);
+      if (found.kind === "outside") return true;
+      return found.kind === "current" && mayWritePath(currentRole(found.org), found.rel);
+    },
     run: async (cmd, cmdArgs, opts) => {
       const proc = Bun.spawn([cmd, ...cmdArgs], { cwd: opts?.cwd, env: childEnv(), stdout: "pipe", stderr: "pipe" });
       const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
@@ -235,7 +252,7 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
     materialize: async (name) => syncMaterializeVerdict(await materializeSkills(createRealProbes(), {}), name),
     configDir,
     cswapSessionsDir: join(homedir(), ".claude-swap-backup", "sessions"),
-    inTreeRoot: resolveSharedCheckout(homedir()),
+    inTreeRoot: resolveSharedCheckout(homedir(), existsSync, readDevModeConfig().sourcePath ?? null),
   };
 
   const needsInstalled = !packs.some((p) => p.name === "mattstack") && pack!.name !== "mattstack";

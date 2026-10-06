@@ -73,11 +73,12 @@ export async function reposReidentify(args: string[], _ctx: CommandContext = {},
     return;
   }
   // A typo in <old> reads as an all-none report, which must not look like a move.
-  const nothing = report.stores.every((s) => s.status === "none");
-  out.print(
-    nothing
-      ? out.line("skipped", "Nothing to move", `rt holds nothing under ${report.from.raw}`)
-      : out.line(dryRun ? "pending" : "done", dryRun ? "Would move this repo's data" : "Moved this repo's data", route),
-    storeTable(report.stores),
-  );
+  const nothing = report.stores.every((s) => s.status === "none" || s.status === "skipped");
+  const shared = report.stores.some((s) => s.status === "skipped");
+  const headline = !nothing
+    ? out.line(dryRun ? "pending" : "done", dryRun ? "Would move this repo's data" : "Moved this repo's data", route)
+    : shared
+      ? out.line("skipped", "Nothing of yours to move", `Only shared settings name ${report.from.raw}, and they are not yours to change`)
+      : out.line("skipped", "Nothing to move", `rt holds nothing under ${report.from.raw}`);
+  out.print(headline, storeTable(report.stores));
 }

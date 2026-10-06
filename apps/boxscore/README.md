@@ -120,7 +120,7 @@ built app straight out of `dist/`).
 
 ## Viewer roles
 
-The team owner decides, per member, how much of boxscore that member sees:
+The team's owners (and the org's admins) decide, per member, how much of boxscore that member sees:
 
 | Role          | What the member sees                                                                      |
 | ------------- | ----------------------------------------------------------------------------------------- |
@@ -129,15 +129,14 @@ The team owner decides, per member, how much of boxscore that member sees:
 
 - **Self view is the default.** A roster member not listed in `boxscore.roles` gets it, so
   Team view is a grant.
-- **The owner's Mac always gets Team view**, and so does a Mac with no team. The owner's Mac
-  is the one whose team clone was not joined by invite.
-- **A Mac counts as a member's only when it joined the team by invite** with rt from
-  2026-09-08 on. A member who joined earlier, or cloned the team repo by hand, is treated as
-  the owner and sees the whole team until re-invited.
-- **A Mac that created one team and joined another counts as a member's**, so roles apply
-  there and the console control is read-only.
-- **The owner sets roles** in console's Boxscore group, or from boxscore's header gear, which
-  frames that same group. A member's Mac shows the control read-only.
+- **An org admin's Mac, and an owner's Mac for the team it is working as, always get Team
+  view**, and so does a Mac in no org. The role comes from the org's `mattstack.org` and the
+  username this Mac recorded when it joined or created the org; a Mac with no recorded
+  username gets the roles setting like a member.
+- **An owner of another team is a member here**, so roles apply on their Mac when they work
+  as this team.
+- **An owner or admin sets roles** in console's Boxscore group, or from boxscore's header gear,
+  which frames that same group. A member's Mac shows the control read-only.
 - **Locked:** when boxscore cannot identify the viewer (the GitLab user lookup failed, or the
   username is not on the roster), it shows a message instead of any stats, with a link to
   console's Boxscore group.

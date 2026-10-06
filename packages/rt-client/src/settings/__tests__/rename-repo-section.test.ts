@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { seedOrg } from "../../../test/org-fixture.ts";
+import { machineSettingsPath, orgDir, userSettingsPath } from "../paths.ts";
 import { readStore } from "../stores.ts";
 import { renameRepoSection } from "../write.ts";
 
@@ -71,5 +73,100 @@ describe("renameRepoSection", () => {
     const file = store(`{ "repos": { "${OLD}": { "x": 1 } } }\n`);
     expect(renameRepoSection(file, OLD, NEW, { dryRun: true })).toEqual({ status: "moved", keys: 1 });
     expect(readStore(file).repos[OLD]).toEqual({ x: 1 });
+  });
+
+  describe("a shared store under another spelling", () => {
+    const origHome = process.env.HOME;
+    afterEach(() => {
+      process.env.HOME = origHome;
+    });
+
+    function seedMember(username = "dev4"): { orgStore: string; teamStore: string; home: string } {
+      const home = join(dir, "home");
+      mkdirSync(home);
+      process.env.HOME = home;
+      const section = { repos: { [OLD]: { x: 1 } } };
+      const seeded = seedOrg({
+        org: "acme",
+        username,
+        roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } },
+        settings: section,
+        teams: { widgets: section },
+      });
+      return { orgStore: seeded.orgStore, teamStore: seeded.teamStores.widgets!, home };
+    }
+
+    test("is not changed by a member through a symlinked home", () => {
+      const { orgStore, teamStore, home } = seedMember();
+      const link = join(dir, "home-link");
+      symlinkSync(home, link);
+      for (const real of [orgStore, teamStore]) {
+        const before = readFileSync(real, "utf8");
+        const r = renameRepoSection(join(link, real.slice(home.length)), OLD, NEW);
+        expect(r.status).toBe("skipped");
+        expect(readFileSync(real, "utf8")).toBe(before);
+      }
+    });
+
+    test("is not changed by a member through an unnormalized path", () => {
+      const { orgStore } = seedMember();
+      const before = readFileSync(orgStore, "utf8");
+      const spelled = orgStore.replace("/mattstack/org/", "/mattstack/./teams/../org/");
+      expect(spelled).not.toBe(orgStore);
+      expect(renameRepoSection(spelled, OLD, NEW).status).toBe("skipped");
+      expect(readFileSync(orgStore, "utf8")).toBe(before);
+    });
+
+    function symlinkClone(username: string): { linked: string[]; real: string[] } {
+      const { orgStore, teamStore } = seedMember(username);
+      const clone = orgDir("acme");
+      const moved = join(dir, "acme-clone");
+      renameSync(clone, moved);
+      symlinkSync(moved, clone);
+      const linked = [orgStore, teamStore];
+      return { linked, real: linked.map((p) => join(moved, p.slice(clone.length))) };
+    }
+
+    test("is not changed by a member when the org clone is a symlink, through either spelling", () => {
+      const { linked, real } = symlinkClone("dev4");
+      for (const [i, path] of [...linked, ...real].entries()) {
+        const file = real[i % 2]!;
+        const before = readFileSync(file, "utf8");
+        const r = renameRepoSection(path, OLD, NEW);
+        expect(r.status).toBe("skipped");
+        expect(readFileSync(file, "utf8")).toBe(before);
+      }
+    });
+
+    test("is renamed by an admin when the org clone is a symlink", () => {
+      const { linked, real } = symlinkClone("dev1");
+      expect(renameRepoSection(linked[0]!, OLD, NEW).status).toBe("moved");
+      expect(readStore(real[0]!).repos[NEW]).toEqual({ x: 1 });
+      expect(renameRepoSection(real[1]!, OLD, NEW).status).toBe("moved");
+      expect(readStore(real[1]!).repos[NEW]).toEqual({ x: 1 });
+    });
+
+    test("is not changed by a member when the store file is a symlink that points outside the clone", () => {
+      const { orgStore, teamStore } = seedMember();
+      for (const [i, store] of [orgStore, teamStore].entries()) {
+        const outside = join(dir, `outside-${i}.jsonc`);
+        renameSync(store, outside);
+        symlinkSync(outside, store);
+        const before = readFileSync(outside, "utf8");
+        expect(renameRepoSection(store, OLD, NEW).status).toBe("skipped");
+        expect(lstatSync(store).isSymbolicLink()).toBe(true);
+        expect(readFileSync(outside, "utf8")).toBe(before);
+      }
+    });
+
+    test("leaves a member's own user and machine stores renamable beside a symlinked clone", () => {
+      symlinkClone("dev4");
+      for (const file of [userSettingsPath(), machineSettingsPath()]) {
+        mkdirSync(join(file, ".."), { recursive: true });
+        writeFileSync(file, `{ "repos": { "${OLD}": { "x": 1 } } }\n`);
+        expect(renameRepoSection(file, OLD, NEW).status).toBe("moved");
+        expect(readStore(file).repos[NEW]).toEqual({ x: 1 });
+      }
+    });
   });
 });

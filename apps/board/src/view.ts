@@ -439,10 +439,12 @@ export function filterByMember<M extends BoardMR>(
 /** `slack` rides on the client row type, not BoardMR. */
 type ShowRow = BoardMR & { slack?: { posted?: boolean } | null };
 
+/** The seat's own MRs are never waiting on the author: the author is you. */
 export function matchesShowItem(
   mr: ShowRow,
   item: ShowItem,
-  cfg: TurnConfig
+  cfg: TurnConfig,
+  seat: string | null = null
 ): boolean {
   switch (item) {
     case 'posted':
@@ -450,7 +452,7 @@ export function matchesShowItem(
     case 'notPosted':
       return !mr.slack?.posted;
     case 'authorTurn':
-      return authorTurn(mr, cfg) !== null;
+      return !isOwnMr(mr, seat) && authorTurn(mr, cfg) !== null;
     case 'myDrafts':
       return !!mr.isDraft;
   }
@@ -463,7 +465,8 @@ export function filterByShow<T extends ShowRow>(
   mrs: T[],
   off: readonly ShowItem[],
   offered: readonly ShowItem[],
-  cfg: TurnConfig
+  cfg: TurnConfig,
+  seat: string | null = null
 ): { rows: T[]; counts: Record<ShowItem, number> } {
   const counts: Record<ShowItem, number> = {
     posted: 0,
@@ -473,15 +476,50 @@ export function filterByShow<T extends ShowRow>(
   };
   const active = off.filter(i => offered.includes(i));
   const rows = mrs.filter(mr => {
-    let shown = true;
-    for (const item of SHOW_ITEMS) {
-      if (!matchesShowItem(mr, item, cfg)) continue;
-      counts[item]++;
-      if (active.includes(item)) shown = false;
-    }
-    return shown;
+    const matched = SHOW_ITEMS.filter(i => matchesShowItem(mr, i, cfg, seat));
+    const hiding = matched.filter(i => active.includes(i));
+    // An item's count is what it shows, or would show once switched on: a
+    // row another off item still hides is not one of them.
+    for (const item of matched)
+      if (hiding.every(h => h === item)) counts[item]++;
+    return hiding.length === 0;
   });
   return { rows, counts };
+}
+
+/** The items the toolbar renders. My drafts shows only on your own roster
+    entry, Needs me is already turn-based, and none of your own MRs waits on
+    its author. */
+export function offeredShowItems(o: {
+  slackEnabled: boolean;
+  seatTab: boolean;
+  seat: string | null;
+  member: string;
+}): ShowItem[] {
+  const own = isOwnMr({ author: { username: o.member } }, o.seat);
+  return [
+    ...(o.slackEnabled ? (['posted', 'notPosted'] as const) : []),
+    ...(o.seatTab || own ? [] : (['authorTurn'] as const)),
+    ...(own ? (['myDrafts'] as const) : []),
+  ];
+}
+
+/** The roster's numbers: what the All view shows, per author and in total. */
+export function visibleByAuthor<T extends ShowRow>(
+  mrs: T[],
+  off: readonly ShowItem[],
+  offered: readonly ShowItem[],
+  cfg: TurnConfig,
+  seat: string | null
+): { byAuthor: Map<string, number>; total: number } {
+  const { rows } = filterByShow(mrs, off, offered, cfg, seat);
+  const byAuthor = new Map<string, number>();
+  for (const mr of rows)
+    byAuthor.set(
+      mr.author.username,
+      (byAuthor.get(mr.author.username) ?? 0) + 1
+    );
+  return { byAuthor, total: rows.length };
 }
 
 /** Usernames the member filter may legitimately hold on a given tab. An

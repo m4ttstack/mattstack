@@ -14,7 +14,7 @@ import { NOTIFICATION_DEFAULTS } from "./notification-events.ts";
 
 const ALL_SCOPES: SettingScope[] = ["user", "team", "machine"];
 
-export const REGISTRY: readonly SettingDef[] = [
+const ROWS: readonly SettingDef[] = [
   // --- migrated:true (wave 1) ---------------------------------------------
   {
     key: "rt.roles",
@@ -371,10 +371,24 @@ export const REGISTRY: readonly SettingDef[] = [
   {
     key: "mattstack.roster",
     type: "array",
-    scopes: ["team"],
+    scopes: ["org"],
     merge: "replace",
     description:
-      "The suite-wide team roster: [{username, name?}] GitLab usernames with optional display names. Any suite app that lists people reads this; hiding someone is the app's own overlay (e.g. boxscore.hiddenMembers).",
+      "Everyone in the org: [{username, name?, agePublicKey?, teams?}], by forge username. teams lists the team folders a member belongs to. Any app that lists people reads this; hiding someone is the app's own overlay (e.g. boxscore.hiddenMembers).",
+  },
+  {
+    key: "mattstack.org",
+    type: "object",
+    scopes: ["org"],
+    merge: "replace",
+    description: "Who may change shared settings: the org's admins, and each team's owners, by forge username.",
+  },
+  {
+    key: "mattstack.activeTeam",
+    type: "string",
+    scopes: ["user"],
+    merge: "replace",
+    description: "The team you use the apps as, when the roster lists you on more than one.",
   },
 
   // --- claude (installer-lane) --------------------------------------------
@@ -382,15 +396,15 @@ export const REGISTRY: readonly SettingDef[] = [
     key: "claude.marketplaces",
     type: "array",
     scopes: ["user", "team"],
-    merge: "replace",
-    description: "Claude Code plugin marketplaces to replay on restore, in add order.",
+    merge: "add",
+    description: "Claude Code plugin marketplaces to add, in order. The org's, the team's and your own lists add up.",
   },
   {
     key: "claude.plugins",
     type: "array",
     scopes: ["user", "team"],
-    merge: "replace",
-    description: "Claude Code plugins to replay on restore, in install order.",
+    merge: "add",
+    description: "Claude Code plugins to install, in order. The org's, the team's and your own lists add up; a plugin from the org or a team is installed but left for you to enable.",
   },
 
   // --- deck (MAT-384 settings half) ---------------------------------------
@@ -434,13 +448,6 @@ export const REGISTRY: readonly SettingDef[] = [
     scopes: ["team"],
     merge: "replace",
     description: "GitLab projects the board tracks, shared by the whole team.",
-  },
-  {
-    key: "board.members",
-    type: "array",
-    scopes: ["team"],
-    merge: "replace",
-    description: "The authors tab's roster: whose MRs the classic board lists, including hidden-by-default entries. Codeowners tabs list MRs from anyone. The cross-app roster successor is mattstack.roster; this key remains the board's own list until the board adopts it.",
   },
   {
     key: "board.title",
@@ -530,18 +537,11 @@ export const REGISTRY: readonly SettingDef[] = [
     description: "Which board member identity this developer's local board runs as by default.",
   },
   {
-    key: "board.defaultPack",
-    type: "string",
-    scopes: ["user"],
-    merge: "replace",
-    description: "The team pack this developer's board launches review, respond and doctor with when a tab names none; setup seeds it with the first pack of the team you joined.",
-  },
-  {
     key: "board.hiddenMembers",
     type: "array",
     scopes: ["user"],
     merge: "replace",
-    description: "Usernames this developer hides from the authors tab's board.members roster; overlays the team truth without editing it.",
+    description: "Usernames this developer hides from the authors tab's roster; overlays the team truth without editing it.",
   },
   {
     key: "board.triage",
@@ -679,7 +679,7 @@ export const REGISTRY: readonly SettingDef[] = [
     scopes: ["team"],
     merge: "replace",
     description:
-      "Who sees the whole team in boxscore: { \"<gitlab username>\": \"team\" | \"self\" }. A roster member not listed sees only their own page. The team owner's Mac always sees the whole team. A courtesy boundary, not a security one: each member's boxscore runs on their own Mac.",
+      "Who sees the whole team in boxscore: { \"<gitlab username>\": \"team\" | \"self\" }. A roster member not listed sees only their own page. An org admin, or an owner of the team the Mac works as, always sees the whole team. A courtesy boundary, not a security one: each member's boxscore runs on their own Mac.",
   },
   {
     key: "boxscore.defaultRange",
@@ -947,3 +947,12 @@ export const REGISTRY: readonly SettingDef[] = [
     description: "Skill id that sets the voice for prose posted under your name (reviews, replies, PR descriptions). A team value is the default a member's user value overrides.",
   },
 ];
+
+/** `org` goes after `team` so a key's first scope, which the apps group their settings pages by, does not change. */
+function withOrgScope(def: SettingDef): SettingDef {
+  if (!def.scopes.includes("team") || def.scopes.includes("org")) return def;
+  const at = def.scopes.indexOf("team") + 1;
+  return { ...def, scopes: [...def.scopes.slice(0, at), "org", ...def.scopes.slice(at)] };
+}
+
+export const REGISTRY: readonly SettingDef[] = ROWS.map(withOrgScope);

@@ -24,7 +24,7 @@ import {
   gatePark,
   getRun,
   getSetting,
-  listTeams,
+  listOrgs,
   paneList,
   readDiscussions,
   readProjectMRs,
@@ -72,9 +72,11 @@ import {
   readSwitchboardToken,
   repoIdentityField,
   resolveLaunchRepo,
+  rosterWriteRefusal,
   saveMemberHidden,
   saveRosterMembers,
   saveTabs,
+  type BoardConfig,
   type SwitchboardTokenRead,
 } from './config.ts';
 import {
@@ -518,7 +520,7 @@ async function fetchReconcilerView(): Promise<ReconcilerView> {
 // without either it stays unstarted and every peer feature (publish, poll,
 // /nudge) is off. The runtime is startable later too, so joining needs no
 // restart.
-const inTeam = (): boolean => listTeams().length > 0;
+const inTeam = (): boolean => listOrgs().length > 0;
 const peerDeps = boardMaterializeDeps(line => console.error(line));
 const peering = makePeering({
   makeClient: makeSwitchboardClient,
@@ -1724,14 +1726,35 @@ const httpServer = Bun.serve({
         if (name !== undefined && typeof name !== 'string') {
           return new Response('name must be a string', { status: 400 });
         }
+        {
+          const refused = rosterWriteRefusal();
+          if (refused) return new Response(refused, { status: 403 });
+        }
+        // The edit applies to the roster as the store holds it now: the
+        // in-memory copy misses writes made since load (an invite, a sync).
+        let fresh: BoardConfig;
+        try {
+          fresh = loadConfig();
+        } catch (err) {
+          return new Response(
+            `roster read failed: ${err instanceof Error ? err.message : err}`,
+            { status: 500 }
+          );
+        }
         const edit = applyRosterEdit(
-          config.members,
+          fresh.members,
           { action, username, name },
-          config.defaultMember === 'all' ? null : config.defaultMember
+          fresh.defaultMember === 'all' ? null : fresh.defaultMember
         );
         if (!edit.ok) return new Response(edit.error, { status: 400 });
         try {
-          config.members = saveRosterMembers(edit.members).members;
+          config.members = saveRosterMembers(
+            edit.members,
+            CONFIG_PATH,
+            getSetting,
+            setSetting,
+            fresh.members.map(m => m.username)
+          ).members;
         } catch (err) {
           return new Response(
             `roster write failed: ${err instanceof Error ? err.message : err}`,

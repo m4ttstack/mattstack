@@ -1,9 +1,8 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { execSync } from "child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, realpathSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
-import { teamSettingsPath } from "../../rt-paths.ts";
 import { setSetting } from "../../settings/write.ts";
 import { closeStateDb, getBranchCacheStore, type CacheEntry } from "../../state/index.ts";
 import { branchOf } from "../../state/branch-cache.ts";
@@ -16,6 +15,7 @@ import {
   STATUS_FAILED_BLOCKER,
   type DisposeDeps,
 } from "../dispose.ts";
+import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 
 const GIT_ID = "-c user.email=t@t -c user.name=t";
 
@@ -49,14 +49,12 @@ const IDENTITY = "test/acme";
  * can't normalize into an identity on its own (identity.ts: "bare local
  * paths are the main case" that returns null). Pin one via the machine
  * store's fork override so `rt.sync` reads for these test repos land
- * somewhere, and seed one team store so `setSetting(..., "team", ...)` can
- * auto-select it instead of refusing (write.ts's team-selection rule).
+ * somewhere, and seed the org store so `setSetting(..., "org", ...)` has a
+ * store to write instead of refusing.
  */
 function seedIdentity(originUrl: string): void {
   setSetting("rt.repoIdentityOverrides", { [originUrl]: IDENTITY }, "machine");
-  const teamPath = teamSettingsPath("acme");
-  mkdirSync(dirname(teamPath), { recursive: true });
-  writeFileSync(teamPath, "// team store\n{}\n");
+  seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
 }
 
 /** Add a worktree on a fresh branch cut from `base`, and return its (canonical) path. */
@@ -109,6 +107,18 @@ function writeLease(filename: string, body: unknown): void {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, filename), typeof body === "string" ? body : JSON.stringify(body));
 }
+
+let priorHome: string | undefined;
+beforeEach(() => {
+  priorHome = process.env.HOME;
+  closeStateDb();
+});
+afterEach(() => {
+  const fixtureHome = process.env.HOME;
+  closeStateDb();
+  process.env.HOME = priorHome;
+  if (fixtureHome && fixtureHome !== priorHome) rmSync(fixtureHome, { recursive: true, force: true });
+});
 
 describe("hasFreshAttendantLease", () => {
   beforeEach(() => {
@@ -216,7 +226,7 @@ describe("classifyDirtyAsync", () => {
   });
 
   test("declared generated file with whitespace-only drift is discardable", async () => {
-    setSetting("rt.sync", { autoResolve: [{ glob: "gen.txt", strategy: "theirs" }] }, "team", {
+    setSetting("rt.sync", { autoResolve: [{ glob: "gen.txt", strategy: "theirs" }] }, "org", {
       repoIdentity: IDENTITY,
     });
     writeFileSync(join(tree, "gen.txt"), "alpha  \nbeta\n");
@@ -227,7 +237,7 @@ describe("classifyDirtyAsync", () => {
   });
 
   test("declared generated file with a substantive edit is a blocker", async () => {
-    setSetting("rt.sync", { autoResolve: [{ glob: "gen.txt", strategy: "theirs" }] }, "team", {
+    setSetting("rt.sync", { autoResolve: [{ glob: "gen.txt", strategy: "theirs" }] }, "org", {
       repoIdentity: IDENTITY,
     });
     writeFileSync(join(tree, "gen.txt"), "alpha\nbeta\ngamma\n");
@@ -335,7 +345,7 @@ describe("disposeTree", () => {
   });
 
   test("whitespace-only drift in a declared generated file does not refuse", async () => {
-    setSetting("rt.sync", { autoResolve: [{ glob: "gen.txt", strategy: "theirs" }] }, "team", {
+    setSetting("rt.sync", { autoResolve: [{ glob: "gen.txt", strategy: "theirs" }] }, "org", {
       repoIdentity: IDENTITY,
     });
     const path = addTree(repo, "tree-a", "feature-a");

@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { dirname } from "path";
 
 import { switchboardUrl } from "../../../packages/rt-client/src/switchboard.ts";
 import { UserActionableError } from "../../errors.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import type { Probes } from "../../setup/probes.ts";
-import { peerOwnBoard, type PeerSeams } from "../peer.ts";
+import { peerOwnBoard, realPeerSeams, type PeerSeams } from "../peer.ts";
+import { teamLocalPath } from "../team-local.ts";
+import { userSettingsPath } from "../../rt-paths.ts";
 
 type Reply = { status: number; body: string; headers: Record<string, string> };
 const reply = (status: number, body: unknown = ""): Reply => ({ status, body: typeof body === "string" ? body : JSON.stringify(body), headers: {} });
@@ -94,7 +98,7 @@ describe("peerOwnBoard", () => {
 
     const err = await rejection(peerOwnBoard(p, "acme", { rotate: false }, s));
 
-    expect(err.code).toBe("peer-needs-owner");
+    expect(err.code).toBe("peer-needs-admin");
     expect(err.why).toContain("invite you again");
     expect(err.why).not.toContain("rt team");
     expect(err.next).toBe("rt team join");
@@ -134,6 +138,17 @@ describe("peerOwnBoard", () => {
     expect(p.calls.fetchInits.some((c) => c.init?.method === "POST")).toBe(false);
   });
 
+  test("a registered board whose token cannot be saved says so and points at --rotate", async () => {
+    const p = probes((url, method) => (method === "POST" ? reply(201, { username: "matt", token: "board-tok" }) : url.endsWith("/boards") ? reply(200, { boards: [] }) : reply(404)));
+    const { s } = seams({ switchboardAdminToken: "admin" }, { writeLocalSecret: async () => { throw new Error("keychain locked, token board-tok"); } });
+
+    const err = await rejection(peerOwnBoard(p, "acme", { rotate: false }, s));
+
+    expect(err.code).toBe("peer-store-failed");
+    expect(err.next).toBe("rt team peer --rotate");
+    expect(err.log).not.toContain("board-tok");
+  });
+
   test("the admin token in the environment counts, the way the setup row reads it", async () => {
     const p = fakeProbes({
       env: { SWITCHBOARD_ADMIN_TOKEN: "env-admin" },
@@ -143,5 +158,26 @@ describe("peerOwnBoard", () => {
 
     expect((await peerOwnBoard(p, "acme", { rotate: false }, s)).outcome).toBe("connected");
     expect(p.calls.fetchInits.find((c) => c.init?.method === "POST")?.init?.headers?.Authorization).toBe("Bearer env-admin");
+  });
+});
+
+describe("realPeerSeams().boardUsername", () => {
+  test("with no board.defaultMember, the username this Mac recorded for the org is the board's", async () => {
+    const home = "/home/x";
+    const p = fakeProbes({ home, files: { [teamLocalPath(home, "acme")]: JSON.stringify({ forgeUsername: "dev1" }) } });
+    expect(await realPeerSeams().boardUsername(p, "acme")).toBe("dev1");
+  });
+
+  test("the recorded username wins over board.defaultMember, so peer and join register the same name", async () => {
+    const store = userSettingsPath();
+    mkdirSync(dirname(store), { recursive: true });
+    writeFileSync(store, JSON.stringify({ "board.defaultMember": "dev2" }));
+    try {
+      const home = "/home/x";
+      const p = fakeProbes({ home, files: { [teamLocalPath(home, "acme")]: JSON.stringify({ forgeUsername: "dev1" }) } });
+      expect(await realPeerSeams().boardUsername(p, "acme")).toBe("dev1");
+    } finally {
+      rmSync(store, { force: true });
+    }
   });
 });

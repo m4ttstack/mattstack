@@ -55,7 +55,8 @@ export function viewStateForMr<
   tabs: TabConfig[],
   rosterUsernames: Set<string>,
   isLinked: (mr: T) => boolean,
-  turn: TurnConfig = ALL_TURN
+  turn: TurnConfig = ALL_TURN,
+  seat: string | null = null
 ): ViewState {
   const mr = mrs.find(isLinked);
   if (!mr) return state;
@@ -71,7 +72,7 @@ export function viewStateForMr<
   }
 
   const hiding = (item: ShowItem) =>
-    next.off.includes(item) && matchesShowItem(mr, item, turn);
+    next.off.includes(item) && matchesShowItem(mr, item, turn, seat);
   const hidingItems = SHOW_ITEMS.filter(hiding);
   if (hidingItems.length > 0) {
     next = { ...next, off: next.off.filter(i => !hidingItems.includes(i)) };

@@ -57,34 +57,6 @@
       }
     }
   },
-  "board.members": {
-    "storeVersion": 1,
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "username": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "hidden": {
-            "type": "boolean"
-          },
-          "agePublicKey": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "username"
-        ],
-        "additionalProperties": {}
-      }
-    }
-  },
   "board.peerAsks": {
     "storeVersion": 1,
     "schema": {
@@ -256,7 +228,7 @@
           },
           "pack": {
             "title": "Pack",
-            "inherits": "board.defaultPack",
+            "placeholder": "inherits your team's pack",
             "type": "string"
           },
           "dimEmpty": {
@@ -945,6 +917,47 @@
       "additionalProperties": {}
     }
   },
+  "mattstack.org": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "admins": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "teams": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "owners": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "owners"
+            ],
+            "additionalProperties": {}
+          }
+        }
+      },
+      "required": [
+        "admins",
+        "teams"
+      ],
+      "additionalProperties": {}
+    }
+  },
   "mattstack.roster": {
     "storeVersion": 1,
     "schema": {
@@ -961,6 +974,12 @@
           },
           "agePublicKey": {
             "type": "string"
+          },
+          "teams": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [

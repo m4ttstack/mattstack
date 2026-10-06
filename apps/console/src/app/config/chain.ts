@@ -29,9 +29,10 @@ function effective(rows: ExplainRowWire[]): ExplainRowWire[] {
 
 /**
  * Rows arrive WEAKEST-FIRST (explainSetting's contract), so "last effective
- * row" is the winner. Only a deep-merged object key has contributors instead
- * of a winner; arrays replace atomically — the merge treats an array as a
- * leaf — so an array key gets winner semantics like any scalar.
+ * row" is the winner. A deep-merged object key and an add list have
+ * contributors instead of a winner; any other array replaces atomically (the
+ * deep merge treats an array as a leaf), so it gets winner semantics like any
+ * scalar.
  */
 export function analyzeChain(
   def: SettingDefWire,
@@ -45,6 +46,15 @@ export function analyzeChain(
       kind: 'composite',
       contributors: active,
       sentence: `${def.key} deep-merges key by key — ${n} layer${n === 1 ? '' : 's'} contribute${n === 1 ? 's' : ''}; there is no single winner.`,
+    };
+  }
+
+  if (def.merge === 'add') {
+    const n = active.length;
+    return {
+      kind: 'composite',
+      contributors: active,
+      sentence: `${def.key} adds up its layers: ${n} layer${n === 1 ? '' : 's'} contribute${n === 1 ? 's' : ''} items; there is no single winner.`,
     };
   }
 

@@ -167,10 +167,11 @@ export type { PaneServer, PaneRef } from "./pane-ref.ts";
 
 // ─── Settings (RT-50) ────────────────────────────────────────────────────────
 
-export { getSetting, listSettings, explainSetting, expandVariables, SCOPE_ORDER, setSettingsWarnSink, mergedValueWith, currentMergedValue, listStoreRepoIdentities, listUnregisteredSettings, repoSectionsFor } from "./settings/resolve.ts";
+export { getSetting, getOrgSetting, listSettings, explainSetting, expandVariables, isSharedScope, SCOPE_ORDER, setSettingsWarnSink, mergedValueWith, currentMergedValue, listStoreRepoIdentities, listUnregisteredSettings, repoSectionsFor } from "./settings/resolve.ts";
 export type {
   Scope,
   Provenance,
+  ItemSource,
   ResolveOpts,
   Resolved,
   InvalidScope,
@@ -179,7 +180,7 @@ export type {
   ExpandCtx,
 } from "./settings/resolve.ts";
 
-export { setSetting, setSettingsNoticeSink, unsetSetting, pruneStoreName } from "./settings/write.ts";
+export { setSetting, setSettingsNoticeSink, unsetSetting, pruneStoreName, SettingsOwnershipRefusal } from "./settings/write.ts";
 export type { SetSettingOpts, PruneOpts, SettingsNoticeSink, SettingsNotice } from "./settings/write.ts";
 export { validateWrite } from "./settings/validate-write.ts";
 export type { WriteRefusalKind, WriteVerdict } from "./settings/validate-write.ts";
@@ -198,8 +199,12 @@ export type { StoreSection, MigrationPlan, MigrationWrite, MigrationFailure, Old
 export { REGISTRY } from "./settings/registry-defs.ts";
 export { NOTIFICATION_EVENT_KEYS, NOTIFICATION_DEFAULTS } from "./settings/notification-events.ts";
 
-export { readStore, listTeams } from "./settings/stores.ts";
-export { isJoinedTeam } from "./settings/team-local-read.ts";
+export { readStore, parseStoreText, listOrgs, currentOrg, listTeamFolders, sharedStoreFiles, TEAM_NAME_RE } from "./settings/stores.ts";
+export { activeTeam, activeTeamPack, activeTeamRoster, decideActiveTeam, mergeTeamRoster, readOrgRoles, readOrgRoster, sameUser } from "./settings/active-team.ts";
+export type { ActiveTeam, ActiveTeamReason, OrgRoles, RosterEntry } from "./settings/active-team.ts";
+export { readForgeUsername } from "./settings/team-local-read.ts";
+export { currentRole, mayWritePath, ORG_MANAGED_ROOTS, orgStoreRefusal, ownedRoots, roleOf, writeRefusalFor } from "./settings/org-roles.ts";
+export type { OrgRole } from "./settings/org-roles.ts";
 export type { StoreFile } from "./settings/stores.ts";
 
 export {

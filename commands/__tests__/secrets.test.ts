@@ -1,3 +1,6 @@
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { closeStateDb } from "../../lib/state/index.ts";
 /**
  * Command-layer coverage for the --team surface on `rt secrets
  * set/list/rotate`: argv parsing (`--team <slug>` skipped from positionals
@@ -7,7 +10,8 @@
  * covers the personal-store path and the value-never-leaks canary; this
  * file is the team-routing complement.
  */
-import { describe, test, expect, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, test, expect, spyOn } from "bun:test";
+import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { secretsSet, secretsList, secretsRotate } from "../secrets.ts";
 import { secretsFilePath, type SecretsExecResult, type SecretsExecSeam, type SecretsSeams } from "../../lib/secrets/store.ts";
 import { teamSecretsFile, writeTeamRecipients, writeTeamSecret, readTeamSecret } from "../../lib/secrets/team-store.ts";
@@ -15,6 +19,21 @@ import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
 import { teamsDir } from "../../lib/rt-paths.ts";
 import { join } from "path";
 import { capturePlain } from "./helpers/json-line.ts";
+
+let fixtureHome: string;
+let priorHome: string | undefined;
+beforeEach(() => {
+  priorHome = process.env.HOME;
+  closeStateDb();
+  fixtureHome = realpathSync(mkdtempSync(`${tmpdir()}/rt-org-fixture-`));
+  process.env.HOME = fixtureHome;
+  seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
+});
+afterEach(() => {
+  closeStateDb();
+  process.env.HOME = priorHome;
+  rmSync(fixtureHome, { recursive: true, force: true });
+});
 
 function fakeAgeKeySeamWithKey(key: string): AgeKeySeam {
   return {

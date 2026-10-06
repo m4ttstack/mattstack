@@ -28,7 +28,7 @@ import LOCK from "./schema.lock.json" with { type: "json" };
 import { layerJsonSchema, type JsonSchema } from "./schema.ts";
 import { MIGRATION_STEPS, RENAMES } from "./migrations/index.ts";
 
-export type SettingScope = "user" | "team" | "machine";
+export type SettingScope = "user" | "team" | "org" | "machine";
 
 /** One link of a key's migration chain: reads the value at `version`, returns it at `version + 1`. */
 export interface MigrationStep {
@@ -41,7 +41,7 @@ export interface SettingDef {
   type: "string" | "number" | "boolean" | "object" | "array";
   scopes: SettingScope[];
   default?: unknown;
-  merge: "replace" | "deep";
+  merge: "replace" | "deep" | "add";
   teamLocked?: boolean;
   secret?: boolean;
   repoScoped?: boolean;
@@ -96,7 +96,7 @@ const BY_KEY: Map<string, SettingDef> = new Map(DEFS.map((def) => [def.key, def]
  * carries one upgrades with no manual step: it is skipped silently, never
  * reported as "from a newer rt".
  */
-const RETIRED_KEYS: ReadonlySet<string> = new Set(["mattstack.mode", "board.switchboardUrl"]);
+const RETIRED_KEYS: ReadonlySet<string> = new Set(["mattstack.mode", "board.switchboardUrl", "board.defaultPack", "board.members"]);
 
 export function isRetiredKey(key: string): boolean {
   return RETIRED_KEYS.has(key);
