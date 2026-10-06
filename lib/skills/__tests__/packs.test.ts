@@ -244,6 +244,7 @@ describe("orgFolderPacks", () => {
     writeFile(join(widgets, "pack", "surface.jsonc"), `{ "public": ["work"] }`);
     const base = join(org, "mattstack", "org", "packs", "acme-base");
     writeFile(join(base, "pack", "surface.jsonc"), `{ "public": [] }`);
+    writeFile(join(base, "pack", "skills.jsonc"), `{ "base": true }`);
     writeFile(join(org, "mattstack", "teams", "gadgets", "settings.team.jsonc"), `{}`);
     return { root, org, widgets, base };
   }
@@ -253,6 +254,22 @@ describe("orgFolderPacks", () => {
     expect(orgFolderPacks(root).map((p) => [p.name, p.dir, p.marketplace, p.base])).toEqual([
       ["acme-base", base, null, true],
       ["widgets", widgets, "acme-market", undefined],
+    ]);
+  });
+
+  test("a folder under the org's packs is a base only when its fragment says so", () => {
+    const { root, org } = makeOrg();
+    const plain = join(org, "mattstack", "org", "packs", "acme-tools");
+    writeFile(join(plain, "pack", "surface.jsonc"), `{ "public": [] }`);
+    writeFile(join(plain, "pack", "skills.jsonc"), `{ "bindings": {} }`);
+    const broken = join(org, "mattstack", "org", "packs", "acme-broken");
+    writeFile(join(broken, "pack", "surface.jsonc"), `{ "public": [] }`);
+    writeFile(join(broken, "pack", "skills.jsonc"), `{ not json`);
+    expect(orgFolderPacks(root).map((p) => [p.name, p.base])).toEqual([
+      ["acme-base", true],
+      ["acme-broken", undefined],
+      ["acme-tools", undefined],
+      ["widgets", undefined],
     ]);
   });
 

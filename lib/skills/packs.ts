@@ -114,6 +114,14 @@ function subdirs(dir: string): string[] {
   }
 }
 
+function isMarkedBase(dir: string): boolean {
+  try {
+    return (readJsonc(join(dir, "pack", "skills.jsonc")) as { base?: unknown } | null)?.base === true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Packs found by where they sit in an org clone rather than through a
  * registered marketplace: the org base pack is never installed, and a team
@@ -143,7 +151,7 @@ export function orgFolderPacks(mattstackRoot: string): PackInfo[] {
     for (const base of subdirs(basesDir)) {
       if (!TEAM_NAME_RE.test(base)) continue;
       const pack = packFromDir(base, join(basesDir, base), null);
-      if (pack) found.push({ ...pack, base: true });
+      if (pack) found.push(isMarkedBase(pack.dir) ? { ...pack, base: true } : pack);
     }
     const teamsDir = join(orgDir, "mattstack", "teams");
     for (const team of subdirs(teamsDir)) {
@@ -213,6 +221,12 @@ export function discoverPacks(opts: DiscoverOpts = {}): PackInfo[] {
 export function solePack(packs: PackInfo[]): PackInfo | undefined {
   const pickable = packs.filter((p) => !p.base);
   return pickable.length === 1 ? pickable[0] : undefined;
+}
+
+/** Why no pack was picked for you, for the "Which pack?" usage failure: several candidates, or only base packs. */
+export function whichPackWhy(packs: PackInfo[]): string {
+  const names = packs.map((p) => p.name).join(", ");
+  return packs.every((p) => p.base) ? `Only base packs are here (${names}), and rt never picks one for you.` : `There is more than one: ${names}.`;
 }
 
 /**

@@ -143,7 +143,7 @@ describe("materializeSkills", () => {
     const result = await materializeSkills(p, {});
     if (result.skipped) throw new Error("skipped");
     expect(result.repos[0]!.ok).toBe(false);
-    expect(result.repos[0]!.detail).toBe(`widgets: widgets extends acme-base, but the org has no base pack there (looked in ${home}/.mattstack/teams/acme/mattstack/org/packs/acme-base)`);
+    expect(result.repos[0]!.detail).toBe(`widgets: widgets extends acme-base, but the org has no base pack called acme-base`);
   });
 
   test("--repo naming no registered repo throws repo-not-registered", async () => {

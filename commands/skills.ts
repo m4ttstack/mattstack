@@ -54,7 +54,7 @@ import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } fro
 import { isBasePack, readZonesFrom, zonePackDir, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
 import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
-import { discoverPacks, findEnclosingPack, solePack, surfaceFileFor, type PackInfo } from "../lib/skills/packs.ts";
+import { discoverPacks, findEnclosingPack, solePack, surfaceFileFor, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
@@ -283,7 +283,7 @@ async function resolvePack(flags: { team: string | null; packDir: string | null;
   if (!process.stdin.isTTY) {
     throw new SkillsUsageError(`which pack? pass --pack <name> (discovered: ${packs.map((p) => p.name).join(", ")})`, {
       title: "Which pack?",
-      why: `There is more than one: ${packs.map((p) => p.name).join(", ")}.`,
+      why: whichPackWhy(packs),
       next: ["Run it again with ", out.cmd("--pack <name>")],
     });
   }
@@ -2556,6 +2556,7 @@ async function runPalette(flags: SurfaceFlags): Promise<void> {
     return;
   }
 
+  refuseUnlessPackOwned(packDir);
   const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
   const options = rows.map((row) => ({
     value: row.name,
@@ -2596,7 +2597,6 @@ async function runPalette(flags: SurfaceFlags): Promise<void> {
     return;
   }
 
-  refuseUnlessPackOwned(packDir);
   writeSurfaceConfig(packDir, [...selectedSet].sort());
   out.print(out.line("done", "Saved which skills are public", `${selectedSet.size} public`));
 

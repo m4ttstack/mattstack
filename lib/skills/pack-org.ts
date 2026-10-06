@@ -23,8 +23,9 @@ function inside(rel: string): boolean {
 
 /**
  * Which org a pack folder belongs to on this Mac. A pack under any org clone,
- * or in a copy of an org repo whose marker names another org, is that org's;
- * rt writes only the current org's packs, so "other" is always refused.
+ * or in a copy or worktree of an org repo, is the org its marker names; rt
+ * writes only the current org's packs, so "other" is always refused, and a
+ * copy of the current org answers to the same roles as its clone.
  */
 export function packOrg(packDir: string): PackOrg {
   const current = currentOrg();
@@ -35,8 +36,10 @@ export function packOrg(packDir: string): PackOrg {
     if (!inside(rel)) continue;
     return org === current ? { kind: "current", org, rel: rel.split(sep).join("/") } : { kind: "other", org, current };
   }
-  const marked = orgOfPackDir(packDir)?.org;
-  return marked !== undefined && marked !== current ? { kind: "other", org: marked, current } : { kind: "outside" };
+  const marked = orgOfPackDir(packDir);
+  if (marked === null) return { kind: "outside" };
+  if (marked.org !== current) return { kind: "other", org: marked.org, current };
+  return { kind: "current", org: current, rel: relative(marked.root, dir).split(sep).join("/") };
 }
 
 export function otherOrgRefusal(org: string, current: string): { message: string; why: string } {

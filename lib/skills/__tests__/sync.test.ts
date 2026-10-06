@@ -2510,6 +2510,20 @@ describe("member sync", () => {
     expect(readFileSync(join(pack.dir, ".claude-plugin", "plugin.json"), "utf8")).toBe(sourceBefore);
   });
 
+  test("a pack that is not installed on this Mac is skipped, never handed to Claude Code's update", async () => {
+    const pack = fixturePack("acme", "local", "0.5.2");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const calls: Call[] = [];
+    const deps = { ...makeDeps(pack, engine, { calls, installed: { [pluginId(engine)]: "2.0.0" }, drift: [false] }), mayCompile: () => false };
+    const report = await syncPack(pack, engine, deps);
+    const steps = Object.fromEntries(report.steps.map(s => [s.name, s]));
+    expect(steps["update-pack"]).toMatchObject({ status: "skipped", detail: "acme is not installed on this Mac" });
+    expect(steps["verify-installed"]).toMatchObject({ status: "skipped", detail: "acme is not installed on this Mac" });
+    expect(calls.some(c => c.cmd === deps.claudeBin && c.args[1] === "update" && c.args[2] === pluginId(pack))).toBe(false);
+    expect(report.ok).toBe(true);
+    expect(report.restartNeeded).toBe(false);
+  });
+
   for (const installed of ["0.5.1", "0.5.2"]) {
     test(`drifted pack stays unchanged with installed version ${installed}`, async () => {
       const pack = fixturePack("acme", "local", "0.5.2");

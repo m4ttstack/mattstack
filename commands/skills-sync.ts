@@ -16,7 +16,7 @@ import { join } from "path";
 import { realpathSync } from "fs";
 import { otherOrgRefusal, packOrg } from "../lib/skills/pack-org.ts";
 import { currentRole, mayWritePath } from "../packages/rt-client/src/settings/org-roles.ts";
-import { discoverPacks, packFromDir, solePack, type PackInfo } from "../lib/skills/packs.ts";
+import { discoverPacks, packFromDir, solePack, whichPackWhy, type PackInfo } from "../lib/skills/packs.ts";
 import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import { syncPack, type SyncDeps, type SyncEngine, type SyncOptions, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
@@ -219,7 +219,7 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
   if (!pack) {
     const names = packs.map((p) => p.name).join(", ");
     if (packFlag) fail(`no pack named "${packFlag}" (discovered: ${names})`, { title: `No pack is called ${packFlag}`, next: out.cmd("rt skills packs"), details: `Packs here: ${names}` });
-    else fail(`which pack? pass --pack <name> (discovered: ${names})`, usageFailure("Which pack?", "rt skills sync --pack <name>", `There is more than one: ${names}.`));
+    else fail(`which pack? pass --pack <name> (discovered: ${names})`, usageFailure("Which pack?", "rt skills sync --pack <name>", whichPackWhy(packs)));
   }
   const owner = packOrg(pack!.dir);
   if (owner.kind === "other") {

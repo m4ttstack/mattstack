@@ -55,7 +55,14 @@ describe("init outcome", () => {
     const text = renderPlain(initOutcomeBlocks({ ...okOutcome, published: { pushed: false, reason: "rt could not push the team repo", next: "rt team publish" } }));
     expect(text.split("\n")[0]).toBe(`[ok] Created the ${okOutcome.pack.name} pack  ${okOutcome.pack.dir}`);
     expect(text).toContain("[not yet] The acme pack is not shared with your org yet  rt could not push the team repo\n");
-    expect(text).toContain("  next: Share it with rt team publish\n");
+    expect(text).toContain(`  next: Share it with rt team publish, then run /reload-plugins in your Claude session and try ${okOutcome.tryNext}\n`);
+    expect(text.match(/next:/g)).toHaveLength(1);
+  });
+
+  test("a share that needs a pull first folds the reload into its one next", () => {
+    const text = renderPlain(initOutcomeBlocks({ ...okOutcome, published: { pushed: false, reason: "The org repo has changes this Mac does not have yet", next: "rt team pull --team acme", thenRun: "rt team publish --team acme" } }));
+    expect(text).toContain(`  next: Run rt team pull --team acme, then share it with rt team publish --team acme, then run /reload-plugins in your Claude session and try ${okOutcome.tryNext}\n`);
+    expect(text.match(/next:/g)).toHaveLength(1);
   });
 
   test("a policy refusal is a refused line, with its command as next", () => {

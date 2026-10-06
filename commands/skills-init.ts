@@ -64,8 +64,9 @@ export function initOutcomeBlocks(o: Extract<InitOutcome, { ok: true }>): Block[
     ui.kv("Marketplace", o.pack.marketplace),
     ui.kv("Installed", `${o.installed.plugin} ${o.installed.version}`),
     ui.kv("Repo bindings", o.repo.manifest),
-    ...packShareBlocks(o.pack.name, o.published),
-    ui.callout("next", ["Run ", ui.cmd("/reload-plugins"), " in your Claude session, then try ", ui.cmd(o.tryNext)]),
+    ...(o.published.pushed
+      ? [...packShareBlocks(o.pack.name, o.published), ui.callout("next", ["Run ", ui.cmd("/reload-plugins"), " in your Claude session, then try ", ui.cmd(o.tryNext)])]
+      : packShareBlocks(o.pack.name, o.published, [", then run ", ui.cmd("/reload-plugins"), " in your Claude session and try ", ui.cmd(o.tryNext)])),
   ];
 }
 

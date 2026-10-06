@@ -66,6 +66,12 @@ const orgFiles = (org: string, orgSettings: Record<string, unknown>, teams: Reco
 });
 
 describe("readZones", () => {
+  test("an org folder whose name is not a valid org slug is neither an org nor a zone", () => {
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), ...orgFiles("Bad_Org", {}, { widgets: {} }), ...orgFiles("..", {}, { gadgets: {} }) });
+    expect(readOrgSlugs(fs, HOME)).toEqual(["acme"]);
+    expect(readZones(fs, HOME).map((z) => z.slug)).toEqual(["acme/widgets"]);
+  });
+
   test("one zone per team folder, named <org>/<team>", () => {
     const fs = memFs(orgFiles("acme", {}, { widgets: {}, gadgets: {} }));
     const zones = readZonesFrom(fs, `${HOME}/.mattstack/teams`);
@@ -392,6 +398,17 @@ describe("initPack", () => {
     expect(out.published).toEqual({ pushed: true, remote: "https://gitlab.example.com/acme/org.git" });
   });
 
+  test("a marketplace entry of the pack's name that points elsewhere is refused before anything is written", async () => {
+    const market = '{ "name": "acme-market", "plugins": [{ "name": "acme", "source": "./elsewhere/acme" }] }';
+    const { deps, calls, fs } = world({ files: { [`${ORG_ROOT("acme")}/.claude-plugin/marketplace.json`]: market } });
+    const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "team-marketplace-conflict", detail: "Your org's marketplace points acme at another pack", why: "Ask an org admin to correct its source, then try again." });
+    expect(fs.readFile(`${ORG_ROOT("acme")}/.claude-plugin/marketplace.json`)).toBe(market);
+    expect(fs.exists(`${ACME_PACK}/pack/skills.jsonc`)).toBe(false);
+    expect(calls.registered).toEqual([]);
+    expect(calls.claims).toEqual([]);
+  });
+
   test("an owner whose marketplace entry is already there shares only the team's own files", async () => {
     const { deps, calls } = world({ files: { [`${ORG_ROOT("acme")}/.claude-plugin/marketplace.json`]: '{ "name": "acme-market", "plugins": [{ "name": "acme", "source": "./mattstack/teams/acme/packs/acme" }] }' } });
     expect((await initPack({ repoDir: REPO, zone: null, team: null }, deps)).ok).toBe(true);
@@ -593,6 +610,13 @@ describe("initPack", () => {
     const { deps } = world({ noOrg: true, files, isTTY: true });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
     expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", detail: "The acme org has no team folders yet, so there is no team to hold a pack", why: "Only an org admin can add a team", next: "rt team add <team> --owner <username>" });
+  });
+
+  for (const zone of [null, "acme"]) test(`a clone whose org store has not landed yet says to pull it${zone ? " under --zone" : ""}`, async () => {
+    const { deps, calls } = world({ currentOrg: () => null });
+    const out = await initPack({ repoDir: REPO, zone, team: null }, deps);
+    expect(out).toMatchObject({ ok: false, refused: true, code: "zone-missing", detail: "Your copy of the acme org is not set up yet", next: "rt team pull" });
+    expect(calls.registered).toEqual([]);
   });
 
   test("an uncompiled skeleton nobody claims is free: with no team and no active team it is carried on", async () => {

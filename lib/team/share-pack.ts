@@ -3,7 +3,7 @@ import { logFailureDetail, UserActionableError } from "../errors.ts";
 import { validateSlug } from "../secrets/store.ts";
 import type { Probes } from "../setup/probes.ts";
 import * as out from "../ui/out.ts";
-import type { Block } from "../ui/protocol.ts";
+import type { Block, Segment } from "../ui/protocol.ts";
 import { commitFiles } from "./create.ts";
 import { teamRemote } from "./members.ts";
 import { publishTeam } from "./publish.ts";
@@ -144,12 +144,14 @@ export function droppedShareBlocks(skipped: SkippedShare[]): Block[] {
   ]);
 }
 
-export function packShareBlocks(pack: string, share: PackShare): Block[] {
+/** `then` continues the share's own next, so a caller with a step of its own prints one next rather than two. */
+export function packShareBlocks(pack: string, share: PackShare, then: Array<string | Segment> = []): Block[] {
   const dropped = droppedShareBlocks(share.skipped ?? []);
   if (share.pushed) return [out.line("done", `Shared the ${pack} pack with your org`, share.remote), ...dropped];
+  const shareNext = share.thenRun ? ["Run ", out.cmd(share.next), ", then share it with ", out.cmd(share.thenRun)] : ["Share it with ", out.cmd(share.next)];
   return [
     out.line("pending", `The ${pack} pack is not shared with your org yet`, share.reason),
-    out.callout("next", share.thenRun ? ["Run ", out.cmd(share.next), ", then share it with ", out.cmd(share.thenRun)] : ["Share it with ", out.cmd(share.next)]),
+    out.callout("next", [...shareNext, ...then]),
     ...dropped,
   ];
 }

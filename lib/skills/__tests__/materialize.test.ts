@@ -114,7 +114,7 @@ describe("materializeRepo", () => {
     if (out.kind !== "written") throw new Error(out.kind);
     const gadgets = out.packs.find((p) => p.pack === "gadgets")!;
     expect(gadgets.ok).toBe(false);
-    if (!gadgets.ok) expect(gadgets.detail).toBe(`gadgets extends acme-base, but the org has no base pack there (looked in ${join(root, "teams", "acme", "mattstack", "org", "packs", "acme-base")})`);
+    if (!gadgets.ok) expect(gadgets.detail).toBe(`gadgets extends acme-base, but the org has no base pack called acme-base`);
     expect(existsSync(join(root, "repos", SLUG, "packs", "widgets", "skills.jsonc"))).toBe(true);
     expect(existsSync(join(root, "repos", SLUG, "packs", "gadgets", "skills.jsonc"))).toBe(false);
   });
@@ -318,12 +318,12 @@ describe("materializeRepo org base pack", () => {
     expect(existsSync(join(root, "repos", SLUG, "packs", "acme-base"))).toBe(false);
   });
 
-  test("a missing base names the folder it looked in", () => {
+  test("a missing base says the org has no base pack of that name", () => {
     const { root, engine } = makeWorld();
     org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: { extends: "acme-base" } } } } });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
-    expect(out.packs[0]).toMatchObject({ ok: false, detail: `widgets extends acme-base, but the org has no base pack there (looked in ${baseDir(root, "acme-base")})` });
+    expect(out.packs[0]).toMatchObject({ ok: false, detail: `widgets extends acme-base, but the org has no base pack called acme-base` });
   });
 
   test("the plugin@marketplace form is refused", () => {
@@ -352,7 +352,7 @@ describe("materializeRepo org base pack", () => {
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
     const byPack = Object.fromEntries(out.packs.map((p) => [p.pack, p.ok ? "" : p.detail]));
-    expect(byPack.widgets).toContain('is not marked "base": true');
+    expect(byPack.widgets).toBe("widgets extends plain, but the org's plain pack is not marked as a base pack");
     expect(byPack.gadgets).toBe("gadgets extends deep, which extends deeper; a base pack cannot extend another");
   });
 });

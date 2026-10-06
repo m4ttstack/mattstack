@@ -441,7 +441,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       const packStatus = await deps.run("git", statusArgs, { cwd: pack.dir });
       if (packStatus.code !== 0) return failed(`git status failed in ${pack.dir}: ${packStatus.stderr.trim()}`);
       if (packStatus.stdout.trim() !== "") {
-        if (!mayWritePack) return refused("This pack has changes, but only its team's owners can commit them");
+        if (!mayWritePack) return refused(`This pack has changes, but only its team's owners can commit them. Undo them with rt skills discard --pack ${pack.name}`);
         if (!opts.commitPending) return refused(`The pack checkout at ${pack.dir} has uncommitted changes (${packStatus.stdout.trim()}). Commit or stash them, then run this again`);
         // The status covers the whole repo, so a dirty file beside a pack
         // that sits in a subdirectory still refuses rather than riding along
@@ -880,7 +880,9 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   // Reached only when rebuild is true, or the installed pack lags the source
   // (the noOp return above already exited the other case) -- an update is
   // due unless a member's drifted source already matches its installed copy.
+  const notInstalled = `${pack.name} is not installed on this Mac`;
   const updatePack = await tryStep(async () => {
+    if (installedPackBefore === null) return skipped(notInstalled);
     if (!mine && installedPackBefore === packSourceVersion) return skipped("the installed copy already matches the source");
     const id = pluginId(pack);
     const res = await deps.run(deps.claudeBin!, ["plugin", "update", id]);
@@ -891,6 +893,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   if (stops(updatePack)) return finish();
 
   const verifyInstalled = await tryStep(async () => {
+    if (installedPackBefore === null) return skipped(notInstalled);
     const list = await listInstalled(deps);
     installedPackAfter = installedVersionFor(list, pluginId(pack));
     installedEngineAfter = installedVersionFor(list, pluginId(engine));

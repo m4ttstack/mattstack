@@ -121,7 +121,7 @@ describe("setupPackFlow", () => {
     const reqs: PackRequirements[] = [{ pack: "gadgets", tools: [], integrations: [], workType: "feature" }];
     expect(await setupPackFlow(makeCtx(p, { reqs }))).toEqual({
       ok: false,
-      detail: `gadgets extends acme-base, but the org has no base pack there (looked in ${home}/.mattstack/teams/acme/mattstack/org/packs/acme-base)`,
+      detail: `gadgets extends acme-base, but the org has no base pack called acme-base`,
     });
   });
 

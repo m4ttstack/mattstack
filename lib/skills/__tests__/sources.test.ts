@@ -694,6 +694,25 @@ describe("org base pack roots", () => {
     }
   });
 
+  test("orgOfPackDir never looks above HOME for a marker", () => {
+    const outer = realpathSync(mkdtempSync(join(tmpdir(), "rt-sources-above-home-")));
+    mkdirSync(join(outer, "mattstack"), { recursive: true });
+    writeFileSync(join(outer, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
+    const home = join(outer, "home");
+    const pack = join(home, "work", "packs", "widgets");
+    mkdirSync(pack, { recursive: true });
+    const savedHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      expect(orgOfPackDir(pack)).toBeNull();
+      expect(orgOfPackDir(join(outer, "elsewhere-is-missing"))).toBeNull();
+      mkdirSync(join(outer, "beside"), { recursive: true });
+      expect(orgOfPackDir(join(outer, "beside"))).toEqual({ org: "acme", root: outer });
+    } finally {
+      process.env.HOME = savedHome;
+    }
+  });
+
   test("orgOfPackDir stops at the nearest marker, and refuses one that is not a valid org", () => {
     const { root } = makeRoot();
     const nested = join(root, "teams", "acme", "mattstack", "teams", "widgets", "vendor");

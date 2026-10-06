@@ -336,6 +336,24 @@ test("skillsSync sends the missing Claude Code note to stderr and keeps exit 1",
   }
 });
 
+for (const json of [false, true]) test(`a lone base pack asks for --pack without calling it more than one${json ? " as JSON" : ""}`, async () => {
+  const io = captureSkills();
+  const unexpected = async (): Promise<never> => { throw new Error("must stop before any dependency runs"); };
+  const deps: SyncDeps = {
+    mayCompile: () => true, claudeBin: "/fake/claude", run: unexpected, checkPack: unexpected, compilePack: unexpected,
+    materialize: unexpected, configDir: "/fake/config", cswapSessionsDir: "/fake/sessions", inTreeRoot: null,
+  };
+  try {
+    const result = await runExpectingCleanExit(() => skillsSync(json ? ["--json"] : [], { packs: [{ ...pack("acme-base"), marketplace: null, base: true }], deps }));
+    expect(result.exitCode).toBe(1);
+    if (json) expect(JSON.parse(io.stdout())).toEqual({ ok: false, error: "which pack? pass --pack <name> (discovered: acme-base)" });
+    else expect(io.stderr()).toBe("Which pack?\n  why: Only base packs are here (acme-base), and rt never picks one for you.\n  next: rt skills sync --pack <name>\n");
+  } finally {
+    io.restore();
+    process.exitCode = 0;
+  }
+});
+
 for (const target of ["root", "..pack"]) test(`member sync cannot commit ${target} source`, async () => {
   const savedHome = process.env.HOME;
   const savedExit = process.exitCode;
@@ -367,7 +385,7 @@ for (const target of ["root", "..pack"]) test(`member sync cannot commit ${targe
     expect(permission).toBe(false);
     expect(process.exitCode).toBe(1);
     const result = JSON.parse(io.stdout());
-    expect(result).toMatchObject({ ok: false, pack: "widgets", steps: [{ name: "guards", status: "refused", detail: "This pack has changes, but only its team's owners can commit them" }] });
+    expect(result).toMatchObject({ ok: false, pack: "widgets", steps: [{ name: "guards", status: "refused", detail: "This pack has changes, but only its team's owners can commit them. Undo them with rt skills discard --pack widgets" }] });
     expect(Object.keys(result).sort()).toEqual(["ok", "pack", "restartNeeded", "steps", "versions", "warnings"]);
     expect(calls.some(c => ["add", "commit", "push", "pull"].includes(c))).toBe(false);
     expect(readFileSync(manifest, "utf8")).toBe(before);

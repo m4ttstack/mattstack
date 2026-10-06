@@ -1,5 +1,6 @@
 import { execFileSync } from "child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "fs";
+import { homedir } from "os";
 import { dirname, join, relative, sep } from "path";
 import { parse as parseYaml } from "yaml";
 import { resolveClaudeBin } from "../claude-bin.ts";
@@ -228,7 +229,8 @@ function readJsoncObject(path: string): Record<string, unknown> | null {
  * The org repo a pack folder sits in, whether the clone under `teams/` or a
  * worktree or copy of it elsewhere: the nearest ancestor holding a
  * `mattstack/mattstack.jsonc` marker, when that marker is an org marker with
- * a valid slug. A nearer marker of any other kind ends the walk with null.
+ * a valid slug. A nearer marker of any other kind ends the walk with null,
+ * and so does HOME, so a pack under HOME never answers to a folder above it.
  */
 export function orgOfPackDir(packDir: string): { org: string; root: string } | null {
   let dir: string;
@@ -237,6 +239,7 @@ export function orgOfPackDir(packDir: string): { org: string; root: string } | n
   } catch {
     return null;
   }
+  const home = canonicalHome();
   while (true) {
     const markerPath = join(dir, "mattstack", "mattstack.jsonc");
     if (existsSync(markerPath)) {
@@ -251,8 +254,17 @@ export function orgOfPackDir(packDir: string): { org: string; root: string } | n
       }
     }
     const parent = dirname(dir);
-    if (parent === dir) return null;
+    if (parent === dir || dir === home) return null;
     dir = parent;
+  }
+}
+
+function canonicalHome(): string | null {
+  const home = process.env.HOME ?? homedir();
+  try {
+    return realpathSync(home);
+  } catch {
+    return home || null;
   }
 }
 

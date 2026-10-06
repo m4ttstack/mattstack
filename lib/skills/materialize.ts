@@ -57,8 +57,8 @@ function baseLayer(deps: MaterializeDeps, zone: ZoneInfo, pack: string, name: st
   const dir = join(packsDir, name);
   const fragmentPath = join(dir, "pack", "skills.jsonc");
   const fragment = readFragment(deps.fs, fragmentPath);
-  if (!fragment) return { error: `${pack} extends ${name}, but the org has no base pack there (looked in ${dir})` };
-  if (fragment.base !== true) return { error: `${pack} extends ${name}, but ${fragmentPath} is not marked "base": true` };
+  if (!fragment) return { error: `${pack} extends ${name}, but the org has no base pack called ${name}` };
+  if (fragment.base !== true) return { error: `${pack} extends ${name}, but the org's ${name} pack is not marked as a base pack` };
   if (fragment.extends) return { error: `${pack} extends ${name}, which extends ${fragment.extends}; a base pack cannot extend another` };
   return { label: `base:${name}`, fragment };
 }
