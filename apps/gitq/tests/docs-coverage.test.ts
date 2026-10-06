@@ -3,8 +3,8 @@ import { readdirSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { COMMANDS } from '../src/cli/main.ts';
 
-const REPO_ROOT = join(import.meta.dir, '..');
-const REFERENCE_DIR = join(REPO_ROOT, 'website', 'docs', 'reference');
+const REPO_ROOT = join(import.meta.dir, '..', '..', '..');
+const REFERENCE_DIR = join(REPO_ROOT, 'website', 'docs', 'gitq', 'reference');
 
 /** Recursively collects every `*.mdx` file under `dir`, as paths relative to `REFERENCE_DIR`. */
 function walkMdx(dir: string): string[] {
