@@ -17,7 +17,7 @@ export function PreviewBanner({
       icon={<Icon name="eye" size={16} />}
       data-parity="Preview Banner"
     >
-      <Group justify="space-between" gap="md">
+      <Group justify="flex-start" gap="xs">
         <Text size="md">{`Previewing ${name}'s Self view`}</Text>
         <Button
           component={Link}

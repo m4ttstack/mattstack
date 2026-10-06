@@ -121,6 +121,7 @@ export function ProfileHeader({
                 href={previewHref(person.username)}
                 variant="default"
                 size="compact-sm"
+                h={32}
                 data-parity="Preview Button"
                 leftSection={
                   <Glyph
