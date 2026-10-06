@@ -490,6 +490,7 @@ describe("team.create", () => {
       ["git", "cat-file", "-e", "HEAD:.claude-plugin/marketplace.json"],
       ["git", "cat-file", "-e", "HEAD:.sops.yaml"],
       ["git", "cat-file", "-e", "HEAD:.gitignore"],
+      ["git", "symbolic-ref", "-q", "--short", "HEAD"],
       ["git", "remote", "get-url", "--push", "--all", "origin"],
       ["git", "ls-remote", "--refs", "--", remote, "refs/heads/main"],
       ["git", "rev-list", "--max-count=1001", "refs/heads/main"],
