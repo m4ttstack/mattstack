@@ -325,8 +325,8 @@ describe("loadAttachment", () => {
 describe("readVerbRoster", () => {
   test("parses the real stubs.jsonc shape (comment-bearing JSONC)", () => {
     const rootDir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-pack-")));
-    const stubsJsonc = `// Verb stubs for this pack. generate-stubs.sh renders skills/<verb>/SKILL.md
-// from these; regenerate after edits, never hand-edit generated files.
+    const stubsJsonc = `// Verb roster for this pack: the doors it compiles from the engines
+// (bindings in pack/skills.jsonc).
 {
   "verbs": {
     "watch-ci": {

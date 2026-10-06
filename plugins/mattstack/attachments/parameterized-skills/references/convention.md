@@ -342,7 +342,7 @@ An org repo is cloned at `~/.mattstack/teams/<org>/`, and
 - Only `.claude-plugin/marketplace.json` sits at the repo root. It lists
   every team pack with its source under `mattstack/teams/<team>/packs/<team>`
   and never the base pack.
-- Schema: `plugin/schemas/zone-marker.schema.json`.
+- Schema: `plugin/schemas/org-marker.schema.json`.
 
 ## Manifest layers
 
