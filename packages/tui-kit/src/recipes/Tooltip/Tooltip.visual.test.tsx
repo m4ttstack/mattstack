@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
-import { describe, expect, it } from "vitest";
-import { page } from "vitest/browser";
-import { renderWithTheme } from "../../../test/test-utils.tsx";
-import { Tooltip, TOOLTIP_PARTS } from "./Tooltip.tsx";
+import type { ReactNode } from 'react';
+import { describe, expect, it } from 'vitest';
+import { page } from 'vitest/browser';
+
+import { renderWithTheme } from '../../../test/test-utils.tsx';
+import { Tooltip, TOOLTIP_PARTS } from './Tooltip.tsx';
 
 /**
  * Visual tier for the Tooltip recipe.
@@ -16,15 +17,17 @@ import { Tooltip, TOOLTIP_PARTS } from "./Tooltip.tsx";
 
 async function waitForCard(): Promise<void> {
   await expect
-    .poll(() => document.querySelector(`[data-part="${TOOLTIP_PARTS.card}"]`), { timeout: 1000 })
+    .poll(() => document.querySelector(`[data-part="${TOOLTIP_PARTS.card}"]`), {
+      timeout: 1000,
+    })
     .not.toBeNull();
 }
 
-const NO_MOTION_CLASS = "tooltip-visual-no-motion";
+const NO_MOTION_CLASS = 'tooltip-visual-no-motion';
 
 function installNoMotionStyle() {
   if (document.getElementById(NO_MOTION_CLASS)) return;
-  const style = document.createElement("style");
+  const style = document.createElement('style');
   style.id = NO_MOTION_CLASS;
   style.textContent = `.${NO_MOTION_CLASS}, .${NO_MOTION_CLASS} * {
     transition: none !important;
@@ -42,9 +45,9 @@ function installNoMotionStyle() {
 async function renderFixture(ui: ReactNode, { dark = false } = {}) {
   await page.viewport(700, 400);
   installNoMotionStyle();
-  document.body.classList.toggle("dark", dark);
+  document.body.classList.toggle('dark', dark);
 
-  const container = document.createElement("div");
+  const container = document.createElement('div');
   container.classList.add(NO_MOTION_CLASS);
   document.body.appendChild(container);
 
@@ -54,54 +57,62 @@ async function renderFixture(ui: ReactNode, { dark = false } = {}) {
 }
 
 const surface = {
-  display: "block",
-  width: "22rem",
-  padding: "1rem",
-  paddingBottom: "6rem",
-  background: "var(--panel)",
-  color: "var(--fg)",
-  fontFamily: "var(--font-mono)",
-  fontSize: "var(--font-size-sm)",
+  display: 'block',
+  width: '22rem',
+  padding: '1rem',
+  paddingBottom: '6rem',
+  background: 'var(--panel)',
+  color: 'var(--fg)',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--font-size-sm)',
 } as const;
 
 function Fixture() {
   return (
     <div data-testid="tooltip" style={surface}>
-      <Tooltip data-testid="tip" tip={"hover for details\nsecond line"}>
+      <Tooltip data-testid="tip" tip={'hover for details\nsecond line'}>
         <button type="button">hover me</button>
       </Tooltip>
     </div>
   );
 }
 
-describe("Tooltip (visual)", () => {
-  it("the resting wrapper matches its baseline in light mode", async () => {
+describe('Tooltip (visual)', () => {
+  it('the resting wrapper matches its baseline in light mode', async () => {
     await renderFixture(<Fixture />);
 
-    await expect(page.getByTestId("tooltip")).toMatchScreenshot("tooltip-resting-light");
+    await expect(page.getByTestId('tooltip')).toMatchScreenshot(
+      'tooltip-resting-light'
+    );
   });
 
-  it("the resting wrapper matches its baseline in dark mode", async () => {
+  it('the resting wrapper matches its baseline in dark mode', async () => {
     await renderFixture(<Fixture />, { dark: true });
 
-    await expect(page.getByTestId("tooltip")).toMatchScreenshot("tooltip-resting-dark");
+    await expect(page.getByTestId('tooltip')).toMatchScreenshot(
+      'tooltip-resting-dark'
+    );
   });
 
-  it("the hovered card matches its baseline in light mode", async () => {
+  it('the hovered card matches its baseline in light mode', async () => {
     await renderFixture(<Fixture />);
 
-    await page.getByTestId("tip").hover();
+    await page.getByTestId('tip').hover();
     await waitForCard();
 
-    await expect(page.getByTestId("tooltip")).toMatchScreenshot("tooltip-hovered-light");
+    await expect(page.getByTestId('tooltip')).toMatchScreenshot(
+      'tooltip-hovered-light'
+    );
   });
 
-  it("the hovered card matches its baseline in dark mode", async () => {
+  it('the hovered card matches its baseline in dark mode', async () => {
     await renderFixture(<Fixture />, { dark: true });
 
-    await page.getByTestId("tip").hover();
+    await page.getByTestId('tip').hover();
     await waitForCard();
 
-    await expect(page.getByTestId("tooltip")).toMatchScreenshot("tooltip-hovered-dark");
+    await expect(page.getByTestId('tooltip')).toMatchScreenshot(
+      'tooltip-hovered-dark'
+    );
   });
 });

@@ -1323,6 +1323,7 @@ export function Board() {
               memberFiltered.find(mr => mr.slackChannel)?.slackChannel ??
               null,
             toggle: toggleShow,
+            turn: data.turn ?? ALL_TURN,
           }
         : null,
     onOpenTurnSettings: openTurnConfig,

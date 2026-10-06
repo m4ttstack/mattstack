@@ -1,27 +1,28 @@
-import { mergeRefs } from "@soribashi/core";
-import type { ComponentProps, HTMLAttributes, ReactNode } from "react";
-import { useMemo, useRef } from "react";
-import { defineComponent } from "../../builders.ts";
-import { TooltipCard, useTooltipReveal } from "./TooltipCard.tsx";
-import classes from "./Tooltip.module.css";
+import type { ComponentProps, HTMLAttributes, ReactNode } from 'react';
+import { useMemo, useRef } from 'react';
+import { mergeRefs } from '@soribashi/core';
+
+import { defineComponent } from '../../builders.ts';
+import classes from './Tooltip.module.css';
+import { TooltipCard, useTooltipReveal } from './TooltipCard.tsx';
 
 /** Authoring category (1 = pure styled primitive). Read off this module by
     scripts/derive.ts to build the kit's manifest; not dead code. */
 export const recipeCategory = 1 as const;
 
-const TOOLTIP_SELECTORS = ["root", "card"] as const;
+const TOOLTIP_SELECTORS = ['root', 'card'] as const;
 
 /** Stable selector surface for app-side CSS, stamped in the non-overridable
     tail so a call site cannot sever an app's `[data-part]` rules. */
-export const TOOLTIP_PARTS = { root: "tooltip", card: "tooltip-card" } as const;
+export const TOOLTIP_PARTS = { root: 'tooltip', card: 'tooltip-card' } as const;
 
 /** Read by TooltipCard off the trigger element at show time (see its
     `resolveGapPx`) — a portaled card can't inherit this through the cascade,
     since createPortal moves it out of the trigger's subtree. */
-const TOOLTIP_GAP_VAR = "--sb-tooltip-gap";
+const TOOLTIP_GAP_VAR = '--sb-tooltip-gap';
 
 const TOOLTIP_SCALARS: Record<string, string> = {
-  [TOOLTIP_GAP_VAR]: "var(--spacing-xxs)",
+  [TOOLTIP_GAP_VAR]: 'var(--spacing-xxs)',
 };
 
 export interface TooltipOwnProps {
@@ -31,10 +32,14 @@ export interface TooltipOwnProps {
       `aria-label`/`aria-describedby`; this recipe does not, and cannot, do
       that for them. */
   tip: string;
+  /** Milliseconds a hover waits before the card shows; focus shows it at
+      once. Defaults to the kit's short reveal delay. */
+  delay?: number;
   children?: ReactNode;
 }
 
-type TooltipProps_ = TooltipOwnProps & Omit<HTMLAttributes<HTMLSpanElement>, "ref">;
+type TooltipProps_ = TooltipOwnProps &
+  Omit<HTMLAttributes<HTMLSpanElement>, 'ref'>;
 
 export const Tooltip = defineComponent<
   TooltipProps_,
@@ -43,13 +48,14 @@ export const Tooltip = defineComponent<
   readonly [],
   HTMLSpanElement
 >({
-  name: "Tooltip",
+  name: 'Tooltip',
   selectors: TOOLTIP_SELECTORS,
   classes,
   vars: () => ({ root: { ...TOOLTIP_SCALARS } }),
   render: ({ props, getStyles, ref }) => {
     const {
       tip,
+      delay,
       children,
       classNames: _classNames,
       styles: _styles,
@@ -61,13 +67,17 @@ export const Tooltip = defineComponent<
 
     const triggerRef = useRef<HTMLSpanElement | null>(null);
     const setRefs = useMemo(() => mergeRefs(triggerRef, ref), [ref]);
-    const visible = useTooltipReveal(triggerRef, { active: true, focusWithin: true });
+    const visible = useTooltipReveal(triggerRef, {
+      active: true,
+      focusWithin: true,
+      delay,
+    });
 
     return (
       <span
         ref={setRefs}
         {...rest}
-        {...getStyles("root")}
+        {...getStyles('root')}
         data-part={TOOLTIP_PARTS.root}
         // Kept for a consumer that still reads it (e.g. an existing E2E
         // selector) even though the kit's own CSS no longer does — the
@@ -80,7 +90,7 @@ export const Tooltip = defineComponent<
           visible={visible}
           gapVar={TOOLTIP_GAP_VAR}
           part={TOOLTIP_PARTS.card}
-          cardProps={getStyles("card")}
+          cardProps={getStyles('card')}
         >
           {tip}
         </TooltipCard>

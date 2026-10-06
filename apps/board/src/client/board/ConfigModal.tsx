@@ -42,6 +42,7 @@ import {
 } from './config-shapes.ts';
 import { Disclosure, DisclosureHead } from './Disclosure.tsx';
 import { InfoTip } from './InfoTip.tsx';
+import { AUTHOR_LABEL, REVIEWER_LABEL } from './turn-labels.ts';
 
 const SAVED_FLASH_MS = 1400;
 
@@ -1010,20 +1011,6 @@ const ROW_HINTS: Record<string, string> = {
   'board.members': "A new teammate's MRs land once rt has synced them.",
   'board.tabs':
     'A new section\'s MRs land once rt has backfilled it; the tab shows "syncing" until then. A section must match a CODEOWNERS header exactly; the field suggests the headers rt has seen.',
-};
-
-const AUTHOR_LABEL: Record<AuthorSignal, string> = {
-  threads: 'unanswered comments',
-  changesRequested: 'changes requested',
-  conflicts: 'merge conflicts',
-  rebase: 'needs a rebase',
-  ciFailing: 'CI failing',
-  readyToMerge: 'approved, ready to merge',
-};
-const REVIEWER_LABEL: Record<ReviewerSignal, string> = {
-  assigned: "assigned and haven't finished",
-  approvalReset: 'a push reset my approval',
-  repliedThreads: 'the author answered my comment',
 };
 
 function TurnControl({
