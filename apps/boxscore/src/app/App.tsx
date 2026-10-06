@@ -16,7 +16,7 @@ import type {
 } from '../shared/types';
 import { LockedPage } from './access/LockedPage';
 import { NotAvailablePage } from './access/NotAvailablePage';
-import { isColdCache, type RangeSelection } from './api';
+import { isColdCache, isNotFound, type RangeSelection } from './api';
 import { DetailPage, FIRST_STAT } from './detail/DetailPage';
 import { useLeaderboard } from './hooks/useLeaderboard';
 import { usePersistentState } from './hooks/usePersistentState';
@@ -33,6 +33,8 @@ import { statHref } from './leaderboard/StandingsTable';
 import { progressKey, STALL_AFTER_MS } from './lib/progress';
 import { scopeLabel, windowLabel } from './model/labels';
 import { descriptor } from './model/standings';
+import { PreviewContext } from './preview/preview';
+import { PreviewBanner } from './preview/PreviewBanner';
 import { RefreshStatus } from './refresh/RefreshStatus';
 import { SkeletonStandings } from './refresh/SkeletonStandings';
 import { useAppRoute } from './routes';
@@ -67,8 +69,13 @@ function useNow(intervalMs: number): number {
   return now;
 }
 
+interface Shown {
+  result: LeaderboardResponse;
+  viewAs: string | null;
+}
+
 function AppShell() {
-  const [data, setData] = useState<LeaderboardResponse | null>(null);
+  const [shown, setShown] = useState<Shown | null>(null);
   const [cold, setCold] = useState<ColdCacheResponse | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
   // True from the moment a cold cache triggers a background refresh until that refresh lands
@@ -85,6 +92,12 @@ function AppShell() {
   const [view, setView] = usePersistentState<ViewMode>('forge-view', 'table');
   const [sort, setSort] = useState<MetricKey>(DEFAULT_SORT);
   const route = useAppRoute();
+  const viewAs =
+    route.name === 'user' || route.name === 'stat' ? (route.as ?? null) : null;
+  // A preview and the normal view answer differently for the same selection, so data held for
+  // one is never shown under the other while the new one loads.
+  const data = shown && shown.viewAs === viewAs ? shown.result : null;
+  const setData = (result: LeaderboardResponse) => setShown({ result, viewAs });
   const [, navigate] = useLocation();
   const now = useNow(30_000);
   const client = useQueryClient();
@@ -101,7 +114,16 @@ function AppShell() {
 
   const refreshJob = useRefreshJob({
     onDone: (result, startedFor) => {
-      client.setQueryData(['leaderboard', startedFor], result);
+      client.setQueryData(['leaderboard', startedFor, null], result);
+      // A refresh always answers as the real viewer; a preview re-reads its own view instead.
+      if (viewAs !== null) {
+        void client.invalidateQueries({
+          queryKey: ['leaderboard', startedFor, viewAs],
+          exact: true,
+        });
+        setAwaitingRefresh(false);
+        return;
+      }
       const matches =
         startedFor.range === rangeState.range &&
         startedFor.start === rangeState.start &&
@@ -116,7 +138,7 @@ function AppShell() {
     },
   });
 
-  const leaderboardQuery = useLeaderboard(selection);
+  const leaderboardQuery = useLeaderboard(selection, viewAs);
 
   // Cancels any in-flight job first so a stale refresh doesn't linger in the background once the
   // selection moves on. All effects from one render commit before any async response can land, so
@@ -236,6 +258,8 @@ function AppShell() {
     isPerson &&
     route.username.toLowerCase() !== own.toLowerCase();
   const redirectHome = self && own !== null && route.name === 'leaderboard';
+  const unknownPreview =
+    viewAs !== null && !data && isNotFound(leaderboardQuery.error);
 
   useEffect(() => {
     if (redirectHome)
@@ -245,6 +269,8 @@ function AppShell() {
   let page: ReactNode;
   if (redirectHome) {
     page = null;
+  } else if (unknownPreview) {
+    page = <NotFoundPage />;
   } else if (locked) {
     page = <LockedPage />;
   } else if (foreign) {
@@ -319,8 +345,9 @@ function AppShell() {
     ? (data?.users.find(u => u.username === shownUsername)?.name ??
       shownUsername)
     : null;
-  const crumbs =
-    locked || foreign
+  const crumbs = unknownPreview
+    ? ['boxscore', 'Not found']
+    : locked || foreign
       ? ['boxscore', 'Not available']
       : isPerson
         ? ['boxscore', personName!, descriptor(stat).label]
@@ -368,7 +395,19 @@ function AppShell() {
             bg="var(--tk-panel)"
             contentContainerProps={{ maw: 1680, my: 0, p: 0 }}
           >
-            <div className={classes.content}>{page}</div>
+            <div className={classes.content}>
+              {data?.previewing && own !== null && (
+                <PreviewBanner
+                  username={own}
+                  name={data.users.find(u => u.username === own)?.name ?? own}
+                />
+              )}
+              <PreviewContext.Provider
+                value={data?.previewing ? (viewAs ?? null) : null}
+              >
+                {page}
+              </PreviewContext.Provider>
+            </div>
           </PageShell.Content>
         </PageShell.Main>
       </PageShell>

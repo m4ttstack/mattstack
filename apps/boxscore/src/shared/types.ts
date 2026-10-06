@@ -157,6 +157,8 @@ export interface UserDetailResponse {
   baseUrl: string;
   currentUser: string;
   viewer: Viewer;
+  /** True only when a Team viewer's `viewAs` applied: the response is that member's Self view. */
+  previewing: boolean;
   generatedAt: string;
   fromCache: boolean;
   /** The same ranked row the leaderboard shows, so the rail has value + rank + delta. */
@@ -175,6 +177,8 @@ export interface LeaderboardResponse {
   baseUrl: string;
   currentUser: string;
   viewer: Viewer;
+  /** True only when a Team viewer's `viewAs` applied: the response is that member's Self view. */
+  previewing: boolean;
   generatedAt: string;
   fromCache: boolean;
   /** Per-metric labels, e.g. a tier-fallback note on `mrsReviewed`. */
