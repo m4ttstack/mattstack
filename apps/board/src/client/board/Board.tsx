@@ -407,7 +407,6 @@ export function Board() {
 
   const [showSettings, setShowSettings] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
-  const [configFocus, setConfigFocus] = useState<string | undefined>();
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Row action menu (right-click) and transient toasts.
@@ -1296,12 +1295,6 @@ export function Board() {
   };
   const openConfig = () => {
     setMenuOpen(false);
-    setConfigFocus(undefined);
-    setShowConfig(true);
-  };
-  const openTurnConfig = () => {
-    setMenuOpen(false);
-    setConfigFocus('board.turn');
     setShowConfig(true);
   };
   // Refs go stale between sweeps, so taking Not Posted off re-checks Slack
@@ -1359,7 +1352,7 @@ export function Board() {
             turn: data.turn ?? ALL_TURN,
           }
         : null,
-    onOpenTurnSettings: openTurnConfig,
+    onOpenTurnSettings: openConfig,
   };
 
   /** A group's header band colour: its status pill's hue, its review
@@ -1496,7 +1489,7 @@ export function Board() {
                   <button
                     type="button"
                     className="tui-show-chips-settings"
-                    onClick={openTurnConfig}
+                    onClick={openConfig}
                   >
                     {ICONS.settings} {TURN_SETTINGS_LABEL}
                   </button>
@@ -1687,7 +1680,6 @@ export function Board() {
 
         {showConfig && (
           <ConsoleSettingsModal
-            focusKey={configFocus}
             onSaved={() =>
               void postAction('/api/config/reload', {}).then(() => load())
             }

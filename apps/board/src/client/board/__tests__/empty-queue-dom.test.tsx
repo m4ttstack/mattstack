@@ -424,7 +424,7 @@ test('Needs me keeps its rows under a stored Waiting on author pick and offers n
   });
 });
 
-test('Whose turn opens console on board.turn, and a save there reloads the board', async () => {
+test('Settings opens console at the top of the board group, and a save there reloads the board', async () => {
   servedData = withRows([needsMeMr(1)]);
   await mount(async container => {
     await React.act(async () =>
@@ -437,7 +437,7 @@ test('Whose turn opens console on board.turn, and a save there reloads the board
     )!;
     const src = new URL(frame.src);
     expect(src.pathname).toBe('/embed/settings/board');
-    expect(src.searchParams.get('explain')).toBe('board.turn');
+    expect(src.searchParams.get('explain')).toBeNull();
 
     const before = dataLoads;
     await React.act(async () => {

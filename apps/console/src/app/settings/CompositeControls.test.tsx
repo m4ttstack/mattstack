@@ -1,7 +1,7 @@
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -570,6 +570,50 @@ describe('composite rows', () => {
       expect(s.set).toHaveBeenCalledWith('rt.homeSnapshot', 'machine', {
         enabled: false,
         debounceSec: 45,
+      })
+    );
+  });
+
+  it('a list of options draws one checkbox each, every box on while unset, and a click writes the explicit list', async () => {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ def: {}, rows: [] }),
+    }));
+    const s = store();
+    renderWithProviders(
+      <SettingRow
+        def={def('board.turn', {
+          type: 'object',
+          scopes: ['team', 'user'],
+          effective: { scope: null, file: null },
+        })}
+        store={s}
+        subhead={null}
+        query=""
+      />
+    );
+    await openRow('board.turn');
+    const author = await screen.findByRole('group', {
+      name: 'board.turn.author',
+    });
+    const boxes = within(author).getAllByRole('checkbox');
+    expect(boxes).toHaveLength(6);
+    for (const box of boxes) expect(box).toBeChecked();
+    const conflicts = within(author).getByRole('checkbox', {
+      name: 'Merge conflicts',
+    });
+    await waitFor(() => expect(conflicts).toBeEnabled());
+    await userEvent.click(conflicts);
+    await waitFor(() =>
+      expect(s.set).toHaveBeenCalledWith('board.turn', 'team', {
+        author: [
+          'threads',
+          'changesRequested',
+          'rebase',
+          'ciFailing',
+          'readyToMerge',
+        ],
       })
     );
   });

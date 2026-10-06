@@ -61,6 +61,11 @@ const oauthRule = z.union([
   z.looseObject({ mode: z.literal("domains"), domains: z.array(z.string()).min(1) }),
 ]);
 
+// board's turn.ts owns these lists. `default` only tells the settings editor
+// what an absent list reads as; the board reader applies it, never the store.
+const AUTHOR_SIGNALS = ["threads", "changesRequested", "conflicts", "rebase", "ciFailing", "readyToMerge"] as const;
+const REVIEWER_SIGNALS = ["assigned", "approvalReset", "repliedThreads"] as const;
+
 // Mirrors board's own loader (parseTabs), which refuses to start on a tab
 // list these rules would reject.
 const tab = z.looseObject({
@@ -225,8 +230,27 @@ export const SCHEMAS = {
   "board.workspaces": z.looseObject({ reviews: z.string().optional(), responds: z.string().optional(), doctors: z.string().optional() }),
   "board.hiddenMembers": z.array(z.string()),
   "board.turn": z.looseObject({
-    author: z.array(z.enum(["threads", "changesRequested", "conflicts", "rebase", "ciFailing", "readyToMerge"])).optional(),
-    reviewer: z.array(z.enum(["assigned", "approvalReset", "repliedThreads"])).optional(),
+    author: z.array(z.enum(AUTHOR_SIGNALS)).optional().meta({
+      title: "Author's turn",
+      labels: {
+        threads: "Unanswered comments",
+        changesRequested: "Changes requested",
+        conflicts: "Merge conflicts",
+        rebase: "Needs a rebase",
+        ciFailing: "CI failing",
+        readyToMerge: "Approved, ready to merge",
+      },
+      default: [...AUTHOR_SIGNALS],
+    }),
+    reviewer: z.array(z.enum(REVIEWER_SIGNALS)).optional().meta({
+      title: "Reviewer's turn",
+      labels: {
+        assigned: "Assigned and haven't finished",
+        approvalReset: "A push reset my approval",
+        repliedThreads: "The author answered my comment",
+      },
+      default: [...REVIEWER_SIGNALS],
+    }),
   }),
   "board.triage": z.looseObject({
     enabled: z.boolean().optional(),

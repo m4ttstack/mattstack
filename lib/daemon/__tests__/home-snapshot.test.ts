@@ -1698,6 +1698,54 @@ describe("startHomeSnapshot — git spawn failure", () => {
     const result = await handle.runNow("manual");
     expect(result.skipped).toBe("init-failed");
   });
+
+  test("a git probe that could not run retries with backoff and arms once git answers, instead of staying inert", async () => {
+    const probeFails: Responder = (argv) =>
+      (argv[1] === "rev-parse" && argv[2] === "--is-inside-work-tree") ? { stdout: "", stderr: "", exitCode: -1, timedOut: true } : undefined;
+    const exec = makeSwitchableExec([probeFails, ...defaultResponders({ statusZ: "?? a.txt\0" })]);
+    const { deps, log, watch, timers } = baseDeps({ exec: exec.fn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    expect(watch.calls).toHaveLength(0);
+    expect((await handle.runNow("manual")).skipped).toBe("init-failed");
+    expect(String(log.calls.find((c) => c.level === "warn")?.args[1])).toContain("retrying in 30s");
+
+    timers.fire((t) => t.ms === 30_000);
+    await flushAsync();
+    expect(watch.calls).toHaveLength(0);
+    expect([...timers.pending.values()].some((t) => t.ms === 60_000)).toBe(true);
+
+    exec.setResponders(defaultResponders({ statusZ: "?? a.txt\0" }));
+    timers.fire((t) => t.ms === 60_000);
+    await flushAsync();
+
+    expect(watch.calls).toHaveLength(1);
+    expect((await handle.runNow("manual")).committed).toBe(true);
+    handle.stop();
+  });
+
+  test("the git probe retry backs off to a cap, and stop() cancels it", async () => {
+    const { fn: execFn } = makeFakeExec([
+      (argv) => (argv[1] === "rev-parse" && argv[2] === "--is-inside-work-tree") ? { stdout: "", stderr: "", exitCode: -1 } : undefined,
+      ...defaultResponders(),
+    ]);
+    const { deps, timers } = baseDeps({ exec: execFn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+
+    const delays: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      const retry = [...timers.pending.values()].find((t) => t.ms >= 30_000 && t.ms <= 600_000);
+      delays.push(retry!.ms);
+      timers.fire((t) => t === retry);
+      await flushAsync();
+    }
+    expect(delays).toEqual([30_000, 60_000, 120_000, 240_000, 480_000, 600_000, 600_000, 600_000]);
+
+    handle.stop();
+    expect([...timers.pending.values()].some((t) => t.ms === 600_000)).toBe(false);
+  });
 });
 
 // ─── settings-store failures after boot: watcher callback + status() ───────

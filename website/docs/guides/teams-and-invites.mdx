@@ -71,6 +71,12 @@ The joiner opens the invite link, or pastes the code into **Join a team** in set
 
 The invite also carries the joiner's board token. When this Mac's board ends up without one, the **Board peering** row says the board does not peer yet. It never holds up Install or Finish, but setup keeps listing it, and the setup check after an app update notifies you about it. The fix is on the admin's side: ask them to re-invite your board, with `rt team invite --handle <your forge username>` (then run `rt team join` with the new code). The row turns ready once the token arrives. It shows only when your team runs a board, and on the Mac that created the org only when that Mac holds the switchboard admin token, in which case `rt team peer` connects its board. It shows an error with a **Re-check** when the switchboard does not answer.
 
+## Connecting the admin's board
+
+A Mac that holds the switchboard admin token connects its own board: `rt team create` does it for you, and `rt team peer` does it later, for example when the create could not reach the switchboard. It registers the board under the username this Mac recorded for the org, and leaves a board that already peers alone. On that Mac, the **Board peering** row's steps name `rt team peer`. `rt team status` counts the members with a connected board, and its `--json` marks each member's board as peered or not.
+
+`rt team members remove <handle>` removes them from the org and also disconnects their board from the switchboard, so it stops receiving the org's peer traffic. When this Mac cannot disconnect it, the command says so and names who can.
+
 ## Switching teams
 
 When the roster puts you on more than one team, pick the one you work as in **Settings → Team → Your team**, or:

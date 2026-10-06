@@ -9,7 +9,17 @@
 import type { SettingDefWire } from "./server.ts";
 import { Validator, type OutputUnit } from "@cfworker/json-schema";
 
-export type LeafType = "string" | "number" | "boolean" | { enum: readonly string[] };
+export type ScalarLeaf = "string" | "number" | "boolean" | { enum: readonly string[] };
+
+/** A list drawn from fixed options: `labels` names each option, `whenUnset`
+    is what the owning app reads when the field is absent. */
+export interface EnumSetLeaf {
+  enumSet: readonly string[];
+  labels?: Record<string, string>;
+  whenUnset?: readonly string[];
+}
+
+export type LeafType = ScalarLeaf | EnumSetLeaf;
 
 export type CompositeShape =
   | { kind: "stringList" }
@@ -31,11 +41,24 @@ export type Recognized =
   | { kind: "stringList" }
   | { kind: "stringMap"; labels: [string, string] }
   | { kind: "leaves"; fields: Record<string, LeafType>; placeholders: Record<string, string> }
-  | { kind: "objectList"; itemFields: Record<string, LeafType>; required: string[] }
-  | { kind: "objectMap"; entryFields: Record<string, LeafType>; required: string[]; labels: [string, string] }
+  | { kind: "objectList"; itemFields: Record<string, ScalarLeaf>; required: string[] }
+  | { kind: "objectMap"; entryFields: Record<string, ScalarLeaf>; required: string[]; labels: [string, string] }
   | { kind: "json" };
 
-function leafOf(s: JsonSchema): LeafType | null {
+function stringEnum(s: JsonSchema | undefined): string[] | null {
+  return Array.isArray(s?.enum) && s.enum.every((e) => typeof e === "string") ? (s.enum as string[]) : null;
+}
+
+function enumSetOf(s: JsonSchema): EnumSetLeaf | null {
+  const options = s.type === "array" ? stringEnum(s.items as JsonSchema | undefined) : null;
+  if (!options) return null;
+  const leaf: EnumSetLeaf = { enumSet: options };
+  if (isRecord(s.labels)) leaf.labels = Object.fromEntries(Object.entries(s.labels).filter(([, v]) => typeof v === "string")) as Record<string, string>;
+  if (Array.isArray(s.default) && s.default.every((v) => options.includes(v as string))) leaf.whenUnset = s.default as string[];
+  return leaf;
+}
+
+function leafOf(s: JsonSchema): ScalarLeaf | null {
   if (Array.isArray(s.enum) && s.enum.every((e) => typeof e === "string")) return { enum: s.enum as string[] };
   if (s.type === "string" || s.type === "number" || s.type === "boolean") return s.type;
   if (Array.isArray(s.type)) {
@@ -45,9 +68,9 @@ function leafOf(s: JsonSchema): LeafType | null {
   return null;
 }
 
-function flatFields(props: Record<string, JsonSchema> | undefined): Record<string, LeafType> | null {
+function flatFields(props: Record<string, JsonSchema> | undefined): Record<string, ScalarLeaf> | null {
   if (!props) return null;
-  const out: Record<string, LeafType> = {};
+  const out: Record<string, ScalarLeaf> = {};
   for (const [k, v] of Object.entries(props)) {
     const leaf = leafOf(v);
     if (!leaf) return null;
@@ -61,7 +84,7 @@ function leafPaths(props: Record<string, JsonSchema>, prefix = ""): { fields: Re
   const fields: Record<string, LeafType> = {};
   const placeholders: Record<string, string> = {};
   for (const [k, v] of Object.entries(props)) {
-    const leaf = leafOf(v);
+    const leaf = leafOf(v) ?? enumSetOf(v);
     if (leaf) {
       fields[prefix + k] = leaf;
       if (typeof v.placeholder === "string") placeholders[prefix + k] = v.placeholder;
@@ -309,6 +332,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function matchesLeaf(type: LeafType, v: unknown): boolean {
   if (typeof type === "string") return typeof v === type;
+  if ("enumSet" in type) return Array.isArray(v) && v.every((x) => typeof x === "string" && type.enumSet.includes(x));
   return typeof v === "string" && type.enum.includes(v);
 }
 
