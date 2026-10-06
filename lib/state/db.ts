@@ -23,8 +23,8 @@ import { rtDir } from "../rt-paths.ts";
 
 export type DbFlavor = "cli" | "daemon";
 
-/** PRAGMA user_version target for the combined schema below (v1 + v2 + v3 + v4 + v6 + v7 + v8 + v9 + v12 + v13 + v14, plus v15's agents.pack column; v10 and v11 are DML-only migrations, not DDL blocks in SCHEMAS). */
-export const SCHEMA_VERSION = 15;
+/** PRAGMA user_version target for the combined schema below (v1 + v2 + v3 + v4 + v6 + v7 + v8 + v9 + v12 + v13 + v14 + v16, plus v15's agents.pack column; v10 and v11 are DML-only migrations, not DDL blocks in SCHEMAS). */
+export const SCHEMA_VERSION = 16;
 
 // busy_timeout is per-process, not per-store (spec "The database"): a CLI
 // command may block briefly; the daemon's event loop must never block long,
@@ -353,6 +353,52 @@ CREATE INDEX IF NOT EXISTS chat_members_handle ON chat_members(handle);
 CREATE INDEX IF NOT EXISTS chat_dms_b ON chat_dms(b);
 `;
 
+// Tables (v16): agent sessions (lib/agent-integrations/session-store.ts owns
+// reservations and bindings, lib/agent-integrations/legacy.ts owns aliases).
+// A binding key is minted, never derived from the native reference.
+const V16_SCHEMA = `
+CREATE TABLE IF NOT EXISTS agent_session_reservations (
+  id          TEXT PRIMARY KEY,
+  identity    TEXT NOT NULL,
+  agent_id    TEXT,
+  attempt_id  TEXT,
+  bound_key   TEXT,             -- null until a native session binds it
+  created_at  INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_session_bindings (
+  key           TEXT PRIMARY KEY,
+  identity      TEXT NOT NULL,
+  harness       TEXT NOT NULL,
+  profile       TEXT NOT NULL,
+  native_kind   TEXT NOT NULL,
+  native_value  TEXT NOT NULL,
+  generation    INTEGER NOT NULL,
+  mode          TEXT NOT NULL,
+  pane          TEXT,
+  socket        TEXT,
+  pid           INTEGER,
+  agent_id      TEXT,
+  attempt_id    TEXT,
+  bound_at      INTEGER NOT NULL,
+  attached_at   INTEGER NOT NULL,
+  UNIQUE (harness, profile, native_kind, native_value)
+);
+CREATE INDEX IF NOT EXISTS agent_session_bindings_value ON agent_session_bindings(native_value);
+CREATE INDEX IF NOT EXISTS agent_session_bindings_agent ON agent_session_bindings(agent_id);
+CREATE TABLE IF NOT EXISTS agent_session_aliases (
+  source       TEXT NOT NULL,   -- agents | chat-session
+  source_id    TEXT NOT NULL,   -- agents.id, or the chat session file's id
+  raw          TEXT NOT NULL,   -- the legacy session id exactly as stored
+  harness      TEXT,            -- null when the record proves no harness
+  identity     TEXT,            -- the identity the record claims, if one
+  key          TEXT,            -- null while the record stays unbound
+  reason       TEXT NOT NULL,
+  recorded_at  INTEGER NOT NULL,
+  PRIMARY KEY (source, source_id)
+);
+CREATE INDEX IF NOT EXISTS agent_session_aliases_raw ON agent_session_aliases(raw);
+`;
+
 /**
  * Every schema block, in version order. `runMigrations` execs
  * `SCHEMAS.join("")` unconditionally on EVERY open (R015/R056): every
@@ -362,7 +408,7 @@ CREATE INDEX IF NOT EXISTS chat_dms_b ON chat_dms(b);
  * A future schema block joins this array; leaving one out is caught by the
  * dynamic table-presence test in db-schema-convergence.test.ts.
  */
-const SCHEMAS = [V1_SCHEMA, V2_SCHEMA, V3_SCHEMA, V4_SCHEMA, V6_SCHEMA, V7_SCHEMA, V8_SCHEMA, V9_SCHEMA, V12_SCHEMA, V13_SCHEMA, V14_SCHEMA];
+const SCHEMAS = [V1_SCHEMA, V2_SCHEMA, V3_SCHEMA, V4_SCHEMA, V6_SCHEMA, V7_SCHEMA, V8_SCHEMA, V9_SCHEMA, V12_SCHEMA, V13_SCHEMA, V14_SCHEMA, V16_SCHEMA];
 
 /** project_mr_demands.sections (v6): SQLite's ALTER TABLE ADD COLUMN has no
     IF NOT EXISTS, so unlike every statement in the V*_SCHEMA strings above it
@@ -717,8 +763,9 @@ export function openStateDb(path: string, flavor: DbFlavor = "cli"): Database {
 /** Version-guarded open for the CLI daemon-down fallback.
     Refuses a db STRICTLY newer than this build so a short-lived CLI never
     stamps a schema another build owns; equal-or-behind opens and migrates
-    normally (data-preserving, IF NOT EXISTS). A missing file is created. */
-export function openStateDbGuarded(path: string): Database {
+    normally (data-preserving, IF NOT EXISTS). A missing file is created.
+    `buildVersion` lets a test stand in for an older build. */
+export function openStateDbGuarded(path: string, buildVersion: number = SCHEMA_VERSION): Database {
   if (existsSync(path)) {
     const probe = new Database(path, { readonly: true });
     let userVersion: number;
@@ -727,8 +774,8 @@ export function openStateDbGuarded(path: string): Database {
     } finally {
       probe.close();
     }
-    if (userVersion > SCHEMA_VERSION) {
-      throw new Error(`state.db is newer than this rt build (v${userVersion} > v${SCHEMA_VERSION}); start the matching daemon`);
+    if (userVersion > buildVersion) {
+      throw new Error(`state.db is newer than this rt build (v${userVersion} > v${buildVersion}); start the matching daemon`);
     }
   }
   return openStateDb(path, "cli");

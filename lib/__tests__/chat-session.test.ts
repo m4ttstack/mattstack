@@ -10,6 +10,7 @@ import {
   currentSessionId,
   deleteChatSession,
   isValidSessionId,
+  listChatSessions,
   readChatSession,
   sessionFilePath,
   sessionName,
@@ -126,6 +127,22 @@ describe("chat-session", () => {
   test("currentSessionId falls back to the environment variable when --session's value looks like a flag", () => {
     process.env.CLAUDE_CODE_SESSION_ID = "env-id";
     expect(currentSessionId(["sign-in", "--session", "--no-room"])).toBe("env-id");
+  });
+
+  test("listChatSessions reads every valid session file as written, skipping strays", () => {
+    const a: ChatSession = { sessionId: "s1", handle: "remy.ab12", baseHandle: "remy", signedInAt: 1 };
+    const b: ChatSession = { sessionId: "s2", handle: "kai", baseHandle: "kai", signedInAt: 2, room: "acme-dev" };
+    writeChatSession(a);
+    writeChatSession(b);
+    const dir = dirname(sessionFilePath("s1"));
+    writeFileSync(join(dir, "s3.json"), JSON.stringify({ sessionId: "other", handle: "x", baseHandle: "x", signedInAt: 3 }));
+    writeFileSync(join(dir, "s4.json"), "{not json");
+    writeFileSync(join(dir, "s5.json.123.abc.tmp"), JSON.stringify({ ...a, sessionId: "s5" }));
+    expect(listChatSessions().sort((x, y) => x.sessionId.localeCompare(y.sessionId))).toEqual([a, b]);
+  });
+
+  test("listChatSessions is empty before any sign-in", () => {
+    expect(listChatSessions()).toEqual([]);
   });
 
   test("writeChatSession round-trips name, and sessionName falls back to the handle for an older file", () => {

@@ -58,10 +58,10 @@ function userVersion(db: Database): number {
 }
 
 describe("openStateDb — fresh open", () => {
-  test("a fresh database reaches v15 directly, gaining every v1 through v15 change", () => {
+  test("a fresh database reaches v16 directly, gaining every v1 through v16 change", () => {
     const dbPath = join(dir, "state.db");
     const db = openStateDb(dbPath, "cli");
-    expect(SCHEMA_VERSION).toBe(15);
+    expect(SCHEMA_VERSION).toBe(16);
     expect(userVersion(db)).toBe(SCHEMA_VERSION);
     const cols = (db.query("PRAGMA table_info(chat_rooms);").all() as { name: string }[]).map(c => c.name);
     expect(cols).toContain("archived_at");
@@ -72,6 +72,14 @@ describe("openStateDb — fresh open", () => {
     expect(claimCols).toContain("start_time");
     const identityCols = (db.query("PRAGMA table_info(chat_identities);").all() as { name: string }[]).map(c => c.name);
     expect(identityCols).toEqual(["id", "name", "base_name", "minted_at", "minted", "session_id"]);
+    const sessionTables = db
+      .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'agent_session_%' ORDER BY name;")
+      .all();
+    expect(sessionTables).toEqual([
+      { name: "agent_session_aliases" },
+      { name: "agent_session_bindings" },
+      { name: "agent_session_reservations" },
+    ]);
     const indexes = db
       .query(
         "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('chat_dms_b', 'chat_identities_name', 'chat_identities_session', 'chat_members_handle', 'chat_messages_handle') ORDER BY name;",
@@ -112,7 +120,7 @@ describe("openStateDb — fresh open", () => {
     db.close();
 
     const migrated = openStateDb(dbPath, "cli");
-    expect(userVersion(migrated)).toBe(15);
+    expect(userVersion(migrated)).toBe(SCHEMA_VERSION);
     expect(migrated.query("SELECT id, pack FROM agents;").all()).toEqual([{ id: "ag-1", pack: null }]);
     migrated.close();
 
@@ -128,7 +136,7 @@ describe("openStateDb — fresh open", () => {
     db.close();
 
     const healed = openStateDb(dbPath, "cli");
-    expect(userVersion(healed)).toBe(15);
+    expect(userVersion(healed)).toBe(SCHEMA_VERSION);
     const columns = (healed.query("PRAGMA table_info(agents);").all() as { name: string }[]).map(c => c.name);
     expect(columns).toContain("pack");
     healed.close();
@@ -774,7 +782,7 @@ describe("getStateDb / closeStateDb — lazy singleton", () => {
     // unrelated exports (reading SCHEMA_VERSION, pushing to LEGACY_IMPORTS)
     // never opens or creates a db file on its own.
     const before = SCHEMA_VERSION;
-    expect(before).toBe(15);
+    expect(before).toBe(16);
     LEGACY_IMPORTS.push({ file: "x.json", import: () => {} });
     LEGACY_IMPORTS.length = 0;
     // No db.ts function that touches disk was called above; nothing to assert

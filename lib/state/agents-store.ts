@@ -39,6 +39,10 @@ const INSERT_SQL = `INSERT INTO agents (${COLUMNS}) VALUES (${COLUMNS.split(",")
 const SELECT_ONE_SQL = `SELECT ${COLUMNS} FROM agents WHERE id = ? OR session_id = ?;`;
 const SELECT_ALL_SQL = `SELECT ${COLUMNS} FROM agents ORDER BY created_at DESC;`;
 const SELECT_REPO_SQL = `SELECT ${COLUMNS} FROM agents WHERE repo = ? ORDER BY created_at DESC;`;
+const SELECT_AWAITING_SESSION_SQL = `SELECT ${COLUMNS} FROM agents a
+WHERE NOT EXISTS (SELECT 1 FROM agent_session_bindings b WHERE b.agent_id = a.id)
+  AND NOT EXISTS (SELECT 1 FROM agent_session_aliases s WHERE s.source = 'agents' AND s.source_id = a.id)
+ORDER BY created_at, id;`;
 const UPDATE_PANE_SQL = `UPDATE agents SET pane_id = ?, tab_id = ?, workspace_id = ? WHERE id = ?;`;
 const UPDATE_RESUMED_SQL = `UPDATE agents SET last_resumed_at = ? WHERE id = ?;`;
 const UPDATE_SESSION_SQL = `UPDATE agents SET session_id = ? WHERE id = ?;`;
@@ -119,6 +123,12 @@ export function listAgents(args: { repo?: string }, db: Database = getStateDb())
     ? db.query(SELECT_REPO_SQL).all(args.repo)
     : db.query(SELECT_ALL_SQL).all()) as AgentRow[];
   return rows.map(rowToRecord);
+}
+
+/** Agents no session binding or legacy alias accounts for yet, oldest first: the input to
+    lib/agent-integrations/legacy.ts. Rows come back exactly as stored; nothing here rewrites them. */
+export function listAgentsAwaitingSessionMigration(db: Database = getStateDb()): AgentRecord[] {
+  return (db.query(SELECT_AWAITING_SESSION_SQL).all() as AgentRow[]).map(rowToRecord);
 }
 
 export function updateAgentPane(

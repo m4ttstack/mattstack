@@ -3,7 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { openStateDb } from "../db.ts";
 import {
-  finishAgent, getAgent, insertAgent, listAgents, markAgentGone, markAgentResumed,
+  finishAgent, getAgent, insertAgent, listAgents, listAgentsAwaitingSessionMigration, markAgentGone, markAgentResumed,
   newAgentId, updateAgentPack, updateAgentPane, updateAgentSessionId, type AgentRecord,
 } from "../agents-store.ts";
 
@@ -108,4 +108,21 @@ test("agents.pack round-trips, reads back undefined when unset, and updateAgentP
   expect(getAgent(withPack.id, db)?.pack).toBe("gadgets");
   updateAgentPack(withPack.id, null, db);
   expect(getAgent(withPack.id, db)?.pack).toBeUndefined();
+});
+
+test("listAgentsAwaitingSessionMigration skips rows a binding or legacy alias accounts for, leaving every field as stored", () => {
+  const db = freshDb();
+  const bound = rec({ handle: "remy.ab12" });
+  const aliased = rec({ provider: "codex" });
+  const pending = rec({ handle: "kai.cd34", account: "work", paneId: "w1:p2", createdAt: 5 });
+  for (const r of [bound, aliased, pending]) insertAgent(r, db);
+  db.query(
+    "INSERT INTO agent_session_bindings (key, identity, harness, profile, native_kind, native_value, generation, mode, agent_id, bound_at, attached_at) VALUES ('sk-1', 'remy.ab12', 'claude', 'default', 'id', ?, 1, 'herdr', ?, 1, 1);",
+  ).run(bound.sessionId, bound.id);
+  db.query(
+    "INSERT INTO agent_session_aliases (source, source_id, raw, harness, reason, recorded_at) VALUES ('agents', ?, ?, 'codex', 'no-identity', 1);",
+  ).run(aliased.id, aliased.sessionId);
+
+  expect(listAgentsAwaitingSessionMigration(db)).toEqual([getAgent(pending.id, db)!]);
+  expect(getAgent(pending.id, db)).toMatchObject({ handle: "kai.cd34", account: "work", paneId: "w1:p2", sessionId: pending.sessionId });
 });

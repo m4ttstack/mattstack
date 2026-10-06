@@ -8,7 +8,7 @@
  * handle — readChatSession enforces that by checking the file's own
  * sessionId against the one asked for, not just trusting the filename.
  */
-import { unlinkSync } from "fs";
+import { readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { readJson, writeJson } from "./json-store.ts";
 import { rtDir } from "./rt-paths.ts";
@@ -63,6 +63,24 @@ export function readChatSession(sessionId: string | undefined): ChatSession | nu
   const session = readJson<ChatSession | null>(path, null);
   if (!session || session.sessionId !== sessionId || typeof session.handle !== "string") return null;
   return session;
+}
+
+/** Every session file that `readChatSession` would accept for its own id, as written. */
+export function listChatSessions(): ChatSession[] {
+  let names: string[];
+  try {
+    names = readdirSync(sessionsDir());
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+  const sessions: ChatSession[] = [];
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    const session = readChatSession(name.slice(0, -".json".length));
+    if (session) sessions.push(session);
+  }
+  return sessions;
 }
 
 export function writeChatSession(s: ChatSession): void {
