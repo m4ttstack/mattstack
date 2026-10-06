@@ -1511,6 +1511,7 @@ export function Board() {
                 onDecline={handleAskDecline}
                 onAllow={handleAskAllow}
                 onFocus={handleAskFocus}
+                onNotice={addToast}
               />
               <RefreshControl onRefresh={refreshNow} refreshing={refreshing} />
               <ThemeControl theme={theme} pickTheme={pickTheme} />

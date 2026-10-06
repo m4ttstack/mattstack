@@ -1,7 +1,6 @@
 import { useState } from 'react';
 
 import { Alert, Button, SelectBox } from '@mattstack/tui-kit';
-
 import type { DeclineReason } from '../../../peer/envelope.ts';
 import type { AskCardData } from '../../types.ts';
 import { AskGlyph } from '../ask-glyph.tsx';
@@ -92,7 +91,8 @@ export function AskCard({
         <MemberInvadr id={ask.from} className="tui-ask-avatar" />
         <span className="tui-ask-name">{ask.fromName ?? ask.from}</span>
         <span className="tui-ask-phrase">
-          {askedPhrase(ask.kind)} · <span className="tui-ask-iid">!{ask.iid}</span>
+          {askedPhrase(ask.kind)} ·{' '}
+          <span className="tui-ask-iid">!{ask.iid}</span>
         </span>
         <span className="tui-ask-age">
           {ago(new Date(ask.receivedAt).toISOString(), now)}

@@ -2,10 +2,10 @@ import { cloneElement, type ReactElement } from 'react';
 
 import { Icon, ICONS } from '@mattstack/tui-kit';
 
-/** The ask glyphs, for the sent-ask band and the asks inbox: the kit's own where it has them, the rest
-    drawn through the kit's `Icon` from lucide-react 1.34.0 path data (ISC
-    licensed, https://lucide.dev), subpaths joined with explicit moves the way
-    the kit's own set does. */
+/** The ask glyphs, for the sent-ask band and the asks inbox: the kit's own
+    where it has them, the rest drawn through the kit's `Icon` from
+    lucide-react 1.34.0 path data (ISC licensed, https://lucide.dev),
+    subpaths joined with explicit moves the way the kit's own set does. */
 const KIT_GLYPH = new Set(['triangle-alert', 'circle-check']);
 
 const ASK_PATHS: Record<string, string> = {

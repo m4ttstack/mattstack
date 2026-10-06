@@ -1,7 +1,6 @@
 import { useState } from 'react';
 
 import { Button, Chip, TextField } from '@mattstack/tui-kit';
-
 import { DECLINE_REASONS, type DeclineReason } from '../../../peer/envelope.ts';
 import { AskGlyph } from '../ask-glyph.tsx';
 

@@ -10,13 +10,13 @@ import '@mattstack/tui-kit/canvas.css';
 import '../../../style.css';
 
 import type { BoardData } from '../../types.ts';
-import { AsksButton } from './AsksButton.tsx';
 import {
   NOTHING_WAITING,
   RAE_ASK,
   ROSTER_NAMES,
   THREE_WAITING,
 } from './asks.fixtures.ts';
+import { AsksButton } from './AsksButton.tsx';
 
 const stage = (
   Story: () => ReactNode,

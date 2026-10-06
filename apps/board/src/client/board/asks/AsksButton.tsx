@@ -1,5 +1,6 @@
-import { Popover } from '@mattstack/tui-kit';
+import { useRef } from 'react';
 
+import { Popover } from '@mattstack/tui-kit';
 import type { BoardData } from '../../types.ts';
 import { AskGlyph } from '../ask-glyph.tsx';
 import {
@@ -9,8 +10,9 @@ import {
 } from './AsksDropdown.tsx';
 
 export interface AsksButtonProps
-  extends AsksHandlers,
-    Pick<AsksDropdownProps, 'names' | 'confirmMs'> {
+  extends
+    AsksHandlers,
+    Pick<AsksDropdownProps, 'names' | 'confirmMs' | 'onNotice'> {
   asks: BoardData['asks'];
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -25,6 +27,9 @@ export function AsksButton({
   flashId,
   ...rest
 }: AsksButtonProps) {
+  // Focus lands on the dropdown itself, so opening it paints no ring on its
+  // first link; Tab still reaches every control from there.
+  const root = useRef<HTMLDivElement>(null);
   if (!asks) return null;
   const waiting = asks.pending.length;
   return (
@@ -34,6 +39,7 @@ export function AsksButton({
       align="end"
       sideOffset={6}
       ariaLabel="Asks for your agent"
+      initialFocus={root}
       classNames={{ popup: 'tui-asks-popup' }}
       trigger={
         <button
@@ -51,11 +57,7 @@ export function AsksButton({
         </button>
       }
     >
-      <AsksDropdown
-        asks={asks}
-        flashId={flashId}
-        {...rest}
-      />
+      <AsksDropdown asks={asks} flashId={flashId} rootRef={root} {...rest} />
     </Popover>
   );
 }

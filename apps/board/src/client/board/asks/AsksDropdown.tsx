@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type Ref } from 'react';
 
 import type { DeclineReason } from '../../../peer/envelope.ts';
 import type { AskCardData, BoardData } from '../../types.ts';
@@ -11,7 +11,11 @@ const CONFIRM_MS = 4000;
 export interface AsksHandlers {
   /** Rejects with the route's words when the board would not start it. */
   onAccept(id: string, alwaysAllow: boolean): Promise<void>;
-  onDecline(id: string, reason: DeclineReason | null, note: string): Promise<void>;
+  onDecline(
+    id: string,
+    reason: DeclineReason | null,
+    note: string
+  ): Promise<void>;
   onAllow(username: string, allow: boolean): Promise<void>;
   onFocus(mrUrl: string): void;
 }
@@ -23,6 +27,11 @@ export interface AsksDropdownProps extends AsksHandlers {
   names?: ReadonlyMap<string, string>;
   /** How long an accepted card stays as its one-line confirm. */
   confirmMs?: number;
+  /** Shows a failed go-ahead or decline whose card left before its error
+      could be read there. */
+  onNotice?(message: string): void;
+  /** The dropdown's root, which takes focus when it opens. */
+  rootRef?: Ref<HTMLDivElement>;
   /** Opens on history rather than the waiting list. */
   initialView?: 'list' | 'history';
 }
@@ -34,6 +43,8 @@ export function AsksDropdown({
   names,
   confirmMs = CONFIRM_MS,
   initialView = 'list',
+  onNotice,
+  rootRef,
   onAccept,
   onDecline,
   onAllow,
@@ -46,6 +57,31 @@ export function AsksDropdown({
   const [gone, setGone] = useState<ReadonlySet<string>>(new Set());
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
+
+  // A failure's alert lives on its card, so a card the reload took away
+  // hands its words on rather than dropping them.
+  const [failed, setFailed] = useState<ReadonlyMap<string, string>>(new Map());
+  const remember = (id: string, err: unknown) =>
+    setFailed(f =>
+      new Map(f).set(
+        id,
+        err instanceof Error && err.message
+          ? err.message
+          : 'something went wrong'
+      )
+    );
+  useEffect(() => {
+    const lost = [...failed].filter(
+      ([id]) => !asks.pending.some(a => a.id === id)
+    );
+    if (lost.length === 0) return;
+    for (const [, message] of lost) onNotice?.(message);
+    setFailed(f => {
+      const next = new Map(f);
+      for (const [id] of lost) next.delete(id);
+      return next;
+    });
+  }, [failed, asks.pending, onNotice]);
 
   const allNames = useMemo(() => {
     const m = new Map(names ?? []);
@@ -66,7 +102,12 @@ export function AsksDropdown({
 
   const accept = async (id: string, alwaysAllow: boolean) => {
     const card = asks.pending.find(a => a.id === id);
-    await onAccept(id, alwaysAllow);
+    try {
+      await onAccept(id, alwaysAllow);
+    } catch (err) {
+      remember(id, err);
+      throw err;
+    }
     if (!card) return;
     setHeld(h => new Map(h).set(id, card));
     timers.current.push(
@@ -85,13 +126,18 @@ export function AsksDropdown({
     reason: DeclineReason | null,
     note: string
   ) => {
-    await onDecline(id, reason, note);
+    try {
+      await onDecline(id, reason, note);
+    } catch (err) {
+      remember(id, err);
+      throw err;
+    }
     setGone(g => new Set(g).add(id));
   };
 
   const now = Date.now();
   return (
-    <div className="tui-asks">
+    <div className="tui-asks" ref={rootRef} tabIndex={-1}>
       <header className="tui-asks-head">
         {view === 'history' ? (
           <>

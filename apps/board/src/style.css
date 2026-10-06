@@ -5079,6 +5079,10 @@ a.tui-id-card-ref:focus-visible {
   font-size: 12px;
   color: var(--text-1);
 }
+/* Takes focus on open only so the first link does not; never a tab stop. */
+.tui-asks:focus {
+  outline: none;
+}
 .tui-asks-head {
   display: flex;
   align-items: center;

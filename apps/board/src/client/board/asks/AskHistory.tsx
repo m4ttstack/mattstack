@@ -1,5 +1,4 @@
 import { Chip } from '@mattstack/tui-kit';
-
 import type { AskCardData } from '../../types.ts';
 import { AskGlyph } from '../ask-glyph.tsx';
 import { ago } from '../format.ts';
@@ -34,7 +33,10 @@ export function AskHistory({
                   <span className="tui-ask-name">{a.fromName ?? a.from}</span>
                   <span className="tui-ask-phrase">{a.kind}</span>
                   <span className="tui-ask-age">
-                    {ago(new Date(a.handled?.at ?? a.receivedAt).toISOString(), now)}
+                    {ago(
+                      new Date(a.handled?.at ?? a.receivedAt).toISOString(),
+                      now
+                    )}
                   </span>
                 </div>
                 <div className="tui-ask-history-mr">

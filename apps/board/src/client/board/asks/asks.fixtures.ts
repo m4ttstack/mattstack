@@ -66,27 +66,62 @@ const handled = (
 
 export const ASK_HISTORY: AskCardData[] = [
   handled(
-    ask(1350, 'bea', 'Bea Finch', 'review', 'retry flaky uploads in the attachments step', 2 * HOUR),
+    ask(
+      1350,
+      'bea',
+      'Bea Finch',
+      'review',
+      'retry flaky uploads in the attachments step',
+      2 * HOUR
+    ),
     HOUR,
     { result: 'launched', reason: 'accepted' }
   ),
   handled(
-    ask(1342, 'rae', 'Rae Marlow', 'review', 'move the audit log writer off the request path', 25 * HOUR),
+    ask(
+      1342,
+      'rae',
+      'Rae Marlow',
+      'review',
+      'move the audit log writer off the request path',
+      25 * HOUR
+    ),
     DAY,
     { result: 'launched', reason: 'always-allowed' }
   ),
   handled(
-    ask(1336, 'tom', 'Tom Clearwater', 'respond', 'tidy the claim notes parser', 2 * DAY + HOUR),
+    ask(
+      1336,
+      'tom',
+      'Tom Clearwater',
+      'respond',
+      'tidy the claim notes parser',
+      2 * DAY + HOUR
+    ),
     2 * DAY,
     { result: 'launched', reason: 'accepted' }
   ),
   handled(
-    ask(1329, 'joel', 'Joel Vasquez', 're-review', 'rename the claim status enum to match the API', 2 * DAY + HOUR),
+    ask(
+      1329,
+      'joel',
+      'Joel Vasquez',
+      're-review',
+      'rename the claim status enum to match the API',
+      2 * DAY + HOUR
+    ),
     2 * DAY,
     { result: 'rejected', declined: true, reason: 'busy right now' }
   ),
   handled(
-    ask(1317, 'pia', 'Pia Quist', 'review', 'bump the PDF renderer and pin its fonts', 6 * DAY),
+    ask(
+      1317,
+      'pia',
+      'Pia Quist',
+      'review',
+      'bump the PDF renderer and pin its fonts',
+      6 * DAY
+    ),
     4 * DAY,
     { result: 'expired', reason: 'stale', reasonText: 'No answer in 48h' }
   ),

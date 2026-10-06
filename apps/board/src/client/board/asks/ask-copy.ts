@@ -51,9 +51,10 @@ export type OutcomeTone = 'ok' | 'quiet' | 'warn';
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 /** A handled ask's outcome as history shows it. */
-export function historyOutcome(
-  view: Pick<AskCardData, 'kind' | 'handled'>
-): { text: string; tone: OutcomeTone } {
+export function historyOutcome(view: Pick<AskCardData, 'kind' | 'handled'>): {
+  text: string;
+  tone: OutcomeTone;
+} {
   const h = view.handled;
   if (h?.result === 'expired')
     return { text: 'expired, no answer in 48h', tone: 'warn' };
@@ -70,8 +71,7 @@ export function historyOutcome(
   }
   const done = DONE[view.kind];
   return {
-    text:
-      h?.reason === 'always-allowed' ? `${done} · always allowed` : done,
+    text: h?.reason === 'always-allowed' ? `${done} · always allowed` : done,
     tone: 'ok',
   };
 }
