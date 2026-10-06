@@ -8,10 +8,13 @@
  * the thread/start reply. The thread is created with its permissions, then
  * takes one harmless initialization turn (a fresh thread has no rollout to
  * resume until a turn is persisted), and only then does a terminal attach.
- * Headless mode is the same owned thread with no terminal. A start whose
- * reply never came stays an unresolved reservation that a later launch with
- * the same reservation id reconciles; nothing here starts a second thread to
- * cover an unknown result.
+ * Headless mode is the same owned thread with no terminal.
+ *
+ * Every launch or attach that does not finish stays recorded under its
+ * reservation id with whatever it already made (the thread, the init turn,
+ * the pane). A retry with the same reservation id carries on from there;
+ * nothing here starts a second thread or opens a second pane to cover an
+ * unfinished or unknown result.
  *
  * This adapter never assigns a herd job and never writes the session store.
  */
@@ -50,6 +53,20 @@ export interface CodexSessionAdapter extends SessionAdapter {
 export type PaneLaunch = { cwd: string; command: string; reservationId: string };
 export type PaneOpened = { pane: string; socket?: string };
 
+/** A launch or terminal attach that has not finished, with everything it already made. */
+export type UnresolvedLaunch = {
+  kind: "launch" | "resume";
+  profile: string;
+  cwd: string;
+  /** Holds the cwd on the connection that started the thread. */
+  reservation?: LaunchReservation;
+  threadId?: string;
+  result?: unknown;
+  initTurn?: string;
+  initDone?: boolean;
+  pane?: PaneOpened;
+};
+
 export type CodexSessionDeps = {
   now(): number;
   clock: CodexClock;
@@ -57,13 +74,15 @@ export type CodexSessionDeps = {
   /** Where the app server listens; a terminal attaches there. Without it only headless sessions run. */
   endpoint?: CodexEndpoint;
   openPane(launch: PaneLaunch): Promise<Outcome<PaneOpened>>;
-  /** Positive evidence that the terminal shows the thread; a folder-trust prompt is not. */
-  confirmAttached(opened: PaneOpened, expected: { threadId: string; history: string }): Promise<Outcome<void>>;
+  /** Positive evidence that the terminal shows the thread: any one of `evidence` on screen. A folder-trust prompt is not. */
+  confirmAttached(opened: PaneOpened, expected: { threadId: string; evidence: string[] }): Promise<Outcome<void>>;
   unresolved: Map<string, UnresolvedLaunch>;
 };
 
 const ATTACH_READS = 30;
 const ATTACH_READ_MS = 500;
+/** Long enough to identify a message, short enough to fit one terminal row unwrapped. */
+const EVIDENCE_CHARS = 48;
 
 const ok = <T>(data: T): Outcome<T> => ({ ok: true, data });
 const fail = <T>(code: FaultCode, message: string): Outcome<T> => ({ ok: false, error: { code, message } });
@@ -72,19 +91,50 @@ const messageOf = (err: unknown): string => (err instanceof Error ? err.message 
 const codeOf = (err: unknown): FaultCode => (err instanceof CodexControlError ? err.code : "transient");
 const failFrom = <T>(err: unknown, prefix = ""): Outcome<T> => fail(codeOf(err), `${prefix}${messageOf(err)}`);
 const home = (): string => process.env.HOME ?? homedir();
+const flat = (s: string): string => s.replace(/\s+/g, " ").trim();
 
-/** Reads the pane until the thread's own history shows, collapsing the terminal's wrapping. */
+/** Reads the pane until any of the thread's evidence shows, collapsing the terminal's wrapping. */
 export async function awaitCodexHistory(
-  read: () => Promise<string | null>, history: string, opts: { attempts: number; sleep(): Promise<void> },
+  read: () => Promise<string | null>, evidence: string[], opts: { attempts: number; sleep(): Promise<void> },
 ): Promise<Outcome<void>> {
-  const flat = (s: string) => s.replace(/\s+/g, " ").trim();
-  const wanted = flat(history);
+  const wanted = evidence.map(flat).filter((e) => e !== "");
+  if (wanted.length === 0) return fail("not-ready", "the thread has no history a terminal could show");
   for (let attempt = 0; attempt < opts.attempts; attempt++) {
     if (attempt > 0) await opts.sleep();
     const screen = await read();
-    if (screen !== null && flat(screen).includes(wanted)) return ok(undefined);
+    if (screen !== null && wanted.some((w) => flat(screen).includes(w))) return ok(undefined);
   }
   return fail("not-ready", "the terminal never showed the thread's history; a folder-trust prompt or a failed start is holding it");
+}
+
+function messageText(item: Record<string, unknown>): string | undefined {
+  if (item.type === "agentMessage") return typeof item.text === "string" ? item.text : undefined;
+  if (item.type !== "userMessage" || !Array.isArray(item.content)) return undefined;
+  const parts = item.content.filter((c) => isRecord(c) && c.type === "text" && typeof c.text === "string").map((c) => c.text as string);
+  return parts.length > 0 ? parts.join("\n") : undefined;
+}
+
+/**
+ * What a resumed terminal shows last: the newest turn's user and agent
+ * messages. A terminal scrolls its oldest history away, so the first message
+ * is no evidence once real work has run. Each candidate is one short line,
+ * stripped of the markdown marks the terminal renders away.
+ */
+export function attachEvidence(thread: Record<string, unknown>): string[] {
+  const turns = Array.isArray(thread.turns) ? thread.turns.filter(isRecord) : [];
+  for (const turn of [...turns].reverse()) {
+    const items = Array.isArray(turn.items) ? turn.items.filter(isRecord) : [];
+    const last = (type: string) => [...items].reverse().map((i) => (i.type === type ? messageText(i) : undefined)).find(text);
+    const user = last("userMessage");
+    const agent = last("agentMessage");
+    const lines = (s: string) => s.split("\n").map((l) => flat(l.replace(/[*`]/g, ""))).filter((l) => l !== "");
+    const found = [
+      ...(user ? [lines(user)[0]!.slice(0, EVIDENCE_CHARS)] : []),
+      ...(agent ? [lines(agent).at(-1)!.slice(-EVIDENCE_CHARS)] : []),
+    ].filter((e) => e !== "");
+    if (found.length > 0) return found;
+  }
+  return [];
 }
 
 function defaultDeps(): CodexSessionDeps {
@@ -113,27 +163,31 @@ function defaultDeps(): CodexSessionDeps {
         );
         return screen.ok && typeof screen.result.read?.text === "string" ? screen.result.read.text : null;
       };
-      return awaitCodexHistory(read, expected.history, {
+      return awaitCodexHistory(read, expected.evidence, {
         attempts: ATTACH_READS, sleep: () => new Promise((r) => setTimeout(r, ATTACH_READ_MS)),
       });
     },
   };
 }
 
-/** Why the shared loader's last connection attempt failed; cleared when one succeeds. */
-let appServerFailure: string | undefined;
+export type LoaderStatus =
+  | { state: "never" } | { state: "live" } | { state: "closed" } | { state: "failed"; message: string };
 
-/** An installed binary, and no failed connection to its app server; readiness never starts or probes that server. */
+/** An installed binary and a live connection to its app server; readiness never starts or probes that server. */
 export function codexReadiness(
   which: (bin: string) => string | null = (bin) => Bun.which(bin),
   exists: (path: string) => boolean = existsSync,
-  connectionFailure: string | undefined = appServerFailure,
+  connection: LoaderStatus = shared?.status() ?? { state: "never" },
 ): Readiness {
   if (which("codex") === null && !exists(join(home(), ".local", "bin", "codex"))) {
     return { ready: false, reason: "Codex is not installed: there is no codex on PATH or in ~/.local/bin" };
   }
-  if (connectionFailure !== undefined) return { ready: false, reason: `rt cannot reach the Codex app server: ${connectionFailure}` };
-  return { ready: true };
+  switch (connection.state) {
+    case "live": return { ready: true };
+    case "never": return { ready: false, reason: "rt has no connection to the Codex app server yet" };
+    case "closed": return { ready: false, reason: "rt's connection to the Codex app server closed" };
+    case "failed": return { ready: false, reason: `rt cannot reach the Codex app server: ${connection.message}` };
+  }
 }
 
 /** Both modes run on an owned app-server thread, so both launch, resume and observe. */
@@ -177,12 +231,10 @@ function startParams(cwd: string, options: LaunchRequest["selection"]["options"]
   });
 }
 
-export type UnresolvedLaunch = { profile: string; reservation: LaunchReservation };
-
 /**
- * Launches whose thread/start answer never came, keyed by profile and
- * reservation id. They outlive the connection: a thread may exist even when
- * the connection that asked for it closed before the reply could arrive.
+ * Unfinished launches and attaches, keyed by profile and reservation id. They
+ * outlive the connection: a thread may exist even when the connection that
+ * asked for it closed before the reply could arrive.
  */
 const UNRESOLVED = new Map<string, UnresolvedLaunch>();
 
@@ -191,6 +243,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
   const hub = codexEventHub(control);
   const unresolved = deps.unresolved;
   const ref = (value: string): NativeSessionRef => ({ harness: HARNESS, profile: control.profile, kind: "id", value });
+  const keyOf = (reservationId: string) => `${control.profile}\0${reservationId}`;
 
   function checkRequest(request: LaunchRequest): Outcome<string> {
     if (request.selection.harness !== HARNESS) return fail("invalid", `a ${request.selection.harness} selection cannot start Codex`);
@@ -211,43 +264,91 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     return ok(undefined);
   }
 
-  async function attach(cwd: string, threadId: string, history: string, reservationId: string): Promise<Outcome<NativeLaunch["attachment"]>> {
-    let command: string;
-    try {
-      command = buildCodexRemoteResumeCommand(cwd, { socketPath: deps.endpoint!.socketPath, threadId });
-    } catch (err) {
-      return fail("invalid", messageOf(err));
+  function settle(key: string, entry: UnresolvedLaunch): void {
+    unresolved.delete(key);
+    entry.reservation?.release();
+  }
+
+  /** Opens the terminal once per entry; a retry re-checks the pane it already opened. */
+  async function attach(entry: UnresolvedLaunch, threadId: string, evidence: string[], reservationId: string): Promise<Outcome<NativeLaunch["attachment"]>> {
+    if (!entry.pane) {
+      let command: string;
+      try {
+        command = buildCodexRemoteResumeCommand(entry.cwd, { socketPath: deps.endpoint!.socketPath, threadId });
+      } catch (err) {
+        return fail("invalid", messageOf(err));
+      }
+      const opened = await deps.openPane({ cwd: entry.cwd, command, reservationId });
+      if (!opened.ok) return opened;
+      entry.pane = opened.data;
     }
-    const opened = await deps.openPane({ cwd, command, reservationId });
-    if (!opened.ok) return opened;
-    const shown = await deps.confirmAttached(opened.data, { threadId, history });
+    const shown = await deps.confirmAttached(entry.pane, { threadId, evidence });
     if (!shown.ok) {
-      return fail("not-ready", `Codex opened in pane ${opened.data.pane} but has not attached to thread ${threadId}: ${shown.error.message}`);
+      return fail("not-ready", `Codex opened in pane ${entry.pane.pane} but has not attached to thread ${threadId}: ${shown.error.message}. Retry with reservation ${reservationId} to check that pane again`);
     }
-    const { pane, socket } = opened.data;
+    const { pane, socket } = entry.pane;
     return ok({ mode: "herdr", pane, ...(socket !== undefined && { socket }) });
   }
 
-  /** Everything after the thread exists: the initialization turn, then the terminal. */
-  async function finish(request: LaunchRequest, cwd: string, threadId: string, result: unknown): Promise<Outcome<CodexLaunch>> {
-    control.adopt(threadId);
-    const created = `Codex created thread ${threadId}, but `;
-    let turnId: unknown;
-    try {
-      const started = await control.request("turn/start", { threadId, input: [{ type: "text", text: CODEX_INIT_PROMPT }] });
-      turnId = isRecord(started) && isRecord(started.turn) ? started.turn.id : undefined;
-    } catch (err) {
-      return failFrom(err, `${created}its initialization turn did not start: `);
+  /** Creates the thread unless this entry already has one, or Codex has not said whether it made one. */
+  async function create(entry: UnresolvedLaunch, key: string, params: Record<string, unknown>, reservationId: string): Promise<Outcome<void>> {
+    let reservation = entry.reservation;
+    if (reservation?.state === "unknown") {
+      return fail("ambiguous", `Codex has not said whether reservation ${reservationId} created a thread; rt will not start a second one`);
     }
-    if (!text(turnId)) return fail("invalid", `${created}its initialization turn came back without an id`);
-    const ended = await hub.waitTurn(threadId, turnId, deps.clock, deps.initTurnTimeoutMs);
-    if (ended === undefined) return fail("transient", `${created}its initialization turn did not finish in time`);
-    if (ended !== "completed") return fail("not-ready", `${created}its initialization turn ended ${ended}, so it cannot be resumed`);
+    if (reservation?.state === "started" && reservation.threadId) {
+      entry.threadId = reservation.threadId;
+      entry.result = reservation.result;
+      return ok(undefined);
+    }
+    if (!reservation || reservation.state !== "reserved") {
+      reservation?.release();
+      const reserved = control.reserveLaunch(entry.cwd);
+      if (!reserved.ok) return reserved;
+      reservation = entry.reservation = reserved.data;
+    }
+    try {
+      entry.result = await control.request("thread/start", params);
+      entry.threadId = reservation.threadId;
+      return ok(undefined);
+    } catch (err) {
+      if (reservation.state === "unknown") {
+        return fail("ambiguous", `Codex did not answer thread/start for ${entry.cwd}; the launch stays reserved until it is reconciled (${messageOf(err)})`);
+      }
+      settle(key, entry);
+      return failFrom(err);
+    }
+  }
 
-    const settings = settingsOf(result);
-    if (request.mode === "headless") return ok({ native: ref(threadId), attachment: { mode: "headless" }, settings });
-    const attachment = await attach(cwd, threadId, CODEX_INIT_PROMPT, request.reservationId);
-    return attachment.ok ? ok({ native: ref(threadId), attachment: attachment.data, settings }) : attachment;
+  /** Waits for the initialization turn, starting one only when this connection has seen none. */
+  async function initialize(entry: UnresolvedLaunch, threadId: string, reservationId: string): Promise<Outcome<void>> {
+    const created = `Codex created thread ${threadId}, but `;
+    const retry = `; retry with reservation ${reservationId} to carry on with that thread`;
+    if (!entry.initTurn) {
+      const seen = hub.turns(threadId);
+      if (seen.completed) entry.initDone = true;
+      else if (seen.active) entry.initTurn = seen.active;
+      else {
+        let turnId: unknown;
+        try {
+          const started = await control.request("turn/start", { threadId, input: [{ type: "text", text: CODEX_INIT_PROMPT }] });
+          turnId = isRecord(started) && isRecord(started.turn) ? started.turn.id : undefined;
+        } catch (err) {
+          return failFrom(err, `${created}its initialization turn did not start${retry}: `);
+        }
+        if (!text(turnId)) return fail("invalid", `${created}its initialization turn came back without an id${retry}`);
+        entry.initTurn = turnId;
+      }
+    }
+    if (entry.initDone) return ok(undefined);
+    const ended = await hub.waitTurn(threadId, entry.initTurn!, deps.clock, deps.initTurnTimeoutMs);
+    if (ended === undefined) return fail("ambiguous", `${created}its initialization turn has not finished yet${retry}`);
+    if (ended !== "completed") {
+      entry.initTurn = undefined;
+      return fail("not-ready", `${created}its initialization turn ended ${ended}${retry}`);
+    }
+    entry.initDone = true;
+    return ok(undefined);
   }
 
   return {
@@ -258,46 +359,41 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
       const params = startParams(cwd, request.selection.options);
       if (!params.ok) return params;
 
-      const key = `${control.profile}\0${request.reservationId}`;
-      let reservation = unresolved.get(key)?.reservation;
-      if (reservation) {
-        if (reservation.cwd !== cwd) return fail("invalid", `reservation ${request.reservationId} is held for ${reservation.cwd}, not ${cwd}`);
-        if (reservation.state === "unknown") {
-          return fail("ambiguous", `Codex has not said whether reservation ${request.reservationId} created a thread; rt will not start a second one`);
-        }
-        unresolved.delete(key);
-        if (reservation.state !== "started") {
-          reservation.release();
-          reservation = undefined;
-        }
+      const key = keyOf(request.reservationId);
+      let entry = unresolved.get(key);
+      if (entry && (entry.kind !== "launch" || entry.cwd !== cwd)) {
+        return fail("invalid", `reservation ${request.reservationId} is held for another ${entry.kind} in ${entry.cwd}`);
       }
-
-      let result: unknown = reservation?.result;
-      if (!reservation) {
+      if (!entry) {
         for (const held of unresolved.values()) {
-          if (held.profile === control.profile && held.reservation.cwd === cwd) {
-            return fail("refused", `an earlier Codex launch in ${cwd} has not been reconciled, so rt will not start another thread there`);
+          if (held.kind === "launch" && held.profile === control.profile && held.cwd === cwd) {
+            return fail("refused", `an earlier Codex launch in ${cwd} has not finished, so rt will not start another thread there`);
           }
         }
         const reserved = control.reserveLaunch(cwd);
         if (!reserved.ok) return reserved;
-        reservation = reserved.data;
-        try {
-          result = await control.request("thread/start", params.data);
-        } catch (err) {
-          if (reservation.state === "unknown") {
-            unresolved.set(key, { profile: control.profile, reservation });
-            return fail("ambiguous", `Codex did not answer thread/start for ${cwd}; the launch stays reserved until it is reconciled (${messageOf(err)})`);
-          }
-          reservation.release();
-          return failFrom(err);
-        }
+        entry = { kind: "launch", profile: control.profile, cwd, reservation: reserved.data };
+        unresolved.set(key, entry);
       }
-      try {
-        return await finish(request, cwd, reservation.threadId!, result);
-      } finally {
-        reservation.release();
+
+      if (!entry.threadId) {
+        const made = await create(entry, key, params.data, request.reservationId);
+        if (!made.ok) return made;
       }
+      const threadId = entry.threadId!;
+      control.adopt(threadId);
+      const initialized = await initialize(entry, threadId, request.reservationId);
+      if (!initialized.ok) return initialized;
+
+      const settings = settingsOf(entry.result);
+      if (request.mode === "headless") {
+        settle(key, entry);
+        return ok({ native: ref(threadId), attachment: { mode: "headless" }, settings });
+      }
+      const attachment = await attach(entry, threadId, [CODEX_INIT_PROMPT], request.reservationId);
+      if (!attachment.ok) return attachment;
+      settle(key, entry);
+      return ok({ native: ref(threadId), attachment: attachment.data, settings });
     },
 
     async resume(native, request) {
@@ -307,11 +403,16 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
       if (!checked.ok) return checked;
       const cwd = checked.data;
       const threadId = native.value;
+      const key = keyOf(request.reservationId);
+      const pending = unresolved.get(key);
+      if (pending && (pending.kind !== "resume" || pending.threadId !== threadId || pending.cwd !== cwd)) {
+        return fail("invalid", `reservation ${request.reservationId} is held for another ${pending.kind} in ${pending.cwd}`);
+      }
       control.adopt(threadId);
 
       let read: unknown;
       try {
-        read = await control.request("thread/read", { threadId, includeTurns: false });
+        read = await control.request("thread/read", { threadId, includeTurns: request.mode === "herdr" });
       } catch (err) {
         return failFrom(err, `Codex could not read thread ${threadId}: `);
       }
@@ -336,9 +437,16 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
         return ok({ native, attachment: { mode: "headless" }, settings: settingsOf(resumed) });
       }
 
-      if (!text(thread.preview)) return fail("not-ready", `thread ${threadId} has no history yet, so a terminal cannot resume it`);
-      const attachment = await attach(cwd, threadId, thread.preview, request.reservationId);
-      return attachment.ok ? ok({ native, attachment: attachment.data, settings }) : attachment;
+      const evidence = attachEvidence(thread);
+      if (evidence.length === 0) return fail("not-ready", `thread ${threadId} has no history yet, so a terminal cannot resume it`);
+      const entry = pending ?? { kind: "resume", profile: control.profile, cwd, threadId };
+      const attachment = await attach(entry, threadId, evidence, request.reservationId);
+      if (!attachment.ok) {
+        if (entry.pane) unresolved.set(key, entry);
+        return attachment;
+      }
+      settle(key, entry);
+      return ok({ native, attachment: attachment.data, settings });
     },
 
     // Codex's loaded-thread list says nothing about a thread's terminal or owner; a manual session names itself by CODEX_THREAD_ID.
@@ -381,62 +489,84 @@ function unavailableSessions(error: { code: FaultCode; message: string }): Sessi
 
 export type CodexSessionLoaderDeps = {
   env: NodeJS.ProcessEnv;
+  now(): number;
   discover(): Promise<Outcome<CodexEndpoint>>;
   connect(options: CodexControlOptions): Promise<CodexControl>;
   sessions: Partial<CodexSessionDeps>;
-  /** Each connection attempt's outcome: the failure, or null once connected. */
-  onConnection(failure: { code: FaultCode; message: string } | null): void;
 };
+
+export type CodexSessionLoader = {
+  load(): Promise<SessionAdapter>;
+  status(): LoaderStatus;
+};
+
+/** The wait after the first failed connection attempt; each further failure doubles it, up to the cap. */
+export const DISCOVERY_BACKOFF_MS = 15_000;
+export const DISCOVERY_BACKOFF_CAP_MS = 300_000;
 
 const controlLog: CodexControlLog = (level, message, fields) => {
   if (level !== "warn") return;
   void import("../../ui/warn.ts").then(({ warn }) => warn("codex-control", message, { context: fields }));
 };
 
-/** One live connection per loader; a closed one is replaced on the next load. */
-export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDeps> = {}): () => Promise<SessionAdapter> {
+/**
+ * One live connection per loader; a closed one is replaced on the next load.
+ * A failed attempt is answered from cache until its backoff ends, so a
+ * poller ticking against a stopped app server spawns and connects nothing.
+ */
+export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDeps> = {}): CodexSessionLoader {
   const deps: CodexSessionLoaderDeps = {
     env: process.env,
+    now: Date.now,
     discover: () => discoverCodexEndpoint(),
     connect: (options) => connectCodexControl(options, { log: controlLog }),
     sessions: {},
-    onConnection: () => {},
     ...overrides,
   };
   let current: { control: CodexControl; adapter: SessionAdapter } | undefined;
   let opening: Promise<SessionAdapter> | undefined;
+  let failure: { error: { code: FaultCode; message: string }; attempts: number; retryAt: number; adapter: SessionAdapter } | undefined;
 
-  function unavailable(error: { code: FaultCode; message: string }): SessionAdapter {
-    deps.onConnection(error);
-    return unavailableSessions(error);
+  function failed(error: { code: FaultCode; message: string }): SessionAdapter {
+    const attempts = (failure?.attempts ?? 0) + 1;
+    const wait = Math.min(DISCOVERY_BACKOFF_MS * 2 ** (attempts - 1), DISCOVERY_BACKOFF_CAP_MS);
+    failure = { error, attempts, retryAt: deps.now() + wait, adapter: unavailableSessions(error) };
+    return failure.adapter;
   }
 
   async function open(): Promise<SessionAdapter> {
     const endpoint = await deps.discover();
-    if (!endpoint.ok) return unavailable(endpoint.error);
+    if (!endpoint.ok) return failed(endpoint.error);
     let control: CodexControl;
     try {
       control = await deps.connect({ socketPath: endpoint.data.socketPath, profile: canonicalCodexProfile(undefined, deps.env) });
     } catch (err) {
-      return unavailable({ code: codeOf(err), message: messageOf(err) });
+      return failed({ code: codeOf(err), message: messageOf(err) });
     }
-    deps.onConnection(null);
+    failure = undefined;
     const adapter = createCodexSessions(control, { ...deps.sessions, endpoint: endpoint.data });
     current = { control, adapter };
     return adapter;
   }
 
-  return () => {
-    if (current && !current.control.closed) return Promise.resolve(current.adapter);
-    return (opening ??= open().finally(() => {
-      opening = undefined;
-    }));
+  return {
+    load() {
+      if (current && !current.control.closed) return Promise.resolve(current.adapter);
+      if (failure && deps.now() < failure.retryAt) return Promise.resolve(failure.adapter);
+      return (opening ??= open().finally(() => {
+        opening = undefined;
+      }));
+    },
+    status() {
+      if (current && !current.control.closed) return { state: "live" };
+      if (failure) return { state: "failed", message: failure.error.message };
+      return current ? { state: "closed" } : { state: "never" };
+    },
   };
 }
 
-let shared: (() => Promise<SessionAdapter>) | undefined;
+let shared: CodexSessionLoader | undefined;
 
 export function loadCodexSessions(): Promise<SessionAdapter> {
-  shared ??= createCodexSessionLoader({ onConnection: (failure) => { appServerFailure = failure?.message; } });
-  return shared();
+  return (shared ??= createCodexSessionLoader()).load();
 }

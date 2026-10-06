@@ -47,6 +47,15 @@ export class CodexEventHub {
     return thread && { connectivity: thread.connectivity, execution: thread.execution, source: thread.source };
   }
 
+  /** The turn running now and whether any turn completed, as far as this connection has seen. */
+  turns(threadId: string): { active: string | undefined; completed: boolean } {
+    const thread = this.threads.get(threadId);
+    return {
+      active: thread?.activeTurn,
+      completed: thread !== undefined && [...thread.completed.values()].includes("completed"),
+    };
+  }
+
   /** A status read off the thread itself counts only until the first event about it arrives. */
   seed(threadId: string, status: CodexThreadStatus): void {
     if (this.threads.has(threadId)) return;

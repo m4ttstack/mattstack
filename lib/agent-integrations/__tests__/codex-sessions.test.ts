@@ -7,8 +7,8 @@ import {
 } from "../codex/control.ts";
 import { codexIntegration } from "../codex/integration.ts";
 import {
-  awaitCodexHistory, CODEX_INIT_PROMPT, codexReadiness, createCodexSessionLoader, createCodexSessions,
-  type CodexSessionDeps, type PaneLaunch, type UnresolvedLaunch,
+  attachEvidence, awaitCodexHistory, CODEX_INIT_PROMPT, codexReadiness, createCodexSessionLoader, createCodexSessions,
+  DISCOVERY_BACKOFF_CAP_MS, DISCOVERY_BACKOFF_MS, type CodexSessionDeps, type PaneLaunch, type UnresolvedLaunch,
 } from "../codex/sessions.ts";
 
 type Message = Record<string, any>;
@@ -67,6 +67,10 @@ const agentMessage = (threadId: string, turnId: string, extra: Message = {}) =>
   ({ method: "item/completed", params: { threadId, turnId, item: { type: "agentMessage", id: `A-${turnId}`, text: "DONE", ...extra } } });
 const statusChanged = (threadId: string, status: Message) => ({ method: "thread/status/changed", params: { threadId, status } });
 
+const userItem = (id: string, text: string) => ({ type: "userMessage", id, content: [{ type: "text", text }] });
+const agentItem = (id: string, text: string) => ({ type: "agentMessage", id, text });
+const readyTurn = { id: "U0", status: "completed", items: [userItem("i0", CODEX_INIT_PROMPT), agentItem("a0", "READY")] };
+
 /** A Codex app server that answers like 0.160.0 did in the F1 follow-up. */
 const DEFAULTS: Record<string, Handler> = {
   "thread/start": (s, m) => {
@@ -86,7 +90,13 @@ const DEFAULTS: Record<string, Handler> = {
     s.push(turn("turn/completed", m.params.threadId, "U0"));
   },
   "thread/read": (s, m) => s.push({
-    id: m.id, result: { thread: { id: m.params.threadId, cwd: "/work/a", status: { type: "notLoaded" }, preview: CODEX_INIT_PROMPT } },
+    id: m.id,
+    result: {
+      thread: {
+        id: m.params.threadId, cwd: "/work/a", status: { type: "notLoaded" }, preview: CODEX_INIT_PROMPT,
+        turns: m.params.includeTurns ? [readyTurn] : [],
+      },
+    },
   }),
   "thread/resume": (s, m) => s.push({
     id: m.id,
@@ -132,7 +142,7 @@ async function harness(
   );
   controls.push(control);
   const panes: PaneLaunch[] = [];
-  const confirmed: Array<{ threadId: string; history: string }> = [];
+  const confirmed: Array<{ threadId: string; evidence: string[]; pane: string }> = [];
   let confirm: Outcome<void> = { ok: true, data: undefined };
   const deps: Partial<CodexSessionDeps> = {
     now: () => 42, clock, initTurnTimeoutMs: 5000, endpoint: { socketPath: SOCKET }, unresolved: options.unresolved ?? new Map(),
@@ -141,8 +151,8 @@ async function harness(
       panes.push(launch);
       return { ok: true, data: { pane: `p${panes.length}` } };
     },
-    confirmAttached: async (_opened, expected) => {
-      confirmed.push(expected);
+    confirmAttached: async (opened, expected) => {
+      confirmed.push({ ...expected, pane: opened.pane });
       return confirm;
     },
   };
@@ -196,7 +206,7 @@ describe("codex session launch", () => {
       cwd: "/work/a", reservationId: "res-1",
       command: buildCodexRemoteResumeCommand("/work/a", { socketPath: SOCKET, threadId: "T1" }),
     }]);
-    expect(h.confirmed).toEqual([{ threadId: "T1", history: CODEX_INIT_PROMPT }]);
+    expect(h.confirmed).toEqual([{ threadId: "T1", evidence: [CODEX_INIT_PROMPT], pane: "p1" }]);
     expect(JSON.stringify(h.socket().sent) + h.panes[0]!.command).not.toContain("the real brief");
 
     expect(h.control.reserveLaunch("/work/a").ok).toBe(true);
@@ -255,33 +265,82 @@ describe("codex session launch", () => {
     expect(h.ops.filter((m) => m === "turn/start")).toHaveLength(1);
   });
 
-  test("an initialization turn that does not complete leaves no attached terminal", async () => {
-    const failed = await harness({
+  test("a failed initialization turn keeps the thread; a same-id retry initializes that thread again", async () => {
+    let turns = 0;
+    const h = await harness({
       "turn/start": (s, m) => {
-        s.push({ id: m.id, result: { turn: { id: "U0", items: [], status: "inProgress" } } });
-        s.push(turn("turn/completed", m.params.threadId, "U0", "failed"));
+        const id = `U${turns++}`;
+        s.push({ id: m.id, result: { turn: { id, items: [], status: "inProgress" } } });
+        s.push(turn("turn/completed", m.params.threadId, id, turns === 1 ? "failed" : "completed"));
       },
     });
-    expect(await failed.sessions().launch(request())).toMatchObject({ ok: false, error: { code: "not-ready" } });
-    expect(failed.panes).toEqual([]);
-
-    const silent = await harness({ "turn/start": (s, m) => s.push({ id: m.id, result: { turn: { id: "U0", items: [], status: "inProgress" } } }) });
-    const pending = silent.sessions().launch(request());
-    await Bun.sleep(0);
-    silent.clock.advance(5000);
-    const outcome = await pending;
-    expect(outcome).toMatchObject({ ok: false, error: { code: "transient" } });
-    expect(outcome.ok || outcome.error.message).toContain("T1");
-    expect(silent.panes).toEqual([]);
-    expect(silent.control.reserveLaunch("/work/a").ok).toBe(true);
-  });
-
-  test("a folder-trust prompt is a blocked attachment, not a ready launch", async () => {
-    const h = await harness();
-    h.blockAttach({ ok: false, error: { code: "not-ready", message: "the terminal never showed the thread's history" } });
-    const outcome = await h.sessions().launch(request());
+    const sessions = h.sessions();
+    const outcome = await sessions.launch(request());
     expect(outcome).toMatchObject({ ok: false, error: { code: "not-ready" } });
     expect(outcome.ok || outcome.error.message).toContain("T1");
+    expect(h.panes).toEqual([]);
+    expect(h.control.reserveLaunch("/work/a").ok).toBe(false);
+    expect(await sessions.launch(request({ reservationId: "res-2" }))).toMatchObject({ ok: false, error: { code: "refused" } });
+
+    expect(data(await sessions.launch(request())).native.value).toBe("T1");
+    expect(h.requests("thread/start")).toHaveLength(1);
+    expect(h.requests("turn/start")).toHaveLength(2);
+    expect(h.panes).toHaveLength(1);
+    expect(h.control.reserveLaunch("/work/a").ok).toBe(true);
+  });
+
+  test("an initialization turn that outlasts the wait is ambiguous; a same-id retry waits on the same turn", async () => {
+    const h = await harness({ "turn/start": (s, m) => s.push({ id: m.id, result: { turn: { id: "U0", items: [], status: "inProgress" } } }) });
+    const sessions = h.sessions();
+    const pending = sessions.launch(request());
+    await Bun.sleep(0);
+    h.clock.advance(5000);
+    const outcome = await pending;
+    expect(outcome).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(outcome.ok || outcome.error.message).toContain("T1");
+    expect(h.panes).toEqual([]);
+    expect(h.control.reserveLaunch("/work/a").ok).toBe(false);
+
+    h.socket().push(turn("turn/completed", "T1", "U0"));
+    expect(data(await sessions.launch(request())).native.value).toBe("T1");
+    expect(h.requests("thread/start")).toHaveLength(1);
+    expect(h.requests("turn/start")).toHaveLength(1);
+    expect(h.panes).toHaveLength(1);
+  });
+
+  test("a folder-trust prompt is a blocked attachment; a same-id retry re-checks the same pane", async () => {
+    const h = await harness();
+    const sessions = h.sessions();
+    h.blockAttach({ ok: false, error: { code: "not-ready", message: "the terminal never showed the thread's history" } });
+    const outcome = await sessions.launch(request());
+    expect(outcome).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(outcome.ok || outcome.error.message).toContain("T1");
+    expect(outcome.ok || outcome.error.message).toContain("p1");
+    expect(h.control.reserveLaunch("/work/a").ok).toBe(false);
+
+    h.blockAttach({ ok: true, data: undefined });
+    expect(data(await sessions.launch(request())).attachment).toEqual({ mode: "herdr", pane: "p1" });
+    expect(h.requests("thread/start")).toHaveLength(1);
+    expect(h.requests("turn/start")).toHaveLength(1);
+    expect(h.panes).toHaveLength(1);
+    expect(h.confirmed.map((c) => c.pane)).toEqual(["p1", "p1"]);
+  });
+
+  test("a pane that fails to open keeps the thread; a same-id retry opens one pane for it", async () => {
+    const h = await harness();
+    let opens = 0;
+    const sessions = h.sessions({
+      openPane: async (launch) => {
+        opens++;
+        if (opens === 1) return { ok: false, error: { code: "transient", message: "herdr unavailable" } };
+        h.panes.push(launch);
+        return { ok: true, data: { pane: "p9" } };
+      },
+    });
+    expect(await sessions.launch(request())).toMatchObject({ ok: false, error: { code: "transient" } });
+    expect(data(await sessions.launch(request())).attachment).toEqual({ mode: "herdr", pane: "p9" });
+    expect(h.requests("thread/start")).toHaveLength(1);
+    expect(h.requests("turn/start")).toHaveLength(1);
     expect(h.panes).toHaveLength(1);
   });
 
@@ -344,13 +403,61 @@ describe("codex session resume", () => {
     expect(resumed.native).toEqual(binding("T1").native);
     expect(resumed.attachment).toEqual({ mode: "herdr", pane: "p1" });
     expect(h.ops).toEqual(["thread/read", "pane"]);
-    expect(h.requests("thread/read")[0]!.params).toEqual({ threadId: "T1", includeTurns: false });
+    expect(h.requests("thread/read")[0]!.params).toEqual({ threadId: "T1", includeTurns: true });
     const command = h.panes[0]!.command;
     expect(command).toBe(buildCodexRemoteResumeCommand("/work/a", { socketPath: SOCKET, threadId: "T1" }));
     for (const flag of ["--add-dir", "-s", "-a", "-m", "-c", "--dangerously-bypass-approvals-and-sandbox"]) {
       expect(command.split(" "), flag).not.toContain(flag);
     }
-    expect(h.confirmed).toEqual([{ threadId: "T1", history: CODEX_INIT_PROMPT }]);
+    expect(h.confirmed).toEqual([{ threadId: "T1", evidence: [CODEX_INIT_PROMPT, "READY"], pane: "p1" }]);
+  });
+
+  test("resuming a thread after real work looks for its latest messages, not its first", async () => {
+    const long = Array.from({ length: 80 }, (_, i) => `step ${i} of the investigation`).join("\n");
+    const worked = [
+      readyTurn,
+      { id: "U1", status: "completed", items: [userItem("i1", "Look into the login flake"), agentItem("a1", long)] },
+      {
+        id: "U2", status: "completed",
+        items: [
+          userItem("i2", "Fix the flaky login test in auth.spec.ts\nand run the suite"),
+          { type: "commandExecution", id: "c2" },
+          agentItem("a2", "I updated **auth.spec.ts**.\n\nAll `12` tests pass now."),
+        ],
+      },
+    ];
+    const h = await harness({
+      "thread/read": (s, m) => s.push({
+        id: m.id, result: { thread: { id: m.params.threadId, cwd: "/work/a", status: { type: "notLoaded" }, preview: CODEX_INIT_PROMPT, turns: worked } },
+      }),
+    });
+    const screen = `${long.split("\n").slice(-20).join("\n")}\n› Fix the flaky login test in auth.spec.ts\n  and run the suite\n\n• I updated auth.spec.ts.\n\n  All 12 tests pass now.\n`;
+    expect(screen).not.toContain(CODEX_INIT_PROMPT);
+    const sessions = h.sessions({
+      openPane: async (launch) => { h.panes.push(launch); return { ok: true, data: { pane: "p1" } }; },
+      confirmAttached: (_opened, expected) => {
+        h.confirmed.push({ ...expected, pane: "p1" });
+        return awaitCodexHistory(async () => screen, expected.evidence, { attempts: 1, sleep: async () => {} });
+      },
+    });
+    const resumed = data(await sessions.resume(binding("T1").native, request()));
+    expect(resumed.attachment).toEqual({ mode: "herdr", pane: "p1" });
+    expect(h.confirmed[0]!.evidence).toEqual(["Fix the flaky login test in auth.spec.ts", "All 12 tests pass now."]);
+  });
+
+  test("an unconfirmed resume keeps its pane; a same-id retry re-checks it instead of opening another", async () => {
+    const h = await harness();
+    const sessions = h.sessions();
+    h.blockAttach({ ok: false, error: { code: "not-ready", message: "trust prompt" } });
+    expect(await sessions.resume(binding("T1").native, request({ reservationId: "r-resume" })))
+      .toMatchObject({ ok: false, error: { code: "not-ready" } });
+    h.blockAttach({ ok: true, data: undefined });
+    expect(await sessions.resume(binding("T2").native, request({ reservationId: "r-resume" })))
+      .toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(data(await sessions.resume(binding("T1").native, request({ reservationId: "r-resume" }))).attachment)
+      .toEqual({ mode: "herdr", pane: "p1" });
+    expect(h.panes).toHaveLength(1);
+    expect(h.confirmed.map((c) => c.pane)).toEqual(["p1", "p1"]);
   });
 
   test("headless resume reattaches the exact thread with its persisted options", async () => {
@@ -500,14 +607,23 @@ describe("terminal attachment", () => {
     const screens = ["", "Do you trust the files in this folder?\n> 1. Yes", `› ${CODEX_INIT_PROMPT.replace(" and", "\n and")}\n\n• READY`];
     let reads = 0;
     const read = async () => screens[Math.min(reads++, screens.length - 1)] ?? null;
-    expect(await awaitCodexHistory(read, CODEX_INIT_PROMPT, { attempts: 5, sleep: async () => {} })).toEqual({ ok: true, data: undefined });
+    expect(await awaitCodexHistory(read, [CODEX_INIT_PROMPT], { attempts: 5, sleep: async () => {} })).toEqual({ ok: true, data: undefined });
     expect(reads).toBe(3);
 
     const trust = async () => "Do you trust the files in this folder?";
-    expect(await awaitCodexHistory(trust, CODEX_INIT_PROMPT, { attempts: 3, sleep: async () => {} }))
+    expect(await awaitCodexHistory(trust, [CODEX_INIT_PROMPT, "READY"], { attempts: 3, sleep: async () => {} }))
       .toMatchObject({ ok: false, error: { code: "not-ready" } });
-    expect(await awaitCodexHistory(async () => null, CODEX_INIT_PROMPT, { attempts: 2, sleep: async () => {} }))
+    expect(await awaitCodexHistory(async () => null, [CODEX_INIT_PROMPT], { attempts: 2, sleep: async () => {} }))
       .toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(await awaitCodexHistory(async () => "anything", ["", "  "], { attempts: 2, sleep: async () => {} }))
+      .toMatchObject({ ok: false, error: { code: "not-ready" } });
+  });
+
+  test("attach evidence comes from the newest turn that has messages", () => {
+    expect(attachEvidence({ turns: [readyTurn, { id: "U1", status: "inProgress", items: [] }] })).toEqual([CODEX_INIT_PROMPT, "READY"]);
+    expect(attachEvidence({ turns: [readyTurn, { id: "U1", status: "inProgress", items: [userItem("i1", "  Ship it  ")] }] })).toEqual(["Ship it"]);
+    expect(attachEvidence({ turns: [] })).toEqual([]);
+    expect(attachEvidence({})).toEqual([]);
   });
 });
 
@@ -521,42 +637,95 @@ describe("registration", () => {
     }
   });
 
-  test("readiness follows the codex binary", () => {
-    expect(codexReadiness(() => null, () => false)).toMatchObject({ ready: false });
-    expect(codexReadiness(() => "/usr/bin/codex", () => false)).toEqual({ ready: true });
-    expect(codexReadiness(() => null, () => true)).toEqual({ ready: true });
-    expect(codexReadiness(() => "/usr/bin/codex", () => false, "The Codex app server is not running."))
+  test("readiness needs the codex binary and a live connection to its app server", () => {
+    const live = { state: "live" } as const;
+    expect(codexReadiness(() => null, () => false, live)).toMatchObject({ ready: false, reason: expect.stringContaining("not installed") });
+    expect(codexReadiness(() => "/usr/bin/codex", () => false, live)).toEqual({ ready: true });
+    expect(codexReadiness(() => null, () => true, live)).toEqual({ ready: true });
+    expect(codexReadiness(() => "/usr/bin/codex", () => false, { state: "never" }))
+      .toEqual({ ready: false, reason: "rt has no connection to the Codex app server yet" });
+    expect(codexReadiness(() => "/usr/bin/codex", () => false, { state: "closed" }))
+      .toEqual({ ready: false, reason: "rt's connection to the Codex app server closed" });
+    expect(codexReadiness(() => "/usr/bin/codex", () => false, { state: "failed", message: "The Codex app server is not running." }))
       .toEqual({ ready: false, reason: "rt cannot reach the Codex app server: The Codex app server is not running." });
   });
 
-  test("the loader shares one live connection, reconnects a closed one, and reports an absent app server", async () => {
+  test("the loader shares one live connection, reconnects a closed one, and reports each state", async () => {
     const h = await harness();
     const connects: Array<{ socketPath: string; profile: string }> = [];
-    const outcomes: unknown[] = [];
-    const load = createCodexSessionLoader({
-      onConnection: (failure) => outcomes.push(failure),
+    const loader = createCodexSessionLoader({
       env: { HOME: "/Users/remy", CODEX_HOME: "/Users/remy/.codex/" },
+      now: () => 0,
       discover: async () => ({ ok: true, data: { socketPath: SOCKET } }),
       connect: async (options) => { connects.push(options); return h.control; },
       sessions: h.deps,
     });
-    const [a, b] = await Promise.all([load(), load()]);
+    const ready = () => codexReadiness(() => "/usr/bin/codex", () => false, loader.status());
+    expect(loader.status()).toEqual({ state: "never" });
+    expect(ready().ready).toBe(false);
+    const [a, b] = await Promise.all([loader.load(), loader.load()]);
     expect(a).toBe(b);
     expect(connects).toEqual([{ socketPath: SOCKET, profile: "default" }]);
-    h.control.close();
-    await load();
-    expect(connects).toHaveLength(2);
-    expect(outcomes).toEqual([null, null]);
+    expect(loader.status()).toEqual({ state: "live" });
+    expect(ready()).toEqual({ ready: true });
 
-    const down = createCodexSessionLoader({
-      env: {}, discover: async () => ({ ok: false, error: { code: "not-ready", message: "The Codex app server is not running." } }),
-      connect: async () => { throw new Error("must not connect"); },
-      onConnection: (failure) => outcomes.push(failure),
+    h.control.close();
+    expect(loader.status()).toEqual({ state: "closed" });
+    expect(ready()).toMatchObject({ ready: false });
+    await loader.load();
+    expect(connects).toHaveLength(2);
+  });
+
+  test("a failed discovery backs off: ticks during the wait spawn and connect nothing", async () => {
+    let now = 0;
+    let discovers = 0;
+    let connects = 0;
+    let running = false;
+    const h = await harness();
+    const loader = createCodexSessionLoader({
+      env: {}, now: () => now,
+      discover: async () => {
+        discovers++;
+        return running ? { ok: true, data: { socketPath: SOCKET } } : { ok: false, error: { code: "not-ready", message: "The Codex app server is not running." } };
+      },
+      connect: async () => { connects++; return h.control; },
+      sessions: h.deps,
     });
-    const unavailable = await down();
+    const tick = async (at: number) => { now = at; return loader.load(); };
+
+    const unavailable = await tick(0);
     expect(await unavailable.launch(request())).toMatchObject({ ok: false, error: { code: "not-ready", message: "The Codex app server is not running." } });
     expect(await unavailable.observe(binding("T1"))).toMatchObject({ ok: false, error: { code: "not-ready" } });
     expect(await unavailable.discover()).toEqual([]);
-    expect(outcomes.at(-1)).toEqual({ code: "not-ready", message: "The Codex app server is not running." });
+    expect(loader.status()).toEqual({ state: "failed", message: "The Codex app server is not running." });
+    expect(discovers).toBe(1);
+
+    for (const at of [5_000, 10_000, 14_999]) await tick(at);
+    expect(discovers).toBe(1);
+    await tick(15_000);
+    expect(discovers).toBe(2);
+    for (const at of [25_000, 35_000, 44_999]) await tick(at);
+    expect(discovers).toBe(2);
+    await tick(45_000);
+    expect(discovers).toBe(3);
+
+    for (let i = 0; i < 12; i++) await tick(now + DISCOVERY_BACKOFF_CAP_MS);
+    const capped = discovers;
+    await tick(now + DISCOVERY_BACKOFF_CAP_MS - 1);
+    expect(discovers).toBe(capped);
+    expect(connects).toBe(0);
+
+    running = true;
+    await tick(now + DISCOVERY_BACKOFF_CAP_MS);
+    expect(loader.status()).toEqual({ state: "live" });
+    expect(connects).toBe(1);
+
+    running = false;
+    h.control.close();
+    const before = discovers;
+    await tick(now + 1);
+    expect(discovers).toBe(before + 1);
+    await tick(now + DISCOVERY_BACKOFF_MS - 1);
+    expect(discovers).toBe(before + 1);
   });
 });
