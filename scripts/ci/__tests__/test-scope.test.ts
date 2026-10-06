@@ -16,6 +16,7 @@ import {
   RT_PLUGIN_TRIGGERS,
   rtTriggeredPluginDirs,
   unitDirs,
+  websiteChanged,
   type ScopeInput,
 } from "../test-scope.ts";
 
@@ -326,5 +327,20 @@ describe("rt changes that affect a plugin", () => {
         "plugins/mattstack",
       ]),
     );
+  });
+});
+
+describe("websiteChanged", () => {
+  test("site, generator and command tree changes build the site", () => {
+    expect(websiteChanged(["website/docs/rt/index.mdx"])).toBe(true);
+    expect(websiteChanged(["scripts/gen-docs.ts"])).toBe(true);
+    expect(websiteChanged(["scripts/lib/docs-render.ts"])).toBe(true);
+    expect(websiteChanged(["scripts/gen-rt-cool-redirects.ts"])).toBe(true);
+    expect(websiteChanged(["scripts/check-rt-cool-redirects.ts"])).toBe(true);
+    expect(websiteChanged(["lib/command-tree-def.ts"])).toBe(true);
+    expect(websiteChanged([".github/workflows/checks.yml"])).toBe(true);
+  });
+  test("unrelated changes skip it", () => {
+    expect(websiteChanged(["lib/daemon.ts", "apps/board/src/a.ts", "README.md"])).toBe(false);
   });
 });
