@@ -329,12 +329,14 @@ Take: Matt published the draft himself. Iterate: Matt fixed the cause, and the f
 ### bun run docs:smoke
 
 The deploy is not done until the site answers. `bun run docs:smoke` requests four URLs without
-following redirects: 200 from the docs home `https://docs.mattstack.dev/`, from
-`/rt/reference/cd` and from `/gitq`, and a 301 from `https://rt.cool/reference/cd` to
-`https://docs.mattstack.dev/rt/reference/cd`. It prints `docs smoke: <ok>/4 ok`, writes one line
-per failing check to stderr (the URL, what it expected and what it got) and exits 1 on any
-failure. Pass means every check ok; any failure goes to `Off-script gate: docs site deploy
-failing` with those lines quoted.
+following redirects, each with a 15 second timeout: 200 from the docs home
+`https://docs.mattstack.dev/`, from `/rt/reference/cd/` and from `/gitq/` (the slash forms, since
+Pages answers a bare path with a 308), and a 301 from `https://rt.cool/reference/cd` to
+`https://docs.mattstack.dev/rt/reference/cd`. A failing check is retried once after 5 seconds,
+as a grace window for the fresh deploy. It prints `docs smoke: <ok>/4 ok`, writes one line per
+check that still fails to stderr (the URL and what it expected and got, or `fetch failed
+(<message>)` when the request itself failed) and exits 1 on any failure. Pass means every check
+ok; any failure goes to `Off-script gate: docs site deploy failing` with those lines quoted.
 
 rt.cool is a redirect-only Cloudflare Pages project, `rt-cool`, deployed by
 `scripts/deploy-rt-cool-redirects.sh`. The release never redeploys it, so when only the rt.cool
