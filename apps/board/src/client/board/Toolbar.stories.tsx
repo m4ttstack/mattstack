@@ -102,7 +102,7 @@ function Header({ initialOff }: { initialOff: ShowItem[] }) {
           onOpenTurnSettings={() => {}}
         />
       </div>
-      <ShowChips show={show} onOpenTurnSettings={() => {}} />
+      <ShowChips show={show} />
     </header>
   );
 }

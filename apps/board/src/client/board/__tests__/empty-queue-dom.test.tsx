@@ -217,7 +217,7 @@ function unchecked(container: HTMLElement): string[] {
   return chips(container)
     .filter(c => !c.querySelector('input')!.checked)
     .map(c => {
-      const count = c.querySelector('.tui-show-count')!.textContent;
+      const count = c.querySelector('.tui-show-chip-count')!.textContent;
       return `${c.textContent!.slice(0, -count!.length).trim()} ${count}`;
     });
 }
@@ -448,5 +448,26 @@ test('saving a Whose turn signal reloads the board', async () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
     expect(dataLoads).toBe(before + 1);
+  });
+});
+
+test('the roster counts only the rows the Show picks leave on the board', async () => {
+  servedData = withRows([
+    { ...needsMeMr(1), slack: { posted: true, reactions: [] } },
+    needsMeMr(2),
+    needsMeMr(3),
+  ]);
+  const counts = (container: HTMLElement) =>
+    [...container.querySelectorAll('.tui-sidebar .tui-side-count')].map(
+      c => c.textContent
+    );
+  await mount(async container => {
+    expect(counts(container)[0]).toBe('3');
+    await React.act(async () => chip(container, 'Not Posted').click());
+    await React.act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    expect(counts(container)[0]).toBe('1');
+    expect(rowCount(container)).toBe(1);
   });
 });
