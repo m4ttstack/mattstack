@@ -68,7 +68,11 @@ export async function publishDevApp(seams: DevPublishSeams, input: DevPublishInp
   const uploadZip = await seams.exec(["gh", "release", "upload", input.tag, zip, "--repo", REPO, "--clobber"], { timeoutMs: UPLOAD_TIMEOUT_MS });
   if (uploadZip.exitCode !== 0) return { ok: false, error: `uploading ${zipName} failed: ${execTail(uploadZip)}` };
 
-  await seams.writeFile(sumsPath, mergeSums(current, zipName, sha));
+  try {
+    await seams.writeFile(sumsPath, mergeSums(current, zipName, sha));
+  } catch (err) {
+    return { ok: false, error: `writing the merged SHA256SUMS failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
   const uploadSums = await seams.exec(["gh", "release", "upload", input.tag, sumsPath, "--repo", REPO, "--clobber"]);
   if (uploadSums.exitCode !== 0) {
     return { ok: false, error: `${zipName} is attached, but uploading the updated SHA256SUMS failed: ${execTail(uploadSums)}` };

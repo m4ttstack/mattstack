@@ -83,6 +83,16 @@ describe("publishDevApp", () => {
     expect(cmds.some((c) => c.startsWith("gh release upload"))).toBe(false);
   });
 
+  test("a SHA256SUMS write that throws is a failed publish, not a thrown run", async () => {
+    const { s, cmds } = seams();
+    s.writeFile = async () => {
+      throw new Error("EACCES: permission denied");
+    };
+    const r = await publishDevApp(s, input);
+    expect(r).toEqual({ ok: false, error: "writing the merged SHA256SUMS failed: EACCES: permission denied" });
+    expect(cmds.some((c) => c.includes("sums/SHA256SUMS --repo"))).toBe(false);
+  });
+
   test("a failed sums upload says the zip is already attached", async () => {
     const { s } = seams("sums/SHA256SUMS --repo");
     const r = await publishDevApp(s, input);

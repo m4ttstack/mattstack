@@ -1085,6 +1085,20 @@ describe("rt release update-machine", () => {
       expect(report.ok).toBe(false);
     });
 
+    test("a SHA256SUMS write that throws is an error that does not halt the later legs", async () => {
+      const { seams } = fakeSeams();
+      seams.writeFile = async () => {
+        throw new Error("ENOSPC: no space left on device");
+      };
+      const report = await runUpdateMachine(seams, { yes: true });
+      const publish = report.legs.find((l) => l.id === "dev-publish")!;
+      expect(publish.status).toBe("error");
+      expect(publish.detail).toContain("writing the merged SHA256SUMS failed: ENOSPC");
+      expect(report.legs.find((l) => l.id === "checkout-sync")!.status).toBe("ok");
+      expect(report.legs.find((l) => l.id === "served-suite")!.status).toBe("ok");
+      expect(report.haltedAfter).toBeNull();
+    });
+
     test("skipped when the dev bundle build failed", async () => {
       const { seams, calls } = fakeSeams({ buildExit: 1 });
       const report = await runUpdateMachine(seams, { yes: true });
