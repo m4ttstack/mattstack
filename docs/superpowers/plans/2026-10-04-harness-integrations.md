@@ -47,8 +47,10 @@ in an isolated worktree. F2b and all other implementation remain blocked.
 This scoped decision takes precedence over the general execution hold below.
 F2a now has a [reviewed implementation checkpoint](../spikes/2026-10-05-harness-foundation-f2a.md);
 the separately [approved watcher prerequisite](2026-10-05-f2a-watcher-test-proposal.md)
-is applied and its tests pass. Completion remains stopped: the latest root run
-passed 14,573 tests and failed an API bind case plus two marketplace timeouts.
+is applied and its tests pass. F2a is complete: on 2026-10-06 the user ruled
+that the root run's three failures (an API bind case and two marketplace
+timeouts, all in main-owned tests this branch never touched) are unrelated
+flakes. Both files pass in isolation. The user directed work to proceed to F2b.
 
 ## Review Focus
 
@@ -372,8 +374,8 @@ the [focused hook follow-up](../spikes/2026-10-05-codex-hooks-followup.md) and i
 [evidence](../spikes/2026-10-05-codex-hooks-evidence.json). G1/G2/G3/G5/G6 are
 proven; G4/G7 are partial. The spec and revised package plans incorporate
 the proven hook loading/trust lifecycle and exact native protocol contracts. G7 restart coverage remains
-deferred acceptance work. F2a has the scoped implementation checkpoint linked above; F2b onward remains
-unexecuted. F2a completion is still held by its verification gate.
+deferred acceptance work. F2a is complete (checkpoint linked above). F2b is next; F2b onward is
+not yet implemented.
 
 
 **Reference refresh limit (2026-10-05):** The available authenticated Linear

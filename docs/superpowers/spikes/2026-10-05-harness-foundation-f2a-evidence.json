@@ -1,5 +1,5 @@
 {
-  "status": "approved-watcher-prerequisite-applied-completion-blocked",
+  "status": "complete-unrelated-full-suite-flakes-dispositioned",
   "executionBase": "21bace497e2c03ff73ce0693b6823d88f7b36fce",
   "rebaseOnto": "7a62b66d2",
   "sourceSha256": {
@@ -511,6 +511,40 @@
       "logSha256": "4f556fda09cdc636ff5163a826ddfa8aef86dc14b8206de2115bd6d93568fd96",
       "evidence": ".harness-spike/baseline-01/f2a-api-diagnostic-02.json",
       "purpose": "bounded-diagnostic-not-reproduced"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "./lib/daemon/__tests__/api-server.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T14:41:54.990022+00:00",
+      "commit": "90be67ba2dec4de2126377f6379c50ae4d3a948a",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 0.3,
+      "finishedAt": "2026-10-06T14:41:55.309624+00:00",
+      "logSha256": "51db6b360aaaf055949719546794d68fea051e490f0f062c7a588c6078c9d083",
+      "evidence": ".harness-spike/baseline-01/f2a-rerun-api-01.json",
+      "purpose": "isolated-rerun-of-unrelated-failure"
+    },
+    {
+      "command": [
+        "bun",
+        "test",
+        "./scripts/__tests__/release-marketplace.test.ts"
+      ],
+      "cwd": "/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/huan",
+      "startedAt": "2026-10-06T14:41:55.339818+00:00",
+      "commit": "90be67ba2dec4de2126377f6379c50ae4d3a948a",
+      "nativeGuard": "HERDR_SOCKET_PATH and HERDR_BIN point to nonexistent owned paths; tests must inject native fakes",
+      "exitCode": 0,
+      "elapsedSeconds": 7.8,
+      "finishedAt": "2026-10-06T14:42:03.154377+00:00",
+      "logSha256": "282b9076befba2b6a9e0d73d0f87f2786bf311f4e6ff7757ce1a19ea41d78919",
+      "evidence": ".harness-spike/baseline-01/f2a-rerun-marketplace-01.json",
+      "purpose": "isolated-rerun-of-unrelated-failures"
     }
   ],
   "artifacts": [
@@ -710,6 +744,15 @@
         "failure": "5000ms timeout; git ls-tree failed",
         "durationMs": 5001.18
       }
-    ]
+    ],
+    "disposition": {
+      "decision": "User ruled on 2026-10-06 that the three failures do not block F2a: rerun them in isolation, record, then proceed to F2b.",
+      "unrelatedToBranch": "This branch changes no file under lib/daemon/api-server*, lib/daemon/__tests__/api-server.test.ts or scripts/*marketplace* relative to merge base 7a62b66d2.",
+      "isolatedReruns": {
+        "apiServer": "10 pass, 0 fail, 35 assertions",
+        "marketplace": "29 pass, 0 fail, 65 assertions"
+      },
+      "notACause": "A passing isolated rerun does not identify a cause; the failures stay recorded as full-suite timing flakes in main-owned tests."
+    }
   }
 }

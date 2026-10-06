@@ -1,10 +1,23 @@
 # Isolated harness foundation F2a — implementation and verification
 
-**Status: approved watcher prerequisite applied; F2a completion still BLOCKED.**
+**Status: F2a complete. The three full-suite failures are recorded as unrelated flakes.**
 The five disconnected foundation files and the separately approved watcher test
 prerequisite are implemented. No existing production caller is wired to the new
-contracts. The latest full suite passed 14,573 tests and failed three other
-cases; this is not a completed F2a or passing release claim.
+contracts. F2b is next.
+
+## Disposition of the three failures — 2026-10-06
+
+The user ruled that the three full-suite failures below do not block F2a. Rerun
+them in isolation, record the result, then move to F2b. They are not a debugging
+task for this project.
+
+- This branch changes no API server or marketplace file, test or source,
+  relative to merge base `7a62b66d2`. All three tests belong to main.
+- Isolated reruns at `90be67ba2`: `api-server.test.ts` 10 pass, 0 fail
+  (`f2a-rerun-api-01`); `release-marketplace.test.ts` 29 pass, 0 fail
+  (`f2a-rerun-marketplace-01`).
+- A passing rerun names no cause. The failures stay on record as full-suite
+  timing flakes in tests main owns.
 
 ## Approved prerequisite verification — 2026-10-06
 
