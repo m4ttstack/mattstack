@@ -172,6 +172,7 @@ export function chatPost(
   const payload: Record<string, unknown> = { room: a.room, handle: a.handle, body: a.body };
   if (a.mentions !== undefined) payload.mentions = a.mentions;
   if (a.quiet) payload.quiet = true;
+  if (a.pane !== undefined) payload.pane = a.pane;
   return rtCommand<Commands["chat:post"]["data"]>("chat:post", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
@@ -299,6 +300,7 @@ export function chatDm(
 ): Promise<RtResponse<Commands["chat:dm"]["data"]>> {
   const payload: Record<string, unknown> = { from: a.from, to: a.to, body: a.body };
   if (a.sessionId !== undefined) payload.sessionId = a.sessionId;
+  if (a.pane !== undefined) payload.pane = a.pane;
   return rtCommand<Commands["chat:dm"]["data"]>("chat:dm", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 

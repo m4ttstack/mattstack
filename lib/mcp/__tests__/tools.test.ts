@@ -1422,8 +1422,8 @@ describe("chat helpers", () => {
     const { requireChatHandle } = await import("../shared.ts");
     const seen: Array<string | undefined> = [];
     const read = (id: string | undefined) => { seen.push(id); return id === "s1" ? { sessionId: "s1", handle: "ann", baseHandle: "ann", signedInAt: 1 } : null; };
-    expect(requireChatHandle({ CLAUDE_CODE_SESSION_ID: "s1" } as NodeJS.ProcessEnv, read)).toEqual({ handle: "ann", name: "ann" });
-    expect("error" in requireChatHandle({} as NodeJS.ProcessEnv, read)).toBe(true);
+    expect(await requireChatHandle({ CLAUDE_CODE_SESSION_ID: "s1" } as NodeJS.ProcessEnv, read)).toEqual({ handle: "ann", name: "ann", sessionId: "s1" });
+    expect("error" in (await requireChatHandle({} as NodeJS.ProcessEnv, read))).toBe(true);
     expect(seen).toEqual(["s1", undefined]);
   });
 

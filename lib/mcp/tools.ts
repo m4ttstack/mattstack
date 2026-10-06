@@ -19,6 +19,7 @@ import { repoLabel } from "../repo-label.ts";
 import { reverseLookupByName } from "../repo-name-lookup.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { explainError } from "../explain-error.ts";
+import { selfPaneRef } from "../self-pane.ts";
 import { chatToolDefs } from "./chat-tools.ts";
 import { ciToolDefs } from "./ci-tools.ts";
 import { whoamiToolDefs } from "./whoami-tool.ts";
@@ -275,13 +276,15 @@ export function mcpTools(): McpToolDef[] {
       },
       shellForms: ["rt chat post"],
       async handler(input, env) {
-        const identity = requireChatHandle(env);
+        const identity = await requireChatHandle(env);
         if ("error" in identity) return err(identity.error);
         const bad = checkRequired(input, [{ name: "room", type: "string" }, { name: "body", type: "string" }]);
         if (bad) return err(bad);
         const payload: Commands["chat:post"]["payload"] = { room: input.room as string, handle: identity.handle, body: input.body as string };
         if (input.mentions !== undefined) payload.mentions = input.mentions as string[];
         if (input.quiet !== undefined) payload.quiet = input.quiet as boolean;
+        const pane = selfPaneRef(env);
+        if (pane) payload.pane = pane;
         return fromResponse(await chatPost(payload));
       },
     },
@@ -296,11 +299,11 @@ export function mcpTools(): McpToolDef[] {
       },
       shellForms: ["rt chat dm"],
       async handler(input, env) {
-        const identity = requireChatHandle(env);
+        const identity = await requireChatHandle(env);
         if ("error" in identity) return err(identity.error);
         const bad = checkRequired(input, [{ name: "to", type: "string" }, { name: "body", type: "string" }]);
         if (bad) return err(bad);
-        return fromResponse(await chatDm({ from: identity.handle, to: input.to as string, body: input.body as string, sessionId: env.CLAUDE_CODE_SESSION_ID }));
+        return fromResponse(await chatDm({ from: identity.handle, to: input.to as string, body: input.body as string, sessionId: identity.sessionId, pane: selfPaneRef(env) }));
       },
     },
     {
@@ -314,7 +317,7 @@ export function mcpTools(): McpToolDef[] {
       },
       shellForms: ["rt chat ack"],
       async handler(input, env) {
-        const identity = requireChatHandle(env);
+        const identity = await requireChatHandle(env);
         if ("error" in identity) return err(identity.error);
         const bad = checkRequired(input, [{ name: "id", type: "number" }]);
         if (bad) return err(bad);
@@ -332,7 +335,7 @@ export function mcpTools(): McpToolDef[] {
       },
       shellForms: ["rt chat claim"],
       async handler(input, env) {
-        const identity = requireChatHandle(env);
+        const identity = await requireChatHandle(env);
         if ("error" in identity) return err(identity.error);
         const bad = checkRequired(input, [{ name: "id", type: "number" }]);
         if (bad) return err(bad);
@@ -350,7 +353,7 @@ export function mcpTools(): McpToolDef[] {
       },
       shellForms: ["rt chat release"],
       async handler(input, env) {
-        const identity = requireChatHandle(env);
+        const identity = await requireChatHandle(env);
         if ("error" in identity) return err(identity.error);
         const bad = checkRequired(input, [{ name: "id", type: "number" }]);
         if (bad) return err(bad);
