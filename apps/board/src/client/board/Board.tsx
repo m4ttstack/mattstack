@@ -42,11 +42,13 @@ import {
   isOwnMr,
   NEEDS_ME_TAB,
   nestStacks,
+  offeredShowItems,
   oldestFirst,
   parseViewState,
   rosterUsernamesFor,
   serializeViewState,
   tabDimsEmpty,
+  visibleByAuthor,
 } from '../../view.ts';
 import type { GroupKey, ShowItem, StackNode, ViewState } from '../../view.ts';
 import { postAction, type ActionResult } from '../api.ts';
@@ -331,7 +333,8 @@ export function Board() {
           tabs,
           new Set(usernames),
           m => m.iid === linkedIid,
-          d.turn ?? ALL_TURN
+          d.turn ?? ALL_TURN,
+          d.defaultMember === 'all' ? null : d.defaultMember
         );
         setDeepLink({ gateId: gateId!, iid: linkedIid, mrUrl: null });
       } else if (
@@ -350,7 +353,8 @@ export function Board() {
           tabs,
           new Set(usernames),
           m => m.webUrl === linkedUrl,
-          d.turn ?? ALL_TURN
+          d.turn ?? ALL_TURN,
+          d.defaultMember === 'all' ? null : d.defaultMember
         );
         setDeepLink({ gateId: null, iid: null, mrUrl: linkedUrl });
       }
@@ -935,44 +939,56 @@ export function Board() {
     const tabFiltered = isSeatTab
       ? needsMe(filterByTab(mrs, activeTab, rosterUsernames, tabs))
       : filterByTab(mrs, activeTab, rosterUsernames, tabs);
-    // The seat tab's count shows on the tab strip from every tab.
-    const needsMeCount =
-      self === null
-        ? null
-        : needsMe(filterByTab(mrs, NEEDS_ME_TAB, rosterUsernames, tabs)).length;
     // Codeowners and seat tabs bypass member filtering entirely (and the
     // sidebar that drives it) -- their rows are scoped by section or by
     // need, not by roster author, and may come from outside the team. Inferring
     // a roster from the rows in view keeps the author filter (and the settings
     // gears that live in this panel) available.
     const inferred = isCodeownersTab || isSeatTab;
-    // Offered items are the ones the toolbar renders. Drafts never appear on
-    // an "all" board (buildBoard drops every draft when no single
-    // defaultMember owns one), and Needs me is already turn-based.
-    const offered: ShowItem[] = [
-      ...(data.slackEnabled ? (['posted', 'notPosted'] as const) : []),
-      ...(isSeatTab ? [] : (['authorTurn'] as const)),
-      ...(data.defaultMember !== 'all' ? (['myDrafts'] as const) : []),
-    ];
-    // The roster counts what this tab shows under the current Show picks,
-    // so a member's number matches the rows that appear when they're picked.
-    const visible = filterByShow(tabFiltered, state.off, offered, turnCfg).rows;
-    const visibleBy = new Map<string, number>();
-    for (const mr of visible)
-      visibleBy.set(
-        mr.author.username,
-        (visibleBy.get(mr.author.username) ?? 0) + 1
-      );
-    const roster = (inferred ? inferRoster(tabFiltered) : data.members).map(
-      m => ({ ...m, count: visibleBy.get(m.username) ?? 0 })
+    const offeredFor = (member: string) =>
+      offeredShowItems({
+        slackEnabled: data.slackEnabled,
+        seatTab: isSeatTab,
+        seat: self,
+        member,
+      });
+    const offered = offeredFor(state.member);
+    // The seat tab's count shows on the tab strip from every tab, and counts
+    // what picking it shows: its All view under the current Show picks.
+    const needsMeCount =
+      self === null
+        ? null
+        : filterByShow(
+            needsMe(filterByTab(mrs, NEEDS_ME_TAB, rosterUsernames, tabs)),
+            state.off,
+            offeredShowItems({
+              slackEnabled: data.slackEnabled,
+              seatTab: true,
+              seat: self,
+              member: 'all',
+            }),
+            turnCfg,
+            self
+          ).rows.length;
+    // The roster counts this tab's All view, so a member's number matches the
+    // rows that appear when they're picked and the numbers add up to All's.
+    const { byAuthor, total: rosterTotal } = visibleByAuthor(
+      tabFiltered,
+      state.off,
+      offeredFor('all'),
+      turnCfg,
+      self
     );
-    const rosterTotal = visible.length;
+    const roster = (inferred ? inferRoster(tabFiltered) : data.members).map(
+      m => ({ ...m, count: byAuthor.get(m.username) ?? 0 })
+    );
     const memberFiltered = filterByMember(tabFiltered, state.member);
     const { rows: filtered, counts: showCounts } = filterByShow(
       memberFiltered,
       state.off,
       offered,
-      turnCfg
+      turnCfg,
+      self
     );
     // Counts what the board shows, after the person and Show picks, the way
     // the roster's numbers do.
