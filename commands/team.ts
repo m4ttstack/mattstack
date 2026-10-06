@@ -41,7 +41,7 @@ import { mintInvite, realMintInviteSeams, type InviteResult, type MintInviteSeam
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
 import { canonicalHandle, readPeeredBoards, realReadLocalSecret, type ReadLocalSecret } from "../lib/team/board-peers.ts";
-import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSync, preferredRoster, teamRemote, type BoardPeeringOutcome, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
+import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSync, preferredRoster, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { peerOwnBoard, realPeerSeams, type PeerResult, type PeerSeams } from "../lib/team/peer.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
@@ -73,7 +73,7 @@ export interface TeamDeps {
   confirm?: (message: string) => Promise<boolean>;
   /** The TTY gate, seamed for the same reason. */
   interactive?: () => boolean;
-  /** An rt-scope secret (the switchboard tokens `teamStatus` asks with); real store by default. */
+  /** An rt-scope secret (the switchboard tokens `teamStatus`, `teamPeer` and `members remove` read); real store by default. */
   readLocalSecret?: ReadLocalSecret;
   /** Overrides `peerOwnBoard`'s seams; real by default, with `readLocalSecret` above as its secret reader. */
   peerSeams?: Partial<PeerSeams>;
@@ -606,7 +606,10 @@ export async function teamMembersRemove(args: string[], _ctx: CommandContext = {
   try {
     const slug = resolveTeamSlug(args, `team members remove ${handle}`);
     const secrets = createRealTeamSecretsSeams(slug);
-    const result = await membersRemove(deps.probes, secrets, slug, handle, key);
+    const result = await membersRemove(deps.probes, secrets, slug, handle, key, {
+      ...realMembersSeams(),
+      ...(deps.readLocalSecret ? { readLocalSecret: deps.readLocalSecret } : {}),
+    });
 
     if (json) {
       deps.print(JSON.stringify(envelope(result)));

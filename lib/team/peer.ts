@@ -61,22 +61,30 @@ export function realPeerSeams(): PeerSeams {
   };
 }
 
-const ASK_OWNER = "Ask the team's owner to invite you again (rt team invite), then join with the new invite.";
+const ASK_OWNER = "Ask the team's owner to invite you again, then join with the new invite.";
 
 function switchboardFailure(detail: string): UserActionableError {
   return new UserActionableError("switchboard-refused", "rt could not connect your board to the switchboard", {}, { why: detail });
 }
 
-async function tokenWorks(p: Probes, base: string, token: string): Promise<boolean> {
+/** Probes answer status 0 when nothing answered at all. */
+function answered(status: number, asked: string): string {
+  return status === 0 ? "rt could not reach the switchboard." : `The switchboard answered ${status} when asked ${asked}.`;
+}
+
+function ok(status: number): boolean {
+  return status >= 200 && status < 300;
+}
+
+function parsed<T>(body: string): T | null {
   try {
-    const res = await p.fetch(`${base}/peers`, { headers: { Authorization: `Bearer ${token}` } });
-    return res.status >= 200 && res.status < 300;
+    return JSON.parse(body) as T;
   } catch {
-    return false;
+    return null;
   }
 }
 
-/** Every token here goes only to `switchboardUrl()`. `rotate` re-registers a username the switchboard already knows, which stops any board still using the old token. */
+/** Every token here goes only to `switchboardUrl()`. `rotate` issues a new token even when this Mac's works or the switchboard already knows the username, which stops any board still using the old one. */
 export async function peerOwnBoard(p: Probes, slug: string, opts: { rotate: boolean }, seams: PeerSeams = realPeerSeams()): Promise<PeerResult> {
   const admin = await readAdminToken(p, seams.readLocalSecret);
   if (!admin) {
@@ -97,20 +105,17 @@ export async function peerOwnBoard(p: Probes, slug: string, opts: { rotate: bool
   const base = switchboardUrl(p.env);
   const boardEnvOverrides = boardEnvValue(p, "SWITCHBOARD_TOKEN") !== null;
 
-  const stored = await readBoardSwitchboardToken(p, () => seams.readLocalSecret("switchboardToken").catch(() => null));
-  if (stored && (await tokenWorks(p, base, stored))) return { outcome: "already-connected", username, boardEnvOverrides };
-
   if (!opts.rotate) {
-    let enrolled: boolean;
-    try {
-      const res = await p.fetch(`${base}/boards`, { headers: { Authorization: `Bearer ${admin}` } });
-      if (res.status < 200 || res.status >= 300) throw switchboardFailure(`The switchboard answered ${res.status} when asked which boards it knows.`);
-      const boards = (JSON.parse(res.body) as { boards?: Array<{ username?: unknown }> }).boards ?? [];
-      enrolled = boards.some((b) => typeof b?.username === "string" && canonicalHandle(b.username) === username);
-    } catch (err) {
-      if (err instanceof UserActionableError) throw err;
-      throw switchboardFailure(scrub(err instanceof Error ? err.message : String(err), admin));
+    const stored = await readBoardSwitchboardToken(p, () => seams.readLocalSecret("switchboardToken").catch(() => null));
+    if (stored && ok((await p.fetch(`${base}/peers`, { headers: { Authorization: `Bearer ${stored}` } })).status)) {
+      return { outcome: "already-connected", username, boardEnvOverrides };
     }
+
+    const res = await p.fetch(`${base}/boards`, { headers: { Authorization: `Bearer ${admin}` } });
+    if (!ok(res.status)) throw switchboardFailure(answered(res.status, "which boards it knows"));
+    const boards = parsed<{ boards?: unknown }>(res.body)?.boards;
+    if (!Array.isArray(boards)) throw switchboardFailure("The switchboard sent a list of boards rt could not read.");
+    const enrolled = boards.some((b) => typeof (b as { username?: unknown })?.username === "string" && canonicalHandle((b as { username: string }).username) === username);
     if (enrolled) {
       throw new UserActionableError("board-registered-elsewhere", `The switchboard already has a board for ${username}, but this Mac holds no working token for it`, {}, {
         why: "Issuing a new token stops any other board still using the old one.",
@@ -125,30 +130,19 @@ export async function peerOwnBoard(p: Probes, slug: string, opts: { rotate: bool
     });
   }
 
-  let token: unknown;
-  try {
-    const res = await p.fetch(`${base}/boards`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin}` },
-      body: JSON.stringify({ username }),
-    });
-    if (res.status === 409) return { outcome: "already-connected", username, boardEnvOverrides };
-    if (res.status < 200 || res.status >= 300) throw switchboardFailure(`The switchboard answered ${res.status} when asked to register ${username}.`);
-    try {
-      token = (JSON.parse(res.body) as { token?: unknown })?.token;
-    } catch {
-      /* an unparsable register reply reads as no token */
-    }
-  } catch (err) {
-    if (err instanceof UserActionableError) throw err;
-    throw switchboardFailure(scrub(err instanceof Error ? err.message : String(err), admin));
-  }
+  const res = await p.fetch(`${base}/boards`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${admin}` },
+    body: JSON.stringify({ username }),
+  });
+  if (!ok(res.status)) throw switchboardFailure(answered(res.status, `to register ${username}`));
+  const token = parsed<{ token?: unknown }>(res.body)?.token;
   if (typeof token !== "string" || !token) throw switchboardFailure("The switchboard registered your board but sent back no token.");
 
   try {
     await seams.writeLocalSecret("switchboardToken", token);
   } catch (err) {
-    throw new UserActionableError("peer-store-failed", "Your board is registered, but rt could not save its token. Run this again with --rotate to issue a new one.", {}, {
+    throw new UserActionableError("peer-store-failed", "Your board is registered, but rt could not save its token. Issue a new one to finish.", {}, {
       log: scrub(err instanceof Error ? err.message : String(err), token),
       next: "rt team peer --rotate",
     });

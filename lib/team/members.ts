@@ -34,7 +34,7 @@ import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
 import { revokeRead, type RevokeAccess } from "./forge.ts";
-import { realReadLocalSecret, revokeBoard, type ReadLocalSecret } from "./board-peers.ts";
+import { canonicalHandle, realReadLocalSecret, revokeBoard, type ReadLocalSecret } from "./board-peers.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { scrub } from "./redact.ts";
 import { assertNotJoined, readTeamLocal } from "./team-local.ts";
@@ -383,6 +383,10 @@ export async function membersRemove(
     });
   }
 
+  // Roster names match the way the switchboard matches board names, so a
+  // handle typed in another case still finds its entry and its keys.
+  const wanted = canonicalHandle(handle);
+  const isMember = (m: RosterMember): boolean => typeof m?.username === "string" && canonicalHandle(m.username) === wanted;
   const boardRoster = readRoster(seams, slug, "board.members");
   const crossAppRoster = readRoster(seams, slug, "mattstack.roster");
   // The two rosters can diverge (dual-write is best-effort), so EVERY key
@@ -391,7 +395,7 @@ export async function membersRemove(
   const recordedKeys = [
     ...new Set(
       [...crossAppRoster, ...boardRoster]
-        .filter((m) => m.username === handle)
+        .filter(isMember)
         .map((m) => m.agePublicKey)
         .filter((k): k is string => typeof k === "string"),
     ),
@@ -434,7 +438,7 @@ export async function membersRemove(
     board.kind === "revoked" ? "revoked" : board.kind === "not-peered" ? "not-peered" : board.kind === "no-admin-token" ? "left-peered" : "failed";
   const boardSteps =
     board.kind === "no-admin-token"
-      ? [`${handle}'s board is still connected. Only the switchboard owner can disconnect it, by running this command on their Mac.`]
+      ? [`${handle}'s board is still connected. Only the switchboard owner can disconnect it, by running rt team members remove ${handle} on their Mac.`]
       : board.kind === "failed"
         ? [`rt could not disconnect ${handle}'s board: ${board.detail}. Run this command again to retry.`]
         : [];
@@ -442,21 +446,21 @@ export async function membersRemove(
   // Each key is removed on its own contents (a store can carry either roster
   // alone), never by writing one key's rows onto the other; removal from
   // either counts as a roster removal.
-  const boardHad = boardRoster.some((m) => m.username === handle);
+  const boardHad = boardRoster.some(isMember);
   if (boardHad) {
     seams.writeSetting(
       "board.members",
-      boardRoster.filter((m) => m.username !== handle),
+      boardRoster.filter((m) => !isMember(m)),
       "team",
       { team: slug },
     );
   }
 
-  const crossAppHad = crossAppRoster.some((m) => m.username === handle);
+  const crossAppHad = crossAppRoster.some(isMember);
   if (crossAppHad) {
     seams.writeSetting(
       "mattstack.roster",
-      crossAppRoster.filter((m) => m.username !== handle),
+      crossAppRoster.filter((m) => !isMember(m)),
       "team",
       { team: slug },
     );

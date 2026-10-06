@@ -1521,9 +1521,18 @@ export function Board() {
 
           {data.switchboardTokenMissing && (
             <div className="tui-banner" data-intent="bad" role="alert">
-              ⚠ no switchboard token, so peer asks can't reach this board · ask
-              the team owner to invite you again (<code>rt team invite</code>),
-              then run <code>rt team join</code> with the new invite
+              ⚠ no switchboard token, so peer asks can't reach this board ·{' '}
+              {data.canInvite ? (
+                <>
+                  run <code>rt team peer</code> to connect it
+                </>
+              ) : (
+                <>
+                  ask the team owner to invite you again (
+                  <code>rt team invite</code>), then run{' '}
+                  <code>rt team join</code> with the new invite
+                </>
+              )}
             </div>
           )}
 

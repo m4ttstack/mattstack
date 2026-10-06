@@ -64,12 +64,15 @@ describe("peerOwnBoard", () => {
     expect(p.calls.fetchInits.some((c) => c.init?.method === "POST")).toBe(false);
   });
 
-  test("a 409 from the register is already connected, not a failure", async () => {
-    const p = probes((url, method) => (method === "POST" ? reply(409, "exists") : url.endsWith("/boards") ? reply(200, { boards: [] }) : reply(404)));
-    const { s, written } = seams({ switchboardAdminToken: "admin" });
+  test("--rotate issues a new token even when this Mac's stored token still works", async () => {
+    const p = probes((url, method) => (method === "POST" ? reply(201, { token: "rotated" }) : url.endsWith("/peers") ? reply(200, { peers: [] }) : reply(500)));
+    const { s, written } = seams({ switchboardAdminToken: "admin", switchboardToken: "works" });
 
-    expect((await peerOwnBoard(p, "acme", { rotate: false }, s)).outcome).toBe("already-connected");
-    expect(written).toEqual([]);
+    const result = await peerOwnBoard(p, "acme", { rotate: true }, s);
+
+    expect(result.outcome).toBe("connected");
+    expect(written).toEqual([["switchboardToken", "rotated"]]);
+    expect(p.calls.fetchInits.some((c) => c.url.endsWith("/peers"))).toBe(false);
   });
 
   test("a board the switchboard already knows, with no working token here, is left alone unless --rotate", async () => {
@@ -92,7 +95,8 @@ describe("peerOwnBoard", () => {
     const err = await rejection(peerOwnBoard(p, "acme", { rotate: false }, s));
 
     expect(err.code).toBe("peer-needs-owner");
-    expect(err.why).toContain("rt team invite");
+    expect(err.why).toContain("invite you again");
+    expect(err.why).not.toContain("rt team");
     expect(err.next).toBe("rt team join");
     expect(written).toEqual([]);
     expect(p.calls.fetchInits).toEqual([]);
@@ -109,18 +113,15 @@ describe("peerOwnBoard", () => {
     expect(written).toEqual([]);
   });
 
-  test("an unreachable switchboard is a failure whose reason never carries the admin token", async () => {
-    const p = fakeProbes({
-      fetch: async () => {
-        throw new Error("connect refused (Bearer admin)");
-      },
-    });
-    const { s } = seams({ switchboardAdminToken: "admin" });
+  test("an unreachable switchboard says rt could not reach it, not that it answered 0", async () => {
+    const p = probes(() => reply(0));
+    const { s, written } = seams({ switchboardAdminToken: "admin" });
 
     const err = await rejection(peerOwnBoard(p, "acme", { rotate: false }, s));
 
     expect(err.code).toBe("switchboard-refused");
-    expect(err.why).not.toContain("admin");
+    expect(err.why).toBe("rt could not reach the switchboard.");
+    expect(written).toEqual([]);
   });
 
   test("an unknown username or an unready secrets store stops before anything is registered", async () => {

@@ -23,6 +23,17 @@ describe("readPeeredBoards", () => {
     expect(p.calls.fetch[0]).toEndWith("/peers");
   });
 
+  test("a board that keeps its token in its own .env still asks, the way the board reads it", async () => {
+    const p = fakeProbes({
+      home: "/home/x",
+      files: { "/home/x/.mattstack/board/.env": "SWITCHBOARD_TOKEN=from-env\n" },
+      fetch: async () => ({ status: 200, body: JSON.stringify({ peers: ["dana"] }), headers: {} }),
+    });
+    const peered = await readPeeredBoards(p, secrets({}));
+    expect([...peered!]).toEqual(["dana"]);
+    expect(p.calls.fetchInits[0]?.init?.headers?.Authorization).toBe("Bearer from-env");
+  });
+
   test("no token, an error or a malformed body all read as unknown", async () => {
     expect(await readPeeredBoards(fakeProbes({}), secrets({}))).toBeNull();
     const failing = fakeProbes({ fetch: async () => ({ status: 401, body: "", headers: {} }) });

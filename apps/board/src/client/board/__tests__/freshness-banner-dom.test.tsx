@@ -249,6 +249,26 @@ test('a switchboard url with no token: a banner naming the re-invite and the joi
   }
 });
 
+test("on the creator's Mac (it holds the admin token) the banner says to run rt team peer", async () => {
+  servedData = {
+    ...BOARD_DATA,
+    dataSyncedAt: NOW - 60_000,
+    switchboardTokenMissing: true,
+    canInvite: true,
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = await renderBoard(container);
+  try {
+    const el = tokenBanner(container);
+    expect(el?.textContent).toContain('run rt team peer to connect it');
+    expect(el?.textContent).not.toContain('rt team join');
+  } finally {
+    await React.act(async () => root.unmount());
+    container.remove();
+  }
+});
+
 test('a stored switchboard token: no token banner', async () => {
   servedData = {
     ...BOARD_DATA,

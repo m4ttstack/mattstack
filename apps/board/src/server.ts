@@ -3124,9 +3124,12 @@ const httpServer = Bun.serve({
         if (!isLocalRequest(req, server))
           return new Response('forbidden', { status: 403 });
         if (!switchboardAdminToken)
-          return new Response('inviting is not set up on this board', {
-            status: 400,
-          });
+          return new Response(
+            'this board holds no switchboard admin token, so it cannot list peered boards',
+            {
+              status: 400,
+            }
+          );
         const r = await listPeerBoards({
           url: config.switchboard.url,
           adminToken: switchboardAdminToken,

@@ -8,7 +8,7 @@ import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { createRealSecretsExecSeam, readSecret } from "../secrets/store.ts";
 import type { Probes } from "../setup/probes.ts";
-import { boardEnvValue } from "./board-token.ts";
+import { boardEnvValue, readBoardSwitchboardToken } from "./board-token.ts";
 
 /** Reads one secret from the rt scope, or null when it is not set. */
 export type ReadLocalSecret = (key: string) => Promise<string | null>;
@@ -51,7 +51,7 @@ export async function readPeeredBoards(p: Probes, readSecret: ReadLocalSecret): 
 
   const admin = await readAdminToken(p, readSecret);
   if (admin) return ask("/boards", admin, "boards");
-  const board = await readSecret("switchboardToken").catch(() => null);
+  const board = await readBoardSwitchboardToken(p, () => readSecret("switchboardToken").catch(() => null));
   if (board) return ask("/peers", board, "peers");
   return null;
 }
@@ -66,15 +66,11 @@ export type BoardRevoke =
 export async function revokeBoard(p: Probes, readSecret: ReadLocalSecret, handle: string): Promise<BoardRevoke> {
   const admin = await readAdminToken(p, readSecret);
   if (!admin) return { kind: "no-admin-token" };
-  try {
-    const res = await p.fetch(`${switchboardUrl(p.env)}/boards/${encodeURIComponent(handle)}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${admin}` },
-    });
-    if (res.status >= 200 && res.status < 300) return { kind: "revoked" };
-    if (res.status === 404) return { kind: "not-peered" };
-    return { kind: "failed", detail: `the switchboard answered ${res.status}` };
-  } catch (err) {
-    return { kind: "failed", detail: err instanceof Error ? err.message : String(err) };
-  }
+  const res = await p.fetch(`${switchboardUrl(p.env)}/boards/${encodeURIComponent(canonicalHandle(handle))}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${admin}` },
+  });
+  if (res.status >= 200 && res.status < 300) return { kind: "revoked" };
+  if (res.status === 404) return { kind: "not-peered" };
+  return { kind: "failed", detail: res.status === 0 ? "rt could not reach the switchboard" : `the switchboard answered ${res.status}` };
 }

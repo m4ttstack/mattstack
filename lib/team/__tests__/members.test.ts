@@ -928,6 +928,51 @@ describe("membersRemove: the member's board on the switchboard", () => {
     expect(result.rosterRemoved).toBe(true);
   });
 
+  test("an unreachable switchboard says so, not that it answered 0", async () => {
+    const { result } = await removeAlice(async () => ({ status: 0, body: "", headers: {} }), "admin-secret");
+    expect(result.boardPeering).toBe("failed");
+    expect(result.manualSteps.join(" ")).toContain("rt could not reach the switchboard");
+    expect(result.manualSteps.join(" ")).not.toContain("answered 0");
+  });
+
+  test("without the admin token the step names the command the owner runs", async () => {
+    const { result } = await removeAlice(async () => ({ status: 200, body: "", headers: {} }), null);
+    expect(result.manualSteps.join(" ")).toContain("rt team members remove alice on their Mac");
+  });
+
+  test("a handle in another case still finds its roster entry and key, and the board is revoked under the canonical name", async () => {
+    const p = fakeProbes({ home: HOME, fetch: async () => ({ status: 200, body: "", headers: {} }) });
+    const { execSeam, secrets } = seamsWithClone();
+    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
+    execSeam.writeFile(teamSecretsFile(SLUG, "board"), JSON.stringify({ data: "opaque", sops: {} }));
+    const { seams, writes } = fakeMembersSeams({
+      readTeamStore: () => ({ "mattstack.roster": [{ username: "matt" }, { username: "grace", agePublicKey: ALICE_PUBLIC_KEY }] }),
+      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin-secret" : null),
+    });
+
+    const result = await membersRemove(p, secrets, SLUG, "Grace", undefined, seams);
+
+    expect(result.rosterRemoved).toBe(true);
+    expect(readTeamRecipients(SLUG, secrets)).toEqual([OWNER_PUBLIC_KEY]);
+    expect((writes.find((w) => w.key === "mattstack.roster")!.value as { username: string }[]).map((m) => m.username)).toEqual(["matt"]);
+    expect(p.calls.fetchInits.some((c) => c.url.endsWith("/boards/grace") && c.init?.method === "DELETE")).toBe(true);
+  });
+
+  test("a handle on no roster still has its board revoked, since the CLI is the only way to drop it", async () => {
+    const p = fakeProbes({ home: HOME, fetch: async () => ({ status: 200, body: "", headers: {} }) });
+    const { secrets } = seamsWithClone();
+    writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY], secrets);
+    const { seams } = fakeMembersSeams({
+      readTeamStore: () => ({ "mattstack.roster": [{ username: "matt" }] }),
+      readLocalSecret: async (key) => (key === "switchboardAdminToken" ? "admin-secret" : null),
+    });
+
+    const result = await membersRemove(p, secrets, SLUG, "smoketest", undefined, seams);
+
+    expect(result.rosterRemoved).toBe(false);
+    expect(result.boardPeering).toBe("revoked");
+  });
+
   test("a switchboard error is a failure with a retry step", async () => {
     const { result } = await removeAlice(async () => ({ status: 500, body: "", headers: {} }), "admin-secret");
     expect(result.boardPeering).toBe("failed");
