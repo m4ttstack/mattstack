@@ -187,8 +187,15 @@ function deps(over: Partial<NudgePassDeps> = {}) {
   const published: Array<{ to: string; payload: NudgeOutcomePayload }> = [];
   const handled: Array<{ id: string; result: NudgeResult; reason?: string }> =
     [];
+  const notified: string[] = [];
+  const asked: string[] = [];
   const memory: DispatchMemory = { identity: null, mrs: {} };
   const base: NudgePassDeps = {
+    alwaysAllow: new Set(['alice']),
+    markNudgeNotified: id => notified.push(id),
+    notifyAsk: async n => {
+      asked.push(n.id);
+    },
     readNudges: () => [nudge],
     markNudgeHandled: (id, result, reason) =>
       handled.push({ id, result, reason }),
@@ -212,6 +219,8 @@ function deps(over: Partial<NudgePassDeps> = {}) {
     notifyCalls,
     published,
     handled,
+    notified,
+    asked,
     memory,
   });
 }
@@ -283,9 +292,10 @@ describe('runNudgePass', () => {
       rejected: 0,
       expired: 0,
       skipped: 0,
+      held: 0,
     });
     expect(d.handled).toEqual([
-      { id: 'n1', result: 'launched', reason: undefined },
+      { id: 'n1', result: 'launched', reason: 'always-allowed' },
     ]);
     expect(d.published).toEqual([
       {
@@ -400,6 +410,7 @@ describe('runNudgePass', () => {
       rejected: 1,
       expired: 0,
       skipped: 0,
+      held: 0,
     });
     expect(d.handled).toEqual([
       { id: 'n1', result: 'rejected', reason: 'no-commented-review' },
@@ -422,6 +433,7 @@ describe('runNudgePass', () => {
       rejected: 0,
       expired: 1,
       skipped: 0,
+      held: 0,
     });
     expect(d.handled).toEqual([
       { id: 'n1', result: 'expired', reason: 'stale' },
@@ -443,6 +455,7 @@ describe('runNudgePass', () => {
       rejected: 1,
       expired: 0,
       skipped: 0,
+      held: 0,
     });
     expect(d.handled).toEqual([
       { id: 'n1', result: 'rejected', reason: 'launch-failed' },
@@ -465,6 +478,7 @@ describe('runNudgePass', () => {
       rejected: 0,
       expired: 0,
       skipped: 1,
+      held: 0,
     });
     expect(d.handled).toHaveLength(0);
     expect(d.published).toHaveLength(0);
@@ -667,5 +681,89 @@ describe('decideRequest', () => {
       action: 'expire',
       reason: 'stale',
     });
+  });
+});
+
+describe('runNudgePass consent', () => {
+  test('an ask from someone not always-allowed is held, published pending and notified once', async () => {
+    const d = deps({ alwaysAllow: new Set() });
+    const r = await runNudgePass(d);
+    expect(r).toEqual({
+      dispatched: 0,
+      rejected: 0,
+      expired: 0,
+      skipped: 0,
+      held: 1,
+    });
+    expect(d.published).toEqual([
+      {
+        to: 'alice',
+        payload: {
+          mrUrl: nudge.mrUrl,
+          iid: 1,
+          nudgeId: 'n1',
+          result: 'pending',
+        },
+      },
+    ]);
+    expect(d.asked).toEqual(['n1']);
+    expect(d.notified).toEqual(['n1']);
+    expect(d.handled).toEqual([]);
+  });
+  test('a held ask already notified stays quiet', async () => {
+    const d = deps({
+      alwaysAllow: new Set(),
+      readNudges: () => [{ ...nudge, notifiedAt: NOW - 1 }],
+    });
+    const r = await runNudgePass(d);
+    expect(r.held).toBe(1);
+    expect(d.published).toEqual([]);
+    expect(d.asked).toEqual([]);
+    expect(d.audit).toEqual([]);
+  });
+  test('the first held pass audits a hold decision', async () => {
+    const d = deps({ alwaysAllow: new Set() });
+    await runNudgePass(d);
+    expect(d.audit.map(e => e.decision)).toEqual(['hold']);
+  });
+  test('budget and cooldown never hold back a human decision', async () => {
+    const d = deps({ alwaysAllow: new Set() });
+    d.memory.mrs[nudge.mrUrl] = {
+      ...emptyMrMemory('1970-01-12'),
+      attemptsToday: cfg.dailyAttemptBudget,
+    };
+    expect((await runNudgePass(d)).held).toBe(1);
+  });
+  test('a kind rule still refuses a held ask outright', async () => {
+    const d = deps({
+      alwaysAllow: new Set(),
+      readReviewStates: () =>
+        new Map([[nudge.mrUrl, { ...commentedReview, status: 'reviewing' }]]),
+    });
+    const r = await runNudgePass(d);
+    expect(r.rejected).toBe(1);
+    expect(d.published[0]?.payload).toMatchObject({
+      result: 'rejected',
+      reason: 'review-in-flight',
+    });
+  });
+  test('asks off declines a waiting ask with asks-off', async () => {
+    const d = deps({ cfg: { ...cfg, enabled: false } });
+    const r = await runNudgePass(d);
+    expect(r.rejected).toBe(1);
+    expect(d.handled).toEqual([
+      { id: 'n1', result: 'rejected', reason: 'asks-off' },
+    ]);
+    expect(d.published[0]?.payload).toMatchObject({
+      result: 'rejected',
+      reason: 'asks-off',
+    });
+  });
+  test('asks off leaves already-handled asks alone', async () => {
+    const d = deps({
+      cfg: { ...cfg, enabled: false },
+      readNudges: () => [{ ...nudge, handled: { at: 1, result: 'launched' } }],
+    });
+    expect((await runNudgePass(d)).skipped).toBe(1);
   });
 });

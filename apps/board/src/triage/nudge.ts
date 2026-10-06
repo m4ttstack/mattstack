@@ -126,6 +126,8 @@ export function plainReason(reason: string, cfg: TriageConfig): string {
       return `Last run was under ${cfg.cooldownMinutes} minutes ago`;
     case 'disabled':
       return 'Automatic asks are off';
+    case 'asks-off':
+      return 'Asks are turned off';
     case 'already-handled':
       return 'Already handled';
     case 'not-your-mr':
@@ -190,6 +192,10 @@ export function decideNudge(
 
 export interface NudgePassDeps {
   readNudges(): NudgeState[];
+  /** Canonical usernames whose asks start without a go-ahead. */
+  alwaysAllow: ReadonlySet<string>;
+  markNudgeNotified(id: string): void;
+  notifyAsk(nudge: NudgeState): Promise<void>;
   markNudgeHandled(id: string, result: NudgeResult, reason?: string): void;
   readReviewStates(): Map<string, ReviewState>;
   /** The respond lane per MR, the one lane a respond ask can collide with. */
@@ -210,8 +216,15 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
   rejected: number;
   expired: number;
   skipped: number;
+  held: number;
 }> {
-  const result = { dispatched: 0, rejected: 0, expired: 0, skipped: 0 };
+  const result = {
+    dispatched: 0,
+    rejected: 0,
+    expired: 0,
+    skipped: 0,
+    held: 0,
+  };
   const reviews = deps.readReviewStates();
   const responds = deps.readRespondStates();
   const now = deps.now();
@@ -223,11 +236,36 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
       dayStamp
     );
     deps.memory.mrs[nudge.mrUrl] = m;
+    if (!deps.cfg.enabled) {
+      if (nudge.handled) {
+        result.skipped++;
+        continue;
+      }
+      deps.markNudgeHandled(nudge.id, 'rejected', 'asks-off');
+      deps.publishOutcome(nudge.from, {
+        mrUrl: nudge.mrUrl,
+        iid: nudge.iid,
+        nudgeId: nudge.id,
+        result: 'rejected',
+        reason: 'asks-off',
+      });
+      result.rejected++;
+      continue;
+    }
+    const allowed = deps.alwaysAllow.has(nudge.from);
+    // Budget and cooldown pace automatic runs; a person's go-ahead is not one.
+    const decideCfg = allowed
+      ? deps.cfg
+      : {
+          ...deps.cfg,
+          dailyAttemptBudget: Number.POSITIVE_INFINITY,
+          cooldownMinutes: 0,
+        };
     const decision = decideNudge(
       nudge,
       reviews.get(nudge.mrUrl),
       m,
-      deps.cfg,
+      decideCfg,
       now,
       responds.get(nudge.mrUrl),
       deps.isOwnMr(nudge.mrUrl)
@@ -239,15 +277,18 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
       result.skipped++;
       continue;
     }
-    deps.appendAudit({
-      ts: now,
-      mrUrl: nudge.mrUrl,
-      iid: nudge.iid,
-      event: 'nudge',
-      decision: decision.action,
-      reason: decision.reason,
-      attempt: m.attemptsToday + 1,
-    });
+    const held = !allowed && decision.action === 'dispatch';
+    if (!held || !nudge.notifiedAt) {
+      deps.appendAudit({
+        ts: now,
+        mrUrl: nudge.mrUrl,
+        iid: nudge.iid,
+        event: 'nudge',
+        decision: held ? 'hold' : decision.action,
+        reason: decision.reason,
+        attempt: m.attemptsToday + 1,
+      });
+    }
     const kind: AskKind = nudge.kind ?? 're-review';
     if (decision.action === 'expire' || decision.action === 'reject') {
       const outcome: NudgeResult =
@@ -267,6 +308,19 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
         nudge.mrUrl
       );
       result[outcome === 'expired' ? 'expired' : 'rejected']++;
+      continue;
+    }
+    if (held) {
+      result.held++;
+      if (nudge.notifiedAt) continue;
+      deps.publishOutcome(nudge.from, {
+        mrUrl: nudge.mrUrl,
+        iid: nudge.iid,
+        nudgeId: nudge.id,
+        result: 'pending',
+      });
+      await deps.notifyAsk(nudge);
+      deps.markNudgeNotified(nudge.id);
       continue;
     }
     const launch = await deps.launchAsk(nudge.mrUrl, nudge.iid, kind);
@@ -290,7 +344,7 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
       result.rejected++;
       continue;
     }
-    deps.markNudgeHandled(nudge.id, 'launched');
+    deps.markNudgeHandled(nudge.id, 'launched', 'always-allowed');
     deps.publishOutcome(nudge.from, {
       mrUrl: nudge.mrUrl,
       iid: nudge.iid,

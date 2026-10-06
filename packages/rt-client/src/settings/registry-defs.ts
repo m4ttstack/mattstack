@@ -564,7 +564,15 @@ export const REGISTRY: readonly SettingDef[] = [
     scopes: ["user", "team"],
     merge: "deep",
     default: { enabled: true },
-    description: "Gate for starting the agent when a teammate's board asks this one for a review, re-review or replies ({enabled}); rt's cron.triage step installs the board-peer trigger only while this is on. Auto-doctor stays under board.triage.",
+    description: "Whether teammates' boards can ask this board's agent for a review, re-review or replies ({enabled}). On, asks wait in the asks inbox for a go-ahead unless the asker is in board.peerAsksAlwaysAllow; off, this board leaves every ask picker and declines what still arrives. rt's cron.triage step installs the board-peer trigger only while this is on. Auto-doctor stays under board.triage.",
+  },
+  {
+    key: "board.peerAsksAlwaysAllow",
+    type: "array",
+    scopes: ["user"],
+    merge: "replace",
+    description:
+      "Teammates (usernames) whose asks for this board's agent start without waiting for a go-ahead. Everyone else's ask waits in the asks inbox.",
   },
   {
     key: "board.codeowners",

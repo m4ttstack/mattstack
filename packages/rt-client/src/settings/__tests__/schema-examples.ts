@@ -290,6 +290,7 @@ export const EXAMPLES: Record<string, Example> = {
     bad: [{ value: { reviews: 1 }, path: ["reviews"] }],
     layer: [{ doctors: "doctors" }],
   },
+  "board.peerAsksAlwaysAllow": { good: [[], ["rmarlow"]], bad: [{ value: [{ username: "rmarlow" }], path: [0] }] },
   "board.hiddenMembers": { good: [[], ["dev2"]], bad: [{ value: [{ username: "dev2" }], path: [0] }] },
   "board.turn": {
     good: [
