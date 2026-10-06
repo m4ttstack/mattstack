@@ -70,6 +70,13 @@ export function AsksDropdown({
           : 'something went wrong'
       )
     );
+  const forget = (id: string) =>
+    setFailed(f => {
+      if (!f.has(id)) return f;
+      const next = new Map(f);
+      next.delete(id);
+      return next;
+    });
   useEffect(() => {
     const lost = [...failed].filter(
       ([id]) => !asks.pending.some(a => a.id === id)
@@ -108,6 +115,7 @@ export function AsksDropdown({
       remember(id, err);
       throw err;
     }
+    forget(id);
     if (!card) return;
     setHeld(h => new Map(h).set(id, card));
     timers.current.push(
@@ -132,6 +140,7 @@ export function AsksDropdown({
       remember(id, err);
       throw err;
     }
+    forget(id);
     setGone(g => new Set(g).add(id));
   };
 
