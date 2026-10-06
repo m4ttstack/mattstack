@@ -16,6 +16,10 @@ import type { HerdrRunner } from "../../agent-herdr.ts";
 import { repoLabel } from "../../repo-arg.ts";
 import { herdSubject } from "../herd-store.ts";
 import { workspaceScreen } from "./trust-workspace-fixtures.ts";
+import type { AgentOptions } from "../../../packages/rt-client/src/agent-integrations.ts";
+import { claudeIntegration } from "../../agent-integrations/claude/integration.ts";
+import type { IntegrationRegistry } from "../../agent-integrations/contracts.ts";
+import { createRegistry } from "../../agent-integrations/registry.ts";
 
 let n = 0;
 const REPO = "remote:example.com%2Fa%2Fb";
@@ -107,6 +111,7 @@ function fresh(over: {
   bg?: FakeBg;
   bgClaims?: FakeBgClaims | Pick<BgClaimsStore, "claim" | "releaseByPane">;
   lifecycle?: FakeLifecycle;
+  integrations?: IntegrationRegistry;
 } = {}) {
   const db = openStateDb(join(tmpdir(), `agent-h-${process.pid}-${n++}.db`));
   // Handlers no longer expose `db` (R028); tests that need to reach the
@@ -123,6 +128,7 @@ function fresh(over: {
     bg: over.bg,
     bgClaims: over.bgClaims,
     lifecycle: over.lifecycle,
+    integrations: over.integrations,
   }), { db });
 }
 
@@ -1403,6 +1409,51 @@ describe("agent:start resolves unset payload fields from settings", () => {
       });
     }
   }
+
+  function rewritingClaude(seen: AgentOptions[]): IntegrationRegistry {
+    return createRegistry([{
+      ...claudeIntegration,
+      validateOptions: (options) => {
+        seen.push(options);
+        if (options.effort === "forbidden") return { ok: false, error: { code: "invalid", message: "effort forbidden is refused" } };
+        return { ok: true, data: { ...options, model: options.model && `${options.model}-checked`, account: options.account?.toUpperCase() } };
+      },
+    }]);
+  }
+
+  test("settings defaults are validated with the payload, and the record keeps the validated values", async () => {
+    setSetting("agent.claude.model", "opus", "user");
+    setSetting("agent.claude.account", "me@example.com", "user");
+    setSetting("agent.claude.yolo", true, "user");
+    const seen: AgentOptions[] = [];
+    let argv: string[] = [];
+    const h = fresh({
+      integrations: rewritingClaude(seen),
+      spawn: (a: string[]) => {
+        argv = a;
+        return { exited: Promise.resolve(0), stdout: async () => "{}", sessionId: () => Promise.resolve(undefined) };
+      },
+    });
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "headless", prompt: "go", effort: "low" });
+    if (!res.ok) throw new Error(res.error);
+    expect(seen.at(-1)).toEqual({ model: "opus", effort: "low", account: "me@example.com", extraArgs: undefined, yolo: true });
+    expect(res.data).toMatchObject({ model: "opus-checked", effort: "low", account: "ME@EXAMPLE.COM", yolo: true });
+    expect(getAgent(res.data.id, h.db)).toMatchObject({ model: "opus-checked", account: "ME@EXAMPLE.COM" });
+    expect(argv).toContain("opus-checked");
+  });
+
+  test("a settings default the integration refuses stops the launch before anything is recorded", async () => {
+    setSetting("agent.claude.effort", "forbidden", "user");
+    let inserted = false;
+    const h = fresh({
+      integrations: rewritingClaude([]),
+      insertAgentFn: () => { inserted = true; },
+      spawn: () => { throw new Error("must not spawn"); },
+    });
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "headless", prompt: "go" });
+    expect(res).toEqual({ ok: false, error: "effort forbidden is refused" });
+    expect(inserted).toBe(false);
+  });
 
   // An explicit payload provider must beat the global default outright --
   // that is what herd:spawn relies on to stay claude-only.

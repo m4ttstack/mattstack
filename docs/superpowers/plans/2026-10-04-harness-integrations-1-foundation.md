@@ -74,6 +74,10 @@ report not ready until then.
   each harness's options and option validation.
 - `agent:start` and `rt agent start` validate the provider and options
   through the registry. Refusal text is unchanged and now pinned exactly.
+  `agent:start` also validates the payload merged over settings defaults and
+  records the validated values.
+- An integration without `loadSessions` declares no messaging, questions or
+  policy factory and advertises no capability those facets or sessions gate.
 - `AgentProvider` is an open `HarnessId`; argv dispatch refuses an unknown ID
   instead of falling back to Claude.
 - rt-client exports the portable types.
@@ -129,21 +133,21 @@ is deferred work and must not be submitted inside native launch/resume.
 generation; the shared store assigns the generation. A launch that cannot
 yet establish a native reference returns an ambiguous outcome, not a fake ID.
 
-- [ ] Write `unknown harness refuses and fake harness registers` and
+- [x] Write `unknown harness refuses and fake harness registers` and
   `missing gate policy refuses admission`:
   `expect(registry.get('fixture')).toBe(fake)` and
   `expect(admit(launchOnly,['gate-policy'])).toMatchObject({ok:false,error:{code:'unsupported'}})`.
   Assert duplicate IDs reject, a not-ready report refuses, and extra native
   options cannot bypass validation.
-- [ ] Run `bun test lib/agent-integrations/__tests__/registry.test.ts`; expect red.
-- [ ] Implement the shared types, immutable registry and admission function.
+- [x] Run `bun test lib/agent-integrations/__tests__/registry.test.ts`; expect red.
+- [x] Implement the shared types, immutable registry and admission function.
   Register built-ins at one composition root; remove the closed provider union
   from generic argv types without weakening runtime ID validation. Keep wire
   `provider` naming compatible where already published.
-- [ ] Run the test and `bun run --cwd packages/rt-client build`; expect green
+- [x] Run the test and `bun run --cwd packages/rt-client build`; expect green
   and generated declarations matching source. Check runtime imports do not
   pull in installer or skill-compiler modules.
-- [ ] Stage task files and commit `feat: add harness registry and capability admission`.
+- [x] Stage task files and commit `feat: add harness registry and capability admission`.
 
 ### F3: Persist identities and fenced session attachments
 

@@ -32,6 +32,8 @@ import {
 } from "../packages/rt-client/src/index.ts";
 import type { RtResponse } from "../packages/rt-client/src/index.ts";
 
+const integrations = builtinRegistry();
+
 const FLAGS_WITH_VALUES = new Set([
   "--repo", "--prompt", "--prompt-file", "--surface", "--model", "--effort",
   "--account", "--label", "--caller", "--workspace", "--tab", "--extra-args", "--provider",
@@ -123,7 +125,6 @@ function parseStartArgs(args: string[]): StartArgs {
   if (surface !== undefined) out.surface = surface;
   const provider = flagValue(args, "--provider");
   if (provider !== undefined) {
-    const integrations = builtinRegistry();
     if (!integrations.get(provider)) {
       const known = integrations.list().map((item) => item.id).join(" or ");
       throw new Error(`invalid provider "${provider}": expected ${known}`);
@@ -160,16 +161,14 @@ function defaultProvider(): string {
   }
 }
 
-/** Mirrors agent:start's provider resolution; only a harness that describes an account option gets the caller's. */
+/** Mirrors agent:start's provider resolution. Only claude inherits: cswap accounts are Claude identities. */
 async function withCallerAccount(
   parsed: StartArgs,
   resolveProvider: () => string = defaultProvider,
   resolveAccount: () => Promise<string | undefined> = () => callerCswapAccount(process.env),
 ): Promise<StartArgs> {
   if (parsed.account) return parsed;
-  const integration = builtinRegistry().get(parsed.provider ?? resolveProvider());
-  const descriptors = integration ? await integration.options() : [];
-  if (!descriptors.some((option) => option.name === "account")) return parsed;
+  if ((parsed.provider ?? resolveProvider()) !== "claude") return parsed;
   const account = await resolveAccount();
   return account ? { ...parsed, account } : parsed;
 }

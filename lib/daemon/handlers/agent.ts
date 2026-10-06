@@ -44,6 +44,7 @@ import type { BgService } from "../bg-service.ts";
 import type { BgClaimsStore } from "../bg-claims-store.ts";
 import type { CommandResult } from "./types.ts";
 import { builtinRegistry } from "../../agent-integrations/builtins.ts";
+import type { IntegrationRegistry } from "../../agent-integrations/contracts.ts";
 
 export interface HeadlessChild {
   exited: Promise<number>;
@@ -318,9 +319,9 @@ const agentOwner = (id: string): string => `agent:${id}`;
     equivalent throw already spells the codex form, and a claude-worded
     message on a codex launch sends the reader to the wrong CLI's docs. */
 function headlessStdinBlurb(provider: AgentProvider): string {
-  return provider === "codex"
-    ? "codex exec reads it from stdin"
-    : "claude -p reads it from stdin";
+  if (provider === "claude") return "claude -p reads it from stdin";
+  if (provider === "codex") return "codex exec reads it from stdin";
+  return "the agent reads it from stdin";
 }
 
 /** herdr only learns codex's session id after the pane finishes its first
@@ -383,6 +384,7 @@ export function createAgentHandlers(opts: {
       no equivalent gate: that fallback refuses the headless surface outright,
       before any handler is constructed. */
   skipSessionCapture?: boolean;
+  integrations?: IntegrationRegistry;
 }):
   // Direct `unknown`-payload members, not `Pick<TypedHandlers, ...>`: a wider
   // `unknown` param still satisfies TypedHandlers' narrower one at the
@@ -396,7 +398,7 @@ export function createAgentHandlers(opts: {
   const spawnHeadless = opts.spawnHeadless ?? defaultSpawnHeadless;
   const insertAgentFn = opts.insertAgentFn ?? insertAgent;
   const skipSessionCapture = opts.skipSessionCapture ?? false;
-  const integrations = builtinRegistry();
+  const integrations = opts.integrations ?? builtinRegistry();
 
   async function launch(
     rec: AgentRecord,
@@ -437,7 +439,7 @@ export function createAgentHandlers(opts: {
         ? (opts.herdrRunnerForSocket ?? ((socket: string) => defaultHerdrRunner({ ...process.env, HERDR_SOCKET_PATH: socket })))(extra.herdrSocket)
         : (opts.herdrRunner ?? defaultHerdrRunner());
       const out = await launchInWorkspace(
-        { workspaceLabel, tabLabel, paneCommand: buildAgentPaneCommand(rec.provider as AgentProvider, rec.cwd, inv) },
+        { workspaceLabel, tabLabel, paneCommand: buildAgentPaneCommand(rec.provider, rec.cwd, inv) },
         runner,
       );
       if (out.focusedExisting) {
@@ -514,7 +516,7 @@ export function createAgentHandlers(opts: {
       return { ok: true, data: rec };
     }
 
-    const argv = buildAgentArgv(rec.provider as AgentProvider, inv);
+    const argv = buildAgentArgv(rec.provider, inv);
     const resultPath = agentResultPath(rec.id);
     rec.resultPath = resultPath;
     mkdirSync(dirname(resultPath), { recursive: true });
@@ -604,21 +606,23 @@ export function createAgentHandlers(opts: {
       if (payload.subject !== undefined) rec.subject = payload.subject;
       const pack = packFromEnv(payload.env);
       if (pack !== undefined) rec.pack = pack;
-      const model = payload.model ?? fromSetting(`agent.${provider}.model`, log);
-      const effort = payload.effort ?? fromSetting(`agent.${provider}.effort`, log);
-      const extraArgs = payload.extraArgs ?? fromSetting(`agent.${provider}.extraArgs`, log);
-      const yolo = payload.yolo ?? fromSetting<boolean>(`agent.${provider}.yolo`, log) ?? false;
+      const merged = integration.validateOptions({
+        model: payload.model ?? fromSetting(`agent.${provider}.model`, log),
+        effort: payload.effort ?? fromSetting(`agent.${provider}.effort`, log),
+        account: provider === "claude" ? payload.account ?? fromSetting("agent.claude.account", log) : payload.account,
+        extraArgs: payload.extraArgs ?? fromSetting(`agent.${provider}.extraArgs`, log),
+        yolo: payload.yolo ?? fromSetting<boolean>(`agent.${provider}.yolo`, log) ?? false,
+      });
+      if (!merged.ok) return { ok: false, error: merged.error.message };
+      const { model, effort, account, extraArgs, yolo } = merged.data;
       if (model !== undefined) rec.model = model;
       if (effort !== undefined) rec.effort = effort;
       if (extraArgs !== undefined) rec.extraArgs = extraArgs;
       // Stored unconditionally, including false: an explicit `--no-yolo`
       // against a true `agent.<provider>.yolo` setting has to survive into the
       // record, or resume would silently re-derive nothing and leave it unset.
-      rec.yolo = yolo;
-      if (provider === "claude") {
-        const account = payload.account ?? fromSetting("agent.claude.account", log);
-        if (account !== undefined) rec.account = account;
-      }
+      rec.yolo = yolo ?? false;
+      if (account !== undefined) rec.account = account;
       if (payload.label !== undefined) rec.label = payload.label;
       if (payload.caller !== undefined) rec.caller = payload.caller;
       if (surface === "headless") {
@@ -721,7 +725,7 @@ export function createAgentHandlers(opts: {
       }
       const surface: AgentSurface = payload.surface ?? rec.surface;
       if (surface === "headless" && !payload.prompt) {
-        return { ok: false, error: `headless resume requires a prompt (${headlessStdinBlurb(rec.provider as AgentProvider)})` };
+        return { ok: false, error: `headless resume requires a prompt (${headlessStdinBlurb(rec.provider)})` };
       }
       const resumeEnvError = envError(payload.env, surface);
       if (resumeEnvError) return { ok: false, error: resumeEnvError };

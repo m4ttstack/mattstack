@@ -60,24 +60,35 @@ type AdapterFactories = {
   loadPolicy(): Promise<PolicyAdapter>;
   loadSkills(): Promise<SkillAdapter>;
 };
+type MessagingCapability = "peer-idle" | "peer-working";
+type QuestionCapability = "questions-form" | "questions-wait" | "question-recovery" | "questions-async";
+type PolicyCapability = "gate-policy" | "continuation-policy";
+type SessionCapability = "launch" | "resume" | "observe" | "caller-context"
+  | MessagingCapability | QuestionCapability | PolicyCapability;
+type NarrowedCapabilities<Cap extends Capability> = {
+  capabilities(mode: Mode): Promise<Omit<CapabilityReport, "supported"> & { supported: Exclude<Capability, Cap>[] }>;
+};
 /** An absent factory narrows the capabilities a typed implementation may report.
  * This is a declaration constraint, not validation of untrusted native reports.
  */
 type OptionalAdapter<Key extends keyof AdapterFactories, Cap extends Capability> =
   | Pick<AdapterFactories, Key>
-  | ({ [K in Key]?: never } & {
-      capabilities(mode: Mode): Promise<Omit<CapabilityReport, "supported"> & { supported: Exclude<Capability, Cap>[] }>;
-    });
+  | ({ [K in Key]?: never } & NarrowedCapabilities<Cap>);
+/** Messaging, questions and policy act on a SessionBinding, which only a session adapter produces. */
+type SessionFacets =
+  | (Pick<AdapterFactories, "loadSessions">
+    & OptionalAdapter<"loadMessaging", MessagingCapability>
+    & OptionalAdapter<"loadQuestions", QuestionCapability>
+    & OptionalAdapter<"loadPolicy", PolicyCapability>)
+  | ({ loadSessions?: never; loadMessaging?: never; loadQuestions?: never; loadPolicy?: never }
+    & NarrowedCapabilities<SessionCapability>);
 export type HarnessIntegration = {
   readonly id: HarnessId;
   readonly label: string;
   capabilities(mode: Mode): Promise<CapabilityReport>;
   validateOptions(options: AgentOptions): Outcome<AgentOptions>;
   options(): Promise<OptionDescriptor[]>;
-} & OptionalAdapter<"loadSessions", "launch" | "resume" | "observe">
-  & OptionalAdapter<"loadMessaging", "peer-idle" | "peer-working">
-  & OptionalAdapter<"loadQuestions", "questions-form" | "questions-wait" | "question-recovery" | "questions-async">
-  & OptionalAdapter<"loadPolicy", "gate-policy" | "continuation-policy">
+} & SessionFacets
   & OptionalAdapter<"loadSkills", "skills">;
 export interface IntegrationRegistry {
   get(id: HarnessId): HarnessIntegration | undefined;

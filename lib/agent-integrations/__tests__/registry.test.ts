@@ -100,8 +100,7 @@ describe("admit", () => {
   });
 });
 
-// These declarations are checked by the root TypeScript gate. They do not claim
-// that runtime option routing or any native operation has been implemented.
+// These declarations are checked by the root TypeScript gate; no native operation runs.
 const launchOnly = {
   id: "launch-only", label: "Launch only", loadSessions: async () => sessions,
   capabilities: async (mode: Mode) => ({ mode, readiness: { ready: true }, supported: ["launch" as const] }),
@@ -132,6 +131,13 @@ const absentGatePolicy: HarnessIntegration = { ...launchOnly, capabilities: adve
 const absentContinuation: HarnessIntegration = { ...launchOnly, capabilities: advertises("continuation-policy") };
 // @ts-expect-error Skills require a skills factory.
 const absentSkills: HarnessIntegration = { ...launchOnly, capabilities: advertises("skills") };
+const sessionless = { id: "sessionless", label: "Sessionless", validateOptions: unexpectedOperation, options: unexpectedOperation };
+// @ts-expect-error Messaging acts on a session binding, so it requires a sessions factory.
+const messagingWithoutSessions: HarnessIntegration = { ...sessionless, loadMessaging: unexpectedOperation, capabilities: advertises("peer-idle") };
+// @ts-expect-error Caller context resolves to a session binding, so it requires a sessions factory.
+const callerContextWithoutFactories: HarnessIntegration = { ...sessionless, capabilities: advertises("caller-context") };
+// @ts-expect-error Questions act on a session binding, so they require a sessions factory.
+const questionsWithoutSessions: HarnessIntegration = { ...sessionless, loadQuestions: unexpectedOperation, capabilities: advertises("worktrees") };
 
 // Positive compile fixtures exercise each declared operation's canonical inputs
 // and outputs. No native adapter or shared-runtime routing is exercised here.
