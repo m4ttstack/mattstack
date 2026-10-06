@@ -10,7 +10,9 @@
 }
 
 .title {
+  width: 100%;
   margin: 0;
+  line-height: normal;
   color: var(--tk-text-1);
   font-size: 22px;
   font-weight: 700;
