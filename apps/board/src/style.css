@@ -1819,8 +1819,14 @@ body {
   padding: 5px 6px;
   border-radius: 6px;
 }
-.tui-modal-row:hover {
-  background: var(--card);
+/* A light accent wash, the roster card's hue without its active edge. */
+@media (hover: hover) {
+  .tui-modal-row:hover {
+    background: var(--surface-wash-accent-7);
+  }
+}
+.tui-modal-row:focus-within {
+  background: var(--surface-wash-accent-7);
 }
 .tui-modal-row.out {
   opacity: 0.5;
