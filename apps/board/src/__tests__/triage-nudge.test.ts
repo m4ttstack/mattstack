@@ -846,6 +846,25 @@ describe('runNudgePass racing the board server', () => {
     expect(readNudges(d.db)[0]?.handled).toBeUndefined();
   });
 
+  test('a launcher that throws ends as launch-failed, sent once, never launched', async () => {
+    const d = dbPass({
+      launchAsk: async () => {
+        throw new Error('no tab for this MR');
+      },
+    });
+    writeNudge(nudge, d.db);
+    const result = await runNudgePass(d);
+    expect(result.rejected).toBe(1);
+    expect(result.dispatched).toBe(0);
+    expect(readNudges(d.db)[0]?.handled).toMatchObject({
+      result: 'rejected',
+      reason: 'launch-failed',
+    });
+    expect(d.published.map(p => [p.payload.result, p.payload.reason])).toEqual([
+      ['rejected', 'launch-failed'],
+    ]);
+  });
+
   test('the pass claims the row before its launch', async () => {
     const d = dbPass();
     writeNudge(nudge, d.db);

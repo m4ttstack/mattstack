@@ -192,6 +192,24 @@ export function decideNudge(
   );
 }
 
+/** A launch that throws ends the same way as one that reports an error, so a
+    claimed ask always gets its launch-failed outcome. */
+export async function launchSettled(
+  launchAsk: NudgePassDeps['launchAsk'],
+  mrUrl: string,
+  iid: number,
+  kind: AskKind
+): Promise<ReReviewLaunch> {
+  try {
+    return await launchAsk(mrUrl, iid, kind);
+  } catch (err) {
+    console.error(
+      `ask launch on ${mrUrl} threw: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return { kind: 'error', message: 'Your agent could not start' };
+  }
+}
+
 export interface NudgePassDeps {
   readNudges(): NudgeState[];
   /** Canonical usernames whose asks start without a go-ahead. */
@@ -362,7 +380,12 @@ export async function runNudgePass(deps: NudgePassDeps): Promise<{
       result.skipped++;
       continue;
     }
-    const launch = await deps.launchAsk(nudge.mrUrl, nudge.iid, kind);
+    const launch = await launchSettled(
+      deps.launchAsk,
+      nudge.mrUrl,
+      nudge.iid,
+      kind
+    );
     if (launch.kind === 'error') {
       deps.markNudgeHandled(nudge.id, 'rejected', 'launch-failed', {
         replacing: 'launched',

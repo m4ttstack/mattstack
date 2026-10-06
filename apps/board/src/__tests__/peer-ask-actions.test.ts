@@ -392,3 +392,33 @@ describe('expireStaleAsks', () => {
     expect(byId.get('done')?.result).toBe('launched');
   });
 });
+
+test('a launcher that throws ends as launch-failed, sent once, never launched', async () => {
+  const d = dbDeps({
+    launchAsk: async () => {
+      throw new Error('no tab for this MR');
+    },
+  });
+  writeNudge(ask, d.db);
+  expect(await acceptAsk('n1', d)).toEqual({
+    ok: false,
+    status: 502,
+    message: 'Your agent could not start',
+  });
+  expect(readNudges(d.db)[0]?.handled).toMatchObject({
+    result: 'rejected',
+    reason: 'launch-failed',
+  });
+  expect(d.published).toEqual([
+    {
+      to: 'rae',
+      p: {
+        mrUrl: ask.mrUrl,
+        iid: 1,
+        nudgeId: 'n1',
+        result: 'rejected',
+        reason: 'launch-failed',
+      },
+    },
+  ]);
+});

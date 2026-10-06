@@ -2,7 +2,12 @@ import type { ReReviewLaunch } from '../review-launch.ts';
 import type { ReviewState } from '../review-state.ts';
 import type { TriageConfig } from '../triage/config.ts';
 import { emptyMrMemory } from '../triage/memory.ts';
-import { decideNudge, NUDGE_FRESH_MS, plainReason } from '../triage/nudge.ts';
+import {
+  decideNudge,
+  launchSettled,
+  NUDGE_FRESH_MS,
+  plainReason,
+} from '../triage/nudge.ts';
 import {
   DECLINE_REASONS,
   type AskKind,
@@ -126,7 +131,7 @@ async function accept(
   // The claim comes before the launch: a triage pass in another process
   // reads the same row, and only the claim's winner may start a run.
   if (!deps.markNudgeHandled(n.id, 'launched', 'accepted')) return answered;
-  const launch = await deps.launchAsk(n.mrUrl, n.iid, kind);
+  const launch = await launchSettled(deps.launchAsk, n.mrUrl, n.iid, kind);
   if (launch.kind === 'error') {
     deps.markNudgeHandled(n.id, 'rejected', 'launch-failed', {
       replacing: 'launched',
