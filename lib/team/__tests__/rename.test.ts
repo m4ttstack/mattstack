@@ -63,8 +63,8 @@ describe("renameOrg refusals", () => {
   test("an untracked file is not an uncommitted change", async () => {
     const w = orgWorld();
     writeFileSync(join(w.root, "notes.txt"), "mine\n");
-    const result = await renameOrg(w.p, "acme", "gadgets", seams()).catch((err: unknown) => err);
-    expect(result).not.toMatchObject({ code: "org-uncommitted" });
+    const result = await renameOrg(w.p, "acme", "gadgets", seams());
+    expect(result).toMatchObject({ converged: true });
   });
 
   test("a clone behind its origin is refused and pointed at a pull", async () => {
@@ -84,5 +84,66 @@ describe("renameOrg refusals", () => {
     const w = orgWorld();
     w.git("checkout", "-q", "--detach");
     await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "org-detached" });
+  });
+});
+
+describe("renameOrg", () => {
+  test("writes the marker, commits it, publishes it and converges this Mac", async () => {
+    const w = orgWorld();
+    const s = seams();
+    const result = await renameOrg(w.p, "acme", "gadgets", s);
+    expect(result).toEqual({ from: "acme", to: "gadgets", converged: true });
+    expect(marker(w.root)).toMatchObject({ role: "org", org: "gadgets" });
+    expect(w.git("log", "-1", "--format=%s").trim()).toBe("org: rename to gadgets");
+    expect(w.git("show", "--name-only", "--format=", "HEAD").trim()).toBe("mattstack/mattstack.jsonc");
+    expect(w.atOrigin("log", "-1", "--format=%s", "main").trim()).toBe("org: rename to gadgets");
+    expect(w.git("status", "--porcelain")).toBe("");
+    expect(s.converged).toBe(1);
+  });
+
+  test("on a trial branch the origin has never seen, it publishes that branch and leaves main alone", async () => {
+    const w = orgWorld();
+    w.git("switch", "-q", "-c", "org-trial");
+    await renameOrg(w.p, "acme", "gadgets", seams());
+    expect(w.atOrigin("log", "-1", "--format=%s", "org-trial").trim()).toBe("org: rename to gadgets");
+    expect(w.atOrigin("log", "-1", "--format=%s", "main").trim()).toBe("seed");
+    expect(w.pushes.flat().join(" ")).not.toContain("refs/heads/main");
+  });
+
+  test("a push the origin refuses undoes the rename commit and converges nothing", async () => {
+    const w = orgWorld();
+    const hook = join(w.remote, "hooks", "pre-receive");
+    writeFileSync(hook, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const s = seams();
+    await expect(renameOrg(w.p, "acme", "gadgets", s)).rejects.toMatchObject({ code: "org-behind", thenRun: "rt team rename gadgets" });
+    expect(marker(w.root).org).toBe("acme");
+    expect(w.git("log", "-1", "--format=%s").trim()).toBe("seed");
+    expect(w.git("status", "--porcelain")).toBe("");
+    expect(s.converged).toBe(0);
+  });
+
+  test("a converge that does not finish still reports the rename, with its detail and remedy", async () => {
+    const w = orgWorld();
+    const result = await renameOrg(w.p, "acme", "gadgets", seams({ state: "partial", detail: "claude is missing", remedy: "Run claude plugin marketplace add" }));
+    expect(result).toEqual({ from: "acme", to: "gadgets", converged: false, convergeDetail: "claude is missing", convergeRemedy: "Run claude plugin marketplace add" });
+    expect(w.atOrigin("log", "-1", "--format=%s", "main").trim()).toBe("org: rename to gadgets");
+  });
+
+  test("a converge that throws still reports the published rename", async () => {
+    const w = orgWorld();
+    const result = await renameOrg(w.p, "acme", "gadgets", { forgeToken: async () => null, converge: async () => { throw new Error("the daemon went away"); } });
+    expect(result).toMatchObject({ from: "acme", to: "gadgets", converged: false, convergeDetail: "the daemon went away" });
+    expect(w.atOrigin("show", "main:mattstack/mattstack.jsonc")).toContain(`"org": "gadgets"`);
+  });
+
+  test("a marker with comments keeps them", async () => {
+    const w = orgWorld();
+    writeFileSync(join(w.root, "mattstack", "mattstack.jsonc"), `// the org marker\n{\n  "role": "org",\n  "org": "acme"\n}\n`);
+    w.git("commit", "-q", "-am", "comment the marker");
+    w.git("push", "-q", "origin", "main");
+    await renameOrg(w.p, "acme", "gadgets", seams());
+    const text = readFileSync(join(w.root, "mattstack", "mattstack.jsonc"), "utf8");
+    expect(text).toContain("// the org marker");
+    expect(text).toContain(`"org": "gadgets"`);
   });
 });

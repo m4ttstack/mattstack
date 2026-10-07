@@ -1,15 +1,17 @@
 import { join } from "path";
-import { parse, type ParseError } from "jsonc-parser";
-import { UserActionableError } from "../errors.ts";
+import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
+import { UserActionableError, logFailureDetail } from "../errors.ts";
 import { orgDirUnder } from "../rt-paths.ts";
 import { validateSlug } from "../secrets/store.ts";
 import type { Probes } from "../setup/probes.ts";
+import { commitFiles } from "./create.ts";
 import { gitWithToken } from "./git-credential.ts";
 import { teamRemote } from "./members.ts";
 import { orgBranch, shellQuote } from "./org-branch.ts";
 import { GIT_OBJECT_ID } from "./publish-history.ts";
+import { publishTeam } from "./publish.ts";
 import { withoutUrls } from "./redact.ts";
-import { roleFor, rolesFor } from "./roles.ts";
+import { assertMayWrite, roleFor, rolesFor } from "./roles.ts";
 import { teamLocalPath } from "./team-local.ts";
 
 export type ConvergeOutcome = { state: "done" | "partial" | "needs-you" | "failed" | "skipped"; detail?: string; remedy?: string };
@@ -31,7 +33,6 @@ export const MARKER_RELATIVE = "mattstack/mattstack.jsonc";
 
 interface Prepared {
   dir: string;
-  branch: string;
   remote: string | null;
   token: string | null;
   markerText: string;
@@ -107,10 +108,55 @@ async function prepare(p: Probes, from: string, to: string, seams: RenameSeams):
   const remote = teamRemote(p, from);
   const token = remote ? await seams.forgeToken(p, remote) : null;
   await assertNotBehind(p, dir, branch, from, to, remote, token);
-  return { dir, branch, remote, token, markerText: marker.text };
+  return { dir, remote, token, markerText: marker.text };
+}
+
+async function convergeSafely(p: Probes, seams: RenameSeams): Promise<ConvergeOutcome> {
+  try {
+    return await seams.converge(p);
+  } catch (err) {
+    if (err instanceof UserActionableError) logFailureDetail(err);
+    return { state: "failed", detail: err instanceof Error ? err.message : String(err), remedy: "Run rt setup update --force" };
+  }
 }
 
 export async function renameOrg(p: Probes, from: string, to: string, seams: RenameSeams): Promise<RenameResult> {
-  await prepare(p, from, to, seams);
-  throw new Error("not yet");
+  const { dir, remote, token, markerText } = await prepare(p, from, to, seams);
+  const markerPath = join(dir, MARKER_RELATIVE);
+  assertMayWrite(p, from, MARKER_RELATIVE);
+  p.writeFile(markerPath, applyEdits(markerText, modify(markerText, ["org"], to, { formattingOptions: { insertSpaces: true, tabSize: 2 } })));
+  let committed: boolean;
+  try {
+    committed = await commitFiles(p, from, [MARKER_RELATIVE], `org: rename to ${to}`);
+  } catch (err) {
+    p.writeFile(markerPath, markerText);
+    throw err;
+  }
+  if (!committed) {
+    p.writeFile(markerPath, markerText);
+    throw new UserActionableError("rename-commit-failed", "rt could not commit the new name");
+  }
+  try {
+    await publishTeam(p, from, null, { token, tokenRemote: remote });
+  } catch (err) {
+    const undo = await p.exec(["git", "reset", "-q", "--keep", "HEAD~1"], { cwd: dir });
+    if (undo.code !== 0) {
+      throw new UserActionableError("rename-undo-failed", "rt could not undo the rename after the push failed", {}, {
+        why: "Your copy of the org has a rename commit the org repo does not have.",
+        next: `git -C ${shellQuote(dir)} reset --keep HEAD~1`,
+        log: err instanceof Error ? err.message : String(err),
+      });
+    }
+    if (err instanceof UserActionableError && err.code === "org-moved") throw behindError(from, to, err.message);
+    throw err;
+  }
+  const outcome = await convergeSafely(p, seams);
+  const done = outcome.state === "done";
+  return {
+    from,
+    to,
+    converged: done,
+    ...(!done && outcome.detail ? { convergeDetail: outcome.detail } : {}),
+    ...(!done && outcome.remedy ? { convergeRemedy: outcome.remedy } : {}),
+  };
 }
