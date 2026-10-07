@@ -772,6 +772,24 @@ describe("gates store — native question completion", () => {
     s.close_();
   });
 
+  test("recoverable with a due time skips rows inside their backoff and lists the least recently tried first", () => {
+    const s = store();
+    const [a, b, fresh] = ["run:a", "run:b", "run:fresh"].map((subject) => openGate(s, subject));
+    for (const id of [a!, b!, fresh!]) {
+      s.nativeQuestions().bind(binding(id), 1_000);
+      s.answer(id, { q: "a" }, "console");
+    }
+    s.nativeQuestions().intend(a!, "fp", 5_000);
+    s.nativeQuestions().intend(a!, "fp", 9_000);
+    s.nativeQuestions().intend(b!, "fp", 2_000);
+    const due = (now: number) => s.nativeQuestions().recoverable(10, { now, baseMs: 1_000, maxMs: 60_000 });
+    // a: 2 attempts, last at 9s, waits 2s; b: 1 attempt at 2s, waits 1s; fresh: never tried, always due.
+    expect(due(10_000)).toEqual([fresh!, b!]);
+    expect(due(11_000)).toEqual([fresh!, b!, a!]);
+    expect(s.nativeQuestions().recoverable(10)).toEqual([fresh!, b!, a!]);
+    s.close_();
+  });
+
   test("a gates.db from before these tables gains them on open, and orphans are pruned", () => {
     const path = tmp("gates.db");
     const first = createGatesStore({ dbPath: path, log });

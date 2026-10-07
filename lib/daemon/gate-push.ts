@@ -339,7 +339,16 @@ export function createGatePush(opts: {
     return native!.settle(row).catch((err) => log.warn({ err, gateId: row.id }, "gate-push: native question completion threw"));
   }
 
-  const ownedNatively = (row: GateRow): boolean => native?.owns(row) ?? false;
+  /** A failed read counts as not owned, so the gate gets today's push and the pass carries on. */
+  const ownedNatively = (row: GateRow): boolean => {
+    if (!native) return false;
+    try {
+      return native.owns(row);
+    } catch (err) {
+      log.warn({ err, gateId: row.id }, "gate-push: native question ownership unreadable; pushing as usual");
+      return false;
+    }
+  };
 
   return {
     async onAnswered(row) {
@@ -360,7 +369,7 @@ export function createGatePush(opts: {
       if (ownedNatively(row)) await settleNative(row);
       else await pushToPane(row, GATE_CLOSED_PHRASE(row.id, row.closedReason));
     },
-    ...(native && { nativeOwns: (row: GateRow) => native.owns(row) }),
+    ...(native && { nativeOwns: ownedNatively }),
     async retryDeadPanes() {
       if (paneRetriesInFlight) return { retried: 0, delivered: 0, gaveUp: 0, reNudged: 0 };
       paneRetriesInFlight = true;
@@ -369,7 +378,11 @@ export function createGatePush(opts: {
         const live = new Set<string>();
         for (const row of store.deadPanePushes()) {
           // A natively completed gate's pane is its integration's to wake;
-          // native question recovery retries what is still pending.
+          // the native question service retries a pending completion with
+          // backoff until it completes or is marked stuck. If ownership lapses
+          // while one is pending (the switch turned off, the binding gone),
+          // neither path pushes it: the answer stays stored, and waits and
+          // subscription fan-out still deliver it.
           if (ownedNatively(row)) continue;
           live.add(row.id);
           const attempts = paneAttempts.get(row.id) ?? 0;

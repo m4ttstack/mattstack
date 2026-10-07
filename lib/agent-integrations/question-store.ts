@@ -14,7 +14,11 @@
 import type { Database } from "bun:sqlite";
 import type { QuestionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
 
-export type CompletionState = "pending" | "completed" | "gone" | "conflict";
+/** `stuck`: retries ran out without the harness ever finishing the question. */
+export type CompletionState = "pending" | "completed" | "gone" | "conflict" | "stuck";
+
+/** Backoff for `recoverable`: a pending completion is due once `baseMs * 2^(attempts-1)`, capped at `maxMs`, has passed since its last update. */
+export type RetryDue = { now: number; baseMs: number; maxMs: number };
 
 export type CompletionRecord = {
   gateId: string;
@@ -41,8 +45,12 @@ export interface QuestionStore {
   intend(gateId: string, fingerprint: string, now?: number): CompletionRecord;
   /** Moves a pending completion to `state`; false when it was not pending. */
   settle(gateId: string, state: CompletionState, detail: string | null, now?: number): boolean;
-  /** Bound gates that are answered or closed and whose completion is missing or pending, oldest binding first. */
-  recoverable(limit: number): string[];
+  /**
+   * Bound gates that are answered or closed and whose completion is missing
+   * or pending, least recently tried first, so rows that stay pending rotate
+   * behind ones never tried. With `due`, only rows whose backoff has passed.
+   */
+  recoverable(limit: number, due?: RetryDue): string[];
   /** Deletes bindings and completions whose gate no longer exists; returns how many rows went. */
   pruneOrphans(): number;
 }
@@ -85,8 +93,17 @@ const RECOVERABLE_SQL = `
   JOIN gates g ON g.id = q.gateId
   LEFT JOIN gate_native_completion c ON c.gateId = q.gateId
   WHERE g.status IN ('answered', 'closed') AND (c.gateId IS NULL OR c.state = 'pending')
-  ORDER BY q.boundAt, q.rowid
+  ORDER BY COALESCE(c.updatedAt, q.boundAt), q.rowid
   LIMIT ?`;
+const DUE_SQL = `
+  SELECT q.gateId AS gateId FROM gate_native_questions q
+  JOIN gates g ON g.id = q.gateId
+  LEFT JOIN gate_native_completion c ON c.gateId = q.gateId
+  WHERE g.status IN ('answered', 'closed')
+    AND (c.gateId IS NULL OR (c.state = 'pending'
+      AND c.updatedAt + MIN(?1 * (1 << MIN(MAX(c.attempts - 1, 0), 20)), ?2) <= ?3))
+  ORDER BY COALESCE(c.updatedAt, q.boundAt), q.rowid
+  LIMIT ?4`;
 const PRUNE_BINDINGS_SQL = "DELETE FROM gate_native_questions WHERE gateId NOT IN (SELECT id FROM gates)";
 const PRUNE_COMPLETIONS_SQL = "DELETE FROM gate_native_completion WHERE gateId NOT IN (SELECT id FROM gates)";
 
@@ -115,8 +132,12 @@ export function createQuestionStore(db: Database): QuestionStore {
     settle(gateId, state, detail, now = Date.now()) {
       return db.query(SETTLE_SQL).run(state, detail, now, gateId).changes > 0;
     },
-    recoverable(limit) {
-      return (db.query(RECOVERABLE_SQL).all(Math.max(1, Math.floor(limit))) as Array<{ gateId: string }>).map((r) => r.gateId);
+    recoverable(limit, due) {
+      const capped = Math.max(1, Math.floor(limit));
+      const rows = due
+        ? db.query(DUE_SQL).all(due.baseMs, due.maxMs, due.now, capped)
+        : db.query(RECOVERABLE_SQL).all(capped);
+      return (rows as Array<{ gateId: string }>).map((r) => r.gateId);
     },
     pruneOrphans() {
       return db.transaction(() => db.query(PRUNE_BINDINGS_SQL).run().changes + db.query(PRUNE_COMPLETIONS_SQL).run().changes)();

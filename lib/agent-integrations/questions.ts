@@ -15,9 +15,13 @@
  * back after the attachment changed, or after shutdown began, is not applied.
  * Connection and request ids live only inside the harness and authorize
  * nothing here, so after a restart or a reconnect `recoverGateQuestions`
- * starts again from the durable binding and the stored row.
+ * starts again from the durable binding and the stored row. A completion still
+ * pending is retried with backoff, and after MAX_COMPLETION_ATTEMPTS it is
+ * marked stuck and announced; the answer stays stored either way.
  *
- * Every entry point is inert while agent.integrations.enabled is off.
+ * While agent.integrations.enabled is off nothing here makes a native side
+ * effect, and a gate no harness asked never causes a settings read: the
+ * per-push ownership test and the periodic check each cost one gates.db read.
  */
 
 import type { Database } from "bun:sqlite";
@@ -30,15 +34,20 @@ import { answeredByNudgedPane, type GateRow, type GatesStore } from "../daemon/g
 import { getStateDb } from "../state/db.ts";
 import { builtinRegistry } from "./builtins.ts";
 import type { QuestionAdapter } from "./contracts.ts";
-import type { CompletionRecord, CompletionState } from "./question-store.ts";
+import type { CompletionRecord, CompletionState, RetryDue } from "./question-store.ts";
 import { createSessionStore, isDetachedAttachment } from "./session-store.ts";
 import { integrationsEnabled } from "./switch.ts";
 
 /** Bound gates one recovery pass looks at; the rest wait for the next pass. */
 export const RECOVER_LIMIT = 50;
+/** A pending completion's first retry waits this long; each later wait doubles, up to RETRY_MAX_MS. */
+export const RETRY_BASE_MS = 30_000;
+export const RETRY_MAX_MS = 30 * 60_000;
+/** Native attempts before a completion that never finishes is marked stuck, about two and a half hours of retries. */
+export const MAX_COMPLETION_ATTEMPTS = 8;
 
 export type GateQuestionDeps = {
-  gates: Pick<GatesStore, "get" | "markConsumed" | "nativeQuestions">;
+  gates: Pick<GatesStore, "get" | "markConsumed" | "markDelivery" | "nativeQuestions">;
   /** The session store's binding for a key, attached or not. */
   storedBinding(key: string): SessionBinding | null;
   /** Whether the harness completes native questions, read without loading its code. */
@@ -65,9 +74,13 @@ export interface GateQuestions extends NativeQuestionSeam {
   bindGateQuestion(binding: QuestionBinding): Outcome<void>;
   /** Completes the gate's native question from the stored row; ok only once it is completed. */
   completeGateQuestion(gateId: string): Promise<Outcome<void>>;
-  /** One bounded pass over answered or closed bound gates whose completion is missing or pending. */
+  /** One bounded pass, backoff ignored, over answered or closed bound gates whose completion is missing or pending. */
   recoverGateQuestions(): Promise<{ completed: number; pending: number }>;
-  /** Runs recovery when a harness's native connection has changed since it was last read; reads the switch only then. */
+  /**
+   * The periodic check. With unfinished completions it retries those whose
+   * backoff has passed, or all of them after a harness's native connection
+   * changed; it reads the switch only when one of those applies.
+   */
   noteConnections(): Promise<void>;
   completion(gateId: string): CompletionRecord | null;
   /** Settles once every completion and recovery this service started has finished. */
@@ -161,7 +174,8 @@ export function createGateQuestions(
   const tracked = new Set<Promise<unknown>>();
   const links = new Map<string, string | null | undefined>();
   let recovering: Promise<{ completed: number; pending: number }> | undefined;
-  let recoverAgain = false;
+  /** A pass asked for while one runs; `all` outranks `due`. */
+  let recoverAgain: "all" | "due" | undefined;
 
   function track<T>(work: Promise<T>): Promise<T> {
     tracked.add(work);
@@ -179,16 +193,27 @@ export function createGateQuestions(
     }
   }
 
-  function settle(row: GateRow, state: CompletionState, detail: string | null, code?: FaultCode): Outcome<void> {
+  /** Records how this attempt ended; a pending ending on the last allowed attempt becomes stuck. */
+  function finish(row: GateRow, state: CompletionState, detail: string | null, code?: FaultCode): Outcome<void> {
     const q = store();
-    q.settle(row.id, state, detail, deps.now());
+    const attempts = q.completion(row.id)?.attempts ?? 0;
+    const giveUp = state === "pending" && attempts >= MAX_COMPLETION_ATTEMPTS;
+    const ending: CompletionState = giveUp ? "stuck" : state;
+    const said = giveUp ? `gave up after ${attempts} attempts; the last: ${detail ?? "still pending"}` : detail;
+    const moved = q.settle(row.id, ending, said, deps.now());
     const record = q.completion(row.id);
     if (record?.state === "completed" && row.status === "answered") deps.gates.markConsumed(row.id);
-    if (record?.state === "conflict" && state === "conflict") {
-      deps.log?.warn({ gateId: row.id, detail }, "gate: native question did not take the gate's answer; the gate answer stands");
-      deps.emit?.("gate.native-conflict", { gateId: row.id, subject: row.subject, kind: row.kind, detail });
+    if (moved && ending === "conflict") {
+      deps.log?.warn({ gateId: row.id, detail: said }, "gate: native question did not take the gate's answer; the gate answer stands");
+      deps.emit?.("gate.native-conflict", { gateId: row.id, subject: row.subject, kind: row.kind, detail: said });
+    } else if (moved && ending === "stuck") {
+      // The board reads a stuck delivery as "answer not delivered", which is
+      // what this is; a closed gate has no answer to call undelivered.
+      if (row.status === "answered") deps.gates.markDelivery(row.id, "stuck");
+      deps.log?.warn({ gateId: row.id, detail: said }, "gate: native question never took the gate's answer; retries stopped");
+      deps.emit?.("gate.native-stuck", { gateId: row.id, subject: row.subject, kind: row.kind, detail: said });
     } else {
-      deps.log?.debug({ gateId: row.id, state: record?.state, detail }, "gate: native question completion");
+      deps.log?.debug({ gateId: row.id, state: record?.state, detail: said }, "gate: native question completion");
     }
     return resultOf(record, code);
   }
@@ -206,30 +231,30 @@ export function createGateQuestions(
     const intent = store().intend(gateId, fingerprint, deps.now());
     if (intent.state !== "pending") return resultOf(intent);
     if (intent.fingerprint !== fingerprint) {
-      return settle(row, "conflict", "the gate row no longer matches the one this completion began from");
+      return finish(row, "conflict", "the gate row no longer matches the one this completion began from");
     }
     if (row.answer) {
       const invalid = validateGateAnswers(row.questions, row.answer.answers);
-      if (invalid) return settle(row, "conflict", `the stored answer does not fit the gate's questions: ${invalid}`);
+      if (invalid) return finish(row, "conflict", `the stored answer does not fit the gate's questions: ${invalid}`);
     }
 
     const session = deps.storedBinding(question.sessionKey);
-    if (!session) return settle(row, "gone", "the session that asked has no binding any more");
-    if (selfAnswered(row, session)) return settle(row, "completed", "the session that asked answered it");
+    if (!session) return finish(row, "gone", "the session that asked has no binding any more");
+    if (selfAnswered(row, session)) return finish(row, "completed", "the session that asked answered it");
     if (session.attachment.generation !== question.generation) {
-      return settle(row, "gone", `asked under attachment ${question.generation}; the session is now on ${session.attachment.generation}`);
+      return finish(row, "gone", `asked under attachment ${question.generation}; the session is now on ${session.attachment.generation}`);
     }
-    if (isDetachedAttachment(session)) return settle(row, "pending", "the session is detached", "not-ready");
+    if (isDetachedAttachment(session)) return finish(row, "pending", "the session is detached", "not-ready");
     const harness = session.native.harness;
-    if (!deps.supports(harness)) return settle(row, "gone", `${harness} no longer completes native questions`);
+    if (!deps.supports(harness)) return finish(row, "gone", `${harness} no longer completes native questions`);
 
     let adapter: QuestionAdapter | undefined;
     try {
       adapter = await deps.questionsFor(harness);
     } catch (err) {
-      return settle(row, "pending", `question completion failed to load: ${messageOf(err)}`, "transient");
+      return finish(row, "pending", `question completion failed to load: ${messageOf(err)}`, "transient");
     }
-    if (!adapter) return settle(row, "gone", `${harness} no longer completes native questions`);
+    if (!adapter) return finish(row, "gone", `${harness} no longer completes native questions`);
     if (deps.signal?.aborted) return fail("not-ready", STOPPING);
 
     const native = Promise.resolve()
@@ -240,13 +265,13 @@ export function createGateQuestions(
 
     const current = deps.storedBinding(question.sessionKey);
     if (!current || current.attachment.generation !== question.generation) {
-      return settle(row, "pending", "the attachment changed while the question was being completed", "stale-binding");
+      return finish(row, "pending", "the attachment changed while the question was being completed", "stale-binding");
     }
     if (!out.ok) {
       const terminal = out.error.code === "stale-binding" || out.error.code === "unsupported";
-      return settle(row, terminal ? "gone" : "pending", `${out.error.code}: ${out.error.message}`, out.error.code);
+      return finish(row, terminal ? "gone" : "pending", `${out.error.code}: ${out.error.message}`, out.error.code);
     }
-    return settle(row, out.data, null);
+    return finish(row, out.data, null);
   }
 
   function completeGateQuestion(gateId: string): Promise<Outcome<void>> {
@@ -271,14 +296,17 @@ export function createGateQuestions(
     return reconnected;
   }
 
-  async function recoverPass(): Promise<{ completed: number; pending: number }> {
+  const dueNow = (): RetryDue => ({ now: deps.now(), baseMs: RETRY_BASE_MS, maxMs: RETRY_MAX_MS });
+
+  /** `all` ignores backoff: a start or a reconnect leaves nothing earlier attempts knew about. */
+  async function recoverPass(mode: "all" | "due"): Promise<{ completed: number; pending: number }> {
     let completed = 0;
     let pending = 0;
     if (!deps.enabled() || deps.signal?.aborted) return { completed, pending };
     noteLinks();
     const q = store();
     q.pruneOrphans();
-    for (const gateId of q.recoverable(deps.recoverLimit)) {
+    for (const gateId of q.recoverable(deps.recoverLimit, mode === "due" ? dueNow() : undefined)) {
       if (deps.signal?.aborted) break;
       await completeGateQuestion(gateId);
       const state = q.completion(gateId)?.state;
@@ -288,21 +316,25 @@ export function createGateQuestions(
     return { completed, pending };
   }
 
-  function recoverGateQuestions(): Promise<{ completed: number; pending: number }> {
+  function recover(mode: "all" | "due"): Promise<{ completed: number; pending: number }> {
     if (recovering) {
-      recoverAgain = true;
+      if (mode === "all" || recoverAgain === undefined) recoverAgain = mode;
       return recovering;
     }
     recovering = (async () => {
-      let result: { completed: number; pending: number };
-      do {
-        recoverAgain = false;
-        result = await recoverPass();
-      } while (recoverAgain && !deps.signal?.aborted);
+      let next: "all" | "due" | undefined = mode;
+      let result = { completed: 0, pending: 0 };
+      while (next && !deps.signal?.aborted) {
+        recoverAgain = undefined;
+        result = await recoverPass(next);
+        next = recoverAgain;
+      }
       return result;
-    })().finally(() => { recovering = undefined; });
+    })().finally(() => { recovering = undefined; recoverAgain = undefined; });
     return track(recovering);
   }
+
+  const recoverGateQuestions = () => recover("all");
 
   return {
     bindGateQuestion(binding) {
@@ -318,6 +350,7 @@ export function createGateQuestions(
       if (session.attachment.generation !== binding.generation) {
         return fail("stale-binding", `attachment generation ${binding.generation} was replaced; the current one is ${session.attachment.generation}`);
       }
+      if (isDetachedAttachment(session)) return fail("not-ready", "the session is detached; bind once it is attached again");
       if (!deps.supports(session.native.harness)) return fail("unsupported", `${session.native.harness} does not complete native questions`);
       const q = store();
       const existing = q.get(binding.gateId);
@@ -337,7 +370,14 @@ export function createGateQuestions(
     recoverGateQuestions,
     async noteConnections() {
       if (deps.signal?.aborted) return;
-      if (noteLinks() && deps.enabled()) await recoverGateQuestions();
+      // With nothing unfinished (always the case while the switch has never
+      // been on) this one gates.db read is the whole tick.
+      const q = store();
+      if (q.recoverable(1).length === 0) return;
+      const reconnected = noteLinks();
+      if (!reconnected && q.recoverable(1, dueNow()).length === 0) return;
+      if (!deps.enabled()) return;
+      await recover(reconnected ? "all" : "due");
     },
     completion: (gateId) => store().completion(gateId),
     owns(row) {

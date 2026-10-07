@@ -1032,6 +1032,42 @@ describe("gate-push — gates a native question completes", () => {
     expect(store.get(dead.id)!.delivery!.outcome).toBe("dead-pane");
   });
 
+  function throwingHarness() {
+    const store = freshStore();
+    const events: string[] = [];
+    const push = createGatePush({
+      store,
+      deliver: async (socketPath: string) => { events.push(`deliver:${socketPath}`); return { ok: true as const }; },
+      resolveSession: (sessionId) => ({ socketPath: sessionId }),
+      log,
+      native: {
+        owns: () => { throw new Error("state.db is locked"); },
+        settle: async () => { events.push("settle"); },
+      },
+    });
+    return { store, push, events };
+  }
+
+  test("an ownership read that throws falls back to today's pane push and keeps the fan-out", async () => {
+    const { store, push, events } = throwingHarness();
+    store.subscribe({ subjectPrefix: "run:", session: "shep-1" });
+    const row = formGate(store);
+    store.answer(row.id, { q: "a" }, "console");
+    await push.onAnswered(store.get(row.id)!);
+    expect(events.sort()).toEqual(["deliver:sess-1", "deliver:shep-1"]);
+    expect(push.nativeOwns!(store.get(row.id)!)).toBe(false);
+  });
+
+  test("an ownership read that throws does not abort a retry pass", async () => {
+    const { store, push, events } = throwingHarness();
+    const row = formGate(store);
+    store.answer(row.id, { q: "a" }, "console");
+    store.markDelivery(row.id, "dead-pane");
+    const result = await push.retryDeadPanes();
+    expect(result.retried).toBe(1);
+    expect(events).toEqual(["deliver:sess-1"]);
+  });
+
   test("the retry passes make no ownership read when there is nothing to retry", async () => {
     const { push, ownerCalls } = nativeHarness(new Set());
     await push.retryDeadPanes();
