@@ -485,7 +485,9 @@ function clonedOrgName(p: Pick<Probes, "readFile">, dir: string): string | null 
   if (raw === null) return null;
   try {
     const marker = JSON.parse(stripJsonc(raw)) as { role?: unknown; org?: unknown } | null;
-    return marker?.role === "org" && typeof marker.org === "string" ? marker.org : null;
+    if (marker?.role !== "org" || typeof marker.org !== "string") return null;
+    validateSlug(marker.org);
+    return marker.org;
   } catch {
     return null;
   }
@@ -570,9 +572,11 @@ export async function joinRedeem(
       else p.removeFile(teamLocalPath(p.home, pointer.team));
       if (priorIntent !== null) p.writeFile(intentPath(p.home), priorIntent, 0o600);
       else clearIntent(p);
+      const stuck = p.exists(dir);
+      const renamed = "The org was renamed after this invite was made; a fresh invite from your admin joins it.";
       throw new UserActionableError("invite-stale", "This invite names the org by an old name; ask for a fresh one", {}, {
-        why: "The org was renamed after this invite was made; a fresh invite from your admin joins it.",
-        log: `the invite names ${pointer.team}; the org repo's marker names ${cloned}`,
+        why: stuck ? `${renamed} rt could not remove the folder it cloned, so remove ${dir} before you join again.` : renamed,
+        log: `the invite names ${pointer.team}; the org repo's marker names ${cloned}${stuck ? `; could not remove ${dir}` : ""}`,
       });
     }
   }

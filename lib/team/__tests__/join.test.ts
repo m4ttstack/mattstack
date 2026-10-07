@@ -1579,6 +1579,29 @@ describe("joinRedeem", () => {
       expect(p.readFile(intentPath(HOME))).toBe(saved);
     });
 
+    test("keeps the exact why when the clone folder is gone", async () => {
+      const err = await refusal(redeemProbes({ files: renamed }));
+      expect((err as UserActionableError).why).toBe("The org was renamed after this invite was made; a fresh invite from your admin joins it.");
+    });
+
+    test("names the folder in the why when rt cannot remove the clone it made", async () => {
+      const p = redeemProbes({ dirs: { [TEAM_DIR]: ["mattstack"] }, files: renamed });
+      p.removeDir = () => {};
+      const err = await refusal(p);
+      expect(err.code).toBe("invite-stale");
+      expect(err.message).toBe("This invite names the org by an old name; ask for a fresh one");
+      expect(err.why).toContain("The org was renamed after this invite was made; a fresh invite from your admin joins it.");
+      expect(err.why).toContain(TEAM_DIR);
+      expect(err.why).toContain("could not remove");
+      expect(err.log).toContain(TEAM_DIR);
+    });
+
+    test("a marker whose org is not a valid slug is not an org marker and joins as before", async () => {
+      const p = redeemProbes({ files: { [MARKER]: `{ "role": "org", "org": "Acme" }` } });
+      const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+      expect(result.access).toBe("ok");
+    });
+
     test("a marker naming the pointer's own org joins as before", async () => {
       const p = redeemProbes({ files: { [MARKER]: `{ "role": "org", "org": "acme" }` } });
       const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
