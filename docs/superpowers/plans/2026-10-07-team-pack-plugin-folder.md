@@ -208,6 +208,8 @@ In `packages/rt-client/src/settings/__tests__/paths.test.ts` line 171 replace
 with
 `expect(teamPackDir("acme", "widgets")).toBe(\`${root}/mattstack/teams/widgets/plugin\`);`.
 
+In `packages/rt-client/src/settings/__tests__/org-roles.test.ts` line 73 replace the path `mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc` with `mattstack/teams/gadgets/plugin/pack/skills.jsonc` (the ownership rule is team-folder granular, so the assertion keeps passing; the fixture just names the real layout).
+
 - [ ] **Step 2: Run both tests to verify they fail**
 
 Run: `bun test lib/__tests__/settings-paths-parity.test.ts packages/rt-client/src/settings/__tests__/paths.test.ts`
@@ -228,13 +230,13 @@ export function teamPackDir(org: string, team: string): string {
 
 - [ ] **Step 4: Rebuild rt-client and run the tests**
 
-Run: `(cd packages/rt-client && bun run build) && bun test lib/__tests__/settings-paths-parity.test.ts packages/rt-client/src/settings/__tests__/paths.test.ts packages/rt-client/src/settings/__tests__/active-team.test.ts packages/rt-client/test/dist-freshness.test.ts`
+Run: `(cd packages/rt-client && bun run build) && bun test lib/__tests__/settings-paths-parity.test.ts packages/rt-client/src/settings/__tests__/paths.test.ts packages/rt-client/src/settings/__tests__/active-team.test.ts packages/rt-client/src/settings/__tests__/org-roles.test.ts packages/rt-client/test/dist-freshness.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/rt-paths.ts packages/rt-client/src/settings/paths.ts lib/__tests__/settings-paths-parity.test.ts packages/rt-client/src/settings/__tests__/paths.test.ts
+git add lib/rt-paths.ts packages/rt-client/src/settings/paths.ts lib/__tests__/settings-paths-parity.test.ts packages/rt-client/src/settings/__tests__/paths.test.ts packages/rt-client/src/settings/__tests__/org-roles.test.ts
 git commit -m "paths: teamPackDir is the team's plugin/ folder
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -583,9 +585,11 @@ fix each hit by hand (the path is `teams/<t>/plugin` or `"teams", "<t>", "plugin
 Add to `commands/__tests__/skills.test.ts`, next to the existing compile-with-`--pack-dir` tests:
 
 ```ts
-  test("a team pack's pack/skills.jsonc at plugin/ is a fragment, never taken as its manifest", async () => {
+  test("a team pack's pack/skills.jsonc at plugin/ is a fragment, never taken as its manifest, even in a worktree outside ~/.mattstack", async () => {
     const mattstackDir = makeMattstackDir();
-    const packDir = teamPackDir(mattstackDir, "acme", "widgets");
+    // A worktree of the org repo sits anywhere; only the path shape says this is a team pack.
+    const packDir = join(realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-worktree-"))), "clone", "mattstack", "teams", "widgets", "plugin");
+    writeFile(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "0.1.0" }));
     writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ bindings: {} }));
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
     const { exitCode, stderr } = await runSkillsCapturing(["compile", "--pack-dir", packDir, "--mattstack-dir", mattstackDir]);
@@ -594,7 +598,7 @@ Add to `commands/__tests__/skills.test.ts`, next to the existing compile-with-`-
   });
 ```
 
-(`runSkillsCapturing` at line 2857, `makeMattstackDir` at line 179, `writeFile` at line 27 and `STUBS_JSONC` at line 75 are this file's existing helpers.)
+(`runSkillsCapturing` at line 2857, `makeMattstackDir` at line 179, `writeFile` at line 27 and `STUBS_JSONC` at line 75 are this file's existing helpers.) The pack sits outside `mattstackDir` on purpose: inside `<mattstackDir>/orgs/` the `isUnder` check already makes `standalone` false, so only an outside path exercises `teamShaped`. The `plugin.json` is there because `packTeamFor` falls back to the folder's basename, which is now `plugin` for a team pack without one; every scaffolder writes a `plugin.json`, so only a hand-made pack sees that fallback.
 
 - [ ] **Step 2: Run the six files to verify they fail**
 
@@ -946,10 +950,14 @@ describe("planMove", () => {
     expect(plan.report).toContain("rewrote ${org}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh to ${org}/mattstack/teams/widgets/plugin/hooks/dev.sh");
   });
 
-  test("a store with nothing to rewrite is not written, and comments in a rewritten store are reported", () => {
-    const plan = planMove(orgRepo({ files: { [WIDGETS_STORE]: `// team\n${JSON.stringify({ x: "${org}/mattstack/teams/widgets/packs/widgets/a" })}` } }));
-    expect(plan.writes[ORG_STORE]).toBeDefined();
+  test("comments in a rewritten store are reported, and a store with nothing to rewrite stays unwritten", () => {
+    const plan = planMove(orgRepo({ files: {
+      [WIDGETS_STORE]: `// team\n${JSON.stringify({ x: "${org}/mattstack/teams/widgets/packs/widgets/a" })}`,
+      [ORG_STORE]: JSON.stringify({ "board.projects": ["acme/widgets"] }),
+    } }));
+    expect(plan.writes[WIDGETS_STORE]).toBeDefined();
     expect(plan.report).toContain(`comments in ${WIDGETS_STORE} are not carried over`);
+    expect(plan.writes[ORG_STORE]).toBeUndefined();
   });
 
   test("the report names each move, bump and settings-only team", () => {
@@ -1622,6 +1630,7 @@ Every `mattstack/teams/<t>/packs/<t>` and `.../packs/<t>/` becomes `mattstack/te
 - `your-first-pack.md:56-60`: the five tree lines start `mattstack/teams/widgets/plugin/`; line 133: `mattstack/teams/widgets/plugin/attachments/ship-lint/SKILL.md`; line 199: `~/.mattstack/orgs/<org>/mattstack/teams/<team>/plugin/`.
 - `creating-a-pack/SKILL.md:13`: `~/.mattstack/orgs/acme/mattstack/teams/widgets/plugin/`.
 - `extending-a-pack/SKILL.md:179-180`: `.../teams/widgets/plugin/skills/context/SKILL.md` and `.../plugin/attachments/<fill>/SKILL.md`.
+- `editing-skills/SKILL.md:3` (the frontmatter `description`, the skill's trigger line, so certify reads it): `a teams/<team>/packs/<team> pack` becomes `a teams/<team>/plugin pack`.
 - `editing-skills/SKILL.md:32`: `.../teams/widgets/plugin/skills/<name>/` and `.../plugin/attachments/<fill>/`; line 33: `.../plugin/.claude-plugin/plugin.json`.
 - `convention.md:338`: `holding at most one pack, \`plugin/\` (the team's Claude plugin), named after the team:`; line 345: `with its source under \`mattstack/teams/<team>/plugin\``.
 - `org-marker.schema.json:4`: `each holding at most one pack, at plugin/, named after the team.`
@@ -1643,16 +1652,17 @@ Re-ask the questions from Step 1 with the edited skills; each must answer `.../t
 ```bash
 (cd plugins/mattstack && for d in plugin/skills/creating-a-pack/ plugin/skills/extending-a-pack/ plugin/skills/editing-skills/; do sh tests/certify.sh "$d"; done)
 mkdir -p /tmp/rt-plugin-check && bun cli.ts skills check --pack-dir "$PWD/plugins/mattstack" --mattstack-dir /tmp/rt-plugin-check --strict
+bun cli.ts mcp tools --json | bun plugins/mattstack/scripts/gen-mcp-tools.ts | cmp - plugins/mattstack/attachments/mcp-tools/reference.md
 ```
 
-Expected: certify exit 0 for each, `skills check --strict` current.
+Expected: certify exit 0 for each, `skills check --strict` current, and `cmp` silent (no MCP tool changes here, so the reference is current; the `plugin-mattstack` job runs the same diff).
 
 Append three rows to `plugins/mattstack/CERTIFICATION.md` above the closing ledger note, in the table's format, dated today, one per skill, each ending with the RED and GREEN counts and `certify exit 0; skills check --strict exit 0`, naming the move of the team pack to `mattstack/teams/<team>/plugin/`.
 
 - [ ] **Step 4: Check for leftovers**
 
-Run: `rg -n 'teams/[^/ ]+/packs/|packs/<team>|packs/widgets' plugins/mattstack --glob '!CERTIFICATION.md'`
-Expected: no output.
+Run: `rg -n 'teams/[^/ ]+/packs/|packs/<team>|packs/widgets' plugins/mattstack --glob '!CERTIFICATION.md' --glob '!docs/superpowers/**'`
+Expected: no output. (`plugins/mattstack/docs/superpowers/` holds historical specs, which the spec says not to edit; the guard in Task 13 skips `superpowers` too.)
 
 - [ ] **Step 5: Commit**
 
@@ -1791,8 +1801,8 @@ Expected: every file PASS.
 
 - [ ] **Step 3: One last sweep for the old spelling anywhere the guard does not scan**
 
-Run: `rg -n 'packs/\$\{(team|zone\.team)\}|"packs", (team|zone\.team)|teams/[a-z<$][^/ ]*/packs/' --glob '!docs/superpowers/**' --glob '!plugins/mattstack/CERTIFICATION.md' --glob '!**/__tests__/**' --glob '!**/*.test.ts' --glob '!node_modules' .`
-Expected: hits only in `lib/team/team-pack-path.ts` and `scripts/lib/move-team-packs.ts`.
+Run: `rg -n '"packs", (team|zone\.team)|zone\.dir, "packs"|teams/[a-z<$][^/ ]*/packs/' --glob '!docs/superpowers/**' --glob '!plugins/mattstack/CERTIFICATION.md' --glob '!**/__tests__/**' --glob '!**/*.test.ts' --glob '!node_modules' .`
+Expected: hits only in `lib/team/team-pack-path.ts` and `scripts/lib/move-team-packs.ts`. (The bindings-path text `repos/*/packs/${team}/skills.jsonc` in `commands/skills.ts` is the machine-local bindings file and stays as it is; the sweep does not match it.)
 
 - [ ] **Step 4: Commit anything the gates changed**
 
