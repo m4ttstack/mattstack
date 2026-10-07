@@ -932,7 +932,7 @@ function basePlanFor(resolved: Resolved, verbSides: Record<string, Side>): BaseA
   return planBaseAttachments({ packDir: resolved.packDir, packName: packPluginIdentity(resolved.packDir)?.name ?? resolved.team, verbSides });
 }
 
-export function requireBasePlan(resolved: Resolved, verbSides: Record<string, Side>): BaseAttachmentPlan {
+function requireBasePlan(resolved: Resolved, verbSides: Record<string, Side>): BaseAttachmentPlan {
   const plan = basePlanFor(resolved, verbSides);
   if (plan.errors.length > 0) {
     const errors = plan.errors.join("\n");
