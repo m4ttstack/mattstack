@@ -3,6 +3,7 @@ import { execFileSync } from "child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { childEnv } from "../../subprocess.ts";
+import { inviteRecordsPath } from "../invite-records.ts";
 import { renameOrg, type ConvergeOutcome, type RenameSeams } from "../rename.ts";
 import { teamLocalPath } from "../team-local.ts";
 import { cleanupOrgWorlds, orgWorld } from "./org-world.ts";
@@ -45,6 +46,25 @@ describe("renameOrg refusals", () => {
     const w = orgWorld();
     writeFileSync(teamLocalPath(w.home, "gadgets"), "{}\n");
     await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "rename-name-taken", message: "This Mac still has a record of an org called gadgets", why: "Pick another name." });
+  });
+
+  test("a name with a leftover invite record is refused", async () => {
+    const w = orgWorld();
+    mkdirSync(join(w.home, ".mattstack", "rt", "invites"), { recursive: true });
+    writeFileSync(inviteRecordsPath(w.home, "gadgets"), "{}\n");
+    await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "rename-name-taken", message: "This Mac still has a record of an org called gadgets", why: "Pick another name." });
+  });
+
+  test("a current name that breaks the slug rule is refused before the role check", async () => {
+    const w = orgWorld("dev2");
+    await expect(renameOrg(w.p, "../acme", "gadgets", seams())).rejects.toMatchObject({ code: "invalid-team-slug", message: "That is not a team name rt can use" });
+  });
+
+  test("a marker with no org role is refused as unreadable", async () => {
+    const w = orgWorld();
+    writeFileSync(join(w.root, "mattstack", "mattstack.jsonc"), `${JSON.stringify({ role: "member", org: "acme" }, null, 2)}\n`);
+    w.git("commit", "-q", "-am", "marker loses its role");
+    await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "org-marker-unreadable" });
   });
 
   test("a clone whose marker already names another org is refused until it converges", async () => {
@@ -117,16 +137,60 @@ describe("renameOrg", () => {
     expect(w.pushes.flat().join(" ")).not.toContain("refs/heads/main");
   }, 15_000);
 
-  test("a push the origin refuses undoes the rename commit and converges nothing", async () => {
+  test("a push the origin's rules refuse undoes the rename commit, says so, and converges nothing", async () => {
     const w = orgWorld();
     const hook = join(w.remote, "hooks", "pre-receive");
     writeFileSync(hook, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
     const s = seams();
-    await expect(renameOrg(w.p, "acme", "gadgets", s)).rejects.toMatchObject({ code: "org-behind", thenRun: "rt team rename gadgets" });
+    await expect(renameOrg(w.p, "acme", "gadgets", s)).rejects.toMatchObject({ code: "rename-push-refused", message: "The org repo refused the rename", why: "Its rules turned the push away, so nothing changed. Check the branch's protection or hooks." });
     expect(marker(w.root).org).toBe("acme");
     expect(w.git("log", "-1", "--format=%s").trim()).toBe("seed");
     expect(w.git("status", "--porcelain")).toBe("");
     expect(s.converged).toBe(0);
+  }, 15_000);
+
+  test("a teammate's push landing between the check and the push is reported as behind", async () => {
+    const w = orgWorld();
+    const realExec = w.p.exec.bind(w.p);
+    let raced = false;
+    w.p.exec = async (argv, opts) => {
+      if (!raced && argv.includes("push")) {
+        raced = true;
+        const other = join(w.home, "other");
+        execFileSync("git", ["clone", "-q", "-b", "main", w.remote, other], { env: childEnv() });
+        const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=dev2", "-c", "user.email=dev2@example.test", ...args], { cwd: other, env: childEnv() });
+        writeFileSync(join(other, "later.txt"), "x\n");
+        git("add", "later.txt");
+        git("commit", "-q", "-m", "later");
+        git("push", "-q", "origin", "main");
+      }
+      return realExec(argv, opts);
+    };
+    const s = seams();
+    await expect(renameOrg(w.p, "acme", "gadgets", s)).rejects.toMatchObject({ code: "org-behind", thenRun: "rt team rename gadgets" });
+    expect(raced).toBe(true);
+    expect(marker(w.root).org).toBe("acme");
+    expect(w.git("status", "--porcelain")).toBe("");
+    expect(s.converged).toBe(0);
+  }, 15_000);
+
+  test("an undo that would move past an unexpected commit is left to the person", async () => {
+    const w = orgWorld();
+    const hook = join(w.remote, "hooks", "pre-receive");
+    writeFileSync(hook, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const seed = w.git("rev-parse", "HEAD").trim();
+    const realExec = w.p.exec.bind(w.p);
+    w.p.exec = async (argv, opts) => {
+      const res = await realExec(argv, opts);
+      if (argv.includes("push")) {
+        writeFileSync(join(w.root, "extra.txt"), "x\n");
+        w.git("add", "extra.txt");
+        w.git("commit", "-q", "-m", "extra");
+      }
+      return res;
+    };
+    await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "rename-undo-failed", next: `git -C ${w.root} reset --keep ${seed}` });
+    expect(w.git("log", "-1", "--format=%s").trim()).toBe("extra");
   }, 15_000);
 
   test("a converge that does not finish still reports the rename, with its detail and remedy", async () => {

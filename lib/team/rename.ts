@@ -6,8 +6,10 @@ import { validateSlug } from "../secrets/store.ts";
 import type { Probes } from "../setup/probes.ts";
 import { commitFiles } from "./create.ts";
 import { gitWithToken } from "./git-credential.ts";
+import { inviteRecordsPath } from "./invite-records.ts";
 import { teamRemote } from "./members.ts";
 import { orgBranch, shellQuote } from "./org-branch.ts";
+import { markerOrg } from "./org-marker.ts";
 import { GIT_OBJECT_ID } from "./publish-history.ts";
 import { publishTeam } from "./publish.ts";
 import { withoutUrls } from "./redact.ts";
@@ -34,32 +36,41 @@ export const MARKER_RELATIVE = "mattstack/mattstack.jsonc";
 
 interface Prepared {
   dir: string;
+  branch: string;
   remote: string | null;
   token: string | null;
   markerText: string;
+  remoteSha: string | null;
 }
 
-function readMarker(p: Probes, dir: string): { text: string; org: unknown } {
+function readMarker(p: Probes, dir: string): { text: string; org: string } {
   const text = p.readFile(join(dir, MARKER_RELATIVE));
   const errors: ParseError[] = [];
-  const value: unknown = text === null ? null : parse(text, errors);
-  if (text === null || errors.length > 0 || value === null || typeof value !== "object" || Array.isArray(value)) {
+  if (text !== null) parse(text, errors);
+  const org = text === null || errors.length > 0 ? null : markerOrg(p, dir);
+  if (text === null || org === null) {
     throw new UserActionableError("org-marker-unreadable", "rt could not read your org's name from its marker file");
   }
-  return { text, org: (value as { org?: unknown }).org };
+  return { text, org };
 }
 
-async function assertNotBehind(p: Probes, dir: string, branch: string, from: string, to: string, remote: string | null, token: string | null): Promise<void> {
-  const ref = `refs/heads/${branch}`;
-  const lookup = gitWithToken(["ls-remote", "--refs", "origin", ref], token, { GIT_TERMINAL_PROMPT: "0" }, { remote });
+type RemoteLookup = { ok: true; sha: string | null } | { ok: false; log: string };
+
+async function remoteSha(p: Probes, dir: string, branch: string, remote: string | null, token: string | null): Promise<RemoteLookup> {
+  const lookup = gitWithToken(["ls-remote", "--refs", "origin", `refs/heads/${branch}`], token, { GIT_TERMINAL_PROMPT: "0" }, { remote });
   const res = await p.exec(lookup.argv, { cwd: dir, env: lookup.env });
-  if (res.code !== 0) {
-    throw new UserActionableError("org-unreachable", "rt could not reach the org repo", {}, { log: withoutUrls(`${res.stdout}\n${res.stderr}`.trim()) });
-  }
-  const sha = res.stdout.trim().split("\n").filter(Boolean)[0]?.split("\t")[0];
-  if (sha === undefined) return;
+  if (res.code !== 0) return { ok: false, log: withoutUrls(`${res.stdout}\n${res.stderr}`.trim()) };
+  return { ok: true, sha: res.stdout.trim().split("\n").filter(Boolean)[0]?.split("\t")[0] ?? null };
+}
+
+/** The remote's sha for the branch, null when the remote has no such branch yet. */
+async function assertNotBehind(p: Probes, dir: string, branch: string, from: string, to: string, remote: string | null, token: string | null): Promise<string | null> {
+  const found = await remoteSha(p, dir, branch, remote, token);
+  if (!found.ok) throw new UserActionableError("org-unreachable", "rt could not reach the org repo", {}, { log: found.log });
+  const sha = found.sha;
+  if (sha === null) return null;
   const known = GIT_OBJECT_ID.test(sha) && (await p.exec(["git", "cat-file", "-e", `${sha}^{commit}`], { cwd: dir })).code === 0;
-  if (known && (await p.exec(["git", "merge-base", "--is-ancestor", sha, "HEAD"], { cwd: dir })).code === 0) return;
+  if (known && (await p.exec(["git", "merge-base", "--is-ancestor", sha, "HEAD"], { cwd: dir })).code === 0) return sha;
   throw behindError(from, to);
 }
 
@@ -72,7 +83,19 @@ function behindError(from: string, to: string, log?: string): UserActionableErro
   });
 }
 
+function pushRefusedError(log: string): UserActionableError {
+  return new UserActionableError("rename-push-refused", "The org repo refused the rename", {}, {
+    why: "Its rules turned the push away, so nothing changed. Check the branch's protection or hooks.",
+    log,
+  });
+}
+
 async function prepare(p: Probes, from: string, to: string, seams: RenameSeams): Promise<Prepared> {
+  try {
+    validateSlug(from);
+  } catch (err) {
+    throw new UserActionableError("invalid-team-slug", "That is not a team name rt can use", {}, { log: err instanceof Error ? err.message : String(err) });
+  }
   if (roleFor(p, from).kind !== "admin") {
     const admins = rolesFor(p, from).admins;
     throw new UserActionableError("rename-not-admin", "Only an org admin can rename the org", {}, {
@@ -90,7 +113,7 @@ async function prepare(p: Probes, from: string, to: string, seams: RenameSeams):
   if (p.exists(orgDirUnder(p.home, to))) {
     throw new UserActionableError("rename-name-taken", `This Mac already has an org folder called ${to}`, {}, { why: "Pick another name, or move that folder aside first." });
   }
-  if (p.exists(teamLocalPath(p.home, to))) {
+  if (p.exists(teamLocalPath(p.home, to)) || p.exists(inviteRecordsPath(p.home, to))) {
     throw new UserActionableError("rename-name-taken", `This Mac still has a record of an org called ${to}`, {}, { why: "Pick another name." });
   }
   const dir = orgDirUnder(p.home, from);
@@ -111,8 +134,28 @@ async function prepare(p: Probes, from: string, to: string, seams: RenameSeams):
   }
   const remote = teamRemote(p, from);
   const token = remote ? await seams.forgeToken(p, remote) : null;
-  await assertNotBehind(p, dir, branch, from, to, remote, token);
-  return { dir, remote, token, markerText: marker.text };
+  const sha = await assertNotBehind(p, dir, branch, from, to, remote, token);
+  return { dir, branch, remote, token, markerText: marker.text, remoteSha: sha };
+}
+
+/** Resets only when HEAD is still the rename commit on top of `before`, so a commit made meanwhile is never dropped. */
+async function undoRenameCommit(p: Probes, dir: string, before: string, cause: unknown): Promise<void> {
+  const parent = await p.exec(["git", "rev-parse", "--verify", "-q", "HEAD~1"], { cwd: dir });
+  const undone = parent.code === 0 && parent.stdout.trim() === before && (await p.exec(["git", "reset", "-q", "--keep", before], { cwd: dir })).code === 0;
+  if (undone) return;
+  throw new UserActionableError("rename-undo-failed", "rt could not undo the rename after the push failed", {}, {
+    why: "Your copy of the org has a rename commit the org repo does not have.",
+    next: `git -C ${shellQuote(dir)} reset --keep ${before}`,
+    log: cause instanceof Error ? cause.message : String(cause),
+  });
+}
+
+/** A rejected push is "behind" only when the remote branch really moved; otherwise its rules refused it. */
+async function whyRefused(p: Probes, prepared: Prepared, from: string, to: string, err: UserActionableError): Promise<UserActionableError> {
+  const log = err.log ?? err.message;
+  const now = await remoteSha(p, prepared.dir, prepared.branch, prepared.remote, prepared.token);
+  if (now.ok && now.sha !== prepared.remoteSha) return behindError(from, to, log);
+  return pushRefusedError(log);
 }
 
 async function convergeSafely(p: Probes, seams: RenameSeams): Promise<ConvergeOutcome> {
@@ -125,9 +168,15 @@ async function convergeSafely(p: Probes, seams: RenameSeams): Promise<ConvergeOu
 }
 
 export async function renameOrg(p: Probes, from: string, to: string, seams: RenameSeams): Promise<RenameResult> {
-  const { dir, remote, token, markerText } = await prepare(p, from, to, seams);
+  const prepared = await prepare(p, from, to, seams);
+  const { dir, markerText } = prepared;
   const markerPath = join(dir, MARKER_RELATIVE);
   assertMayWrite(p, from, MARKER_RELATIVE);
+  const head = await p.exec(["git", "rev-parse", "--verify", "HEAD"], { cwd: dir });
+  const before = head.stdout.trim();
+  if (head.code !== 0 || !GIT_OBJECT_ID.test(before)) {
+    throw new UserActionableError("rename-commit-failed", "rt could not commit the new name", {}, { log: `${head.stdout}\n${head.stderr}`.trim() });
+  }
   p.writeFile(markerPath, applyEdits(markerText, modify(markerText, ["org"], to, { formattingOptions: { insertSpaces: true, tabSize: 2 } })));
   let committed: boolean;
   try {
@@ -141,17 +190,10 @@ export async function renameOrg(p: Probes, from: string, to: string, seams: Rena
     throw new UserActionableError("rename-commit-failed", "rt could not commit the new name");
   }
   try {
-    await publishTeam(p, from, null, { token, tokenRemote: remote });
+    await publishTeam(p, from, null, { token: prepared.token, tokenRemote: prepared.remote });
   } catch (err) {
-    const undo = await p.exec(["git", "reset", "-q", "--keep", "HEAD~1"], { cwd: dir });
-    if (undo.code !== 0) {
-      throw new UserActionableError("rename-undo-failed", "rt could not undo the rename after the push failed", {}, {
-        why: "Your copy of the org has a rename commit the org repo does not have.",
-        next: `git -C ${shellQuote(dir)} reset --keep HEAD~1`,
-        log: err instanceof Error ? err.message : String(err),
-      });
-    }
-    if (err instanceof UserActionableError && err.code === "org-moved") throw behindError(from, to, err.message);
+    await undoRenameCommit(p, dir, before, err);
+    if (err instanceof UserActionableError && err.code === "org-moved") throw await whyRefused(p, prepared, from, to, err);
     throw err;
   }
   const outcome = await convergeSafely(p, seams);

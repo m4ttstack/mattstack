@@ -8,6 +8,7 @@ import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { cleanupOrgWorlds, orgWorld } from "../../lib/team/__tests__/org-world.ts";
 import type { ConvergeOutcome } from "../../lib/team/rename.ts";
+import * as cliLogger from "../../lib/cli-logger.ts";
 import * as orgFolder from "../../lib/setup/steps/org-folder.ts";
 import { realTeamDeps, renameBlocks, teamRename, type TeamDeps } from "../team.ts";
 
@@ -47,8 +48,28 @@ describe("rt team rename", () => {
     const w = orgWorld();
     const { deps, lines } = depsFor(w.p, { state: "failed", detail: "The rt daemon is running but did not answer", remedy: "Run rt daemon restart, then rt setup update --force" });
     expect(await exitCode(() => teamRename(["gadgets", "--json"], {}, deps))).toBeUndefined();
-    expect(JSON.parse(lines[0]!)).toMatchObject({ ok: true, converged: false });
+    const env = JSON.parse(lines[0]!);
+    expect(env).toMatchObject({ ok: true, converged: false });
+    expect(Object.keys(env).sort()).toEqual(["at", "contract", "converge", "converged", "from", "ok", "to"]);
+    expect(env.converge).toEqual({ state: "failed", detail: "The rt daemon is running but did not answer", remedy: "Run rt daemon restart, then rt setup update --force" });
   }, 15_000);
+
+  test("--json converge carries only the fields the outcome had", async () => {
+    const w = orgWorld();
+    const { deps, lines } = depsFor(w.p, { state: "needs-you" });
+    await teamRename(["gadgets", "--json"], {}, deps);
+    expect(JSON.parse(lines[0]!).converge).toEqual({ state: "needs-you" });
+  }, 15_000);
+
+  test("a bad new name sees a refused note, exit 2", async () => {
+    const w = orgWorld();
+    const { deps } = depsFor(w.p);
+    const captured = captureOut();
+    try {
+      expect(await exitCode(() => teamRename(["Acme Labs"], {}, deps))).toBe(2);
+      expect(captured.stderr()).toContain(`[refused] "Acme Labs" cannot be an org name`);
+    } finally { captured.restore(); }
+  });
 
   test("a non-admin sees a refused note, exit 2", async () => {
     const w = orgWorld("dev2");
@@ -124,5 +145,22 @@ describe("rt team rename", () => {
       expect(spy).toHaveBeenCalledTimes(1);
       expect(JSON.parse(lines[0]!)).toMatchObject({ converged: true });
     } finally { spy.mockRestore(); }
+  }, 15_000);
+
+  test("the converge step's log lines reach the CLI log without clone urls", async () => {
+    const w = orgWorld();
+    const spy = spyOn(orgFolder, "convergeOrgFolder").mockImplementation(async (ctx) => {
+      ctx.emit({ event: "step", id: "org.folder", state: "running" });
+      ctx.log("org.folder", "fetched https://dev1:secret@example.test/acme.git");
+      return { state: "done", detail: "Moved acme" };
+    });
+    const logged = spyOn(cliLogger, "logCliEvent").mockImplementation(() => {});
+    try {
+      await teamRename(["gadgets", "--json"], {}, { ...realTeamDeps(), probes: w.p, print: () => {}, forgeToken: async () => null });
+      expect(logged.mock.calls).toEqual([["debug", "team.rename", "fetched <remote>"]]);
+    } finally {
+      spy.mockRestore();
+      logged.mockRestore();
+    }
   }, 15_000);
 });

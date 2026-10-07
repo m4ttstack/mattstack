@@ -62,6 +62,8 @@ import { renameOrg, type ConvergeOutcome, type RenameResult, type RenameSeams } 
 import { commitPendingPackShares, droppedShareBlocks, droppedShares, packShareBlocks, rememberPackShare, sharePack } from "../lib/team/share-pack.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient } from "../lib/team/relay-client.ts";
+import { withoutUrls } from "../lib/team/redact.ts";
+import { logCliEvent } from "../lib/cli-logger.ts";
 import { checkedOutBranch } from "../lib/team/org-branch.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
@@ -180,6 +182,7 @@ const REFUSAL_CODES = new Set([
   "org-detached",
   "peer-needs-admin",
   "board-registered-elsewhere",
+  "bad-org-name",
   "rename-not-admin",
   "rename-same-name",
   "rename-name-taken",
@@ -384,13 +387,16 @@ export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: 
   }
 }
 
-async function applyContextFor(deps: TeamDeps): Promise<ApplyContext> {
+/** A step's log lines go to the CLI log under `module`; every other event is the step engine's, which these callers do not run. */
+async function applyContextFor(deps: TeamDeps, module: string): Promise<ApplyContext> {
   const { createApplyContext } = await import("../lib/setup/apply.ts");
   const { createRealSecretsExecSeam } = await import("../lib/secrets/store.ts");
   const { realSecretPresence } = await import("../lib/setup/plan.ts");
   return createApplyContext({
     probes: deps.probes,
-    emit: () => {},
+    emit: (ev) => {
+      if (ev.event === "log") logCliEvent("debug", module, withoutUrls(ev.line));
+    },
     secrets: deps.secrets ?? { ageKeySeam: deps.ageKeySeam ?? createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() },
     relay: createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env)),
     secretPresence: deps.secretPresence ?? realSecretPresence(),
@@ -400,7 +406,7 @@ async function applyContextFor(deps: TeamDeps): Promise<ApplyContext> {
 
 async function convergeHere(deps: TeamDeps): Promise<ConvergeOutcome> {
   const { convergeOrgFolder } = await import("../lib/setup/steps/org-folder.ts");
-  return convergeOrgFolder(await applyContextFor(deps));
+  return convergeOrgFolder(await applyContextFor(deps, "team.rename"));
 }
 
 export function renameBlocks(result: RenameResult): Block[] {
@@ -432,7 +438,16 @@ export async function teamRename(args: string[], _ctx: CommandContext = {}, deps
     const from = resolveTeamSlug(args, "team rename");
     const result = await renameOrg(deps.probes, from, to, realRenameSeams(deps));
     if (json) {
-      deps.print(JSON.stringify(envelope({ ok: true, from: result.from, to: result.to, converged: result.converged })));
+      const converge = result.converged
+        ? {}
+        : {
+            converge: {
+              state: result.convergeState,
+              ...(result.convergeDetail ? { detail: result.convergeDetail } : {}),
+              ...(result.convergeRemedy ? { remedy: result.convergeRemedy } : {}),
+            },
+          };
+      deps.print(JSON.stringify(envelope({ ok: true, from: result.from, to: result.to, converged: result.converged, ...converge })));
       return;
     }
     out.print(...renameBlocks(result));
@@ -978,7 +993,7 @@ export async function realUseTeamSeams(deps: TeamDeps): Promise<UseTeamSeams> {
     installPack: async () => {
       const { installPlugins } = await import("../lib/setup/steps/plugins.ts");
       const { materializeSkills } = await import("../lib/setup/skills-materialize.ts");
-      const ctx = await applyContextFor(deps);
+      const ctx = await applyContextFor(deps, "team.use");
       const plugins = await installPlugins(ctx);
       if (plugins.state === "failed") return { ok: false, detail: plugins.detail };
       if (plugins.state === "skipped") await materializeSkills(ctx.p, {});
