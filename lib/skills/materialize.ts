@@ -65,8 +65,8 @@ function baseLayer(deps: MaterializeDeps, zone: ZoneInfo, pack: string, name: st
 }
 
 /** The plugin name a Mac installs the pack under, which is how the board finds a fill the pack carries; null without one. */
-function packPluginName(fs: MaterializeFs, packDir: string): string | null {
-  const text = fs.readFile(join(packDir, ".claude-plugin", "plugin.json"));
+function packPluginName(fs: MaterializeFs, pluginJson: string): string | null {
+  const text = fs.readFile(pluginJson);
   if (text === null) return null;
   try {
     const name = (JSON.parse(text) as { name?: unknown }).name;
@@ -90,10 +90,15 @@ function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, ow
 
     const merged = mergeLayers(layers);
     const base = layers.find((l) => l.label.startsWith("base:"));
-    const plugin = packPluginName(deps.fs, join(zone.dir, "packs", pack));
-    if (base && plugin) {
+    if (base) {
       const baseName = base.label.slice("base:".length);
-      retargetBoardFills(merged.bindings, baseName, boardOnlyBaseFills(baseName, mergedBindings(base.fragment, own)), plugin);
+      const fills = boardOnlyBaseFills(baseName, mergedBindings(base.fragment, own));
+      if (fills.size > 0) {
+        const pluginJson = join(zone.dir, "packs", pack, ".claude-plugin", "plugin.json");
+        const plugin = packPluginName(deps.fs, pluginJson);
+        if (!plugin) return { pack, zone: zone.slug, ok: false, detail: `${pack} carries board fills from ${baseName}, but ${pluginJson} names no plugin for the board to find them under` };
+        retargetBoardFills(merged.bindings, baseName, fills, plugin);
+      }
     }
 
     const path = packManifestPath(deps.mattstackRoot, slug, pack);

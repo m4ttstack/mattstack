@@ -998,6 +998,17 @@ describe("base pack attachments", () => {
     expect((await checkPack({ packDir, mattstackDir })).attachments.map((row) => [row.name, row.status])).toContainEqual(["board-review", "in-sync"]);
   });
 
+  test("materialize refuses a board fill retarget for a team pack with no plugin name, naming the file", () => {
+    const { mattstackDir, packDir } = seedBaseAndTeam({ bindings: BOARD, baseFiles: { "attachments/board-review/SKILL.md": BOARD_REVIEW_MD } });
+    rmSync(join(packDir, ".claude-plugin", "plugin.json"));
+
+    const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, enginePackDir: join(mattstackDir, "plugins", "mattstack") }, "https://gitlab.example.com/acme/widgets.git");
+
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs[0]).toMatchObject({ pack: "widgets", ok: false });
+    expect((out.packs[0] as { detail: string }).detail).toContain(join(packDir, ".claude-plugin", "plugin.json"));
+  });
+
   test("a board binding onto a fill the base does not have is refused at compile", async () => {
     const { packDir, compile } = seedBaseAndTeam({ bindings: { "board:review": { review: "acme-base:board-reveiw" } }, baseFiles: { "attachments/board-review/SKILL.md": BOARD_REVIEW_MD } });
 
