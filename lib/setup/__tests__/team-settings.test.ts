@@ -1,14 +1,39 @@
 import { describe, test, expect } from "bun:test";
-import { readTeamSnapshot, forgeFromRemote, type TeamIntegrations } from "../team-settings.ts";
+import { discoverOrgs, legacyDeclaredForge, readTeamSnapshot, forgeFromRemote, type TeamIntegrations } from "../team-settings.ts";
 import { fakeProbes } from "./fakes.ts";
 import type { SettingsReader } from "../team-settings.ts";
 
-const GIT_CONFIG_PATH = "/fake-home/.mattstack/teams/acme/.git/config";
+const GIT_CONFIG_PATH = "/fake-home/.mattstack/orgs/acme/.git/config";
 
 /** Never touches the real resolver/disk — this is the whole point of the injected `read` seam (finding 10). */
 function fakeReader(values: Record<string, unknown>): SettingsReader {
   return <T>(key: string): T | undefined => values[key] as T | undefined;
 }
+
+describe("discoverOrgs", () => {
+  test("discoverOrgs reads orgs/ only", () => {
+    const p = fakeProbes({
+      home: "/h",
+      dirs: { "/h/.mattstack/orgs": ["acme"], "/h/.mattstack/teams": ["widgets"] },
+      files: { "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}\n", "/h/.mattstack/teams/widgets/mattstack/org/settings.org.jsonc": "{}\n" },
+    });
+    expect(discoverOrgs(p)).toEqual(["acme"]);
+  });
+});
+
+describe("legacyDeclaredForge", () => {
+  const store = '{ "mattstack.integrations": { "forge": { "host": "gitlab.example.com", "provider": "gitlab" } } }\n';
+
+  test("reads the unconverted store from the clone under orgs/", () => {
+    const p = fakeProbes({ home: "/h", files: { "/h/.mattstack/orgs/acme/mattstack/settings.team.jsonc": store } });
+    expect(legacyDeclaredForge(p, "acme")).toEqual({ host: "gitlab.example.com", provider: "gitlab" });
+  });
+
+  test("a store left under teams/ declares nothing", () => {
+    const p = fakeProbes({ home: "/h", files: { "/h/.mattstack/teams/acme/mattstack/settings.team.jsonc": store } });
+    expect(legacyDeclaredForge(p, "acme")).toBeNull();
+  });
+});
 
 describe("readTeamSnapshot — injected read seam", () => {
   test("assembles integrations/marketplaces/plugins/trackingIdentities from the reader, never touching getSetting", async () => {

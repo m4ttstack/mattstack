@@ -36,6 +36,7 @@ import { createSettingsHandlers } from "./handlers/settings.ts";
 import { createHomeHandlers } from "./handlers/home.ts";
 import { createTeamSnapshotHandlers } from "./handlers/team-snapshot.ts";
 import { createReposHandlers } from "./handlers/repos.ts";
+import { createOrgHandlers } from "./handlers/org.ts";
 import { createGitStatusHandlers } from "./handlers/git-status.ts";
 import type { GitBadgesStore } from "./git-badges-store.ts";
 import type { GitStatusSweep } from "./git-status-sweep.ts";
@@ -110,7 +111,7 @@ export function buildRoutedHandlers(opts: {
   herdJobsRoot: string;
   /** Home-repo snapshot daemon (H2) — inert handle when disabled/not-a-repo. */
   homeSnapshot: HomeSnapshotHandle;
-  /** One snapshot engine per team clone under ~/.mattstack/teams. */
+  /** One snapshot engine per team clone under ~/.mattstack/orgs. */
   teamSnapshots: TeamSnapshotsHandle;
   /** Reconciler hold + hooks-guard rewire the repos:locate verb drives. */
   repos: {
@@ -275,6 +276,7 @@ export function buildRoutedHandlers(opts: {
     ...createHomeHandlers(opts.homeSnapshot),
     ...createTeamSnapshotHandlers(opts.teamSnapshots),
     ...createReposHandlers({ ...opts.repos, emitEvent }),
+    ...createOrgHandlers({ ...opts.repos, emitEvent, teamSnapshots: opts.teamSnapshots }),
     ...createGitStatusHandlers({ store: opts.gitBadges, sweep: opts.gitStatusSweep }),
 
     // Applies repo-tracking edits immediately (rt daemon track <repo>

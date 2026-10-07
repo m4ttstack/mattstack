@@ -11,7 +11,7 @@ import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { readTeamRecipients, teamSecretsFile, writeTeamRecipients } from "../../secrets/team-store.ts";
 import type { SecretsExecResult, SecretsExecSeam, SecretsSeams } from "../../secrets/store.ts";
 import { UserActionableError } from "../../errors.ts";
-import { teamsDir } from "../../rt-paths.ts";
+import { orgsDir } from "../../rt-paths.ts";
 import { seal, sealReply } from "../invite-crypto.ts";
 import { upsertInviteRecord, type InviteRecord } from "../invite-records.ts";
 import { membersRemove, membersSync, MembersSyncAbortedError, type MembersSeams } from "../members.ts";
@@ -44,14 +44,14 @@ const CREATOR_SECRET = "creator-secret-alice";
 function fakeProbes(opts: Parameters<typeof rawFakeProbes>[0] = {}) {
   const home = opts.home ?? HOME;
   return rawFakeProbes({ ...opts, files: {
-    [`${home}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+    [`${home}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
     [teamLocalPath(home, "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
     ...opts.files,
   } });
 }
 
 function teamCloneRootFor(slug: string): string {
-  return join(teamsDir(), slug);
+  return join(orgsDir(), slug);
 }
 
 function probesWithJoinedTeam(slug = SLUG, username = "dev2") {
@@ -573,7 +573,7 @@ describe("membersRemove", () => {
   // could still clone, so the warning is the point of these two tests.
   test("without the membership permission: never calls the forge, and says they still have access", async () => {
     const remote = "git@github.com:acme/widgets.git";
-    const p = fakeProbes({ home: HOME, files: { [join(HOME, ".mattstack", "teams", SLUG, ".git", "config")]: gitConfigWithRemote(remote) } });
+    const p = fakeProbes({ home: HOME, files: { [join(HOME, ".mattstack", "orgs", SLUG, ".git", "config")]: gitConfigWithRemote(remote) } });
     const { execSeam, secrets } = seamsWithClone();
     writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
     execSeam.writeFile(teamSecretsFile(SLUG, "board"), JSON.stringify({ data: "opaque", sops: {} }));
@@ -605,7 +605,7 @@ describe("membersRemove", () => {
   // is a file a human can hand-edit.
   test("the permission alone, without createdByRt, still never calls the forge", async () => {
     const remote = "git@github.com:acme/widgets.git";
-    const p = fakeProbes({ home: HOME, files: { [join(HOME, ".mattstack", "teams", SLUG, ".git", "config")]: gitConfigWithRemote(remote) } });
+    const p = fakeProbes({ home: HOME, files: { [join(HOME, ".mattstack", "orgs", SLUG, ".git", "config")]: gitConfigWithRemote(remote) } });
     const { execSeam, secrets } = seamsWithClone();
     writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
     execSeam.writeFile(teamSecretsFile(SLUG, "board"), JSON.stringify({ data: "opaque", sops: {} }));
@@ -629,7 +629,7 @@ describe("membersRemove", () => {
 
   test("without the permission, the key recorded on mattstack.roster is still revoked and the row removed", async () => {
     const remote = "git@github.com:acme/widgets.git";
-    const p = fakeProbes({ home: HOME, files: { [join(HOME, ".mattstack", "teams", SLUG, ".git", "config")]: gitConfigWithRemote(remote) } });
+    const p = fakeProbes({ home: HOME, files: { [join(HOME, ".mattstack", "orgs", SLUG, ".git", "config")]: gitConfigWithRemote(remote) } });
     const { execSeam, secrets } = seamsWithClone();
     writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
     execSeam.writeFile(teamSecretsFile(SLUG, "board"), JSON.stringify({ data: "opaque", sops: {} }));
@@ -652,7 +652,7 @@ describe("membersRemove", () => {
 
   test("revokes forge access, writes the roster without the handle, re-encrypts, and returns a non-empty residue note", async () => {
     const remote = "git@github.com:acme/widgets.git";
-    const p = fakeProbes({ home: HOME, files: { [join(HOME, ".mattstack", "teams", SLUG, ".git", "config")]: gitConfigWithRemote(remote) } });
+    const p = fakeProbes({ home: HOME, files: { [join(HOME, ".mattstack", "orgs", SLUG, ".git", "config")]: gitConfigWithRemote(remote) } });
     const { execSeam, secrets } = seamsWithClone();
     // alice is already a recipient (as if membersSync had run for her already), with a real domain file to re-encrypt.
     writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
@@ -781,7 +781,7 @@ describe("membersRemove", () => {
   describe("refusing to remove the operator's own key", () => {
     test("a roster entry that carries the owner's OWN key (e.g. from a poisoned echo, or hand-edited data) refuses removal outright — no revoke, no roster write, no recipient change", async () => {
       const remote = "git@github.com:acme/widgets.git";
-      const p = fakeProbes({ home: HOME, files: { [join(HOME, ".mattstack", "teams", SLUG, ".git", "config")]: gitConfigWithRemote(remote) } });
+      const p = fakeProbes({ home: HOME, files: { [join(HOME, ".mattstack", "orgs", SLUG, ".git", "config")]: gitConfigWithRemote(remote) } });
       const { secrets } = seamsWithClone();
       writeTeamRecipients(SLUG, [OWNER_PUBLIC_KEY, ALICE_PUBLIC_KEY], secrets);
       const revokeCalls: unknown[] = [];
@@ -831,7 +831,7 @@ describe("membersRemove", () => {
 
     test("full attack sequence: an echoed owner key is rejected at sync time, so the later routine remove is a safe no-op and the owner stays a recipient throughout", async () => {
       const remote = "git@github.com:acme/widgets.git";
-      const p = fakeProbes({ home: HOME, files: { [join(HOME, ".mattstack", "teams", SLUG, ".git", "config")]: gitConfigWithRemote(remote) } });
+      const p = fakeProbes({ home: HOME, files: { [join(HOME, ".mattstack", "orgs", SLUG, ".git", "config")]: gitConfigWithRemote(remote) } });
       const { secrets } = seamsWithClone();
       upsertInviteRecord(p, SLUG, "alice", aliceRecord());
       const { seams } = fakeMembersSeams();
@@ -947,8 +947,8 @@ describe("membersSetTeams", () => {
   function world(username = "dev1", currentOrg: string | null = "acme") {
     const p = fakeProbes({ home: HOME, files: {
       [teamLocalPath(HOME, "acme")]: JSON.stringify({ forgeUsername: username }),
-      [`${HOME}/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc`]: "{}",
-      [`${HOME}/.mattstack/teams/acme/mattstack/teams/gadgets/settings.team.jsonc`]: "{}",
+      [`${HOME}/.mattstack/orgs/acme/mattstack/teams/widgets/settings.team.jsonc`]: "{}",
+      [`${HOME}/.mattstack/orgs/acme/mattstack/teams/gadgets/settings.team.jsonc`]: "{}",
     } });
     return { p, ...fakeMembersSeams({ readTeamStore: () => ({ "mattstack.roster": roster }), currentOrg: () => currentOrg }) };
   }

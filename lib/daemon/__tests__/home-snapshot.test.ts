@@ -2139,8 +2139,8 @@ describe("startSnapshot: spec", () => {
 describe("teamSnapshotSpec", () => {
   test("names the clone by slug, scopes to the team roots, pulls on the interval, and reads the stored forge token for origin", async () => {
     const p = { ...fakeProbes({ home: "/h" }) };
-    const spec = teamSnapshotSpec("acme", "/h/.mattstack/teams/acme", { ownedRoots: ["mattstack", ".sops.yaml", ".claude-plugin"], pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: p, readToken: async () => "glpat-x" });
-    expect(spec).toMatchObject({ id: "team:acme", repoDir: "/h/.mattstack/teams/acme", kvNamespace: "team-snapshot:acme", eventPrefix: "team", pull: { intervalSec: 120 } });
+    const spec = teamSnapshotSpec("acme", "/h/.mattstack/orgs/acme", { ownedRoots: ["mattstack", ".sops.yaml", ".claude-plugin"], pullIntervalSec: 120, originUrl: "https://gitlab.com/acme/team.git", probes: p, readToken: async () => "glpat-x" });
+    expect(spec).toMatchObject({ id: "team:acme", repoDir: "/h/.mattstack/orgs/acme", kvNamespace: "team-snapshot:acme", eventPrefix: "team", pull: { intervalSec: 120 } });
     expect(spec.scope!("mattstack/x")).toBe(true);
     expect(spec.scope!("src/x")).toBe(false);
     expect(await spec.tokenFor!()).toBe("glpat-x");
@@ -2168,7 +2168,7 @@ describe("teamSnapshotSpec", () => {
   function adminProbes() {
     return fakeProbes({ home: "/h", files: {
       "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }),
-      "/h/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+      "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
     } });
   }
   function withWidgetsFolder<T>(run: () => Promise<T>): Promise<T> {
@@ -2182,7 +2182,7 @@ describe("teamSnapshotSpec", () => {
     function probesWithShare(paths: string[]) {
       return fakeProbes({ home: "/h", files: {
         "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1", pendingPackShares: [{ pack: "gadgets", paths }] }),
-        "/h/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+        "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
       } });
     }
     async function round(paths: string[], status: string[], packOnDisk: boolean) {
@@ -2333,7 +2333,7 @@ describe("teamSnapshotSpec", () => {
     try {
       const ownerProbes = fakeProbes({ home: "/h", files: {
         "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev2" }),
-        "/h/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] }, gadgets: { owners: ["dev1"] } } } }),
+        "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] }, gadgets: { owners: ["dev1"] } } } }),
       } });
       const widgetsPackFile = "mattstack/teams/widgets/packs/widgets/skills/x/SKILL.md";
       const gadgetsPackFile = "mattstack/teams/gadgets/packs/gadgets/skills/y/SKILL.md";
@@ -3396,9 +3396,9 @@ describe("current snapshot authorization", () => {
   function world() {
     const p = fakeProbes({ home: "/h", files: {
       "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev2" }),
-      "/h/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+      "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
     } });
-    const revoke = () => p.writeFile("/h/.mattstack/teams/acme/mattstack/org/settings.org.jsonc", JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }));
+    const revoke = () => p.writeFile("/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc", JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }));
     const spec = teamSnapshotSpec("acme", FAKE_REPO_DIR, { ownedRoots: ["mattstack/teams/widgets"], probes: p, originUrl: "https://github.com/acme/org.git", pullIntervalSec: 300, readToken: async () => null });
     return { spec, revoke };
   }
@@ -3621,4 +3621,70 @@ describe("current snapshot authorization", () => {
       } finally { handle.stop(); }
     });
   }
+});
+
+describe("settled", () => {
+  /** Answers like the default responders, except one git verb blocks until the test opens the gate. */
+  function gatedVerb(verb: string) {
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => { open = resolve; });
+    const calls: string[][] = [];
+    const fn = async (argv: [string, ...string[]]): Promise<RunResult> => {
+      calls.push([...argv]);
+      if (gitVerb(argv) === verb) await gate;
+      for (const r of defaultResponders({ statusZ: "?? a.txt\0" })) {
+        const res = r(argv);
+        if (res) return res;
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    return { fn, calls, open };
+  }
+
+  const resolvedYet = async (p: Promise<void>): Promise<boolean> => {
+    let done = false;
+    void p.then(() => { done = true; });
+    await flushAsync();
+    return done;
+  };
+
+  test("resolves at once when nothing is in flight", async () => {
+    const { deps } = baseDeps();
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    expect(await resolvedYet(handle.settled())).toBe(true);
+    handle.stop();
+  });
+
+  test("waits out a commit cycle already running when stop lands", async () => {
+    const gated = gatedVerb("commit");
+    const { deps } = baseDeps({ exec: gated.fn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    const run = handle.runNow("manual");
+    await flushAsync();
+    expect(gated.calls.some((c) => gitVerb(c) === "commit")).toBe(true);
+    handle.stop();
+    const settled = handle.settled();
+    expect(await resolvedYet(settled)).toBe(false);
+    gated.open();
+    await run;
+    expect(await resolvedYet(settled)).toBe(true);
+  });
+
+  test("waits out a push already running when stop lands", async () => {
+    const gated = gatedVerb("push");
+    const { deps, timers } = baseDeps({ exec: gated.fn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    await handle.runNow("manual");
+    timers.fire((t) => t.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+    await flushAsync();
+    expect(gated.calls.filter((c) => c[1] === "push").length).toBe(1);
+    handle.stop();
+    const settled = handle.settled();
+    expect(await resolvedYet(settled)).toBe(false);
+    gated.open();
+    expect(await resolvedYet(settled)).toBe(true);
+  });
 });

@@ -352,7 +352,7 @@ describe("team.create", () => {
     const p = fakeProbes({ home: "/fake-home", exec: async (argv, opts) => argv[0] === "gh" ? ok(JSON.stringify({ login: "dev1" })) : gitExecFor(remote)(argv, opts) });
     const { ctx } = makeCtx(p, { intent: { v: 1, at: "", mode: "create", team: { slug: "acme", name: "Acme", remote, others: false, firstTeam: "widgets" } } });
     expect((await teamCreateStep.run(ctx)).state).toBe("done");
-    expect(p.exists("/fake-home/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc")).toBe(true);
+    expect(p.exists("/fake-home/.mattstack/orgs/acme/mattstack/teams/widgets/settings.team.jsonc")).toBe(true);
     expect(readIntent(p)?.team?.firstTeam).toBe("widgets");
   });
 
@@ -363,7 +363,7 @@ describe("team.create", () => {
 
     expect((await teamCreateStep.run(ctx)).state).toBe("done");
     expect(readTeamLocal(p, "personal").forgeUsername).toBe("dev1");
-    const org = JSON.parse(p.readFile("/fake-home/.mattstack/teams/personal/mattstack/org/settings.org.jsonc")!.split("\n").filter((l) => !l.startsWith("//")).join("\n"));
+    const org = JSON.parse(p.readFile("/fake-home/.mattstack/orgs/personal/mattstack/org/settings.org.jsonc")!.split("\n").filter((l) => !l.startsWith("//")).join("\n"));
     expect(org["mattstack.org"].admins).toEqual(["dev1"]);
   });
 
@@ -393,8 +393,8 @@ describe("team.create", () => {
 
   function adminProbes(opts: Parameters<typeof fakeProbes>[0] = {}) {
     return fakeProbes({ ...opts, files: {
-      "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
-      "/fake-home/.mattstack/teams/personal/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      "/fake-home/.mattstack/orgs/personal/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
       [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
       [teamLocalPath("/fake-home", "personal")]: JSON.stringify({ forgeUsername: "dev1" }),
       ...opts.files,
@@ -433,7 +433,7 @@ describe("team.create", () => {
 
     const outcome = await teamCreateStep.run(ctx);
     expect(outcome.state).toBe("done");
-    expect(p.exists("/fake-home/.mattstack/teams/personal/mattstack/mattstack.jsonc")).toBe(true);
+    expect(p.exists("/fake-home/.mattstack/orgs/personal/mattstack/mattstack.jsonc")).toBe(true);
   });
 
   // The push runs before secrets.write drains the stage, on a machine whose
@@ -474,7 +474,7 @@ describe("team.create", () => {
     // createTeam's own origin-match + SCAFFOLD_MARKER short-circuit is never
     // actually exercised by a second run, and asserting only `state ===
     // "done"` would pass even on a broken re-scaffolding path.
-    const dir = "/fake-home/.mattstack/teams/personal";
+    const dir = "/fake-home/.mattstack/orgs/personal";
     p.mkdirp(join(dir, ".git"));
     p.writeFile(join(dir, ".git", "config"), `[remote "origin"]\n\turl = ${remote}\n`);
 
@@ -526,7 +526,7 @@ const joinIntent: SetupIntent = { v: 1, at: "", mode: "join", join: { id: "a".re
 
 /** joinRedeem reads its resume state straight off `p` (readIntent(p)), not off `ctx.intent` — every fake probe below must carry the intent file too, not just the ApplyContext field. */
 function intentFile(home: string, intent: SetupIntent): Record<string, string> {
-  return { [intentPath(home)]: JSON.stringify(intent), ...(intent.mode === "join" ? { [`${home}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.roster": [{ username: "dev2", teams: ["widgets"] }] }) } : {}) };
+  return { [intentPath(home)]: JSON.stringify(intent), ...(intent.mode === "join" ? { [`${home}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.roster": [{ username: "dev2", teams: ["widgets"] }] }) } : {}) };
 }
 
 describe("team.join", () => {
@@ -556,7 +556,7 @@ describe("team.join", () => {
   });
 
   test("idempotent re-run: already cloned + relay says 'already' resumes cleanly instead of throwing invite-unknown", async () => {
-    const dir = "/fake-home/.mattstack/teams/acme";
+    const dir = "/fake-home/.mattstack/orgs/acme";
     const p = fakeProbes({
       home: "/fake-home",
       dirs: { [dir]: [".git"], [`${dir}/.git`]: [] },
@@ -659,7 +659,7 @@ describe("team.join outcomes", () => {
 });
 
 describe("team.join after the join itself finished", () => {
-  const TEAMS = "/fake-home/.mattstack/teams";
+  const TEAMS = "/fake-home/.mattstack/orgs";
 
   /** A machine an earlier join left behind, with the stamp an older rt wrote on its local record. */
   function joinedCtx(): ApplyContext {

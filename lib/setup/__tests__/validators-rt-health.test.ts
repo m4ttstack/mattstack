@@ -8,7 +8,7 @@ import { DAEMON_CONFIG_PATH } from "../../daemon-config.ts";
 import { DEV_MODE_TAG } from "../../dev-mode.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { setSetting } from "../../settings/write.ts";
-import { homeBackupRow, isTeamSyncFirstPullPending, oneTeamRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
+import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
 import { fakeProbes, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import { createRealProbes } from "../probes.ts";
@@ -831,7 +831,7 @@ describe("oneTeamRow", () => {
   });
 
   test("rtHealthRows carries the row when the machine has two zones", async () => {
-    const teams = join("/home/two", ".mattstack", "teams");
+    const teams = join("/home/two", ".mattstack", "orgs");
     const p = fakeProbes({
       home: "/home/two",
       dirs: { [teams]: ["acme", "globex"] },
@@ -844,6 +844,155 @@ describe("oneTeamRow", () => {
     const r = await pickRow(rtHealthRows(p, { ci: false }, () => undefined), "team.one-per-machine");
 
     expect(r.detail).toContain("acme, globex");
+  });
+});
+
+describe("org.folder row", () => {
+  const marker = (org: string) => JSON.stringify({ role: "org", org });
+
+  test("ready when the one org's marker matches its folder and teams/ is empty", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: { "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": marker("acme") },
+      dirs: { "/h/.mattstack/orgs": ["acme"], "/h/.mattstack/teams": [] },
+    });
+    const r = orgFolderRow(p, ["acme"]);
+    expect(r?.id).toBe(ORG_FOLDER_ROW_ID);
+    expect(r?.status).toBe("ready");
+  });
+
+  test("an unmarked folder under teams/ is ignored", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: { "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": marker("acme") },
+      dirs: { "/h/.mattstack/orgs": ["acme"], "/h/.mattstack/teams": ["stray"], "/h/.mattstack/teams/stray": [] },
+    });
+    expect(orgFolderRow(p, ["acme"])?.status).toBe("ready");
+  });
+
+  test("needs-you when a marked clone still sits under teams/", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: { "/h/.mattstack/teams/acme/mattstack/mattstack.jsonc": marker("acme") },
+      dirs: { "/h/.mattstack/orgs": [], "/h/.mattstack/teams": ["acme"] },
+    });
+    const r = orgFolderRow(p, []);
+    expect(r?.status).toBe("needs-you");
+    expect(r?.detail).toContain("has not moved yet");
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["Run: rt setup update --force"] });
+  });
+
+  test("error when a marker names a different org than its folder", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: { "/h/.mattstack/orgs/widgets/mattstack/mattstack.jsonc": marker("acme") },
+      dirs: { "/h/.mattstack/orgs": ["widgets"], "/h/.mattstack/teams": [] },
+    });
+    const r = orgFolderRow(p, ["widgets"]);
+    expect(r?.status).toBe("error");
+    expect(r?.detail).toContain("~/.mattstack/orgs/widgets");
+    expect(r?.detail).toContain("~/.mattstack/orgs/acme");
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["Run: rt setup update --force"] });
+  });
+
+  test("a one-team-layout clone under orgs/ with a mismatched folder reads as error even though discoverOrgs misses it", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/widgets/mattstack/mattstack.jsonc": JSON.stringify({ role: "team", org: "acme" }),
+        "/h/.mattstack/orgs/widgets/.git/config": '[remote "origin"]\n\turl = https://gitlab.example.com/acme/org.git\n',
+      },
+      dirs: { "/h/.mattstack/orgs": ["widgets"], "/h/.mattstack/teams": [] },
+    });
+    const r = orgFolderRow(p, []);
+    expect(r?.status).toBe("error");
+    expect(r?.detail).toContain("widgets");
+    expect(r?.detail).toContain("acme");
+  });
+
+  test("error lists every mismatched org with both paths", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/widgets/mattstack/mattstack.jsonc": marker("acme"),
+        "/h/.mattstack/orgs/gadgets/mattstack/mattstack.jsonc": marker("dev1"),
+      },
+      dirs: { "/h/.mattstack/orgs": ["widgets", "gadgets"], "/h/.mattstack/teams": [] },
+    });
+    const r = orgFolderRow(p, ["widgets", "gadgets"]);
+    expect(r?.status).toBe("error");
+    for (const path of ["~/.mattstack/orgs/widgets", "~/.mattstack/orgs/acme", "~/.mattstack/orgs/gadgets", "~/.mattstack/orgs/dev1"]) {
+      expect(r?.detail).toContain(path);
+    }
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["Run: rt setup update --force"] });
+  });
+
+  test("an old role: team marker with an org field under teams/ reads needs-you", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: { "/h/.mattstack/teams/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "team", org: "acme" }) },
+      dirs: { "/h/.mattstack/orgs": [], "/h/.mattstack/teams": ["acme"] },
+    });
+    expect(orgFolderRow(p, [])?.status).toBe("needs-you");
+  });
+
+  test.each([
+    ["another role", JSON.stringify({ role: "member", org: "acme" })],
+    ["no role", JSON.stringify({ org: "acme" })],
+    ["an org that fails the slug rule", JSON.stringify({ role: "org", org: "Acme Org" })],
+    ["a malformed marker", "{ role: org"],
+  ])("a marker with %s under teams/ is ignored", (_label, text) => {
+    const p = fakeProbes({
+      home: "/h",
+      files: { "/h/.mattstack/teams/acme/mattstack/mattstack.jsonc": text },
+      dirs: { "/h/.mattstack/orgs": [], "/h/.mattstack/teams": ["acme"] },
+    });
+    expect(orgFolderRow(p, [])).toBeNull();
+  });
+
+  test("error when a renamed old copy under teams/ holds an org already under orgs/", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": marker("acme"),
+        "/h/.mattstack/teams/acme-old/mattstack/mattstack.jsonc": marker("acme"),
+      },
+      dirs: { "/h/.mattstack/orgs": ["acme"], "/h/.mattstack/teams": ["acme-old"] },
+    });
+    const r = orgFolderRow(p, ["acme"]);
+    expect(r?.status).toBe("error");
+    expect(r?.detail).toContain("~/.mattstack/teams/acme-old");
+  });
+
+  test("error when the same clone sits in both roots", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": marker("acme"),
+        "/h/.mattstack/teams/acme/mattstack/mattstack.jsonc": marker("acme"),
+      },
+      dirs: { "/h/.mattstack/orgs": ["acme"], "/h/.mattstack/teams": ["acme"] },
+    });
+    expect(orgFolderRow(p, ["acme"])?.status).toBe("error");
+  });
+
+  test("null on a Mac with no org and nothing under teams/", () => {
+    const p = fakeProbes({ home: "/h", dirs: { "/h/.mattstack/orgs": [], "/h/.mattstack/teams": [] } });
+    expect(orgFolderRow(p, [])).toBeNull();
+  });
+
+  test("rtHealthRows carries the row right after the one-team row", async () => {
+    const orgs = join("/h", ".mattstack", "orgs");
+    const p = fakeProbes({
+      home: "/h",
+      dirs: { [orgs]: ["acme", "widgets"] },
+      files: {
+        [join(orgs, "acme", "mattstack", "org", "settings.org.jsonc")]: "{}",
+        [join(orgs, "widgets", "mattstack", "org", "settings.org.jsonc")]: "{}",
+      },
+    });
+    const ids = (await rtHealthRows(p, { ci: false }, () => undefined)).map((r) => r.id);
+    expect(ids.slice(-2)).toEqual(["team.one-per-machine", ORG_FOLDER_ROW_ID]);
   });
 });
 
@@ -1231,8 +1380,8 @@ describe("rtHealthRows: team.sync wiring", () => {
     const p = fakeProbes({
       home: "/fake-home",
       now: at,
-      files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
-      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+      files: { "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}" },
+      dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
       daemon: async (cmd) => {
         if (cmd === "team:snapshot-status") return { ok: true, data: [{ slug: "acme", lastPullAt: at.getTime() - 300_000, lastPushError: null, conflicted: null }] };
         return null;
@@ -1251,8 +1400,8 @@ describe("rtHealthRows: team.sync wiring", () => {
   test("rt.teamSnapshot.enabled=false: the row reports the setting instead of a permanent unwatched-clone verdict", async () => {
     const p = fakeProbes({
       home: "/fake-home",
-      files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
-      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+      files: { "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}" },
+      dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
       daemon: async (cmd) => (cmd === "team:snapshot-status" ? { ok: true, data: [] } : null),
     });
     const rows = await rtHealthRows(p, { ci: false }, () => ({ ...SNAPSHOT_SETTINGS, enabled: false }));
@@ -1264,8 +1413,8 @@ describe("rtHealthRows: team.sync wiring", () => {
   test("a cloned team reads status through p.daemon and produces a team.sync row", async () => {
     const p = fakeProbes({
       home: "/fake-home",
-      files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
-      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+      files: { "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}" },
+      dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
       daemon: async (cmd) => {
         if (cmd === "team:snapshot-status") return { ok: true, data: [{ slug: "acme", lastPullAt: Date.now(), lastPushError: null, conflicted: null }] };
         return null;
@@ -1280,8 +1429,8 @@ describe("rtHealthRows: team.sync wiring", () => {
   test("daemon unreachable for the snapshot-status call: team.sync reads missing", async () => {
     const p = fakeProbes({
       home: "/fake-home",
-      files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
-      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+      files: { "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}" },
+      dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
       daemon: async () => null,
     });
     const rows = await rtHealthRows(p, { ci: false });

@@ -197,9 +197,9 @@ function makeMattstackDir(): string {
   return dir;
 }
 
-/** An org clone under `<mattstackRoot>/teams/<org>` with one folder per team; every team inherits the org's claim unless it sets its own. */
+/** An org clone under `<mattstackRoot>/orgs/<org>` with one folder per team; every team inherits the org's claim unless it sets its own. */
 function seedOrg(mattstackRoot: string, org: string, opts: { projects: string[]; host?: string | null; teams: string[] }): void {
-  const dir = join(mattstackRoot, "teams", org, "mattstack");
+  const dir = join(mattstackRoot, "orgs", org, "mattstack");
   writeFile(join(dir, "mattstack.jsonc"), JSON.stringify({ role: "org", org }));
   const settings: Record<string, unknown> = { "board.projects": opts.projects };
   if (opts.host !== null) settings["board.gitlabHost"] = opts.host ?? "https://gitlab.example.com";
@@ -208,7 +208,7 @@ function seedOrg(mattstackRoot: string, org: string, opts: { projects: string[];
 }
 
 const teamPackDir = (mattstackRoot: string, org: string, team: string, pack = team) =>
-  join(mattstackRoot, "teams", org, "mattstack", "teams", team, "packs", pack);
+  join(mattstackRoot, "orgs", org, "mattstack", "teams", team, "packs", pack);
 
 function makePackDir(): string {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-pack-")));
@@ -615,7 +615,7 @@ describe("skillsCompile", () => {
   test("a team pack compiles a fill that lives in the org base pack", async () => {
     const mattstackDir = makeMattstackDir();
     seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
-    const baseDir = join(mattstackDir, "teams", "acme", "mattstack", "org", "packs", "acme-base");
+    const baseDir = join(mattstackDir, "orgs", "acme", "mattstack", "org", "packs", "acme-base");
     const packDir = teamPackDir(mattstackDir, "acme", "widgets");
     writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
     writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD);
@@ -637,7 +637,7 @@ describe("skillsCompile", () => {
   for (const externalCopy of [false, true]) test(`a numeric-leading org materializes and compiles inherited base fills in its ${externalCopy ? "external copy" : "clone"}`, async () => {
     const mattstackDir = makeMattstackDir();
     seedOrg(mattstackDir, "1acme", { projects: ["acme/widgets"], teams: ["team-1acme"] });
-    const baseDir = join(mattstackDir, "teams", "1acme", "mattstack", "org", "packs", "acme-base");
+    const baseDir = join(mattstackDir, "orgs", "1acme", "mattstack", "org", "packs", "acme-base");
     const packDir = teamPackDir(mattstackDir, "1acme", "team-1acme");
     writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
     writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD);
@@ -652,7 +652,7 @@ describe("skillsCompile", () => {
     let compileDir = packDir;
     if (externalCopy) {
       const copy = join(realpathSync(mkdtempSync(join(tmpdir(), "rt-numeric-org-copy-"))), "1acme-copy");
-      cpSync(join(mattstackDir, "teams", "1acme"), copy, { recursive: true });
+      cpSync(join(mattstackDir, "orgs", "1acme"), copy, { recursive: true });
       compileDir = join(copy, "mattstack", "teams", "team-1acme", "packs", "team-1acme");
       const copiedFill = join(copy, "mattstack", "org", "packs", "acme-base", "attachments", "watch-ci-domain", "SKILL.md");
       writeFile(copiedFill, DOMAIN_SKILL_MD + "\nFill from this external copy.\n");
@@ -669,7 +669,7 @@ describe("skillsCompile", () => {
   test("a team pack in a copy of the org repo outside teams/ compiles its org base fill from that copy, and a pack in no org repo gets no bases", async () => {
     const mattstackDir = makeMattstackDir();
     seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
-    const baseDir = join(mattstackDir, "teams", "acme", "mattstack", "org", "packs", "acme-base");
+    const baseDir = join(mattstackDir, "orgs", "acme", "mattstack", "org", "packs", "acme-base");
     writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
     writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD);
     writeFile(join(baseDir, "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
@@ -680,7 +680,7 @@ describe("skillsCompile", () => {
     if (out.kind !== "written") throw new Error(out.kind);
 
     const worktree = join(realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-org-wt-"))), "acme-wt");
-    cpSync(join(mattstackDir, "teams", "acme"), worktree, { recursive: true });
+    cpSync(join(mattstackDir, "orgs", "acme"), worktree, { recursive: true });
     const worktreePack = join(worktree, "mattstack", "teams", "widgets", "packs", "widgets");
     const compiled = await runExpectingCleanExit(() =>
       skillsCompile(["--team", "widgets", "--pack-dir", worktreePack, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
@@ -699,7 +699,7 @@ describe("skillsCompile", () => {
     const mattstackDir = makeMattstackDir();
     seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
     seedOrg(mattstackDir, "other", { projects: [], teams: [] });
-    const otherBase = join(mattstackDir, "teams", "other", "mattstack", "org", "packs", "other-base");
+    const otherBase = join(mattstackDir, "orgs", "other", "mattstack", "org", "packs", "other-base");
     writeFile(join(otherBase, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
     writeFile(join(otherBase, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD);
     writeFile(join(otherBase, "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
@@ -719,7 +719,7 @@ describe("skillsCompile", () => {
     const mattstackDir = makeMattstackDir();
     seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
     seedOrg(mattstackDir, "other", { projects: [], teams: ["gadgets"] });
-    const clash = join(mattstackDir, "teams", "acme", "mattstack", "org", "packs", "mattstack");
+    const clash = join(mattstackDir, "orgs", "acme", "mattstack", "org", "packs", "mattstack");
     writeFile(join(clash, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
     const widgetsDir = teamPackDir(mattstackDir, "acme", "widgets");
     const gadgetsDir = teamPackDir(mattstackDir, "other", "gadgets");
@@ -3284,7 +3284,7 @@ describe("pack role refusals", () => {
       process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-pack-role-")));
       try {
         seedRoleOrg({ org: "acme", username, roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
-        const orgRoot = join(process.env.HOME!, ".mattstack", "teams", "acme");
+        const orgRoot = join(process.env.HOME!, ".mattstack", "orgs", "acme");
         const packDir = target === "root" ? orgRoot : target === "..pack" ? join(orgRoot, "..pack") : join(orgRoot, "mattstack", "teams", "widgets", "packs", "widgets");
         writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
         const title = target === "team" ? "The widgets team's files belong to its owners" : "The org's shared files belong to its admins";
@@ -3319,7 +3319,7 @@ describe("a Mac with two org clones", () => {
         const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } };
         seed({ org: "acme", username: "dev4", roles, teams: { widgets: {} } });
         seed({ org: "beta", username: "dev4", roles, teams: { widgets: {} } });
-        const packDir = join(process.env.HOME!, ".mattstack", "teams", "beta", "mattstack", "teams", "widgets", "packs", "widgets");
+        const packDir = join(process.env.HOME!, ".mattstack", "orgs", "beta", "mattstack", "teams", "widgets", "packs", "widgets");
         writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
         const title = "This pack is in the beta org, not the one this Mac uses";
         const refusal = `${title}. rt works with one org per Mac, and this Mac uses acme`;
@@ -3343,7 +3343,7 @@ describe("a Mac with two org clones", () => {
       const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } };
       seedRoleOrg({ org: "acme", username: "dev2", roles, teams: { widgets: {} } });
       seedRoleOrg({ org: "beta", username: "dev2", roles, teams: { widgets: {} } });
-      const packDir = join(process.env.HOME!, ".mattstack", "teams", "acme", "mattstack", "teams", "widgets", "packs", "widgets");
+      const packDir = join(process.env.HOME!, ".mattstack", "orgs", "acme", "mattstack", "teams", "widgets", "packs", "widgets");
       writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
       writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
       const result = await runExpectingCleanExit(() => skillsCompile(["--pack-dir", packDir, "--manifest", makeManifest(), "--mattstack-dir", makeMattstackDir()]));
@@ -3358,7 +3358,7 @@ test("a zero-target JSON compile refusal keeps its report and explains why on st
   process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-empty-pack-role-")));
   try {
     seedRoleOrg({ org: "acme", username: "dev4", roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
-    const packDir = join(process.env.HOME!, ".mattstack", "teams", "acme", "mattstack", "teams", "widgets", "packs", "widgets");
+    const packDir = join(process.env.HOME!, ".mattstack", "orgs", "acme", "mattstack", "teams", "widgets", "packs", "widgets");
     const stubs = join(packDir, "pack", "stubs.jsonc");
     writeFile(stubs, '{"verbs":{}}');
     writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');

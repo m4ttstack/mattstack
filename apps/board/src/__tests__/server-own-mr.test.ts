@@ -170,7 +170,7 @@ function boot(
   const teamDir = join(
     home,
     '.mattstack',
-    'teams',
+    'orgs',
     'testteam',
     'mattstack',
     'org'

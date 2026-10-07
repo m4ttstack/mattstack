@@ -17,7 +17,7 @@ import {
   machineSettingsPath,
   orgSettingsPath,
   teamSettingsPath,
-  teamsDir,
+  orgsDir,
   userSettingsPath,
 } from "../paths.ts";
 import { getDef, type SettingDef, type SettingScope } from "../registry-machinery.ts";
@@ -352,15 +352,15 @@ describe("settings/resolve", () => {
     });
 
     test("items are expanded the same way as the value", () => {
-      seedOrg({ org: ORG, username: "dev1", roster, settings: { "claude.marketplaces": ["${team:widgets}/market"] } });
+      seedOrg({ org: ORG, username: "dev1", roster, settings: { "claude.marketplaces": ["${org}/market"] } });
       writeUser({ "claude.marketplaces": ["${home}/market"] });
-      const expected = [join(teamsDir(), "widgets", "market"), join(home, "market")];
+      const expected = [join(orgsDir(), ORG, "market"), join(home, "market")];
       const got = getSetting<string[]>("claude.marketplaces");
       expect(got.value).toEqual(expected);
       expect(got.items!.map((i) => i.value)).toEqual(expected);
       const listed = listSettings().find((s) => s.key === "claude.marketplaces")!;
       expect(listed.items!.map((i) => i.value)).toEqual(expected);
-      expect(getSetting<string[]>("claude.marketplaces", { expand: false }).items!.map((i) => i.value)).toEqual(["${team:widgets}/market", "${home}/market"]);
+      expect(getSetting<string[]>("claude.marketplaces", { expand: false }).items!.map((i) => i.value)).toEqual(["${org}/market", "${home}/market"]);
     });
 
     test("list leaves items raw beside a value it could not expand", () => {
@@ -657,44 +657,72 @@ describe("settings/resolve", () => {
   // ─── variables ─────────────────────────────────────────────────────────────
 
   describe("variables", () => {
-    const ctx = () => ({ home, teamsDir: teamsDir(), repoRoot: "/repos/x", worktree: "/repos/x/.wt/a" });
+    const orgRoot = () => join(home, ".mattstack", "orgs", "acme");
+    const ctx = (orgDir: string | null = orgRoot()) => ({ home, orgDir, repoRoot: "/repos/x", worktree: "/repos/x/.wt/a" });
 
     test("expands exactly the closed set", () => {
       expect(expandVariables("${home}/bin", ctx())).toBe(`${home}/bin`);
-      expect(expandVariables("${team:acme}/packs", ctx())).toBe(
-        `${join(teamsDir(), "acme")}/packs`,
-      );
+      expect(expandVariables("${org}/packs", ctx())).toBe(`${orgRoot()}/packs`);
       expect(expandVariables("${repoRoot}/.worktrees", ctx())).toBe("/repos/x/.worktrees");
       expect(expandVariables("${worktree}/node_modules", ctx())).toBe("/repos/x/.wt/a/node_modules");
     });
 
-    test("${team:<name>} is lexical — no existence check on the team dir", () => {
-      expect(expandVariables("${team:never-cloned}", ctx())).toBe(join(teamsDir(), "never-cloned"));
+    test("${team:<name>} is an alias for the current org clone whatever the name", () => {
+      const seen: string[] = [];
+      setSettingsWarnSink((m) => seen.push(m));
+      try {
+        expect(expandVariables("${team:acme}/packs", ctx())).toBe(`${orgRoot()}/packs`);
+        expect(expandVariables("${team:old-name}/packs", ctx())).toBe(`${orgRoot()}/packs`);
+        expect(seen).toEqual(["rt: ${team:acme} is deprecated; use ${org}", "rt: ${team:old-name} is deprecated; use ${org}"]);
+      } finally {
+        setSettingsWarnSink(null);
+      }
     });
 
-    test("${team:<name>} refuses a name that escapes the teams dir", () => {
-      // join() would normalize `..` away and hand back a path OUTSIDE
-      // teamsDir() — a store value that reads/execs from anywhere on disk
-      // while still looking team-relative. Every traversing form throws, and
-      // nothing half-expanded comes back.
+    test("the alias warns once per name per process", () => {
+      const seen: string[] = [];
+      setSettingsWarnSink((m) => seen.push(m));
+      try {
+        expandVariables("${team:acme}/packs", ctx());
+        expandVariables("${team:acme}/packs", ctx());
+        expandVariables("bun ${team:acme}/hook.ts", ctx());
+        expandVariables("${team:old-name}/packs", ctx());
+        expect(seen).toEqual(["rt: ${team:acme} is deprecated; use ${org}", "rt: ${team:old-name} is deprecated; use ${org}"]);
+      } finally {
+        setSettingsWarnSink(null);
+      }
+    });
+
+    test("the alias warns once per name even with no sink bound", () => {
+      setSettingsWarnSink(null);
+      expandVariables("${team:acme}/packs", ctx());
+      expandVariables("bun ${team:acme}/hook.ts", ctx());
+      expandVariables("${team:old-name}/packs", ctx());
+      const deprecations = warnSpy.mock.calls.map(([msg]) => String(msg)).filter((msg) => msg.includes("is deprecated; use ${org}"));
+      expect(deprecations).toEqual(["rt: ${team:acme} is deprecated; use ${org}", "rt: ${team:old-name} is deprecated; use ${org}"]);
+    });
+
+    test("${org} and the alias throw on a Mac with no org, never pass through", () => {
+      expect(() => expandVariables("${org}/x", ctx(null))).toThrow(/cannot expand \$\{org\}/);
+      expect(() => expandVariables("${team:acme}/x", ctx(null))).toThrow(/cannot expand \$\{org\}/);
+    });
+
+    test("${team:<name>} still refuses a name that is not one segment", () => {
       for (const name of ["../..", "../../.ssh", "a/b", "a\\b", "..", "cv/../.."]) {
         expect(() => expandVariables(`\${team:${name}}/x`, ctx())).toThrow(/single directory segment/);
       }
-      // …while an ordinary name is untouched by the guard.
-      expect(expandVariables("${team:claim.view-2}", ctx())).toBe(join(teamsDir(), "claim.view-2"));
     });
 
-    test("a foreign variable passes through verbatim in the SAME string as an expanded one", () => {
+    test("a foreign variable passes through verbatim in the SAME string as the alias", () => {
       const out = expandVariables("bun ${team:acme}/hook.ts --port ${port} --keys ${envKeys}", ctx());
-
-      expect(out).toBe(`bun ${join(teamsDir(), "acme")}/hook.ts --port \${port} --keys \${envKeys}`);
+      expect(out).toBe(`bun ${orgRoot()}/hook.ts --port \${port} --keys \${envKeys}`);
     });
 
     test("a closed-set variable with no context throws", () => {
-      expect(() => expandVariables("${repoRoot}/x", { home, teamsDir: teamsDir() })).toThrow(
+      expect(() => expandVariables("${repoRoot}/x", { home, orgDir: null })).toThrow(
         /\$\{repoRoot\}/,
       );
-      expect(() => expandVariables("${worktree}/x", { home, teamsDir: teamsDir() })).toThrow(
+      expect(() => expandVariables("${worktree}/x", { home, orgDir: null })).toThrow(
         /\$\{worktree\}/,
       );
     });
@@ -713,12 +741,13 @@ describe("settings/resolve", () => {
     });
 
     test("getSetting expands by default and throws when the closed set is unsatisfiable", () => {
-      writeUser({ repos: { [IDENTITY]: { "rt.roles": { be: { hook: "bun ${team:acme}/h.ts" } } } } });
+      writeOrg({});
+      writeUser({ repos: { [IDENTITY]: { "rt.roles": { be: { hook: "bun ${org}/h.ts" } } } } });
 
       const got = getSetting<Record<string, Record<string, string>>>("rt.roles", {
         repoIdentity: IDENTITY,
       });
-      expect(got.value.be?.hook).toBe(`bun ${join(teamsDir(), "acme")}/h.ts`);
+      expect(got.value.be?.hook).toBe(`bun ${join(orgsDir(), ORG)}/h.ts`);
 
       writeUser({ repos: { [IDENTITY]: { "rt.roles": { be: { hook: "bun ${repoRoot}/h.ts" } } } } });
       expect(() => getSetting("rt.roles", { repoIdentity: IDENTITY })).toThrow(/\$\{repoRoot\}/);
@@ -800,12 +829,12 @@ describe("settings/resolve", () => {
       expect(scopes).not.toContain("machine.repo");
     });
 
-    test("a broken entry in the teams dir never bricks resolution", () => {
+    test("a broken entry in the orgs root never bricks resolution", () => {
       // Regression (opus review of task 4): a team clone symlinked in and later
-      // moved leaves a dangling symlink under ~/.mattstack/teams, and the
+      // moved leaves a dangling symlink under ~/.mattstack/orgs, and the
       // unguarded scan behind listOrgs() made EVERY resolution throw ENOENT.
       writeOrg({ "rt.intercepts": [{ id: "team" }] });
-      symlinkSync(join(home, "moved-away"), join(teamsDir(), "moved-team"));
+      symlinkSync(join(home, "moved-away"), join(orgsDir(), "moved-team"));
 
       const got = getSetting("rt.intercepts", { repoIdentity: IDENTITY });
 

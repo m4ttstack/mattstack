@@ -16,7 +16,7 @@ const fakeHome = mkdtempSync(join(tmpdir(), 'board-healthz-fast-'));
 const teamDir = join(
   fakeHome,
   '.mattstack',
-  'teams',
+  'orgs',
   'testteam',
   'mattstack',
   'org'

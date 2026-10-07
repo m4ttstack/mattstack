@@ -32,7 +32,8 @@
  * pools too.
  *
  * `expandHome` also stays: the resolver's closed variable set is
- * `${repoRoot}/${worktree}/${home}/${team:<name>}` and a bare `~` is not in it,
+ * `${repoRoot}/${worktree}/${home}/${org}` (`${team:<name>}` is a deprecated
+ * alias for `${org}`) and a bare `~` is not in it,
  * so a machine-store `"root": "~/wt"` would otherwise reach the filesystem
  * verbatim. Shared scopes should use `${repoRoot}`-style variables (spec); the
  * machine store is allowed literals, and this is what makes them work.

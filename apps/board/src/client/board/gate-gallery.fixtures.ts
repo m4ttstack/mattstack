@@ -2098,7 +2098,7 @@ Account-2 (agent@example.com) is already the active default login... launching t
 ${RULE}
  Accessing workspace:
 
- /Users/pat/.mattstack/teams/acme
+ /Users/pat/.mattstack/orgs/acme
 
  Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source
  project, or work from your team). If not, take a moment to review what's in this folder first.
@@ -2122,7 +2122,7 @@ const paneTrust = (reason: 'blocked' | 'gone'): GalleryGate => ({
     status: 'open',
     openedAt: minutesAgo(reason === 'blocked' ? 2 : 17),
     meta: { agentId: 'ag-3c91a7e2', paneRef: 'w31:p1', reason },
-    origin: { paneId: 'w31:p1', worktree: '/Users/pat/.mattstack/teams/acme' },
+    origin: { paneId: 'w31:p1', worktree: '/Users/pat/.mattstack/orgs/acme' },
     context: TRUST_SCREEN,
     questions: [
       question('action', 'Pane needs attention', false, [

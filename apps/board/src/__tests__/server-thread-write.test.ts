@@ -13,7 +13,7 @@ const fakeHome = mkdtempSync(join(tmpdir(), 'board-thread-write-'));
 const teamDir = join(
   fakeHome,
   '.mattstack',
-  'teams',
+  'orgs',
   'testteam',
   'mattstack',
   'org'

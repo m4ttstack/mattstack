@@ -1,5 +1,5 @@
 /**
- * `rt team create` scaffolds the local team zone (~/.mattstack/teams/<slug>)
+ * `rt team create` scaffolds the local team zone (~/.mattstack/orgs/<slug>)
  * as a fresh git repo with its starter settings, but never pushes: Install's
  * `team.create` step owns the push, via `publishTeam`.
  *
@@ -30,6 +30,7 @@ import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { assertNotRealStoreInTest } from "../../packages/rt-client/src/test-isolation.ts";
 import { assertTeamName } from "./team-names.ts";
 import { slugify } from "./slug.ts";
+import { orgDirUnder } from "../rt-paths.ts";
 
 export interface CreateTeamOpts {
   name: string;
@@ -94,7 +95,7 @@ async function creatorUsername(p: Probes, slug: string, remote: string, seams: C
 
 /** False when the paths held nothing new to commit. */
 export async function commitFiles(p: Probes, slug: string, paths: string[], message: string): Promise<boolean> {
-  const cwd = join(p.home, ".mattstack", "teams", slug);
+  const cwd = orgDirUnder(p.home, slug);
   const add = await p.exec(["git", "add", "--", ...paths], { cwd });
   if (add.code !== 0) {
     await unstage(p, cwd, paths);
@@ -138,7 +139,7 @@ export async function claimPendingAdmin(p: Probes, slug: string, username: strin
   }
   if (after !== before) p.writeFile(file, after);
   try {
-    const origin = readExistingOrigin(p, join(p.home, ".mattstack", "teams", slug));
+    const origin = readExistingOrigin(p, orgDirUnder(p.home, slug));
     if (!origin) throw new UserActionableError("no-team-remote", "Your org has no repo to publish to");
     if (!(await scaffoldInHead(p, slug, pending.team))) await completeScaffold(p, slug, pending.team, readIntent(p)?.team?.name ?? slug, origin, pending.agePublicKey);
     await commitCreator(p, slug, username);
@@ -187,7 +188,7 @@ export function scaffoldFiles(slug: string, name: string, remote: string, recipi
 }
 
 async function scaffoldInHead(p: Probes, slug: string, team: string): Promise<boolean> {
-  const cwd = join(p.home, ".mattstack", "teams", slug);
+  const cwd = orgDirUnder(p.home, slug);
   for (const path of Object.keys(scaffoldFiles(slug, slug, "", [], team))) {
     if ((await p.exec(["git", "cat-file", "-e", `HEAD:${path}`], { cwd })).code !== 0) return false;
   }
@@ -204,7 +205,7 @@ function writeScaffoldFiles(p: Probes, dir: string, files: Record<string, string
 }
 
 async function completeScaffold(p: Probes, slug: string, team: string, name: string, remote: string, publicKey?: string): Promise<void> {
-  const cwd = join(p.home, ".mattstack", "teams", slug);
+  const cwd = orgDirUnder(p.home, slug);
   const files = scaffoldFiles(slug, name, remote, publicKey ? [publicKey] : [], team);
   writeScaffoldFiles(p, cwd, files);
   await commitFiles(p, slug, Object.keys(files), `team: scaffold ${slug}`);
@@ -311,7 +312,7 @@ export async function createTeam(p: Probes, opts: CreateTeamOpts, ageKeySeam: Ag
   if (recorded && opts.firstTeam && opts.firstTeam !== recorded) throw firstTeamSet(slug, recorded, opts.firstTeam);
   const team = opts.firstTeam ?? recorded ?? defaultTeamName(slug);
   assertTeamName(team);
-  const dir = join(p.home, ".mattstack", "teams", slug);
+  const dir = orgDirUnder(p.home, slug);
   assertNotRealStoreInTest(orgStoreFile(p.home, slug));
   assertOnlyTeam(p, slug);
 

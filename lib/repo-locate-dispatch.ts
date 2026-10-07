@@ -15,9 +15,10 @@
  * probing never starts a daemon or warns.
  */
 
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
 import { daemonSocketQuery } from "./daemon-client.ts";
-import { DAEMON_SOCK_PATH, isDaemonProcessRunning } from "./daemon-config.ts";
+import { RT_DIR } from "./daemon-config.ts";
 import { applyLocate, isRefusal, planLocate, type LocatePlan, type LocateResult } from "./repo-locate.ts";
 
 /** git worktree repair across a large pool is the slow part; the 2s default IPC timeout is a client number, not a daemon-op one. */
@@ -28,9 +29,39 @@ export type LocateOutcome =
   | { via: "daemon" | "local"; ok: true; dryRun: true; plan: LocatePlan }
   | { via: "daemon" | "local"; ok: false; error: string; why?: string; next?: string };
 
-/** A live pid file OR a socket file on disk — either is evidence the daemon holds the registry, whether or not it is currently answering requests. */
+interface PresenceIo {
+  exists(path: string): boolean;
+  readFile(path: string): string | null;
+}
+
+const realPresenceIo: PresenceIo = {
+  exists: existsSync,
+  readFile: (path) => {
+    try {
+      return readFileSync(path, "utf8");
+    } catch {
+      return null;
+    }
+  },
+};
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A live pid file OR a socket file on disk in `rtDir`: either is evidence the daemon holds the registry, whether or not it is currently answering requests. */
+export function daemonPresentIn(rtDir: string, io: PresenceIo = realPresenceIo): boolean {
+  const pid = Number.parseInt(io.readFile(join(rtDir, "rt.pid"))?.trim() ?? "", 10);
+  return (pid > 0 && pidAlive(pid)) || io.exists(join(rtDir, "rt.sock"));
+}
+
 function daemonPresent(): boolean {
-  return isDaemonProcessRunning() || existsSync(DAEMON_SOCK_PATH);
+  return daemonPresentIn(RT_DIR);
 }
 
 export async function locateMovedRepo(req: {

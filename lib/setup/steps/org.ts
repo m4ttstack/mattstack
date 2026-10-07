@@ -2,12 +2,15 @@ import { join } from "path";
 import { claimPendingAdmin } from "../../team/create.ts";
 import { tokenLookupRemoteForHost } from "../../team/forge-token.ts";
 import { forgeLogin } from "../../team/forge.ts";
+import { markerOrg } from "../../team/org-marker.ts";
 import { readTeamLocal, updateTeamLocal } from "../../team/team-local.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import type { Probes } from "../probes.ts";
 import { discoverOrgs, forgeFromRemote, legacyDeclaredForge, parseOriginUrl, probeUserSettingsReader } from "../team-settings.ts";
 import { trustedForgeTokenFor } from "./forge-token.ts";
+import { convergeOrgFolder } from "./org-folder.ts";
 import { toFailedOutcome } from "./step-utils.ts";
+import { orgDirUnder, orgsDirUnder } from "../../rt-paths.ts";
 
 const PULL_TIMEOUT_MS = 180_000;
 
@@ -19,12 +22,14 @@ interface PullReply {
 }
 
 export function cloneSlugs(p: Pick<Probes, "readDir" | "exists" | "home">): string[] {
-  const teams = join(p.home, ".mattstack", "teams");
+  const orgsRoot = orgsDirUnder(p.home);
   return p
-    .readDir(teams)
-    .filter((name) => p.exists(join(teams, name, ".git", "config")))
+    .readDir(orgsRoot)
+    .filter((name) => p.exists(join(orgsRoot, name, ".git", "config")))
     .sort();
 }
+
+export const orgSeams = { converge: convergeOrgFolder };
 
 async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
   const slugs = cloneSlugs(ctx.p);
@@ -32,6 +37,7 @@ async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
   const notes: string[] = [];
   const skips: string[] = [];
   const stuck: string[] = [];
+  const before = new Map(slugs.map((slug) => [slug, markerOrg(ctx.p, orgDirUnder(ctx.p.home, slug))]));
   for (const slug of slugs) {
     try {
       const res = (await ctx.p.daemon("team:pull", { slug }, PULL_TIMEOUT_MS)) as PullReply | null;
@@ -45,7 +51,20 @@ async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
       stuck.push(`${slug} was not pulled: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+  const renamed = slugs.filter((slug) => {
+    const after = markerOrg(ctx.p, orgDirUnder(ctx.p.home, slug));
+    return after !== null && after !== slug && after !== before.get(slug);
+  });
+  let converge: StepOutcome | null = null;
+  if (renamed.length) {
+    // A pull that changed the marker's org means this folder no longer matches it; the move runs now rather than at the next update.
+    converge = await orgSeams.converge(ctx);
+    if (converge.detail) notes.push(converge.detail);
+  }
   ctx.reloadTeam?.();
+  if (converge && (converge.state === "failed" || converge.state === "partial")) {
+    return { state: "partial", detail: [...notes, ...skips, ...stuck].join("; "), ...(converge.remedy !== undefined ? { remedy: converge.remedy } : {}) };
+  }
   if (stuck.length) return { state: "partial", detail: [...notes, ...skips, ...stuck].join("; "), remedy: "Run rt team status to see what is in the way" };
   if (skips.length) return { state: "skipped", detail: [...notes, ...skips].join("; ") };
   return { state: "done", detail: notes.join("; ") };
@@ -54,7 +73,7 @@ async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
 export const identitySeams = { login: forgeLogin };
 
 export function cloneOrigin(p: Pick<Probes, "readFile" | "home">, slug: string): string | null {
-  const raw = p.readFile(join(p.home, ".mattstack", "teams", slug, ".git", "config"));
+  const raw = p.readFile(join(orgDirUnder(p.home, slug), ".git", "config"));
   return raw === null ? null : parseOriginUrl(raw);
 }
 
