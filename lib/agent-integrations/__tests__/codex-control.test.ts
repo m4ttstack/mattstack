@@ -547,7 +547,7 @@ describe("codex protocol", () => {
 
   test("the method table matches the saved schema fixture", () => {
     expect(fixture.codexVersion).toBe(CODEX_PROTOCOL_VERSION);
-    const outside: Record<string, string[]> = { "thread/unsubscribe": ["threadId"], "thread/turns/list": ["limit", "threadId"] };
+    const outside: Record<string, string[]> = { "thread/unsubscribe": ["threadId"], "thread/turns/list": ["itemsView", "limit", "sortDirection", "threadId"] };
     expect(Object.keys(CODEX_METHODS_OUTSIDE_FIXTURE)).toEqual(Object.keys(outside));
     for (const [method, fields] of Object.entries(outside)) {
       expect(fixture.clientRequests[method], method).toBeUndefined();

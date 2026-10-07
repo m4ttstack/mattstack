@@ -1342,13 +1342,25 @@ describe("live-09: a turn that ended with no rollout evidence", () => {
     expect(turnEndedOf(null, "U1")).toBeNull();
   });
 
+  test("a notLoaded page's turns are read by id and status alone, with their items empty or absent", () => {
+    const { items: _items, ...bare } = listedTurn("U1", "interrupted");
+    expect(TURNS.notLoaded.data[2].items).toEqual([]);
+    expect(turnEndedOf({ data: [bare], nextCursor: null, backwardsCursor: null }, "U1")).toBe("interrupted");
+    expect(turnEndedOf({ data: [{ ...bare, items: [] }] }, "U1")).toBe("interrupted");
+  });
+
   test("the D5 rollout holds no output and no turn_aborted for the question", () => {
     expect(rolloutEvidence(LIVE09, L9_D5.item, null, true, L9_D5.turn)).toMatchObject({ state: "pending", absent: true });
   });
 
-  for (const status of ["interrupted", "completed", "failed"]) {
-    test(`D5: the turn ${status} with no output and the thread idle: the reconnect closes the gate, and a later answer is refused`, async () => {
-      const { w, c, gate } = await endedWhileAway(L9_D5, { status: { type: "idle" }, rollout: LIVE09, turns: [listedTurn(L9_D5.turn, status)] });
+  // live-10: before the TUI resumes the thread it reads notLoaded, and the turn already reads interrupted.
+  const d5: Array<[string, Message]> = [
+    ...["interrupted", "completed", "failed"].map((status): [string, Message] => [status, { type: "idle" }]),
+    ["interrupted", { type: "notLoaded" }],
+  ];
+  for (const [status, thread] of d5) {
+    test(`D5: the turn ${status} with no output and the thread ${thread.type}: the reconnect closes the gate, and a later answer is refused`, async () => {
+      const { w, c, gate } = await endedWhileAway(L9_D5, { status: thread, rollout: LIVE09, turns: [listedTurn(L9_D5.turn, status)] });
       await c.sessions.observe(w.sessions.get("s1")!);
       await settled();
       expect(w.store.get(gate.id)).toMatchObject({ status: "closed", answer: null });
@@ -1356,7 +1368,7 @@ describe("live-09: a turn that ended with no rollout evidence", () => {
       expect(attentionFor(w, "question-ended-unseen")).toEqual([]);
       expect((await answerGate(w, gate.id, { pick: "A" })).ok).toBe(false);
       expect(w.answersSent()).toEqual([]);
-      expect(turnLists(w).map((m) => m.params)).toEqual([{ threadId: "T1", limit: 20 }]);
+      expect(turnLists(w).map((m) => m.params)).toEqual([{ threadId: "T1", limit: 20, sortDirection: "desc", itemsView: "notLoaded" }]);
     });
   }
 
@@ -1441,11 +1453,14 @@ describe("live-09: a turn that ended with no rollout evidence", () => {
     await settled();
     const second = w.gates().find((g) => g.id !== first!.id)!;
     expect(second.status).toBe("open");
+    const superseded = { status: "closed", answer: null, closedReason: "superseded", supersededBy: second.id };
+    expect(w.store.get(first!.id)).toMatchObject(superseded);
     // A native answer whose output the rollout has not caught up with.
     w.server.rollout = LIVE09;
     w.server.resolve("T1");
     await settled();
     expect(w.store.get(second.id)!.status).toBe("open");
+    expect(w.store.get(first!.id)).toMatchObject(superseded);
     expect(turnLists(w).length).toBeGreaterThan(0);
   });
 

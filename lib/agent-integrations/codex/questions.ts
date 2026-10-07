@@ -657,7 +657,8 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
         status = isRecord(read) && isRecord(read.thread) ? read.thread.status : undefined;
       }
       if (!notWaiting(status)) return null;
-      return turnEndedOf(await control.request("thread/turns/list", { threadId, limit: TURNS_PAGE }), turnId);
+      const page = await control.request("thread/turns/list", { threadId, limit: TURNS_PAGE, sortDirection: "desc", itemsView: "notLoaded" });
+      return turnEndedOf(page, turnId);
     } catch {
       return null;
     }
