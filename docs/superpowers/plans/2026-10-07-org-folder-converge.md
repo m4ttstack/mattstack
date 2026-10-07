@@ -653,7 +653,7 @@ describe("pause and resume", () => {
 });
 ```
 
-Extend `harness()` so it records `stopped` (push the spec id when the fake handle's `stop` runs), keeps `watchCalls` the array the existing tests assert by shape but pushes to it only after the throw check below (a watch that threw never armed; the `breakWatch` test asserts `watchArmed`, not `watchCalls`, so nothing else moves), and takes `{ orgsMissingAtBoot?: boolean }`: when set, point `deps.orgsDir` at `join(tmp, "orgs")` without creating it and make the fake `watch` throw `ENOENT` while the directory is missing (`if (!existsSync(path)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" })`). Import `renameSync` and `mkdirSync` from `fs` if the file does not already.
+Extend `harness()` so it records `stopped` (push the spec id when the fake handle's `stop` runs), keeps `watchCalls` the array the existing tests assert by shape but pushes to it only after the throw check below (a watch that threw never armed; the `breakWatch` test asserts `watchArmed`, not `watchCalls`, so nothing else moves), and takes `{ orgsMissingAtBoot?: boolean }`: when set, `h.root` itself is `join(<mkdtemp>, "orgs")`, not yet created, with `deps.orgsDir` pointed at it and the cleanup removing the mkdtemp parent (the test above makes `h.root` with `mkdirSync` and expects the watch to arm on it, so `root` cannot stay at the mkdtemp with `orgsDir` below it), and the fake `watch` throws `ENOENT` while the directory is missing (`if (!existsSync(path)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" })`). Import `renameSync` and `mkdirSync` from `fs` if the file does not already.
 
 - [ ] **Step 2: Run them to verify they fail**
 
