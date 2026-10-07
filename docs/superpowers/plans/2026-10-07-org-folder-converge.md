@@ -238,7 +238,7 @@ git commit -m "orgs: one marker reader; the org.folder row judges every clone un
 
 **Files:**
 - Create: `lib/team/org-folder-move.ts`
-- Modify: `lib/team/team-local.ts` (`movedFrom?: string` on `TeamLocalRecord`, kept by `readTeamLocal`)
+- Modify: `lib/team/team-local.ts` (`movedFrom?: string` on `TeamLocalRecord`, kept by `readTeamLocal`); `lib/setup/__tests__/fakes.ts` (`rename` moves a directory)
 - Test: `lib/team/__tests__/org-folder-move.test.ts`
 
 **Interfaces:**
@@ -411,7 +411,7 @@ describe("runOrgMove", () => {
 - [ ] **Step 3: Run them to verify they fail**
 
 Run: `bun test lib/team/__tests__/org-folder-move.test.ts`
-Expected: FAIL, cannot resolve `../org-folder-move.ts`.
+Expected: FAIL, cannot resolve `../org-folder-move.ts`. The `runOrgMove` tests also depend on the fake's `rename` moving a directory (the `dirs` key and the files under it), which Step 4 adds to `fakes.ts`; without it `exists(from)` stays true after the move.
 
 - [ ] **Step 4: Write the module**
 
@@ -558,6 +558,40 @@ export async function runOrgMove(p: MoveProbes, req: { from: string; to: string;
 
 `fail` spreads `base` at call time, so a failure after the copy or the rename reports `records` and `folderMoved` as they stand.
 
+The fake's `rename` (`lib/setup/__tests__/fakes.ts`, `rename(from, to)`) moves a single file entry and leaves a directory's `dirs` key and every `from/...` file in place, so `exists(from)` would stay true after a directory rename and `cleanupMovedRecords` would see the old folder. Teach the fake a directory move, in the same function, before the tests above can pass:
+
+```ts
+    rename(from, to) {
+      calls.renames.push([from, to]);
+      if (from in dirs) {
+        // A directory moves with everything under it, and its entry in the parent listing moves too.
+        const prefix = `${from}/`;
+        for (const key of Object.keys(dirs)) {
+          if (key === from || key.startsWith(prefix)) {
+            dirs[`${to}${key.slice(from.length)}`] = dirs[key]!;
+            delete dirs[key];
+          }
+        }
+        for (const key of Object.keys(files)) {
+          if (key.startsWith(prefix)) {
+            files[`${to}${key.slice(from.length)}`] = files[key]!;
+            delete files[key];
+          }
+        }
+        const fromParent = dirs[dirname(from)];
+        if (fromParent) {
+          const at = fromParent.indexOf(basename(from));
+          if (at >= 0) fromParent.splice(at, 1);
+        }
+        const toParent = dirs[dirname(to)] ?? (dirs[dirname(to)] = []);
+        if (!toParent.includes(basename(to))) toParent.push(basename(to));
+        return;
+      }
+      // ... the existing single-file body stays as it is below this line
+```
+
+`dirname` and `basename` are already imported in `fakes.ts`. Run `bun test lib/setup/__tests__` after the change: every existing test that renames a file must still pass, since the directory branch only fires for a `dirs` key.
+
 - [ ] **Step 5: Run the tests**
 
 Run: `bun test lib/team/__tests__/org-folder-move.test.ts lib/team/__tests__`
@@ -566,7 +600,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib/team/org-folder-move.ts lib/team/__tests__/org-folder-move.test.ts lib/team/team-local.ts
+git add lib/team/org-folder-move.ts lib/team/__tests__/org-folder-move.test.ts lib/team/team-local.ts lib/setup/__tests__/fakes.ts
 git commit -m "orgs: the shared pieces that move a clone to its marker's name"
 ```
 
@@ -608,18 +642,18 @@ describe("pause and resume", () => {
     const h = harness({ orgsMissingAtBoot: true });
     const handle = startTeamSnapshots(h.deps);
     await handle.ready;
-    expect(h.watchCalls).toBe(0);
+    expect(h.watchCalls.length).toBe(0);
     mkdirSync(h.root, { recursive: true });
     clone(h.root, "acme", true);
     await handle.resume([]);
-    expect(h.watchCalls).toBe(1);
+    expect(h.watchCalls.length).toBe(1);
     expect(handle.status().map((e) => e.slug)).toEqual(["acme"]);
     handle.stop();
   });
 });
 ```
 
-Extend `harness()` so it records `stopped` (push the spec id when the fake handle's `stop` runs), counts `watchCalls` only for a watch that armed (increment after the throw check, never before it, or the 0 then 1 assertions fail), and takes `{ orgsMissingAtBoot?: boolean }`: when set, point `deps.orgsDir` at `join(tmp, "orgs")` without creating it and make the fake `watch` throw `ENOENT` while the directory is missing (`if (!existsSync(path)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" })`). Import `renameSync` and `mkdirSync` from `fs` if the file does not already.
+Extend `harness()` so it records `stopped` (push the spec id when the fake handle's `stop` runs), keeps `watchCalls` the array the existing tests assert by shape but pushes to it only after the throw check below (a watch that threw never armed; the `breakWatch` test asserts `watchArmed`, not `watchCalls`, so nothing else moves), and takes `{ orgsMissingAtBoot?: boolean }`: when set, point `deps.orgsDir` at `join(tmp, "orgs")` without creating it and make the fake `watch` throw `ENOENT` while the directory is missing (`if (!existsSync(path)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" })`). Import `renameSync` and `mkdirSync` from `fs` if the file does not already.
 
 - [ ] **Step 2: Run them to verify they fail**
 
@@ -828,7 +862,8 @@ describe("org:move", () => {
     expect(res.data).toMatchObject({ ok: true, from, to, folderMoved: true, index: "moved", records: { teams: "copied", invites: "none" } });
     expect(existsSync(to)).toBe(true);
     expect(existsSync(from)).toBe(false);
-    expect(JSON.parse(readFileSync(join(recordsDir(), "acme.json"), "utf8"))).toEqual({ forgeUsername: "dev1" });
+    // cleanupMovedRecords rewrites the record through writeTeamLocal, which normalises it to the known fields.
+    expect(JSON.parse(readFileSync(join(recordsDir(), "acme.json"), "utf8"))).toEqual({ createdByRt: false, joinedByRt: false, rtMayManageMembership: false, forgeUsername: "dev1" });
     expect(existsSync(join(recordsDir(), "widgets.json"))).toBe(false);
     expect(getKvValue("repo-index", identity)).toBe(to);
     expect(loadRegistry(identity)[0]?.path).toBe(to);
@@ -939,7 +974,8 @@ const refuse = (code: string, message: string) => ({ ok: false as const, error: 
 
 /** Relocates the clone's index row in this process, scoped to the clone's own identity: unscoped, planLocate refuses whenever any other repo rt knows is missing. The hold is already held, so the `repos:locate` handler (which takes it) would deadlock. */
 const locateDirect: LocateFn = async (newPath) => {
-  clearIdentityMemo(newPath);
+  // The memo may hold the clone's identity under its old path; it takes no argument and clears everything.
+  clearIdentityMemo();
   const identity = serializeIdentity(await deriveRepoIdentity(newPath));
   const plan = await planLocate({ newPath, repo: identity });
   if (isRefusal(plan)) return { ok: false, error: `${plan.refusal}: ${plan.message}` };
@@ -993,7 +1029,7 @@ export function createOrgHandlers(opts: OrgHandlerOpts): Record<"org:move", (pay
 }
 ```
 
-`clearIdentityMemo` exists in `lib/settings/identity.ts` (the `repos:reidentify` handler imports it); `deriveRepoIdentity` memoizes by path, and the clone's old path may already be memoized from an earlier derive. Check whether `clearIdentityMemo` takes a path or clears everything, and call it the way `lib/daemon/handlers/repos.ts` does.
+`clearIdentityMemo()` (`packages/rt-client/src/settings/identity.ts`, re-exported by `lib/settings/identity.ts`) takes no argument and clears the whole memo; `deriveRepoIdentity` memoizes by path, so the bare call before the derive is what keeps a stale entry from answering.
 
 `repo:moved` carried `identity` from `repos:locate`; here `runOrgMove` does not surface it, so the payload is `{ from, to }`. Check `lib/daemon/__tests__`, `apps/board/src` and `apps/console/src` for a consumer of `repo:moved` that reads `identity` (`grep -rn "repo:moved"`); if one does, extend `LocateFn`'s ok shape with `identity?: string`, set it in `locateDirect`, thread it through `OrgMoveResult` as `identity?: string`, and emit it. Otherwise leave the payload as written and say so in the commit.
 
@@ -1059,7 +1095,7 @@ export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: strin
 
 Follow Task 1's Findings. The piece, per Claude config dir:
 
-1. A pending record for this marketplace and config dir whose marketplace is no longer registered drives the finish: `marketplace add <record.dir>`, `plugin install <id> --scope <scope>` for each recorded plugin, `plugin disable <id>` for each recorded as not enabled; cleared on success. (A pending record whose marketplace IS registered at the clone was finished by claude or by hand: clear it.)
+1. A pending record for this marketplace and config dir drives the finish. Marketplace no longer registered: `marketplace add <record.dir>`, then every recorded `plugin install <id> --scope <scope>`, then `plugin disable <id>` for each recorded as not enabled. Marketplace registered at the clone (a run stopped after the add): `plugin list --json`, then install every recorded plugin missing from it and disable every recorded-off plugin that is on. The record is cleared only when every command exited 0.
 2. Else `claude plugin marketplace list --json`; `parseMarketplaceList`. Not registered → skipped for this dir. Registered with `source` at `clone.dir` (`samePath`: `realpathSync` of each side when it exists, else `resolve`) → done for this dir.
 3. Else `claude plugin list --json` (`parseInstalledFrom`), write the pending record, then `marketplace remove <name>`, `marketplace add <clone.dir>`, the installs, the disables; clear the record on success.
 4. Any non-zero exit → stop, `partial`, `commands` = the commands not yet run (from the failed one onwards) as `claude plugin ...` strings, with `CLAUDE_CONFIG_DIR=<dir> ` prefixed when the dir is not the default one. The pending record stays, so the next run finishes.
@@ -1212,14 +1248,30 @@ describe("convergeMarketplace", () => {
     expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
   });
 
-  test("a pending record whose marketplace already points at the clone is cleared without commands", async () => {
-    const claude = claudeFake({ registeredAt: clone(), plugins: [] });
+  test("a rerun after a failure between add and install reinstalls from the record", async () => {
+    const claude = claudeFake({ registeredAt: clone(), plugins: [{ id: "widgets@acme", enabled: true }] });
     const p = probes(claude.exec);
-    updateSetupState(p, (s) => ({ ...s, orgMarketplaceMoves: [{ marketplace: "acme", dir: clone(), configDir: defaultCfg(), plugins: [] }] }));
+    updateSetupState(p, (s) => ({ ...s, orgMarketplaceMoves: [{ marketplace: "acme", dir: clone(), configDir: defaultCfg(), plugins: [{ id: "widgets@acme", scope: "user", enabled: true }, { id: "gadgets@acme", scope: "user", enabled: false }] }] }));
     const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
     expect(out.state).toBe("done");
-    expect(claude.commands()).toEqual(["plugin marketplace list --json"]);
+    expect(claude.commands()).toEqual([
+      "plugin marketplace list --json",
+      "plugin list --json",
+      "plugin install gadgets@acme --scope user",
+      "plugin disable gadgets@acme",
+    ]);
     expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
+  });
+
+  test("a pending record is kept when the reinstall from it fails", async () => {
+    const claude = claudeFake({ registeredAt: clone(), plugins: [], fail: "plugin install gadgets@acme" });
+    const p = probes(claude.exec);
+    const record = { marketplace: "acme", dir: clone(), configDir: defaultCfg(), plugins: [{ id: "gadgets@acme", scope: "user", enabled: false }] };
+    updateSetupState(p, (s) => ({ ...s, orgMarketplaceMoves: [record] }));
+    const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
+    expect(out.state).toBe("partial");
+    expect(out.commands).toEqual(["claude plugin install gadgets@acme --scope user", "claude plugin disable gadgets@acme"]);
+    expect(readSetupState(p).orgMarketplaceMoves).toEqual([record]);
   });
 
   test("claude missing ends partial with the remove and add commands and writes no pending record", async () => {
@@ -1349,13 +1401,14 @@ interface Planned {
   command: string;
 }
 
+const step = (prefix: string, argv: string[]): Planned => ({ argv, command: `${prefix}claude ${argv.join(" ")}` });
+
 function plan(prefix: string, name: string, dir: string, plugins: InstalledPlugin[], opts: { remove: boolean }): Planned[] {
-  const step = (argv: string[]): Planned => ({ argv, command: `${prefix}claude ${argv.join(" ")}` });
   return [
-    ...(opts.remove ? [step(["plugin", "marketplace", "remove", name])] : []),
-    step(["plugin", "marketplace", "add", dir]),
-    ...plugins.map((pl) => step(["plugin", "install", pl.id, "--scope", pl.scope])),
-    ...plugins.filter((pl) => !pl.enabled).map((pl) => step(["plugin", "disable", pl.id])),
+    ...(opts.remove ? [step(prefix, ["plugin", "marketplace", "remove", name])] : []),
+    step(prefix, ["plugin", "marketplace", "add", dir]),
+    ...plugins.map((pl) => step(prefix, ["plugin", "install", pl.id, "--scope", pl.scope])),
+    ...plugins.filter((pl) => !pl.enabled).map((pl) => step(prefix, ["plugin", "disable", pl.id])),
   ];
 }
 
@@ -1397,9 +1450,18 @@ export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: strin
       plugins = pending.plugins;
       steps = plan(prefixFor(dir), name, clone.dir, plugins, { remove: false });
     } else if (pending && atClone) {
-      setPending(ctx, null, name, dir);
-      notes.push(`${name} already points at the clone`);
-      continue;
+      // A run stopped after the add: the marketplace is back, the plugins may not be. Reinstall what the record names and is still missing.
+      const list = await run(["plugin", "list", "--json"]);
+      const installed = list.code === 0 ? parseInstalledFrom(list.stdout, name) : null;
+      if (installed === null) {
+        return { state: "partial", detail: `Claude Code's plugin list could not be read: ${claudeMessage(list, `exited ${list.code}`)}`, commands: plan(prefixFor(dir), name, clone.dir, pending.plugins, { remove: false }).slice(1).map((s) => s.command) };
+      }
+      const present = new Map(installed.map((pl) => [pl.id, pl]));
+      plugins = pending.plugins;
+      steps = [
+        ...plugins.filter((pl) => !present.has(pl.id)).map((pl) => step(prefixFor(dir), ["plugin", "install", pl.id, "--scope", pl.scope])),
+        ...plugins.filter((pl) => !pl.enabled && (present.get(pl.id)?.enabled ?? true)).map((pl) => step(prefixFor(dir), ["plugin", "disable", pl.id])),
+      ];
     } else if (registered === null) {
       notes.push(`${name} is not registered in ${dir}`);
       continue;
@@ -1429,6 +1491,7 @@ export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: strin
         commands: steps.slice(i).map((s) => s.command),
       };
     }
+    // Cleared only here, after every command exited 0.
     setPending(ctx, null, name, dir);
     rewriteMarketplaces(ctx, [...clone.stalePaths, ...stale], clone.dir);
     touched = true;
@@ -1476,7 +1539,7 @@ export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome>
 export const orgFolderStep: StepDef;   // id "org.folder", title "Move your org folder", kind "rt", updateSafe: true, applies: () => true
 ```
 
-where `cloneIdentity(dir)` is `clearIdentityMemo(dir); return serializeIdentity(await deriveRepoIdentity(dir))`. Every relocation the step asks for is scoped: `orgFolderSeams.locate({ newPath, repo: await orgFolderSeams.identity(newPath) })`.
+where `cloneIdentity(dir)` is `clearIdentityMemo(); return serializeIdentity(await deriveRepoIdentity(dir))` (`clearIdentityMemo` takes no argument). Every relocation the step asks for is scoped: `orgFolderSeams.locate({ newPath, repo: await orgFolderSeams.identity(newPath) })`.
 
 Behaviour of `convergeOrgFolder`:
 
@@ -1827,7 +1890,7 @@ export const DAEMON_STALE_REMEDY = "Run rt daemon restart, then rt setup update 
 
 /** The clone's own serialized identity: every relocation is scoped to it, because an unscoped locate refuses whenever any other repo rt knows is missing. */
 async function cloneIdentity(dir: string): Promise<string> {
-  clearIdentityMemo(dir);
+  clearIdentityMemo();
   return serializeIdentity(await deriveRepoIdentity(dir));
 }
 
@@ -2203,7 +2266,7 @@ describe("org:move through the daemon", () => {
     expect(res.data).toMatchObject({ ok: true, folderMoved: true, records: { teams: "copied", invites: "none" } });
     expect(existsSync(to)).toBe(true);
     expect(existsSync(from)).toBe(false);
-    expect(JSON.parse(readFileSync(join(home, ".mattstack", "rt", "teams", "acme.json"), "utf8"))).toEqual({ forgeUsername: "dev1" });
+    expect(JSON.parse(readFileSync(join(home, ".mattstack", "rt", "teams", "acme.json"), "utf8"))).toMatchObject({ forgeUsername: "dev1" });
     expect(existsSync(join(home, ".mattstack", "rt", "teams", "widgets.json"))).toBe(false);
 
     const status = await send("team:snapshot-status", {});
@@ -2274,7 +2337,7 @@ git commit -m "orgs: whole-branch gate fixes"
 
 ## Self-review
 
-- **Spec coverage.** Section 3 items: skip unmarked (Task 7 scan/strays), derive target with the slug rule (Task 2 `markerOrg` validates; Task 7 `orgDirUnder`), refuse dirty, unreadable status, rebase and target-exists (Task 7 `refusal`), hold the daemon with a per-clone pause and the copy-move-relocate-remove order (Tasks 4, 5, 3), no-daemon path same order (Task 7 local branch), unknown verb → failed with the restart remedy (Task 7), copy records under the record lock with `movedFrom` (Task 3 with Task 2's export), remove old records after relocation and only a `movedFrom` name with no folder on later runs (Task 3 `cleanupMovedRecords`, Task 7), repo index scoped to the clone's own identity via direct plan/apply in the daemon and `locateMovedRepo` outside (Tasks 5, 7), `nothing-lost` as done and mismatch/old-path as failures (Task 3 `classifyLocate`), marketplace remove/add/reinstall with enabled state, the pending record before the remove and the setup-state rewrite (Task 6), secrets untouched, outcomes done/failed/partial (Task 7), step placement before `org.pull` and the `org.pull` re-run (Tasks 7, 8), the Claude CLI verification first (Task 1). Section 10 converge lines: clean move, rename inside orgs/, no work, stale index, unmarked skipped, dirty refused, rerun after interruption (Tasks 6 and 7), nothing-lost, claude absent partial, daemon without the verb, one-team layout, org.pull re-run (Tasks 6, 7, 8); real-git `org:move` under the hold (Tasks 5, 9). Shepherd's notes: `mkdirp` of `orgs/` before the move (Task 3), the re-armed watch (Task 4), the one-team layout under `orgs/` in the row and the step (Tasks 2, 7). Reviewer's findings: scoped locate (Tasks 5, 7), pending marketplace record (Task 6), directory keys in every fixture (Tasks 3, 7), unreadable status refused (Task 7), `movedFrom` cleanup (Tasks 3, 7); recommendations: successful arms only (Task 4), realpath both sides and the saved-options check (Tasks 1, 6), a failing-locate resume test (Task 5), `apiPort` (Task 9).
+- **Spec coverage.** Section 3 items: skip unmarked (Task 7 scan/strays), derive target with the slug rule (Task 2 `markerOrg` validates; Task 7 `orgDirUnder`), refuse dirty, unreadable status, rebase and target-exists (Task 7 `refusal`), hold the daemon with a per-clone pause and the copy-move-relocate-remove order (Tasks 4, 5, 3), no-daemon path same order (Task 7 local branch), unknown verb → failed with the restart remedy (Task 7), copy records under the record lock with `movedFrom` (Task 3 with Task 2's export), remove old records after relocation and only a `movedFrom` name with no folder on later runs (Task 3 `cleanupMovedRecords`, Task 7), repo index scoped to the clone's own identity via direct plan/apply in the daemon and `locateMovedRepo` outside (Tasks 5, 7), `nothing-lost` as done and mismatch/old-path as failures (Task 3 `classifyLocate`), marketplace remove/add/reinstall with enabled state, the pending record before the remove and the setup-state rewrite (Task 6), secrets untouched, outcomes done/failed/partial (Task 7), step placement before `org.pull` and the `org.pull` re-run (Tasks 7, 8), the Claude CLI verification first (Task 1). Section 10 converge lines: clean move, rename inside orgs/, no work, stale index, unmarked skipped, dirty refused, rerun after interruption (Tasks 6 and 7), nothing-lost, claude absent partial, daemon without the verb, one-team layout, org.pull re-run (Tasks 6, 7, 8); real-git `org:move` under the hold (Tasks 5, 9). Shepherd's notes: `mkdirp` of `orgs/` before the move (Task 3), the re-armed watch (Task 4), the one-team layout under `orgs/` in the row and the step (Tasks 2, 7). Reviewer's findings: scoped locate (Tasks 5, 7), pending marketplace record (Task 6), directory keys in every fixture (Tasks 3, 7), unreadable status refused (Task 7), `movedFrom` cleanup (Tasks 3, 7); recommendations: successful arms only (Task 4), realpath both sides and the saved-options check (Tasks 1, 6), a failing-locate resume test (Task 5), `apiPort` (Task 9). Round 2: a pending record at a registered marketplace reinstalls what is missing and clears only on success (Task 6), the fake's `rename` moves a directory (Task 3), normalised record assertions (Tasks 5, 9), `watchCalls.length` (Task 4), bare `clearIdentityMemo()` (Tasks 5, 7).
 - **Placeholders.** None: every step carries its code or its exact edit. Task 1's Findings block is filled by Task 1 itself.
 - **Type consistency.** `markerOrg(p, dir)`; `withRecordLock(p, slug, fn)`; `TeamLocalRecord.movedFrom?`; `RecordCopies`, `LocateFn`, `OrgMoveResult`, `MoveProbes`, `runOrgMove(p, { from, to, locate })`, `cleanupMovedRecords(p, org, folderExists)`, `classifyLocate(error)`; `pause(slugs)`, `resume(slugs)`; `createOrgHandlers({ withReconcilerHeld, refreshWatchedRepos, emitEvent, teamSnapshots, probes? })`; `PendingMarketplaceMove`, `SetupState.orgMarketplaceMoves?`, `convergeMarketplace(ctx, { dir, stalePaths })` returning `MarketplaceOutcome`; `orgFolderSeams.{locate, identity, marketplace}`, `convergeOrgFolder(ctx)`, `orgFolderStep`; `orgSeams.converge`.
 - **Review Focus.** 1 is Task 7's "a second clone with the same org is refused" and "a target that exists ... same origin"; 2 is Task 7's "an unmarked or malformed folder is skipped and named"; 3 is Task 5's refusal tests; 4 is Task 6's "a disabled plugin is reinstalled, then disabled again"; 5 is Task 3's "a record with no folder and no movedFrom is left alone" and Task 7's "a leftover old-name record is removed and named"; 6 is Task 5's "an unrelated lost repo does not block the move".
