@@ -309,15 +309,22 @@ test('roster picks of two agents sharing a name insert both and post both ids', 
 
 test('options that share a name show their avatars; a unique name shows none', async () => {
   renderWithProviders(
-    <Composer
-      room="rt"
+    <BuddiesProvider
+      buddies={[]}
       roomMembers={['remy', 'remy.m2p4', 'kai']}
-      buddies={[
-        { handle: 'remy', name: 'remy', status: 'idle' },
-        { handle: 'remy.m2p4', name: 'remy', status: 'live' },
-        { handle: 'kai', name: 'kai', status: 'live' },
-      ]}
-    />
+      now={0}
+      reachable
+    >
+      <Composer
+        room="rt"
+        roomMembers={['remy', 'remy.m2p4', 'kai']}
+        buddies={[
+          { handle: 'remy', name: 'remy', status: 'idle' },
+          { handle: 'remy.m2p4', name: 'remy', status: 'live' },
+          { handle: 'kai', name: 'kai', status: 'live' },
+        ]}
+      />
+    </BuddiesProvider>
   );
   await userEvent.type(screen.getByRole('textbox'), '@');
   const fills = (option: HTMLElement) =>

@@ -140,7 +140,12 @@ export function InboxCard({
             handle={card.handle}
             name={card.name}
             variant="inline"
-            hue={speakerHue(card.handle)}
+            hue={speakerHue(
+              card.handle,
+              undefined,
+              'small',
+              ctx?.lookOf(card.handle)
+            )}
             size={CARD_HANDLE}
             reachable={reachable}
             now={now}

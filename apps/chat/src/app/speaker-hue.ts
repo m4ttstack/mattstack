@@ -1,4 +1,5 @@
 import { HUMAN_HANDLE } from './human';
+import type { MemberLook } from './member-looks';
 
 /** Every non-human speaker's rotation, purple/cyan (`--tk-*`) plus the
     ok/warn/bad virtual-color text ramps -- accent is withheld here since
@@ -32,14 +33,6 @@ const HUES_FILL = [
 export const ACCENT = 'var(--mantine-color-accent-text)';
 const ACCENT_FILL = 'var(--tk-fill-accent)';
 
-/** The same rotation, accent included, for anything that wants the whole
-    set rather than one handle's pick -- the avatar sprite hashes `handle`
-    against this independently of `speakerHue`, so its color and the name
-    chip's color are drawn from the same tokens without being forced equal.
-    The avatar sprite has no font-size context to band against, so this
-    reads the small-band text array; any of the three would serve. */
-export const HANDLE_PALETTE = [ACCENT, ...HUES_SMALL];
-
 /** A 31-multiplier char-code fold, the same shape as Java's `String.hashCode`. */
 function foldHash(handle: string): number {
   let hash = 0;
@@ -60,13 +53,16 @@ export interface SpeakerHue {
 }
 
 /**
- * Contract: the same handle always resolves to the same hue identity,
- * forever -- callers memo nothing and re-derive it on every render. The
- * human's handle short-circuits to accent, matching the tint his own posts
- * already carry; accent never appears in the rotation, so no other speaker
- * can land on it. `humanHandle` defaults to `HUMAN_HANDLE`, but the
- * transcript passes its own `humanHandle` prop so the accent chip and the
- * accent wash agree on who the human is.
+ * `look`, the handle's assigned look from the buddies context, wins
+ * outright so the chip matches the avatar. That look is settled per open
+ * room, so callers re-derive it on every render rather than memo it.
+ *
+ * Without a look, the hashed fallback resolves the same handle to the same
+ * hue identity, forever. The human's handle short-circuits to accent,
+ * matching the tint his own posts already carry; accent never appears in
+ * the rotation, so no other speaker can land on it. `humanHandle` defaults
+ * to `HUMAN_HANDLE`, but the transcript passes its own `humanHandle` prop so
+ * the accent chip and the accent wash agree on who the human is.
  *
  * `band` picks which text shade renders: `'small'` (default) for the inbox
  * card's 14px handle, `'body'` for the message header's 16px one. A smaller
@@ -79,8 +75,14 @@ export interface SpeakerHue {
 export function speakerHue(
   handle: string,
   humanHandle: string = HUMAN_HANDLE,
-  band: SpeakerHueBand = 'small'
+  band: SpeakerHueBand = 'small',
+  look?: MemberLook
 ): SpeakerHue {
+  if (look)
+    return {
+      text: band === 'body' ? look.hue.body : look.hue.small,
+      fill: look.hue.fill,
+    };
   if (handle === humanHandle) return { text: ACCENT, fill: ACCENT_FILL };
   const hues = band === 'body' ? HUES_BODY : HUES_SMALL;
   const index = ((foldHash(handle) % hues.length) + hues.length) % hues.length;

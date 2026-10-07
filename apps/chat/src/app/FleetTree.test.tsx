@@ -428,14 +428,16 @@ test('two DM rows with kai stay distinct, read kai ↔ remy, and show different 
   expect(legacy).toHaveTextContent('kai ↔ remy');
   expect(recycled).toHaveTextContent('kai ↔ remy');
   expect(recycled).not.toHaveTextContent('m2p4');
-  const fills = (row: HTMLElement) =>
-    [...row.querySelectorAll('svg[shape-rendering="crispEdges"]')].map(svg =>
-      svg.getAttribute('fill')
+  // Neither remy is on the roster, so both keep their hashed look: the
+  // creature differs even where the hashed colour does not.
+  const sprites = (row: HTMLElement) =>
+    [...row.querySelectorAll('svg[shape-rendering="crispEdges"]')].map(
+      svg => svg.outerHTML
     );
-  expect(fills(legacy)).toHaveLength(2);
-  expect(fills(legacy)[0]).toBe(fills(recycled)[0]);
-  expect(fills(legacy)[1]).not.toBe(fills(recycled)[1]);
-  expect(fills(screen.getByTestId('dm-row-dm-jay-max'))).toEqual([]);
+  expect(sprites(legacy)).toHaveLength(2);
+  expect(sprites(legacy)[0]).toBe(sprites(recycled)[0]);
+  expect(sprites(legacy)[1]).not.toBe(sprites(recycled)[1]);
+  expect(sprites(screen.getByTestId('dm-row-dm-jay-max'))).toEqual([]);
 });
 
 test('workstream and offline rows show names; the overflow line reads pairs by name', async () => {
