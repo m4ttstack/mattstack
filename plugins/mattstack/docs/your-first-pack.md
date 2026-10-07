@@ -18,7 +18,7 @@ On the machine that runs it:
 | glab | `which glab` | the mattstack app bundles it |
 | a GitLab remote | `git remote get-url origin` | the repo's origin |
 
-Your org must be on the machine too: `~/.mattstack/teams/<org>/`, a clone
+Your org must be on the machine too: `~/.mattstack/orgs/<org>/`, a clone
 of the org repo, with one folder per team under `mattstack/teams/`. If
 there is no org yet:
 
@@ -183,12 +183,20 @@ slot, the org's fill lands, and the verb is the team's (`/widgets:watch-ci`).
 Bindings follow the base at once on every machine. Compiled fills follow
 at the team owner's next `rt skills compile`.
 
+A file a skill opens at run time (a reference, a checklist) also lives in
+the base, under `attachments/<name>/` with a `SKILL.md`. Each compile of a
+team pack that extends the base copies it to the same path in the team
+pack, with a `compiled.json` marking the copy, and writes the team pack's
+name wherever the file says `{{pack.name}}`. A team that wants its own
+version deletes the copy and writes its own folder there; compile then
+leaves it alone.
+
 ## Where things live
 
 | thing | path |
 | --- | --- |
-| the org clone (a git clone the daemon keeps in sync) | `~/.mattstack/teams/<org>/` |
-| a team's pack | `~/.mattstack/teams/<org>/mattstack/teams/<team>/packs/<team>/` |
-| the org's base pack | `~/.mattstack/teams/<org>/mattstack/org/packs/<org>-base/` |
+| the org clone (a git clone the daemon keeps in sync) | `~/.mattstack/orgs/<org>/` |
+| a team's pack | `~/.mattstack/orgs/<org>/mattstack/teams/<team>/packs/<team>/` |
+| the org's base pack | `~/.mattstack/orgs/<org>/mattstack/org/packs/<org>-base/` |
 | the bindings file per repo and pack (generated, never edited) | `~/.mattstack/repos/<host>-<path>/packs/<pack>/skills.jsonc` |
 | the installed copy sessions load | `~/.claude/plugins/cache/<marketplace>/<pack>/<version>/` |
