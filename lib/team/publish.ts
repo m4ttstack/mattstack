@@ -14,7 +14,8 @@ import { parseOriginUrl, stripUserinfo } from "../setup/team-settings.ts";
 import { withoutUrls } from "./redact.ts";
 import { assertMayWrite, roleFor } from "./roles.ts";
 import { mayWritePath, ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
-import { GIT_OBJECT_ID, unpublishedPaths } from "./publish-history.ts";
+import { unpublishedPaths } from "./publish-history.ts";
+import { remoteHead, remoteMovedPast } from "./remote-head.ts";
 import { orgBranch } from "./org-branch.ts";
 import { orgDirUnder } from "../rt-paths.ts";
 
@@ -27,8 +28,8 @@ export interface PublishTeamResult {
 /** git's own auth-failure phrasing on a denied push — distinguishes a credentials problem (user-actionable) from every other push failure. Exported for join.ts, which classifies `git ls-remote`/`git clone` failures the same way. */
 export const AUTH_FAILURE_PATTERN = /authentication failed|permission denied|could not read username|denied to|403|access denied/i;
 
-/** git's non-fast-forward rejection — the contract requires an existing EMPTY repo, so this specific shape means the pasted/created remote already has commits, not a generic push failure. */
-const REJECTED_PATTERN = /\[rejected\]|fetch first|non-fast-forward|failed to push some refs/i;
+/** git's non-fast-forward rejection — the contract requires an existing EMPTY repo, so this specific shape means the pasted/created remote already has commits, not a generic push failure. A hook's `[remote rejected]` is not one. */
+const REJECTED_PATTERN = /\[rejected\]|fetch first|non-fast-forward/i;
 
 /** Classifies a failed `git push` into a typed, redacted error — never a plain `Error` that would crash the caller instead of rendering. */
 function classifyPushFailure(result: ExecResult, branch: string): UserActionableError {
@@ -87,13 +88,10 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   const destination = await p.exec(["git", "remote", "get-url", "--push", "--all", "origin"], { cwd: dir });
   const urls = destination.stdout.trim().split("\n").filter(Boolean);
   if (destination.code !== 0 || urls.length !== 1) throw inspectionFailure();
-  const lookup = gitWithToken(["ls-remote", "--refs", "--", urls[0]!, ref], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
-  const published = await p.exec(lookup.argv, { cwd: dir, env: lookup.env });
-  const rows = published.stdout.trim().split("\n").filter(Boolean);
-  if (published.code !== 0 || rows.length > 1) throw inspectionFailure();
-  const base = rows[0]?.split("\t");
-  if (base && (base.length !== 2 || !GIT_OBJECT_ID.test(base[0]!) || base[1] !== ref)) throw inspectionFailure();
-  const pending = await unpublishedPaths((argv) => p.exec(argv, { cwd: dir }), base ? `${base[0]}..${ref}` : ref);
+  const head = () => remoteHead(p, dir, urls[0]!, ref, opts.token ?? null, opts.tokenRemote ?? activeRemote);
+  const base = await head();
+  if (!base.ok) throw inspectionFailure();
+  const pending = await unpublishedPaths((argv) => p.exec(argv, { cwd: dir }), base.sha ? `${base.sha}..${ref}` : ref);
   if (pending === null) throw inspectionFailure();
   const cmd = gitWithToken(["push", "-u", "origin", `${ref}:${ref}`], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
   const current = roleFor(p, slug);
@@ -106,7 +104,8 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
 
   if (push.code !== 0) {
     const text = `${push.stdout}\n${push.stderr}`;
-    if (REJECTED_PATTERN.test(text) && (await p.exec(["git", "rev-parse", "--verify", "-q", `refs/remotes/origin/${branch}`], { cwd: dir })).code === 0) {
+    const tracked = (await p.exec(["git", "rev-parse", "--verify", "-q", `refs/remotes/origin/${branch}`], { cwd: dir })).code === 0;
+    if (tracked && (await remoteMovedPast(p, dir, await head(), ref))) {
       throw new UserActionableError("org-moved", "The org repo has changes this Mac does not have yet", {}, {
         why: "Someone else pushed first, so pull their changes before you publish again.",
         next: `rt team pull --team ${slug}`,
