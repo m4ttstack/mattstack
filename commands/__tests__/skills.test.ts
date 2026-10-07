@@ -991,7 +991,7 @@ describe("base pack attachments", () => {
     const compile = (...extra: string[]) => runExpectingCleanExit(() =>
       skillsCompile(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, ...extra]));
     const boardBindings = () => (JSON.parse(stripJsoncForTest(readFileSync(manifestPath, "utf8"))) as { bindings: Record<string, Record<string, string>> }).bindings;
-    return { mattstackDir, baseDir, packDir, compile, materialize, boardBindings };
+    return { mattstackDir, baseDir, packDir, compile, materialize, boardBindings, manifestFile: () => manifestPath };
   }
 
   const stripJsoncForTest = (text: string) => text.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
@@ -1286,7 +1286,7 @@ describe("base pack attachments", () => {
   });
 
   test("an extends pack with no plugin name cannot fill pack.name, and nothing is copied", async () => {
-    const { mattstackDir, packDir, compile } = seedBaseAndTeam();
+    const { mattstackDir, packDir, compile, manifestFile } = seedBaseAndTeam();
     rmSync(join(packDir, ".claude-plugin", "plugin.json"));
     const message = "widgets extends acme-base, but it has no .claude-plugin/plugin.json name to give {{pack.name}}";
 
@@ -1295,6 +1295,9 @@ describe("base pack attachments", () => {
     expect(refused.exitCode).not.toBe(0);
     expect(refused.errors.join("\n")).toContain(message);
     expect(existsSync(kit(packDir))).toBe(false);
+
+    const fallbackMessage = message.replace("widgets extends", "plugin extends");
+    expect(await compilePackAll({ packDir, mattstackDir, manifest: manifestFile() })).toEqual({ ok: false, errors: [fallbackMessage], written: [], removed: [] });
   });
 
   test("the human output names what was copied", async () => {

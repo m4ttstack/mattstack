@@ -2321,7 +2321,7 @@ describe("teamSnapshotSpec", () => {
     const add = calls.find((c) => gitVerb(c) === "add")!;
     expect(add).toEqual(["git", "add", "-A", "--", ":(literal)mattstack/teams/widgets/settings.team.jsonc"]);
     const commit = calls.find((c) => gitVerb(c) === "commit")!;
-    expect(commit.some((arg) => arg.includes("/packs/") && !arg.startsWith(":(exclude)"))).toBe(false);
+    expect(commit.some((arg) => (arg.includes("/packs/") || arg.includes("/plugin/")) && !arg.startsWith(":(exclude)"))).toBe(false);
     expect(commit).toEqual(expect.arrayContaining(excludes));
     expect(handle.status().claimedZones).toEqual(expect.arrayContaining(["mattstack/packs/", "mattstack/org/packs/", WIDGETS_PACK]));
     handle.stop();

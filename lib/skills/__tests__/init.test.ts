@@ -767,7 +767,7 @@ describe("initPack", () => {
       expect(out).toMatchObject({ ok: true });
       expect(calls.claims).toEqual([["acme/widgets", ["acme/api"]]]);
       expect(fs.exists(`${ORG_ROOT("acme")}/mattstack/teams/widgets/plugin/pack/stubs.jsonc`)).toBe(true);
-      expect(fs.exists(`${ORG_ROOT("beta")}/mattstack/teams/widgets/packs`)).toBe(false);
+      expect(fs.exists(`${ORG_ROOT("beta")}/mattstack/teams/widgets/plugin`)).toBe(false);
     });
   });
 
