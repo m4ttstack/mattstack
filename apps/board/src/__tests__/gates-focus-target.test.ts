@@ -5,7 +5,7 @@ import { resolveGateFocusTarget } from '../gates/focus-target.ts';
 const ORIGIN = {
   paneId: 'wTT:p2',
   tabId: 'wTT:t2',
-  worktree: '/wt/hogwarts',
+  worktree: '/wt/a',
 };
 
 describe('resolveGateFocusTarget', () => {
@@ -40,7 +40,7 @@ describe('resolveGateFocusTarget', () => {
 
   it('falls back to a live pane in the origin worktree', () => {
     expect(
-      resolveGateFocusTarget(ORIGIN, [{ paneId: 'w1:p9', cwd: '/wt/hogwarts' }], [])
+      resolveGateFocusTarget(ORIGIN, [{ paneId: 'w1:p9', cwd: '/wt/a' }], [])
     ).toEqual({ ok: true, paneId: 'w1:p9' });
   });
 
