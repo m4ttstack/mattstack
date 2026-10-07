@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { machineSettingsPath, teamsDir, userSettingsPath } from "../../rt-paths.ts";
+import { machineSettingsPath, orgsDir, userSettingsPath } from "../../rt-paths.ts";
 import { closeStateDb, setKvValue } from "../../state/index.ts";
 import { loadEndpointConfig } from "../config.ts";
 import { captureOut } from "../../ui/__tests__/capture-out.ts";
@@ -160,7 +160,7 @@ describe("loadEndpointConfig", () => {
     expect(cfg.roles.backend!.pool).toEqual([10400, 10401]);
     expect(cfg.roles.backend!.env).toEqual({ PORT: "${port}" }); // domain template survives
     expect(cfg.roles.backend!.hook).toBe(
-      `bun ${join(teamsDir(), TEAM)}/packs/acme/scripts/rt-dev-hook.ts`,
+      `bun ${join(orgsDir(), TEAM)}/packs/acme/scripts/rt-dev-hook.ts`,
     );
     expect(cfg.intercepts).toEqual([
       { command: "doppler", matches: [{ cwdGlob: "apps/backend{,/**}", role: "backend" }] },

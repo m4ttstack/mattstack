@@ -13,17 +13,18 @@ import { tmpdir } from "os";
 import { join } from "path";
 import {
   machineKey,
+  legacyTeamsDir,
   machineSettingsPath,
   orgDir,
   orgMarkerPath,
   orgPacksDir,
   orgSecretsDir,
   orgSettingsPath,
+  orgsDir,
   teamFolderDir,
   teamFoldersDir,
   teamPackDir,
   teamSettingsPath,
-  teamsDir,
   userSettingsPath,
 } from "../paths.ts";
 
@@ -52,14 +53,29 @@ describe("settings/paths", () => {
       rmSync(home, { recursive: true, force: true });
     });
 
-    test("teamSettingsPath nests under teams/<org>/mattstack/teams/<team>/settings.team.jsonc", () => {
+    test("teamSettingsPath nests under orgs/<org>/mattstack/teams/<team>/settings.team.jsonc", () => {
       process.env.HOME = "/tmp/fake-home-client-2";
-      expect(teamSettingsPath("acme", "widgets")).toBe("/tmp/fake-home-client-2/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc");
+      expect(teamSettingsPath("acme", "widgets")).toBe("/tmp/fake-home-client-2/.mattstack/orgs/acme/mattstack/teams/widgets/settings.team.jsonc");
     });
 
-    test("teamsDir resolves at call-time HOME", () => {
+    test("orgsDir resolves at call-time HOME", () => {
       process.env.HOME = "/tmp/fake-home-client-3";
-      expect(teamsDir()).toBe("/tmp/fake-home-client-3/.mattstack/teams");
+      expect(orgsDir()).toBe("/tmp/fake-home-client-3/.mattstack/orgs");
+    });
+
+    test("orgsDir and orgDir sit under ~/.mattstack/orgs", () => {
+      const home = "/tmp/fake-home-client-4";
+      process.env.HOME = home;
+      expect(orgsDir()).toBe(join(home, ".mattstack", "orgs"));
+      expect(orgDir("acme")).toBe(join(home, ".mattstack", "orgs", "acme"));
+      expect(orgMarkerPath("acme")).toBe(join(home, ".mattstack", "orgs", "acme", "mattstack", "mattstack.jsonc"));
+    });
+
+    test("legacyTeamsDir is the old root and nothing else derives from it", () => {
+      const home = "/tmp/fake-home-client-5";
+      process.env.HOME = home;
+      expect(legacyTeamsDir()).toBe(join(home, ".mattstack", "teams"));
+      expect(orgDir("acme").startsWith(legacyTeamsDir())).toBe(false);
     });
   });
 
@@ -142,9 +158,9 @@ describe("settings/paths", () => {
   });
 
   describe("org and team folder paths", () => {
-    test("every org path hangs off teams/<org>", () => {
+    test("every org path hangs off orgs/<org>", () => {
       process.env.HOME = "/tmp/fake-home-org";
-      const root = "/tmp/fake-home-org/.mattstack/teams/acme";
+      const root = "/tmp/fake-home-org/.mattstack/orgs/acme";
       expect(orgDir("acme")).toBe(root);
       expect(orgMarkerPath("acme")).toBe(`${root}/mattstack/mattstack.jsonc`);
       expect(orgSettingsPath("acme")).toBe(`${root}/mattstack/org/settings.org.jsonc`);

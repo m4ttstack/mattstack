@@ -4,7 +4,7 @@ import { activeTeamFor } from "../active-team.ts";
 import { teamLocalPath } from "../team-local.ts";
 
 const HOME = "/h";
-const ROOT = `${HOME}/.mattstack/teams/acme`;
+const ROOT = `${HOME}/.mattstack/orgs/acme`;
 const roster = [{ username: "dev1", teams: ["widgets"] }, { username: "dev2", teams: ["widgets", "gadgets"] }];
 
 function probes(opts: { username?: string; setting?: string; folders?: string[] }) {

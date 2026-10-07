@@ -57,7 +57,7 @@ describe("materializeSkills", () => {
   }
 
   function seedZone(): void {
-    const orgMattstack = join(home, ".mattstack", "teams", "acme", "mattstack");
+    const orgMattstack = join(home, ".mattstack", "orgs", "acme", "mattstack");
     write(join(orgMattstack, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
     write(join(orgMattstack, "org", "settings.org.jsonc"), JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }));
     write(join(orgMattstack, "teams", "widgets", "settings.team.jsonc"), "{}");
@@ -109,7 +109,7 @@ describe("materializeSkills", () => {
   test("a declaring zone that holds no pack is noManifest, not a success", async () => {
     seedRepo("https://gitlab.example.com/acme/widgets.git");
     seedZone();
-    rmSync(join(home, ".mattstack", "teams", "acme", "mattstack", "teams", "widgets", "packs"), { recursive: true });
+    rmSync(join(home, ".mattstack", "orgs", "acme", "mattstack", "teams", "widgets", "packs"), { recursive: true });
     const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
     const result = await materializeSkills(p, {});
     if (result.skipped) throw new Error("skipped");
@@ -119,7 +119,7 @@ describe("materializeSkills", () => {
   test("a declaring zone that holds no pack still reports a stale file it could not set aside", async () => {
     seedRepo("https://gitlab.example.com/acme/widgets.git");
     seedZone();
-    rmSync(join(home, ".mattstack", "teams", "acme", "mattstack", "teams", "widgets", "packs"), { recursive: true });
+    rmSync(join(home, ".mattstack", "orgs", "acme", "mattstack", "teams", "widgets", "packs"), { recursive: true });
     const packs = join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs");
     write(join(packs, "gadgets", "skills.jsonc"), "// zone: acme/widgets\n{}");
     chmodSync(join(packs, "gadgets"), 0o555);
@@ -138,7 +138,7 @@ describe("materializeSkills", () => {
   test("a failed pack marks the repo not ok and names the pack and fix", async () => {
     seedRepo("https://gitlab.example.com/acme/widgets.git");
     seedZone();
-    write(join(home, ".mattstack", "teams", "acme", "mattstack", "teams", "widgets", "packs", "widgets", "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
+    write(join(home, ".mattstack", "orgs", "acme", "mattstack", "teams", "widgets", "packs", "widgets", "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
     const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
     const result = await materializeSkills(p, {});
     if (result.skipped) throw new Error("skipped");

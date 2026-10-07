@@ -22,8 +22,9 @@
  * the resolver returns, from whichever scope it came.
  *
  * ── Variables ─────────────────────────────────────────────────────────────
- * Values are expanded (`expand: true`): `${team:<name>}` and `${home}` always,
- * and `${repoRoot}` when the repo is registered in repos.json (this module
+ * Values are expanded (`expand: true`): `${home}` always, `${org}` (and its
+ * deprecated alias `${team:<name>}`) when this Mac has an org clone, and
+ * `${repoRoot}` when the repo is registered in repos.json (this module
  * looks the path up itself, so all four callers get it for free). Domain
  * templates the interceptor owns — `${port}`, `${roles.<name>.port}`,
  * `${envKeys}` — pass through untouched, by design. `${worktree}` is NOT

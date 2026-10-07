@@ -132,7 +132,7 @@ export function materializeRepo(deps: MaterializeDeps, remote: string | null): M
   if (!ref) return { kind: "no-remote" };
   const repo = `${ref.host}/${ref.path}`;
 
-  const allZones = readZonesFrom(deps.fs, join(deps.mattstackRoot, "teams"));
+  const allZones = readZonesFrom(deps.fs, join(deps.mattstackRoot, "orgs"));
   const zones = allZones.filter((z) => z.host === ref.host && z.projects.includes(ref.path));
   if (zones.length === 0) return { kind: "undeclared", repo };
 

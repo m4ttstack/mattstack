@@ -18,7 +18,7 @@ import { publishTeam } from "./publish.ts";
  */
 
 import { createRealAgeKeySeam } from "../home/age-key.ts";
-import { orgSettingsPath } from "../rt-paths.ts";
+import { orgDirUnder, orgSettingsPath } from "../rt-paths.ts";
 import { createRealSecretsExecSeam, readSecret } from "../secrets/store.ts";
 import { currentOrg, readStore } from "../settings/stores.ts";
 import { redactCredentials } from "../../packages/rt-client/src/redact.ts";
@@ -219,7 +219,7 @@ export function realMintInviteSeams(): MintInviteSeams {
   return {
     read: defaultRead(),
     pullOrg: async (p, slug, remote, token) => {
-      const dir = join(p.home, ".mattstack", "teams", slug);
+      const dir = orgDirUnder(p.home, slug);
       await refuseIfBusy(p, dir);
       const branch = await orgBranch(p, dir);
       if (branch !== "main") {
@@ -238,7 +238,7 @@ export function realMintInviteSeams(): MintInviteSeams {
       await abortRebase(p, dir, slug, output);
     },
     publishRoster: async (p, slug, handle, remote, token) => {
-      const dir = join(p.home, ".mattstack", "teams", slug);
+      const dir = orgDirUnder(p.home, slug);
       const file = relative(dir, orgStoreFile(p.home, slug));
       const add = await p.exec(["git", "add", "--", file], { cwd: dir });
       if (add.code !== 0) throw new UserActionableError("git-add-failed", "rt could not stage the roster change", {}, { log: add.stderr });
@@ -398,7 +398,7 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
     const reason = (err instanceof Error ? err.message : String(err)).replace(/\.$/, "");
     throw new UserActionableError("roster-not-published", `rt could not push ${opts.handle}'s roster entry, so it made no invite`, {}, {
       why: `${reason}. Pull any change someone else pushed and settle any clash, publish, then invite again.`,
-      ...settleTheClash(join(p.home, ".mattstack", "teams", opts.slug), opts.slug),
+      ...settleTheClash(orgDirUnder(p.home, opts.slug), opts.slug),
     });
   }
 

@@ -1,12 +1,12 @@
 import { publishTeam } from "../../team/publish.ts";
 import { stageSecret } from "../staging.ts";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { SecretsSeams } from "../../secrets/store.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { Probes } from "../probes.ts";
 import { readTeamLocal, teamLocalPath } from "../../team/team-local.ts";
-import { cloneSlugs, orgPullStep, teamIdentityStep, recordForgeIdentity } from "../steps/org.ts";
+import { cloneSlugs, orgPullStep, orgSeams, teamIdentityStep, recordForgeIdentity } from "../steps/org.ts";
 import { fakeProbes as baseFakeProbes } from "./fakes.ts";
 
 function fakeProbes(opts: Parameters<typeof baseFakeProbes>[0] = {}) {
@@ -71,10 +71,10 @@ function makeCtx(p: Probes, overrides: Partial<ApplyContext> = {}): { ctx: Apply
 }
 
 const HOME = "/h";
-const CLONE = `${HOME}/.mattstack/teams/acme`;
+const CLONE = `${HOME}/.mattstack/orgs/acme`;
 const gitConfig = (remote: string) => `[remote "origin"]\n\turl = ${remote}\n`;
 // The fake lists a folder only when `dirs` names it; it does not infer one from the files under it.
-const TEAMS_DIR = { [`${HOME}/.mattstack/teams`]: ["acme", "notes"] };
+const TEAMS_DIR = { [`${HOME}/.mattstack/orgs`]: ["acme", "notes"] };
 
 describe("org.pull", () => {
   test("pulls every clone that is a git repo, even one still on the old layout", async () => {
@@ -85,7 +85,7 @@ describe("org.pull", () => {
       files: {
         [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git"),
         [`${CLONE}/mattstack/settings.team.jsonc`]: "{}",
-        [`${HOME}/.mattstack/teams/notes/readme.md`]: "x",
+        [`${HOME}/.mattstack/orgs/notes/readme.md`]: "x",
       },
       daemon: async (cmd, payload) => {
         pulled.push(`${cmd} ${(payload as { slug: string }).slug}`);
@@ -102,6 +102,68 @@ describe("org.pull", () => {
     expect(await orgPullStep.run(ctx)).toEqual({ state: "done", detail: "Pulled acme" });
     expect(pulled).toEqual(["team:pull acme"]);
     expect(reloaded).toBe(1);
+  });
+
+  const origConverge = orgSeams.converge;
+  afterEach(() => { orgSeams.converge = origConverge; });
+
+  test("re-runs converge when a pull changed the marker's org", async () => {
+    let marker = JSON.stringify({ role: "org", org: "acme" });
+    const converged: string[] = [];
+    orgSeams.converge = async () => { converged.push("ran"); return { state: "done", detail: "Moved widgets to /h/.mattstack/orgs/widgets" }; };
+    const p = fakeProbes({
+      home: HOME,
+      dirs: TEAMS_DIR,
+      files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") },
+      daemon: async () => {
+        marker = JSON.stringify({ role: "org", org: "widgets" });
+        return { ok: true, data: { outcome: "fast-forwarded", detail: null } };
+      },
+    });
+    const read = p.readFile.bind(p);
+    p.readFile = (path) => (path === `${CLONE}/mattstack/mattstack.jsonc` ? marker : read(path));
+    const out = await orgPullStep.run(makeCtx(p).ctx);
+    expect(converged).toEqual(["ran"]);
+    expect(out.state).toBe("done");
+    expect(out.detail).toContain("Pulled acme");
+    expect(out.detail).toContain("Moved widgets");
+  });
+
+  test("a marker that appears with the folder's own name is not a rename", async () => {
+    let marker: string | null = null;
+    const converged: string[] = [];
+    orgSeams.converge = async () => { converged.push("ran"); return { state: "done", detail: "acme already in place" }; };
+    const p = fakeProbes({
+      home: HOME,
+      dirs: TEAMS_DIR,
+      files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") },
+      daemon: async () => {
+        marker = JSON.stringify({ role: "org", org: "acme" });
+        return { ok: true, data: { outcome: "fast-forwarded", detail: null } };
+      },
+    });
+    const read = p.readFile.bind(p);
+    p.readFile = (path) => (path === `${CLONE}/mattstack/mattstack.jsonc` ? marker : read(path));
+    expect(await orgPullStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Pulled acme" });
+    expect(converged).toEqual([]);
+  });
+
+  test("a pull that kept the marker does not converge, and a failed converge makes the pull partial with its remedy", async () => {
+    const converged: string[] = [];
+    orgSeams.converge = async () => { converged.push("ran"); return { state: "failed", detail: "dirty", remedy: "Run rt setup update --force after the fix" }; };
+    const files = { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git"), [`${CLONE}/mattstack/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }) };
+    const same = await orgPullStep.run(makeCtx(fakeProbes({ home: HOME, dirs: TEAMS_DIR, files, daemon: async () => ({ ok: true, data: { outcome: "fast-forwarded", detail: null } }) })).ctx);
+    expect(converged).toEqual([]);
+    expect(same.state).toBe("done");
+
+    let marker = JSON.stringify({ role: "org", org: "acme" });
+    const p = fakeProbes({ home: HOME, dirs: TEAMS_DIR, files, daemon: async () => { marker = JSON.stringify({ role: "org", org: "widgets" }); return { ok: true, data: { outcome: "fast-forwarded", detail: null } }; } });
+    const read = p.readFile.bind(p);
+    p.readFile = (path) => (path === `${CLONE}/mattstack/mattstack.jsonc` ? marker : read(path));
+    const out = await orgPullStep.run(makeCtx(p).ctx);
+    expect(converged).toEqual(["ran"]);
+    expect(out).toMatchObject({ state: "partial", remedy: "Run rt setup update --force after the fix" });
+    expect(out.detail).toContain("dirty");
   });
 
   const files = { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") };
@@ -387,10 +449,10 @@ describe("pending admin recovery", () => {
     const pulled: string[] = [];
     const p = fakeProbes({
       home: HOME,
-      dirs: { [`${HOME}/.mattstack/teams`]: ["acme", "widgets"] },
+      dirs: { [`${HOME}/.mattstack/orgs`]: ["acme", "widgets"] },
       files: {
         [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git"),
-        [`${HOME}/.mattstack/teams/widgets/.git/config`]: gitConfig("https://github.com/acme/widgets.git"),
+        [`${HOME}/.mattstack/orgs/widgets/.git/config`]: gitConfig("https://github.com/acme/widgets.git"),
       },
       daemon: async (_cmd, payload) => {
         const slug = (payload as { slug: string }).slug;

@@ -30,6 +30,7 @@ import { readSetupState, updateSetupState } from "../state.ts";
 import { activeTeamFor } from "../../team/active-team.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
 import { toFailedOutcome } from "./step-utils.ts";
+import { orgDirUnder } from "../../rt-paths.ts";
 
 export const MATTSTACK_MARKETPLACE_SOURCE = "https://github.com/m4ttstack/mattstack-marketplace.git";
 /** The source plugins.install adds the mattstack marketplace from on this machine. */
@@ -140,7 +141,7 @@ interface TeamMarketplaceFile {
 }
 
 function teamMarketplacePath(home: string, slug: string): string {
-  return join(home, ".mattstack", "teams", slug, ".claude-plugin", "marketplace.json");
+  return join(orgDirUnder(home, slug), ".claude-plugin", "marketplace.json");
 }
 
 /**
@@ -163,7 +164,7 @@ function readTeamMarketplace(ctx: ApplyContext, slug: string): TeamMarketplaceFi
 }
 
 function teamMarketplaceDir(p: Pick<Probes, "home">, slug: string): string {
-  return join(p.home, ".mattstack", "teams", slug);
+  return orgDirUnder(p.home, slug);
 }
 
 /** An item is the org's or a team's only when no layer of your own lists it too; one with no layer at all fails closed. */

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { readInviteRecords, upsertInviteRecord, removeInviteRecord, inviteRecordsPath, type InviteRecord } from "../invite-records.ts";
+import { clearInviteMovedFrom, readInviteMovedFrom, readInviteRecords, upsertInviteRecord, removeInviteRecord, inviteRecordsPath, type InviteRecord } from "../invite-records.ts";
 import { UserActionableError } from "../../errors.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { dirname } from "path";
@@ -141,5 +141,32 @@ describe("upsertInviteRecord / removeInviteRecord", () => {
 
     const records = readInviteRecords(later, SLUG);
     expect(Object.keys(records)).toEqual(["bob"]);
+  });
+});
+
+describe("the movedFrom tie", () => {
+  const withTie = () => fakeProbes({ home: HOME, files: { [inviteRecordsPath(HOME, SLUG)]: JSON.stringify({ alice: sampleRecord(), movedFrom: "widgets" }) } });
+
+  test("is read on its own and never as a handle", () => {
+    const p = withTie();
+    expect(readInviteMovedFrom(p, SLUG)).toBe("widgets");
+    expect(Object.keys(readInviteRecords(p, SLUG))).toEqual(["alice"]);
+    expect(readInviteMovedFrom(fakeProbes({ home: HOME }), SLUG)).toBeUndefined();
+  });
+
+  test("an upsert or a remove keeps it", () => {
+    const p = withTie();
+    upsertInviteRecord(p, SLUG, "bob", sampleRecord({ id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }));
+    expect(readInviteMovedFrom(p, SLUG)).toBe("widgets");
+    removeInviteRecord(p, SLUG, "bob");
+    expect(readInviteMovedFrom(p, SLUG)).toBe("widgets");
+  });
+
+  test("clearInviteMovedFrom drops it and keeps every record", () => {
+    const p = withTie();
+    clearInviteMovedFrom(p, SLUG);
+    expect(readInviteMovedFrom(p, SLUG)).toBeUndefined();
+    expect(readInviteRecords(p, SLUG)).toEqual({ alice: sampleRecord() });
+    expect(p.calls.modes[inviteRecordsPath(HOME, SLUG)]).toBe(0o600);
   });
 });

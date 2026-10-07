@@ -68,7 +68,7 @@ const ok: ExecResult = { code: 0, stdout: "", stderr: "" };
 describe("setup team create records the cause of a failure", () => {
   test("a create failure reaches the CLI log and its why rides in the remedy", async () => {
     const slug = "marker-create-zz";
-    const dir = `/fake-home/.mattstack/teams/${slug}`;
+    const dir = `/fake-home/.mattstack/orgs/${slug}`;
     const p = fakeProbes({ home: "/fake-home", exec: async () => ok });
     p.mkdirp(join(dir, ".git"));
     p.writeFile(join(dir, ".git", "config"), `[remote "origin"]\n\turl = https://forge.example/someone/other.git\n`);
@@ -108,7 +108,7 @@ describe("setup team create records the cause of a failure", () => {
       }
       return argv.includes("push") ? rejected : argv[1] === "rev-parse" ? { code: 1, stdout: "", stderr: "" } : ok;
     }, files: {
-      [`/fake-home/.mattstack/teams/${slug}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      [`/fake-home/.mattstack/orgs/${slug}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
       [teamLocalPath("/fake-home", slug)]: JSON.stringify({ forgeUsername: "dev1" }),
     } });
 

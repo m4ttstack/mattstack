@@ -5,7 +5,7 @@ import { isPushRefusal, orgRows } from "../validators/org.ts";
 import { fakeProbes } from "./fakes.ts";
 
 const HOME = "/h";
-const ROOT = `${HOME}/.mattstack/teams/acme`;
+const ROOT = `${HOME}/.mattstack/orgs/acme`;
 const GITHUB = { provider: "github" as const, host: "github.com" };
 const noStatus = async () => [];
 

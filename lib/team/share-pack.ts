@@ -10,6 +10,7 @@ import { publishTeam } from "./publish.ts";
 import { assertMayWrite } from "./roles.ts";
 import { storedForgeToken } from "./stored-forge-token.ts";
 import { editTeamLocal, readTeamLocal, type PendingPackShare } from "./team-local.ts";
+import { orgDirUnder } from "../rt-paths.ts";
 
 /** A remembered share this Mac's role may no longer write; it is dropped, since only someone who owns its files can finish it. */
 export interface SkippedShare {
@@ -63,7 +64,7 @@ function owedShares(p: Probes, org: string): { owed: PendingPackShare[]; skipped
   } catch {
     return { owed: [], skipped: [] };
   }
-  const root = join(p.home, ".mattstack", "teams", org);
+  const root = orgDirUnder(p.home, org);
   const recorded = readTeamLocal(p, org).pendingPackShares ?? [];
   dropPending(p, org, recorded.filter((share) => !p.exists(join(root, share.paths[0]!))).map((share) => share.pack));
   const owed: PendingPackShare[] = [];

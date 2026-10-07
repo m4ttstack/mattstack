@@ -4,6 +4,7 @@ import { parseStoreText, TEAM_NAME_RE } from "../settings/stores.ts";
 import type { Probes } from "../setup/probes.ts";
 import { orgStoreFile } from "./org-store.ts";
 import { readTeamLocal } from "./team-local.ts";
+import { orgDirUnder } from "../rt-paths.ts";
 
 /** The active team as rt-client's activeTeam() decides it, read through Probes so setup and daemon code never touches the ambient HOME. */
 export function activeTeamFor(p: Pick<Probes, "readFile" | "readDir" | "home">, org: string): ActiveTeam {
@@ -17,7 +18,7 @@ export function activeTeamFor(p: Pick<Probes, "readFile" | "readDir" | "home">, 
     username,
     roster: orgRaw === null ? [] : rosterFrom(parseStoreText(orgFile, orgRaw)),
     setting: typeof setting === "string" ? setting : undefined,
-    teamFolders: () => p.readDir(join(p.home, ".mattstack", "teams", org, "mattstack", "teams")).filter((name) => TEAM_NAME_RE.test(name)),
+    teamFolders: () => p.readDir(join(orgDirUnder(p.home, org), "mattstack", "teams")).filter((name) => TEAM_NAME_RE.test(name)),
   });
   return { org, username, ...decision };
 }

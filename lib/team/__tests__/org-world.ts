@@ -26,7 +26,7 @@ export function orgWorld(username = "dev1", extra: { settings?: Record<string, u
   worlds.push({ home, prior });
   process.env.HOME = home;
   seedOrg({ org: "acme", username, settings: extra.settings, roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: { "board.title": "widgets" } } });
-  const root = join(home, ".mattstack", "teams", "acme");
+  const root = join(home, ".mattstack", "orgs", "acme");
   const remote = join(home, "origin.git");
   mkdirSync(join(root, ".claude-plugin"), { recursive: true });
   writeFileSync(join(root, ".claude-plugin", "marketplace.json"), `${JSON.stringify({ name: "acme", owner: { name: "acme" }, plugins: [] }, null, 2)}\n`);

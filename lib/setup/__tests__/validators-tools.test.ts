@@ -1647,7 +1647,7 @@ describe("toolRows: tool.proxy", () => {
   });
 });
 
-const TEAM_CLONE = "/fake-home/.mattstack/teams/acme";
+const TEAM_CLONE = "/fake-home/.mattstack/orgs/acme";
 
 async function toolRowsFor(opts: {
   servedPacks?: { id: string; name: string; servedVersion: string | null }[];

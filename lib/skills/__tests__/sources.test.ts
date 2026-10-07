@@ -621,9 +621,9 @@ describe("installedVersionFor", () => {
 describe("org base pack roots", () => {
   function makeRoot(): { root: string; base: string } {
     const root = mkdtempSync(join(tmpdir(), "rt-sources-org-"));
-    const base = join(root, "teams", "acme", "mattstack", "org", "packs", "acme-base");
+    const base = join(root, "orgs", "acme", "mattstack", "org", "packs", "acme-base");
     mkdirSync(join(base, "pack"), { recursive: true });
-    writeFileSync(join(root, "teams", "acme", "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
+    writeFileSync(join(root, "orgs", "acme", "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
     writeFileSync(join(base, "pack", "skills.jsonc"), `{ "base": true }`);
     mkdirSync(join(base, "attachments", "ci-forge"), { recursive: true });
     writeFileSync(join(base, "attachments", "ci-forge", "SKILL.md"), "---\nname: ci-forge\nmetadata:\n  provides: forge\n---\nUse the forge.\n");
@@ -632,38 +632,38 @@ describe("org base pack roots", () => {
 
   test("each org base pack is a root named after its folder", () => {
     const { root, base } = makeRoot();
-    expect(orgBasePackRoots(join(root, "teams", "acme"))).toEqual([{ name: "acme-base", dir: realpathSync(base), version: "org" }]);
-    expect(orgBasePackRoots(join(root, "nope", "teams", "acme"))).toEqual([]);
+    expect(orgBasePackRoots(join(root, "orgs", "acme"))).toEqual([{ name: "acme-base", dir: realpathSync(base), version: "org" }]);
+    expect(orgBasePackRoots(join(root, "nope", "orgs", "acme"))).toEqual([]);
   });
 
   test("only the named org's bases are roots", () => {
     const { root } = makeRoot();
-    const other = join(root, "teams", "gadgets", "mattstack");
+    const other = join(root, "orgs", "gadgets", "mattstack");
     mkdirSync(join(other, "org", "packs", "gadgets-base", "pack"), { recursive: true });
     writeFileSync(join(other, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "gadgets" }));
     writeFileSync(join(other, "org", "packs", "gadgets-base", "pack", "skills.jsonc"), `{ "base": true }`);
-    expect(orgBasePackRoots(join(root, "teams", "acme")).map((r) => r.name)).toEqual(["acme-base"]);
-    expect(orgBasePackRoots(join(root, "teams", "gadgets")).map((r) => r.name)).toEqual(["gadgets-base"]);
+    expect(orgBasePackRoots(join(root, "orgs", "acme")).map((r) => r.name)).toEqual(["acme-base"]);
+    expect(orgBasePackRoots(join(root, "orgs", "gadgets")).map((r) => r.name)).toEqual(["gadgets-base"]);
   });
 
   test("a clone that is not marked as an org has no roots", () => {
     const { root } = makeRoot();
-    writeFileSync(join(root, "teams", "acme", "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "team" }));
-    expect(orgBasePackRoots(join(root, "teams", "acme"))).toEqual([]);
+    writeFileSync(join(root, "orgs", "acme", "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "team" }));
+    expect(orgBasePackRoots(join(root, "orgs", "acme"))).toEqual([]);
   });
 
   test("a folder whose fragment is not marked base is not a root", () => {
     const { root, base } = makeRoot();
     writeFileSync(join(base, "pack", "skills.jsonc"), `{}`);
-    expect(orgBasePackRoots(join(root, "teams", "acme"))).toEqual([]);
+    expect(orgBasePackRoots(join(root, "orgs", "acme"))).toEqual([]);
   });
 
   test("orgOfPackDir names the org of a pack inside an org clone and nothing else", () => {
     const { root, base } = makeRoot();
-    const teamPack = join(root, "teams", "acme", "mattstack", "teams", "widgets", "packs", "widgets");
+    const teamPack = join(root, "orgs", "acme", "mattstack", "teams", "widgets", "packs", "widgets");
     mkdirSync(teamPack, { recursive: true });
     const elsewhere = mkdtempSync(join(tmpdir(), "rt-sources-elsewhere-"));
-    const clone = realpathSync(join(root, "teams", "acme"));
+    const clone = realpathSync(join(root, "orgs", "acme"));
     expect(orgOfPackDir(teamPack)).toEqual({ org: "acme", root: clone });
     expect(orgOfPackDir(base)).toEqual({ org: "acme", root: clone });
     expect(orgOfPackDir(elsewhere)).toBeNull();
@@ -673,7 +673,7 @@ describe("org base pack roots", () => {
   test("orgOfPackDir finds the org repo from a copy of it outside teams/", () => {
     const { root } = makeRoot();
     const copy = join(mkdtempSync(join(tmpdir(), "rt-sources-worktree-")), "acme-wt");
-    cpSync(join(root, "teams", "acme"), copy, { recursive: true });
+    cpSync(join(root, "orgs", "acme"), copy, { recursive: true });
     const teamPack = join(copy, "mattstack", "teams", "widgets", "packs", "widgets");
     mkdirSync(teamPack, { recursive: true });
     expect(orgOfPackDir(teamPack)).toEqual({ org: "acme", root: realpathSync(copy) });
@@ -682,7 +682,7 @@ describe("org base pack roots", () => {
 
   test("org marker slugs use the org domain, while pack names keep the team domain", () => {
     const { root } = makeRoot();
-    const clone = join(root, "teams", "acme");
+    const clone = join(root, "orgs", "acme");
     const pack = join(clone, "mattstack", "teams", "team-1acme", "packs", "team-1acme");
     mkdirSync(pack, { recursive: true });
     const marker = join(clone, "mattstack", "mattstack.jsonc");
@@ -715,22 +715,22 @@ describe("org base pack roots", () => {
 
   test("orgOfPackDir stops at the nearest marker, and refuses one that is not a valid org", () => {
     const { root } = makeRoot();
-    const nested = join(root, "teams", "acme", "mattstack", "teams", "widgets", "vendor");
+    const nested = join(root, "orgs", "acme", "mattstack", "teams", "widgets", "vendor");
     mkdirSync(join(nested, "mattstack"), { recursive: true });
     writeFileSync(join(nested, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "team" }));
     expect(orgOfPackDir(join(nested, "mattstack"))).toBeNull();
-    writeFileSync(join(root, "teams", "acme", "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org", org: "../evil" }));
-    expect(orgOfPackDir(join(root, "teams", "acme", "mattstack", "org"))).toBeNull();
-    writeFileSync(join(root, "teams", "acme", "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org" }));
-    expect(orgOfPackDir(join(root, "teams", "acme", "mattstack", "org"))).toBeNull();
+    writeFileSync(join(root, "orgs", "acme", "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org", org: "../evil" }));
+    expect(orgOfPackDir(join(root, "orgs", "acme", "mattstack", "org"))).toBeNull();
+    writeFileSync(join(root, "orgs", "acme", "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org" }));
+    expect(orgOfPackDir(join(root, "orgs", "acme", "mattstack", "org"))).toBeNull();
   });
 
   test("a folder that is not a valid pack name is not a root", () => {
     const { root } = makeRoot();
-    const odd = join(root, "teams", "acme", "mattstack", "org", "packs", "Bad_Name");
+    const odd = join(root, "orgs", "acme", "mattstack", "org", "packs", "Bad_Name");
     mkdirSync(join(odd, "pack"), { recursive: true });
     writeFileSync(join(odd, "pack", "skills.jsonc"), `{ "base": true }`);
-    expect(orgBasePackRoots(join(root, "teams", "acme")).map((r) => r.name)).toEqual(["acme-base"]);
+    expect(orgBasePackRoots(join(root, "orgs", "acme")).map((r) => r.name)).toEqual(["acme-base"]);
   });
 
   test("a fill under a base pack's attachments loads from the org folder", () => {

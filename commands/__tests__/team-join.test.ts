@@ -30,7 +30,7 @@ const POINTER: InvitePointer = {
 
 function fakeProbes(opts: Parameters<typeof baseFakeProbes>[0] = {}): ReturnType<typeof baseFakeProbes> {
   const home = opts?.home ?? HOME;
-  return baseFakeProbes({ ...opts, files: { [`${home}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.roster": [{ username: "dev2", teams: ["widgets"] }] }), ...opts?.files } });
+  return baseFakeProbes({ ...opts, files: { [`${home}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.roster": [{ username: "dev2", teams: ["widgets"] }] }), ...opts?.files } });
 }
 
 const FAKE_PUBLIC_KEY = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
@@ -150,7 +150,7 @@ describe("teamJoin", () => {
   });
 
   test("a second team exits 2 with team-already-set-up in the envelope", async () => {
-    const teams = pathJoin(HOME, ".mattstack", "teams");
+    const teams = pathJoin(HOME, ".mattstack", "orgs");
     const deps = baseDeps({
       probes: fakeProbes({
         home: HOME,
@@ -300,7 +300,7 @@ describe("teamJoin", () => {
     expect(typeof at).toBe("string");
     expect(body).toEqual({ contract: 1, team: { slug: "acme", name: "Acme", owner: "matt" }, teams: ["widgets"], access: "ok", peering: "idle", message: "Joined Acme, owned by matt.", intent: "written" });
 
-    const dir = pathJoin(HOME, ".mattstack", "teams", "acme");
+    const dir = pathJoin(HOME, ".mattstack", "orgs", "acme");
     expect(probes.calls.exec).toContainEqual(["git", "clone", REMOTE, dir]);
   });
 
@@ -444,7 +444,7 @@ describe("teamJoin", () => {
     expect(body.error.code).toBe("forge-login-unknown");
     expect(body.error.message).toContain("has not been used yet");
     expect(urls.some((u) => u.endsWith("/redeem"))).toBe(false);
-    const dir = pathJoin(HOME, ".mattstack", "teams", "acme");
+    const dir = pathJoin(HOME, ".mattstack", "orgs", "acme");
     expect(probes.calls.exec).toContainEqual(["git", "clone", REMOTE, dir]);
   });
 });

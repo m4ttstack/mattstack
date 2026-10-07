@@ -1,7 +1,7 @@
 /**
- * The team-scope sops secrets store: `~/.mattstack/teams/<slug>/mattstack/org/secrets/<domain>.json`,
+ * The team-scope sops secrets store: `~/.mattstack/orgs/<slug>/mattstack/org/secrets/<domain>.json`,
  * encrypted to every team member's age public key via
- * `~/.mattstack/teams/<slug>/.sops.yaml` (path_regex `mattstack/org/secrets/.*`).
+ * `~/.mattstack/orgs/<slug>/.sops.yaml` (path_regex `mattstack/org/secrets/.*`).
  * This is the N-recipient counterpart to `store.ts`'s single-recipient
  * personal store — every encrypt/decrypt still routes through that module's
  * `SecretsLocation` machinery (`decryptAtLocation`/`writeAtLocation`), just
@@ -36,7 +36,7 @@
 import { join } from "path";
 import { UserActionableError } from "../errors.ts";
 import { createRealAgeKeySeam, renderSopsYamlFor } from "../home/age-key.ts";
-import { orgSecretsDir, teamsDir } from "../rt-paths.ts";
+import { orgDir, orgSecretsDir } from "../rt-paths.ts";
 import { createRealProbes, type Probes } from "../setup/probes.ts";
 import { assertMayWrite } from "../team/roles.ts";
 import {
@@ -105,16 +105,16 @@ export const TEAM_PATH_REGEX = "mattstack/org/secrets/.*";
 
 function teamCloneRoot(slug: string): string {
   validateSlug(slug);
-  return join(teamsDir(), slug);
+  return orgDir(slug);
 }
 
-/** `~/.mattstack/teams/<slug>/mattstack/org/secrets/<domain>.json` */
+/** `~/.mattstack/orgs/<slug>/mattstack/org/secrets/<domain>.json` */
 export function teamSecretsFile(slug: string, domain: string): string {
   validateDomain(domain);
   return join(teamSecretsDir(slug), `${domain}.json`);
 }
 
-/** `~/.mattstack/teams/<slug>/.sops.yaml`; recipients for every `mattstack/org/secrets/*.json` file in this clone. */
+/** `~/.mattstack/orgs/<slug>/.sops.yaml`; recipients for every `mattstack/org/secrets/*.json` file in this clone. */
 export function teamSopsYamlPath(slug: string): string {
   return join(teamCloneRoot(slug), ".sops.yaml");
 }
@@ -183,7 +183,7 @@ export function readTeamRecipients(slug: string, seams: SecretsSeams): string[] 
  * Renders and writes `.sops.yaml` with exactly `recipients` (sorted,
  * deduped) as the `mattstack/org/secrets/.*` rule's recipients. Refuses to run
  * against a team with no local clone (`NoTeamCloneError`) — the real seam's
- * `writeFile` would otherwise happily `mkdir -p` a fresh `teams/<slug>/`
+ * `writeFile` would otherwise happily `mkdir -p` a fresh `orgs/<slug>/`
  * directory out of a typo'd slug — and refuses a `.sops.yaml` that already
  * carries more than one creation rule (`TeamSopsYamlHandEditedError`)
  * rather than silently collapsing it to just this store's own rule.

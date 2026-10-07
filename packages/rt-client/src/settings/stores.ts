@@ -19,7 +19,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "fs";
 import { parse, type ParseError } from "jsonc-parser";
 import { join } from "path";
-import { orgSettingsPath, teamFoldersDir, teamsDir, teamSettingsPath } from "./paths.ts";
+import { orgSettingsPath, orgsDir, teamFoldersDir, teamSettingsPath } from "./paths.ts";
 
 export interface StoreFile {
   /** Top-level keys other than "repos" — the global scope for this store. */
@@ -88,7 +88,7 @@ export function parseStoreText(file: string, raw: string): StoreFile {
 export const TEAM_NAME_RE = /^[a-z][a-z0-9-]*$/;
 
 /**
- * Org clones on this Mac: folders under teamsDir() that hold
+ * Org clones on this Mac: folders under orgsDir() that hold
  * mattstack/org/settings.org.jsonc. A folder without that file (a clone
  * mid-setup, or an unrelated directory) is not an org as far as the resolver
  * is concerned.
@@ -98,13 +98,13 @@ export const TEAM_NAME_RE = /^[a-z][a-z0-9-]*$/;
  * brick `rt settings` or any reader behind it. A clone that was symlinked in
  * and later moved leaves a dangling symlink here, and the follow-the-link stat
  * that keeps symlinked clones working throws ENOENT on exactly that, so the
- * scan is guarded twice: around the readdir (an unreadable teams dir means no
+ * scan is guarded twice: around the readdir (an unreadable orgs dir means no
  * orgs), and around EACH entry (a dangling link, an EACCES, or a stat that
  * loses a race with a concurrent move skips that entry and leaves the healthy
  * clones intact).
  */
 export function listOrgs(): string[] {
-  const dir = teamsDir();
+  const dir = orgsDir();
   if (!existsSync(dir)) return [];
   let entries: Dirent[];
   try {

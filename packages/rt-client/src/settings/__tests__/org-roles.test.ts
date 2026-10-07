@@ -147,7 +147,7 @@ describe("currentRole reads the disk", () => {
 
   function seed(org: string, orgStore: string | null, username: string | null): void {
     if (orgStore !== null) {
-      const dir = join(home, ".mattstack", "teams", org, "mattstack", "org");
+      const dir = join(home, ".mattstack", "orgs", org, "mattstack", "org");
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, "settings.org.jsonc"), orgStore);
     }

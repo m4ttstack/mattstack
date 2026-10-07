@@ -198,7 +198,7 @@ function parseFlags(args: string[]): Flags {
 }
 
 function packRootDir(mattstackRoot: string, team: string): string | null {
-  const zone = readZonesFrom(realInitFs, join(mattstackRoot, "teams")).find((z) => z.team === team);
+  const zone = readZonesFrom(realInitFs, join(mattstackRoot, "orgs")).find((z) => z.team === team);
   return zone ? zonePackDir(zone) : null;
 }
 
@@ -489,7 +489,7 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
   if (candidates.length === 1) return candidates[0]!.path;
 
   if (candidates.length > 1) {
-    const zones = readZonesFrom(realInitFs, join(mattstackRoot, "teams"))
+    const zones = readZonesFrom(realInitFs, join(mattstackRoot, "orgs"))
       .filter((z) => z.team === team && existsSync(zonePackDir(z)));
     for (const { host, projects } of zones) {
       if (!host) continue;
@@ -518,7 +518,7 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
   // pack/skills.jsonc is a merge fragment, never its manifest.
   const parts = resolvePath(packDir).split(sep);
   const teamShaped = parts.at(-2) === "packs" && parts.at(-4) === "teams" && parts.at(-5) === "mattstack";
-  const standalone = !isUnder(join(mattstackRoot, "teams"), packDir) && !teamShaped;
+  const standalone = !isUnder(join(mattstackRoot, "orgs"), packDir) && !teamShaped;
   if (standalone && existsSync(ownManifest)) return ownManifest;
   throw new SkillsUsageError(
     `no repos/*/packs/${team}/skills.jsonc under ${reposRoot}` +
