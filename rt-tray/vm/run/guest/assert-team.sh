@@ -11,7 +11,7 @@ RT="${RT:-/tmp/rt-new}"; [ -x "$RT" ] || RT=rt
 fails=0
 ok()  { echo "TEAM ok   $1"; }
 bad() { echo "TEAM FAIL $1"; fails=$((fails+1)); }
-TEAM="$HOME/.mattstack/teams/$SLUG"
+TEAM="$HOME/.mattstack/orgs/$SLUG"
 
 [ -d "$TEAM/.git" ] && ok "team clone at $TEAM ($(git -C "$TEAM" rev-parse --short HEAD))" || bad "no team clone at $TEAM"
 

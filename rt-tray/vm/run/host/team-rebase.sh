@@ -94,7 +94,7 @@ guest "$JOINER" p1-member-refusal "SLUG='$SLUG' TEAM_NAME='$TEAM_NAME'" <<'GUEST
 set -euo pipefail
 export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
 RT=/tmp/rt-new
-STORE="$HOME/.mattstack/teams/$SLUG/mattstack/teams/$TEAM_NAME/settings.team.jsonc"
+STORE="$HOME/.mattstack/orgs/$SLUG/mattstack/teams/$TEAM_NAME/settings.team.jsonc"
 [ -f "$STORE" ]
 BEFORE=$(shasum -a 256 "$STORE")
 set +e
@@ -122,7 +122,7 @@ jq -e '.forgeUsername | type == "string" and length > 0' "$LOCAL" >/dev/null \
   || { echo "TEAM FAIL admin has no recorded forge identity; connect its forge account in Setup"; exit 1; }
 "$RT" team status --team "$SLUG" --json | jq -e --arg team "$TEAM_NAME" \
   '.role == "admin" and (.teams | index($team) != null)' >/dev/null
-[ -f "$HOME/.mattstack/teams/$SLUG/mattstack/teams/$TEAM_NAME/settings.team.jsonc" ]
+[ -f "$HOME/.mattstack/orgs/$SLUG/mattstack/teams/$TEAM_NAME/settings.team.jsonc" ]
 "$RT" settings set mattstack.activeTeam "\"$TEAM_NAME\"" --scope user
 "$RT" team status --team "$SLUG" --json | jq -e --arg team "$TEAM_NAME" '.activeTeam == $team' >/dev/null
 ROLES=$("$RT" settings get mattstack.org --json | jq -ce --arg team "$TEAM_NAME" --arg username "$JOINER_USERNAME" \
@@ -142,7 +142,7 @@ security unlock-keychain -p "$VM_TESTER_PASS" "$HOME/Library/Keychains/login.key
 "$RT" team pull --team "$SLUG" --json
 "$RT" settings get mattstack.org --json | jq -e --arg team "$TEAM_NAME" --arg username "$JOINER_USERNAME" \
   '.value.teams[$team].owners | index($username) != null' >/dev/null
-[ -f "$HOME/.mattstack/teams/$SLUG/mattstack/teams/$TEAM_NAME/settings.team.jsonc" ]
+[ -f "$HOME/.mattstack/orgs/$SLUG/mattstack/teams/$TEAM_NAME/settings.team.jsonc" ]
 "$RT" settings set mattstack.activeTeam "\"$TEAM_NAME\"" --scope user
 "$RT" team status --team "$SLUG" --json | jq -e --arg team "$TEAM_NAME" '.role == "owner" and .activeTeam == $team' >/dev/null
 echo "TEAM ok   joiner owns and reads the selected team"
@@ -159,7 +159,7 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
 RT=/tmp/rt-new; chmod +x "$RT"
 security unlock-keychain -p "$VM_TESTER_PASS" "$HOME/Library/Keychains/login.keychain-db"
-TEAM="$HOME/.mattstack/teams/$SLUG"
+TEAM="$HOME/.mattstack/orgs/$SLUG"
 
 "$RT" settings set rt.teamSnapshot '{"pushDelaySec": 900}' --scope machine
 "$RT" settings set "$KEY" "$VALUE" --scope team --team "$TEAM_NAME"
@@ -228,7 +228,7 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
 RT=/tmp/rt-new; chmod +x "$RT"
 security unlock-keychain -p "$VM_TESTER_PASS" "$HOME/Library/Keychains/login.keychain-db"
-TEAM="$HOME/.mattstack/teams/$SLUG"
+TEAM="$HOME/.mattstack/orgs/$SLUG"
 
 set +e
 PULL_JSON=$("$RT" team pull --team "$SLUG" --json 2>&1 | tail -1)
@@ -258,7 +258,7 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
 RT=/tmp/rt-new; chmod +x "$RT"
 security unlock-keychain -p "$VM_TESTER_PASS" "$HOME/Library/Keychains/login.keychain-db"
-TEAM="$HOME/.mattstack/teams/$SLUG"
+TEAM="$HOME/.mattstack/orgs/$SLUG"
 
 "$RT" settings set rt.teamSnapshot '{"pushDelaySec": 60}' --scope machine
 
@@ -324,7 +324,7 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
 RT=/tmp/rt-new; chmod +x "$RT"
 security unlock-keychain -p "$VM_TESTER_PASS" "$HOME/Library/Keychains/login.keychain-db"
-TEAM="$HOME/.mattstack/teams/$SLUG"
+TEAM="$HOME/.mattstack/orgs/$SLUG"
 
 set +e
 PULL_JSON=$("$RT" team pull --team "$SLUG" --json 2>&1 | tail -1)
@@ -366,7 +366,7 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
 RT=/tmp/rt-new; chmod +x "$RT"
 security unlock-keychain -p "$VM_TESTER_PASS" "$HOME/Library/Keychains/login.keychain-db"
-TEAM="$HOME/.mattstack/teams/$SLUG"
+TEAM="$HOME/.mattstack/orgs/$SLUG"
 
 # The marker clears on the next pull only once the branch is no longer ahead of
 # origin, so the reset flavor of the recovery is what this asserts; a hand

@@ -7,7 +7,7 @@ title: Teams and invites
 
 An org is one git repo that rt manages, shared by everyone in it: settings, secrets, skill packs, and forge access, distributed to every member's Mac. Inside the org are teams. Each team is a folder with its own settings and its own skill pack, and the org's settings apply to every team.
 
-A Mac holds one org. Its clone lives at `~/.mattstack/teams/<org>/`:
+A Mac holds one org. Its clone lives at `~/.mattstack/orgs/<org>/`, a folder named for the org:
 
 - `mattstack/org/` holds the org's settings, its secrets and its base packs.
 - `mattstack/teams/<team>/` holds one team's settings and its pack, under `packs/<team>/`.
@@ -24,7 +24,7 @@ A change you are not allowed to make is refused before anything is written, with
 
 ## Creating an org
 
-In setup's team step, choose **Create a team**, give it a name, and leave **Others will join later** on if teammates will follow. For the repo, paste the URL of an empty repo on GitHub, GitLab, or anything git can push to. When the `gh` CLI is signed in, you can instead let mattstack create a private GitHub repo under an owner you pick. Setup scaffolds the org under `~/.mattstack/teams/<name>/`, and its Install step pushes it.
+In setup's team step, choose **Create a team**, give it a name, and leave **Others will join later** on if teammates will follow. For the repo, paste the URL of an empty repo on GitHub, GitLab, or anything git can push to. When the `gh` CLI is signed in, you can instead let mattstack create a private GitHub repo under an owner you pick. Setup scaffolds the org under `~/.mattstack/orgs/<name>/`, and its Install step pushes it.
 
 The org starts with one team inside. That first team takes the org's name, unless you name it with `--first-team`. You become the org's admin and the first team's owner.
 
@@ -69,6 +69,8 @@ The joiner opens the invite link, or pastes the code into **Join a team** in set
 - If the joiner's forge account (GitHub or GitLab) cannot see the repo, a warning names the problem and suggests asking for access. The `access.team-repo` checklist row holds Install until access is resolved.
 - If access is confirmed, setup continues normally.
 
+An invite minted before the org was renamed names the org by its old name. The join refuses it with "This invite names the org by an old name; ask for a fresh one" and removes the clone it just made; ask an admin for a new invite.
+
 The invite also carries the joiner's board token. When this Mac's board ends up without one, the **Board peering** row says the board does not peer yet. It never holds up Install or Finish, but setup keeps listing it, and the setup check after an app update notifies you about it. The fix is on the admin's side: ask them to re-invite your board, with `rt team invite --handle <your forge username>` (then run `rt team join` with the new code). The row turns ready once the token arrives. It shows only when your team runs a board, and on the Mac that created the org only when that Mac holds the switchboard admin token, in which case `rt team peer` connects its board. It shows an error with a **Re-check** when the switchboard does not answer.
 
 ## Connecting the admin's board
@@ -100,11 +102,33 @@ The daemon keeps each Mac's clone in step with the org repo. It pulls on a timer
 Your clone of the org follows whatever branch it has checked out: the daemon syncs that branch, `rt team publish` pushes it, and your apps read it. Everyone else stays on `main`, so you can try a breaking change without touching their Macs:
 
 ```bash
-git -C ~/.mattstack/teams/acme switch -c org-trial
-git -C ~/.mattstack/teams/acme push -u origin org-trial
+git -C ~/.mattstack/orgs/acme switch -c org-trial
+git -C ~/.mattstack/orgs/acme push -u origin org-trial
 ```
 
 Make and test the change, then merge `org-trial` into `main` on your forge and switch your clone back with `git switch main`. `rt team status` names the branch while it isn't `main`. `rt team invite` refuses on a branch, because the people you invite clone `main`.
+
+## Renaming your org
+
+The org's name is what its repo says it is, not the folder on any one Mac. An admin renames it with:
+
+```bash
+rt team rename gadgets
+```
+
+The rename refuses when your clone has uncommitted changes to tracked files or is behind the org repo, the same as `rt team publish`. It commits the new name on the branch your clone has checked out, pushes it, and moves your own folder to `~/.mattstack/orgs/<new name>/` right away. Team folders, packs and the marketplace's name stay as they were.
+
+Each member's Mac follows at its next setup check after an app update. To follow now, run:
+
+```bash
+rt setup update --force
+```
+
+Until then their clone keeps the old folder name and everything keeps working. The **Org folder** row in setup status says the folder has not caught up yet.
+
+### Moving from the old folder
+
+Older versions of mattstack kept the org under `~/.mattstack/teams/<org>/`. The first setup check after an update moves it to `~/.mattstack/orgs/<org>/`, along with rt's record of it, the repo list and the Claude marketplace that serves your packs. Nothing in the org repo changes. When the move cannot run (uncommitted changes to tracked files in the clone, a rebase in progress; untracked files move with the folder), the setup check's notification and the output of `rt setup update --force` say what is in the way, while the **Org folder** row only says the folder has not moved yet. Fix it and run `rt setup update --force`.
 
 ## Forge grants
 
@@ -143,6 +167,7 @@ Asks the daemon to pull the org clone immediately instead of waiting for its per
 | `rt team add <team> --owner <user>` | Admins: add a team with its owners |
 | `rt team use <team>` | Switch which of your teams you work as |
 | `rt team publish` | Push your org changes to the remote |
+| `rt team rename <name>` | Admins: rename the org; members follow at their next update |
 | `rt team invite --handle <user> [--teams <team>]` | Admins: mint an invite that puts someone on a team |
 | `rt team manage-membership [on\|off]` | Control forge grants on rt-created repos |
 | `rt team join` | Redeem an invite code |

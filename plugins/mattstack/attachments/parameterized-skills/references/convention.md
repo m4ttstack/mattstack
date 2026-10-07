@@ -331,14 +331,16 @@ without losing typed-slash access, at the cost of menu discoverability.
 
 ## Org clone layout
 
-An org repo is cloned at `~/.mattstack/teams/<org>/`, and
+An org repo is cloned at `~/.mattstack/orgs/<org>/`, and
 `mattstack/mattstack.jsonc` marks it: `{"role":"org","org":"acme"}`.
 
 - Each team is a folder `mattstack/teams/<team>/` (`^[a-z][a-z0-9-]*$`)
   holding at most one pack, `packs/<team>/`, named after the team: the
   plugin name users type (`/widgets:work`).
 - The org base pack, when the org has one, sits at
-  `mattstack/org/packs/<org>-base/`.
+  `mattstack/org/packs/<org>-base/`. A team pack that `extends` it gets
+  each of its non-fill attachments copied in at compile, marked by a
+  `compiled.json`, with `{{pack.name}}` expanded to the team pack's name.
 - Only `.claude-plugin/marketplace.json` sits at the repo root. It lists
   every team pack with its source under `mattstack/teams/<team>/packs/<team>`
   and never the base pack.

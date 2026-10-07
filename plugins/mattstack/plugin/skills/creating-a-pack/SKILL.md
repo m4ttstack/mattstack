@@ -10,7 +10,7 @@ bindings fragment, and (later) domain fills. `rt skills init` writes all of
 it; this skill runs that verb, proves the result, and offers the first
 rules. One team folder holds one pack, named after the team: the widgets
 team in the acme org has its pack at
-`~/.mattstack/teams/acme/mattstack/teams/widgets/packs/widgets/`.
+`~/.mattstack/orgs/acme/mattstack/teams/widgets/packs/widgets/`.
 
 Walk this map to the end; a pack is not done until it is published. A
 successful init publishes the new pack itself: it commits the pack, the
@@ -175,7 +175,7 @@ improvise a substitute.
 
 ### Ask the author which team
 
-The org repo is cloned at `~/.mattstack/teams/<org>/` (its
+The org repo is cloned at `~/.mattstack/orgs/<org>/` (its
 `mattstack/mattstack.jsonc` says `role: org`), and each team is a folder
 under its `mattstack/teams/`, named in lowercase letters, digits and
 hyphens (`widgets`, `gadgets`). When the team is unclear, ask which team
