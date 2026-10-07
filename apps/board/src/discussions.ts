@@ -193,8 +193,8 @@ export function threadsOpenedBy(
   return threads.filter(t => t.notes[0]?.username === username);
 }
 
-/** A roster member other than the author left a plain note, or the board's
-    own latch is armed and not resolved. */
+/** A roster member other than the author left a plain note, or any
+    reviewer's latch is armed and not resolved. */
 export function hasQuietReview(
   detail: MRDetail,
   comments: GeneralComment[],

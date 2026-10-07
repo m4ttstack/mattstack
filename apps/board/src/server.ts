@@ -173,9 +173,8 @@ import {
   sendPaneText,
   statusBinPath,
 } from './herdr.ts';
-import { findLatches, hasArmedLatch } from './latch/discussions.ts';
 import { latchGateway } from './latch/gateway.ts';
-import { postLatch, spendAllLatches } from './latch/post.ts';
+import { applyReviewLatch } from './latch/review-step.ts';
 import {
   dedupInFlight,
   DOCTOR_IN_FLIGHT,
@@ -4247,46 +4246,42 @@ async function handleAgentSignal(
   // misses, so a failure must never fail the agent's status write.
   if (signal.kind === 'review' && signal.status === 'done' && gitlabToken) {
     try {
-      const snapshot = await cache.get();
-      const mr = snapshot.mrs.find(m => m.webUrl === signal.mrUrl);
-      // Latches belong to the reviewer whose token posted them. With no
-      // resolvable identity this board cannot tell its own apart, so it
-      // leaves the work to the triage pass rather than guess.
-      const self = mr
-        ? await resolveDispatchIdentity(readMemory(), async () =>
-            (await gitlab()).validateToken()
-          )
-        : null;
-      if (mr && self) {
-        const projectId = parseRepoId(mr.repositoryId);
-        const projectPath =
-          projectPathFromWebUrl(signal.mrUrl, config.gitlabHost) ?? '';
-        const gw = latchGateway(config.gitlabHost, gitlabToken);
-        // Arming honours board.reReview; spending never does, since a
-        // latch left armed on a team that switched re-review off is a
-        // promise nothing keeps.
-        if (signal.outcome === 'comment' && loadReReviewConfig().enabled) {
-          const detail = await readLatchDetail(mr);
-          // This reviewer already has a live latch (armed, either resolved
-          // or not) on this MR -- a spent one must never suppress a fresh
-          // post, or the feature disables itself forever the first time a
-          // latch is ever spent. Another reviewer's latch never counts.
-          if (detail && !hasArmedLatch(findLatches(detail, self))) {
-            await postLatch(gw, projectId, projectPath, signal.mrUrl, mr.iid);
-          }
-        } else if (signal.outcome === 'approve') {
-          const detail = await readLatchDetail(mr);
-          // Every latch of this reviewer's, not just the canonical one: an
-          // armed duplicate left behind here is unreachable to the triage
-          // pass's repair step once the canon it stops at is spent.
-          if (detail)
-            await spendAllLatches(
-              gw,
-              projectId,
-              projectPath,
-              mr.iid,
-              findLatches(detail, self)
-            );
+      // Arming honours board.reReview; spending never does, since a latch
+      // left armed on a team that switched re-review off is a promise
+      // nothing keeps.
+      const outcome =
+        signal.outcome === 'approve'
+          ? 'approve'
+          : signal.outcome === 'comment' && loadReReviewConfig().enabled
+            ? 'comment'
+            : null;
+      const snapshot = outcome ? await cache.get() : null;
+      const mr = snapshot?.mrs.find(m => m.webUrl === signal.mrUrl);
+      if (outcome && mr) {
+        // Latches belong to the reviewer whose token posted them. With no
+        // resolvable identity this board cannot tell its own apart, so it
+        // leaves the work to the triage pass rather than guess.
+        const self = await resolveDispatchIdentity(readMemory(), async () =>
+          (await gitlab()).validateToken()
+        );
+        const detail = self ? await readLatchDetail(mr) : null;
+        if (!self) {
+          console.error(
+            `latch step skipped for ${signal.mrUrl}: no gitlab identity for this token`
+          );
+        } else if (detail) {
+          await applyReviewLatch({
+            outcome,
+            self,
+            approvedBy: mr.reviews.approvedBy.map(r => r.username),
+            detail,
+            gateway: latchGateway(config.gitlabHost, gitlabToken),
+            projectId: parseRepoId(mr.repositoryId),
+            projectPath:
+              projectPathFromWebUrl(signal.mrUrl, config.gitlabHost) ?? '',
+            mrUrl: signal.mrUrl,
+            iid: mr.iid,
+          });
         }
       }
     } catch (err) {
