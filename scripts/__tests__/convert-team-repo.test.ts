@@ -409,6 +409,7 @@ describe("planConversion", () => {
     const org = settings(plan.writes["mattstack/org/settings.org.jsonc"]!);
     expect(org.repos[SHARED]["rt.roles"].dev.hook).toBe("${team:acme}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh");
     expect(plan.report).toContain("the marker names the org globex; old values still match ${team:acme}");
+    expect(plan.report).toContain("invites made from this Mac name the org by its folder name until the folder is renamed, so a joiner is refused as a stale invite until then");
   });
 
   test("without a folder the org is the folder, as before", () => {
@@ -416,6 +417,7 @@ describe("planConversion", () => {
     const org = settings(plan.writes["mattstack/org/settings.org.jsonc"]!);
     expect(org.repos[SHARED]["rt.roles"].dev.hook).toBe("${team:acme}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh");
     expect(plan.report.join("\n")).not.toContain("the marker names the org");
+    expect(plan.report.join("\n")).not.toContain("invites made from this Mac");
   });
 
   test("orgPlaceholder writes ${org} into rewritten paths and every other ${team:<folder>} value", () => {
@@ -429,6 +431,16 @@ describe("planConversion", () => {
     expect(org.repos[SHARED]["rt.roles"].dev.hook).toBe("${org}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh");
     expect(team.repos[OWN]["rt.roles"].dev.hook).toBe("${org}/scripts/dev.sh");
     expect(JSON.stringify(plan.writes)).not.toContain("${team:acme}");
+  });
+
+  test("orgPlaceholder also rewrites a placeholder followed by a suffix", () => {
+    const input = oldClone();
+    const store = settings(input.files["mattstack/settings.team.jsonc"]!.replace(/^\/\/.*\n/, ""));
+    store.repos[OWN]["rt.roles"] = { dev: { hook: "${team:acme}.bak" }, qa: { hook: "${team:acme}_x/qa.sh" } };
+    input.files["mattstack/settings.team.jsonc"] = JSON.stringify(store);
+    const team = settings(run(input, { org: "globex", folder: "acme", orgPlaceholder: true }).writes["mattstack/teams/widgets/settings.team.jsonc"]!);
+    expect(team.repos[OWN]["rt.roles"].dev.hook).toBe("${org}.bak");
+    expect(team.repos[OWN]["rt.roles"].qa.hook).toBe("${org}_x/qa.sh");
   });
 
   test("orgPlaceholder leaves another folder's ${team:<name>} alone", () => {

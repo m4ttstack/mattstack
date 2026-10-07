@@ -90,7 +90,7 @@ function rewritePaths(value: unknown, swaps: [string, string][], note: (from: st
     let out = value;
     for (const [from, to] of swaps) {
       // A folder name, not a prefix: `packs/acme` must not match inside `packs/acme-base`.
-      const whole = new RegExp(`${escapeRegExp(from)}(?![A-Za-z0-9._-])`, "g");
+      const whole = new RegExp(`${escapeRegExp(from)}${from.endsWith("}") ? "" : "(?![A-Za-z0-9._-])"}`, "g");
       const next = out.replace(whole, () => to);
       if (next !== out) {
         note(out, next);
@@ -267,7 +267,7 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
     [`${from}/mattstack/secrets`, `${to}/mattstack/org/secrets`],
     ...(opts.orgPlaceholder ? [[from, to] as [string, string]] : []),
   ];
-  const noteRewrite = (from: string, to: string) => report.push(`rewrote ${from} to ${to}`);
+  const noteRewrite = (before: string, after: string) => report.push(`rewrote ${before} to ${after}`);
   const orgOut = rewritePaths(org, swaps, noteRewrite) as Json;
   const teamOut = rewritePaths(teamStore, swaps, noteRewrite) as Json;
 
@@ -277,7 +277,10 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
   for (const identity of Object.keys(ownRepos)) report.push(`team ${team}: repo section ${identity}`);
   if (Array.isArray(global["board.members"])) report.push("board.members: retired; its usernames are on the roster");
 
-  if (opts.org !== folder) report.push(`the marker names the org ${opts.org}; old values still match \${team:${folder}}`);
+  if (opts.org !== folder) {
+    report.push(`the marker names the org ${opts.org}; old values still match \${team:${folder}}`);
+    report.push("invites made from this Mac name the org by its folder name until the folder is renamed, so a joiner is refused as a stale invite until then");
+  }
 
   const rosterUsernames = roster.map((entry) => String(entry.username));
   report.push(`roster usernames to confirm as forge logins: ${rosterUsernames.join(", ")}`);
