@@ -15,7 +15,7 @@ const fakeHome = mkdtempSync(join(tmpdir(), 'board-note-route-'));
 const teamDir = join(
   fakeHome,
   '.mattstack',
-  'teams',
+  'orgs',
   'testteam',
   'mattstack',
   'org'

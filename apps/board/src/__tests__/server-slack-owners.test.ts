@@ -22,7 +22,7 @@ const HOST = 'https://gitlab.example.com';
 const teamDir = join(
   fakeHome,
   '.mattstack',
-  'teams',
+  'orgs',
   'testteam',
   'mattstack',
   'org'
