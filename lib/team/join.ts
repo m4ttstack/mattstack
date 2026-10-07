@@ -25,9 +25,10 @@ import { createRealSecretsExecSeam, personalStoreReady, validateSlug, writeSecre
 import type { SecretsSeams } from "../secrets/store.ts";
 import { readTeamSecret } from "../secrets/team-store.ts";
 import { logFailureDetail, UserActionableError } from "../errors.ts";
-import { clearIntent, readIntent, writeIntent, INVITE_POINTER_VERSION, type InvitePointer } from "../setup/intent.ts";
+import { clearIntent, intentPath, readIntent, writeIntent, INVITE_POINTER_VERSION, type InvitePointer } from "../setup/intent.ts";
 import type { ExecResult, Probes } from "../setup/probes.ts";
 import { forgeFromRemote, parseOriginUrl, readTeamSnapshot, readUserIntegrationOverrides, stripUserinfo, type SettingsReader } from "../setup/team-settings.ts";
+import { stripJsonc } from "../jsonc.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { switchboardUrl } from "../../packages/rt-client/src/switchboard.ts";
 import { rosterFrom, sameUser } from "../../packages/rt-client/src/settings/active-team.ts";
@@ -48,7 +49,7 @@ import { storedForgeToken } from "./stored-forge-token.ts";
 import { forgeLabel, probeTeamRepoAccess, type RepoAccessVerdict } from "./repo-access.ts";
 import { forgeTokenLookupForRemote, mayOfferToken, mayOfferTokenToHost, tokenLookupRemoteForHost } from "./forge-token.ts";
 import { assertOnlyTeam } from "./one-team.ts";
-import { readTeamLocal, updateTeamLocal } from "./team-local.ts";
+import { readTeamLocal, teamLocalPath, updateTeamLocal } from "./team-local.ts";
 import { orgDirUnder, orgsDirUnder } from "../rt-paths.ts";
 
 export interface JoinResult {
@@ -479,6 +480,20 @@ function readOrigin(p: Probes, dir: string): string | null {
   return raw !== null ? parseOriginUrl(raw) : null;
 }
 
+/** The org a clone's marker names, or null when the marker is absent, unparsable or not an org marker. */
+function clonedOrgName(p: Pick<Probes, "readFile">, dir: string): string | null {
+  const raw = p.readFile(join(dir, "mattstack", "mattstack.jsonc"));
+  if (raw === null) return null;
+  try {
+    const marker = JSON.parse(stripJsonc(raw)) as { role?: unknown; org?: unknown } | null;
+    if (marker?.role !== "org" || typeof marker.org !== "string") return null;
+    validateSlug(marker.org);
+    return marker.org;
+  } catch {
+    return null;
+  }
+}
+
 function rosterLists(p: Pick<Probes, "home" | "readFile">, org: string, username: string): boolean {
   const file = orgStoreFile(p.home, org);
   const raw = p.readFile(file);
@@ -503,6 +518,7 @@ export async function joinRedeem(
   // keychain locked — leaves something a bare `rt team join` (no code) can
   // resume from, since the relay will no longer serve this code once
   // `relay.redeem` succeeds.
+  const priorIntent = p.readFile(intentPath(p.home));
   writeIntent(p, { v: 1, at: p.now().toISOString(), mode: "join", join: { id: idHex, keyB64: Buffer.from(key).toString("base64"), pointer } });
 
   const dir = orgDirUnder(p.home, pointer.team);
@@ -516,6 +532,7 @@ export async function joinRedeem(
   // mistyped code resolving to the same slug with a different remote), and
   // that prior join must not be flipped back into push mode by a failure that
   // has nothing to do with it.
+  const priorRecordExists = p.exists(teamLocalPath(p.home, pointer.team));
   const priorLocal = readTeamLocal(p, pointer.team);
   const priorJoined = priorLocal.joinedByRt;
   // A machine that created this team is redeeming a code for its own repo
@@ -549,6 +566,25 @@ export async function joinRedeem(
       updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });
       return gitAccessResult(pointer, clone);
     }
+  }
+
+  const cloned = clonedOrgName(p, dir);
+  if (cloned !== null && cloned !== pointer.team) {
+    if (!alreadyCloned) p.removeDir(dir);
+    if (priorRecordExists) updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });
+    else p.removeFile(teamLocalPath(p.home, pointer.team));
+    if (priorIntent !== null) p.writeFile(intentPath(p.home), priorIntent, 0o600);
+    else clearIntent(p);
+    const stuck = !alreadyCloned && p.exists(dir);
+    const renamed = "The org was renamed after this invite was made; a fresh invite from your admin joins it.";
+    const why = alreadyCloned
+      ? `The org was renamed after this invite was made, and its folder on this Mac still has the old name. Move ${dir} aside, then join with a fresh invite from your admin.`
+      : stuck ? `${renamed} rt could not remove the folder it cloned, so remove ${dir} before you join again.` : renamed;
+    const folderNote = alreadyCloned ? `; kept the existing ${dir}` : stuck ? `; could not remove ${dir}` : "";
+    throw new UserActionableError("invite-stale", "This invite names the org by an old name; ask for a fresh one", {}, {
+      why,
+      log: `the invite names ${pointer.team}; the org repo's marker names ${cloned}${folderNote}`,
+    });
   }
 
   if (!rosterLists(p, pointer.team, pointer.username)) {

@@ -402,6 +402,64 @@ describe("planConversion", () => {
     expect(report).toContain("team widgets: board.title");
     expect(report).toContain("roster usernames to confirm as forge logins: dev1, dev2, dev3");
   });
+
+  test("--org names the org in the marker while the folder stays the match key", () => {
+    const plan = run(oldClone(), { org: "globex", folder: "acme" });
+    expect(JSON.parse(plan.writes["mattstack/mattstack.jsonc"]!)).toEqual({ role: "org", org: "globex" });
+    const org = settings(plan.writes["mattstack/org/settings.org.jsonc"]!);
+    expect(org.repos[SHARED]["rt.roles"].dev.hook).toBe("${team:acme}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh");
+    expect(plan.report).toContain("the marker names the org globex; old values still match ${team:acme}");
+    expect(plan.report).toContain("invites made from this Mac name the org by its folder name until the folder is renamed, so a joiner is refused as a stale invite until then");
+  });
+
+  test("without a folder the org is the folder, as before", () => {
+    const plan = run();
+    const org = settings(plan.writes["mattstack/org/settings.org.jsonc"]!);
+    expect(org.repos[SHARED]["rt.roles"].dev.hook).toBe("${team:acme}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh");
+    expect(plan.report.join("\n")).not.toContain("the marker names the org");
+    expect(plan.report.join("\n")).not.toContain("invites made from this Mac");
+  });
+
+  test("orgPlaceholder writes ${org} into rewritten paths and every other ${team:<folder>} value", () => {
+    const input = oldClone();
+    const store = settings(input.files["mattstack/settings.team.jsonc"]!.replace(/^\/\/.*\n/, ""));
+    store.repos[OWN]["rt.roles"] = { dev: { hook: "${team:acme}/scripts/dev.sh" } };
+    input.files["mattstack/settings.team.jsonc"] = JSON.stringify(store);
+    const plan = run(input, { org: "globex", folder: "acme", orgPlaceholder: true });
+    const org = settings(plan.writes["mattstack/org/settings.org.jsonc"]!);
+    const team = settings(plan.writes["mattstack/teams/widgets/settings.team.jsonc"]!);
+    expect(org.repos[SHARED]["rt.roles"].dev.hook).toBe("${org}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh");
+    expect(team.repos[OWN]["rt.roles"].dev.hook).toBe("${org}/scripts/dev.sh");
+    expect(JSON.stringify(plan.writes)).not.toContain("${team:acme}");
+    expect(plan.report).toContain("Every member needs an rt that knows ${org}; an older rt reads it as plain text, so role hooks would run with that text");
+  });
+
+  test("without orgPlaceholder the report carries no ${org} warning", () => {
+    expect(run(oldClone(), { org: "globex", folder: "acme" }).report.join("\n")).not.toContain("Every member needs an rt that knows");
+  });
+
+  test("orgPlaceholder also rewrites a placeholder followed by a suffix", () => {
+    const input = oldClone();
+    const store = settings(input.files["mattstack/settings.team.jsonc"]!.replace(/^\/\/.*\n/, ""));
+    store.repos[OWN]["rt.roles"] = { dev: { hook: "${team:acme}.bak" }, qa: { hook: "${team:acme}_x/qa.sh" } };
+    input.files["mattstack/settings.team.jsonc"] = JSON.stringify(store);
+    const team = settings(run(input, { org: "globex", folder: "acme", orgPlaceholder: true }).writes["mattstack/teams/widgets/settings.team.jsonc"]!);
+    expect(team.repos[OWN]["rt.roles"].dev.hook).toBe("${org}.bak");
+    expect(team.repos[OWN]["rt.roles"].qa.hook).toBe("${org}_x/qa.sh");
+  });
+
+  test("orgPlaceholder leaves another folder's ${team:<name>} alone", () => {
+    const input = oldClone();
+    const store = settings(input.files["mattstack/settings.team.jsonc"]!.replace(/^\/\/.*\n/, ""));
+    store.repos[OWN]["rt.roles"] = { dev: { hook: "${team:acme-tools}/dev.sh" } };
+    input.files["mattstack/settings.team.jsonc"] = JSON.stringify(store);
+    const team = settings(run(input, { orgPlaceholder: true }).writes["mattstack/teams/widgets/settings.team.jsonc"]!);
+    expect(team.repos[OWN]["rt.roles"].dev.hook).toBe("${team:acme-tools}/dev.sh");
+  });
+
+  test("an unsafe folder name is refused like an unsafe org name", () => {
+    expect(() => run(oldClone(), { folder: "../x" })).toThrow("Choose a safe org folder name");
+  });
 });
 
 describe("the wrapper", () => {
@@ -883,5 +941,39 @@ exec "$RT_CONVERT_REAL_GIT" "$@"
     const fs: InitFs = { exists: existsSync, readFile: (p) => (existsSync(p) ? readFileSync(p, "utf8") : null), writeFile: () => {}, mkdirp: () => {}, readDir: (p) => (existsSync(p) ? readdirSync(p) : []) };
     const zones = readZonesFrom(fs, dirname(dir));
     expect(zones).toEqual([expect.objectContaining({ slug: "acme/widgets", host: "gitlab.example.com", projects: ["acme/widgets"], hasPack: true })]);
+  });
+
+  test("--org writes that name into the marker and keeps ${team:<folder>} in old values", () => {
+    ready();
+    const dir = tempClone();
+    const out = runScript(dir, "--org", "globex", "--write", "--roster-confirmed");
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(readFileSync(join(dir, "mattstack", "mattstack.jsonc"), "utf8"))).toEqual({ role: "org", org: "globex" });
+    expect(readFileSync(join(dir, "mattstack", "org", "settings.org.jsonc"), "utf8")).toContain("${team:acme}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh");
+  });
+
+  test("--org-placeholder writes ${org}", () => {
+    ready();
+    const dir = tempClone();
+    expect(runScript(dir, "--org-placeholder", "--write", "--roster-confirmed").exitCode).toBe(0);
+    const org = readFileSync(join(dir, "mattstack", "org", "settings.org.jsonc"), "utf8");
+    expect(org).toContain("${org}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh");
+    expect(org).not.toContain("${team:acme}");
+  });
+
+  test("an --org that breaks the slug rule, or a second --org, is a usage failure and changes nothing", () => {
+    const dir = tempClone();
+    const before = snapshot(dir);
+    const cases: [string[], string][] = [
+      [["--org", "Globex"], "Choose an org name of lowercase letters, digits and dashes"],
+      [["--org", "globex", "--org", "gadgets"], "Name the org once"],
+      [["--org", "--write"], "Check the conversion arguments"],
+    ];
+    for (const [extra, title] of cases) {
+      const out = runScript(dir, ...extra);
+      expect(out.exitCode).toBe(2);
+      expect(out.stderr.toString().trimStart().startsWith(title)).toBe(true);
+      expect(snapshot(dir)).toBe(before);
+    }
   });
 });
