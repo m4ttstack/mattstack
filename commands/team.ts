@@ -407,7 +407,9 @@ export function renameBlocks(result: RenameResult): Block[] {
   const here = result.converged
     ? [out.line("done", `This Mac's org folder is now ${result.to}`)]
     : [
-        out.line("needs-you", "This Mac's org folder has not moved yet", result.convergeDetail),
+        result.convergeState === "partial"
+          ? out.line("needs-you", "This Mac's org folder moved, with one step left for you", result.convergeDetail)
+          : out.line("needs-you", "This Mac's org folder has not moved yet", result.convergeDetail),
         (result.convergeRemedy ? out.callout("fix", result.convergeRemedy) : out.callout("next", out.cmd("rt setup update --force"))),
       ];
   return [

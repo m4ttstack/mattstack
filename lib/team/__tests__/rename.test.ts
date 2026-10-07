@@ -125,7 +125,7 @@ describe("renameOrg", () => {
   test("a converge that does not finish still reports the rename, with its detail and remedy", async () => {
     const w = orgWorld();
     const result = await renameOrg(w.p, "acme", "gadgets", seams({ state: "partial", detail: "claude is missing", remedy: "Run claude plugin marketplace add" }));
-    expect(result).toEqual({ from: "acme", to: "gadgets", converged: false, convergeDetail: "claude is missing", convergeRemedy: "Run claude plugin marketplace add" });
+    expect(result).toEqual({ from: "acme", to: "gadgets", converged: false, convergeState: "partial", convergeDetail: "claude is missing", convergeRemedy: "Run claude plugin marketplace add" });
     expect(w.atOrigin("log", "-1", "--format=%s", "main").trim()).toBe("org: rename to gadgets");
   });
 

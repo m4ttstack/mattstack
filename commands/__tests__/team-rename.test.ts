@@ -79,15 +79,23 @@ describe("rt team rename", () => {
     expect(text).toContain("claude is missing");
     expect(text).toContain("Run claude plugin marketplace add");
   });
-});
 
-test("the real converge seam runs the org.folder step", async () => {
-  const w = orgWorld();
-  const spy = spyOn(orgFolder, "convergeOrgFolder").mockResolvedValue({ state: "done", detail: "Moved acme" });
-  try {
-    const lines: string[] = [];
-    await teamRename(["gadgets", "--json"], {}, { ...realTeamDeps(), probes: w.p, print: (s) => lines.push(s), forgeToken: async () => null });
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(lines[0]!)).toMatchObject({ converged: true });
-  } finally { spy.mockRestore(); }
+  test("a partial converge says the folder moved and names the step left", () => {
+    const text = renderPlain(renameBlocks({ from: "acme", to: "gadgets", converged: false, convergeState: "partial", convergeDetail: "Moved acme to /orgs/gadgets", convergeRemedy: "Run claude plugin marketplace add acme" }));
+    expect(text).toContain("This Mac's org folder moved, with one step left for you");
+    expect(text).toContain("Moved acme to /orgs/gadgets");
+    expect(text).toContain("Run claude plugin marketplace add acme");
+    expect(text).not.toContain("has not moved yet");
+  });
+
+  test("the real converge seam runs the org.folder step", async () => {
+    const w = orgWorld();
+    const spy = spyOn(orgFolder, "convergeOrgFolder").mockResolvedValue({ state: "done", detail: "Moved acme" });
+    try {
+      const lines: string[] = [];
+      await teamRename(["gadgets", "--json"], {}, { ...realTeamDeps(), probes: w.p, print: (s) => lines.push(s), forgeToken: async () => null });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(lines[0]!)).toMatchObject({ converged: true });
+    } finally { spy.mockRestore(); }
+  });
 });

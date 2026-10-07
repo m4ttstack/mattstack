@@ -25,6 +25,7 @@ export interface RenameResult {
   from: string;
   to: string;
   converged: boolean;
+  convergeState?: ConvergeOutcome["state"];
   convergeDetail?: string;
   convergeRemedy?: string;
 }
@@ -156,6 +157,7 @@ export async function renameOrg(p: Probes, from: string, to: string, seams: Rena
     from,
     to,
     converged: done,
+    ...(!done ? { convergeState: outcome.state } : {}),
     ...(!done && outcome.detail ? { convergeDetail: outcome.detail } : {}),
     ...(!done && outcome.remedy ? { convergeRemedy: outcome.remedy } : {}),
   };
