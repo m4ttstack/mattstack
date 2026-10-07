@@ -68,6 +68,9 @@ export const CODEX_METHODS: Readonly<Record<string, MethodSpec>> = {
   "thread/unsubscribe": {
     scope: "owned", experimental: false, required: ["threadId"], fields: ["threadId"], experimentalFields: [], refused: [],
   },
+  "thread/turns/list": {
+    scope: "owned", experimental: false, required: ["threadId"], fields: ["limit", "threadId"], experimentalFields: [], refused: [],
+  },
   "turn/start": {
     scope: "owned", experimental: false, required: ["input", "threadId"],
     fields: [
@@ -102,6 +105,9 @@ export const CODEX_METHODS: Readonly<Record<string, MethodSpec>> = {
 export const CODEX_METHODS_OUTSIDE_FIXTURE: Readonly<Record<string, string>> = {
   "thread/unsubscribe": "in `codex app-server generate-json-schema` as ThreadUnsubscribeParams { threadId }, answering "
     + "{ status: notLoaded | notSubscribed | unsubscribed } (.harness-spike/live-04/report.md, 0.160.x)",
+  "thread/turns/list": "the paginated replacement Codex's deprecationNotice names for thread/read includeTurns; "
+    + "{ threadId, limit } answers { data: Turn[] newest first, nextCursor, backwardsCursor }, each Turn with its id and "
+    + "TurnStatus (.harness-spike/live-07 events.jsonl seq 218-220 and tui-wire.jsonl seq 28-43, 0.160.x)",
 };
 
 /** The server requests Mattstack replies to, with the result fields its reply carries, checked against the saved schema. */

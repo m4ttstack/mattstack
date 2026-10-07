@@ -1,0 +1,151 @@
+{
+  "default": {
+    "data": [
+      {
+        "id": "01a116a6-d088-73d2-8771-a970306746cd",
+        "items": [
+          {
+            "type": "userMessage",
+            "id": "01a116a6-d625-7a61-9bc6-71cb64d6defe",
+            "clientId": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "Use the request_user_input tool once to ask me two questions in one call: question id color with options Red and Blue; question id size with options Small and Large. Then reply with my two answers only, separated by a comma. Run no commands.",
+                "text_elements": []
+              }
+            ]
+          }
+        ],
+        "itemsView": "summary",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": 1791381393,
+        "completedAt": null,
+        "durationMs": null
+      },
+      {
+        "id": "01a116a4-0d5b-7c93-8989-4ad22f592a7b",
+        "items": [
+          {
+            "type": "userMessage",
+            "id": "01a116a4-0d7f-7f92-97b5-b6476c9397e7",
+            "clientId": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "Use the request_user_input tool once to ask me two questions in one call: question id color, multiple choice with options Red and Blue; question id name, free text with no options. Then reply with my two answers only, separated by a comma. Run no commands.",
+                "text_elements": []
+              }
+            ]
+          },
+          {
+            "type": "agentMessage",
+            "id": "msg_008db21b2a7d9e41016ac64ee3d1208195a854e93c118f1a0d",
+            "text": "The tool requires options for every question, so it couldn’t ask the free-text question.",
+            "phase": "final_answer",
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          }
+        ],
+        "itemsView": "summary",
+        "status": "completed",
+        "error": null,
+        "startedAt": 1791381212,
+        "completedAt": 1791381220,
+        "durationMs": 8363
+      },
+      {
+        "id": "01a116a3-223a-71d1-90de-04f4a12de042",
+        "items": [
+          {
+            "type": "userMessage",
+            "id": "01a116a3-2306-7cf1-9e6b-e3687fb2a846",
+            "clientId": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "Use the request_user_input tool to ask me one multiple-choice question (id pick) with options A and B, then reply with my answer only. Run no commands.",
+                "text_elements": []
+              }
+            ]
+          },
+          {
+            "type": "agentMessage",
+            "id": "msg_008db21b2a7d9e41016ac64ec1d36081958cd2c54edf383bd8",
+            "text": "B",
+            "phase": "final_answer",
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          }
+        ],
+        "itemsView": "summary",
+        "status": "completed",
+        "error": null,
+        "startedAt": 1791381152,
+        "completedAt": 1791381185,
+        "durationMs": 33569
+      }
+    ],
+    "nextCursor": null,
+    "backwardsCursor": "{\"requestedThreadId\":\"01a116a2-f22f-7e51-aa28-27deb2fdc19f\",\"rolloutOrdinal\":39,\"includeAnchor\":true,\"scope\":{\"kind\":\"turns\"}}"
+  },
+  "notLoaded": {
+    "data": [
+      {
+        "id": "01a116a8-ff42-7c02-a97a-bc3930f6a1f4",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "completed",
+        "error": null,
+        "startedAt": 1791381536,
+        "completedAt": 1791381542,
+        "durationMs": 5462
+      },
+      {
+        "id": "01a116a8-9883-7ea2-9b93-2a46f1d8e0b4",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "completed",
+        "error": null,
+        "startedAt": 1791381510,
+        "completedAt": 1791381516,
+        "durationMs": 5782
+      },
+      {
+        "id": "01a116a7-f32b-7921-90b3-13b29bc7054c",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "interrupted",
+        "error": null,
+        "startedAt": 1791381467,
+        "completedAt": 1791381490,
+        "durationMs": 22038
+      },
+      {
+        "id": "01a116a6-d088-73d2-8771-a970306746cd",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "completed",
+        "error": null,
+        "startedAt": 1791381393,
+        "completedAt": 1791381444,
+        "durationMs": 50561
+      },
+      {
+        "id": "01a116a4-0d5b-7c93-8989-4ad22f592a7b",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "completed",
+        "error": null,
+        "startedAt": 1791381212,
+        "completedAt": 1791381220,
+        "durationMs": 8363
+      }
+    ],
+    "nextCursor": "{\"requestedThreadId\":\"01a116a2-f22f-7e51-aa28-27deb2fdc19f\",\"rolloutOrdinal\":21,\"includeAnchor\":false,\"scope\":{\"kind\":\"turns\"}}",
+    "backwardsCursor": "{\"requestedThreadId\":\"01a116a2-f22f-7e51-aa28-27deb2fdc19f\",\"rolloutOrdinal\":81,\"includeAnchor\":true,\"scope\":{\"kind\":\"turns\"}}"
+  }
+}

@@ -15,7 +15,7 @@ import {
 import { codexIntegration } from "../codex/integration.ts";
 import {
   ANSWER_VALUE, asyncQuestionsOf, bindCodexQuestion, createCodexQuestions, gateQuestionsOf, MAX_PRESENT_ATTEMPTS, MAX_UNSEEN_RECHECKS, nativeAnswersOf,
-  OTHER_VALUE, readRolloutLastTurn, readRolloutTail, rolloutEvidence, type CodexQuestionAdapter,
+  OTHER_VALUE, readRolloutLastTurn, readRolloutTail, rolloutEvidence, turnEndedOf, type CodexQuestionAdapter,
 } from "../codex/questions.ts";
 import {
   CODEX_EVIDENCE_OUTSIDE_PROTOCOL, CODEX_METHODS, CODEX_PROTOCOL_VERSION, CODEX_SERVER_REQUEST_REPLIES, type CodexQuestionRequest,
@@ -93,6 +93,10 @@ class FakeAppServer {
   replyStatus: Message | undefined;
   /** How many thread/read requests still fail, as a busy app server's would. */
   readFailures = 0;
+  /** How many more thread/read requests succeed before every later one fails; null never. */
+  readsBeforeFailure: number | null = null;
+  /** The thread's turns as thread/turns/list pages them, newest first; null answers with an error. */
+  turns: Message[] | null = null;
 
   restart(): void {
     this.nextId = 0;
@@ -153,12 +157,20 @@ class FakeAppServer {
     const threadId = m.params?.threadId;
     switch (m.method) {
       case "thread/read":
-        if (this.readFailures > 0) {
-          this.readFailures--;
+        if (this.readFailures > 0 || this.readsBeforeFailure === 0) {
+          if (this.readFailures > 0) this.readFailures--;
           s.push({ id: m.id, error: { code: -32000, message: "the app server is busy" } });
           return;
         }
+        if (this.readsBeforeFailure !== null) this.readsBeforeFailure--;
         s.push({ id: m.id, result: { thread: { id: threadId, status: this.replyStatus ?? this.status, path: this.pathFor(threadId), turns: [] } } });
+        return;
+      case "thread/turns/list":
+        if (this.turns === null) {
+          s.push({ id: m.id, error: { code: -32000, message: "the app server is busy" } });
+          return;
+        }
+        s.push({ id: m.id, result: { data: this.turns, nextCursor: null, backwardsCursor: null } });
         return;
       case "thread/resume": {
         s.subscribed.add(threadId);
@@ -1112,6 +1124,28 @@ const L8_ANSWERED_THEN_ABORTED = { item: "call_HwejYU5qL9Bi0ph2lUc6TlYj", turn: 
 const attentionFor = (w: Awaited<ReturnType<typeof world>>, reason: string) =>
   w.emitted.filter((e) => e.topic === "gate.native-attention" && e.payload.reason === reason);
 
+/** A gate opened for a question, then the app server goes away; it comes back with the question ended as `ending` says. */
+async function endedWhileAway(
+  question: { item: string; turn: string },
+  ending: { status: Record<string, unknown>; rollout: string; whole?: boolean; turns?: Message[] | null },
+  whileAway?: (w: Awaited<ReturnType<typeof world>>, gate: GateRow) => Promise<void>,
+) {
+  const w = await world();
+  await w.connect();
+  w.server.ask("T1", question.turn, question.item, PICK);
+  await settled();
+  const [gate] = w.gates();
+  w.server.restart();
+  w.server.pending.delete("T1");
+  w.server.status = ending.status;
+  w.server.rollout = ending.rollout;
+  w.server.rolloutWhole = ending.whole ?? true;
+  w.server.turns = ending.turns ?? null;
+  if (whileAway) await whileAway(w, gate!);
+  const c = await w.connect();
+  return { w, c, gate: gate! };
+}
+
 describe("live-08: questions that ended while rt was not connected", () => {
   test("a turn_aborted covering the item's turn is aborted; without the turn it stays unknown", () => {
     expect(rolloutEvidence(LIVE08_C, L8_ABORTED.item, { pick: { answers: ["A"] } }, true, L8_ABORTED.turn).state).toBe("gone");
@@ -1131,27 +1165,6 @@ describe("live-08: questions that ended while rt was not connected", () => {
     expect(capped.state).toBe("pending");
     expect(capped).not.toHaveProperty("absent");
   });
-
-  /** A gate opened for a question, then the app server goes away; it comes back with the question ended as `ending` says. */
-  async function endedWhileAway(
-    question: { item: string; turn: string },
-    ending: { status: Record<string, unknown>; rollout: string; whole?: boolean },
-    whileAway?: (w: Awaited<ReturnType<typeof world>>, gate: GateRow) => Promise<void>,
-  ) {
-    const w = await world();
-    await w.connect();
-    w.server.ask("T1", question.turn, question.item, PICK);
-    await settled();
-    const [gate] = w.gates();
-    w.server.restart();
-    w.server.pending.delete("T1");
-    w.server.status = ending.status;
-    w.server.rollout = ending.rollout;
-    w.server.rolloutWhole = ending.whole ?? true;
-    if (whileAway) await whileAway(w, gate!);
-    const c = await w.connect();
-    return { w, c, gate: gate! };
-  }
 
   test("answered in the TUI while rt was away: the reconnect records the native answer and writes nothing", async () => {
     const { w, c, gate } = await endedWhileAway(L8_ANSWERED, { status: { type: "active", activeFlags: [] }, rollout: LIVE08_C });
@@ -1297,6 +1310,187 @@ describe("live-08: questions that ended while rt was not connected", () => {
     await c.sessions.observe(w.sessions.get("s1")!);
     await settled();
     expect(w.store.get(gate.id)!.status).toBe("open");
+    expect(w.reads).toEqual([]);
+    expect(w.emitted).toEqual([]);
+  });
+});
+
+/**
+ * live-09 (0.161.x): the question lines of thread 01a11751's rollout in file
+ * order. Case 3b's question was interrupted when the app server stopped and
+ * started again, and Codex wrote neither an output nor a turn_aborted for it.
+ */
+const LIVE09 = readFileSync(join(FIXTURES, "rollout-live09-0.161.x.jsonl"), "utf8");
+const L9_D5 = { item: "call_vOI4J9MVsgwTzCjooH3Tb82F", turn: "01a11759-17e1-72b2-9bb3-bd9b7164e843" };
+/** live-07 thread/turns/list pages: `default` is the reply to { threadId } alone, `notLoaded` the TUI's. */
+const TURNS = JSON.parse(readFileSync(join(FIXTURES, "thread-turns-list-0.160.x.json"), "utf8"));
+const L7_INTERRUPTED = "01a116a7-f32b-7921-90b3-13b29bc7054c";
+/** live-07's interrupted turn as the list pages it, under the question's turn id and the given status. */
+const listedTurn = (id: string, status: string): Message => ({ ...TURNS.notLoaded.data.find((t: Message) => t.id === L7_INTERRUPTED), id, status });
+const turnLists = (w: Awaited<ReturnType<typeof world>>) => w.sent().filter((m) => m.method === "thread/turns/list");
+
+describe("live-09: a turn that ended with no rollout evidence", () => {
+  test("a listed turn has ended only when it completed, was interrupted or failed", () => {
+    expect(turnEndedOf(TURNS.notLoaded, L7_INTERRUPTED)).toBe("interrupted");
+    expect(turnEndedOf(TURNS.notLoaded, TURNS.notLoaded.data[0].id)).toBe("completed");
+    expect(TURNS.default.data[0].status).toBe("inProgress");
+    expect(turnEndedOf(TURNS.default, TURNS.default.data[0].id)).toBeNull();
+    expect(turnEndedOf(TURNS.default, L9_D5.turn)).toBeNull();
+    expect(turnEndedOf({ data: [listedTurn("U1", "failed")] }, "U1")).toBe("failed");
+    expect(turnEndedOf({ data: [listedTurn("U1", "paused")] }, "U1")).toBeNull();
+    expect(turnEndedOf({ data: "U1" }, "U1")).toBeNull();
+    expect(turnEndedOf(null, "U1")).toBeNull();
+  });
+
+  test("the D5 rollout holds no output and no turn_aborted for the question", () => {
+    expect(rolloutEvidence(LIVE09, L9_D5.item, null, true, L9_D5.turn)).toMatchObject({ state: "pending", absent: true });
+  });
+
+  for (const status of ["interrupted", "completed", "failed"]) {
+    test(`D5: the turn ${status} with no output and the thread idle: the reconnect closes the gate, and a later answer is refused`, async () => {
+      const { w, c, gate } = await endedWhileAway(L9_D5, { status: { type: "idle" }, rollout: LIVE09, turns: [listedTurn(L9_D5.turn, status)] });
+      await c.sessions.observe(w.sessions.get("s1")!);
+      await settled();
+      expect(w.store.get(gate.id)).toMatchObject({ status: "closed", answer: null });
+      expect(w.service.completion(gate.id)?.state).toBe("gone");
+      expect(attentionFor(w, "question-ended-unseen")).toEqual([]);
+      expect((await answerGate(w, gate.id, { pick: "A" })).ok).toBe(false);
+      expect(w.answersSent()).toEqual([]);
+      expect(turnLists(w).map((m) => m.params)).toEqual([{ threadId: "T1", limit: 20 }]);
+    });
+  }
+
+  test("a gate answered before the reconnect, whose turn ended with no rollout evidence, ends gone with nothing written", async () => {
+    const turns = [listedTurn(L9_D5.turn, "interrupted")];
+    const { w, c, gate } = await endedWhileAway(L9_D5, { status: { type: "idle" }, rollout: LIVE09, turns }, async (w, gate) => {
+      expect((await answerGate(w, gate.id, { pick: "A" })).ok).toBe(true);
+      await settled();
+      expect(w.service.completion(gate.id)?.state).toBe("pending");
+    });
+    await c.sessions.observe(w.sessions.get("s1")!);
+    await settled();
+    await w.service.completeGateQuestion(gate.id);
+    expect(w.service.completion(gate.id)?.state).toBe("gone");
+    expect(w.answersSent()).toEqual([]);
+  });
+
+  test("a request rt held whose turn ended unheard, with no rollout evidence, closes its open gate", async () => {
+    const w = await world();
+    const c = await w.connect();
+    w.server.ask("T1", L9_D5.turn, L9_D5.item, PICK);
+    await settled();
+    const [gate] = w.gates();
+    c.clock.lapse();
+    w.server.rollout = LIVE09;
+    w.server.turns = [listedTurn(L9_D5.turn, "interrupted")];
+    w.server.pending.delete("T1");
+    w.server.setStatus("T1", { type: "idle" });
+    await settled();
+    expect(w.store.get(gate!.id)).toMatchObject({ status: "closed", answer: null });
+    expect(attentionFor(w, "native-answer-unrecorded")).toEqual([]);
+    expect(w.answersSent()).toEqual([]);
+  });
+
+  test("an answer to a request whose turn ended before rt heard of it is never written", async () => {
+    const w = await world();
+    await w.connect();
+    w.server.ask("T1", L9_D5.turn, L9_D5.item, PICK);
+    await settled();
+    const [gate] = w.gates();
+    w.server.rollout = LIVE09;
+    w.server.turns = [listedTurn(L9_D5.turn, "interrupted")];
+    w.server.pending.delete("T1");
+    w.server.setStatus("T1", { type: "idle" }, true);
+    expect((await answerGate(w, gate!.id, { pick: "A" })).ok).toBe(true);
+    await settled();
+    expect(w.answersSent()).toEqual([]);
+    expect(w.service.completion(gate!.id)?.state).toBe("gone");
+  });
+
+  test("a question still waiting is answered whatever the turn list says, and the list is not asked before the write", async () => {
+    const w = await world();
+    await w.connect();
+    w.server.resolveOnReply = false;
+    w.server.turns = [listedTurn("U1", "interrupted")];
+    w.server.ask("T1", "U1", "I1", PICK);
+    await settled();
+    const [gate] = w.gates();
+    expect((await answerGate(w, gate!.id, { pick: "A" })).ok).toBe(true);
+    await settled();
+    expect(w.answersSent()).toEqual([{ id: 0, result: { answers: { pick: { answers: ["A"] } } } }]);
+    expect(w.store.get(gate!.id)!.status).toBe("answered");
+    expect(turnLists(w)).toEqual([]);
+  });
+
+  test("an idle status for a thread that reads as waiting again closes nothing", async () => {
+    const { w, gate } = await endedWhileAway(L9_D5, { status: { type: "active", activeFlags: ["waitingOnUserInput"] }, rollout: LIVE09, turns: [listedTurn(L9_D5.turn, "interrupted")] });
+    w.socket().push({ method: "thread/status/changed", params: { threadId: "T1", status: { type: "idle" } } });
+    await settled();
+    expect(w.store.get(gate.id)!.status).toBe("open");
+    expect(turnLists(w)).toEqual([]);
+  });
+
+  test("a re-asked question's gate is never closed by the earlier turn's ending", async () => {
+    const w = await world();
+    await w.connect();
+    w.server.ask("T1", "U1", "I1", PICK);
+    await settled();
+    const [first] = w.gates();
+    w.server.turns = [listedTurn("U2", "inProgress"), listedTurn("U1", "interrupted")];
+    w.server.ask("T1", "U2", "I2", PICK);
+    await settled();
+    const second = w.gates().find((g) => g.id !== first!.id)!;
+    expect(second.status).toBe("open");
+    // A native answer whose output the rollout has not caught up with.
+    w.server.rollout = LIVE09;
+    w.server.resolve("T1");
+    await settled();
+    expect(w.store.get(second.id)!.status).toBe("open");
+    expect(turnLists(w).length).toBeGreaterThan(0);
+  });
+
+  const unknown: Array<[string, (w: Awaited<ReturnType<typeof world>>) => void]> = [
+    ["the turn list fails", (w) => { w.server.turns = null; }],
+    ["the thread read for the turn check fails", (w) => { w.server.readsBeforeFailure = 1; }],
+    ["the thread's status is unknown", (w) => { w.server.status = { type: "mystery" }; }],
+    ["the turn's status is unknown", (w) => { w.server.turns = [listedTurn(L9_D5.turn, "paused")]; }],
+    ["the turn is not listed", (w) => { w.server.turns = [listedTurn("another-turn", "interrupted")]; }],
+    ["the turn is still in progress", (w) => { w.server.turns = [listedTurn(L9_D5.turn, "inProgress")]; }],
+  ];
+  for (const [name, arrange] of unknown) {
+    test(`${name}: the gate stays open and a person is asked to look once`, async () => {
+      const { w, gate } = await endedWhileAway(L9_D5, { status: { type: "idle" }, rollout: LIVE09, turns: [listedTurn(L9_D5.turn, "interrupted")] });
+      arrange(w);
+      w.socket().push({ method: "thread/status/changed", params: { threadId: "T1", status: { type: "idle" } } });
+      await settled();
+      expect(w.store.get(gate.id)!.status).toBe("open");
+      expect(attentionFor(w, "question-ended-unseen")).toHaveLength(1);
+    });
+  }
+
+  test("a read that stopped at its cap is not settled by the turn's ending", async () => {
+    const { w, c, gate } = await endedWhileAway(L9_D5, { status: { type: "idle" }, rollout: LIVE09, whole: false, turns: [listedTurn(L9_D5.turn, "interrupted")] });
+    await c.sessions.observe(w.sessions.get("s1")!);
+    await settled();
+    expect(w.store.get(gate.id)!.status).toBe("open");
+    expect(turnLists(w)).toEqual([]);
+  });
+
+  test("an output the rollout catches up with after the turn list wins over the turn's ending", async () => {
+    const { w, c, gate } = await endedWhileAway(L8_ANSWERED, { status: { type: "idle" }, rollout: LIVE08_C, turns: [listedTurn(L8_ANSWERED.turn, "completed")] });
+    w.server.rolloutQueue = ["", "", "", "", ""];
+    await c.sessions.observe(w.sessions.get("s1")!);
+    await settled();
+    expect(w.store.get(gate.id)).toMatchObject({ status: "answered", answer: { answers: { pick: "A" }, session: "T1" } });
+  });
+
+  test("with the switch off nothing asks for the turn list", async () => {
+    const { w, c, gate } = await endedWhileAway(L9_D5, { status: { type: "idle" }, rollout: LIVE09, turns: [listedTurn(L9_D5.turn, "interrupted")] });
+    w.switchOn.value = false;
+    await c.sessions.observe(w.sessions.get("s1")!);
+    await settled();
+    expect(w.store.get(gate.id)!.status).toBe("open");
+    expect(turnLists(w)).toEqual([]);
     expect(w.reads).toEqual([]);
     expect(w.emitted).toEqual([]);
   });

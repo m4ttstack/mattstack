@@ -547,11 +547,12 @@ describe("codex protocol", () => {
 
   test("the method table matches the saved schema fixture", () => {
     expect(fixture.codexVersion).toBe(CODEX_PROTOCOL_VERSION);
-    expect(Object.keys(CODEX_METHODS_OUTSIDE_FIXTURE)).toEqual(["thread/unsubscribe"]);
-    for (const method of Object.keys(CODEX_METHODS_OUTSIDE_FIXTURE)) {
+    const outside: Record<string, string[]> = { "thread/unsubscribe": ["threadId"], "thread/turns/list": ["limit", "threadId"] };
+    expect(Object.keys(CODEX_METHODS_OUTSIDE_FIXTURE)).toEqual(Object.keys(outside));
+    for (const [method, fields] of Object.entries(outside)) {
       expect(fixture.clientRequests[method], method).toBeUndefined();
       expect(CODEX_METHODS[method]).toEqual({
-        scope: "owned", experimental: false, required: ["threadId"], fields: ["threadId"], experimentalFields: [], refused: [],
+        scope: "owned", experimental: false, required: ["threadId"], fields, experimentalFields: [], refused: [],
       });
     }
     for (const [method, spec] of Object.entries(CODEX_METHODS)) {

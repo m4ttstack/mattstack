@@ -44,7 +44,10 @@
  * open bound gates that no request here accounts for are settled from the
  * rollout: its answer is recorded, an abort closes the gate, and anything
  * else is announced once and left open, looked at again only at a turn's end
- * and only a few times.
+ * and only a few times. A whole rollout with no output for the question
+ * defers to the app server's own account of the question's turn: once the
+ * thread waits on nothing and that turn has completed, been interrupted or
+ * failed, the question can no longer be answered, and it ends gone.
  */
 
 import { open } from "fs/promises";
@@ -59,8 +62,10 @@ import { gateQuestionService, type GateQuestions } from "../questions.ts";
 import { createSessionStore, isDetachedAttachment } from "../session-store.ts";
 import { integrationsEnabled } from "../switch.ts";
 import type { CodexControl } from "./control.ts";
-import { codexEventHub } from "./events.ts";
-import { isRecord, type CodexEvent, type CodexQuestion, type CodexQuestionRequest, type CodexRequestId } from "./protocol.ts";
+import { codexEventHub, type TurnStatus } from "./events.ts";
+import {
+  CODEX_STATUS_ENUMS, isRecord, type CodexEvent, type CodexQuestion, type CodexQuestionRequest, type CodexRequestId,
+} from "./protocol.ts";
 import type { CodexSessionAdapter } from "./sessions.ts";
 
 const HARNESS = "codex";
@@ -94,6 +99,9 @@ const REPLAY_READ_MS = 100;
 /** Reads of the rollout after a native-first resolution, which Codex writes moments after it resolves. */
 const ROLLOUT_READS = 5;
 const ROLLOUT_READ_MS = 200;
+/** Turns asked of thread/turns/list, newest first; a question's turn is almost always among the latest. */
+const TURNS_PAGE = 20;
+const ENDED_TURNS: ReadonlySet<string> = new Set<TurnStatus>(["completed", "interrupted", "failed"]);
 
 export type NativeAnswers = Record<string, { answers: string[] }>;
 export type RolloutEvidence =
@@ -361,6 +369,23 @@ function isTurnAborted(entry: unknown, turnId: string | undefined): boolean {
     && entry.payload.type === "turn_aborted" && entry.payload.turn_id === turnId;
 }
 
+/**
+ * How a thread/turns/list page says the turn ended: completed, interrupted or
+ * failed. A turn the page does not list, one still in progress, or a status
+ * rt does not know is no ending.
+ */
+export function turnEndedOf(page: unknown, turnId: string): TurnStatus | null {
+  const turns: unknown[] = isRecord(page) && Array.isArray(page.data) ? page.data : [];
+  const turn = turns.find((t): t is Record<string, unknown> => isRecord(t) && t.id === turnId);
+  return typeof turn?.status === "string" && ENDED_TURNS.has(turn.status) ? (turn.status as TurnStatus) : null;
+}
+
+/** A thread status rt knows, with no question waiting on it. */
+function notWaiting(status: unknown): boolean {
+  if (!isRecord(status) || !(CODEX_STATUS_ENUMS.thread as readonly unknown[]).includes(status.type)) return false;
+  return status.type !== "active" || (Array.isArray(status.activeFlags) && !status.activeFlags.includes("waitingOnUserInput"));
+}
+
 /** The turn a rollout line belongs to: an event's own, or the one a response item records. */
 function turnOf(entry: Record<string, unknown>): string | undefined {
   const payload = isRecord(entry.payload) ? entry.payload : undefined;
@@ -593,17 +618,21 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     void present(binding, event);
   }
 
-  /** The thread's rollout path, as the app server names it and only under its own sessions; a string explains why not, `transient` when asking again may do. */
-  async function rolloutOf(threadId: string): Promise<{ path: string } | { why: string; transient?: true }> {
-    let path: unknown;
+  /**
+   * The thread's rollout path, as the app server names it and only under its
+   * own sessions, with the status the same read gave; a string explains why
+   * not, `transient` when asking again may do.
+   */
+  async function rolloutOf(threadId: string): Promise<{ path: string; status: unknown } | { why: string; transient?: true }> {
+    let thread: Record<string, unknown> | undefined;
     try {
       const read = await control.request("thread/read", { threadId, includeTurns: false });
-      path = isRecord(read) && isRecord(read.thread) ? read.thread.path : undefined;
+      thread = isRecord(read) && isRecord(read.thread) ? read.thread : undefined;
     } catch {
       return { why: "rt could not read the thread", transient: true };
     }
-    const rollout = rolloutPathOf(path, control.codexHome);
-    return rollout ? { path: rollout } : { why: "Codex named no rollout under its sessions for the thread" };
+    const rollout = rolloutPathOf(thread?.path, control.codexHome);
+    return rollout ? { path: rollout, status: thread?.status } : { why: "Codex named no rollout under its sessions for the thread" };
   }
 
   async function readEvidence(path: string, itemId: string, expected: NativeAnswers | null, turnId: string | undefined): Promise<RolloutEvidence> {
@@ -616,11 +645,49 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     return rolloutEvidence(tail.text, itemId, expected, tail.whole, turnId);
   }
 
-  /** One reading of the thread's rollout; `turnId` lets an aborted turn with no output for the item count as the question's end. */
+  /**
+   * How the app server says the question's turn ended, while no question
+   * waits on the thread; null for anything else, a failed read included.
+   * `status` is a thread status read just now, or undefined to read one.
+   */
+  async function endedTurn(threadId: string, turnId: string, status?: unknown): Promise<TurnStatus | null> {
+    try {
+      if (status === undefined) {
+        const read = await control.request("thread/read", { threadId, includeTurns: false });
+        status = isRecord(read) && isRecord(read.thread) ? read.thread.status : undefined;
+      }
+      if (!notWaiting(status)) return null;
+      return turnEndedOf(await control.request("thread/turns/list", { threadId, limit: TURNS_PAGE }), turnId);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * A whole rollout with no output for the item is not yet an ending: Codex
+   * 0.161 can interrupt a turn across an app-server restart and write no
+   * turn_aborted (live-09 D5). The turn's own status settles it then, and the
+   * rollout, read once more in case its output was still being written, keeps
+   * the last word.
+   */
+  async function withTurn(
+    found: RolloutEvidence, threadId: string, path: string, itemId: string, expected: NativeAnswers | null,
+    turnId: string | undefined, status?: unknown,
+  ): Promise<RolloutEvidence> {
+    if (found.state !== "pending" || !found.absent || turnId === undefined) return found;
+    const ended = await endedTurn(threadId, turnId, status);
+    if (ended === null) return found;
+    const again = await readEvidence(path, itemId, expected, turnId);
+    if (again.state !== "pending" || !again.absent) return again;
+    return { state: "gone", detail: `the native question's turn is ${ended}, with no answer to it` };
+  }
+
+  /** One reading of the thread's rollout; `turnId` lets an ended turn with no output for the item count as the question's end. */
   async function evidence(threadId: string, itemId: string, expected: NativeAnswers | null, turnId: string | undefined): Promise<RolloutEvidence> {
     const rollout = await rolloutOf(threadId);
     if ("why" in rollout) return { state: "pending", detail: rollout.why };
-    return readEvidence(rollout.path, itemId, expected, turnId);
+    const found = await readEvidence(rollout.path, itemId, expected, turnId);
+    return withTurn(found, threadId, rollout.path, itemId, expected, turnId, rollout.status);
   }
 
   /**
@@ -647,7 +714,7 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
       found = await readEvidence(path, itemId, expected, turnId);
       if (found.state !== "pending") return found;
     }
-    return found;
+    return path === undefined ? found : withTurn(found, threadId, path, itemId, expected, turnId);
   }
 
   /** The native side ended a question whose gate is still open: its answer becomes the session's own, an abort closes the gate. */
