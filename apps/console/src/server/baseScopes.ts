@@ -7,7 +7,7 @@ export interface BaseScope {
   base: string;
   /** The base pack's root, realpath'd. */
   root: string;
-  /** The fill's folder relative to the repo top: the body of a `:(top)`
+  /** The fill's folder relative to the repo top: the body of a `:(top,literal)`
       pathspec. */
   top: string;
 }
@@ -62,6 +62,9 @@ export async function baseScopesFor(
   }
   return [...scopes.values()];
 }
+
+/** Literal, so a `*`, `?`, `[` or `\` in a folder name is not glob magic. */
+export const basePathspec = (scope: BaseScope) => `:(top,literal)${scope.top}`;
 
 /** A repo-top-relative path under a scope's base root, in the
     `base:<name>/<path inside the base pack>` coordinate; any other path is

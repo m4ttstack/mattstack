@@ -983,7 +983,7 @@ describe('skills history route: org base fills', () => {
     expect(log?.slice(-3)).toEqual([
       '--',
       'skills/plan',
-      `:(top)${ACME_BASE_TOP}`,
+      `:(top,literal)${ACME_BASE_TOP}`,
     ]);
     const body = (await res.json()) as { commits: { files: string[] }[] };
     expect(body.commits[0].files).toEqual([
@@ -1015,7 +1015,7 @@ describe('skills history route: org base fills', () => {
 
     await expect(withBase.json()).resolves.toMatchObject({
       scope: 'skills/plan',
-      basePathspecs: [`:(top)${ACME_BASE_TOP}`],
+      basePathspecs: [`:(top,literal)${ACME_BASE_TOP}`],
     });
     expect(await without.json()).not.toHaveProperty('basePathspecs');
   });
@@ -1030,7 +1030,7 @@ describe('skills history route: org base fills', () => {
     expect(status?.slice(-3)).toEqual([
       '--',
       'skills/plan',
-      `:(top)${ACME_BASE_TOP}`,
+      `:(top,literal)${ACME_BASE_TOP}`,
     ]);
     await expect(res.json()).resolves.toMatchObject({
       runtime: { dirtyFiles: [ACME_BASE_COORD] },
@@ -1121,7 +1121,7 @@ describe('skills diff route: org base fills', () => {
       '--no-color',
       '17f8273..ed24bc4',
       '--',
-      `:(top)${ACME_BASE_TOP}`,
+      `:(top,literal)${ACME_BASE_TOP}`,
     ]);
     const body = (await res.json()) as { diff: string; baseDiff: string };
     expect(body.diff).toBe(ACME_PACK_DIFF);
@@ -1166,7 +1166,7 @@ index 1111111..2222222 100644
     );
 
     await expect(res.json()).resolves.toMatchObject({
-      basePathspecs: [`:(top)${ACME_BASE_TOP}`],
+      basePathspecs: [`:(top,literal)${ACME_BASE_TOP}`],
     });
   });
 

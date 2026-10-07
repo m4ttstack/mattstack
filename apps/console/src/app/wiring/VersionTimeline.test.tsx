@@ -443,7 +443,7 @@ describe('VersionTimeline: org base fills', () => {
   ].join('\n');
 
   const BASE_SPEC =
-    ':(top)mattstack/org/packs/acme-base/attachments/plan-policy';
+    ':(top,literal)mattstack/org/packs/acme-base/attachments/plan-policy';
 
   async function openCompare() {
     const user = userEvent.setup();

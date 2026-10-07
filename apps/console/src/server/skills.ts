@@ -6,6 +6,7 @@ import { validator } from 'hono/validator';
 
 import { pluginRootOf, pluginSkillDirs } from '../shared/pluginRoot';
 import {
+  basePathspec,
   baseScopesFor,
   rewriteDiffPaths,
   toBaseCoordinate,
@@ -364,7 +365,7 @@ interface SkillsHistoryResponse {
   repoRoot: string;
   /** The pathspec the log was scoped to, relative to `packDir`. */
   scope: string;
-  /** The `:(top)` pathspecs of the org base fill folders the verb binds,
+  /** The `:(top,literal)` pathspecs of the org base fill folders the verb binds,
       added after `scope`. Absent when there are none. */
   basePathspecs?: string[];
   verb: string | null;
@@ -399,7 +400,7 @@ interface SkillsDiffResponse {
       each path in the `base:<name>/<path inside the base pack>` coordinate.
       Absent when no verb binds a base fill outside the pack. */
   baseDiff?: string;
-  /** The `:(top)` pathspecs `baseDiff` was taken over; absent with it. */
+  /** The `:(top,literal)` pathspecs `baseDiff` was taken over; absent with it. */
   basePathspecs?: string[];
 }
 
@@ -1320,7 +1321,7 @@ export function mountSkills(
           verb ?? null,
           repoRoot
         );
-        const basePathspecs = baseScopes.map(s => `:(top)${s.top}`);
+        const basePathspecs = baseScopes.map(basePathspec);
         const pathspecs = [scope, ...basePathspecs];
         const toCoordinate = (path: string) =>
           toBaseCoordinate(path, baseScopes, repoRoot);
@@ -1453,7 +1454,7 @@ export function mountSkills(
         };
 
         const baseScopes = await baseScopesOf(pack, packDir, null, repoRoot);
-        const basePathspecs = baseScopes.map(s => `:(top)${s.top}`);
+        const basePathspecs = baseScopes.map(basePathspec);
         if (basePathspecs.length > 0) {
           // No `--relative`: a base fill sits outside the pack dir, so its
           // paths are repo paths until rewritten to the base coordinate.
