@@ -402,6 +402,47 @@ describe("planConversion", () => {
     expect(report).toContain("team widgets: board.title");
     expect(report).toContain("roster usernames to confirm as forge logins: dev1, dev2, dev3");
   });
+
+  test("--org names the org in the marker while the folder stays the match key", () => {
+    const plan = run(oldClone(), { org: "globex", folder: "acme" });
+    expect(JSON.parse(plan.writes["mattstack/mattstack.jsonc"]!)).toEqual({ role: "org", org: "globex" });
+    const org = settings(plan.writes["mattstack/org/settings.org.jsonc"]!);
+    expect(org.repos[SHARED]["rt.roles"].dev.hook).toBe("${team:acme}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh");
+    expect(plan.report).toContain("the marker names the org globex; old values still match ${team:acme}");
+  });
+
+  test("without a folder the org is the folder, as before", () => {
+    const plan = run();
+    const org = settings(plan.writes["mattstack/org/settings.org.jsonc"]!);
+    expect(org.repos[SHARED]["rt.roles"].dev.hook).toBe("${team:acme}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh");
+    expect(plan.report.join("\n")).not.toContain("the marker names the org");
+  });
+
+  test("orgPlaceholder writes ${org} into rewritten paths and every other ${team:<folder>} value", () => {
+    const input = oldClone();
+    const store = settings(input.files["mattstack/settings.team.jsonc"]!.replace(/^\/\/.*\n/, ""));
+    store.repos[OWN]["rt.roles"] = { dev: { hook: "${team:acme}/scripts/dev.sh" } };
+    input.files["mattstack/settings.team.jsonc"] = JSON.stringify(store);
+    const plan = run(input, { org: "globex", folder: "acme", orgPlaceholder: true });
+    const org = settings(plan.writes["mattstack/org/settings.org.jsonc"]!);
+    const team = settings(plan.writes["mattstack/teams/widgets/settings.team.jsonc"]!);
+    expect(org.repos[SHARED]["rt.roles"].dev.hook).toBe("${org}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh");
+    expect(team.repos[OWN]["rt.roles"].dev.hook).toBe("${org}/scripts/dev.sh");
+    expect(JSON.stringify(plan.writes)).not.toContain("${team:acme}");
+  });
+
+  test("orgPlaceholder leaves another folder's ${team:<name>} alone", () => {
+    const input = oldClone();
+    const store = settings(input.files["mattstack/settings.team.jsonc"]!.replace(/^\/\/.*\n/, ""));
+    store.repos[OWN]["rt.roles"] = { dev: { hook: "${team:acme-tools}/dev.sh" } };
+    input.files["mattstack/settings.team.jsonc"] = JSON.stringify(store);
+    const team = settings(run(input, { orgPlaceholder: true }).writes["mattstack/teams/widgets/settings.team.jsonc"]!);
+    expect(team.repos[OWN]["rt.roles"].dev.hook).toBe("${team:acme-tools}/dev.sh");
+  });
+
+  test("an unsafe folder name is refused like an unsafe org name", () => {
+    expect(() => run(oldClone(), { folder: "../x" })).toThrow("Choose a safe org folder name");
+  });
 });
 
 describe("the wrapper", () => {

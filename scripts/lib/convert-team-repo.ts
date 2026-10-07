@@ -10,7 +10,12 @@ export interface ConvertInput {
 }
 
 export interface ConvertOpts {
+  /** The org's name: written into the marker. */
   org: string;
+  /** The clone's folder name, the key `${team:<folder>}` matches in old values. Defaults to `org`. */
+  folder?: string;
+  /** Write `${org}` instead of `${team:<folder>}` into the converted stores. */
+  orgPlaceholder?: boolean;
   admin: string;
   team?: string;
   teamRepos?: string[];
@@ -121,7 +126,8 @@ function rewriteSopsRules(text: string): { text?: string; needsReview: boolean }
 }
 
 export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertPlan {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(opts.org)) throw new Error("Choose a safe org folder name");
+  const folder = opts.folder ?? opts.org;
+  for (const name of [opts.org, folder]) if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) throw new Error("Choose a safe org folder name");
   if (opts.admin.trim() === "") throw new Error("Choose the admin's forge username");
   for (const pack of input.packs) {
     if (!/^[a-z][a-z0-9-]*$/.test(pack)) throw new Error(`The pack name ${pack} is not a safe team name`);
@@ -162,7 +168,7 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
 
   const market = objOf(input.files, ".claude-plugin/marketplace.json");
   if (market.plugins !== undefined && (!Array.isArray(market.plugins) || market.plugins.some((entry) => entry === null || typeof entry !== "object" || Array.isArray(entry)))) throw new Error("The marketplace plugins must be a list of JSON objects");
-  const marketName = typeof market.name === "string" ? market.name : opts.org;
+  const marketName = typeof market.name === "string" ? market.name : folder;
   const ownPlugin = `${pack}@${marketName}`;
 
   const org: Json = {};
@@ -253,11 +259,13 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
     if (Object.keys(teamBaselines).length > 0) teamStore.$migrated = teamBaselines;
   }
 
-  const clone = `\${team:${opts.org}}/mattstack`;
+  const from = `\${team:${folder}}`;
+  const to = opts.orgPlaceholder ? "${org}" : from;
   const swaps: [string, string][] = [
-    [`${clone}/packs/${pack}`, `${clone}/teams/${team}/packs/${team}`],
-    ...input.packs.filter(isBase).map((base): [string, string] => [`${clone}/packs/${base}`, `${clone}/org/packs/${base}`]),
-    [`${clone}/secrets`, `${clone}/org/secrets`],
+    [`${from}/mattstack/packs/${pack}`, `${to}/mattstack/teams/${team}/packs/${team}`],
+    ...input.packs.filter(isBase).map((base): [string, string] => [`${from}/mattstack/packs/${base}`, `${to}/mattstack/org/packs/${base}`]),
+    [`${from}/mattstack/secrets`, `${to}/mattstack/org/secrets`],
+    ...(opts.orgPlaceholder ? [[from, to] as [string, string]] : []),
   ];
   const noteRewrite = (from: string, to: string) => report.push(`rewrote ${from} to ${to}`);
   const orgOut = rewritePaths(org, swaps, noteRewrite) as Json;
@@ -268,6 +276,8 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
   for (const key of Object.keys(teamOut)) if (key !== "repos" && key !== "$migrated") report.push(`team ${team}: ${key}`);
   for (const identity of Object.keys(ownRepos)) report.push(`team ${team}: repo section ${identity}`);
   if (Array.isArray(global["board.members"])) report.push("board.members: retired; its usernames are on the roster");
+
+  if (opts.org !== folder) report.push(`the marker names the org ${opts.org}; old values still match \${team:${folder}}`);
 
   const rosterUsernames = roster.map((entry) => String(entry.username));
   report.push(`roster usernames to confirm as forge logins: ${rosterUsernames.join(", ")}`);
