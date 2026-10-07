@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
+import { boardOnlyBaseFills, mergedBindings } from "./board-fills.ts";
 import { hasCompiledHeader } from "./compile.ts";
 import { substituteAttachmentPlaceholders } from "./placeholders.ts";
 import { packPluginIdentity } from "./provenance.ts";
@@ -165,7 +166,8 @@ function isTeamOwned(dir: string): boolean {
 
 export function planBaseAttachments(input: { packDir: string; packName: string; verbSides: Record<string, Side> }): BaseAttachmentPlan {
   const { packDir, packName, verbSides } = input;
-  const ext = readJsoncObject(join(packDir, "pack", "skills.jsonc"))?.extends;
+  const own = readJsoncObject(join(packDir, "pack", "skills.jsonc"));
+  const ext = own?.extends;
   const attachmentsDir = join(packDir, "attachments");
   const onDiskEmitted = listEmittedUnits(attachmentsDir);
 
@@ -179,8 +181,9 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
   const kept: string[] = [];
   const retired: string[] = [];
   const records: { name: string; srcDir: string; files: string[] }[] = [];
-  const units = baseUnits(base.name, join(base.dir, "attachments"), errors).filter((u) => !isFill(u.srcDir));
   const leafOf = (rel: string) => rel.slice(rel.lastIndexOf("/") + 1);
+  const boardFills = boardOnlyBaseFills(base.name, mergedBindings(readJsoncObject(join(base.dir, "pack", "skills.jsonc")), own));
+  const units = baseUnits(base.name, join(base.dir, "attachments"), errors).filter((u) => !isFill(u.srcDir) || boardFills.has(leafOf(u.rel)));
   const teamNames = teamAttachmentNames(attachmentsDir);
   for (const { rel: name, srcDir } of units) {
     const label = `${base.name} attachment ${name}`;

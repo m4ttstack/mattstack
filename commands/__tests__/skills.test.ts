@@ -950,12 +950,14 @@ describe("skillsCompile", () => {
 });
 
 describe("base pack attachments", () => {
-  function seedBaseAndTeam(opts: { domainBody?: string } = {}) {
+  function seedBaseAndTeam(opts: { domainBody?: string; bindings?: Record<string, Record<string, string>>; baseFiles?: Record<string, string>; teamFiles?: Record<string, string> } = {}) {
     const mattstackDir = makeMattstackDir();
     seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
     const baseDir = join(mattstackDir, "orgs", "acme", "mattstack", "org", "packs", "acme-base");
     const packDir = teamPackDir(mattstackDir, "acme", "widgets");
-    writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
+    writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" }, ...opts.bindings } }));
+    for (const [rel, body] of Object.entries(opts.baseFiles ?? {})) writeFile(join(baseDir, rel), body);
+    for (const [rel, body] of Object.entries(opts.teamFiles ?? {})) writeFile(join(packDir, rel), body);
     writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), opts.domainBody ?? DOMAIN_SKILL_MD);
     writeFile(join(baseDir, "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
     writeFile(join(baseDir, "attachments", "review-kit", "SKILL.md"), "---\nname: review-kit\ndescription: shared review notes\n---\nInvoke {{pack.name}}:watch-ci. Read {{verb.path:watch-ci}}.\n");
@@ -965,15 +967,72 @@ describe("base pack attachments", () => {
     writeFile(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "0.1.0" }));
     writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+    let manifestPath = "";
     const materialize = () => {
       const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, enginePackDir: join(mattstackDir, "plugins", "mattstack") }, "https://gitlab.example.com/acme/widgets.git");
       if (out.kind !== "written") throw new Error(out.kind);
+      const written = out.packs[0];
+      if (!written?.ok) throw new Error(written?.detail ?? "no pack");
+      manifestPath = written.path;
     };
     materialize();
     const compile = (...extra: string[]) => runExpectingCleanExit(() =>
       skillsCompile(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, ...extra]));
-    return { mattstackDir, baseDir, packDir, compile, materialize };
+    const boardBindings = () => (JSON.parse(stripJsoncForTest(readFileSync(manifestPath, "utf8"))) as { bindings: Record<string, Record<string, string>> }).bindings;
+    return { mattstackDir, baseDir, packDir, compile, materialize, boardBindings };
   }
+
+  const stripJsoncForTest = (text: string) => text.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
+  const BOARD_REVIEW_MD = "---\nname: board-review\ndescription: How the board reviews an MR\nmetadata:\n  provides: \"review\"\n---\nReview as {{pack.name}}.\n";
+  const BOARD = { "board:review": { review: "acme-base:board-review" } };
+
+  test("a base fill bound only from a board slot is copied into the team pack, and the board binding names the team plugin", async () => {
+    const { mattstackDir, packDir, compile, boardBindings } = seedBaseAndTeam({ bindings: BOARD, baseFiles: { "attachments/board-review/SKILL.md": BOARD_REVIEW_MD } });
+
+    expect((await compile()).errors).toEqual([]);
+
+    expect(readFileSync(join(packDir, "attachments", "board-review", "SKILL.md"), "utf8")).toBe(BOARD_REVIEW_MD.replace("{{pack.name}}", "widgets"));
+    expect(JSON.parse(readFileSync(join(packDir, "attachments", "board-review", "compiled.json"), "utf8"))).toEqual({ base: "acme-base", version: null, files: ["SKILL.md"] });
+    expect(boardBindings()["board:review"]).toEqual({ review: "widgets:board-review" });
+    expect(boardBindings()["mattstack:watch-ci"]!.domain).toBe("acme-base:watch-ci-domain");
+    expect((await checkPack({ packDir, mattstackDir })).attachments.map((row) => [row.name, row.status])).toContainEqual(["board-review", "in-sync"]);
+  });
+
+  test("a board fill the base stops binding from a board slot is removed from the team pack", async () => {
+    const { baseDir, packDir, compile, materialize } = seedBaseAndTeam({ bindings: BOARD, baseFiles: { "attachments/board-review/SKILL.md": BOARD_REVIEW_MD } });
+    expect((await compile()).errors).toEqual([]);
+    expect(existsSync(join(packDir, "attachments", "board-review", "compiled.json"))).toBe(true);
+
+    writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
+    materialize();
+    expect((await compile()).errors).toEqual([]);
+
+    expect(existsSync(join(packDir, "attachments", "board-review"))).toBe(false);
+  });
+
+  test("a base fill a compile target also binds is still inlined only, and its board binding is left alone", async () => {
+    const { packDir, compile, boardBindings } = seedBaseAndTeam({ bindings: { "board:review": { review: "acme-base:watch-ci-domain" } } });
+
+    expect((await compile()).errors).toEqual([]);
+
+    expect(existsSync(join(packDir, "attachments", "watch-ci-domain"))).toBe(false);
+    expect(boardBindings()["board:review"]).toEqual({ review: "acme-base:watch-ci-domain" });
+  });
+
+  test("a team that keeps its own board fill wins, and the board binding still names the team plugin", async () => {
+    const own = BOARD_REVIEW_MD.replace("Review as {{pack.name}}.", "Review the widgets way.");
+    const { packDir, compile, boardBindings } = seedBaseAndTeam({
+      bindings: BOARD,
+      baseFiles: { "attachments/board-review/SKILL.md": BOARD_REVIEW_MD },
+      teamFiles: { "attachments/board-review/SKILL.md": own },
+    });
+
+    expect((await compile()).errors).toEqual([]);
+
+    expect(readFileSync(join(packDir, "attachments", "board-review", "SKILL.md"), "utf8")).toBe(own);
+    expect(existsSync(join(packDir, "attachments", "board-review", "compiled.json"))).toBe(false);
+    expect(boardBindings()["board:review"]).toEqual({ review: "widgets:board-review" });
+  });
 
   const kit = (packDir: string, ...rest: string[]) => join(packDir, "attachments", "review-kit", ...rest);
   const PACK_PATH_DOMAIN = DOMAIN_SKILL_MD.replace(/\n$/, "\nSee {{pack.path:review-kit/references/guide.md}}.\n");
