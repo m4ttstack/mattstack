@@ -105,7 +105,9 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   if (push.code !== 0) {
     const text = `${push.stdout}\n${push.stderr}`;
     const tracked = (await p.exec(["git", "rev-parse", "--verify", "-q", `refs/remotes/origin/${branch}`], { cwd: dir })).code === 0;
-    if (tracked && (await remoteMovedPast(p, dir, await head(), ref))) {
+    // Unable to read the remote again, git's own non-fast-forward words are the best evidence it moved.
+    const now = tracked ? await head() : null;
+    if (now && (now.ok ? await remoteMovedPast(p, dir, now, ref) : REJECTED_PATTERN.test(text))) {
       throw new UserActionableError("org-moved", "The org repo has changes this Mac does not have yet", {}, {
         why: "Someone else pushed first, so pull their changes before you publish again.",
         next: `rt team pull --team ${slug}`,

@@ -235,14 +235,28 @@ describe("publishTeam", () => {
     expect(err.log).not.toContain("SECRET");
   });
 
-  test("a rejected push on an org that has been pushed before never says the repo is not empty, even when the remote cannot be read again", async () => {
-    const p = probesWithZone({
-      home: "/home/x",
-      exec: (argv) =>
-        argv[0] === "git" && argv.includes("push")
-          ? { code: 1, stdout: "", stderr: "! [rejected]        main -> main (fetch first)\nerror: failed to push some refs" }
-          : { code: 0, stdout: "", stderr: "" },
-    });
+  function rejectedTrackedPush(secondLookup: { code: number; stdout: string; stderr: string }) {
+    let lookups = 0;
+    return fakeProbes({ home: "/home/x", dirs: { [DIR]: [] },
+      exec: (argv) => {
+        if (argv.includes("symbolic-ref")) return { code: 0, stdout: "main\n", stderr: "" };
+        if (argv.includes("get-url")) return { code: 0, stdout: "https://github.com/acme/repo.git\n", stderr: "" };
+        if (argv.includes("ls-remote")) return ++lookups === 1 ? { code: 0, stdout: "", stderr: "" } : secondLookup;
+        if (argv[0] === "git" && argv.includes("push")) return { code: 1, stdout: "", stderr: "! [rejected]        main -> main (fetch first)\nerror: failed to push some refs" };
+        return { code: 0, stdout: "", stderr: "" };
+      }, files: {
+      [`${DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
+    } });
+  }
+
+  test("a fetch-first rejection on a tracked clone says the org moved when the remote cannot be read again", async () => {
+    const p = rejectedTrackedPush({ code: 128, stdout: "", stderr: "fatal: unable to access" });
+    await expect(publishTeam(p, "acme", null)).rejects.toMatchObject({ code: "org-moved", next: "rt team pull --team acme", thenRun: "rt team publish --team acme" });
+  });
+
+  test("a rejected push on a tracked clone whose remote reads back unmoved is a push failure, never remote-not-empty", async () => {
+    const p = rejectedTrackedPush({ code: 0, stdout: "", stderr: "" });
     const err = await publishTeam(p, "acme", null).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(UserActionableError);
     expect((err as UserActionableError).code).toBe("push-failed");
