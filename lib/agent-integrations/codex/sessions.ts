@@ -8,7 +8,9 @@
  * the thread/start reply. The thread is created with its permissions, then
  * takes one harmless initialization turn (a fresh thread has no rollout to
  * resume until a turn is persisted), and only then does a terminal attach.
- * Headless mode is the same owned thread with no terminal.
+ * Headless mode is the same owned thread with no terminal. A terminal only
+ * attaches in a folder Codex already trusts (`trust.ts`), checked before
+ * anything is made.
  *
  * Every launch or attach that does not finish stays recorded under its
  * reservation id with whatever it already made (the thread, the init turn,
@@ -41,6 +43,7 @@ import {
 import { codexEventHub } from "./events.ts";
 import { canonicalCodexProfile } from "./profile.ts";
 import { CODEX_STATUS_ENUMS, isRecord, type CodexThreadStatus } from "./protocol.ts";
+import { codexConfigPath, codexFolderTrust } from "./trust.ts";
 
 const HARNESS = "codex";
 
@@ -83,9 +86,11 @@ export type CodexSessionDeps = {
   /** Where the app server listens; a terminal attaches there. Without it only headless sessions run. */
   endpoint?: CodexEndpoint;
   openPane(launch: PaneLaunch): Promise<Outcome<PaneOpened>>;
-  /** Positive evidence that the terminal shows the thread: any one of `evidence` on screen. A folder-trust prompt is not. */
+  /** Positive evidence that the terminal shows the thread: any one of `evidence` on screen. */
   confirmAttached(opened: PaneOpened, expected: { threadId: string; evidence: string[] }, host?: LaunchHost): Promise<Outcome<void>>;
   unresolved: Map<string, UnresolvedLaunch>;
+  /** The config where the profile's Codex records the folders the person trusts; undefined when none can be located. */
+  trustConfig(profile: string): string | undefined;
   /** Reservations with a launch or resume running now, keyed like `unresolved`. */
   inFlight: Set<string>;
   /** Whether the launcher's persisted reservation has resolved (bound) or been given up (abandoned), so nothing waits on it here. */
@@ -117,7 +122,7 @@ export async function awaitCodexHistory(
     const screen = await read();
     if (screen !== null && wanted.some((w) => flat(screen).includes(w))) return ok(undefined);
   }
-  return fail("not-ready", "the terminal never showed the thread's history; a folder-trust prompt or a failed start is holding it");
+  return fail("not-ready", "the terminal never showed the thread's history; a failed start or a dialog is holding it");
 }
 
 function messageText(item: Record<string, unknown>): string | undefined {
@@ -158,6 +163,7 @@ function defaultDeps(): CodexSessionDeps {
     workTurnTimeoutMs: 6 * 60 * 60_000,
     unresolved: UNRESOLVED,
     inFlight: IN_FLIGHT,
+    trustConfig: (profile) => codexConfigPath(profile, process.env),
     reservationSettled: (id) => {
       const state = readReservation(getStateDb(), id)?.state;
       return state === "bound" || state === "abandoned";
@@ -281,7 +287,12 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     if (request.mode === "herdr" && !deps.endpoint) {
       return fail("not-ready", "the Codex app server's endpoint is unknown, so no terminal can attach to a thread");
     }
-    return ok(resolve(request.cwd));
+    const cwd = resolve(request.cwd);
+    if (request.mode === "herdr") {
+      const trusted = codexFolderTrust(deps.trustConfig(control.profile), cwd);
+      if (!trusted.ok) return trusted;
+    }
+    return ok(cwd);
   }
 
   function checkRef(native: NativeSessionRef): Outcome<void> {

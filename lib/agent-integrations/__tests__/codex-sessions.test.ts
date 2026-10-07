@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import type { Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { buildCodexRemoteResumeCommand } from "../../agent-argv/codex.ts";
 import type { LaunchRequest } from "../contracts.ts";
@@ -108,8 +111,13 @@ const DEFAULTS: Record<string, Handler> = {
 const sockets: FakeSocket[] = [];
 const clocks: FakeClock[] = [];
 const controls: CodexControl[] = [];
+const codexHomes: string[] = [];
+
+/** How Codex 0.160 records a folder it trusts (live-01 evidence). */
+const trustEntry = (path: string) => `[projects."${path}"]\ntrust_level = "trusted"\n`;
 
 afterEach(() => {
+  for (const home of codexHomes.splice(0)) rmSync(home, { recursive: true, force: true });
   for (const control of controls.splice(0)) control.close();
   expect(sockets.splice(0).every((socket) => socket.closed)).toBe(true);
   expect(clocks.splice(0).every((clock) => clock.active === 0)).toBe(true);
@@ -117,8 +125,16 @@ afterEach(() => {
 
 async function harness(
   handlers: Record<string, Handler> = {},
-  options: { threads?: string[]; unresolved?: Map<string, UnresolvedLaunch> } = {},
+  options: { threads?: string[]; unresolved?: Map<string, UnresolvedLaunch>; codexConfig?: string | null } = {},
 ) {
+  const codexHome = mkdtempSync(join(tmpdir(), "rt-codex-home-"));
+  codexHomes.push(codexHome);
+  const config = join(codexHome, "config.toml");
+  const writeConfig = (body: string | null) => {
+    if (body === null) rmSync(config, { force: true });
+    else writeFileSync(config, body);
+  };
+  writeConfig(options.codexConfig === undefined ? trustEntry("/work/a") : options.codexConfig);
   const clock = new FakeClock();
   clocks.push(clock);
   const ops: string[] = [];
@@ -147,6 +163,7 @@ async function harness(
   let confirm: Outcome<void> | Promise<Outcome<void>> = { ok: true, data: undefined };
   const deps: Partial<CodexSessionDeps> = {
     now: () => 42, clock, initTurnTimeoutMs: 5000, endpoint: { socketPath: SOCKET }, unresolved: options.unresolved ?? new Map(), inFlight: new Set(),
+    trustConfig: () => config,
     openPane: async (launch) => {
       ops.push("pane");
       panes.push(launch);
@@ -158,7 +175,7 @@ async function harness(
     },
   };
   return {
-    clock, control, ops, panes, confirmed, deps,
+    clock, control, ops, panes, confirmed, deps, config, writeConfig,
     socket: () => socket,
     requests: (method: string) => socket.sent.filter((m) => m.method === method),
     blockAttach: (outcome: Outcome<void> | Promise<Outcome<void>>) => { confirm = outcome; },
@@ -321,7 +338,7 @@ describe("codex session launch", () => {
     expect(h.panes).toHaveLength(1);
   });
 
-  test("a folder-trust prompt is a blocked attachment; a same-id retry re-checks the same pane", async () => {
+  test("a terminal that never shows the thread's history is a blocked attachment; a same-id retry re-checks the same pane", async () => {
     const h = await harness();
     const sessions = h.sessions();
     h.blockAttach({ ok: false, error: { code: "not-ready", message: "the terminal never showed the thread's history" } });
@@ -431,7 +448,7 @@ describe("codex session launch", () => {
     expect(await pending).toMatchObject({ ok: false, error: { code: "ambiguous" } });
     first.control.close();
 
-    const second = await harness({}, { unresolved });
+    const second = await harness({}, { unresolved, codexConfig: trustEntry("/work/a") + trustEntry("/work/b") });
     const sessions = second.sessions();
     expect(await sessions.launch(request())).toMatchObject({ ok: false, error: { code: "ambiguous" } });
     expect(await sessions.launch(request({ reservationId: "res-2" }))).toMatchObject({ ok: false, error: { code: "refused" } });
@@ -461,6 +478,79 @@ describe("codex session launch", () => {
     const h = await harness();
     data(await h.sessions().launch(request({ cwd: "/work/./a//", mode: "headless" })));
     expect(h.requests("thread/start")[0]!.params.cwd).toBe("/work/a");
+  });
+});
+
+describe("folder trust", () => {
+  test("a Herdr launch in a folder Codex does not already trust starts nothing, opens no pane and leaves Codex's config alone", async () => {
+    const h = await harness({}, { codexConfig: trustEntry("/work/b") });
+    const before = { body: readFileSync(h.config, "utf8"), mtime: statSync(h.config).mtimeMs };
+    const sessions = h.sessions();
+
+    const outcome = await sessions.launch(request());
+    expect(outcome).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(outcome.ok || outcome.error.message).toContain("/work/a");
+    expect(outcome.ok || outcome.error.message).toContain("trust it");
+    expect(h.ops).toEqual([]);
+    expect(h.panes).toEqual([]);
+    expect(h.confirmed).toEqual([]);
+    expect({ body: readFileSync(h.config, "utf8"), mtime: statSync(h.config).mtimeMs }).toEqual(before);
+    expect(h.control.reserveLaunch("/work/a").ok).toBe(true);
+  });
+
+  test("once the person trusts the folder in Codex, a same-id retry launches and attaches once", async () => {
+    const h = await harness({}, { codexConfig: null });
+    const sessions = h.sessions();
+    expect(await sessions.launch(request())).toMatchObject({ ok: false, error: { code: "not-ready" } });
+
+    h.writeConfig(trustEntry("/work/a"));
+    expect(data(await sessions.launch(request())).attachment).toEqual({ mode: "herdr", pane: "p1" });
+    expect(h.ops).toEqual(["thread/start", "turn/start", "pane"]);
+  });
+
+  test("a Herdr resume in a folder Codex does not already trust reads no thread and opens no pane", async () => {
+    const h = await harness({}, { codexConfig: `[projects."/work/a"]\ntrust_level = "untrusted"\n` });
+    const before = readFileSync(h.config, "utf8");
+    const outcome = await h.sessions().resume(binding("T1").native, request({ reservationId: "r-resume" }));
+    expect(outcome).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(outcome.ok || outcome.error.message).toContain("/work/a");
+    expect(h.ops).toEqual([]);
+    expect(h.panes).toEqual([]);
+    expect(readFileSync(h.config, "utf8")).toBe(before);
+  });
+
+  test("a Herdr resume in a trusted folder attaches", async () => {
+    const h = await harness();
+    expect(data(await h.sessions().resume(binding("T1").native, request({ reservationId: "r-resume" }))).attachment)
+      .toEqual({ mode: "herdr", pane: "p1" });
+  });
+
+  test("a missing, unparsable or unlocatable Codex config refuses a Herdr attach", async () => {
+    for (const config of [null, `[projects."/work/a"\ntrust_level = "trusted"\n`]) {
+      const h = await harness({}, { codexConfig: config });
+      expect(await h.sessions().launch(request())).toMatchObject({ ok: false, error: { code: "not-ready" } });
+      expect(await h.sessions().resume(binding("T1").native, request({ reservationId: "r-resume" })))
+        .toMatchObject({ ok: false, error: { code: "not-ready" } });
+      expect(h.ops).toEqual([]);
+    }
+    const nowhere = await harness();
+    expect(await nowhere.sessions({ trustConfig: () => undefined }).launch(request()))
+      .toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(nowhere.ops).toEqual([]);
+  });
+
+  test("a trusted parent folder does not admit a Herdr attach in a folder inside it", async () => {
+    const h = await harness({}, { codexConfig: trustEntry("/work") });
+    expect(await h.sessions().launch(request())).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(h.ops).toEqual([]);
+  });
+
+  test("headless sessions need no folder trust", async () => {
+    const h = await harness({}, { codexConfig: null });
+    const sessions = h.sessions();
+    expect(data(await sessions.launch(request({ mode: "headless" }))).attachment).toEqual({ mode: "headless" });
+    expect(data(await sessions.resume(binding("T1").native, request({ mode: "headless", reservationId: "r-resume" }))).attachment)
+      .toEqual({ mode: "headless" });
   });
 });
 
@@ -530,7 +620,7 @@ describe("codex session resume", () => {
     expect(h.panes).toHaveLength(1);
     expect(h.requests("thread/start")).toEqual([]);
 
-    release({ ok: false, error: { code: "not-ready", message: "trust prompt" } });
+    release({ ok: false, error: { code: "not-ready", message: "no history on screen" } });
     expect(await first).toMatchObject({ ok: false, error: { code: "not-ready" } });
     h.blockAttach({ ok: true, data: undefined });
     expect(data(await sessions.resume(binding("T1").native, request({ reservationId: "r-resume" }))).attachment)
@@ -541,7 +631,7 @@ describe("codex session resume", () => {
   test("an unconfirmed resume keeps its pane; a same-id retry re-checks it instead of opening another", async () => {
     const h = await harness();
     const sessions = h.sessions();
-    h.blockAttach({ ok: false, error: { code: "not-ready", message: "trust prompt" } });
+    h.blockAttach({ ok: false, error: { code: "not-ready", message: "no history on screen" } });
     expect(await sessions.resume(binding("T1").native, request({ reservationId: "r-resume" })))
       .toMatchObject({ ok: false, error: { code: "not-ready" } });
     h.blockAttach({ ok: true, data: undefined });
@@ -576,7 +666,7 @@ describe("codex session resume", () => {
     const missing = await harness({ "thread/read": (s, m) => s.push({ id: m.id, error: { code: -32600, message: "thread not found" } }) });
     expect(await missing.sessions().resume(binding("T1").native, request())).toMatchObject({ ok: false });
 
-    const moved = await harness();
+    const moved = await harness({}, { codexConfig: trustEntry("/work/a") + trustEntry("/work/b") });
     expect(await moved.sessions().resume(binding("T1").native, request({ cwd: "/work/b" })))
       .toMatchObject({ ok: false, error: { code: "invalid" } });
 
