@@ -189,6 +189,7 @@ const REFUSAL_CODES = new Set([
   "org-not-converged",
   "org-uncommitted",
   "org-behind",
+  "invite-stale",
 ]);
 
 /** `--json` and every non-refusal take exitUserError's route, so the envelope and the exit code never depend on the code. */

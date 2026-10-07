@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { assertNoPlaceholders, findPlaceholders, substitute, type TraceEntry } from "../placeholders.ts";
+import { assertNoPlaceholders, findPlaceholders, substitute, substituteAttachmentPlaceholders, type TraceEntry } from "../placeholders.ts";
 import type { AttachmentSource, PlaceholderContext } from "../types.ts";
 
 describe("findPlaceholders", () => {
@@ -385,5 +385,91 @@ describe("substitute trace", () => {
     const entries: TraceEntry[] = [];
     substitute("| plan | {{verb.path:stage-plan}} |", ctx(), "work", (e) => entries.push(e));
     expect(entries[0]).toEqual({ templateIndex: 0, outStart: 0, outCount: 1, placeholders: [{ kind: "verb.path", arg: "stage-plan" }] });
+  });
+});
+
+describe("pack.path with planned attachments", () => {
+  test("a planned file is addressable before it exists on disk", () => {
+    const root = mkdtempSync(join(tmpdir(), "rt-pack-path-planned-"));
+    const planned = new Map([["review-kit", new Set(["references/guide.md"])]]);
+    expect(substitute("{{pack.path:review-kit/references/guide.md}}", ctx({ packRoot: root, plannedAttachments: planned }), "ship").body)
+      .toBe("${CLAUDE_SKILL_DIR}/../../attachments/review-kit/references/guide.md");
+  });
+
+  test("a planned attachment ignores what is on disk for that name", () => {
+    const root = mkdtempSync(join(tmpdir(), "rt-pack-path-planned-"));
+    mkdirSync(join(root, "attachments", "review-kit"), { recursive: true });
+    writeFileSync(join(root, "attachments", "review-kit", "old.md"), "old\n");
+    const planned = new Map([["review-kit", new Set(["references/guide.md"])]]);
+    expect(() => substitute("{{pack.path:review-kit/old.md}}", ctx({ packRoot: root, plannedAttachments: planned }), "ship"))
+      .toThrow("ship: {{pack.path:review-kit/old.md}} -- attachments/review-kit/old.md does not exist");
+  });
+
+  test("a planned unit one group deep is addressed as <group>/<name>/<file>", () => {
+    const root = mkdtempSync(join(tmpdir(), "rt-pack-path-planned-"));
+    const planned = new Map([["review/self-review", new Set(["SKILL.md", "references/guide.md"])]]);
+    expect(substitute("{{pack.path:review/self-review/references/guide.md}}", ctx({ packRoot: root, plannedAttachments: planned }), "ship").body)
+      .toBe("${CLAUDE_SKILL_DIR}/../../attachments/review/self-review/references/guide.md");
+    expect(() => substitute("{{pack.path:review/self-review/old.md}}", ctx({ packRoot: root, plannedAttachments: planned }), "ship"))
+      .toThrow("ship: {{pack.path:review/self-review/old.md}} -- attachments/review/self-review/old.md does not exist");
+    const gone = new Map([["review/old-review", new Set<string>()]]);
+    expect(() => substitute("{{pack.path:review/old-review/x.md}}", ctx({ packRoot: root, plannedAttachments: gone }), "ship"))
+      .toThrow("ship: {{pack.path:review/old-review/x.md}} -- review/old-review is not a directory under attachments/ or skills/");
+  });
+
+  test("a flat unit planned for removal yields to a grouped unit planned at the same group", () => {
+    const root = mkdtempSync(join(tmpdir(), "rt-pack-path-planned-"));
+    const planned = new Map([["review", new Set<string>()], ["review/self-review", new Set(["x.md"])]]);
+    expect(substitute("{{pack.path:review/self-review/x.md}}", ctx({ packRoot: root, plannedAttachments: planned }), "ship").body)
+      .toBe("${CLAUDE_SKILL_DIR}/../../attachments/review/self-review/x.md");
+  });
+
+  test("an attachment planned for removal is not a directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "rt-pack-path-planned-"));
+    mkdirSync(join(root, "attachments", "gone"), { recursive: true });
+    writeFileSync(join(root, "attachments", "gone", "x.md"), "x\n");
+    const planned = new Map([["gone", new Set<string>()]]);
+    expect(() => substitute("{{pack.path:gone/x.md}}", ctx({ packRoot: root, plannedAttachments: planned }), "ship"))
+      .toThrow("ship: {{pack.path:gone/x.md}} -- gone is not a directory under attachments/ or skills/");
+  });
+});
+
+describe("substituteAttachmentPlaceholders", () => {
+  const sides = { work: "skills", ship: "skills", "stage-plan": "attachments" } as const;
+  function opts(over: Partial<Parameters<typeof substituteAttachmentPlaceholders>[1]> = {}) {
+    const root = mkdtempSync(join(tmpdir(), "rt-attach-render-"));
+    return {
+      packName: "widgets", fileRel: "attachments/review-kit/SKILL.md", verbSides: { ...sides }, packRoot: root,
+      plannedAttachments: new Map([["review-kit", new Set(["SKILL.md", "references/guide.md"])]]),
+      where: "acme-base:attachments/review-kit/SKILL.md", ...over,
+    };
+  }
+
+  test("pack.name is the compiling pack's plugin name", () => {
+    expect(substituteAttachmentPlaceholders("run {{pack.name}}:ship", opts())).toBe("run widgets:ship");
+  });
+
+  test("verb.path is relative to the file's own folder", () => {
+    expect(substituteAttachmentPlaceholders("{{verb.path:ship}} {{verb.path:stage-plan}}", opts()))
+      .toBe("../../skills/ship/SKILL.md ../stage-plan/SKILL.md");
+    expect(substituteAttachmentPlaceholders("{{verb.path:ship}} {{verb.path:stage-plan}}", opts({ fileRel: "attachments/review-kit/references/guide.md" })))
+      .toBe("../../../skills/ship/SKILL.md ../../stage-plan/SKILL.md");
+  });
+
+  test("pack.path resolves in the team pack, through the plan", () => {
+    expect(substituteAttachmentPlaceholders("{{pack.path:review-kit/references/guide.md}}", opts()))
+      .toBe("${CLAUDE_SKILL_DIR}/../../attachments/review-kit/references/guide.md");
+  });
+
+  test("any other brace text passes through", () => {
+    const text = "{{slot:domain}}\n{{include:core}}\n{{ name }}\n${{ secrets.TOKEN }}\n{{Upper}}";
+    expect(substituteAttachmentPlaceholders(text, opts())).toBe(text);
+  });
+
+  test("a malformed known placeholder is an error naming the file", () => {
+    expect(() => substituteAttachmentPlaceholders("{{pack.name:x}}", opts()))
+      .toThrow("acme-base:attachments/review-kit/SKILL.md: {{pack.name:x}} -- pack.name takes no argument");
+    expect(() => substituteAttachmentPlaceholders("{{verb.path:nope}}", opts()))
+      .toThrow("acme-base:attachments/review-kit/SKILL.md: {{verb.path:nope}} -- nope is not a compiled verb of this pack");
   });
 });

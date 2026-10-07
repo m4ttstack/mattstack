@@ -482,6 +482,23 @@ describe("skillsSurface apply", () => {
     expect(io.lines().some((l) => l.includes("would move") && l.includes("my-attach"))).toBe(true);
   });
 
+  test("an emitted base unit one group deep is never moved", async () => {
+    const packDir = makePackDir();
+    writeStubs(packDir, {});
+    writeFile(join(packDir, "attachments", "review", "self-review", "SKILL.md"), "---\nname: self-review\n---\nbody\n");
+    writeFile(join(packDir, "attachments", "review", "self-review", "compiled.json"), JSON.stringify({ base: "acme-base", version: null, files: ["SKILL.md"] }));
+    writeFile(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["self-review", "review"] }));
+    const { mattstackDir, manifestPath } = makeEngineFixture();
+
+    await skillsSurface([
+      "apply", "--dry-run",
+      "--team", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath,
+    ]);
+
+    expect(io.lines().some((l) => l.includes("would move"))).toBe(false);
+    expect(existsSync(join(packDir, "attachments", "review", "self-review", "compiled.json"))).toBe(true);
+  });
+
   test("no surface.jsonc: no moves, compiles the roster as usual", async () => {
     const packDir = makePackDir();
     writeStubs(packDir, { "my-verb": { engine: "my-verb", description: "Do the thing" } });

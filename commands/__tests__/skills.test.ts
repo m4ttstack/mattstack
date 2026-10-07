@@ -4,8 +4,8 @@ import { execFileSync } from "child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { compilePackAll, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsDiscard, skillsMaterialize, skillsPacks, type DiscardIo } from "../skills.ts";
-import { compileSkill } from "../../lib/skills/compile.ts";
+import { checkPack, compilePackAll, computeRows, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsDiscard, skillsMaterialize, skillsPacks, type DiscardIo } from "../skills.ts";
+import { compileSkill, HEADER_COMMENT } from "../../lib/skills/compile.ts";
 import { materializeRepo, type MaterializeFs } from "../../lib/skills/materialize.ts";
 import { invocableRoster, loadAttachment, loadStepSource } from "../../lib/skills/sources.ts";
 import type { PluginRoots } from "../../lib/skills/sources.ts";
@@ -692,7 +692,7 @@ describe("skillsCompile", () => {
     const refused = await runExpectingCleanExit(() =>
       skillsCompile(["--team", "widgets", "--pack-dir", loose, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
     expect(refused.exitCode).toBe(1);
-    expect(refused.errors.join("\n")).toContain('no plugin root registered for "acme-base"');
+    expect(refused.errors.join("\n")).toContain("widgets extends acme-base, but it is not inside an org repo");
   });
 
   test("a base pack of another org on the same Mac is not resolvable from this org's pack", async () => {
@@ -946,6 +946,590 @@ describe("skillsCompile", () => {
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result).toMatchObject({ written: [], removed: [] });
     expect(existsSync(join(packDir, "skills", "watch-ci"))).toBe(false);
+  });
+});
+
+describe("base pack attachments", () => {
+  function seedBaseAndTeam(opts: { domainBody?: string } = {}) {
+    const mattstackDir = makeMattstackDir();
+    seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
+    const baseDir = join(mattstackDir, "orgs", "acme", "mattstack", "org", "packs", "acme-base");
+    const packDir = teamPackDir(mattstackDir, "acme", "widgets");
+    writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), opts.domainBody ?? DOMAIN_SKILL_MD);
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
+    writeFile(join(baseDir, "attachments", "review-kit", "SKILL.md"), "---\nname: review-kit\ndescription: shared review notes\n---\nInvoke {{pack.name}}:watch-ci. Read {{verb.path:watch-ci}}.\n");
+    writeFile(join(baseDir, "attachments", "review-kit", "references", "guide.md"), "Back to {{verb.path:watch-ci}}. Keep {{slot:x}} and ${{ secrets.TOKEN }}.\n");
+    writeFile(join(baseDir, "attachments", "review-kit", "scripts", "run.sh"), "#!/bin/sh\necho '{{pack.name}}' '{{verb.path:watch-ci}}'\n");
+    chmodSync(join(baseDir, "attachments", "review-kit", "scripts", "run.sh"), 0o755);
+    writeFile(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "0.1.0" }));
+    writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
+    writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+    const materialize = () => {
+      const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, enginePackDir: join(mattstackDir, "plugins", "mattstack") }, "https://gitlab.example.com/acme/widgets.git");
+      if (out.kind !== "written") throw new Error(out.kind);
+    };
+    materialize();
+    const compile = (...extra: string[]) => runExpectingCleanExit(() =>
+      skillsCompile(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, ...extra]));
+    return { mattstackDir, baseDir, packDir, compile, materialize };
+  }
+
+  const kit = (packDir: string, ...rest: string[]) => join(packDir, "attachments", "review-kit", ...rest);
+  const PACK_PATH_DOMAIN = DOMAIN_SKILL_MD.replace(/\n$/, "\nSee {{pack.path:review-kit/references/guide.md}}.\n");
+
+  test("emits a base attachment with compiled.json, renders the three placeholders by depth, and copies scripts byte for byte", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam();
+
+    const { errors } = await compile();
+
+    expect(errors).toEqual([]);
+    expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toBe("---\nname: review-kit\ndescription: shared review notes\n---\nInvoke widgets:watch-ci. Read ../../skills/watch-ci/SKILL.md.\n");
+    expect(readFileSync(kit(packDir, "references", "guide.md"), "utf8")).toBe("Back to ../../../skills/watch-ci/SKILL.md. Keep {{slot:x}} and ${{ secrets.TOKEN }}.\n");
+    expect(readFileSync(kit(packDir, "scripts", "run.sh")).equals(readFileSync(join(baseDir, "attachments", "review-kit", "scripts", "run.sh")))).toBe(true);
+    expect(statSync(kit(packDir, "scripts", "run.sh")).mode & 0o111).not.toBe(0);
+    expect(JSON.parse(readFileSync(kit(packDir, "compiled.json"), "utf8"))).toEqual({ base: "acme-base", version: null, files: ["SKILL.md", "references/guide.md", "scripts/run.sh"] });
+  });
+
+  test("a dotfile in a base attachment is copied byte for byte and listed, and check stays clean", async () => {
+    const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
+    writeFile(join(baseDir, "attachments", "review-kit", "scripts", ".env.example"), "TOKEN=\n");
+    writeFile(join(baseDir, "attachments", "review-kit", ".DS_Store"), "junk");
+
+    expect((await compile()).errors).toEqual([]);
+
+    expect(readFileSync(kit(packDir, "scripts", ".env.example"), "utf8")).toBe("TOKEN=\n");
+    expect(existsSync(kit(packDir, ".DS_Store"))).toBe(false);
+    expect(JSON.parse(readFileSync(kit(packDir, "compiled.json"), "utf8")).files).toEqual(["SKILL.md", "references/guide.md", "scripts/.env.example", "scripts/run.sh"]);
+    const payload = await checkPack({ packDir, mattstackDir });
+    expect(payload.attachments.map((row) => row.status)).toEqual(["in-sync"]);
+  });
+
+  test("a fill in the base is inlined, never emitted", async () => {
+    const { packDir, compile } = seedBaseAndTeam();
+
+    await compile();
+
+    expect(existsSync(join(packDir, "attachments", "watch-ci-domain"))).toBe(false);
+    expect(readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8")).toContain("acme-base:watch-ci-domain");
+  });
+
+  test("a team verb reaches an emitted file through pack.path on a clean compile", async () => {
+    const { packDir, compile } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN });
+
+    const first = await compile();
+    expect(first.errors).toEqual([]);
+    expect(readFileSync(join(packDir, "skills", "watch-ci", "SKILL.md"), "utf8")).toContain("${CLAUDE_SKILL_DIR}/../../attachments/review-kit/references/guide.md");
+
+    rmSync(kit(packDir), { recursive: true });
+    const dry = await compile("--dry-run");
+    expect(dry.errors).toEqual([]);
+    expect(existsSync(kit(packDir))).toBe(false);
+  });
+
+  test("a team's own folder wins", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam();
+    writeFile(kit(packDir, "SKILL.md"), "team copy\n");
+
+    await compile();
+    expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toBe("team copy\n");
+    expect(existsSync(kit(packDir, "compiled.json"))).toBe(false);
+    expect(io.lines().join("\n")).toContain("review-kit  your own copy; the one in acme-base is not copied");
+
+    writeFile(join(baseDir, "attachments", "review-kit", "SKILL.md"), "---\nname: review-kit\n---\nchanged\n");
+    await compile();
+    expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toBe("team copy\n");
+  });
+
+  test("a folder left by a retired verb is replaced by the base copy, and the run reports both", async () => {
+    const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
+    writeFile(kit(packDir, "SKILL.md"), `---\nname: review-kit\n---\n${HEADER_COMMENT}\nold verb body\n`);
+    writeFile(kit(packDir, "old.md"), "old\n");
+
+    expect((await compile()).errors).toEqual([]);
+
+    expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toBe("---\nname: review-kit\ndescription: shared review notes\n---\nInvoke widgets:watch-ci. Read ../../skills/watch-ci/SKILL.md.\n");
+    expect(existsSync(kit(packDir, "old.md"))).toBe(false);
+    expect(existsSync(kit(packDir, "compiled.json"))).toBe(true);
+    const shown = io.lines().join("\n");
+    expect(shown).toContain("Removed review-kit");
+    expect(shown).toContain("Copied review-kit");
+
+    writeFile(kit(packDir, "SKILL.md"), `---\nname: review-kit\n---\n${HEADER_COMMENT}\nold verb body\n`);
+    rmSync(kit(packDir, "compiled.json"));
+    writeFile(kit(packDir, "old.md"), "old\n");
+    writeFileSync(join(baseDir, "attachments", "review-kit", "references", "guide.md"), "changed\n");
+    const result = await compilePackAll({ packDir, mattstackDir });
+    expect(result.ok).toBe(true);
+    expect(result.removed).toContain("attachments/review-kit/old.md");
+    expect(result.removed).not.toContain("attachments/review-kit/SKILL.md");
+    expect(result.written).toContain("attachments/review-kit/SKILL.md");
+  });
+
+  test("a base attachment named like a verb or a hand-authored skill is refused, and nothing is written", async () => {
+    const verbClash = seedBaseAndTeam();
+    writeFile(join(verbClash.baseDir, "attachments", "watch-ci", "SKILL.md"), "---\nname: watch-ci\n---\nbase copy\n");
+    const refused = await verbClash.compile();
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.exitCode).toBeDefined();
+    expect(refused.errors.join("\n")).toContain("acme-base attachment watch-ci has the same name as the widgets verb watch-ci; rename one of them");
+    expect(existsSync(kit(verbClash.packDir))).toBe(false);
+
+    const skillClash = seedBaseAndTeam();
+    writeFile(join(skillClash.packDir, "skills", "review-kit", "SKILL.md"), "---\nname: review-kit\n---\nmine\n");
+    const second = await skillClash.compile();
+    expect(second.errors.join("\n")).toContain("acme-base attachment review-kit has the same name as the widgets skill skills/review-kit; rename one of them");
+    expect(existsSync(kit(skillClash.packDir))).toBe(false);
+  });
+
+  test("a symlink in a base attachment is refused, and nothing is written", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam();
+    symlinkSync("run.sh", join(baseDir, "attachments", "review-kit", "scripts", "link.sh"));
+
+    const refused = await compile();
+
+    expect(refused.exitCode).toBeDefined();
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.errors.join("\n")).toContain("acme-base attachment review-kit has a symlink at scripts/link.sh; compile copies regular files only");
+    expect(existsSync(kit(packDir))).toBe(false);
+  });
+
+  test("cleanup after the base drops an attachment and after extends is dropped", async () => {
+    const dropped = seedBaseAndTeam();
+    writeFile(join(dropped.packDir, "attachments", "own", "SKILL.md"), "---\nname: own\n---\nours\n");
+    await dropped.compile();
+    expect(existsSync(kit(dropped.packDir, "compiled.json"))).toBe(true);
+    rmSync(join(dropped.baseDir, "attachments", "review-kit"), { recursive: true });
+    expect((await dropped.compile()).errors).toEqual([]);
+    expect(existsSync(kit(dropped.packDir))).toBe(false);
+    expect(existsSync(join(dropped.packDir, "attachments", "own", "SKILL.md"))).toBe(true);
+
+    const unextended = seedBaseAndTeam();
+    writeFile(join(unextended.packDir, "attachments", "own", "SKILL.md"), "---\nname: own\n---\nours\n");
+    await unextended.compile();
+    expect(existsSync(kit(unextended.packDir, "compiled.json"))).toBe(true);
+    writeFile(join(unextended.packDir, "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { forge: "mattstack:gitlab-forge" } } }));
+    unextended.materialize();
+    expect((await unextended.compile()).errors).toEqual([]);
+    expect(existsSync(kit(unextended.packDir))).toBe(false);
+    expect(existsSync(join(unextended.packDir, "attachments", "own", "SKILL.md"))).toBe(true);
+  });
+
+  test("a base file dropped from a kept attachment is removed on the next compile", async () => {
+    const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
+    await compile();
+    rmSync(join(baseDir, "attachments", "review-kit", "references", "guide.md"));
+
+    const result = await compilePackAll({ packDir, mattstackDir });
+
+    expect(result.ok).toBe(true);
+    expect(result.removed.some((p) => p.endsWith("attachments/review-kit/references/guide.md"))).toBe(true);
+    expect(result.written.some((p) => p.endsWith("attachments/review-kit/compiled.json"))).toBe(true);
+    expect(existsSync(kit(packDir, "references", "guide.md"))).toBe(false);
+  });
+
+  test("a dry run and a failed verb leave no emitted folder", async () => {
+    const { baseDir, packDir, compile, materialize } = seedBaseAndTeam();
+    await compile("--dry-run");
+    expect(existsSync(kit(packDir))).toBe(false);
+
+    writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:does-not-exist", forge: "mattstack:gitlab-forge" } } }));
+    materialize();
+    const failed = await compile();
+    expect(failed.exitCode).toBeDefined();
+    expect(failed.exitCode).not.toBe(0);
+    expect(existsSync(kit(packDir))).toBe(false);
+  });
+
+  test("a failed verb leaves a stale emitted folder in place", async () => {
+    const { baseDir, packDir, compile, materialize } = seedBaseAndTeam();
+    await compile();
+    rmSync(join(baseDir, "attachments", "review-kit"), { recursive: true });
+    writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:does-not-exist", forge: "mattstack:gitlab-forge" } } }));
+    materialize();
+
+    const failed = await compile();
+
+    expect(failed.exitCode).toBe(1);
+    expect(existsSync(kit(packDir, "compiled.json"))).toBe(true);
+  });
+
+  test("an extends naming a missing base fails compilePackAll and anatomy with the plan error", async () => {
+    const { mattstackDir, packDir } = seedBaseAndTeam();
+    writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ extends: "gadgets-base" }));
+    const message = "widgets extends gadgets-base, but the org has no base pack called gadgets-base";
+
+    const result = await compilePackAll({ packDir, mattstackDir });
+    expect(result).toEqual({ ok: false, errors: [message], written: [], removed: [] });
+
+    const anatomy = await runExpectingCleanExit(() =>
+      skillsAnatomy(["--skill", "watch-ci", "--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--json"]));
+    expect(anatomy.exitCode).toBe(1);
+    expect(anatomy.errors[0]).toBe("This pack's base cannot be used");
+    expect(anatomy.errors.join("\n")).toContain(message);
+  });
+
+  test("an extends pack with no plugin name cannot fill pack.name, and nothing is copied", async () => {
+    const { mattstackDir, packDir, compile } = seedBaseAndTeam();
+    rmSync(join(packDir, ".claude-plugin", "plugin.json"));
+    const message = "widgets extends acme-base, but it has no .claude-plugin/plugin.json name to give {{pack.name}}";
+
+    const refused = await compile();
+    expect(refused.exitCode).toBeDefined();
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.errors.join("\n")).toContain(message);
+    expect(existsSync(kit(packDir))).toBe(false);
+
+    expect(await compilePackAll({ packDir, mattstackDir })).toEqual({ ok: false, errors: [message], written: [], removed: [] });
+  });
+
+  test("the human output names what was copied", async () => {
+    const { baseDir, compile } = seedBaseAndTeam();
+    await compile();
+    const copied = io.lines().join("\n");
+    expect(copied).toContain("Copied review-kit");
+    expect(copied).toContain("from acme-base, 3 files");
+
+    rmSync(join(baseDir, "attachments", "review-kit"), { recursive: true });
+    await compile();
+    expect(io.lines().join("\n")).toContain("Removed review-kit");
+  });
+
+  test("isCompiledDir treats an emitted folder as compiled", async () => {
+    const { packDir, compile } = seedBaseAndTeam();
+    writeFile(join(packDir, "attachments", "own", "SKILL.md"), "---\nname: own\n---\nours\n");
+    await compile();
+
+    const { rows } = computeRows(packDir, new Set(["watch-ci"]), null, new Set());
+    expect(rows.find((r) => r.name === "review-kit")?.kind).toBe("compiled");
+    expect(rows.find((r) => r.name === "own")?.kind).toBe("hand-authored");
+  });
+
+  test("a grouped base attachment is copied to its relative path, checked under that name, and removed with its emptied group", async () => {
+    const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
+    const group = (...rest: string[]) => join(baseDir, "attachments", "review", ...rest);
+    const team = (...rest: string[]) => join(packDir, "attachments", "review", ...rest);
+    writeFile(group("self-review", "SKILL.md"), "---\nname: self-review\n---\nRead {{verb.path:watch-ci}}.\n");
+    writeFile(group("receive-review", "SKILL.md"), "---\nname: receive-review\n---\nbody\n");
+
+    expect((await compile()).errors).toEqual([]);
+    expect(readFileSync(team("self-review", "SKILL.md"), "utf8")).toBe("---\nname: self-review\n---\nRead ../../../skills/watch-ci/SKILL.md.\n");
+    expect(JSON.parse(readFileSync(team("self-review", "compiled.json"), "utf8"))).toEqual({ base: "acme-base", version: null, files: ["SKILL.md"] });
+    expect(existsSync(team("compiled.json"))).toBe(false);
+    expect(io.lines().join("\n")).toContain("Copied review/self-review");
+
+    const payload = await checkPack({ packDir, mattstackDir });
+    expect(payload.attachments.map((row) => [row.name, row.status]).sort()).toEqual([["review-kit", "in-sync"], ["review/receive-review", "in-sync"], ["review/self-review", "in-sync"]]);
+    expect(payload.drift).toBe(false);
+
+    rmSync(group("self-review"), { recursive: true });
+    expect((await compile()).errors).toEqual([]);
+    expect(existsSync(team("self-review"))).toBe(false);
+    expect(existsSync(team("receive-review", "compiled.json"))).toBe(true);
+
+    rmSync(group(), { recursive: true });
+    expect((await compile()).errors).toEqual([]);
+    expect(existsSync(team())).toBe(false);
+  });
+
+  test("a grouped unit whose leaf collides is a plan error, never the duplicate-name throw, in a pack with a surface", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam();
+    writeFile(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["watch-ci"] }));
+    writeFile(join(baseDir, "attachments", "review", "watch-ci", "SKILL.md"), "---\nname: watch-ci\n---\nbody\n");
+    writeFile(join(baseDir, "attachments", "review", "self-review", "SKILL.md"), "---\nname: self-review\n---\nbody\n");
+    writeFile(join(packDir, "attachments", "self-review", "SKILL.md"), "---\nname: self-review\n---\nours\n");
+
+    const refused = await compile();
+
+    expect(refused.exitCode).toBeDefined();
+    expect(refused.exitCode).not.toBe(0);
+    const shown = refused.errors.join("\n");
+    expect(shown).toContain("acme-base attachment review/watch-ci has the same name as the widgets verb watch-ci; rename one of them");
+    expect(shown).toContain("acme-base attachment review/self-review has the same name as the widgets attachment attachments/self-review; rename one of them");
+    expect(shown).not.toContain("appears twice");
+    expect(existsSync(join(packDir, "attachments", "review"))).toBe(false);
+  });
+
+  test("a base that turns a flat attachment into a group replaces the flat copy, and pack.path reaches the grouped file", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam();
+    writeFile(join(baseDir, "attachments", "review", "SKILL.md"), "---\nname: review\n---\nflat\n");
+    expect((await compile()).errors).toEqual([]);
+    expect(existsSync(join(packDir, "attachments", "review", "compiled.json"))).toBe(true);
+
+    rmSync(join(baseDir, "attachments", "review", "SKILL.md"));
+    writeFile(join(baseDir, "attachments", "review", "self-review", "SKILL.md"), "---\nname: self-review\n---\nbody\n");
+    writeFile(join(baseDir, "attachments", "review", "self-review", "x.md"), "x\n");
+    writeFile(join(baseDir, "attachments", "review-kit", "SKILL.md"), "---\nname: review-kit\n---\nSee {{pack.path:review/self-review/x.md}}.\n");
+
+    expect((await compile()).errors).toEqual([]);
+
+    expect(existsSync(join(packDir, "attachments", "review", "compiled.json"))).toBe(false);
+    expect(existsSync(join(packDir, "attachments", "review", "SKILL.md"))).toBe(false);
+    expect(existsSync(join(packDir, "attachments", "review", "self-review", "compiled.json"))).toBe(true);
+    expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toContain("${CLAUDE_SKILL_DIR}/../../attachments/review/self-review/x.md");
+  });
+
+  test("a group folder that still holds the team's own files outlives its last emitted unit", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam();
+    writeFile(join(baseDir, "attachments", "review", "self-review", "SKILL.md"), "---\nname: self-review\n---\nbody\n");
+    await compile();
+    writeFile(join(packDir, "attachments", "review", "notes.md"), "ours\n");
+
+    rmSync(join(baseDir, "attachments", "review"), { recursive: true });
+    expect((await compile()).errors).toEqual([]);
+
+    expect(existsSync(join(packDir, "attachments", "review", "self-review"))).toBe(false);
+    expect(readFileSync(join(packDir, "attachments", "review", "notes.md"), "utf8")).toBe("ours\n");
+  });
+
+  test("a group folder holding emitted units is not a skill of its own, and its units read as compiled", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam();
+    writeFile(join(baseDir, "attachments", "review", "self-review", "SKILL.md"), "---\nname: self-review\n---\nbody\n");
+    await compile();
+
+    const { rows } = computeRows(packDir, new Set(["watch-ci"]), null, new Set());
+    expect(rows.find((r) => r.name === "self-review")?.kind).toBe("compiled");
+    expect(rows.find((r) => r.name === "review")).toBeUndefined();
+  });
+
+  test("a pack that extends a base but has no verbs still emits", async () => {
+    const mattstackDir = makeMattstackDir();
+    seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
+    const baseDir = join(mattstackDir, "orgs", "acme", "mattstack", "org", "packs", "acme-base");
+    const packDir = teamPackDir(mattstackDir, "acme", "widgets");
+    writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
+    writeFile(join(baseDir, "attachments", "review-kit", "SKILL.md"), "---\nname: review-kit\n---\nInvoke {{pack.name}}:ship.\n");
+    writeFile(join(baseDir, "attachments", "review-kit", "references", "guide.md"), "Notes for {{pack.name}}.\n");
+    writeFile(join(baseDir, "attachments", "review-kit", "scripts", "run.sh"), "#!/bin/sh\necho hi\n");
+    writeFile(join(packDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "0.1.0" }));
+    writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
+    const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, enginePackDir: join(mattstackDir, "plugins", "mattstack") }, "https://gitlab.example.com/acme/widgets.git");
+    if (out.kind !== "written") throw new Error(out.kind);
+
+    const { errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir]));
+
+    expect(errors).toEqual([]);
+    expect(existsSync(kit(packDir, "compiled.json"))).toBe(true);
+    expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toBe("---\nname: review-kit\n---\nInvoke widgets:ship.\n");
+
+    rmSync(kit(packDir), { recursive: true });
+    io.clear();
+    await skillsCompile(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--json"]);
+    const payload = JSON.parse(io.lines()[0]!);
+    expect(payload.verbs).toEqual([]);
+    expect(payload.written).toBe(true);
+    expect(existsSync(kit(packDir, "compiled.json"))).toBe(true);
+  });
+
+  test("a scoped compile still emits and removes across the whole base set", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam();
+    writeFile(join(baseDir, "attachments", "gadgets-kit", "SKILL.md"), "---\nname: gadgets-kit\n---\ngadgets\n");
+
+    expect((await compile("--verb", "watch-ci")).errors).toEqual([]);
+    expect(existsSync(kit(packDir, "compiled.json"))).toBe(true);
+    expect(existsSync(join(packDir, "attachments", "gadgets-kit", "compiled.json"))).toBe(true);
+
+    rmSync(join(baseDir, "attachments", "gadgets-kit"), { recursive: true });
+    expect((await compile("--verb", "watch-ci")).errors).toEqual([]);
+    expect(existsSync(join(packDir, "attachments", "gadgets-kit"))).toBe(false);
+    expect(existsSync(kit(packDir, "compiled.json"))).toBe(true);
+  });
+
+  test("a scoped check reports no attachment rows", async () => {
+    const { mattstackDir, packDir } = seedBaseAndTeam();
+
+    await skillsCheck(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci", "--json"]);
+
+    expect(JSON.parse(io.lines()[0]!).attachments).toEqual([]);
+  });
+
+  test("a preview reaches an emitted file through pack.path on a clean tree", async () => {
+    const { packDir, compile } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN });
+
+    const { errors } = await compile("--preview", "--verb", "watch-ci");
+
+    expect(errors).toEqual([]);
+    expect(io.stdout()).toContain("${CLAUDE_SKILL_DIR}/../../attachments/review-kit/references/guide.md");
+    expect(existsSync(kit(packDir))).toBe(false);
+  });
+
+  test("anatomy resolves pack.path to an emitted file on a clean tree", async () => {
+    const { mattstackDir, packDir } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN });
+
+    const { errors } = await runExpectingCleanExit(() =>
+      skillsAnatomy(["--skill", "watch-ci", "--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--json"]));
+
+    expect(errors).toEqual([]);
+    expect(io.lines().join("\n")).toContain("attachments/review-kit/references/guide.md");
+  });
+
+  describe("check", () => {
+    const inSync = { name: "review-kit", base: "acme-base", status: "in-sync" as const, staleFiles: [] as string[], orphanFiles: [] as string[] };
+    const guide = (baseDir: string) => join(baseDir, "attachments", "review-kit", "references", "guide.md");
+
+    test("check is clean right after a compile", async () => {
+      const { mattstackDir, packDir, compile } = seedBaseAndTeam();
+      await compile();
+
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.attachments).toEqual([inSync]);
+      expect(payload.drift).toBe(false);
+    });
+
+    test("a base change is drift", async () => {
+      const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
+      await compile();
+      writeFileSync(guide(baseDir), readFileSync(guide(baseDir), "utf8") + "One more line.\n");
+
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.attachments).toEqual([{ ...inSync, status: "stale", staleFiles: ["references/guide.md"] }]);
+      expect(payload.drift).toBe(true);
+    });
+
+    test("a copied script that lost its executable bit is stale", async () => {
+      const { mattstackDir, packDir, compile } = seedBaseAndTeam();
+      await compile();
+      chmodSync(kit(packDir, "scripts", "run.sh"), 0o644);
+
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.attachments).toEqual([{ ...inSync, status: "stale", staleFiles: ["scripts/run.sh"] }]);
+      expect(payload.drift).toBe(true);
+    });
+
+    test("a base file removed is an orphan; a base version bump alone is not drift", async () => {
+      const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
+      await compile();
+      writeFile(join(baseDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme-base", version: "2.0.0" }));
+
+      expect((await checkPack({ packDir, mattstackDir })).attachments).toEqual([inSync]);
+
+      rmSync(join(baseDir, "attachments", "review-kit", "scripts", "run.sh"));
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.attachments).toEqual([{ ...inSync, status: "stale", staleFiles: ["compiled.json"], orphanFiles: ["scripts/run.sh"] }]);
+      expect(payload.drift).toBe(true);
+    });
+
+    test("never compiled and orphaned", async () => {
+      const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
+
+      expect((await checkPack({ packDir, mattstackDir })).attachments).toEqual([{ ...inSync, status: "never-compiled" }]);
+
+      await compile();
+      rmSync(join(baseDir, "attachments", "review-kit"), { recursive: true });
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.attachments).toEqual([{
+        name: "review-kit",
+        base: null,
+        status: "orphaned",
+        staleFiles: [],
+        orphanFiles: ["SKILL.md", "compiled.json", "references/guide.md", "scripts/run.sh"],
+      }]);
+      expect(payload.drift).toBe(true);
+    });
+
+    test("the human output names drift and the fix", async () => {
+      const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
+      await compile();
+      writeFileSync(guide(baseDir), readFileSync(guide(baseDir), "utf8") + "One more line.\n");
+      io.clear();
+
+      await skillsCheck(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir]);
+
+      const shown = io.stdout();
+      expect(shown).toContain("review-kit");
+      expect(shown).toContain("changed since the last compile: references/guide.md");
+      expect(shown).toContain("rt skills compile");
+      expect(process.exitCode).toBe(1);
+    });
+
+    test("a folder left after extends was dropped says the pack no longer extends a base", async () => {
+      const { mattstackDir, packDir, compile, materialize } = seedBaseAndTeam();
+      await compile();
+      writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { forge: "mattstack:gitlab-forge" } } }));
+      materialize();
+      io.clear();
+
+      await skillsCheck(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir]);
+
+      expect(io.stdout()).toContain("review-kit  this pack no longer extends a base");
+    });
+
+    test("run leftovers are not drift", async () => {
+      const { mattstackDir, packDir, compile } = seedBaseAndTeam();
+      await compile();
+      writeFile(kit(packDir, "scripts", "__pycache__", "run.cpython-312.pyc"), "bytes");
+      writeFile(kit(packDir, ".DS_Store"), "bytes");
+
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.attachments).toEqual([inSync]);
+      expect(payload.drift).toBe(false);
+    });
+
+    test("a plan error is drift carried in baseErrors, with no attachment rows", async () => {
+      const { mattstackDir, baseDir, packDir } = seedBaseAndTeam();
+      writeFile(join(baseDir, "attachments", "watch-ci", "SKILL.md"), "---\nname: watch-ci\n---\nbase copy\n");
+
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.baseErrors).toEqual(["acme-base attachment watch-ci has the same name as the widgets verb watch-ci; rename one of them"]);
+      expect(payload.attachments).toEqual([]);
+      expect(payload.drift).toBe(true);
+    });
+
+    test("check --json prints its envelope when extends names a missing base", async () => {
+      const { mattstackDir, packDir, compile } = seedBaseAndTeam();
+      await compile();
+      writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ extends: "gadgets-base" }));
+      io.clear();
+
+      const { errors } = await runExpectingCleanExit(() =>
+        skillsCheck(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--json"]));
+
+      expect(errors).toEqual([]);
+      const payload = JSON.parse(io.stdout());
+      expect(payload.baseErrors).toEqual(["widgets extends gadgets-base, but the org has no base pack called gadgets-base"]);
+      expect(payload.attachments).toEqual([]);
+      expect(process.exitCode).toBe(1);
+      expect((await checkPack({ packDir, mattstackDir })).drift).toBe(true);
+    });
+  });
+
+  test("a pack that never extends keeps a hand-authored compiled.json", async () => {
+    const mattstackDir = makeMattstackDir();
+    const packDir = makePackDir();
+    const manifestPath = makeManifest();
+    writeFile(join(packDir, "pack", "skills.jsonc"), "{}");
+    writeFile(join(packDir, "attachments", "data", "compiled.json"), `{"rows": []}\n`);
+    writeFile(join(packDir, "attachments", "data", "SKILL.md"), "---\nname: data\n---\nrows\n");
+
+    const { errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]));
+
+    expect(errors).toEqual([]);
+    expect(readFileSync(join(packDir, "attachments", "data", "compiled.json"), "utf8")).toBe(`{"rows": []}\n`);
+    expect(existsSync(join(packDir, "attachments", "data", "SKILL.md"))).toBe(true);
+  });
+
+  test("a pack that never extends keeps a data folder whose compiled.json has a base key", async () => {
+    const mattstackDir = makeMattstackDir();
+    const packDir = makePackDir();
+    const manifestPath = makeManifest();
+    const data = `{"base":"https://api.example","rows":[]}`;
+    writeFile(join(packDir, "pack", "skills.jsonc"), "{}");
+    writeFile(join(packDir, "attachments", "data", "compiled.json"), data);
+
+    const { errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]));
+
+    expect(errors).toEqual([]);
+    expect(readFileSync(join(packDir, "attachments", "data", "compiled.json"), "utf8")).toBe(data);
   });
 });
 
