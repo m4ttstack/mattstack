@@ -86,7 +86,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
   let debounce: ReturnType<typeof setTimeout> | null = null;
   let interval: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
-  /** Dedup key for safeRescan's warn: a `orgs/` that stays unreadable must warn once, not on every interval tick for the life of the daemon. */
+  /** Dedup key for safeRescan's warn: an `orgs/` that stays unreadable must warn once, not on every interval tick for the life of the daemon. */
   let lastLoggedScanError: string | null = null;
 
   /** A clone that gains its origin after boot (`rt team publish --remote`) edits .git/config, which the non-recursive orgs/ watch never sees; this interval rescan, on the pull interval, is what picks it up. */
