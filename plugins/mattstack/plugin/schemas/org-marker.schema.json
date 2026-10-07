@@ -8,7 +8,7 @@
     "role": { "const": "org" },
     "org": {
       "type": "string",
-      "description": "the org slug, the clone's folder name under ~/.mattstack/teams/"
+      "description": "the org's name; the clone's folder under ~/.mattstack/orgs/ is converged to match it"
     }
   }
 }

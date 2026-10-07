@@ -71,7 +71,7 @@ RT=/tmp/rt-new; chmod +x "$RT" /tmp/assert-team.sh
 # The staged key must not survive this session on any exit path, success or not.
 trap 'rm -rf "$HOME/.vmtest-key"' EXIT
 security unlock-keychain -p "$VM_TESTER_PASS" "$HOME/Library/Keychains/login.keychain-db"
-cd "$HOME/.mattstack/teams/$SLUG"
+cd "$HOME/.mattstack/orgs/$SLUG"
 
 set +e
 PULL_JSON=$("$RT" team pull --team "$SLUG" --json 2>/dev/null | tail -1)

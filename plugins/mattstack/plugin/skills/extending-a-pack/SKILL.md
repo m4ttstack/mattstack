@@ -176,7 +176,7 @@ checkout is not the RED pass; it tests the tool, not the pipeline.
 ### Write the rule in the author's words
 
 Paths, for the widgets team in the acme org (the pack carries its team's
-name): `~/.mattstack/teams/acme/mattstack/teams/widgets/packs/widgets/skills/context/SKILL.md`
+name): `~/.mattstack/orgs/acme/mattstack/teams/widgets/packs/widgets/skills/context/SKILL.md`
 for context, `.../packs/widgets/attachments/<fill>/SKILL.md` for a fill.
 `rt skills packs` (Bash, one-time) prints the pack dir.
 
@@ -328,6 +328,37 @@ Bindings follow the base at once on every Mac, since materialize reads the
 base's `pack/skills.jsonc` from the org folder. Compiled fills follow at
 the team owner's next compile, so in between a member's
 bindings can be newer than the team's compiled verbs.
+
+### Files the whole org shares
+
+A file a skill opens by path at run time (a reference, a checklist, a
+script) is not a fill, and the base is never installed, so compile copies
+it into the team pack. When a team pack `extends` a base, each compile:
+
+- copies every base `attachments/<name>/` (or `attachments/<group>/<name>/`)
+  that holds a `SKILL.md` and is not a fill (no `metadata.provides`) to the
+  same path in the team pack;
+- writes `compiled.json` (the base, its version, the files) into each
+  copied folder: that file marks compile's output, which the next compile
+  rewrites and
+  `rt_verb {args: ["skills", "check", "--pack", "widgets"]}` reports as
+  drift;
+- expands, in a copied `.md` file only, `{{pack.name}}` to the team pack's
+  plugin name (`{{pack.name}}:watch-ci` becomes `widgets:watch-ci`), plus
+  `{{verb.path:<verb>}}` and `{{pack.path:<attachment>/<file>}}` as in a
+  fill; any other `{{...}}` and every non-`.md` file copies as written;
+- leaves a team's own `attachments/<name>/` (no `compiled.json` in
+  compile's shape) alone and
+  copies nothing for that name: to override a base attachment, delete the
+  copied folder and author the team's own in its place;
+- refuses a base attachment named like a team verb, a hand-written team
+  skill, or a team attachment at another path, naming both;
+- removes a copied folder whose base attachment is gone, or every copied
+  folder once the pack stops extending a base.
+
+A compile with any failing verb writes and removes nothing, copies
+included. Edit the base's attachment, never the copy, then bump the base
+and compile each team pack.
 
 ## Publish
 

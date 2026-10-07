@@ -101,14 +101,22 @@ pushed stays pushed. Re-enabling picks a pending push back up on the next run.
 
 ## Team clones
 
-Every org clone under `~/.mattstack/teams/<org>/` with an `origin`, each
+Every org clone under `~/.mattstack/orgs/<org>/` with an `origin`, each
 holding `mattstack/org/` and one folder per team under `mattstack/teams/`,
 gets its own instance of the same engine, supervised by the daemon (a clone
 created by `rt team create` or `rt team join` is picked up within the debounce
 window; a clone with no remote is skipped until `rt team publish --remote`
-gives it one). The folder keeps the name `teams/` because renaming it is out
-of scope. A machine holds one org: `rt team join` and `rt team create` refuse
-a second clone while one exists.
+gives it one). A machine holds one org: `rt team join` and `rt team create`
+refuse a second clone while one exists.
+
+The clone's folder is named for the org's marker (`org` in
+`mattstack/mattstack.jsonc`). The `org.folder` step of `rt setup update`
+moves a clone whose folder does not match, including one still under the
+legacy `~/.mattstack/teams/` root. When the daemon is up the move goes
+through its verb `org:move`, which pauses that clone's engine for the move
+and resumes it after, so the engine never commits or pulls in a folder
+mid-move; with no daemon the step moves the folder itself. `rt team rename <name>` changes the marker
+and runs the same step on the admin's Mac.
 The team instance differs from the home one in four ways:
 
 - **Scope.** It stages only `mattstack/**`, `.sops.yaml` and
