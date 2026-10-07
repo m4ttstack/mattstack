@@ -1,12 +1,12 @@
 import { publishTeam } from "../../team/publish.ts";
 import { stageSecret } from "../staging.ts";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { SecretsSeams } from "../../secrets/store.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { Probes } from "../probes.ts";
 import { readTeamLocal, teamLocalPath } from "../../team/team-local.ts";
-import { cloneSlugs, orgPullStep, teamIdentityStep, recordForgeIdentity } from "../steps/org.ts";
+import { cloneSlugs, orgPullStep, orgSeams, teamIdentityStep, recordForgeIdentity } from "../steps/org.ts";
 import { fakeProbes as baseFakeProbes } from "./fakes.ts";
 
 function fakeProbes(opts: Parameters<typeof baseFakeProbes>[0] = {}) {
@@ -102,6 +102,49 @@ describe("org.pull", () => {
     expect(await orgPullStep.run(ctx)).toEqual({ state: "done", detail: "Pulled acme" });
     expect(pulled).toEqual(["team:pull acme"]);
     expect(reloaded).toBe(1);
+  });
+
+  const origConverge = orgSeams.converge;
+  afterEach(() => { orgSeams.converge = origConverge; });
+
+  test("re-runs converge when a pull changed the marker's org", async () => {
+    let marker = JSON.stringify({ role: "org", org: "acme" });
+    const converged: string[] = [];
+    orgSeams.converge = async () => { converged.push("ran"); return { state: "done", detail: "Moved widgets to /h/.mattstack/orgs/widgets" }; };
+    const p = fakeProbes({
+      home: HOME,
+      dirs: TEAMS_DIR,
+      files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") },
+      daemon: async () => {
+        marker = JSON.stringify({ role: "org", org: "widgets" });
+        return { ok: true, data: { outcome: "fast-forwarded", detail: null } };
+      },
+    });
+    const read = p.readFile.bind(p);
+    p.readFile = (path) => (path === `${CLONE}/mattstack/mattstack.jsonc` ? marker : read(path));
+    const out = await orgPullStep.run(makeCtx(p).ctx);
+    expect(converged).toEqual(["ran"]);
+    expect(out.state).toBe("done");
+    expect(out.detail).toContain("Pulled acme");
+    expect(out.detail).toContain("Moved widgets");
+  });
+
+  test("a pull that kept the marker does not converge, and a failed converge makes the pull partial with its remedy", async () => {
+    const converged: string[] = [];
+    orgSeams.converge = async () => { converged.push("ran"); return { state: "failed", detail: "dirty", remedy: "Run rt setup update --force after the fix" }; };
+    const files = { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git"), [`${CLONE}/mattstack/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }) };
+    const same = await orgPullStep.run(makeCtx(fakeProbes({ home: HOME, dirs: TEAMS_DIR, files, daemon: async () => ({ ok: true, data: { outcome: "fast-forwarded", detail: null } }) })).ctx);
+    expect(converged).toEqual([]);
+    expect(same.state).toBe("done");
+
+    let marker = JSON.stringify({ role: "org", org: "acme" });
+    const p = fakeProbes({ home: HOME, dirs: TEAMS_DIR, files, daemon: async () => { marker = JSON.stringify({ role: "org", org: "widgets" }); return { ok: true, data: { outcome: "fast-forwarded", detail: null } }; } });
+    const read = p.readFile.bind(p);
+    p.readFile = (path) => (path === `${CLONE}/mattstack/mattstack.jsonc` ? marker : read(path));
+    const out = await orgPullStep.run(makeCtx(p).ctx);
+    expect(converged).toEqual(["ran"]);
+    expect(out).toMatchObject({ state: "partial", remedy: "Run rt setup update --force after the fix" });
+    expect(out.detail).toContain("dirty");
   });
 
   const files = { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") };
