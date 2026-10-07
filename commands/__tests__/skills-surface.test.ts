@@ -1295,3 +1295,50 @@ describe("a Mac with two org clones", () => {
     } finally { process.env.HOME = savedHome; }
   });
 });
+
+describe("emitted base attachments", () => {
+  const provenance = JSON.stringify({ base: "acme-base", version: "0.1.0", files: ["SKILL.md"] });
+
+  function withEmitted(publicList: string[]): string {
+    const packDir = makePackDir();
+    writeFile(join(packDir, "attachments", "dev-servers", "SKILL.md"), "---\nname: dev-servers\n---\nbody\n");
+    writeFile(join(packDir, "attachments", "dev-servers", "compiled.json"), provenance);
+    writeFile(join(packDir, "attachments", "helper", "SKILL.md"), "---\nname: helper\n---\nbody\n");
+    writeFile(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: publicList }));
+    return packDir;
+  }
+
+  test("a row carries its base and reads internal even when the file lists it public", () => {
+    const packDir = withEmitted(["dev-servers"]);
+    const { rows } = computeRows(packDir, new Set(), { public: ["dev-servers"] }, new Set());
+    expect(rows.find((r) => r.name === "dev-servers")).toEqual({ name: "dev-servers", kind: "compiled", status: "internal", base: "acme-base" });
+    expect(rows.find((r) => r.name === "helper")).not.toHaveProperty("base");
+  });
+
+  for (const json of [[], ["--json"]]) test(`making one public is refused ${json.length ? "as JSON" : "for a person"}`, async () => {
+    const packDir = withEmitted([]);
+    const before = readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8");
+    const result = await runExpectingCleanExit(() => skillsSurface(["set", "dev-servers", "--public", "--pack-dir", packDir, ...json]));
+    expect(result.exitCode).toBe(2);
+    expect(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8")).toBe(before);
+    if (json.length) {
+      expect(JSON.parse(io.lines().at(-1)!)).toEqual({ ok: false, dryRun: false, set: [{ name: "dev-servers", want: "public" }], moved: [], recorded: [], compileErrors: ["dev-servers comes from acme-base. The org base pack decides. Verbs read it from attachments/, so it stays internal."] });
+    } else {
+      expect(io.stderr()).toStartWith("[refused] dev-servers comes from acme-base");
+    }
+  });
+
+  test("a grouped emitted unit tags its leaf row", () => {
+    const packDir = withEmitted([]);
+    writeFile(join(packDir, "attachments", "refs", "feature-flags", "SKILL.md"), "---\nname: feature-flags\n---\nbody\n");
+    writeFile(join(packDir, "attachments", "refs", "feature-flags", "compiled.json"), provenance);
+    const { rows } = computeRows(packDir, new Set(), { public: [] }, new Set());
+    expect(rows.find((r) => r.name === "feature-flags")).toMatchObject({ status: "internal", base: "acme-base" });
+  });
+
+  test("making one internal is allowed and drops a stale public entry", async () => {
+    const packDir = withEmitted(["dev-servers"]);
+    await skillsSurface(["set", "dev-servers", "--internal", "--pack-dir", packDir, "--json"]);
+    expect(readFileSync(join(packDir, "pack", "surface.jsonc"), "utf8")).not.toContain("dev-servers");
+  });
+});

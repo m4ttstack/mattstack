@@ -63,7 +63,7 @@ import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
-import { originFor, originOf, type Origin } from "../lib/skills/origin.ts";
+import { originFor, originOf, originOfDir, type Origin } from "../lib/skills/origin.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
   installedVersionFor,
@@ -2302,7 +2302,7 @@ type SurfaceFlags = {
   json: boolean;
 };
 
-export type SurfaceRow = { name: string; kind: "compiled" | "hand-authored" | "missing"; status: "public" | "internal" };
+export type SurfaceRow = { name: string; kind: "compiled" | "hand-authored" | "missing"; status: "public" | "internal"; base?: string };
 
 function kindLabel(kind: SurfaceRow["kind"]): string {
   return kind === "missing" ? "(no files on disk)" : kind;
@@ -2418,10 +2418,13 @@ export function computeRows(
   const rows = [...names].sort().map((name) => {
     const dir = skillEntries.get(name)?.dir ?? attachmentEntries.get(name)?.dir ?? null;
     const isStage = stageNames.has(name);
+    const origin = dir ? originOfDir(dir) : {};
+    const base = "origin" in origin ? origin.base : null;
     return {
       name,
       kind: isStage ? ("compiled" as const) : allNames.has(name) ? classify(name, dir, verbNames) : ("missing" as const),
-      status: (publicSet.has(name) ? "public" : "internal") as "public" | "internal",
+      status: (base === null && publicSet.has(name) ? "public" : "internal") as "public" | "internal",
+      ...(base === null ? {} : { base }),
     };
   });
 
@@ -2620,7 +2623,7 @@ async function runSet(names: string[], want: "public" | "internal", flags: Surfa
   const { packDir } = await resolveSurfacePaths(flags);
   if (!flags.dryRun) refuseUnlessPackOwned(packDir);
   const verbNames = new Set(readVerbRoster(packDir).map((v) => v.name));
-  const { skillsNames, allNames } = collectRegistry(packDir, verbNames);
+  const { skillsNames, allNames, attachmentEntries } = collectRegistry(packDir, verbNames);
   const stageNames = stageNamesFor(flags, packDir);
 
   // Validated before anything is written: an unknown name in a list of ten
@@ -2631,6 +2634,18 @@ async function runSet(names: string[], want: "public" | "internal", flags: Surfa
       throw new SkillsUsageError(
         `"${name}" is not a known skill or verb in this pack (checked skills/, attachments/, stubs.jsonc)`,
       );
+    }
+  }
+
+  if (want === "public") {
+    for (const name of names) {
+      const dir = attachmentEntries.get(name)?.dir;
+      const origin = dir ? originOfDir(dir) : {};
+      if ("origin" in origin) {
+        const title = `${name} comes from ${origin.base}`;
+        const why = "The org base pack decides. Verbs read it from attachments/, so it stays internal.";
+        throw new SkillsRefusal(`${title}. ${why}`, { title, why });
+      }
     }
   }
 
@@ -2723,12 +2738,13 @@ async function runPalette(flags: SurfaceFlags): Promise<void> {
 
   refuseUnlessPackOwned(packDir);
   const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
-  const options = rows.map((row) => ({
+  const editable = rows.filter((row) => row.base === undefined);
+  const options = editable.map((row) => ({
     value: row.name,
     label: row.name,
     hint: `${row.status.padEnd(9)}${kindLabel(row.kind)}`,
   }));
-  const initialValues = rows.filter((row) => row.status === "public").map((row) => row.name);
+  const initialValues = editable.filter((row) => row.status === "public").map((row) => row.name);
 
   const selected = await filterableMultiselect({
     message: "rt skills surface",
