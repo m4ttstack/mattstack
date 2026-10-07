@@ -628,7 +628,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
           details: `Rename the base pack folder ${baseRoot.dir} so its fills do not replace ${baseRoot.name}'s.`,
         });
       }
-      pluginRoots.byName[baseRoot.name] = { dir: baseRoot.dir, version: baseRoot.version };
+      pluginRoots.byName[baseRoot.name] = { dir: baseRoot.dir, version: baseRoot.version, baseVersion: baseRoot.baseVersion };
       (pluginRoots.folderOnly ??= new Set()).add(baseRoot.name);
     }
   }
