@@ -46,7 +46,15 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    intent it is: the same for every team in the org goes to `org`, how one
    team works goes to `team`, this human on every machine goes to `user`,
    this machine only goes to `machine`. Every key that allows `team` also
-   allows `org`. Path literals are legal only in the machine store.
+   allows `org`. Path literals are legal only in the machine store; a
+   shared value names a path with a variable the resolver expands on read:
+   `${repoRoot}`, `${worktree}`, `${home}`, or `${org}` (the org clone's
+   root, so `"bun ${org}/scripts/hook.sh"`). `${team:<name>}` is a
+   deprecated alias for `${org}` that ignores the name and warns. An older
+   rt passes `${org}` through verbatim, so an org or team store keeps
+   `${team:<org>}`, in existing values and new ones, until every member
+   runs an rt that knows `${org}`; then one commit rewrites them all. User
+   and machine stores take `${org}` now.
    The `team` layer is the ACTIVE team's folder only; other teams' folders
    are never folded in. The active team is the one `mattstack.activeTeam`
    names when the roster lists you on it, else your first roster team; a
@@ -70,9 +78,9 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    machine) live in the personal home repo (`~/.mattstack/user` IS that
    repo), and the home-snapshot daemon auto-commits and pushes them within
    ~80s. The org store
-   (`~/.mattstack/teams/<org>/mattstack/org/settings.org.jsonc`) and each
+   (`~/.mattstack/orgs/<org>/mattstack/org/settings.org.jsonc`) and each
    team store
-   (`~/.mattstack/teams/<org>/mattstack/teams/<team>/settings.team.jsonc`)
+   (`~/.mattstack/orgs/<org>/mattstack/teams/<team>/settings.team.jsonc`)
    live in the one org repo on this Mac, which the team sync engine
    commits and pushes the same way, so an `org` or `team` write reaches
    every member with no hand commit. `setSetting` prints a tip only when
