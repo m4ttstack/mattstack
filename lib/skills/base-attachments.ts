@@ -66,10 +66,6 @@ export function walkAttachmentFiles(dir: string): { files: string[]; symlinks: s
   return { files: files.sort(), symlinks: symlinks.sort() };
 }
 
-export function listAttachmentFiles(dir: string): string[] {
-  return walkAttachmentFiles(dir).files;
-}
-
 function isFill(dir: string): boolean {
   const skillMd = join(dir, "SKILL.md");
   if (!existsSync(skillMd)) return false;

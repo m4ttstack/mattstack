@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { HEADER_COMMENT } from "../compile.ts";
-import { isEmittedAttachmentDir, isEmittedAttachmentText, isSkippedAttachmentPath, listAttachmentFiles, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, walkAttachmentFiles } from "../base-attachments.ts";
+import { isEmittedAttachmentDir, isEmittedAttachmentText, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, walkAttachmentFiles } from "../base-attachments.ts";
 
 let root: string;
 const put = (path: string, text: string) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text); };
@@ -220,14 +220,14 @@ describe("helpers", () => {
     expect(maskProvenanceVersion(a)).toBe(maskProvenanceVersion(b));
   });
 
-  test("listAttachmentFiles and isSkippedAttachmentPath drop dotfiles and bytecode", () => {
+  test("walkAttachmentFiles and isSkippedAttachmentPath drop dotfiles and bytecode", () => {
     const dir = join(packDir(), "attachments", "kit");
     put(join(dir, "b.md"), "b");
     put(join(dir, "a", "c.txt"), "c");
     put(join(dir, ".hidden", "d.md"), "d");
     put(join(dir, "__pycache__", "x.pyc"), "x");
     put(join(dir, "m.pyc"), "x");
-    expect(listAttachmentFiles(dir)).toEqual(["a/c.txt", "b.md"]);
+    expect(walkAttachmentFiles(dir).files).toEqual(["a/c.txt", "b.md"]);
     expect(isSkippedAttachmentPath("a/.DS_Store")).toBe(true);
     expect(isSkippedAttachmentPath("a/__pycache__/x.py")).toBe(true);
     expect(isSkippedAttachmentPath("a/x.pyc")).toBe(true);
@@ -241,6 +241,6 @@ describe("helpers", () => {
     symlinkSync("../b.md", join(dir, "a", "link.md"));
     symlinkSync("b.md", join(dir, ".link"));
     expect(walkAttachmentFiles(dir)).toEqual({ files: ["a/c.txt", "b.md"], symlinks: ["a/link.md"] });
-    expect(listAttachmentFiles(dir)).toEqual(["a/c.txt", "b.md"]);
+    expect(walkAttachmentFiles(dir).files).toEqual(["a/c.txt", "b.md"]);
   });
 });
