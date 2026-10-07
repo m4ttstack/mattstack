@@ -53,11 +53,11 @@
 - Test: `lib/team/__tests__/rename.test.ts`
 
 **Interfaces:**
-- Consumes: `roleFor`, `rolesFor` (`lib/team/roles.ts`); `orgBranch`, `shellQuote` (`lib/team/org-branch.ts`); `validateSlug` (`lib/secrets/store.ts`); `orgDirUnder` (`lib/rt-paths.ts`); `teamRemote` (`lib/team/members.ts`); `gitWithToken` (`lib/team/git-credential.ts`); `withoutUrls` (`lib/team/redact.ts`); `GIT_OBJECT_ID` (`lib/team/publish-history.ts`).
+- Consumes: `roleFor`, `rolesFor` (`lib/team/roles.ts`); `orgBranch`, `shellQuote` (`lib/team/org-branch.ts`); `validateSlug` (`lib/secrets/store.ts`); `orgDirUnder` (`lib/rt-paths.ts`); `teamRemote` (`lib/team/members.ts`); `gitWithToken` (`lib/team/git-credential.ts`); `withoutUrls` (`lib/team/redact.ts`); `GIT_OBJECT_ID` (`lib/team/publish-history.ts`); `teamLocalPath` (`lib/team/team-local.ts`).
 - Produces:
 
 ```ts
-export type ConvergeOutcome = { state: "done" | "partial" | "failed" | "skipped"; detail?: string; remedy?: string };
+export type ConvergeOutcome = { state: "done" | "partial" | "needs-you" | "failed" | "skipped"; detail?: string; remedy?: string };
 export interface RenameSeams {
   forgeToken: (p: Probes, remote: string) => Promise<string | null>;
   converge: (p: Probes) => Promise<ConvergeOutcome>;
@@ -76,7 +76,7 @@ Refusal codes and copy (every one a `UserActionableError`):
 | 1 | `roleFor(p, from).kind !== "admin"` | `rename-not-admin` | `Only an org admin can rename the org` | why: `Ask <admins joined with " or "> to rename it.` (when `rolesFor(p, from).admins` is empty: `This org names no admins yet.`) |
 | 2 | `validateSlug(to)` throws | `bad-org-name` | `${JSON.stringify(to)} cannot be an org name` | why: `Use lowercase letters, digits and dashes, up to 40 characters, starting with a letter or digit.` |
 | 3 | `to === from` | `rename-same-name` | `Your org is already called ${to}` | none |
-| 4 | `p.exists(orgDirUnder(p.home, to))` | `rename-name-taken` | `This Mac already has an org folder called ${to}` | why: `Pick another name, or move that folder aside first.` |
+| 4 | `p.exists(orgDirUnder(p.home, to))` or `p.exists(teamLocalPath(p.home, to))` (a stale `rt/teams/<to>.json` would make converge's record piece count as done and keep the stale record) | `rename-name-taken` | `This Mac already has an org folder called ${to}` | why: `Pick another name, or move that folder aside first.` |
 | 5 | marker missing, unparseable, or not an object | `org-marker-unreadable` | `rt could not read your org's name from its marker file` | none |
 | 6 | marker `org` !== `from` | `org-not-converged` | `Your org folder does not match the org's name yet` | why: `Bring this Mac up to date before you rename the org.`, next: `rt setup update --force` |
 | 7 | `orgBranch` throws `org-detached` | (its own) | | |
@@ -97,6 +97,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { childEnv } from "../../subprocess.ts";
 import { renameOrg, type ConvergeOutcome, type RenameSeams } from "../rename.ts";
+import { teamLocalPath } from "../team-local.ts";
 import { cleanupOrgWorlds, orgWorld } from "./org-world.ts";
 
 afterEach(cleanupOrgWorlds);
@@ -130,6 +131,12 @@ describe("renameOrg refusals", () => {
   test("a name another folder under orgs already holds is refused", async () => {
     const w = orgWorld();
     mkdirSync(join(w.home, ".mattstack", "orgs", "gadgets"), { recursive: true });
+    await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "rename-name-taken" });
+  });
+
+  test("a name with a leftover rt record is refused", async () => {
+    const w = orgWorld();
+    writeFileSync(teamLocalPath(w.home, "gadgets"), "{}\n");
     await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "rename-name-taken" });
   });
 
@@ -196,8 +203,9 @@ import { orgBranch, shellQuote } from "./org-branch.ts";
 import { GIT_OBJECT_ID } from "./publish-history.ts";
 import { withoutUrls } from "./redact.ts";
 import { roleFor, rolesFor } from "./roles.ts";
+import { teamLocalPath } from "./team-local.ts";
 
-export type ConvergeOutcome = { state: "done" | "partial" | "failed" | "skipped"; detail?: string; remedy?: string };
+export type ConvergeOutcome = { state: "done" | "partial" | "needs-you" | "failed" | "skipped"; detail?: string; remedy?: string };
 
 export interface RenameSeams {
   forgeToken: (p: Probes, remote: string) => Promise<string | null>;
@@ -243,10 +251,15 @@ async function assertNotBehind(p: Probes, dir: string, branch: string, from: str
   if (sha === undefined) return;
   const known = GIT_OBJECT_ID.test(sha) && (await p.exec(["git", "cat-file", "-e", `${sha}^{commit}`], { cwd: dir })).code === 0;
   if (known && (await p.exec(["git", "merge-base", "--is-ancestor", sha, "HEAD"], { cwd: dir })).code === 0) return;
-  throw new UserActionableError("org-behind", "The org repo has changes this Mac does not have yet", {}, {
+  throw behindError(from, to);
+}
+
+function behindError(from: string, to: string, log?: string): UserActionableError {
+  return new UserActionableError("org-behind", "The org repo has changes this Mac does not have yet", {}, {
     why: "Pull them before you rename the org.",
     next: `rt team pull --team ${from}`,
     thenRun: `rt team rename ${to}`,
+    ...(log ? { log } : {}),
   });
 }
 
@@ -265,7 +278,7 @@ async function prepare(p: Probes, from: string, to: string, seams: RenameSeams):
     });
   }
   if (to === from) throw new UserActionableError("rename-same-name", `Your org is already called ${to}`);
-  if (p.exists(orgDirUnder(p.home, to))) {
+  if (p.exists(orgDirUnder(p.home, to)) || p.exists(teamLocalPath(p.home, to))) {
     throw new UserActionableError("rename-name-taken", `This Mac already has an org folder called ${to}`, {}, { why: "Pick another name, or move that folder aside first." });
   }
   const dir = orgDirUnder(p.home, from);
@@ -301,7 +314,7 @@ Note: `p.exists` reads through the Probes seam, so `orgWorld`'s real probes see 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `bun test lib/team/__tests__/rename.test.ts`
-Expected: PASS (9 tests).
+Expected: PASS (10 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -325,8 +338,8 @@ git commit -m "team: rename refuses a non-admin, a bad or taken name, and a dirt
 Behaviour after `prepare`:
 
 1. `assertMayWrite(p, from, MARKER_RELATIVE)`; write the marker with `applyEdits(text, modify(text, ["org"], to, { formattingOptions: { insertSpaces: true, tabSize: 2 } }))`.
-2. `commitFiles(p, from, [MARKER_RELATIVE], \`org: rename to ${to}\`)`. When it throws, restore the marker text and rethrow.
-3. `publishTeam(p, from, null, { token, tokenRemote: remote })`. When it throws: `git reset -q --keep HEAD~1` in `dir`; if that reset exits non-zero throw `UserActionableError("rename-undo-failed", "rt could not undo the rename after the push failed", {}, { why: "Your copy of the org has a rename commit the org repo does not have.", next: \`git -C ${shellQuote(dir)} reset --keep HEAD~1\`, log: <the publish error's message> })`; else rethrow the publish error.
+2. `commitFiles(p, from, [MARKER_RELATIVE], \`org: rename to ${to}\`)`. When it throws, restore the marker text and rethrow. When it returns `false` (nothing staged), restore the marker text and throw `UserActionableError("rename-commit-failed", "rt could not commit the new name")`, so the reset below can never undo a commit the rename did not make.
+3. `publishTeam(p, from, null, { token, tokenRemote: remote })`. When it throws: `git reset -q --keep HEAD~1` in `dir`; if that reset exits non-zero throw `UserActionableError("rename-undo-failed", "rt could not undo the rename after the push failed", {}, { why: "Your copy of the org has a rename commit the org repo does not have.", next: \`git -C ${shellQuote(dir)} reset --keep HEAD~1\`, log: <the publish error's message> })`. When the reset worked and the publish error's code is `org-moved` (its `thenRun` names `rt team publish`, which after the reset would publish nothing), throw the `org-behind` error from Task 1 (`next: rt team pull --team <from>`, `thenRun: rt team rename <to>`, `log`: the publish error's message). Rethrow every other publish error as is.
 4. `const outcome = await seams.converge(p)`; return `{ from, to, converged: outcome.state === "done", ...(outcome.state !== "done" && outcome.detail ? { convergeDetail: outcome.detail } : {}), ...(outcome.state !== "done" && outcome.remedy ? { convergeRemedy: outcome.remedy } : {}) }`.
 
 - [ ] **Step 1: Write the failing tests** (append to `rename.test.ts`)
@@ -360,7 +373,7 @@ describe("renameOrg", () => {
     const hook = join(w.remote, "hooks", "pre-receive");
     writeFileSync(hook, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
     const s = seams();
-    await expect(renameOrg(w.p, "acme", "gadgets", s)).rejects.toBeDefined();
+    await expect(renameOrg(w.p, "acme", "gadgets", s)).rejects.toMatchObject({ code: "org-behind", thenRun: "rt team rename gadgets" });
     expect(marker(w.root).org).toBe("acme");
     expect(w.git("log", "-1", "--format=%s").trim()).toBe("seed");
     expect(w.git("status", "--porcelain")).toBe("");
@@ -402,11 +415,16 @@ export async function renameOrg(p: Probes, from: string, to: string, seams: Rena
   const markerPath = join(dir, MARKER_RELATIVE);
   assertMayWrite(p, from, MARKER_RELATIVE);
   p.writeFile(markerPath, applyEdits(markerText, modify(markerText, ["org"], to, { formattingOptions: { insertSpaces: true, tabSize: 2 } })));
+  let committed: boolean;
   try {
-    await commitFiles(p, from, [MARKER_RELATIVE], `org: rename to ${to}`);
+    committed = await commitFiles(p, from, [MARKER_RELATIVE], `org: rename to ${to}`);
   } catch (err) {
     p.writeFile(markerPath, markerText);
     throw err;
+  }
+  if (!committed) {
+    p.writeFile(markerPath, markerText);
+    throw new UserActionableError("rename-commit-failed", "rt could not commit the new name");
   }
   try {
     await publishTeam(p, from, null, { token, tokenRemote: remote });
@@ -419,6 +437,7 @@ export async function renameOrg(p: Probes, from: string, to: string, seams: Rena
         log: err instanceof Error ? err.message : String(err),
       });
     }
+    if (err instanceof UserActionableError && err.code === "org-moved") throw behindError(from, to, err.message);
     throw err;
   }
   const outcome = await seams.converge(p);
@@ -438,7 +457,7 @@ export async function renameOrg(p: Probes, from: string, to: string, seams: Rena
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `bun test lib/team/__tests__/rename.test.ts`
-Expected: PASS (14 tests).
+Expected: PASS (15 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -612,7 +631,7 @@ export async function teamRename(args: string[], _ctx: CommandContext = {}, deps
 }
 ```
 
-`CalloutLabel` is the closed set `tip | next | fix | why | note` (`lib/ui/protocol.ts`).
+`CalloutLabel` is the closed set `tip | next | fix | why | note` (`lib/ui/protocol.ts`). The converge remedy stays plain text in the `fix` callout: the converge step writes it as a sentence (`Run rt daemon restart, then rt setup update --force`), not a bare command, so `out.cmd` would style the whole sentence as one command.
 
 In `lib/command-tree-def.ts`, after `publish`:
 
@@ -658,7 +677,7 @@ git commit -m "team: rt team rename renames your org and converges this Mac"
 - Modify: `commands/team.ts`
 - Test: `commands/__tests__/team-rename.test.ts`
 
-**Precondition:** `git fetch origin converge && git show origin/converge:lib/setup/steps/org-folder.ts | grep -n "export async function convergeOrgFolder"` prints the function. If it does not, stop and ask through `herd_ask` (wait for the converge branch, or ship with the placeholder).
+**Precondition:** `git fetch origin converge && git show origin/converge:lib/setup/steps/org-folder.ts | grep -n "export async function convergeOrgFolder"` prints the function. If it does not, look for the converge lane under another name (`git ls-remote --heads origin` and grep each candidate for `lib/setup/steps/org-folder.ts`), and if none carries it, stop and ask through `herd_ask` which branch carries `convergeOrgFolder` (wait for it, or ship with the placeholder).
 
 **Interfaces:**
 - Consumes: `convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome>` from `lib/setup/steps/org-folder.ts`; `createApplyContext` from `lib/setup/apply.ts`.
