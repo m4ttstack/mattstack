@@ -2255,11 +2255,11 @@ Expected: every command clean. `bun run check` runs the static gates (`no-*` gua
 - [ ] **Step 2: Grep the branch for forbidden text**
 
 ```bash
-git diff main...HEAD --name-only | xargs grep -nE '—|–' || echo "no dashes"
-git diff main...HEAD | grep -nE '^\+' | grep -niE 'assured|claimview' || echo "no real names"
+git diff origin/org-rename...HEAD --name-only | xargs grep -nP '\x{2014}|\x{2013}' || echo "no dashes"
+git diff origin/org-rename...HEAD | grep -nE '^\+' | grep -niE 'assured|claimview' || echo "no real names"
 ```
 
-Expected: "no dashes", "no real names".
+Expected: "no dashes", "no real names". (`grep -P` is GNU grep; on macOS use `rg -n '\x{2014}|\x{2013}'` instead.)
 
 - [ ] **Step 3: Commit any fixes**
 
