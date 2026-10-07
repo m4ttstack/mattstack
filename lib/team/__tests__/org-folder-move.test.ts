@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
+import { readInviteMovedFrom, readInviteRecords } from "../invite-records.ts";
 import { readTeamLocal } from "../team-local.ts";
 import { classifyLocate, cleanupMovedRecords, copyOrgRecords, runOrgMove, type LocateFn } from "../org-folder-move.ts";
 
@@ -42,6 +43,13 @@ describe("copyOrgRecords", () => {
       expect(p.fileMode(target)).toBe(0o600);
     }
   });
+  test("with no team record, the copied invites record carries movedFrom and its handles read as before", () => {
+    const p = probes({ [`${RT}/invites/widgets.json`]: invites });
+    expect(copyOrgRecords(p, "widgets", "acme")).toEqual({ teams: "none", invites: "copied" });
+    expect(readInviteMovedFrom(p, "acme")).toBe("widgets");
+    expect(Object.keys(readInviteRecords(p, "acme"))).toEqual(["dev2"]);
+    expect(p.exists(`${RT}/teams/acme.json`)).toBe(false);
+  });
   test("nothing to copy when folder and org agree or no record exists", () => {
     expect(copyOrgRecords(probes({ [`${RT}/teams/acme.json`]: record }), "acme", "acme")).toEqual({ teams: "present", invites: "none" });
     expect(copyOrgRecords(probes({}), "widgets", "acme")).toEqual({ teams: "none", invites: "none" });
@@ -61,6 +69,21 @@ describe("cleanupMovedRecords", () => {
     expect(cleanupMovedRecords(p, "acme", (name) => name === "widgets")).toEqual([]);
     expect(p.exists(`${RT}/teams/widgets.json`)).toBe(true);
     expect(readTeamLocal(p, "acme").movedFrom).toBe("widgets");
+  });
+  test("a movedFrom on the invites record alone is honoured, and no team record is created", () => {
+    const p = probes({ [`${RT}/invites/widgets.json`]: invites, [`${RT}/invites/acme.json`]: JSON.stringify({ ...JSON.parse(invites), movedFrom: "widgets" }) });
+    expect(cleanupMovedRecords(p, "acme", () => false)).toEqual([`${RT}/invites/widgets.json`]);
+    expect(p.exists(`${RT}/invites/widgets.json`)).toBe(false);
+    expect(readInviteMovedFrom(p, "acme")).toBeUndefined();
+    expect(Object.keys(readInviteRecords(p, "acme"))).toEqual(["dev2"]);
+    expect(p.exists(`${RT}/teams/acme.json`)).toBe(false);
+  });
+  test("a movedFrom on both records is cleared from both", () => {
+    const moved = JSON.stringify({ joinedByRt: true, forgeUsername: "dev1", movedFrom: "widgets" });
+    const p = probes({ [`${RT}/teams/acme.json`]: moved, [`${RT}/invites/acme.json`]: JSON.stringify({ ...JSON.parse(invites), movedFrom: "widgets" }) });
+    cleanupMovedRecords(p, "acme", () => false);
+    expect(readTeamLocal(p, "acme").movedFrom).toBeUndefined();
+    expect(readInviteMovedFrom(p, "acme")).toBeUndefined();
   });
   test("a record with no folder and no movedFrom is left alone", () => {
     const p = probes({ [`${RT}/teams/widgets.json`]: record, [`${RT}/teams/acme.json`]: record });

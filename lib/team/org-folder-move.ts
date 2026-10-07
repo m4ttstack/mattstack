@@ -8,7 +8,7 @@
 
 import { basename, dirname } from "path";
 import type { Probes } from "../setup/probes.ts";
-import { inviteRecordsPath } from "./invite-records.ts";
+import { clearInviteMovedFrom, inviteRecordsPath, readInviteMovedFrom } from "./invite-records.ts";
 import { readTeamLocal, teamLocalPath, withRecordLock, writeTeamLocal } from "./team-local.ts";
 
 export type RecordPiece = "copied" | "present" | "none";
@@ -45,7 +45,7 @@ function copyFile(p: MoveProbes, from: string, to: string, transform: (raw: stri
   return "copied";
 }
 
-/** The copied team record carries `movedFrom`, the only tie between the new name and the records left under the old one. */
+/** The copied record carries `movedFrom`, the only tie between the new name and the records left under the old one. */
 function stampMovedFrom(folder: string): (raw: string) => string {
   return (raw) => {
     let parsed: Record<string, unknown> = {};
@@ -59,7 +59,7 @@ function stampMovedFrom(folder: string): (raw: string) => string {
   };
 }
 
-/** `rt/teams/<folder>.json` and `rt/invites/<folder>.json` to `<org>.json`, under the team record lock so a concurrent share or publish cannot land between the read and the copy. */
+/** `rt/teams/<folder>.json` and `rt/invites/<folder>.json` to `<org>.json`, under the team record lock so a concurrent share or publish cannot land between the read and the copy. With no team record to carry the tie, the invites copy carries it. */
 export function copyOrgRecords(p: MoveProbes, folder: string, org: string): RecordCopies {
   if (folder === org) {
     return {
@@ -67,16 +67,17 @@ export function copyOrgRecords(p: MoveProbes, folder: string, org: string): Reco
       invites: p.exists(inviteRecordsPath(p.home, org)) ? "present" : "none",
     };
   }
-  return withRecordLock(p, folder, () => ({
-    teams: copyFile(p, teamLocalPath(p.home, folder), teamLocalPath(p.home, org), stampMovedFrom(folder)),
-    invites: copyFile(p, inviteRecordsPath(p.home, folder), inviteRecordsPath(p.home, org)),
-  }));
+  return withRecordLock(p, folder, () => {
+    const teams = copyFile(p, teamLocalPath(p.home, folder), teamLocalPath(p.home, org), stampMovedFrom(folder));
+    const invites = copyFile(p, inviteRecordsPath(p.home, folder), inviteRecordsPath(p.home, org), teams === "none" ? stampMovedFrom(folder) : undefined);
+    return { teams, invites };
+  });
 }
 
 /** Removes the records a copied `<org>.json` says it came from, once no folder of that name is left, and clears the tie. A record with no `movedFrom` is never touched. */
 export function cleanupMovedRecords(p: MoveProbes, org: string, folderExists: (name: string) => boolean): string[] {
-  const current = readTeamLocal(p, org);
-  const old = current.movedFrom;
+  const teamsTie = readTeamLocal(p, org).movedFrom;
+  const old = teamsTie ?? readInviteMovedFrom(p, org);
   if (old === undefined || old === org || folderExists(old)) return [];
   const removed: string[] = [];
   for (const path of [teamLocalPath(p.home, old), inviteRecordsPath(p.home, old)]) {
@@ -85,8 +86,12 @@ export function cleanupMovedRecords(p: MoveProbes, org: string, folderExists: (n
     removed.push(path);
   }
   withRecordLock(p, org, () => {
-    const { movedFrom: _movedFrom, ...rest } = readTeamLocal(p, org);
-    writeTeamLocal(p, org, rest);
+    // writeTeamLocal creates the file, so a move that copied only invites must not reach it.
+    if (teamsTie !== undefined) {
+      const { movedFrom: _movedFrom, ...rest } = readTeamLocal(p, org);
+      writeTeamLocal(p, org, rest);
+    }
+    clearInviteMovedFrom(p, org);
   });
   return removed;
 }
