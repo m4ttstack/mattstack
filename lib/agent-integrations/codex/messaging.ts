@@ -15,7 +15,12 @@
  * Consumption is never completed work, and a duplicate echo keeps the first.
  *
  * Records live in memory for this connection only; after a reconnect there is
- * nothing to reconcile and a caller keeps its own uncertainty.
+ * nothing to reconcile and a caller keeps its own uncertainty. A delivery
+ * already consumed on this thread is answered with that receipt and never
+ * queued again, whatever attachment asks.
+ *
+ * Thread ownership is the session adapter's: messaging asks it to adopt the
+ * submission's thread, so a thread the sessions released is not taken back.
  */
 
 import type {
@@ -36,6 +41,12 @@ const KEPT_SUBMISSIONS = 1000;
 export type CodexMessagingDeps = {
   /** The store's binding for this key now: an echo counts only while the submission's attachment is still the current one. */
   currentBinding(key: string): SessionBinding | null;
+  /**
+   * Takes ownership of the binding's thread on this connection, so its
+   * events arrive. The loader routes it through the session adapter; on its
+   * own, messaging adopts the thread directly.
+   */
+  adopt(binding: SessionBinding): Outcome<void>;
 };
 
 type Evidence = "pending" | "ambiguous" | "failed" | "queued" | "consumed";
@@ -49,9 +60,15 @@ type Submission = {
 const fail = <T>(code: FaultCode, message: string): Outcome<T> => ({ ok: false, error: { code, message } });
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-function defaultDeps(): CodexMessagingDeps {
+function defaultDeps(control: CodexControl): CodexMessagingDeps {
   let store: SessionStore | undefined;
-  return { currentBinding: (key) => (store ??= createSessionStore(getStateDb())).get(key) };
+  return {
+    currentBinding: (key) => (store ??= createSessionStore(getStateDb())).get(key),
+    adopt: (binding) => {
+      control.adopt(binding.native.value);
+      return { ok: true, data: undefined };
+    },
+  };
 }
 
 function acknowledged(result: unknown, id: string): boolean {
@@ -65,7 +82,7 @@ function validInput(input: PeerInput): boolean {
 }
 
 export function createCodexMessaging(control: CodexControl, overrides: Partial<CodexMessagingDeps> = {}): MessageAdapter {
-  const deps: CodexMessagingDeps = { ...defaultDeps(), ...overrides };
+  const deps: CodexMessagingDeps = { ...defaultDeps(control), ...overrides };
   const submissions = new Map<string, Submission>();
 
   function checkRef(binding: SessionBinding): Outcome<string> {
@@ -120,6 +137,7 @@ export function createCodexMessaging(control: CodexControl, overrides: Partial<C
   codexEventHub(control).listen(observe);
 
   return {
+    connection: control.connection,
     async submit(binding, input): Promise<Outcome<DeliveryReceipt>> {
       const ref = checkRef(binding);
       if (!ref.ok) return ref;
@@ -135,6 +153,9 @@ export function createCodexMessaging(control: CodexControl, overrides: Partial<C
       }
 
       const prior = submissions.get(input.id);
+      if (prior?.evidence === "consumed" && prior.sessionKey === binding.key && prior.threadId === threadId) {
+        return { ok: true, data: receipt(prior) };
+      }
       const sameAttempt = prior !== undefined && prior.sessionKey === binding.key && prior.generation === generation && prior.threadId === threadId;
       if (sameAttempt && prior.evidence === "pending") {
         return fail("ambiguous", `delivery ${input.id} is still being submitted to thread ${threadId}`);
@@ -142,10 +163,11 @@ export function createCodexMessaging(control: CodexControl, overrides: Partial<C
       if (sameAttempt && (prior.evidence === "queued" || prior.evidence === "consumed")) return { ok: true, data: receipt(prior) };
       const contested = prior !== undefined && (sameAttempt ? prior.contested
         : prior.threadId === threadId && prior.evidence !== "failed");
+      const owned = deps.adopt(binding);
+      if (!owned.ok) return owned;
       const s: Submission = { id: input.id, sessionKey: binding.key, generation, threadId, evidence: "pending", contested };
       remember(s);
 
-      control.adopt(threadId);
       let result: unknown;
       try {
         result = await control.request("thread/queue/add", {

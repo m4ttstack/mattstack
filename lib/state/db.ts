@@ -355,7 +355,8 @@ CREATE INDEX IF NOT EXISTS chat_dms_b ON chat_dms(b);
 
 // Tables (v16): agent sessions (lib/agent-integrations/session-store.ts owns
 // reservations and bindings, lib/agent-integrations/legacy.ts owns aliases,
-// lib/agent-integrations/work-submissions.ts owns work submissions).
+// lib/agent-integrations/work-submissions.ts owns work submissions,
+// lib/agent-integrations/delivery-store.ts owns peer delivery evidence).
 // A binding key is minted, never derived from the native reference.
 const V16_SCHEMA = `
 CREATE TABLE IF NOT EXISTS agent_session_reservations (
@@ -435,6 +436,27 @@ CREATE TABLE IF NOT EXISTS agent_work_submissions (
 CREATE INDEX IF NOT EXISTS agent_work_submissions_state ON agent_work_submissions(state, next_check_at);
 CREATE INDEX IF NOT EXISTS agent_work_submissions_guard ON agent_work_submissions(guard, state);
 CREATE INDEX IF NOT EXISTS agent_work_submissions_input ON agent_work_submissions(binding_key, input_id);
+CREATE TABLE IF NOT EXISTS agent_deliveries (
+  input_id        TEXT PRIMARY KEY,  -- logical delivery id: one chat message to one recipient
+  recipient       TEXT NOT NULL,
+  session_key     TEXT NOT NULL,     -- the binding of the latest attempt
+  generation      INTEGER NOT NULL,  -- that attempt's attachment generation
+  harness         TEXT NOT NULL,
+  state           TEXT NOT NULL,     -- pending | submitted | queued | consumed | ambiguous | refused
+  native_id       TEXT,
+  turn_id         TEXT,
+  item_id         TEXT,
+  frame_id        TEXT NOT NULL,     -- the logical id the carrying frame went out under (a batch's newest constituent)
+  room            TEXT,              -- the room log this delivery is recovered from; null outside chat
+  message_id      INTEGER,
+  attempts        INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at INTEGER,           -- when an unresolved row is next reconciled; null is not scheduled
+  error           TEXT,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_deliveries_due ON agent_deliveries(state, next_attempt_at);
+CREATE INDEX IF NOT EXISTS agent_deliveries_frame ON agent_deliveries(frame_id);
 `;
 
 /**

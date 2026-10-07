@@ -10,7 +10,7 @@ import {
   connectCodexControl, type CodexClock, type CodexControl, type CodexSocket, type CodexSocketHandlers,
 } from "../codex/control.ts";
 import { createCodexMessaging } from "../codex/messaging.ts";
-import { createCodexSessionLoader, createCodexSessions } from "../codex/sessions.ts";
+import { createCodexSessionLoader, createCodexSessions, type CodexSessionAdapter } from "../codex/sessions.ts";
 
 type Message = Record<string, any>;
 type Handler = (socket: FakeSocket, message: Message) => void;
@@ -451,6 +451,21 @@ describe("codex messaging evidence", () => {
     expect(await consumed(x, codexBinding({}, 4))).toBe("queued");
   });
 
+  test("a consumed delivery asked for under a new attachment returns its consumed receipt and is never queued again", async () => {
+    const x = await codex();
+    await x.messaging.submit(codexBinding(), input());
+    x.socket().push(userStarted(THREAD, "U1", "I1", "d-17-remy"));
+    x.setCurrent(codexBinding({}, 4));
+    expect(data(await x.messaging.submit(codexBinding({}, 4), input()))).toMatchObject({ evidence: "consumed", turnId: "U1", itemId: "I1" });
+    expect(x.queued()).toHaveLength(1);
+    expect(data(await x.messaging.reconcile!(codexBinding(), "d-17-remy"))).toMatchObject({ evidence: "consumed", turnId: "U1", itemId: "I1" });
+  });
+
+  test("the connection names the evidence it holds", async () => {
+    const x = await codex();
+    expect(x.messaging.connection).toBe(x.control.connection);
+  });
+
   test("a submission from a replaced attachment is refused before anything is sent", async () => {
     const x = await codex();
     x.setCurrent(codexBinding({}, 4));
@@ -524,6 +539,34 @@ describe("messaging wiring", () => {
     expect(await loader.loadMessaging()).toBe(messaging);
     expect(connects).toBe(1);
     expect(data(await messaging.submit(codexBinding(), input())).evidence).toBe("queued");
+  });
+
+  test("the Codex loader's messaging takes threads through the session adapter, which keeps a released thread released", async () => {
+    const x = await codex();
+    const adopted: string[] = [];
+    const adopt = x.control.adopt.bind(x.control);
+    x.control.adopt = (threadId) => {
+      adopted.push(threadId);
+      adopt(threadId);
+    };
+    let current = codexBinding();
+    const loader = createCodexSessionLoader({
+      env: {}, now: () => 0,
+      discover: async () => ({ ok: true, data: { socketPath: "/run/codex/control.sock" } }),
+      connect: async () => x.control,
+      messaging: { currentBinding: () => current },
+    });
+    const sessions = (await loader.load()) as CodexSessionAdapter;
+    const messaging = await loader.loadMessaging();
+
+    sessions.disown(codexBinding());
+    expect(await messaging.submit(codexBinding(), input())).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+    expect(x.queued()).toHaveLength(0);
+    expect(adopted).toEqual([]);
+
+    current = codexBinding({}, 4);
+    expect(data(await messaging.submit(current, input())).evidence).toBe("queued");
+    expect(adopted).toEqual([THREAD]);
   });
 
   test("the Codex loader's messaging without a connection sends nothing", async () => {

@@ -61,6 +61,10 @@ export type CodexLaunch = NativeLaunch & { settings: CodexThreadSettings };
 export interface CodexSessionAdapter extends SessionAdapter {
   launch(request: LaunchRequest): Promise<Outcome<CodexLaunch>>;
   resume(ref: NativeSessionRef, request: LaunchRequest): Promise<Outcome<CodexLaunch>>;
+  /** Owns a bound thread on this connection for another facet, unless it was released at this attachment or a later one. */
+  adopt(binding: SessionBinding): Outcome<void>;
+  /** Releases a bound thread: its events stop arriving, and only a later attachment, launch or resume owns it again. */
+  disown(binding: SessionBinding): void;
 }
 
 export type PaneLaunch = HostPaneLaunch;
@@ -270,6 +274,12 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
   const unresolved = deps.unresolved;
   const ref = (value: string): NativeSessionRef => ({ harness: HARNESS, profile: control.profile, kind: "id", value });
   const keyOf = (reservationId: string) => `${control.profile}\0${reservationId}`;
+  /** Threads disowned, by the attachment generation they were released at. */
+  const released = new Map<string, number>();
+  const own = (threadId: string): void => {
+    released.delete(threadId);
+    control.adopt(threadId);
+  };
 
   /**
    * One operation per reservation at a time. A second call while one is in
@@ -416,6 +426,23 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
 
   return {
     carriesReservations: true,
+    adopt(binding) {
+      const valid = checkRef(binding.native);
+      if (!valid.ok) return valid;
+      const threadId = binding.native.value;
+      const at = released.get(threadId);
+      if (at !== undefined && at >= binding.attachment.generation) {
+        return fail("stale-binding", `thread ${threadId} was released at attachment ${at}, so attachment ${binding.attachment.generation} cannot take it back`);
+      }
+      own(threadId);
+      return ok(undefined);
+    },
+    disown(binding) {
+      if (!checkRef(binding.native).ok) return;
+      const threadId = binding.native.value;
+      released.set(threadId, Math.max(released.get(threadId) ?? 0, binding.attachment.generation));
+      control.disown(threadId);
+    },
     async launch(request) {
       const checked = checkRequest(request);
       if (!checked.ok) return checked;
@@ -447,7 +474,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
           if (!made.ok) return made;
         }
         const threadId = entry.threadId!;
-        control.adopt(threadId);
+        own(threadId);
         const initialized = await initialize(entry, threadId, request.reservationId);
         if (!initialized.ok) return initialized;
 
@@ -477,7 +504,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
         if (pending && (pending.kind !== "resume" || pending.threadId !== threadId || pending.cwd !== cwd)) {
           return fail("invalid", `reservation ${request.reservationId} is held for another ${pending.kind} in ${pending.cwd}`);
         }
-        control.adopt(threadId);
+        own(threadId);
 
         let read: unknown;
         try {
@@ -648,7 +675,7 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     messaging: {},
     ...overrides,
   };
-  let current: { control: CodexControl; adapter: SessionAdapter; messaging?: Promise<MessageAdapter> } | undefined;
+  let current: { control: CodexControl; adapter: CodexSessionAdapter; messaging?: Promise<MessageAdapter> } | undefined;
   let opening: Promise<SessionAdapter> | undefined;
   let failure: { error: { code: FaultCode; message: string }; attempts: number; retryAt: number; adapter: SessionAdapter } | undefined;
 
@@ -688,7 +715,8 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
       await load();
       const live = current && !current.control.closed ? current : undefined;
       if (!live) return unavailableMessaging(failure?.error.message ?? "rt has no connection to the Codex app server");
-      return (live.messaging ??= import("./messaging.ts").then(({ createCodexMessaging }) => createCodexMessaging(live.control, deps.messaging)));
+      return (live.messaging ??= import("./messaging.ts").then(({ createCodexMessaging }) =>
+        createCodexMessaging(live.control, { adopt: (binding) => live.adapter.adopt(binding), ...deps.messaging })));
     },
     status() {
       if (current && !current.control.closed) return { state: "live" };

@@ -32,6 +32,7 @@ import { createAgentService } from "./handlers/agent.ts";
 import { createPaneHandlers } from "./handlers/pane.ts";
 import { createAgentIntegrationHandlers } from "./handlers/agent-integrations.ts";
 import { builtinRegistry } from "../agent-integrations/builtins.ts";
+import type { DeliveryService } from "../agent-integrations/delivery.ts";
 import type { RelocationWatcher } from "./relocation-announce.ts";
 import { createEndpointHandlers } from "./handlers/endpoint.ts";
 import { createSettingsHandlers } from "./handlers/settings.ts";
@@ -138,6 +139,8 @@ export function buildRoutedHandlers(opts: {
    * own private map.
    */
   chatDeliveryChains?: Map<string, Promise<void>>;
+  /** Harness delivery with persisted evidence, shared with the delivery sweep; used only while agent.integrations.enabled is on. */
+  chatDelivery?: DeliveryService;
   /** Liveness evidence for the gate:ask subject ladder (a stale run must not
       capture resolution). Defaults to the daemon-wide cached herdr probe;
       tests inject a hermetic one rather than shelling out to herdr. */
@@ -159,6 +162,7 @@ export function buildRoutedHandlers(opts: {
   };
   const chatHandlers = createChatHandlers({
     db: opts.stateDb, emitEvent, repoIndex: ctx.repoIndex, log: ctx.log, deliveryChains: opts.chatDeliveryChains,
+    delivery: opts.chatDelivery,
   });
   const integrations = builtinRegistry();
   const agentService = createAgentService({

@@ -71,6 +71,12 @@ import { runCapture } from "../../subprocess.ts";
 import { lazyChildLogger } from "../../daemon-logger.ts";
 import { deleteChatSession } from "../../chat-session.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
+import type { SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
+import { integrationsEnabled } from "../../agent-integrations/context.ts";
+import {
+  chatDeliveryId, deliveryBackoffTicks, MAX_CONSECUTIVE_DELIVERY_FAILURES, type DeliveryInput, type DeliveryService,
+} from "../../agent-integrations/delivery.ts";
+import { isDetachedAttachment, listBindingsByNativeValue } from "../../agent-integrations/session-store.ts";
 import type { CommandResult } from "./types.ts";
 
 export type InboxDeps = { resolve: typeof resolveInbox; deliver: typeof deliverToInbox };
@@ -226,9 +232,12 @@ async function deliverPost(
   retryDelayMs: number,
   recipient: string,
   msg: { room: string; dm: boolean; id: number },
+  delivery?: DeliveryService,
 ): Promise<{ delivered: boolean; count: number }> {
   const presence = presenceForHandle(recipient, db);
   if (!presence || presence.signedOutAt !== undefined) return { delivered: false, count: 0 };
+  const bound = harnessRoute(delivery, presence.sessionId, db);
+  if (bound) return deliverBound(db, bound.delivery, bound.binding, herdr, log, recipient, presence.pane, msg);
   const binding = deps.resolve(presence.sessionId);
   if (!binding || !inboxAlive(binding)) return { delivered: false, count: 0 };
   const pending = pendingMessages(msg.room, recipient, msg.id, db);
@@ -259,6 +268,82 @@ async function deliverPost(
   // never goes stale enough for prunePresence to delete its row.
   touchLastSeen(presence.sessionId, Date.now(), db);
   return { delivered: true, count: others.length };
+}
+
+/**
+ * With agent.integrations.enabled on, a recipient whose session has exactly
+ * one attached binding is delivered through its harness. Anything else (the
+ * switch off, no delivery service, an unbound or ambiguous session) keeps the
+ * inbox path above, unchanged.
+ */
+function harnessRoute(
+  delivery: DeliveryService | undefined, sessionId: string, db: Database,
+): { delivery: DeliveryService; binding: SessionBinding } | null {
+  if (!delivery || !integrationsEnabled()) return null;
+  const binding = attachedBinding(sessionId, db);
+  return binding ? { delivery, binding } : null;
+}
+
+/** The one attached binding a presence's session id names, or null when there is none or more than one. */
+function attachedBinding(sessionId: string, db: Database): SessionBinding | null {
+  const attached = listBindingsByNativeValue(db, sessionId).filter((b) => !isDetachedAttachment(b));
+  return attached.length === 1 ? attached[0]! : null;
+}
+
+/**
+ * deliverPost's harness path, with the same cursor contract: the cursor moves
+ * only on evidence the frame reached the session (submitted, queued or
+ * consumed), never on an ambiguous or failed attempt, so the room log keeps
+ * owing it and the sweep redelivers it under the same logical ids. Messages
+ * an earlier frame already got there are passed over first, so a rebuilt
+ * frame carries only what is still owed.
+ */
+async function deliverBound(
+  db: Database,
+  delivery: DeliveryService,
+  binding: SessionBinding,
+  herdr: typeof herdrRequest,
+  log: Logger,
+  recipient: string,
+  pane: string | undefined,
+  msg: { room: string; dm: boolean; id: number },
+): Promise<{ delivered: boolean; count: number }> {
+  let others = pendingMessages(msg.room, recipient, msg.id, db).filter((m) => m.handle !== recipient);
+  if (others.length === 0) return { delivered: false, count: 0 };
+  const held = await delivery.settled(binding, others.map((m) => chatDeliveryId(m.id, recipient)));
+  const arrived = others.filter((m) => held.has(chatDeliveryId(m.id, recipient)));
+  const through = arrived.length > 0 ? arrived[arrived.length - 1]!.id : 0;
+  if (through > 0) {
+    markDelivered(msg.room, recipient, through, db);
+    others = others.filter((m) => m.id > through);
+  }
+  if (others.length === 0) {
+    touchLastSeen(binding.native.value, Date.now(), db);
+    return { delivered: true, count: arrived.length };
+  }
+  const items = others.map((m) => ({ room: msg.room, dm: msg.dm, handle: m.handle, name: m.name, body: m.body, id: m.id }));
+  const hintSenders = items.map((m) => ({ ...m, passedOn: resolveHandle(m.handle, db) !== m.handle }));
+  const head = others[others.length - 1]!;
+  const input: DeliveryInput = {
+    id: chatDeliveryId(head.id, recipient),
+    sender: deliveryLabel(items),
+    body: `${renderDeliveries(items)}\n${replySteer(hintSenders)}`,
+    recipient,
+    constituents: others.map((m) => ({ id: chatDeliveryId(m.id, recipient), room: msg.room, messageId: m.id })),
+  };
+  const result = await delivery.deliverPeerInput(binding, input);
+  if (!result.ok) {
+    const { code, message } = result.error;
+    log.warn(
+      { recipient, room: msg.room, err: message, code, harness: binding.native.harness },
+      code === "ambiguous" ? "chat: delivery outcome unknown; the room log keeps it owed" : "chat: delivery push failed after retry",
+    );
+    await reportUnreadBadge(herdr, pane, others.length);
+    return { delivered: false, count: 0 };
+  }
+  markDelivered(msg.room, recipient, msg.id, db);
+  touchLastSeen(binding.native.value, Date.now(), db);
+  return { delivered: true, count: arrived.length + others.length };
 }
 
 const ACK_BODY_PREVIEW = 80;
@@ -369,9 +454,10 @@ function deliverSerialized(
   retryDelayMs: number,
   recipient: string,
   msg: { room: string; dm: boolean; id: number },
+  delivery?: DeliveryService,
 ): Promise<{ delivered: boolean; count: number }> {
   return serializeDelivery(chains, chainKey(msg.room, recipient), () =>
-    deliverPost(db, deps, herdr, log, retryDelayMs, recipient, msg),
+    deliverPost(db, deps, herdr, log, retryDelayMs, recipient, msg, delivery),
   );
 }
 
@@ -453,7 +539,7 @@ export function pendingIncludesRecipient(pending: Array<{ handle: string; mentio
  * deliverSerialized for is one a normal push would also have delivered to.
  */
 /** How many consecutive sweep-triggered failures a (room, handle) pair tolerates before the sweep starts backing off it -- a permanently-broken pair must not cost a fresh deliverPost attempt (retry + warn log) on every tick forever. */
-const DEFAULT_MAX_CONSECUTIVE_SWEEP_FAILURES = 5;
+const DEFAULT_MAX_CONSECUTIVE_SWEEP_FAILURES = MAX_CONSECUTIVE_DELIVERY_FAILURES;
 
 /**
  * Backoff, once past the ceiling, doubles per further failure (2^(count -
@@ -462,9 +548,9 @@ const DEFAULT_MAX_CONSECUTIVE_SWEEP_FAILURES = 5;
  * stop: "eventually delivered" is the invariant a 2-party DM wait-point
  * depends on (the incident's own shape -- nobody posts again to shake a
  * stuck pair loose), so a saturated pair still gets retried roughly hourly
- * forever, not muted outright.
+ * forever, not muted outright. The cap is MAX_DELIVERY_BACKOFF_TICKS, shared
+ * with the persisted delivery rows (deliveryBackoffTicks).
  */
-const MAX_SWEEP_BACKOFF_TICKS = 120;
 
 /**
  * The failure streak is scoped to the maxId it was accumulated against, not
@@ -494,11 +580,7 @@ function recordSweepFailure(
 ): { crossedCeiling: boolean; count: number } {
   const priorStreak = entry && entry.maxId === target.maxId ? entry.count : 0;
   const count = priorStreak + 1;
-  let skipUntilTick = tick;
-  if (count >= maxConsecutiveFailures) {
-    const backoffTicks = Math.min(2 ** (count - maxConsecutiveFailures), MAX_SWEEP_BACKOFF_TICKS);
-    skipUntilTick = tick + backoffTicks;
-  }
+  const skipUntilTick = tick + deliveryBackoffTicks(count, maxConsecutiveFailures);
   failureCounts.set(key, { count, maxId: target.maxId, skipUntilTick });
   return { crossedCeiling: priorStreak < maxConsecutiveFailures && count >= maxConsecutiveFailures, count };
 }
@@ -514,6 +596,14 @@ export function createChatDeliverySweep(opts: {
   retryDelayMs?: number;
   /** Overridable so a test doesn't need to run a real 5-tick failure streak. */
   maxConsecutiveFailures?: number;
+  /**
+   * Harness delivery with persisted evidence; used only while
+   * agent.integrations.enabled is on, when each tick first runs its bounded
+   * reconciliation and then redelivers through the same targets and backoff.
+   */
+  delivery?: DeliveryService;
+  /** The clock reconciliation is due against; real by default. */
+  now?: () => number;
 }): () => Promise<{ sweptPairs: number; recoveredMessages: number }> {
   const { db, deliveryChains } = opts;
   const herdr = opts.herdr ?? herdrRequest;
@@ -551,6 +641,15 @@ export function createChatDeliverySweep(opts: {
 
   async function runSweep(): Promise<{ sweptPairs: number; recoveredMessages: number }> {
     tick += 1;
+    const harness = opts.delivery && integrationsEnabled() ? opts.delivery : undefined;
+    if (harness) {
+      try {
+        const reconciled = await harness.reconcileDeliveries((opts.now ?? Date.now)());
+        if (reconciled.retried > 0) log.debug(reconciled, "chat: sweep reconciled harness deliveries");
+      } catch (err) {
+        log.warn({ err }, "chat: harness delivery reconciliation threw; the sweep continues");
+      }
+    }
     const stale = stalePendingPairs(db);
     if (stale.length === 0) {
       failureCounts.clear(); // nothing stale at all: no streak is worth remembering
@@ -585,6 +684,14 @@ export function createChatDeliverySweep(opts: {
       const scoped = snapshotRegistryDeps(opts.registryDeps);
       for (const presence of presenceByHandle.values()) {
         if (presence.signedOutAt !== undefined) continue;
+        // A bound session outside Claude's registry is a target; its harness
+        // reports whether it can take input. A Claude session's liveness
+        // stays the registry's, read below in the one scan.
+        const bound = harness ? attachedBinding(presence.sessionId, db) : null;
+        if (bound && bound.native.harness !== "claude") {
+          aliveSessionIds.add(presence.sessionId);
+          continue;
+        }
         const binding = scoped.resolve(presence.sessionId);
         if (binding && scoped.alive(binding)) aliveSessionIds.add(presence.sessionId);
       }
@@ -616,7 +723,7 @@ export function createChatDeliverySweep(opts: {
       try {
         const result = await deliverSerialized(
           deliveryChains, db, inboxDeps, herdr, log, retryDelayMs, target.handle,
-          { room: target.room, dm, id: target.maxId },
+          { room: target.room, dm, id: target.maxId }, opts.delivery,
         );
         if (result.delivered) {
           failureCounts.delete(key);
@@ -805,6 +912,7 @@ function postAndNotify(
   deliveryChains: Map<string, Promise<void>>,
   log: Logger,
   retryDelayMs: number,
+  delivery?: DeliveryService,
 ): { id: number; recipients: string[] } | undefined {
   const { room, handle, body, mentions, quiet } = args;
   const posted = postMessage({ room, handle, body, mentions, quiet }, db);
@@ -831,7 +939,7 @@ function postAndNotify(
   if (quiet) return { id: posted.id, recipients: [] };
   for (const recipient of posted.recipients) {
     queueMicrotask(() => {
-      deliverSerialized(deliveryChains, db, inboxDeps, herdr, log, retryDelayMs, recipient, { room, dm: dm !== null, id: posted.id }).catch((err) => {
+      deliverSerialized(deliveryChains, db, inboxDeps, herdr, log, retryDelayMs, recipient, { room, dm: dm !== null, id: posted.id }, delivery).catch((err) => {
         log.warn({ err, room, recipient, id: posted.id }, "chat: inbox delivery failed");
       });
     });
@@ -913,6 +1021,8 @@ export function createChatHandlers(opts: {
   retryDelayMs?: number;
   /** Shared with createChatDeliverySweep so the periodic sweep chains behind the same in-flight post deliveries instead of racing them; defaults to a private map when the caller (a bare createChatHandlers test) has no sweep. */
   deliveryChains?: Map<string, Promise<void>>;
+  /** Harness delivery with persisted evidence, used only while agent.integrations.enabled is on; the same service the sweep reconciles. */
+  delivery?: DeliveryService;
 }): {
   // A mapped type over CHAT_COMMANDS with a direct `unknown` payload, not
   // `Pick<TypedHandlers, ...>`: a wider `unknown` param still satisfies
@@ -995,7 +1105,7 @@ export function createChatHandlers(opts: {
       // push, the sweep, and the record all see the same thing. Rooms default
       // to wake-on mention, so an agent's un-addressed post wakes nobody.
       const effectiveMentions = handle === getSetting<string>("chat.humanHandle").value ? [...(mentions ?? []), "here"] : mentions;
-      const posted = postAndNotify(db, emitEvent, { room, handle, body, mentions: effectiveMentions, quiet }, inboxDeps, herdr, deliveryChains, log, retryDelayMs);
+      const posted = postAndNotify(db, emitEvent, { room, handle, body, mentions: effectiveMentions, quiet }, inboxDeps, herdr, deliveryChains, log, retryDelayMs, opts.delivery);
       if (!posted) return { ok: false, error: "chat: post failed (retry budget exhausted)" };
       const others = listMembers(room, db).filter((m) => m.handle !== handle).length;
       return { ok: true, data: { ...posted, recipientNames: namesOf(posted.recipients), others } };
@@ -1359,7 +1469,7 @@ export function createChatHandlers(opts: {
       // Recipient travels in `mentions`, not the body, so the transcript
       // shows the text as typed and the desk still notifies when `to` is
       // the human.
-      const posted = postAndNotify(db, emitEvent, { room, handle: fromId, body, mentions: [toId] }, inboxDeps, herdr, deliveryChains, log, retryDelayMs);
+      const posted = postAndNotify(db, emitEvent, { room, handle: fromId, body, mentions: [toId] }, inboxDeps, herdr, deliveryChains, log, retryDelayMs, opts.delivery);
       if (!posted) return { ok: false, error: "chat: dm failed (retry budget exhausted)" };
       return { ok: true, data: { room, id: posted.id, recipients: posted.recipients, recipientNames: namesOf(posted.recipients) } };
     },

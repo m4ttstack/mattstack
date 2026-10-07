@@ -135,6 +135,8 @@ export interface SessionAdapter {
  * ambiguous outcome is a fault, never a receipt.
  */
 export interface MessageAdapter {
+  /** The native connection evidence is held on, when evidence lives with a connection; a new value is a reconnect. */
+  readonly connection?: string;
   submit(binding: SessionBinding, input: PeerInput): Promise<Outcome<DeliveryReceipt>>;
   /** Evidence observed since submission, from the binding's own attachment generation; null when there is none. */
   reconcile?(binding: SessionBinding, inputId: string): Promise<Outcome<DeliveryReceipt | null>>;

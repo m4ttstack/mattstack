@@ -149,7 +149,9 @@ import { getSetting } from "./settings/resolve.ts";
 import { releaseEndpointsForWorktree } from "./daemon/handlers/endpoint.ts";
 import type { HandlerContext } from "./daemon/handlers/types.ts";
 import type { PortEntry } from "./port-scanner.ts";
-import { runUnits, stopUnits, type DaemonUnit } from "./daemon/lifecycle.ts";
+import { backgroundUnit, runUnits, stopUnits, type DaemonUnit } from "./daemon/lifecycle.ts";
+import { integrationsEnabled } from "./agent-integrations/context.ts";
+import { createDeliveryService, type DeliveryService } from "./agent-integrations/delivery.ts";
 
 // Legacy state migration (RT-46). Must run BEFORE the logger's first write can
 // create the new rt dir and turn a clean rename of a real legacy tree into a
@@ -368,6 +370,11 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
   let agentStatusPoller: ReturnType<typeof startAgentStatusPoller>;
   let notifyBridgeStop: (() => void) | undefined;
   let healthSampler: ReturnType<typeof createHealthSampler>;
+  // Harness peer delivery (set in phase 6, read by phase 7's chat handlers).
+  // One abort cancels its startup and reconnect reconciliation at shutdown.
+  let chatDelivery: DeliveryService | undefined;
+  const deliveryShutdown = new AbortController();
+  let deliveryRecovery: DaemonUnit | undefined;
   let healthInterval: ReturnType<typeof setInterval> | null = null;
   let loopMon: ReturnType<typeof startLoopMonitor>;
   let handlerCtx: HandlerContext;
@@ -1071,10 +1078,16 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         // Catches a chat delivery that neither deliverPost's own retry nor a
         // later post to the same recipient recovered -- the case a 2-party
         // DM at a wait-point can hit, since neither side sends again.
+        // With agent.integrations.enabled on, the same sweep also reconciles
+        // persisted harness delivery evidence each tick; off, it is unused.
+        const deliveryLog = loggerHandle.childLogger("delivery");
+        const delivery = createDeliveryService({ db: () => getStateDb("daemon"), signal: deliveryShutdown.signal, log: deliveryLog });
+        chatDelivery = delivery;
         const chatDeliverySweep = createChatDeliverySweep({
           db: getStateDb("daemon"),
           deliveryChains: chatDeliveryChains,
           log: loggerHandle.childLogger("chat"),
+          delivery,
         });
         sweepHandles.push(scheduleSweep(
           "chat-delivery-sweep",
@@ -1082,6 +1095,18 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           { bootDelayMs: 30_000, intervalMs: 30_000 },
           log,
         ));
+        // Deliveries a previous daemon left unresolved are reconciled at boot
+        // rather than after the sweep's first delay; stopping cancels it.
+        deliveryRecovery = backgroundUnit("harness-delivery-recovery", deliveryShutdown, async (signal) => {
+          if (integrationsEnabled()) {
+            const recovered = await delivery.reconcileDeliveries(Date.now(), { signal });
+            if (recovered.retried > 0) deliveryLog.info(recovered, "delivery: deliveries a previous daemon left unresolved stay owed to the sweep");
+          }
+          // Held until shutdown, so stopping also waits out a pass a reconnect started.
+          if (!signal.aborted) await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+          await delivery.idle();
+        }, (err) => deliveryLog.warn({ err }, "delivery: startup reconciliation failed"));
+        await deliveryRecovery.start();
         // Keeps cd-cache.json warm for `rt cd`; uses the async repo-index
         // builder, never execSync, since this runs on the daemon thread.
         sweepHandles.push(scheduleSweep(
@@ -1223,7 +1248,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           onHeartbeat: (at, seq) => writeHeartbeat(RT_DIR, { at, seq }),
         });
       },
-      stop() {
+      async stop() {
         loopMon?.stop();
         if (healthInterval) clearInterval(healthInterval);
         agentStatusPoller?.stop();
@@ -1234,6 +1259,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         cron?.dispose();
         peerWaker?.stop();
         hooksGuard?.closeAll();
+        await deliveryRecovery?.stop();
       },
     },
 
@@ -1299,6 +1325,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           gitStatusSweep,
           stateDb: getStateDb("daemon"),
           chatDeliveryChains,
+          chatDelivery,
           accountsSweep: accountsSweepFn,
           relocation: relocationWatcher,
         });
