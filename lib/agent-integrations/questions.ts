@@ -103,6 +103,8 @@ export function gateCommandsVia(handle: (cmd: string, payload: unknown) => Promi
 export interface NativeGates {
   /** The gate already presenting this native item, whatever its state. */
   find(thread: string, item: string): GateRow | null;
+  /** The thread's natively bound gates that are still open or parked, with their bindings. */
+  openFor(thread: string): Array<{ row: GateRow; question: QuestionBinding }>;
   get(gateId: string): GateRow | null;
   ask(payload: Commands["gate:ask"]["payload"]): Promise<GateReply<{ id: string }>>;
   /** Records an answer the session gave in its own native form, as the session's own. */
@@ -509,6 +511,14 @@ export function createGateQuestions(
       find(thread, item) {
         const gateId = store().gateForItem(thread, item);
         return gateId ? deps.gates.get(gateId) : null;
+      },
+      openFor(thread) {
+        const open: Array<{ row: GateRow; question: QuestionBinding }> = [];
+        for (const question of store().openForThread(thread)) {
+          const row = deps.gates.get(question.gateId);
+          if (row) open.push({ row, question });
+        }
+        return open;
       },
       get: (gateId) => deps.gates.get(gateId),
       ask: (payload) => guarded(() => deps.commands?.ask(payload) ?? unwired()),

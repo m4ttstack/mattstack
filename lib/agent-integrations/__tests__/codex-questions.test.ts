@@ -14,7 +14,7 @@ import {
 } from "../codex/control.ts";
 import { codexIntegration } from "../codex/integration.ts";
 import {
-  ANSWER_VALUE, bindCodexQuestion, createCodexQuestions, gateQuestionsOf, MAX_PRESENT_ATTEMPTS, nativeAnswersOf, OTHER_VALUE, readRolloutTail, rolloutEvidence,
+  ANSWER_VALUE, asyncQuestionsOf, bindCodexQuestion, createCodexQuestions, gateQuestionsOf, MAX_PRESENT_ATTEMPTS, nativeAnswersOf, OTHER_VALUE, readRolloutTail, rolloutEvidence,
   type CodexQuestionAdapter,
 } from "../codex/questions.ts";
 import {
@@ -276,6 +276,10 @@ async function world(opts: { enabled?: boolean; mode?: "herdr" | "headless"; pan
       readRollout: async (path) => {
         reads.push(path);
         return { text: server.rolloutQueue.shift() ?? server.rollout, whole: server.rolloutWhole };
+      },
+      readLastTurn: async (path) => {
+        reads.push(path);
+        return { text: server.rollout, whole: server.rolloutWhole };
       },
       sleep: async () => {},
     });
@@ -1047,5 +1051,135 @@ describe("fix round 2", () => {
     replay(w);
     await settled();
     expect(calls()).toBe(1);
+  });
+});
+
+/** live-08 rollout lines (0.160.x): an answered item, an item whose turn was aborted with no output, and async questions. */
+const LIVE08 = readFileSync(join(FIXTURES, "rollout-live08-0.160.x.jsonl"), "utf8");
+const L8_ANSWERED = { item: "call_ECu0WV1iuLbrvnlEqGnDT9NQ", turn: "01a1170c-35fd-7823-877a-1465cddd9ad9" };
+const L8_ABORTED = { item: "call_nV28Qz6f899s09yaMANpMYbQ", turn: "01a1170d-51a4-7490-b25a-5ff8fd3f4cd9" };
+const L8_ASYNC_LAST = { item: "call_V3pfIiWwzkU8iP5rzqEIdNST", turn: "01a11716-92d3-75d0-acff-b2a8dcd659d8" };
+const L8_ASYNC_OLD = "call_463cb7ad3a024990b46d82137c3dee1e";
+
+describe("live-08: questions that ended while rt was not connected", () => {
+  test("a turn_aborted covering the item's turn is aborted; without the turn it stays unknown", () => {
+    expect(rolloutEvidence(LIVE08, L8_ABORTED.item, { pick: { answers: ["A"] } }, true, L8_ABORTED.turn).state).toBe("gone");
+    expect(rolloutEvidence(LIVE08, L8_ABORTED.item, null, true, L8_ABORTED.turn).state).toBe("gone");
+    expect(rolloutEvidence(LIVE08, L8_ABORTED.item, { pick: { answers: ["A"] } }, true, "another-turn")).toMatchObject({ state: "pending" });
+    // An output written before its turn was aborted still decides.
+    expect(rolloutEvidence(LIVE08, L8_ANSWERED.item, null, true, L8_ANSWERED.turn)).toMatchObject({ state: "answered", answers: { pick: { answers: ["A"] } } });
+  });
+
+  /** A gate opened for a question, then the app server goes away; it comes back with the question ended as `ending` says. */
+  async function endedWhileAway(question: { item: string; turn: string }, ending: { status: Record<string, unknown>; rollout: string }) {
+    const w = await world();
+    await w.connect();
+    w.server.ask("T1", question.turn, question.item, PICK);
+    await settled();
+    const [gate] = w.gates();
+    w.server.restart();
+    w.server.pending.delete("T1");
+    w.server.status = ending.status;
+    w.server.rollout = ending.rollout;
+    const c = await w.connect();
+    return { w, c, gate: gate! };
+  }
+
+  test("answered in the TUI while rt was away: the reconnect records the native answer and writes nothing", async () => {
+    const { w, c, gate } = await endedWhileAway(L8_ANSWERED, { status: { type: "active", activeFlags: [] }, rollout: LIVE08 });
+    await c.sessions.observe(w.sessions.get("s1")!);
+    await settled();
+    expect(w.store.get(gate.id)).toMatchObject({ status: "answered", answer: { answers: { pick: "A" }, session: "T1" } });
+    expect(w.service.completion(gate.id)?.state).toBe("completed");
+    expect(w.answersSent()).toEqual([]);
+  });
+
+  test("aborted with no re-ask: the reconnect closes the gate, and a later answer is refused", async () => {
+    const { w, c, gate } = await endedWhileAway(L8_ABORTED, { status: { type: "idle" }, rollout: LIVE08 });
+    await c.sessions.observe(w.sessions.get("s1")!);
+    await settled();
+    expect(w.store.get(gate.id)).toMatchObject({ status: "closed", answer: null });
+    expect(w.service.completion(gate.id)?.state).toBe("gone");
+    expect((await answerGate(w, gate.id, { pick: "A" })).ok).toBe(false);
+    expect(w.answersSent()).toEqual([]);
+  });
+
+  test("an ending the rollout cannot account for leaves the gate open and asks for a person once", async () => {
+    const { w, c, gate } = await endedWhileAway({ item: "I1", turn: "U1" }, { status: { type: "idle" }, rollout: "" });
+    await c.sessions.observe(w.sessions.get("s1")!);
+    await settled();
+    for (let i = 0; i < 2; i++) {
+      w.socket().push({ method: "thread/status/changed", params: { threadId: "T1", status: { type: "idle" } } });
+      await settled();
+    }
+    expect(w.store.get(gate.id)!.status).toBe("open");
+    expect(w.emitted.filter((e) => e.topic === "gate.native-attention")).toEqual([
+      { topic: "gate.native-attention", payload: expect.objectContaining({ reason: "question-ended-unseen", gateId: gate.id, threadId: "T1" }) },
+    ]);
+  });
+
+  test("a thread still waiting on its question is not reconciled", async () => {
+    const { w, c, gate } = await endedWhileAway(L8_ANSWERED, { status: { type: "active", activeFlags: ["waitingOnUserInput"] }, rollout: LIVE08 });
+    w.server.pending.set("T1", { id: 0, params: { threadId: "T1", turnId: L8_ANSWERED.turn, itemId: L8_ANSWERED.item, questions: PICK, isBlocking: true, autoResolutionMs: null } });
+    await c.sessions.observe(w.sessions.get("s1")!);
+    await settled();
+    expect(w.store.get(gate.id)!.status).toBe("open");
+    expect(w.emitted).toEqual([]);
+  });
+
+  test("with the switch off a reconnect reconciles nothing", async () => {
+    const { w, c, gate } = await endedWhileAway(L8_ANSWERED, { status: { type: "active", activeFlags: [] }, rollout: LIVE08 });
+    w.switchOn.value = false;
+    await c.sessions.observe(w.sessions.get("s1")!);
+    await settled();
+    expect(w.store.get(gate.id)!.status).toBe("open");
+    expect(w.reads).toEqual([]);
+    expect(w.emitted).toEqual([]);
+  });
+});
+
+describe("live-08: async questions from Herdr TUI turns", () => {
+  test("the last turn's async questions are found in the rollout", () => {
+    expect(asyncQuestionsOf(LIVE08)).toEqual([{ itemId: L8_ASYNC_LAST.item, turnId: L8_ASYNC_LAST.turn, questions: 1 }]);
+  });
+
+  test("an unsubscribed Herdr thread going idle raises async-question attention once per item", async () => {
+    const w = await world();
+    await w.connect();
+    w.server.rollout = LIVE08;
+    for (let i = 0; i < 2; i++) {
+      w.server.setStatus("T1", { type: "active", activeFlags: [] });
+      w.server.setStatus("T1", { type: "idle" });
+      await settled();
+    }
+    const attention = w.emitted.filter((e) => e.topic === "gate.native-attention");
+    expect(attention).toEqual([{
+      topic: "gate.native-attention",
+      payload: expect.objectContaining({ reason: "async-question", threadId: "T1", turnId: L8_ASYNC_LAST.turn, itemId: L8_ASYNC_LAST.item, questions: 1 }),
+    }]);
+    expect(attention.some((e) => e.payload.itemId === L8_ASYNC_OLD)).toBe(false);
+    expect(w.gates()).toEqual([]);
+    expect(w.sent().filter((m) => m.method !== "initialize" && m.method !== "initialized" && m.method !== "thread/read")).toEqual([]);
+  });
+
+  test("a subscribed thread hears its items, so its rollout is not read; nor is anything with the switch off", async () => {
+    const w = await world();
+    const c = await w.connect();
+    expect((await c.sessions.hold(codexBinding(), "delivery-1")).ok).toBe(true);
+    w.server.rollout = LIVE08;
+    w.server.setStatus("T1", { type: "active", activeFlags: [] });
+    w.server.setStatus("T1", { type: "idle" });
+    await settled();
+    expect(w.reads).toEqual([]);
+
+    const off = await world();
+    await off.connect();
+    off.server.rollout = LIVE08;
+    off.switchOn.value = false;
+    off.server.setStatus("T1", { type: "active", activeFlags: [] });
+    off.server.setStatus("T1", { type: "idle" });
+    await settled();
+    expect(off.reads).toEqual([]);
+    expect(off.emitted).toEqual([]);
   });
 });

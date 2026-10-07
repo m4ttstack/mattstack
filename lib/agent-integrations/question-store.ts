@@ -37,6 +37,8 @@ export interface QuestionStore {
   get(gateId: string): QuestionBinding | null;
   /** The gate most recently bound to this native item of this thread, if any. */
   gateForItem(thread: string, item: string): string | null;
+  /** Bindings of this thread's gates that are still open or parked. */
+  openForThread(thread: string): QuestionBinding[];
   completion(gateId: string): CompletionRecord | null;
   /**
    * Records an attempt about to start: a new pending record with
@@ -86,6 +88,9 @@ const SELECT_BINDING_SQL = "SELECT * FROM gate_native_questions WHERE gateId = ?
 const SELECT_ITEM_SQL = `
   SELECT gateId FROM gate_native_questions WHERE nativeThread = ? AND nativeItem = ?
   ORDER BY boundAt DESC, rowid DESC LIMIT 1`;
+const OPEN_FOR_THREAD_SQL = `
+  SELECT q.* FROM gate_native_questions q JOIN gates g ON g.id = q.gateId
+  WHERE q.nativeThread = ? AND g.status IN ('open', 'parked') ORDER BY q.boundAt, q.rowid`;
 const SELECT_COMPLETION_SQL = "SELECT * FROM gate_native_completion WHERE gateId = ?";
 const INTEND_SQL = `
   INSERT INTO gate_native_completion (gateId, state, fingerprint, attempts, detail, createdAt, updatedAt)
@@ -132,6 +137,9 @@ export function createQuestionStore(db: Database): QuestionStore {
     gateForItem(thread, item) {
       const row = db.query(SELECT_ITEM_SQL).get(thread, item) as { gateId: string } | null;
       return row?.gateId ?? null;
+    },
+    openForThread(thread) {
+      return (db.query(OPEN_FOR_THREAD_SQL).all(thread) as BindingRow[]).map(toBinding);
     },
     completion,
     intend(gateId, fingerprint, now = Date.now()) {

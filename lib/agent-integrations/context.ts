@@ -269,7 +269,8 @@ export function resolveCliBinding(args: string[], env: NodeJS.ProcessEnv, deps: 
  * daemon resolves them by, and the binding's own pane (the environment its
  * tools see belongs to the app server, so its pane variable is not the worker's).
  */
-export type BoundGateIdentity = { agentId: string; subject: string; sessionId: string; pane?: string };
+/** `harness` names the session's harness, so the gate's nudge never rings another harness's inbox. */
+export type BoundGateIdentity = { agentId: string; subject: string; sessionId: string; pane?: string; harness: string };
 
 /**
  * With agent.integrations.enabled on, a Codex worker's gate identity comes
@@ -295,6 +296,7 @@ export function boundCodexGateIdentity(
       agentId, subject: rec?.id === agentId && rec.subject !== undefined ? rec.subject : `agent:${agentId}`,
       sessionId: caller.data.binding.native.value,
       ...(caller.data.binding.attachment.pane !== undefined && { pane: caller.data.binding.attachment.pane }),
+      harness: caller.data.binding.native.harness,
     },
   };
 }

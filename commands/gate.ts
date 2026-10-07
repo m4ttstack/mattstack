@@ -218,6 +218,8 @@ export function buildGateAskPayload(
     // The binding's own pane, never the app server's inherited one.
     payload.sessionId = bound.data.sessionId;
     if (bound.data.pane !== undefined) payload.paneId = bound.data.pane;
+    // Its nudge then never rings a Claude inbox nor marks the pane dead (gate-push).
+    if (bound.data.harness !== "claude") payload.harness = bound.data.harness;
     return payload;
   }
   if (env.CLAUDE_CODE_SESSION_ID) payload.sessionId = env.CLAUDE_CODE_SESSION_ID;

@@ -108,7 +108,7 @@ describe("forkDenyReason", () => {
 });
 
 describe("a bound Codex worker's fork check", () => {
-  const identity = { agentId: "ag-1", subject: "herd:h1/job-a", sessionId: "thread-1", pane: "w7:p1" };
+  const identity = { agentId: "ag-1", subject: "herd:h1/job-a", sessionId: "thread-1", pane: "w7:p1", harness: "codex" };
 
   test("with no launch env, its subject, session and pane come from the binding, never the inherited pane", () => {
     const env = { CODEX_THREAD_ID: "thread-1", HERDR_PANE_ID: "w1:p1" } as NodeJS.ProcessEnv;

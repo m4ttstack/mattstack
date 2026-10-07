@@ -339,10 +339,10 @@ describe("a bound Codex worker's gate identity", () => {
     // RT_* in the environment belong to whoever started the app server, not to this worker.
     const env = { CODEX_THREAD_ID: "thread-sub", RT_AGENT_ID: "ag-someone-else", RT_GATE_SUBJECT: "agent:ag-someone-else", HERDR_PANE_ID: "w0:p0" } as NodeJS.ProcessEnv;
     expect(boundCodexGateIdentity(env, { db, enabled: on })).toEqual({
-      ok: true, data: { agentId: "ag-sub", subject: "herd:h1/job-a", sessionId: "thread-sub", pane: "w1:p1" },
+      ok: true, data: { agentId: "ag-sub", subject: "herd:h1/job-a", sessionId: "thread-sub", pane: "w1:p1", harness: "codex" },
     });
     expect(boundCodexGateIdentity({ CODEX_THREAD_ID: "thread-plain" } as NodeJS.ProcessEnv, { db, enabled: on })).toEqual({
-      ok: true, data: { agentId: "ag-plain", subject: "agent:ag-plain", sessionId: "thread-plain" },
+      ok: true, data: { agentId: "ag-plain", subject: "agent:ag-plain", sessionId: "thread-plain", harness: "codex" },
     });
   });
 

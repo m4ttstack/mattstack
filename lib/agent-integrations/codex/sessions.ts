@@ -113,6 +113,8 @@ export interface CodexSessionAdapter extends SessionAdapter {
   live(binding: SessionBinding): boolean | undefined;
   /** Asks herdr now whether codex runs in a Herdr attachment's pane; a failed check is false. */
   paneLive(binding: SessionBinding): Promise<boolean>;
+  /** Whether this connection is subscribed to the thread now, so its item events arrive. */
+  subscribed(threadId: string): boolean;
 }
 
 /** unloaded: the app server no longer runs the thread, or closed it (a close follows every unload, live-04). ended: its sessionEnd hook ran. */
@@ -737,6 +739,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     held: (threadId, id) => holders.get(threadId)?.has(id) === true,
     live,
     paneLive,
+    subscribed: (threadId) => subscribed.has(threadId),
     disown(binding) {
       if (!checkRef(binding.native).ok) return;
       const threadId = binding.native.value;

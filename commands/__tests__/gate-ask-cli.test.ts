@@ -65,7 +65,7 @@ describe("gateAskOutput", () => {
 });
 
 describe("a bound Codex worker asks under its binding", () => {
-  const identity = { agentId: "ag-1", subject: "herd:h1/job-a", sessionId: "thread-1", pane: "w7:p1" };
+  const identity = { agentId: "ag-1", subject: "herd:h1/job-a", sessionId: "thread-1", pane: "w7:p1", harness: "codex" };
 
   test("its session and pane come from the binding, never the app server's inherited pane", () => {
     // HERDR_PANE_ID here is whatever pane the user started the app server in.
@@ -87,5 +87,13 @@ describe("a bound Codex worker asks under its binding", () => {
     const env = { CLAUDE_CODE_SESSION_ID: "sess-1" } as NodeJS.ProcessEnv;
     expect(buildGateAskPayload(["--questions", Q], env, () => ({ ok: true, data: null })).sessionId).toBe("sess-1");
     expect(buildGateAskPayload(["--questions", Q], env).sessionId).toBe("sess-1");
+  });
+
+  test("a bound worker names its harness, so its nudge never rings a Claude inbox; a Claude session's payload is unchanged", () => {
+    const env = { CODEX_THREAD_ID: "thread-1", HERDR_PANE_ID: "w1:p1" } as NodeJS.ProcessEnv;
+    const payload = buildGateAskPayload(["--questions", Q], env, () => ({ ok: true, data: { ...identity, harness: "codex" } }));
+    expect(payload).toMatchObject({ sessionId: "thread-1", paneId: "w7:p1", harness: "codex" });
+    const claude = buildGateAskPayload(["--questions", Q], { CLAUDE_CODE_SESSION_ID: "sess-1", HERDR_PANE_ID: "w1:p1" } as NodeJS.ProcessEnv);
+    expect(claude).toEqual({ questions: JSON.parse(Q), sessionId: "sess-1", paneId: "w1:p1" });
   });
 });

@@ -32,7 +32,16 @@
  * was read and holds no output for the item.
  *
  * A question Codex asks in default mode arrives as an async agentMessage with
- * no ids: it is announced for a person and never presented as a gate.
+ * no ids: it is announced for a person and never presented as a gate. An
+ * unsubscribed Herdr thread never hears that item, so when its turn ends its
+ * rollout's last turn is read for one.
+ *
+ * A question can also end while no connection of rt's listens (answered in
+ * the TUI while the daemon was down, or aborted by an app-server restart that
+ * never asks again). So whenever a bound thread shows it is not waiting, its
+ * open bound gates that no request here accounts for are settled from the
+ * rollout: its answer is recorded, an abort closes the gate, and anything
+ * else is announced once and left open.
  */
 
 import { open } from "fs/promises";
@@ -66,6 +75,8 @@ const FREE_TEXT_DESCRIPTION = "Write your answer in the note.";
 /** A rollout is read from its end in chunks of this size, and never more than ROLLOUT_MAX_BYTES of it. */
 const ROLLOUT_CHUNK_BYTES = 64 * 1024;
 const ROLLOUT_MAX_BYTES = 16 * 1024 * 1024;
+/** How far back a last-turn read for async questions goes. */
+const ROLLOUT_TURN_MAX_BYTES = 4 * 1024 * 1024;
 
 /** Refusals of a gate that cannot open later; any other refusal is retried at the next replay, up to MAX_PRESENT_ATTEMPTS. */
 const UNLISTED: ReadonlySet<string> = new Set(["no-subject", "unlisted-subject"]);
@@ -93,9 +104,11 @@ export type CodexQuestionDeps = {
   /** The daemon's gate question service; null where none runs. */
   service(): Pick<GateQuestions, "bindGateQuestion" | "completeGateQuestion" | "native"> | null;
   /** The connection's session adapter, whose holds keep the thread subscribed. Without it nothing is held. */
-  sessions?: Pick<CodexSessionAdapter, "hold" | "release" | "paneLive">;
+  sessions?: Pick<CodexSessionAdapter, "hold" | "release" | "paneLive" | "subscribed">;
   /** The rollout's whole lines from its end back to the item's output, or as far as the byte cap allows. */
   readRollout(path: string, itemId: string): Promise<RolloutTail>;
+  /** The rollout's whole lines back to the start of its last turn, within a byte cap. */
+  readLastTurn(path: string): Promise<RolloutTail>;
   sleep(ms: number): Promise<void>;
 };
 
@@ -119,6 +132,7 @@ function defaultDeps(control: CodexControl): CodexQuestionDeps {
     bindingOf: (threadId) => createSessionStore(getStateDb()).find({ harness: HARNESS, profile: control.profile, kind: "id", value: threadId }),
     service: gateQuestionService,
     readRollout: (path, itemId) => readRolloutTail(path, itemId),
+    readLastTurn: (path) => readRolloutLastTurn(path),
     sleep: (ms) => Bun.sleep(ms),
   };
 }
@@ -141,20 +155,31 @@ function holdsOutputLine(lines: Buffer, id: Buffer, marker: Buffer): boolean {
  */
 export type RolloutTail = { text: string; whole: boolean };
 
-/**
- * Reads a rollout backward from its end, a chunk at a time, until it holds
- * the item's output line or `maxBytes` were read. Each chunk is scanned once,
- * with only the partial line it completes carried over, and lines are split
- * at newline bytes, which never fall inside a multibyte character. The file
- * is opened read-only and never written.
- */
-export async function readRolloutTail(
-  path: string, itemId: string, opts: { chunkBytes?: number; maxBytes?: number } = {},
-): Promise<RolloutTail> {
-  const chunkBytes = opts.chunkBytes ?? ROLLOUT_CHUNK_BYTES;
-  const maxBytes = opts.maxBytes ?? ROLLOUT_MAX_BYTES;
+type ReadOpts = { chunkBytes?: number; maxBytes?: number };
+
+/** Reads a rollout backward until it holds the item's output line or `maxBytes` were read. */
+export function readRolloutTail(path: string, itemId: string, opts: ReadOpts = {}): Promise<RolloutTail> {
   const id = Buffer.from(itemId);
   const marker = Buffer.from("function_call_output");
+  return readRolloutBackward(path, (lines) => holdsOutputLine(lines, id, marker), opts);
+}
+
+/** Reads a rollout backward to the start of its last turn, within ROLLOUT_TURN_MAX_BYTES. */
+export function readRolloutLastTurn(path: string, opts: ReadOpts = {}): Promise<RolloutTail> {
+  const started = Buffer.from('"task_started"');
+  return readRolloutBackward(path, (lines) => lines.includes(started), { maxBytes: ROLLOUT_TURN_MAX_BYTES, ...opts });
+}
+
+/**
+ * Reads a rollout backward from its end, a chunk at a time, until `enough`
+ * holds for the lines a chunk completed or `maxBytes` were read. Each chunk is
+ * scanned once, with only the partial line it completes carried over, and
+ * lines are split at newline bytes, which never fall inside a multibyte
+ * character. The file is opened read-only and never written.
+ */
+async function readRolloutBackward(path: string, enough: (completed: Buffer) => boolean, opts: ReadOpts): Promise<RolloutTail> {
+  const chunkBytes = opts.chunkBytes ?? ROLLOUT_CHUNK_BYTES;
+  const maxBytes = opts.maxBytes ?? ROLLOUT_MAX_BYTES;
   const file = await open(path, "r");
   try {
     const { size } = await file.stat();
@@ -174,7 +199,7 @@ export async function readRolloutTail(
       const completed = start === 0 ? span : firstBreak === -1 ? Buffer.alloc(0) : span.subarray(firstBreak + 1);
       partial = start === 0 ? Buffer.alloc(0) : firstBreak === -1 ? span : span.subarray(0, firstBreak + 1);
       if (completed.length > 0) lines.push(completed);
-      if (holdsOutputLine(completed, id, marker)) break;
+      if (enough(completed)) break;
     }
     return { text: Buffer.concat(lines.reverse()).toString("utf8"), whole: start === 0 };
   } finally {
@@ -280,17 +305,23 @@ function sameAnswers(a: NativeAnswers, b: NativeAnswers): boolean {
  * the text is only the tail rt read, so an output missing from it is unknown,
  * never absent.
  */
-export function rolloutEvidence(text: string, itemId: string, expected: NativeAnswers | null, whole = true): RolloutEvidence {
+export function rolloutEvidence(
+  text: string, itemId: string, expected: NativeAnswers | null, whole = true, turnId?: string,
+): RolloutEvidence {
   const pending = (detail: string): RolloutEvidence => ({ state: "pending", detail });
+  let turnAborted = false;
   for (const line of text.split("\n")) {
-    if (!line.includes(itemId)) continue;
+    const names = line.includes(itemId);
+    if (!names && !(turnId && line.includes(turnId) && line.includes("turn_aborted"))) continue;
     let entry: unknown;
     try {
       entry = JSON.parse(line);
     } catch {
-      return pending("the rollout's entry for this question is unreadable");
+      if (names) return pending("the rollout's entry for this question is unreadable");
+      continue;
     }
-    if (!isRecord(entry) || entry.type !== "response_item" || !isRecord(entry.payload)) continue;
+    if (isTurnAborted(entry, turnId)) turnAborted = true;
+    if (!names || !isRecord(entry) || entry.type !== "response_item" || !isRecord(entry.payload)) continue;
     const payload = entry.payload;
     if (payload.type !== "function_call_output" || payload.call_id !== itemId) continue;
     if (typeof payload.output !== "string") return pending("the rollout's output for this question has an unknown shape");
@@ -308,9 +339,61 @@ export function rolloutEvidence(text: string, itemId: string, expected: NativeAn
       ? { state: "completed", detail: "the native question took the gate's answer" }
       : { state: "conflict", detail: "the native question took a different answer than the gate's" };
   }
+  // A restarted app server aborts the turn and writes no output for the question (live-08).
+  if (turnAborted) return { state: "gone", detail: "the native question's turn was aborted" };
   return whole
     ? { state: "pending", detail: "the rollout has no output for this question yet", absent: true }
     : { state: "pending", detail: "the part of the rollout rt read holds no output for this question" };
+}
+
+function isTurnAborted(entry: unknown, turnId: string | undefined): boolean {
+  return turnId !== undefined && isRecord(entry) && entry.type === "event_msg" && isRecord(entry.payload)
+    && entry.payload.type === "turn_aborted" && entry.payload.turn_id === turnId;
+}
+
+/** The turn a rollout line belongs to: an event's own, or the one a response item records. */
+function turnOf(entry: Record<string, unknown>): string | undefined {
+  const payload = isRecord(entry.payload) ? entry.payload : undefined;
+  if (typeof payload?.turn_id === "string") return payload.turn_id;
+  const meta = isRecord(payload?.internal_chat_message_metadata_passthrough) ? payload.internal_chat_message_metadata_passthrough : undefined;
+  return typeof meta?.turn_id === "string" ? meta.turn_id : undefined;
+}
+
+export type AsyncQuestion = { itemId: string; turnId: string; questions: number };
+
+/**
+ * Async questions (`request_user_input_async` calls) in the rollout's last
+ * turn, the latest turn any whole line names. Lines that do not parse are
+ * skipped: this only decides whether to ask a person to look.
+ */
+export function asyncQuestionsOf(text: string): AsyncQuestion[] {
+  const calls: AsyncQuestion[] = [];
+  let lastTurn: string | undefined;
+  for (const line of text.split("\n")) {
+    if (line.trim() === "") continue;
+    let entry: unknown;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!isRecord(entry)) continue;
+    const turnId = turnOf(entry);
+    if (turnId === undefined) continue;
+    lastTurn = turnId;
+    const payload = entry.payload as Record<string, unknown>;
+    if (entry.type !== "response_item" || payload.type !== "function_call" || payload.name !== "request_user_input_async") continue;
+    if (typeof payload.call_id !== "string" || payload.call_id === "") continue;
+    let questions = 0;
+    try {
+      const args: unknown = JSON.parse(typeof payload.arguments === "string" ? payload.arguments : "");
+      questions = isRecord(args) && Array.isArray(args.questions) ? args.questions.length : 0;
+    } catch {
+      questions = 0;
+    }
+    calls.push({ itemId: payload.call_id, turnId, questions });
+  }
+  return calls.filter((call) => call.turnId === lastTurn);
 }
 
 /** The durable binding for a request, under the session's current attachment. */
@@ -349,6 +432,11 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
   const announced = new Set<string>();
   /** Refused presentations per request, by thread and item. */
   const presentTries = new Map<string, number>();
+  /** Each thread's last status here, so an active-to-idle turn end can be told apart. */
+  const lastStatus = new Map<string, string>();
+  const reconciling = new Set<string>();
+  /** Gates already announced as ended unseen. */
+  const unseen = new Set<string>();
   const keyOf = (threadId: string, itemId: string) => `${threadId}\0${itemId}`;
   const holdOf = (threadId: string) => `question:${threadId}`;
 
@@ -495,32 +583,40 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     void present(binding, event);
   }
 
-  async function evidence(threadId: string, itemId: string, expected: NativeAnswers | null): Promise<RolloutEvidence> {
-    const pending = (detail: string): RolloutEvidence => ({ state: "pending", detail });
+  /** The thread's rollout path, as the app server names it and only under its own sessions; a string explains why not. */
+  async function rolloutOf(threadId: string): Promise<{ path: string } | { why: string }> {
     let path: unknown;
     try {
       const read = await control.request("thread/read", { threadId, includeTurns: false });
       path = isRecord(read) && isRecord(read.thread) ? read.thread.path : undefined;
     } catch {
-      return pending("rt could not read the thread");
+      return { why: "rt could not read the thread" };
     }
     const rollout = rolloutPathOf(path, control.codexHome);
-    if (!rollout) return pending("Codex named no rollout under its sessions for the thread");
+    return rollout ? { path: rollout } : { why: "Codex named no rollout under its sessions for the thread" };
+  }
+
+  /** `turnId` lets an aborted turn with no output for the item count as the question's end. */
+  async function evidence(threadId: string, itemId: string, expected: NativeAnswers | null, turnId?: string): Promise<RolloutEvidence> {
+    const rollout = await rolloutOf(threadId);
+    if ("why" in rollout) return { state: "pending", detail: rollout.why };
     let tail: RolloutTail;
     try {
-      tail = await deps.readRollout(rollout, itemId);
+      tail = await deps.readRollout(rollout.path, itemId);
     } catch {
-      return pending("the thread's rollout could not be read");
+      return { state: "pending", detail: "the thread's rollout could not be read" };
     }
-    return rolloutEvidence(tail.text, itemId, expected, tail.whole);
+    return rolloutEvidence(tail.text, itemId, expected, tail.whole, turnId);
   }
 
   /** The rollout is written moments after a question resolves, so a pending reading is taken again a few times. */
-  async function settledEvidence(threadId: string, itemId: string, expected: NativeAnswers | null): Promise<RolloutEvidence> {
-    let found = await evidence(threadId, itemId, expected);
+  async function settledEvidence(
+    threadId: string, itemId: string, expected: NativeAnswers | null, turnId?: string,
+  ): Promise<RolloutEvidence> {
+    let found = await evidence(threadId, itemId, expected, turnId);
     for (let read = 1; read < ROLLOUT_READS && found.state === "pending"; read++) {
       await deps.sleep(ROLLOUT_READ_MS);
-      found = await evidence(threadId, itemId, expected);
+      found = await evidence(threadId, itemId, expected, turnId);
     }
     return found;
   }
@@ -533,7 +629,7 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
       await service.native.close(gate.id);
       return;
     }
-    const found = await settledEvidence(threadId, request.event.itemId, null);
+    const found = await settledEvidence(threadId, request.event.itemId, null, request.event.turnId);
     if (found.state === "gone") {
       await service.native.close(gate.id);
       return;
@@ -598,12 +694,63 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     letGo(threadId);
   }
 
+  /**
+   * Open gates bound to this thread whose question this connection never
+   * heard end: answered or aborted while rt was away, or by an app-server
+   * restart that never asked again. The thread is not waiting, so the rollout
+   * says how each ended; one it cannot account for stays open, announced once.
+   */
+  async function reconcile(binding: SessionBinding): Promise<void> {
+    const threadId = binding.native.value;
+    const service = deps.service();
+    if (!service || reconciling.has(threadId)) return;
+    reconciling.add(threadId);
+    try {
+      for (const { row, question } of service.native.openFor(threadId)) {
+        const itemId = question.nativeItem;
+        // A request this connection holds ends through `ended`.
+        if (!itemId || requests.has(keyOf(threadId, itemId))) continue;
+        const found = await evidence(threadId, itemId, null, question.nativeTurn);
+        if (found.state === "gone") {
+          await service.native.close(row.id);
+        } else if (found.state === "answered") {
+          const answers = gateAnswersOf(found.answers, row);
+          const recorded = answers.ok ? await service.native.answer(row.id, answers.data, threadId) : answers;
+          if (!recorded.ok) attention({ reason: "native-answer-unrecorded", gateId: row.id, threadId, itemId, detail: recorded.error.message });
+        } else if (!unseen.has(row.id)) {
+          unseen.add(row.id);
+          attention({ reason: "question-ended-unseen", gateId: row.id, threadId, itemId, detail: found.detail });
+        }
+      }
+    } finally {
+      reconciling.delete(threadId);
+    }
+  }
+
+  /** An unsubscribed Herdr thread's async questions never arrive as items, so its last turn is read from the rollout. */
+  async function scanAsync(binding: SessionBinding): Promise<void> {
+    const threadId = binding.native.value;
+    const rollout = await rolloutOf(threadId);
+    if ("why" in rollout) return;
+    const tail = await deps.readLastTurn(rollout.path);
+    for (const found of asyncQuestionsOf(tail.text)) onAsync(threadId, found.turnId, found.itemId, found.questions);
+  }
+
   hub.watchStatus((threadId, status) => {
+    const before = lastStatus.get(threadId);
+    lastStatus.set(threadId, status.type);
     if (status.type !== "active" || !status.activeFlags.includes("waitingOnUserInput")) {
       for (const request of [...requests.values()]) {
         if (request.event.threadId === threadId && (open(request) || request.state === "interrupted")) void ended(request).catch(() => undefined);
       }
       letGo(threadId);
+      if (!deps.enabled()) return;
+      const binding = boundSession(threadId);
+      if (!binding) return;
+      void reconcile(binding).catch(() => undefined);
+      if (before === "active" && status.type === "idle" && binding.attachment.mode === "herdr" && !deps.sessions?.subscribed(threadId)) {
+        void scanAsync(binding).catch(() => undefined);
+      }
       return;
     }
     if (!deps.enabled()) return;
@@ -667,6 +814,7 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
   async function answer(binding: SessionBinding, question: QuestionBinding, expected: NativeAnswers): Promise<Ending> {
     const threadId = question.nativeThread!;
     const itemId = question.nativeItem!;
+    const turnId = question.nativeTurn;
     let request = matching(question);
     if (!request) {
       await takeHold(binding);
@@ -687,7 +835,7 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     // A connection whose hold lapsed hears neither resolved nor the turn's end
     // (live-07), so a request that looks pending here may have taken an answer
     // already: the rollout is read before anything is written.
-    const before = await evidence(threadId, itemId, expected);
+    const before = await evidence(threadId, itemId, expected, turnId);
     if (before.state !== "pending") {
       request.state = "resolved";
       request.ended = true;
