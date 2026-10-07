@@ -53,7 +53,31 @@ test('the label is the name: prop, then roster row, then member directory, then 
   expect(screen.getByTestId('legacy')).toHaveTextContent(/^max$/);
 });
 
-test('the avatar seeds from the id, so two remys differ', () => {
+test('two remys on the roster get their own colour and creature', () => {
+  renderWithProviders(
+    <BuddiesProvider
+      buddies={[row('remy', 'remy'), row('remy.m2p4', 'remy')]}
+      roomMembers={[]}
+      now={NOW}
+      reachable
+    >
+      <div data-testid="old">
+        <AgentName handle="remy" name="remy" />
+      </div>
+      <div data-testid="new">
+        <AgentName handle="remy.m2p4" name="remy" />
+      </div>
+    </BuddiesProvider>
+  );
+  const sprite = (id: string) =>
+    screen.getByTestId(id).querySelector('svg')!.innerHTML;
+  expect(avatarFill(screen.getByTestId('old'))).not.toBe(
+    avatarFill(screen.getByTestId('new'))
+  );
+  expect(sprite('old')).not.toBe(sprite('new'));
+});
+
+test('off the roster, the avatar still seeds from the id, so two remys differ', () => {
   renderWithProviders(
     <>
       <div data-testid="old">
@@ -64,9 +88,9 @@ test('the avatar seeds from the id, so two remys differ', () => {
       </div>
     </>
   );
-  expect(avatarFill(screen.getByTestId('old'))).not.toBe(
-    avatarFill(screen.getByTestId('new'))
-  );
+  const sprite = (id: string) =>
+    screen.getByTestId(id).querySelector('svg')!.outerHTML;
+  expect(sprite('old')).not.toBe(sprite('new'));
 });
 
 test("the card's status line reads herdr's state and its location reads workspace › tab", () => {

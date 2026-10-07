@@ -56,8 +56,30 @@ export const MESSAGE_HANDLE: AgentNameSize = {
   meta: 'var(--mantine-font-size-xs)',
 };
 
-/** Every handle gets one, deterministically, from the same theme-token
-    palette the name chip's hue rotation draws from -- see `HANDLE_PALETTE`. */
+/** A handle's sprite in its assigned creature and hue, the one its name
+    chip shares. A handle with no assigned look hashes both, against the
+    palette the chip's own fallback rotation draws from. */
+function HandleSprite({ handle, size }: { handle: string; size: number }) {
+  const look = useBuddies()?.lookOf(handle);
+  return look ? (
+    <Invadr
+      id={handle}
+      palette={[look.hue.avatar]}
+      sprite={look.sprite}
+      color={0}
+      size={size}
+      className={classes.avatar}
+    />
+  ) : (
+    <Invadr
+      id={handle}
+      palette={HANDLE_PALETTE}
+      size={size}
+      className={classes.avatar}
+    />
+  );
+}
+
 export function HandleAvatar({
   handle,
   variant,
@@ -67,14 +89,7 @@ export function HandleAvatar({
   variant: AgentNameVariant;
   size?: number;
 }) {
-  return (
-    <Invadr
-      id={handle}
-      palette={HANDLE_PALETTE}
-      size={size ?? AVATAR_SIZE[variant]}
-      className={classes.avatar}
-    />
-  );
+  return <HandleSprite handle={handle} size={size ?? AVATAR_SIZE[variant]} />;
 }
 
 export const CARD_WIDTH = 320;
@@ -92,12 +107,7 @@ export function SpriteAvatar({
 }) {
   return (
     <Avatar size={size} radius="xl" color="gray" variant="light">
-      <Invadr
-        id={handle}
-        palette={HANDLE_PALETTE}
-        size={SPRITE_IN_AVATAR[size]}
-        className={classes.avatar}
-      />
+      <HandleSprite handle={handle} size={SPRITE_IN_AVATAR[size]} />
     </Avatar>
   );
 }

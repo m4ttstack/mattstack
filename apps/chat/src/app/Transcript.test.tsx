@@ -1166,41 +1166,48 @@ test('a DM never carries the unclaimed chip, even for an unanswered @here', () =
 
 test('two identities that share a name read the same and keep their own hue', () => {
   renderWithProviders(
-    <Transcript
-      room="rt"
-      messages={[
-        {
-          id: 1,
-          room: 'rt',
-          handle: 'remy',
-          name: 'remy',
-          body: 'old tail is mine',
-          mentions: [],
-          mentionNames: [],
-          postedAt: 1,
-        },
-        {
-          id: 2,
-          room: 'rt',
-          handle: 'remy.m2p4',
-          name: 'remy',
-          body: 'new here',
-          mentions: [],
-          mentionNames: [],
-          postedAt: 2,
-        },
-        {
-          id: 3,
-          room: 'rt',
-          handle: 'max',
-          name: 'max',
-          body: '@remy welcome',
-          mentions: ['remy.m2p4'],
-          mentionNames: ['remy'],
-          postedAt: 3,
-        },
-      ]}
-    />
+    <BuddiesProvider
+      buddies={[]}
+      roomMembers={['remy', 'remy.m2p4', 'max']}
+      now={0}
+      reachable
+    >
+      <Transcript
+        room="rt"
+        messages={[
+          {
+            id: 1,
+            room: 'rt',
+            handle: 'remy',
+            name: 'remy',
+            body: 'old tail is mine',
+            mentions: [],
+            mentionNames: [],
+            postedAt: 1,
+          },
+          {
+            id: 2,
+            room: 'rt',
+            handle: 'remy.m2p4',
+            name: 'remy',
+            body: 'new here',
+            mentions: [],
+            mentionNames: [],
+            postedAt: 2,
+          },
+          {
+            id: 3,
+            room: 'rt',
+            handle: 'max',
+            name: 'max',
+            body: '@remy welcome',
+            mentions: ['remy.m2p4'],
+            mentionNames: ['remy'],
+            postedAt: 3,
+          },
+        ]}
+      />
+    </BuddiesProvider>
   );
   const chips = screen.getAllByTestId('speaker-chip');
   expect(chips[0]).toHaveTextContent(/^remy$/);

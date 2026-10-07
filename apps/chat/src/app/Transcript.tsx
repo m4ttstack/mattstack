@@ -400,7 +400,12 @@ function MessageRow({
           handle={message.handle}
           name={message.name}
           variant="inline"
-          hue={speakerHue(message.handle, humanHandle, 'body')}
+          hue={speakerHue(
+            message.handle,
+            humanHandle,
+            'body',
+            ctx?.lookOf(message.handle)
+          )}
           task={task}
           size={MESSAGE_HANDLE}
         />
