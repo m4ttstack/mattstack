@@ -12,7 +12,7 @@ import { resolveTool } from "../../deps/resolve.ts";
 import type { SnapshotResult } from "../../daemon/home-snapshot.ts";
 import { withoutUrls } from "../../team/redact.ts";
 import type { ApplyContext } from "../apply.ts";
-import { fastBrowserMarketplaceSource } from "./plugins.ts";
+import { fastBrowserMarketplaceSource, registeredMattstackMarketplace } from "./plugins.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { hasRemote } from "../home-git.ts";
 import type { Probes } from "../probes.ts";
@@ -37,7 +37,7 @@ async function fastbrowserSetupRun(ctx: ApplyContext): Promise<StepOutcome> {
   const resolved = resolveTool(ctx.p, "fast-browser");
   if (!resolved.exec) return { state: "skipped", detail: "Fast Browser is not in this build" };
 
-  const result = await setupTool(ctx.p, "fast-browser", { configDirs: [], marketplaceSource: fastBrowserMarketplaceSource(ctx.p.env) });
+  const result = await setupTool(ctx.p, "fast-browser", { configDirs: [], marketplaceSource: fastBrowserMarketplaceSource(ctx.p.env, await registeredMattstackMarketplace(ctx.p)) });
   if (result.ok) return { state: "done", detail: result.detail };
 
   // fast-browser integrates INTO a host (Claude Code / Codex) and refuses to
