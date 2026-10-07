@@ -1277,6 +1277,17 @@ describe("base pack attachments", () => {
       expect(payload.drift).toBe(true);
     });
 
+    test("a copied script that lost its executable bit is stale", async () => {
+      const { mattstackDir, packDir, compile } = seedBaseAndTeam();
+      await compile();
+      chmodSync(kit(packDir, "scripts", "run.sh"), 0o644);
+
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.attachments).toEqual([{ ...inSync, status: "stale", staleFiles: ["scripts/run.sh"] }]);
+      expect(payload.drift).toBe(true);
+    });
+
     test("a base file removed is an orphan; a base version bump alone is not drift", async () => {
       const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
       await compile();

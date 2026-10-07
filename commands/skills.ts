@@ -1286,8 +1286,12 @@ function attachmentRows(packDir: string, plan: BaseAttachmentPlan): AttachmentCh
         if (maskProvenanceVersion(readFileSync(dest, "utf8")) !== maskProvenanceVersion(file.content)) staleFiles.push(file.path);
         continue;
       }
-      const expected = "content" in file ? Buffer.from(file.content) : readFileSync(file.copyFrom);
-      if (!readFileSync(dest).equals(expected)) staleFiles.push(file.path);
+      if ("content" in file) {
+        if (!readFileSync(dest).equals(Buffer.from(file.content))) staleFiles.push(file.path);
+        continue;
+      }
+      const executable = (path: string) => (statSync(path).mode & 0o111) !== 0;
+      if (!readFileSync(dest).equals(readFileSync(file.copyFrom)) || executable(dest) !== executable(file.copyFrom)) staleFiles.push(file.path);
     }
     const expected = new Set(emit.files.map((f) => f.path));
     const orphanFiles = leftovers(packDir, emit.name).filter((f) => !expected.has(f));
