@@ -437,14 +437,14 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin", RT_ENGINE_PACK_DIR: "/fake/engine" },
-        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/orgs`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets/packs`]: ["widgets"] },
+        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/orgs`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets`]: ["plugin", "settings.team.jsonc"] },
         files: {
           "/usr/local/bin/claude": "bin",
           "/fake/engine/pack/skills.jsonc": "{}",
           [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }),
           [`${zone}/org/settings.org.jsonc`]: JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }),
           [`${zone}/teams/widgets/settings.team.jsonc`]: "{}",
-          [`${zone}/teams/widgets/packs/widgets/pack/skills.jsonc`]: "{}",
+          [`${zone}/teams/widgets/plugin/pack/skills.jsonc`]: "{}",
         },
         exec: async (argv) => {
           if (argv[2] === "list") return ok("[]");
@@ -467,14 +467,14 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin", RT_ENGINE_PACK_DIR: "/fake/engine" },
-        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/orgs`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets/packs`]: ["widgets"] },
+        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/orgs`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets`]: ["plugin", "settings.team.jsonc"] },
         files: {
           "/usr/local/bin/claude": "bin",
           "/fake/engine/pack/skills.jsonc": "{}",
           [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }),
           [`${zone}/org/settings.org.jsonc`]: JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }),
           [`${zone}/teams/widgets/settings.team.jsonc`]: "{}",
-          [`${zone}/teams/widgets/packs/widgets/pack/skills.jsonc`]: "{}",
+          [`${zone}/teams/widgets/plugin/pack/skills.jsonc`]: "{}",
         },
         exec: async (argv) => {
           if (argv[2] === "list") return ok("[]");
@@ -500,14 +500,14 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin", RT_ENGINE_PACK_DIR: "/fake/engine" },
-        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/orgs`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets/packs`]: ["widgets"] },
+        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/orgs`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets`]: ["plugin", "settings.team.jsonc"] },
         files: {
           "/usr/local/bin/claude": "bin",
           "/fake/engine/pack/skills.jsonc": "{}",
           [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }),
           [`${zone}/org/settings.org.jsonc`]: JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }),
           [`${zone}/teams/widgets/settings.team.jsonc`]: "{}",
-          [`${zone}/teams/widgets/packs/widgets/pack/skills.jsonc`]: "{ nope",
+          [`${zone}/teams/widgets/plugin/pack/skills.jsonc`]: "{ nope",
         },
         exec: async (argv) => {
           if (argv[2] === "list") return ok("[]");

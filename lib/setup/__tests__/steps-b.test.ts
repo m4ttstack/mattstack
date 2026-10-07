@@ -892,7 +892,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       const p = fakeProbes({ home, ...materializeWorld(home, { fragment: "{ nope" }) });
       const { ctx, logs } = makeCtx(p);
-      const fragment = `${home}/.mattstack/orgs/acme/mattstack/teams/widgets/packs/widgets/pack/skills.jsonc`;
+      const fragment = `${home}/.mattstack/orgs/acme/mattstack/teams/widgets/plugin/pack/skills.jsonc`;
       expect(await skillsMaterializeStep.run(ctx)).toEqual({
         state: "done",
         detail: `Materialized 0 pack files; failed: widgets (${repoName}): fragment is not valid JSONC: ${fragment}`,
