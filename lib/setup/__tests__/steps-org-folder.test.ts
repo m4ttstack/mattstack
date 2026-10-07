@@ -143,6 +143,17 @@ describe("org.folder: the step", () => {
     expect(s.marketplaces).toEqual([{ dir: `${ORGS}/acme`, stalePaths: [] }]);
   });
 
+  test("a folder in place with a stale index row runs only the index piece and is done when it relocates", async () => {
+    const s = seams();
+    const p = fakeProbes({ roots: { orgs: ["acme"] }, fixture: placed() });
+    const out = await convergeOrgFolder(makeCtx(p).ctx);
+    expect(out.state).toBe("done");
+    expect(out.detail).toContain("acme already in place");
+    expect(p.calls.renames).toEqual([]);
+    expect(s.located.map((l) => l.newPath)).toEqual([`${ORGS}/acme`]);
+    expect(s.marketplaces).toEqual([{ dir: `${ORGS}/acme`, stalePaths: [] }]);
+  });
+
   test("a folder in place with a stale index row runs only the index piece, and an index failure is failed", async () => {
     seams({ locate: async () => ({ ok: false, error: "identity-mismatch: another repo" }) });
     const p = fakeProbes({ roots: { orgs: ["acme"] }, fixture: placed() });
@@ -168,13 +179,19 @@ describe("org.folder: the step", () => {
     expect(JSON.parse(p.readFile(`${RT}/teams/acme.json`)!).movedFrom).toBeUndefined();
   });
 
-  test("an unmarked or malformed folder is skipped and named", async () => {
+  test("an unmarked or malformed folder is skipped and named, each in its own words", async () => {
     seams();
-    const p = fakeProbes({ roots: { orgs: ["acme", "broken"] }, fixture: placed(), dirs: { [`${ORGS}/broken`]: ["mattstack", ".git"] }, files: { [`${ORGS}/broken/mattstack/mattstack.jsonc`]: "{ nope", [`${ORGS}/broken/.git/config`]: gitConfig() } });
+    const p = fakeProbes({
+      roots: { orgs: ["acme", "broken", "notes"] },
+      fixture: placed(),
+      dirs: { [`${ORGS}/broken`]: ["mattstack", ".git"], [`${ORGS}/notes`]: ["readme.md"] },
+      files: { [`${ORGS}/broken/mattstack/mattstack.jsonc`]: "{ nope", [`${ORGS}/broken/.git/config`]: gitConfig(), [`${ORGS}/notes/readme.md`]: "x" },
+    });
     const out = await convergeOrgFolder(makeCtx(p).ctx);
     expect(out.state).toBe("done");
-    expect(out.detail).toContain(`${ORGS}/broken`);
-    expect(out.detail).toContain("not an org clone");
+    expect(out.detail).toContain(`not an org clone, left alone: ${ORGS}/notes`);
+    expect(out.detail).toContain(`${ORGS}/broken has a marker rt could not read (it is not valid JSON), left alone`);
+    expect(out.detail).not.toContain(`left alone: ${ORGS}/broken`);
   });
 
   test("a dirty clone is refused with the commit-or-discard wording and nothing moves", async () => {
@@ -270,6 +287,25 @@ describe("org.folder: the step", () => {
     expect(p.calls.renames).toEqual([]);
     expect(s.located).toEqual([]);
     expect(s.marketplaces).toEqual([{ dir: `${ORGS}/acme`, stalePaths: [`${TEAMS}/acme`] }]);
+  });
+
+  test("a live daemon pid with no socket file still sends the move through org:move", async () => {
+    seams();
+    const sent: string[] = [];
+    const p = fakeProbes({
+      roots: { teams: ["acme"] },
+      fixture: legacy(),
+      dirs: { [RT]: ["teams", "invites", "rt.pid"] },
+      files: { [`${RT}/rt.pid`]: `${process.pid}\n` },
+      daemon: async (cmd) => {
+        sent.push(cmd);
+        return { ok: true, data: { ok: true, from: `${TEAMS}/acme`, to: `${ORGS}/acme`, records: { teams: "none", invites: "none" }, folderMoved: true, index: "already", removed: [] } };
+      },
+    });
+    const out = await convergeOrgFolder(makeCtx(p).ctx);
+    expect(out.state).toBe("done");
+    expect(sent).toEqual(["org:move"]);
+    expect(p.calls.renames).toEqual([]);
   });
 
   test("a daemon that does not know org:move fails with the restart remedy, and so does one that does not answer", async () => {

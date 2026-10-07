@@ -2,7 +2,8 @@
  * The Claude marketplace piece of the org.folder step. `claude plugin
  * marketplace remove` uninstalls every plugin that came from the marketplace
  * (verified against claude 2.1.292), so re-pointing a moved clone is remove,
- * add, reinstall each plugin at its scope, then disable the ones that were off.
+ * add, reinstall each user plugin, then disable the ones that were off; a
+ * project or local plugin is handed back as an install to run in its project.
  * A pending record in setup-state is written before the remove, so a run that
  * stops between remove and add is finished by the next one.
  */
@@ -38,15 +39,17 @@ export function marketplaceName(p: Pick<Probes, "readFile">, cloneDir: string): 
   }
 }
 
-/** The plugins installed from one marketplace, with the scope and enabled state a reinstall must restore. */
+/** The plugins installed from one marketplace, with the scope, enabled state and project a reinstall must restore. */
 export function parseInstalledFrom(stdout: string, marketplace: string): InstalledPlugin[] | null {
   try {
     const parsed: unknown = JSON.parse(stdout);
     if (!Array.isArray(parsed)) return null;
     const out: InstalledPlugin[] = [];
-    for (const item of parsed as { id?: unknown; scope?: unknown; enabled?: unknown }[]) {
+    for (const item of parsed as { id?: unknown; scope?: unknown; enabled?: unknown; projectPath?: unknown }[]) {
       if (typeof item?.id !== "string" || !item.id.endsWith(`@${marketplace}`)) continue;
-      out.push({ id: item.id, scope: typeof item.scope === "string" && item.scope.length > 0 ? item.scope : "user", enabled: item.enabled === true });
+      const scope = typeof item.scope === "string" && item.scope.length > 0 ? item.scope : "user";
+      const projectPath = typeof item.projectPath === "string" && item.projectPath.length > 0 ? item.projectPath : null;
+      out.push({ id: item.id, scope, enabled: item.enabled === true, ...(projectPath !== null && scope !== "user" ? { projectPath } : {}) });
     }
     return out;
   } catch {
@@ -96,6 +99,12 @@ const disable = (prefix: string, pl: InstalledPlugin): Planned => step(prefix, [
 /** A project or local install is bound to the project claude runs in, and rt runs from no particular project, so only user installs are rt's to redo. */
 const userScoped = (pl: InstalledPlugin): boolean => pl.scope === "user";
 
+/**
+ * A project or local plugin's on or off lives in that project's own settings, which a marketplace remove leaves alone, so
+ * the hand-back is only the install, run from inside the project when claude named it.
+ */
+const handBackInstall = (prefix: string, pl: InstalledPlugin): string => `${pl.projectPath ? `cd ${pl.projectPath} && ` : ""}${install(prefix, pl).command}`;
+
 function plan(prefix: string, name: string, dir: string, plugins: InstalledPlugin[], opts: { remove: boolean }): Planned[] {
   return [
     ...(opts.remove ? [step(prefix, ["plugin", "marketplace", "remove", name])] : []),
@@ -106,7 +115,7 @@ function plan(prefix: string, name: string, dir: string, plugins: InstalledPlugi
 }
 
 function handBack(prefix: string, plugins: InstalledPlugin[]): string[] {
-  return plugins.flatMap((pl) => [install(prefix, pl).command, ...(pl.enabled ? [] : [disable(prefix, pl).command])]);
+  return plugins.map((pl) => handBackInstall(prefix, pl));
 }
 
 const pluralPlugins = (n: number): string => `${n} plugin${n === 1 ? "" : "s"}`;
@@ -172,8 +181,8 @@ export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: strin
       const user = pending.plugins.filter(userScoped);
       const toInstall = user.filter(missing);
       steps = [...toInstall.map((pl) => install(prefix, pl)), ...user.filter(stillOn).map((pl) => disable(prefix, pl))];
-      handOff = pending.plugins.filter((pl) => !userScoped(pl) && (missing(pl) || stillOn(pl)));
-      handOffCommands = handOff.flatMap((pl) => [...(missing(pl) ? [install(prefix, pl).command] : []), ...(stillOn(pl) ? [disable(prefix, pl).command] : [])]);
+      handOff = pending.plugins.filter((pl) => !userScoped(pl) && missing(pl));
+      handOffCommands = handBack(prefix, handOff);
       done = `finished reinstalling ${pluralPlugins(toInstall.length)} from ${name} in ${dir}`;
     } else if (registered === null) {
       notes.push(`${name} is not registered in ${dir}`);

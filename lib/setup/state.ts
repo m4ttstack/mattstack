@@ -34,7 +34,8 @@ export interface PendingMarketplaceMove {
   marketplace: string;
   dir: string;
   configDir: string;
-  plugins: { id: string; scope: string; enabled: boolean }[];
+  /** `enabled` holds only for a user install: claude reads a project or local install's against its own cwd, never the project's. */
+  plugins: { id: string; scope: string; enabled: boolean; projectPath?: string }[];
 }
 
 const EMPTY_STATE: SetupState = { v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] };

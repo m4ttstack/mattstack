@@ -1,6 +1,6 @@
 /**
- * The CLI takes its local branch here. `daemonPresent()` reads
- * `DAEMON_PID_PATH`/`DAEMON_SOCK_PATH`, which are module-load constants bound
+ * The CLI takes its local branch here. `daemonPresent()` reads the pid and
+ * socket files under `RT_DIR`, a module-load constant bound
  * to the throwaway HOME the bunfig preload (test-setup.ts) sets before any
  * module loads — not to the per-test HOME below. That tree holds neither a pid
  * file nor a socket, so the apply happens in-process, which is exactly the

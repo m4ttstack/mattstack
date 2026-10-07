@@ -92,7 +92,7 @@ describe("org:move through the daemon", () => {
     expect(JSON.parse(readFileSync(join(home, ".mattstack", "rt", "teams", "acme.json"), "utf8"))).toMatchObject({ forgeUsername: "dev1" });
     expect(existsSync(join(home, ".mattstack", "rt", "teams", "widgets.json"))).toBe(false);
 
-    // resume() rescans orgs/ asynchronously, so the new instance can land a beat after the reply.
+    // The status read can race the daemon finishing its reply, so a short bounded poll absorbs that.
     let status = await send("team:snapshot-status", {});
     for (let i = 0; i < 20 && status.ok && status.data.length === 0; i++) {
       await Bun.sleep(100);
