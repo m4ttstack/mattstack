@@ -27,7 +27,8 @@
 
 1. **Only a fresh clone is checked.** When the org folder was already on this Mac (`alreadyCloned`, the resume path), join never removes it: removing a folder this call did not create could destroy a working org.
 2. **Only an org marker is compared.** The check fires when the marker parses, has `role: "org"` and a string `org` that differs from `pointer.team`, the same reading `orgOfPackDir` uses. A missing, unparsable or non-org marker falls through to today's behavior (the roster check), so existing joins and fixtures are untouched.
-3. **"No record behind" means both records join wrote before cloning.** `~/.mattstack/rt/teams/<slug>.json`: removed when it did not exist before this call, otherwise `joinedByRt` restored (the existing clone-failure path's rule). `~/.mattstack/rt/setup-intent.json`: cleared when the prior intent was absent or was a join intent for this same invite id (it would only refuse again), otherwise its prior bytes are written back.
+3. **"No record behind" means both records join wrote before cloning go back to what they were.** `~/.mattstack/rt/teams/<slug>.json`: removed when it did not exist before this call, otherwise `joinedByRt` restored (the existing clone-failure path's rule). `~/.mattstack/rt/setup-intent.json`: removed when it did not exist before this call, otherwise its prior bytes are written back verbatim, even when they are this same invite's join intent. Clearing that intent would break the setup app: `teamJoinRun` (`lib/setup/steps/team.ts`) resumes from it, and with it gone the next Retry reports "Already joined" and the step drops out, so the wizard would look joined when it is not. Kept, the row keeps showing the refusal until a fresh code's dry run overwrites the intent.
+7. **The error carries a `why`** ("The org was renamed after this invite was made; a fresh invite from your admin joins it."), so the setup row's remedy (`remedyFrom` in `lib/setup/steps/team.ts`, outside this branch's fence) and the refused note both say what to do.
 4. **`--org-placeholder` rewrites every `${team:<folder>}`**, not only the moved paths, so the converted stores never mix the two forms for an org whose members all run the new rt.
 5. **`--org` is validated in the script** with `validateSlug` (`lib/secrets/store.ts`, the rule `orgOfPackDir` applies to a marker's `org`) and refused as a usage failure. Without `--org`, the basename keeps today's looser folder-name check.
 6. **The marketplace-name fallback stays the folder name**, since it names the plugin id already installed on Macs.
@@ -39,6 +40,7 @@
 3. A prior record with other fields (`forgeUsername`) for the same slug: survives the refusal (Task 1 test).
 4. A prior intent for a different invite: restored byte for byte, not cleared (Task 1 test).
 5. `--org` given twice, or with a value starting `--`: usage failure, nothing written (Task 4 test).
+6. The setup app resuming a join with no code from this invite's own saved intent: after the refusal the intent is still there byte for byte (Task 1 test).
 
 ---
 
@@ -91,7 +93,8 @@ Add inside `describe("joinRedeem", ...)` in `lib/team/__tests__/join.test.ts` (i
     test("removes the fresh clone, writes no record and leaves no intent", async () => {
       const p = redeemProbes({ files: renamed });
       await refusal(p);
-      expect(p.exists(TEAM_DIR)).toBe(false);
+      expect(p.exists(MARKER)).toBe(false);
+      expect(p.exists(ORG_STORE)).toBe(false);
       expect(p.exists(teamLocalPath(HOME, POINTER.team))).toBe(false);
       expect(readIntent(p)).toBeNull();
     });
@@ -109,6 +112,14 @@ Add inside `describe("joinRedeem", ...)` in `lib/team/__tests__/join.test.ts` (i
       const p = redeemProbes({ files: { ...renamed, [intentPath(HOME)]: prior } });
       await refusal(p);
       expect(p.readFile(intentPath(HOME))).toBe(prior);
+    });
+
+    test("this invite's own saved join intent survives, so the setup app's resume keeps showing the refusal", async () => {
+      const saved = JSON.stringify({ v: 1, at: "2026-08-01T00:00:00.000Z", mode: "join", join: { id: ID_HEX, keyB64: Buffer.from(KEY).toString("base64"), pointer: POINTER } });
+      const p = redeemProbes({ files: { ...renamed, [intentPath(HOME)]: saved } });
+      const err = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, {}, baseJoinRedeemSeams().seams).then(() => null, (e: unknown) => e);
+      expect((err as UserActionableError).code).toBe("invite-stale");
+      expect(p.readFile(intentPath(HOME))).toBe(saved);
     });
 
     test("a marker naming the pointer's own org joins as before", async () => {
@@ -175,16 +186,16 @@ In the `else` (fresh clone) branch, after the `if (clone.code !== 0) { ... }` bl
       p.removeDir(dir);
       if (priorRecordExists) updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });
       else p.removeFile(teamLocalPath(p.home, pointer.team));
-      const resumable = priorIntent !== null && readIntent({ home: p.home, readFile: () => priorIntent })?.join?.id !== idHex;
-      if (resumable) p.writeFile(intentPath(p.home), priorIntent, 0o600);
+      if (priorIntent !== null) p.writeFile(intentPath(p.home), priorIntent, 0o600);
       else clearIntent(p);
       throw new UserActionableError("invite-stale", "This invite names the org by an old name; ask for a fresh one", {}, {
+        why: "The org was renamed after this invite was made; a fresh invite from your admin joins it.",
         log: `the invite names ${pointer.team}; the org repo's marker names ${cloned}`,
       });
     }
 ```
 
-`resumable` is false when the prior intent is absent or is a join for this same invite, so those clear; anything else goes back as it was. (`readIntent` takes `Pick<Probes, "readFile" | "home">`; the inline reader parses the captured bytes without re-reading the file this call already overwrote.)
+The intent goes back exactly as it was before this call: absent stays absent, present gets its captured bytes, including this same invite's join intent (the setup app resumes from it; see Decision 3).
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -269,7 +280,7 @@ Add in `describe("teamJoin", ...)`. The suite's `fakeProbes` seeds the org store
     try {
       const code = await runExpectingProcessExit(() => teamJoin([], {}, deps));
       expect(code).toBe(2);
-      expect(io.stderr()).toStartWith("[refused] This invite names the org by an old name; ask for a fresh one\n");
+      expect(io.stderr()).toStartWith("[refused] This invite names the org by an old name; ask for a fresh one\n  why: The org was renamed after this invite was made; a fresh invite from your admin joins it.\n");
     } finally {
       io.restore();
     }
@@ -463,7 +474,7 @@ In `describe("the wrapper")` (it has `ready`, `tempClone`, `runScript`, `snapsho
   test("an --org that breaks the slug rule, or a second --org, is a usage failure and changes nothing", () => {
     const dir = tempClone();
     const before = snapshot(dir);
-    for (const extra of [["--org", "Globex"], ["--org", "globex", "--org", "initech"], ["--org", "--write"]]) {
+    for (const extra of [["--org", "Globex"], ["--org", "globex", "--org", "gadgets"], ["--org", "--write"]]) {
       const out = runScript(dir, ...extra);
       expect(out.exitCode).toBe(2);
       expect(snapshot(dir)).toBe(before);
@@ -526,4 +537,4 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - [ ] `bun test lib/team/__tests__/join.test.ts commands/__tests__/team-join.test.ts scripts/__tests__/convert-team-repo.test.ts`: all pass.
 - [ ] `bun test lib/__tests__`: the `no-*` guards pass (raw output, no dashes in copy, purity).
 - [ ] `bun run check`: passes.
-- [ ] `rg -n "[–—]" $(git diff --name-only main...HEAD)`: no matches.
+- [ ] `rg -n '[\x{2013}\x{2014}]' $(git diff --name-only main...HEAD)`: no matches.
