@@ -226,7 +226,29 @@ describe("org.folder: the step", () => {
     const out = await convergeOrgFolder(makeCtx(p).ctx);
     expect(out.state).toBe("failed");
     expect(out.detail).toContain("acme-copy");
+    expect(out.detail).toContain("second clone");
     expect(p.calls.renames.length).toBe(1);
+  });
+
+  test("a second clone is refused as a second clone even when the first clone's move failed", async () => {
+    seams();
+    const sent: unknown[] = [];
+    const p = fakeProbes({
+      roots: { teams: ["acme", "acme-copy"] },
+      fixture: merge(legacy(), legacy("acme-copy", "acme")),
+      dirs: { [RT]: ["teams", "invites", "rt.sock"] },
+      files: { [`${RT}/rt.sock`]: "" },
+      daemon: async (_cmd, payload) => {
+        sent.push(payload);
+        return { ok: false, error: "move-failed: folder: busy", failure: { code: "move-failed", message: "folder: busy" } } as never;
+      },
+    });
+    const out = await convergeOrgFolder(makeCtx(p).ctx);
+    expect(out.state).toBe("failed");
+    expect(out.detail).toContain("folder: busy");
+    expect(out.detail).toContain(`${TEAMS}/acme-copy is a second clone`);
+    expect(sent).toEqual([{ from: `${TEAMS}/acme`, to: `${ORGS}/acme` }]);
+    expect(p.calls.renames).toEqual([]);
   });
 
   test("with a daemon present the move goes through org:move and the step renames nothing itself", async () => {
@@ -283,6 +305,42 @@ describe("org.folder: the step", () => {
     const out = await convergeOrgFolder(makeCtx(p).ctx);
     expect(out).toMatchObject({ state: "partial", remedy: ORG_FOLDER_REMEDY });
     expect(out.detail).toContain("the plugin list could not be read");
+  });
+
+  test("mixed partials run the handed-back commands, then the update again", async () => {
+    seams({
+      marketplace: async (_ctx, c) =>
+        c.dir === `${ORGS}/acme`
+          ? { state: "partial", detail: "two plugins were handed back", commands: ["claude plugin install tools@acme --scope project"] }
+          : { state: "partial", detail: "the plugin list could not be read" },
+    });
+    const p = fakeProbes({ roots: { orgs: ["acme"], teams: ["widgets"] }, fixture: merge(placed(), legacy("widgets", "widgets", { url: "https://gitlab.example.com/widgets/org.git" })) });
+    const out = await convergeOrgFolder(makeCtx(p).ctx);
+    expect(out).toMatchObject({ state: "partial", remedy: "Run claude plugin install tools@acme --scope project, then rt setup update --force" });
+    expect(out.detail).toContain("the plugin list could not be read");
+  });
+
+  test("a refused clone still carries another clone's handed-back commands in the failed detail", async () => {
+    seams({
+      marketplace: async () => ({ state: "partial", detail: "two plugins were handed back", commands: ["claude plugin install tools@acme --scope project"] }),
+    });
+    const p = fakeProbes({ roots: { orgs: ["acme"], teams: ["widgets"] }, fixture: merge(placed(), legacy("widgets", "widgets")), dirty: [`${TEAMS}/widgets`] });
+    const out = await convergeOrgFolder(makeCtx(p).ctx);
+    expect(out).toMatchObject({ state: "failed", remedy: ORG_FOLDER_REMEDY });
+    expect(out.detail).toContain("uncommitted changes");
+    expect(out.detail).toContain("acme: two plugins were handed back. Run: claude plugin install tools@acme --scope project");
+  });
+
+  test("each marketplace outcome is logged under org.folder, with its commands on a partial", async () => {
+    seams({ marketplace: async () => ({ state: "partial", detail: "two plugins were handed back", commands: ["claude plugin install tools@acme --scope project"] }) });
+    const p = fakeProbes({ roots: { orgs: ["acme"] }, fixture: placed() });
+    const ids: string[] = [];
+    const { ctx, logs } = makeCtx(p);
+    const log = ctx.log;
+    ctx.log = (id, line) => { ids.push(id); log(id, line); };
+    await convergeOrgFolder(ctx);
+    expect(ids).toEqual(["org.folder"]);
+    expect(logs).toEqual(["marketplace partial: acme: two plugins were handed back. Run: claude plugin install tools@acme --scope project"]);
   });
 
   test("a rerun after an interruption between the move and the index piece finishes the rest", async () => {

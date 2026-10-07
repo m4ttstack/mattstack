@@ -117,7 +117,7 @@ export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome>
 
   const notes: string[] = [];
   const failures: { detail: string; remedy: string }[] = [];
-  const partials: { detail: string; commands: string[] }[] = [];
+  const partials: { detail: string; commands: string[]; line: string }[] = [];
   const claimed = new Set<string>();
   let moved = false;
   const daemonUp = p.exists(join(p.home, ".mattstack", "rt", "rt.sock"));
@@ -157,8 +157,10 @@ export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome>
       if (removed.length) notes.push(`removed ${removed.join(", ")}`);
     }
     const market = await orgFolderSeams.marketplace(ctx, { dir: clone.target, stalePaths: movedNow ? [clone.dir] : [] });
-    ctx.log("org.folder", `${clone.org}: marketplace ${market.state}: ${market.detail}`);
-    if (market.state === "partial") partials.push({ detail: `${clone.org}: ${market.detail}`, commands: market.commands ?? [] });
+    const commands = market.state === "partial" ? (market.commands ?? []) : [];
+    const line = `${clone.org}: ${market.detail}${commands.length ? `. Run: ${commands.join(", then ")}` : ""}`;
+    ctx.log("org.folder", `marketplace ${market.state}: ${line}`);
+    if (market.state === "partial") partials.push({ detail: `${clone.org}: ${market.detail}`, commands, line });
   }
 
   if (strayNote) notes.push(strayNote);
@@ -166,11 +168,14 @@ export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome>
 
   if (failures.length) {
     const remedy = failures.some((f) => f.remedy === DAEMON_STALE_REMEDY) ? DAEMON_STALE_REMEDY : ORG_FOLDER_REMEDY;
-    return { state: "failed", detail: [...failures.map((f) => f.detail), ...notes].join("; "), remedy };
+    // The handed-back plugin commands are built only during the re-point and never come back on a rerun, so they ride in the failed detail.
+    return { state: "failed", detail: [...failures.map((f) => f.detail), ...notes, ...partials.map((m) => m.line)].join("; "), remedy };
   }
   if (partials.length) {
-    // A partial with no commands (Claude missing, an unreadable list) has nothing to run by hand yet, so the fix-then-rerun remedy covers it.
-    const remedy = partials.every((m) => m.commands.length > 0) ? `Run ${partials.flatMap((m) => m.commands).join(", then ")}` : ORG_FOLDER_REMEDY;
+    // A partial with no commands (Claude missing, an unreadable list) has nothing to run by hand yet, so it needs the fix-then-rerun.
+    const commands = partials.flatMap((m) => m.commands);
+    const rerun = partials.some((m) => m.commands.length === 0);
+    const remedy = commands.length === 0 ? ORG_FOLDER_REMEDY : `Run ${commands.join(", then ")}${rerun ? ", then rt setup update --force" : ""}`;
     return { state: "partial", detail: [...notes, ...partials.map((m) => m.detail)].join("; "), remedy };
   }
   return { state: "done", detail: notes.join("; ") };
