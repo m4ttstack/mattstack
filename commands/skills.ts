@@ -1784,8 +1784,8 @@ function bindingOrigin(roots: PluginRoots, boundTo: string): Partial<Origin> {
   }
 }
 
-function buildCompositionTargets(resolved: Resolved, publicSet: Set<string> | null): CompositionTarget[] {
-  return compileTargets(resolved, publicSet, null).targets.map((t) => {
+function buildCompositionTargets(resolved: Resolved, plan: CompilePlan): CompositionTarget[] {
+  return plan.targets.map((t) => {
     let step: StepSource | null = null;
     let engineError: string | null = null;
     try {
@@ -1877,8 +1877,9 @@ export async function skillsComposition(args: string[]): Promise<void> {
     const verbs = resolved.fullRoster.map((verb) => buildCompositionVerb(verb, resolved, publicSet));
     const fills = enumerateFills(resolved.pluginRoots);
     const binders = buildBinders(resolved, pipelines);
-    const targets = buildCompositionTargets(resolved, publicSet);
-    const base = resolved.fullRoster.length > 0 ? basePlanFor(resolved, compileTargets(resolved, publicSet, null).verbSides).base : null;
+    const compilePlan = compileTargets(resolved, publicSet, null);
+    const targets = buildCompositionTargets(resolved, compilePlan);
+    const base = resolved.fullRoster.length > 0 ? basePlanFor(resolved, compilePlan.verbSides).base : null;
 
     const payload: CompositionPayload = {
       pack: resolved.team,
