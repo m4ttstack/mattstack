@@ -1172,6 +1172,46 @@ describe("base pack attachments", () => {
     expect(errors).toEqual([]);
     expect(existsSync(kit(packDir, "compiled.json"))).toBe(true);
     expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toBe("---\nname: review-kit\n---\nInvoke widgets:ship.\n");
+
+    rmSync(kit(packDir), { recursive: true });
+    io.clear();
+    await skillsCompile(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--json"]);
+    const payload = JSON.parse(io.lines()[0]!);
+    expect(payload.verbs).toEqual([]);
+    expect(payload.written).toBe(true);
+    expect(existsSync(kit(packDir, "compiled.json"))).toBe(true);
+  });
+
+  test("a scoped compile still emits and removes across the whole base set", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam();
+    writeFile(join(baseDir, "attachments", "gadgets-kit", "SKILL.md"), "---\nname: gadgets-kit\n---\ngadgets\n");
+
+    expect((await compile("--verb", "watch-ci")).errors).toEqual([]);
+    expect(existsSync(kit(packDir, "compiled.json"))).toBe(true);
+    expect(existsSync(join(packDir, "attachments", "gadgets-kit", "compiled.json"))).toBe(true);
+
+    rmSync(join(baseDir, "attachments", "gadgets-kit"), { recursive: true });
+    expect((await compile("--verb", "watch-ci")).errors).toEqual([]);
+    expect(existsSync(join(packDir, "attachments", "gadgets-kit"))).toBe(false);
+    expect(existsSync(kit(packDir, "compiled.json"))).toBe(true);
+  });
+
+  test("a scoped check reports no attachment rows", async () => {
+    const { mattstackDir, packDir } = seedBaseAndTeam();
+
+    await skillsCheck(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci", "--json"]);
+
+    expect(JSON.parse(io.lines()[0]!).attachments).toEqual([]);
+  });
+
+  test("a preview reaches an emitted file through pack.path on a clean tree", async () => {
+    const { packDir, compile } = seedBaseAndTeam({ domainBody: PACK_PATH_DOMAIN });
+
+    const { errors } = await compile("--preview", "--verb", "watch-ci");
+
+    expect(errors).toEqual([]);
+    expect(io.stdout()).toContain("${CLAUDE_SKILL_DIR}/../../attachments/review-kit/references/guide.md");
+    expect(existsSync(kit(packDir))).toBe(false);
   });
 
   test("anatomy resolves pack.path to an emitted file on a clean tree", async () => {
