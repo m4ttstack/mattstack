@@ -20,7 +20,20 @@
  *
  * Limit: tools run in the user-started app server, whose env rt cannot set, so a worker's gate identity comes from its binding.
  *
- * This adapter never assigns a herd job and never writes the session store.
+ * A connection hears a thread's item events only once it started or resumed
+ * that thread (live-03 probe-events.jsonl), so with agent.integrations.enabled
+ * on, every attached bound thread the app server has loaded is subscribed
+ * when a connection opens, and any other the first time it is observed:
+ * `thread/resume` with nothing but the thread id and `excludeTurns`. The
+ * method table refuses every override field, so a resume re-decides no
+ * settings (the thread keeps its start-time sandbox and policy: gate spike
+ * G6, hooks follow-up), adds no turn, and a question it replays is never
+ * answered unless a gate answers it. A thread that is not loaded is never
+ * resumed, since that would load it with no terminal: it is reported gone
+ * instead, as an unload, close or sessionEnd hook heard later is.
+ *
+ * This adapter never assigns a herd job and never writes the session store;
+ * what a gone thread means for its binding and presence is `lifecycle`'s.
  */
 
 import { existsSync } from "fs";
@@ -34,8 +47,9 @@ import type {
   LaunchHost, LaunchRequest, MessageAdapter, NativeLaunch, SessionAdapter, WorkCompletion, WorkReceipt,
 } from "../contracts.ts";
 import { getStateDb } from "../../state/db.ts";
+import { integrationsEnabled } from "../switch.ts";
 import { openHostPane, type HostPaneLaunch, type HostPaneOpened } from "../herdr-pane.ts";
-import { readReservation } from "../session-store.ts";
+import { listAttachedBindings, readReservation } from "../session-store.ts";
 import { CODEX_ATTACH_READ_MS, CODEX_ATTACH_READS, CODEX_INIT_TURN_TIMEOUT_MS } from "../timeouts.ts";
 import { workDigest } from "../work-submissions.ts";
 import {
@@ -44,9 +58,9 @@ import {
 } from "./control.ts";
 import { codexEventHub } from "./events.ts";
 import type { CodexMessagingDeps } from "./messaging.ts";
-import { setCodexLinkProbe } from "./link.ts";
+import { setCodexLinkProbe, setCodexThreadProbe } from "./link.ts";
 import { canonicalCodexProfile } from "./profile.ts";
-import { CODEX_STATUS_ENUMS, isRecord, type CodexThreadStatus } from "./protocol.ts";
+import { CODEX_STATUS_ENUMS, isRecord, type CodexEvent, type CodexThreadStatus } from "./protocol.ts";
 import { codexConfigPath, codexFolderTrust } from "./trust.ts";
 
 const HARNESS = "codex";
@@ -66,7 +80,12 @@ export interface CodexSessionAdapter extends SessionAdapter {
   adopt(binding: SessionBinding): Outcome<void>;
   /** Releases a bound thread: its events stop arriving, and only a later attachment, launch or resume owns it again. */
   disown(binding: SessionBinding): void;
+  /** Owns a bound thread and, while the switch is on, subscribes this connection to it if the app server has it loaded. */
+  subscribe(binding: SessionBinding): Promise<Outcome<void>>;
 }
+
+/** unloaded: the app server no longer runs the thread. ended: Codex closed it, or its sessionEnd hook ran. */
+export type CodexThreadGone = "unloaded" | "ended";
 
 export type PaneLaunch = HostPaneLaunch;
 export type PaneOpened = HostPaneOpened;
@@ -103,6 +122,10 @@ export type CodexSessionDeps = {
   inFlight: Set<string>;
   /** Whether the launcher's persisted reservation has resolved (bound) or been given up (abandoned), so nothing waits on it here. */
   reservationSettled(reservationId: string): boolean;
+  /** agent.integrations.enabled: bound threads are subscribed, and reported gone, only while it is on. */
+  enabled(): boolean;
+  /** Reports a bound thread gone; `generation` is the attachment that saw it, when one did. */
+  lifecycle(native: NativeSessionRef, event: CodexThreadGone, generation?: number): Promise<void>;
 };
 
 const ATTACH_READS = CODEX_ATTACH_READS;
@@ -176,6 +199,11 @@ function defaultDeps(): CodexSessionDeps {
       const state = readReservation(getStateDb(), id)?.state;
       return state === "bound" || state === "abandoned";
     },
+    enabled: integrationsEnabled,
+    lifecycle: async (native, event, generation) => {
+      const { reportSessionGone } = await import("../presence.ts");
+      await reportSessionGone(native, event, generation);
+    },
     openPane: openHostPane,
     confirmAttached: async (opened, expected, host) => {
       const [{ herdrRequest }, { parsePaneRef }] = await Promise.all([
@@ -247,6 +275,21 @@ function threadStatus(value: unknown): CodexThreadStatus | undefined {
   return { type: "active", activeFlags: flags.filter((f) => (CODEX_STATUS_ENUMS.activeFlag as readonly unknown[]).includes(f)) };
 }
 
+/** What a native event says about the thread's end, if anything. */
+function goneBy(event: CodexEvent): CodexThreadGone | undefined {
+  switch (event.method) {
+    case "thread/status/changed":
+      return event.status.type === "notLoaded" ? "unloaded" : undefined;
+    case "thread/closed":
+      return "ended";
+    case "hook/started":
+    case "hook/completed":
+      return event.run.eventName === "sessionEnd" ? "ended" : undefined;
+    default:
+      return undefined;
+  }
+}
+
 /** Selected options become thread/start fields; a CLI-only option has no thread form and is refused. */
 function startParams(cwd: string, options: LaunchRequest["selection"]["options"]): Outcome<Record<string, unknown>> {
   if (options.account !== undefined) return fail("unsupported", "codex does not support --account in this version (see spec's Non-goals)");
@@ -281,6 +324,48 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     released.delete(threadId);
     control.adopt(threadId);
   };
+  /** Threads this connection started or resumed, so their item events reach it, until Codex unloads or closes them. */
+  const subscribed = new Set<string>();
+
+  hub.listen((event) => {
+    const gone = goneBy(event);
+    if (!gone) return;
+    subscribed.delete(event.threadId);
+    if (deps.enabled()) void deps.lifecycle(ref(event.threadId), gone).catch(() => {});
+  });
+
+  /**
+   * Reads the thread's status and, when the app server has it loaded,
+   * subscribes this connection with a bare resume. An unloaded thread is
+   * reported gone and left unloaded. A failed read or resume leaves it
+   * unsubscribed for the next observe to try.
+   */
+  async function subscribeThread(threadId: string, generation: number): Promise<void> {
+    if (subscribed.has(threadId) || control.closed) return;
+    let status: CodexThreadStatus | undefined;
+    try {
+      status = threadStatus(threadOf(await control.request("thread/read", { threadId, includeTurns: false }))?.status);
+    } catch {
+      return;
+    }
+    if (!status) return;
+    hub.refresh(threadId, status);
+    if (status.type === "notLoaded") {
+      await deps.lifecycle(ref(threadId), "unloaded", generation).catch(() => {});
+      return;
+    }
+    let resumed: unknown;
+    try {
+      resumed = await control.request("thread/resume", { threadId, excludeTurns: true });
+    } catch {
+      return;
+    }
+    const thread = threadOf(resumed);
+    if (thread?.id !== threadId) return;
+    subscribed.add(threadId);
+    const now = threadStatus(thread.status);
+    if (now) hub.refresh(threadId, now);
+  }
 
   /**
    * One operation per reservation at a time. A second call while one is in
@@ -384,6 +469,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     try {
       entry.result = await control.request("thread/start", params);
       entry.threadId = reservation.threadId;
+      if (entry.threadId) subscribed.add(entry.threadId);
       return ok(undefined);
     } catch (err) {
       if (reservation.state === "unknown") {
@@ -425,17 +511,25 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     return ok(undefined);
   }
 
+  function adopt(binding: SessionBinding): Outcome<void> {
+    const valid = checkRef(binding.native);
+    if (!valid.ok) return valid;
+    const threadId = binding.native.value;
+    const at = released.get(threadId);
+    if (at !== undefined && at >= binding.attachment.generation) {
+      return fail("stale-binding", `thread ${threadId} was released at attachment ${at}, so attachment ${binding.attachment.generation} cannot take it back`);
+    }
+    own(threadId);
+    return ok(undefined);
+  }
+
   return {
     carriesReservations: true,
-    adopt(binding) {
-      const valid = checkRef(binding.native);
-      if (!valid.ok) return valid;
-      const threadId = binding.native.value;
-      const at = released.get(threadId);
-      if (at !== undefined && at >= binding.attachment.generation) {
-        return fail("stale-binding", `thread ${threadId} was released at attachment ${at}, so attachment ${binding.attachment.generation} cannot take it back`);
-      }
-      own(threadId);
+    adopt,
+    async subscribe(binding) {
+      const owned = adopt(binding);
+      if (!owned.ok) return owned;
+      if (deps.enabled()) await subscribeThread(binding.native.value, binding.attachment.generation);
       return ok(undefined);
     },
     disown(binding) {
@@ -531,6 +625,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
           if (now?.id !== threadId) {
             return fail("ambiguous", `Codex resumed ${String(now?.id)} instead of thread ${threadId}; rt will not continue a different conversation`);
           }
+          subscribed.add(threadId);
           return ok({ native, attachment: { mode: "headless" }, settings: settingsOf(resumed) });
         }
 
@@ -558,7 +653,9 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
       if (control.closed) return fail("transient", "the Codex control connection is closed");
       const threadId = binding.native.value;
       control.adopt(threadId);
-      if (!hub.view(threadId)) {
+      if (deps.enabled()) {
+        await subscribeThread(threadId, binding.attachment.generation);
+      } else if (!hub.view(threadId)) {
         try {
           const status = threadStatus(threadOf(await control.request("thread/read", { threadId, includeTurns: false }))?.status);
           if (status) hub.seed(threadId, status);
@@ -637,6 +734,8 @@ export type CodexSessionLoaderDeps = {
   connect(options: CodexControlOptions): Promise<CodexControl>;
   sessions: Partial<CodexSessionDeps>;
   messaging: Partial<CodexMessagingDeps>;
+  /** The attached Codex bindings, subscribed each time a connection opens. */
+  attached(): SessionBinding[];
 };
 
 export type CodexSessionLoader = {
@@ -646,6 +745,8 @@ export type CodexSessionLoader = {
   status(): LoaderStatus;
   /** The live connection's id, or null; never connects. */
   connection(): string | null;
+  /** What the live connection has heard about the thread's liveness; undefined without a connection for that profile. Never connects. */
+  threadLive(threadId: string, profile: string): boolean | undefined;
 };
 
 /** Stands in when no connection could be made; nothing can have been sent. */
@@ -676,6 +777,7 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     connect: (options) => connectCodexControl(options, { log: controlLog }),
     sessions: {},
     messaging: {},
+    attached: () => (integrationsEnabled() ? listAttachedBindings(getStateDb(), HARNESS) : []),
     ...overrides,
   };
   let current: { control: CodexControl; adapter: CodexSessionAdapter; messaging?: Promise<MessageAdapter> } | undefined;
@@ -701,7 +803,19 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     failure = undefined;
     const adapter = createCodexSessions(control, { ...deps.sessions, endpoint: endpoint.data });
     current = { control, adapter };
+    await subscribeAttached(adapter, control.profile);
     return adapter;
+  }
+
+  /** A new connection hears nothing of the threads an earlier one was subscribed to until it subscribes them itself. */
+  async function subscribeAttached(adapter: CodexSessionAdapter, profile: string): Promise<void> {
+    let bindings: SessionBinding[];
+    try {
+      bindings = deps.attached().filter((b) => b.native.harness === HARNESS && b.native.profile === profile);
+    } catch {
+      return;
+    }
+    await Promise.all(bindings.map((b) => adapter.subscribe(b).catch(() => undefined)));
   }
 
   function load(): Promise<SessionAdapter> {
@@ -729,6 +843,10 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     connection() {
       return current && !current.control.closed ? current.control.connection : null;
     },
+    threadLive(threadId, profile) {
+      if (!current || current.control.closed || current.control.profile !== profile) return undefined;
+      return codexEventHub(current.control).live(threadId);
+    },
   };
 }
 
@@ -739,6 +857,7 @@ function sharedLoader(): CodexSessionLoader {
     const loader = createCodexSessionLoader();
     shared = loader;
     setCodexLinkProbe(() => loader.connection());
+    setCodexThreadProbe((threadId, profile) => loader.threadLive(threadId, profile));
   }
   return shared;
 }

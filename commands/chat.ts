@@ -99,6 +99,7 @@ import type {
   BuddyStatus,
   ChatMember,
   ChatMessage,
+  ChatPostDelivery,
   PresenceRow,
   RoomSummary,
   RtResponse,
@@ -892,6 +893,23 @@ function requireReadable(body: string, args: string[], heredoc: string): void {
 
 const POST_USAGE = "usage: rt chat post <room> <text | <<'EOF'> [--file <path>] [--as-is] [--quiet]";
 
+/** With harness delivery on, the post says what each recipient's delivery showed, so nothing unsent reads as delivered. */
+function deliveryLine(recipients: string[], names: string[], delivery: Record<string, ChatPostDelivery>): string {
+  const who = (kind: ChatPostDelivery) => recipients.flatMap((r, i) => ((delivery[r] ?? "sending") === kind ? [names[i] ?? r] : []));
+  const list = (people: string[]) => (people.length <= 2 ? people.join(" and ") : `${people.slice(0, -1).join(", ")} and ${people.at(-1)}`);
+  const parts: string[] = [];
+  const sent = who("sent");
+  const queued = who("queued");
+  const sending = who("sending");
+  const later = who("later");
+  if (sent.length > 0) parts.push(`sent to ${list(sent)}`);
+  if (queued.length > 0) parts.push(`queued for ${list(queued)}`);
+  if (sending.length > 0) parts.push(`still sending to ${list(sending)}`);
+  if (later.length === 1) parts.push(`${later[0]} is not reachable now, so it reaches them when their session is back`);
+  if (later.length > 1) parts.push(`${list(later)} are not reachable now, so it reaches them when their sessions are back`);
+  return parts.join("; ");
+}
+
 async function runPost(args: string[]): Promise<void> {
   // Body is the positional tokens after the room, flag-aware: `--as <handle>`
   // (and every other recognized flag) is resolved separately by resolveHandle,
@@ -923,6 +941,7 @@ async function runPost(args: string[]): Promise<void> {
   // wake-on mention puts the correction: the poster, still in the turn that
   // posted, reads that nobody will act and picks a mention, @here, or a DM.
   if (quiet) say("posted quietly (on the record, unread for every member, nobody woken)");
+  else if (data.recipients.length > 0 && data.delivery) say(deliveryLine(data.recipients, data.recipientNames ?? data.recipients, data.delivery));
   else if (data.recipients.length > 0) say(`delivered to ${(data.recipientNames ?? data.recipients).join(", ")}`);
   else say(`on the record for ${data.others} member${data.others === 1 ? "" : "s"}, woke nobody: @handle or @here wakes someone, rt chat dm reaches one`);
   if (url) say(`posted → ${url}`);

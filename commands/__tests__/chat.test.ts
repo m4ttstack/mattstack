@@ -294,6 +294,24 @@ describe("rt chat CLI — additional verb behavior", () => {
     );
   });
 
+  test("with harness delivery on, post says what each recipient's delivery shows rather than claiming it was delivered", async () => {
+    const reply = (delivery: Record<string, string>, recipients: string[]) => ({
+      ok: true, data: { id: 7, recipients, recipientNames: recipients.map((r) => r.toUpperCase()), others: recipients.length, delivery },
+    });
+    canned["chat:post"] = reply({ a: "sent", b: "queued", c: "sending", d: "later", e: "later" }, ["a", "b", "c", "d", "e"]);
+    expect(await runChat(["post", "r", "hi", "--as", "z"])).toBe(
+      "sent to A; queued for B; still sending to C; D and E are not reachable now, so it reaches them when their sessions are back\nposted → https://chat.mattstack/r/r#m-7",
+    );
+    canned["chat:post"] = reply({ b: "later" }, ["b"]);
+    expect(await runChat(["post", "r", "hi", "--as", "z"])).toBe(
+      "B is not reachable now, so it reaches them when their session is back\nposted → https://chat.mattstack/r/r#m-7",
+    );
+    canned["chat:post"] = reply({ b: "queued" }, ["b"]);
+    expect(JSON.parse(await runChat(["post", "r", "hi", "--as", "z", "--json"]))).toEqual({
+      ok: true, id: 7, quiet: false, recipients: ["b"], recipientNames: ["B"], url: "https://chat.mattstack/r/r#m-7",
+    });
+  });
+
   test("the human's post wakes every member without a mention", async () => {
     await runChat(["join", "r", "--as", "a"]);
     await runChat(["join", "r", "--as", "b"]);

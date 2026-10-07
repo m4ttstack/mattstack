@@ -124,6 +124,7 @@ export type {
   ChatMember,
   ChatMessage,
   ChatClaimOutcome,
+  ChatPostDelivery,
   RoomSummary,
   BuddyStatus,
   PresenceRow,

@@ -5,16 +5,19 @@
  * A row records the latest attempt (binding, attachment generation, the frame
  * it rode in) and the strongest evidence that attempt got: `pending` (nothing
  * known to be sent yet, or a definite failure), `submitted`, `queued`,
- * `consumed`, `ambiguous` (it may have been sent) or `refused`. A consumed
- * row is never written again. Message bodies are not stored: the room log is
- * the recovery source, and a row's room and message id point back into it.
+ * `consumed`, `ambiguous` (it may have been sent), `refused`, or
+ * `superseded` (the recipient's read cursor passed it before anything showed
+ * it arrived, so nothing will deliver it; never a claim it was consumed). A
+ * consumed row is never written again. A queued row stays scheduled while its
+ * evidence may still turn consumed. Message bodies are not stored: the room
+ * log is the recovery source, and a row's room and message id point back into it.
  */
 
 import type { Database } from "bun:sqlite";
 import type { DeliveryReceipt, FaultCode, Outcome } from "../../packages/rt-client/src/agent-integrations.ts";
 import { isBusyError } from "../state/busy.ts";
 
-export type DeliveryState = "pending" | "submitted" | "queued" | "consumed" | "ambiguous" | "refused";
+export type DeliveryState = "pending" | "submitted" | "queued" | "consumed" | "ambiguous" | "refused" | "superseded";
 /** States whose outcome is still open, so the row is reconciled and redelivered. */
 export const UNRESOLVED_STATES: ReadonlySet<DeliveryState> = new Set(["pending", "ambiguous"]);
 
@@ -43,8 +46,11 @@ const COLUMNS = `input_id, recipient, session_key, generation, harness, state, n
 const SELECT_ONE_SQL = `SELECT ${COLUMNS} FROM agent_deliveries WHERE input_id = ?;`;
 const SELECT_FRAME_SQL = `SELECT ${COLUMNS} FROM agent_deliveries WHERE frame_id = ? ORDER BY input_id;`;
 const SELECT_DUE_SQL = `SELECT ${COLUMNS} FROM agent_deliveries
-WHERE state IN ('pending', 'ambiguous') AND next_attempt_at IS NOT NULL AND next_attempt_at <= ?
+WHERE state IN ('pending', 'ambiguous', 'queued') AND next_attempt_at IS NOT NULL AND next_attempt_at <= ?
 ORDER BY next_attempt_at, updated_at LIMIT ?;`;
+const SELECT_READ_SQL = `SELECT ${COLUMNS} FROM agent_deliveries d
+WHERE d.recipient = ? AND d.state IN ('pending', 'ambiguous') AND d.room IS NOT NULL AND d.room <> ? AND d.message_id IS NOT NULL
+  AND d.message_id <= (SELECT m.last_read_id FROM chat_members m WHERE m.room = d.room AND m.handle = d.recipient);`;
 const RECORD_ATTEMPT_SQL = `INSERT INTO agent_deliveries
   (input_id, recipient, session_key, generation, harness, state, frame_id, room, message_id, attempts, next_attempt_at, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, 1, ?, ?, ?)
@@ -61,15 +67,17 @@ WHERE frame_id = ? AND session_key = ? AND generation = ? AND state = 'pending';
 const INTERRUPTED_SQL = `UPDATE agent_deliveries SET state = 'ambiguous', error = ?, updated_at = ?
 WHERE frame_id = ? AND session_key = ? AND generation = ? AND state = 'pending' AND error IS NULL;`;
 const SETTLE_EVIDENCE_SQL = `UPDATE agent_deliveries SET state = ?, native_id = COALESCE(?, native_id),
-  turn_id = COALESCE(?, turn_id), item_id = COALESCE(?, item_id), error = NULL, next_attempt_at = NULL, updated_at = ?
+  turn_id = COALESCE(?, turn_id), item_id = COALESCE(?, item_id), error = NULL, next_attempt_at = ?, updated_at = ?
 WHERE frame_id = ? AND session_key = ? AND generation = ? AND state IN ('pending', 'ambiguous', 'submitted', 'queued');`;
 const SCHEDULE_SQL = `UPDATE agent_deliveries SET next_attempt_at = ?, updated_at = ?
+WHERE input_id = ? AND state IN ('pending', 'ambiguous', 'queued') AND updated_at = ?;`;
+const SUPERSEDE_SQL = `UPDATE agent_deliveries SET state = 'superseded', error = ?, next_attempt_at = NULL, updated_at = ?
 WHERE input_id = ? AND state IN ('pending', 'ambiguous') AND updated_at = ?;`;
 const HARNESS_DUE_SQL = `UPDATE agent_deliveries SET next_attempt_at = ?
 WHERE harness = ? AND state IN ('pending', 'ambiguous') AND next_attempt_at IS NOT NULL AND next_attempt_at > ?;`;
 const OWED_SQL = "SELECT last_read_id FROM chat_members WHERE room = ? AND handle = ?;";
 const PRUNE_SQL = `DELETE FROM agent_deliveries WHERE rowid IN (
-  SELECT rowid FROM agent_deliveries WHERE updated_at < ? AND (state NOT IN ('pending', 'ambiguous') OR next_attempt_at IS NULL) LIMIT ?
+  SELECT rowid FROM agent_deliveries WHERE updated_at < ? AND (state NOT IN ('pending', 'ambiguous', 'queued') OR next_attempt_at IS NULL) LIMIT ?
 );`;
 
 function toDelivery(r: Row): DeliveryRow {
@@ -166,17 +174,28 @@ export function markInterrupted(db: Database, row: Pick<DeliveryRow, "frameId" |
   ), undefined);
 }
 
-/** Native evidence for a frame sent under this binding and generation; a consumed row stays consumed. */
+/** Native evidence for a frame sent under this binding and generation; a consumed row stays consumed. `nextAttemptAt` keeps a queued row checked. */
 export function settleEvidence(
   db: Database, attempt: Pick<DeliveryAttempt, "frameId" | "sessionKey" | "generation">, receipt: DeliveryReceipt, now: number,
+  nextAttemptAt: number | null = null,
 ): void {
   quietly(() => db.query(SETTLE_EVIDENCE_SQL).run(
-    receipt.evidence, receipt.nativeId ?? null, receipt.turnId ?? null, receipt.itemId ?? null, now,
+    receipt.evidence, receipt.nativeId ?? null, receipt.turnId ?? null, receipt.itemId ?? null, nextAttemptAt, now,
     attempt.frameId, attempt.sessionKey, attempt.generation,
   ), undefined);
 }
 
-/** Moves an unresolved row's next reconciliation; null stops scheduling it. Skipped when another write touched the row since it was read. */
+/** A recipient's unresolved chat rows whose message their read cursor has already passed. */
+export function listReadDeliveries(db: Database, recipient: string): DeliveryRow[] {
+  return (db.query(SELECT_READ_SQL).all(recipient, ONE_SHOT_ROOM) as Row[]).map(toDelivery);
+}
+
+/** Settles an unresolved row nothing will deliver now; skipped when another write touched it since it was read. */
+export function supersedeDelivery(db: Database, row: Pick<DeliveryRow, "inputId" | "updatedAt">, reason: string, now: number): boolean {
+  return quietly(() => db.query(SUPERSEDE_SQL).run(reason, now, row.inputId, row.updatedAt).changes > 0, false);
+}
+
+/** Moves an unresolved or queued row's next check; null stops scheduling it. Skipped when another write touched the row since it was read. */
 export function scheduleDelivery(db: Database, row: Pick<DeliveryRow, "inputId" | "updatedAt">, nextAttemptAt: number | null, now: number): void {
   quietly(() => db.query(SCHEDULE_SQL).run(nextAttemptAt, now, row.inputId, row.updatedAt), undefined);
 }

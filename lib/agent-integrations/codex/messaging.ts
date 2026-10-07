@@ -21,6 +21,9 @@
  *
  * Thread ownership is the session adapter's: messaging asks it to adopt the
  * submission's thread, so a thread the sessions released is not taken back.
+ * The echo reaches this connection only while it is subscribed to the thread,
+ * which the session adapter arranges. A thread this connection last heard
+ * unloaded or closed takes nothing, since the queue would hold it unrun.
  */
 
 import type {
@@ -134,7 +137,8 @@ export function createCodexMessaging(control: CodexControl, overrides: Partial<C
     s.itemId = event.item.id;
   }
 
-  codexEventHub(control).listen(observe);
+  const hub = codexEventHub(control);
+  hub.listen(observe);
 
   return {
     connection: control.connection,
@@ -161,6 +165,10 @@ export function createCodexMessaging(control: CodexControl, overrides: Partial<C
         return fail("ambiguous", `delivery ${input.id} is still being submitted to thread ${threadId}`);
       }
       if (sameAttempt && (prior.evidence === "queued" || prior.evidence === "consumed")) return { ok: true, data: receipt(prior) };
+      // The native queue accepts input for an unloaded thread and nothing runs it (live-03 step 7).
+      if (hub.live(threadId) === false) {
+        return fail("not-ready", `Codex is not running thread ${threadId} now, so nothing was sent`);
+      }
       const contested = prior !== undefined && (sameAttempt ? prior.contested
         : prior.threadId === threadId && prior.evidence !== "failed");
       const owned = deps.adopt(binding);

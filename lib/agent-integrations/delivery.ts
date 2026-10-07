@@ -16,7 +16,12 @@
  *
  * Redelivery itself rides the chat delivery sweep, which rebuilds frames from
  * the room log; `reconcileDeliveries` is the bounded evidence pass the sweep
- * runs each tick, at daemon start and after a harness reconnects.
+ * runs each tick, at daemon start and after a harness reconnects. A queued
+ * row stays in that pass, checked at doubling intervals, until its evidence
+ * turns consumed or it can no longer be attributed to the attachment it went
+ * to; it is never sent again from there. A row whose message the recipient's
+ * read cursor passed (they read it with rt chat read) is settled superseded,
+ * which claims nothing about consumption.
  */
 
 import type { Database } from "bun:sqlite";
@@ -28,10 +33,11 @@ import { getStateDb } from "../state/db.ts";
 import { builtinRegistry } from "./builtins.ts";
 import type { MessageAdapter } from "./contracts.ts";
 import {
-  isInterrupted, listDueDeliveries, markHarnessDue, markInterrupted, ONE_SHOT_ROOM, owedByRoomLog, pruneDeliveries, readDelivery, readFrame, receiptOfDelivery,
-  recordAttempt, scheduleDelivery, settleAttempt, settleEvidence, type DeliveryAttempt, type DeliveryRow,
+  isInterrupted, listDueDeliveries, listReadDeliveries, markHarnessDue, markInterrupted, ONE_SHOT_ROOM, owedByRoomLog, pruneDeliveries, readDelivery,
+  readFrame, receiptOfDelivery, recordAttempt, scheduleDelivery, settleAttempt, settleEvidence, supersedeDelivery,
+  type DeliveryAttempt, type DeliveryRow,
 } from "./delivery-store.ts";
-import { createSessionStore } from "./session-store.ts";
+import { createSessionStore, isDetachedAttachment } from "./session-store.ts";
 
 /** The chat delivery sweep's tick, in the daemon's schedule. */
 export const DELIVERY_SWEEP_INTERVAL_MS = 30_000;
@@ -44,6 +50,15 @@ export const DEFAULT_DELIVERY_RETRY_DELAY_MS = 300;
 export const RECONCILE_LIMIT = 50;
 /** Settled rows are kept this long as evidence, then pruned. */
 export const DELIVERY_RETENTION_MS = 7 * 24 * 60 * 60_000;
+
+const SUPERSEDED_BY_READ = "the recipient read it before any evidence showed it arrived";
+
+/** A queued row's next check: twice the interval it last waited, from one sweep tick up to the sweep's backoff cap. */
+function queuedRecheckAt(now: number, last?: Pick<DeliveryRow, "nextAttemptAt" | "updatedAt">): number {
+  const waited = last?.nextAttemptAt !== undefined ? last.nextAttemptAt - last.updatedAt : 0;
+  const ticks = Math.min(Math.max(1, Math.round((2 * waited) / DELIVERY_SWEEP_INTERVAL_MS)), MAX_DELIVERY_BACKOFF_TICKS);
+  return now + ticks * DELIVERY_SWEEP_INTERVAL_MS;
+}
 
 /** Ticks to skip after `failures` consecutive failures: none below the ceiling, then doubling up to the cap. */
 export function deliveryBackoffTicks(failures: number, ceiling: number = MAX_CONSECUTIVE_DELIVERY_FAILURES): number {
@@ -72,6 +87,8 @@ export type DeliveryDeps = {
   storedBinding(key: string): SessionBinding | null;
   /** The harness's messaging connection now, without connecting: an id, null while it has none, undefined when it has no connection to wait for. */
   connectionOf(harness: string): string | null | undefined;
+  /** Whether the harness says the bound session can take input now, without connecting: false when nothing would run it, undefined when unknown. */
+  liveOf(binding: SessionBinding): boolean | undefined;
   now(): number;
   sleep(ms: number): Promise<void>;
   retryDelayMs: number;
@@ -89,8 +106,10 @@ export interface DeliveryService {
    * settled. Every other row the room log still owes is rescheduled with
    * backoff and left for the sweep to redeliver under its stable id:
    * `retried` counts those, and `ambiguous` the ones among them whose
-   * outcome is still unknown. A row the room log no longer owes stops being
-   * scheduled.
+   * outcome is still unknown. A chat row the recipient's read cursor passed
+   * is settled superseded once any evidence it has is recorded; a one-shot
+   * row stops being scheduled. A due queued row is only checked for
+   * consumption and rescheduled; neither is counted.
    */
   reconcileDeliveries(now: number, opts?: { signal?: AbortSignal }): Promise<{ retried: number; ambiguous: number }>;
   /**
@@ -104,6 +123,10 @@ export interface DeliveryService {
   idle(): Promise<void>;
   /** The harness's messaging connection now, read without connecting (see DeliveryDeps.connectionOf). */
   connection(harness: string): string | null | undefined;
+  /** Whether the bound session can take input now, read without connecting (see DeliveryDeps.liveOf). */
+  live(binding: SessionBinding): boolean | undefined;
+  /** Settles superseded every unresolved row whose message `recipient`'s read cursor has passed; returns how many. */
+  supersedeRead(recipient: string): number;
 }
 
 /** Nothing was sent and a later attempt may succeed. */
@@ -122,6 +145,7 @@ function defaultDeps(db: () => Database): DeliveryDeps {
     messagingFor: async (binding) => registry.get(binding.native.harness)?.loadMessaging?.(),
     storedBinding: (key) => createSessionStore(db()).get(key),
     connectionOf: (harness) => registry.get(harness)?.messagingConnection?.(),
+    liveOf: (binding) => registry.get(binding.native.harness)?.sessionLive?.(binding),
     now: Date.now,
     sleep: (ms) => Bun.sleep(ms),
     retryDelayMs: DEFAULT_DELIVERY_RETRY_DELAY_MS,
@@ -179,7 +203,7 @@ export function createDeliveryService(overrides: Partial<DeliveryDeps> = {}): De
   }
 
   /** Native evidence for `row`'s frame from the attachment that sent it; null when the harness has none. */
-  async function evidenceFrom(row: DeliveryRow): Promise<DeliveryReceipt | null> {
+  async function nativeEvidence(row: DeliveryRow): Promise<DeliveryReceipt | null> {
     const stored = deps.storedBinding(row.sessionKey);
     if (!stored) return null;
     const sent: SessionBinding = { ...stored, attachment: { ...stored.attachment, generation: row.generation } };
@@ -193,8 +217,52 @@ export function createDeliveryService(overrides: Partial<DeliveryDeps> = {}): De
       return null;
     }
     if (!found.ok || !found.data || found.data.id !== row.frameId) return null;
-    settleEvidence(deps.db(), row, found.data, deps.now());
     return found.data;
+  }
+
+  /** Native evidence for `row`'s frame, recorded on every row of the frame; null when the harness has none. */
+  async function evidenceFrom(row: DeliveryRow): Promise<DeliveryReceipt | null> {
+    const found = await nativeEvidence(row);
+    if (!found) return null;
+    const now = deps.now();
+    settleEvidence(deps.db(), row, found, now, found.evidence === "queued" ? queuedRecheckAt(now) : null);
+    return found;
+  }
+
+  /**
+   * A queued frame is checked for consumption under the attachment it went
+   * to. Once that attachment is gone or replaced, or the row has outlived
+   * the retention window, no evidence can be attributed to it any more: it
+   * stays queued and is no longer scheduled.
+   */
+  async function recheckQueued(rows: DeliveryRow[], now: number): Promise<void> {
+    const db = deps.db();
+    const head = rows.find((row) => row.inputId === row.frameId) ?? rows[0]!;
+    const stored = deps.storedBinding(head.sessionKey);
+    const attributable = stored !== null && !isDetachedAttachment(stored) && stored.attachment.generation === head.generation
+      && now - head.createdAt <= DELIVERY_RETENTION_MS;
+    if (attributable) {
+      const found = await nativeEvidence(head);
+      if (found?.evidence === "consumed") {
+        settleEvidence(db, head, found, deps.now());
+        return;
+      }
+    }
+    for (const row of rows) scheduleDelivery(db, row, attributable ? queuedRecheckAt(now, row) : null, now);
+  }
+
+  /** Rows the recipient's read cursor passed: evidence first for any that may have gone out, then superseded. */
+  async function supersedePassed(rows: DeliveryRow[]): Promise<void> {
+    const db = deps.db();
+    const idle = rows.filter((row) => !sending.has(row.frameId));
+    for (const frameId of new Set(idle.filter((row) => row.state === "ambiguous" || isInterrupted(row)).map((row) => row.frameId))) {
+      const head = readFrame(db, frameId).find((row) => row.inputId === frameId) ?? idle.find((row) => row.frameId === frameId)!;
+      await evidenceFrom(head);
+    }
+    for (const row of idle) {
+      const current = readDelivery(db, row.inputId);
+      if (current && (current.state === "pending" || current.state === "ambiguous")) supersedeDelivery(db, current, SUPERSEDED_BY_READ, deps.now());
+    }
   }
 
   async function attempt(adapter: MessageAdapter, binding: SessionBinding, input: DeliveryInput, peer: PeerInput): Promise<Outcome<DeliveryReceipt>> {
@@ -219,7 +287,9 @@ export function createDeliveryService(overrides: Partial<DeliveryDeps> = {}): De
     const now = deps.now();
     const attempts = readDelivery(db, input.id)?.attempts ?? 1;
     if (out.ok) {
-      settleAttempt(db, record, out.data.evidence, now, { receipt: out.data });
+      settleAttempt(db, record, out.data.evidence, now, {
+        receipt: out.data, ...(out.data.evidence === "queued" && { nextAttemptAt: queuedRecheckAt(now) }),
+      });
     } else if (out.error.code === "ambiguous") {
       settleAttempt(db, record, "ambiguous", now, { error: out.error.message, nextAttemptAt: nextAttemptAt(now, attempts) });
     } else if (DEFINITE_FAILURES.has(out.error.code)) {
@@ -267,8 +337,14 @@ export function createDeliveryService(overrides: Partial<DeliveryDeps> = {}): De
     }
     for (const [frameId, rows] of frames) {
       if (signal?.aborted) break;
-      let owed = rows.filter((row) => owedByRoomLog(db, row));
-      for (const row of rows) if (!owed.includes(row)) scheduleDelivery(db, row, null, now);
+      const queued = rows.filter((row) => row.state === "queued");
+      if (queued.length > 0) await recheckQueued(queued, now);
+      const open = rows.filter((row) => row.state !== "queued");
+      let owed = open.filter((row) => owedByRoomLog(db, row));
+      const passed = open.filter((row) => !owed.includes(row));
+      for (const row of passed) if (row.room === ONE_SHOT_ROOM) scheduleDelivery(db, row, null, now);
+      const read = passed.filter((row) => row.room !== ONE_SHOT_ROOM);
+      if (read.length > 0) await supersedePassed(read);
       if (owed.length === 0) continue;
       if (owed.some((row) => isInterrupted(row) && !sending.has(frameId))) {
         markInterrupted(db, owed[0]!, now);
@@ -292,6 +368,22 @@ export function createDeliveryService(overrides: Partial<DeliveryDeps> = {}): De
       await reconnectPass;
     },
     connection: (harness) => deps.connectionOf(harness),
+    live(binding) {
+      try {
+        return deps.liveOf(binding);
+      } catch {
+        return undefined;
+      }
+    },
+    supersedeRead(recipient) {
+      const db = deps.db();
+      let settledCount = 0;
+      for (const row of listReadDeliveries(db, recipient)) {
+        if (sending.has(row.frameId)) continue;
+        if (supersedeDelivery(db, row, SUPERSEDED_BY_READ, deps.now())) settledCount++;
+      }
+      return settledCount;
+    },
     async settled(binding, ids) {
       const db = deps.db();
       const held = new Set<string>();

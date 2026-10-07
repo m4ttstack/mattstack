@@ -485,6 +485,21 @@ describe("codex messaging evidence", () => {
     expect(await x.messaging.submit(codexBinding(), input())).toMatchObject({ ok: false, error: { code: "not-ready" } });
   });
 
+  test("a thread Codex reports unloaded or closed takes nothing, since nothing would run it (live-03 step 7)", async () => {
+    for (const gone of [
+      { method: "thread/status/changed", params: { threadId: THREAD, status: { type: "notLoaded" } } },
+      { method: "thread/closed", params: { threadId: THREAD } },
+    ]) {
+      const x = await codex();
+      x.control.adopt(THREAD);
+      x.socket().push(gone);
+      expect(await x.messaging.submit(codexBinding(), input())).toMatchObject({ ok: false, error: { code: "not-ready" } });
+      expect(x.methods()).toEqual([]);
+      x.socket().push({ method: "thread/status/changed", params: { threadId: THREAD, status: { type: "idle" } } });
+      expect(data(await x.messaging.submit(codexBinding(), input())).evidence).toBe("queued");
+    }
+  });
+
   test("only a thread of this connection's profile takes peer input", async () => {
     const x = await codex();
     const other = codexBinding({ native: { ...codexBinding().native, profile: "work" } });

@@ -284,6 +284,15 @@ export interface ChatMessage {
   quiet?: boolean;
 }
 
+/**
+ * What a post's delivery to one recipient showed by the time the post
+ * answered: sent (the session's transport took it), queued (a native queue
+ * holds it for the session's next turn), sending (still on its way, or its
+ * outcome is unknown and rt keeps checking) or later (it did not reach the
+ * session, which gets it once it is back).
+ */
+export type ChatPostDelivery = "sent" | "queued" | "sending" | "later";
+
 /** `claimed` is the only outcome that woke anyone; `previousHolder` marks a takeover of an expired claim. */
 export type ChatClaimOutcome =
   | { outcome: "claimed"; author: string; authorName: string; room: string; previousHolder?: string; previousHolderName?: string }
@@ -755,8 +764,11 @@ export interface Commands {
   "runs:abandon": { payload: { runId: string; repo?: string; reason?: string }; data: { ok: boolean } };
   "chat:join": { payload: { room: string; handle: string; wakeOn?: WakeMode; cwd?: string; pane?: string }; data: { handle: string; name: string; memberCount: number; unread: number } };
   "chat:leave": { payload: { room: string; handle: string }; data: Record<string, never> };
-  /** `others` counts the room's members besides the author, so a caller can tell "woke nobody of 7" from "nobody else is here". */
-  "chat:post": { payload: { room: string; handle: string; body: string; mentions?: string[]; quiet?: boolean; pane?: string }; data: { id: number; recipients: string[]; recipientNames: string[]; others: number } };
+  /**
+   * `others` counts the room's members besides the author, so a caller can tell "woke nobody of 7" from "nobody else is here".
+   * `delivery`, only while agent.integrations.enabled is on, is each recipient's delivery evidence by handle.
+   */
+  "chat:post": { payload: { room: string; handle: string; body: string; mentions?: string[]; quiet?: boolean; pane?: string }; data: { id: number; recipients: string[]; recipientNames: string[]; others: number; delivery?: Record<string, ChatPostDelivery> } };
   "chat:ack": { payload: { id: number; handle: string }; data: { author: string; authorName: string; room: string; already: boolean } };
   "chat:claim": { payload: { id: number; handle: string }; data: ChatClaimOutcome };
   "chat:release": { payload: { id: number; handle: string }; data: { holder: string; holderName: string } };

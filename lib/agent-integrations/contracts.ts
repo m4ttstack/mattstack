@@ -201,6 +201,13 @@ export type HarnessIntegration = {
    */
   readonly messagingConnection?: () => string | null;
   /**
+   * Whether the bound native session can take input now: false when the
+   * harness knows nothing would run input sent to it, undefined when it does
+   * not know. Read without loading, connecting or spawning. Absent when the
+   * harness has no per-session answer beyond its connection.
+   */
+  readonly sessionLive?: (binding: SessionBinding) => boolean | undefined;
+  /**
    * Input typed into the session's pane, an invite's join command, is
    * prompted there through herdr, which keeps a draft in the composer. Absent,
    * such input reaches the session as peer input through its messaging.

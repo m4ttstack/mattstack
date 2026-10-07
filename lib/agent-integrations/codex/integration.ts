@@ -1,11 +1,13 @@
 import type { HarnessIntegration } from "../contracts.ts";
-import { codexMessagingConnection } from "./link.ts";
+import { codexMessagingConnection, codexThreadLive } from "./link.ts";
 
 export const codexIntegration: HarnessIntegration = {
   id: "codex",
   label: "Codex",
   sessionEnv: ["CODEX_THREAD_ID"],
   messagingConnection: codexMessagingConnection,
+  sessionLive: (binding) => (binding.native.harness === "codex" && binding.native.kind === "id"
+    ? codexThreadLive(binding.native.value, binding.native.profile) : undefined),
   capabilities: async (mode) => {
     const { codexReadiness, codexSupported } = await import("./sessions.ts");
     return { mode, supported: codexSupported(mode), readiness: codexReadiness() };

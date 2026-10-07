@@ -2,8 +2,9 @@
  * Chat presence that follows a bound session's lifecycle, for every harness.
  *
  * Each integration reports its own lifecycle here: Claude Code through its
- * hooks (rt chat sign-out --ended, rt chat lifecycle), and every harness's
- * launches and resumes through the shared launcher. Presence stays keyed by
+ * hooks (rt chat sign-out --ended, rt chat lifecycle), Codex through its app
+ * server's thread events (reportSessionGone), and every harness's launches
+ * and resumes through the shared launcher. Presence stays keyed by
  * the native session, so a session's identity is whatever it signed in as:
  * a resume or a compaction keeps it, and a fresh session in a reused pane
  * has none until it signs in.
@@ -16,7 +17,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import type { SessionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
+import type { NativeSessionRef, SessionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
 import { deleteChatSession } from "../chat-session.ts";
 import type { InboxBinding } from "../claude-registry.ts";
 import { getStateDb } from "../state/db.ts";
@@ -72,6 +73,34 @@ export async function applySessionPresence(binding: SessionBinding, event: Prese
   if (signedIn) touchLastSeen(sessionId, now, db);
 }
 
+/**
+ * A harness's native transport reports that a bound session is gone, with no
+ * process of its own to report it (a Codex thread its app server unloaded or
+ * closed). The current attachment changes only when `generation`, where
+ * given, is still current.
+ * - unloaded: nothing runs input sent to the session, so the binding is
+ *   detached and its presence reads offline; it stays signed in, so a resume
+ *   that attaches it again brings it back as it was.
+ * - ended: the session ended, as a SessionEnd does: detached and signed out.
+ * Returns whether anything changed.
+ */
+export async function reportSessionGone(
+  native: NativeSessionRef, event: "unloaded" | "ended", generation: number | undefined, deps: PresenceDeps = {},
+): Promise<boolean> {
+  if (!(deps.enabled ?? integrationsEnabled)()) return false;
+  const db = deps.db ?? getStateDb();
+  const store = createSessionStore(db);
+  const current = store.find(native);
+  if (!current || isDetachedAttachment(current)) return false;
+  if (generation !== undefined && current.attachment.generation !== generation) return false;
+  if (event === "ended") {
+    await applySessionPresence(current, "end", deps);
+    const now = store.get(current.key);
+    return now !== null && isDetachedAttachment(now);
+  }
+  return store.detach(current.key, current.attachment.generation).ok;
+}
+
 /** Whether a harness's messaging connection is up now: an id, null while it has none, undefined when the harness has no connection to wait for. */
 export type HarnessConnection = (harness: string) => string | null | undefined;
 
@@ -87,16 +116,21 @@ function connected(): InboxBinding {
 /**
  * Presence liveness (buddy status, reclaim and prune) for sessions outside
  * Claude Code's registry: with agent.integrations.enabled on, an attached
- * session whose harness keeps a messaging connection is alive exactly while
- * that connection is up. A harness with no connection to read, Claude Code
+ * session whose harness keeps a messaging connection is alive while that
+ * connection is up and the harness does not report the session itself gone
+ * (`sessionLive`). A harness with no connection to read, Claude Code
  * included, keeps the registry's answer, which wins wherever it has one.
  */
 export function withHarnessLiveness(
   base: RegistryDeps,
-  opts: { db: () => Database; connection: HarnessConnection; enabled?: () => boolean },
+  opts: {
+    db: () => Database; connection: HarnessConnection; enabled?: () => boolean;
+    sessionLive?: (binding: SessionBinding) => boolean | undefined;
+  },
 ): RegistryDeps {
   const on = opts.enabled ?? integrationsEnabled;
-  const live = (b: SessionBinding) => !isDetachedAttachment(b) && typeof opts.connection(b.native.harness) === "string";
+  const live = (b: SessionBinding) => !isDetachedAttachment(b) && typeof opts.connection(b.native.harness) === "string"
+    && opts.sessionLive?.(b) !== false;
   return {
     resolve: (sessionId) => {
       const found = base.resolve(sessionId);

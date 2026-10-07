@@ -165,6 +165,7 @@ export function buildRoutedHandlers(opts: {
   // Presence liveness for sessions outside Claude Code's registry, while agent.integrations.enabled is on.
   const presenceRegistry = withHarnessLiveness(defaultRegistryDeps, {
     db: () => opts.stateDb, connection: (harness) => integrations.get(harness)?.messagingConnection?.(),
+    sessionLive: (binding) => integrations.get(binding.native.harness)?.sessionLive?.(binding),
   });
   const chatHandlers = createChatHandlers({
     db: opts.stateDb, emitEvent, repoIndex: ctx.repoIndex, log: ctx.log, deliveryChains: opts.chatDeliveryChains,

@@ -442,7 +442,7 @@ CREATE TABLE IF NOT EXISTS agent_deliveries (
   session_key     TEXT NOT NULL,     -- the binding of the latest attempt
   generation      INTEGER NOT NULL,  -- that attempt's attachment generation
   harness         TEXT NOT NULL,
-  state           TEXT NOT NULL,     -- pending | submitted | queued | consumed | ambiguous | refused
+  state           TEXT NOT NULL,     -- pending | submitted | queued | consumed | ambiguous | refused | superseded
   native_id       TEXT,
   turn_id         TEXT,
   item_id         TEXT,
@@ -450,7 +450,7 @@ CREATE TABLE IF NOT EXISTS agent_deliveries (
   room            TEXT,              -- the room log this delivery is recovered from; null outside chat
   message_id      INTEGER,
   attempts        INTEGER NOT NULL DEFAULT 0,
-  next_attempt_at INTEGER,           -- when an unresolved row is next reconciled; null is not scheduled
+  next_attempt_at INTEGER,           -- when an unresolved or queued row is next reconciled; null is not scheduled
   error           TEXT,
   created_at      INTEGER NOT NULL,
   updated_at      INTEGER NOT NULL

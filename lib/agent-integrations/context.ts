@@ -18,12 +18,14 @@ import type { Database } from "bun:sqlite";
 import type {
   CallerContext, FaultCode, HarnessId, NativeSessionRef, Outcome, SessionBinding,
 } from "../../packages/rt-client/src/agent-integrations.ts";
-import { getSetting } from "../settings/resolve.ts";
 import { getAgent } from "../state/agents-store.ts";
 import { getStateDb } from "../state/db.ts";
 import { canonicalCodexProfile } from "./codex/profile.ts";
 import { resolveLegacySession } from "./legacy.ts";
 import { createSessionStore, isDetachedAttachment, listBindingsByNativeValue } from "./session-store.ts";
+import { integrationsEnabled } from "./switch.ts";
+
+export { integrationsEnabled };
 
 /** A native reference whose profile the boundary may not be able to observe. */
 export type NativeClaim = Omit<NativeSessionRef, "profile"> & { profile?: string };
@@ -42,21 +44,10 @@ export type McpTransport = { harness?: HarnessId; profile?: string };
 
 export type ResolveDeps = { db?: Database; legacy?: typeof resolveLegacySession };
 
-const SETTING = "agent.integrations.enabled";
-
 /** The cause and the remedy when one environment names both a Codex thread and a Claude Code session. */
 export const BOTH_SESSIONS_MESSAGE = "this command's environment names both a Codex thread (CODEX_THREAD_ID) and a Claude Code session "
   + "(CLAUDE_CODE_SESSION_ID), so rt cannot tell which one is calling. The Codex app server most likely inherited a Claude Code "
   + "session's environment: restart the Codex app server from a plain shell, outside any Claude Code session";
-
-/** Read at call time: a machine can flip the switch under a running server. Unreadable settings keep it off. */
-export function integrationsEnabled(): boolean {
-  try {
-    return getSetting<boolean>(SETTING).value === true;
-  } catch {
-    return false;
-  }
-}
 
 function fail<T>(code: FaultCode, message: string): Outcome<T> {
   return { ok: false, error: { code, message } };

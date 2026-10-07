@@ -16,7 +16,7 @@ import type {
 import { reportClaudeLifecycle, type ClaudeRegistry } from "../../agent-integrations/claude/sessions.ts";
 import { createDeliveryService } from "../../agent-integrations/delivery.ts";
 import { lendsPaneIdentity } from "../../agent-integrations/pane-identity.ts";
-import { applySessionPresence, withHarnessLiveness } from "../../agent-integrations/presence.ts";
+import { applySessionPresence, reportSessionGone, withHarnessLiveness } from "../../agent-integrations/presence.ts";
 import { createSessionStore, isDetachedAttachment } from "../../agent-integrations/session-store.ts";
 import { readChatSession, writeChatSession } from "../../chat-session.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
@@ -333,6 +333,65 @@ describe("lifecycle events count only from the session's own process", () => {
   });
 });
 
+describe("a Codex thread its app server no longer runs (M2b D2)", () => {
+  const status = (x: ReturnType<typeof fixture>, session: string) => listBuddies(Date.now(), x.db, x.registryDeps).find((b) => b.sessionId === session)?.status;
+
+  test("an unloaded thread detaches its binding and goes offline, keeping its sign-in, until rt agent resume attaches it again", async () => {
+    const x = fixture();
+    const t1 = await x.signIn({ sessionId: "thread-1", pane: "w1:p1" });
+    writeChatSession({ sessionId: "thread-1", handle: t1.handle, baseHandle: t1.baseHandle, name: t1.name, signedInAt: 1 });
+    const bound = bind(x.db, codexRef("thread-1"), "w1:p1", t1.handle);
+    expect(status(x, "thread-1")).toBe("idle");
+
+    expect(await reportSessionGone(codexRef("thread-1"), "unloaded", bound.attachment.generation, { db: x.db })).toBe(true);
+    const detached = createSessionStore(x.db).get(bound.key)!;
+    expect(isDetachedAttachment(detached)).toBe(true);
+    expect(status(x, "thread-1")).toBe("offline");
+    expect(presenceForSession("thread-1", x.db)?.signedOutAt).toBeUndefined();
+    expect(readChatSession("thread-1")?.handle).toBe(t1.handle);
+
+    expect(createSessionStore(x.db).replaceAttachment(bound.key, detached.attachment.generation, { mode: "herdr", pane: "w1:p2" }).ok).toBe(true);
+    expect(status(x, "thread-1")).toBe("idle");
+  });
+
+  test("a closed thread or its sessionEnd hook ends the session: detached and signed out", async () => {
+    const x = fixture();
+    const t1 = await x.signIn({ sessionId: "thread-1", pane: "w1:p1" });
+    writeChatSession({ sessionId: "thread-1", handle: t1.handle, baseHandle: t1.baseHandle, name: t1.name, signedInAt: 1 });
+    const bound = bind(x.db, codexRef("thread-1"), "w1:p1", t1.handle);
+    expect(await reportSessionGone(codexRef("thread-1"), "ended", undefined, { db: x.db })).toBe(true);
+    expect(isDetachedAttachment(createSessionStore(x.db).get(bound.key)!)).toBe(true);
+    expect(presenceForSession("thread-1", x.db)?.signedOutAt).toBeDefined();
+    expect(readChatSession("thread-1")).toBeNull();
+  });
+
+  test("a report for an earlier attachment changes nothing", async () => {
+    const x = fixture();
+    const t1 = await x.signIn({ sessionId: "thread-1", pane: "w1:p1" });
+    const first = bind(x.db, codexRef("thread-1"), "w1:p1", t1.handle);
+    const now = moveTo(x.db, first, "w2:p1");
+    expect(await reportSessionGone(codexRef("thread-1"), "unloaded", first.attachment.generation, { db: x.db })).toBe(false);
+    expect(await reportSessionGone(codexRef("thread-1"), "ended", first.attachment.generation, { db: x.db })).toBe(false);
+    expect(createSessionStore(x.db).get(first.key)).toMatchObject({ attachment: { generation: now.attachment.generation, pane: "w2:p1" } });
+    expect(presenceForSession("thread-1", x.db)?.signedOutAt).toBeUndefined();
+  });
+
+  test("a thread its harness reports not live is offline even before its binding is detached", async () => {
+    const x = fixture();
+    const t1 = await x.signIn({ sessionId: "thread-1", pane: "w1:p1" });
+    bind(x.db, codexRef("thread-1"), "w1:p1", t1.handle);
+    let live: boolean | undefined;
+    const claudeRegistry: RegistryDeps = { resolve: () => null, alive: () => true, resolveAll: () => new Map() };
+    const registry = withHarnessLiveness(claudeRegistry, { db: () => x.db, connection: () => "conn-1", sessionLive: () => live });
+    const now = () => listBuddies(Date.now(), x.db, registry).find((b) => b.sessionId === "thread-1")?.status;
+    expect(now()).toBe("idle");
+    live = false;
+    expect(now()).toBe("offline");
+    live = true;
+    expect(now()).toBe("idle");
+  });
+});
+
 describe("delivery goes through the session's harness", () => {
   test("a bound session's welcome and receipts go through its messaging, and the sender's own room post never does", async () => {
     const x = fixture({ inbox: ["sess-kai"] });
@@ -508,6 +567,8 @@ describe("with agent.integrations.enabled off nothing changes", () => {
     const binding = bind(x.db, codexRef("thread-1"), "w1:p1", original.handle);
     await applySessionPresence({ ...binding, attachment: { ...binding.attachment, pane: "w2:p1" } }, "resume", { db: x.db });
     await applySessionPresence(binding, "end", { db: x.db });
+    expect(await reportSessionGone(codexRef("thread-1"), "unloaded", binding.attachment.generation, { db: x.db })).toBe(false);
+    expect(await reportSessionGone(codexRef("thread-1"), "ended", undefined, { db: x.db })).toBe(false);
     expect(presenceForSession("thread-1", x.db)).toMatchObject({ pane: "w1:p1" });
     expect(presenceForSession("thread-1", x.db)?.signedOutAt).toBeUndefined();
     expect(readChatSession("thread-1")?.handle).toBe(original.handle);

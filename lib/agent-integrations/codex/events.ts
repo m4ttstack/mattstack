@@ -76,6 +76,25 @@ export class CodexEventHub {
     this.status(thread, status);
   }
 
+  /** A status the thread itself just answered with, newer than anything heard about it before the reply. */
+  refresh(threadId: string, status: CodexThreadStatus): void {
+    const thread = this.thread(threadId, "codex-thread");
+    thread.source = "codex-thread";
+    this.status(thread, status);
+  }
+
+  /**
+   * Whether the app server runs the thread now: loaded is live; unloaded or
+   * closed is not, since nothing would take input queued to it; undefined
+   * when this connection has heard nothing about it.
+   */
+  live(threadId: string): boolean | undefined {
+    const connectivity = this.threads.get(threadId)?.connectivity;
+    if (connectivity === "connected") return true;
+    if (connectivity === "disconnected") return false;
+    return undefined;
+  }
+
   /** Resolves with the turn's native end, or undefined when `ms` passes first. */
   waitTurn(threadId: string, turnId: string, clock: CodexClock, ms: number): Promise<TurnStatus | undefined> {
     const done = this.threads.get(threadId)?.completed.get(turnId);

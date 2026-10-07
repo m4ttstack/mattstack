@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { Logger } from "pino";
 import type { DeliveryReceipt, Outcome, PeerInput, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
+import type { ChatPostDelivery } from "../../../packages/rt-client/src/commands.ts";
 import { createChatDeliverySweep, createChatHandlers, type InboxDeps } from "../../daemon/handlers/chat.ts";
 import { backgroundUnit } from "../../daemon/lifecycle.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
@@ -310,6 +311,7 @@ describe("one-shot deliveries", () => {
 
     clock.now += DELIVERY_SWEEP_INTERVAL_MS;
     expect(await service.reconcileDeliveries(clock.now)).toEqual({ retried: 0, ambiguous: 0 });
+    expect(row(db, "w-remy-1")).toMatchObject({ state: "pending" });
     expect(row(db, "w-remy-1").nextAttemptAt).toBeUndefined();
     clock.now += 10 * DELIVERY_SWEEP_INTERVAL_MS;
     expect(await service.reconcileDeliveries(clock.now)).toEqual({ retried: 0, ambiguous: 0 });
@@ -403,6 +405,98 @@ describe("attachments and connections", () => {
   });
 });
 
+describe("queued evidence (M2b D3)", () => {
+  test("a queued delivery is rechecked with doubling backoff until its echo makes it consumed, and is never sent again", async () => {
+    const db = openStateDb(dbPath());
+    const binding = bindSession(db, "T1");
+    let consumed = false;
+    const messaging = fakeMessaging({
+      submit: (input) => ok({ id: input.id, evidence: "queued", nativeId: "T1" }),
+      reconcile: (_b, id) => ok(consumed ? { id, evidence: "consumed", nativeId: "T1", turnId: "U1", itemId: "I1" } : { id, evidence: "queued", nativeId: "T1" }),
+    });
+    const { service, clock } = harness(db, messaging);
+    const id = chatDeliveryId(17, "remy");
+    await service.deliverPeerInput(binding, peer(id));
+    expect(row(db, id)).toMatchObject({ state: "queued", nextAttemptAt: T0 + DELIVERY_SWEEP_INTERVAL_MS });
+
+    const checkedAt: number[] = [];
+    for (let tick = 1; tick <= 16; tick++) {
+      clock.now = T0 + tick * DELIVERY_SWEEP_INTERVAL_MS;
+      const before = messaging.reconciles.length;
+      expect(await service.reconcileDeliveries(clock.now)).toEqual({ retried: 0, ambiguous: 0 });
+      if (messaging.reconciles.length > before) checkedAt.push(tick);
+    }
+    expect(checkedAt).toEqual([1, 3, 7, 15]);
+    expect(row(db, id).state).toBe("queued");
+
+    consumed = true;
+    clock.now = T0 + 31 * DELIVERY_SWEEP_INTERVAL_MS;
+    await service.reconcileDeliveries(clock.now);
+    expect(row(db, id)).toMatchObject({ state: "consumed", turnId: "U1", itemId: "I1" });
+    expect(row(db, id).nextAttemptAt).toBeUndefined();
+    expect(messaging.submits).toHaveLength(1);
+    expect(messaging.reconciles.every((r) => r.generation === binding.attachment.generation)).toBe(true);
+  });
+
+  test("the recheck interval saturates at the sweep's backoff cap", async () => {
+    const db = openStateDb(dbPath());
+    const binding = bindSession(db, "T1");
+    const messaging = fakeMessaging({
+      submit: (input) => ok({ id: input.id, evidence: "queued", nativeId: "T1" }),
+      reconcile: (_b, id) => ok({ id, evidence: "queued", nativeId: "T1" }),
+    });
+    const { service, clock } = harness(db, messaging);
+    const id = chatDeliveryId(17, "remy");
+    await service.deliverPeerInput(binding, peer(id));
+    const gaps: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const due = row(db, id).nextAttemptAt!;
+      gaps.push((due - clock.now) / DELIVERY_SWEEP_INTERVAL_MS);
+      clock.now = due;
+      await service.reconcileDeliveries(clock.now);
+    }
+    expect(gaps).toEqual([1, 2, 4, 8, 16, 32, 64, 120, 120, 120, 120, 120]);
+  });
+
+  test("a queued row whose attachment was replaced or detached stops being checked and stays queued", async () => {
+    for (const end of ["replaced", "detached"] as const) {
+      const db = openStateDb(dbPath());
+      const binding = bindSession(db, "T1");
+      const messaging = fakeMessaging({
+        submit: (input) => ok({ id: input.id, evidence: "queued", nativeId: "T1" }),
+        reconcile: (_b, id) => ok({ id, evidence: "queued", nativeId: "T1" }),
+      });
+      const { service, clock } = harness(db, messaging);
+      const id = chatDeliveryId(17, "remy");
+      await service.deliverPeerInput(binding, peer(id));
+      if (end === "replaced") reattach(db, binding);
+      else expect(createSessionStore(db).detach(binding.key, binding.attachment.generation).ok).toBe(true);
+      clock.now += DELIVERY_SWEEP_INTERVAL_MS;
+      await service.reconcileDeliveries(clock.now);
+      expect(row(db, id)).toMatchObject({ state: "queued" });
+      expect(row(db, id).nextAttemptAt).toBeUndefined();
+      expect(messaging.reconciles).toEqual([]);
+    }
+  });
+
+  test("a queued row is never settled by the cursor its own delivery moved", async () => {
+    const db = openStateDb(dbPath());
+    const binding = bindSession(db, "T1");
+    db.run("INSERT INTO chat_members (room, handle, joined_at, last_read_id) VALUES ('general', 'remy', 0, 9)");
+    const messaging = fakeMessaging({
+      submit: (input) => ok({ id: input.id, evidence: "queued", nativeId: "T1" }),
+      reconcile: (_b, id) => ok({ id, evidence: "queued", nativeId: "T1" }),
+    });
+    const { service, clock } = harness(db, messaging);
+    const id = chatDeliveryId(5, "remy");
+    await service.deliverPeerInput(binding, peer(id, { constituents: [{ id, room: "general", messageId: 5 }] }));
+    clock.now += DELIVERY_SWEEP_INTERVAL_MS;
+    await service.reconcileDeliveries(clock.now);
+    expect(service.supersedeRead("remy")).toBe(0);
+    expect(row(db, id)).toMatchObject({ state: "queued", nextAttemptAt: clock.now + 2 * DELIVERY_SWEEP_INTERVAL_MS });
+  });
+});
+
 describe("bounded recovery", () => {
   test("one pass looks at a bounded number of rows and leaves the rest for the next", async () => {
     const db = openStateDb(dbPath());
@@ -428,7 +522,7 @@ describe("bounded recovery", () => {
     expect(messaging.reconciles).toHaveLength(reconciled);
   });
 
-  test("a row the room log no longer owes stops being scheduled", async () => {
+  test("a row the room log no longer owes is settled superseded and stops being scheduled (M2b D4)", async () => {
     const db = openStateDb(dbPath());
     const binding = bindSession(db, "T1");
     db.run("INSERT INTO chat_members (room, handle, joined_at, last_read_id) VALUES ('general', 'remy', 0, 9)");
@@ -437,7 +531,25 @@ describe("bounded recovery", () => {
     const id = chatDeliveryId(5, "remy");
     await service.deliverPeerInput(binding, peer(id, { constituents: [{ id, room: "general", messageId: 5 }] }));
     expect(await service.reconcileDeliveries(clock.now + DELIVERY_SWEEP_INTERVAL_MS)).toEqual({ retried: 0, ambiguous: 0 });
+    expect(row(db, id)).toMatchObject({ state: "superseded" });
     expect(row(db, id).nextAttemptAt).toBeUndefined();
+    expect(messaging.reconciles.map((r) => r.id)).toEqual([id]);
+    expect(messaging.submits).toHaveLength(1);
+  });
+
+  test("an ambiguous row the recipient read is still settled by evidence first", async () => {
+    const db = openStateDb(dbPath());
+    const binding = bindSession(db, "T1");
+    db.run("INSERT INTO chat_members (room, handle, joined_at, last_read_id) VALUES ('general', 'remy', 0, 9)");
+    const messaging = fakeMessaging({
+      submit: () => fault("ambiguous"),
+      reconcile: (_b, id) => ok({ id, evidence: "consumed", nativeId: "T1", turnId: "U1", itemId: "I1" }),
+    });
+    const { service, clock } = harness(db, messaging);
+    const id = chatDeliveryId(5, "remy");
+    await service.deliverPeerInput(binding, peer(id, { constituents: [{ id, room: "general", messageId: 5 }] }));
+    await service.reconcileDeliveries(clock.now + DELIVERY_SWEEP_INTERVAL_MS);
+    expect(row(db, id)).toMatchObject({ state: "consumed", turnId: "U1" });
   });
 
   test("backoff saturates at 120 ticks and never stops", () => {
@@ -519,10 +631,12 @@ async function waitFor(predicate: () => boolean): Promise<void> {
  */
 async function chatFixture(
   messaging: { adapter: MessageAdapter }, harnessId = "codex",
-  opts: { link?: () => string | null; claudeInbox?: boolean } = {},
+  opts: { link?: () => string | null; claudeInbox?: boolean; live?: () => boolean | undefined } = {},
 ) {
   const db = openStateDb(dbPath());
-  const { service, clock } = harness(db, messaging, { log: quietLog, connectionOf: opts.link ?? (() => "conn-test") });
+  const { service, clock } = harness(db, messaging, {
+    log: quietLog, connectionOf: opts.link ?? (() => "conn-test"), liveOf: () => opts.live?.(),
+  });
   const sock = join(tmpdir(), `delivery-inbox-${process.pid}-${n++}`);
   await Bun.write(sock, "");
   const inbox = { pid: process.pid, socketPath: sock, status: "idle" as const };
@@ -544,12 +658,13 @@ async function chatFixture(
     db, deliveryChains: new Map(), inboxDeps, herdr, log: quietLog, retryDelayMs: 0,
     registryDeps, delivery: service, now: () => clock.now,
   });
-  const post = async (body: string) => {
-    const posted = await h["chat:post"]({ room: "general", handle: "a", body });
-    if (!posted.ok) throw new Error(posted.error);
-    return posted.data.id;
+  const posted = async (body: string) => {
+    const res = await h["chat:post"]({ room: "general", handle: "a", body });
+    if (!res.ok) throw new Error(res.error);
+    return res.data;
   };
-  return { db, h, service, clock, binding, sweep, post, herdrCalls };
+  const post = async (body: string) => (await posted(body)).id;
+  return { db, h, service, clock, binding, sweep, post, posted, herdrCalls };
 }
 
 describe("chat through harness delivery", () => {
@@ -713,6 +828,93 @@ describe("chat through harness delivery", () => {
     await x.sweep();
     expect(messaging.submits.length).toBeGreaterThan(afterPost);
   });
+
+  test("a bound thread its harness reports not live is not targeted: no attempt, no row, the cursor stays and no backoff builds (M2b D2)", async () => {
+    let live: boolean | undefined = false;
+    const messaging = fakeMessaging({ submit: (input) => ok({ id: input.id, evidence: "queued", nativeId: "sess-b" }) });
+    const x = await chatFixture(messaging, "codex", { live: () => live });
+    const id = await x.post("hi");
+    await Bun.sleep(10);
+    for (let tick = 0; tick < 200; tick++) {
+      x.clock.now += DELIVERY_SWEEP_INTERVAL_MS;
+      expect(await x.sweep()).toEqual({ sweptPairs: 0, recoveredMessages: 0 });
+    }
+    expect(messaging.submits).toEqual([]);
+    expect(readDelivery(x.db, chatDeliveryId(id, "b"))).toBeNull();
+    expect(lastReadId(x.db, "general", "b")).toBeLessThan(id);
+    live = undefined;
+    x.clock.now += DELIVERY_SWEEP_INTERVAL_MS;
+    expect(await x.sweep()).toEqual({ sweptPairs: 1, recoveredMessages: 1 });
+    expect(lastReadId(x.db, "general", "b")).toBe(id);
+  });
+
+  test("a queued ack from a thread that went down meanwhile never moves the cursor (M2b D2)", async () => {
+    let live: boolean | undefined = true;
+    const messaging = fakeMessaging({
+      submit: (input) => {
+        live = false;
+        return ok({ id: input.id, evidence: "queued", nativeId: "sess-b" });
+      },
+    });
+    const x = await chatFixture(messaging, "codex", { live: () => live });
+    const id = await x.post("hi");
+    await waitFor(() => messaging.submits.length === 1);
+    await Bun.sleep(5);
+    expect(row(x.db, chatDeliveryId(id, "b")).state).toBe("queued");
+    expect(lastReadId(x.db, "general", "b")).toBeLessThan(id);
+    x.clock.now += DELIVERY_SWEEP_INTERVAL_MS;
+    expect(await x.sweep()).toEqual({ sweptPairs: 0, recoveredMessages: 0 });
+    expect(lastReadId(x.db, "general", "b")).toBeLessThan(id);
+  });
+
+  test("what the recipient already read is settled superseded, never consumed, and never sent again (M2b D4)", async () => {
+    const messaging = fakeMessaging({ submit: () => fault("ambiguous"), reconcile: () => ok(null) });
+    const x = await chatFixture(messaging);
+    const id = await x.post("hi");
+    await waitFor(() => messaging.submits.length === 1);
+    await Bun.sleep(5);
+    expect(row(x.db, chatDeliveryId(id, "b")).state).toBe("ambiguous");
+    const read = await x.h["chat:read"]({ handle: "b", room: "general" });
+    expect(read.ok).toBe(true);
+    expect(row(x.db, chatDeliveryId(id, "b"))).toMatchObject({ state: "superseded" });
+    expect(row(x.db, chatDeliveryId(id, "b")).nextAttemptAt).toBeUndefined();
+    for (let tick = 0; tick < 5; tick++) {
+      x.clock.now += DELIVERY_SWEEP_INTERVAL_MS;
+      await x.sweep();
+    }
+    expect(messaging.submits).toHaveLength(1);
+    expect(row(x.db, chatDeliveryId(id, "b")).state).toBe("superseded");
+  });
+
+  test("chat:mark settles what it marks read the same way", async () => {
+    const messaging = fakeMessaging({ submit: () => fault("transient") });
+    const x = await chatFixture(messaging);
+    const first = await x.post("one");
+    await waitFor(() => messaging.submits.length === 2);
+    const second = await x.post("two");
+    await waitFor(() => messaging.submits.length === 4);
+    await Bun.sleep(5);
+    await x.h["chat:mark"]({ handle: "b", room: "general", upto: first });
+    expect(row(x.db, chatDeliveryId(first, "b")).state).toBe("superseded");
+    expect(row(x.db, chatDeliveryId(second, "b")).state).toBe("pending");
+  });
+
+  test("chat:post reports each recipient's delivery evidence (sent, queued, later)", async () => {
+    const cases: Array<{ submit: Submit; live?: boolean; expected: ChatPostDelivery }> = [
+      { submit: (input) => ok({ id: input.id, evidence: "queued", nativeId: "sess-b" }), expected: "queued" },
+      { submit: (input) => ok({ id: input.id, evidence: "consumed", nativeId: "sess-b", turnId: "U1", itemId: "I1" }), expected: "sent" },
+      { submit: (input) => ok({ id: input.id, evidence: "submitted", nativeId: "sess-b" }), expected: "sent" },
+      { submit: () => fault("ambiguous"), expected: "sending" },
+      { submit: () => fault("transient"), expected: "later" },
+      { submit: (input) => ok({ id: input.id, evidence: "queued", nativeId: "sess-b" }), live: false, expected: "later" },
+    ];
+    for (const c of cases) {
+      const messaging = fakeMessaging({ submit: c.submit, reconcile: () => ok(null) });
+      const x = await chatFixture(messaging, "codex", { live: () => c.live });
+      const data = await x.posted("hi");
+      expect(data.delivery).toEqual({ b: c.expected });
+    }
+  });
 });
 
 describe("switch-off parity", () => {
@@ -738,6 +940,7 @@ describe("switch-off parity", () => {
     frames.length = 0;
     const posted = await h["chat:post"]({ room: "general", handle: "a", body: "@b hi" });
     if (!posted.ok) throw new Error(posted.error);
+    expect(Object.keys(posted.data).sort()).toEqual(["id", "others", "recipientNames", "recipients"]);
     await waitFor(() => frames.length === 1);
     expect(frames).toEqual([[
       sock,

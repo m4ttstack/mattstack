@@ -72,7 +72,7 @@ import { baseOfHandle } from "../../chat-names.ts";
 import { runCapture } from "../../subprocess.ts";
 import { lazyChildLogger } from "../../daemon-logger.ts";
 import { deleteChatSession } from "../../chat-session.ts";
-import type { Commands } from "../../../packages/rt-client/src/commands.ts";
+import type { ChatPostDelivery, Commands } from "../../../packages/rt-client/src/commands.ts";
 import type { Observation, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { builtinRegistry } from "../../agent-integrations/builtins.ts";
 import { integrationsEnabled } from "../../agent-integrations/context.ts";
@@ -80,6 +80,7 @@ import type { IntegrationRegistry } from "../../agent-integrations/contracts.ts"
 import {
   chatDeliveryId, deliveryBackoffTicks, MAX_CONSECUTIVE_DELIVERY_FAILURES, oneShotInput, type DeliveryInput, type DeliveryService,
 } from "../../agent-integrations/delivery.ts";
+import { readDelivery } from "../../agent-integrations/delivery-store.ts";
 import { isDetachedAttachment, listBindingsAtPane, listBindingsByNativeValue } from "../../agent-integrations/session-store.ts";
 import type { CommandResult } from "./types.ts";
 
@@ -296,14 +297,15 @@ function harnessRoute(
 /**
  * Whether a bound session can take input now, read without connecting: a
  * Claude session by its registry inbox, as the inbox path reads it; any other
- * harness by its messaging connection.
+ * harness by its messaging connection, unless the harness reports the session
+ * itself not running (a Codex thread its app server unloaded or closed).
  */
 function harnessReachable(delivery: DeliveryService, binding: SessionBinding, sessionId: string, deps: InboxDeps): boolean {
   if (binding.native.harness === "claude") {
     const inbox = deps.resolve(sessionId);
     return inbox !== null && inbox !== undefined && inboxAlive(inbox);
   }
-  return delivery.connection(binding.native.harness) !== null;
+  return delivery.connection(binding.native.harness) !== null && delivery.live(binding) !== false;
 }
 
 /** The one attached binding a presence's session id names, or null when there is none or more than one. */
@@ -316,9 +318,11 @@ function attachedBinding(sessionId: string, db: Database): SessionBinding | null
  * deliverPost's harness path, with the same cursor contract: the cursor moves
  * only on evidence the frame reached the session (submitted, queued or
  * consumed), never on an ambiguous or failed attempt, so the room log keeps
- * owing it and the sweep redelivers it under the same logical ids. Messages
- * an earlier frame already got there are passed over first, so a rebuilt
- * frame carries only what is still owed.
+ * owing it and the sweep redelivers it under the same logical ids. A queued
+ * acknowledgement from a session its harness now reports not running moves
+ * nothing either, since nothing would run the queue (live-03 step 7).
+ * Messages an earlier frame already got there are passed over first, so a
+ * rebuilt frame carries only what is still owed.
  */
 async function deliverBound(
   db: Database,
@@ -363,9 +367,43 @@ async function deliverBound(
     await reportUnreadBadge(herdr, pane, others.length);
     return { delivered: false, count: 0 };
   }
+  if (result.data.evidence === "queued" && delivery.live(binding) === false) {
+    log.info({ recipient, room: msg.room, harness: binding.native.harness }, "chat: queued for a session that is not running; the room log keeps it owed");
+    return { delivered: false, count: 0 };
+  }
   markDelivered(msg.room, recipient, msg.id, db);
   touchLastSeen(binding.native.value, Date.now(), db);
   return { delivered: true, count: arrived.length + others.length };
+}
+
+/** How long chat:post waits, with agent.integrations.enabled on, for its deliveries' evidence before calling one still sending. */
+const POST_EVIDENCE_WAIT_MS = 2000;
+
+/**
+ * What a post's delivery to each recipient showed by the time the post
+ * answers: sent (submitted, or consumed), queued (a native queue holds it),
+ * sending (still on its way, or its outcome is unknown and rt keeps
+ * checking) or later (nothing reached the session; the room log keeps it
+ * owed until the session is back).
+ */
+async function postEvidence(
+  db: Database, id: number, outcomes: Map<string, Promise<{ delivered: boolean; count: number } | null>>, waitMs: number,
+): Promise<Record<string, ChatPostDelivery>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const waited = new Promise<"waiting">((resolve) => { timer = setTimeout(() => resolve("waiting"), waitMs); });
+  const evidence: Record<string, ChatPostDelivery> = {};
+  try {
+    await Promise.all([...outcomes].map(async ([recipient, outcome]) => {
+      const result = await Promise.race([outcome, waited]);
+      const state = readDelivery(db, chatDeliveryId(id, recipient))?.state;
+      if (result === "waiting" || state === "ambiguous") evidence[recipient] = "sending";
+      else if (!result?.delivered) evidence[recipient] = "later";
+      else evidence[recipient] = state === "queued" ? "queued" : "sent";
+    }));
+  } finally {
+    clearTimeout(timer);
+  }
+  return evidence;
 }
 
 const ACK_BODY_PREVIEW = 80;
@@ -734,13 +772,14 @@ export function createChatDeliverySweep(opts: {
       for (const presence of presenceByHandle.values()) {
         if (presence.signedOutAt !== undefined) continue;
         // A bound session outside Claude's registry is a target only while
-        // its harness has a connection, so an outage builds no failure
+        // its harness has a connection and does not report the session not
+        // running, so an outage or an unloaded thread builds no failure
         // streak, as a dead Claude inbox builds none. A Claude session's
         // liveness stays the registry's, read below in the one scan.
         const bound = harness ? attachedBinding(presence.sessionId, db) : null;
         if (bound && harness && bound.native.harness !== "claude") {
           const link = linkOf(harness, bound.native.harness);
-          if (link.live) aliveSessionIds.add(presence.sessionId);
+          if (link.live && harness.live(bound) !== false) aliveSessionIds.add(presence.sessionId);
           if (link.reconnected) reconnectedSessions.add(presence.sessionId);
           continue;
         }
@@ -1013,7 +1052,8 @@ function paneSessionLookup(
  * Recipient delivery is deferred a microtask past this function's return:
  * presenceForHandle plus a full registry scan run per recipient, and a
  * queued call lets chat:post's response get built before that work starts,
- * rather than paying it inline on the request path.
+ * rather than paying it inline on the request path. `outcomes`, when given,
+ * receives each recipient's delivery as it will settle.
  */
 function postAndNotify(
   db: Database,
@@ -1025,6 +1065,7 @@ function postAndNotify(
   log: Logger,
   retryDelayMs: number,
   delivery?: DeliveryService,
+  outcomes?: Map<string, Promise<{ delivered: boolean; count: number } | null>>,
 ): { id: number; recipients: string[] } | undefined {
   const { room, handle, body, mentions, quiet } = args;
   const posted = postMessage({ room, handle, body, mentions, quiet }, db);
@@ -1050,11 +1091,15 @@ function postAndNotify(
   // neither an agent's inbox below nor the human's desk further down.
   if (quiet) return { id: posted.id, recipients: [] };
   for (const recipient of posted.recipients) {
-    queueMicrotask(() => {
-      deliverSerialized(deliveryChains, db, inboxDeps, herdr, log, retryDelayMs, recipient, { room, dm: dm !== null, id: posted.id }, delivery).catch((err) => {
-        log.warn({ err, room, recipient, id: posted.id }, "chat: inbox delivery failed");
+    const outcome = new Promise<{ delivered: boolean; count: number } | null>((settle) => {
+      queueMicrotask(() => {
+        deliverSerialized(deliveryChains, db, inboxDeps, herdr, log, retryDelayMs, recipient, { room, dm: dm !== null, id: posted.id }, delivery).then(settle, (err) => {
+          log.warn({ err, room, recipient, id: posted.id }, "chat: inbox delivery failed");
+          settle(null);
+        });
       });
     });
+    outcomes?.set(recipient, outcome);
   }
   // Independent of chat_members / wake_on: agents create rooms via
   // join-creates, so the human is typically not a member yet, and a
@@ -1142,6 +1187,8 @@ export function createChatHandlers(opts: {
   deliveryChains?: Map<string, Promise<void>>;
   /** Harness delivery with persisted evidence, used only while agent.integrations.enabled is on; the same service the sweep reconciles. */
   delivery?: DeliveryService;
+  /** How long chat:post waits for its deliveries' evidence while agent.integrations.enabled is on. */
+  postEvidenceWaitMs?: number;
   /** The harnesses a pane's session or an invite is routed through while agent.integrations.enabled is on; the built-in ones by default. */
   integrations?: IntegrationRegistry;
   /** A bound session's observed state, before an invite reaches it as peer input; its integration's own observation by default. */
@@ -1173,6 +1220,15 @@ export function createChatHandlers(opts: {
   const paneInput: PaneInputRoute = {
     db, herdr, integrations, delivery: opts.delivery, enabled: integrationsEnabled, log,
     observe: opts.observeSession ?? observeThroughIntegration(integrations),
+  };
+  /** Harness deliveries the reader's own cursor has now passed are settled: nothing will deliver them again. */
+  const settleRead = (reader: string): void => {
+    if (!opts.delivery || !integrationsEnabled()) return;
+    try {
+      opts.delivery.supersedeRead(reader);
+    } catch (err) {
+      log.warn({ err, handle: reader }, "chat: settling deliveries the reader already read failed");
+    }
   };
   const resolveMention = (m: string): string => (m === "here" ? m : resolveHandle(m, db));
   const namesOf = (ids: string[]): string[] => {
@@ -1235,10 +1291,14 @@ export function createChatHandlers(opts: {
       // push, the sweep, and the record all see the same thing. Rooms default
       // to wake-on mention, so an agent's un-addressed post wakes nobody.
       const effectiveMentions = handle === getSetting<string>("chat.humanHandle").value ? [...(mentions ?? []), "here"] : mentions;
-      const posted = postAndNotify(db, emitEvent, { room, handle, body, mentions: effectiveMentions, quiet }, inboxDeps, herdr, deliveryChains, log, retryDelayMs, opts.delivery);
+      // Only with the switch on does the post wait on its deliveries; switch-off timing and payload stay as they were.
+      const outcomes = opts.delivery && integrationsEnabled() ? new Map<string, Promise<{ delivered: boolean; count: number } | null>>() : undefined;
+      const posted = postAndNotify(db, emitEvent, { room, handle, body, mentions: effectiveMentions, quiet }, inboxDeps, herdr, deliveryChains, log, retryDelayMs, opts.delivery, outcomes);
       if (!posted) return { ok: false, error: "chat: post failed (retry budget exhausted)" };
       const others = listMembers(room, db).filter((m) => m.handle !== handle).length;
-      return { ok: true, data: { ...posted, recipientNames: namesOf(posted.recipients), others } };
+      const data = { ...posted, recipientNames: namesOf(posted.recipients), others };
+      if (!outcomes) return { ok: true, data };
+      return { ok: true, data: { ...data, delivery: await postEvidence(db, posted.id, outcomes, opts.postEvidenceWaitMs ?? POST_EVIDENCE_WAIT_MS) } };
     },
 
     "chat:ack": async (rawPayload: unknown): Promise<CommandResult<"chat:ack">> => {
@@ -1332,6 +1392,7 @@ export function createChatHandlers(opts: {
       const rooms = readUnread({ handle, room, limit: clampLimit(limit, 20), sinceMs }, db);
       const readerPresence = presenceForHandle(handle, db);
       if (readerPresence) touchLastSeen(readerPresence.sessionId, Date.now(), db);
+      settleRead(handle);
       return { ok: true, data: { rooms } };
     },
 
@@ -1387,7 +1448,9 @@ export function createChatHandlers(opts: {
       if (upto !== undefined && (!Number.isSafeInteger(upto) || upto <= 0)) {
         return { ok: false, error: "upto must be a positive message id" };
       }
-      markRead(resolveHandle(handle, db), room, upto, db);
+      const reader = resolveHandle(handle, db);
+      markRead(reader, room, upto, db);
+      settleRead(reader);
       return { ok: true, data: {} };
     },
 
