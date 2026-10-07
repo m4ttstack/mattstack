@@ -2034,6 +2034,20 @@ describe("integrations on: chat follows the harness session", () => {
     expect(presenceForSession("s-res", getStateDb())?.pane).toBeUndefined();
   });
 
+  test("only a sign-in a binding names marks its session file bound, so the chat plugin's hooks call rt for nothing else", async () => {
+    await runChat(["sign-in", "--as", "remy", "--session", "s-off", "--no-room"]);
+    expect(JSON.parse(readFileSync(sessionFilePath("s-off"), "utf8"))).not.toHaveProperty("bound");
+
+    setSetting("agent.integrations.enabled", true, "machine");
+    await runChat(["sign-in", "--as", "ivy", "--session", "s-unbound", "--no-room"]);
+    expect(listBindingsByNativeValue(getStateDb(), "s-unbound")).toEqual([]);
+    expect(JSON.parse(readFileSync(sessionFilePath("s-unbound"), "utf8"))).not.toHaveProperty("bound");
+
+    bindClaude("s-bound", "w1:p1", "kai.0001");
+    await runChat(["sign-in", "--as", "kai.0001", "--session", "s-bound", "--no-room"]);
+    expect(JSON.parse(readFileSync(sessionFilePath("s-bound"), "utf8")).bound).toBe(true);
+  });
+
   describe("a manually started Codex thread", () => {
     const saved: Record<string, string | undefined> = {};
     beforeEach(() => {
@@ -2056,6 +2070,7 @@ describe("integrations on: chat follows the harness session", () => {
       const { handle } = JSON.parse(signedIn.stdout);
       expect(seen.find((s) => s.cmd === "chat:sign-in")!.payload).not.toHaveProperty("pane");
       expect(listBindingsByNativeValue(getStateDb(), "thread-manual")).toMatchObject([{ identity: handle, native: { harness: "codex", profile: "default" } }]);
+      expect(JSON.parse(readFileSync(sessionFilePath("thread-manual"), "utf8")).bound).toBe(true);
       await runChat(["join", "r"]);
       await runChat(["post", "r", "hello"]);
       expect(seen.find((s) => s.cmd === "chat:post")!.payload).toMatchObject({ handle });

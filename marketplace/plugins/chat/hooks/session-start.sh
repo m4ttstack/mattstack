@@ -4,12 +4,13 @@
 # Never fires on startup/clear -- a session file existing is what makes this
 # safe, and sign-in is the only thing allowed to create one.
 #
-# A resume or compaction is also reported to rt (`rt chat lifecycle`) after
-# the reminder is printed, with every byte rt prints discarded, so this hook's
-# own output is unchanged. It runs in the foreground: rt trusts the report
-# only from a command running under the session's own Claude Code process,
-# and a backgrounded child would lose that parent. rt does nothing with it
-# unless agent.integrations.enabled is on.
+# For a session file marked "bound" (a sign-in with rt's
+# agent.integrations.enabled on), a resume or compaction is also reported to
+# rt (`rt chat lifecycle`) after the reminder is printed, with every byte rt
+# prints discarded, so this hook's output is unchanged. It runs in the
+# foreground: rt trusts the report only from a command running under the
+# session's own Claude Code process, and a backgrounded child would lose that
+# parent. An unmarked session makes no rt call at all.
 set -u
 
 home="${HOME:-}"
@@ -20,12 +21,15 @@ command -v jq >/dev/null 2>&1 || exit 0
 input="$(cat 2>/dev/null)" || exit 0
 session_id="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
 [ -n "$session_id" ] || exit 0
-source_kind="$(printf '%s' "$input" | jq -r '.source // empty' 2>/dev/null)"
 
 session_file="$home/.mattstack/rt/chat/sessions/$session_id.json"
 [ -f "$session_file" ] || exit 0
 
-fields="$(jq -r '[(.name // .handle // empty), (.room // empty)] | @tsv' < "$session_file" 2>/dev/null)"
+# One jq read: the reminder's fields on the first line, the bound marker on the second.
+read_out="$(jq -r '([(.name // .handle // empty), (.room // empty)] | @tsv), (if .bound == true then "bound" else "" end)' < "$session_file" 2>/dev/null)"
+fields="${read_out%%$'\n'*}"
+bound=""
+[ "$read_out" = "$fields" ] || bound="${read_out#*$'\n'}"
 [ -n "$fields" ] || exit 0
 IFS=$'\t' read -r name room <<< "$fields"
 [ -n "$name" ] || exit 0
@@ -38,6 +42,8 @@ fi
 
 jq -nc --arg msg "$message" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $msg}}' 2>/dev/null
 
+[ "$bound" = "bound" ] || exit 0
+source_kind="$(printf '%s' "$input" | jq -r '.source // empty' 2>/dev/null)"
 case "$source_kind" in
   resume|compact)
     if command -v rt >/dev/null 2>&1; then

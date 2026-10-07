@@ -63,6 +63,7 @@ import {
   paneContinuationApplies,
   paneIdentityLendable,
   readChatSession,
+  sessionIsBound,
   sessionName,
   signInSession,
   writeChatSession,
@@ -1272,7 +1273,7 @@ async function runSignIn(args: string[]): Promise<void> {
     throw err;
   }
 
-  writeChatSession({ sessionId, handle, baseHandle, name: displayName, signedInAt: Date.now(), room: roomName ?? undefined });
+  writeChatSession({ sessionId, handle, baseHandle, name: displayName, signedInAt: Date.now(), room: roomName ?? undefined, ...(sessionIsBound(sessionId) && { bound: true }) });
 
   let joinedRoom: { name: string; memberCount: number } | null = null;
   if (roomName) {
@@ -1324,7 +1325,7 @@ async function runSignInViaPane(args: string[], paneId: string): Promise<void> {
   const { handle, baseHandle, name, continued, sessionId, room } = unwrap(signInRes, "sign-in");
   const displayName = name ?? handle;
 
-  writeChatSession({ sessionId, handle, baseHandle, name: displayName, signedInAt: Date.now(), room: room ?? undefined });
+  writeChatSession({ sessionId, handle, baseHandle, name: displayName, signedInAt: Date.now(), room: room ?? undefined, ...(sessionIsBound(sessionId) && { bound: true }) });
 
   if (args.includes("--json")) {
     out.json({ ok: true, handle, name: displayName, room, continued: continued === true });

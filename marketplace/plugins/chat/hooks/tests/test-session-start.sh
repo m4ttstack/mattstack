@@ -64,7 +64,7 @@ want='{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":
 check "signed in with room" "$want" "$out"
 check "signed in with room: no stderr" "" "$err"
 check "signed in with room: exits 0" "0" "$rc"
-check "a resume is reported to rt" "chat lifecycle resume --session sess-a" "$(calls_after "chat lifecycle resume --session sess-a")"
+check "an unmarked session's resume makes no rt call" "" "$(calls_after "")"
 
 # ── signed in, no room ───────────────────────────────────────────────────────
 echo '{"sessionId":"sess-b","handle":"deck-main","baseHandle":"deck-main"}' \
@@ -84,7 +84,7 @@ want='{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":
 check "signed in with a name" "$want" "$out"
 check "signed in with a name: no stderr" "" "$err"
 check "signed in with a name: exits 0" "0" "$rc"
-check "a resume names its own session" "chat lifecycle resume --session sess-d" "$(calls_after "chat lifecycle resume --session sess-d")"
+check "an unmarked session makes no rt call" "" "$(calls_after "")"
 
 # ── a suffixed display name, no room ────────────────────────────────────────
 echo '{"sessionId":"sess-e","handle":"remy.x9y8","baseHandle":"remy","name":"remy-2"}' \
@@ -94,7 +94,29 @@ want='{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":
 check "signed in with a suffixed name" "$want" "$out"
 check "signed in with a suffixed name: no stderr" "" "$err"
 check "signed in with a suffixed name: exits 0" "0" "$rc"
-check "a compaction is reported to rt" "chat lifecycle compact --session sess-e" "$(calls_after "chat lifecycle compact --session sess-e")"
+check "an unmarked session's compaction makes no rt call" "" "$(calls_after "")"
+
+# ── a session file marked bound: the same output, and rt hears resume/compact ─
+echo '{"sessionId":"sess-f","handle":"remy.k3f9","baseHandle":"remy","name":"remy","room":"repo-tools","bound":true}' \
+  > "$SESSIONS_DIR/sess-f.json"
+want='{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"rt chat: you are signed in as remy (room #repo-tools); chat messages arrive in your context automatically."}}'
+run '{"session_id":"sess-f","source":"resume"}'
+check "bound session: same reminder" "$want" "$out"
+check "bound session: no stderr" "" "$err"
+check "bound session: exits 0" "0" "$rc"
+check "bound session: resume reported to rt, in the foreground" "chat lifecycle resume --session sess-f" "$(cat "$RT_STUB_CALLS")"
+: > "$RT_STUB_CALLS"
+run '{"session_id":"sess-f","source":"compact"}'
+check "bound session: compaction reported to rt" "chat lifecycle compact --session sess-f" "$(cat "$RT_STUB_CALLS")"
+: > "$RT_STUB_CALLS"
+run '{"session_id":"sess-f","source":"fork"}'
+check "bound session: same reminder on fork" "$want" "$out"
+check "bound session: a fork is not reported" "" "$(calls_after "")"
+echo '{"sessionId":"sess-g","handle":"deck-main","baseHandle":"deck-main","bound":true}' > "$SESSIONS_DIR/sess-g.json"
+run '{"session_id":"sess-g","source":"resume"}'
+check "bound session without room: same reminder" '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"rt chat: you are signed in as deck-main; chat messages arrive in your context automatically."}}' "$out"
+check "bound session without room: reported" "chat lifecycle resume --session sess-g" "$(cat "$RT_STUB_CALLS")"
+: > "$RT_STUB_CALLS"
 
 # ── no session_id: silent ────────────────────────────────────────────────────
 run '{"source":"resume"}'

@@ -15,6 +15,8 @@ import {
   BOTH_SESSIONS_MESSAGE, codexProfile, extractCliEvidence, integrationsEnabled, resolveCliBinding, resolveCliSession,
 } from "./agent-integrations/context.ts";
 import { lendsPaneIdentity } from "./agent-integrations/pane-identity.ts";
+import { isDetachedAttachment, listBindingsByNativeValue } from "./agent-integrations/session-store.ts";
+import { getStateDb } from "./state/db.ts";
 import { UserActionableError } from "./errors.ts";
 import { readJson, writeJson } from "./json-store.ts";
 import { rtDir } from "./rt-paths.ts";
@@ -29,6 +31,13 @@ export interface ChatSession {
   room?: string;
   lastCwd?: string;
   lastBranchReadAt?: number;
+  /**
+   * Set by a sign-in with agent.integrations.enabled on whose session a
+   * binding names. The chat plugin's hooks report lifecycle to rt only for a
+   * file carrying it, so a session signed in with the switch off costs its
+   * hooks no rt call at all.
+   */
+  bound?: true;
 }
 
 export function sessionsDir(): string {
@@ -139,6 +148,12 @@ function explicitSession(args: string[]): string | undefined {
   const i = args.indexOf("--session");
   const value = i >= 0 ? args[i + 1] : undefined;
   return value !== undefined && !value.startsWith("--") ? value : undefined;
+}
+
+/** Whether, with agent.integrations.enabled on, an attached binding names `sessionId`: what a sign-in's `bound` marker records. */
+export function sessionIsBound(sessionId: string): boolean {
+  if (!integrationsEnabled()) return false;
+  return listBindingsByNativeValue(getStateDb(), sessionId).some((b) => !isDetachedAttachment(b));
 }
 
 /**
