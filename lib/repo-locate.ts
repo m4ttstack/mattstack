@@ -223,7 +223,9 @@ export async function planLocate(opts: { newPath: string; repo?: string }): Prom
     return refuse("nothing-lost", `rt does not know a repo called ${repoLabel(opts.repo)}`);
   }
   if (named && existsSync(named.path)) {
-    return refuse("old-path-exists", `${repoLabel(named.repoName)} is still at ${named.path}, so this folder is a second copy, not a move`);
+    return canon(named.path) === newPath
+      ? refuse("nothing-lost", `rt already knows ${repoLabel(named.repoName)} at ${newPath}`)
+      : refuse("old-path-exists", `${repoLabel(named.repoName)} is still at ${named.path}, so this folder is a second copy, not a move`);
   }
 
   const identityRow = entries.find((e) => e.repoName === identity) ?? null;

@@ -14,6 +14,7 @@ import { loadRepoIndex, REPO_INDEX_NS } from "../repo-index.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../worktree/registry.ts";
 import { saveClaims } from "../endpoint/store.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../settings/identity.ts";
+import { classifyLocate } from "../team/org-folder-move.ts";
 import { applyLocate, findLocateCandidates, isRefusal, parseRefusalText, planLocate, refusalWithNext, splitRefusalNext, __test__ as locateTest } from "../repo-locate.ts";
 
 const LONG_DASH = new RegExp(`[${String.fromCodePoint(0x2013)}${String.fromCodePoint(0x2014)}]`);
@@ -152,6 +153,36 @@ describe("repo locate", () => {
 
     expect(isRefusal(out) && out.refusal).toBe("old-path-exists");
     expect(isRefusal(out) && plainWords(out.message)).toBe(true);
+  });
+
+  test("a named repo whose row already points at this folder has nothing to move, not a second copy", async () => {
+    const repo = repoWithRemote("widgets");
+    const identity = serializeIdentity(await deriveRepoIdentity(repo));
+    setKvValue(REPO_INDEX_NS, identity, repo);
+
+    const out = await planLocate({ newPath: repo, repo: identity });
+
+    expect(isRefusal(out) && out.refusal).toBe("nothing-lost");
+    expect(isRefusal(out) && out.message).toBe(`rt already knows widgets at ${repo}`);
+  });
+
+  test("the org folder step reads a clone already at its folder, row and all, as done", async () => {
+    const repo = repoWithRemote("acme");
+    const identity = serializeIdentity(await deriveRepoIdentity(repo));
+    setKvValue(REPO_INDEX_NS, identity, repo);
+
+    const out = await planLocate({ newPath: repo, repo: identity });
+
+    expect(isRefusal(out) && classifyLocate(`${out.refusal}: ${out.message}`)).toBe("done");
+  });
+
+  test("a named legacy row that already points at this folder has nothing to move", async () => {
+    const repo = repoWithRemote("gadgets");
+    setKvValue(REPO_INDEX_NS, "gadgets-legacy", repo);
+
+    const out = await planLocate({ newPath: repo, repo: "gadgets-legacy" });
+
+    expect(isRefusal(out) && out.refusal).toBe("nothing-lost");
   });
 
   test("plans the index keys, registry rewrite, claim rewrite and repair paths of a moved repo", async () => {
