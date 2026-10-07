@@ -38,8 +38,10 @@ function copyFile(p: MoveProbes, from: string, to: string, transform: (raw: stri
   const raw = p.readFile(from);
   if (raw === null) return "none";
   p.mkdirp(dirname(to));
-  p.writeFile(to, transform(raw), RECORD_MODE);
-  p.chmod(to, RECORD_MODE);
+  const temp = `${to}.${process.pid}.tmp`;
+  p.writeFile(temp, transform(raw), RECORD_MODE);
+  p.chmod(temp, RECORD_MODE);
+  p.rename(temp, to);
   return "copied";
 }
 
@@ -122,7 +124,12 @@ export async function runOrgMove(p: MoveProbes, req: { from: string; to: string;
     }
   }
 
-  const located = await req.locate(req.to);
+  let located: Awaited<ReturnType<LocateFn>>;
+  try {
+    located = await req.locate(req.to);
+  } catch (err) {
+    return fail("index", err instanceof Error ? err.message : String(err));
+  }
   if (located.ok) base.index = located.moved ? "moved" : "already";
   else if (classifyLocate(located.error) === "done") base.index = "already";
   else return fail("index", located.error);

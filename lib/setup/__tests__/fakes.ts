@@ -168,6 +168,8 @@ export function fakeProbes(opts: FakeProbesOpts = {}): Probes & {
     rename(from, to) {
       calls.renames.push([from, to]);
       if (from in dirs) {
+        // Real renameSync fails when the target's parent is missing; creating it here would hide a caller's missing mkdirp.
+        if (!(dirname(to) in dirs)) throw Object.assign(new Error(`ENOENT: no such file or directory, rename '${from}' -> '${to}'`), { code: "ENOENT" });
         // A directory moves with everything under it, and its entry in the parent listing moves too.
         const prefix = `${from}/`;
         for (const key of Object.keys(dirs)) {
@@ -187,7 +189,7 @@ export function fakeProbes(opts: FakeProbesOpts = {}): Probes & {
           const at = fromParent.indexOf(basename(from));
           if (at >= 0) fromParent.splice(at, 1);
         }
-        const toParent = dirs[dirname(to)] ?? (dirs[dirname(to)] = []);
+        const toParent = dirs[dirname(to)]!;
         if (!toParent.includes(basename(to))) toParent.push(basename(to));
         return;
       }

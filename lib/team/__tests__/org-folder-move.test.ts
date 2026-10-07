@@ -31,6 +31,17 @@ describe("copyOrgRecords", () => {
     expect(copyOrgRecords(p, "widgets", "acme")).toEqual({ teams: "present", invites: "none" });
     expect(p.readFile(`${RT}/teams/acme.json`)).toBe('{"forgeUsername":"dev2"}');
   });
+  test("the copied record lands through a temp file renamed into place", () => {
+    const p = probes({ [`${RT}/teams/widgets.json`]: record, [`${RT}/invites/widgets.json`]: invites });
+    copyOrgRecords(p, "widgets", "acme");
+    for (const kind of ["teams", "invites"]) {
+      const target = `${RT}/${kind}/acme.json`;
+      const into = p.calls.renames.find(([, b]) => b === target);
+      expect(into?.[0].startsWith(`${RT}/${kind}/acme.json.`)).toBe(true);
+      expect(p.exists(into![0])).toBe(false);
+      expect(p.fileMode(target)).toBe(0o600);
+    }
+  });
   test("nothing to copy when folder and org agree or no record exists", () => {
     expect(copyOrgRecords(probes({ [`${RT}/teams/acme.json`]: record }), "acme", "acme")).toEqual({ teams: "present", invites: "none" });
     expect(copyOrgRecords(probes({}), "widgets", "acme")).toEqual({ teams: "none", invites: "none" });
@@ -98,6 +109,12 @@ describe("runOrgMove", () => {
     expect(result.error).toContain("identity-mismatch");
     expect(p.exists(`${RT}/teams/widgets.json`)).toBe(true);
     expect(readTeamLocal(p, "acme").movedFrom).toBe("widgets");
+  });
+  test("a relocation that throws reports the index stage with the folder already moved", async () => {
+    const p = probes({ [`${RT}/teams/widgets.json`]: record, [`${from}/.git/config`]: "[core]\n" }, dirsFor(`${MS}/teams`, "widgets"));
+    const result = await runOrgMove(p, { from, to, locate: async () => { throw new Error("daemon went away"); } });
+    expect(result).toMatchObject({ ok: false, stage: "index", index: "failed", folderMoved: true, error: "daemon went away", removed: [] });
+    expect(p.exists(`${RT}/teams/widgets.json`)).toBe(true);
   });
   test("a nothing-lost relocation counts as done", async () => {
     const p = probes({ [`${from}/.git/config`]: "[core]\n" }, dirsFor(`${MS}/teams`, "widgets"));
