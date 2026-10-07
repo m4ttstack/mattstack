@@ -1,5 +1,22 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
+exports[`the setup plan's shape and copy apply emits the org folder, pull and identity titles after a join 1`] = `
+[
+  {
+    "id": "org.folder",
+    "title": "Move your org folder",
+  },
+  {
+    "id": "org.pull",
+    "title": "Pull your org",
+  },
+  {
+    "id": "team.identity",
+    "title": "Record who you are",
+  },
+]
+`;
+
 exports[`the setup plan's shape and copy plan: the machine view is unchanged 1`] = `
 {
   "canInstall": false,
@@ -1029,17 +1046,4 @@ exports[`the setup plan's shape and copy status: the copy is what the copy table
   "tool.vsix.why": "mattstack.app can carry the rt-context editor extension pre-bundled.",
   "tools.title": "Tools",
 }
-`;
-
-exports[`the setup plan's shape and copy apply emits the org pull and identity titles after a join 1`] = `
-[
-  {
-    "id": "org.pull",
-    "title": "Pull your org",
-  },
-  {
-    "id": "team.identity",
-    "title": "Record who you are",
-  },
-]
 `;

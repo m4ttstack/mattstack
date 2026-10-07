@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { startTeamSnapshots } from "../team-snapshots.ts";
@@ -26,8 +26,11 @@ const flush = () => new Promise<void>((resolve) => { globalThis.setTimeout(resol
 const warned = (log: ReturnType<typeof fakeLog>, needle: string): boolean =>
   log.calls.some((c) => c.level === "warn" && JSON.stringify(c.args).includes(needle));
 
-function harness(opts: Record<string, unknown> = {}) {
-  const root = mkdtempSync(join(tmpdir(), "rt-team-snapshots-"));
+function harness(opts: Record<string, unknown> & { orgsMissingAtBoot?: boolean } = {}) {
+  const { orgsMissingAtBoot, ...depOverrides } = opts;
+  const parent = mkdtempSync(join(tmpdir(), "rt-team-snapshots-"));
+  const root = orgsMissingAtBoot ? join(parent, "orgs") : parent;
+  const stopped: string[] = [];
   const started: { spec: SnapshotSpec; stopped: boolean }[] = [];
   const watchCalls: { path: string; options: { recursive: boolean } }[] = [];
   // Timers under 10s (the watch debounce) fire inline; anything longer is the
@@ -48,7 +51,7 @@ function harness(opts: Record<string, unknown> = {}) {
       const entry = { spec, stopped: false };
       started.push(entry);
       return {
-        stop: () => { entry.stopped = true; },
+        stop: () => { entry.stopped = true; stopped.push(spec.id); },
         runNow: async () => ({ committed: false, sha: null, paths: [], reason: "manual" as const }),
         pullNow: async () => ({ outcome: "up-to-date" as const, detail: null }),
         status: () => ({ id: spec.id, repoDir: spec.repoDir }),
@@ -56,8 +59,9 @@ function harness(opts: Record<string, unknown> = {}) {
       };
     }) as unknown as typeof import("../home-snapshot.ts").startSnapshot,
     watch: (path: string, options: { recursive: boolean }, l: (ev: string, f: string | null) => void) => {
-      watchCalls.push({ path, options });
       if (watchThrows) throw new Error("ENOSPC: watch limit reached");
+      if (!existsSync(path)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      watchCalls.push({ path, options });
       listener = l;
       return { close() {} };
     },
@@ -71,10 +75,10 @@ function harness(opts: Record<string, unknown> = {}) {
       const i = pending.findIndex((t) => t.id === (h as unknown as number));
       if (i >= 0) pending.splice(i, 1);
     },
-    ...opts,
+    ...depOverrides,
   };
   return {
-    root, started, deps, log, settings, watchCalls, pending,
+    root, started, stopped, deps, log, settings, watchCalls, pending,
     breakWatch: () => { watchThrows = true; },
     emit: (f: string) => listener?.("rename", f),
     watchArmed: () => listener !== null,
@@ -85,7 +89,7 @@ function harness(opts: Record<string, unknown> = {}) {
     },
     startedSpecs: () => started.map((s) => s.spec),
     stoppedIds: () => started.filter((s) => s.stopped).map((s) => s.spec.id),
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => rmSync(parent, { recursive: true, force: true }),
   };
 }
 
@@ -402,5 +406,39 @@ describe("startTeamSnapshots", () => {
       handle.stop();
       h.cleanup();
     });
+  });
+});
+
+describe("pause and resume", () => {
+  test("pause stops a clone's engine and a rescan does not restart it; resume brings it back", async () => {
+    const h = harness();
+    clone(h.root, "acme", true);
+    const handle = startTeamSnapshots(h.deps);
+    await handle.ready;
+    expect(handle.status().map((e) => e.slug)).toEqual(["acme"]);
+    handle.pause(["acme", "widgets"]);
+    expect(handle.status()).toEqual([]);
+    expect(h.stopped).toEqual(["team:acme"]);
+    await handle.rescan();
+    expect(handle.status()).toEqual([]);
+    renameSync(join(h.root, "acme"), join(h.root, "widgets"));
+    await handle.resume(["acme", "widgets"]);
+    expect(handle.status().map((e) => e.slug)).toEqual(["widgets"]);
+    handle.stop();
+    h.cleanup();
+  });
+
+  test("resume re-arms the orgs/ watch when it never armed", async () => {
+    const h = harness({ orgsMissingAtBoot: true });
+    const handle = startTeamSnapshots(h.deps);
+    await handle.ready;
+    expect(h.watchCalls.length).toBe(0);
+    mkdirSync(h.root, { recursive: true });
+    clone(h.root, "acme", true);
+    await handle.resume([]);
+    expect(h.watchCalls.length).toBe(1);
+    expect(handle.status().map((e) => e.slug)).toEqual(["acme"]);
+    handle.stop();
+    h.cleanup();
   });
 });

@@ -26,6 +26,15 @@ export interface SetupState {
   lastApplyOk?: boolean;
   /** When setup finished on this Mac. mattstack.app reads this file directly (rt-tray's SetupCompletion). */
   finishedAt?: string;
+  /** Marketplace re-points the org.folder step started: written before `claude plugin marketplace remove` (which uninstalls the marketplace's plugins) so a run halted before the re-add finishes at the next one. */
+  orgMarketplaceMoves?: PendingMarketplaceMove[];
+}
+
+export interface PendingMarketplaceMove {
+  marketplace: string;
+  dir: string;
+  configDir: string;
+  plugins: { id: string; scope: string; enabled: boolean }[];
 }
 
 const EMPTY_STATE: SetupState = { v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] };
