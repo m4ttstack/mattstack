@@ -276,10 +276,181 @@ describe('the state scenarios', () => {
       const { runRt } = fixtureRt(scenario);
       const work = await runRt(pack('anatomy', '--skill', 'work'));
       expect(JSON.parse(work.stdout)).toEqual(anatomyWork);
-      if (!['check-failed', 'never-compiled'].includes(scenario)) {
+      if (
+        ![
+          'check-failed',
+          'never-compiled',
+          'org-base',
+          'org-base-drift',
+        ].includes(scenario)
+      ) {
         const report = await runRt(pack('check'));
         expect(JSON.parse(report.stdout)).toEqual(check);
       }
+    }
+  });
+});
+
+describe('the org base scenarios', () => {
+  const ORG = ['org-base', 'org-base-drift'] as const;
+  const BASE_FILL =
+    '/fixture/orgbase/acme-base/attachments/plan-policy/SKILL.md';
+  const BASE_TAG = {
+    origin: 'base',
+    base: 'acme-base',
+    baseVersion: '0.1.0',
+  };
+
+  type Composition = typeof composition & {
+    extends?: { name: string; version: string };
+    verbs: { name: string; slots: Record<string, unknown>[] }[];
+    fills: Record<string, unknown>[];
+  };
+  const json = async <T>(scenario: FixtureScenario, argv: string[]) =>
+    JSON.parse((await fixtureRt(scenario).runRt(argv)).stdout) as T;
+
+  it.each(ORG)('%s: the composition binds plan to the base fill', async s => {
+    const c = await json<Composition>(s, pack('composition'));
+    expect(c.extends).toEqual({ name: 'acme-base', version: '0.1.0' });
+    const binder = c.binders.find(b => b.ref === 'mattstack:stage-plan')!;
+    expect(binder.slots).toEqual([
+      {
+        name: 'domain',
+        boundTo: 'acme-base:plan-policy',
+        layer: 'base:acme-base',
+        ...BASE_TAG,
+      },
+    ]);
+    const slot = c.verbs
+      .find(v => v.name === 'shepherdr')!
+      .slots.find(x => x.name === 'domain');
+    expect(slot).toMatchObject({
+      boundTo: 'acme-base:plan-policy',
+      fillSourcePath: BASE_FILL,
+      fillVersion: 'org',
+      ...BASE_TAG,
+    });
+    expect(c.fills.find(f => f.binding === 'acme-base:plan-policy')).toEqual({
+      binding: 'acme-base:plan-policy',
+      provides: 'plan-domain@1',
+      sourcePath: BASE_FILL,
+      registered: false,
+      ...BASE_TAG,
+    });
+  });
+
+  it.each(ORG)('%s: plan anatomy tags the base source', async s => {
+    const anatomy = await json<typeof anatomyPlan>(
+      s,
+      pack('anatomy', '--skill', 'stage-plan')
+    );
+    const domain = anatomy.parts.find(part => part.name === 'domain')!;
+    expect(domain.source).toMatchObject({
+      ref: 'acme-base:plan-policy',
+      path: BASE_FILL,
+      version: 'org',
+      builtVersion: 'org',
+      ...BASE_TAG,
+    });
+    expect(anatomy.links.map(l => l.path)).toContain(
+      '../../attachments/dev-servers/SKILL.md'
+    );
+  });
+
+  it('org-base: check reports the base attachment in sync', async () => {
+    const result = await fixtureRt('org-base').runRt(pack('check'));
+    const report = JSON.parse(result.stdout) as typeof check & {
+      attachments: unknown[];
+      baseErrors: string[];
+    };
+    expect(report.attachments).toEqual([
+      {
+        name: 'dev-servers',
+        base: 'acme-base',
+        status: 'in-sync',
+        staleFiles: [],
+        orphanFiles: [],
+      },
+    ]);
+    expect(report.baseErrors).toEqual([]);
+  });
+
+  it('org-base-drift: check reports it stale with a base error, exiting 1', async () => {
+    const result = await fixtureRt('org-base-drift').runRt(pack('check'));
+    const report = JSON.parse(result.stdout) as {
+      attachments: unknown[];
+      baseErrors: string[];
+    };
+    expect(result.code).toBe(1);
+    expect(report.attachments).toEqual([
+      {
+        name: 'dev-servers',
+        base: 'acme-base',
+        status: 'stale',
+        staleFiles: ['SKILL.md'],
+        orphanFiles: [],
+      },
+    ]);
+    expect(report.baseErrors).toEqual([
+      'acme-base has no attachments/feature-flags',
+    ]);
+  });
+
+  it.each(ORG)('%s: surface list holds a base row', async s => {
+    const result = await fixtureRt(s).runRt([
+      'skills',
+      'surface',
+      'list',
+      '--pack',
+      'acme',
+      '--json',
+    ]);
+    expect(result.code).toBe(0);
+    const surface = JSON.parse(result.stdout) as {
+      pack: string;
+      packDir: string;
+      rows: { name: string; kind: string; status: string; base?: string }[];
+    };
+    expect(surface.pack).toBe('acme');
+    expect(surface.packDir).toBe('/fixture/packs/acme');
+    expect(surface.rows).toContainEqual({
+      name: 'dev-servers',
+      kind: 'compiled',
+      status: 'internal',
+      base: 'acme-base',
+    });
+    expect(surface.rows.some(r => r.kind === 'compiled' && !r.base)).toBe(true);
+    expect(surface.rows.some(r => r.name === 'plan-policy')).toBe(true);
+  });
+
+  it.each(ORG)('%s: the base fill and compiled copy are readable', async s => {
+    const { readPackFile, realpath } = fixtureRt(s);
+    await expect(readPackFile(BASE_FILL)).resolves.toContain(
+      'How acme plans a change before any code.'
+    );
+    await expect(realpath(BASE_FILL)).resolves.toBe(BASE_FILL);
+    const compiled = await readPackFile(
+      '/fixture/packs/acme/attachments/dev-servers/compiled.json'
+    );
+    expect(JSON.parse(compiled)).toEqual({
+      base: 'acme-base',
+      version: '0.1.0',
+      files: ['SKILL.md'],
+    });
+  });
+
+  it('the other scenarios keep refusing surface', async () => {
+    for (const scenario of SCENARIOS) {
+      if (scenario === 'org-base' || scenario === 'org-base-drift') continue;
+      const result = await fixtureRt(scenario).runRt([
+        'skills',
+        'surface',
+        'list',
+        '--pack',
+        'acme',
+        '--json',
+      ]);
+      expect(result.code).toBe(1);
     }
   });
 });
