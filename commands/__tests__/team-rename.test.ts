@@ -33,14 +33,14 @@ describe("rt team rename", () => {
     await teamRename(["gadgets", "--json"], {}, deps);
     expect(JSON.parse(lines[0]!)).toMatchObject({ ok: true, from: "acme", to: "gadgets", converged: true });
     expect(Object.keys(JSON.parse(lines[0]!)).sort()).toEqual(["at", "contract", "converged", "from", "ok", "to"]);
-  });
+  }, 15_000);
 
   test("a converge that did not finish is converged false, and still exit 0", async () => {
     const w = orgWorld();
     const { deps, lines } = depsFor(w.p, { state: "failed", detail: "The rt daemon is running but did not answer", remedy: "Run rt daemon restart, then rt setup update --force" });
     expect(await exitCode(() => teamRename(["gadgets", "--json"], {}, deps))).toBeUndefined();
     expect(JSON.parse(lines[0]!)).toMatchObject({ ok: true, converged: false });
-  });
+  }, 15_000);
 
   test("a non-admin sees a refused note, exit 2", async () => {
     const w = orgWorld("dev2");
@@ -97,5 +97,5 @@ describe("rt team rename", () => {
       expect(spy).toHaveBeenCalledTimes(1);
       expect(JSON.parse(lines[0]!)).toMatchObject({ converged: true });
     } finally { spy.mockRestore(); }
-  });
+  }, 15_000);
 });

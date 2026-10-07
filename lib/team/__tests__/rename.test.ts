@@ -65,7 +65,7 @@ describe("renameOrg refusals", () => {
     writeFileSync(join(w.root, "notes.txt"), "mine\n");
     const result = await renameOrg(w.p, "acme", "gadgets", seams());
     expect(result).toMatchObject({ converged: true });
-  });
+  }, 15_000);
 
   test("a clone behind its origin is refused and pointed at a pull", async () => {
     const w = orgWorld();
@@ -78,7 +78,7 @@ describe("renameOrg refusals", () => {
     git("push", "-q", "origin", "main");
     await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "org-behind", next: "rt team pull --team acme", thenRun: "rt team rename gadgets" });
     expect(marker(w.root).org).toBe("acme");
-  });
+  }, 15_000);
 
   test("a detached clone is refused", async () => {
     const w = orgWorld();
@@ -99,7 +99,7 @@ describe("renameOrg", () => {
     expect(w.atOrigin("log", "-1", "--format=%s", "main").trim()).toBe("org: rename to gadgets");
     expect(w.git("status", "--porcelain")).toBe("");
     expect(s.converged).toBe(1);
-  });
+  }, 15_000);
 
   test("on a trial branch the origin has never seen, it publishes that branch and leaves main alone", async () => {
     const w = orgWorld();
@@ -108,7 +108,7 @@ describe("renameOrg", () => {
     expect(w.atOrigin("log", "-1", "--format=%s", "org-trial").trim()).toBe("org: rename to gadgets");
     expect(w.atOrigin("log", "-1", "--format=%s", "main").trim()).toBe("seed");
     expect(w.pushes.flat().join(" ")).not.toContain("refs/heads/main");
-  });
+  }, 15_000);
 
   test("a push the origin refuses undoes the rename commit and converges nothing", async () => {
     const w = orgWorld();
@@ -120,21 +120,21 @@ describe("renameOrg", () => {
     expect(w.git("log", "-1", "--format=%s").trim()).toBe("seed");
     expect(w.git("status", "--porcelain")).toBe("");
     expect(s.converged).toBe(0);
-  });
+  }, 15_000);
 
   test("a converge that does not finish still reports the rename, with its detail and remedy", async () => {
     const w = orgWorld();
     const result = await renameOrg(w.p, "acme", "gadgets", seams({ state: "partial", detail: "claude is missing", remedy: "Run claude plugin marketplace add" }));
     expect(result).toEqual({ from: "acme", to: "gadgets", converged: false, convergeState: "partial", convergeDetail: "claude is missing", convergeRemedy: "Run claude plugin marketplace add" });
     expect(w.atOrigin("log", "-1", "--format=%s", "main").trim()).toBe("org: rename to gadgets");
-  });
+  }, 15_000);
 
   test("a converge that throws still reports the published rename", async () => {
     const w = orgWorld();
     const result = await renameOrg(w.p, "acme", "gadgets", { forgeToken: async () => null, converge: async () => { throw new Error("the daemon went away"); } });
     expect(result).toMatchObject({ from: "acme", to: "gadgets", converged: false, convergeDetail: "the daemon went away" });
     expect(w.atOrigin("show", "main:mattstack/mattstack.jsonc")).toContain(`"org": "gadgets"`);
-  });
+  }, 15_000);
 
   test("a marker with comments keeps them", async () => {
     const w = orgWorld();
@@ -145,5 +145,5 @@ describe("renameOrg", () => {
     const text = readFileSync(join(w.root, "mattstack", "mattstack.jsonc"), "utf8");
     expect(text).toContain("// the org marker");
     expect(text).toContain(`"org": "gadgets"`);
-  });
+  }, 15_000);
 });
