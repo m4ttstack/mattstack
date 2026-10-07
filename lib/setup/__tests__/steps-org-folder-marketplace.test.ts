@@ -66,21 +66,41 @@ describe("convergeMarketplace", () => {
     expect(out.state).toBe("skipped");
   });
 
-  test("a stale path is removed, re-added and its plugins reinstalled; a disabled plugin is reinstalled, then disabled again", async () => {
-    const claude = claudeFake({ registeredAt: old(), plugins: [{ id: "widgets@acme", enabled: true }, { id: "gadgets@acme", scope: "local", enabled: false }, { id: "other@mattstack", enabled: true }] });
+  test("a stale path is removed, re-added and its user plugins reinstalled; a disabled plugin is reinstalled, then disabled again", async () => {
+    const claude = claudeFake({ registeredAt: old(), plugins: [{ id: "widgets@acme", enabled: true }, { id: "gizmos@acme", enabled: false }, { id: "other@mattstack", enabled: true }] });
     const p = probes(claude.exec);
     updateSetupState(p, (s) => ({ ...s, marketplaces: [...s.marketplaces, old(), "https://github.com/acme/mattstack-marketplace.git"] }));
     const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [old()] });
     expect(out.state).toBe("done");
+    expect(out.detail).toContain("2 plugins reinstalled");
     expect(claude.commands()).toEqual([
       "plugin marketplace list --json",
       "plugin list --json",
       "plugin marketplace remove acme",
       `plugin marketplace add ${clone()}`,
       "plugin install widgets@acme --scope user",
-      "plugin install gadgets@acme --scope local",
-      "plugin disable gadgets@acme",
+      "plugin install gizmos@acme --scope user",
+      "plugin disable gizmos@acme",
     ]);
+    expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
+  });
+
+  test("a plugin installed for one project is handed back, never installed by rt", async () => {
+    const claude = claudeFake({ registeredAt: old(), plugins: [{ id: "widgets@acme", enabled: true }, { id: "gadgets@acme", scope: "local", enabled: false }, { id: "other@mattstack", enabled: true }] });
+    const p = probes(claude.exec);
+    updateSetupState(p, (s) => ({ ...s, marketplaces: [...s.marketplaces, old(), "https://github.com/acme/mattstack-marketplace.git"] }));
+    const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [old()] });
+    expect(out.state).toBe("partial");
+    expect(out.detail).toContain("gadgets@acme must be reinstalled from the project that used it");
+    expect(out.commands).toEqual(["claude plugin install gadgets@acme --scope local", "claude plugin disable gadgets@acme"]);
+    expect(claude.commands()).toEqual([
+      "plugin marketplace list --json",
+      "plugin list --json",
+      "plugin marketplace remove acme",
+      `plugin marketplace add ${clone()}`,
+      "plugin install widgets@acme --scope user",
+    ]);
+    expect(claude.commands().some((c) => c.includes("--scope local") || c.includes("disable gadgets"))).toBe(false);
     const state = readSetupState(p);
     expect(state.marketplaces).toEqual([clone(), "https://github.com/acme/mattstack-marketplace.git"]);
     expect(state.orgMarketplaceMoves ?? []).toEqual([]);
@@ -124,6 +144,7 @@ describe("convergeMarketplace", () => {
     updateSetupState(p, (s) => ({ ...s, orgMarketplaceMoves: [{ marketplace: "acme", dir: clone(), configDir: defaultCfg(), plugins: [{ id: "widgets@acme", scope: "user", enabled: true }, { id: "gadgets@acme", scope: "user", enabled: false }] }] }));
     const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
     expect(out.state).toBe("done");
+    expect(out.detail).toContain("finished reinstalling 1 plugin from acme");
     expect(claude.commands()).toEqual([
       "plugin marketplace list --json",
       "plugin list --json",
@@ -162,15 +183,63 @@ describe("convergeMarketplace", () => {
     expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
   });
 
-  test("claude missing ends partial with the remove and add commands and writes no pending record", async () => {
+  test("claude missing after a move ends partial with no commands and writes no pending record", async () => {
     const p = probes(undefined);
     const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [old()] });
     expect(out.state).toBe("partial");
-    expect(out.commands).toEqual([
-      "claude plugin marketplace remove acme",
-      `claude plugin marketplace add ${clone()}`,
-    ]);
-    expect(out.detail).toContain("Claude Code");
+    expect(out.commands).toBeUndefined();
+    expect(out.detail).toContain("Install Claude Code and run the update again");
+    expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
+  });
+
+  test("claude missing with nothing moved is skipped", async () => {
+    const out = await convergeMarketplace(ctxFor(probes(undefined)), { dir: clone(), stalePaths: [] });
+    expect(out).toEqual({ state: "skipped", detail: "Claude Code is not installed, so there is no marketplace to re-point" });
+  });
+
+  test("an unreadable marketplace list ends partial with no commands and touches nothing", async () => {
+    const claude = claudeFake({ registeredAt: old(), plugins: [], fail: "plugin marketplace list" });
+    const p = probes(claude.exec);
+    const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [old()] });
+    expect(out.state).toBe("partial");
+    expect(out.commands).toBeUndefined();
+    expect(out.detail).toContain("marketplace list could not be read");
+    expect(out.detail).toContain("Running the update again retries");
+    expect(claude.commands()).toEqual(["plugin marketplace list --json"]);
+  });
+
+  test("an unreadable plugin list before a re-point ends partial with no commands and leaves the pending record alone", async () => {
+    const claude = claudeFake({ registeredAt: old(), plugins: [], fail: "plugin list" });
+    const p = probes(claude.exec);
+    const record = { marketplace: "acme", dir: clone(), configDir: defaultCfg(), plugins: [{ id: "widgets@acme", scope: "user", enabled: true }] };
+    updateSetupState(p, (s) => ({ ...s, orgMarketplaceMoves: [record] }));
+    const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [old()] });
+    expect(out.state).toBe("partial");
+    expect(out.commands).toBeUndefined();
+    expect(out.detail).toContain("plugin list could not be read");
+    expect(claude.commands()).toEqual(["plugin marketplace list --json", "plugin list --json"]);
+    expect(readSetupState(p).orgMarketplaceMoves).toEqual([record]);
+  });
+
+  test("a pending record's project plugins are handed back when the run finishes after the remove", async () => {
+    const claude = claudeFake({ registeredAt: null, plugins: [] });
+    const p = probes(claude.exec);
+    updateSetupState(p, (s) => ({ ...s, orgMarketplaceMoves: [{ marketplace: "acme", dir: clone(), configDir: defaultCfg(), plugins: [{ id: "widgets@acme", scope: "user", enabled: true }, { id: "gadgets@acme", scope: "project", enabled: true }] }] }));
+    const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
+    expect(out.state).toBe("partial");
+    expect(out.commands).toEqual(["claude plugin install gadgets@acme --scope project"]);
+    expect(claude.commands()).toEqual(["plugin marketplace list --json", `plugin marketplace add ${clone()}`, "plugin install widgets@acme --scope user"]);
+    expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
+  });
+
+  test("a pending record at the clone hands back a missing local plugin and installs the missing user one", async () => {
+    const claude = claudeFake({ registeredAt: clone(), plugins: [] });
+    const p = probes(claude.exec);
+    updateSetupState(p, (s) => ({ ...s, orgMarketplaceMoves: [{ marketplace: "acme", dir: clone(), configDir: defaultCfg(), plugins: [{ id: "widgets@acme", scope: "user", enabled: true }, { id: "gadgets@acme", scope: "local", enabled: false }] }] }));
+    const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
+    expect(out.state).toBe("partial");
+    expect(out.commands).toEqual(["claude plugin install gadgets@acme --scope local", "claude plugin disable gadgets@acme"]);
+    expect(claude.commands()).toEqual(["plugin marketplace list --json", "plugin list --json", "plugin install widgets@acme --scope user"]);
     expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
   });
 
