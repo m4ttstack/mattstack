@@ -915,6 +915,7 @@ git commit -m "console health: count org base attachment drift and base errors"
 **Files:**
 - Modify: `apps/console/src/server/skills.ts` (`dirtyFilesIn` ~731-744, `/api/skills/history` ~1195-1279, `/api/skills/diff` ~1280-1362, `SkillsDiffResponse`, `SkillsHistoryResponse`)
 - Create: `apps/console/src/server/baseScopes.ts` (+ `baseScopes.test.ts`)
+- Modify: `apps/console/src/app/wiring/outline.ts` (`SlotOutlineNode` ~45, slot build ~337), `outline.test.ts`
 - Modify: `apps/console/src/app/wiring/seamAttribution.ts:168-188`, the timeline's diff parsing (search `useDiff\|SkillsDiff` in `src/app/wiring`), `VersionTimeline.tsx:466-469`
 - Test: `src/server/skills.test.ts` (history and diff), `src/app/wiring/seamAttribution.test.ts`, `VersionTimeline.test.tsx`
 
@@ -924,7 +925,7 @@ git commit -m "console health: count org base attachment drift and base errors"
   - `baseScopesFor(composition, verb: string | null, repoRoot: string, realpath): Promise<BaseScope[]>`: one per distinct base fill dir the verb's slots (or, with no verb, every verb's slots) bind (roster verbs only: a pipeline stage's slots carry no `fillSourcePath`, the same gap as today, and the PR body says so), from slots with `origin === 'base'` whose `fillSourcePath` lies outside `packDir`; the dir is the fill's folder (`dirname(fillSourcePath)`), realpath'd, relativized against `repoRoot`; a dir that relativizes outside the repo (`..`) is dropped.
   - `toBaseCoordinate(path: string, scopes: BaseScope[], repoRoot: string): string`: a repo-root-relative path under a scope's root becomes `base:<name>/<path inside the base pack>`; any other path is returned unchanged.
   - `SkillsDiffResponse.baseDiff?: string` (paths rewritten), history `commits[].files` and `runtime.dirtyFiles` rewritten for base paths.
-  - `seamPackPath(seam, index)` returns `base:<name>/<seam.path>` for a base seam; `SeamSourceIndex` gains `baseRoots: Record<string, string>` (base name to root dir) built from composition slots with `origin === 'base'`.
+  - `seamPackPath(seam, index)` returns `base:<name>/<seam.path>` for a base seam; `SeamSourceIndex` gains optional `baseRoots?: Record<string, string>` (base name to root dir) built from composition slots with `origin === 'base'`.
 
 - [ ] **Step 1: Failing unit tests for `baseScopes.ts`**
 
@@ -1056,9 +1057,9 @@ Implement in the routes: fetch composition with `cachedRun(['skills','compositio
 
 In `seamAttribution.test.ts`, a seam `{ kind: 'slot', slot: 'domain', ref: 'acme-base:plan-policy', path: 'attachments/plan-policy/SKILL.md', lines: [1, 40] }` with `index.fillSourcePaths.domain = '/o/acme/mattstack/org/packs/acme-base/attachments/plan-policy/SKILL.md'`, `index.baseRoots = { 'acme-base': '/o/acme/mattstack/org/packs/acme-base' }` gives `seamPackPath` `base:acme-base/attachments/plan-policy/SKILL.md`, and `attributeHunk({ path: 'base:acme-base/attachments/plan-policy/SKILL.md', lines: [3, 5] }, ...)` names that seam. A seam whose ref is a plugin keeps returning null.
 
-Add `origin?: 'base'` and `base?: string` to `SlotOutlineNode` (`src/app/wiring/outline.ts:~45`) and copy them from the composition slot where `outline.ts` sets `fillSourcePath` (~line 337), with an `outline.test.ts` case that a base slot keeps them. Make `baseRoots` optional on `SeamSourceIndex` (`baseRoots?: Record<string, string>`), so `SeamCompare.tsx:~244`, which builds an index too, keeps compiling; give it the same `baseRoots` from its slots.
+Add `origin?: 'base'` and `base?: string` to `SlotOutlineNode` (`src/app/wiring/outline.ts:~45`) and copy them from the composition slot where `outline.ts` sets `fillSourcePath` (~line 337), with an `outline.test.ts` case that a base slot keeps them. Make `baseRoots` optional on `SeamSourceIndex` (`baseRoots?: Record<string, string>`), so `SeamCompare.tsx`'s `NO_INDEX` fallback (~244) keeps compiling unchanged; SeamCompare gets its real index from VersionTimeline.
 
-Implement: in `seamPackPath`, before the `pluginOf(seam.ref) !== index.pack` bail, `const base = pluginOf(seam.ref); const baseRoot = index.baseRoots?.[base]; if (baseRoot && absolute.startsWith(\`${baseRoot}/\`)) return \`base:${base}/${seam.path}\`;`. Build `baseRoots` where the index is built (`VersionTimeline.tsx:~233-245` and `SeamCompare.tsx:~244`) from the `SlotOutlineNode`s with `origin === 'base'`, root from `pluginRootOf` imported from `src/shared/pluginRoot`. Where the timeline parses `diff.diff` into hunks, also parse `diff.baseDiff ?? ''` and concatenate the hunks. Add a `VersionTimeline.test.tsx` case: a composition whose domain slot is a base fill, a diff response whose `baseDiff` holds one hunk inside that fill's seam span, and the timeline shows that change attributed to the domain slot (copy the file's existing attribution test and change the data).
+Implement: in `seamPackPath`, before the `pluginOf(seam.ref) !== index.pack` bail, `const base = pluginOf(seam.ref); const baseRoot = index.baseRoots?.[base]; if (baseRoot && absolute.startsWith(\`${baseRoot}/\`)) return \`base:${base}/${seam.path}\`;`. Build `baseRoots` where the index is built (`VersionTimeline.tsx:~233-245`) from the `SlotOutlineNode`s with `origin === 'base'`, root from `pluginRootOf` imported from `src/shared/pluginRoot`. Where the timeline parses `diff.diff` into hunks, also parse `diff.baseDiff ?? ''` and concatenate the hunks. Add a `VersionTimeline.test.tsx` case: a composition whose domain slot is a base fill, a diff response whose `baseDiff` holds one hunk inside that fill's seam span, and the timeline shows that change attributed to the domain slot (copy the file's existing attribution test and change the data).
 
 `VersionTimeline.tsx:466-469`: replace the sentence with "The step's own source lives in its engine plugin, and base fills in the org's base pack, outside this pack's folder." and update `VersionTimeline.test.tsx`'s expectation of it.
 
@@ -1176,7 +1177,7 @@ The served console reads the installed `rt`, which does not have this branch's r
 
 - [ ] **Step 5: Notes for the PR body**
 
-Append to `.superpowers/pr-notes.md` (git-ignored), for the integrator: `rt skills surface list --json` now reports a base row's `status` as `internal` (a value change, keys unchanged); a pipeline stage that binds a base fill gets no base history (stage slots carry no `fillSourcePath`, as before); files both this branch and the rt-followups lane changed, from `git diff --name-only origin/main...HEAD` intersected with that lane's list (ask it in chat).
+Append to `.superpowers/pr-notes.md` (git-ignored), for the integrator: `rt skills surface list --json` now reports a base row's `status` as `internal` (a value change, keys unchanged); a pipeline stage that binds a base fill gets no base history (stage slots carry no `fillSourcePath`, as before), and a base fill bound only through a binder gets no seam attribution (binder-only slots have `fillSourcePath: null`); files both this branch and the rt-followups lane changed, from `git diff --name-only origin/main...HEAD` intersected with that lane's list (ask it in chat).
 
 - [ ] **Step 6: Commit the docs**
 
