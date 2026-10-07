@@ -94,7 +94,7 @@ The inventory of readers and the change at each:
 | `lib/skills/materialize.ts` `claimingPacksIn` | loops every `packs/*` under the team folder; a "team holds N packs" error | reads the one pack at `plugin/`; returns zero or one entry; the N-packs error and its tests go |
 | `commands/skills.ts` `teamShaped` (the manifest heuristic) | `parts.at(-2) === "packs" && parts.at(-4) === "teams" && parts.at(-5) === "mattstack"` | `parts.at(-1) === "plugin" && parts.at(-3) === "teams" && parts.at(-4) === "mattstack"`; the comment names the new shape |
 | `commands/skills.ts` `packRootDir`, zone filters | through `zonePackDir` | unchanged code |
-| `lib/setup/requirements.ts` | `.../teams/<team>/packs/<team>/requirements.jsonc` | `join(teamPackDir(org, team), REQUIREMENTS_FILE)` through the rt-paths authority, so the file follows the pack |
+| `lib/setup/requirements.ts` `readPackRequirements` | `.../teams/<team>/packs/<team>/requirements.jsonc` | `join(teamPackDir(org, team), REQUIREMENTS_FILE)` through the rt-paths authority, so the file follows the pack; an unconverted clone comes back as an `error` entry (section 4), never a throw |
 | `lib/team/add.ts` `rt team add` | writes `renderPackFiles` under `packs/<team>/`; source string inline | writes under `plugin/`; `teamPackSource(team)` |
 | `lib/skills/init.ts` and `lib/team/add.ts` `team-marketplace-conflict` | refuse an entry whose source differs | unchanged; after conversion the source matches, and an unconverted clone fails earlier through the detector |
 | `lib/daemon/home-snapshot.ts` `teamStandingZones` | `mattstack/teams/<team>/packs/` is the janitor-only zone | `mattstack/teams/<team>/plugin/` is the zone; `settings.team.jsonc` stays outside it and keeps auto-committing |
@@ -133,36 +133,47 @@ cache.
 
 ```ts
 /** True when a team folder still holds its pack at the pre-move path and nothing at plugin/. */
-export function isUnconvertedTeamPack(fs, teamFolder: string, team: string): boolean;
-/** The one error every reader throws for an unconverted clone. */
+export function isUnconvertedTeamPack(fs: { exists(path: string): boolean }, teamFolder: string, team: string): boolean;
+/** The one error every reader raises for an unconverted clone. */
 export function unconvertedTeamPackError(org: string, team: string): UserActionableError;
 ```
 
-`isUnconvertedTeamPack` is true when
+The detector takes only `exists`, so `readZonesFrom` (an `InitFs`),
+`readPackRequirements` (`Probes`) and `orgFolderPacks` (which has no fs
+seam and passes `existsSync`) all call it as they are. It is true when
 `<teamFolder>/packs/<team>/pack/skills.jsonc` exists and
-`<teamFolder>/plugin/pack/skills.jsonc` does not. The error reads:
+`<teamFolder>/plugin/pack/skills.jsonc` does not.
+
+The error is a `UserActionableError` whose `next` is the conversion command
+and whose `thenRun` is `rt setup update`, the two-command shape
+`failureFor` in `lib/errors.ts` already draws as "Run X, then Y":
 
 > Your org repo still keeps the widgets pack at mattstack/teams/widgets/packs/widgets
 > why: rt reads a team's pack from mattstack/teams/widgets/plugin now
-> next: bun scripts/move-team-packs-to-plugin.ts ~/.mattstack/orgs/acme --write
->       rt setup update
+> next: Run bun scripts/move-team-packs-to-plugin.ts ~/.mattstack/orgs/acme --write, then rt setup update
 
-(Each `next` line is a command; the first names the clone this Mac uses, so
-the member can paste it to an admin.)
+(The conversion command names the clone this Mac uses, so the member can
+paste it to an admin.)
 
 Who checks, in the order a Mac meets them:
 
 - `readZonesFrom` (`lib/skills/init.ts`), the zone list every skills verb
   and materialize read, throws it for the first unconverted team folder. That
   covers `rt skills init`, `compile`, `check`, `sync`, `materialize`,
-  `bind`, and the update run's `skills.materialize` step, whose failed
-  outcome carries the error's words to the tray.
+  `bind`, and the update run's `skills.materialize` step. That step's
+  per-repo catch in `lib/setup/skills-materialize.ts` keeps only the
+  error's message today; it learns to append a `UserActionableError`'s
+  `next` and `thenRun` to the repo's `detail`, so the tray shows the fix,
+  not just the title.
 - `orgFolderPacks` (`lib/skills/packs.ts`), pack discovery for compile and
   check by `--pack-dir`, throws it too, so `rt skills compile` inside an
   unconverted clone names the fix rather than "no pack here".
-- `readRequirements` (`lib/setup/requirements.ts`) throws it, so the
-  requirements rows of the checklist fail with the same words instead of
-  reporting nothing to require.
+- `readPackRequirements` (`lib/setup/requirements.ts`) does not throw: it
+  runs from `composePlan`, `createApplyContext` and `rt tools`, where a
+  throw fails the whole plan before any row draws. It returns
+  `[{ pack: team, tools: [], integrations: [], error: <the error's message, next and thenRun as one sentence> }]`,
+  which the tools validator already draws as an error row, so the checklist
+  names the fix on the one row it always emits per pack.
 
 The board's `activeTeamPack` keeps returning `null` (no pack): rt-client is
 a library the apps read at render time, and the Mac's rt names the fix.
@@ -239,6 +250,14 @@ rollback bytes and empty folders, the sync and identity refusals, the dry
 run) are kept and re-pointed at a fixture org repo in the current layout,
 with placeholder names. The planner tests that pinned the split go.
 
+`lib/__tests__/no-settings-bypass.test.ts` allowlists the two old files by
+path with an exact count of raw store reads (4 and 2). The rename re-points
+both rows to `scripts/lib/move-team-packs.ts` and
+`scripts/move-team-packs-to-plugin.ts` with the counts the new code has
+(the planner no longer parses team stores for a split, only the two stores
+it rewrites, and the wrapper no longer reads a forge declaration from a
+legacy store) and reasons that describe the move.
+
 ## 7. Docs and skills
 
 Live docs say the new path and nothing about the old one:
@@ -268,13 +287,16 @@ the path they name.
 fixtures, `dist` and `node_modules`), fails any production TypeScript file
 that spells the pre-move team pack path:
 
-- `"packs"` joined after a team variable: `/"packs",\s*(team|zone\.team|pack|name)\b/`;
+- `"packs"` joined after a team variable: `/"packs",\s*(team|zone\.team)\b/`;
 - a template or string with `teams/<x>/packs/`: `/teams\/(\$\{[^}]*\}|<[^>]*>|[a-z0-9-]+)\/packs\//`.
 
-It never matches `mattstack/org/packs/` (the base) or the machine-local
-bindings path `repos/<slug>/packs/<pack>/` (no `teams/` before it, and
-`"packs"` is not followed by a team variable). The allowlist is
-`lib/team/team-pack-path.ts` and `scripts/lib/move-team-packs.ts`.
+The first pattern names only the two team variables, so it never matches
+the base pack join `"org", "packs", name` in `lib/skills/base-attachments.ts`
+or the bindings path `"packs", pack, "skills.jsonc"` in
+`lib/skills/manifest-paths.ts`; the second never matches
+`mattstack/org/packs/` or `repos/<slug>/packs/<pack>/`, which have no
+`teams/` before them. The allowlist is `lib/team/team-pack-path.ts` and
+`scripts/lib/move-team-packs.ts`.
 
 A second block scans the live Markdown (`docs/*.md`, `website/docs/**`,
 `plugins/mattstack/**/*.md`, `skills/**/*.md`, `AGENTS.md`, excluding
@@ -309,7 +331,11 @@ Unit tests, each beside its code, run from the repo root one file at a time
 - `lib/setup/__tests__/requirements.test.ts`, `apply.test.ts`,
   `materialize-world.ts`, `steps-b.test.ts`, `steps-c.test.ts`,
   `skills-materialize.test.ts`, `pack.test.ts`: fixtures move to `plugin/`;
-  `readRequirements` throws the detector's error for a nested fixture.
+  `readPackRequirements` returns one `error` entry carrying the fix for a
+  nested fixture, and `composePlan` still composes; the materialize step's
+  per-repo `detail` carries the error's next and thenRun.
+- `lib/__tests__/no-settings-bypass.test.ts`: its two script rows name the
+  renamed files with their new counts.
 - `lib/daemon/__tests__/home-snapshot.test.ts`: the janitor-only zone is
   `mattstack/teams/widgets/plugin/`; `settings.team.jsonc` still
   auto-commits.
