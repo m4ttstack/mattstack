@@ -585,6 +585,42 @@ describe('a links-to chip', () => {
   });
 });
 
+describe('a links-to chip into a base attachment copy', () => {
+  const withCopy = {
+    ...check,
+    attachments: [
+      {
+        name: 'gates',
+        base: 'acme-base',
+        status: 'in-sync' as const,
+        staleFiles: [],
+        orphanFiles: [],
+      },
+    ],
+  };
+  const link = (checked: typeof check) =>
+    drawerContent(
+      parseTarget('link:../../attachments/gates/SKILL.md')!,
+      planView,
+      anatomyPlan,
+      null,
+      checked
+    );
+
+  it('names the base and says compile rewrites the copy', () => {
+    const content = link(withCopy);
+    expect(content?.badge).toBe('from acme-base');
+    expect(content?.sentence).toBe(
+      "This step's text links to it at line 32. Compile copies it from the org's acme-base base pack and rewrites it on every compile; edit it there."
+    );
+  });
+
+  it('keeps pack text when the check holds no such row', () => {
+    expect(link(check)?.badge).toBe('pack text');
+    expect(link({ ...withCopy, attachments: [] })?.badge).toBe('pack text');
+  });
+});
+
 describe('targets the view does not hold', () => {
   it.each([
     'row:2',

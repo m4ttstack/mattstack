@@ -1,4 +1,5 @@
-import { pluginOf } from '../../outline';
+import { baseCopyOf } from '../../baseCopies';
+import { pluginOf, type SkillsCheck } from '../../outline';
 import { baseLabel, ownerOf, type Owner } from '../../owner';
 import type { SkillsAnatomy } from '../../useWiring';
 import type { DrawerTab, WiringView } from '../useWiringUrl';
@@ -29,7 +30,8 @@ export type DrawerTarget =
   | { kind: 'output'; part: string | null }
   | { kind: 'link'; path: string };
 
-export type DrawerBadge = 'partial' | 'pack text' | 'rendered';
+export type DrawerBadge =
+  'partial' | 'pack text' | 'rendered' | `from ${string}`;
 
 /** What the Used by tab lists the sites of: a partial by its include name,
     or a fill by its binding, with the plugin that owns its file. */
@@ -115,7 +117,8 @@ export function drawerContent(
   target: DrawerTarget,
   view: TemplateView,
   anatomy: SkillsAnatomy,
-  requestedView: WiringView | null
+  requestedView: WiringView | null,
+  check?: Pick<SkillsCheck, 'attachments'>
 ): DrawerContent | null {
   if (view.app) return appFillContent(target, view, anatomy.pack);
   switch (target.kind) {
@@ -135,7 +138,7 @@ export function drawerContent(
     case 'output':
       return outputContent(target.part, view, anatomy, requestedView);
     case 'link':
-      return linkContent(target.path, view, anatomy);
+      return linkContent(target.path, view, anatomy, check?.attachments);
   }
 }
 
@@ -165,10 +168,14 @@ function ownerMeta(owner: Owner, source: AnatomySource, pack: string): string {
   }
 }
 
+function baseCopySentence(base: string): string {
+  return ` Compile copies it from the org's ${base} base pack and rewrites it on every compile; edit it there.`;
+}
+
 /** A team-pack copy of a base file: compile writes it into this pack. */
 function copiedFromBase(owner: Owner, ref: string, pack: string): string {
   return owner.kind === 'base' && pluginOf(ref) === pack
-    ? ` Compile copies it from the org's ${owner.name} base pack and rewrites it on every compile; edit it there.`
+    ? baseCopySentence(owner.name)
     : '';
 }
 
@@ -596,26 +603,30 @@ function outputContent(
 function linkContent(
   path: string,
   view: TemplateView,
-  anatomy: SkillsAnatomy
+  anatomy: SkillsAnatomy,
+  attachments: Pick<SkillsCheck, 'attachments'>['attachments']
 ): DrawerContent | null {
   const link = view.output?.links.find(l => l.path === path);
   const at = anatomy.links.find(l => l.path === path);
   if (!link || !at) return null;
   const owner = view.textNoun === 'step' ? "This step's" : "This skill's";
+  const base = link.skill ? null : baseCopyOf(path, attachments);
   return {
     filePath: resolveFrom(anatomy.rendered.path, path),
     fileLabel: link.label,
     badge: link.skill
       ? 'rendered'
-      : VENDORED_PART.test(path)
-        ? 'partial'
-        : 'pack text',
+      : base
+        ? `from ${base}`
+        : VENDORED_PART.test(path)
+          ? 'partial'
+          : 'pack text',
     meta: null,
     canToggle: false,
     view: link.skill ? 'rendered' : 'template',
     chip: null,
     dot: null,
-    sentence: `${owner} text links to it at line ${at.line}.`,
+    sentence: `${owner} text links to it at line ${at.line}.${base ? baseCopySentence(base) : ''}`,
     highlight: NO_HIGHLIGHT,
     bands: [],
     tabs: ['text'],
