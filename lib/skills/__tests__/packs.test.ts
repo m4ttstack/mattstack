@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { pathToFileURL } from "url";
-import { detectLayout, discoverPacks, orgFolderPacks, solePack } from "../packs.ts";
+import { detectLayout, discoverPacks, findEnclosingPack, orgFolderPacks, solePack } from "../packs.ts";
 
 function writeFile(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -311,5 +311,19 @@ describe("orgFolderPacks", () => {
     expect(discoverPacks({ settingsPath, mattstackRoot: null }).map((p) => p.name)).toEqual(["acme", "mattstack"]);
     const viaExtra = discoverPacks({ settingsPath, mattstackRoot: root, extraPackDirs: [{ name: "widgets", dir: widgets }] });
     expect(viaExtra.filter((p) => p.name === "widgets").length).toBe(1);
+  });
+});
+
+describe("findEnclosingPack", () => {
+  test("a team plugin folder takes its team's name", () => {
+    const packDir = join(tmp("rt-packs-enclosing-"), "mattstack", "teams", "widgets", "plugin");
+    writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": [] }\n`);
+    expect(findEnclosingPack(join(packDir, "pack"))?.name).toBe("widgets");
+  });
+
+  test("any other pack folder keeps its own name", () => {
+    const packDir = join(tmp("rt-packs-enclosing-"), "plugins", "gadgets");
+    writeFile(join(packDir, "pack", "surface.jsonc"), `{ "public": [] }\n`);
+    expect(findEnclosingPack(join(packDir, "pack"))?.name).toBe("gadgets");
   });
 });
