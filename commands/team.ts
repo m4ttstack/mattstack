@@ -7,11 +7,12 @@ import { rosterFrom } from "../packages/rt-client/src/settings/active-team.ts";
 import { activeTeamFor } from "../lib/team/active-team.ts";
 import { roleFor, rolesFor } from "../lib/team/roles.ts";
 /**
- * rt team create|publish|invite|join|members|status: the team-repo
+ * rt team create|publish|rename|invite|join|members|status: the team-repo
  * lifecycle verbs.
  *
  *   rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]
  *   rt team publish [--team <slug>] --remote <url> [--json]
+ *   rt team rename <name> [--team <org>] [--json]
  *   rt team invite --handle <h> [--teams <team>[,<team>]] [--team <org>] [--require-peering] [--json]
  *   rt team join [--dry-run] [--json]   (code on stdin as {"code":"..."}, or a prompt on a TTY)
  *   rt team members sync [--team <slug>] [--json]
@@ -56,6 +57,7 @@ import { canonicalHandle, readPeeredBoards, realReadLocalSecret, type ReadLocalS
 import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { peerOwnBoard, realPeerSeams, type PeerResult, type PeerSeams } from "../lib/team/peer.ts";
 import { publishTeam } from "../lib/team/publish.ts";
+import { renameOrg, type ConvergeOutcome, type RenameResult, type RenameSeams } from "../lib/team/rename.ts";
 import { commitPendingPackShares, droppedShareBlocks, droppedShares, packShareBlocks, rememberPackShare, sharePack } from "../lib/team/share-pack.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient } from "../lib/team/relay-client.ts";
@@ -100,6 +102,8 @@ export interface TeamDeps {
   readLocalSecret?: ReadLocalSecret;
   /** Overrides `peerOwnBoard`'s seams; real by default, with `readLocalSecret` above as its secret reader. */
   peerSeams?: Partial<PeerSeams>;
+  /** Overrides `renameOrg`'s seams; real by default. */
+  renameSeams?: Partial<RenameSeams>;
 }
 
 async function defaultReadCode(json: boolean): Promise<string> {
@@ -175,6 +179,12 @@ const REFUSAL_CODES = new Set([
   "org-detached",
   "peer-needs-admin",
   "board-registered-elsewhere",
+  "rename-not-admin",
+  "rename-same-name",
+  "rename-name-taken",
+  "org-not-converged",
+  "org-uncommitted",
+  "org-behind",
 ]);
 
 /** `--json` and every non-refusal take exitUserError's route, so the envelope and the exit code never depend on the code. */
@@ -367,6 +377,48 @@ export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: 
       const hint = res.data.detail ? `outcome: ${outcome}, ${res.data.detail}` : `outcome: ${outcome}`;
       out.print(out.line("warn", `The ${slug} team pull ended in a way rt does not recognize`, hint));
     }
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+/** Replaced by the converge step once it lands; until then this Mac's folder moves at its next update. */
+async function convergeLater(): Promise<ConvergeOutcome> {
+  return { state: "skipped", detail: "This Mac's folder moves at its next update" };
+}
+
+export function renameBlocks(result: RenameResult): Block[] {
+  const here = result.converged
+    ? [out.line("done", `This Mac's org folder is now ${result.to}`)]
+    : [
+        out.line("needs-you", "This Mac's org folder has not moved yet", result.convergeDetail),
+        (result.convergeRemedy ? out.callout("fix", result.convergeRemedy) : out.callout("next", out.cmd("rt setup update --force"))),
+      ];
+  return [
+    out.line("done", `Renamed your org to ${result.to}`, `was ${result.from}`),
+    ...here,
+    out.callout("note", ["Your teammates' Macs follow at their next update, or now with ", out.cmd("rt setup update --force")]),
+  ];
+}
+
+function realRenameSeams(deps: TeamDeps): RenameSeams {
+  return { forgeToken: deps.forgeToken ?? storedForgeToken, converge: convergeLater, ...deps.renameSeams };
+}
+
+export async function teamRename(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
+  const to = positional(args, ["--team"])[0];
+  if (!to) usageError(deps, json, "What should your org be called?", "rt team rename <name> [--json]");
+  try {
+    const from = resolveTeamSlug(args, "team rename");
+    const result = await renameOrg(deps.probes, from, to, realRenameSeams(deps));
+    if (json) {
+      deps.print(JSON.stringify(envelope({ ok: true, from: result.from, to: result.to, converged: result.converged })));
+      return;
+    }
+    out.print(...renameBlocks(result));
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;

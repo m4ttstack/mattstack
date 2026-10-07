@@ -2885,6 +2885,17 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      rename: {
+        description: "Rename your org",
+        module: "./commands/team.ts",
+        fn: "teamRename",
+        omitBehavior: { exempt: "a new org name cannot be listed" },
+        args: [
+          { name: "Name", type: "text", placeholder: "gadgets", hint: "The org's new name: lowercase letters, digits and dashes" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
+          SETUP_JSON_ARG,
+        ],
+      },
       invite: {
         description: "Invite someone to your org and put them on a team",
         module: "./commands/team.ts",
