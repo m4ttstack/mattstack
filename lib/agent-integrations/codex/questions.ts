@@ -115,6 +115,8 @@ export type CodexQuestionDeps = {
   /** The rollout's whole lines back to the start of its last turn, within a byte cap. */
   readLastTurn(path: string): Promise<RolloutTail>;
   sleep(ms: number): Promise<void>;
+  /** A fault logged and skipped, never thrown into the hub's listeners. */
+  warn(message: string, context: Record<string, unknown>): void;
 };
 
 export type CodexQuestionAdapter = QuestionAdapter;
@@ -139,6 +141,9 @@ function defaultDeps(control: CodexControl): CodexQuestionDeps {
     readRollout: (path, itemId) => readRolloutTail(path, itemId),
     readLastTurn: (path) => readRolloutLastTurn(path),
     sleep: (ms) => Bun.sleep(ms),
+    warn: (message, context) => {
+      void import("../../ui/warn.ts").then(({ warn }) => warn("codex-questions", message, { context }));
+    },
   };
 }
 
@@ -588,14 +593,14 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     void present(binding, event);
   }
 
-  /** The thread's rollout path, as the app server names it and only under its own sessions; a string explains why not. */
-  async function rolloutOf(threadId: string): Promise<{ path: string } | { why: string }> {
+  /** The thread's rollout path, as the app server names it and only under its own sessions; a string explains why not, `transient` when asking again may do. */
+  async function rolloutOf(threadId: string): Promise<{ path: string } | { why: string; transient?: true }> {
     let path: unknown;
     try {
       const read = await control.request("thread/read", { threadId, includeTurns: false });
       path = isRecord(read) && isRecord(read.thread) ? read.thread.path : undefined;
     } catch {
-      return { why: "rt could not read the thread" };
+      return { why: "rt could not read the thread", transient: true };
     }
     const rollout = rolloutPathOf(path, control.codexHome);
     return rollout ? { path: rollout } : { why: "Codex named no rollout under its sessions for the thread" };
@@ -618,16 +623,29 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     return readEvidence(rollout.path, itemId, expected, turnId);
   }
 
-  /** The rollout is written moments after a question resolves, so a pending reading is taken again a few times, of the one path. */
+  /**
+   * The rollout is written moments after a question resolves, so a pending
+   * reading is taken again a few times, of the one path; a thread the app
+   * server failed to describe is asked for again on the same spacing.
+   */
   async function settledEvidence(
     threadId: string, itemId: string, expected: NativeAnswers | null, turnId: string | undefined,
   ): Promise<RolloutEvidence> {
-    const rollout = await rolloutOf(threadId);
-    if ("why" in rollout) return { state: "pending", detail: rollout.why };
-    let found = await readEvidence(rollout.path, itemId, expected, turnId);
-    for (let read = 1; read < ROLLOUT_READS && found.state === "pending"; read++) {
-      await deps.sleep(ROLLOUT_READ_MS);
-      found = await readEvidence(rollout.path, itemId, expected, turnId);
+    let path: string | undefined;
+    let found: RolloutEvidence = { state: "pending", detail: "the rollout was not read" };
+    for (let read = 0; read < ROLLOUT_READS; read++) {
+      if (read > 0) await deps.sleep(ROLLOUT_READ_MS);
+      if (path === undefined) {
+        const rollout = await rolloutOf(threadId);
+        if ("why" in rollout) {
+          found = { state: "pending", detail: rollout.why };
+          if (rollout.transient) continue;
+          return found;
+        }
+        path = rollout.path;
+      }
+      found = await readEvidence(path, itemId, expected, turnId);
+      if (found.state !== "pending") return found;
     }
     return found;
   }
@@ -780,7 +798,14 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     if (!deps.enabled()) return;
     const turnEnded = before === "active" && status.type === "idle";
     // Every thread on the app server reports here, so the session store is read only for one with an open bound gate (one indexed read first) or, at a turn's end, one this connection knows.
-    const gates = deps.service()?.native.openFor(threadId) ?? [];
+    let gates: ReadonlyArray<{ row: GateRow; question: QuestionBinding }>;
+    try {
+      gates = deps.service()?.native.openFor(threadId) ?? [];
+    } catch (err) {
+      // This runs inside the hub's listener, under the sessions read that fed it; a gates.db fault must not become its failure.
+      deps.warn("the thread's open question gates could not be read, so none was reconciled", { threadId, err });
+      gates = [];
+    }
     if (gates.length === 0 && !(turnEnded && known(threadId))) return;
     const binding = boundSession(threadId);
     if (!binding) return;

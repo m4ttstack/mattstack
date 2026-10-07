@@ -91,6 +91,8 @@ class FakeAppServer {
   pathFor: (threadId: string) => string = rolloutPath;
   /** A status thread replies report instead of the current one, as a reply that lags the change would. */
   replyStatus: Message | undefined;
+  /** How many thread/read requests still fail, as a busy app server's would. */
+  readFailures = 0;
 
   restart(): void {
     this.nextId = 0;
@@ -151,6 +153,11 @@ class FakeAppServer {
     const threadId = m.params?.threadId;
     switch (m.method) {
       case "thread/read":
+        if (this.readFailures > 0) {
+          this.readFailures--;
+          s.push({ id: m.id, error: { code: -32000, message: "the app server is busy" } });
+          return;
+        }
         s.push({ id: m.id, result: { thread: { id: threadId, status: this.replyStatus ?? this.status, path: this.pathFor(threadId), turns: [] } } });
         return;
       case "thread/resume": {
@@ -254,6 +261,7 @@ async function world(opts: { enabled?: boolean; mode?: "herdr" | "headless"; pan
   const reads: string[] = [];
   const tailReads: string[] = [];
   let bindingReads = 0;
+  const warned: Array<{ message: string; context: Record<string, unknown> }> = [];
 
   async function connect(): Promise<NonNullable<typeof current>> {
     const clock = new FakeClock();
@@ -289,6 +297,9 @@ async function world(opts: { enabled?: boolean; mode?: "herdr" | "headless"; pan
         return { text: server.rollout, whole: server.rolloutWhole };
       },
       sleep: async () => {},
+      warn: (message, context) => {
+        warned.push({ message, context });
+      },
     });
     // The poller's observe owns bound threads on a new connection.
     control.adopt("T1");
@@ -301,7 +312,7 @@ async function world(opts: { enabled?: boolean; mode?: "herdr" | "headless"; pan
   const answersSent = (s = socket()) => sent(s).filter((m) => m.method === undefined && "result" in m);
   const gates = () => store.list({}).gates;
   return {
-    server, store, service, sessions, switchOn, pane, emitted, connect, socket, sent, answersSent, gates, reads, tailReads,
+    server, store, service, sessions, switchOn, pane, emitted, connect, socket, sent, answersSent, gates, reads, tailReads, warned,
     handlers: () => handlersRef.h!, pushes: () => pushes, bindingReads: () => bindingReads,
     current: () => current!,
   };
@@ -800,6 +811,24 @@ describe("questions that ended while rt was not subscribed", () => {
     expect(w.service.completion(w.gates()[0]!.id)?.state).toBe("completed");
   });
 
+  test("a thread the app server fails to describe once is asked for again before its native answer is given up on", async () => {
+    const w = await world();
+    await w.connect();
+    w.server.ask("T1", "U1", CASE_M, COLOR_SIZE);
+    await settled();
+    const [gate] = w.gates();
+    w.server.rollout = ROLLOUT;
+    w.server.readFailures = 1;
+    const readsBefore = w.sent().filter((m) => m.method === "thread/read").length;
+    w.server.resolve("T1");
+    await settled();
+    expect(w.store.get(gate!.id)!.answer).toMatchObject({ answers: { color: "Red", size: { value: OTHER_VALUE, note: "Medium-ish" } }, session: "T1" });
+    expect(w.service.completion(gate!.id)?.state).toBe("completed");
+    expect(w.emitted.filter((e) => e.topic === "gate.native-attention")).toEqual([]);
+    // The failed read and the one that answered.
+    expect(w.sent().filter((m) => m.method === "thread/read")).toHaveLength(readsBefore + 2);
+  });
+
   test("a resolved question re-reads a rollout that lags, without waiting for the backoff", async () => {
     const w = await world();
     await w.connect();
@@ -1065,7 +1094,9 @@ describe("fix round 2", () => {
  * live-08 rollout lines (0.160.x), each file the question lines of one real
  * rollout in file order: A is thread 01a116fa-e88b (without the three lines
  * about the two items whose function_call lines collect.sh cut at 700 bytes),
- * B is 01a116fb-4f61 and C is 01a116fb-6678. live-07 case I is one whole turn.
+ * B is 01a116fb-4f61 and C is 01a116fb-6678. live-07 case I is the two whole
+ * lines of its turn, task_started and turn_aborted; the capture cut the seven
+ * between them at 400 bytes, so they are left out.
  */
 const LIVE08_A = readFileSync(join(FIXTURES, "rollout-live08-a-0.160.x.jsonl"), "utf8");
 const LIVE08_B = readFileSync(join(FIXTURES, "rollout-live08-b-0.160.x.jsonl"), "utf8");
@@ -1216,6 +1247,24 @@ describe("live-08: questions that ended while rt was not connected", () => {
     expect(attentionFor(w, "question-ended-unseen")).toHaveLength(1);
   });
 
+  test("a gates store fault inside the status listener is warned about and skipped, never thrown into observe", async () => {
+    const w = await world();
+    const c = await w.connect();
+    (w.service.native as { openFor: typeof w.service.native.openFor }).openFor = () => {
+      throw new Error("database is locked");
+    };
+    w.server.status = { type: "idle" };
+    const seen = await c.sessions.observe(w.sessions.get("s1")!);
+    expect(seen.ok).toBe(true);
+    w.socket().push({ method: "thread/status/changed", params: { threadId: "T1", status: { type: "idle" } } });
+    await settled();
+    expect(w.warned).toEqual([
+      { message: expect.any(String), context: expect.objectContaining({ threadId: "T1", err: expect.any(Error) }) },
+      { message: expect.any(String), context: expect.objectContaining({ threadId: "T1", err: expect.any(Error) }) },
+    ]);
+    expect(w.emitted).toEqual([]);
+  });
+
   test("a status for a thread with no bound gate and no binding this connection knows costs no session-store read", async () => {
     const w = await world();
     await w.connect();
@@ -1357,7 +1406,7 @@ describe("rollout last-turn reads", () => {
     expect(read.text.startsWith(taskStarted(last))).toBe(true);
     expect(body.endsWith(read.text)).toBe(true);
     expect(read.text).not.toContain(taskStarted(previous));
-    // One whole turn reads whole.
+    // A turn's start and end in one small file read whole.
     writeFileSync(path, LIVE07_I);
     expect(await readRolloutLastTurn(path)).toEqual({ text: LIVE07_I, whole: true });
   });
