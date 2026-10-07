@@ -27,7 +27,7 @@ const facts: LatchMrFacts = {
   projectId: 42,
   projectPath: 'acme/web',
   rtRepo: 'acme-web',
-  isApproved: false,
+  approvedBySelf: false,
 };
 const commented: ReviewState = {
   mrUrl: MR,
@@ -38,7 +38,13 @@ const commented: ReviewState = {
   updatedAt: 0,
 };
 
-function disc(id: string, body: string, createdAt: string, resolved: boolean) {
+function disc(
+  id: string,
+  body: string,
+  createdAt: string,
+  resolved: boolean,
+  author = 'matt'
+) {
   return {
     id,
     resolvable: true,
@@ -47,7 +53,7 @@ function disc(id: string, body: string, createdAt: string, resolved: boolean) {
       {
         id: 1,
         body,
-        author: { id: 1, username: 'matt', name: 'Matt', avatarUrl: null },
+        author: { id: 1, username: author, name: author, avatarUrl: null },
         createdAt,
         system: false,
         type: 'DiscussionNote',
@@ -118,6 +124,7 @@ function harness(
       return { kind: 'launched' };
     },
     memory,
+    self: 'matt',
     cfg,
     reReview: { enabled: true },
     appendAudit: () => {},
@@ -336,7 +343,7 @@ describe('step 3: armed and resolved', () => {
       detail: detail(
         disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
       ),
-      fetchLatchMrs: async () => [{ ...facts, isApproved: true }],
+      fetchLatchMrs: async () => [{ ...facts, approvedBySelf: true }],
     });
     expect((await runLatchPass(deps)).spent).toBe(1);
     expect(launches).toEqual([]);
@@ -353,7 +360,7 @@ describe('step 3: armed and resolved', () => {
         disc('canon', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true),
         disc('extra', armedLatchBody(IMG), '2026-08-01T10:00:00Z', false)
       ),
-      fetchLatchMrs: async () => [{ ...facts, isApproved: true }],
+      fetchLatchMrs: async () => [{ ...facts, approvedBySelf: true }],
     });
     expect((await runLatchPass(deps)).spent).toBe(1);
     expect(calls).toContain('resolve:canon');
@@ -685,7 +692,7 @@ describe('tombstone resurrection', () => {
   test('an approved MR revives the tombstone and spends the latch', async () => {
     const { deps, calls, resurrects } = harness({
       ...tombstoned,
-      fetchLatchMrs: async () => [{ ...facts, isApproved: true }],
+      fetchLatchMrs: async () => [{ ...facts, approvedBySelf: true }],
       detail: detail(disc('d1', armedLatchBody(IMG), '2026-09-01', true)),
     });
     const result = await runLatchPass(deps);
@@ -734,5 +741,62 @@ describe('tombstone resurrection', () => {
     const result = await runLatchPass(deps);
     expect(reads).toBe(0);
     expect(result.skipped).toBe(1);
+  });
+});
+
+describe('one latch per reviewer', () => {
+  test("another reviewer's armed latch does not stop this one posting", async () => {
+    const { deps, calls } = harness({
+      detail: detail(
+        disc('lee', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false, 'lee')
+      ),
+    });
+    expect((await runLatchPass(deps)).posted).toBe(1);
+    expect(calls).toEqual(['upload', 'createDiscussion']);
+  });
+
+  test('a resolved latch from another reviewer starts nothing here', async () => {
+    const { deps, calls, launches } = harness({
+      detail: detail(
+        disc('lee', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true, 'lee'),
+        disc('mine', armedLatchBody(IMG), '2026-09-01T09:00:00Z', false)
+      ),
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(0);
+    expect(launches).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  test("someone else's approval leaves this reviewer's request standing", async () => {
+    const { deps, calls, launches } = harness({
+      detail: detail(
+        disc('mine', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
+      ),
+      fetchLatchMrs: async () => [{ ...facts, approvedBySelf: false }],
+    });
+    expect((await runLatchPass(deps)).dispatched).toBe(1);
+    expect(launches).toEqual([MR]);
+    expect(calls).toEqual(['reply:mine', 'unresolve:mine']);
+  });
+
+  test("approving in GitLab spends this reviewer's armed latch and no other", async () => {
+    const { deps, calls } = harness({
+      detail: detail(
+        disc('mine', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false),
+        disc('lee', armedLatchBody(IMG), '2026-09-01T11:00:00Z', false, 'lee')
+      ),
+      fetchLatchMrs: async () => [{ ...facts, approvedBySelf: true }],
+    });
+    expect((await runLatchPass(deps)).spent).toBe(1);
+    expect(calls).toEqual(['updateNote:1', 'resolve:mine']);
+  });
+
+  test('posts nothing for a reviewer who already approved in GitLab', async () => {
+    const { deps, calls } = harness({
+      detail: detail(),
+      fetchLatchMrs: async () => [{ ...facts, approvedBySelf: true }],
+    });
+    expect((await runLatchPass(deps)).posted).toBe(0);
+    expect(calls).toEqual([]);
   });
 });

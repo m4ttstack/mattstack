@@ -12,7 +12,13 @@ import { armedLatchBody, spentLatchBody } from '../latch/markers.ts';
 
 const IMG = '![re-review latch](/uploads/ab12/latch.png)';
 
-function disc(id: string, body: string, createdAt: string, resolved: boolean) {
+function disc(
+  id: string,
+  body: string,
+  createdAt: string,
+  resolved: boolean,
+  author = 'matt'
+) {
   return {
     id,
     resolvable: true,
@@ -21,7 +27,7 @@ function disc(id: string, body: string, createdAt: string, resolved: boolean) {
       {
         id: 1,
         body,
-        author: { id: 1, username: 'matt', name: 'Matt', avatarUrl: null },
+        author: { id: 1, username: author, name: author, avatarUrl: null },
         createdAt,
         system: false,
         type: 'DiscussionNote',
@@ -42,11 +48,27 @@ function detail(...discussions: ReturnType<typeof disc>[]): MRDetail {
 }
 
 describe('findLatches', () => {
+  test('keeps only the latches the owner posted', () => {
+    const d = detail(
+      disc('mine', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false),
+      disc('theirs', armedLatchBody(IMG), '2026-09-01T11:00:00Z', true, 'lee')
+    );
+    expect(findLatches(d, 'matt').map(l => l.discussionId)).toEqual(['mine']);
+    expect(findLatches(d, 'lee').map(l => l.discussionId)).toEqual(['theirs']);
+  });
+
+  test('matches the owner without regard to case', () => {
+    const d = detail(
+      disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false, 'Lee')
+    );
+    expect(findLatches(d, 'lee').map(l => l.discussionId)).toEqual(['d1']);
+  });
+
   test('ignores ordinary discussions', () => {
     const d = detail(
       disc('d1', 'please rename this', '2026-09-01T10:00:00Z', false)
     );
-    expect(findLatches(d)).toEqual([]);
+    expect(findLatches(d, 'matt')).toEqual([]);
   });
 
   test('finds armed and spent latches with their state', () => {
@@ -54,7 +76,7 @@ describe('findLatches', () => {
       disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false),
       disc('d2', spentLatchBody(IMG), '2026-09-01T09:00:00Z', true)
     );
-    const found = findLatches(d);
+    const found = findLatches(d, 'matt');
     expect(found.map(l => [l.discussionId, l.kind, l.resolved])).toEqual([
       ['d1', 'armed', false],
       ['d2', 'spent', true],
@@ -75,7 +97,7 @@ describe('findLatches', () => {
         },
       ],
     });
-    expect(findLatches(d)).toEqual([]);
+    expect(findLatches(d, 'matt')).toEqual([]);
   });
 
   test('sorts newest first', () => {
@@ -83,7 +105,10 @@ describe('findLatches', () => {
       disc('old', spentLatchBody(IMG), '2026-08-01T10:00:00Z', true),
       disc('new', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false)
     );
-    expect(findLatches(d).map(l => l.discussionId)).toEqual(['new', 'old']);
+    expect(findLatches(d, 'matt').map(l => l.discussionId)).toEqual([
+      'new',
+      'old',
+    ]);
   });
 
   test('breaks createdAt ties on discussion id', () => {
@@ -94,7 +119,10 @@ describe('findLatches', () => {
       disc('aaa', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false),
       disc('bbb', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false)
     );
-    expect(findLatches(d).map(l => l.discussionId)).toEqual(['bbb', 'aaa']);
+    expect(findLatches(d, 'matt').map(l => l.discussionId)).toEqual([
+      'bbb',
+      'aaa',
+    ]);
   });
 });
 
@@ -106,7 +134,7 @@ describe('canonicalLatch', () => {
       disc('relic', spentLatchBody(IMG), '2026-08-01T10:00:00Z', true),
       disc('fresh', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false)
     );
-    expect(canonicalLatch(findLatches(d))!.discussionId).toBe('fresh');
+    expect(canonicalLatch(findLatches(d, 'matt'))!.discussionId).toBe('fresh');
   });
 
   test('is null when there are no latches', () => {
@@ -119,17 +147,17 @@ describe('requestCarriers / hasRequest', () => {
     const d = detail(
       disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)
     );
-    expect(hasRequest(findLatches(d))).toBe(true);
-    expect(requestCarriers(findLatches(d)).map(l => l.discussionId)).toEqual([
-      'd1',
-    ]);
+    expect(hasRequest(findLatches(d, 'matt'))).toBe(true);
+    expect(
+      requestCarriers(findLatches(d, 'matt')).map(l => l.discussionId)
+    ).toEqual(['d1']);
   });
 
   test('an armed unresolved latch is not a request', () => {
     const d = detail(
       disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false)
     );
-    expect(hasRequest(findLatches(d))).toBe(false);
+    expect(hasRequest(findLatches(d, 'matt'))).toBe(false);
   });
 
   // The invariant: a spent latch is never a request, however it got resolved.
@@ -137,8 +165,8 @@ describe('requestCarriers / hasRequest', () => {
     const d = detail(
       disc('d1', spentLatchBody(IMG), '2026-09-01T10:00:00Z', true)
     );
-    expect(hasRequest(findLatches(d))).toBe(false);
-    expect(requestCarriers(findLatches(d))).toEqual([]);
+    expect(hasRequest(findLatches(d, 'matt'))).toBe(false);
+    expect(requestCarriers(findLatches(d, 'matt'))).toEqual([]);
   });
 
   // Resolving the DUPLICATE is still asking; reading only the canonical latch
@@ -148,7 +176,7 @@ describe('requestCarriers / hasRequest', () => {
       disc('canon', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false),
       disc('extra', armedLatchBody(IMG), '2026-09-01T09:00:00Z', true)
     );
-    const latches = findLatches(d);
+    const latches = findLatches(d, 'matt');
     expect(canonicalLatch(latches)!.discussionId).toBe('canon');
     expect(hasRequest(latches)).toBe(true);
     expect(requestCarriers(latches).map(l => l.discussionId)).toEqual([
@@ -161,30 +189,33 @@ describe('requestCarriers / hasRequest', () => {
       disc('canon', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true),
       disc('extra', armedLatchBody(IMG), '2026-09-01T09:00:00Z', true)
     );
-    expect(requestCarriers(findLatches(d)).map(l => l.discussionId)).toEqual([
-      'canon',
-      'extra',
-    ]);
+    expect(
+      requestCarriers(findLatches(d, 'matt')).map(l => l.discussionId)
+    ).toEqual(['canon', 'extra']);
   });
 });
 
 describe('hasArmedLatch', () => {
   test('false with no latch at all', () => {
-    expect(hasArmedLatch(findLatches(detail()))).toBe(false);
+    expect(hasArmedLatch(findLatches(detail(), 'matt'))).toBe(false);
   });
 
   test('true for an armed latch, resolved or not', () => {
     expect(
       hasArmedLatch(
         findLatches(
-          detail(disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false))
+          detail(
+            disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', false)
+          ),
+          'matt'
         )
       )
     ).toBe(true);
     expect(
       hasArmedLatch(
         findLatches(
-          detail(disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true))
+          detail(disc('d1', armedLatchBody(IMG), '2026-09-01T10:00:00Z', true)),
+          'matt'
         )
       )
     ).toBe(true);
@@ -194,7 +225,8 @@ describe('hasArmedLatch', () => {
   // kind, so a spent-only MR must read as unlatched here, not as latched.
   test('false when only a spent latch exists, even though canonicalLatch returns it', () => {
     const latches = findLatches(
-      detail(disc('d1', spentLatchBody(IMG), '2026-09-01T10:00:00Z', true))
+      detail(disc('d1', spentLatchBody(IMG), '2026-09-01T10:00:00Z', true)),
+      'matt'
     );
     expect(canonicalLatch(latches)).not.toBeNull();
     expect(hasArmedLatch(latches)).toBe(false);
