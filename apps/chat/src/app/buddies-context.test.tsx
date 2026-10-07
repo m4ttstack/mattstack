@@ -68,3 +68,71 @@ test('people talking in the room come before its quiet members', () => {
   expect(ctx.lookOf('kai')!.hue).toEqual(palette[3]);
   expect(ctx.lookOf('old-1')!.hue).toEqual(palette[4]);
 });
+
+interface RoomProps {
+  room: string;
+  roomMembers: string[];
+  speakers?: string[];
+}
+
+function renderRoom(initial: RoomProps) {
+  let props = initial;
+  const { result, rerender } = renderHook(() => useBuddies()!, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <BuddiesProvider
+        buddies={buddies}
+        room={props.room}
+        roomMembers={props.roomMembers}
+        speakers={props.speakers}
+        now={10}
+        reachable
+      >
+        {children}
+      </BuddiesProvider>
+    ),
+  });
+  return {
+    result,
+    update: (next: RoomProps) => {
+      props = next;
+      rerender();
+    },
+  };
+}
+
+test('once a room has loaded, a newcomer never moves anyone already on screen', () => {
+  const { result, update } = renderRoom({
+    room: 'rt',
+    roomMembers: ['kai', 'remy'],
+    speakers: ['remy'],
+  });
+  const kai = result.current.lookOf('kai');
+  const remy = result.current.lookOf('remy');
+  // old-1 signed in before both, so a fresh order would put it ahead of kai.
+  update({
+    room: 'rt',
+    roomMembers: ['old-1', 'kai', 'remy'],
+    speakers: ['remy'],
+  });
+  expect(result.current.lookOf('kai')).toEqual(kai);
+  expect(result.current.lookOf('remy')).toEqual(remy);
+});
+
+test('until the first page loads, the order is still free to settle', () => {
+  const { result, update } = renderRoom({
+    room: 'rt',
+    roomMembers: ['kai', 'remy'],
+  });
+  update({ room: 'rt', roomMembers: ['kai', 'remy'], speakers: ['remy'] });
+  expect(result.current.lookOf('remy')!.hue).toEqual(themePalette(6)[0]);
+});
+
+test('switching rooms hands the new room the first hues', () => {
+  const { result, update } = renderRoom({
+    room: 'rt',
+    roomMembers: ['kai'],
+    speakers: ['kai'],
+  });
+  update({ room: 'board', roomMembers: ['remy'], speakers: ['remy'] });
+  expect(result.current.lookOf('remy')!.hue).toEqual(themePalette(6)[0]);
+});

@@ -10,7 +10,7 @@ export interface LookHue {
 }
 
 const hue = (name: string): LookHue => ({
-  avatar: `var(--tk-text-${name}-small)`,
+  avatar: `var(--tk-text-${name}-vivid)`,
   small: `var(--tk-text-${name}-small)`,
   body: `var(--tk-text-${name})`,
   fill: `var(--tk-fill-${name})`,
@@ -52,11 +52,12 @@ const WHEEL: readonly LookHue[] = [
   hue('purple'),
 ];
 
-/** Off the wheel, so never mixed. There is no neutral fill token, so the
-    wash takes the same muted text step. */
+/** Off the wheel, so never mixed. Small text takes text-1, the one neutral
+    that clears the small band's 7.0 bar. There is no neutral fill token, so
+    the wash takes the muted text step. */
 const GREY: LookHue = {
   avatar: 'var(--tk-text-2)',
-  small: 'var(--tk-text-2)',
+  small: 'var(--tk-text-1)',
   body: 'var(--tk-text-2)',
   fill: 'var(--tk-text-2)',
 };
@@ -73,13 +74,18 @@ function mix(a: LookHue, b: LookHue): LookHue {
 
 /** `items` reordered by stepping a stride of about two fifths of the way
     round, so consecutive entries sit far apart on the wheel: people listed
-    next to each other never get neighbouring hues. */
+    next to each other never get neighbouring hues. A stride of one either
+    way just walks the wheel, so a length with no other coprime stride (six,
+    the base wheel's) takes every other entry, then the ones between. */
 function spread<T>(items: readonly T[]): T[] {
   const n = items.length;
   const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
-  let step = Math.max(1, Math.round(n * 0.4));
-  while (gcd(step, n) !== 1) step++;
-  return items.map((_, i) => items[(i * step) % n]!);
+  for (let step = Math.max(2, Math.round(n * 0.4)); step < n - 1; step++)
+    if (gcd(step, n) === 1) return items.map((_, i) => items[(i * step) % n]!);
+  return [
+    ...items.filter((_, i) => i % 2 === 0),
+    ...items.filter((_, i) => i % 2 === 1),
+  ];
 }
 
 /** At least `n` distinct hues derived from the theme: the wheel's hues and

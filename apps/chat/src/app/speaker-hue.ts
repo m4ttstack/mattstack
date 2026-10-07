@@ -53,17 +53,16 @@ export interface SpeakerHue {
 }
 
 /**
- * Contract: the same handle always resolves to the same hue identity,
- * forever -- callers memo nothing and re-derive it on every render. The
- * human's handle short-circuits to accent, matching the tint his own posts
- * already carry; accent never appears in the rotation, so no other speaker
- * can land on it. `humanHandle` defaults to `HUMAN_HANDLE`, but the
- * transcript passes its own `humanHandle` prop so the accent chip and the
- * accent wash agree on who the human is.
- *
  * `look`, the handle's assigned look from the buddies context, wins
- * outright so the chip matches the avatar; the hash below is the fallback
- * for a handle nobody assigned.
+ * outright so the chip matches the avatar. That look is settled per open
+ * room, so callers re-derive it on every render rather than memo it.
+ *
+ * Without a look, the hashed fallback resolves the same handle to the same
+ * hue identity, forever. The human's handle short-circuits to accent,
+ * matching the tint his own posts already carry; accent never appears in
+ * the rotation, so no other speaker can land on it. `humanHandle` defaults
+ * to `HUMAN_HANDLE`, but the transcript passes its own `humanHandle` prop so
+ * the accent chip and the accent wash agree on who the human is.
  *
  * `band` picks which text shade renders: `'small'` (default) for the inbox
  * card's 14px handle, `'body'` for the message header's 16px one. A smaller

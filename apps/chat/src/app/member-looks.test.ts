@@ -24,6 +24,20 @@ describe('themePalette', () => {
       expect(Object.values(h).join(' ')).not.toMatch(/accent/);
   });
 
+  test('the first six people never get neighbouring hues on the wheel', () => {
+    const wheel = ['cyan', 'ok', 'gold', 'warn', 'bad', 'purple'];
+    const at = (h: { body: string }) =>
+      wheel.findIndex(
+        name =>
+          h.body.startsWith(`var(--tk-text-${name})`) ||
+          h.body.includes(`var(--tk-text-${name}),`)
+      );
+    const first = themePalette(7).slice(0, 6).map(at);
+    expect(new Set(first).size).toBe(6);
+    for (let i = 1; i < first.length; i++)
+      expect(Math.abs(first[i]! - first[i - 1]!)).toBeGreaterThan(1);
+  });
+
   test('a midpoint mixes every shade of its two neighbours', () => {
     const mid = themePalette(8)[7]!;
     expect(mid.body).toMatch(/^color-mix\(in oklch, var\(--tk-text-/);

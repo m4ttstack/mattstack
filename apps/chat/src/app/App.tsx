@@ -188,8 +188,9 @@ function useRooms(seed: FleetRoom[] | undefined) {
 function useMessages(
   room: string | undefined,
   seed: ChatMessage[] | undefined
-): ChatMessage[] {
+): { messages: ChatMessage[]; loaded: boolean } {
   const [messages, setMessages] = useState<ChatMessage[]>(seed ?? []);
+  const [loadedRoom, setLoadedRoom] = useState<string>();
   // The seed stays PENDING until the first defined room arrives, then is
   // spent on it. `activeRoom` is undefined on the first render (a later
   // effect lands on the first room), so binding the seed to `room` at mount
@@ -209,6 +210,7 @@ function useMessages(
     }
     if (seedPending.current) {
       seedPending.current = false;
+      setLoadedRoom(room);
       return;
     }
     // Clears immediately on a room switch rather than leaving the PREVIOUS
@@ -219,7 +221,9 @@ function useMessages(
     fetch(`/api/chat/messages/${room}?limit=${PAGE_SIZE}`)
       .then(res => res.json())
       .then((data: { messages?: ChatMessage[] }) => {
-        if (!cancelled) setMessages(data.messages ?? []);
+        if (cancelled) return;
+        setMessages(data.messages ?? []);
+        setLoadedRoom(room);
       })
       .catch(() => {});
     return () => {
@@ -227,7 +231,7 @@ function useMessages(
     };
   }, [room]);
 
-  return messages;
+  return { messages, loaded: room !== undefined && loadedRoom === room };
 }
 
 /**
@@ -1312,7 +1316,10 @@ export function App({ initialState }: { initialState?: AppInitialState } = {}) {
     ? `/r/${encodeURIComponent(openRooms[0].room)}`
     : '/';
 
-  const messages = useMessages(activeRoom, initialState?.messages);
+  const { messages, loaded: messagesLoaded } = useMessages(
+    activeRoom,
+    initialState?.messages
+  );
   const {
     members: roomMembers,
     memberNames: roomMemberNames,
@@ -1320,8 +1327,9 @@ export function App({ initialState }: { initialState?: AppInitialState } = {}) {
   } = useRoomMembers(activeRoom, initialState?.members);
   const activeRoomSummary = rooms.find(r => r.room === activeRoom);
   const speakers = useMemo(
-    () => [...new Set(messages.map(m => m.handle))],
-    [messages]
+    () =>
+      messagesLoaded ? [...new Set(messages.map(m => m.handle))] : undefined,
+    [messages, messagesLoaded]
   );
 
   // The reader's room is the OPEN CARD's, which is rarely the room the rest
@@ -1416,6 +1424,7 @@ export function App({ initialState }: { initialState?: AppInitialState } = {}) {
     <BuddiesProvider
       buddies={buddies}
       roomMembers={roomMembers}
+      room={activeRoom}
       speakers={speakers}
       memberNames={roomMemberNames}
       now={Date.now()}

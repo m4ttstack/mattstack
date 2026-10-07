@@ -1219,6 +1219,9 @@ test('two identities that share a name read the same and keep their own hue', ()
   const avatar = (chip: HTMLElement) =>
     chip.querySelector('svg')!.getAttribute('fill');
   expect(avatar(chips[0]!)).not.toBe(avatar(chips[1]!));
+  // The avatar draws the glyph (-vivid) tone of the chip's own hue.
+  for (const chip of chips)
+    expect(avatar(chip)!.replaceAll('-vivid', '')).toBe(hue(chip));
   const mention = screen
     .getByTestId('message-3')
     .querySelector('[data-mention]')!;
