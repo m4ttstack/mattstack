@@ -3,6 +3,7 @@ import { writeFileSync } from "fs";
 import { join } from "path";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { childEnv } from "../../lib/subprocess.ts";
+import * as out from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { cleanupOrgWorlds, orgWorld } from "../../lib/team/__tests__/org-world.ts";
@@ -10,7 +11,10 @@ import type { ConvergeOutcome } from "../../lib/team/rename.ts";
 import * as orgFolder from "../../lib/setup/steps/org-folder.ts";
 import { realTeamDeps, renameBlocks, teamRename, type TeamDeps } from "../team.ts";
 
-afterEach(cleanupOrgWorlds);
+afterEach(() => {
+  out.__test__.reset();
+  cleanupOrgWorlds();
+});
 
 function depsFor(p: TeamDeps["probes"], outcome: ConvergeOutcome = { state: "done" }) {
   const lines: string[] = [];
