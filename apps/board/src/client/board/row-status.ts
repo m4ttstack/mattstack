@@ -204,6 +204,9 @@ function verdictWord(
   return fallback;
 }
 
+/** Past this the row's status line wraps; the gate sheet carries the text. */
+const GATE_WORD_MAX = 40;
+
 /** A respond gate asks one question per thread, labelled with the thread's
     file:line, so its first label is a path, not a question. */
 function openGateWord(gate: BoardMRWithReview['gates'][number]): string {
@@ -216,7 +219,12 @@ function openGateWord(gate: BoardMRWithReview['gates'][number]): string {
     const n = ctx.replies;
     return `${n === 1 ? 'one reply' : `${n} replies`} to post`;
   }
-  return lowerFirst(gate.questions[0]?.label ?? gate.label);
+  const [first, ...rest] = gate.questions;
+  if (!first) return lowerFirst(gate.label);
+  if (!rest.length && first.label.length <= GATE_WORD_MAX)
+    return lowerFirst(first.label);
+  const n = gate.questions.length;
+  return `${n === 1 ? 'one question' : `${n} questions`} to answer`;
 }
 
 function gateLines(mr: BoardMRWithReview): Candidate[] {
