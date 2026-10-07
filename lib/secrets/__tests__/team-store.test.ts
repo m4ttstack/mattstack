@@ -24,7 +24,7 @@ import {
 import { UserActionableError } from "../../errors.ts";
 import { InvalidSecretsSegmentError, SopsDecryptError, type SecretsExecResult, type SecretsExecSeam, type SecretsSeams } from "../store.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
-import { teamsDir } from "../../rt-paths.ts";
+import { orgsDir } from "../../rt-paths.ts";
 import { join } from "path";
 import { secretsList } from "../../../commands/secrets.ts";
 import * as out from "../../ui/out.ts";
@@ -48,7 +48,7 @@ afterEach(() => {
 });
 
 function teamCloneRootFor(slug: string): string {
-  return join(teamsDir(), slug);
+  return join(orgsDir(), slug);
 }
 
 function fakeAgeKeySeamWithKey(key: string): AgeKeySeam {
@@ -198,9 +198,9 @@ function seamsWithKey(key = "AGE-TEAM-KEY", slug = "acme"): { execSeam: FakeTeam
 
 describe("teamSecretsFile / teamSopsYamlPath", () => {
   test("layout matches the contract: teams/<slug>/mattstack/org/secrets/<domain>.json and teams/<slug>/.sops.yaml", () => {
-    expect(teamSecretsFile("acme", "board")).toBe(join(teamsDir(), "acme", "mattstack", "org", "secrets", "board.json"));
+    expect(teamSecretsFile("acme", "board")).toBe(join(orgsDir(), "acme", "mattstack", "org", "secrets", "board.json"));
     expect(TEAM_PATH_REGEX).toBe("mattstack/org/secrets/.*");
-    expect(teamSopsYamlPath("acme")).toBe(join(teamsDir(), "acme", ".sops.yaml"));
+    expect(teamSopsYamlPath("acme")).toBe(join(orgsDir(), "acme", ".sops.yaml"));
   });
 
   test("an invalid domain is rejected before any path is returned", () => {
@@ -340,11 +340,11 @@ describe("writeTeamSecret", () => {
 describe("buildTeamSpawnOptions", () => {
   test("cwd = this team's clone root, not <mattstackHome>/user", () => {
     const opts = buildTeamSpawnOptions("acme");
-    expect(opts.cwd).toBe(join(teamsDir(), "acme"));
+    expect(opts.cwd).toBe(join(orgsDir(), "acme"));
   });
 
   test("a different slug gets a different cwd", () => {
-    expect(buildTeamSpawnOptions("otherteam").cwd).toBe(join(teamsDir(), "otherteam"));
+    expect(buildTeamSpawnOptions("otherteam").cwd).toBe(join(orgsDir(), "otherteam"));
   });
 });
 

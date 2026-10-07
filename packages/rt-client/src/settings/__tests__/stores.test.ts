@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { userSettingsPath, orgSettingsPath, teamSettingsPath, teamsDir, machineSettingsPath } from "../paths.ts";
+import { userSettingsPath, orgSettingsPath, teamSettingsPath, orgsDir, machineSettingsPath } from "../paths.ts";
 import { currentOrg, listOrgs, listTeamFolders, parseStoreText, readStore, sharedStoreFiles } from "../stores.ts";
 
 describe("settings/stores", () => {
@@ -176,11 +176,11 @@ describe("settings/stores", () => {
 
   describe("org listing", () => {
     test("an org is a clone with mattstack/org/settings.org.jsonc", () => {
-      const org = join(teamsDir(), "acme", "mattstack", "org");
+      const org = join(orgsDir(), "acme", "mattstack", "org");
       mkdirSync(org, { recursive: true });
       writeFileSync(join(org, "settings.org.jsonc"), "{}");
-      mkdirSync(join(teamsDir(), "old-layout", "mattstack"), { recursive: true });
-      writeFileSync(join(teamsDir(), "old-layout", "mattstack", "settings.team.jsonc"), "{}");
+      mkdirSync(join(orgsDir(), "old-layout", "mattstack"), { recursive: true });
+      writeFileSync(join(orgsDir(), "old-layout", "mattstack", "settings.team.jsonc"), "{}");
       expect(listOrgs()).toEqual(["acme"]);
       expect(currentOrg()).toBe("acme");
     });
@@ -205,8 +205,8 @@ describe("settings/stores", () => {
       const real = join(home, "elsewhere", "acme");
       mkdirSync(join(real, "mattstack", "org"), { recursive: true });
       writeFileSync(join(real, "mattstack", "org", "settings.org.jsonc"), "{}");
-      mkdirSync(teamsDir(), { recursive: true });
-      symlinkSync(real, join(teamsDir(), "acme"));
+      mkdirSync(orgsDir(), { recursive: true });
+      symlinkSync(real, join(orgsDir(), "acme"));
 
       expect(listOrgs()).toEqual(["acme"]);
     });
@@ -217,7 +217,7 @@ describe("settings/stores", () => {
       // every settings resolution, so it must skip, not throw.
       mkdirSync(dirname(orgSettingsPath("acme")), { recursive: true });
       writeFileSync(orgSettingsPath("acme"), "{}");
-      symlinkSync(join(home, "moved-away"), join(teamsDir(), "moved-org"));
+      symlinkSync(join(home, "moved-away"), join(orgsDir(), "moved-org"));
       const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
 
       try {
@@ -230,7 +230,7 @@ describe("settings/stores", () => {
     });
 
     test("an unreadable teams dir lists no orgs, warns, and does not throw", () => {
-      const dir = teamsDir();
+      const dir = orgsDir();
       mkdirSync(dir, { recursive: true });
       chmodSync(dir, 0o000);
       const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
@@ -246,7 +246,7 @@ describe("settings/stores", () => {
     });
 
     test("team folders are plain lowercase names, sorted", () => {
-      const teams = join(teamsDir(), "acme", "mattstack", "teams");
+      const teams = join(orgsDir(), "acme", "mattstack", "teams");
       for (const name of ["widgets", "gadgets", "Widgets2", ".git"]) mkdirSync(join(teams, name), { recursive: true });
       writeFileSync(join(teams, "notes.md"), "");
       expect(listTeamFolders("acme")).toEqual(["gadgets", "widgets"]);
@@ -261,7 +261,7 @@ describe("settings/stores", () => {
         mkdirSync(dirname(teamSettingsPath("acme", team)), { recursive: true });
         writeFileSync(teamSettingsPath("acme", team), "{}");
       }
-      mkdirSync(join(teamsDir(), "acme", "mattstack", "teams", "storeless"), { recursive: true });
+      mkdirSync(join(orgsDir(), "acme", "mattstack", "teams", "storeless"), { recursive: true });
       expect(sharedStoreFiles()).toEqual([orgSettingsPath("acme"), teamSettingsPath("acme", "gadgets"), teamSettingsPath("acme", "widgets")]);
     });
   });

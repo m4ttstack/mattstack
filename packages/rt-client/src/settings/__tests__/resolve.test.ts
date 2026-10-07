@@ -17,7 +17,7 @@ import {
   machineSettingsPath,
   orgSettingsPath,
   teamSettingsPath,
-  teamsDir,
+  orgsDir,
   userSettingsPath,
 } from "../paths.ts";
 import { getDef, type SettingDef, type SettingScope } from "../registry-machinery.ts";
@@ -354,7 +354,7 @@ describe("settings/resolve", () => {
     test("items are expanded the same way as the value", () => {
       seedOrg({ org: ORG, username: "dev1", roster, settings: { "claude.marketplaces": ["${team:widgets}/market"] } });
       writeUser({ "claude.marketplaces": ["${home}/market"] });
-      const expected = [join(teamsDir(), "widgets", "market"), join(home, "market")];
+      const expected = [join(orgsDir(), "widgets", "market"), join(home, "market")];
       const got = getSetting<string[]>("claude.marketplaces");
       expect(got.value).toEqual(expected);
       expect(got.items!.map((i) => i.value)).toEqual(expected);
@@ -657,44 +657,44 @@ describe("settings/resolve", () => {
   // ─── variables ─────────────────────────────────────────────────────────────
 
   describe("variables", () => {
-    const ctx = () => ({ home, teamsDir: teamsDir(), repoRoot: "/repos/x", worktree: "/repos/x/.wt/a" });
+    const ctx = () => ({ home, orgsDir: orgsDir(), repoRoot: "/repos/x", worktree: "/repos/x/.wt/a" });
 
     test("expands exactly the closed set", () => {
       expect(expandVariables("${home}/bin", ctx())).toBe(`${home}/bin`);
       expect(expandVariables("${team:acme}/packs", ctx())).toBe(
-        `${join(teamsDir(), "acme")}/packs`,
+        `${join(orgsDir(), "acme")}/packs`,
       );
       expect(expandVariables("${repoRoot}/.worktrees", ctx())).toBe("/repos/x/.worktrees");
       expect(expandVariables("${worktree}/node_modules", ctx())).toBe("/repos/x/.wt/a/node_modules");
     });
 
     test("${team:<name>} is lexical — no existence check on the team dir", () => {
-      expect(expandVariables("${team:never-cloned}", ctx())).toBe(join(teamsDir(), "never-cloned"));
+      expect(expandVariables("${team:never-cloned}", ctx())).toBe(join(orgsDir(), "never-cloned"));
     });
 
     test("${team:<name>} refuses a name that escapes the teams dir", () => {
       // join() would normalize `..` away and hand back a path OUTSIDE
-      // teamsDir() — a store value that reads/execs from anywhere on disk
+      // orgsDir() — a store value that reads/execs from anywhere on disk
       // while still looking team-relative. Every traversing form throws, and
       // nothing half-expanded comes back.
       for (const name of ["../..", "../../.ssh", "a/b", "a\\b", "..", "cv/../.."]) {
         expect(() => expandVariables(`\${team:${name}}/x`, ctx())).toThrow(/single directory segment/);
       }
       // …while an ordinary name is untouched by the guard.
-      expect(expandVariables("${team:claim.view-2}", ctx())).toBe(join(teamsDir(), "claim.view-2"));
+      expect(expandVariables("${team:claim.view-2}", ctx())).toBe(join(orgsDir(), "claim.view-2"));
     });
 
     test("a foreign variable passes through verbatim in the SAME string as an expanded one", () => {
       const out = expandVariables("bun ${team:acme}/hook.ts --port ${port} --keys ${envKeys}", ctx());
 
-      expect(out).toBe(`bun ${join(teamsDir(), "acme")}/hook.ts --port \${port} --keys \${envKeys}`);
+      expect(out).toBe(`bun ${join(orgsDir(), "acme")}/hook.ts --port \${port} --keys \${envKeys}`);
     });
 
     test("a closed-set variable with no context throws", () => {
-      expect(() => expandVariables("${repoRoot}/x", { home, teamsDir: teamsDir() })).toThrow(
+      expect(() => expandVariables("${repoRoot}/x", { home, orgsDir: orgsDir() })).toThrow(
         /\$\{repoRoot\}/,
       );
-      expect(() => expandVariables("${worktree}/x", { home, teamsDir: teamsDir() })).toThrow(
+      expect(() => expandVariables("${worktree}/x", { home, orgsDir: orgsDir() })).toThrow(
         /\$\{worktree\}/,
       );
     });
@@ -718,7 +718,7 @@ describe("settings/resolve", () => {
       const got = getSetting<Record<string, Record<string, string>>>("rt.roles", {
         repoIdentity: IDENTITY,
       });
-      expect(got.value.be?.hook).toBe(`bun ${join(teamsDir(), "acme")}/h.ts`);
+      expect(got.value.be?.hook).toBe(`bun ${join(orgsDir(), "acme")}/h.ts`);
 
       writeUser({ repos: { [IDENTITY]: { "rt.roles": { be: { hook: "bun ${repoRoot}/h.ts" } } } } });
       expect(() => getSetting("rt.roles", { repoIdentity: IDENTITY })).toThrow(/\$\{repoRoot\}/);
@@ -805,7 +805,7 @@ describe("settings/resolve", () => {
       // moved leaves a dangling symlink under ~/.mattstack/teams, and the
       // unguarded scan behind listOrgs() made EVERY resolution throw ENOENT.
       writeOrg({ "rt.intercepts": [{ id: "team" }] });
-      symlinkSync(join(home, "moved-away"), join(teamsDir(), "moved-team"));
+      symlinkSync(join(home, "moved-away"), join(orgsDir(), "moved-team"));
 
       const got = getSetting("rt.intercepts", { repoIdentity: IDENTITY });
 

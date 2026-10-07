@@ -22,7 +22,7 @@ export function userSettingsPath(): string {
   return join(home(), ".mattstack", "user", "settings.user.jsonc");
 }
 
-/** ~/.mattstack/teams/<org>/mattstack/teams/<team>/settings.team.jsonc: one team folder's store. */
+/** ~/.mattstack/orgs/<org>/mattstack/teams/<team>/settings.team.jsonc: one team folder's store. */
 export function teamSettingsPath(org: string, team: string): string {
   return join(teamFolderDir(org, team), "settings.team.jsonc");
 }
@@ -46,14 +46,19 @@ export function machineSettingsPath(): string {
   return join(home(), ".mattstack", "user", "local", machineKey(), "settings.local.jsonc");
 }
 
-/** ~/.mattstack/teams — the container every team's local clone lives under. */
-export function teamsDir(): string {
-  return join(home(), ".mattstack", "teams");
+/** ~/.mattstack/orgs: the container every org clone lives under. */
+export function orgsDir(): string {
+  return join(home(), ".mattstack", "orgs");
 }
 
-/** ~/.mattstack/teams/<org>: the org clone. The parent folder keeps its `teams` name. */
+/** ~/.mattstack/orgs/<org>: the org clone. */
 export function orgDir(org: string): string {
-  return join(teamsDir(), org);
+  return join(orgsDir(), org);
+}
+
+/** ~/.mattstack/teams: where org clones lived before the orgs root. Only the migration, the org.folder row and home init may name it. */
+export function legacyTeamsDir(): string {
+  return join(home(), ".mattstack", "teams");
 }
 
 export function orgMarkerPath(org: string): string {

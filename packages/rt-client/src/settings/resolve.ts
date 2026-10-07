@@ -57,7 +57,7 @@
 import { homedir } from "os";
 import { join } from "path";
 import { activeTeamFrom } from "./active-team.ts";
-import { machineSettingsPath, orgSettingsPath, teamSettingsPath, teamsDir, userSettingsPath } from "./paths.ts";
+import { machineSettingsPath, orgSettingsPath, orgsDir, teamSettingsPath, userSettingsPath } from "./paths.ts";
 import { currentStoreName, readSection, storeNameStatus, worstLabel, type OlderLabel, type OlderNameRead, type SectionRead } from "./migrate.ts";
 import { allDefs, getDef, isMigrated, validateValue, type SettingDef, type SettingScope } from "./registry-machinery.ts";
 import { checkSchema, type SchemaIssue } from "./schema.ts";
@@ -176,7 +176,7 @@ export interface ExpandCtx {
   repoRoot?: string;
   worktree?: string;
   home: string;
-  teamsDir: string;
+  orgsDir: string;
 }
 
 // ─── Variables ───────────────────────────────────────────────────────────────
@@ -189,7 +189,7 @@ const TEAM_VAR_RE = /^team:(.+)$/;
  * Every other `${...}` passes through verbatim — domain templates like the
  * interceptor's `${port}` are not ours to expand, and the same string may hold
  * both kinds, so substitution is per-occurrence. `${team:<name>}` is lexical:
- * `<teamsDir>/<name>` with no existence check (a missing team surfaces at use
+ * `<orgsDir>/<name>` with no existence check (a missing team surfaces at use
  * time through the consumer's own fail-open path), but the name must be a
  * single directory segment — see `teamPath`. A closed-set variable with no
  * context in `ctx` throws — silently emitting a half-expanded path is the
@@ -215,13 +215,13 @@ function expandString(input: string, ctx: ExpandCtx): string {
     if (name === "repoRoot") return required(ctx.repoRoot, "repoRoot", "a repo path");
     if (name === "worktree") return required(ctx.worktree, "worktree", "a worktree path");
     const team = TEAM_VAR_RE.exec(name);
-    if (team) return teamPath(ctx.teamsDir, team[1] as string);
+    if (team) return teamPath(ctx.orgsDir, team[1] as string);
     return match; // not ours — pass through verbatim
   });
 }
 
 /**
- * `${team:<name>}` → `<teamsDir>/<name>`, but only for a name that is a single
+ * `${team:<name>}` → `<orgsDir>/<name>`, but only for a name that is a single
  * directory segment. `<name>` is a team NAME, and `join()` normalizes away
  * `..`, so `${team:../../.ssh}` would quietly resolve to a path OUTSIDE the
  * teams dir — a store value (a team store's own, even) that reads or executes
@@ -230,13 +230,13 @@ function expandString(input: string, ctx: ExpandCtx): string {
  * unsatisfiable `${repoRoot}`: `get` surfaces it, `list` degrades that one
  * value to an `expandError`, and no half-expanded path is ever emitted.
  */
-function teamPath(teamsDir: string, name: string): string {
+function teamPath(root: string, name: string): string {
   if (name.includes("/") || name.includes("\\") || name.includes("..")) {
     throw new Error(
       `rt: cannot expand \${team:${name}} — a team name must be a single directory segment (no "/", "\\" or "..")`,
     );
   }
-  return join(teamsDir, name);
+  return join(root, name);
 }
 
 function required(value: string | undefined, name: string, needs: string): string {
@@ -716,7 +716,7 @@ function expandCtxFrom(opts: ResolveOpts): ExpandCtx {
     repoRoot: opts.expandCtx?.repoRoot,
     worktree: opts.expandCtx?.worktree,
     home: process.env.HOME ?? homedir(),
-    teamsDir: teamsDir(),
+    orgsDir: orgsDir(),
   };
 }
 

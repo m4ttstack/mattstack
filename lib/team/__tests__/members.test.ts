@@ -11,7 +11,7 @@ import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { readTeamRecipients, teamSecretsFile, writeTeamRecipients } from "../../secrets/team-store.ts";
 import type { SecretsExecResult, SecretsExecSeam, SecretsSeams } from "../../secrets/store.ts";
 import { UserActionableError } from "../../errors.ts";
-import { teamsDir } from "../../rt-paths.ts";
+import { orgsDir } from "../../rt-paths.ts";
 import { seal, sealReply } from "../invite-crypto.ts";
 import { upsertInviteRecord, type InviteRecord } from "../invite-records.ts";
 import { membersRemove, membersSync, MembersSyncAbortedError, type MembersSeams } from "../members.ts";
@@ -51,7 +51,7 @@ function fakeProbes(opts: Parameters<typeof rawFakeProbes>[0] = {}) {
 }
 
 function teamCloneRootFor(slug: string): string {
-  return join(teamsDir(), slug);
+  return join(orgsDir(), slug);
 }
 
 function probesWithJoinedTeam(slug = SLUG, username = "dev2") {

@@ -197,7 +197,7 @@ export function userSettingsPath(): string {
   return join(home(), ".mattstack", "user", "settings.user.jsonc");
 }
 
-/** ~/.mattstack/teams/<org>/mattstack/teams/<team>/settings.team.jsonc: one team folder's store. */
+/** ~/.mattstack/orgs/<org>/mattstack/teams/<team>/settings.team.jsonc: one team folder's store. */
 export function teamSettingsPath(org: string, team: string): string {
   return join(teamFolderDir(org, team), "settings.team.jsonc");
 }
@@ -212,14 +212,28 @@ export function machineSettingsPath(): string {
   return join(home(), ".mattstack", "user", "local", machineKey(), "settings.local.jsonc");
 }
 
-/** ~/.mattstack/teams — the container every team's local clone lives under. */
-export function teamsDir(): string {
+/** ~/.mattstack/orgs: the container every org clone lives under. */
+export function orgsDir(): string {
+  return join(home(), ".mattstack", "orgs");
+}
+
+/** ~/.mattstack/orgs/<org>: the org clone. */
+export function orgDir(org: string): string {
+  return join(orgsDir(), org);
+}
+
+/** ~/.mattstack/teams: where org clones lived before the orgs root. Only the migration, the org.folder row and home init may name it. */
+export function legacyTeamsDir(): string {
   return join(home(), ".mattstack", "teams");
 }
 
-/** ~/.mattstack/teams/<org>: the org clone. The parent folder keeps its `teams` name. */
-export function orgDir(org: string): string {
-  return join(teamsDir(), org);
+/** `orgsDir()` for a home a Probes seam carries instead of the ambient HOME. */
+export function orgsDirUnder(home: string): string {
+  return join(home, ".mattstack", "orgs");
+}
+
+export function orgDirUnder(home: string, org: string): string {
+  return join(orgsDirUnder(home), org);
 }
 
 export function orgMarkerPath(org: string): string {

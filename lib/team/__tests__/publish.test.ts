@@ -125,7 +125,7 @@ describe("publishTeam", () => {
     }
   });
 
-  test("an unvalidated --team never resolves outside teamsDir()", async () => {
+  test("an unvalidated --team never resolves outside orgsDir()", async () => {
     const p = fakeProbes({ home: "/home/x", dirs: { "/some/other-repo": [] } });
 
     let thrown: unknown;

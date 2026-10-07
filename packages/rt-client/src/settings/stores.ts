@@ -19,7 +19,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "fs";
 import { parse, type ParseError } from "jsonc-parser";
 import { join } from "path";
-import { orgSettingsPath, teamFoldersDir, teamsDir, teamSettingsPath } from "./paths.ts";
+import { orgSettingsPath, orgsDir, teamFoldersDir, teamSettingsPath } from "./paths.ts";
 
 export interface StoreFile {
   /** Top-level keys other than "repos" — the global scope for this store. */
@@ -88,7 +88,7 @@ export function parseStoreText(file: string, raw: string): StoreFile {
 export const TEAM_NAME_RE = /^[a-z][a-z0-9-]*$/;
 
 /**
- * Org clones on this Mac: folders under teamsDir() that hold
+ * Org clones on this Mac: folders under orgsDir() that hold
  * mattstack/org/settings.org.jsonc. A folder without that file (a clone
  * mid-setup, or an unrelated directory) is not an org as far as the resolver
  * is concerned.
@@ -104,7 +104,7 @@ export const TEAM_NAME_RE = /^[a-z][a-z0-9-]*$/;
  * clones intact).
  */
 export function listOrgs(): string[] {
-  const dir = teamsDir();
+  const dir = orgsDir();
   if (!existsSync(dir)) return [];
   let entries: Dirent[];
   try {

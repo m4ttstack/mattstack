@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { machineSettingsPath, orgDir, orgSettingsPath, teamLocalPath, teamSettingsPath, teamsDir, userSettingsPath } from "../paths.ts";
+import { machineSettingsPath, orgDir, orgSettingsPath, teamLocalPath, teamSettingsPath, orgsDir, userSettingsPath } from "../paths.ts";
 import { getSetting } from "../resolve.ts";
 import { readStore } from "../stores.ts";
 import { pruneStoreName, setSetting, setSettingsNoticeSink, unsetSetting, type SettingsNotice } from "../write.ts";
@@ -549,10 +549,10 @@ describe("settings/write", () => {
     });
   });
 
-  // ─── sanity: teamsDir is honored ────────────────────────────────────────────
+  // ─── sanity: orgsDir is honored ────────────────────────────────────────────
 
-  test("uses the HOME-relative teamsDir for team store discovery", () => {
-    expect(teamsDir()).toContain(home);
+  test("uses the HOME-relative orgsDir for team store discovery", () => {
+    expect(orgsDir()).toContain(home);
   });
 });
 
