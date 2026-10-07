@@ -35,7 +35,7 @@ import { readOrgRoles } from "../packages/rt-client/src/settings/active-team.ts"
 import { readForgeUsername } from "../packages/rt-client/src/settings/team-local-read.ts";
 import { roleOf, writeRefusalFor } from "../packages/rt-client/src/settings/org-roles.ts";
 import { mattstackHome } from "../lib/rt-paths.ts";
-import { TEAM_PACK_FOLDER } from "../lib/team/team-pack-path.ts";
+import { TEAM_PACK_FOLDER, teamOfPackDir } from "../lib/team/team-pack-path.ts";
 import { childEnv, runCapture } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import { readDevModeConfig } from "./settings.ts";
@@ -219,13 +219,15 @@ type PackTarget = { team: string; packDir: string };
  */
 /**
  * A pack directory is named for its pack in every layout that produces one
- * (`packs/<name>/`, `plugins/<name>/`), so the directory answers "which pack"
- * when the pack carries no plugin identity and `--pack` was omitted. Naming
+ * (`packs/<name>/`, `plugins/<name>/`) except a team's, which is always
+ * `plugin/` and takes its team folder's name, so the directory answers "which
+ * pack" when the pack carries no plugin identity and `--pack` was omitted. Naming
  * a specific team here instead meant a general-purpose tool carried one
  * team's slug as its default.
  */
 function packNameFor(packDir: string): string {
-  return basename(resolvePath(packDir)) || "pack";
+  const dir = resolvePath(packDir);
+  return teamOfPackDir(dir) ?? (basename(dir) || "pack");
 }
 
 function packTeamFor(packDir: string): string {
