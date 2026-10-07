@@ -96,9 +96,11 @@ The same rule covers the project's other tickets that implement a shared
 contract on Claude (the session state feed, tool-call policy, gate form,
 wait gates, presence, run tracking, relocation and board status): the
 daemon-side feed, store or policy is shared, and the mod is the Claude producer
-or enforcer behind it. Claude adapters first wrap today's mechanisms, so this
-project never waits on the early-access mods API. The plan index carries the
-ticket-by-ticket mapping.
+or enforcer behind it. Claude's side is built on the mod, with today's
+mechanisms as the per-feature fallback; the
+[Claude mods design](2026-10-07-harness-integrations-claude-mods-design.md)
+carries that design, its scope and its evidence, and wins over this document
+on Claude's mechanisms. The plan index carries the ticket-by-ticket mapping.
 
 The scope includes first-party runtime code, bundled skills, setup and
 maintenance, application entry points, and release verification. Required
