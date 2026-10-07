@@ -257,7 +257,10 @@ export type BaseAttachmentPlan = {
 };
 export function planBaseAttachments(input: { packDir: string; packName: string; verbSides: Record<string, Side> }): BaseAttachmentPlan;
 export function plannedAttachmentsOf(plan: BaseAttachmentPlan): PlannedAttachments; // emits -> their file paths, stale -> empty set
-export function isEmittedAttachmentDir(dir: string): boolean; // has compiled.json at its root
+export function isEmittedAttachmentDir(dir: string): boolean; // root compiled.json parses as an object with a string `base`
+export function isEmittedAttachmentText(text: string | null): boolean; // the same test on text, for the mcp lint's read seam
+export function listAttachmentFiles(dir: string): string[];
+export function isSkippedAttachmentPath(rel: string): boolean; // true for a path listAttachmentFiles never lists
 export function maskProvenanceVersion(text: string): string;
 ```
 
@@ -302,6 +305,8 @@ Tests (one `test` each):
 
 1. `emits every non-fill attachment with compiled.json listing its files`: base has `attachments/review-kit/SKILL.md` (`---\nname: review-kit\n---\nUse {{pack.name}}:ship.\n`), `attachments/review-kit/references/guide.md`, `attachments/review-kit/scripts/run.sh` (`echo {{pack.name}}\n`), `attachments/review-kit/README.md`, `attachments/review-kit/.DS_Store`. Expect `plan().errors` `[]`, one emit named `review-kit`, file paths `["README.md", "SKILL.md", "compiled.json", "references/guide.md", "scripts/run.sh"]`; SKILL.md content contains `Use widgets:ship.`; `scripts/run.sh` is `{ copyFrom: <abs base path> }`; compiled.json content equals `JSON.stringify({ base: "acme-base", version: "1.4.0", files: ["README.md", "SKILL.md", "references/guide.md", "scripts/run.sh"] }, null, 2) + "\n"`.
 2. `a fill (metadata.provides) is not emitted`: base `attachments/watch-ci-domain/SKILL.md` with `---\nname: watch-ci-domain\nmetadata:\n  provides: watch-ci-domain@1\n---\nbody\n`. Expect `emits` empty.
+Wherever a test below puts a pack-side `compiled.json` to stand for an emitted folder, its content is `JSON.stringify({ base: "acme-base", version: null, files: [] })`.
+
 3. `no extends emits nothing and marks every emitted folder stale`: rewrite the pack's skills.jsonc to `{}`; put `attachments/review-kit/compiled.json` and `attachments/own/SKILL.md` in the pack. Expect `base` null, `emits` `[]`, `stale` `[{ name: "review-kit", why: "no-base" }]`.
 4. `an emitted folder whose base attachment is gone is stale`: pack has `attachments/old-kit/compiled.json`; base has only `review-kit`. Expect `stale` `[{ name: "old-kit", why: "dropped" }]`.
 5. `a team's own folder wins`: pack has `attachments/review-kit/SKILL.md` (no compiled.json); base has `review-kit`. Expect `emits` `[]`, `kept` `["review-kit"]`, `errors` `[]`.
@@ -313,6 +318,8 @@ Tests (one `test` each):
 11. `pack.path from a base file to its own nested file resolves on a clean plan`: base SKILL.md body `see {{pack.path:review-kit/references/guide.md}}`. Expect content contains `${CLAUDE_SKILL_DIR}/../../attachments/review-kit/references/guide.md` and `errors` `[]`.
 12. `a placeholder error becomes a plan error`: base SKILL.md body `{{verb.path:nope}}`. Expect `errors[0]` toBe `acme-base:attachments/review-kit/SKILL.md: {{verb.path:nope}} -- nope is not a compiled verb of this pack`.
 13. `plannedAttachmentsOf maps emits to their files and stale folders to nothing`, `isEmittedAttachmentDir`, and `maskProvenanceVersion` (both `"version": "1.4.0"` and `"version": null` mask to the same text).
+14. `a hand-authored compiled.json is data, not provenance`: pack skills.jsonc `{}`, pack `attachments/data/compiled.json` = `{"rows": []}\n`. Expect `stale` `[]`; `isEmittedAttachmentDir` false for it, and also false for `[]`, `{"base": 3}` and unparseable text.
+15. `a clashing name is reported once`: base `review-kit/SKILL.md` body `{{pack.path:review-kit/x.md}}`, `verbSides` `{ "review-kit": "attachments" }`. Expect `errors` to be exactly the one clash message from test 6.
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -335,8 +342,20 @@ import type { CompiledFile, PlannedAttachments, Side } from "./types.ts";
 
 export const PROVENANCE_FILE = "compiled.json";
 
+/** A hand-authored data file may also be called compiled.json, so only compile's own shape marks a folder as output. */
+export function isEmittedAttachmentText(text: string | null): boolean {
+  if (text === null) return false;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return !!parsed && typeof parsed === "object" && !Array.isArray(parsed) && typeof (parsed as { base?: unknown }).base === "string";
+  } catch {
+    return false;
+  }
+}
+
 export function isEmittedAttachmentDir(dir: string): boolean {
-  return existsSync(join(dir, PROVENANCE_FILE));
+  const path = join(dir, PROVENANCE_FILE);
+  return existsSync(path) && isEmittedAttachmentText(readFileSync(path, "utf8"));
 }
 
 export function maskProvenanceVersion(text: string): string {
@@ -345,7 +364,8 @@ export function maskProvenanceVersion(text: string): string {
 ```
 
 Helpers:
-- `listAttachmentFiles(dir)`: recursive, regular files only, `/`-joined relative paths, skip any entry whose name starts with `.`, skip `__pycache__` folders and `*.pyc`, sorted.
+- `isSkippedAttachmentPath(rel)`: true when any `/` segment starts with `.` or is `__pycache__`, or the path ends `.pyc`.
+- `listAttachmentFiles(dir)` (exported): recursive, regular files only, `/`-joined relative paths, dropping every path `isSkippedAttachmentPath` matches, sorted.
 - `isFill(dir)`: `SKILL.md` exists and its frontmatter `metadata.provides` is a non-empty string.
 - `isHandAuthored(dir)`: `SKILL.md` exists and its stripped body does not start with `HEADER_COMMENT` (same test as `isCompiledDir`).
 - `resolveBase(packDir, packName, name)`: returns `BaseRef` or an error string, in this order: `typeof name !== "string"` (when `extends` is present but not a string) gives `${packName}'s extends is not a string`; `orgOfPackDir(packDir)` null gives `${packName} extends ${name}, but it is not inside an org repo`; `!TEAM_NAME_RE.test(name)` gives `${packName} extends "${name}", which is not a base pack name`; fragment at `<root>/mattstack/org/packs/<name>/pack/skills.jsonc` missing gives `... but the org has no base pack called ${name}`; `base !== true` gives `... but the org's ${name} pack is not marked as a base pack`; a string `extends` in it gives `${packName} extends ${name}, which extends ${x}; a base pack cannot extend another`. Version: `packPluginIdentity(dir)?.version || null`.
@@ -355,7 +375,7 @@ Helpers:
 2. `onDiskEmitted` = `listDirs(join(packDir, "attachments"))` filtered by `isEmittedAttachmentDir`.
 3. `ext === undefined`: return `{ base: null, emits: [], kept: [], stale: onDiskEmitted.map(n => ({ name: n, why: "no-base" })), errors: [] }`.
 4. Resolve base; on error return `{ base: null, emits: [], kept: [], stale: [], errors: [error] }` (nothing is removed while the pack is broken).
-5. For each `name` of `listDirs(join(base.dir, "attachments"))` (skip names starting with `.`), skip fills. Collect errors for: `name in verbSides` (message in test 6); a hand-authored `packDir/skills/<name>` (test 7); a root `compiled.json` in the base folder (test 10). If `packDir/attachments/<name>` exists and is not emitted, push to `kept` and skip. Otherwise record `{ name, srcDir, files: listAttachmentFiles(srcDir) }`.
+5. For each `name` of `listDirs(join(base.dir, "attachments"))` (skip names starting with `.`), skip fills. Collect errors for: `name in verbSides` (message in test 6); a hand-authored `packDir/skills/<name>` (test 7); a root `compiled.json` in the base folder (test 10). A name that hit any of these is not recorded or rendered, so it yields exactly one error. If `packDir/attachments/<name>` exists and is not emitted, push to `kept` and skip. Otherwise record `{ name, srcDir, files: listAttachmentFiles(srcDir) }`.
 6. Build `planned: Map<string, Set<string>>` from those records (each set includes `compiled.json`), plus each stale name (`onDiskEmitted` not in the records, `why: "dropped"`) mapped to an empty set.
 7. Render: for each record and file, `.md` files become `{ path, content: substituteAttachmentPlaceholders(readFileSync(abs, "utf8"), { packName, fileRel: \`attachments/${name}/${file}\`, verbSides, packRoot: packDir, plannedAttachments: planned, where: \`${base.name}:attachments/${name}/${file}\` }) }`, catching a thrown error into `errors` (its message, unchanged); other files become `{ path, copyFrom: abs }`. Append the `compiled.json` file and sort `files` by `path`.
 8. If `errors` is non-empty, return them with `emits: []` and `stale: []`. Otherwise return the plan.
@@ -433,7 +453,9 @@ Tests:
 8. `a dry run and a failed verb leave no emitted folder`: `compile("--dry-run")` leaves `attachments/review-kit` absent. Then bind the domain slot to a fill that does not exist by writing the base `pack/skills.jsonc` binding `domain: "acme-base:does-not-exist"`, re-materialize, `compile()`; exit non-zero and the folder is still absent.
 9. `the human output names what was copied`: `compile()` and assert the captured stdout contains `Copied review-kit` and `from acme-base, 3 files`; after dropping the base attachment and compiling, `Removed review-kit`.
 10. `isCompiledDir treats an emitted folder as compiled`: after `compile()`, `computeRows(packDir, new Set(["watch-ci"]), null, new Set()).rows.find(r => r.name === "review-kit")?.kind` is `"compiled"`; for a team folder without `compiled.json` it is `"hand-authored"`.
-11. `a pack that extends a base but has no verbs still emits`: fixture variant with `stubs.jsonc` omitted (skip `materializeRepo` when it refuses a rosterless pack); `compile()` writes `attachments/review-kit/compiled.json`.
+11. `a pack that extends a base but has no verbs still emits`: fixture variant with `stubs.jsonc` omitted (skip `materializeRepo` when it refuses a rosterless pack). With no verbs `verbSides` is empty, so rewrite the base `review-kit/SKILL.md` to `---\nname: review-kit\n---\nInvoke {{pack.name}}:ship.\n` and `references/guide.md` to `Notes for {{pack.name}}.\n` (run.sh stays). `compile()` errors `[]` and writes `attachments/review-kit/compiled.json`.
+12. `anatomy resolves pack.path to an emitted file on a clean tree`: the test 3 fixture (domain fill carrying `{{pack.path:review-kit/references/guide.md}}`), no compile run. `skillsAnatomy(["--skill", "watch-ci", "--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--json"])` completes without error, and its JSON output contains `attachments/review-kit/references/guide.md`.
+13. `a pack that never extends keeps a hand-authored compiled.json`: plain team pack (skills.jsonc `{}`), `attachments/data/compiled.json` = `{"rows": []}\n` plus `attachments/data/SKILL.md`; after `compile()` both files are still there.
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -458,7 +480,7 @@ function isCompiledDir(dir: string): boolean {
 
 Update the `classify` doc comment to say a dir carrying `compiled.json` is compiled output too.
 
-`compileVerb` / `tryCompileVerb`: accept `planned?: PlannedAttachments` and pass `plannedAttachments: planned` to `compileSkill`.
+`compileVerb` / `tryCompileVerb`: accept `planned?: PlannedAttachments` and pass `plannedAttachments: planned` to `compileSkill`. Every `compileVerb` caller passes the plan: `tryCompileVerb`, `computeCheck` (Task 4), and `skillsAnatomy` (about line 1775), which computes `basePlanFor(resolved, plan.verbSides)`, throws a `SkillsUsageError` on plan errors exactly as `skillsCompile` does, and passes `plannedAttachmentsOf(...)` as the sixth argument after the trace callback.
 
 `writeCompiledVerb(packDir, outDir, result: { files: CompiledFile[] }, into)`: widen the parameter type only.
 
@@ -469,7 +491,7 @@ Update the `classify` doc comment to say a dir carrying `compiled.json` is compi
 - In the `writing` branch, before the target loop: for each `plan.stale`, `removeCompiledDir(resolved.packDir, join(resolved.packDir, "attachments", s.name), writes)`; for each `plan.emits`, `writeCompiledVerb(resolved.packDir, join(resolved.packDir, "attachments", e.name), e, writes)`.
 - `emitted` rows: one per emit `{ name, base: plan.base!.name, files: e.files.length - 1 }` (the count excludes `compiled.json`), then one per stale `{ name, removed: true, why }`.
 
-`skillsCompile`: right after the chain error check, compute `const { verbSides } = compileTargets(resolved, publicSet, flags.verbs); const plan = basePlanFor(resolved, verbSides);` and `if (plan.errors.length > 0) throw new SkillsUsageError(plan.errors.join("\n"), { title: "This pack's base attachments cannot be copied", details: plan.errors.join("\n") });`. `--preview` passes `plannedAttachmentsOf(plan)` to `tryCompileVerb`. Pass `plan` to `performCompile`. The human branch calls `compileBlocks(compiled, writing, emitted)`. The `--json` branch is unchanged (keys frozen).
+`skillsCompile`: right after the chain error check, compute `const { verbSides } = compileTargets(resolved, publicSet, flags.verbs); const plan = basePlanFor(resolved, verbSides);` and `if (plan.errors.length > 0) throw new SkillsUsageError(plan.errors.join("\n"), { title: "This pack's base attachments cannot be copied", details: plan.errors.join("\n") });`. `--preview` passes `plannedAttachmentsOf(plan)` to `tryCompileVerb`. Pass `plan` to `performCompile`. The human branch calls `compileBlocks(compiled, writing, emitted)`. The `--json` branch keeps its keys; `written` becomes `writing && (outcomes.length > 0 || emitted.length > 0)`, so a rosterless pack that copied folders reports `true`.
 
 `compilePackAll`: same plan after the chain check; `if (plan.errors.length > 0) return { ok: false, errors: plan.errors, written: [], removed: [] };`; pass `plan` to `performCompile`.
 
@@ -534,7 +556,8 @@ In the base attachments describe (reusing `seedBaseAndTeam`):
 3. `a base file removed is an orphan; a base version bump alone is not drift`: `compile()`; write the base `.claude-plugin/plugin.json` with version `2.0.0`: still `in-sync`. Remove base `scripts/run.sh`: `stale`, `staleFiles` `["compiled.json"]`, `orphanFiles` `["scripts/run.sh"]`.
 4. `never compiled and orphaned`: before any compile the row is `never-compiled`. After `compile()` and dropping the base `review-kit`, the row is `{ name: "review-kit", base: null, status: "orphaned", staleFiles: [], orphanFiles: ["SKILL.md", "compiled.json", "references/guide.md", "scripts/run.sh"] }`.
 5. `the human output names drift and the fix`: after test 2's change, `skillsCheck(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir])` stdout contains `review-kit`, `changed since the last compile: references/guide.md` and `rt skills compile`; exit code 1.
-6. `a plan error fails check`: base `attachments/watch-ci/SKILL.md` makes `checkPack` reject with a message containing `has the same name as the widgets verb watch-ci`.
+6. `run leftovers are not drift`: `compile()`; write `attachments/review-kit/scripts/__pycache__/run.cpython-312.pyc` and `attachments/review-kit/.DS_Store` in the pack; the row is still `in-sync` and `drift` is false.
+7. `a plan error fails check`: base `attachments/watch-ci/SKILL.md` makes `checkPack` reject with a message containing `has the same name as the widgets verb watch-ci`.
 
 In `skills-json-frozen.test.ts`, update the check test to destructure `attachments` too and expect `JSON.stringify({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments })`, and rename it to say the key order includes `attachments` last.
 
@@ -548,6 +571,14 @@ Expected: FAIL.
 In `computeCheck`, after `compileTargets`: `const plan = basePlanFor(resolved, verbSides); if (plan.errors.length > 0) throw new SkillsUsageError(plan.errors.join("\n"));` and pass `plannedAttachmentsOf(plan)` to each `compileVerb`. When `flags.verbs` is null, build rows:
 
 ```ts
+/** Files a run leaves beside the copy (a script's __pycache__, a git-ignored output) are not drift, matching the verb rows. */
+function leftovers(packDir: string, name: string): string[] {
+  const rel = join("attachments", name);
+  const files = listFilesRecursive(join(packDir, rel)).filter((f) => !isSkippedAttachmentPath(f));
+  const ignored = gitIgnoredFiles(packDir, files.map((f) => join(rel, f)));
+  return files.filter((f) => !ignored.has(join(rel, f))).sort();
+}
+
 function attachmentRows(packDir: string, plan: BaseAttachmentPlan): AttachmentCheckRow[] {
   const rows: AttachmentCheckRow[] = [];
   for (const emit of plan.emits) {
@@ -566,11 +597,11 @@ function attachmentRows(packDir: string, plan: BaseAttachmentPlan): AttachmentCh
       if (!readFileSync(dest).equals(expected)) staleFiles.push(file.path);
     }
     const expected = new Set(emit.files.map((f) => f.path));
-    const orphanFiles = listFilesRecursive(dir).filter((f) => !expected.has(f)).sort();
+    const orphanFiles = leftovers(packDir, emit.name).filter((f) => !expected.has(f));
     rows.push({ name: emit.name, base, status: staleFiles.length || orphanFiles.length ? "stale" : "in-sync", staleFiles, orphanFiles });
   }
   for (const s of plan.stale) {
-    rows.push({ name: s.name, base: null, status: "orphaned", staleFiles: [], orphanFiles: listFilesRecursive(join(packDir, "attachments", s.name)).sort() });
+    rows.push({ name: s.name, base: null, status: "orphaned", staleFiles: [], orphanFiles: leftovers(packDir, s.name) });
   }
   return rows;
 }
@@ -603,7 +634,7 @@ git commit -m "skills: check reports drift in copied base attachments"
 - Test: `lib/skills/__tests__/mcp-lint.test.ts` (in `describe("lintPackDir on disk")`)
 
 **Interfaces:**
-- Consumes: `PROVENANCE_FILE` (Task 2).
+- Consumes: `PROVENANCE_FILE`, `isEmittedAttachmentText` (Task 2).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -613,12 +644,15 @@ test("a folder carrying compiled.json is compiled output and skipped whole", () 
   try {
     mkdirSync(join(pack, "attachments", "review-kit", "references"), { recursive: true });
     mkdirSync(join(pack, "attachments", "own"), { recursive: true });
-    writeFileSync(join(pack, "attachments", "review-kit", "compiled.json"), "{}\n");
+    writeFileSync(join(pack, "attachments", "review-kit", "compiled.json"), JSON.stringify({ base: "acme-base", version: null, files: [] }));
+    mkdirSync(join(pack, "attachments", "data"), { recursive: true });
+    writeFileSync(join(pack, "attachments", "data", "compiled.json"), "{\"rows\": []}\n");
+    writeFileSync(join(pack, "attachments", "data", "SKILL.md"), "`git push`\n");
     writeFileSync(join(pack, "attachments", "review-kit", "SKILL.md"), "`git push`\n");
     writeFileSync(join(pack, "attachments", "review-kit", "references", "x.md"), "`git push -u`\n");
     writeFileSync(join(pack, "attachments", "review-kit", "run.sh"), "git push\n");
     writeFileSync(join(pack, "attachments", "own", "SKILL.md"), "`git push`\n");
-    expect(lintPackDir(pack, RULES).map((h) => h.file)).toEqual([join(pack, "attachments", "own", "SKILL.md")]);
+    expect(lintPackDir(pack, RULES).map((h) => h.file)).toEqual([join(pack, "attachments", "data", "SKILL.md"), join(pack, "attachments", "own", "SKILL.md")]);
     expect(lintPackScripts(pack, RULES)).toEqual([]);
   } finally {
     rmSync(pack, { recursive: true, force: true });
@@ -641,7 +675,7 @@ const compiledDir = (path: string): boolean => {
   const segments = path.slice(root.length).split(sep);
   if (segments.length < 2) return false;
   const dir = join(root, segments[0]!);
-  return read(join(dir, PROVENANCE_FILE)) !== null || (read(join(dir, "SKILL.md"))?.includes(HEADER_COMMENT) ?? false);
+  return isEmittedAttachmentText(read(join(dir, PROVENANCE_FILE))) || (read(join(dir, "SKILL.md"))?.includes(HEADER_COMMENT) ?? false);
 };
 ```
 
