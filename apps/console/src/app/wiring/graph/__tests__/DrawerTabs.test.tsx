@@ -378,6 +378,51 @@ describe('builtFrom', () => {
     );
   });
 
+  describe('a base file takes its status from rt check, never the org token', () => {
+    const baseAnatomy = (changed: boolean) => {
+      const anatomy = designFixture('anatomy.stage-plan');
+      return {
+        ...anatomy,
+        parts: anatomy.parts.map(part =>
+          part.name === 'domain'
+            ? {
+                ...part,
+                changed,
+                source: {
+                  ref: 'acme-base:plan-policy',
+                  path: '/fixture/orgs/acme/base/attachments/plan-policy/SKILL.md',
+                  version: 'org',
+                  builtVersion: 'org',
+                  lines: 80,
+                  origin: 'base' as const,
+                  base: 'acme-base',
+                  baseVersion: '0.1.0',
+                },
+              }
+            : part
+        ),
+      };
+    };
+    const checkRow = designFixture('check').verbs.find(
+      row => row.name === 'stage-plan'
+    )!;
+    const statusOfBase = (
+      anatomy: ReturnType<typeof baseAnatomy>,
+      row: typeof checkRow
+    ) =>
+      builtFrom(anatomy, row).find(r => r.file === 'plan-policy/SKILL.md')!
+        .status;
+
+    it('reads unchanged for a verb check calls in sync', () => {
+      expect(statusOfBase(baseAnatomy(false), checkRow)).toBe('unchanged');
+    });
+
+    it('reads changed for a stale verb whose base file changed, as a plugin file does', () => {
+      const stale = { ...checkRow, status: 'stale' as const };
+      expect(statusOfBase(baseAnatomy(true), stale)).toBe('changed');
+    });
+  });
+
   it('says unmeasured for every file when check has no row for the skill', () => {
     const rows = builtFrom(designFixture('anatomy.stage-plan'), undefined);
 

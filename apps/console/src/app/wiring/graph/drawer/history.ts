@@ -73,6 +73,8 @@ export function builtFrom(
     if (!row) return 'unmeasured';
     if (row.status === 'never-compiled') return 'not built';
     if (stale && changed) return 'changed';
+    if (ownerOf(source.ref, source, anatomy.pack).kind === 'base')
+      return 'unchanged';
     return source.builtVersion === source.version ? 'current' : 'unchanged';
   };
 
