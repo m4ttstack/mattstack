@@ -282,6 +282,8 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
     report.push("invites made from this Mac name the org by its folder name until the folder is renamed, so a joiner is refused as a stale invite until then");
   }
 
+  if (opts.orgPlaceholder) report.push("Every member needs an rt that knows ${org}; an older rt reads it as plain text, so role hooks would run with that text");
+
   const rosterUsernames = roster.map((entry) => String(entry.username));
   report.push(`roster usernames to confirm as forge logins: ${rosterUsernames.join(", ")}`);
 

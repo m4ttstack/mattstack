@@ -431,6 +431,11 @@ describe("planConversion", () => {
     expect(org.repos[SHARED]["rt.roles"].dev.hook).toBe("${org}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh");
     expect(team.repos[OWN]["rt.roles"].dev.hook).toBe("${org}/scripts/dev.sh");
     expect(JSON.stringify(plan.writes)).not.toContain("${team:acme}");
+    expect(plan.report).toContain("Every member needs an rt that knows ${org}; an older rt reads it as plain text, so role hooks would run with that text");
+  });
+
+  test("without orgPlaceholder the report carries no ${org} warning", () => {
+    expect(run(oldClone(), { org: "globex", folder: "acme" }).report.join("\n")).not.toContain("Every member needs an rt that knows");
   });
 
   test("orgPlaceholder also rewrites a placeholder followed by a suffix", () => {
@@ -959,9 +964,15 @@ exec "$RT_CONVERT_REAL_GIT" "$@"
   test("an --org that breaks the slug rule, or a second --org, is a usage failure and changes nothing", () => {
     const dir = tempClone();
     const before = snapshot(dir);
-    for (const extra of [["--org", "Globex"], ["--org", "globex", "--org", "gadgets"], ["--org", "--write"]]) {
+    const cases: [string[], string][] = [
+      [["--org", "Globex"], "Choose an org name of lowercase letters, digits and dashes"],
+      [["--org", "globex", "--org", "gadgets"], "Name the org once"],
+      [["--org", "--write"], "Check the conversion arguments"],
+    ];
+    for (const [extra, title] of cases) {
       const out = runScript(dir, ...extra);
       expect(out.exitCode).toBe(2);
+      expect(out.stderr.toString().trimStart().startsWith(title)).toBe(true);
       expect(snapshot(dir)).toBe(before);
     }
   });
