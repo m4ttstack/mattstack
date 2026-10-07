@@ -93,6 +93,8 @@ export interface CodexSessionAdapter extends SessionAdapter {
    * Codex has not loaded the thread.
    */
   hold(binding: SessionBinding, id: string): Promise<Outcome<void>>;
+  /** While the switch is on, subscribes a thread rt runs headless and keeps it subscribed, since only rt keeps it loaded. */
+  keep(binding: SessionBinding): Promise<Outcome<void>>;
   /** Delivery `id` is confirmed or given up: the last one out unsubscribes a thread rt does not run itself. */
   release(threadId: string, id: string): void;
   /** Whether delivery `id` still holds its thread's subscription, so its echo can still arrive. */
@@ -103,6 +105,9 @@ export interface CodexSessionAdapter extends SessionAdapter {
 
 /** unloaded: the app server no longer runs the thread. ended: Codex closed it, or its sessionEnd hook ran. */
 export type CodexThreadGone = "unloaded" | "ended";
+
+/** dropped: the resume finished after rt let the thread go, so it was undone at once. */
+type SubscribeResult = "subscribed" | "unloaded" | "unknown" | "dropped";
 
 export type PaneLaunch = HostPaneLaunch;
 export type PaneOpened = HostPaneOpened;
@@ -359,7 +364,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
   /** Deliveries awaiting confirmation, by thread, each with the timer that lets it go after HOLD_MS. */
   const holders = new Map<string, Map<string, unknown>>();
   /** Subscriptions being made now, so concurrent holds resume a thread once. */
-  const subscribing = new Map<string, Promise<"subscribed" | "unloaded" | "unknown">>();
+  const subscribing = new Map<string, Promise<SubscribeResult>>();
   /** What herdr last showed in each Herdr attachment's pane, by thread and the generation that was checked. */
   const panes = new Map<string, { generation: number; live: boolean }>();
 
@@ -424,7 +429,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
    * reported gone and left unloaded, since resuming would load it with no
    * terminal (live-04). A failed read or resume leaves it unsubscribed.
    */
-  async function subscribeThread(threadId: string, generation: number): Promise<"subscribed" | "unloaded" | "unknown"> {
+  async function subscribeThread(threadId: string, generation: number): Promise<SubscribeResult> {
     if (subscribed.has(threadId)) return "subscribed";
     if (control.closed) return "unknown";
     const status = await readStatus(threadId);
@@ -441,10 +446,33 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     }
     const thread = threadOf(resumed);
     if (thread?.id !== threadId) return "unknown";
+    if (!wanted(threadId)) {
+      dropSubscription(threadId);
+      return "dropped";
+    }
     subscribed.add(threadId);
     const now = threadStatus(thread.status);
     if (now) hub.refresh(threadId, now);
     return "subscribed";
+  }
+
+  /** rt still owns the thread and something still needs its events: a delivery hold, or rt running it headless. */
+  function wanted(threadId: string): boolean {
+    return control.owns(threadId) && (holders.has(threadId) || headless.has(threadId));
+  }
+
+  /**
+   * Undoes a resume that finished after rt let the thread go (a disown, a
+   * detach or an end while it was in flight). Ownership is taken back only
+   * for the one request, since the subscription is rt's own to end.
+   */
+  function dropSubscription(threadId: string): void {
+    subscribed.delete(threadId);
+    if (control.closed) return;
+    const owned = control.owns(threadId);
+    if (!owned) control.adopt(threadId);
+    control.request("thread/unsubscribe", { threadId }).catch(() => {});
+    if (!owned) control.disown(threadId);
   }
 
   /**
@@ -462,14 +490,61 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     holders.set(threadId, held);
     if (held.has(id)) deps.clock.clearTimeout(held.get(id));
     held.set(id, deps.clock.setTimeout(() => release(threadId, id), HOLD_MS));
+    const result = await subscribeOnce(threadId, binding.attachment.generation);
+    if (result === "unloaded") {
+      release(threadId, id);
+      return fail("not-ready", `Codex is not running thread ${threadId} now, so nothing was sent`);
+    }
+    if (result === "dropped" || !holders.get(threadId)?.has(id)) {
+      release(threadId, id);
+      return fail("stale-binding", `rt let go of thread ${threadId} while subscribing to it, so nothing was sent`);
+    }
+    // A failed subscribe is no hold: the delivery still goes out, and the thread's history is where its echo is found.
+    if (result === "unknown") forget(threadId, id);
+    return ok(undefined);
+  }
+
+  function subscribeOnce(threadId: string, generation: number): Promise<SubscribeResult> {
     let pending = subscribing.get(threadId);
     if (!pending) {
-      pending = subscribeThread(threadId, binding.attachment.generation).finally(() => subscribing.delete(threadId));
+      pending = subscribeThread(threadId, generation).finally(() => subscribing.delete(threadId));
       subscribing.set(threadId, pending);
     }
-    if ((await pending) !== "unloaded") return ok(undefined);
-    release(threadId, id);
-    return fail("not-ready", `Codex is not running thread ${threadId} now, so nothing was sent`);
+    return pending;
+  }
+
+  /** Drops one hold without touching the subscription. */
+  function forget(threadId: string, id: string): void {
+    const held = holders.get(threadId);
+    if (!held?.has(id)) return;
+    deps.clock.clearTimeout(held.get(id));
+    held.delete(id);
+    if (held.size === 0) holders.delete(threadId);
+  }
+
+  /** Subscribes a thread rt runs headless, which only rt's subscription keeps loaded; no release lets it go. */
+  async function keep(binding: SessionBinding): Promise<Outcome<void>> {
+    const owned = adopt(binding);
+    if (!owned.ok) return owned;
+    if (!deps.enabled()) return ok(undefined);
+    const threadId = binding.native.value;
+    headless.add(threadId);
+    const result = await subscribeOnce(threadId, binding.attachment.generation);
+    if (result === "subscribed") return ok(undefined);
+    headless.delete(threadId);
+    return fail(result === "unloaded" ? "not-ready" : "transient", `rt could not subscribe to headless thread ${threadId} (${result})`);
+  }
+
+  /** Asks herdr now whether codex runs in the binding's pane, and records the answer for `live`; a failed check is no evidence. */
+  async function paneLive(binding: SessionBinding): Promise<boolean> {
+    let shown = false;
+    try {
+      shown = await deps.paneRuns(binding);
+    } catch {
+      shown = false;
+    }
+    panes.set(binding.native.value, { generation: binding.attachment.generation, live: shown });
+    return shown;
   }
 
   /** Herdr attachments are live only with fresh pane evidence; a headless one only by its thread. */
@@ -641,6 +716,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     carriesReservations: true,
     adopt,
     hold,
+    keep,
     release,
     held: (threadId, id) => holders.get(threadId)?.has(id) === true,
     live,
@@ -693,7 +769,10 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
           return ok({ native: ref(threadId), attachment: { mode: "headless" }, settings });
         }
         const attached = await attach(entry, threadId, [CODEX_INIT_PROMPT], request.reservationId, request.host);
-        if (!attached.ok) return attached;
+        if (!attached.ok) {
+          if (deps.enabled() && !holders.has(threadId)) unsubscribe(threadId);
+          return attached;
+        }
         settle(key, entry);
         // The terminal now keeps its thread loaded; rt's own subscription would keep it loaded after the terminal quits (live-04).
         if (deps.enabled() && !holders.has(threadId)) unsubscribe(threadId);
@@ -774,15 +853,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
         // Status changes reach a connection that is not subscribed (live-04), so one read keeps the hub current.
         if (!hub.view(threadId)) await readStatus(threadId);
         if (hub.live(threadId) === false) await reportGone(threadId, "unloaded", binding.attachment.generation);
-        if (binding.attachment.mode === "herdr") {
-          let live = false;
-          try {
-            live = await deps.paneRuns(binding);
-          } catch {
-            live = false;
-          }
-          panes.set(threadId, { generation: binding.attachment.generation, live });
-        }
+        if (binding.attachment.mode === "herdr") await paneLive(binding);
       } else if (!hub.view(threadId)) {
         try {
           const status = threadStatus(threadOf(await control.request("thread/read", { threadId, includeTurns: false }))?.status);
@@ -804,6 +875,10 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
       if (!valid.ok) return valid;
       if (control.closed) return fail("not-ready", "the Codex control connection is closed, so nothing was sent");
       const threadId = binding.native.value;
+      // A Herdr thread whose terminal quit can stay loaded and would run the turn headless (live-04).
+      if (deps.enabled() && binding.attachment.mode === "herdr" && !(await paneLive(binding))) {
+        return fail("refused", `codex is not running in pane ${binding.attachment.pane ?? "(none)"} for thread ${threadId}, so no turn was started`);
+      }
       control.adopt(threadId);
       let started: unknown;
       try {
@@ -864,6 +939,8 @@ export type CodexSessionLoaderDeps = {
   messaging: Partial<CodexMessagingDeps>;
   /** Attached Codex bindings with deliveries still queued at their current attachment, and those deliveries' ids; held each time a connection opens. */
   outstanding(): Array<{ binding: SessionBinding; ids: string[] }>;
+  /** Attached Codex bindings rt runs headless; each is subscribed again, and kept, when a connection opens. */
+  headless(): SessionBinding[];
 };
 
 export type CodexSessionLoader = {
@@ -905,6 +982,7 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     connect: (options) => connectCodexControl(options, { log: controlLog }),
     sessions: {},
     messaging: {},
+    headless: () => (integrationsEnabled() ? listAttachedBindings(getStateDb(), HARNESS).filter((b) => b.attachment.mode === "headless") : []),
     outstanding: () => {
       if (!integrationsEnabled()) return [];
       const db = getStateDb();
@@ -937,8 +1015,19 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     failure = undefined;
     const adapter = createCodexSessions(control, { ...deps.sessions, endpoint: endpoint.data });
     current = { control, adapter };
-    await holdOutstanding(adapter, control.profile);
+    await Promise.all([keepHeadless(adapter, control.profile), holdOutstanding(adapter, control.profile)]);
     return adapter;
+  }
+
+  /** A headless thread an earlier connection kept loaded unloads about 60 s after that connection closes (live-04) unless this one subscribes. */
+  async function keepHeadless(adapter: CodexSessionAdapter, profile: string): Promise<void> {
+    let bindings: SessionBinding[];
+    try {
+      bindings = deps.headless().filter((b) => b.native.harness === HARNESS && b.native.profile === profile && b.attachment.mode === "headless");
+    } catch {
+      return;
+    }
+    await Promise.all(bindings.map((b) => adapter.keep(b).catch(() => undefined)));
   }
 
   /** A new connection hears no echo of a delivery an earlier one queued until it holds that delivery's thread itself. */

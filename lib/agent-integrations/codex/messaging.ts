@@ -167,9 +167,13 @@ export function createCodexMessaging(control: CodexControl, overrides: Partial<C
     return s;
   }
 
+  /** An echo of this delivery has arrived: it is consumed when it can still count, and its hold is let go either way. */
   function consume(s: Submission, turnId: string, itemId: string): void {
-    if (s.contested || s.evidence === "consumed" || s.evidence === "failed") return;
-    if (!isCurrent(s.sessionKey, s.generation, s.threadId)) return;
+    if (s.evidence === "consumed" || s.evidence === "failed") return;
+    if (s.contested || !isCurrent(s.sessionKey, s.generation, s.threadId)) {
+      deps.release(s.threadId, s.id);
+      return;
+    }
     s.evidence = "consumed";
     s.turnId = turnId;
     s.itemId = itemId;
@@ -251,6 +255,11 @@ export function createCodexMessaging(control: CodexControl, overrides: Partial<C
         if (submissions.get(input.id) === s) submissions.delete(input.id);
         return held;
       }
+      if (!isCurrent(binding.key, generation, threadId)) {
+        deps.release(threadId, input.id);
+        if (submissions.get(input.id) === s) submissions.delete(input.id);
+        return fail("stale-binding", `session ${binding.key} stopped being attached at generation ${generation} while rt prepared delivery ${input.id}, so nothing was sent`);
+      }
 
       let result: unknown;
       try {
@@ -285,8 +294,13 @@ export function createCodexMessaging(control: CodexControl, overrides: Partial<C
       if (s.generation !== binding.attachment.generation) {
         return fail("stale-binding", `delivery ${inputId} was submitted under attachment generation ${s.generation}, not ${binding.attachment.generation}`);
       }
-      if (s.evidence === "queued" && (s.recovered || !deps.held(s.threadId, s.id))) await fromHistory(s, binding);
+      if (s.evidence === "ambiguous" || (s.evidence === "queued" && (s.recovered || !deps.held(s.threadId, s.id)))) await fromHistory(s, binding);
       return { ok: true, data: s.evidence === "queued" || s.evidence === "consumed" ? receipt(s) : null };
+    },
+
+    settle(binding, inputId) {
+      const ref = checkRef(binding);
+      if (ref.ok) deps.release(ref.data, inputId);
     },
   };
 }

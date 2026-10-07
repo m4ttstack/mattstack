@@ -23,9 +23,12 @@ export function codexMessagingConnection(): string | null {
 }
 
 /**
- * Whether the bound thread can take input, as the live connection knows it:
- * loaded and, for a Herdr attachment, codex in its pane when last observed.
- * Undefined while there is no connection or it knows nothing of the thread.
+ * Whether the bound thread can take input, as the live connection knows it.
+ * A Herdr attachment is true only when its thread is known loaded and herdr
+ * showed codex in its pane when last checked; anything less, an unknown load
+ * state included, is false. A headless attachment follows its thread alone:
+ * true loaded, false unloaded or closed, undefined while the connection
+ * knows nothing of it. Undefined for either while there is no connection.
  */
 export function codexSessionLive(binding: SessionBinding): boolean | undefined {
   return bindingProbe?.(binding);

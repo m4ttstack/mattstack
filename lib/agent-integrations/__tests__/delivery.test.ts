@@ -32,9 +32,13 @@ type Reconcile = (binding: SessionBinding, id: string) => Outcome<DeliveryReceip
 function fakeMessaging(opts: { submit?: Submit; reconcile?: Reconcile; connection?: string } = {}) {
   const submits: Array<{ input: PeerInput; generation: number; key: string }> = [];
   const reconciles: Array<{ id: string; generation: number; key: string }> = [];
+  const settles: Array<{ id: string; generation: number; key: string }> = [];
   const submit: Submit = opts.submit ?? ((input) => ok({ id: input.id, evidence: "submitted" }));
   const adapter: MessageAdapter = {
     ...(opts.connection !== undefined && { connection: opts.connection }),
+    settle(binding, id) {
+      settles.push({ id, generation: binding.attachment.generation, key: binding.key });
+    },
     async submit(binding, input) {
       submits.push({ input, generation: binding.attachment.generation, key: binding.key });
       return submit(input, submits.length, binding);
@@ -46,7 +50,7 @@ function fakeMessaging(opts: { submit?: Submit; reconcile?: Reconcile; connectio
       },
     }),
   };
-  return { adapter, submits, reconciles };
+  return { adapter, submits, reconciles, settles };
 }
 
 function bindSession(db: Database, value: string, harness = "codex", mode: "herdr" | "headless" = "herdr"): SessionBinding {
@@ -559,6 +563,8 @@ describe("bounded recovery", () => {
     expect(row(db, id).nextAttemptAt).toBeUndefined();
     expect(messaging.reconciles.map((r) => r.id)).toEqual([id]);
     expect(messaging.submits).toHaveLength(1);
+    await waitFor(() => messaging.settles.length === 1);
+    expect(messaging.settles.map((s) => s.id)).toEqual([id]);
   });
 
   test("an ambiguous row the recipient read is still settled by evidence first", async () => {
@@ -915,6 +921,17 @@ describe("chat through harness delivery", () => {
     }
     expect(messaging.submits).toHaveLength(1);
     expect(row(x.db, chatDeliveryId(id, "b")).state).toBe("superseded");
+  });
+
+  test("a delivery settled superseded tells its harness to stop waiting on it, under the attachment it went to (M2b round 3)", async () => {
+    const messaging = fakeMessaging({ submit: () => fault("ambiguous"), reconcile: () => ok(null) });
+    const x = await chatFixture(messaging);
+    const id = await x.post("hi");
+    await waitFor(() => messaging.submits.length === 1);
+    await Bun.sleep(5);
+    await x.h["chat:read"]({ handle: "b", room: "general" });
+    await waitFor(() => messaging.settles.length === 1);
+    expect(messaging.settles).toEqual([{ id: chatDeliveryId(id, "b"), generation: x.binding.attachment.generation, key: x.binding.key }]);
   });
 
   test("chat:mark settles what it marks read the same way", async () => {

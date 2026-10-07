@@ -12,7 +12,8 @@ import { codexEventHub } from "../codex/events.ts";
 import { codexIntegration } from "../codex/integration.ts";
 import {
   attachEvidence, awaitCodexHistory, CODEX_INIT_PROMPT, codexReadiness, createCodexSessionLoader, createCodexSessions,
-  DISCOVERY_BACKOFF_CAP_MS, DISCOVERY_BACKOFF_MS, type CodexSessionDeps, type CodexSessionLoaderDeps, type PaneLaunch, type UnresolvedLaunch,
+  DISCOVERY_BACKOFF_CAP_MS, DISCOVERY_BACKOFF_MS, type CodexSessionAdapter, type CodexSessionDeps, type CodexSessionLoaderDeps, type PaneLaunch,
+  type UnresolvedLaunch,
 } from "../codex/sessions.ts";
 import { DELIVERY_SWEEP_INTERVAL_MS, MAX_DELIVERY_BACKOFF_TICKS } from "../delivery.ts";
 import { workDigest } from "../work-submissions.ts";
@@ -1022,6 +1023,7 @@ function loaderOn(h: Awaited<ReturnType<typeof harness>>, over: Partial<CodexSes
     discover: async () => ({ ok: true, data: { socketPath: SOCKET } }),
     connect: async () => h.control,
     outstanding: () => [],
+    headless: () => [],
     messaging: { currentBinding: () => binding("T1"), persisted: () => null },
     ...over,
     sessions: { ...h.deps, enabled: () => true, lifecycle: async () => false, ...sessions },
@@ -1241,5 +1243,92 @@ describe("unsubscribing threads rt lets go (M2b review)", () => {
     h.socket().push({ method: "thread/closed", params: { threadId: "T1" } });
     await Bun.sleep(1);
     expect(h.requests("thread/unsubscribe")).toEqual([]);
+  });
+});
+
+/** A server whose thread/resume answers only when the test says, so something can happen while it is in flight. */
+function deferredResume(server: ReturnType<typeof subscribingServer>) {
+  const waiting: Array<() => void> = [];
+  server.handlers["thread/resume"] = ((resume) => (s: FakeSocket, m: Message) => { waiting.push(() => resume(s, m)); })(server.handlers["thread/resume"]!);
+  return { answer: () => waiting.shift()!(), pending: () => waiting.length };
+}
+
+describe("round 3: headless threads, hold races and every ending (M2b review)", () => {
+  test("after a reconnect every attached headless binding is subscribed again, kept through releases, and stays attached", async () => {
+    const server = subscribingServer({ T1: "idle", T2: "idle" });
+    const h = await harness(server.handlers);
+    const gone: Gone[] = [];
+    const headlessT1 = binding("T1", { attachment: { generation: 3, mode: "headless" } });
+    const loader = loaderOn(h, { headless: () => [headlessT1] }, {
+      lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); return true; },
+    });
+    const sessions = (await loader.load()) as CodexSessionAdapter;
+    expect(h.requests("thread/resume").map((m) => m.params)).toEqual([{ threadId: "T1", excludeTurns: true }]);
+    expect([...server.subscribed]).toEqual(["T1"]);
+    data(await sessions.hold(headlessT1, "d-1-remy"));
+    sessions.release("T1", "d-1-remy");
+    await sessions.observe(headlessT1);
+    expect(h.requests("thread/unsubscribe")).toEqual([]);
+    expect(gone).toEqual([]);
+    expect(loader.bindingLive(headlessT1)).toBe(true);
+  });
+
+  test("a thread disowned or ended while its subscription was being made is unsubscribed at once, and the hold fails", async () => {
+    for (const end of ["disown", "closed"] as const) {
+      const server = subscribingServer({ T1: "idle" });
+      const resume = deferredResume(server);
+      const h = await harness(server.handlers);
+      const sessions = h.sessions({ enabled: () => true, lifecycle: async () => true });
+      const held = sessions.hold(binding("T1"), "d-1-remy");
+      await Bun.sleep(1);
+      expect(resume.pending()).toBe(1);
+      if (end === "disown") sessions.disown(binding("T1"));
+      else h.socket().push({ method: "thread/closed", params: { threadId: "T1" } });
+      await Bun.sleep(1);
+      resume.answer();
+      expect(await held).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+      expect(h.requests("thread/unsubscribe").at(-1)!.params).toEqual({ threadId: "T1" });
+      expect([...server.subscribed]).toEqual([]);
+      expect(sessions.held("T1", "d-1-remy")).toBe(false);
+      expect(h.clock.active).toBe(0);
+    }
+  });
+
+  test("a subscribe that fails is not a hold: the delivery still goes out and its echo is looked for in the history", async () => {
+    const server = subscribingServer({ T1: "idle" }, { T1: [{ turn: "U3", item: "I3", clientId: "d-5-remy" }] });
+    server.handlers["thread/resume"] = (s, m) => s.push({ id: m.id, error: { code: -32603, message: "resume failed" } });
+    const h = await harness(server.handlers);
+    const loader = loaderOn(h);
+    const sessions = (await loader.load()) as CodexSessionAdapter;
+    const messaging = await loader.loadMessaging();
+    expect(data(await messaging.submit(binding("T1"), peerInput)).evidence).toBe("queued");
+    expect(sessions.held("T1", "d-5-remy")).toBe(false);
+    expect(h.clock.active).toBe(0);
+    expect(data(await messaging.reconcile!(binding("T1"), "d-5-remy"))).toMatchObject({ evidence: "consumed", turnId: "U3", itemId: "I3" });
+  });
+
+  test("a Herdr launch whose terminal never attached lets go of its thread/start subscription", async () => {
+    const h = await harness();
+    h.blockAttach({ ok: false, error: { code: "not-ready", message: "the terminal never showed the thread's history" } });
+    expect(await h.sessions({ enabled: () => true }).launch(request())).toMatchObject({ ok: false });
+    expect(h.requests("thread/unsubscribe").map((m) => m.params)).toEqual([{ threadId: "T1" }]);
+  });
+
+  test("work on a Herdr binding needs codex in its pane: without it the turn is refused, and a headless binding is unaffected", async () => {
+    const h = await harness();
+    let pane = false;
+    const sessions = h.sessions({ enabled: () => true, paneRuns: async () => pane });
+    const refused = await sessions.startWork(binding("T1"), { id: "w1", text: "the real brief" });
+    expect(refused).toMatchObject({ ok: false, error: { code: "refused" } });
+    expect(refused.ok ? "" : refused.error.message).toContain("pane p1");
+    expect(h.requests("turn/start")).toEqual([]);
+    pane = true;
+    expect(data(await sessions.startWork(binding("T1"), { id: "w2", text: "the real brief" })).turnId).toBe("U0");
+    pane = false;
+    const headless = binding("T2", { attachment: { generation: 3, mode: "headless" } });
+    const done = data(await sessions.startWork(headless, { id: "w3", text: "the real brief" }));
+    expect(done.turnId).toBe("U0");
+    await done.completion;
+    expect(h.requests("turn/start").map((m) => m.params.threadId)).toEqual(["T1", "T2"]);
   });
 });

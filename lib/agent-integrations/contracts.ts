@@ -140,6 +140,8 @@ export interface MessageAdapter {
   submit(binding: SessionBinding, input: PeerInput): Promise<Outcome<DeliveryReceipt>>;
   /** Evidence observed since submission, from the binding's own attachment generation; null when there is none. */
   reconcile?(binding: SessionBinding, inputId: string): Promise<Outcome<DeliveryReceipt | null>>;
+  /** rt no longer waits on this delivery's evidence (its row was settled another way): anything held for it is let go. */
+  settle?(binding: SessionBinding, inputId: string): void;
 }
 export interface QuestionAdapter {
   complete(binding: SessionBinding, question: QuestionBinding, row: GateRow): Promise<Outcome<"completed" | "pending" | "gone" | "conflict">>;

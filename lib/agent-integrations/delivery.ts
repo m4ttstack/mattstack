@@ -263,6 +263,25 @@ export function createDeliveryService(overrides: Partial<DeliveryDeps> = {}): De
       const current = readDelivery(db, row.inputId);
       if (current && (current.state === "pending" || current.state === "ambiguous")) supersedeDelivery(db, current, SUPERSEDED_BY_READ, deps.now());
     }
+    await letGo(idle);
+  }
+
+  /** Frames whose own row is now superseded: their harness stops waiting on them, under the attachment each went to. */
+  async function letGo(rows: DeliveryRow[]): Promise<void> {
+    const db = deps.db();
+    for (const frameId of new Set(rows.map((row) => row.frameId))) {
+      const head = readDelivery(db, frameId);
+      if (head?.state !== "superseded") continue;
+      const stored = deps.storedBinding(head.sessionKey);
+      if (!stored) continue;
+      const sent: SessionBinding = { ...stored, attachment: { ...stored.attachment, generation: head.generation } };
+      const adapter = await adapterFor(sent);
+      try {
+        adapter?.settle?.(sent, frameId);
+      } catch (err) {
+        deps.log?.warn({ err, id: frameId }, "delivery: letting go of a superseded delivery threw");
+      }
+    }
   }
 
   async function attempt(adapter: MessageAdapter, binding: SessionBinding, input: DeliveryInput, peer: PeerInput): Promise<Outcome<DeliveryReceipt>> {
@@ -378,9 +397,15 @@ export function createDeliveryService(overrides: Partial<DeliveryDeps> = {}): De
     supersedeRead(recipient) {
       const db = deps.db();
       let settledCount = 0;
+      const superseded: DeliveryRow[] = [];
       for (const row of listReadDeliveries(db, recipient)) {
         if (sending.has(row.frameId)) continue;
-        if (supersedeDelivery(db, row, SUPERSEDED_BY_READ, deps.now())) settledCount++;
+        if (!supersedeDelivery(db, row, SUPERSEDED_BY_READ, deps.now())) continue;
+        settledCount++;
+        superseded.push(row);
+      }
+      if (superseded.length > 0) {
+        void letGo(superseded).catch((err) => deps.log?.warn({ err, recipient }, "delivery: letting go of read deliveries failed"));
       }
       return settledCount;
     },

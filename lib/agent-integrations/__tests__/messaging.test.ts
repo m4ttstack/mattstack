@@ -405,7 +405,10 @@ describe("codex messaging evidence", () => {
       (m: Message) => queuedReply(m, { clientUserMessageId: "someone-else" }),
       (m: Message) => ({ id: m.id, result: null }),
     ]) {
-      const x = await codex({ "thread/queue/add": (s, m) => s.push(reply(m)) });
+      const x = await codex({
+        "thread/queue/add": (s, m) => s.push(reply(m)),
+        "thread/read": (s, m) => s.push({ id: m.id, result: { thread: { id: m.params.threadId, turns: [] } } }),
+      });
       expect(await x.messaging.submit(codexBinding(), input())).toMatchObject({ ok: false, error: { code: "ambiguous" } });
       expect(data(await x.messaging.reconcile!(codexBinding(), "d-17-remy"))).toBeNull();
     }
@@ -634,6 +637,73 @@ describe("holding the thread only while a delivery is outstanding (M2b round 2)"
     expect(x.methods()).toEqual(["thread/queue/add"]);
     held = false;
     expect(data(await x.messaging.reconcile!(codexBinding(), "d-17-remy"))).toMatchObject({ evidence: "consumed", turnId: "U4", itemId: "I4" });
+  });
+});
+
+describe("every ending releases its hold (M2b round 3)", () => {
+  const recorder = () => {
+    const released: string[] = [];
+    return { released, deps: { release: (_t: string, id: string) => { released.push(id); } } };
+  };
+
+  test("a binding replaced while its hold was taken releases it and queues nothing", async () => {
+    const r = recorder();
+    let x!: Awaited<ReturnType<typeof codex>>;
+    x = await codex({}, {
+      deps: {
+        ...r.deps,
+        hold: async () => {
+          x.setCurrent(codexBinding({}, 4));
+          return { ok: true, data: undefined };
+        },
+      },
+    });
+    expect(await x.messaging.submit(codexBinding(), input())).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+    expect(x.methods()).toEqual([]);
+    expect(r.released).toEqual(["d-17-remy"]);
+  });
+
+  test("an echo that can no longer count releases the hold without consuming", async () => {
+    const r = recorder();
+    const x = await codex({}, { deps: r.deps });
+    await x.messaging.submit(codexBinding(), input());
+    x.setCurrent(codexBinding({}, 4));
+    x.socket().push(userStarted(THREAD, "U1", "I1", "d-17-remy"));
+    expect(r.released).toEqual(["d-17-remy"]);
+    expect(data(await x.messaging.reconcile!(codexBinding(), "d-17-remy"))).toMatchObject({ evidence: "queued" });
+  });
+
+  test("a contested submission's echo releases its hold", async () => {
+    const r = recorder();
+    const x = await codex({}, { deps: r.deps });
+    await x.messaging.submit(codexBinding(), input());
+    x.setCurrent(codexBinding({}, 4));
+    await x.messaging.submit(codexBinding({}, 4), input());
+    r.released.length = 0;
+    x.socket().push(userStarted(THREAD, "U1", "I1", "d-17-remy"));
+    expect(r.released).toEqual(["d-17-remy"]);
+  });
+
+  test("an ambiguous add that the thread's history resolves is consumed and releases its hold", async () => {
+    const r = recorder();
+    const x = await codex({
+      "thread/queue/add": (s, m) => s.push({ id: m.id, result: {} }),
+      "thread/read": (s, m) => s.push({
+        id: m.id,
+        result: { thread: { id: m.params.threadId, turns: [{ id: "U5", items: [{ type: "userMessage", id: "I5", clientId: "d-17-remy", content: [] }] }] } },
+      }),
+    }, { deps: r.deps });
+    expect(await x.messaging.submit(codexBinding(), input())).toMatchObject({ ok: false, error: { code: "ambiguous" } });
+    expect(data(await x.messaging.reconcile!(codexBinding(), "d-17-remy"))).toMatchObject({ evidence: "consumed", turnId: "U5", itemId: "I5" });
+    expect(r.released).toEqual(["d-17-remy"]);
+  });
+
+  test("settling a delivery rt stopped waiting on releases its hold", async () => {
+    const r = recorder();
+    const x = await codex({}, { deps: r.deps });
+    await x.messaging.submit(codexBinding(), input());
+    x.messaging.settle!(codexBinding(), "d-17-remy");
+    expect(r.released).toEqual(["d-17-remy"]);
   });
 });
 
