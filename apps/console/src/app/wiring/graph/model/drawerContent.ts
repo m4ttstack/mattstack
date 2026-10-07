@@ -391,6 +391,7 @@ function slotSentence(
 ): string {
   const slot = `The ${part.name} slot.`;
   const fill = partLabel(part);
+  const chooser = row.layer?.startsWith('base:') ? 'The org base' : 'This pack';
   switch (row.state) {
     case 'optional-unbound':
       return `${slot} It is optional, and nothing is bound to it.`;
@@ -401,9 +402,9 @@ function slotSentence(
     case 'resolve-error':
       return `${slot} rt could not resolve it.`;
     case 'referenced':
-      return `${slot} This pack links it to ${fill} rather than pasting it in.`;
+      return `${slot} ${chooser} links it to ${fill} rather than pasting it in.`;
     default:
-      return `${slot} This pack fills it with ${fill}: ${countOf(pastedLines(part, anatomy.parts), 'line', 'lines')}.`;
+      return `${slot} ${chooser} fills it with ${fill}: ${countOf(pastedLines(part, anatomy.parts), 'line', 'lines')}.`;
   }
 }
 

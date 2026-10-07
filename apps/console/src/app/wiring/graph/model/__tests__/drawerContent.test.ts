@@ -205,6 +205,62 @@ describe('an include row (drawer-include-row)', () => {
   });
 });
 
+describe('a slot row the layer chose (drawer-rebind)', () => {
+  const layered = (layer: string, mode?: 'reference') => {
+    const layeredComposition = {
+      ...composition,
+      verbs: composition.verbs.map(verb => ({
+        ...verb,
+        slots: verb.slots.map(slot => ({ ...slot, layer })),
+      })),
+      binders: composition.binders.map(binder => ({
+        ...binder,
+        slots: binder.slots.map(slot => ({ ...slot, layer })),
+      })),
+    };
+    const layeredAnatomy = mode
+      ? {
+          ...anatomyPlan,
+          parts: anatomyPlan.parts.map(part =>
+            part.name === 'domain' && part.kind === 'slot'
+              ? { ...part, mode }
+              : part
+          ),
+        }
+      : anatomyPlan;
+    const view = buildTemplateView({
+      anatomy: layeredAnatomy,
+      composition: layeredComposition,
+      check,
+      changes: undefined,
+      step: 2,
+    });
+    return drawerContent(parseTarget('row:136')!, view, layeredAnatomy, null)
+      ?.sentence;
+  };
+
+  it('says the org base fills a slot the base bound', () => {
+    expect(layered('base:acme-base')).toBe(
+      'The domain slot. The org base fills it with plan-policy: 80 lines.'
+    );
+  });
+
+  it('says the org base links a referenced slot the base bound', () => {
+    expect(layered('base:acme-base', 'reference')).toBe(
+      'The domain slot. The org base links it to plan-policy rather than pasting it in.'
+    );
+  });
+
+  it.each(['pack', 'override'])('keeps "This pack" for the %s layer', layer => {
+    expect(layered(layer)).toBe(
+      'The domain slot. This pack fills it with plan-policy: 80 lines.'
+    );
+    expect(layered(layer, 'reference')).toBe(
+      'The domain slot. This pack links it to plan-policy rather than pasting it in.'
+    );
+  });
+});
+
 describe('a slot row (drawer-rebind)', () => {
   const content = plan('row:136');
 

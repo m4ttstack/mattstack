@@ -57,6 +57,8 @@ export type TemplateRow =
       boundTo: string | null;
       /** rt's message for a slot it could not resolve. */
       resolveError: string | null;
+      /** Which layer chose the binding: `pack`, `override` or `base:<name>`. */
+      layer: string | null;
     };
 
 export type InputCard = {
@@ -427,6 +429,7 @@ export function buildTemplateView(input: {
       fill: part.kind === 'slot' && part.source ? partLabel(part) : null,
       boundTo: facts?.boundTo ?? null,
       resolveError: facts?.resolveError ?? null,
+      layer: facts?.layer ?? null,
     });
 
     if (part.kind === 'verb.path') {
@@ -652,6 +655,7 @@ export function appSkillView(
       fill: slot.boundTo,
       boundTo: slot.boundTo,
       resolveError: null,
+      layer: slot.layer ?? null,
     });
     const owner = ownerOf(slot.boundTo, fill?.origin ? fill : slot, pack);
     inputs.push({
