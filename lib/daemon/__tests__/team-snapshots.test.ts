@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { startTeamSnapshots } from "../team-snapshots.ts";
+import { PAUSE_SETTLE_MS, startTeamSnapshots } from "../team-snapshots.ts";
 import type { SnapshotSpec } from "../home-snapshot.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { writeTeamLocal } from "../../team/team-local.ts";
@@ -39,6 +39,7 @@ function harness(opts: Record<string, unknown> & { orgsMissingAtBoot?: boolean }
   let nextTimerId = 1;
   let listener: ((ev: string, f: string | null) => void) | null = null;
   let watchThrows = false;
+  let settled: () => Promise<void> = async () => {};
   const settings = { enabled: true, debounceSec: 20, pushDelaySec: 60, janitorThresholdHours: 6, janitorIntervalMin: 30, pullIntervalSec: 300 };
   const log = fakeLog();
   const deps = {
@@ -55,6 +56,7 @@ function harness(opts: Record<string, unknown> & { orgsMissingAtBoot?: boolean }
         runNow: async () => ({ committed: false, sha: null, paths: [], reason: "manual" as const }),
         pullNow: async () => ({ outcome: "up-to-date" as const, detail: null }),
         status: () => ({ id: spec.id, repoDir: spec.repoDir }),
+        settled: () => settled(),
         ready: Promise.resolve(),
       };
     }) as unknown as typeof import("../home-snapshot.ts").startSnapshot,
@@ -80,6 +82,7 @@ function harness(opts: Record<string, unknown> & { orgsMissingAtBoot?: boolean }
   return {
     root, started, stopped, deps, log, settings, watchCalls, pending,
     breakWatch: () => { watchThrows = true; },
+    setSettled: (fn: () => Promise<void>) => { settled = fn; },
     emit: (f: string) => listener?.("rename", f),
     watchArmed: () => listener !== null,
     fireInterval: () => {
@@ -416,7 +419,7 @@ describe("pause and resume", () => {
     const handle = startTeamSnapshots(h.deps);
     await handle.ready;
     expect(handle.status().map((e) => e.slug)).toEqual(["acme"]);
-    handle.pause(["acme", "widgets"]);
+    await handle.pause(["acme", "widgets"]);
     expect(handle.status()).toEqual([]);
     expect(h.stopped).toEqual(["team:acme"]);
     await handle.rescan();
@@ -424,6 +427,44 @@ describe("pause and resume", () => {
     renameSync(join(h.root, "acme"), join(h.root, "widgets"));
     await handle.resume(["acme", "widgets"]);
     expect(handle.status().map((e) => e.slug)).toEqual(["widgets"]);
+    handle.stop();
+    h.cleanup();
+  });
+
+  test("pause waits for git work the stopped engine already started", async () => {
+    const h = harness();
+    clone(h.root, "acme", true);
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => { open = resolve; });
+    h.setSettled(() => gate);
+    const handle = startTeamSnapshots(h.deps);
+    await handle.ready;
+    let paused = false;
+    const pausing = handle.pause(["acme"]).then(() => { paused = true; });
+    await flush();
+    expect(h.stopped).toEqual(["team:acme"]);
+    expect(paused).toBe(false);
+    open();
+    await pausing;
+    expect(paused).toBe(true);
+    expect(h.pending.some((t) => t.ms === PAUSE_SETTLE_MS)).toBe(false);
+    handle.stop();
+    h.cleanup();
+  });
+
+  test("pause stops waiting at the bound, logs it and carries on", async () => {
+    const h = harness();
+    clone(h.root, "acme", true);
+    h.setSettled(() => new Promise<void>(() => {}));
+    const handle = startTeamSnapshots(h.deps);
+    await handle.ready;
+    const pausing = handle.pause(["acme"]);
+    await flush();
+    const bound = h.pending.find((t) => t.ms === PAUSE_SETTLE_MS);
+    expect(bound).toBeDefined();
+    bound!.cb();
+    await pausing;
+    expect(warned(h.log, "still running")).toBe(true);
     handle.stop();
     h.cleanup();
   });

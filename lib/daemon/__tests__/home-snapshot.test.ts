@@ -3622,3 +3622,69 @@ describe("current snapshot authorization", () => {
     });
   }
 });
+
+describe("settled", () => {
+  /** Answers like the default responders, except one git verb blocks until the test opens the gate. */
+  function gatedVerb(verb: string) {
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => { open = resolve; });
+    const calls: string[][] = [];
+    const fn = async (argv: [string, ...string[]]): Promise<RunResult> => {
+      calls.push([...argv]);
+      if (gitVerb(argv) === verb) await gate;
+      for (const r of defaultResponders({ statusZ: "?? a.txt\0" })) {
+        const res = r(argv);
+        if (res) return res;
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    return { fn, calls, open };
+  }
+
+  const resolvedYet = async (p: Promise<void>): Promise<boolean> => {
+    let done = false;
+    void p.then(() => { done = true; });
+    await flushAsync();
+    return done;
+  };
+
+  test("resolves at once when nothing is in flight", async () => {
+    const { deps } = baseDeps();
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    expect(await resolvedYet(handle.settled())).toBe(true);
+    handle.stop();
+  });
+
+  test("waits out a commit cycle already running when stop lands", async () => {
+    const gated = gatedVerb("commit");
+    const { deps } = baseDeps({ exec: gated.fn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    const run = handle.runNow("manual");
+    await flushAsync();
+    expect(gated.calls.some((c) => gitVerb(c) === "commit")).toBe(true);
+    handle.stop();
+    const settled = handle.settled();
+    expect(await resolvedYet(settled)).toBe(false);
+    gated.open();
+    await run;
+    expect(await resolvedYet(settled)).toBe(true);
+  });
+
+  test("waits out a push already running when stop lands", async () => {
+    const gated = gatedVerb("push");
+    const { deps, timers } = baseDeps({ exec: gated.fn });
+    const handle = startHomeSnapshot(deps);
+    await handle.ready;
+    await handle.runNow("manual");
+    timers.fire((t) => t.ms === DEFAULT_SETTINGS.pushDelaySec * 1000);
+    await flushAsync();
+    expect(gated.calls.filter((c) => c[1] === "push").length).toBe(1);
+    handle.stop();
+    const settled = handle.settled();
+    expect(await resolvedYet(settled)).toBe(false);
+    gated.open();
+    expect(await resolvedYet(settled)).toBe(true);
+  });
+});

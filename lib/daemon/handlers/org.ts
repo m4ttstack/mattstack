@@ -1,10 +1,10 @@
 import { existsSync } from "fs";
-import { basename, dirname, isAbsolute, resolve } from "path";
+import { basename, dirname, isAbsolute, join, resolve } from "path";
 import { applyLocate, isRefusal, planLocate } from "../../repo-locate.ts";
 import { mattstackHome, orgsDir } from "../../rt-paths.ts";
 import { validateSlug } from "../../secrets/store.ts";
 import { clearIdentityMemo, deriveRepoIdentity, serializeIdentity } from "../../settings/identity.ts";
-import { createRealProbes } from "../../setup/probes.ts";
+import { createRealProbes, type Probes } from "../../setup/probes.ts";
 import { runOrgMove, type LocateFn, type MoveProbes } from "../../team/org-folder-move.ts";
 import { markerOrg } from "../../team/org-marker.ts";
 import type { TeamSnapshotsHandle } from "../team-snapshots.ts";
@@ -17,6 +17,7 @@ export interface OrgHandlerOpts {
   emitEvent: (topic: string, payload: unknown) => void;
   teamSnapshots: Pick<TeamSnapshotsHandle, "pause" | "resume">;
   probes?: MoveProbes;
+  exec?: Probes["exec"];
 }
 
 const refuse = (code: string, message: string) => ({ ok: false as const, error: `${code}: ${message}`, failure: { code, message } });
@@ -32,8 +33,28 @@ async function locateDirect(newPath: string): Promise<{ ok: true; moved: true; i
   return result.ok ? { ok: true, moved: true, identity: result.identity } : { ok: false, error: result.error ?? "locate failed" };
 }
 
+/** The step checked the clone before asking, but a pull or commit the snapshot engine finished since then can leave it dirty or mid-rebase, so the checks run again once the engine is paused. */
+async function cloneRefusal(exec: Probes["exec"], source: string): Promise<ReturnType<typeof refuse> | null> {
+  if (existsSync(join(source, ".git", "rebase-merge")) || existsSync(join(source, ".git", "rebase-apply"))) {
+    return refuse("rebasing", `${source} is in the middle of a rebase`);
+  }
+  const status = await exec(["git", "-C", source, "status", "--porcelain", "--untracked-files=no"], { timeoutMs: 30_000 });
+  if (status.code !== 0) return refuse("status-unreadable", `rt could not read the git status of ${source} (${status.stderr.trim() || `exit ${status.code}`})`);
+  if (status.stdout.trim() !== "") return refuse("dirty", `${source} has uncommitted changes to tracked files`);
+  return null;
+}
+
+/**
+ * Refusal codes, each as `{ ok: false, error, failure: { code, message } }`:
+ * from-required, to-required, to-outside-orgs, from-outside-home, from-missing,
+ * not-an-org-clone, marker-mismatch, to-exists (before the pause), and
+ * rebasing, status-unreadable, dirty, move-failed (after it, inside the hold).
+ * A move-failed reply also carries the move's result as `data`, so the caller
+ * can tell a folder that moved from one that did not.
+ */
 export function createOrgHandlers(opts: OrgHandlerOpts): Record<"org:move", (payload: any) => Promise<any>> & HandlerMap {
   const probes = opts.probes ?? createRealProbes();
+  const exec = opts.exec ?? createRealProbes().exec;
   return {
     "org:move": async (payload) => {
       const from = payload?.from;
@@ -58,9 +79,11 @@ export function createOrgHandlers(opts: OrgHandlerOpts): Record<"org:move", (pay
       if (source !== target && existsSync(target)) return refuse("to-exists", `${to} already exists`);
 
       const slugs = [...new Set([basename(source), org])];
-      opts.teamSnapshots.pause(slugs);
       try {
+        await opts.teamSnapshots.pause(slugs);
         return await opts.withReconcilerHeld(async () => {
+          const refused = await cloneRefusal(exec, source);
+          if (refused !== null) return refused;
           let identity: string | null = null;
           const locate: LocateFn = async (newPath) => {
             const located = await locateDirect(newPath);
@@ -73,7 +96,7 @@ export function createOrgHandlers(opts: OrgHandlerOpts): Record<"org:move", (pay
             opts.refreshWatchedRepos();
             opts.emitEvent("repo:moved", { identity, from: source, to: target });
           }
-          if (!result.ok) return refuse("move-failed", `${result.stage}: ${result.error}`);
+          if (!result.ok) return { ...refuse("move-failed", `${result.stage}: ${result.error}`), data: result };
           opts.emitEvent("org:moved", { from: source, to: target });
           return { ok: true, data: result };
         });

@@ -42,7 +42,7 @@ describe("org:move", () => {
         events.push({ topic, payload });
       },
       teamSnapshots: {
-        pause: (slugs) => { order.push("pause"); paused.push(slugs); },
+        pause: async (slugs) => { order.push("pause"); paused.push(slugs); },
         resume: async (slugs) => { order.push("resume"); resumed.push(slugs); },
       },
     };
@@ -153,13 +153,44 @@ describe("org:move", () => {
     const failing = createOrgHandlers({ ...opts, probes: { ...real, removeFile: () => { throw new Error("removal refused"); } } });
 
     const res = await failing["org:move"]({ from, to });
-    expect(res).toMatchObject({ ok: false, failure: { code: "move-failed" } });
+    expect(res).toMatchObject({ ok: false, failure: { code: "move-failed" }, data: { ok: false, stage: "cleanup", folderMoved: true } });
     expect(res.failure.message).toContain("cleanup");
     expect(existsSync(to)).toBe(true);
     expect(getKvValue<string | null>("repo-index", identity, null)).toBe(to);
     expect(order.filter((step) => step === "refresh")).toHaveLength(1);
     expect(events).toEqual([{ topic: "repo:moved", payload: { identity, from, to } }]);
     expect(resumed).toEqual([["widgets", "acme"]]);
+  });
+
+  test("a tracked file changed after the step's check is refused as dirty inside the hold, and the engine still resumes", async () => {
+    const from = clone("teams", "widgets", "acme");
+    writeFileSync(join(from, "mattstack", "mattstack.jsonc"), `${JSON.stringify({ role: "org", org: "acme" })}\n`);
+    const res = await handlers["org:move"]({ from, to: join(home, ".mattstack", "orgs", "acme") });
+    expect(res).toMatchObject({ ok: false, failure: { code: "dirty" } });
+    expect(res.failure.message).toContain("uncommitted changes");
+    expect(existsSync(from)).toBe(true);
+    expect(order).toEqual(["pause", "hold-start", "hold-end", "resume"]);
+    expect(resumed).toEqual([["widgets", "acme"]]);
+  });
+
+  test("a clone left mid-rebase is refused as rebasing inside the hold, and the engine still resumes", async () => {
+    const from = clone("teams", "widgets", "acme");
+    mkdirSync(join(from, ".git", "rebase-merge"), { recursive: true });
+    const res = await handlers["org:move"]({ from, to: join(home, ".mattstack", "orgs", "acme") });
+    expect(res).toMatchObject({ ok: false, failure: { code: "rebasing" } });
+    expect(existsSync(from)).toBe(true);
+    expect(order).toEqual(["pause", "hold-start", "hold-end", "resume"]);
+    expect(resumed).toEqual([["widgets", "acme"]]);
+  });
+
+  test("a git status that cannot be read is refused as status-unreadable", async () => {
+    const from = clone("teams", "widgets", "acme");
+    const broken = createOrgHandlers({ ...opts, exec: async () => ({ code: 128, stdout: "", stderr: "fatal: detected dubious ownership" }) });
+    const res = await broken["org:move"]({ from, to: join(home, ".mattstack", "orgs", "acme") });
+    expect(res).toMatchObject({ ok: false, failure: { code: "status-unreadable" } });
+    expect(res.failure.message).toContain("dubious ownership");
+    expect(existsSync(from)).toBe(true);
+    expect(order).toEqual(["pause", "hold-start", "hold-end", "resume"]);
   });
 
   test("refuses a target outside the orgs root", async () => {

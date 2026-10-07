@@ -58,13 +58,14 @@ export interface TeamSnapshotsHandle {
   status(): TeamSnapshotEntry[];
   pullNow(slug: string): Promise<PullResult>;
   ready: Promise<void>;
-  /** Stops these clones' engines and keeps `rescan` from starting them until `resume`: `org:move` renames a clone's folder and must not race a pull into it. */
-  pause(slugs: string[]): void;
+  /** Stops these clones' engines, waits (up to `PAUSE_SETTLE_MS` each) for git work they already started, and keeps `rescan` from starting them until `resume`: `org:move` renames a clone's folder and must not race a pull into it. */
+  pause(slugs: string[]): Promise<void>;
   /** Lifts `pause`, arms the orgs/ watch when boot could not, then rescans. */
   resume(slugs: string[]): Promise<void>;
 }
 
 const RESCAN_DEBOUNCE_MS = 2000;
+export const PAUSE_SETTLE_MS = 30_000;
 
 
 function originOf(dir: string): string | null {
@@ -222,6 +223,16 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
     }
   }
 
+  /** A git child that outlives the bound is logged and left: the move then runs beside it, which the move's own clone checks are there to catch. */
+  async function settleWithin(slug: string, handle: SnapshotHandle): Promise<void> {
+    let expire!: () => void;
+    const timedOut = new Promise<"timeout">((resolve) => { expire = () => resolve("timeout"); });
+    const timer = setTimer(() => expire(), PAUSE_SETTLE_MS);
+    const outcome = await Promise.race([handle.settled().then(() => "settled" as const), timedOut]);
+    clearTimer(timer);
+    if (outcome === "timeout") rawDeps.log.warn({ slug, waitedMs: PAUSE_SETTLE_MS }, "team-snapshots: git work in the paused clone is still running; continuing");
+  }
+
   let resolveReady!: () => void;
   const ready = new Promise<void>((resolve) => { resolveReady = resolve; });
 
@@ -256,15 +267,18 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
       for (const inst of instances.values()) inst.handle.stop();
       instances.clear();
     },
-    pause(slugs) {
+    async pause(slugs) {
+      const stopping: { slug: string; handle: SnapshotHandle }[] = [];
       for (const slug of slugs) {
         held.add(slug);
         const inst = instances.get(slug);
         if (!inst) continue;
         inst.handle.stop();
         instances.delete(slug);
+        stopping.push({ slug, handle: inst.handle });
         rawDeps.log.info({ slug }, "team-snapshots: paused for a folder move");
       }
+      await Promise.all(stopping.map(({ slug, handle }) => settleWithin(slug, handle)));
     },
     async resume(slugs) {
       for (const slug of slugs) held.delete(slug);
