@@ -87,7 +87,7 @@ export function buildSdmConnections(
         label,
         sdmResource: r.name,
         tier,
-        production: e?.production ?? tier === "production",
+        production: e?.production ?? (tier === "production" || tierFromEnv(tags.env) === "production"),
         reasonSuggestion: e?.reasonSuggestion ?? `investigating ${label} data`,
         db: e?.db,
         standingAccess: r.standingAccess,

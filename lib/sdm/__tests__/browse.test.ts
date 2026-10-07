@@ -92,6 +92,9 @@ describe("production flag and empty tag values", () => {
     expect(buildSdmConnections(prod, {})[0]!.production).toBe(true);
     expect(buildSdmConnections(prod, { "globex-prod-db": { production: false } })[0]!.production).toBe(false);
   });
+  test("an enrichment tier override does not clear production on an env=prod row", () => {
+    expect(buildSdmConnections(prod, { "globex-prod-db": { tier: "staging" } })[0]!.production).toBe(true);
+  });
   test("a blank scaffold entry falls back to the tags and keeps the production guard", () => {
     const c = buildSdmConnections(prod, { "globex-prod-db": { label: "", tier: "" } })[0]!;
     expect(c).toMatchObject({ tier: "production", label: "Globex prod", customLabel: false, production: true });
