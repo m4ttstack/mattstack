@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
-import { checkBlocks, compositionBlocks, installedCacheBlocks, materializeBlocks, packsBlocks, type CheckPayload, type CompositionPayload } from "../skills.ts";
+import { checkBlocks, compileBlocks, compositionBlocks, installedCacheBlocks, materializeBlocks, packsBlocks, type CheckPayload, type CompositionPayload } from "../skills.ts";
 
 const base: CheckPayload = { pack: "acme", packDir: "/p", verbs: [], chainErrors: [], installed: null, drift: false, mcpLint: [], scriptLint: [], strictLint: false, attachments: [], extendsBase: true };
 
@@ -144,5 +144,27 @@ test("materialize rows: written, nothing declared, failed, and a skip", () => {
   );
   expect(renderPlain(materializeBlocks({ skipped: true, reason: "engine-pack-missing: install the mattstack plugin first", repos: [] }))).toBe(
     "[skipped] Nothing was written  engine-pack-missing: install the mattstack plugin first\n",
+  );
+});
+
+test("compile names a team's own copy that shadows a base attachment", () => {
+  expect(renderPlain(compileBlocks([], true, [{ name: "review-kit", base: "acme-base", kept: true }]))).toBe(
+    "[skipped] review-kit  your own copy; the one in acme-base is not copied\n",
+  );
+  expect(renderPlain(compileBlocks([], false, [{ name: "review-kit", base: "acme-base", kept: true }]))).toBe(
+    "[skipped] review-kit  your own copy; the one in acme-base is not copied\n",
+  );
+});
+
+test("a dry run says why it would remove an emitted folder", () => {
+  const rows = [
+    { name: "old-kit", removed: true as const, why: "dropped" as const },
+    { name: "left-kit", removed: true as const, why: "no-base" as const },
+  ];
+  expect(renderPlain(compileBlocks([], false, rows))).toBe(
+    ["[not yet] old-kit  would remove; its base no longer has it", "[not yet] left-kit  would remove; this pack no longer extends a base", ""].join("\n"),
+  );
+  expect(renderPlain(compileBlocks([], true, rows))).toBe(
+    ["[ok] Removed old-kit  its base no longer has it", "[ok] Removed left-kit  this pack no longer extends a base", ""].join("\n"),
   );
 });

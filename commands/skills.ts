@@ -1011,6 +1011,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
 
   const emitted: EmittedRow[] = [
     ...plan.emits.map((e) => ({ name: e.name, base: plan.base!.name, files: e.files.filter((f) => f.path !== PROVENANCE_FILE).length })),
+    ...plan.kept.map((name) => ({ name, base: plan.base!.name, kept: true as const })),
     ...plan.stale.map((s) => ({ name: s.name, removed: true as const, why: s.why })),
   ];
 
@@ -1019,16 +1020,22 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
 
 export type CompiledRow = { name: string; side: Side; files: number; warnings: string[] };
 
-export type EmittedRow = { name: string; base: string; files: number } | { name: string; removed: true; why: "dropped" | "no-base" };
+export type EmittedRow =
+  | { name: string; base: string; files: number }
+  | { name: string; base: string; kept: true }
+  | { name: string; removed: true; why: "dropped" | "no-base" };
 
 const countOf = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 
 export function compileBlocks(rows: CompiledRow[], writing: boolean, emitted: EmittedRow[] = []): Block[] {
   if (rows.length === 0 && emitted.length === 0) return [out.line("skipped", "Nothing to compile", "this pack has no verbs")];
-  const copies = emitted.map((row) => "removed" in row
+  const removedWhy = (why: "dropped" | "no-base") => (why === "dropped" ? "its base no longer has it" : "this pack no longer extends a base");
+  const copies = emitted.map((row) => "kept" in row
+    ? out.line("skipped", row.name, `your own copy; the one in ${row.base} is not copied`)
+    : "removed" in row
     ? writing
-      ? out.line("done", `Removed ${row.name}`, row.why === "dropped" ? "its base no longer has it" : "this pack no longer extends a base")
-      : out.line("pending", row.name, "would remove")
+      ? out.line("done", `Removed ${row.name}`, removedWhy(row.why))
+      : out.line("pending", row.name, `would remove; ${removedWhy(row.why)}`)
     : writing
       ? out.line("done", `Copied ${row.name}`, `from ${row.base}, ${countOf(row.files, "file", "files")}`)
       : out.line("pending", row.name, `would copy ${countOf(row.files, "file", "files")} from ${row.base}`));
@@ -1137,7 +1144,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
       // caller reading the code (not just the payload) sees it, matching the
       // non-JSON path's exits. `written` stays honest on an empty target set.
       if (failures.length > 0 || misplaced.length > 0) process.exitCode = 1;
-      const written = writing && (outcomes.length > 0 || emitted.length > 0);
+      const written = writing && (outcomes.length > 0 || emitted.some((row) => !("kept" in row)));
       out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced });
       return;
     }

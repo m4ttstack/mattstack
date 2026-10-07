@@ -1020,6 +1020,7 @@ describe("base pack attachments", () => {
     await compile();
     expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toBe("team copy\n");
     expect(existsSync(kit(packDir, "compiled.json"))).toBe(false);
+    expect(io.lines().join("\n")).toContain("review-kit  your own copy; the one in acme-base is not copied");
 
     writeFile(join(baseDir, "attachments", "review-kit", "SKILL.md"), "---\nname: review-kit\n---\nchanged\n");
     await compile();
