@@ -44,7 +44,7 @@ export const GROUPS: Group[] = [
     blurb:
       "The rt daemon's own ports, logs, janitors and snapshot loops. Most need a daemon restart.",
     match: pattern(
-      /^rt\.(log|runsPruneDays$|apiPort$|daemonPath$|runaway$|homeSnapshot$|teamSnapshot$|trustedBrowserOrigins$|workspacePrefs$|sdmEnrichment$|mcp\.)/
+      /^rt\.(log|runsPruneDays$|apiPort$|daemonPath$|runaway$|homeSnapshot$|teamSnapshot$|trustedBrowserOrigins$|workspacePrefs$|mcp\.)/
     ),
   },
   {
@@ -79,6 +79,14 @@ export const GROUPS: Group[] = [
     match: pattern(
       /^rt\.(variations|presets|cron|picker\.hidden|ui\.background)$/
     ),
+  },
+  {
+    id: 'strongdm',
+    label: 'StrongDM',
+    tier: 'rt',
+    blurb:
+      'Carrier names and per-resource overrides for the rt sdm connection picker.',
+    match: key => key.startsWith('sdm.') || key === 'rt.sdmEnrichment',
   },
   {
     id: 'board',
