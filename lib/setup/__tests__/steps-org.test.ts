@@ -129,6 +129,25 @@ describe("org.pull", () => {
     expect(out.detail).toContain("Moved widgets");
   });
 
+  test("a marker that appears with the folder's own name is not a rename", async () => {
+    let marker: string | null = null;
+    const converged: string[] = [];
+    orgSeams.converge = async () => { converged.push("ran"); return { state: "done", detail: "acme already in place" }; };
+    const p = fakeProbes({
+      home: HOME,
+      dirs: TEAMS_DIR,
+      files: { [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git") },
+      daemon: async () => {
+        marker = JSON.stringify({ role: "org", org: "acme" });
+        return { ok: true, data: { outcome: "fast-forwarded", detail: null } };
+      },
+    });
+    const read = p.readFile.bind(p);
+    p.readFile = (path) => (path === `${CLONE}/mattstack/mattstack.jsonc` ? marker : read(path));
+    expect(await orgPullStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Pulled acme" });
+    expect(converged).toEqual([]);
+  });
+
   test("a pull that kept the marker does not converge, and a failed converge makes the pull partial with its remedy", async () => {
     const converged: string[] = [];
     orgSeams.converge = async () => { converged.push("ran"); return { state: "failed", detail: "dirty", remedy: "Run rt setup update --force after the fix" }; };

@@ -51,7 +51,10 @@ async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
       stuck.push(`${slug} was not pulled: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  const renamed = slugs.filter((slug) => markerOrg(ctx.p, orgDirUnder(ctx.p.home, slug)) !== before.get(slug));
+  const renamed = slugs.filter((slug) => {
+    const after = markerOrg(ctx.p, orgDirUnder(ctx.p.home, slug));
+    return after !== null && after !== slug && after !== before.get(slug);
+  });
   let converge: StepOutcome | null = null;
   if (renamed.length) {
     // A pull that changed the marker's org means this folder no longer matches it; the move runs now rather than at the next update.
