@@ -130,7 +130,7 @@ function isMarkedBase(dir: string): boolean {
  */
 export function orgFolderPacks(mattstackRoot: string): PackInfo[] {
   const found: PackInfo[] = [];
-  const teams = join(mattstackRoot, "teams");
+  const teams = join(mattstackRoot, "orgs");
   for (const org of subdirs(teams)) {
     const orgDir = join(teams, org);
     let marker: { role?: unknown } | null;
@@ -166,7 +166,7 @@ export function orgFolderPacks(mattstackRoot: string): PackInfo[] {
 /**
  * A pack is any folder carrying a surface.jsonc that is either a plugin served
  * from a directory marketplace or a team or org base pack folder in an org
- * clone under `<mattstackRoot>/teams/`. Discovery reads what is actually on
+ * clone under `<mattstackRoot>/orgs/`. Discovery reads what is actually on
  * this Mac instead of a hardcoded list, so a team pack appears the moment its
  * folder or marketplace does. A marketplace entry wins over a folder pack of
  * the same name.

@@ -31,7 +31,7 @@ import { join } from "path";
 import type { AgeKeySeam } from "../lib/home/age-key.ts";
 import { createRealAgeKeySeam } from "../lib/home/age-key.ts";
 import { promptSecret } from "../lib/prompt-secret.ts";
-import { orgSettingsPath } from "../lib/rt-paths.ts";
+import { orgDirUnder, orgSettingsPath } from "../lib/rt-paths.ts";
 import { createRealTeamSecretsSeams } from "../lib/secrets/team-store.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { listOrgs, parseStoreText, readStore, TEAM_NAME_RE } from "../lib/settings/stores.ts";
@@ -813,7 +813,7 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
     }
 
     const slug = resolveTeamSlug(args, "team status");
-    const dir = join(deps.probes.home, ".mattstack", "teams", slug);
+    const dir = orgDirUnder(deps.probes.home, slug);
     if (!deps.probes.exists(dir)) {
       throw new UserActionableError("no-team", `The ${slug} team is not on this Mac`, {}, { next: "rt team join" });
     }
@@ -901,7 +901,7 @@ export async function realUseTeamSeams(deps: TeamDeps): Promise<UseTeamSeams> {
         username: before.username,
         roster: getSetting<RosterEntry[]>("mattstack.roster").value ?? [],
         setting: getSetting<string>("mattstack.activeTeam").value,
-        teamFolders: () => deps.probes.readDir(join(deps.probes.home, ".mattstack", "teams", before.org!, "mattstack", "teams")),
+        teamFolders: () => deps.probes.readDir(join(orgDirUnder(deps.probes.home, before.org!), "mattstack", "teams")),
       });
       return { ...before, ...decision };
     },
@@ -936,7 +936,7 @@ export async function realUseTeamSeams(deps: TeamDeps): Promise<UseTeamSeams> {
       return ok;
     },
     marketplace: (org) => {
-      const raw = deps.probes.readFile(join(deps.probes.home, ".mattstack", "teams", org, ".claude-plugin", "marketplace.json"));
+      const raw = deps.probes.readFile(join(orgDirUnder(deps.probes.home, org), ".claude-plugin", "marketplace.json"));
       if (raw !== null) {
         try {
           const parsed: unknown = JSON.parse(raw);

@@ -117,7 +117,7 @@ describe("accountRows — account.gitlab", () => {
     const r = await pickRow(
       accountRows(fakeProbes({ fetch, files: {
         [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
-        "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+        "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
       } }), team, [], fakeSecrets({ "rt.gitlabToken": "tok123" }), null, { forgeHost: "gitlab.example.com" }),
       "account.gitlab",
     );
@@ -383,7 +383,7 @@ describe("accountRows — account.slack + account.slack-app", () => {
   describe("a joined member waiting on the owner to accept them", () => {
     const MINE = "age1mine0000000000000000000000000000000000000000000000000000000";
     const OWNER = "age1owner000000000000000000000000000000000000000000000000000000";
-    const BOARD = "/fake-home/.mattstack/teams/acme/mattstack/org/secrets/board.json";
+    const BOARD = "/fake-home/.mattstack/orgs/acme/mattstack/org/secrets/board.json";
     const PULL: Action = { type: "run", label: "Re-check", verb: ["team", "pull", "--team", "acme"] };
     const team = baseTeam({ integrations: { slack: { clientId: "abc" } } });
 
@@ -467,7 +467,7 @@ describe("accountRows — account.linear declared / not declared", () => {
 
 describe("accountRows: account.board-peering", () => {
   const HOME = "/fake-home";
-  const TEAMS = `${HOME}/.mattstack/teams`;
+  const TEAMS = `${HOME}/.mattstack/orgs`;
   const reachable = async (url: string) => (url === `${SWITCHBOARD_URL}/healthz` ? { status: 200, body: "", headers: {} } : { status: 0, body: "", headers: {} });
 
   /** A machine as a join left it: the team clone and a local record, and nothing else. */
@@ -930,7 +930,7 @@ describe("forge reconnect role", () => {
     ] as const) {
       const p = fakeProbes({ files: {
         [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ forgeUsername: username, joinedByRt }),
-        "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+        "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
       }, fetch: async (url) => ({ status: 200, body: JSON.stringify(url.includes("personal_access_tokens/self") ? { scopes: ["read_api"] } : { username }), headers: {} }) });
       const r = await pickRow(accountRows(p, baseTeam({ integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } }), [], fakeSecrets({ "rt.gitlabToken": "fixture-token" }), null), "account.gitlab");
       expect(r.status).toBe("needs-you");

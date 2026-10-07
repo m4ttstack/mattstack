@@ -831,7 +831,7 @@ describe("oneTeamRow", () => {
   });
 
   test("rtHealthRows carries the row when the machine has two zones", async () => {
-    const teams = join("/home/two", ".mattstack", "teams");
+    const teams = join("/home/two", ".mattstack", "orgs");
     const p = fakeProbes({
       home: "/home/two",
       dirs: { [teams]: ["acme", "globex"] },
@@ -1231,8 +1231,8 @@ describe("rtHealthRows: team.sync wiring", () => {
     const p = fakeProbes({
       home: "/fake-home",
       now: at,
-      files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
-      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+      files: { "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}" },
+      dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
       daemon: async (cmd) => {
         if (cmd === "team:snapshot-status") return { ok: true, data: [{ slug: "acme", lastPullAt: at.getTime() - 300_000, lastPushError: null, conflicted: null }] };
         return null;
@@ -1251,8 +1251,8 @@ describe("rtHealthRows: team.sync wiring", () => {
   test("rt.teamSnapshot.enabled=false: the row reports the setting instead of a permanent unwatched-clone verdict", async () => {
     const p = fakeProbes({
       home: "/fake-home",
-      files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
-      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+      files: { "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}" },
+      dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
       daemon: async (cmd) => (cmd === "team:snapshot-status" ? { ok: true, data: [] } : null),
     });
     const rows = await rtHealthRows(p, { ci: false }, () => ({ ...SNAPSHOT_SETTINGS, enabled: false }));
@@ -1264,8 +1264,8 @@ describe("rtHealthRows: team.sync wiring", () => {
   test("a cloned team reads status through p.daemon and produces a team.sync row", async () => {
     const p = fakeProbes({
       home: "/fake-home",
-      files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
-      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+      files: { "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}" },
+      dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
       daemon: async (cmd) => {
         if (cmd === "team:snapshot-status") return { ok: true, data: [{ slug: "acme", lastPullAt: Date.now(), lastPushError: null, conflicted: null }] };
         return null;
@@ -1280,8 +1280,8 @@ describe("rtHealthRows: team.sync wiring", () => {
   test("daemon unreachable for the snapshot-status call: team.sync reads missing", async () => {
     const p = fakeProbes({
       home: "/fake-home",
-      files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
-      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+      files: { "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}" },
+      dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
       daemon: async () => null,
     });
     const rows = await rtHealthRows(p, { ci: false });

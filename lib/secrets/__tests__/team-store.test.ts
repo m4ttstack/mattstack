@@ -319,7 +319,7 @@ describe("writeTeamSecret", () => {
     const probes = fakeProbes({
       home: "/home/x",
       files: {
-        [`/home/x/.mattstack/teams/${slug}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+        [`/home/x/.mattstack/orgs/${slug}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
         [teamLocalPath("/home/x", slug)]: JSON.stringify({ joinedByRt: true, forgeUsername: "dev2" }),
       },
     });
@@ -491,7 +491,7 @@ describe("reencryptTeamSecrets", () => {
     const probes = fakeProbes({
       home: "/home/x",
       files: {
-        [`/home/x/.mattstack/teams/${slug}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+        [`/home/x/.mattstack/orgs/${slug}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
         [teamLocalPath("/home/x", slug)]: JSON.stringify({ joinedByRt: true, forgeUsername: "dev2" }),
       },
     });
@@ -649,7 +649,7 @@ describe("a team file this Mac's key cannot decrypt", () => {
 
     await expect(listTeamSecretNames("acme", "board", seams)).rejects.toBeInstanceOf(UserActionableError);
     const write = await writeTeamSecret("acme", "board", "slackClientSecret", "shh", seams, fakeProbes({ home: "/home/x", files: {
-      "/home/x/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      "/home/x/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
       [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
     } })).catch((e: unknown) => e);
     expect(write).toBeInstanceOf(UserActionableError);
@@ -681,7 +681,7 @@ test("an invited admin may write and reencrypt secrets", async () => {
   const { execSeam, seams } = seamsWithKey();
   writeTeamRecipients("acme", ["age1aaa"], seams);
   const probes = fakeProbes({ home: "/home/x", files: {
-    "/home/x/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+    "/home/x/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
     [teamLocalPath("/home/x", "acme")]: JSON.stringify({ joinedByRt: true, forgeUsername: "dev1" }),
   } });
   await writeTeamSecret("acme", "board", "k", "v", seams, probes);

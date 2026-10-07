@@ -16,6 +16,7 @@ import { assertMayWrite, roleFor } from "./roles.ts";
 import { mayWritePath, ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { GIT_OBJECT_ID, unpublishedPaths } from "./publish-history.ts";
 import { orgBranch } from "./org-branch.ts";
+import { orgDirUnder } from "../rt-paths.ts";
 
 export interface PublishTeamResult {
   remote: string;
@@ -61,7 +62,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   }
   if (ownedRoots(roleFor(p, slug)).length === 0) assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
 
-  const dir = join(p.home, ".mattstack", "teams", slug);
+  const dir = orgDirUnder(p.home, slug);
   if (!p.exists(dir)) {
     throw new UserActionableError("no-team-zone", `The ${slug} team is not on this Mac`, {}, { next: "rt team create" });
   }

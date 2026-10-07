@@ -802,7 +802,7 @@ describe("settings/resolve", () => {
 
     test("a broken entry in the teams dir never bricks resolution", () => {
       // Regression (opus review of task 4): a team clone symlinked in and later
-      // moved leaves a dangling symlink under ~/.mattstack/teams, and the
+      // moved leaves a dangling symlink under ~/.mattstack/orgs, and the
       // unguarded scan behind listOrgs() made EVERY resolution throw ENOENT.
       writeOrg({ "rt.intercepts": [{ id: "team" }] });
       symlinkSync(join(home, "moved-away"), join(orgsDir(), "moved-team"));

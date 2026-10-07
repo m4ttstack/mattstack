@@ -28,7 +28,7 @@ const ID_HEX = "0102030405060708090a0b0c0d0e0f10";
 const KEY = new Uint8Array(32).fill(7);
 const CODE = encodeCode(ID_HEX, KEY);
 const REMOTE = "https://github.com/acme/widgets.git";
-const TEAM_DIR = pathJoin(HOME, ".mattstack", "teams", "acme");
+const TEAM_DIR = pathJoin(HOME, ".mattstack", "orgs", "acme");
 
 const POINTER: InvitePointer = {
   v: 2, username: "dev2", teams: ["widgets"],
@@ -1540,7 +1540,7 @@ describe("joinRedeem's relay failure reports what it actually persisted", () => 
 });
 
 describe("one team per machine", () => {
-  const TEAMS_DIR = pathJoin(HOME, ".mattstack", "teams");
+  const TEAMS_DIR = pathJoin(HOME, ".mattstack", "orgs");
   const REFUSAL = "This Mac is already set up for the globex team, and mattstack supports one team per machine today";
 
   function zone(slug: string): { dirs: Record<string, string[]>; files: Record<string, string> } {

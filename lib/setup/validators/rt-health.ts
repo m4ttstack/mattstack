@@ -654,7 +654,7 @@ export function oneTeamRow(slugs: string[]): Row | null {
       label: "Show steps…",
       steps: [
         `Pick the one team this machine is for: ${zones.join(", ")}`,
-        "Move every other team's folder out of ~/.mattstack/teams",
+        "Move every other org's folder out of ~/.mattstack/orgs",
         "Run: rt setup status",
       ],
     },

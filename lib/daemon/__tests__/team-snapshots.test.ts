@@ -41,7 +41,7 @@ function harness(opts: Record<string, unknown> = {}) {
   const deps = {
     log,
     broadcast: () => {},
-    teamsDir: root,
+    orgsDir: root,
     probes: fakeProbes({ home: root }),
     readSettings: () => ({ ...settings }),
     start: ((spec: SnapshotSpec) => {
@@ -197,7 +197,7 @@ describe("startTeamSnapshots", () => {
     const onRejection = (err: unknown) => rejections.push(err);
     process.on("unhandledRejection", onRejection);
     try {
-      const handle = startTeamSnapshots({ ...h.deps, teamsDir: notADir });
+      const handle = startTeamSnapshots({ ...h.deps, orgsDir: notADir });
       await handle.ready;
       await flush();
       expect(handle.status()).toEqual([]);
@@ -330,7 +330,7 @@ describe("startTeamSnapshots", () => {
     const ROLES = { "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } };
     function orgWith(h: ReturnType<typeof harness>, username: string | null): void {
       clone(h.root, "acme");
-      h.deps.probes.writeFile(join(h.root, ".mattstack", "teams", "acme", "mattstack", "org", "settings.org.jsonc"), JSON.stringify(ROLES));
+      h.deps.probes.writeFile(join(h.root, ".mattstack", "orgs", "acme", "mattstack", "org", "settings.org.jsonc"), JSON.stringify(ROLES));
       if (username) writeTeamLocal(h.deps.probes, "acme", { createdByRt: false, joinedByRt: true, rtMayManageMembership: false, forgeUsername: username });
     }
     async function specFor(username: string | null): Promise<SnapshotSpec> {
@@ -378,7 +378,7 @@ describe("startTeamSnapshots", () => {
       orgWith(h, "dev2");
       const handle = startTeamSnapshots(h.deps);
       await handle.ready;
-      h.deps.probes.writeFile(join(h.root, ".mattstack", "teams", "acme", "mattstack", "org", "settings.org.jsonc"), JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { gadgets: { owners: ["dev2"] } } } }));
+      h.deps.probes.writeFile(join(h.root, ".mattstack", "orgs", "acme", "mattstack", "org", "settings.org.jsonc"), JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { gadgets: { owners: ["dev2"] } } } }));
       await handle.rescan();
       expect(h.startedSpecs()).toHaveLength(2);
       expect(h.startedSpecs().at(-1)?.scope!("mattstack/teams/gadgets/settings.team.jsonc")).toBe(true);

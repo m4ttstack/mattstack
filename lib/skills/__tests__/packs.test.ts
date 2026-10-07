@@ -237,7 +237,7 @@ describe("pluginDirOf through discoverPacks", () => {
 describe("orgFolderPacks", () => {
   function makeOrg() {
     const root = tmp("rt-packs-org-");
-    const org = join(root, "teams", "acme");
+    const org = join(root, "orgs", "acme");
     writeFile(join(org, "mattstack", "mattstack.jsonc"), `{ "role": "org", "org": "acme" }`);
     writeFile(join(org, ".claude-plugin", "marketplace.json"), `{ "name": "acme-market", "plugins": [] }`);
     const widgets = join(org, "mattstack", "teams", "widgets", "packs", "widgets");
@@ -284,8 +284,8 @@ describe("orgFolderPacks", () => {
 
   test("a clone that is not an org, or a root with no teams dir, yields nothing", () => {
     const root = tmp("rt-packs-org-");
-    writeFile(join(root, "teams", "old", "mattstack", "mattstack.jsonc"), `{ "role": "team" }`);
-    writeFile(join(root, "teams", "old", "mattstack", "packs", "old", "pack", "surface.jsonc"), `{ "public": [] }`);
+    writeFile(join(root, "orgs", "old", "mattstack", "mattstack.jsonc"), `{ "role": "team" }`);
+    writeFile(join(root, "orgs", "old", "mattstack", "packs", "old", "pack", "surface.jsonc"), `{ "public": [] }`);
     expect(orgFolderPacks(root)).toEqual([]);
     expect(orgFolderPacks(tmp("rt-packs-empty-"))).toEqual([]);
   });

@@ -8,6 +8,7 @@ import type { Probes } from "../probes.ts";
 import { discoverOrgs, forgeFromRemote, legacyDeclaredForge, parseOriginUrl, probeUserSettingsReader } from "../team-settings.ts";
 import { trustedForgeTokenFor } from "./forge-token.ts";
 import { toFailedOutcome } from "./step-utils.ts";
+import { orgDirUnder, orgsDirUnder } from "../../rt-paths.ts";
 
 const PULL_TIMEOUT_MS = 180_000;
 
@@ -19,7 +20,7 @@ interface PullReply {
 }
 
 export function cloneSlugs(p: Pick<Probes, "readDir" | "exists" | "home">): string[] {
-  const teams = join(p.home, ".mattstack", "teams");
+  const teams = orgsDirUnder(p.home);
   return p
     .readDir(teams)
     .filter((name) => p.exists(join(teams, name, ".git", "config")))
@@ -54,7 +55,7 @@ async function orgPullRun(ctx: ApplyContext): Promise<StepOutcome> {
 export const identitySeams = { login: forgeLogin };
 
 export function cloneOrigin(p: Pick<Probes, "readFile" | "home">, slug: string): string | null {
-  const raw = p.readFile(join(p.home, ".mattstack", "teams", slug, ".git", "config"));
+  const raw = p.readFile(join(orgDirUnder(p.home, slug), ".git", "config"));
   return raw === null ? null : parseOriginUrl(raw);
 }
 

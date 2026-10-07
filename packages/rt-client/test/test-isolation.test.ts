@@ -92,7 +92,7 @@ describe("realStoreRefusal", () => {
     for (const target of [
       "/Users/someone/.mattstack/user/settings.user.jsonc",
       "/Users/someone/.mattstack/user/local/mac/settings.local.jsonc",
-      "/Users/someone/.mattstack/teams/acme/mattstack/settings.team.jsonc",
+      "/Users/someone/.mattstack/orgs/acme/mattstack/settings.team.jsonc",
     ]) {
       const refusal = realStoreRefusal({ target, account, home: account, signal });
       expect(refusal).toContain(target);

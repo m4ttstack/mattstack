@@ -201,9 +201,9 @@ describe("sharePack", () => {
     const calls: string[][] = [];
     const p: Probes = fakeProbes({
       home: "/home/x",
-      dirs: { "/home/x/.mattstack/teams/acme": [] },
+      dirs: { "/home/x/.mattstack/orgs/acme": [] },
       files: {
-        "/home/x/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+        "/home/x/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
         [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: "dev3" }),
       },
       exec: (argv) => { calls.push(argv); return { code: 0, stdout: "", stderr: "" }; },

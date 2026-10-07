@@ -11,6 +11,7 @@ import { INTEGRATIONS } from "./integrations.ts";
 import { stripJsonc } from "../jsonc.ts";
 import { activeTeamFor } from "../team/active-team.ts";
 import type { Probes } from "./probes.ts";
+import { orgDirUnder } from "../rt-paths.ts";
 
 export interface ToolRequirement {
   name: string;
@@ -37,7 +38,7 @@ const KNOWN_INTEGRATION_IDS = new Set<Integration>(Object.keys(INTEGRATIONS) as 
 /** The active team's pack requirements; [] when this Mac has no active team or the pack declares none. */
 export function readPackRequirements(p: Pick<Probes, "readDir" | "readFile" | "exists" | "home">, org: string, team: string | null = activeTeamFor(p, org).team): PackRequirements[] {
   if (team === null) return [];
-  const file = join(p.home, ".mattstack", "teams", org, "mattstack", "teams", team, "packs", team, REQUIREMENTS_FILE);
+  const file = join(orgDirUnder(p.home, org), "mattstack", "teams", team, "packs", team, REQUIREMENTS_FILE);
   if (!p.exists(file)) return [];
   const text = p.readFile(file);
   // A file that is there but cannot be read is reported, never skipped.

@@ -9,6 +9,7 @@ import { FragmentError, parseFragment } from "./manifest-merge.ts";
 import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 import type { PackShare } from "../team/share-pack.ts";
+import { orgsDirUnder } from "../rt-paths.ts";
 
 /** Strips only the userinfo (scheme://user:pass@) so the rest of a rejected remote URL stays in the message; withoutUrls's full-URL redaction would leave nothing readable here. */
 function withoutCredentials(message: string): string {
@@ -94,7 +95,7 @@ export function isBasePack(fs: Pick<InitFs, "readFile">, dir: string): boolean {
 }
 
 export function readZones(fs: InitFs, home: string): ZoneInfo[] {
-  return readZonesFrom(fs, join(home, ".mattstack", "teams"));
+  return readZonesFrom(fs, orgsDirUnder(home));
 }
 
 function isOrgSlug(name: string): boolean {
@@ -108,7 +109,7 @@ function isOrgSlug(name: string): boolean {
 
 /** The org clones on this Mac, by the folder name every zone's slug starts with. */
 export function readOrgSlugs(fs: InitFs, home: string): string[] {
-  const teams = join(home, ".mattstack", "teams");
+  const teams = orgsDirUnder(home);
   return [...fs.readDir(teams)].sort().filter((org) => isOrgSlug(org) && readJsonc(fs, join(teams, org, "mattstack", "mattstack.jsonc"))?.role === "org");
 }
 

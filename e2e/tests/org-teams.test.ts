@@ -7,7 +7,7 @@ let home = "";
 let cleanup = () => {};
 
 function org(): string {
-  return join(home, ".mattstack", "teams", "acme");
+  return join(home, ".mattstack", "orgs", "acme");
 }
 
 function write(rel: string, value: unknown, root = org()): void {

@@ -86,7 +86,7 @@ export interface SecretsSeams {
  * Where one domain's ciphertext lives and how sops should address it —
  * factored out so the personal store (`user/secrets/<domain>.json`, cwd
  * `<mattstackHome>/user`) and the team store (`team-store.ts`'s
- * `teams/<slug>/mattstack/org/secrets/<domain>.json`, cwd the team clone root)
+ * `orgs/<slug>/mattstack/org/secrets/<domain>.json`, cwd the team clone root)
  * share the same encrypt/decrypt machinery below instead of two divergent
  * copies of it. `filenameOverride` is cwd-relative on purpose; see
  * `encryptVerifiedAtLocation`'s doc for why it can't be `filePath` itself.

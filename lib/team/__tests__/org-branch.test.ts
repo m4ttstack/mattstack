@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { orgBranch } from "../org-branch.ts";
 
-const DIR = "/home/x/.mattstack/teams/acme";
+const DIR = "/home/x/.mattstack/orgs/acme";
 
 describe("orgBranch", () => {
   test("is the branch the org clone has checked out", async () => {

@@ -9,7 +9,7 @@ import { publishTeam } from "../publish.ts";
 import { teamLocalPath } from "../team-local.ts";
 import { UserActionableError } from "../../errors.ts";
 
-const DIR = "/home/x/.mattstack/teams/acme";
+const DIR = "/home/x/.mattstack/orgs/acme";
 
 /** publishTeam prechecks the zone exists (finding 7) — every test that means to reach the git steps must seed the dir. */
 function probesWithZone(overrides: Parameters<typeof fakeProbes>[0] = {}, branch = "main") {
@@ -266,7 +266,7 @@ afterEach(() => { for (const home of publishHomes.splice(0)) rmSync(home, { recu
 function historyWorld(initial = false) {
   const home = mkdtempSync(join(tmpdir(), "rt-publish-history-"));
   publishHomes.push(home);
-  const dir = join(home, ".mattstack", "teams", "acme");
+  const dir = join(home, ".mattstack", "orgs", "acme");
   const remote = join(home, "remote.git");
   mkdirSync(dir, { recursive: true });
   const git = (...args: string[]) => execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], { cwd: dir, env: childEnv(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
