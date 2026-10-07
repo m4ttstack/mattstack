@@ -679,6 +679,29 @@ describe("settings/resolve", () => {
       }
     });
 
+    test("the alias warns once per name per process", () => {
+      const seen: string[] = [];
+      setSettingsWarnSink((m) => seen.push(m));
+      try {
+        expandVariables("${team:acme}/packs", ctx());
+        expandVariables("${team:acme}/packs", ctx());
+        expandVariables("bun ${team:acme}/hook.ts", ctx());
+        expandVariables("${team:old-name}/packs", ctx());
+        expect(seen).toEqual(["rt: ${team:acme} is deprecated; use ${org}", "rt: ${team:old-name} is deprecated; use ${org}"]);
+      } finally {
+        setSettingsWarnSink(null);
+      }
+    });
+
+    test("the alias warns once per name even with no sink bound", () => {
+      setSettingsWarnSink(null);
+      expandVariables("${team:acme}/packs", ctx());
+      expandVariables("bun ${team:acme}/hook.ts", ctx());
+      expandVariables("${team:old-name}/packs", ctx());
+      const deprecations = warnSpy.mock.calls.map(([msg]) => String(msg)).filter((msg) => msg.includes("is deprecated; use ${org}"));
+      expect(deprecations).toEqual(["rt: ${team:acme} is deprecated; use ${org}", "rt: ${team:old-name} is deprecated; use ${org}"]);
+    });
+
     test("${org} and the alias throw on a Mac with no org, never pass through", () => {
       expect(() => expandVariables("${org}/x", ctx(null))).toThrow(/cannot expand \$\{org\}/);
       expect(() => expandVariables("${team:acme}/x", ctx(null))).toThrow(/cannot expand \$\{org\}/);

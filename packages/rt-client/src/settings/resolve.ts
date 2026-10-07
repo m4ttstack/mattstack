@@ -219,7 +219,7 @@ function expandString(input: string, ctx: ExpandCtx): string {
     const team = TEAM_VAR_RE.exec(name);
     if (team) {
       teamSegment(team[1] as string);
-      emitSettingsWarning(`rt: \${team:${team[1]}} is deprecated; use \${org}`);
+      warnTeamAlias(team[1] as string);
       return orgRoot(ctx);
     }
     return match;
@@ -278,6 +278,14 @@ function readStores(view: { team?: string | null } = {}): StoreBundle {
 }
 
 let multiOrgWarned: string | null = null;
+const aliasWarned = new Set<string>();
+
+/** Once per process and per name: with no sink bound, `emitSettingsWarning` does not dedupe, and every resolution expands the alias again. */
+function warnTeamAlias(name: string): void {
+  if (aliasWarned.has(name)) return;
+  aliasWarned.add(name);
+  emitSettingsWarning(`rt: \${team:${name}} is deprecated; use \${org}`);
+}
 
 /** Once per process and per set of clones: every settings read folds the stores, so an unguarded warning would repeat on each one. */
 function warnMultipleOrgs(orgs: string[]): void {
@@ -734,6 +742,7 @@ export function setSettingsWarnSink(sink: ((msg: string) => void) | null): void 
   warnSink = sink;
   warnedOnce.clear();
   multiOrgWarned = null;
+  aliasWarned.clear();
 }
 
 export function emitSettingsWarning(msg: string): void {
