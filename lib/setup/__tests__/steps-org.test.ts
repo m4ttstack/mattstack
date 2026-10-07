@@ -71,10 +71,10 @@ function makeCtx(p: Probes, overrides: Partial<ApplyContext> = {}): { ctx: Apply
 }
 
 const HOME = "/h";
-const CLONE = `${HOME}/.mattstack/teams/acme`;
+const CLONE = `${HOME}/.mattstack/orgs/acme`;
 const gitConfig = (remote: string) => `[remote "origin"]\n\turl = ${remote}\n`;
 // The fake lists a folder only when `dirs` names it; it does not infer one from the files under it.
-const TEAMS_DIR = { [`${HOME}/.mattstack/teams`]: ["acme", "notes"] };
+const TEAMS_DIR = { [`${HOME}/.mattstack/orgs`]: ["acme", "notes"] };
 
 describe("org.pull", () => {
   test("pulls every clone that is a git repo, even one still on the old layout", async () => {
@@ -85,7 +85,7 @@ describe("org.pull", () => {
       files: {
         [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git"),
         [`${CLONE}/mattstack/settings.team.jsonc`]: "{}",
-        [`${HOME}/.mattstack/teams/notes/readme.md`]: "x",
+        [`${HOME}/.mattstack/orgs/notes/readme.md`]: "x",
       },
       daemon: async (cmd, payload) => {
         pulled.push(`${cmd} ${(payload as { slug: string }).slug}`);
@@ -387,10 +387,10 @@ describe("pending admin recovery", () => {
     const pulled: string[] = [];
     const p = fakeProbes({
       home: HOME,
-      dirs: { [`${HOME}/.mattstack/teams`]: ["acme", "widgets"] },
+      dirs: { [`${HOME}/.mattstack/orgs`]: ["acme", "widgets"] },
       files: {
         [`${CLONE}/.git/config`]: gitConfig("https://github.com/acme/org.git"),
-        [`${HOME}/.mattstack/teams/widgets/.git/config`]: gitConfig("https://github.com/acme/widgets.git"),
+        [`${HOME}/.mattstack/orgs/widgets/.git/config`]: gitConfig("https://github.com/acme/widgets.git"),
       },
       daemon: async (_cmd, payload) => {
         const slug = (payload as { slug: string }).slug;

@@ -19,7 +19,7 @@ import type { setSetting } from "../../settings/write.ts";
 const SLUG = "acme";
 const NOW = new Date("2026-08-22T00:00:00.000Z");
 const HOME = "/home";
-const GIT_CONFIG_PATH = "/home/.mattstack/teams/acme/.git/config";
+const GIT_CONFIG_PATH = "/home/.mattstack/orgs/acme/.git/config";
 
 function gitConfigWithRemote(remote: string): string {
   return `[remote "origin"]\n\turl = ${remote}\n`;
@@ -133,8 +133,8 @@ function probesWithRemote(remote: string, extraFiles: Record<string, string> = {
 }
 
 const TEAM_FILES = {
-  "/home/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc": "{}",
-  "/home/.mattstack/teams/acme/mattstack/teams/gadgets/settings.team.jsonc": "{}",
+  "/home/.mattstack/orgs/acme/mattstack/teams/widgets/settings.team.jsonc": "{}",
+  "/home/.mattstack/orgs/acme/mattstack/teams/gadgets/settings.team.jsonc": "{}",
 };
 
 const REMOTE = "git@github.com:acme/widgets.git";
@@ -187,7 +187,7 @@ describe("mintInvite", () => {
   });
 
   test("throws no-team-remote when the team has no git remote configured", async () => {
-    const p = fakeProbes({ home: HOME, files: { [`${HOME}/.mattstack/teams/${SLUG}/mattstack/teams/widgets/settings.team.jsonc`]: "{}" } });
+    const p = fakeProbes({ home: HOME, files: { [`${HOME}/.mattstack/orgs/${SLUG}/mattstack/teams/widgets/settings.team.jsonc`]: "{}" } });
     const { seams } = baseSeams();
     const relay = fakeRelayClient();
 
@@ -864,7 +864,7 @@ describe("joinLinkBase refuses a base the code could be intercepted on", () => {
         code: "roster-not-published",
         message: "rt could not push dev2's roster entry, so it made no invite",
         why: "The org repo refused the push. Pull any change someone else pushed and settle any clash, publish, then invite again.",
-        next: "git -C /home/.mattstack/teams/acme pull --rebase --autostash origin main",
+        next: "git -C /home/.mattstack/orgs/acme pull --rebase --autostash origin main",
         thenRun: "rt team publish --team acme",
       });
       expect(relay.createCalls).toEqual([]);
@@ -873,7 +873,7 @@ describe("joinLinkBase refuses a base the code could be intercepted on", () => {
     test("a team with no folder in the org is refused", async () => {
       const relay = fakeRelayClient();
       const { seams } = baseSeams();
-      const p = probesWithRemote(REMOTE, { "/home/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc": "{}" });
+      const p = probesWithRemote(REMOTE, { "/home/.mattstack/orgs/acme/mattstack/teams/widgets/settings.team.jsonc": "{}" });
       await expect(mintInvite(p, relay.client, { slug: SLUG, handle: "dev2", teams: ["sprockets"], now: NOW }, seams)).rejects.toMatchObject({ code: "no-such-team" });
       expect(relay.createCalls).toEqual([]);
     });
@@ -898,7 +898,7 @@ describe("real invite git seams", () => {
     await expect(realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null)).rejects.toMatchObject({
       code: "invite-off-main",
       message: "Your copy of the org is on org-trial, so rt made no invite",
-      next: "git -C /home/.mattstack/teams/acme switch main",
+      next: "git -C /home/.mattstack/orgs/acme switch main",
     });
     expect(p.calls.exec.some((argv) => argv.includes("pull"))).toBe(false);
   });
@@ -919,7 +919,7 @@ describe("real invite git seams", () => {
   });
 
   test("a never-published org part way through a merge is refused, not pulled onto", async () => {
-    const p = probesWithRemote(REMOTE, { "/home/.mattstack/teams/acme/.git/MERGE_HEAD": "" });
+    const p = probesWithRemote(REMOTE, { "/home/.mattstack/orgs/acme/.git/MERGE_HEAD": "" });
     p.exec = async (argv) => {
       p.calls.exec.push(argv);
       if (argv.includes("--git-path")) return { code: 0, stdout: `.git/${argv.at(-1)}\n`, stderr: "" };
@@ -937,7 +937,7 @@ describe("real invite git seams", () => {
   });
 
   test("a stopped rebase that will not abort says how to undo it by hand", async () => {
-    const p = probesWithRemote(REMOTE, { "/home/.mattstack/teams/acme/.git/rebase-merge": "" });
+    const p = probesWithRemote(REMOTE, { "/home/.mattstack/orgs/acme/.git/rebase-merge": "" });
     let pulled = false;
     p.exec = async (argv) => {
       if (argv.includes("symbolic-ref")) return { code: 0, stdout: "main\n", stderr: "" };
@@ -948,13 +948,13 @@ describe("real invite git seams", () => {
     };
     await expect(realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null)).rejects.toMatchObject({
       code: "org-mid-rebase",
-      next: "git -C /home/.mattstack/teams/acme rebase --abort",
+      next: "git -C /home/.mattstack/orgs/acme rebase --abort",
     });
   });
 
   for (const [state, marker] of [["rebase", "rebase-merge"], ["rebase", "rebase-apply"], ["merge", "MERGE_HEAD"]] as const) {
     test(`a ${state} already in progress (${marker}) is refused before any pull and left alone`, async () => {
-      const p = probesWithRemote(REMOTE, { [`/home/.mattstack/teams/acme/.git/${marker}`]: "" });
+      const p = probesWithRemote(REMOTE, { [`/home/.mattstack/orgs/acme/.git/${marker}`]: "" });
       const seen: string[][] = [];
       p.exec = async (argv) => {
         seen.push(argv);
@@ -964,7 +964,7 @@ describe("real invite git seams", () => {
       await expect(realMintInviteSeams().pullOrg(p, SLUG, REMOTE, null)).rejects.toMatchObject({
         code: `org-mid-${state}`,
         message: `Your copy of the org is part way through a git ${state}, so rt made no invite`,
-        next: "git -C /home/.mattstack/teams/acme status",
+        next: "git -C /home/.mattstack/orgs/acme status",
       });
       expect(seen.some((argv) => argv.includes("pull") || argv.includes("--abort"))).toBe(false);
     });
@@ -984,14 +984,14 @@ describe("a rebase someone else started in the org clone", () => {
     try {
       const remote = join(home, "remote.git");
       const other = join(home, "other");
-      const dir = join(home, ".mattstack", "teams", "acme");
+      const dir = join(home, ".mattstack", "orgs", "acme");
       git(home, ["init", "--bare", "-b", "main", remote]);
       git(home, ["clone", remote, other]);
       writeFileSync(join(other, "notes.txt"), "original\n");
       git(other, ["add", "--", "notes.txt"]);
       git(other, ["commit", "-m", "fixture"]);
       git(other, ["push", "origin", "main"]);
-      mkdirSync(join(home, ".mattstack", "teams"), { recursive: true });
+      mkdirSync(join(home, ".mattstack", "orgs"), { recursive: true });
       git(home, ["clone", remote, dir]);
 
       writeFileSync(join(other, "notes.txt"), "theirs\n");
@@ -1041,7 +1041,7 @@ describe("a pull that conflicts with another admin's roster change", () => {
     try {
       const remote = join(home, "remote.git");
       const other = join(home, "other");
-      const dir = join(home, ".mattstack", "teams", "acme");
+      const dir = join(home, ".mattstack", "orgs", "acme");
       git(home, ["init", "--bare", "-b", "main", remote]);
       git(home, ["clone", remote, other]);
       mkdirSync(join(other, "mattstack", "org"), { recursive: true });
@@ -1050,7 +1050,7 @@ describe("a pull that conflicts with another admin's roster change", () => {
       git(other, ["add", "--", store, "notes.txt"]);
       git(other, ["commit", "-m", "fixture"]);
       git(other, ["push", "origin", "main"]);
-      mkdirSync(join(home, ".mattstack", "teams"), { recursive: true });
+      mkdirSync(join(home, ".mattstack", "orgs"), { recursive: true });
       git(home, ["clone", remote, dir]);
 
       writeFileSync(join(other, store), roster(["dev1", "dev2", "dev3"]));
@@ -1089,7 +1089,7 @@ describe("roster publication in an existing clone", () => {
   for (const mode of ["changed", "unchanged", "add-fails", "commit-fails"] as const) {
     test(`${mode}: only the org store is committed and unrelated staged bytes survive`, async () => {
       const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-invite-index-")));
-      const dir = join(home, ".mattstack", "teams", "acme");
+      const dir = join(home, ".mattstack", "orgs", "acme");
       mkdirSync(join(dir, "mattstack", "org"), { recursive: true });
       const env = { ...childEnv(), HOME: home, GIT_AUTHOR_NAME: "dev1", GIT_AUTHOR_EMAIL: "dev1@example.com", GIT_COMMITTER_NAME: "dev1", GIT_COMMITTER_EMAIL: "dev1@example.com", GIT_CONFIG_NOSYSTEM: "1" };
       const run = (args: string[]) => {

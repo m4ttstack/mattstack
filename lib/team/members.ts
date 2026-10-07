@@ -24,8 +24,9 @@
  * are kept so one is never load-bearing for the other.
  */
 
+import { join } from "path";
 import { ensureAgeKey, readAgeKey } from "../home/age-key.ts";
-import { orgSettingsPath } from "../rt-paths.ts";
+import { orgDirUnder, orgSettingsPath } from "../rt-paths.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
 import { addTeamRecipient, readTeamRecipients, removeTeamRecipient } from "../secrets/team-store.ts";
 import { currentOrg, readStore } from "../settings/stores.ts";
@@ -200,7 +201,7 @@ export function realMembersSeams(): MembersSeams {
 }
 
 export function teamRemote(p: Probes, slug: string): string | null {
-  const raw = p.readFile(`${p.home}/.mattstack/teams/${slug}/.git/config`);
+  const raw = p.readFile(join(orgDirUnder(p.home, slug), ".git", "config"));
   return raw !== null ? parseOriginUrl(raw) : null;
 }
 

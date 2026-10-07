@@ -4,6 +4,7 @@ import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../setup/probes.ts";
 import { addMarketplacePlugin, packDescription, renderPackFiles } from "../skills/init.ts";
 import { assertMayWrite, rolesFor, storedOrgValue } from "./roles.ts";
+import { orgDirUnder } from "../rt-paths.ts";
 
 export interface AddTeamOpts {
   org: string;
@@ -42,7 +43,7 @@ export function addTeam(p: Probes, opts: AddTeamOpts, seams: AddTeamSeams): AddT
   assertTeamName(team);
   if (owners.length === 0) throw new UserActionableError("team-needs-owner", "A team needs at least one owner", {}, { next: `rt team add ${team} --owner <username>` });
 
-  const root = join(p.home, ".mattstack", "teams", org);
+  const root = orgDirUnder(p.home, org);
   const dir = join(root, "mattstack", "teams", team);
   if (p.exists(dir)) throw new UserActionableError("team-folder-exists", `The ${team} team already exists`);
   const workDescription = seams.engineDescription("work");

@@ -14,7 +14,7 @@ const fakeHome = mkdtempSync(join(tmpdir(), 'board-nudge-dismiss-'));
 const teamDir = join(
   fakeHome,
   '.mattstack',
-  'teams',
+  'orgs',
   'testteam',
   'mattstack',
   'org'

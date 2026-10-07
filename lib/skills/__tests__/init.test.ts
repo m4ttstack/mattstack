@@ -56,7 +56,7 @@ describe("parseRemote", () => {
 });
 
 const HOME = "/h";
-const ORG_ROOT = (org: string) => `${HOME}/.mattstack/teams/${org}`;
+const ORG_ROOT = (org: string) => `${HOME}/.mattstack/orgs/${org}`;
 const orgFiles = (org: string, orgSettings: Record<string, unknown>, teams: Record<string, Record<string, unknown>>, extra: Record<string, string> = {}) => ({
   [`${ORG_ROOT(org)}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "${org}" }`,
   [`${ORG_ROOT(org)}/mattstack/org/settings.org.jsonc`]: `// org\n${JSON.stringify(orgSettings)}`,
@@ -74,7 +74,7 @@ describe("readZones", () => {
 
   test("one zone per team folder, named <org>/<team>", () => {
     const fs = memFs(orgFiles("acme", {}, { widgets: {}, gadgets: {} }));
-    const zones = readZonesFrom(fs, `${HOME}/.mattstack/teams`);
+    const zones = readZonesFrom(fs, `${HOME}/.mattstack/orgs`);
     expect(zones.map((z) => z.slug)).toEqual(["acme/gadgets", "acme/widgets"]);
     expect(zones[1]).toEqual({
       slug: "acme/widgets", org: "acme", team: "widgets", orgDir: ORG_ROOT("acme"), dir: `${ORG_ROOT("acme")}/mattstack/teams/widgets`,
@@ -151,9 +151,9 @@ describe("readZones", () => {
 
   test("an old-layout clone and a user zone are skipped", () => {
     const fs = memFs({
-      [`${HOME}/.mattstack/teams/old/mattstack/mattstack.jsonc`]: `{ "role": "team", "namespace": "old", "org": "x" }`,
-      [`${HOME}/.mattstack/teams/old/mattstack/settings.team.jsonc`]: `{}`,
-      [`${HOME}/.mattstack/teams/me/mattstack/mattstack.jsonc`]: `{ "role": "user" }`,
+      [`${HOME}/.mattstack/orgs/old/mattstack/mattstack.jsonc`]: `{ "role": "team", "namespace": "old", "org": "x" }`,
+      [`${HOME}/.mattstack/orgs/old/mattstack/settings.team.jsonc`]: `{}`,
+      [`${HOME}/.mattstack/orgs/me/mattstack/mattstack.jsonc`]: `{ "role": "user" }`,
     });
     expect(readZones(fs, HOME)).toEqual([]);
   });
@@ -518,13 +518,13 @@ describe("initPack", () => {
   });
 
   test("a pack skeleton that never compiled is carried on: claim, materialize, compile, install", async () => {
-    const pack = `${HOME}/.mattstack/teams/acme/mattstack/teams/acme/packs/acme`;
+    const pack = `${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/packs/acme`;
     const { deps, calls, fs } = world({
       files: orgFiles("acme", { "board.gitlabHost": "gitlab.com" }, { acme: {} }, {
         [`${pack}/.claude-plugin/plugin.json`]: `{ "name": "acme", "version": "0.1.0" }`,
         [`${pack}/pack/skills.jsonc`]: `{}`,
         [`${pack}/pack/stubs.jsonc`]: `{ "verbs": { "work": { "engine": "work", "description": "kept" } } }`,
-        [`${HOME}/.mattstack/teams/acme/.claude-plugin/marketplace.json`]: `{ "name": "acme-market", "plugins": [{ "name": "acme", "source": "./mattstack/teams/acme/packs/acme" }] }`,
+        [`${HOME}/.mattstack/orgs/acme/.claude-plugin/marketplace.json`]: `{ "name": "acme-market", "plugins": [{ "name": "acme", "source": "./mattstack/teams/acme/packs/acme" }] }`,
       }),
     });
     const out = await initPack({ repoDir: REPO, zone: null, team: null }, deps);
@@ -536,7 +536,7 @@ describe("initPack", () => {
   });
 
   test("a pack with compiled output is never changed", async () => {
-    const pack = `${HOME}/.mattstack/teams/acme/mattstack/teams/acme/packs/acme`;
+    const pack = `${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/packs/acme`;
     const { deps, calls } = world({
       files: orgFiles("acme", { "board.gitlabHost": "gitlab.com" }, { acme: {} }, {
         [`${pack}/pack/skills.jsonc`]: `{}`,
@@ -711,7 +711,7 @@ describe("initPack", () => {
         const path = `${dir}/${name}`;
         return fs.readFile(path) !== null ? [`${path}=${fs.readFile(path)}`] : walk(path);
       });
-      return walk(`${HOME}/.mattstack/teams`).sort();
+      return walk(`${HOME}/.mattstack/orgs`).sort();
     };
 
     test("--zone naming the other org refuses and writes nothing in either org", async () => {

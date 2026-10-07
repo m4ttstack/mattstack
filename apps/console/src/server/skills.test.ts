@@ -378,8 +378,8 @@ describe('skills sync route', () => {
   });
 });
 
-const PACK_DIR = '/Users/matt/.mattstack/teams/demo/mattstack/packs/demo';
-const REPO_ROOT = '/Users/matt/.mattstack/teams/demo';
+const PACK_DIR = '/Users/matt/.mattstack/orgs/demo/mattstack/packs/demo';
+const REPO_ROOT = '/Users/matt/.mattstack/orgs/demo';
 
 const PACKS_STDOUT = JSON.stringify({
   packs: [

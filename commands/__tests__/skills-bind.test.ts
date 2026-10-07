@@ -953,7 +953,7 @@ describe("applyBind", () => {
       process.env.HOME = home;
       process.env.RT_ENGINE_PACK_DIR = join(root, "engine");
       writeFile(join(root, "engine", "pack", "skills.jsonc"), "{}");
-      const orgDir = join(home, ".mattstack", "teams", "acme", "mattstack");
+      const orgDir = join(home, ".mattstack", "orgs", "acme", "mattstack");
       writeFile(join(orgDir, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
       writeFile(join(orgDir, "org", "settings.org.jsonc"), JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets", "acme/gadgets"] }));
       writeFile(join(orgDir, "teams", "widgets", "settings.team.jsonc"), "{}");
@@ -1075,7 +1075,7 @@ describe("pack role refusals", () => {
       process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rt-pack-role-")));
       try {
         seedOrg({ org: "acme", username, roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
-        const orgRoot = join(process.env.HOME!, ".mattstack", "teams", "acme");
+        const orgRoot = join(process.env.HOME!, ".mattstack", "orgs", "acme");
         const packDir = target === "root" ? orgRoot : target === "..pack" ? join(orgRoot, "..pack") : join(orgRoot, "mattstack", "teams", "widgets", "packs", "widgets");
         writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
         const title = target === "team" ? "The widgets team's files belong to its owners" : "The org's shared files belong to its admins";
@@ -1112,7 +1112,7 @@ describe("a Mac with two org clones", () => {
         const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } };
         seed({ org: "acme", username: "dev4", roles, teams: { widgets: {} } });
         seed({ org: "beta", username: "dev4", roles, teams: { widgets: {} } });
-        const packDir = join(process.env.HOME!, ".mattstack", "teams", "beta", "mattstack", "teams", "widgets", "packs", "widgets");
+        const packDir = join(process.env.HOME!, ".mattstack", "orgs", "beta", "mattstack", "teams", "widgets", "packs", "widgets");
         writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
         const title = "This pack is in the beta org, not the one this Mac uses";
         const refusal = `${title}. rt works with one org per Mac, and this Mac uses acme`;

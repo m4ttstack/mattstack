@@ -12,6 +12,7 @@ import { activeTeamFor } from "../team/active-team.ts";
 import type { ExecResult, Probes } from "./probes.ts";
 import { claudeConfigDirs } from "./tools-install.ts";
 import type { Logger } from "pino";
+import { orgDirUnder } from "../rt-paths.ts";
 
 export interface ServedPack {
   id: string;
@@ -68,7 +69,7 @@ export function parsePluginList(stdout: string): InstalledPack[] | null {
 }
 
 function teamCloneDir(home: string, slug: string): string {
-  return join(home, ".mattstack", "teams", slug);
+  return orgDirUnder(home, slug);
 }
 
 function readVersion(p: Pick<Probes, "readFile">, pluginDir: string): string | null {

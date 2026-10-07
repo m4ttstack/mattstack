@@ -9,14 +9,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 // store must stay as it was.
 const fakeHome = mkdtempSync(join(tmpdir(), 'board-roster-refusal-'));
 
-const orgDir = join(
-  fakeHome,
-  '.mattstack',
-  'teams',
-  'acme',
-  'mattstack',
-  'org'
-);
+const orgDir = join(fakeHome, '.mattstack', 'orgs', 'acme', 'mattstack', 'org');
 mkdirSync(orgDir, { recursive: true });
 const storePath = join(orgDir, 'settings.org.jsonc');
 const original = JSON.stringify({

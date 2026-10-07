@@ -49,6 +49,7 @@ import { forgeLabel, probeTeamRepoAccess, type RepoAccessVerdict } from "./repo-
 import { forgeTokenLookupForRemote, mayOfferToken, mayOfferTokenToHost, tokenLookupRemoteForHost } from "./forge-token.ts";
 import { assertOnlyTeam } from "./one-team.ts";
 import { readTeamLocal, updateTeamLocal } from "./team-local.ts";
+import { orgDirUnder, orgsDirUnder } from "../rt-paths.ts";
 
 export interface JoinResult {
   teams: string[];
@@ -504,10 +505,10 @@ export async function joinRedeem(
   // `relay.redeem` succeeds.
   writeIntent(p, { v: 1, at: p.now().toISOString(), mode: "join", join: { id: idHex, keyB64: Buffer.from(key).toString("base64"), pointer } });
 
-  const dir = join(p.home, ".mattstack", "teams", pointer.team);
+  const dir = orgDirUnder(p.home, pointer.team);
 
-  // Ordering is the point: the clone creates ~/.mattstack/teams/<slug>, which
-  // is what the daemon's teams/ watcher fires on. Recording after the clone
+  // Ordering is the point: the clone creates ~/.mattstack/orgs/<slug>, which
+  // is what the daemon's orgs/ watcher fires on. Recording after the clone
   // races that watcher for the mode of the engine it starts. Every exit below
   // that leaves this call without a usable clone at `dir` restores the value
   // read here rather than hardcoding false: this call's own pointer can name
@@ -541,7 +542,7 @@ export async function joinRedeem(
     }
     alreadyCloned = true;
   } else {
-    p.mkdirp(join(p.home, ".mattstack", "teams"));
+    p.mkdirp(orgsDirUnder(p.home));
     const git = gitWithToken(["clone", pointer.remote, dir], token, GIT_ENV, { remote: pointer.remote });
     const clone = await p.exec(git.argv, { env: git.env });
     if (clone.code !== 0) {

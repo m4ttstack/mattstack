@@ -1,7 +1,7 @@
 /**
- * One snapshot engine per team clone under ~/.mattstack/teams. Clones
+ * One snapshot engine per team clone under ~/.mattstack/orgs. Clones
  * appear (team.join, team.create) and disappear while the daemon runs, so
- * the set is rescanned on a teams/ watch event, never fixed at boot.
+ * the set is rescanned on an orgs/ watch event, never fixed at boot.
  */
 
 import { existsSync, readdirSync, readFileSync, watch as fsWatch } from "fs";
@@ -11,7 +11,7 @@ import type { Logger } from "pino";
 
 import { getSetting } from "../settings/resolve.ts";
 import type { Value } from "../settings/registry-schemas.ts";
-import { mattstackHome } from "../rt-paths.ts";
+import { orgsDir } from "../rt-paths.ts";
 import { createRealProbes, type Probes } from "../setup/probes.ts";
 import { convergePackCache } from "../setup/pack-cache.ts";
 import { parseOriginUrl } from "../setup/team-settings.ts";
@@ -37,7 +37,7 @@ export interface TeamSnapshotEntry extends SnapshotStatus {
 export interface TeamSnapshotsDeps {
   log: Logger;
   broadcast: (type: string, data: unknown) => void;
-  teamsDir?: string;
+  orgsDir?: string;
   probes?: Probes;
   readSettings?: () => TeamSnapshotSettings;
   start?: typeof startSnapshot;
@@ -72,7 +72,7 @@ function originOf(dir: string): string | null {
 }
 
 export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHandle {
-  const teamsDir = rawDeps.teamsDir ?? join(mattstackHome(), "teams");
+  const orgsRoot = rawDeps.orgsDir ?? orgsDir();
   const probes = rawDeps.probes ?? createRealProbes();
   const start = rawDeps.start ?? startSnapshot;
   const watch = rawDeps.watch ?? (fsWatch as unknown as NonNullable<TeamSnapshotsDeps["watch"]>);
@@ -86,10 +86,10 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
   let debounce: ReturnType<typeof setTimeout> | null = null;
   let interval: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
-  /** Dedup key for safeRescan's warn: a `teams/` that stays unreadable must warn once, not on every interval tick for the life of the daemon. */
+  /** Dedup key for safeRescan's warn: an `orgs/` that stays unreadable must warn once, not on every interval tick for the life of the daemon. */
   let lastLoggedScanError: string | null = null;
 
-  /** A clone that gains its origin after boot (`rt team publish --remote`) edits .git/config, which the non-recursive teams/ watch never sees; this interval rescan, on the pull interval, is what picks it up. */
+  /** A clone that gains its origin after boot (`rt team publish --remote`) edits .git/config, which the non-recursive orgs/ watch never sees; this interval rescan, on the pull interval, is what picks it up. */
   function scheduleRescan(): void {
     if (stopped) return;
     interval = setTimer(() => { interval = null; void safeRescan().finally(scheduleRescan); }, clampPullIntervalSec(settings().pullIntervalSec) * 1000);
@@ -97,7 +97,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
 
   /**
    * Every internal rescan goes through here, never `rescan()` raw. A throw out
-   * of the scan (`teams/` replaced by a regular file, EACCES, EMFILE) would
+   * of the scan (`orgs/` replaced by a regular file, EACCES, EMFILE) would
    * otherwise reject a `void`-ed promise, and an unhandled rejection during the
    * daemon's boot window is a fatal + `process.exit(1)` in
    * `installCrashHandlers`. The supervisor degrades instead: warn, discover
@@ -110,7 +110,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message !== lastLoggedScanError) {
-        rawDeps.log.warn({ err, teamsDir }, "team-snapshots: could not scan teams/; no clones are being snapshotted until it is readable");
+        rawDeps.log.warn({ err, orgsRoot }, "team-snapshots: could not scan orgs/; no clones are being snapshotted until it is readable");
         lastLoggedScanError = message;
       }
     }
@@ -143,10 +143,10 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
       return;
     }
     const present = new Set<string>();
-    // A missing teams/ dir is the team-of-none case, not an error.
-    if (existsSync(teamsDir)) {
-      for (const slug of readdirSync(teamsDir).sort()) {
-        const dir = join(teamsDir, slug);
+    // A missing orgs/ dir is the team-of-none case, not an error.
+    if (existsSync(orgsRoot)) {
+      for (const slug of readdirSync(orgsRoot).sort()) {
+        const dir = join(orgsRoot, slug);
         if (!existsSync(join(dir, ".git"))) continue;
         present.add(slug);
         const roots = ownedFor(slug);
@@ -214,12 +214,12 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
       await safeRescan();
       if (stopped) return;
       try {
-        watcher = watch(teamsDir, { recursive: false }, () => {
+        watcher = watch(orgsRoot, { recursive: false }, () => {
           if (debounce) clearTimer(debounce);
           debounce = setTimer(() => { debounce = null; void safeRescan(); }, RESCAN_DEBOUNCE_MS);
         });
       } catch (err) {
-        rawDeps.log.warn({ err, teamsDir }, "team-snapshots: cannot watch teams/; new clones are picked up on the interval rescan");
+        rawDeps.log.warn({ err, orgsRoot }, "team-snapshots: cannot watch orgs/; new clones are picked up on the interval rescan");
       }
       // Armed even when the setting is off, unlike the engine's own startup:
       // `rescan` returns early on its own while disabled, so a live flip of
@@ -227,7 +227,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
       // interval tick rather than only after a daemon restart.
       scheduleRescan();
     } catch (err) {
-      rawDeps.log.warn({ err, teamsDir }, "team-snapshots: startup arming failed; inert");
+      rawDeps.log.warn({ err, orgsRoot }, "team-snapshots: startup arming failed; inert");
     } finally {
       resolveReady();
     }
