@@ -394,9 +394,26 @@ describe('HealthTab: org base drift', () => {
       '0'
     );
     expect(screen.queryByTestId('health-empty')).not.toBeInTheDocument();
-    expect(screen.getByTestId('health-tab').textContent).not.toMatch(
-      /from null|null/
+    expect(screen.getByTestId('health-tab').textContent).not.toMatch(/null/);
+  });
+
+  it('treats a base error alone as drift, listed under Org base with its full text', async () => {
+    const message =
+      'acme-base has no attachments/feature-flags (looked in /orgs/acme/bases/acme-base/attachments)';
+    renderHealthTab(undefined, ALL_IN_SYNC_COMPOSITION, {
+      ...ALL_IN_SYNC_CHECK,
+      attachments: [IN_SYNC_COPY],
+      baseErrors: [message],
+    });
+
+    const group = await screen.findByTestId('health-group-org-base');
+    expect(group).toHaveTextContent(message);
+    expect(screen.getByTestId('health-group-count-org-base')).toHaveTextContent(
+      '1'
     );
+    expect(screen.queryByTestId('health-empty')).not.toBeInTheDocument();
+    expect(screen.queryByText('All in sync.')).not.toBeInTheDocument();
+    expect(screen.getByTestId('installed-caches-bar')).toBeInTheDocument();
   });
 
   it('stays All in sync when attachments are all in-sync and there are no base errors', async () => {

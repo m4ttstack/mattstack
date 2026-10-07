@@ -149,7 +149,11 @@ interface HealthIssueRowProps {
   testId: string;
   name: string;
   reference: string | null;
-  why: string;
+  why?: string;
+  /** Free-form text (an rt error with paths or git output) takes the whole
+      row and wraps, instead of the fixed-width name column the group's
+      `overflow: hidden` would clip. */
+  wrapName?: boolean;
   /** A verb row opens its skill on the Graph tab; an orphan FILL has nothing
       to open, so it renders as a plain, non-interactive line (no button, no
       chevron). */
@@ -164,6 +168,7 @@ function HealthIssueRow({
   name,
   reference,
   why,
+  wrapName,
   onOpen,
   onPreviewCompile,
 }: HealthIssueRowProps) {
@@ -190,7 +195,15 @@ function HealthIssueRow({
       style={{ padding: '11px 16px', cursor: onOpen ? 'pointer' : 'default' }}
       data-testid={`health-row-${testId}`}
     >
-      <Text fz={13} fw={700} style={{ flex: 'none' }}>
+      <Text
+        fz={13}
+        fw={wrapName ? 400 : 700}
+        style={
+          wrapName
+            ? { flex: 1, minWidth: 0, overflowWrap: 'anywhere' }
+            : { flex: 'none' }
+        }
+      >
         {name}
       </Text>
       {reference && (
@@ -198,7 +211,7 @@ function HealthIssueRow({
           {reference}
         </Text>
       )}
-      <div style={{ flex: 1, minWidth: 0 }} />
+      {!wrapName && <div style={{ flex: 1, minWidth: 0 }} />}
       {why && (
         <Text
           fz={11}
@@ -553,7 +566,7 @@ export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
                       testId={row.key}
                       name={row.message}
                       reference={null}
-                      why=""
+                      wrapName
                     />
                   )
                 }
