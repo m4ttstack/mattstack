@@ -26,10 +26,11 @@ refused unless this Mac's role owns the file
 `docs/settings-architecture.md` and
 `docs/superpowers/specs/2026-10-01-org-and-teams-design.md` for the layout,
 selection and ownership rules.
+
 A team's pack is its Claude plugin at `mattstack/teams/<team>/plugin/`
-(`teamPackDir`, `lib/team/team-pack-path.ts`); the older
-`mattstack/teams/<team>/packs/<team>/` is read by nothing but the
-detector that names the conversion, and
+(`teamPackDir`, `lib/team/team-pack-path.ts`). The older layout, with the
+pack nested in a `packs/` folder inside the team folder, is read by
+nothing but the detector that names the conversion, and
 `lib/__tests__/no-nested-team-pack.test.ts` keeps that spelling out of
 source and live docs.
 
