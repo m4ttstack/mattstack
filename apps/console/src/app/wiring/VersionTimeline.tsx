@@ -250,6 +250,11 @@ export function VersionTimeline({
   };
 
   const scope = history.data?.scope ?? `skills/${verb}`;
+  const logSpecs = [scope, ...(history.data?.basePathspecs ?? [])].join(' ');
+  const diffSpecs = ['.', ...(diff.data?.basePathspecs ?? [])].join(' ');
+  const where = history.data?.basePathspecs?.length
+    ? `${scope} and the org base fills it binds`
+    : scope;
   const dirty = runtime?.dirtyFiles ?? null;
   const compiled = compiledOutputFact(health, staleFiles);
 
@@ -318,8 +323,8 @@ export function VersionTimeline({
           <CommandProvenance
             command={
               comparing
-                ? `git diff ${comparing.from}..${comparing.to} -- .`
-                : `git log -- ${scope}`
+                ? `git diff ${comparing.from}..${comparing.to} -- ${diffSpecs}`
+                : `git log -- ${logSpecs}`
             }
             asOf={
               (comparing ? diff.dataUpdatedAt : history.dataUpdatedAt) ||
@@ -376,8 +381,8 @@ export function VersionTimeline({
                 {dirty === null
                   ? 'not measured: git status did not answer'
                   : dirty.length === 0
-                    ? `clean under ${scope}`
-                    : `${dirty.length}${runtime?.moreDirtyFiles ? '+' : ''} uncommitted ${dirty.length === 1 ? 'file' : 'files'} under ${scope}`}
+                    ? `clean under ${where}`
+                    : `${dirty.length}${runtime?.moreDirtyFiles ? '+' : ''} uncommitted ${dirty.length === 1 ? 'file' : 'files'} under ${where}`}
               </RuntimeRow>
               {/* Not `installed`: what was read is the pack's own
                   `.claude-plugin/plugin.json`. The version Claude will load
@@ -423,7 +428,7 @@ export function VersionTimeline({
             )}
             {history.data && commits.length === 0 && (
               <Text size="xs" c={text.dimmed} data-testid="history-empty">
-                No commit in this repo has touched {scope}.
+                No commit in this repo has touched {where}.
               </Text>
             )}
 

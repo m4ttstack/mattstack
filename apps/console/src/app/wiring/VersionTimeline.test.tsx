@@ -442,6 +442,105 @@ describe('VersionTimeline: org base fills', () => {
     '',
   ].join('\n');
 
+  const BASE_SPEC =
+    ':(top)mattstack/org/packs/acme-base/attachments/plan-policy';
+
+  async function openCompare() {
+    const user = userEvent.setup();
+    await openedHistory();
+    await user.click(
+      within(screen.getByTestId('commit-ed24bc4')).getByRole('checkbox')
+    );
+    await user.click(
+      within(screen.getByTestId('commit-17f8273')).getByRole('checkbox')
+    );
+    await user.click(screen.getByTestId('compare-commits'));
+    await waitFor(() =>
+      expect(screen.getByTestId('seam-compare')).toBeInTheDocument()
+    );
+  }
+
+  function diffWith(over: Record<string, unknown>) {
+    return ok({
+      pack: 'demo',
+      packDir: PACK_DIR,
+      repoRoot: '/o/acme',
+      scope: '.',
+      from: '17f8273',
+      to: 'ed24bc4',
+      truncated: false,
+      diff: '',
+      ...over,
+    });
+  }
+
+  it('names the base pathspecs in the log command and the working tree row', async () => {
+    historyGet.mockResolvedValue(
+      ok({
+        ...HISTORY,
+        basePathspecs: [BASE_SPEC],
+        runtime: {
+          ...HISTORY.runtime,
+          dirtyFiles: ['base:acme-base/attachments/plan-policy/SKILL.md'],
+        },
+      })
+    );
+    renderTimeline({ slots: BASE_SLOTS });
+    await openedHistory();
+
+    expect(screen.getByTestId('command-provenance')).toHaveTextContent(
+      `git log -- skills/watch-ci ${BASE_SPEC}`
+    );
+    expect(screen.getByTestId('runtime-working-tree')).toHaveTextContent(
+      '1 uncommitted file under skills/watch-ci and the org base fills it binds'
+    );
+  });
+
+  it('says clean under the scope and its base fills', async () => {
+    historyGet.mockResolvedValue(
+      ok({ ...HISTORY, basePathspecs: [BASE_SPEC] })
+    );
+    renderTimeline({ slots: BASE_SLOTS });
+    await openedHistory();
+
+    expect(screen.getByTestId('runtime-working-tree')).toHaveTextContent(
+      'clean under skills/watch-ci and the org base fills it binds'
+    );
+  });
+
+  it('names the base pathspecs in the diff command', async () => {
+    historyGet.mockResolvedValue(ok(HISTORY));
+    diffGet.mockResolvedValue(
+      diffWith({ baseDiff: BASE_DIFF, basePathspecs: [BASE_SPEC] })
+    );
+    compileGet.mockResolvedValue(ok({ content: BASE_BODY }));
+    renderTimeline({ slots: BASE_SLOTS });
+    await openCompare();
+
+    expect(screen.getByTestId('command-provenance')).toHaveTextContent(
+      `git diff 17f8273..ed24bc4 -- . ${BASE_SPEC}`
+    );
+  });
+
+  it('gives a team-pack copy of a base fill no base root', async () => {
+    const copy: SlotOutlineNode[] = [
+      {
+        ...BASE_SLOTS[0],
+        fillSourcePath: `${PACK_DIR}/attachments/plan-policy/SKILL.md`,
+      },
+    ];
+    historyGet.mockResolvedValue(ok(HISTORY));
+    diffGet.mockResolvedValue(diffWith({ baseDiff: BASE_DIFF }));
+    compileGet.mockResolvedValue(ok({ content: BASE_BODY }));
+    renderTimeline({ slots: copy });
+    await openCompare();
+
+    // With a base root the hunk would land on the domain seam; the copy lives
+    // in the pack's own diff, so the base coordinate never names it.
+    expect(screen.getByTestId('unattributed-hunk')).toBeInTheDocument();
+    expect(screen.queryByTestId('attributed-hunk')).not.toBeInTheDocument();
+  });
+
   it('attributes a base diff hunk to the slot its base fill fills', async () => {
     historyGet.mockResolvedValue(ok(HISTORY));
     diffGet.mockResolvedValue(

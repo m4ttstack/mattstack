@@ -62,6 +62,15 @@ describe('baseScopesFor', () => {
     ).toEqual([]);
   });
 
+  it('adds no scope for a team-pack copy reported through a symlinked pack dir', async () => {
+    const linked = { ...composition, packDir: '/link/acme' };
+    const resolve = async (p: string) =>
+      p.startsWith('/link/acme')
+        ? p.replace('/link/acme', composition.packDir)
+        : p;
+    expect(await baseScopesFor(linked, 'ship', repoRoot, resolve)).toEqual([]);
+  });
+
   it('drops a base dir outside the repo', async () => {
     expect(
       await baseScopesFor(composition, 'plan', '/elsewhere', realpath)

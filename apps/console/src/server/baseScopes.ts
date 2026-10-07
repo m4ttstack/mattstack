@@ -38,6 +38,9 @@ export async function baseScopesFor(
   realpath: (path: string) => Promise<string>
 ): Promise<BaseScope[]> {
   const scopes = new Map<string, BaseScope>();
+  const packDir = await realpath(composition.packDir).catch(
+    () => composition.packDir
+  );
   for (const v of composition.verbs ?? []) {
     if (verb !== null && v.name !== verb) continue;
     for (const slot of v.slots ?? []) {
@@ -51,6 +54,7 @@ export async function baseScopesFor(
       );
       const root = await realpath(pluginRoot).catch(() => null);
       if (!dir || !root) continue;
+      if (inside(dir, packDir)) continue;
       const top = relative(repoRoot, dir);
       if (outsideRepo(top)) continue;
       scopes.set(top, { base: slot.base, root, top });

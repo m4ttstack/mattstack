@@ -364,6 +364,9 @@ interface SkillsHistoryResponse {
   repoRoot: string;
   /** The pathspec the log was scoped to, relative to `packDir`. */
   scope: string;
+  /** The `:(top)` pathspecs of the org base fill folders the verb binds,
+      added after `scope`. Absent when there are none. */
+  basePathspecs?: string[];
   verb: string | null;
   /** The bound actually applied, which is the requested one clamped. */
   limit: number;
@@ -396,6 +399,8 @@ interface SkillsDiffResponse {
       each path in the `base:<name>/<path inside the base pack>` coordinate.
       Absent when no verb binds a base fill outside the pack. */
   baseDiff?: string;
+  /** The `:(top)` pathspecs `baseDiff` was taken over; absent with it. */
+  basePathspecs?: string[];
 }
 
 const historyQuery = validator(
@@ -1315,7 +1320,8 @@ export function mountSkills(
           verb ?? null,
           repoRoot
         );
-        const pathspecs = [scope, ...baseScopes.map(s => `:(top)${s.top}`)];
+        const basePathspecs = baseScopes.map(s => `:(top)${s.top}`);
+        const pathspecs = [scope, ...basePathspecs];
         const toCoordinate = (path: string) =>
           toBaseCoordinate(path, baseScopes, repoRoot);
         // One over the bound, so "there is more history" is observed rather
@@ -1350,6 +1356,7 @@ export function mountSkills(
           packDir,
           repoRoot,
           scope,
+          ...(basePathspecs.length > 0 ? { basePathspecs } : {}),
           verb: verb ?? null,
           limit,
           truncated: commits.length > limit,
@@ -1446,7 +1453,8 @@ export function mountSkills(
         };
 
         const baseScopes = await baseScopesOf(pack, packDir, null, repoRoot);
-        if (baseScopes.length > 0) {
+        const basePathspecs = baseScopes.map(s => `:(top)${s.top}`);
+        if (basePathspecs.length > 0) {
           // No `--relative`: a base fill sits outside the pack dir, so its
           // paths are repo paths until rewritten to the base coordinate.
           const base = await runGit([
@@ -1456,20 +1464,18 @@ export function mountSkills(
             '--no-color',
             `${from}..${to}`,
             '--',
-            ...baseScopes.map(s => `:(top)${s.top}`),
+            ...basePathspecs,
           ]);
-          if (base.code !== 0) {
-            return c.json(
-              { error: base.stderr.trim() || 'git diff failed' },
-              502
+          // A base diff that fails drops out: the pack diff still answers.
+          if (base.code === 0) {
+            const boundedBase = boundDiff(
+              rewriteDiffPaths(base.stdout, baseScopes, repoRoot),
+              MAX_DIFF_BYTES - bounded.diff.length
             );
+            response.baseDiff = boundedBase.diff;
+            response.basePathspecs = basePathspecs;
+            response.truncated = bounded.truncated || boundedBase.truncated;
           }
-          const boundedBase = boundDiff(
-            rewriteDiffPaths(base.stdout, baseScopes, repoRoot),
-            MAX_DIFF_BYTES - bounded.diff.length
-          );
-          response.baseDiff = boundedBase.diff;
-          response.truncated = bounded.truncated || boundedBase.truncated;
         }
         return c.json(response, 200);
       } catch (err) {

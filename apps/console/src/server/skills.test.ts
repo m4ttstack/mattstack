@@ -992,6 +992,34 @@ describe('skills history route: org base fills', () => {
     ]);
   });
 
+  it('names the base pathspecs it added, and none when it added none', async () => {
+    const scoped = mountGit(
+      acmeRt().run,
+      acmeGit().run,
+      noManifest,
+      sameRealpath
+    );
+    const plain = mountGit(
+      acmeRt(acmeComposition([])).run,
+      acmeGit().run,
+      noManifest,
+      sameRealpath
+    );
+
+    const withBase = await scoped.request(
+      '/api/skills/history?pack=acme&verb=plan'
+    );
+    const without = await plain.request(
+      '/api/skills/history?pack=acme&verb=plan'
+    );
+
+    await expect(withBase.json()).resolves.toMatchObject({
+      scope: 'skills/plan',
+      basePathspecs: [`:(top)${ACME_BASE_TOP}`],
+    });
+    expect(await without.json()).not.toHaveProperty('basePathspecs');
+  });
+
   it('carries the base pathspec into git status and rewrites a dirty base file', async () => {
     const git = acmeGit({ status: ` M ${ACME_BASE_FILE}\n` });
     const app = mountGit(acmeRt().run, git.run, noManifest, sameRealpath);
@@ -1106,6 +1134,40 @@ index 1111111..2222222 100644
  keep
 +added
 `);
+  });
+
+  it('serves the pack diff alone when the base diff fails', async () => {
+    const git = fakeGit(argv => {
+      if (argv.includes('rev-parse'))
+        return { code: 0, stdout: `${ACME_REPO}\n`, stderr: '' };
+      return argv.includes('--relative')
+        ? { code: 0, stdout: ACME_PACK_DIFF, stderr: '' }
+        : { code: 128, stdout: '', stderr: 'fatal: bad object' };
+    });
+    const app = mountGit(acmeRt().run, git.run, noManifest, sameRealpath);
+
+    const res = await app.request(
+      '/api/skills/diff?pack=acme&from=17f8273&to=ed24bc4'
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ diff: ACME_PACK_DIFF, truncated: false });
+    expect(body).not.toHaveProperty('baseDiff');
+    expect(body).not.toHaveProperty('basePathspecs');
+  });
+
+  it('names the base pathspecs it diffed', async () => {
+    const git = acmeGit({ packDiff: ACME_PACK_DIFF, baseDiff: ACME_BASE_DIFF });
+    const app = mountGit(acmeRt().run, git.run, noManifest, sameRealpath);
+
+    const res = await app.request(
+      '/api/skills/diff?pack=acme&from=17f8273&to=ed24bc4'
+    );
+
+    await expect(res.json()).resolves.toMatchObject({
+      basePathspecs: [`:(top)${ACME_BASE_TOP}`],
+    });
   });
 
   it('runs no second diff and carries no baseDiff key without base scopes', async () => {
