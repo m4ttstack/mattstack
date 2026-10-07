@@ -1253,6 +1253,7 @@ export type CheckPayload = {
   scriptLint: LintHit[];
   strictLint: boolean;
   attachments: AttachmentCheckRow[];
+  baseErrors: string[];
   /** Whether the pack extends a base; tells an orphan whose base dropped it from one left by a removed extends. Not part of check --json. */
   extendsBase: boolean;
 };
@@ -1317,7 +1318,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   // Lint accepts a relative path to any KNOWN target, not only emitted ones: a
   // scoped compile still renders {{verb.path}} to siblings it is not writing.
   const emittedTargetDirs = knownTargetDirs;
-  const plan = requireBasePlan(resolved, verbSides);
+  const plan = basePlanFor(resolved, verbSides);
   const planned = plannedAttachmentsOf(plan);
 
   for (const target of targets) {
@@ -1390,10 +1391,11 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const scriptLint = lintPackScripts(resolved.packDir, rules);
   const strictLint = packStrictLint(resolved.packDir);
 
-  const attachments = flags.verbs === null ? attachmentRows(resolved.packDir, plan) : [];
-  if (attachments.some((row) => row.status !== "in-sync")) anyStale = true;
+  const baseErrors = plan.errors;
+  const attachments = flags.verbs === null && baseErrors.length === 0 ? attachmentRows(resolved.packDir, plan) : [];
+  if (baseErrors.length > 0 || attachments.some((row) => row.status !== "in-sync")) anyStale = true;
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, extendsBase: plan.base !== null };
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, extendsBase: plan.base !== null };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -1448,6 +1450,7 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
       blocks.push(out.line("stale", row.name, `changed since the last compile: ${files}`));
     }
   }
+  blocks.push(...payload.baseErrors.map((baseError) => out.line("failed", baseError)));
   if (stale) blocks.push(out.callout("next", out.cmd("rt skills compile")));
   if (payload.installed) blocks.push(...installedCacheBlocks(payload.installed));
 
@@ -1478,8 +1481,8 @@ export async function skillsCheck(args: string[]): Promise<void> {
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
-      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments } = payload;
-      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments });
+      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors } = payload;
+      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors });
       return;
     }
     out.print(...checkBlocks(payload, flags.strict));

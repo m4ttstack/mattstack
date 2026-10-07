@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { checkBlocks, compileBlocks, compositionBlocks, installedCacheBlocks, materializeBlocks, packsBlocks, type CheckPayload, type CompositionPayload } from "../skills.ts";
 
-const base: CheckPayload = { pack: "acme", packDir: "/p", verbs: [], chainErrors: [], installed: null, drift: false, mcpLint: [], scriptLint: [], strictLint: false, attachments: [], extendsBase: true };
+const base: CheckPayload = { pack: "acme", packDir: "/p", verbs: [], chainErrors: [], installed: null, drift: false, mcpLint: [], scriptLint: [], strictLint: false, attachments: [], baseErrors: [], extendsBase: true };
 
 test("check lists each verb, names what moved, and gives the fix once", () => {
   const payload: CheckPayload = {
@@ -62,6 +62,23 @@ test("check shows one line per attachment row and names why an orphan is stale",
 test("a chain error is a failed line", () => {
   expect(renderPlain(checkBlocks({ ...base, chainErrors: ['stage "stage-ship" consumes "commits" that no earlier stage produces'] }, false))).toBe(
     '[failed] stage "stage-ship" consumes "commits" that no earlier stage produces\n[ok] mcp lint  clean\n',
+  );
+});
+
+test("a base plan error is a failed line where the attachment rows go, with no compile hint", () => {
+  const payload: CheckPayload = {
+    ...base,
+    drift: true,
+    verbs: [{ name: "watch-ci", status: "in-sync", staleFiles: [], orphanFiles: [], side: "skills" }],
+    baseErrors: ["widgets extends gadgets-base, but the org has no base pack called gadgets-base"],
+  };
+  expect(renderPlain(checkBlocks(payload, false))).toBe(
+    [
+      "[ok] watch-ci  current",
+      "[failed] widgets extends gadgets-base, but the org has no base pack called gadgets-base",
+      "[ok] mcp lint  clean",
+      "",
+    ].join("\n"),
   );
 });
 

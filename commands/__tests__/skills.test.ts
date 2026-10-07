@@ -1349,11 +1349,32 @@ describe("base pack attachments", () => {
       expect(payload.drift).toBe(false);
     });
 
-    test("a plan error fails check", async () => {
+    test("a plan error is drift carried in baseErrors, with no attachment rows", async () => {
       const { mattstackDir, baseDir, packDir } = seedBaseAndTeam();
       writeFile(join(baseDir, "attachments", "watch-ci", "SKILL.md"), "---\nname: watch-ci\n---\nbase copy\n");
 
-      await expect(checkPack({ packDir, mattstackDir })).rejects.toThrow("has the same name as the widgets verb watch-ci");
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.baseErrors).toEqual(["acme-base attachment watch-ci has the same name as the widgets verb watch-ci; rename one of them"]);
+      expect(payload.attachments).toEqual([]);
+      expect(payload.drift).toBe(true);
+    });
+
+    test("check --json prints its envelope when extends names a missing base", async () => {
+      const { mattstackDir, packDir, compile } = seedBaseAndTeam();
+      await compile();
+      writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ extends: "gadgets-base" }));
+      io.clear();
+
+      const { errors } = await runExpectingCleanExit(() =>
+        skillsCheck(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--json"]));
+
+      expect(errors).toEqual([]);
+      const payload = JSON.parse(io.stdout());
+      expect(payload.baseErrors).toEqual(["widgets extends gadgets-base, but the org has no base pack called gadgets-base"]);
+      expect(payload.attachments).toEqual([]);
+      expect(process.exitCode).toBe(1);
+      expect((await checkPack({ packDir, mattstackDir })).drift).toBe(true);
     });
   });
 
