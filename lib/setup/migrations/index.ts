@@ -6,6 +6,7 @@
 
 import { boardPeerTriggerMigration } from "./board-peer-trigger.ts";
 import { retireSwitchboardUrlMigration } from "./retire-switchboard-url.ts";
+import { sdmResourcesKeyMigration } from "./sdm-resources-key.ts";
 import { unsetSetting } from "../../settings/write.ts";
 import type { ApplyContext, StepOutcome } from "../apply.ts";
 import type { MigrationEventId } from "../contract.ts";
@@ -29,6 +30,7 @@ export const MIGRATIONS: MigrationDef[] = [
     },
   },
   retireSwitchboardUrlMigration,
+  sdmResourcesKeyMigration,
 ];
 
 export function migrationEventId(id: string): MigrationEventId {
