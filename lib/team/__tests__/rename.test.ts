@@ -178,7 +178,6 @@ describe("renameOrg", () => {
     const w = orgWorld();
     const hook = join(w.remote, "hooks", "pre-receive");
     writeFileSync(hook, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
-    const seed = w.git("rev-parse", "HEAD").trim();
     const realExec = w.p.exec.bind(w.p);
     w.p.exec = async (argv, opts) => {
       const res = await realExec(argv, opts);
@@ -189,7 +188,13 @@ describe("renameOrg", () => {
       }
       return res;
     };
-    await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "rename-undo-failed", next: `git -C ${w.root} reset --keep ${seed}` });
+    const err = await renameOrg(w.p, "acme", "gadgets", seams()).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    const renameSha = w.git("rev-parse", "HEAD~1").trim();
+    expect(w.git("log", "-1", "--format=%s", renameSha).trim()).toBe("org: rename to gadgets");
+    expect(err).toMatchObject({ code: "rename-undo-failed", next: `git -C ${w.root} revert --no-edit ${renameSha}` });
     expect(w.git("log", "-1", "--format=%s").trim()).toBe("extra");
   }, 15_000);
 

@@ -138,14 +138,15 @@ async function prepare(p: Probes, from: string, to: string, seams: RenameSeams):
   return { dir, branch, remote, token, markerText: marker.text, remoteSha: sha };
 }
 
-/** Resets only when HEAD is still the rename commit on top of `before`, so a commit made meanwhile is never dropped. */
-async function undoRenameCommit(p: Probes, dir: string, before: string, cause: unknown): Promise<void> {
+/** Resets only when HEAD is still the rename commit on top of `before`; otherwise points at a revert, which never drops a commit made meanwhile. */
+async function undoRenameCommit(p: Probes, dir: string, before: string, renameSha: string, cause: unknown): Promise<void> {
+  const head = await p.exec(["git", "rev-parse", "--verify", "-q", "HEAD"], { cwd: dir });
   const parent = await p.exec(["git", "rev-parse", "--verify", "-q", "HEAD~1"], { cwd: dir });
-  const undone = parent.code === 0 && parent.stdout.trim() === before && (await p.exec(["git", "reset", "-q", "--keep", before], { cwd: dir })).code === 0;
-  if (undone) return;
+  const safe = head.code === 0 && head.stdout.trim() === renameSha && parent.code === 0 && parent.stdout.trim() === before;
+  if (safe && (await p.exec(["git", "reset", "-q", "--keep", before], { cwd: dir })).code === 0) return;
   throw new UserActionableError("rename-undo-failed", "rt could not undo the rename after the push failed", {}, {
     why: "Your copy of the org has a rename commit the org repo does not have.",
-    next: `git -C ${shellQuote(dir)} reset --keep ${before}`,
+    next: safe ? `git -C ${shellQuote(dir)} reset --keep ${before}` : `git -C ${shellQuote(dir)} revert --no-edit ${renameSha}`,
     log: cause instanceof Error ? cause.message : String(cause),
   });
 }
@@ -189,10 +190,15 @@ export async function renameOrg(p: Probes, from: string, to: string, seams: Rena
     p.writeFile(markerPath, markerText);
     throw new UserActionableError("rename-commit-failed", "rt could not commit the new name");
   }
+  const renamed = await p.exec(["git", "rev-parse", "--verify", "HEAD"], { cwd: dir });
+  const renameSha = renamed.stdout.trim();
+  if (renamed.code !== 0 || !GIT_OBJECT_ID.test(renameSha)) {
+    throw new UserActionableError("rename-commit-failed", "rt could not commit the new name", {}, { log: `${renamed.stdout}\n${renamed.stderr}`.trim() });
+  }
   try {
     await publishTeam(p, from, null, { token: prepared.token, tokenRemote: prepared.remote });
   } catch (err) {
-    await undoRenameCommit(p, dir, before, err);
+    await undoRenameCommit(p, dir, before, renameSha, err);
     if (err instanceof UserActionableError && err.code === "org-moved") throw await whyRefused(p, prepared, from, to, err);
     throw err;
   }
