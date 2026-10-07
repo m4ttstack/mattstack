@@ -14,8 +14,8 @@ import {
 } from "../codex/control.ts";
 import { codexIntegration } from "../codex/integration.ts";
 import {
-  ANSWER_VALUE, asyncQuestionsOf, bindCodexQuestion, createCodexQuestions, gateQuestionsOf, MAX_PRESENT_ATTEMPTS, nativeAnswersOf, OTHER_VALUE, readRolloutTail, rolloutEvidence,
-  type CodexQuestionAdapter,
+  ANSWER_VALUE, asyncQuestionsOf, bindCodexQuestion, createCodexQuestions, gateQuestionsOf, MAX_PRESENT_ATTEMPTS, MAX_UNSEEN_RECHECKS, nativeAnswersOf,
+  OTHER_VALUE, readRolloutLastTurn, readRolloutTail, rolloutEvidence, type CodexQuestionAdapter,
 } from "../codex/questions.ts";
 import {
   CODEX_EVIDENCE_OUTSIDE_PROTOCOL, CODEX_METHODS, CODEX_PROTOCOL_VERSION, CODEX_SERVER_REQUEST_REPLIES, type CodexQuestionRequest,
@@ -250,7 +250,10 @@ async function world(opts: { enabled?: boolean; mode?: "herdr" | "headless"; pan
     resolveSubject: (args) => (args.subject ? { ok: true, subject: args.subject } : args.sessionId === "T1" ? subjectFor
       : { ok: false, error: "no subject: pass --subject, or run under a recorded run/agent session" }),
   });
+  /** Every rollout read, tail and last-turn alike; `tailReads` the tail reads alone. */
   const reads: string[] = [];
+  const tailReads: string[] = [];
+  let bindingReads = 0;
 
   async function connect(): Promise<NonNullable<typeof current>> {
     const clock = new FakeClock();
@@ -270,11 +273,15 @@ async function world(opts: { enabled?: boolean; mode?: "herdr" | "headless"; pan
     });
     const questions = createCodexQuestions(control, {
       enabled: () => switchOn.value,
-      bindingOf: (threadId) => [...sessions.values()].find((b) => b.native.value === threadId) ?? null,
+      bindingOf: (threadId) => {
+        bindingReads++;
+        return [...sessions.values()].find((b) => b.native.value === threadId) ?? null;
+      },
       service: () => service,
       sessions: adapter,
       readRollout: async (path) => {
         reads.push(path);
+        tailReads.push(path);
         return { text: server.rolloutQueue.shift() ?? server.rollout, whole: server.rolloutWhole };
       },
       readLastTurn: async (path) => {
@@ -294,8 +301,8 @@ async function world(opts: { enabled?: boolean; mode?: "herdr" | "headless"; pan
   const answersSent = (s = socket()) => sent(s).filter((m) => m.method === undefined && "result" in m);
   const gates = () => store.list({}).gates;
   return {
-    server, store, service, sessions, switchOn, pane, emitted, connect, socket, sent, answersSent, gates, reads,
-    handlers: () => handlersRef.h!, pushes: () => pushes,
+    server, store, service, sessions, switchOn, pane, emitted, connect, socket, sent, answersSent, gates, reads, tailReads,
+    handlers: () => handlersRef.h!, pushes: () => pushes, bindingReads: () => bindingReads,
     current: () => current!,
   };
 }
@@ -1054,24 +1061,52 @@ describe("fix round 2", () => {
   });
 });
 
-/** live-08 rollout lines (0.160.x): an answered item, an item whose turn was aborted with no output, and async questions. */
-const LIVE08 = readFileSync(join(FIXTURES, "rollout-live08-0.160.x.jsonl"), "utf8");
+/**
+ * live-08 rollout lines (0.160.x), each file the question lines of one real
+ * rollout in file order: A is thread 01a116fa-e88b (without the three lines
+ * about the two items whose function_call lines collect.sh cut at 700 bytes),
+ * B is 01a116fb-4f61 and C is 01a116fb-6678. live-07 case I is one whole turn.
+ */
+const LIVE08_A = readFileSync(join(FIXTURES, "rollout-live08-a-0.160.x.jsonl"), "utf8");
+const LIVE08_B = readFileSync(join(FIXTURES, "rollout-live08-b-0.160.x.jsonl"), "utf8");
+const LIVE08_C = readFileSync(join(FIXTURES, "rollout-live08-c-0.160.x.jsonl"), "utf8");
+const LIVE07_I = readFileSync(join(FIXTURES, "rollout-live07-caseI-0.160.x.jsonl"), "utf8");
+/** Rollout C: answered in the TUI; aborted by an app-server restart, with no output; the async question of its last turn. */
 const L8_ANSWERED = { item: "call_ECu0WV1iuLbrvnlEqGnDT9NQ", turn: "01a1170c-35fd-7823-877a-1465cddd9ad9" };
 const L8_ABORTED = { item: "call_nV28Qz6f899s09yaMANpMYbQ", turn: "01a1170d-51a4-7490-b25a-5ff8fd3f4cd9" };
 const L8_ASYNC_LAST = { item: "call_V3pfIiWwzkU8iP5rzqEIdNST", turn: "01a11716-92d3-75d0-acff-b2a8dcd659d8" };
-const L8_ASYNC_OLD = "call_463cb7ad3a024990b46d82137c3dee1e";
+/** Rollout A: the TUI answered B, then the turn was interrupted (live-08 case 6: an answer that lands first stays). */
+const L8_ANSWERED_THEN_ABORTED = { item: "call_HwejYU5qL9Bi0ph2lUc6TlYj", turn: "01a11709-8d70-7ce2-a6be-417c42e9fb9a" };
+
+const attentionFor = (w: Awaited<ReturnType<typeof world>>, reason: string) =>
+  w.emitted.filter((e) => e.topic === "gate.native-attention" && e.payload.reason === reason);
 
 describe("live-08: questions that ended while rt was not connected", () => {
   test("a turn_aborted covering the item's turn is aborted; without the turn it stays unknown", () => {
-    expect(rolloutEvidence(LIVE08, L8_ABORTED.item, { pick: { answers: ["A"] } }, true, L8_ABORTED.turn).state).toBe("gone");
-    expect(rolloutEvidence(LIVE08, L8_ABORTED.item, null, true, L8_ABORTED.turn).state).toBe("gone");
-    expect(rolloutEvidence(LIVE08, L8_ABORTED.item, { pick: { answers: ["A"] } }, true, "another-turn")).toMatchObject({ state: "pending" });
-    // An output written before its turn was aborted still decides.
-    expect(rolloutEvidence(LIVE08, L8_ANSWERED.item, null, true, L8_ANSWERED.turn)).toMatchObject({ state: "answered", answers: { pick: { answers: ["A"] } } });
+    expect(rolloutEvidence(LIVE08_C, L8_ABORTED.item, { pick: { answers: ["A"] } }, true, L8_ABORTED.turn).state).toBe("gone");
+    expect(rolloutEvidence(LIVE08_C, L8_ABORTED.item, null, true, L8_ABORTED.turn).state).toBe("gone");
+    expect(rolloutEvidence(LIVE08_C, L8_ABORTED.item, { pick: { answers: ["A"] } }, true, "another-turn")).toMatchObject({ state: "pending" });
+  });
+
+  test("an output written before its turn was aborted still decides", () => {
+    const { item, turn } = L8_ANSWERED_THEN_ABORTED;
+    expect(rolloutEvidence(LIVE08_A, item, null, true, turn)).toMatchObject({ state: "answered", answers: { pick: { answers: ["B"] } } });
+    expect(rolloutEvidence(LIVE08_A, item, { pick: { answers: ["B"] } }, true, turn).state).toBe("completed");
+    expect(rolloutEvidence(LIVE08_A, item, { pick: { answers: ["A"] } }, true, turn).state).toBe("conflict");
+  });
+
+  test("a read that stopped at its cap with the turn aborted is unknown, since the output may lie beyond it", () => {
+    const capped = rolloutEvidence(LIVE08_C, L8_ABORTED.item, null, false, L8_ABORTED.turn);
+    expect(capped.state).toBe("pending");
+    expect(capped).not.toHaveProperty("absent");
   });
 
   /** A gate opened for a question, then the app server goes away; it comes back with the question ended as `ending` says. */
-  async function endedWhileAway(question: { item: string; turn: string }, ending: { status: Record<string, unknown>; rollout: string }) {
+  async function endedWhileAway(
+    question: { item: string; turn: string },
+    ending: { status: Record<string, unknown>; rollout: string; whole?: boolean },
+    whileAway?: (w: Awaited<ReturnType<typeof world>>, gate: GateRow) => Promise<void>,
+  ) {
     const w = await world();
     await w.connect();
     w.server.ask("T1", question.turn, question.item, PICK);
@@ -1081,12 +1116,14 @@ describe("live-08: questions that ended while rt was not connected", () => {
     w.server.pending.delete("T1");
     w.server.status = ending.status;
     w.server.rollout = ending.rollout;
+    w.server.rolloutWhole = ending.whole ?? true;
+    if (whileAway) await whileAway(w, gate!);
     const c = await w.connect();
     return { w, c, gate: gate! };
   }
 
   test("answered in the TUI while rt was away: the reconnect records the native answer and writes nothing", async () => {
-    const { w, c, gate } = await endedWhileAway(L8_ANSWERED, { status: { type: "active", activeFlags: [] }, rollout: LIVE08 });
+    const { w, c, gate } = await endedWhileAway(L8_ANSWERED, { status: { type: "active", activeFlags: [] }, rollout: LIVE08_C });
     await c.sessions.observe(w.sessions.get("s1")!);
     await settled();
     expect(w.store.get(gate.id)).toMatchObject({ status: "answered", answer: { answers: { pick: "A" }, session: "T1" } });
@@ -1094,14 +1131,47 @@ describe("live-08: questions that ended while rt was not connected", () => {
     expect(w.answersSent()).toEqual([]);
   });
 
+  test("the rollout is read again before an ending is announced as unseen, since Codex writes it moments after resolving", async () => {
+    const { w, c, gate } = await endedWhileAway(L8_ANSWERED, { status: { type: "active", activeFlags: [] }, rollout: LIVE08_C });
+    w.server.rolloutQueue = ["", ""];
+    await c.sessions.observe(w.sessions.get("s1")!);
+    await settled();
+    expect(w.store.get(gate.id)).toMatchObject({ status: "answered", answer: { answers: { pick: "A" }, session: "T1" } });
+    expect(w.emitted.filter((e) => e.topic === "gate.native-attention")).toEqual([]);
+  });
+
   test("aborted with no re-ask: the reconnect closes the gate, and a later answer is refused", async () => {
-    const { w, c, gate } = await endedWhileAway(L8_ABORTED, { status: { type: "idle" }, rollout: LIVE08 });
+    const { w, c, gate } = await endedWhileAway(L8_ABORTED, { status: { type: "idle" }, rollout: LIVE08_C });
     await c.sessions.observe(w.sessions.get("s1")!);
     await settled();
     expect(w.store.get(gate.id)).toMatchObject({ status: "closed", answer: null });
     expect(w.service.completion(gate.id)?.state).toBe("gone");
     expect((await answerGate(w, gate.id, { pick: "A" })).ok).toBe(false);
     expect(w.answersSent()).toEqual([]);
+  });
+
+  test("a gate answered while the app server was down, whose turn it aborted and never asked again, ends gone", async () => {
+    const { w, c, gate } = await endedWhileAway(L8_ABORTED, { status: { type: "idle" }, rollout: LIVE08_C }, async (w, gate) => {
+      expect((await answerGate(w, gate.id, { pick: "A" })).ok).toBe(true);
+      await settled();
+      expect(w.service.completion(gate.id)?.state).toBe("pending");
+    });
+    await c.sessions.observe(w.sessions.get("s1")!);
+    await settled();
+    // M4's recovery retries the completion on the new connection, where no replay matches the item.
+    await w.service.completeGateQuestion(gate.id);
+    expect(w.service.completion(gate.id)?.state).toBe("gone");
+    expect(w.answersSent()).toEqual([]);
+  });
+
+  test("an aborted turn in a read that stopped at its cap leaves the gate open and asks for a person", async () => {
+    const { w, c, gate } = await endedWhileAway(L8_ABORTED, { status: { type: "idle" }, rollout: LIVE08_C, whole: false });
+    await c.sessions.observe(w.sessions.get("s1")!);
+    await settled();
+    expect(w.store.get(gate.id)!.status).toBe("open");
+    expect(attentionFor(w, "question-ended-unseen")).toEqual([
+      { topic: "gate.native-attention", payload: expect.objectContaining({ gateId: gate.id, threadId: "T1" }) },
+    ]);
   });
 
   test("an ending the rollout cannot account for leaves the gate open and asks for a person once", async () => {
@@ -1118,8 +1188,53 @@ describe("live-08: questions that ended while rt was not connected", () => {
     ]);
   });
 
+  test("an ending the rollout cannot account for is looked at again only when a turn ends, a bounded number of times", async () => {
+    const { w, c, gate } = await endedWhileAway({ item: "I1", turn: "U1" }, { status: { type: "idle" }, rollout: "" });
+    await c.sessions.observe(w.sessions.get("s1")!);
+    await settled();
+    expect(attentionFor(w, "question-ended-unseen")).toHaveLength(1);
+    const looked = w.tailReads.length;
+    expect(looked).toBeGreaterThan(1);
+    const status = async (s: Message) => {
+      w.socket().push({ method: "thread/status/changed", params: { threadId: "T1", status: s } });
+      await settled();
+    };
+    // A status that ends no turn reads nothing more.
+    await status({ type: "idle" });
+    await status({ type: "active", activeFlags: [] });
+    await status({ type: "active", activeFlags: [] });
+    expect(w.tailReads.length).toBe(looked);
+    // Each turn end looks once more, up to the bound.
+    for (let i = 1; i <= MAX_UNSEEN_RECHECKS; i++) {
+      await status({ type: "idle" });
+      expect(w.tailReads.length).toBe(looked + i);
+      await status({ type: "active", activeFlags: [] });
+    }
+    await status({ type: "idle" });
+    expect(w.tailReads.length).toBe(looked + MAX_UNSEEN_RECHECKS);
+    expect(w.store.get(gate.id)!.status).toBe("open");
+    expect(attentionFor(w, "question-ended-unseen")).toHaveLength(1);
+  });
+
+  test("a status for a thread with no bound gate and no binding this connection knows costs no session-store read", async () => {
+    const w = await world();
+    await w.connect();
+    const status = async (threadId: string, s: Message) => {
+      w.socket().push({ method: "thread/status/changed", params: { threadId, status: s } });
+      await settled();
+    };
+    await status("T9", { type: "active", activeFlags: [] });
+    await status("T9", { type: "idle" });
+    expect(w.bindingReads()).toBe(0);
+    // A thread this connection owns is read only when its turn ends, for the async scan.
+    await status("T1", { type: "active", activeFlags: [] });
+    expect(w.bindingReads()).toBe(0);
+    await status("T1", { type: "idle" });
+    expect(w.bindingReads()).toBe(1);
+  });
+
   test("a thread still waiting on its question is not reconciled", async () => {
-    const { w, c, gate } = await endedWhileAway(L8_ANSWERED, { status: { type: "active", activeFlags: ["waitingOnUserInput"] }, rollout: LIVE08 });
+    const { w, c, gate } = await endedWhileAway(L8_ANSWERED, { status: { type: "active", activeFlags: ["waitingOnUserInput"] }, rollout: LIVE08_C });
     w.server.pending.set("T1", { id: 0, params: { threadId: "T1", turnId: L8_ANSWERED.turn, itemId: L8_ANSWERED.item, questions: PICK, isBlocking: true, autoResolutionMs: null } });
     await c.sessions.observe(w.sessions.get("s1")!);
     await settled();
@@ -1128,7 +1243,7 @@ describe("live-08: questions that ended while rt was not connected", () => {
   });
 
   test("with the switch off a reconnect reconciles nothing", async () => {
-    const { w, c, gate } = await endedWhileAway(L8_ANSWERED, { status: { type: "active", activeFlags: [] }, rollout: LIVE08 });
+    const { w, c, gate } = await endedWhileAway(L8_ANSWERED, { status: { type: "active", activeFlags: [] }, rollout: LIVE08_C });
     w.switchOn.value = false;
     await c.sessions.observe(w.sessions.get("s1")!);
     await settled();
@@ -1139,47 +1254,111 @@ describe("live-08: questions that ended while rt was not connected", () => {
 });
 
 describe("live-08: async questions from Herdr TUI turns", () => {
-  test("the last turn's async questions are found in the rollout", () => {
-    expect(asyncQuestionsOf(LIVE08)).toEqual([{ itemId: L8_ASYNC_LAST.item, turnId: L8_ASYNC_LAST.turn, questions: 1 }]);
+  test("only the last turn's async questions are found in the rollout", () => {
+    expect(asyncQuestionsOf(LIVE08_C)).toEqual([{ itemId: L8_ASYNC_LAST.item, turnId: L8_ASYNC_LAST.turn, questions: 1 }]);
+    // Rollout B's async question sits two turns before its end.
+    expect(asyncQuestionsOf(LIVE08_B)).toEqual([]);
   });
 
   test("an unsubscribed Herdr thread going idle raises async-question attention once per item", async () => {
     const w = await world();
     await w.connect();
-    w.server.rollout = LIVE08;
+    w.server.rollout = LIVE08_C;
     for (let i = 0; i < 2; i++) {
       w.server.setStatus("T1", { type: "active", activeFlags: [] });
       w.server.setStatus("T1", { type: "idle" });
       await settled();
     }
-    const attention = w.emitted.filter((e) => e.topic === "gate.native-attention");
-    expect(attention).toEqual([{
+    expect(w.emitted.filter((e) => e.topic === "gate.native-attention")).toEqual([{
       topic: "gate.native-attention",
       payload: expect.objectContaining({ reason: "async-question", threadId: "T1", turnId: L8_ASYNC_LAST.turn, itemId: L8_ASYNC_LAST.item, questions: 1 }),
     }]);
-    expect(attention.some((e) => e.payload.itemId === L8_ASYNC_OLD)).toBe(false);
     expect(w.gates()).toEqual([]);
     expect(w.sent().filter((m) => m.method !== "initialize" && m.method !== "initialized" && m.method !== "thread/read")).toEqual([]);
   });
 
-  test("a subscribed thread hears its items, so its rollout is not read; nor is anything with the switch off", async () => {
+  /** The item event for rollout C's last async question, as a subscribed connection hears it. */
+  const asyncItem = (w: Awaited<ReturnType<typeof world>>) => {
+    const item = { type: "agentMessage", id: L8_ASYNC_LAST.item, text: "Which option do you choose? (id: pick)\n- A\n- B",
+      phase: "final_answer", memoryCitation: null, delivery: "async", questions: [{ title: "Which option do you choose? (id: pick)", options: ["A", "B"] }] };
+    w.socket().push({ method: "item/completed", params: { item, threadId: "T1", turnId: L8_ASYNC_LAST.turn } });
+  };
+
+  test("a delivery hold taken after the question was asked does not skip the scan at the turn's end", async () => {
     const w = await world();
     const c = await w.connect();
+    w.server.setStatus("T1", { type: "active", activeFlags: [] });
     expect((await c.sessions.hold(codexBinding(), "delivery-1")).ok).toBe(true);
-    w.server.rollout = LIVE08;
+    await settled();
+    w.server.rollout = LIVE08_C;
+    w.server.setStatus("T1", { type: "idle" });
+    await settled();
+    expect(attentionFor(w, "async-question")).toEqual([
+      { topic: "gate.native-attention", payload: expect.objectContaining({ threadId: "T1", itemId: L8_ASYNC_LAST.item }) },
+    ]);
+    expect(w.gates()).toEqual([]);
+  });
+
+  test("the item event and the scan announce one item once", async () => {
+    const w = await world();
+    const c = await w.connect();
+    w.server.setStatus("T1", { type: "active", activeFlags: [] });
+    expect((await c.sessions.hold(codexBinding(), "delivery-1")).ok).toBe(true);
+    await settled();
+    asyncItem(w);
+    await settled();
+    w.server.rollout = LIVE08_C;
+    w.server.setStatus("T1", { type: "idle" });
+    await settled();
+    expect(w.reads).toHaveLength(1);
+    expect(attentionFor(w, "async-question")).toHaveLength(1);
+  });
+
+  test("with the switch off a turn's end reads nothing", async () => {
+    const w = await world();
+    await w.connect();
+    w.server.rollout = LIVE08_C;
+    w.switchOn.value = false;
     w.server.setStatus("T1", { type: "active", activeFlags: [] });
     w.server.setStatus("T1", { type: "idle" });
     await settled();
     expect(w.reads).toEqual([]);
+    expect(w.emitted).toEqual([]);
+  });
+});
 
-    const off = await world();
-    await off.connect();
-    off.server.rollout = LIVE08;
-    off.switchOn.value = false;
-    off.server.setStatus("T1", { type: "active", activeFlags: [] });
-    off.server.setStatus("T1", { type: "idle" });
-    await settled();
-    expect(off.reads).toEqual([]);
-    expect(off.emitted).toEqual([]);
+describe("rollout last-turn reads", () => {
+  /** A task_started line in the shape live-07 recorded, for `turnId`: collect.sh kept no such lines from live-08. */
+  function taskStarted(turnId: string): string {
+    const entry = JSON.parse(LIVE07_I.split("\n")[0]!);
+    entry.payload.turn_id = turnId;
+    entry.payload.root_turn_id = turnId;
+    return JSON.stringify(entry);
+  }
+
+  test("readRolloutLastTurn stops at the last task_started of a file with several turns", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rt-codex-rollout-"));
+    dirs.push(dir);
+    const path = join(dir, "rollout.jsonl");
+    // Rollout A's turns in file order, each under its task_started line.
+    const turns: Array<[string, string[]]> = [];
+    for (const line of LIVE08_A.split("\n").filter(Boolean)) {
+      const { payload } = JSON.parse(line);
+      const turn: string = payload.turn_id ?? payload.internal_chat_message_metadata_passthrough.turn_id;
+      if (turns.at(-1)?.[0] !== turn) turns.push([turn, []]);
+      turns.at(-1)![1].push(line);
+    }
+    expect(turns.length).toBeGreaterThan(3);
+    const body = `${turns.map(([turn, lines]) => [taskStarted(turn), ...lines].join("\n")).join("\n")}\n`;
+    writeFileSync(path, body);
+    const read = await readRolloutLastTurn(path, { chunkBytes: 100 });
+    const [last, previous] = [turns.at(-1)![0], turns.at(-2)![0]];
+    expect(read.whole).toBe(false);
+    expect(read.text.startsWith(taskStarted(last))).toBe(true);
+    expect(body.endsWith(read.text)).toBe(true);
+    expect(read.text).not.toContain(taskStarted(previous));
+    // One whole turn reads whole.
+    writeFileSync(path, LIVE07_I);
+    expect(await readRolloutLastTurn(path)).toEqual({ text: LIVE07_I, whole: true });
   });
 });
