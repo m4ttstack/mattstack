@@ -5,6 +5,7 @@ import { basename, dirname, join, resolve } from "path";
 import { parse } from "jsonc-parser";
 import { UserActionableError, failureFor, logFailureDetail } from "../lib/errors.ts";
 import { shellQuote } from "../lib/herdr-launch.ts";
+import { validateSlug } from "../lib/secrets/store.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { childEnv } from "../lib/subprocess.ts";
 import * as out from "../lib/ui/out.ts";
@@ -12,7 +13,7 @@ import { usageFailure } from "../lib/ui/usage.ts";
 import { readForgeUsername, sameUser } from "../packages/rt-client/src/index.ts";
 import { planConversion, type ConvertInput } from "./lib/convert-team-repo.ts";
 
-const USAGE = "bun scripts/convert-team-repo-to-org.ts <clone-dir> --admin <username> [--team <name>] [--team-repo <identity>]... [--write --roster-confirmed]";
+const USAGE = "bun scripts/convert-team-repo-to-org.ts <clone-dir> --admin <username> [--org <name>] [--org-placeholder] [--team <name>] [--team-repo <identity>]... [--write --roster-confirmed]";
 
 function refuse(title: string, why?: string, next?: string | string[]): never {
   const commands = next === undefined ? [] : Array.isArray(next) ? next : [next];
@@ -31,8 +32,8 @@ function main(): void {
   }
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
-    if (["--write", "--roster-confirmed"].includes(arg)) switches.add(arg);
-    else if (["--admin", "--team", "--team-repo"].includes(arg) && args[i + 1] && !args[i + 1]!.startsWith("--")) {
+    if (["--write", "--roster-confirmed", "--org-placeholder"].includes(arg)) switches.add(arg);
+    else if (["--admin", "--org", "--team", "--team-repo"].includes(arg) && args[i + 1] && !args[i + 1]!.startsWith("--")) {
       (values[arg] ??= []).push(args[++i]!);
     } else {
       out.fail(usageFailure("Check the conversion arguments", USAGE));
@@ -43,6 +44,19 @@ function main(): void {
   if (!admin || values["--admin"]!.length !== 1 || (values["--team"]?.length ?? 0) > 1) {
     out.fail(usageFailure("Name the admin who will own this org", USAGE));
     process.exit(2);
+  }
+  const org = values["--org"]?.[0];
+  if ((values["--org"]?.length ?? 0) > 1) {
+    out.fail(usageFailure("Name the org once", USAGE));
+    process.exit(2);
+  }
+  if (org !== undefined) {
+    try {
+      validateSlug(org);
+    } catch {
+      out.fail(usageFailure("Choose an org name of lowercase letters, digits and dashes", USAGE));
+      process.exit(2);
+    }
   }
   const clone = resolve(cloneArg);
   const git = (...argv: string[]) => execFileSync("git", ["-C", clone, ...argv], { encoding: "utf8", env: childEnv(), stdio: "pipe" });
@@ -74,7 +88,7 @@ function main(): void {
   }
   let plan;
   try {
-    plan = planConversion({ files, packs, hasSecrets: git("ls-files", "--", "mattstack/secrets").trim() !== "" }, { org: basename(clone), admin, team: values["--team"]?.[0], teamRepos: values["--team-repo"] });
+    plan = planConversion({ files, packs, hasSecrets: git("ls-files", "--", "mattstack/secrets").trim() !== "" }, { org: org ?? basename(clone), folder: basename(clone), orgPlaceholder: switches.has("--org-placeholder"), admin, team: values["--team"]?.[0], teamRepos: values["--team-repo"] });
   } catch (err) {
     throw new UserActionableError("invalid-conversion", "This clone cannot be converted", {}, { why: err instanceof Error ? err.message : String(err) });
   }

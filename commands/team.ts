@@ -175,6 +175,7 @@ const REFUSAL_CODES = new Set([
   "org-detached",
   "peer-needs-admin",
   "board-registered-elsewhere",
+  "invite-stale",
 ]);
 
 /** `--json` and every non-refusal take exitUserError's route, so the envelope and the exit code never depend on the code. */
