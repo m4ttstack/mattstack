@@ -73,7 +73,6 @@ import {
   orgBasePackRoots,
   orgOfPackDir,
   parseStageQualifiedName,
-  readJsoncObject,
   readManifestBindings,
   readManifestPipelines,
   readSurface,
@@ -929,15 +928,12 @@ function compileTargets(resolved: Resolved, publicSet: Set<string> | null, verbF
   return { targets, verbSides, knownTargetDirs };
 }
 
+/** A pack that extends a base only for its fills copies nothing, so it needs no plugin name; one that would copy an attachment does. */
 function basePlanFor(resolved: Resolved, verbSides: Record<string, Side>): BaseAttachmentPlan {
   const pluginName = packPluginIdentity(resolved.packDir)?.name;
-  if (!pluginName) {
-    const ext = readJsoncObject(join(resolved.packDir, "pack", "skills.jsonc"))?.extends;
-    if (ext !== undefined) {
-      return { base: null, emits: [], kept: [], stale: [], errors: [`${resolved.team} extends ${String(ext)}, but it has no .claude-plugin/plugin.json name to give {{pack.name}}`] };
-    }
-  }
-  return planBaseAttachments({ packDir: resolved.packDir, packName: pluginName ?? resolved.team, verbSides });
+  const plan = planBaseAttachments({ packDir: resolved.packDir, packName: pluginName ?? resolved.team, verbSides });
+  if (pluginName || plan.base === null || plan.emits.length === 0) return plan;
+  return { base: null, emits: [], kept: [], stale: [], errors: [`${resolved.team} extends ${plan.base.name}, but it has no .claude-plugin/plugin.json name to give {{pack.name}}`] };
 }
 
 function requireBasePlan(resolved: Resolved, verbSides: Record<string, Side>): BaseAttachmentPlan {
