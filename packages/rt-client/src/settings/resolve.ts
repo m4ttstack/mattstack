@@ -60,7 +60,7 @@ import { machineSettingsPath, orgDir, orgSettingsPath, teamSettingsPath, userSet
 import { currentStoreName, readSection, storeNameStatus, worstLabel, type OlderLabel, type OlderNameRead, type SectionRead } from "./migrate.ts";
 import { allDefs, getDef, isMigrated, validateValue, type SettingDef, type SettingScope } from "./registry-machinery.ts";
 import { checkSchema, type SchemaIssue } from "./schema.ts";
-import { currentOrg, listOrgs, readStore, TEAM_NAME_RE, type StoreFile } from "./stores.ts";
+import { listOrgs, readStore, TEAM_NAME_RE, type StoreFile } from "./stores.ts";
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -254,6 +254,8 @@ function required(value: string | undefined, name: string, needs: string): strin
 interface StoreBundle {
   user: StoreFile;
   machine: StoreFile;
+  /** The folder name of the org clone `org` was read from; null with no clone. */
+  orgName: string | null;
   /** Null on a Mac with no org clone. */
   org: StoreFile | null;
   /** Null with no org, or with no active team. A team whose file is missing is a store with `exists: false`. */
@@ -270,11 +272,11 @@ function readStores(view: { team?: string | null } = {}): StoreBundle {
   const orgs = [...listOrgs()].sort();
   if (orgs.length > 1) warnMultipleOrgs(orgs);
   const org = orgs[0];
-  if (org === undefined) return { user, machine, org: null, team: null };
+  if (org === undefined) return { user, machine, orgName: null, org: null, team: null };
   const orgStore = readStore(orgSettingsPath(org));
   if (typeof view.team === "string") assertTeamName(view.team);
   const team = view.team !== undefined ? view.team : activeTeamFrom(org, orgStore, user).team;
-  return { user, machine, org: orgStore, team: team === null ? null : readStore(teamSettingsPath(org, team)) };
+  return { user, machine, orgName: org, org: orgStore, team: team === null ? null : readStore(teamSettingsPath(org, team)) };
 }
 
 let multiOrgWarned: string | null = null;
@@ -312,6 +314,7 @@ export function mergedValueWith(
   const patched: StoreBundle = {
     user: cloneStore(stores.user),
     machine: cloneStore(stores.machine),
+    orgName: stores.orgName,
     org: stores.org ? cloneStore(stores.org) : null,
     team: stores.team ? cloneStore(stores.team) : null,
   };
@@ -722,8 +725,8 @@ function unknownKey(key: string): Error {
   return new Error(`rt: unknown setting "${key}" — not in the settings registry (see \`rt settings list\`)`);
 }
 
-function expandCtxFrom(opts: ResolveOpts): ExpandCtx {
-  const org = currentOrg();
+function expandCtxFrom(opts: ResolveOpts, stores: StoreBundle): ExpandCtx {
+  const org = stores.orgName;
   return {
     repoRoot: opts.expandCtx?.repoRoot,
     worktree: opts.expandCtx?.worktree,
@@ -770,14 +773,15 @@ export function getSetting<T>(key: string, opts: ResolveOpts = {}): Resolved<T> 
   const def = getDef(key);
   if (!def) throw unknownKey(key);
 
-  const resolution = resolveDef(def, readStores({ team: opts.team }), opts);
+  const stores = readStores({ team: opts.team });
+  const resolution = resolveDef(def, stores, opts);
   for (const entry of resolution.invalid) warnInvalid(key, entry);
 
   const shouldExpand = opts.expand ?? true;
   if (!shouldExpand || resolution.value === undefined) {
     return { value: resolution.value as T, provenance: resolution.provenance, ...(resolution.items ? { items: resolution.items } : {}) };
   }
-  const ctx = expandCtxFrom(opts);
+  const ctx = expandCtxFrom(opts, stores);
   const value = expandVariables(resolution.value, ctx);
   const items = resolution.items ? expandItems(resolution.items, ctx) : undefined;
   return { value: value as T, provenance: resolution.provenance, ...(items ? { items } : {}) };
@@ -795,7 +799,7 @@ function expandItems(items: ItemSource[], ctx: ExpandCtx): ItemSource[] {
  */
 export function listSettings(opts: ResolveOpts = {}): ListedSetting[] {
   const stores = readStores({ team: opts.team });
-  const ctx = expandCtxFrom(opts);
+  const ctx = expandCtxFrom(opts, stores);
   const shouldExpand = opts.expand ?? true;
   const out: ListedSetting[] = [];
 

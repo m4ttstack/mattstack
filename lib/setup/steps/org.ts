@@ -20,10 +20,10 @@ interface PullReply {
 }
 
 export function cloneSlugs(p: Pick<Probes, "readDir" | "exists" | "home">): string[] {
-  const teams = orgsDirUnder(p.home);
+  const orgsRoot = orgsDirUnder(p.home);
   return p
-    .readDir(teams)
-    .filter((name) => p.exists(join(teams, name, ".git", "config")))
+    .readDir(orgsRoot)
+    .filter((name) => p.exists(join(orgsRoot, name, ".git", "config")))
     .sort();
 }
 

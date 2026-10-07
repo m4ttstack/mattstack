@@ -56,7 +56,7 @@ export function orgDir(org: string): string {
   return join(orgsDir(), org);
 }
 
-/** ~/.mattstack/teams: where org clones lived before the orgs root. Only the migration, the org.folder row and home init may name it. */
+/** ~/.mattstack/teams: where org clones lived before the orgs root. Only the org.folder converge step, the org.folder row and home init may name it. */
 export function legacyTeamsDir(): string {
   return join(home(), ".mattstack", "teams");
 }

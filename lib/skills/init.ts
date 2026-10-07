@@ -109,8 +109,8 @@ function isOrgSlug(name: string): boolean {
 
 /** The org clones on this Mac, by the folder name every zone's slug starts with. */
 export function readOrgSlugs(fs: InitFs, home: string): string[] {
-  const teams = orgsDirUnder(home);
-  return [...fs.readDir(teams)].sort().filter((org) => isOrgSlug(org) && readJsonc(fs, join(teams, org, "mattstack", "mattstack.jsonc"))?.role === "org");
+  const orgsRoot = orgsDirUnder(home);
+  return [...fs.readDir(orgsRoot)].sort().filter((org) => isOrgSlug(org) && readJsonc(fs, join(orgsRoot, org, "mattstack", "mattstack.jsonc"))?.role === "org");
 }
 
 function storeGlobal(fs: InitFs, path: string): Record<string, unknown> | null {

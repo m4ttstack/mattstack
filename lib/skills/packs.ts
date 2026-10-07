@@ -130,9 +130,9 @@ function isMarkedBase(dir: string): boolean {
  */
 export function orgFolderPacks(mattstackRoot: string): PackInfo[] {
   const found: PackInfo[] = [];
-  const teams = join(mattstackRoot, "orgs");
-  for (const org of subdirs(teams)) {
-    const orgDir = join(teams, org);
+  const orgsRoot = join(mattstackRoot, "orgs");
+  for (const org of subdirs(orgsRoot)) {
+    const orgDir = join(orgsRoot, org);
     let marker: { role?: unknown } | null;
     try {
       marker = readJsonc(join(orgDir, "mattstack", "mattstack.jsonc")) as { role?: unknown } | null;
