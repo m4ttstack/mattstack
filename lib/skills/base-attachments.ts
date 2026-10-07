@@ -17,6 +17,8 @@ export type BaseAttachmentPlan = {
   emits: EmittedAttachment[];
   kept: string[];
   stale: StaleAttachment[];
+  /** Folders a since-retired verb compiled at a unit's path; compile removes each before copying the unit there. */
+  retired: string[];
   errors: string[];
 };
 
@@ -148,13 +150,14 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
   const onDiskEmitted = listEmittedUnits(attachmentsDir);
 
   if (ext === undefined) {
-    return { base: null, emits: [], kept: [], stale: onDiskEmitted.map((name) => ({ name, why: "no-base" as const })), errors: [] };
+    return { base: null, emits: [], kept: [], stale: onDiskEmitted.map((name) => ({ name, why: "no-base" as const })), retired: [], errors: [] };
   }
   const base = resolveBase(packDir, packName, ext);
-  if (typeof base === "string") return { base: null, emits: [], kept: [], stale: [], errors: [base] };
+  if (typeof base === "string") return { base: null, emits: [], kept: [], stale: [], retired: [], errors: [base] };
 
   const errors: string[] = [];
   const kept: string[] = [];
+  const retired: string[] = [];
   const records: { name: string; srcDir: string; files: string[] }[] = [];
   for (const { rel: name, srcDir } of baseUnits(base.name, join(base.dir, "attachments"), errors)) {
     if (isFill(srcDir)) continue;
@@ -169,12 +172,13 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
       errors.push(`${label} would land inside the ${packName} attachment attachments/${group}; rename one of them`);
     } else if (existsSync(join(srcDir, PROVENANCE_FILE))) {
       errors.push(`${label} carries ${PROVENANCE_FILE}, a name compile keeps for itself`);
-    } else if (isTeamOwned(join(attachmentsDir, name))) {
+    } else if (isTeamOwned(join(attachmentsDir, name)) && !hasCompiledHeader(join(attachmentsDir, name))) {
       kept.push(name);
     } else {
       const { files, symlinks } = walkAttachmentFiles(srcDir);
       if (symlinks.length > 0) errors.push(...symlinks.map((rel) => `${label} has a symlink at ${rel}; compile copies regular files only`));
       else records.push({ name, srcDir, files });
+      if (symlinks.length === 0 && hasCompiledHeader(join(attachmentsDir, name))) retired.push(name);
     }
   }
 
@@ -212,8 +216,8 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
     emits.push({ name, files: out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)) });
   }
 
-  if (errors.length > 0) return { base, emits: [], kept, stale: [], errors };
-  return { base, emits, kept, stale, errors };
+  if (errors.length > 0) return { base, emits: [], kept, stale: [], retired: [], errors };
+  return { base, emits, kept, stale, retired, errors };
 }
 
 export function plannedAttachmentsOf(plan: BaseAttachmentPlan): PlannedAttachments {

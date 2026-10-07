@@ -177,11 +177,22 @@ test("a dry run says why it would remove an emitted folder", () => {
   const rows = [
     { name: "old-kit", removed: true as const, why: "dropped" as const },
     { name: "left-kit", removed: true as const, why: "no-base" as const },
+    { name: "review-kit", removed: true as const, why: "retired" as const },
   ];
   expect(renderPlain(compileBlocks([], false, rows))).toBe(
-    ["[not yet] old-kit  would remove; its base no longer has it", "[not yet] left-kit  would remove; this pack no longer extends a base", ""].join("\n"),
+    [
+      "[not yet] old-kit  would remove; its base no longer has it",
+      "[not yet] left-kit  would remove; this pack no longer extends a base",
+      "[not yet] review-kit  would remove; left by a verb this pack no longer compiles",
+      "",
+    ].join("\n"),
   );
   expect(renderPlain(compileBlocks([], true, rows))).toBe(
-    ["[ok] Removed old-kit  its base no longer has it", "[ok] Removed left-kit  this pack no longer extends a base", ""].join("\n"),
+    [
+      "[ok] Removed old-kit  its base no longer has it",
+      "[ok] Removed left-kit  this pack no longer extends a base",
+      "[ok] Removed review-kit  left by a verb this pack no longer compiles",
+      "",
+    ].join("\n"),
   );
 });

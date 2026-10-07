@@ -5,7 +5,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, re
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { checkPack, compilePackAll, computeRows, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsDiscard, skillsMaterialize, skillsPacks, type DiscardIo } from "../skills.ts";
-import { compileSkill } from "../../lib/skills/compile.ts";
+import { compileSkill, HEADER_COMMENT } from "../../lib/skills/compile.ts";
 import { materializeRepo, type MaterializeFs } from "../../lib/skills/materialize.ts";
 import { invocableRoster, loadAttachment, loadStepSource } from "../../lib/skills/sources.ts";
 import type { PluginRoots } from "../../lib/skills/sources.ts";
@@ -1039,6 +1039,31 @@ describe("base pack attachments", () => {
     writeFile(join(baseDir, "attachments", "review-kit", "SKILL.md"), "---\nname: review-kit\n---\nchanged\n");
     await compile();
     expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toBe("team copy\n");
+  });
+
+  test("a folder left by a retired verb is replaced by the base copy, and the run reports both", async () => {
+    const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
+    writeFile(kit(packDir, "SKILL.md"), `---\nname: review-kit\n---\n${HEADER_COMMENT}\nold verb body\n`);
+    writeFile(kit(packDir, "old.md"), "old\n");
+
+    expect((await compile()).errors).toEqual([]);
+
+    expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toBe("---\nname: review-kit\ndescription: shared review notes\n---\nInvoke widgets:watch-ci. Read ../../skills/watch-ci/SKILL.md.\n");
+    expect(existsSync(kit(packDir, "old.md"))).toBe(false);
+    expect(existsSync(kit(packDir, "compiled.json"))).toBe(true);
+    const shown = io.lines().join("\n");
+    expect(shown).toContain("Removed review-kit");
+    expect(shown).toContain("Copied review-kit");
+
+    writeFile(kit(packDir, "SKILL.md"), `---\nname: review-kit\n---\n${HEADER_COMMENT}\nold verb body\n`);
+    rmSync(kit(packDir, "compiled.json"));
+    writeFile(kit(packDir, "old.md"), "old\n");
+    writeFileSync(join(baseDir, "attachments", "review-kit", "references", "guide.md"), "changed\n");
+    const result = await compilePackAll({ packDir, mattstackDir });
+    expect(result.ok).toBe(true);
+    expect(result.removed).toContain("attachments/review-kit/old.md");
+    expect(result.removed).not.toContain("attachments/review-kit/SKILL.md");
+    expect(result.written).toContain("attachments/review-kit/SKILL.md");
   });
 
   test("a base attachment named like a verb or a hand-authored skill is refused, and nothing is written", async () => {

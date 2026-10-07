@@ -942,7 +942,7 @@ function basePlanFor(resolved: Resolved, verbSides: Record<string, Side>): BaseA
   const pluginName = packPluginIdentity(resolved.packDir)?.name;
   const plan = planBaseAttachments({ packDir: resolved.packDir, packName: pluginName ?? resolved.team, verbSides });
   if (pluginName || plan.base === null || plan.emits.length === 0) return plan;
-  return { base: null, emits: [], kept: [], stale: [], errors: [`${resolved.team} extends ${plan.base.name}, but it has no .claude-plugin/plugin.json name to give {{pack.name}}`] };
+  return { base: null, emits: [], kept: [], stale: [], retired: [], errors: [`${resolved.team} extends ${plan.base.name}, but it has no .claude-plugin/plugin.json name to give {{pack.name}}`] };
 }
 
 function requireBasePlan(resolved: Resolved, verbSides: Record<string, Side>): BaseAttachmentPlan {
@@ -990,6 +990,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   if (writing) {
     // Stale folders go before any verb writes: an internal verb may now own a freed attachments/<name>.
     for (const s of plan.stale) removeEmittedUnit(resolved.packDir, s.name, writes);
+    for (const rel of plan.retired) removeCompiledDir(resolved.packDir, join(resolved.packDir, "attachments", rel), writes);
     for (const e of plan.emits) writeCompiledVerb(resolved.packDir, join(resolved.packDir, "attachments", e.name), e, writes);
     for (const { target, outcome } of outcomes) {
       if (!outcome.ok) continue;
@@ -1022,7 +1023,12 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     }
   }
 
+  // A retired folder's file that the base copy rewrites is written, not removed.
+  const rewritten = new Set(writes.written);
+  writes.removed = writes.removed.filter((path) => !rewritten.has(path));
+
   const emitted: EmittedRow[] = [
+    ...plan.retired.map((name) => ({ name, removed: true as const, why: "retired" as const })),
     ...plan.emits.map((e) => ({ name: e.name, base: plan.base!.name, files: e.files.filter((f) => f.path !== PROVENANCE_FILE).length })),
     ...plan.kept.map((name) => ({ name, base: plan.base!.name, kept: true as const })),
     ...plan.stale.map((s) => ({ name: s.name, removed: true as const, why: s.why })),
@@ -1036,13 +1042,14 @@ export type CompiledRow = { name: string; side: Side; files: number; warnings: s
 export type EmittedRow =
   | { name: string; base: string; files: number }
   | { name: string; base: string; kept: true }
-  | { name: string; removed: true; why: "dropped" | "no-base" };
+  | { name: string; removed: true; why: "dropped" | "no-base" | "retired" };
 
 const countOf = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 
 export function compileBlocks(rows: CompiledRow[], writing: boolean, emitted: EmittedRow[] = []): Block[] {
   if (rows.length === 0 && emitted.length === 0) return [out.line("skipped", "Nothing to compile", "this pack has no verbs")];
-  const removedWhy = (why: "dropped" | "no-base") => (why === "dropped" ? "its base no longer has it" : "this pack no longer extends a base");
+  const removedWhy = (why: "dropped" | "no-base" | "retired") =>
+    why === "dropped" ? "its base no longer has it" : why === "no-base" ? "this pack no longer extends a base" : "left by a verb this pack no longer compiles";
   const copies = emitted.map((row) => "kept" in row
     ? out.line("skipped", row.name, `your own copy; the one in ${row.base} is not copied`)
     : "removed" in row

@@ -74,6 +74,16 @@ describe("planBaseAttachments", () => {
     expect(result.errors).toEqual([]);
   });
 
+  test("a folder left by a retired verb carries the compile header, so it is replaced, not kept", () => {
+    put(join(packDir(), "attachments", "review-kit", "SKILL.md"), `---\nname: review-kit\n---\n${HEADER_COMMENT}\nold\n`);
+    put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "body\n");
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    expect(result.kept).toEqual([]);
+    expect(result.retired).toEqual(["review-kit"]);
+    expect(result.emits.map((e) => e.name)).toEqual(["review-kit"]);
+  });
+
   test("a name that is a compile target is an error naming both", () => {
     put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "body\n");
     expect(plan({ "review-kit": "attachments" }).errors).toEqual([clash]);
