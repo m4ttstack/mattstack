@@ -29,6 +29,8 @@ export interface BuddiesContextValue {
   lookOf: (handle: string) => MemberLook | undefined;
 }
 
+const NO_SPEAKERS: readonly string[] = [];
+
 const BuddiesContext = createContext<BuddiesContextValue | null>(null);
 
 /** The one place presence is looked up by id, so `AgentName` can render
@@ -42,25 +44,41 @@ export function BuddiesProvider({
   reachable,
   actions,
   humanHandle = HUMAN_HANDLE,
+  speakers = NO_SPEAKERS,
   children,
 }: Omit<BuddiesContextValue, 'byHandle' | 'nameOf' | 'lookOf'> & {
   buddies: RosterBuddy[];
   memberNames?: ReadonlyMap<string, string>;
   humanHandle?: string;
+  /** Who has posted in the open room's loaded transcript: on screen, so
+      first in line for a distinct look even after leaving the room. */
+  speakers?: readonly string[];
   children: ReactNode;
 }) {
-  // Looks go out to the human, then everyone in order of sign-in, oldest
-  // first, so a newcomer never takes a look from someone already here; the
-  // open room's members off the roster follow alphabetically. Joined to a
-  // string so a poll with the same people keeps the memo.
+  // Looks follow what is on screen, so the people talking in the open room
+  // get the most distinct hues first, then its quiet members, then everyone
+  // else: the human, then each tier's roster entries in order of sign-in and
+  // its off-roster ids alphabetically. Joined to a string so a poll with the
+  // same people keeps the memo.
   const lookIds = useMemo(() => {
-    const listed = [...buddies]
+    const bySignIn = [...buddies]
       .sort((a, b) => a.signedInAt - b.signedInAt)
       .map(b => b.handle);
-    const seen = new Set(listed);
-    const others = roomMembers.filter(h => !seen.has(h)).sort();
-    return [humanHandle, ...listed, ...others].join('\n');
-  }, [buddies, roomMembers, humanHandle]);
+    const known = new Set(bySignIn);
+    const tier = (ids: Iterable<string>) => {
+      const set = new Set(ids);
+      return [
+        ...bySignIn.filter(h => set.has(h)),
+        ...[...set].filter(h => !known.has(h)).sort(),
+      ];
+    };
+    return [
+      humanHandle,
+      ...tier(speakers),
+      ...tier(roomMembers),
+      ...bySignIn,
+    ].join('\n');
+  }, [buddies, roomMembers, speakers, humanHandle]);
   const looks = useMemo(
     () => assignMemberLooks(lookIds.split('\n'), humanHandle),
     [lookIds, humanHandle]

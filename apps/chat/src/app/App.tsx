@@ -1319,6 +1319,10 @@ export function App({ initialState }: { initialState?: AppInitialState } = {}) {
     refetchMembers,
   } = useRoomMembers(activeRoom, initialState?.members);
   const activeRoomSummary = rooms.find(r => r.room === activeRoom);
+  const speakers = useMemo(
+    () => [...new Set(messages.map(m => m.handle))],
+    [messages]
+  );
 
   // The reader's room is the OPEN CARD's, which is rarely the room the rest
   // of the page has open (on `/` there is none), so its members are their
@@ -1412,6 +1416,7 @@ export function App({ initialState }: { initialState?: AppInitialState } = {}) {
     <BuddiesProvider
       buddies={buddies}
       roomMembers={roomMembers}
+      speakers={speakers}
       memberNames={roomMemberNames}
       now={Date.now()}
       reachable={daemon.reachable}

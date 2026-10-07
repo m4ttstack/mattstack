@@ -19,9 +19,14 @@ describe('themePalette', () => {
     }
   });
 
+  test("no hue, however deep the mixing, draws on the human's accent", () => {
+    for (const h of themePalette(60))
+      expect(Object.values(h).join(' ')).not.toMatch(/accent/);
+  });
+
   test('a midpoint mixes every shade of its two neighbours', () => {
     const mid = themePalette(8)[7]!;
-    expect(mid.body).toMatch(/^color-mix\(in oklch, var\(--/);
+    expect(mid.body).toMatch(/^color-mix\(in oklch, var\(--tk-text-/);
     expect(mid.fill).toMatch(/^color-mix\(in oklch, var\(--tk-fill-/);
   });
 });

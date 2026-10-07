@@ -24,14 +24,28 @@ export const ACCENT_LOOK: LookHue = {
   fill: 'var(--tk-fill-accent)',
 };
 
+/** The theme's ok is a teal that sits right next to cyan; nudged toward
+    gold it reads as a true green, still clear of the gold itself. */
+const GREEN: LookHue = (() => {
+  const ok = hue('ok');
+  const gold = hue('gold');
+  const m = (x: string, y: string) => `color-mix(in oklch, ${x}, ${y} 20%)`;
+  return {
+    avatar: m(ok.avatar, gold.avatar),
+    small: m(ok.small, gold.small),
+    body: m(ok.body, gold.body),
+    fill: m(ok.fill, gold.fill),
+  };
+})();
+
 /** The theme's hues in colour-wheel order, so mixing two neighbours lands on
-    a hue between them instead of a muddy blend. Accent stays on the wheel so
-    the midpoints beside it are bluish rather than a cyan-purple mix that
-    reads as accent, but it is never handed out: the human owns it. */
+    a hue between them instead of a muddy blend. The wheel stops short of
+    accent at both ends and never wraps: every mix across the purple-cyan
+    gap is a blue that reads as the human's accent, so that stretch stays
+    his alone. */
 const WHEEL: readonly LookHue[] = [
-  ACCENT_LOOK,
   hue('cyan'),
-  hue('ok'),
+  GREEN,
   hue('gold'),
   hue('warn'),
   hue('bad'),
@@ -68,20 +82,20 @@ function spread<T>(items: readonly T[]): T[] {
   return items.map((_, i) => items[(i * step) % n]!);
 }
 
-/** At least `n` distinct hues derived from the theme: the wheel's hues
-    (accent aside) and a grey, then the midpoints between neighbouring hues,
-    then the quarter points, each pass halving the gap, so the hues handed
-    out first are the most distinct. Every entry is built from the theme's
-    own tokens, so it follows the colour scheme like the base hues do. */
+/** At least `n` distinct hues derived from the theme: the wheel's hues and
+    a grey, then the midpoints between neighbouring hues, then the quarter
+    points, each pass halving the gap, so the hues handed out first are the
+    most distinct. Every entry is built from the theme's own tokens, so it
+    follows the colour scheme like the base hues do. */
 export function themePalette(n: number): LookHue[] {
-  const out = [...spread(WHEEL.slice(1)), GREY];
+  const out = [...spread(WHEEL), GREY];
   let ring = WHEEL;
   while (out.length < n) {
-    const next: LookHue[] = [];
+    const next: LookHue[] = [ring[0]!];
     const mids: LookHue[] = [];
-    for (let i = 0; i < ring.length; i++) {
-      const mid = mix(ring[i]!, ring[(i + 1) % ring.length]!);
-      next.push(ring[i]!, mid);
+    for (let i = 1; i < ring.length; i++) {
+      const mid = mix(ring[i - 1]!, ring[i]!);
+      next.push(mid, ring[i]!);
       mids.push(mid);
     }
     out.push(...spread(mids));
