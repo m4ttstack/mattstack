@@ -71,12 +71,19 @@ describe("planMove", () => {
 
   test("comments in a rewritten store are reported, and a store with nothing to rewrite stays unwritten", () => {
     const plan = planMove(orgRepo({ files: {
-      [WIDGETS_STORE]: `// team\n${JSON.stringify({ x: "${org}/mattstack/teams/widgets/packs/widgets/a" })}`,
+      [WIDGETS_STORE]: `// team\n{\n  // the endpoint\n  "x": "\${org}/mattstack/teams/widgets/packs/widgets/a"\n}\n`,
       [ORG_STORE]: JSON.stringify({ "board.projects": ["acme/widgets"] }),
     } }));
     expect(plan.writes[WIDGETS_STORE]).toBeDefined();
     expect(plan.report).toContain(`comments in ${WIDGETS_STORE} are not carried over`);
     expect(plan.writes[ORG_STORE]).toBeUndefined();
+  });
+
+  test("the one-line header a store starts with is kept and is not reported as a lost comment", () => {
+    const plan = planMove(orgRepo({ files: { [WIDGETS_STORE]: `// team\n${JSON.stringify({ x: "\${org}/mattstack/teams/widgets/packs/widgets/a" })}` } }));
+    expect(plan.writes[WIDGETS_STORE]!.startsWith("// team\n")).toBe(true);
+    expect(parse(plan.writes[WIDGETS_STORE]!).x).toBe("${org}/mattstack/teams/widgets/plugin/a");
+    expect(plan.report.some((line) => line.startsWith("comments in"))).toBe(false);
   });
 
   test("the report names each move, bump and settings-only team", () => {
@@ -99,6 +106,18 @@ describe("planMove", () => {
   test("a nested pack without a parseable plugin.json, or a store that does not parse, is refused by name", () => {
     expect(() => planMove(orgRepo({ files: { [`${NESTED}/.claude-plugin/plugin.json`]: "{ nope" } }))).toThrow(`${NESTED}/.claude-plugin/plugin.json`);
     expect(() => planMove(orgRepo({ files: { [ORG_STORE]: "{ nope" } }))).toThrow(ORG_STORE);
+  });
+
+  test("a nested pack with no plugin.json is refused by name, before any version check", () => {
+    const input = orgRepo();
+    delete input.files[`${NESTED}/.claude-plugin/plugin.json`];
+    expect(() => planMove(input)).toThrow(`${NESTED}/.claude-plugin/plugin.json is missing`);
+  });
+
+  test("a repo with no marketplace is refused instead of getting a new one", () => {
+    const input = orgRepo();
+    delete input.files[".claude-plugin/marketplace.json"];
+    expect(() => planMove(input)).toThrow(".claude-plugin/marketplace.json is missing");
   });
 
   test("a version that is not x.y.z cannot be bumped", () => {
@@ -150,6 +169,9 @@ describe("the wrapper", () => {
     git("remote", "add", "origin", origin);
     git("push", "-q", "origin", "main");
     return dir;
+  }
+  function publish(dir: string): void {
+    execFileSync("git", ["-C", dir, "push", "-q", "origin", "main"], { env: childEnv() });
   }
   const script = join(import.meta.dir, "..", "move-team-packs-to-plugin.ts");
   const runScript = (dir: string, ...extra: string[]) => Bun.spawnSync(["bun", script, dir, "--admin", "dev1", ...extra], { env: childEnv(), stdout: "pipe", stderr: "pipe" });
@@ -277,6 +299,7 @@ describe("the wrapper", () => {
   test("a commit failure restores the start: bytes, index, history and empty folders", () => {
     ready();
     const dir = tempClone();
+    mkdirSync(join(dir, NESTED, "empty", "child"), { recursive: true });
     const before = snapshot(dir);
     const hooks = join(dir, ".git", "hooks");
     mkdirSync(hooks, { recursive: true });
@@ -286,5 +309,109 @@ describe("the wrapper", () => {
     expect(result.stderr.toString()).toContain("back as it was");
     expect(snapshot(dir)).toBe(before);
     expect(existsSync(join(dir, NESTED, "attachments"))).toBe(true);
+    expect(existsSync(join(dir, NESTED, "empty", "child"))).toBe(true);
+  });
+
+  test("rollback removes new ignored output, keeps other ignored content, and permits a clean retry", () => {
+    ready();
+    const dir = tempClone({ ".gitignore": "mattstack/teams/widgets/plugin/\noutside-cache/\n" });
+    mkdirSync(join(dir, "outside-cache"));
+    writeFileSync(join(dir, "outside-cache", "keep.txt"), "keep ignored content outside the move");
+    const before = snapshot(dir);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = runScript(dir, "--write");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr.toString()).toContain("the clone is back as it was");
+      expect(snapshot(dir)).toBe(before);
+      expect(existsSync(join(dir, MOVED))).toBe(false);
+    }
+    writeFileSync(join(dir, ".gitignore"), "outside-cache/\n");
+    execFileSync("git", ["-C", dir, "add", "--", ".gitignore"], { env: childEnv() });
+    execFileSync("git", ["-C", dir, "commit", "-q", "-m", "allow the moved pack"], { env: childEnv() });
+    publish(dir);
+    expect(runScript(dir, "--write").exitCode).toBe(0);
+    expect(readFileSync(join(dir, MOVED, "pack", "skills.jsonc"), "utf8")).toBe("{}");
+    expect(readFileSync(join(dir, "outside-cache", "keep.txt"), "utf8")).toBe("keep ignored content outside the move");
+  });
+
+  test("untracked and ignored files in the managed folders are refused, even when git hides untracked files", () => {
+    ready();
+    const dir = tempClone({ ".gitignore": "*.tmp\n" });
+    execFileSync("git", ["-C", dir, "config", "status.showUntrackedFiles", "no"], { env: childEnv() });
+    writeFileSync(join(dir, "mattstack", "teams", "widgets", "new.json"), "keep me");
+    const untracked = runScript(dir, "--write");
+    expect(untracked.exitCode).toBe(2);
+    expect(untracked.stderr.toString()).toContain("The clone has uncommitted changes");
+    expect(readFileSync(join(dir, "mattstack", "teams", "widgets", "new.json"), "utf8")).toBe("keep me");
+    rmSync(join(dir, "mattstack", "teams", "widgets", "new.json"));
+    writeFileSync(join(dir, NESTED, "draft.tmp"), "keep me too");
+    const before = snapshot(dir);
+    const ignored = runScript(dir, "--write");
+    expect(ignored.exitCode).toBe(2);
+    expect(ignored.stderr.toString()).toContain("The clone has ignored files in its managed folders");
+    expect(snapshot(dir)).toBe(before);
+    expect(readFileSync(join(dir, NESTED, "draft.tmp"), "utf8")).toBe("keep me too");
+    expect(existsSync(join(dir, MOVED))).toBe(false);
+  });
+
+  test("--write refuses a clone with commits origin does not have, and changes nothing", () => {
+    ready();
+    const dir = tempClone();
+    writeFileSync(join(dir, "local-only.txt"), "not published");
+    execFileSync("git", ["-C", dir, "add", "--", "local-only.txt"], { env: childEnv() });
+    execFileSync("git", ["-C", dir, "commit", "-q", "-m", "local only"], { env: childEnv() });
+    const before = snapshot(dir);
+    const result = runScript(dir, "--write");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr.toString()).toContain("The clone has commits origin does not have");
+    expect(snapshot(dir)).toBe(before);
+    publish(dir);
+    expect(runScript(dir, "--write").exitCode).toBe(0);
+  });
+
+  test("--write moves on a branch origin has, committing there and leaving main alone", () => {
+    ready();
+    const dir = tempClone();
+    const mainBefore = execFileSync("git", ["-C", dir, "rev-parse", "main"], { encoding: "utf8", env: childEnv() }).trim();
+    execFileSync("git", ["-C", dir, "switch", "-q", "-c", "org-trial"], { env: childEnv() });
+    execFileSync("git", ["-C", dir, "push", "-q", "-u", "origin", "org-trial"], { env: childEnv() });
+    expect(runScript(dir, "--write").exitCode).toBe(0);
+    expect(execFileSync("git", ["-C", dir, "log", "-1", "--format=%s", "org-trial"], { encoding: "utf8", env: childEnv() }).trim()).toBe("org: move team packs to plugin/");
+    expect(execFileSync("git", ["-C", dir, "rev-parse", "main"], { encoding: "utf8", env: childEnv() }).trim()).toBe(mainBefore);
+  });
+
+  test("--write refuses a branch origin does not have yet, names the push, and changes nothing", () => {
+    ready();
+    const dir = tempClone();
+    execFileSync("git", ["-C", dir, "switch", "-q", "-c", "prep"], { env: childEnv() });
+    const before = snapshot(dir);
+    const result = runScript(dir, "--write");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr.toString()).toContain("Origin has no prep branch");
+    expect(result.stderr.toString()).toContain(`git -C ${dir} push -u origin prep`);
+    expect(snapshot(dir)).toBe(before);
+  });
+
+  test("--write refuses a detached HEAD and changes nothing", () => {
+    ready();
+    const dir = tempClone();
+    execFileSync("git", ["-C", dir, "switch", "-q", "--detach"], { env: childEnv() });
+    const before = snapshot(dir);
+    const result = runScript(dir, "--write");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr.toString()).toContain("The clone has no branch checked out");
+    expect(result.stderr.toString()).toContain(`git -C ${dir} switch main`);
+    expect(snapshot(dir)).toBe(before);
+  });
+
+  test("--write stops before writing when origin cannot be fetched", () => {
+    ready();
+    const dir = tempClone();
+    execFileSync("git", ["-C", dir, "remote", "set-url", "origin", join(home, "missing.git")], { env: childEnv() });
+    const before = snapshot(dir);
+    const result = runScript(dir, "--write");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.toString()).toContain("Could not fetch origin to check that the clone is current");
+    expect(snapshot(dir)).toBe(before);
   });
 });

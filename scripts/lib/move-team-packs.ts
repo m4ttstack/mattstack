@@ -93,10 +93,13 @@ export function planMove(input: MoveInput): MovePlan {
     const strangers = nested.filter((name) => name !== team);
     if (strangers.length > 0) throw new Error(`${team} has ${strangers.map((name) => `packs/${name}`).join(", ")}, which the script does not know how to place; a team's pack is named after the team`);
     if (input.hasPlugin[team]) throw new Error(`${team} has both ${nestedTeamPackRel(team)} and ${teamPackRel(team)}; keep one before moving`);
-    objOf(input.files, `${nestedTeamPackRel(team)}/.claude-plugin/plugin.json`);
+    const manifestRel = `${nestedTeamPackRel(team)}/.claude-plugin/plugin.json`;
+    if (input.files[manifestRel] === undefined) throw new Error(`${manifestRel} is missing, so the script cannot bump the ${team} pack's version; add it before moving`);
+    objOf(input.files, manifestRel);
     moving.push(team);
   }
   if (moving.length === 0) throw new Error("Every team's pack is already at plugin/ (or there is none): nothing to move");
+  if (input.files[".claude-plugin/marketplace.json"] === undefined) throw new Error(".claude-plugin/marketplace.json is missing, so there is no marketplace entry to point at the moved packs; restore it before moving");
 
   const moves: [string, string][] = [];
   const writes: Record<string, string> = {};
@@ -121,9 +124,10 @@ export function planMove(input: MoveInput): MovePlan {
     const before = objOf(input.files, rel);
     const after = rewritePaths(before, swaps, noteRewrite) as Json;
     if (JSON.stringify(after) === JSON.stringify(before)) continue;
-    const header = input.files[rel]!.startsWith("//") ? `${input.files[rel]!.split("\n")[0]}\n` : "";
+    const text = input.files[rel]!;
+    const header = text.startsWith("//") ? `${text.split("\n")[0]}\n` : "";
     writes[rel] = `${header}${JSON.stringify(after, null, 2)}\n`;
-    if (hasComments(input.files[rel]!)) report.push(`comments in ${rel} are not carried over`);
+    if (hasComments(text.slice(header.length))) report.push(`comments in ${rel} are not carried over`);
   }
 
   const market = objOf(input.files, ".claude-plugin/marketplace.json");
