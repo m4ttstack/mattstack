@@ -2256,6 +2256,34 @@ describe("skillsCheck", () => {
     expect(payload.verbs.every((v: { status: string }) => v.status === "in-sync")).toBe(true);
     expect(process.exitCode ?? 0).toBe(0);
   });
+  test("check --json still prints its envelope when a verb's compile throws, with the error and drift", async () => {
+    const mattstackDir = makeMattstackDir();
+    const packDir = makePackDir();
+    await skillsCompile(["--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", makeManifest(), "--verb", "watch-ci"]);
+    io.clear();
+
+    const { exitCode } = await runExpectingCleanExit(() => skillsCheck(["--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", makeManifestDanglingDomain(), "--verb", "watch-ci", "--json"]));
+    expect(exitCode).toBeUndefined();
+
+    const payload = JSON.parse(io.lines().at(-1)!);
+    expect(payload.verbs).toEqual([]);
+    expect(payload.compileErrors).toHaveLength(1);
+    expect(payload.compileErrors[0]).toContain("does-not-exist");
+    expect(process.exitCode).toBe(1);
+  });
+
+  test("check names a verb whose compile throws for a person", async () => {
+    const mattstackDir = makeMattstackDir();
+    const packDir = makePackDir();
+    await skillsCompile(["--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", makeManifest(), "--verb", "watch-ci"]);
+    io.clear();
+
+    const { exitCode } = await runExpectingCleanExit(() => skillsCheck(["--pack", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", makeManifestDanglingDomain(), "--verb", "watch-ci"]));
+    expect(exitCode).toBeUndefined();
+
+    expect(io.lines().some((l) => l.startsWith("[failed]") && l.includes("does-not-exist"))).toBe(true);
+    expect(process.exitCode).toBe(1);
+  });
 });
 
 describe("installedInfoFor", () => {

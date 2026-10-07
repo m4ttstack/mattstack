@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { checkBlocks, compileBlocks, compositionBlocks, installedCacheBlocks, materializeBlocks, packsBlocks, type CheckPayload, type CompositionPayload } from "../skills.ts";
 
-const base: CheckPayload = { pack: "acme", packDir: "/p", verbs: [], chainErrors: [], installed: null, drift: false, mcpLint: [], scriptLint: [], strictLint: false, attachments: [], baseErrors: [], extendsBase: true };
+const base: CheckPayload = { pack: "acme", packDir: "/p", verbs: [], chainErrors: [], installed: null, drift: false, mcpLint: [], scriptLint: [], strictLint: false, attachments: [], baseErrors: [], compileErrors: [], extendsBase: true };
 
 test("check lists each verb, names what moved, and gives the fix once", () => {
   const payload: CheckPayload = {
