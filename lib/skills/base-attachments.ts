@@ -200,7 +200,9 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
     } else if (isHandAuthored(join(packDir, "skills", name))) {
       errors.push(`${label} has the same name as the ${packName} skill skills/${name}; rename one of them`);
     } else if (leaf !== undefined && existsSync(join(groupDir, "SKILL.md")) && !isEmittedAttachmentDir(groupDir)) {
-      errors.push(`${label} would land inside the ${packName} attachment attachments/${group}; rename one of them`);
+      errors.push(hasCompiledHeader(groupDir)
+        ? `${label} would land inside attachments/${group}, which an earlier compile wrote; delete that folder and compile again`
+        : `${label} would land inside the ${packName} attachment attachments/${group}; rename one of them`);
     } else if (existsSync(join(srcDir, PROVENANCE_FILE))) {
       errors.push(`${label} carries ${PROVENANCE_FILE}, a name compile keeps for itself`);
     } else if (isTeamOwned(join(attachmentsDir, name)) && !hasCompiledHeader(join(attachmentsDir, name))) {

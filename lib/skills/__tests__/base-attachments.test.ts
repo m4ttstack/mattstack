@@ -223,6 +223,16 @@ describe("grouped base attachments", () => {
     ]);
   });
 
+  test("compile output at the group path is named as such, and left for the person to delete", () => {
+    put(unit("self-review", "SKILL.md"), "body\n");
+    put(join(packDir(), "attachments", "review", "SKILL.md"), `---\nname: review\n---\n${HEADER_COMMENT}\nold\n`);
+    const result = plan();
+    expect(result.errors).toEqual([
+      "acme-base attachment review/self-review would land inside attachments/review, which an earlier compile wrote; delete that folder and compile again",
+    ]);
+    expect(result.retired).toEqual([]);
+  });
+
   test("a team's own unit at the same relative path wins", () => {
     put(unit("self-review", "SKILL.md"), "body\n");
     put(join(packDir(), "attachments", "review", "self-review", "SKILL.md"), "mine\n");
