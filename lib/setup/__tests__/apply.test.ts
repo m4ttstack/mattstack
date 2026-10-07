@@ -1134,7 +1134,7 @@ describe("createApplyContext", () => {
     p.writeFile("/h/.mattstack/orgs/acme/.git/config", '[remote "origin"]\nurl = https://github.com/acme/org.git\n');
     ctx.identity = { login: async () => "dev1" };
     p.writeFile(
-      "/h/.mattstack/orgs/acme/mattstack/teams/widgets/packs/widgets/requirements.jsonc",
+      "/h/.mattstack/orgs/acme/mattstack/teams/widgets/plugin/requirements.jsonc",
       JSON.stringify({ tools: [{ name: "acme-tool", why: "work" }], integrations: [] }),
     );
     await runApplyWith(

@@ -202,8 +202,8 @@ describe("setupPackFlow", () => {
 
 describe("readServedPacks filter", () => {
   const market = JSON.stringify({ name: "acme", plugins: [
-    { name: "widgets", source: "./mattstack/teams/widgets/packs/widgets" },
-    { name: "gadgets", source: "./mattstack/teams/gadgets/packs/gadgets" },
+    { name: "widgets", source: "./mattstack/teams/widgets/plugin" },
+    { name: "gadgets", source: "./mattstack/teams/gadgets/plugin" },
   ] });
   const p = fakeProbes({ home: "/h", files: { "/h/.mattstack/orgs/acme/.claude-plugin/marketplace.json": market } });
 

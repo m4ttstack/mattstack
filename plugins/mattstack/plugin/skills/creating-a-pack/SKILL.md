@@ -10,7 +10,9 @@ bindings fragment, and (later) domain fills. `rt skills init` writes all of
 it; this skill runs that verb, proves the result, and offers the first
 rules. One team folder holds one pack, named after the team: the widgets
 team in the acme org has its pack at
-`~/.mattstack/orgs/acme/mattstack/teams/widgets/packs/widgets/`.
+`~/.mattstack/orgs/acme/mattstack/teams/widgets/plugin/`, and the org
+clone's `.claude-plugin/marketplace.json` lists it with the source
+`./mattstack/teams/widgets/plugin`.
 
 Walk this map to the end; a pack is not done until it is published. A
 successful init publishes the new pack itself: it commits the pack, the

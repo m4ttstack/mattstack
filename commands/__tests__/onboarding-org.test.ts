@@ -205,14 +205,14 @@ function orgTree(roster: { username: string; teams: string[] }[]): string {
   });
   for (const team of ["widgets", "gadgets"]) {
     write(`mattstack/teams/${team}/settings.team.jsonc`, { "board.title": team });
-    write(`mattstack/teams/${team}/packs/${team}/.claude-plugin/plugin.json`, { name: team, version: "0.1.0" });
-    write(`mattstack/teams/${team}/packs/${team}/pack/skills.jsonc`, {});
-    write(`mattstack/teams/${team}/packs/${team}/requirements.jsonc`, { tools: [{ name: `${team}-tool`, why: "Run the team tools" }], integrations: [] });
+    write(`mattstack/teams/${team}/plugin/.claude-plugin/plugin.json`, { name: team, version: "0.1.0" });
+    write(`mattstack/teams/${team}/plugin/pack/skills.jsonc`, {});
+    write(`mattstack/teams/${team}/plugin/requirements.jsonc`, { tools: [{ name: `${team}-tool`, why: "Run the team tools" }], integrations: [] });
   }
   write(".claude-plugin/marketplace.json", {
     name: "acme",
     owner: { name: "Acme" },
-    plugins: ["widgets", "gadgets"].map((team) => ({ name: team, source: `./mattstack/teams/${team}/packs/${team}` })),
+    plugins: ["widgets", "gadgets"].map((team) => ({ name: team, source: `./mattstack/teams/${team}/plugin` })),
   });
   return dir;
 }

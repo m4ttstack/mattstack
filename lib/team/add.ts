@@ -5,6 +5,7 @@ import type { Probes } from "../setup/probes.ts";
 import { addMarketplacePlugin, packDescription, renderPackFiles } from "../skills/init.ts";
 import { assertMayWrite, rolesFor, storedOrgValue } from "./roles.ts";
 import { orgDirUnder } from "../rt-paths.ts";
+import { TEAM_PACK_FOLDER, teamPackSource } from "./team-pack-path.ts";
 
 export interface AddTeamOpts {
   org: string;
@@ -60,7 +61,7 @@ export function addTeam(p: Probes, opts: AddTeamOpts, seams: AddTeamSeams): AddT
   }
   const marketBefore = marketText ?? `${JSON.stringify({ name: org, owner: { name: org }, plugins: [] }, null, 2)}\n`;
   let marketAfter: string;
-  const source = `./mattstack/teams/${team}/packs/${team}`;
+  const source = teamPackSource(team);
   try {
     const market = JSON.parse(marketBefore) as { plugins?: { name?: string; source?: unknown }[] };
     if (market.plugins?.some((entry) => entry.name === team && entry.source !== source)) {
@@ -87,7 +88,7 @@ export function addTeam(p: Probes, opts: AddTeamOpts, seams: AddTeamSeams): AddT
   };
 
   write(join(dir, "settings.team.jsonc"), `${SETTINGS_HEADER}${JSON.stringify({ "board.title": team }, null, 2)}\n`);
-  const packDir = join(dir, "packs", team);
+  const packDir = join(dir, TEAM_PACK_FOLDER);
   for (const [rel, text] of Object.entries(packFiles)) write(join(packDir, rel), text);
   write(marketPath, marketAfter);
 

@@ -1197,7 +1197,7 @@ describe("pack role refusals", () => {
       try {
         seedOrg({ org: "acme", username, roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
         const orgRoot = join(process.env.HOME!, ".mattstack", "orgs", "acme");
-        const packDir = target === "root" ? orgRoot : target === "..pack" ? join(orgRoot, "..pack") : join(orgRoot, "mattstack", "teams", "widgets", "packs", "widgets");
+        const packDir = target === "root" ? orgRoot : target === "..pack" ? join(orgRoot, "..pack") : join(orgRoot, "mattstack", "teams", "widgets", "plugin");
         writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
         const title = target === "team" ? "The widgets team's files belong to its owners" : "The org's shared files belong to its admins";
         const refusal = `${title}. ${target === "team" ? "Ask dev2 (the team's owner) or dev1 (an org admin) to make this change." : "Ask dev1 (an org admin) to make this change."}`;
@@ -1228,7 +1228,7 @@ describe("pack role refusals", () => {
       seedOrg({ org: "acme", username: "dev4", roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
       const copy = join(realpathSync(mkdtempSync(join(tmpdir(), "rt-pack-role-copy-"))), "acme-wt");
       cpSync(join(process.env.HOME!, ".mattstack", "orgs", "acme"), copy, { recursive: true });
-      const packDir = join(copy, "mattstack", "teams", "widgets", "packs", "widgets");
+      const packDir = join(copy, "mattstack", "teams", "widgets", "plugin");
       writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
       writeFile(join(packDir, "pack", "surface.jsonc"), '{"public":["helper"]}');
       writeFile(join(packDir, "skills", "helper", "SKILL.md"), "---\nname: helper\ndescription: Help\n---\nHelp.\n");
@@ -1250,7 +1250,7 @@ describe("pack role refusals", () => {
     const fake = installFakePick([resultStep({ action: "select", values: [] })]);
     try {
       seedOrg({ org: "acme", username: "dev4", roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
-      const packDir = join(process.env.HOME!, ".mattstack", "orgs", "acme", "mattstack", "teams", "widgets", "packs", "widgets");
+      const packDir = join(process.env.HOME!, ".mattstack", "orgs", "acme", "mattstack", "teams", "widgets", "plugin");
       writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
       writeFile(join(packDir, "skills", "helper", "SKILL.md"), "---\nname: helper\ndescription: Help\n---\nHelp.\n");
 
@@ -1277,7 +1277,7 @@ describe("a Mac with two org clones", () => {
         const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } };
         seed({ org: "acme", username: "dev4", roles, teams: { widgets: {} } });
         seed({ org: "beta", username: "dev4", roles, teams: { widgets: {} } });
-        const packDir = join(process.env.HOME!, ".mattstack", "orgs", "beta", "mattstack", "teams", "widgets", "packs", "widgets");
+        const packDir = join(process.env.HOME!, ".mattstack", "orgs", "beta", "mattstack", "teams", "widgets", "plugin");
         writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
         const title = "This pack is in the beta org, not the one this Mac uses";
         const refusal = `${title}. rt works with one org per Mac, and this Mac uses acme`;

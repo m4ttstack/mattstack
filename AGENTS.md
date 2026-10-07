@@ -27,6 +27,13 @@ refused unless this Mac's role owns the file
 `docs/superpowers/specs/2026-10-01-org-and-teams-design.md` for the layout,
 selection and ownership rules.
 
+A team's pack is its Claude plugin at `mattstack/teams/<team>/plugin/`
+(`teamPackDir`, `lib/team/team-pack-path.ts`). The older layout, with the
+pack nested in a `packs/` folder inside the team folder, is read by
+nothing but the detector that names the conversion, and
+`lib/__tests__/no-nested-team-pack.test.ts` keeps that spelling out of
+source and live docs.
+
 The branch an org clone has checked out is the branch rt reads, syncs and
 publishes on that Mac (`orgBranch` in `lib/team/org-branch.ts`), so an admin
 can try a breaking change on a branch while every other member stays on main.

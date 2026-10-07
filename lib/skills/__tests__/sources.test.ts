@@ -674,7 +674,7 @@ describe("org base pack roots", () => {
 
   test("orgOfPackDir names the org of a pack inside an org clone and nothing else", () => {
     const { root, base } = makeRoot();
-    const teamPack = join(root, "orgs", "acme", "mattstack", "teams", "widgets", "packs", "widgets");
+    const teamPack = join(root, "orgs", "acme", "mattstack", "teams", "widgets", "plugin");
     mkdirSync(teamPack, { recursive: true });
     const elsewhere = mkdtempSync(join(tmpdir(), "rt-sources-elsewhere-"));
     const clone = realpathSync(join(root, "orgs", "acme"));
@@ -688,7 +688,7 @@ describe("org base pack roots", () => {
     const { root } = makeRoot();
     const copy = join(mkdtempSync(join(tmpdir(), "rt-sources-worktree-")), "acme-wt");
     cpSync(join(root, "orgs", "acme"), copy, { recursive: true });
-    const teamPack = join(copy, "mattstack", "teams", "widgets", "packs", "widgets");
+    const teamPack = join(copy, "mattstack", "teams", "widgets", "plugin");
     mkdirSync(teamPack, { recursive: true });
     expect(orgOfPackDir(teamPack)).toEqual({ org: "acme", root: realpathSync(copy) });
     expect(orgBasePackRoots(copy).map((r) => r.name)).toEqual(["acme-base"]);
@@ -697,7 +697,7 @@ describe("org base pack roots", () => {
   test("org marker slugs use the org domain, while pack names keep the team domain", () => {
     const { root } = makeRoot();
     const clone = join(root, "orgs", "acme");
-    const pack = join(clone, "mattstack", "teams", "team-1acme", "packs", "team-1acme");
+    const pack = join(clone, "mattstack", "teams", "team-1acme", "plugin");
     mkdirSync(pack, { recursive: true });
     const marker = join(clone, "mattstack", "mattstack.jsonc");
     writeFileSync(marker, JSON.stringify({ role: "org", org: "1acme" }));
