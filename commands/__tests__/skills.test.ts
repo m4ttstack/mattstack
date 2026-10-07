@@ -953,7 +953,7 @@ describe("base pack attachments", () => {
   function seedBaseAndTeam(opts: { domainBody?: string } = {}) {
     const mattstackDir = makeMattstackDir();
     seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
-    const baseDir = join(mattstackDir, "teams", "acme", "mattstack", "org", "packs", "acme-base");
+    const baseDir = join(mattstackDir, "orgs", "acme", "mattstack", "org", "packs", "acme-base");
     const packDir = teamPackDir(mattstackDir, "acme", "widgets");
     writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
     writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), opts.domainBody ?? DOMAIN_SKILL_MD);
@@ -1295,7 +1295,7 @@ describe("base pack attachments", () => {
   test("a pack that extends a base but has no verbs still emits", async () => {
     const mattstackDir = makeMattstackDir();
     seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
-    const baseDir = join(mattstackDir, "teams", "acme", "mattstack", "org", "packs", "acme-base");
+    const baseDir = join(mattstackDir, "orgs", "acme", "mattstack", "org", "packs", "acme-base");
     const packDir = teamPackDir(mattstackDir, "acme", "widgets");
     writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true }));
     writeFile(join(baseDir, "attachments", "review-kit", "SKILL.md"), "---\nname: review-kit\n---\nInvoke {{pack.name}}:ship.\n");
