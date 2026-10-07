@@ -440,9 +440,10 @@ const noManifest: ReadPackFile = () =>
 function mountGit(
   runRt: Parameters<typeof mountSkills>[1],
   runGit: Parameters<typeof mountSkills>[2],
-  readPackFile: ReadPackFile = noManifest
+  readPackFile: ReadPackFile = noManifest,
+  realpath?: Parameters<typeof mountSkills>[4]
 ) {
-  return mountSkills(new Hono(), runRt, runGit, readPackFile);
+  return mountSkills(new Hono(), runRt, runGit, readPackFile, realpath);
 }
 
 describe('skills history route', () => {
@@ -887,6 +888,288 @@ describe('skills diff route', () => {
     await expect(res.json()).resolves.toMatchObject({
       error: expect.stringContaining('bad object'),
     });
+  });
+});
+
+const ACME_REPO = '/o/acme';
+const ACME_PACK_DIR = `${ACME_REPO}/mattstack/teams/acme/packs/acme`;
+const ACME_BASE_ROOT = `${ACME_REPO}/mattstack/org/packs/acme-base`;
+const ACME_BASE_FILL = `${ACME_BASE_ROOT}/attachments/plan-policy/SKILL.md`;
+const ACME_BASE_TOP = 'mattstack/org/packs/acme-base/attachments/plan-policy';
+const ACME_BASE_FILE = `${ACME_BASE_TOP}/SKILL.md`;
+const ACME_BASE_COORD = 'base:acme-base/attachments/plan-policy/SKILL.md';
+
+const ACME_PACKS = JSON.stringify({
+  packs: [{ name: 'acme', dir: ACME_PACK_DIR, layout: 'grouped' }],
+});
+
+function acmeComposition(slots: Record<string, unknown>[]) {
+  return JSON.stringify({
+    pack: 'acme',
+    packDir: ACME_PACK_DIR,
+    verbs: [{ name: 'plan', slots }],
+    fills: [],
+  });
+}
+
+const BASE_SLOT = {
+  name: 'domain',
+  fillSourcePath: ACME_BASE_FILL,
+  origin: 'base',
+  base: 'acme-base',
+};
+
+function acmeRt(composition = acmeComposition([BASE_SLOT])) {
+  return fakeRtHandler(argv =>
+    argv.includes('composition')
+      ? { code: 0, stdout: composition, stderr: '' }
+      : { code: 0, stdout: ACME_PACKS, stderr: '' }
+  );
+}
+
+const sameRealpath = async (path: string) => path;
+
+function acmeLog(files: string[]): string {
+  const sha = 'a'.repeat(40);
+  return (
+    RS +
+    [sha, sha.slice(0, 7), '2026-08-21T21:47:31-05:00', 'M', 'base edit'].join(
+      US
+    ) +
+    US +
+    `\n\n${files.join('\n')}\n`
+  );
+}
+
+function acmeGit(
+  over: {
+    log?: string;
+    status?: string;
+    packDiff?: string;
+    baseDiff?: string;
+  } = {}
+) {
+  return fakeGit(argv => {
+    if (argv.includes('rev-parse'))
+      return { code: 0, stdout: `${ACME_REPO}\n`, stderr: '' };
+    if (argv.includes('status'))
+      return { code: 0, stdout: over.status ?? '', stderr: '' };
+    if (argv.includes('log'))
+      return { code: 0, stdout: over.log ?? acmeLog([]), stderr: '' };
+    return {
+      code: 0,
+      stdout: argv.includes('--relative')
+        ? (over.packDiff ?? '')
+        : (over.baseDiff ?? ''),
+      stderr: '',
+    };
+  });
+}
+
+describe('skills history route: org base fills', () => {
+  it('follows a verb into the base fill dirs it binds, and names them in the base coordinate', async () => {
+    const git = acmeGit({
+      log: acmeLog([
+        ACME_BASE_FILE,
+        'mattstack/teams/acme/packs/acme/skills/plan/SKILL.md',
+      ]),
+    });
+    const app = mountGit(acmeRt().run, git.run, noManifest, sameRealpath);
+
+    const res = await app.request('/api/skills/history?pack=acme&verb=plan');
+
+    expect(res.status).toBe(200);
+    const log = git.calls.find(argv => argv.includes('log'));
+    expect(log?.slice(-3)).toEqual([
+      '--',
+      'skills/plan',
+      `:(top)${ACME_BASE_TOP}`,
+    ]);
+    const body = (await res.json()) as { commits: { files: string[] }[] };
+    expect(body.commits[0].files).toEqual([
+      ACME_BASE_COORD,
+      'mattstack/teams/acme/packs/acme/skills/plan/SKILL.md',
+    ]);
+  });
+
+  it('carries the base pathspec into git status and rewrites a dirty base file', async () => {
+    const git = acmeGit({ status: ` M ${ACME_BASE_FILE}\n` });
+    const app = mountGit(acmeRt().run, git.run, noManifest, sameRealpath);
+
+    const res = await app.request('/api/skills/history?pack=acme&verb=plan');
+
+    const status = git.calls.find(argv => argv.includes('status'));
+    expect(status?.slice(-3)).toEqual([
+      '--',
+      'skills/plan',
+      `:(top)${ACME_BASE_TOP}`,
+    ]);
+    await expect(res.json()).resolves.toMatchObject({
+      runtime: { dirtyFiles: [ACME_BASE_COORD] },
+    });
+  });
+
+  it('adds no base scope for a team-pack copy of a base fill', async () => {
+    const copy = {
+      ...BASE_SLOT,
+      fillSourcePath: `${ACME_PACK_DIR}/attachments/plan-policy/SKILL.md`,
+    };
+    const git = acmeGit();
+    const app = mountGit(
+      acmeRt(acmeComposition([copy])).run,
+      git.run,
+      noManifest,
+      sameRealpath
+    );
+
+    await app.request('/api/skills/history?pack=acme&verb=plan');
+
+    const log = git.calls.find(argv => argv.includes('log'));
+    expect(log?.slice(-2)).toEqual(['--', 'skills/plan']);
+  });
+
+  it('serves the pack history alone when the composition does not parse', async () => {
+    const git = acmeGit();
+    const app = mountGit(
+      acmeRt('not json').run,
+      git.run,
+      noManifest,
+      sameRealpath
+    );
+
+    const res = await app.request('/api/skills/history?pack=acme&verb=plan');
+
+    expect(res.status).toBe(200);
+    const log = git.calls.find(argv => argv.includes('log'));
+    expect(log?.slice(-2)).toEqual(['--', 'skills/plan']);
+  });
+
+  it('serves the pack history alone when the composition read throws', async () => {
+    const rt = fakeRtHandler(argv => {
+      if (argv.includes('composition')) throw new Error('rt crashed');
+      return { code: 0, stdout: ACME_PACKS, stderr: '' };
+    });
+    const git = acmeGit();
+    const app = mountGit(rt.run, git.run, noManifest, sameRealpath);
+
+    const res = await app.request('/api/skills/history?pack=acme&verb=plan');
+
+    expect(res.status).toBe(200);
+  });
+});
+
+const ACME_PACK_DIFF = `diff --git a/skills/plan/SKILL.md b/skills/plan/SKILL.md
+--- a/skills/plan/SKILL.md
++++ b/skills/plan/SKILL.md
+@@ -1 +1 @@
+-old
++new
+`;
+
+const ACME_BASE_DIFF = `diff --git a/${ACME_BASE_FILE} b/${ACME_BASE_FILE}
+index 1111111..2222222 100644
+--- a/${ACME_BASE_FILE}
++++ b/${ACME_BASE_FILE}
+@@ -3,1 +3,2 @@ heading
+ keep
++added
+`;
+
+describe('skills diff route: org base fills', () => {
+  it('diffs the base fill dirs in a second call at repo paths, rewritten to the base coordinate', async () => {
+    const git = acmeGit({ packDiff: ACME_PACK_DIFF, baseDiff: ACME_BASE_DIFF });
+    const app = mountGit(acmeRt().run, git.run, noManifest, sameRealpath);
+
+    const res = await app.request(
+      '/api/skills/diff?pack=acme&from=17f8273&to=ed24bc4'
+    );
+
+    const diffs = git.calls.filter(argv => argv.includes('diff'));
+    expect(diffs).toHaveLength(2);
+    expect(diffs[1]).toEqual([
+      '-C',
+      ACME_PACK_DIR,
+      'diff',
+      '--no-color',
+      '17f8273..ed24bc4',
+      '--',
+      `:(top)${ACME_BASE_TOP}`,
+    ]);
+    const body = (await res.json()) as { diff: string; baseDiff: string };
+    expect(body.diff).toBe(ACME_PACK_DIFF);
+    expect(body.baseDiff)
+      .toBe(`diff --git a/${ACME_BASE_COORD} b/${ACME_BASE_COORD}
+index 1111111..2222222 100644
+--- a/${ACME_BASE_COORD}
++++ b/${ACME_BASE_COORD}
+@@ -3,1 +3,2 @@ heading
+ keep
++added
+`);
+  });
+
+  it('runs no second diff and carries no baseDiff key without base scopes', async () => {
+    const git = acmeGit({ packDiff: ACME_PACK_DIFF });
+    const app = mountGit(
+      acmeRt(acmeComposition([])).run,
+      git.run,
+      noManifest,
+      sameRealpath
+    );
+
+    const res = await app.request(
+      '/api/skills/diff?pack=acme&from=17f8273&to=ed24bc4'
+    );
+
+    expect(git.calls.filter(argv => argv.includes('diff'))).toHaveLength(1);
+    expect(await res.json()).not.toHaveProperty('baseDiff');
+  });
+
+  it('shares the byte cap: the base diff gets what the pack diff left', async () => {
+    const huge = `${'+padding line\n'.repeat(40_000)}`;
+    const git = acmeGit({ packDiff: huge, baseDiff: ACME_BASE_DIFF });
+    const app = mountGit(acmeRt().run, git.run, noManifest, sameRealpath);
+
+    const res = await app.request(
+      '/api/skills/diff?pack=acme&from=17f8273&to=ed24bc4'
+    );
+    const body = (await res.json()) as {
+      diff: string;
+      baseDiff: string;
+      truncated: boolean;
+    };
+
+    expect(body.truncated).toBe(true);
+    expect(body.diff.length + body.baseDiff.length).toBeLessThanOrEqual(
+      400_000
+    );
+    expect(body.baseDiff).toBe('');
+  });
+
+  it('marks the diff truncated when only the base diff was cut', async () => {
+    const pack = `${'+p\n'.repeat(10)}`;
+    const base = `${ACME_BASE_DIFF}${'+padding line\n'.repeat(40_000)}`;
+    const git = acmeGit({ packDiff: pack, baseDiff: base });
+    const app = mountGit(acmeRt().run, git.run, noManifest, sameRealpath);
+
+    const res = await app.request(
+      '/api/skills/diff?pack=acme&from=17f8273&to=ed24bc4'
+    );
+    const body = (await res.json()) as {
+      diff: string;
+      baseDiff: string;
+      truncated: boolean;
+    };
+
+    expect(body.truncated).toBe(true);
+    expect(body.diff).toBe(pack);
+    expect(body.baseDiff.startsWith(`diff --git a/${ACME_BASE_COORD}`)).toBe(
+      true
+    );
+    expect(body.baseDiff.endsWith('\n')).toBe(true);
+    expect(body.diff.length + body.baseDiff.length).toBeLessThanOrEqual(
+      400_000
+    );
   });
 });
 

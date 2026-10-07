@@ -5,6 +5,12 @@ import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 
 import { pluginRootOf, pluginSkillDirs } from '../shared/pluginRoot';
+import {
+  baseScopesFor,
+  rewriteDiffPaths,
+  toBaseCoordinate,
+  type BaseScope,
+} from './baseScopes';
 import { runGit as liveRunGit, type RunGit } from './git-bin';
 import { GIT_LOG_FORMAT, parseGitLog, type GitCommit } from './gitLog';
 import {
@@ -337,8 +343,9 @@ interface SkillsDiscardResponse {
  */
 interface SkillsRuntimeFacts {
   /** Paths `git status` reported as changed within `scope`, relative to the
-      REPOSITORY ROOT (the same frame `--name-only` uses), capped. Null when
-      status did not answer. */
+      REPOSITORY ROOT (the same frame `--name-only` uses), capped. A path in
+      an org base fill the verb binds is named `base:<name>/<path>`. Null
+      when status did not answer. */
   dirtyFiles: string[] | null;
   /** True when `dirtyFiles` was cut to the cap. */
   moreDirtyFiles: boolean;
@@ -380,10 +387,15 @@ interface SkillsDiffResponse {
   scope: string;
   from: string;
   to: string;
-  /** True when the diff was cut at the byte bound. */
+  /** True when the diff, or the base diff, was cut at the shared byte
+      bound. */
   truncated: boolean;
   /** Unified diff text, verbatim, with paths relative to `packDir`. */
   diff: string;
+  /** The same range over the org base fill folders the pack's verbs bind,
+      each path in the `base:<name>/<path inside the base pack>` coordinate.
+      Absent when no verb binds a base fill outside the pack. */
+  baseDiff?: string;
 }
 
 const historyQuery = validator(
@@ -508,14 +520,13 @@ function parseGitStatus(stdout: string): string[] {
 
 /** Cut at a line boundary, so the tail of a truncated diff is never half a
     hunk header that a parser would then read as a real one. */
-function boundDiff(stdout: string): { diff: string; truncated: boolean } {
-  if (stdout.length <= MAX_DIFF_BYTES)
-    return { diff: stdout, truncated: false };
-  const cut = stdout.lastIndexOf('\n', MAX_DIFF_BYTES);
-  return {
-    diff: stdout.slice(0, cut === -1 ? MAX_DIFF_BYTES : cut + 1),
-    truncated: true,
-  };
+function boundDiff(
+  stdout: string,
+  max: number = MAX_DIFF_BYTES
+): { diff: string; truncated: boolean } {
+  if (stdout.length <= max) return { diff: stdout, truncated: false };
+  const cut = max > 0 ? stdout.lastIndexOf('\n', max - 1) : -1;
+  return { diff: stdout.slice(0, cut + 1), truncated: true };
 }
 
 function findPackDir(payload: unknown, pack: string): string | null {
@@ -765,7 +776,7 @@ export function mountSkills(
   /** Null when status did not answer -- see `SkillsRuntimeFacts.dirtyFiles`. */
   async function dirtyFilesIn(
     packDir: string,
-    scope: string
+    scopes: string[]
   ): Promise<string[] | null> {
     const status = await runGit([
       '-C',
@@ -773,9 +784,40 @@ export function mountSkills(
       'status',
       '--porcelain',
       '--',
-      scope,
+      ...scopes,
     ]);
     return status.code === 0 ? parseGitStatus(status.stdout) : null;
+  }
+
+  /** The org base fill folders `verb` (every verb, for null) binds outside
+      the pack. A composition rt cannot give is no base scopes, never a
+      failed route: the pack's own history still answers. */
+  async function baseScopesOf(
+    pack: string,
+    packDir: string,
+    verb: string | null,
+    repoRoot: string
+  ): Promise<BaseScope[]> {
+    try {
+      const { stdout } = await cachedRun([
+        'skills',
+        'composition',
+        '--pack',
+        pack,
+        '--json',
+      ]);
+      const payload = parseJsonPayload(stdout) as
+        Partial<SkillsCompositionResponse> | undefined;
+      if (!Array.isArray(payload?.verbs)) return [];
+      return await baseScopesFor(
+        { packDir, verbs: payload.verbs },
+        verb,
+        repoRoot,
+        realpath
+      );
+    } catch {
+      return [];
+    }
   }
 
   async function cachedRun(argv: string[]): Promise<RtRunResult> {
@@ -1265,7 +1307,17 @@ export function mountSkills(
           );
         }
 
+        const repoRoot = root.stdout.trim();
         const scope = verb ? `skills/${verb}` : '.';
+        const baseScopes = await baseScopesOf(
+          pack,
+          packDir,
+          verb ?? null,
+          repoRoot
+        );
+        const pathspecs = [scope, ...baseScopes.map(s => `:(top)${s.top}`)];
+        const toCoordinate = (path: string) =>
+          toBaseCoordinate(path, baseScopes, repoRoot);
         // One over the bound, so "there is more history" is observed rather
         // than inferred from a full page.
         const log = await runGit([
@@ -1277,22 +1329,26 @@ export function mountSkills(
           '--name-only',
           `--format=${GIT_LOG_FORMAT}`,
           '--',
-          scope,
+          ...pathspecs,
         ]);
         if (log.code !== 0) {
           return c.json({ error: log.stderr.trim() || 'git log failed' }, 502);
         }
 
-        const [dirtyFiles, packVersion] = await Promise.all([
-          dirtyFilesIn(packDir, scope),
+        const [rawDirtyFiles, packVersion] = await Promise.all([
+          dirtyFilesIn(packDir, pathspecs),
           packVersionOf(packDir),
         ]);
+        const dirtyFiles = rawDirtyFiles && rawDirtyFiles.map(toCoordinate);
 
-        const commits = parseGitLog(log.stdout);
+        const commits = parseGitLog(log.stdout).map(commit => ({
+          ...commit,
+          files: commit.files.map(toCoordinate),
+        }));
         const response: SkillsHistoryResponse = {
           pack,
           packDir,
-          repoRoot: root.stdout.trim(),
+          repoRoot,
           scope,
           verb: verb ?? null,
           limit,
@@ -1376,17 +1432,45 @@ export function mountSkills(
           );
         }
 
+        const repoRoot = root.stdout.trim();
         const bounded = boundDiff(diff.stdout);
         const response: SkillsDiffResponse = {
           pack,
           packDir,
-          repoRoot: root.stdout.trim(),
+          repoRoot,
           scope: '.',
           from,
           to,
           truncated: bounded.truncated,
           diff: bounded.diff,
         };
+
+        const baseScopes = await baseScopesOf(pack, packDir, null, repoRoot);
+        if (baseScopes.length > 0) {
+          // No `--relative`: a base fill sits outside the pack dir, so its
+          // paths are repo paths until rewritten to the base coordinate.
+          const base = await runGit([
+            '-C',
+            packDir,
+            'diff',
+            '--no-color',
+            `${from}..${to}`,
+            '--',
+            ...baseScopes.map(s => `:(top)${s.top}`),
+          ]);
+          if (base.code !== 0) {
+            return c.json(
+              { error: base.stderr.trim() || 'git diff failed' },
+              502
+            );
+          }
+          const boundedBase = boundDiff(
+            rewriteDiffPaths(base.stdout, baseScopes, repoRoot),
+            MAX_DIFF_BYTES - bounded.diff.length
+          );
+          response.baseDiff = boundedBase.diff;
+          response.truncated = bounded.truncated || boundedBase.truncated;
+        }
         return c.json(response, 200);
       } catch (err) {
         if (err instanceof RtNotFoundError) {
