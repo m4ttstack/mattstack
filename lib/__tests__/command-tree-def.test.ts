@@ -96,3 +96,14 @@ test("gate open declares every open flag its parser accepts, and --pane's hint n
   const paneHint = open.args!.find((a) => a.flag === "--pane")!.hint!;
   expect(paneHint).toContain("Escape");
 });
+
+test("every team verb's --team that takes the org clone reads like rename's", () => {
+  const hints: string[] = [];
+  const walk = (node: (typeof TREE)[string]): void => {
+    for (const arg of node.args ?? []) if (arg.flag === "--team" && arg.placeholder === "acme") hints.push(arg.hint ?? "");
+    for (const child of Object.values(node.subcommands ?? {})) walk(child);
+  };
+  walk(TREE.team!);
+  expect(hints.length).toBeGreaterThan(5);
+  expect([...new Set(hints)]).toEqual(["Which org clone; your only one when left out"]);
+});
