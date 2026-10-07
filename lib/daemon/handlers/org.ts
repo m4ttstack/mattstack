@@ -1,0 +1,78 @@
+import { existsSync } from "fs";
+import { basename, dirname, isAbsolute, resolve } from "path";
+import { applyLocate, isRefusal, planLocate } from "../../repo-locate.ts";
+import { mattstackHome, orgsDir } from "../../rt-paths.ts";
+import { validateSlug } from "../../secrets/store.ts";
+import { clearIdentityMemo, deriveRepoIdentity, serializeIdentity } from "../../settings/identity.ts";
+import { createRealProbes } from "../../setup/probes.ts";
+import { runOrgMove, type LocateFn, type MoveProbes } from "../../team/org-folder-move.ts";
+import { markerOrg } from "../../team/org-marker.ts";
+import type { TeamSnapshotsHandle } from "../team-snapshots.ts";
+import type { HandlerMap } from "./types.ts";
+
+export interface OrgHandlerOpts {
+  /** Excludes reconciler passes for the duration of `fn`; `org:move` relocates the clone's registry rows itself, so it must never go through `repos:locate`, which takes this same hold. */
+  withReconcilerHeld: <T>(fn: () => Promise<T>) => Promise<T>;
+  refreshWatchedRepos: () => void;
+  emitEvent: (topic: string, payload: unknown) => void;
+  teamSnapshots: Pick<TeamSnapshotsHandle, "pause" | "resume">;
+  probes?: MoveProbes;
+}
+
+const refuse = (code: string, message: string) => ({ ok: false as const, error: `${code}: ${message}`, failure: { code, message } });
+
+/** Relocates the clone's index row in this process, scoped to the clone's own identity: unscoped, planLocate refuses whenever any other repo rt knows is missing. The hold is already held, so the `repos:locate` handler (which takes it) would deadlock. */
+const locateDirect: LocateFn = async (newPath) => {
+  // The memo may hold the clone's identity under its old path; it takes no argument and clears everything.
+  clearIdentityMemo();
+  const identity = serializeIdentity(await deriveRepoIdentity(newPath));
+  const plan = await planLocate({ newPath, repo: identity });
+  if (isRefusal(plan)) return { ok: false, error: `${plan.refusal}: ${plan.message}` };
+  const result = await applyLocate(plan);
+  return result.ok ? { ok: true, moved: true } : { ok: false, error: result.error ?? "locate failed" };
+};
+
+export function createOrgHandlers(opts: OrgHandlerOpts): Record<"org:move", (payload: any) => Promise<any>> & HandlerMap {
+  const probes = opts.probes ?? createRealProbes();
+  return {
+    "org:move": async (payload) => {
+      const from = payload?.from;
+      const to = payload?.to;
+      if (typeof from !== "string" || from.length === 0 || !isAbsolute(from)) return refuse("from-required", "from must be an absolute path");
+      if (typeof to !== "string" || to.length === 0 || !isAbsolute(to)) return refuse("to-required", "to must be an absolute path");
+      const target = resolve(to);
+      const org = basename(target);
+      let slugOk = true;
+      try {
+        validateSlug(org);
+      } catch {
+        slugOk = false;
+      }
+      if (dirname(target) !== orgsDir() || !slugOk) return refuse("to-outside-orgs", `${to} is not a folder directly under ${orgsDir()}`);
+      const source = resolve(from);
+      if (!source.startsWith(`${mattstackHome()}/`)) return refuse("from-outside-home", `${from} is not under ${mattstackHome()}`);
+      if (!existsSync(source)) return refuse("from-missing", `${from} does not exist`);
+      const marked = markerOrg(probes, source);
+      if (marked === null) return refuse("not-an-org-clone", `${from} carries no org marker`);
+      if (marked !== org) return refuse("marker-mismatch", `${from} holds the ${marked} org, not ${org}`);
+      if (source !== target && existsSync(target)) return refuse("to-exists", `${to} already exists`);
+
+      const slugs = [...new Set([basename(source), org])];
+      opts.teamSnapshots.pause(slugs);
+      try {
+        return await opts.withReconcilerHeld(async () => {
+          const result = await runOrgMove(probes, { from: source, to: target, locate: locateDirect });
+          if (!result.ok) return refuse("move-failed", `${result.stage}: ${result.error}`);
+          if (result.index === "moved") {
+            opts.refreshWatchedRepos();
+            opts.emitEvent("repo:moved", { from: source, to: target });
+          }
+          opts.emitEvent("org:moved", { from: source, to: target });
+          return { ok: true, data: result };
+        });
+      } finally {
+        await opts.teamSnapshots.resume(slugs);
+      }
+    },
+  };
+}
