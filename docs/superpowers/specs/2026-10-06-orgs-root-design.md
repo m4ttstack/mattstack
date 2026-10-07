@@ -204,7 +204,8 @@ For each marked clone under `orgsDir()` and under `legacyTeamsDir()`:
    that handler takes the reconciler hold itself, so `org:move` must not go
    through it (`locateMovedRepo` would send `repos:locate` to the daemon
    and wait on the hold `org:move` already holds). Without a daemon the step
-   calls `locateMovedRepo({ newPath })` from `lib/repo-locate-dispatch.ts`.
+   calls `locateMovedRepo({ newPath, repo })` from
+   `lib/repo-locate-dispatch.ts`, `repo` being that same identity.
    It runs on every pass: a row that already carries the current path and a
    `nothing-lost` refusal (rt never registered the clone, as on a member's
    Mac) both count as done; `identity-mismatch` and `old-path-exists` are
