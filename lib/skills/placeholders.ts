@@ -171,14 +171,19 @@ function isDirectory(path: string): boolean {
 
 type PackPathView = Pick<PlaceholderContext, "verbSides" | "packRoot" | "plannedAttachments">;
 
-/** An emitted unit one group deep is planned as <group>/<name>, so its files are named past one more segment of <file>. */
+/**
+ * An emitted unit one group deep is planned as <group>/<name>, so its files
+ * are named past one more segment of <file>. A flat unit planned for removal
+ * (an empty set) yields to a grouped unit at the same group, which is what a
+ * base that turned the flat folder into a group leaves behind.
+ */
 function plannedUnit(plan: PlannedAttachments | undefined, attachment: string, file: string): { unit: string; unitFile: string; planned: ReadonlySet<string> | undefined } {
   const flat = plan?.get(attachment);
-  if (flat) return { unit: attachment, unitFile: file, planned: flat };
+  if (flat && flat.size > 0) return { unit: attachment, unitFile: file, planned: flat };
   const slash = file.indexOf("/");
   const grouped = slash > 0 ? plan?.get(`${attachment}/${file.slice(0, slash)}`) : undefined;
   if (grouped) return { unit: `${attachment}/${file.slice(0, slash)}`, unitFile: file.slice(slash + 1), planned: grouped };
-  return { unit: attachment, unitFile: file, planned: undefined };
+  return { unit: attachment, unitFile: file, planned: flat };
 }
 
 /**

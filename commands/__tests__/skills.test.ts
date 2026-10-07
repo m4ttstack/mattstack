@@ -1250,6 +1250,25 @@ describe("base pack attachments", () => {
     expect(existsSync(join(packDir, "attachments", "review"))).toBe(false);
   });
 
+  test("a base that turns a flat attachment into a group replaces the flat copy, and pack.path reaches the grouped file", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam();
+    writeFile(join(baseDir, "attachments", "review", "SKILL.md"), "---\nname: review\n---\nflat\n");
+    expect((await compile()).errors).toEqual([]);
+    expect(existsSync(join(packDir, "attachments", "review", "compiled.json"))).toBe(true);
+
+    rmSync(join(baseDir, "attachments", "review", "SKILL.md"));
+    writeFile(join(baseDir, "attachments", "review", "self-review", "SKILL.md"), "---\nname: self-review\n---\nbody\n");
+    writeFile(join(baseDir, "attachments", "review", "self-review", "x.md"), "x\n");
+    writeFile(join(baseDir, "attachments", "review-kit", "SKILL.md"), "---\nname: review-kit\n---\nSee {{pack.path:review/self-review/x.md}}.\n");
+
+    expect((await compile()).errors).toEqual([]);
+
+    expect(existsSync(join(packDir, "attachments", "review", "compiled.json"))).toBe(false);
+    expect(existsSync(join(packDir, "attachments", "review", "SKILL.md"))).toBe(false);
+    expect(existsSync(join(packDir, "attachments", "review", "self-review", "compiled.json"))).toBe(true);
+    expect(readFileSync(kit(packDir, "SKILL.md"), "utf8")).toContain("${CLAUDE_SKILL_DIR}/../../attachments/review/self-review/x.md");
+  });
+
   test("a group folder that still holds the team's own files outlives its last emitted unit", async () => {
     const { baseDir, packDir, compile } = seedBaseAndTeam();
     writeFile(join(baseDir, "attachments", "review", "self-review", "SKILL.md"), "---\nname: self-review\n---\nbody\n");

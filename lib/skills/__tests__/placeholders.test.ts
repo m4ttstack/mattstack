@@ -417,6 +417,13 @@ describe("pack.path with planned attachments", () => {
       .toThrow("ship: {{pack.path:review/old-review/x.md}} -- review/old-review is not a directory under attachments/ or skills/");
   });
 
+  test("a flat unit planned for removal yields to a grouped unit planned at the same group", () => {
+    const root = mkdtempSync(join(tmpdir(), "rt-pack-path-planned-"));
+    const planned = new Map([["review", new Set<string>()], ["review/self-review", new Set(["x.md"])]]);
+    expect(substitute("{{pack.path:review/self-review/x.md}}", ctx({ packRoot: root, plannedAttachments: planned }), "ship").body)
+      .toBe("${CLAUDE_SKILL_DIR}/../../attachments/review/self-review/x.md");
+  });
+
   test("an attachment planned for removal is not a directory", () => {
     const root = mkdtempSync(join(tmpdir(), "rt-pack-path-planned-"));
     mkdirSync(join(root, "attachments", "gone"), { recursive: true });
