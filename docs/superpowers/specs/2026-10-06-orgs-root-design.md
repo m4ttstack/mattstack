@@ -165,26 +165,31 @@ For each marked clone under `orgsDir()` and under `legacyTeamsDir()`:
    folder piece is done; the other pieces still run.
 4. **Hold the daemon.** A new daemon verb `org:move { from, to }` pauses
    that clone's snapshot engine (a per-clone pause is new; today the engine
-   only stops or rescans), runs the record renames, the folder rename and
-   the repo relocation below in that order under the reconciler hold, then
-   rescans team snapshots. The records go first because the folder is the
-   only thing that remembers the old name: once it has moved, nothing says
-   what `rt/teams/<old>.json` was called, while a record renamed ahead of a
-   folder that then fails to move is found by its new name at the next run.
-   The engine's ownership reads `forgeUsername` from `rt/teams/<org>.json`
-   after the rescan, by which time both are renamed. Without a daemon the
+   only stops or rescans), copies the records, renames the folder, runs
+   the repo relocation below and then removes the old records, in that
+   order under the reconciler hold, then rescans team snapshots. The copy
+   goes first because the folder is the only thing that remembers the old
+   name: once it has moved, nothing says what `rt/teams/<old>.json` was
+   called. The old copy stays until the folder has moved, so a move that
+   fails leaves every reader keyed on the old folder with its record, and
+   a run interrupted after the move still finds the new copy. The engine's
+   ownership reads `forgeUsername` from `rt/teams/<org>.json` after the
+   rescan, by which time the folder matches. Without a daemon the
    step does the same work directly, in the same order. A daemon that does
    not know the verb (a source checkout newer than the running daemon)
    makes the outcome `failed` with the remedy `rt daemon restart`, then
    `rt setup update --force`; the step never renames beside a running
    daemon.
-5. **Rename records**: `rt/teams/<folder>.json` to `<org>.json` under the
+5. **Copy records**: `rt/teams/<folder>.json` to `<org>.json` under the
    record lock in `lib/team/team-local.ts` (exported for this), and
    `rt/invites/<folder>.json` the same way. The piece is done when
    `<org>.json` exists; it is skipped when neither name exists (a Mac with
    no record for this clone).
 6. **Move the folder**: rename the clone to `orgs/<org>`. Done when the
-   clone already sits there.
+   clone already sits there. Once it sits there, and after the relocation
+   below, remove `rt/teams/<folder>.json` and `rt/invites/<folder>.json`
+   for the old name; an old-name record with no folder beside it is
+   removed on any later run too.
 7. **Repo index**: relocate the clone with no `repo` argument, so the
    identity row finds the moved clone and `repos.json`, `cd-cache.json`,
    the `repo-index` kv and `git_badges` follow. Inside `org:move` this is
@@ -300,8 +305,8 @@ compiles:
   compile today registers every org base pack for fills and never reads
   `extends`, so it learns to, and a pack without `extends` emits nothing.
 - **Which attachments:** every `attachments/<name>/` in the base except one
-  whose `SKILL.md` carries `metadata.provides`: that is a fill or include,
-  and compile already inlines it into the team's verbs.
+  whose `SKILL.md` carries `metadata.provides`: that is a fill, and
+  compile already inlines it into the team's verbs.
 - **Where:** `attachments/<name>/` in the team pack. Each emitted folder
   carries `compiled.json` at its root, naming the base, its version and
   every file compile wrote there. That file is the provenance: a folder
