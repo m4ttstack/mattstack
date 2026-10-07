@@ -714,7 +714,7 @@ describe("messaging wiring", () => {
     const codexIntegration = registry.get("codex")!;
     expect(typeof claudeIntegration.loadMessaging).toBe("function");
     expect(typeof codexIntegration.loadMessaging).toBe("function");
-    expect((await claudeIntegration.capabilities("herdr")).supported).toEqual(["launch", "resume", "observe", "peer-idle", "peer-working"]);
+    expect((await claudeIntegration.capabilities("herdr")).supported).toEqual(["launch", "resume", "observe", "peer-idle", "peer-working", "questions-form"]);
     expect((await claudeIntegration.capabilities("headless")).supported).toEqual(["launch", "resume", "observe"]);
     for (const mode of ["herdr", "headless"] as const) {
       expect((await codexIntegration.capabilities(mode)).supported).toEqual(["launch", "resume", "observe", "peer-idle", "peer-working"]);

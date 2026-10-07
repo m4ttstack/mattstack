@@ -24,7 +24,7 @@ import type {
 } from "../../packages/rt-client/src/commands.ts";
 import { resolveLivePane, type LivePane, type PaneHints } from "./pane-resolve-live.ts";
 import type { EscapeInjector } from "./gate-escape.ts";
-import { hasQuestionForm } from "./question-form.ts";
+import { hasQuestionForm } from "../agent-integrations/claude/questions.ts";
 import { computeView, gateAgentId } from "./reconciler-view.ts";
 import { deleteKvValue, listKvValues, setKvValue } from "../state/kv-blob.ts";
 
@@ -107,6 +107,8 @@ export interface ReconcilerDeps {
   relocationAccept?: (pane: LivePane) => Promise<"accepted" | "failed" | "no-dialog">;
   /** Click-to-focus notification channel for the "failed" outcome. */
   notify?: (n: { title: string; message: string; paneId: string }) => void;
+  /** Whether a native question completes the gate (gate-push's nativeOwns). */
+  nativeOwns?: (row: GateRow) => boolean;
 }
 
 const ATTENTION_QUESTION: GateQuestion = {
@@ -336,11 +338,15 @@ export function createReconciler(deps: ReconcilerDeps): Reconciler {
       const paneLive = pane !== null && pane.agentStatus !== "blocked";
 
       if (pe.expect === "leave-blocked") {
+        const row = deps.store.get(pe.gateId);
+        // A natively completed gate is its integration's to end, and it records
+        // its own delivery: an Escape here could cancel that native question.
+        if (row && deps.nativeOwns?.(row)) continue;
         // A consumed answer was delivered whatever the pane looks like now:
         // the pane may have closed (a review that posted and exited) or be
         // blocked on its NEXT form, and an Escape sent then would cancel that
         // form. Only an unconsumed answer needs the pane watched.
-        const consumed = deps.store.get(pe.gateId)?.consumedAt != null;
+        const consumed = row?.consumedAt != null;
         if (consumed || (paneLive && !(await formOnScreen(pane)))) {
           deps.store.markDelivery(pe.gateId, "confirmed");
           deps.emit("reconciler.delivery", { gateId: pe.gateId, outcome: "confirmed" });

@@ -1,5 +1,5 @@
 import { herdrRequest } from "../herdr/client.ts";
-import { hasQuestionForm } from "./question-form.ts";
+import { hasQuestionForm } from "../agent-integrations/claude/questions.ts";
 import { resolveLivePane, snapshotPanes, type LivePane, type PaneHints } from "./pane-resolve-live.ts";
 
 export type EscapeInjector = (

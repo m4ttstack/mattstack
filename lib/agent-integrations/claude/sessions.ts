@@ -266,10 +266,15 @@ export function claudeReadiness(
  *
  * Only an interactive session takes peer input: its inbox starts a turn when
  * idle and reads between tool calls when working. A headless run is launched
- * without inbound acceptance, so it advertises neither.
+ * without inbound acceptance, so it advertises neither. A gate form is ended
+ * in its pane, so only an interactive session advertises one.
  */
-export function claudeSupported(mode: Mode): Array<"launch" | "resume" | "observe" | "peer-idle" | "peer-working"> {
-  return mode === "herdr" ? ["launch", "resume", "observe", "peer-idle", "peer-working"] : ["launch", "resume", "observe"];
+export function claudeSupported(
+  mode: Mode,
+): Array<"launch" | "resume" | "observe" | "peer-idle" | "peer-working" | "questions-form"> {
+  return mode === "herdr"
+    ? ["launch", "resume", "observe", "peer-idle", "peer-working", "questions-form"]
+    : ["launch", "resume", "observe"];
 }
 
 const NOT_SUBMITTABLE = "Claude Code takes its first work on its launch line; rt cannot yet submit work to a running Claude session";

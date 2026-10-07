@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { hasQuestionForm } from "../question-form.ts";
+import { hasQuestionForm } from "../../agent-integrations/claude/questions.ts";
 import { CAPTURED_WIDE } from "./trust-workspace-fixtures.ts";
 
 // Captured with `herdr pane read <pane> --source visible` from a Claude Code

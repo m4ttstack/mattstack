@@ -8,7 +8,9 @@
  * Binding rule: the pane push targets `row.nudge.session` ONLY. The opener records its own session id at `gate open`. No nudge means no push --
  * the unattended-gate case blocks in `gate wait` with nothing to wake.
  *
- * The Escape injection fires only when the pane reads blocked (a form on
+ * The pane push is Claude's question completion
+ * (agent-integrations/claude/questions.ts), which decides the doorbell and
+ * the Escape. The Escape fires only when the pane reads blocked (a form on
  * screen) just before the doorbell, and passes `origin.paneId` (or the
  * top-level `row.pane`), `nudge.session`, and `origin.worktree` as resolver
  * hints -- a stale or missing paneId still resolves via session or worktree
@@ -26,9 +28,10 @@
  */
 
 import type { Logger } from "pino";
+import { createClaudeQuestions, nudgedQuestion } from "../agent-integrations/claude/questions.ts";
 import { deliverToInbox, wrapCrossSession } from "./inbox.ts";
 import type { GateRow, GateSubscription, GatesStore } from "./gates-store.ts";
-import { GATE_BY_PANE, answeredBySession, answeredByNudgedPane } from "./gates-store.ts";
+import { GATE_BY_PANE, answeredBySession } from "./gates-store.ts";
 import type { EscapeInjector, PaneStatusProbe } from "./gate-escape.ts";
 import type { PaneHints } from "./pane-resolve-live.ts";
 
@@ -81,6 +84,13 @@ export const GATE_CLOSED_PHRASE = (id: string, reason: GateRow["closedReason"]) 
   reason === "superseded"
     ? `[gate] ${id} superseded by a newer gate; re-read the registry and proceed.`
     : `[gate] ${id} closed; re-read the registry and proceed.`;
+
+/** The doorbell phrase for how the gate ended: telling a pane its closed
+    gate was "answered" would send it to read an answer that does not exist. */
+export const gateEndedPhrase = (row: Pick<GateRow, "id" | "status" | "closedReason" | "answer">): string =>
+  row.status === "closed"
+    ? GATE_CLOSED_PHRASE(row.id, row.closedReason)
+    : GATE_ANSWERED_PHRASE(row.id, row.answer?.by);
 
 /** Fan-out notification: push text is data, never instructions, and carries
     no opener-controlled content -- `subject` is opener-set and must never
@@ -171,14 +181,6 @@ export function createGatePush(opts: {
   };
   let paneRetriesInFlight = false;
 
-  /** The dead-pane pass carries both terminal states, so the phrase follows
-      the row's own status: telling a pane its closed gate was "answered"
-      would send it to read an answer that does not exist. */
-  const retryPhrase = (row: GateRow): string =>
-    row.status === "closed"
-      ? GATE_CLOSED_PHRASE(row.id, row.closedReason)
-      : GATE_ANSWERED_PHRASE(row.id, row.answer?.by);
-
   async function safeDeliver(socketPath: string, body: string, context: Record<string, unknown>): Promise<boolean> {
     try {
       const result = await deliver(socketPath, body);
@@ -225,44 +227,19 @@ export function createGatePush(opts: {
     return { ok, dead: false };
   }
 
-  /** Escape exists to dismiss an in-pane form. A herd worker ends its turn
-      instead of drawing one, and an Escape sent to an idle prompt interrupts
-      the turn the doorbell just started (RT-357), so it needs the pane to
-      read blocked. The reading is taken before the doorbell: afterwards an
-      idle pane is mid-flip to working and the reading races. Returns the
-      paneRef that read blocked, or null for doorbell-only. */
-  async function formOnScreen(row: GateRow): Promise<string | null> {
-    if (!opts.injectEscape || !opts.paneStatus || !row.nudge?.session) return null;
-    if (row.origin?.presentation !== "form") return null;
-    // Same self-answer test as the doorbell: a form the nudged pane answered
-    // itself has already dismissed. A foreign surface's `by: "pane"` must not
-    // gate this off -- session wins.
-    if (answeredByNudgedPane(row)) return null;
-    try {
-      const reading = await opts.paneStatus(gateHints(row));
-      if (reading?.status === "blocked") return reading.paneRef;
-      log.debug({ gateId: row.id, status: reading?.status ?? null }, "gate-push: no form on screen; doorbell-only");
-      return null;
-    } catch (err) {
-      log.warn({ err, gateId: row.id }, "gate-push: pane status probe threw; doorbell-only");
-      return null;
-    }
-  }
+  const injectEscape = opts.injectEscape;
+  const paneStatus = opts.paneStatus;
+  const claude = createClaudeQuestions({
+    notify: (row) => pushDoorbell(row, gateEndedPhrase(row)),
+    paneStatus: paneStatus && ((row) => paneStatus(gateHints(row))),
+    escape: injectEscape && ((row, paneRef) => injectEscape(gateHints(row), { paneRef })),
+    log,
+  });
 
-  async function pushToPane(row: GateRow, phrase: string): Promise<void> {
-    const paneRef = await formOnScreen(row);
-    const { ok } = await pushDoorbell(row, phrase);
-    // Escape only ever follows an ACCEPTED doorbell: the dismissed form's
-    // next input must be the queued frame, and a dead pane has nothing
-    // queued to find.
-    if (!ok || paneRef === null || !opts.injectEscape) return;
-    const hints = gateHints(row);
-    const injected = await opts.injectEscape(hints, { paneRef });
-    if (injected.ok) {
-      log.debug({ gateId: row.id, paneRef: injected.paneRef }, "gate-push: escape injected");
-    } else {
-      log.warn({ gateId: row.id, hints, error: injected.error }, "gate-push: escape injection failed; doorbell-only");
-    }
+  /** A gate no harness owns ends through Claude's question completion; one with no nudge has no pane to wake. */
+  async function pushToPane(row: GateRow): Promise<void> {
+    const target = nudgedQuestion(row);
+    if (target) await claude.complete(target.binding, target.question, row);
   }
 
   function recordSubscriptionOutcome(sub: GateSubscription, ok: boolean): void {
@@ -352,14 +329,7 @@ export function createGatePush(opts: {
 
   return {
     async onAnswered(row) {
-      // Self-answer rule: no doorbell back to the pane that recorded it. No
-      // delivery stamp either, so the row never enters deadPanePushes() and
-      // retryDeadPanes has nothing to redeliver.
-      const pane = ownedNatively(row)
-        ? settleNative(row)
-        : answeredByNudgedPane(row)
-          ? Promise.resolve()
-          : pushToPane(row, GATE_ANSWERED_PHRASE(row.id, row.answer?.by));
+      const pane = ownedNatively(row) ? settleNative(row) : pushToPane(row);
       await Promise.all([pane, fanOut(row)]);
     },
     async onOpened(row) {
@@ -367,7 +337,7 @@ export function createGatePush(opts: {
     },
     async onClosed(row) {
       if (ownedNatively(row)) await settleNative(row);
-      else await pushToPane(row, GATE_CLOSED_PHRASE(row.id, row.closedReason));
+      else await pushToPane(row);
     },
     ...(native && { nativeOwns: ownedNatively }),
     async retryDeadPanes() {
@@ -397,7 +367,7 @@ export function createGatePush(opts: {
           // stranding its just-submitted re-entry prompt in the input box
           // (RT-207). onAnswered keeps the immediate Escape: there the pane
           // and its form are still up.
-          await pushDoorbell(row, retryPhrase(row));
+          await pushDoorbell(row, gateEndedPhrase(row));
           const after = store.get(row.id);
           if (after?.delivery?.outcome === "delivered") { delivered++; paneAttempts.delete(row.id); }
           else if (attempts + 1 >= maxPaneRetries) { gaveUp++; log.warn({ gateId: row.id, session: row.nudge?.session }, "gate-push: pane nudge gave up; worker was never woken"); }

@@ -259,6 +259,7 @@ interface GuaranteeDeps {
       to build hints an expectation can actually resolve against. */
   getAgentRecord?: (agentId: string) => Pick<AgentRecord, "paneId" | "sessionId" | "cwd"> | undefined;
   emitExecution: (gateId: string, execution: "unassigned" | null) => void;
+  nativeOwns?: (row: GateRow) => boolean;
 }
 
 /**
@@ -275,6 +276,10 @@ async function runExecutorGuarantee(row: GateRow, deps: GuaranteeDeps): Promise<
   // its own re-entry prompt. A daemon relaunch here opens a second pane on
   // the same session, promptless, beside the owner's.
   if (row.parkedAt != null) return;
+  // A native question's integration ends it. A relaunch would start a new
+  // attachment, which that question never completes against, and an Escape
+  // could cancel it.
+  if (deps.nativeOwns?.(row)) return;
   const hints = gateHints(row);
   const { state } = deps.reconciler.executorFor(hints);
 
@@ -440,6 +445,7 @@ export function createGateHandlers(
     resumeAgent: deps.resumeAgent,
     getAgentRecord: deps.getAgentRecord,
     emitExecution,
+    nativeOwns: push.nativeOwns,
   };
 
   // Off the hot path (response already built): delivers nudge+Escape and

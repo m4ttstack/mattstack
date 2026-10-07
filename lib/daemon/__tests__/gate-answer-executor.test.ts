@@ -137,6 +137,30 @@ describe("gate:answer executor guarantee: live/blocked", () => {
   });
 });
 
+describe("gate:answer executor guarantee: native questions", () => {
+  test("a gate a native question owns gets no expectation and no relaunch", async () => {
+    for (const executorState of ["live", "blocked", "gone"] as const) {
+      const { push, onAnsweredCalls } = pushSpy();
+      const { reconciler, expectCalls } = reconcilerStub({ executorState, agentId: "agent-1" });
+      const resumeCalls: string[] = [];
+      const resumeAgent = async (agentId: string) => { resumeCalls.push(agentId); return { ok: true }; };
+      const owned = new Set<string>();
+      const { handlers, store, emitted } = harness({ push: { ...push, nativeOwns: (row) => owned.has(row.id) }, reconciler, resumeAgent });
+      const row = await openFormGate(store);
+      owned.add(row.id);
+
+      await handlers["gate:answer"]({ id: row.id, answers: { q: "a" }, by: "console" });
+      await flush();
+
+      expect(onAnsweredCalls, executorState).toHaveLength(1);
+      expect(expectCalls, executorState).toHaveLength(0);
+      expect(resumeCalls, executorState).toEqual([]);
+      expect(store.get(row.id)!.execution, executorState).toBeUndefined();
+      expect(emitted.some((e) => e.topic === "reconciler.execution"), executorState).toBe(false);
+    }
+  });
+});
+
 describe("gate:answer executor guarantee: gone", () => {
   test("relaunches via resumeAgent and registers an appear-live expectation on success", async () => {
     const { push } = pushSpy();

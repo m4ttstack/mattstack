@@ -145,6 +145,40 @@ describe("reconciler expectations: leave-blocked", () => {
     expect(store.get(gate.id)!.delivery).toMatchObject({ outcome: "confirmed" });
   });
 
+  test("a gate a native question owns is dropped: no Escape retry, no delivery stamp", async () => {
+    const owned = new Set<string>();
+    const nativeReconciler = createReconciler({
+      store,
+      listAgents: () => [],
+      snapshot: async () => panesValue,
+      peek: async () => screenValue,
+      emit: (topic, payload) => { emitted.push({ topic, payload }); },
+      injectEscape: async (hints) => { injectCalls.push(hints); return injectResult; },
+      resumeAgent: async () => ({ ok: true }),
+      markAgentGone: () => {},
+      nativeOwns: (row) => owned.has(row.id),
+      log,
+    });
+    const gate = makeGate();
+    const other = makeGate("gate:subject-2");
+    store.answer(gate.id, { q: "a" }, "board");
+    store.answer(other.id, { q: "a" }, "board");
+    owned.add(gate.id);
+    nativeReconciler.expect({ gateId: gate.id, hints: HINTS, expect: "leave-blocked", deadlineSweeps: 1, retriesLeft: 2 });
+    nativeReconciler.expect({ gateId: other.id, hints: HINTS, expect: "leave-blocked", deadlineSweeps: 1, retriesLeft: 2 });
+    panesValue = [buildPane({ agentStatus: "blocked" })];
+
+    await nativeReconciler.sweep();
+    expect(injectCalls).toEqual([HINTS]);
+
+    await nativeReconciler.sweep();
+    await nativeReconciler.sweep();
+    expect(injectCalls).toHaveLength(2);
+    expect(store.get(gate.id)!.delivery).toBeNull();
+    expect(store.get(other.id)!.delivery).toMatchObject({ outcome: "stuck" });
+    expect(emitted.filter((e) => e.payload["gateId"] === gate.id)).toEqual([]);
+  });
+
   test("a pane that closed without consuming the answer still runs out to stuck", async () => {
     const gate = makeGate();
     store.answer(gate.id, { q: "a" }, "board");
