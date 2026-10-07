@@ -1021,6 +1021,12 @@ export interface Commands {
       paneId?: string;
       /** The asking session's harness when it is not Claude Code; recorded on the nudge. */
       harness?: string;
+      /**
+       * Opens only under a subject an answering surface lists (`run:`, `mr:`)
+       * or one its owner subscribes to; otherwise refused with failure code
+       * `no-subject` or `unlisted-subject`.
+       */
+      requireListedSubject?: boolean;
       meta?: Record<string, unknown>;
       agent?: string;
       origin?: { surface?: string; tabId?: string; worktree?: string };

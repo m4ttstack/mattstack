@@ -755,6 +755,27 @@ describe("retry on a stable connection", () => {
     ]);
   });
 
+  test("an answer a pane read while the last attempt ran is not stamped undelivered", async () => {
+    const ref: { store?: GatesStore; gate?: string } = {};
+    const fake = fakeAdapter((_call, n) => {
+      if (n === MAX_COMPLETION_ATTEMPTS) ref.store!.markConsumed(ref.gate!);
+      return transient;
+    });
+    const { store, questions, handlers, clock } = setup({ adapter: fake.adapter });
+    ref.store = store;
+    const gate = openGate(store);
+    ref.gate = gate.id;
+    await questions.bindGateQuestion(questionFor(gate.id));
+    await handlers["gate:answer"]({ id: gate.id, answers: ANSWERS, by: "console" });
+    await questions.idle();
+    for (let tick = 0; tick < MAX_COMPLETION_ATTEMPTS + 3; tick++) {
+      clock.now += 60 * 60_000;
+      await questions.noteConnections();
+    }
+    expect(questions.completion(gate.id)!.state).toBe("stuck");
+    expect(store.get(gate.id)!.delivery?.outcome).not.toBe("stuck");
+  });
+
   test("a closed gate that gets stuck is not stamped as an undelivered answer", async () => {
     const fake = fakeAdapter(() => transient);
     const { store, questions, clock } = setup({ adapter: fake.adapter });

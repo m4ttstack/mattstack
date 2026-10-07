@@ -14,7 +14,9 @@
  *
  * Each request opens one gate whose question ids are the native ones, or finds
  * the gate an earlier replay opened for the same thread and item; the binding
- * keeps thread, turn, item and question ids. The request handle lives only
+ * keeps thread, turn, item and question ids. A gate opens only under a subject
+ * an answering surface lists; any other question is left to the native form,
+ * with an attention condition. The request handle lives only
  * here, for this connection: request ids are connection-local, start at 0 and
  * restart with the app server, so none is ever stored or sent again.
  *
@@ -24,13 +26,17 @@
  * Neither the write nor `serverRequest/resolved` is completion: resolved also
  * follows an interrupt and another surface's winning answer. Completion is
  * read from the thread's rollout (its function_call_output for the item), and
- * anything missing, unknown or unparseable there leaves it pending.
+ * anything missing, unknown or unparseable there leaves it pending. A
+ * connection whose hold lapsed hears only status changes, so a status without
+ * the wait ends its open requests, and nothing is written unless the rollout
+ * was read and holds no output for the item.
  *
  * A question Codex asks in default mode arrives as an async agentMessage with
  * no ids: it is announced for a person and never presented as a gate.
  */
 
-import { isAbsolute } from "path";
+import { open } from "fs/promises";
+import { isAbsolute, join, resolve, sep } from "path";
 import type { FaultCode, Outcome, QuestionBinding, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import type { GateAnswer, GateQuestion, GateRow } from "../../../packages/rt-client/src/commands.ts";
 import { unwrapGateAnswerValue } from "../../../packages/rt-client/src/gate-answers.ts";
@@ -47,10 +53,19 @@ import type { CodexSessionAdapter } from "./sessions.ts";
 
 const HARNESS = "codex";
 
-/** The option a free-text answer is given under, on a question that also has options. */
+/**
+ * Free text rides an option's note: `Other` beside a question's own choices,
+ * `Answer` as the one option of a question that offers none, since the
+ * answering surfaces show no question without options.
+ */
 export const OTHER_VALUE = "(other)";
-const OTHER_LABEL = "Other";
-const OTHER_DESCRIPTION = "Answer in your own words.";
+export const ANSWER_VALUE = "(answer)";
+const FREE_TEXT: Readonly<Record<string, string>> = { [OTHER_VALUE]: "Other", [ANSWER_VALUE]: "Answer" };
+const FREE_TEXT_DESCRIPTION = "Write your answer in the note.";
+
+/** A rollout is read from its end in chunks of this size, and never more than ROLLOUT_MAX_BYTES of it. */
+const ROLLOUT_CHUNK_BYTES = 64 * 1024;
+const ROLLOUT_MAX_BYTES = 16 * 1024 * 1024;
 
 /** Requests remembered per connection; the oldest ended ones go first. */
 const KEPT_REQUESTS = 256;
@@ -63,7 +78,8 @@ const ROLLOUT_READ_MS = 200;
 
 export type NativeAnswers = Record<string, { answers: string[] }>;
 export type RolloutEvidence =
-  | { state: "completed" | "conflict" | "gone" | "pending"; detail: string }
+  /** `absent`: the rollout was read and holds no output for the item, the one pending reading that permits a write. */
+  | { state: "completed" | "conflict" | "gone" | "pending"; detail: string; absent?: true }
   | { state: "answered"; answers: NativeAnswers; detail: string };
 
 export type CodexQuestionDeps = {
@@ -75,7 +91,8 @@ export type CodexQuestionDeps = {
   service(): Pick<GateQuestions, "bindGateQuestion" | "completeGateQuestion" | "native"> | null;
   /** The connection's session adapter, whose holds keep the thread subscribed. Without it nothing is held. */
   sessions?: Pick<CodexSessionAdapter, "hold" | "release" | "paneLive">;
-  readRollout(path: string): Promise<string>;
+  /** The rollout's whole lines from its end back to the item's output, or as far as the byte cap allows. */
+  readRollout(path: string, itemId: string): Promise<string>;
   sleep(ms: number): Promise<void>;
 };
 
@@ -86,7 +103,8 @@ export type CodexQuestionAdapter = QuestionAdapter;
  * native form answer it alone.
  */
 type RequestState = "pending" | "submitted" | "resolved" | "interrupted" | "dropped";
-type Request = { event: CodexQuestionRequest; state: RequestState };
+/** `ended`: the native side finished with it (resolved, or a status without the wait), and that was acted on once. */
+type Request = { event: CodexQuestionRequest; state: RequestState; ended?: boolean };
 
 const ok = <T>(data: T): Outcome<T> => ({ ok: true, data });
 const fail = <T>(code: FaultCode, message: string): Outcome<T> => ({ ok: false, error: { code, message } });
@@ -97,27 +115,82 @@ function defaultDeps(control: CodexControl): CodexQuestionDeps {
     enabled: integrationsEnabled,
     bindingOf: (threadId) => createSessionStore(getStateDb()).find({ harness: HARNESS, profile: control.profile, kind: "id", value: threadId }),
     service: gateQuestionService,
-    readRollout: (path) => Bun.file(path).text(),
+    readRollout: (path, itemId) => readRolloutTail(path, itemId),
     sleep: (ms) => Bun.sleep(ms),
   };
 }
 
-/** Each native question as a gate question with the same id; free text rides an Other option when the question also offers choices. */
+/** Whether `buf` holds a whole line naming both the item and a function_call_output. */
+function holdsOutputLine(buf: Buffer, wholeFirstLine: boolean, id: Buffer, marker: Buffer): boolean {
+  for (let at = buf.indexOf(id); at !== -1; at = buf.indexOf(id, at + id.length)) {
+    const lineStart = buf.lastIndexOf(0x0a, at);
+    if (lineStart === -1 && !wholeFirstLine) continue;
+    const lineEnd = buf.indexOf(0x0a, at);
+    const found = buf.indexOf(marker, lineStart + 1);
+    if (found !== -1 && (lineEnd === -1 || found < lineEnd)) return true;
+  }
+  return false;
+}
+
+/**
+ * Reads a rollout backward from its end, a chunk at a time, until it holds
+ * the item's output line or `maxBytes` were read. Only whole lines come back.
+ * The file is opened read-only and never written.
+ */
+export async function readRolloutTail(
+  path: string, itemId: string, opts: { chunkBytes?: number; maxBytes?: number } = {},
+): Promise<string> {
+  const chunkBytes = opts.chunkBytes ?? ROLLOUT_CHUNK_BYTES;
+  const maxBytes = opts.maxBytes ?? ROLLOUT_MAX_BYTES;
+  const id = Buffer.from(itemId);
+  const marker = Buffer.from("function_call_output");
+  const file = await open(path, "r");
+  try {
+    const { size } = await file.stat();
+    const floor = Math.max(0, size - maxBytes);
+    let start = size;
+    let tail = Buffer.alloc(0);
+    while (start > floor) {
+      const from = Math.max(floor, start - chunkBytes);
+      const chunk = Buffer.alloc(start - from);
+      const { bytesRead } = await file.read(chunk, 0, chunk.length, from);
+      tail = Buffer.concat([chunk.subarray(0, bytesRead), tail]);
+      start = from;
+      if (holdsOutputLine(tail, start === 0, id, marker)) break;
+    }
+    if (start === 0) return tail.toString("utf8");
+    const firstBreak = tail.indexOf(0x0a);
+    return firstBreak === -1 ? "" : tail.subarray(firstBreak + 1).toString("utf8");
+  } finally {
+    await file.close();
+  }
+}
+
+/** Only a JSONL file under the Codex home's own `sessions/` is read as a rollout. */
+function rolloutPathOf(path: unknown, codexHome: string | undefined): string | null {
+  if (typeof path !== "string" || !codexHome || !isAbsolute(path) || !isAbsolute(codexHome) || !path.endsWith(".jsonl")) return null;
+  const resolved = resolve(path);
+  return resolved.startsWith(join(resolve(codexHome), "sessions") + sep) ? resolved : null;
+}
+
+/** Each native question as a gate question with the same id; free text rides the note of an Other or Answer option. */
 export function gateQuestionsOf(questions: readonly CodexQuestion[]): GateQuestion[] {
+  const freeText = (value: string) => ({ value, label: FREE_TEXT[value]!, description: FREE_TEXT_DESCRIPTION });
   return questions.map((q) => {
     const options = (q.options ?? []).map((o) => ({ value: o.label, label: o.label, ...(o.description !== "" && { description: o.description }) }));
-    const other = q.isOther && options.length > 0 && !options.some((o) => o.value === OTHER_VALUE);
+    const other = q.isOther && !options.some((o) => o.value === OTHER_VALUE);
     return {
       id: q.id,
       label: q.header ? `${q.header}: ${q.question}` : q.question,
       multi: false,
-      options: other ? [...options, { value: OTHER_VALUE, label: OTHER_LABEL, description: OTHER_DESCRIPTION }] : options,
+      options: options.length === 0 ? [freeText(ANSWER_VALUE)] : other ? [...options, freeText(OTHER_VALUE)] : options,
     };
   });
 }
 
-const takesFreeText = (q: GateQuestion): boolean =>
-  q.options.length === 0 || q.options.some((o) => gateOptionValue(o) === OTHER_VALUE);
+/** The question's free-text option, Answer or Other, when it has one. */
+const freeTextOf = (q: GateQuestion): string | undefined =>
+  q.options.map(gateOptionValue).find((value) => Object.hasOwn(FREE_TEXT, value));
 
 const nonBlank = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
 
@@ -130,21 +203,16 @@ export function nativeAnswersOf(row: Pick<GateRow, "questions" | "answer">, ids:
     const raw = row.answer.answers[id];
     if (!question || raw === undefined) return fail("invalid", `the gate's answer has nothing for question ${id}`);
     const wrapper = isRecord(raw) ? raw : undefined;
-    const text = nonBlank(wrapper?.text) ? wrapper.text : undefined;
-    const own = text ?? (nonBlank(wrapper?.note) ? wrapper.note : undefined);
+    const own = nonBlank(wrapper?.note) ? wrapper.note : nonBlank(wrapper?.text) ? wrapper.text : undefined;
     const value = unwrapGateAnswerValue(raw);
     const values: unknown[] = Array.isArray(value) ? value : [value];
     if (!values.every((v) => typeof v === "string")) return fail("invalid", `the answer to ${id} is not text`);
-    const free = takesFreeText(question);
-    if (free && text !== undefined) {
-      out[id] = { answers: [text] };
-      continue;
-    }
+    const free = freeTextOf(question);
     const answers: string[] = [];
     for (const v of values as string[]) {
-      if (v !== OTHER_VALUE || !free) answers.push(v);
+      if (v !== free) answers.push(v);
       else if (own !== undefined) answers.push(own);
-      else return fail("invalid", `the answer to ${id} chose ${OTHER_LABEL} with no text of its own`);
+      else return fail("invalid", `the answer to ${id} chose ${FREE_TEXT[v]} with nothing in its note`);
     }
     out[id] = { answers };
   }
@@ -161,9 +229,9 @@ export function gateAnswersOf(native: NativeAnswers, row: Pick<GateRow, "questio
     const given = native[q.id]?.answers;
     if (!given || given.length !== 1) return fail("invalid", `the native answer to ${q.id} is not one choice`);
     const value = given[0]!;
-    const member = q.options.some((o) => gateOptionValue(o) === value) && value !== OTHER_VALUE;
-    if (q.options.length === 0 || member) answers[q.id] = value;
-    else if (takesFreeText(q) && nonBlank(value)) answers[q.id] = { value: OTHER_VALUE, text: value };
+    const free = freeTextOf(q);
+    if (value !== free && q.options.some((o) => gateOptionValue(o) === value)) answers[q.id] = value;
+    else if (free !== undefined && nonBlank(value)) answers[q.id] = { value: free, note: value };
     else return fail("invalid", `the native answer to ${q.id} is not one of its options`);
   }
   return ok(answers);
@@ -222,7 +290,7 @@ export function rolloutEvidence(text: string, itemId: string, expected: NativeAn
       ? { state: "completed", detail: "the native question took the gate's answer" }
       : { state: "conflict", detail: "the native question took a different answer than the gate's" };
   }
-  return pending("the rollout has no output for this question yet");
+  return { state: "pending", detail: "the rollout has no output for this question yet", absent: true };
 }
 
 /** The durable binding for a request, under the session's current attachment. */
@@ -319,19 +387,21 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     return question.ok ? service.bindGateQuestion(question.data) : question;
   }
 
-  async function openGate(service: NonNullable<ReturnType<CodexQuestionDeps["service"]>>, binding: SessionBinding, event: CodexQuestionRequest) {
-    const payload = {
+  /**
+   * Opens the gate only under a subject an answering surface lists, or one
+   * its owner subscribes to; anywhere else no one would see it, and the
+   * native form is the only place the question can be answered.
+   */
+  function openGate(service: NonNullable<ReturnType<CodexQuestionDeps["service"]>>, binding: SessionBinding, event: CodexQuestionRequest) {
+    return service.native.ask({
       questions: gateQuestionsOf(event.questions),
       kind: `question:${HARNESS}:${event.threadId}`,
       sessionId: event.threadId,
+      requireListedSubject: true,
       context: contextOf(event.questions),
       meta: { label: event.questions[0]?.header || "Codex question", harness: HARNESS, thread: event.threadId, turn: event.turnId, item: event.itemId },
       ...(binding.agentId !== undefined && { agent: binding.agentId }),
-    };
-    const asked = await service.native.ask(payload);
-    if (asked.ok || !asked.error.message.startsWith("no subject")) return asked;
-    // A thread with no run or agent record of its own files under its session.
-    return service.native.ask({ ...payload, subject: binding.agentId ? `agent:${binding.agentId}` : `${HARNESS}:${event.threadId}` });
+    });
   }
 
   async function presentOnce(binding: SessionBinding, event: CodexQuestionRequest): Promise<void> {
@@ -346,15 +416,23 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     }
     const opened = await openGate(service, binding, event);
     if (!opened.ok) {
-      attention({ reason: "unpresentable-question", sessionKey: binding.key, threadId: event.threadId, itemId: event.itemId, detail: opened.error.message });
+      leaveToNative(binding, event, opened.error.failure ?? "unpresentable-question", opened.error.message);
       return;
     }
     const bound = await bind(service, binding, event, opened.data.id);
     if (!bound.ok) {
       // An unbound gate could be answered with nothing to carry the answer to Codex.
       await service.native.close(opened.data.id);
-      attention({ reason: "unpresentable-question", sessionKey: binding.key, threadId: event.threadId, itemId: event.itemId, detail: bound.error.message });
+      leaveToNative(binding, event, "unpresentable-question", bound.error.message);
     }
+  }
+
+  /** A question rt does not present is the native form's alone: rt asks for a person and stops holding its thread. */
+  function leaveToNative(binding: SessionBinding, event: CodexQuestionRequest, reason: string, detail?: string): void {
+    const request = requests.get(keyOf(event.threadId, event.itemId));
+    if (request && open(request)) request.state = "dropped";
+    letGo(event.threadId);
+    attention({ reason, sessionKey: binding.key, threadId: event.threadId, itemId: event.itemId, ...(detail !== undefined && { detail }) });
   }
 
   function present(binding: SessionBinding, event: CodexQuestionRequest): Promise<void> {
@@ -373,12 +451,12 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     const key = keyOf(event.threadId, event.itemId);
     const prior = requests.get(key);
     // A replay of a request this connection already holds keeps what rt did with it.
-    if (!prior || !sameRequestId(prior.event.handle.requestId, event.handle.requestId) || prior.event.turnId !== event.turnId) {
-      remember(key, { event, state: "pending" });
-    }
+    const replay = prior !== undefined && sameRequestId(prior.event.handle.requestId, event.handle.requestId) && prior.event.turnId === event.turnId;
+    if (replay && prior.state === "dropped") return;
+    if (!replay) remember(key, { event, state: "pending" });
     if (event.questions.some((q) => q.isSecret)) {
       // A gate stores and shows its answer; a secret stays in the native form.
-      attention({ reason: "secret-question", sessionKey: binding.key, threadId: event.threadId, itemId: event.itemId });
+      leaveToNative(binding, event, "secret-question");
       return;
     }
     void present(binding, event);
@@ -393,14 +471,25 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     } catch {
       return pending("rt could not read the thread");
     }
-    if (typeof path !== "string" || !isAbsolute(path) || !path.endsWith(".jsonl")) return pending("Codex named no rollout for the thread");
+    const rollout = rolloutPathOf(path, control.codexHome);
+    if (!rollout) return pending("Codex named no rollout under its sessions for the thread");
     let text: string;
     try {
-      text = await deps.readRollout(path);
+      text = await deps.readRollout(rollout, itemId);
     } catch {
       return pending("the thread's rollout could not be read");
     }
     return rolloutEvidence(text, itemId, expected);
+  }
+
+  /** The rollout is written moments after a question resolves, so a pending reading is taken again a few times. */
+  async function settledEvidence(threadId: string, itemId: string, expected: NativeAnswers | null): Promise<RolloutEvidence> {
+    let found = await evidence(threadId, itemId, expected);
+    for (let read = 1; read < ROLLOUT_READS && found.state === "pending"; read++) {
+      await deps.sleep(ROLLOUT_READ_MS);
+      found = await evidence(threadId, itemId, expected);
+    }
+    return found;
   }
 
   /** The native side ended a question whose gate is still open: its answer becomes the session's own, an abort closes the gate. */
@@ -411,12 +500,7 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
       await service.native.close(gate.id);
       return;
     }
-    let found: RolloutEvidence = { state: "pending", detail: "" };
-    for (let read = 0; read < ROLLOUT_READS; read++) {
-      if (read > 0) await deps.sleep(ROLLOUT_READ_MS);
-      found = await evidence(threadId, request.event.itemId, null);
-      if (found.state !== "pending") break;
-    }
+    const found = await settledEvidence(threadId, request.event.itemId, null);
     if (found.state === "gone") {
       await service.native.close(gate.id);
       return;
@@ -428,10 +512,21 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     }
   }
 
-  async function onResolved(threadId: string, requestId: CodexRequestId): Promise<void> {
+  function onResolved(threadId: string, requestId: CodexRequestId): void {
     const request = [...requests.values()].find((r) => r.event.threadId === threadId && sameRequestId(r.event.handle.requestId, requestId));
-    if (!request) return;
-    if (request.state !== "interrupted") request.state = "resolved";
+    if (request) void ended(request).catch(() => undefined);
+  }
+
+  /**
+   * The native side is done with a request: resolved reached this connection,
+   * or a status without the wait did, which is all an unsubscribed connection
+   * hears (live-07). Acted on once, however many of those arrive.
+   */
+  async function ended(request: Request): Promise<void> {
+    if (request.ended) return;
+    request.ended = true;
+    const threadId = request.event.threadId;
+    if (open(request)) request.state = "resolved";
     letGo(threadId);
     const service = deps.service();
     const gate = service?.native.find(threadId, request.event.itemId);
@@ -472,6 +567,9 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
 
   hub.watchStatus((threadId, status) => {
     if (status.type !== "active" || !status.activeFlags.includes("waitingOnUserInput")) {
+      for (const request of [...requests.values()]) {
+        if (request.event.threadId === threadId && (open(request) || request.state === "interrupted")) void ended(request).catch(() => undefined);
+      }
       letGo(threadId);
       return;
     }
@@ -487,7 +585,7 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
         onRequest(event);
         return;
       case "serverRequest/resolved":
-        void onResolved(event.threadId, event.requestId).catch(() => undefined);
+        onResolved(event.threadId, event.requestId);
         return;
       case "turn/completed":
         onTurnEnd(event.threadId, event.turnId, event.status);
@@ -539,19 +637,27 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
       request = await replayed(question);
       if (!request) {
         letGo(threadId);
-        return settled(threadId, await evidence(threadId, itemId, expected));
+        return settled(threadId, await settledEvidence(threadId, itemId, expected));
       }
     }
     switch (request.state) {
       case "interrupted":
         letGo(threadId);
         return ok("gone");
-      case "submitted":
-        return ok("pending");
       case "resolved":
       case "dropped":
-        return settled(threadId, await evidence(threadId, itemId, expected));
+        return settled(threadId, await settledEvidence(threadId, itemId, expected));
     }
+    // A connection whose hold lapsed hears neither resolved nor the turn's end
+    // (live-07), so a request that looks pending here may have taken an answer
+    // already: the rollout is read before anything is written.
+    const before = await evidence(threadId, itemId, expected);
+    if (before.state !== "pending") {
+      request.state = "resolved";
+      request.ended = true;
+      return settled(threadId, before);
+    }
+    if (request.state === "submitted" || !before.absent) return ok("pending");
     // A Herdr thread whose terminal quit can stay loaded, and an answer would run its turn headless (live-04).
     if (binding.attachment.mode === "herdr" && deps.sessions && !(await deps.sessions.paneLive(binding))) {
       letGo(threadId, true);
@@ -563,14 +669,14 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     const sent = control.respond(request.event.handle, expected);
     if (!sent.ok) {
       // The request ended before the write: what it took is in the rollout.
-      if (sent.error.code === "stale-binding") return settled(threadId, await evidence(threadId, itemId, expected));
+      if (sent.error.code === "stale-binding") return settled(threadId, await settledEvidence(threadId, itemId, expected));
       return sent;
     }
     if (request.state === "pending") {
       request.state = "submitted";
       return ok("pending");
     }
-    return settled(threadId, await evidence(threadId, itemId, expected));
+    return settled(threadId, await settledEvidence(threadId, itemId, expected));
   }
 
   return {
@@ -595,7 +701,14 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
       if (row.status !== "answered") return fail("not-ready", `gate ${row.id} is still ${row.status}`);
       if (control.closed) return fail("transient", "the Codex control connection is closed");
       const expected = nativeAnswersOf(row, nativeQuestions);
-      if (!expected.ok) return expected;
+      if (!expected.ok) {
+        // No retry can send it: the gate's answer stands, and the native form waits for a person.
+        const request = requests.get(keyOf(nativeThread, nativeItem));
+        if (request && open(request)) request.state = "dropped";
+        letGo(nativeThread);
+        attention({ reason: "unsendable-answer", gateId: row.id, threadId: nativeThread, itemId: nativeItem, detail: expected.error.message });
+        return ok("conflict");
+      }
       completing.add(row.id);
       try {
         return await answer(binding, question, expected.data);

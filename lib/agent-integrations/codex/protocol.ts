@@ -104,7 +104,7 @@ export const CODEX_METHODS_OUTSIDE_FIXTURE: Readonly<Record<string, string>> = {
     + "{ status: notLoaded | notSubscribed | unsubscribed } (.harness-spike/live-04/report.md, 0.160.x)",
 };
 
-/** Replies Mattstack sends to server requests, with the result fields each carries; `respond` writes no other. */
+/** The server requests Mattstack replies to, with the result fields its reply carries, checked against the saved schema. */
 export const CODEX_SERVER_REQUEST_REPLIES: Readonly<Record<string, readonly string[]>> = {
   "item/tool/requestUserInput": ["answers"],
 };

@@ -62,6 +62,8 @@ export interface CodexControl {
   readonly profile: string;
   readonly experimental: boolean;
   readonly closed: boolean;
+  /** The Codex home the app server reported at initialize; its rollouts live under `sessions/` there. */
+  readonly codexHome?: string;
   request(method: string, params: unknown): Promise<unknown>;
   /** Events that arrived while nobody was subscribed go to the first subscriber. */
   subscribe(listener: (event: CodexEvent) => void): () => void;
@@ -141,6 +143,7 @@ class Control implements CodexControl {
   readonly connection = crypto.randomUUID();
   readonly profile: string;
   readonly experimental: boolean;
+  codexHome: string | undefined;
   private socket: CodexSocket;
   private isClosed = false;
   private socketClosed = false;
@@ -190,6 +193,7 @@ class Control implements CodexControl {
     if (!isRecord(result) || !["codexHome", "platformFamily", "platformOs", "userAgent"].every((k) => typeof result[k] === "string")) {
       throw new CodexControlError("invalid", "The Codex app server answered initialize with an unexpected shape.");
     }
+    this.codexHome = result.codexHome as string;
     this.write({ method: "initialized", params: {} });
   }
 

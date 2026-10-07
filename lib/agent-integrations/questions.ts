@@ -46,7 +46,7 @@ export const RECOVER_LIMIT = 50;
 /** A pending completion's first retry waits this long; each later wait doubles, up to RETRY_MAX_MS. */
 export const RETRY_BASE_MS = 30_000;
 export const RETRY_MAX_MS = 30 * 60_000;
-/** Native attempts before a completion that never finishes is marked stuck, about two and a half hours of retries. */
+/** Native attempts before a completion that never finishes is marked stuck, about an hour of retries with this backoff. */
 export const MAX_COMPLETION_ATTEMPTS = 8;
 
 /**
@@ -54,13 +54,19 @@ export const MAX_COMPLETION_ATTEMPTS = 8;
  * gate it opens, answers or closes takes the same validation, supersede,
  * events and push as any other caller's.
  */
+/** A gate verb's reply; a refusal carries the handler's own failure code when it gave one. */
+export type GateReply<T> = { ok: true; data: T } | { ok: false; error: { code: FaultCode; message: string; failure?: string } };
+
 export type GateCommands = {
-  ask(payload: Commands["gate:ask"]["payload"]): Promise<Outcome<{ id: string }>>;
-  answer(payload: Commands["gate:answer"]["payload"]): Promise<Outcome<GateRow>>;
-  close(id: string): Promise<Outcome<void>>;
+  ask(payload: Commands["gate:ask"]["payload"]): Promise<GateReply<{ id: string }>>;
+  answer(payload: Commands["gate:answer"]["payload"]): Promise<GateReply<GateRow>>;
+  close(id: string): Promise<GateReply<void>>;
 };
 
-type CommandReply = { ok: true; data?: unknown } | { ok: false; error?: unknown };
+type CommandReply = { ok: true; data?: unknown } | { ok: false; error?: unknown; failure?: { code?: unknown } };
+
+/** The caller the command seam logs these verbs under. */
+export const GATE_QUESTIONS_CLIENT = "native-questions";
 
 /**
  * The gate verbs through the daemon's command seam, so a gate a harness
@@ -68,20 +74,27 @@ type CommandReply = { ok: true; data?: unknown } | { ok: false; error?: unknown 
  * other caller's.
  */
 export function gateCommandsVia(handle: (cmd: string, payload: unknown) => Promise<CommandReply>): GateCommands {
-  const refused = (reply: { error?: unknown }) =>
-    fail<never>("refused", typeof reply.error === "string" ? reply.error : "the gate service refused");
+  const refused = (reply: Extract<CommandReply, { ok: false }>): GateReply<never> => ({
+    ok: false,
+    error: {
+      code: "refused",
+      message: typeof reply.error === "string" ? reply.error : "the gate service refused",
+      ...(typeof reply.failure?.code === "string" && { failure: reply.failure.code }),
+    },
+  });
+  const call = (cmd: string, payload: object) => handle(cmd, { ...payload, _client: GATE_QUESTIONS_CLIENT });
   return {
     async ask(payload) {
-      const reply = await handle("gate:ask", payload);
-      return reply.ok ? ok(reply.data as { id: string }) : refused(reply);
+      const reply = await call("gate:ask", payload);
+      return reply.ok ? { ok: true, data: reply.data as { id: string } } : refused(reply);
     },
     async answer(payload) {
-      const reply = await handle("gate:answer", payload);
-      return reply.ok ? ok((reply.data as { row: GateRow }).row) : refused(reply);
+      const reply = await call("gate:answer", payload);
+      return reply.ok ? { ok: true, data: (reply.data as { row: GateRow }).row } : refused(reply);
     },
     async close(id) {
-      const reply = await handle("gate:close", { id, reason: "abandoned" });
-      return reply.ok ? ok(undefined) : refused(reply);
+      const reply = await call("gate:close", { id, reason: "abandoned" });
+      return reply.ok ? { ok: true, data: undefined } : refused(reply);
     },
   };
 }
@@ -91,11 +104,11 @@ export interface NativeGates {
   /** The gate already presenting this native item, whatever its state. */
   find(thread: string, item: string): GateRow | null;
   get(gateId: string): GateRow | null;
-  ask(payload: Commands["gate:ask"]["payload"]): Promise<Outcome<{ id: string }>>;
+  ask(payload: Commands["gate:ask"]["payload"]): Promise<GateReply<{ id: string }>>;
   /** Records an answer the session gave in its own native form, as the session's own. */
-  answer(gateId: string, answers: GateAnswer["answers"], session: string): Promise<Outcome<GateRow>>;
+  answer(gateId: string, answers: GateAnswer["answers"], session: string): Promise<GateReply<GateRow>>;
   /** Closes a gate whose native question ended unanswered. */
-  close(gateId: string): Promise<Outcome<void>>;
+  close(gateId: string): Promise<GateReply<void>>;
   /** A native question rt cannot present or answer: logged and announced, never counted as an answer. */
   attention(detail: Record<string, unknown> & { reason: string }): void;
 }
@@ -270,8 +283,10 @@ export function createGateQuestions(
       deps.emit?.("gate.native-conflict", { gateId: row.id, subject: row.subject, kind: row.kind, detail: said });
     } else if (moved && ending === "stuck") {
       // The board reads a stuck delivery as "answer not delivered", which is
-      // what this is; a closed gate has no answer to call undelivered.
-      if (row.status === "answered") deps.gates.markDelivery(row.id, "stuck");
+      // what this is; a closed gate has no answer to call undelivered, and an
+      // answer a pane has read since `row` was taken was delivered.
+      const now = deps.gates.get(row.id);
+      if (now?.status === "answered" && now.consumedAt == null) deps.gates.markDelivery(row.id, "stuck");
       deps.log?.warn({ gateId: row.id, detail: said }, "gate: native question never took the gate's answer; retries stopped");
       deps.emit?.("gate.native-stuck", { gateId: row.id, subject: row.subject, kind: row.kind, detail: said });
     } else {
@@ -485,8 +500,8 @@ export function createGateQuestions(
   };
 
   function nativeGates(): NativeGates {
-    const unwired = <T>(): Promise<Outcome<T>> => Promise.resolve(fail("not-ready", "gate commands are not wired in this process"));
-    const guarded = <T>(work: () => Promise<Outcome<T>>): Promise<Outcome<T>> => {
+    const unwired = <T>(): Promise<GateReply<T>> => Promise.resolve(fail("not-ready", "gate commands are not wired in this process"));
+    const guarded = <T>(work: () => Promise<GateReply<T>>): Promise<GateReply<T>> => {
       if (!deps.enabled()) return Promise.resolve(fail("unsupported", OFF));
       return work().catch((err) => fail<T>("transient", messageOf(err)));
     };

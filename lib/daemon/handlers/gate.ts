@@ -167,6 +167,9 @@ function isValidNudge(v: unknown): v is GateNudge {
     && (v.harness === undefined || (typeof v.harness === "string" && v.harness.length > 0));
 }
 
+/** Subjects the answering surfaces (Console, board) list; an owner-subscribed subject is reached by its owner instead. */
+const LISTED_SUBJECT_PREFIXES = ["run:", "mr:"] as const;
+
 /** Claude Code's sessions keep the nudge they always had; only another harness is named on it. */
 function nudgeFor(session: string, harness: string | undefined): GateNudge {
   return harness && harness !== "claude" ? { session, harness } : { session };
@@ -776,8 +779,22 @@ export function createGateHandlers(
     const harness = typeof payload?.harness === "string" && payload.harness.trim() ? payload.harness.trim() : undefined;
     const explicitSubject = typeof payload?.subject === "string" && payload.subject.trim() ? payload.subject.trim() : undefined;
 
+    const listedOnly = payload?.requireListedSubject === true;
     const resolved = await resolveSubject({ subject: explicitSubject, sessionId });
-    if (!resolved.ok) return { ok: false as const, error: resolved.error };
+    if (!resolved.ok) {
+      return listedOnly
+        ? { ok: false as const, error: resolved.error, failure: { code: "no-subject", message: resolved.error } }
+        : { ok: false as const, error: resolved.error };
+    }
+    if (listedOnly) {
+      const owner = deriveOwner(resolved.runId ? { runId: resolved.runId } : undefined, runSpawnedBy);
+      const listed = LISTED_SUBJECT_PREFIXES.some((prefix) => resolved.subject.startsWith(prefix))
+        || store.subscriptions({ live: true }).some((sub) => sub.scope === "owner" && sub.ownerRef === owner);
+      if (!listed) {
+        const error = `no surface lists gates under ${resolved.subject}`;
+        return { ok: false as const, error, failure: { code: "unlisted-subject", message: error } };
+      }
+    }
 
     const presentation = gatePresentation({ paneId, sessionId, questions });
     // Only when a form was otherwise POSSIBLE: a pane-less ask waits for its
