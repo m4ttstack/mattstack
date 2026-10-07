@@ -265,18 +265,6 @@ export function resolveCliSession(
   return caller.ok ? { ok: true, data: caller.data.binding.native.value } : caller;
 }
 
-/**
- * Whether the identity a session signed in as may stand in for another
- * session at its pane (a fork or a background move keeps the pane but not the
- * session id). With agent.integrations.enabled on, a session any binding
- * names keeps its identity to itself: a clear, a fork or a fresh session in
- * the same pane is a new session, which gets a fresh identity.
- */
-export function lendsPaneIdentity(sessionId: string, deps: ResolveDeps & { enabled?: () => boolean } = {}): boolean {
-  if (!(deps.enabled ?? integrationsEnabled)()) return true;
-  return listBindingsByNativeValue(deps.db ?? getStateDb(), sessionId).length === 0;
-}
-
 /** The binding a CLI command's own evidence names, or undefined for a plain shell or a session no live binding names. */
 export function resolveCliBinding(args: string[], env: NodeJS.ProcessEnv, deps: ResolveDeps = {}): SessionBinding | undefined {
   const evidence = extractCliEvidence(args, env);

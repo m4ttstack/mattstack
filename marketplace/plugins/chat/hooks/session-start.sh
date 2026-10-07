@@ -4,10 +4,12 @@
 # Never fires on startup/clear -- a session file existing is what makes this
 # safe, and sign-in is the only thing allowed to create one.
 #
-# A resume or compaction is also reported to rt (`rt chat lifecycle`), in the
-# background and with every byte it prints discarded, so this hook's own
-# output and timing are unchanged; rt does nothing with it unless
-# agent.integrations.enabled is on.
+# A resume or compaction is also reported to rt (`rt chat lifecycle`) after
+# the reminder is printed, with every byte rt prints discarded, so this hook's
+# own output is unchanged. It runs in the foreground: rt trusts the report
+# only from a command running under the session's own Claude Code process,
+# and a backgrounded child would lose that parent. rt does nothing with it
+# unless agent.integrations.enabled is on.
 set -u
 
 home="${HOME:-}"
@@ -39,7 +41,7 @@ jq -nc --arg msg "$message" '{hookSpecificOutput: {hookEventName: "SessionStart"
 case "$source_kind" in
   resume|compact)
     if command -v rt >/dev/null 2>&1; then
-      (rt chat lifecycle "$source_kind" --session "$session_id" </dev/null >/dev/null 2>&1 &)
+      rt chat lifecycle "$source_kind" --session "$session_id" </dev/null >/dev/null 2>&1
     fi
     ;;
 esac

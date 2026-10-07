@@ -178,7 +178,7 @@ export function buildRoutedHandlers(opts: {
   const paneHandlers = createPaneHandlers({
     db: opts.stateDb, repoIndex: ctx.repoIndex, bg: opts.bgService, log: ctx.log,
     herdrRunnerFor: (socket) => defaultHerdrRunner(socket ? { ...process.env, HERDR_SOCKET_PATH: socket } : process.env),
-    relocation: opts.relocation, integrations, startAgent: agentService.start, registryDeps: presenceRegistry,
+    relocation: opts.relocation, integrations, startAgent: agentService.start, registryDeps: presenceRegistry, delivery: opts.chatDelivery,
   });
   const worktreeHandlers = createWorktreeHandlers({ repoIndex: ctx.repoIndex, cache: ctx.cache, log: ctx.log }, opts.worktree);
   const worktreeTriageHandlers = createWorktreeTriageHandlers(

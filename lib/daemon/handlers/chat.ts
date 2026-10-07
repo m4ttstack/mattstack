@@ -59,7 +59,8 @@ import { CHAT_NOTIFICATION_CATEGORY, notifyEnabled } from "../../notifier.ts";
 import { chatViewerUrl, readChatViewerUrlSetting } from "../../chat-viewer-url.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { herdrRequest } from "../../herdr/client.ts";
-import { injectIntoPane, herdrError, isCallerPane, type InjectResult } from "../inject.ts";
+import { injectIntoPane, herdrError, isCallerPane } from "../inject.ts";
+import { messagingTarget, observeThroughIntegration, sendAsPeerInput, type PaneInputRoute } from "../pane-input.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
 import type { HerdrPane, HerdrSnapshot } from "./pane.ts";
 import { resolveInbox, inboxAlive } from "../../claude-registry.ts";
@@ -915,18 +916,19 @@ function findPaneSession(snapshot: HerdrSnapshot, paneId: string): { sessionId: 
   return { sessionId: pane.agent_session.value, cwd: pane.foreground_cwd ?? pane.cwd };
 }
 
-/** Fills a pane's session where herdr reported none. */
-type PaneSessionFill = (pane: HerdrPane, sockPath: string | undefined) => Promise<HerdrPane>;
+/** Fills a pane's session where herdr reported none; `final` is the lookup's last look before it gives up. */
+type PaneSessionFill = (pane: HerdrPane, sockPath: string | undefined, final: boolean) => Promise<HerdrPane>;
 
 async function findPaneSessionOrProcess(
   snapshot: HerdrSnapshot,
   paneId: string,
   sockPath: string | undefined,
   fill: PaneSessionFill,
+  final: boolean,
 ): Promise<{ sessionId: string; cwd?: string } | null> {
   const pane = snapshot.panes.find((p) => p.pane_id === paneId);
   if (!pane) return null;
-  return findPaneSession({ ...snapshot, panes: [await fill(pane, sockPath)] }, paneId);
+  return findPaneSession({ ...snapshot, panes: [await fill(pane, sockPath, final)] }, paneId);
 }
 
 // Mirrors pane.ts's REGISTER_BUDGET_MS/REGISTER_POLL_MS wait: a few seconds
@@ -958,11 +960,12 @@ async function findPaneSessionRetrying(
 ): Promise<{ ok: true; session: { sessionId: string; cwd?: string } } | { ok: false; error: string }> {
   const deadline = Date.now() + budgetMs;
   for (;;) {
+    const final = Date.now() >= deadline;
     const snap = await herdr<{ snapshot: HerdrSnapshot }>("session.snapshot", {}, { sockPath });
     if (!snap.ok) return herdrError(snap);
-    const resolved = await findPaneSessionOrProcess(snap.result.snapshot, paneId, sockPath, lookup.fill);
+    const resolved = await findPaneSessionOrProcess(snap.result.snapshot, paneId, sockPath, lookup.fill, final);
     if (resolved) return { ok: true, session: resolved };
-    if (Date.now() >= deadline) return { ok: false, error: lookup.missing(paneId) };
+    if (final) return { ok: false, error: lookup.missing(paneId) };
     await Bun.sleep(pollMs);
   }
 }
@@ -973,9 +976,11 @@ type PaneSessionLookup = { fill: PaneSessionFill; missing: (pane: string) => str
 /**
  * Off, today's: herdr's report, else the pane's Claude process in Claude
  * Code's registry. With agent.integrations.enabled on, herdr's report, else
- * the session most recently attached at `ref` (a pane runs one session, so
- * the newest attachment there is the current one), else the pane's process
- * through its own harness's lookup; no harness is assumed.
+ * the pane's process through its own harness's lookup; no harness is assumed.
+ * Only on the last look, once herdr has had the whole budget to report the
+ * session, does the binding most recently attached at `ref` count, and only
+ * when herdr shows its harness running there: an earlier session's binding
+ * must not answer for a newer session herdr has not reported yet.
  */
 function paneSessionLookup(
   herdr: typeof herdrRequest, db: Database, ref: string, registryRoots: string[] | undefined, integrations: IntegrationRegistry,
@@ -987,14 +992,14 @@ function paneSessionLookup(
     };
   }
   return {
-    fill: async (pane, sockPath) => {
-      if (pane.agent_session?.kind === "id") return pane;
+    fill: async (pane, sockPath, final) => {
+      if (pane.agent_session?.kind === "id" || pane.agent === undefined) return pane;
+      const byProcess = await withIntegrationSession(herdr, pane, sockPath, integrations.get(pane.agent)?.sessionForPid);
+      if (byProcess.agent_session?.kind === "id" || !final) return byProcess;
       const newest = listBindingsAtPane(db, ref)[0];
-      if (newest) {
-        const { native } = newest;
-        return { ...pane, agent_session: { source: "binding", agent: native.harness, kind: native.kind, value: native.value } };
-      }
-      return withIntegrationSession(herdr, pane, sockPath, pane.agent === undefined ? undefined : integrations.get(pane.agent)?.sessionForPid);
+      if (!newest || newest.native.harness !== pane.agent) return pane;
+      const { native } = newest;
+      return { ...pane, agent_session: { source: "binding", agent: native.harness, kind: native.kind, value: native.value } };
     },
     missing: (pane) => `chat: no agent session found for pane "${pane}"`,
   };
@@ -1165,45 +1170,10 @@ export function createChatHandlers(opts: {
   // sweep re-delivery chains behind rather than races an in-flight post.
   const deliveryChains = opts.deliveryChains ?? new Map<string, Promise<void>>();
   const integrations = opts.integrations ?? builtinRegistry();
-  const observeSession = opts.observeSession ?? (async (binding: SessionBinding): Promise<Observation | null> => {
-    const sessions = await integrations.get(binding.native.harness)?.loadSessions?.();
-    const seen = sessions ? await sessions.observe(binding) : null;
-    return seen?.ok ? seen.data : null;
-  });
-
-  /**
-   * With agent.integrations.enabled on, an invite to a pane whose current
-   * session (the one most recently attached there) belongs to a harness
-   * without typed pane input reaches it as peer input through its messaging.
-   * A session blocked on a question is refused, never typed into: the invite
-   * would land in the question form. Null keeps herdr's typed prompt, Claude
-   * Code's composer-preserving path.
-   */
-  async function inviteThroughMessaging(
-    ref: string, room: string, from: string, note: string | undefined,
-  ): Promise<{ ok: true; data: InjectResult } | { ok: false; error: string } | null> {
-    if (!opts.delivery || !integrationsEnabled()) return null;
-    const binding = listBindingsAtPane(db, ref)[0];
-    if (!binding) return null;
-    const integration = integrations.get(binding.native.harness);
-    if (!integration || integration.typedPaneInput) return null;
-    const refused = (reason: string) => ({ ok: true as const, data: { paneId: ref, delivered: "refused" as const, reason } });
-    if (!harnessReachable(opts.delivery, binding, binding.native.value, inboxDeps)) return refused("not connected");
-    let seen: Observation | null = null;
-    try {
-      seen = await observeSession(binding);
-    } catch (err) {
-      log.warn({ err, harness: binding.native.harness }, "chat: invite could not observe the session; sending it anyway");
-    }
-    if (seen?.execution === "blocked") return refused("at a prompt");
-    const fromName = identityName(from, db);
-    const body = inviteMessage(room, fromName, note);
-    const sent = await opts.delivery.deliverPeerInput(binding, oneShotInput({
-      id: `i-${room}-${crypto.randomUUID()}`, sender: fromName, body, recipient: binding.identity,
-    }));
-    if (!sent.ok) return refused(sent.error.message);
-    return { ok: true, data: { paneId: ref, delivered: sent.data.evidence === "queued" ? "queued" : "accepted" } };
-  }
+  const paneInput: PaneInputRoute = {
+    db, herdr, integrations, delivery: opts.delivery, enabled: integrationsEnabled, log,
+    observe: opts.observeSession ?? observeThroughIntegration(integrations),
+  };
   const resolveMention = (m: string): string => (m === "here" ? m : resolveHandle(m, db));
   const namesOf = (ids: string[]): string[] => {
     const names = identityNames(ids, db);
@@ -1577,7 +1547,7 @@ export function createChatHandlers(opts: {
         const snap = await herdr<{ snapshot: HerdrSnapshot }>("session.snapshot", {}, { sockPath });
         if (!snap.ok) return herdrError(snap);
         const lookup = paneSessionLookup(herdr, db, payload.pane, claudeRegistryRoots, integrations);
-        const resolved = await findPaneSessionOrProcess(snap.result.snapshot, paneRef, sockPath, lookup.fill);
+        const resolved = await findPaneSessionOrProcess(snap.result.snapshot, paneRef, sockPath, lookup.fill, true);
         if (!resolved) return { ok: false, error: lookup.missing(payload.pane) };
         sessionId = resolved.sessionId;
       }
@@ -1643,8 +1613,12 @@ export function createChatHandlers(opts: {
       if (!isValidChatName(from)) return { ok: false, error: `invalid handle "${from}"` };
       const resolved = resolvePaneRef(paneId);
       if (isCallerPane(resolved.paneId, resolved.sockPath, callerPane)) return { ok: true, data: { paneId, delivered: "refused", reason: "that is this pane" } };
-      const res = (await inviteThroughMessaging(paneId, room, from, note))
-        ?? await injectIntoPane({ paneId: resolved.paneId, text: inviteText(room, identityName(from, db), note), callerPane, herdr, sockPath: resolved.sockPath });
+      const target = { ref: paneId, paneId: resolved.paneId, sockPath: resolved.sockPath };
+      const peer = await messagingTarget(paneInput, target);
+      const fromName = identityName(from, db);
+      const res = peer
+        ? await sendAsPeerInput(paneInput, target, peer, [{ idPrefix: `i-${room}`, sender: fromName, body: inviteMessage(room, fromName, note) }])
+        : await injectIntoPane({ paneId: resolved.paneId, text: inviteText(room, fromName, note), callerPane, herdr, sockPath: resolved.sockPath });
       if (!res.ok) return res;
       // Round-trip: echo the ref the caller addressed, not the bare id.
       return { ok: true, data: { ...res.data, paneId } };

@@ -25,7 +25,7 @@ export PATH="$SANDBOX/bin:$PATH"
 export RT_STUB_CALLS="$SANDBOX/rt-calls"
 : > "$RT_STUB_CALLS"
 
-# The lifecycle report runs in the background: wait for the call wanted, or a short while for none.
+# Reads, then clears, the calls the stub recorded; the wait covers a slow stub write.
 calls_after() {
   local want="$1" i
   for i in $(seq 1 40); do

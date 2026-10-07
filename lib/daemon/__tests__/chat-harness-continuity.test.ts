@@ -1,8 +1,8 @@
 /**
  * Chat identity and presence across a harness session's lifecycle, with
  * agent.integrations.enabled on (and the same calls with it off, which change
- * nothing). Real chat handlers, state.db and delivery service; the harness
- * messaging, herdr and Claude Code's registry are fakes.
+ * nothing). Real chat handlers, pane handlers, state.db and delivery service;
+ * the harness messaging, herdr and Claude Code's registry are fakes.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
@@ -13,9 +13,9 @@ import type { Logger } from "pino";
 import type {
   DeliveryReceipt, NativeSessionRef, Observation, Outcome, PeerInput, SessionBinding,
 } from "../../../packages/rt-client/src/agent-integrations.ts";
-import { reportClaudeLifecycle } from "../../agent-integrations/claude/sessions.ts";
-import { lendsPaneIdentity } from "../../agent-integrations/context.ts";
+import { reportClaudeLifecycle, type ClaudeRegistry } from "../../agent-integrations/claude/sessions.ts";
 import { createDeliveryService } from "../../agent-integrations/delivery.ts";
+import { lendsPaneIdentity } from "../../agent-integrations/pane-identity.ts";
 import { applySessionPresence, withHarnessLiveness } from "../../agent-integrations/presence.ts";
 import { createSessionStore, isDetachedAttachment } from "../../agent-integrations/session-store.ts";
 import { readChatSession, writeChatSession } from "../../chat-session.ts";
@@ -24,17 +24,21 @@ import { requireChatHandle, SIGN_IN_HINT, type ChatBuddiesFn } from "../../mcp/s
 import { setSetting } from "../../settings/write.ts";
 import { listBuddies, openStateDb, presenceForSession, signedInPresenceForPane, type RegistryDeps } from "../../state/index.ts";
 import { createChatHandlers, type InboxDeps } from "../handlers/chat.ts";
+import { createPaneHandlers } from "../handlers/pane.ts";
 
 let n = 0;
 const quiet = { warn: () => {}, info: () => {}, debug: () => {}, error: () => {} } as unknown as Logger;
 const CODEX_PROFILE = "/codex-home";
+const IDLE: Observation = { connectivity: "connected", execution: "idle", background: "unknown", observedAt: 1, source: "test", generation: 1 };
 
 const codexRef = (value: string): NativeSessionRef => ({ harness: "codex", profile: CODEX_PROFILE, kind: "id", value });
 const claudeRef = (value: string): NativeSessionRef => ({ harness: "claude", profile: "default", kind: "id", value });
 
-function bind(db: Database, native: NativeSessionRef, pane: string | undefined, identity: string): SessionBinding {
+function bind(db: Database, native: NativeSessionRef, pane: string | undefined, identity: string, pid?: number): SessionBinding {
   const store = createSessionStore(db);
-  const bound = store.bind(store.reserve({ identity }), native, { mode: "herdr", ...(pane !== undefined && { pane }) });
+  const bound = store.bind(store.reserve({ identity }), native, {
+    mode: "herdr", ...(pane !== undefined && { pane }), ...(pid !== undefined && { pid }),
+  });
   if (!bound.ok) throw new Error(bound.error.message);
   return bound.data;
 }
@@ -53,14 +57,24 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   }
 }
 
+/** Claude Code's registry as the session adapter reads it: which session each live Claude process runs. */
+function claudeProcesses(runs: Record<number, string>, dead: number[] = []) {
+  const registry: ClaudeRegistry = { roots: () => [], read: () => new Map(), sessionForPid: (pid) => runs[pid] ?? null };
+  return { registry, processAlive: (pid: number) => !dead.includes(pid) };
+}
+
 type Submitted = { binding: SessionBinding; input: PeerInput };
 
 /**
- * One state.db, the real chat handlers and delivery service, and a harness
- * whose messaging records every submission. `inbox` lists the Claude
+ * One state.db, the real chat and pane handlers and delivery service, and a
+ * harness whose messaging records every submission. `inbox` lists the Claude
  * sessions with a live registry inbox; their frames land in `frames`.
+ * `paneAgents` is the harness herdr shows running in each pane.
  */
-function fixture(opts: { inbox?: string[]; link?: () => string | null; observe?: () => Observation | null; herdr?: typeof herdrRequest } = {}) {
+function fixture(opts: {
+  inbox?: string[]; link?: () => string | null; observe?: () => Observation | null; herdr?: typeof herdrRequest;
+  paneAgents?: Record<string, string>;
+} = {}) {
   const db = openStateDb(join(tmpdir(), `chat-continuity-${process.pid}-${n++}.db`));
   const submits: Submitted[] = [];
   const messaging = {
@@ -91,29 +105,27 @@ function fixture(opts: { inbox?: string[]; link?: () => string | null; observe?:
     },
   };
   const herdrCalls: string[] = [];
-  const herdr = opts.herdr ?? (async (method: string) => {
+  const herdr = opts.herdr ?? (async (method: string, params: { target?: string }) => {
     herdrCalls.push(method);
+    const agent = method === "agent.get" && params.target !== undefined ? opts.paneAgents?.[params.target] : undefined;
+    if (agent) return { ok: true, result: { agent: { agent, agent_status: "idle" } } };
     return { ok: false, code: "unreachable", message: "no herdr in this test" };
   }) as unknown as typeof herdrRequest;
   const claudeRegistry: RegistryDeps = {
     resolve: inboxDeps.resolve, alive: () => true, resolveAll: () => new Map([...live].map((session) => [session, entry(session)])),
   };
   const registryDeps = withHarnessLiveness(claudeRegistry, { db: () => db, connection: (harness) => (harness === "claude" ? undefined : link()) });
-  const h = createChatHandlers({
-    db, emitEvent: () => 0, inboxDeps, herdr, log: quiet, retryDelayMs: 0, delivery, registryDeps,
-    observeSession: async () => opts.observe?.() ?? null,
-  });
+  const observeSession = async () => opts.observe?.() ?? null;
+  const h = createChatHandlers({ db, emitEvent: () => 0, inboxDeps, herdr, log: quiet, retryDelayMs: 0, delivery, registryDeps, observeSession });
+  const pane = createPaneHandlers({ db, repoIndex: () => ({}), herdr, log: quiet, delivery, observeSession });
   const signIn = async (payload: Record<string, unknown>) => {
     const res = await h["chat:sign-in"](payload);
     if (!res.ok) throw new Error(res.error);
     return res.data;
   };
   const to = (handle: string) => submits.filter((s) => s.input.recipient === handle);
-  return { db, h, delivery, submits, frames, herdrCalls, signIn, to, registryDeps };
-}
-
-function caller(binding: SessionBinding) {
-  return { caller: async () => ({ ok: true as const, data: { binding } }) };
+  const roster: ChatBuddiesFn = async () => ({ ok: true, data: { buddies: listBuddies(Date.now(), db, registryDeps) } });
+  return { db, h, pane, delivery, submits, frames, herdrCalls, signIn, to, registryDeps, roster, live };
 }
 
 beforeEach(() => {
@@ -135,8 +147,7 @@ describe("chat identity follows the native session, not the pane", () => {
     const second = bind(x.db, codexRef("thread-2"), "w1:p1", "reserved-for-thread-2");
     await applySessionPresence(second, "start", { db: x.db });
     expect(signedInPresenceForPane("w1:p1", x.db)).toBeNull();
-    const roster: ChatBuddiesFn = async () => ({ ok: true, data: { buddies: listBuddies(Date.now(), x.db, x.registryDeps) } });
-    expect(await requireChatHandle({ CLAUDE_CODE_SESSION_ID: "thread-2", HERDR_PANE_ID: "w1:p1" }, () => null, roster, (id) => lendsPaneIdentity(id, { db: x.db })))
+    expect(await requireChatHandle({ CLAUDE_CODE_SESSION_ID: "thread-2", HERDR_PANE_ID: "w1:p1" }, () => null, x.roster, (id, pane) => lendsPaneIdentity(id, pane, { db: x.db })))
       .toEqual({ error: SIGN_IN_HINT });
     const fresh = await x.signIn({ sessionId: "thread-2", pane: "w1:p1" });
     expect(fresh.handle).not.toBe(original.handle);
@@ -161,34 +172,13 @@ describe("chat identity follows the native session, not the pane", () => {
     expect(createSessionStore(x.db).get(binding.key)?.attachment.generation).toBe(binding.attachment.generation);
     expect((await x.signIn({ sessionId: "thread-1", pane: "w1:p1" })).handle).toBe(original.handle);
 
-    // Claude Code's compaction, reported by its SessionStart hook from the session's own pane.
+    // Claude Code's compaction, reported by its SessionStart hook under the session's own process.
     const claude = await x.signIn({ sessionId: "sess-c", pane: "w3:p1" });
-    const claudeBinding = bind(x.db, claudeRef("sess-c"), "w3:p1", claude.handle);
-    expect(await reportClaudeLifecycle("sess-c", "compact", { HERDR_PANE_ID: "w3:p1" }, { db: x.db })).toBe("applied");
+    const claudeBinding = bind(x.db, claudeRef("sess-c"), "w3:p1", claude.handle, 501);
+    const reporter = { env: { HERDR_PANE_ID: "w3:p1" }, ancestry: [900, 501] };
+    expect(await reportClaudeLifecycle("sess-c", "compact", reporter, { db: x.db, ...claudeProcesses({ 501: "sess-c" }) })).toBe("applied");
     expect(createSessionStore(x.db).get(claudeBinding.key)?.attachment.generation).toBe(claudeBinding.attachment.generation);
     expect((await x.signIn({ sessionId: "sess-c", pane: "w3:p1" })).handle).toBe(claude.handle);
-  });
-
-  test("a fork or a clear in the same pane starts a fresh identity", async () => {
-    const x = fixture({ inbox: ["sess-1"] });
-    const original = await x.signIn({ sessionId: "sess-1", pane: "w1:p1" });
-    bind(x.db, claudeRef("sess-1"), "w1:p1", original.handle);
-    const roster: ChatBuddiesFn = async () => ({ ok: true, data: { buddies: listBuddies(Date.now(), x.db, x.registryDeps) } });
-    const lends = (id: string) => lendsPaneIdentity(id, { db: x.db });
-
-    // A fork: a new session id in the same pane, never signed in.
-    const forkEnv = { CLAUDE_CODE_SESSION_ID: "sess-fork", HERDR_PANE_ID: "w1:p1" };
-    expect(await requireChatHandle(forkEnv, () => null, roster, lends)).toEqual({ error: SIGN_IN_HINT });
-    const forked = await x.signIn({ sessionId: "sess-fork", pane: "w1:p1" });
-    expect(forked.handle).not.toBe(original.handle);
-
-    // A clear: the old session ends, and the new one signs in fresh.
-    writeChatSession({ sessionId: "sess-1", handle: original.handle, baseHandle: original.baseHandle, name: original.name, signedInAt: 1 });
-    expect(await reportClaudeLifecycle("sess-1", "end", { HERDR_PANE_ID: "w1:p1" }, { db: x.db })).toBe("applied");
-    expect(presenceForSession("sess-1", x.db)?.signedOutAt).toBeDefined();
-    expect(readChatSession("sess-1")).toBeNull();
-    const cleared = await x.signIn({ sessionId: "sess-clear", pane: "w1:p1" });
-    expect(cleared.handle).not.toBe(original.handle);
   });
 
   test("self-posts never come back as unread or as a delivery", async () => {
@@ -220,7 +210,54 @@ describe("chat identity follows the native session, not the pane", () => {
   });
 });
 
-describe("lifecycle events name the attachment they came from", () => {
+describe("a pane lends its identity only as #708 does", () => {
+  const PANE = "w1:p1";
+  const env = (session: string) => ({ CLAUDE_CODE_SESSION_ID: session, HERDR_PANE_ID: PANE });
+
+  test("a session moved to the background keeps its identity at its pane", async () => {
+    // The original goes on in a background process; the pane's process (501) now runs a new session id.
+    const x = fixture({ inbox: ["sess-1"] });
+    const original = await x.signIn({ sessionId: "sess-1", pane: PANE });
+    bind(x.db, claudeRef("sess-1"), PANE, original.handle, 501);
+    const lends = (id: string, pane: string) => lendsPaneIdentity(id, pane, { db: x.db, sessionForPid: (pid) => (pid === 501 ? "sess-moved" : null), alive: () => true });
+    expect(await requireChatHandle(env("sess-moved"), () => null, x.roster, lends)).toMatchObject({ handle: original.handle });
+  });
+
+  test("a fork starts a fresh identity: its parent no longer runs anywhere to lend from", async () => {
+    const x = fixture();
+    const original = await x.signIn({ sessionId: "sess-1", pane: PANE });
+    bind(x.db, claudeRef("sess-1"), PANE, original.handle, 501);
+    const lends = (id: string, pane: string) => lendsPaneIdentity(id, pane, { db: x.db, sessionForPid: (pid) => (pid === 501 ? "sess-fork" : null), alive: () => true });
+    expect(await requireChatHandle(env("sess-fork"), () => null, x.roster, lends)).toEqual({ error: SIGN_IN_HINT });
+    expect((await x.signIn({ sessionId: "sess-fork", pane: PANE })).handle).not.toBe(original.handle);
+  });
+
+  test("a clear starts a fresh identity: the cleared session signed out at its SessionEnd", async () => {
+    const x = fixture({ inbox: ["sess-1", "sess-clear"] });
+    const original = await x.signIn({ sessionId: "sess-1", pane: PANE });
+    writeChatSession({ sessionId: "sess-1", handle: original.handle, baseHandle: original.baseHandle, name: original.name, signedInAt: 1 });
+    bind(x.db, claudeRef("sess-1"), PANE, original.handle, 501);
+    const ended = await reportClaudeLifecycle("sess-1", "end", { env: { HERDR_PANE_ID: PANE }, ancestry: [700, 501] }, { db: x.db, ...claudeProcesses({ 501: "sess-1" }) });
+    expect(ended).toBe("applied");
+    expect(readChatSession("sess-1")).toBeNull();
+    const lends = (id: string, pane: string) => lendsPaneIdentity(id, pane, { db: x.db, sessionForPid: () => "sess-clear", alive: () => true });
+    expect(await requireChatHandle(env("sess-clear"), () => null, x.roster, lends)).toEqual({ error: SIGN_IN_HINT });
+    expect((await x.signIn({ sessionId: "sess-clear", pane: PANE })).handle).not.toBe(original.handle);
+  });
+
+  test("a bound identity whose process still runs it, or that lives in another pane or harness, is never lent", async () => {
+    const x = fixture({ inbox: ["sess-1"] });
+    const original = await x.signIn({ sessionId: "sess-1", pane: PANE });
+    bind(x.db, claudeRef("sess-1"), PANE, original.handle, 501);
+    const still = (id: string, pane: string) => lendsPaneIdentity(id, pane, { db: x.db, sessionForPid: () => "sess-1", alive: () => true });
+    expect(await requireChatHandle(env("sess-other"), () => null, x.roster, still)).toEqual({ error: SIGN_IN_HINT });
+    expect(lendsPaneIdentity("sess-1", "w9:p9", { db: x.db, sessionForPid: () => "sess-moved", alive: () => true })).toBe(false);
+    bind(x.db, codexRef("thread-1"), PANE, "codex-identity");
+    expect(lendsPaneIdentity("thread-1", PANE, { db: x.db, sessionForPid: () => null, alive: () => false })).toBe(false);
+  });
+});
+
+describe("lifecycle events count only from the session's own process", () => {
   test("a stale end cannot sign out a replacement attachment", async () => {
     const x = fixture();
     const original = await x.signIn({ sessionId: "thread-1", pane: "w1:p1" });
@@ -241,29 +278,57 @@ describe("lifecycle events name the attachment they came from", () => {
     expect(isDetachedAttachment(createSessionStore(x.db).get(first.key)!)).toBe(true);
   });
 
-  test("a Claude Code session resumed in another pane survives its old process's SessionEnd", async () => {
-    const x = fixture();
-    const original = await x.signIn({ sessionId: "sess-1", pane: "w1:p1" });
-    writeChatSession({ sessionId: "sess-1", handle: original.handle, baseHandle: original.baseHandle, name: original.name, signedInAt: 1 });
-    const bound = bind(x.db, claudeRef("sess-1"), "w1:p1", original.handle);
+  test("a Claude Code session resumed in another process survives its old process's SessionEnd, in herdr or not", async () => {
+    for (const panes of [{ old: "w1:p1", now: "w2:p1" }, { old: undefined, now: undefined }]) {
+      const x = fixture();
+      const original = await x.signIn({ sessionId: "sess-1", ...(panes.old && { pane: panes.old }) });
+      writeChatSession({ sessionId: "sess-1", handle: original.handle, baseHandle: original.baseHandle, name: original.name, signedInAt: 1 });
+      const bound = bind(x.db, claudeRef("sess-1"), panes.old, original.handle, 501);
+      const procs = claudeProcesses({ 501: "sess-1", 777: "sess-1" });
+      const from = (pid: number, pane?: string) => ({ env: pane ? { HERDR_PANE_ID: pane } : {}, ancestry: [pid] });
 
-    expect(await reportClaudeLifecycle("sess-1", "resume", { HERDR_PANE_ID: "w2:p1" }, { db: x.db })).toBe("applied");
-    expect(createSessionStore(x.db).get(bound.key)).toMatchObject({ attachment: { generation: bound.attachment.generation + 1, pane: "w2:p1" } });
-    expect(presenceForSession("sess-1", x.db)).toMatchObject({ handle: original.handle, pane: "w2:p1" });
+      expect(await reportClaudeLifecycle("sess-1", "resume", from(777, panes.now), { db: x.db, ...procs })).toBe("applied");
+      expect(createSessionStore(x.db).get(bound.key)?.attachment).toMatchObject({ generation: bound.attachment.generation + 1, pid: 777 });
+      if (panes.now) expect(presenceForSession("sess-1", x.db)?.pane).toBe(panes.now);
 
-    expect(await reportClaudeLifecycle("sess-1", "end", { HERDR_PANE_ID: "w1:p1" }, { db: x.db })).toBe("stale");
-    expect(presenceForSession("sess-1", x.db)?.signedOutAt).toBeUndefined();
-    expect(readChatSession("sess-1")?.handle).toBe(original.handle);
+      expect(await reportClaudeLifecycle("sess-1", "end", from(501, panes.old), { db: x.db, ...procs })).toBe("stale");
+      expect(presenceForSession("sess-1", x.db)?.signedOutAt).toBeUndefined();
+      expect(readChatSession("sess-1")?.handle).toBe(original.handle);
 
-    expect(await reportClaudeLifecycle("sess-1", "end", { HERDR_PANE_ID: "w2:p1" }, { db: x.db })).toBe("applied");
-    expect(presenceForSession("sess-1", x.db)?.signedOutAt).toBeDefined();
-    expect(readChatSession("sess-1")).toBeNull();
+      expect(await reportClaudeLifecycle("sess-1", "end", from(777, panes.now), { db: x.db, ...procs })).toBe("applied");
+      expect(presenceForSession("sess-1", x.db)?.signedOutAt).toBeDefined();
+      expect(readChatSession("sess-1")).toBeNull();
+    }
   });
 
-  test("a session no binding names is left to the caller's path", async () => {
+  test("a report from outside the session's process tree is refused, whatever it names", async () => {
+    const x = fixture();
+    const victim = await x.signIn({ sessionId: "sess-v", pane: "w1:p1" });
+    writeChatSession({ sessionId: "sess-v", handle: victim.handle, baseHandle: victim.baseHandle, name: victim.name, signedInAt: 1 });
+    const bound = bind(x.db, claudeRef("sess-v"), "w1:p1", victim.handle, 501);
+    // 900 is no Claude process; 600 is another session's Claude process; 501 runs the victim but is not an ancestor.
+    const procs = claudeProcesses({ 501: "sess-v", 600: "sess-other" });
+    for (const ancestry of [[900, 901], [900, 600]]) {
+      const forged = { env: { HERDR_PANE_ID: "w9:p9" }, ancestry };
+      expect(await reportClaudeLifecycle("sess-v", "resume", forged, { db: x.db, ...procs })).toBe("unverified");
+      expect(await reportClaudeLifecycle("sess-v", "end", forged, { db: x.db, ...procs })).toBe("unverified");
+    }
+    expect(createSessionStore(x.db).get(bound.key)?.attachment).toMatchObject({ generation: bound.attachment.generation, pane: "w1:p1", pid: 501 });
+    expect(presenceForSession("sess-v", x.db)).toMatchObject({ pane: "w1:p1" });
+    expect(presenceForSession("sess-v", x.db)?.signedOutAt).toBeUndefined();
+    expect(readChatSession("sess-v")?.handle).toBe(victim.handle);
+
+    // A Claude process whose registry row names the session but is no longer alive moves nothing.
+    const gone = await reportClaudeLifecycle("sess-v", "resume", { env: {}, ancestry: [777] }, { db: x.db, ...claudeProcesses({ 777: "sess-v" }, [777]) });
+    expect(gone).toBe("unverified");
+    expect(createSessionStore(x.db).get(bound.key)?.attachment.generation).toBe(bound.attachment.generation);
+  });
+
+  test("the session's own report of a session no binding names is left to the caller's path", async () => {
     const x = fixture();
     await x.signIn({ sessionId: "sess-loose", pane: "w1:p1" });
-    expect(await reportClaudeLifecycle("sess-loose", "end", { HERDR_PANE_ID: "w9:p9" }, { db: x.db })).toBe("unbound");
+    const reporter = { env: { HERDR_PANE_ID: "w1:p1" }, ancestry: [501] };
+    expect(await reportClaudeLifecycle("sess-loose", "end", reporter, { db: x.db, ...claudeProcesses({ 501: "sess-loose" }) })).toBe("unbound");
     expect(presenceForSession("sess-loose", x.db)?.signedOutAt).toBeUndefined();
   });
 });
@@ -299,8 +364,8 @@ describe("delivery goes through the session's harness", () => {
   });
 
   test("an invite reaches a session without typed pane input through its messaging, never into a question", async () => {
-    let observed: Observation | null = { connectivity: "connected", execution: "idle", background: "unknown", observedAt: 1, source: "test", generation: 1 };
-    const x = fixture({ observe: () => observed });
+    let observed: Observation | null = IDLE;
+    const x = fixture({ observe: () => observed, paneAgents: { "w1:p1": "codex" } });
     const t1 = await x.signIn({ sessionId: "thread-1", pane: "w1:p1" });
     bind(x.db, codexRef("thread-1"), "w1:p1", t1.handle);
 
@@ -310,17 +375,26 @@ describe("delivery goes through the session's harness", () => {
     expect(invite.input.sender).toBe("matt");
     expect(invite.input.body).toContain('chat_join (room "build")');
     expect(invite.input.body).toContain("note from matt: the deploy is red");
-    expect(x.herdrCalls).toEqual([]);
+    expect(x.herdrCalls).toEqual(["agent.get"]);
 
-    observed = { ...observed!, execution: "blocked" };
+    observed = { ...IDLE, execution: "blocked" };
     const before = x.submits.length;
     const blocked = await x.h["chat:invite"]({ paneId: "w1:p1", room: "build", from: "matt" });
     expect(blocked).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "refused", reason: "at a prompt" } });
     expect(x.submits.length).toBe(before);
-    expect(x.herdrCalls).toEqual([]);
+    expect(x.herdrCalls).toEqual(["agent.get", "agent.get"]);
 
     const self = await x.h["chat:invite"]({ paneId: "w1:p1", room: "build", from: "matt", callerPane: "w1:p1" });
     expect(self).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "refused", reason: "that is this pane" } });
+  });
+
+  test("a binding left at a pane where herdr now shows another harness never captures the invite", async () => {
+    const x = fixture({ observe: () => IDLE, paneAgents: { "w1:p1": "claude" } });
+    bind(x.db, codexRef("thread-old"), "w1:p1", "old-codex");
+    const res = await x.h["chat:invite"]({ paneId: "w1:p1", room: "build", from: "matt" });
+    expect(x.submits).toEqual([]);
+    expect(x.herdrCalls).toContain("agent.prompt");
+    expect(res.ok).toBe(false);
   });
 
   test("an invite to a Claude Code pane keeps herdr's typed prompt", async () => {
@@ -345,30 +419,81 @@ describe("delivery goes through the session's harness", () => {
   });
 });
 
-describe("sign-in --pane finds the pane's session through its integration", () => {
-  const snapshotWith = (pane: Record<string, unknown>) => (async (method: string) => (method === "session.snapshot"
-    ? { ok: true, result: { snapshot: { workspaces: [], tabs: [], panes: [pane] } } }
-    : method === "pane.process_info"
-      ? { ok: true, result: { process_info: { foreground_process_group_id: null, foreground_processes: [] } } }
-      : { ok: false, code: "unreachable", message: method })) as unknown as typeof herdrRequest;
-  const codexPane = { pane_id: "w1:p1", workspace_id: "w1", tab_id: "t1", agent: "codex", agent_status: "idle", cwd: "/nowhere" };
+describe("rt pane send goes through the pane's harness", () => {
+  test("text and its continuation reach a Codex session as peer input, in order; a question refuses", async () => {
+    let observed: Observation | null = IDLE;
+    const x = fixture({ observe: () => observed, paneAgents: { "w1:p1": "codex" } });
+    bind(x.db, codexRef("thread-1"), "w1:p1", "codex-identity");
+    const sent = await x.pane["pane:send"]({ paneId: "w1:p1", text: "run the tests", continuation: "then report", callerPane: "w2:p1" });
+    expect(sent).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "queued", continuation: { delivered: "deferred" } } });
+    expect(x.submits.map((s) => [s.input.sender, s.input.body])).toEqual([["pane w2:p1", "run the tests"], ["pane w2:p1", "then report"]]);
 
-  test("a Codex pane signs in as the thread bound there", async () => {
-    const x = fixture({ herdr: snapshotWith(codexPane) });
+    observed = { ...IDLE, execution: "blocked" };
+    const blocked = await x.pane["pane:send"]({ paneId: "w1:p1", text: "are you there" });
+    expect(blocked).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "refused", reason: "at a prompt" } });
+    expect(x.submits).toHaveLength(2);
+    expect(x.herdrCalls).not.toContain("agent.prompt");
+  });
+
+  test("a Claude pane, and every pane with the switch off, keeps herdr's typed prompt", async () => {
+    const x = fixture({ paneAgents: { "w1:p1": "claude", "w2:p1": "codex" } });
+    bind(x.db, claudeRef("sess-c"), "w1:p1", "claude-identity");
+    await x.pane["pane:send"]({ paneId: "w1:p1", text: "hello" });
+    setSetting("agent.integrations.enabled", false, "machine");
+    bind(x.db, codexRef("thread-1"), "w2:p1", "codex-identity");
+    const off = await x.pane["pane:send"]({ paneId: "w2:p1", text: "hello" });
+    expect(off).toEqual({ ok: true, data: { paneId: "w2:p1", delivered: "refused", reason: "not a claude pane" } });
+    expect(x.submits).toEqual([]);
+  });
+});
+
+describe("sign-in --pane finds the pane's session through its integration", () => {
+  const codexPane = { pane_id: "w1:p1", workspace_id: "w1", tab_id: "t1", agent: "codex", agent_status: "idle", cwd: "/nowhere" };
+  /** herdr answering each snapshot from `panes` in turn, the last one for every later call. */
+  const herdrShowing = (...panes: Array<Record<string, unknown>>) => {
+    let calls = 0;
+    return (async (method: string) => {
+      if (method === "session.snapshot") {
+        const pane = panes[Math.min(calls++, panes.length - 1)];
+        return { ok: true, result: { snapshot: { workspaces: [], tabs: [], panes: [pane] } } };
+      }
+      if (method === "pane.process_info") return { ok: true, result: { process_info: { foreground_process_group_id: null, foreground_processes: [] } } };
+      return { ok: false, code: "unreachable", message: method };
+    }) as unknown as typeof herdrRequest;
+  };
+  const handlers = (db: Database, herdr: typeof herdrRequest) =>
+    createChatHandlers({ db, emitEvent: () => 0, herdr, log: quiet, paneSessionBudgetMs: 40, paneSessionPollMs: 5, claudeRegistryRoots: [] });
+
+  test("a Codex pane herdr names but reports no session for signs in as the thread bound there, once herdr has had its budget", async () => {
+    const x = fixture();
     bind(x.db, codexRef("thread-1"), "w1:p1", "reserved");
-    const res = await x.h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, noRoom: true });
+    const res = await handlers(x.db, herdrShowing(codexPane))["chat:sign-in"]({ pane: "w1:p1", viaPane: true, noRoom: true });
     if (!res.ok) throw new Error(res.error);
     expect(res.data.sessionId).toBe("thread-1");
   });
 
+  test("an earlier session's binding never answers while herdr is still to report the newer one", async () => {
+    const x = fixture();
+    bind(x.db, claudeRef("sess-old"), "w1:p1", "old-identity");
+    const claudePane = { ...codexPane, agent: "claude" };
+    const herdr = herdrShowing(claudePane, { ...claudePane, agent_session: { source: "hook", agent: "claude", kind: "id", value: "sess-new" } });
+    const res = await handlers(x.db, herdr)["chat:sign-in"]({ pane: "w1:p1", viaPane: true, noRoom: true });
+    if (!res.ok) throw new Error(res.error);
+    expect(res.data.sessionId).toBe("sess-new");
+  });
+
+  test("a binding of another harness than the one herdr shows never answers", async () => {
+    const x = fixture();
+    bind(x.db, codexRef("thread-old"), "w1:p1", "old-codex");
+    const res = await handlers(x.db, herdrShowing({ ...codexPane, agent: "claude" }))["chat:sign-in"]({ pane: "w1:p1", viaPane: true, noRoom: true });
+    expect(res).toEqual({ ok: false, error: 'chat: no agent session found for pane "w1:p1"' });
+  });
+
   test("with the switch off the same pane finds no Claude session, as before", async () => {
     setSetting("agent.integrations.enabled", false, "machine");
-    const x = fixture({ herdr: snapshotWith(codexPane) });
+    const x = fixture();
     bind(x.db, codexRef("thread-1"), "w1:p1", "reserved");
-    const h = createChatHandlers({
-      db: x.db, emitEvent: () => 0, herdr: snapshotWith(codexPane), log: quiet, paneSessionBudgetMs: 0, paneSessionPollMs: 1, claudeRegistryRoots: [],
-    });
-    const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, noRoom: true });
+    const res = await handlers(x.db, herdrShowing(codexPane))["chat:sign-in"]({ pane: "w1:p1", viaPane: true, noRoom: true });
     expect(res).toEqual({ ok: false, error: 'chat: no Claude session found for pane "w1:p1"' });
   });
 });
@@ -388,17 +513,17 @@ describe("with agent.integrations.enabled off nothing changes", () => {
     expect(readChatSession("thread-1")?.handle).toBe(original.handle);
     expect(isDetachedAttachment(createSessionStore(x.db).get(binding.key)!)).toBe(false);
 
-    const claude = bind(x.db, claudeRef("sess-c"), "w3:p1", "someone");
-    expect(await reportClaudeLifecycle("sess-c", "resume", { HERDR_PANE_ID: "w4:p1" }, { db: x.db })).toBe("unbound");
+    const claude = bind(x.db, claudeRef("sess-c"), "w3:p1", "someone", 501);
+    const reporter = { env: { HERDR_PANE_ID: "w4:p1" }, ancestry: [777] };
+    expect(await reportClaudeLifecycle("sess-c", "resume", reporter, { db: x.db, ...claudeProcesses({ 777: "sess-c" }) })).toBe("unbound");
     expect(createSessionStore(x.db).get(claude.key)?.attachment).toMatchObject({ generation: claude.attachment.generation, pane: "w3:p1" });
   });
 
   test("the pane lends its identity, a join counts every newer message, and delivery takes the inbox", async () => {
     const x = fixture({ inbox: ["sess-1", "sess-kai"] });
     const original = await x.signIn({ sessionId: "sess-1", pane: "w1:p1" });
-    bind(x.db, claudeRef("sess-1"), "w1:p1", original.handle);
-    const roster: ChatBuddiesFn = async () => ({ ok: true, data: { buddies: listBuddies(Date.now(), x.db, x.registryDeps) } });
-    const lent = await requireChatHandle({ CLAUDE_CODE_SESSION_ID: "sess-fork", HERDR_PANE_ID: "w1:p1" }, () => null, roster, (id) => lendsPaneIdentity(id, { db: x.db }));
+    bind(x.db, claudeRef("sess-1"), "w1:p1", original.handle, 501);
+    const lent = await requireChatHandle({ CLAUDE_CODE_SESSION_ID: "sess-fork", HERDR_PANE_ID: "w1:p1" }, () => null, x.roster, (id, pane) => lendsPaneIdentity(id, pane, { db: x.db, sessionForPid: () => "sess-1", alive: () => true }));
     expect(lent).toMatchObject({ handle: original.handle });
 
     const kai = await x.signIn({ sessionId: "sess-kai", continue: "kai" });

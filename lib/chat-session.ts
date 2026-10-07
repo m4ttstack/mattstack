@@ -10,8 +10,11 @@
  */
 import { readdirSync, unlinkSync } from "fs";
 import { join } from "path";
-import type { SessionBinding } from "../packages/rt-client/src/agent-integrations.ts";
-import { extractCliEvidence, integrationsEnabled, lendsPaneIdentity, resolveCliBinding, resolveCliSession } from "./agent-integrations/context.ts";
+import type { NativeSessionRef, SessionBinding } from "../packages/rt-client/src/agent-integrations.ts";
+import {
+  BOTH_SESSIONS_MESSAGE, codexProfile, extractCliEvidence, integrationsEnabled, resolveCliBinding, resolveCliSession,
+} from "./agent-integrations/context.ts";
+import { lendsPaneIdentity } from "./agent-integrations/pane-identity.ts";
 import { UserActionableError } from "./errors.ts";
 import { readJson, writeJson } from "./json-store.ts";
 import { rtDir } from "./rt-paths.ts";
@@ -147,9 +150,9 @@ export function boundCliSession(args: string[]): SessionBinding | undefined {
   return integrationsEnabled() ? resolveCliBinding(args, process.env) : undefined;
 }
 
-/** Whether the identity signed in as `holder` may stand in at its pane for this command's session; see lendsPaneIdentity. */
-export function paneIdentityLendable(holder: string): boolean {
-  return lendsPaneIdentity(holder);
+/** Whether the identity `holder` signed in as at `pane` may stand in there for this command's session; see lendsPaneIdentity. */
+export function paneIdentityLendable(holder: string, pane: string): boolean {
+  return lendsPaneIdentity(holder, pane);
 }
 
 /**
@@ -171,17 +174,22 @@ function unattributed(why: string): UserActionableError {
 
 /**
  * The session `rt chat sign-in` acts as; `binding` when one already names it,
- * and, for a Claude Code session not bound yet, how to bind it once the
- * daemon names its identity.
+ * and, for a session not bound yet, how to bind it once the daemon names its
+ * identity. `paneTrusted: false` when this process's pane is not the
+ * session's (a Codex thread's commands run in its app server).
  */
-export type SignInSession = { sessionId: string | undefined; binding?: SessionBinding; bind?: (identity: string) => void };
+export type SignInSession = {
+  sessionId: string | undefined; binding?: SessionBinding; bind?: (identity: string) => void; paneTrusted?: false;
+};
 
 /**
  * currentSessionId, except that with agent.integrations.enabled on a Claude
- * Code session with no binding is bound here rather than refused: sign-in is
- * where a manually started session joins, and its identity is the one the
- * daemon signs it in as. The bound session must then resolve like any other;
- * one that cannot be bound signs in unbound, as it did before bindings.
+ * Code session or a Codex thread with no binding is bound here rather than
+ * refused: sign-in is where a manually started session joins, and its
+ * identity is the one the daemon signs it in as. The bound session must then
+ * resolve like any other. A Claude session that cannot be bound signs in
+ * unbound, as it did before bindings; a Codex thread is named only by
+ * CODEX_THREAD_ID, and a `--session` naming another thread is refused.
  */
 export async function signInSession(args: string[]): Promise<SignInSession> {
   if (!integrationsEnabled()) return { sessionId: currentSessionId(args) };
@@ -191,6 +199,15 @@ export async function signInSession(args: string[]): Promise<SignInSession> {
     return { sessionId: resolved.data, ...(binding && { binding }) };
   }
   const evidence = extractCliEvidence(args, process.env);
+  const thread = process.env.CODEX_THREAD_ID?.trim() || undefined;
+  if (evidence.ok && thread !== undefined) {
+    const raw = evidence.data.raw;
+    if (raw !== undefined && raw !== thread) {
+      throw unattributed(`--session names ${raw}, but this command runs in Codex thread ${thread}`);
+    }
+    if (process.env.CLAUDE_CODE_SESSION_ID?.trim()) throw unattributed(BOTH_SESSIONS_MESSAGE);
+    return codexSignIn(args, { harness: "codex", profile: codexProfile(process.env), kind: "id", value: thread });
+  }
   const claim = !evidence.ok ? undefined
     : evidence.data.raw !== undefined ? { sessionId: evidence.data.raw, explicit: true }
     : evidence.data.native?.harness === "claude" ? { sessionId: evidence.data.native.value, explicit: false }
@@ -204,6 +221,24 @@ export async function signInSession(args: string[]): Promise<SignInSession> {
       const bound = commit(identity);
       if (!bound.ok) throw unattributed(bound.error.message);
       if (bound.data === null) return;
+      const confirmed = resolveCliSession(args, process.env, {}, { bindingsOnly: true });
+      if (!confirmed.ok) throw unattributed(confirmed.error.message);
+    },
+  };
+}
+
+/** A Codex thread no binding names yet, bound under the identity the daemon signs it in as. */
+async function codexSignIn(args: string[], native: NativeSessionRef): Promise<SignInSession> {
+  const [{ prepareCodexSignIn }, { getStateDb }] = await Promise.all([
+    import("./agent-integrations/codex/sign-in.ts"), import("./state/db.ts"),
+  ]);
+  const commit = prepareCodexSignIn(native, getStateDb());
+  return {
+    sessionId: native.value,
+    paneTrusted: false,
+    bind: (identity) => {
+      const bound = commit(identity);
+      if (!bound.ok) throw unattributed(bound.error.message);
       const confirmed = resolveCliSession(args, process.env, {}, { bindingsOnly: true });
       if (!confirmed.ok) throw unattributed(confirmed.error.message);
     },

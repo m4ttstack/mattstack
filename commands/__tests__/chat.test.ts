@@ -1940,30 +1940,59 @@ describe("integrations on: chat follows the harness session", () => {
     await expect(runChatRaw(["rooms", "--session", "nobody-1", "--json"])).rejects.toBeInstanceOf(UserActionableError);
   });
 
-  test("a SessionEnd from a pane the session has left signs nothing out; one from its own pane signs it out", async () => {
+  /** Makes this test process's parent the Claude Code process running `session`, as Claude's own registry records it. */
+  const claudeParentRuns = (session: string) => {
+    const dir = join(home, ".claude", "sessions");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${process.ppid}.json`), JSON.stringify({ pid: process.ppid, sessionId: session, messagingSocketPath: join(home, "no.sock") }));
+  };
+  const bindClaudeAt = (session: string, attachment: { pane?: string; pid?: number }, identity: string) => {
+    const store = createSessionStore(getStateDb());
+    const bound = store.bind(store.reserve({ identity }), { harness: "claude", profile: "default", kind: "id", value: session }, { mode: "herdr", ...attachment });
+    if (!bound.ok) throw new Error(bound.error.message);
+    return bound.data;
+  };
+
+  test("a SessionEnd from the session's own Claude process signs it out and detaches it; from the process it left, nothing", async () => {
     await signInInProcess({ as: "remy", session: "s-end", noRoom: true });
     delete process.env.CLAUDE_CODE_SESSION_ID;
     setSetting("agent.integrations.enabled", true, "machine");
-    bindClaude("s-end", "w2:p1", handleIn("s-end"));
-
-    process.env.HERDR_PANE_ID = "w1:p1";
+    claudeParentRuns("s-end");
+    // The session resumed in another process (outside herdr, so no pane tells them apart): this one's end is stale.
+    const moved = bindClaudeAt("s-end", { pid: 999_999 }, handleIn("s-end"));
     const stale = await runChatRaw(["sign-out", "--quiet", "--session", "s-end", "--ended"]);
     expect(stale).toMatchObject({ code: 0, stdout: "", stderr: "" });
     expect(existsSync(sessionFilePath("s-end"))).toBe(true);
     expect(presenceForSession("s-end", getStateDb())?.signedOutAt).toBeUndefined();
 
-    process.env.HERDR_PANE_ID = "w2:p1";
+    const back = createSessionStore(getStateDb()).replaceAttachment(moved.key, moved.attachment.generation, { mode: "herdr", pid: process.ppid });
+    if (!back.ok) throw new Error(back.error.message);
     const own = await runChatRaw(["sign-out", "--quiet", "--session", "s-end", "--ended"]);
     expect(own).toMatchObject({ code: 0, stdout: "", stderr: "" });
     expect(existsSync(sessionFilePath("s-end"))).toBe(false);
     expect(presenceForSession("s-end", getStateDb())?.signedOutAt).toBeDefined();
+    expect(bindingOf("s-end").attachment).toMatchObject({ generation: back.data.attachment.generation + 1 });
     expect(seen.map((s) => s.cmd)).not.toContain("chat:sign-out");
+  });
+
+  test("a forged --ended from outside the session's process tree is an ordinary sign-out: no detach, and F4's explicit-id rule holds", async () => {
+    await signInInProcess({ as: "remy", session: "s-end", noRoom: true });
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    setSetting("agent.integrations.enabled", true, "machine");
+    const bound = bindClaudeAt("s-end", { pane: "w1:p1", pid: 999_999 }, handleIn("s-end"));
+    process.env.HERDR_PANE_ID = "w1:p1";
+    const r = await runChatRaw(["sign-out", "--quiet", "--session", "s-end", "--ended"]);
+    expect(r).toMatchObject({ code: 0, stdout: "", stderr: "" });
+    expect(seen.filter((s) => s.cmd === "chat:sign-out").map((s) => s.payload)).toEqual([{ sessionId: "s-end" }]);
+    expect(bindingOf("s-end").attachment).toEqual(bound.attachment);
+    await expect(runChatRaw(["sign-out", "--quiet", "--session", "never-bound", "--ended"])).rejects.toBeInstanceOf(UserActionableError);
   });
 
   test("with the switch off --ended signs out exactly as the hook always has", async () => {
     await signInInProcess({ as: "remy", session: "s-end", noRoom: true });
     delete process.env.CLAUDE_CODE_SESSION_ID;
     bindClaude("s-end", "w2:p1");
+    claudeParentRuns("s-end");
     process.env.HERDR_PANE_ID = "w1:p1";
     const r = await runChatRaw(["sign-out", "--quiet", "--session", "s-end", "--ended"]);
     expect(r).toMatchObject({ code: 0, stdout: "", stderr: "" });
@@ -1971,10 +2000,11 @@ describe("integrations on: chat follows the harness session", () => {
     expect(existsSync(sessionFilePath("s-end"))).toBe(false);
   });
 
-  test("lifecycle resume moves a bound session's attachment and presence to the reporting pane, and only with the switch on", async () => {
+  test("lifecycle resume from the session's own Claude process moves its attachment and presence there, and only with the switch on", async () => {
     await signInInProcess({ as: "remy", session: "s-res", noRoom: true });
     delete process.env.CLAUDE_CODE_SESSION_ID;
     const bound = bindClaude("s-res", "w1:p1", handleIn("s-res"));
+    claudeParentRuns("s-res");
     process.env.HERDR_PANE_ID = "w2:p1";
     const before = seen.length;
 
@@ -1985,9 +2015,65 @@ describe("integrations on: chat follows the harness session", () => {
     setSetting("agent.integrations.enabled", true, "machine");
     const on = await runChatRaw(["lifecycle", "resume", "--session", "s-res"]);
     expect(on).toMatchObject({ code: 0, stdout: "", stderr: "" });
-    expect(bindingOf("s-res").attachment).toMatchObject({ generation: bound.attachment.generation + 1, pane: "w2:p1" });
+    expect(bindingOf("s-res").attachment).toMatchObject({ generation: bound.attachment.generation + 1, pane: "w2:p1", pid: process.ppid });
     expect(presenceForSession("s-res", getStateDb())?.pane).toBe("w2:p1");
     expect(seen.length).toBe(before);
+  });
+
+  test("a forged lifecycle resume from outside the session's process tree moves nothing", async () => {
+    await signInInProcess({ as: "remy", session: "s-res", noRoom: true });
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    setSetting("agent.integrations.enabled", true, "machine");
+    const bound = bindClaude("s-res", "w1:p1", handleIn("s-res"));
+    claudeParentRuns("someone-else");
+    process.env.HERDR_PANE_ID = "w9:p9";
+    const r = await runChatRaw(["lifecycle", "resume", "--session", "s-res", "--json"]);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual({ ok: true, outcome: "unverified" });
+    expect(bindingOf("s-res").attachment).toEqual(bound.attachment);
+    expect(presenceForSession("s-res", getStateDb())?.pane).toBeUndefined();
+  });
+
+  describe("a manually started Codex thread", () => {
+    const saved: Record<string, string | undefined> = {};
+    beforeEach(() => {
+      for (const k of ["CODEX_THREAD_ID", "CODEX_HOME"]) saved[k] = process.env[k];
+      delete process.env.CODEX_HOME;
+      process.env.CODEX_THREAD_ID = "thread-manual";
+    });
+    afterEach(() => {
+      for (const k of ["CODEX_THREAD_ID", "CODEX_HOME"]) {
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k];
+      }
+    });
+
+    test("signs in from CODEX_THREAD_ID, binds itself under its own identity, and then speaks as it; its environment's pane is not its own", async () => {
+      setSetting("agent.integrations.enabled", true, "machine");
+      process.env.HERDR_PANE_ID = "wAPP:p1";
+      const signedIn = await runChatRaw(["sign-in", "--no-room", "--json"]);
+      expect(signedIn.code).toBe(0);
+      const { handle } = JSON.parse(signedIn.stdout);
+      expect(seen.find((s) => s.cmd === "chat:sign-in")!.payload).not.toHaveProperty("pane");
+      expect(listBindingsByNativeValue(getStateDb(), "thread-manual")).toMatchObject([{ identity: handle, native: { harness: "codex", profile: "default" } }]);
+      await runChat(["join", "r"]);
+      await runChat(["post", "r", "hello"]);
+      expect(seen.find((s) => s.cmd === "chat:post")!.payload).toMatchObject({ handle });
+    });
+
+    test("a --session naming another thread is refused, and binds nothing", async () => {
+      setSetting("agent.integrations.enabled", true, "machine");
+      await expect(runChatRaw(["sign-in", "--no-room", "--session", "thread-other"])).rejects.toBeInstanceOf(UserActionableError);
+      expect(listBindingsByNativeValue(getStateDb(), "thread-manual")).toEqual([]);
+      expect(seen.map((s) => s.cmd)).not.toContain("chat:sign-in");
+    });
+
+    test("with the switch off CODEX_THREAD_ID names no session, as before", async () => {
+      const r = await runChatRaw(["sign-in", "--no-room"]);
+      expect(r.code).toBe(1);
+      expect(r.stderr).toStartWith("rt cannot tell which session this is");
+      expect(listBindingsByNativeValue(getStateDb(), "thread-manual")).toEqual([]);
+    });
   });
 
   test("lifecycle is hidden: absent from the usage line and the verb list, and it names its usage", async () => {

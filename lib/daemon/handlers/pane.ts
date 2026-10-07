@@ -6,12 +6,13 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 import { basename, isAbsolute } from "path";
 import type { AgentStatus, BuddyStatus, ChatPane, Commands, PaneDirectory } from "../../../packages/rt-client/src/commands.ts";
-import type { HarnessId } from "../../../packages/rt-client/src/agent-integrations.ts";
+import type { HarnessId, Observation, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { formatPaneRef, parsePaneRef } from "../../../packages/rt-client/src/index.ts";
 import { listCswapAccounts } from "../../cswap.ts";
 import { herdrRequest, waitTimeout, type HerdrResult } from "../../herdr/client.ts";
 import { trayRequest } from "../../daemon-client.ts";
-import { herdrError, injectAfterTurn, injectIntoPane } from "../inject.ts";
+import { herdrError, injectAfterTurn, injectIntoPane, isCallerPane } from "../inject.ts";
+import { messagingTarget, observeThroughIntegration, sendAsPeerInput, type PaneInputRoute } from "../pane-input.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
 import { attendPane } from "../attend.ts";
 import { withIntegrationSession, withProcessSession } from "../pane-process-session.ts";
@@ -29,6 +30,7 @@ import { loadRegistry } from "../../worktree/registry.ts";
 import { builtinRegistry } from "../../agent-integrations/builtins.ts";
 import { integrationsEnabled } from "../../agent-integrations/context.ts";
 import type { IntegrationRegistry } from "../../agent-integrations/contracts.ts";
+import type { DeliveryService } from "../../agent-integrations/delivery.ts";
 import type { AgentStartOutcome } from "./agent.ts";
 import type { CommandResult } from "./types.ts";
 
@@ -187,6 +189,10 @@ export function createPaneHandlers(opts: {
   integrationsEnabled?: () => boolean;
   /** agent:start's own start, which pane:spawn runs while the switch is on; omitted, a switch-on spawn is refused. */
   startAgent?: (payload: Commands["agent:start"]["payload"]) => Promise<AgentStartOutcome>;
+  /** Harness delivery, through which pane:send reaches a session whose harness takes no typed input while the switch is on. */
+  delivery?: DeliveryService;
+  /** A bound session's observed state before input reaches it as peer input; its integration's own observation by default. */
+  observeSession?: (binding: SessionBinding) => Promise<Observation | null>;
 }):
   // Declared as direct `unknown`-payload members (not `Pick<TypedHandlers, ...>`)
   // rather than the narrower per-command payload types the catalog would
@@ -217,6 +223,10 @@ export function createPaneHandlers(opts: {
   const integrations = opts.integrations ?? builtinRegistry();
   const boundEnabled = opts.integrationsEnabled ?? integrationsEnabled;
   const startAgent = opts.startAgent;
+  const paneInput: PaneInputRoute = {
+    db, herdr, integrations, delivery: opts.delivery, enabled: boundEnabled, ...(log && { log }),
+    observe: opts.observeSession ?? observeThroughIntegration(integrations),
+  };
 
   async function snapshot(sockPath?: string): Promise<HerdrResult<{ snapshot: HerdrSnapshot }>> {
     return herdr<{ snapshot: HerdrSnapshot }>("session.snapshot", {}, { sockPath });
@@ -483,6 +493,17 @@ export function createPaneHandlers(opts: {
     "pane:send": async (rawPayload: unknown): Promise<CommandResult<"pane:send">> => {
       const payload = rawPayload as Commands["pane:send"]["payload"];
       const { paneId, sockPath } = resolvePaneRef(payload.paneId);
+      const target = { ref: payload.paneId, paneId, sockPath };
+      const peer = isCallerPane(paneId, sockPath, payload.callerPane) ? null : await messagingTarget(paneInput, target);
+      if (peer) {
+        // The harness's own queue keeps the continuation behind the text, so both go now, in order.
+        const sender = payload.callerPane ? `pane ${payload.callerPane}` : "rt pane send";
+        const inputs = [{ idPrefix: "send", sender, body: payload.text }];
+        if (payload.continuation) inputs.push({ idPrefix: "send-next", sender, body: payload.continuation });
+        const sent = await sendAsPeerInput(paneInput, target, peer, inputs);
+        if (!payload.continuation || sent.data.delivered === "refused") return sent;
+        return { ok: true, data: { ...sent.data, continuation: { delivered: "deferred" } } };
+      }
       const res = await injectIntoPane({ paneId, text: payload.text, callerPane: payload.callerPane, herdr, sockPath });
       if (!res.ok) return res;
       // Echo the ref the caller passed in, not the bare id injectIntoPane

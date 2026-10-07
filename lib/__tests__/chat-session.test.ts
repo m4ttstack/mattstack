@@ -18,7 +18,7 @@ import {
   writeChatSession,
   type ChatSession,
 } from "../chat-session.ts";
-import { createSessionStore } from "../agent-integrations/session-store.ts";
+import { createSessionStore, listBindingsByNativeValue } from "../agent-integrations/session-store.ts";
 import { UserActionableError } from "../errors.ts";
 import { setSetting } from "../settings/write.ts";
 import { closeStateDb, getStateDb } from "../state/db.ts";
@@ -181,6 +181,8 @@ describe("currentSessionId through session bindings", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
+  const listBindings = (value: string) => listBindingsByNativeValue(getStateDb(), value);
+
   function bindCodex(identity: string, value: string, profile = "default") {
     const store = createSessionStore(getStateDb());
     const bound = store.bind(store.reserve({ identity }), { harness: "codex", profile, kind: "id", value }, { mode: "herdr", pane: "w1:p1" });
@@ -261,10 +263,44 @@ describe("currentSessionId through session bindings", () => {
     expect(again.bind).toBeUndefined();
   });
 
-  test("integrations on: a Codex thread with no binding still refuses at sign-in", async () => {
+  test("integrations on: a manual Codex thread binds itself at sign-in from CODEX_THREAD_ID, under its canonical profile", async () => {
     setSetting("agent.integrations.enabled", true, "machine");
-    process.env.CODEX_THREAD_ID = "thread-unbound";
-    await expect(signInSession(["sign-in"])).rejects.toBeInstanceOf(UserActionableError);
+    process.env.CODEX_THREAD_ID = "thread-manual";
+    process.env.CODEX_HOME = join(home, ".codex");
+    const target = await signInSession(["sign-in"]);
+    expect(target).toMatchObject({ sessionId: "thread-manual", paneTrusted: false });
+    target.bind!("ivy.ab12");
+    const bound = createSessionStore(getStateDb()).find({ harness: "codex", profile: "default", kind: "id", value: "thread-manual" });
+    expect(bound).toMatchObject({ identity: "ivy.ab12", attachment: { mode: "herdr" } });
+    expect(currentSessionId(["post", "r", "hi"])).toBe("thread-manual");
+    // A repeat sign-in resolves the binding it now has; the MCP server's spawn names the same thread both ways.
+    const again = await signInSession(["sign-in", "--session", "thread-manual"]);
+    expect(again).toMatchObject({ sessionId: "thread-manual", binding: { identity: "ivy.ab12" } });
+    expect(again.bind).toBeUndefined();
+  });
+
+  test("integrations on: a Codex thread's sign-in refuses conflicting evidence and a thread another identity holds", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    process.env.CODEX_THREAD_ID = "thread-manual";
+    await expect(signInSession(["sign-in", "--session", "thread-other"])).rejects.toBeInstanceOf(UserActionableError);
+    process.env.CLAUDE_CODE_SESSION_ID = "claude-inherited";
+    await expect(signInSession(["sign-in", "--session", "thread-manual"])).rejects.toBeInstanceOf(UserActionableError);
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    expect(listBindings("thread-manual")).toEqual([]);
+
+    bindCodex("someone-else", "thread-manual");
+    const held = listBindings("thread-manual")[0]!;
+    const detached = createSessionStore(getStateDb()).detach(held.key, held.attachment.generation);
+    if (!detached.ok) throw new Error(detached.error.message);
+    const target = await signInSession(["sign-in"]);
+    expect(() => target.bind!("ivy.ab12")).toThrow(UserActionableError);
+    expect(listBindings("thread-manual").map((b) => b.identity)).toEqual(["someone-else"]);
+  });
+
+  test("integrations off: CODEX_THREAD_ID names no session at sign-in and binds nothing", async () => {
+    process.env.CODEX_THREAD_ID = "thread-manual";
+    expect(await signInSession(["sign-in"])).toEqual({ sessionId: undefined });
+    expect(existsSync(join(home, ".mattstack", "rt", "state.db"))).toBe(false);
   });
 
   test("integrations off: sign-in is the environment lookup and binds nothing", async () => {

@@ -15,6 +15,9 @@ import { deleteChatSession, readChatSession, type ChatSession } from "../chat-se
 import { inboxAlive, resolveInbox } from "../claude-registry.ts";
 import { parseDuration } from "../duration.ts";
 import { selfPaneRef } from "../self-pane.ts";
+import type { NativeSessionRef } from "../../packages/rt-client/src/agent-integrations.ts";
+import { integrationsEnabled } from "../agent-integrations/context.ts";
+import { LEGACY_DEFAULT_PROFILE } from "../agent-integrations/session-store.ts";
 import { spawnRtJson, type RtVerbResult } from "./rt-verb.ts";
 import {
   boundCaller, callerChatHandle, callerRefusal, checkChatName, checkOptional, checkRequired, err, fromResponse, ok, type McpToolDef, type ToolContext,
@@ -27,7 +30,7 @@ export interface ChatToolDeps {
   signOut: typeof chatSignOut; archive: typeof chatArchive; invite: typeof chatInvite;
   session: (id: string | undefined) => ChatSession | null;
   deleteSession: (id: string) => void;
-  spawnRt: (path: string[], rest: string[], opts: { cwd?: string; timeoutMs?: number }) => Promise<RtVerbResult>;
+  spawnRt: (path: string[], rest: string[], opts: { cwd?: string; timeoutMs?: number; env?: Record<string, string> }) => Promise<RtVerbResult>;
   isDir: (path: string) => boolean;
   serverCwd: () => string | undefined;
   /** null means the setting could not be read at all, distinct from unset (undefined): only null blocks "as". */
@@ -96,6 +99,22 @@ async function callerChatSession(env: NodeJS.ProcessEnv, context?: ToolContext):
   if (caller === null) return env.CLAUDE_CODE_SESSION_ID ? { sessionId: env.CLAUDE_CODE_SESSION_ID, bound: false } : { error: NO_SESSION };
   if (!caller.ok) return { error: callerRefusal(caller.error) };
   return { sessionId: caller.data.binding.native.value, bound: true };
+}
+
+/**
+ * A Codex thread that names itself through its host (`_meta.threadId` on a
+ * server launched as a Codex host) but that no binding names yet: a manually
+ * started thread, which chat_sign_in binds. Undefined for every other caller.
+ */
+async function unboundCodexThread(context?: ToolContext): Promise<NativeSessionRef | undefined> {
+  if (!integrationsEnabled() || !context?.evidence) return undefined;
+  const caller = await context.caller();
+  if (caller === null || caller.ok) return undefined;
+  const evidence = context.evidence();
+  if (!evidence.ok || evidence.data.connection || evidence.data.raw !== undefined) return undefined;
+  const native = evidence.data.native;
+  if (native?.harness !== "codex" || native.profile === undefined) return undefined;
+  return { ...native, profile: native.profile };
 }
 
 /** The caller's own pane: its binding's when bound, since the server's environment can belong to a host process; else this process's. */
@@ -300,8 +319,15 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         note: "after a /clear the tool refuses and Bash is correct; mark that line <!-- mcp-lint: allow -->",
       }],
       async handler(input, env, _signal, context) {
-        const caller = await callerChatSession(env, context);
-        if ("error" in caller) return err(caller.error);
+        let caller = await callerChatSession(env, context);
+        // A manual Codex thread signs in through the CLI as the thread its host named, which binds it there.
+        let threadEnv: Record<string, string> | undefined;
+        if ("error" in caller) {
+          const thread = await unboundCodexThread(context);
+          if (!thread) return err(caller.error);
+          caller = { sessionId: thread.value, bound: true };
+          threadEnv = { CODEX_THREAD_ID: thread.value, CODEX_HOME: thread.profile === LEGACY_DEFAULT_PROFILE ? "" : thread.profile, CLAUDE_CODE_SESSION_ID: "" };
+        }
         const { sessionId } = caller;
         const bad = checkOptional(input, [{ name: "noRoom", type: "boolean" }])
           ?? flagValueError("as", input.as) ?? flagValueError("room", input.room) ?? flagValueError("status", input.status)
@@ -349,7 +375,9 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         if (typeof input.room === "string") rest.push("--room", input.room);
         if (input.noRoom === true) rest.push("--no-room");
         if (typeof input.status === "string") rest.push("--status", input.status);
-        const r = await deps.spawnRt(["chat", "sign-in"], rest, typeof input.cwd === "string" ? { cwd: input.cwd } : {});
+        const r = await deps.spawnRt(["chat", "sign-in"], rest, {
+          ...(typeof input.cwd === "string" && { cwd: input.cwd }), ...(threadEnv && { env: threadEnv }),
+        });
         if (!r.ok) return err(r.error);
         const body = r.body;
         if (body === null || typeof body !== "object" || typeof (body as { handle?: unknown }).handle !== "string") {

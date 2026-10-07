@@ -441,7 +441,7 @@ async function paneIdentity(args: string[]): Promise<ChatIdentity | null> {
   const res = await chatBuddies({ ...sockOpts(args), timeoutMs: PANE_LOOKUP_TIMEOUT_MS });
   if (!res.ok || !res.data) return null;
   const row = res.data.buddies.find((b) => b.pane === pane && b.status !== "offline");
-  return row && paneIdentityLendable(row.sessionId) ? { handle: row.handle, name: row.name ?? row.handle, sessionId: row.sessionId } : null;
+  return row && paneIdentityLendable(row.sessionId, pane) ? { handle: row.handle, name: row.name ?? row.handle, sessionId: row.sessionId } : null;
 }
 
 function refuseSecondIdentity(name: string): never {
@@ -1246,7 +1246,7 @@ async function runSignIn(args: string[]): Promise<void> {
   const repo = identity ? repoLabel(identity.identity) : undefined;
   const branch = root ? getCurrentBranch() ?? undefined : undefined;
   // A bound session's pane is its attachment's: this process can be a host's (an app server, an MCP server) rather than the session's own.
-  const pane = target.binding ? target.binding.attachment.pane : selfPaneRef();
+  const pane = target.binding ? target.binding.attachment.pane : target.paneTrusted === false ? undefined : selfPaneRef();
   const statusText = flagValue(args, "--status");
 
   const noRoomFlag = args.includes("--no-room");
@@ -1355,8 +1355,18 @@ async function runSignOut(args: string[]): Promise<void> {
   }
 
   const quiet = args.includes("--quiet");
-  const ended = args.includes("--ended") && integrationsEnabled();
-  const sessionId = ended ? hookSession(args) : currentSessionId(args);
+  // A SessionEnd report counts only when this command runs under the session's own Claude Code process; otherwise it is an ordinary sign-out.
+  let lifecycle: "applied" | "stale" | "unbound" = "unbound";
+  let sessionId: string | undefined;
+  const claimed = args.includes("--ended") && integrationsEnabled() ? hookSession(args) : undefined;
+  if (claimed !== undefined && isValidSessionId(claimed)) {
+    const reported = await endedSession(claimed);
+    if (reported !== "unverified") {
+      lifecycle = reported;
+      sessionId = claimed;
+    }
+  }
+  sessionId ??= currentSessionId(args);
   if (!sessionId) {
     if (quiet) return;
     fail(noSession("sign-out"));
@@ -1367,7 +1377,6 @@ async function runSignOut(args: string[]): Promise<void> {
   }
 
   const session = readChatSession(sessionId);
-  const lifecycle = ended ? await endedSession(sessionId) : "unbound";
   if (lifecycle === "stale") {
     if (args.includes("--json")) {
       if (!quiet) out.json({ ok: true, kept: true });
@@ -1405,22 +1414,25 @@ function hookSession(args: string[]): string | undefined {
 
 /**
  * `--ended` is the SessionEnd hook's report that this session's process
- * ended. With agent.integrations.enabled on it goes through the shared
+ * ended. With agent.integrations.enabled on, and only when this command runs
+ * under that session's own Claude Code process, it goes through the shared
  * presence service, which signs out only the session's current attachment:
- * a process that ends after its session moved to another pane signs nothing
- * out. A session no binding names signs out as it always has.
+ * a process that ends after its session moved elsewhere signs nothing out.
  */
-async function endedSession(sessionId: string): Promise<"applied" | "stale" | "unbound"> {
-  const { reportClaudeLifecycle } = await import("../lib/agent-integrations/claude/sessions.ts");
-  return reportClaudeLifecycle(sessionId, "end", process.env);
+async function endedSession(sessionId: string): Promise<"applied" | "stale" | "unbound" | "unverified"> {
+  const [{ reportClaudeLifecycle }, { processAncestry }] = await Promise.all([
+    import("../lib/agent-integrations/claude/sessions.ts"), import("../lib/process-ancestry.ts"),
+  ]);
+  return reportClaudeLifecycle(sessionId, "end", { env: process.env, ancestry: await processAncestry() });
 }
 
 /**
  * `rt chat lifecycle <resume|compact> [--session <id>]`, hidden: the
  * SessionStart hook's report that Claude Code resumed or compacted a session.
- * With agent.integrations.enabled on it feeds the shared presence service, so
- * a resume in another pane moves the session's attachment and presence there;
- * off, it does nothing. It prints nothing a hook would pass on.
+ * With agent.integrations.enabled on, and only when this command runs under
+ * that session's own Claude Code process, it feeds the shared presence
+ * service, so a resume elsewhere moves the session's attachment and presence
+ * there; off, it does nothing. It prints nothing a hook would pass on.
  */
 async function runLifecycle(args: string[]): Promise<void> {
   const event = positional(args);
@@ -1428,8 +1440,10 @@ async function runLifecycle(args: string[]): Promise<void> {
   if (!integrationsEnabled()) return;
   const sessionId = hookSession(args);
   if (!sessionId || !isValidSessionId(sessionId)) return;
-  const { reportClaudeLifecycle } = await import("../lib/agent-integrations/claude/sessions.ts");
-  const outcome = await reportClaudeLifecycle(sessionId, event, process.env);
+  const [{ reportClaudeLifecycle }, { processAncestry }] = await Promise.all([
+    import("../lib/agent-integrations/claude/sessions.ts"), import("../lib/process-ancestry.ts"),
+  ]);
+  const outcome = await reportClaudeLifecycle(sessionId, event, { env: process.env, ancestry: await processAncestry() });
   if (args.includes("--json")) out.json({ ok: true, outcome });
 }
 

@@ -686,6 +686,51 @@ describe("chat tools: resolved caller sessions", () => {
     expect(f.calls).toEqual([]);
   });
 
+  const manualThread = (profile: string): ToolContext => ({
+    caller: async () => ({ ok: false, error: { code: "ambiguous", message: "no recorded codex session matches thread-m" } }),
+    evidence: () => ({ ok: true, data: { native: { harness: "codex", profile, kind: "id", value: "thread-m" } } }),
+  });
+
+  test("chat_sign_in signs a manual Codex thread in through the CLI as the thread its host named, which binds it there", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    for (const [profile, home] of [["/codex-home", "/codex-home"], ["default", ""]] as const) {
+      const f = fake({ alive: false });
+      const r = await f.tool("chat_sign_in").handler({ cwd: "/work" }, SHARED_ENV, undefined, manualThread(profile));
+      expect(r.ok).toBe(true);
+      expect(f.calls).toEqual([{
+        fn: "spawnRt", a: { path: ["chat", "sign-in"], rest: ["--session", "thread-m"] },
+        o: { cwd: "/work", env: { CODEX_THREAD_ID: "thread-m", CODEX_HOME: home, CLAUDE_CODE_SESSION_ID: "" } },
+      }]);
+    }
+  });
+
+  test("only chat_sign_in binds a manual Codex thread, and only from a Codex host's own thread claim", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    for (const [name, input] of SESSION_TOOLS) {
+      const f = fake();
+      expect((await f.tool(name).handler(input, SHARED_ENV, undefined, manualThread("default"))).ok).toBe(false);
+      expect(f.calls).toEqual([]);
+    }
+    const refusing = { caller: manualThread("default").caller };
+    const claudeHost: ToolContext = { ...refusing, evidence: () => ({ ok: true, data: { native: { harness: "claude", kind: "id", value: "s9" } } }) };
+    const conflicting: ToolContext = { ...refusing, evidence: () => ({ ok: false, error: { code: "ambiguous", message: "the host's thread id disagrees" } }) };
+    for (const context of [refusing, claudeHost, conflicting]) {
+      const f = fake();
+      const r = await f.tool("chat_sign_in").handler({}, SHARED_ENV, undefined, context);
+      expect(r.error).toContain("cannot be attributed");
+      expect(f.calls).toEqual([]);
+    }
+  });
+
+  test("with the switch off a manual Codex thread's sign-in is today's environment sign-in", async () => {
+    const plain = fake();
+    const r1 = await plain.tool("chat_sign_in").handler({}, ENV);
+    const codex = fake();
+    const r2 = await codex.tool("chat_sign_in").handler({}, ENV, undefined, manualThread("default"));
+    expect(r2).toEqual(r1);
+    expect(codex.calls).toEqual(plain.calls);
+  });
+
   test("chat_invite names the bound caller's own pane, not the server's", async () => {
     setSetting("agent.integrations.enabled", true, "machine");
     const f = fake();

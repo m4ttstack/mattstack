@@ -59,7 +59,7 @@ function errorText(value: unknown): string | null {
 export async function spawnRtJson(
   path: string[],
   rest: string[],
-  opts: { cwd?: string; timeoutMs?: number },
+  opts: { cwd?: string; timeoutMs?: number; env?: Record<string, string> },
   deps: Pick<RtVerbDeps, "selfArgv" | "spawn"> = realRtVerbDeps(),
 ): Promise<RtVerbResult> {
   if (rest.some((a) => CONTROL_CHAR.test(a))) return fail("args must not contain a control character");
@@ -68,7 +68,7 @@ export async function spawnRtJson(
   const cap = opts.timeoutMs ?? RT_VERB_TIMEOUT_MS;
   const res = await deps.spawn([...deps.selfArgv(), ...path, ...args], {
     cwd: opts.cwd,
-    env: { RT_BATCH: "1", RT_SKIP_SETUP: "1" },
+    env: { ...opts.env, RT_BATCH: "1", RT_SKIP_SETUP: "1" },
     timeoutMs: cap,
   });
 

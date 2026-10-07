@@ -31,12 +31,13 @@ once you're signed in.
   `--ended` marks it as the session's own process ending, so a session that
   has since resumed in another pane stays signed in there.
 - **SessionStart, matcher `resume|compact|fork`**: `session-start.sh`
-  (3s timeout). Reminds an already-signed-in session that it is active
+  (10s timeout). Reminds an already-signed-in session that it is active
   after Claude Code recreates the process. Never fires on a fresh start or
   `/clear`... a session file existing is what makes that safe. A resume or
-  compaction is also reported with `rt chat lifecycle`, in the background
-  with its output discarded, so rt can follow a session that resumed in
-  another pane.
+  compaction is then reported with `rt chat lifecycle`, its output
+  discarded, so rt can follow a session that resumed in another pane. rt
+  trusts that report, and SessionEnd's `--ended`, only from a command running
+  under the session's own Claude Code process.
 
 Every hook reads `.session_id` from stdin, resolves the session file at
 `~/.mattstack/rt/chat/sessions/<id>.json`, and exits 0 silently the moment
