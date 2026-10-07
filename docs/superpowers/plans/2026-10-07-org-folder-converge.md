@@ -93,7 +93,7 @@ Expected (probed on claude 2.1.292 while writing this plan):
 
 Replace this paragraph with "Findings (claude <version>): confirmed, path stored as <given | realpath>, configure says <...>" when the probe matches, or with the exact differences when it does not; Task 6 follows what is written here. If `plugin list --json` has no `scope`, Task 6 reinstalls with `--scope user`.
 
-**Findings:** (fill in)
+**Findings (claude 2.1.292):** confirmed, path stored as given (the `/var/folders/...` spelling, not `/private/var/...`; `path` and `installLocation` are equal), configure says "widgets (widgets@acme) has no options to set." `plugin list --json` entries carry `scope` (`user`), plus `id`, `enabled`, `installPath`, `readFromFolder`, `version`, `folderVersion`, `installedAt`, `lastUpdated`, `projectEnabled`. `marketplace remove acme` empties the list, `installed_plugins.json` (`plugins: {}`) and both `enabledPlugins` and `extraKnownMarketplaces` in `settings.json`; the reinstall after the re-add came back `enabled: true` although the plugin was disabled before the remove, so Task 6 runs `plugin disable <id>` after reinstalling a plugin that was disabled. No command prompted without a TTY. `marketplace remove` also takes `--scope <user|project|local>` and `--json`.
 
 - [ ] **Step 3: Commit**
 
