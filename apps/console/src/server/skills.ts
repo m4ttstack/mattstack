@@ -1534,7 +1534,9 @@ export function mountSkills(
         // The readable roots come from rt, never from the request: the pack
         // directory plus the skill folders of the engines its verbs compile
         // from, never the rest of an engine's plugin. A base fill adds only
-        // its own base pack's skill folders.
+        // the skill folders of the base this pack extends, and only when the
+        // fill is named for that base: rt also tags a fill by a folder's
+        // compiled.json, which can sit inside an unrelated plugin.
         const { stdout } = await cachedRun([
           'skills',
           'composition',
@@ -1557,6 +1559,14 @@ export function mountSkills(
         }
         for (const fill of composition.fills ?? []) {
           if (fill.origin !== 'base') continue;
+          const plugin = fill.binding.split(':')[0];
+          if (
+            !fill.base ||
+            plugin !== fill.base ||
+            fill.base !== composition.extends?.name
+          ) {
+            continue;
+          }
           const root = pluginRootOf(fill.sourcePath);
           if (root) for (const dir of pluginSkillDirs(root)) roots.add(dir);
         }

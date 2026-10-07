@@ -2635,7 +2635,13 @@ describe('skills source route', () => {
     sourcePath: `${baseRoot}/attachments/plan-policy/SKILL.md`,
     registered: false,
   };
-  const baseRt = (fill: Record<string, unknown>) =>
+  const baseRt = (
+    fill: Record<string, unknown>,
+    extendsBase: { name: string; version: string | null } | null = {
+      name: 'acme-base',
+      version: '0.1.0',
+    }
+  ) =>
     fakeRtHandler(argv =>
       argv[1] === 'composition'
         ? {
@@ -2643,6 +2649,7 @@ describe('skills source route', () => {
             stdout: JSON.stringify({
               ...compositionOf('/packs/acme'),
               fills: [fill],
+              extends: extendsBase,
             }),
             stderr: '',
           }
@@ -2698,6 +2705,52 @@ describe('skills source route', () => {
     const app = mountSkills(
       new Hono(),
       baseRt(baseFill).run,
+      noGit(),
+      baseRead,
+      identity
+    );
+
+    expect((await getSource(app, baseFill.sourcePath)).status).toBe(404);
+  });
+
+  it('refuses a path-tagged base fill inside an unrelated plugin', async () => {
+    const sneaky = '/m/other-plugin/attachments/sneaky/SKILL.md';
+    const sibling = '/m/other-plugin/skills/x/SKILL.md';
+    const app = mountSkills(
+      new Hono(),
+      baseRt({
+        binding: 'mattstack:sneaky',
+        provides: 'plan-domain@1',
+        sourcePath: sneaky,
+        registered: false,
+        origin: 'base',
+        base: 'acme-base',
+        baseVersion: '0.1.0',
+      }).run,
+      noGit(),
+      async p => (p === sneaky || p === sibling ? 'secret' : read(p)),
+      identity
+    );
+
+    expect((await getSource(app, sibling)).status).toBe(404);
+    expect((await getSource(app, sneaky)).status).toBe(404);
+  });
+
+  it.each([
+    ['extends no base', null],
+    ['extends another base', { name: 'other-base', version: '0.1.0' }],
+  ])('refuses a base fill when the pack %s', async (_label, extendsBase) => {
+    const app = mountSkills(
+      new Hono(),
+      baseRt(
+        {
+          ...baseFill,
+          origin: 'base',
+          base: 'acme-base',
+          baseVersion: '0.1.0',
+        },
+        extendsBase
+      ).run,
       noGit(),
       baseRead,
       identity
