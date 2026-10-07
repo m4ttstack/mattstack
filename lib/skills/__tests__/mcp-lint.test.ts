@@ -5,7 +5,6 @@ import { join } from "path";
 import { listAgentSafe } from "../../command-tree-resolve.ts";
 import { TREE } from "../../command-tree-def.ts";
 import { mcpTools } from "../../mcp/tools.ts";
-import { PROVENANCE_FILE } from "../base-attachments.ts";
 import { HEADER_COMMENT } from "../compile.ts";
 import { commandPattern, deriveRules, formatHit, KEPT_ON_BASH, lintedMarkdownFiles, lintPackDir, lintPackScripts, lintScriptText, lintSkillText, pickRule, SCRIPT_ONLY_RULES } from "../mcp-lint.ts";
 
