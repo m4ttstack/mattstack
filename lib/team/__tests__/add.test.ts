@@ -11,7 +11,7 @@ import { addTeam, type AddTeamSeams } from "../add.ts";
 import { teamLocalPath } from "../team-local.ts";
 
 const HOME = "/home";
-const ROOT = `${HOME}/.mattstack/teams/acme`;
+const ROOT = `${HOME}/.mattstack/orgs/acme`;
 const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev1"] } } };
 
 function world(username = "dev1") {
@@ -163,7 +163,7 @@ test("marketplace collision preserves real git index and worktree bytes", () => 
   process.env.HOME = home;
   try {
     seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} } });
-    const root = join(home, ".mattstack/teams/acme");
+    const root = join(home, ".mattstack/orgs/acme");
     const market = join(root, ".claude-plugin/marketplace.json");
     const p = createRealProbes();
     p.mkdirp(join(root, ".claude-plugin"));

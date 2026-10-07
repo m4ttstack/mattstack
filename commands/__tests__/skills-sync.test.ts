@@ -363,7 +363,7 @@ for (const target of ["root", "..pack"]) test(`member sync cannot commit ${targe
   let permission: boolean | undefined;
   const calls: string[] = [];
   seedOrg({ org: "acme", username: "dev4", roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
-  const root = join(home, ".mattstack", "teams", "acme");
+  const root = join(home, ".mattstack", "orgs", "acme");
   const dir = target === "root" ? root : join(root, target);
   mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
   const manifest = join(dir, ".claude-plugin", "plugin.json");
@@ -406,7 +406,7 @@ describe("a Mac with two org clones", () => {
     const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } };
     seedOrg({ org: "acme", username: "dev4", roles, teams: { widgets: {} } });
     seedOrg({ org: "beta", username: "dev4", roles, teams: { widgets: {} } });
-    const dir = join(home, ".mattstack", "teams", "beta", "mattstack", "teams", "widgets", "packs", "widgets");
+    const dir = join(home, ".mattstack", "orgs", "beta", "mattstack", "teams", "widgets", "packs", "widgets");
     mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
     const manifest = join(dir, ".claude-plugin", "plugin.json");
     const before = '{"name":"widgets","version":"1.0.0"}\n';
@@ -437,7 +437,7 @@ describe("a Mac with two org clones", () => {
     const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } };
     seedOrg({ org: "acme", username: "dev2", roles, teams: { widgets: {} } });
     seedOrg({ org: "beta", username: "dev2", roles, teams: { widgets: {} } });
-    const teamPack = (org: string) => join(home, ".mattstack", "teams", org, "mattstack", "teams", "widgets", "packs", "widgets");
+    const teamPack = (org: string) => join(home, ".mattstack", "orgs", org, "mattstack", "teams", "widgets", "packs", "widgets");
     const packs = [{ ...pack("widgets"), dir: teamPack("acme") }, { ...pack("gadgets"), dir: teamPack("beta") }, { ...pack("mattstack"), dir: join(home, "elsewhere") }];
     for (const p of packs) mkdirSync(p.dir, { recursive: true });
     const discovery = spyOn(packsModule, "discoverPacks").mockReturnValue(packs);

@@ -86,9 +86,9 @@ describe("rt-paths", () => {
       rmSync(home, { recursive: true, force: true });
     });
 
-    test("teamSettingsPath nests under teams/<org>/mattstack/teams/<team>/settings.team.jsonc", () => {
+    test("teamSettingsPath nests under orgs/<org>/mattstack/teams/<team>/settings.team.jsonc", () => {
       process.env.HOME = "/tmp/fake-home-store-2";
-      expect(teamSettingsPath("acme", "widgets")).toBe("/tmp/fake-home-store-2/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc");
+      expect(teamSettingsPath("acme", "widgets")).toBe("/tmp/fake-home-store-2/.mattstack/orgs/acme/mattstack/teams/widgets/settings.team.jsonc");
     });
   });
 

@@ -18,7 +18,7 @@ import { getSetting } from "./settings/resolve.ts";
 import { setSetting } from "./settings/write.ts";
 import { CURSOR_NS } from "./state/cursors-store.ts";
 import { dropTableRows, moveKvKey, moveTableRows, type StoreReport } from "./state/reidentify.ts";
-import { machineSettingsPath, teamsDir, userSettingsPath } from "../packages/rt-client/src/settings/paths.ts";
+import { machineSettingsPath, orgsDir, userSettingsPath } from "../packages/rt-client/src/settings/paths.ts";
 import { sharedStoreFiles } from "../packages/rt-client/src/settings/stores.ts";
 import { renameRepoSection, storeUnparseable } from "../packages/rt-client/src/settings/write.ts";
 
@@ -102,9 +102,9 @@ function dataDirReport(from: string, to: string, dryRun: boolean): StoreReport {
   return { store, status: "moved", count: count + (m.registry === "none" ? 0 : 1) };
 }
 
-/** sharedStoreFiles reads an unlistable teams dir as no org, which would skip every shared store silently. */
+/** sharedStoreFiles reads an unlistable orgs dir as no org, which would skip every shared store silently. */
 function teamsOrRefusal(): string[] | StoreReport {
-  const dir = teamsDir();
+  const dir = orgsDir();
   if (existsSync(dir)) {
     try {
       readdirSync(dir);
@@ -196,8 +196,8 @@ export async function reidentify(fromArg: string, toArg: string, opts: { dryRun?
   } catch (err) {
     stores.push({ store: "settings:teams", status: "refused", count: 0, detail: String(err) });
   }
-  // Two team folders' stores share a basename, so the label is the path under the teams folder.
-  const sharedLabel = (file: string) => `shared:${relative(teamsDir(), file)}`;
+  // Two team folders' stores share a basename, so the label is the path under the orgs folder.
+  const sharedLabel = (file: string) => `shared:${relative(orgsDir(), file)}`;
   for (const file of files) add(`settings:${sharedLabel(file)}`, () => settingsReport(sharedLabel(file), file, from.raw, to.raw, dryRun));
 
   // repos.json mirrors the index for out-of-process readers (gitq, rt-client's

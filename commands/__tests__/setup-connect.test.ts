@@ -283,8 +283,8 @@ describe("integrationConnect: forge token scopes", () => {
   test("connecting the org's forge records who you are, so the team.identity row clears without waiting for an update run", async () => {
     const probes = fakeProbes({
       fetch: gitlabWithScopes(["api", "read_user"]),
-      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
-      files: { "/fake-home/.mattstack/teams/acme/.git/config": `[remote "origin"]\n\turl = https://gitlab.com/acme/org.git\n` },
+      dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
+      files: { "/fake-home/.mattstack/orgs/acme/.git/config": `[remote "origin"]\n\turl = https://gitlab.com/acme/org.git\n` },
     });
     const asked: unknown[][] = [];
     const deps = baseDeps({
@@ -339,8 +339,8 @@ describe("integrationConnect: forge token scopes", () => {
   test("a clone that is not converted yet is identified from its origin, since it has no settings to read", async () => {
     const probes = fakeProbes({
       fetch: gitlabWithScopes(["api", "read_user"]),
-      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
-      files: { "/fake-home/.mattstack/teams/acme/.git/config": `[remote "origin"]\n\turl = https://gitlab.com/acme/org.git\n` },
+      dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
+      files: { "/fake-home/.mattstack/orgs/acme/.git/config": `[remote "origin"]\n\turl = https://gitlab.com/acme/org.git\n` },
     });
     const deps = baseDeps({
       probes,
@@ -379,8 +379,8 @@ describe("integrationConnect: forge token scopes", () => {
     test(`explicit custom GitLab connect for an unconverted clone: ${scenario.name}`, async () => {
       const probes = fakeProbes({
         fetch: scenario.valid ? gitlabWithScopes(["api", "read_user"]) : gitlabUserRejected,
-        dirs: { "/fake-home/.mattstack/teams": ["acme"] },
-        files: { "/fake-home/.mattstack/teams/acme/.git/config": `[remote "origin"]\nurl = https://${scenario.origin}/acme/org.git\n` },
+        dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
+        files: { "/fake-home/.mattstack/orgs/acme/.git/config": `[remote "origin"]\nurl = https://${scenario.origin}/acme/org.git\n` },
       });
       const asked: unknown[][] = [];
       const deps = baseDeps({
@@ -401,10 +401,10 @@ describe("integrationConnect: forge token scopes", () => {
     let fail = true;
     const probes = fakeProbes({
       fetch: gitlabWithScopes(["api"]),
-      dirs: { "/fake-home/.mattstack/teams/acme": [] },
+      dirs: { "/fake-home/.mattstack/orgs/acme": [] },
       files: {
-        "/fake-home/.mattstack/teams/acme/.git/config": '[remote "origin"]\nurl = https://gitlab.com/acme/org.git\n',
-        "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}",
+        "/fake-home/.mattstack/orgs/acme/.git/config": '[remote "origin"]\nurl = https://gitlab.com/acme/org.git\n',
+        "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}",
         [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ forgeUsername: "dev1", creatorPending: { team: "widgets" } }),
       },
       exec: (argv) => pendingRolePublication(argv) ?? ({ code: argv[1] === "diff" ? 1 : argv.includes("push") && fail ? 128 : 0, stdout: "", stderr: argv.includes("push") && fail ? "denied" : "" }),
@@ -437,10 +437,10 @@ describe("integrationConnect: forge token scopes", () => {
       let lookups = 0;
       const probes = fakeProbes({
         fetch: gitlabWithScopes(["api"]),
-        dirs: { "/fake-home/.mattstack/teams/acme": [] },
+        dirs: { "/fake-home/.mattstack/orgs/acme": [] },
         files: {
-          "/fake-home/.mattstack/teams/acme/.git/config": '[remote "origin"]\nurl = https://gitlab.com/acme/org.git\n',
-          "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}",
+          "/fake-home/.mattstack/orgs/acme/.git/config": '[remote "origin"]\nurl = https://gitlab.com/acme/org.git\n',
+          "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}",
           [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ creatorPending: { team: "widgets" } }),
         },
         exec: (argv) => pendingRolePublication(argv) ?? ({ code: argv[1] === "diff" ? 1 : argv[1] === verb && fail ? 128 : 0, stdout: "", stderr: "denied" }),
@@ -475,10 +475,10 @@ describe("integrationConnect: forge token scopes", () => {
   test("a confirmed self-hosted GitLab connect on an unconverted clone reads the forge its old team store declares", async () => {
     const probes = fakeProbes({
       fetch: gitlabWithScopes(["api", "read_user"]),
-      dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+      dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
       files: {
-        "/fake-home/.mattstack/teams/acme/.git/config": '[remote "origin"]\nurl = https://git.example.com/acme/org.git\n',
-        "/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc": JSON.stringify({ "mattstack.integrations": { forge: { host: "git.example.com", provider: "gitlab" } } }),
+        "/fake-home/.mattstack/orgs/acme/.git/config": '[remote "origin"]\nurl = https://git.example.com/acme/org.git\n',
+        "/fake-home/.mattstack/orgs/acme/mattstack/settings.team.jsonc": JSON.stringify({ "mattstack.integrations": { forge: { host: "git.example.com", provider: "gitlab" } } }),
       },
     });
     const asked: unknown[][] = [];
@@ -498,10 +498,10 @@ describe("integrationConnect: forge token scopes", () => {
   });
 
   test("a forge connect before the org clone has git records the username and leaves the admin claim to Install", async () => {
-    const orgStore = "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc";
+    const orgStore = "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc";
     const probes = fakeProbes({
       fetch: gitlabWithScopes(["api"]),
-      dirs: { "/fake-home/.mattstack/teams/acme": [] },
+      dirs: { "/fake-home/.mattstack/orgs/acme": [] },
       files: {
         [orgStore]: "{}",
         [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ creatorPending: { team: "widgets" } }),
@@ -553,7 +553,7 @@ describe("integrationConnect: forge token scopes", () => {
 
   test("no intent (after Install): an org admin is held to the owner's scopes", async () => {
     const probes = fakeProbes({ fetch: gitlabWithScopes(["read_api", "read_user"]), files: {
-      "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
       [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ forgeUsername: "dev1", joinedByRt: true }),
     } });
     const deps = baseDeps({
@@ -572,7 +572,7 @@ describe("integrationConnect: forge token scopes", () => {
 
   test("no intent (after Install): a member is held to member scopes regardless of joinedByRt", async () => {
     const probes = fakeProbes({ fetch: gitlabWithScopes(["read_api", "read_user"]), files: {
-      "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
       [teamLocalPath("/fake-home", "acme")]: JSON.stringify({ forgeUsername: "dev9", joinedByRt: false }),
     } });
     const deps = baseDeps({
@@ -785,7 +785,7 @@ describe("integrationConnect — slack (OAuth flow)", () => {
   describe("a joined member the owner has not accepted yet", () => {
     const MINE = "age1mine0000000000000000000000000000000000000000000000000000000";
     const OWNER = "age1owner000000000000000000000000000000000000000000000000000000";
-    const BOARD = "/fake-home/.mattstack/teams/acme/mattstack/org/secrets/board.json";
+    const BOARD = "/fake-home/.mattstack/orgs/acme/mattstack/org/secrets/board.json";
 
     function memberProbes(recipients: string[], unreadable: string[] = []) {
       return fakeProbes({

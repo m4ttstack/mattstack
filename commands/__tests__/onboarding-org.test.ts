@@ -218,7 +218,7 @@ function orgTree(roster: { username: string; teams: string[] }[]): string {
 }
 
 function cloneHere(tree: string): string {
-  const dir = join(home, ".mattstack", "teams", "acme");
+  const dir = join(home, ".mattstack", "orgs", "acme");
   cpSync(tree, dir, { recursive: true });
   mkdirSync(join(dir, ".git"), { recursive: true });
   writeFileSync(join(dir, ".git", "config"), origin(REMOTE));
@@ -261,7 +261,7 @@ describe("onboarding in an org", () => {
     const p = probes();
     const result = await joinDryRun(p, relayServing(POINTER), CODE);
     expect(result.teams).toEqual(["gadgets", "widgets"]);
-    expect(existsSync(join(home, ".mattstack", "teams", "acme"))).toBe(false);
+    expect(existsSync(join(home, ".mattstack", "orgs", "acme"))).toBe(false);
     expect(readIntent(p)?.mode).toBe("join");
   });
 
@@ -350,7 +350,7 @@ describe("onboarding in an org", () => {
       message: "That invite was made by an older mattstack. Ask for a new invite.",
     });
     expect(readIntent(p)).toBeNull();
-    expect(existsSync(join(home, ".mattstack", "teams", "acme"))).toBe(false);
+    expect(existsSync(join(home, ".mattstack", "orgs", "acme"))).toBe(false);
   });
 
   test("a second team: your first team holds until you switch, and the switch turns the packs over and restarts the apps", async () => {
@@ -408,7 +408,7 @@ describe("onboarding in an org", () => {
     setSetting("board.peerAsks", { enabled: false }, "user");
     const user = readStore(userSettingsPath()).global;
     writeFileSync(userSettingsPath(), JSON.stringify({ ...user, "board.defaultPack": "widgets" }));
-    const dir = join(home, ".mattstack", "teams", "acme");
+    const dir = join(home, ".mattstack", "orgs", "acme");
     mkdirSync(join(dir, ".git"), { recursive: true });
     writeFileSync(join(dir, ".git", "config"), origin(REMOTE));
     mkdirSync(join(dir, "mattstack"), { recursive: true });

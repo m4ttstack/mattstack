@@ -91,7 +91,7 @@ describe("accessRows — access.team-repo", () => {
     test(`a role that owns shared files asks for read/write (${username})`, async () => {
       const files = {
         "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ joinedByRt: true, forgeUsername: username }),
-        "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
+        "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } }),
       };
       const r = await pickRow(accessRows(fakeProbes({ exec: () => ok(), files }), baseTeam({ remote: REMOTE }), null), "access.team-repo");
       expect(r.why).toContain("read/write");

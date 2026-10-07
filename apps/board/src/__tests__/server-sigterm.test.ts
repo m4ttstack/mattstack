@@ -13,7 +13,7 @@ const fakeHome = mkdtempSync(join(tmpdir(), 'board-sigterm-'));
 const teamDir = join(
   fakeHome,
   '.mattstack',
-  'teams',
+  'orgs',
   'testteam',
   'mattstack',
   'org'

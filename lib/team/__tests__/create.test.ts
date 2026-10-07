@@ -143,7 +143,7 @@ describe("createTeam", () => {
       await expect(
         createTeam(p, { name: "Acme", remote: "https://github.com/acme/mattstack-team-acme.git", others: false }, new FakeAgeKeySeam(), seams),
       ).rejects.toThrow(/Run bun test from the repo root/);
-      expect(p.exists(join("/home/x", ".mattstack", "teams", "acme"))).toBe(false);
+      expect(p.exists(join("/home/x", ".mattstack", "orgs", "acme"))).toBe(false);
       expect(p.calls.exec).toEqual([]);
     });
   });
@@ -179,7 +179,7 @@ describe("createTeam", () => {
       team: "acme",
       name: "Acme",
       remote: "https://github.com/acme/mattstack-team-acme.git",
-      dir: join("/home/x", ".mattstack", "teams", "acme"),
+      dir: join("/home/x", ".mattstack", "orgs", "acme"),
       created: true,
     });
 
@@ -219,7 +219,7 @@ describe("createTeam", () => {
 
     expect(result).toMatchObject({ slug: "acme", created: true, gitDeferred: true });
     expect(p.calls.exec.filter((c) => c[0] === "git")).toEqual([]);
-    const dir = join("/home/x", ".mattstack", "teams", "acme");
+    const dir = join("/home/x", ".mattstack", "orgs", "acme");
     expect(p.exists(join(dir, "mattstack", "mattstack.jsonc"))).toBe(true);
     expect(p.exists(join(dir, ".git"))).toBe(false);
     expect(readIntent(p)?.team).toEqual({ slug: "acme", name: "Acme", remote: "https://github.com/acme/repo.git", others: false, firstTeam: "acme" });
@@ -231,7 +231,7 @@ describe("createTeam", () => {
     const p = gitAwareFakeProbes("/home/x", clt);
     const opts = { name: "Acme", remote: "https://github.com/acme/repo.git", others: false };
     await createTeam(p, opts, new FakeAgeKeySeam(), seams);
-    const dir = join("/home/x", ".mattstack", "teams", "acme");
+    const dir = join("/home/x", ".mattstack", "orgs", "acme");
     p.writeFile(join(dir, "mattstack", "org", "settings.org.jsonc"), withCreator("// edited before CLT arrived\n{}", "acme", { username: "dev1", agePublicKey: FAKE_PUBLIC_KEY }));
     p.calls.exec.length = 0;
 
@@ -261,7 +261,7 @@ describe("createTeam", () => {
   test("a stale joinedByRt from an earlier joined-then-deleted clone of the same slug is cleared, not merged forward", async () => {
     const p = gitAwareFakeProbes("/home/x", (argv) => (argv[0] === "gh" ? { code: 0, stdout: "https://github.com/o/mattstack-team-acme\n", stderr: "" } : undefined));
     // Simulates: joined "acme" earlier (stamping joinedByRt), then deleted
-    // ~/.mattstack/teams/acme by hand; the local record survives the delete.
+    // ~/.mattstack/orgs/acme by hand; the local record survives the delete.
     updateTeamLocal(p, "acme", { joinedByRt: true });
 
     await createTeam(p, { name: "Acme", remote: null, createRepoOwner: "o", others: false }, new FakeAgeKeySeam(), seams);
@@ -296,8 +296,8 @@ describe("createTeam", () => {
 
   test("a second team on a machine that already has one is refused before any zone or git work", async () => {
     const p = gitAwareFakeProbes("/home/x");
-    p.mkdirp(join("/home/x", ".mattstack", "teams", "globex"));
-    p.writeFile(join("/home/x", ".mattstack", "teams", "globex", "mattstack", "org", "settings.org.jsonc"), "{}");
+    p.mkdirp(join("/home/x", ".mattstack", "orgs", "globex"));
+    p.writeFile(join("/home/x", ".mattstack", "orgs", "globex", "mattstack", "org", "settings.org.jsonc"), "{}");
 
     await expect(
       createTeam(p, { name: "Acme", remote: "https://github.com/acme/repo.git", others: false }, new FakeAgeKeySeam(), seams),
@@ -306,7 +306,7 @@ describe("createTeam", () => {
       message: "This Mac is already set up for the globex team, and mattstack supports one team per machine today",
     });
 
-    expect(p.exists(join("/home/x", ".mattstack", "teams", "acme"))).toBe(false);
+    expect(p.exists(join("/home/x", ".mattstack", "orgs", "acme"))).toBe(false);
     expect(p.calls.exec).toEqual([]);
     expect(readIntent(p)).toBeNull();
   });
@@ -388,7 +388,7 @@ describe("createTeam", () => {
   describe("populated-zone re-run is non-destructive (R-T16-b / finding 9)", () => {
     test("existing settings, a multi-recipient .sops.yaml, and a secret file all survive an idempotent re-run", async () => {
       const p = gitAwareFakeProbes("/home/x");
-      const dir = join("/home/x", ".mattstack", "teams", "acme");
+      const dir = join("/home/x", ".mattstack", "orgs", "acme");
       const remote = "https://github.com/acme/repo.git";
 
       const customSettings = withCreator('// hand-edited\n{"board.title":"Acme (real)"}\n', "acme", { username: "dev1" });
@@ -448,7 +448,7 @@ describe("the creator", () => {
   const HOME = "/home/x";
   const seams = { forgeLogin: async () => "dev1", forgeToken: async () => null };
   const unknown = { forgeLogin: async () => null, forgeToken: async () => null };
-  const ORG_STORE = `${HOME}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`;
+  const ORG_STORE = `${HOME}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`;
   const GITHUB = { name: "Acme", remote: "https://github.com/acme/repo.git", others: false };
   const orgStore = (p: ReturnType<typeof gitAwareFakeProbes>) => parseSettingsBody(p.readFile(ORG_STORE)!);
 
@@ -480,14 +480,14 @@ describe("the creator", () => {
     const p = gitAwareFakeProbes(HOME);
     const result = await createTeam(p, { ...GITHUB, firstTeam: "widgets" }, new FakeAgeKeySeam(), seams);
     expect(result.team).toBe("widgets");
-    expect(p.exists(`${HOME}/.mattstack/teams/acme/mattstack/teams/widgets/settings.team.jsonc`)).toBe(true);
+    expect(p.exists(`${HOME}/.mattstack/orgs/acme/mattstack/teams/widgets/settings.team.jsonc`)).toBe(true);
     expect((orgStore(p)["mattstack.org"] as { teams: object }).teams).toEqual({ widgets: { owners: ["dev1"] } });
   });
 
   test("a first team name that is not a folder name is refused before anything is written", async () => {
     const p = gitAwareFakeProbes(HOME);
     await expect(createTeam(p, { ...GITHUB, firstTeam: "Widgets!" }, new FakeAgeKeySeam(), seams)).rejects.toMatchObject({ code: "bad-team-name" });
-    expect(p.exists(`${HOME}/.mattstack/teams/acme`)).toBe(false);
+    expect(p.exists(`${HOME}/.mattstack/orgs/acme`)).toBe(false);
   });
 
   test("on a recognized forge whose login is not known yet, create writes no username, admin, owner or roster entry, and never falls back to $USER", async () => {
@@ -570,7 +570,7 @@ describe("the creator", () => {
       message: "The acme org was started with widgets as its first team",
       next: "rt team add gadgets --owner <username>",
     });
-    expect(p.exists(`${HOME}/.mattstack/teams/acme/mattstack/teams/gadgets`)).toBe(false);
+    expect(p.exists(`${HOME}/.mattstack/orgs/acme/mattstack/teams/gadgets`)).toBe(false);
     expect(Object.keys(p.calls.writes).sort()).toEqual(writesBefore);
   });
 
@@ -583,7 +583,7 @@ describe("the creator", () => {
       message: "The acme org already has its first team",
       next: "rt team add gadgets --owner <username>",
     });
-    expect(p.exists(`${HOME}/.mattstack/teams/acme/mattstack/teams/gadgets`)).toBe(false);
+    expect(p.exists(`${HOME}/.mattstack/orgs/acme/mattstack/teams/gadgets`)).toBe(false);
   });
 
   test("a rerun with no first team finishes the one the org was started with", async () => {
@@ -591,7 +591,7 @@ describe("the creator", () => {
     await createTeam(p, { ...GITHUB, firstTeam: "widgets" }, new FakeAgeKeySeam(), unknown);
     const second = await createTeam(p, GITHUB, new FakeAgeKeySeam(), seams);
     expect(second.team).toBe("widgets");
-    expect(p.exists(`${HOME}/.mattstack/teams/acme/mattstack/teams/acme`)).toBe(false);
+    expect(p.exists(`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme`)).toBe(false);
     expect(orgStore(p)["mattstack.org"]).toEqual({ admins: ["dev1"], teams: { widgets: { owners: ["dev1"] } } });
   });
 
@@ -715,7 +715,7 @@ describe("fresh scaffold failure recovery", () => {
         process.env.HOME = home;
         try {
           const p = createRealProbes();
-          const dir = join(home, ".mattstack", "teams", "acme");
+          const dir = join(home, ".mattstack", "orgs", "acme");
           const run = (args: string[]) => {
             const result = Bun.spawnSync(["git", ...args], { cwd: dir, env: childEnv(), stdout: "pipe", stderr: "pipe" });
             expect(result.exitCode).toBe(0);
@@ -774,7 +774,7 @@ describe("forge identity scaffold failure recovery", () => {
         process.env.HOME = home;
         try {
           const p = createRealProbes();
-          const dir = join(home, ".mattstack", "teams", "acme");
+          const dir = join(home, ".mattstack", "orgs", "acme");
           const run = (args: string[]) => {
             const result = Bun.spawnSync(["git", ...args], { cwd: dir, env: childEnv(), stdout: "pipe", stderr: "pipe" });
             expect(result.exitCode).toBe(0);

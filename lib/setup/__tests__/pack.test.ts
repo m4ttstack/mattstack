@@ -205,7 +205,7 @@ describe("readServedPacks filter", () => {
     { name: "widgets", source: "./mattstack/teams/widgets/packs/widgets" },
     { name: "gadgets", source: "./mattstack/teams/gadgets/packs/gadgets" },
   ] });
-  const p = fakeProbes({ home: "/h", files: { "/h/.mattstack/teams/acme/.claude-plugin/marketplace.json": market } });
+  const p = fakeProbes({ home: "/h", files: { "/h/.mattstack/orgs/acme/.claude-plugin/marketplace.json": market } });
 
   test("with no filter every entry is served", () => {
     expect(readServedPacks(p, "acme").packs.map((x) => x.name)).toEqual(["widgets", "gadgets"]);

@@ -16,7 +16,7 @@ import { secretsSet, secretsList, secretsRotate } from "../secrets.ts";
 import { secretsFilePath, type SecretsExecResult, type SecretsExecSeam, type SecretsSeams } from "../../lib/secrets/store.ts";
 import { teamSecretsFile, writeTeamRecipients, writeTeamSecret, readTeamSecret } from "../../lib/secrets/team-store.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../lib/home/age-key.ts";
-import { teamsDir } from "../../lib/rt-paths.ts";
+import { orgsDir } from "../../lib/rt-paths.ts";
 import { join } from "path";
 import { capturePlain } from "./helpers/json-line.ts";
 
@@ -141,7 +141,7 @@ class FakeExecSeam implements SecretsExecSeam {
 /** Team-ready seams: clone root registered, one recipient already in .sops.yaml. */
 function teamSeams(slug = "acme"): { execSeam: FakeExecSeam; seams: SecretsSeams } {
   const execSeam = new FakeExecSeam();
-  execSeam.files.set(join(teamsDir(), slug), "");
+  execSeam.files.set(join(orgsDir(), slug), "");
   const seams: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey("AGE-TEAM-KEY"), execSeam };
   writeTeamRecipients(slug, ["age1aaa"], seams);
   return { execSeam, seams };

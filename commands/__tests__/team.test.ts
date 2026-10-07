@@ -22,7 +22,7 @@ import { cleanupOrgWorlds, orgWorld } from "../../lib/team/__tests__/org-world.t
 
 const FAKE_PUBLIC_KEY = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
 const FAKE_PRIVATE_KEY = "AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ";
-const ZONE_DIR = "/home/x/.mattstack/teams/acme";
+const ZONE_DIR = "/home/x/.mattstack/orgs/acme";
 const adminFiles = {
   [`${ZONE_DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
   [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
@@ -127,7 +127,7 @@ describe("teamCreate", () => {
   });
 
   test("a second team exits 2 with team-already-set-up in the envelope", async () => {
-    const teams = "/home/x/.mattstack/teams";
+    const teams = "/home/x/.mattstack/orgs";
     const deps = baseDeps({
       probes: fakeProbes({
         home: "/home/x",
@@ -359,7 +359,7 @@ describe("teamInvite", () => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-team-invite-cmd-home-")));
     process.env.HOME = home;
 
-    teamDir = join(home, ".mattstack", "teams", "acme");
+    teamDir = join(home, ".mattstack", "orgs", "acme");
     seedOrg({ org: "acme", username: "dev1", roles: { admins: ["dev1"], teams: {} }, settings: { "board.title": "Acme Team" }, roster: [{ username: "dev1", teams: ["widgets"] }], teams: { widgets: {} } });
     mkdirSync(join(teamDir, ".git"), { recursive: true });
   });
@@ -1223,7 +1223,7 @@ describe("realUseTeamSeams", () => {
     const enabled: Record<string, boolean> = { "widgets@acme-market": true, "gadgets@acme-market": false };
     const home = "/home/x";
     const p = fakeProbes({ home, env: { PATH: "/fixture/bin", CLAUDE_CONFIG_DIR: "/fixture/config" },
-      dirs: { [`${home}/.mattstack/teams`]: ["acme"] },
+      dirs: { [`${home}/.mattstack/orgs`]: ["acme"] },
       files: { ...adminFiles, "/fixture/bin/claude": "bin", [`${ZONE_DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["gadgets", "widgets"] }] }), [`${ZONE_DIR}/.claude-plugin/marketplace.json`]: JSON.stringify({ name: "acme-market", plugins: [{ name: "widgets" }, { name: "gadgets" }] }) },
       exec: async (argv, opts) => {
         if (argv[0] === "/fixture/deck") return { code: 0, stdout: "", stderr: "" };

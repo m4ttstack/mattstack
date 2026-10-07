@@ -1,13 +1,13 @@
 /** `siblingFragment` adds a second team folder, `gadgets`, whose pack claims the same repo through the org's claim. */
 export function materializeWorld(home: string, opts: { fragment?: string; remote?: string; siblingFragment?: string } = {}) {
-  const org = `${home}/.mattstack/teams/acme/mattstack`;
+  const org = `${home}/.mattstack/orgs/acme/mattstack`;
   const engine = `${home}/engine`;
   const hasSibling = opts.siblingFragment !== undefined;
   return {
     env: { RT_ENGINE_PACK_DIR: engine },
     dirs: {
       [engine]: ["pack"],
-      [`${home}/.mattstack/teams`]: ["acme"],
+      [`${home}/.mattstack/orgs`]: ["acme"],
       [`${org}/teams`]: hasSibling ? ["gadgets", "widgets"] : ["widgets"],
       [`${org}/teams/widgets/packs`]: ["widgets"],
       ...(hasSibling ? { [`${org}/teams/gadgets/packs`]: ["gadgets"] } : {}),

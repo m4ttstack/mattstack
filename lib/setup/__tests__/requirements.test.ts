@@ -63,7 +63,7 @@ describe("parseRequirements", () => {
 });
 
 describe("readPackRequirements", () => {
-  const root = "/fake-home/.mattstack/teams/acme";
+  const root = "/fake-home/.mattstack/orgs/acme";
   const file = `${root}/mattstack/teams/widgets/packs/widgets/requirements.jsonc`;
 
   test("reads the team pack's requirements.jsonc under its team folder", () => {
@@ -104,8 +104,8 @@ describe("readPackRequirements", () => {
   describe("the active team's pack", () => {
     const REQ = JSON.stringify({ tools: [{ name: "jq", why: "parses json" }], integrations: [] });
     const files = {
-      "/h/.mattstack/teams/acme/mattstack/teams/widgets/packs/widgets/requirements.jsonc": REQ,
-      "/h/.mattstack/teams/acme/mattstack/teams/gadgets/packs/gadgets/requirements.jsonc": JSON.stringify({ tools: [{ name: "yq", why: "parses yaml" }], integrations: [] }),
+      "/h/.mattstack/orgs/acme/mattstack/teams/widgets/packs/widgets/requirements.jsonc": REQ,
+      "/h/.mattstack/orgs/acme/mattstack/teams/gadgets/packs/gadgets/requirements.jsonc": JSON.stringify({ tools: [{ name: "yq", why: "parses yaml" }], integrations: [] }),
     };
     test("reads only the named team's pack", () => {
       const reqs = readPackRequirements(fakeProbes({ home: "/h", files }), "acme", "widgets");

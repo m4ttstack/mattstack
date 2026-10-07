@@ -233,7 +233,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const p = fakeProbes({
         home: "/h",
         files: {
-          "/h/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["gadgets"] }] }),
+          "/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["gadgets"] }] }),
           "/h/.mattstack/rt/teams/acme.json": JSON.stringify({ forgeUsername: "dev1" }),
         },
       });
@@ -242,7 +242,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     });
 
     test("after a switch, the previous team's pack is neither updated, reinstalled, enabled nor named as awaiting approval", async () => {
-      const marketplacePath = join(home, ".mattstack", "teams", "acme", ".claude-plugin", "marketplace.json");
+      const marketplacePath = join(home, ".mattstack", "orgs", "acme", ".claude-plugin", "marketplace.json");
       const execCalls: string[][] = [];
       const p = fakeProbes({
         home,
@@ -265,7 +265,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     });
 
     test("superpowers installs as a trusted baseline plugin, its marketplace added right after rt's own and ahead of team/user sources", async () => {
-      const teamDir = join(home, ".mattstack", "teams", "acme");
+      const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
       setSetting("claude.marketplaces", ["https://example.com/extra-market"], "user");
 
@@ -307,7 +307,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
       const marketSrcs = execCalls.filter((a) => a.includes("marketplace") && a.includes("add")).map((a) => a.at(-1));
-      expect(marketSrcs).not.toContain(join(home, ".mattstack", "teams", "acme"));
+      expect(marketSrcs).not.toContain(join(home, ".mattstack", "orgs", "acme"));
     });
 
     // Replies captured from the real CLI (2.1.280): a repeat add exits 0 and
@@ -383,7 +383,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     }
 
     test("happy path: one custom marketplace + team marketplace/plugin, one config dir — full argv sequence, setup-state recorded", async () => {
-      const teamDir = join(home, ".mattstack", "teams", "acme");
+      const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
       setSetting("claude.marketplaces", ["https://example.com/extra-market"], "user");
 
@@ -433,11 +433,11 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const repoDir = mkdtempSync(join(home, "repo-"));
       updateRepoIndex(basename(repoDir), repoDir);
 
-      const zone = `${home}/.mattstack/teams/acme/mattstack`;
+      const zone = `${home}/.mattstack/orgs/acme/mattstack`;
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin", RT_ENGINE_PACK_DIR: "/fake/engine" },
-        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets/packs`]: ["widgets"] },
+        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/orgs`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets/packs`]: ["widgets"] },
         files: {
           "/usr/local/bin/claude": "bin",
           "/fake/engine/pack/skills.jsonc": "{}",
@@ -463,11 +463,11 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const repoDir = mkdtempSync(join(home, "repo-"));
       updateRepoIndex(basename(repoDir), repoDir);
 
-      const zone = `${home}/.mattstack/teams/acme/mattstack`;
+      const zone = `${home}/.mattstack/orgs/acme/mattstack`;
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin", RT_ENGINE_PACK_DIR: "/fake/engine" },
-        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets/packs`]: ["widgets"] },
+        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/orgs`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets/packs`]: ["widgets"] },
         files: {
           "/usr/local/bin/claude": "bin",
           "/fake/engine/pack/skills.jsonc": "{}",
@@ -496,11 +496,11 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const repoName = basename(repoDir);
       updateRepoIndex(repoName, repoDir);
 
-      const zone = `${home}/.mattstack/teams/acme/mattstack`;
+      const zone = `${home}/.mattstack/orgs/acme/mattstack`;
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin", RT_ENGINE_PACK_DIR: "/fake/engine" },
-        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets/packs`]: ["widgets"] },
+        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/orgs`]: ["acme"], [`${zone}/teams`]: ["widgets"], [`${zone}/teams/widgets/packs`]: ["widgets"] },
         files: {
           "/usr/local/bin/claude": "bin",
           "/fake/engine/pack/skills.jsonc": "{}",
@@ -732,7 +732,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     });
 
     test("a team-authored pack ends DISABLED, asserted on the resulting state rather than the argv", async () => {
-      const teamDir = join(home, ".mattstack", "teams", "acme");
+      const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
       // Models the real claude: install enables what it installs, disable turns it off.
       const enabled: Record<string, boolean> = {};
@@ -772,7 +772,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       // rt setup apply, still has it enabled afterwards." This is the only test that
       // enters the already-installed/update branch, so it also covers the restored
       // trusted enable.
-      const teamDir = join(home, ".mattstack", "teams", "acme");
+      const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
       const enabled: Record<string, boolean> = {
         "acme-skills@acme-market": true, // the member enabled the team pack deliberately
@@ -817,7 +817,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     });
 
     test("a team pack the member left disabled is still disabled after apply", async () => {
-      const teamDir = join(home, ".mattstack", "teams", "acme");
+      const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
       const enabled: Record<string, boolean> = {
         "acme-skills@acme-market": false,
@@ -855,7 +855,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     });
 
     test("a listed team pack whose update claims absence never reaches install, so a deliberate enable survives", async () => {
-      const teamDir = join(home, ".mattstack", "teams", "acme");
+      const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
       const enabled: Record<string, boolean> = { "acme-skills@acme-market": true };
       for (const base of BASE_PLUGINS) enabled[base] = true;
@@ -894,7 +894,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     });
 
     test("a rolled-back pack is not recorded in setup-state as installed", async () => {
-      const teamDir = join(home, ".mattstack", "teams", "acme");
+      const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
       const p = fakeProbes({
         home,
@@ -915,7 +915,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     });
 
     test("a rolled-back pack is in neither the done detail's plugin count nor its pending note", async () => {
-      const teamDir = join(home, ".mattstack", "teams", "acme");
+      const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
       const p = fakeProbes({
         home,
@@ -941,7 +941,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
     for (const enabled of [true, false]) {
       test(`a team-authored pack the listing shows ${enabled ? "enabled is not named as awaiting approval" : "disabled is named as awaiting approval"}`, async () => {
-        const teamDir = join(home, ".mattstack", "teams", "acme");
+        const teamDir = join(home, ".mattstack", "orgs", "acme");
         const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
         const installed = [...BASE_PLUGINS.map((id) => ({ id, version: "1.0.0", enabled: true })), { id: "acme-skills@acme-market", version: "1.0.0", enabled }];
         const p = fakeProbes({
@@ -961,7 +961,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     }
 
     test("a fresh trusted install is enabled by the step, since the install itself leaves it off", async () => {
-      const teamDir = join(home, ".mattstack", "teams", "acme");
+      const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
       // `install` deliberately does not touch `enabled`, so only an explicit
       // `enable` can flip one on.
@@ -994,7 +994,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
     });
 
     test("a trusted plugin missing from the listing whose install reports already-installed still gets its enable", async () => {
-      const teamDir = join(home, ".mattstack", "teams", "acme");
+      const teamDir = join(home, ".mattstack", "orgs", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
       // The `current` route: installed at another scope, so possibly disabled
       // there, and settlePack returns without ever enabling it.
@@ -1952,7 +1952,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       });
 
       test("an unpeered joined board blocks neither Install nor Finish, yet verify reports it and the update notification counts it", async () => {
-        const teams = "/fake-home/.mattstack/teams";
+        const teams = "/fake-home/.mattstack/orgs";
         const p = fakeProbes({
           fetch: async () => ({ status: 200, body: "", headers: {} }),
           dirs: { [teams]: ["acme"] },
@@ -1978,7 +1978,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       });
 
       test("on the team creator's Mac, verify points at inviting your own board", async () => {
-        const teams = "/fake-home/.mattstack/teams";
+        const teams = "/fake-home/.mattstack/orgs";
         const p = fakeProbes({
           fetch: async () => ({ status: 200, body: "", headers: {} }),
           dirs: { [teams]: ["acme"] },

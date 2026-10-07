@@ -11,7 +11,7 @@ import { CURSOR_NS } from "../state/cursors-store.ts";
 import { getSetting } from "../settings/resolve.ts";
 import { setSetting } from "../settings/write.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../worktree/registry.ts";
-import { machineSettingsPath, teamsDir, userSettingsPath } from "../../packages/rt-client/src/settings/paths.ts";
+import { machineSettingsPath, orgsDir, userSettingsPath } from "../../packages/rt-client/src/settings/paths.ts";
 import { readStore } from "../../packages/rt-client/src/settings/stores.ts";
 import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 import { normalizeIdentityArg, reidentify } from "../repo-reidentify.ts";
@@ -144,7 +144,7 @@ describe("reidentify", () => {
       expect(r.ok).toBe(username !== undefined);
       for (const [i, path] of paths.entries()) {
         const owns = username === "dev1" || (username === "dev2" && i === 1);
-        const label = `settings:shared:${path.slice(teamsDir().length + 1)}`;
+        const label = `settings:shared:${path.slice(orgsDir().length + 1)}`;
         expect(r.stores.find((store) => store.store === label)?.status).toBe(owns ? "moved" : username === undefined ? "refused" : "skipped");
         if (owns) {
           expect(readStore(path).repos[NEW_RAW]).toEqual(section.repos[OLD_RAW]);
@@ -250,15 +250,15 @@ describe("reidentify", () => {
   });
 
   test("a teams dir that cannot be listed is refused", async () => {
-    mkdirSync(teamsDir(), { recursive: true });
-    chmodSync(teamsDir(), 0o000);
+    mkdirSync(orgsDir(), { recursive: true });
+    chmodSync(orgsDir(), 0o000);
     try {
       const r = await reidentify(OLD_RAW, NEW_RAW);
       if ("error" in r) throw new Error(r.error);
       expect(r.ok).toBe(false);
       expect(r.stores.find((s) => s.store === "settings:teams")!.status).toBe("refused");
     } finally {
-      chmodSync(teamsDir(), 0o755);
+      chmodSync(orgsDir(), 0o755);
     }
   });
 

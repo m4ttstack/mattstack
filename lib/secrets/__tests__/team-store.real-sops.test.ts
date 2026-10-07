@@ -27,7 +27,7 @@ import {
   writeTeamRecipients,
   writeTeamSecret,
 } from "../team-store.ts";
-import { teamsDir } from "../../rt-paths.ts";
+import { orgsDir } from "../../rt-paths.ts";
 import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import { openReply, sealReply } from "../../team/invite-crypto.ts";
 
@@ -69,7 +69,7 @@ describe.skipIf(!hasRealSops)("team-store against real sops + age", () => {
   test("writeTeamRecipients + writeTeamSecret + addTeamRecipient + removeTeamRecipient all round-trip against real sops, with real SOPS_AGE_KEY injection into updatekeys", async () => {
     const slug = `realsops-${process.pid}`;
     seedOrg({ org: slug, username: "dev1", roles: { admins: ["dev1"], teams: {} } });
-    const root = join(teamsDir(), slug);
+    const root = join(orgsDir(), slug);
     mkdirSync(join(root, "mattstack", "org", "secrets"), { recursive: true });
 
     const a = await generateAgeKeypair();
@@ -115,7 +115,7 @@ describe.skipIf(!hasRealSops)("team-store against real sops + age", () => {
   test("membersSync's add-recipient path end to end: a real sealed reply's age key becomes a real sops recipient", async () => {
     const slug = `realsops-members-${process.pid}`;
     seedOrg({ org: slug, username: "dev1", roles: { admins: ["dev1"], teams: {} } });
-    const root = join(teamsDir(), slug);
+    const root = join(orgsDir(), slug);
     mkdirSync(join(root, "mattstack", "org", "secrets"), { recursive: true });
 
     const owner = await generateAgeKeypair();

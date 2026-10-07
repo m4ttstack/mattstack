@@ -9,7 +9,7 @@ function baseDeps(overrides: Partial<TeamDeps> = {}): TeamDeps & { lines: string
   const lines: string[] = [];
   return {
     probes: fakeProbes({ home: HOME, files: {
-      [`${HOME}/.mattstack/teams/acme/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      [`${HOME}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
       [teamLocalPath(HOME, "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
     } }),
     print: (s: string) => lines.push(s),

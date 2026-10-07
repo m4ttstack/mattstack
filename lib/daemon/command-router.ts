@@ -110,7 +110,7 @@ export function buildRoutedHandlers(opts: {
   herdJobsRoot: string;
   /** Home-repo snapshot daemon (H2) — inert handle when disabled/not-a-repo. */
   homeSnapshot: HomeSnapshotHandle;
-  /** One snapshot engine per team clone under ~/.mattstack/teams. */
+  /** One snapshot engine per team clone under ~/.mattstack/orgs. */
   teamSnapshots: TeamSnapshotsHandle;
   /** Reconciler hold + hooks-guard rewire the repos:locate verb drives. */
   repos: {

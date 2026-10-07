@@ -91,7 +91,7 @@ import { isDeepStrictEqual } from "util";
 import { assertNotRealStoreInTest } from "../test-isolation.ts";
 import { baselinesOf, baselinesToRecord, currentStoreName, MIGRATED_PROP, olderStoreNames, readSection } from "./migrate.ts";
 import { activeTeam, readOrgRoles } from "./active-team.ts";
-import { machineSettingsPath, orgDir, orgSettingsPath, teamSettingsPath, teamsDir, userSettingsPath } from "./paths.ts";
+import { machineSettingsPath, orgDir, orgSettingsPath, orgsDir, teamSettingsPath, userSettingsPath } from "./paths.ts";
 import { getDef, isMigrated, isRetiredKey, type SettingDef, type SettingScope } from "./registry-machinery.ts";
 import { roleOf, writeRefusalFor, type OrgRole } from "./org-roles.ts";
 import { getSetting } from "./resolve.ts";
@@ -154,7 +154,7 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
 
   const verdict = validateWrite(def, value, { scope, repoIdentity: opts.repoIdentity, team: opts.team });
   if (!verdict.ok) {
-    const hint = verdict.kind === "pathGuard" ? "; use ${team:<name>} or ${repoRoot} instead" : "";
+    const hint = verdict.kind === "pathGuard" ? "; use ${org} or ${repoRoot} instead" : "";
     refuse(`refusing to set "${key}": ${verdict.reason}${hint}`);
   }
 
@@ -655,7 +655,7 @@ function realPathOf(path: string): string {
 function orgHolding(storePath: string): { org: string; rest: string[] } | null {
   let names: string[];
   try {
-    names = readdirSync(teamsDir());
+    names = readdirSync(orgsDir());
   } catch {
     return null;
   }

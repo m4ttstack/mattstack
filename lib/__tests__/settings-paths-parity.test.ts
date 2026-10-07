@@ -28,13 +28,14 @@ describe("settings paths parity (lib/rt-paths.ts vs rt-client/settings/paths.ts)
     mock.module("os", () => ({ ...osReal, hostname: realHostname }));
   });
 
-  test("userSettingsPath/teamSettingsPath/machineSettingsPath/teamsDir agree under a faked HOME", () => {
+  test("userSettingsPath/teamSettingsPath/machineSettingsPath/orgsDir/legacyTeamsDir agree under a faked HOME", () => {
     process.env.HOME = "/tmp/parity-fake-home";
 
     expect(clientPaths.userSettingsPath()).toBe(rtPaths.userSettingsPath());
     expect(clientPaths.teamSettingsPath("acme", "widgets")).toBe(rtPaths.teamSettingsPath("acme", "widgets"));
     expect(clientPaths.machineSettingsPath()).toBe(rtPaths.machineSettingsPath());
-    expect(clientPaths.teamsDir()).toBe(rtPaths.teamsDir());
+    expect(clientPaths.orgsDir()).toBe(rtPaths.orgsDir());
+    expect(clientPaths.legacyTeamsDir()).toBe(rtPaths.legacyTeamsDir());
   });
 
   test("both resolve HOME at call time, not module load", () => {
@@ -104,7 +105,7 @@ describe("settings paths parity (lib/rt-paths.ts vs rt-client/settings/paths.ts)
 
   test("org and team folder paths land where the org layout puts them", () => {
     process.env.HOME = "/tmp/parity-fake-home";
-    const org = "/tmp/parity-fake-home/.mattstack/teams/acme";
+    const org = "/tmp/parity-fake-home/.mattstack/orgs/acme";
     const expected = {
       orgDir: org,
       orgMarkerPath: `${org}/mattstack/mattstack.jsonc`,
@@ -129,5 +130,10 @@ describe("settings paths parity (lib/rt-paths.ts vs rt-client/settings/paths.ts)
         teamSettingsPath: side.teamSettingsPath("acme", "widgets"),
       }).toEqual(expected);
     }
+  });
+
+  test("orgDirUnder agrees with orgDir for the ambient home", () => {
+    expect(rtPaths.orgDirUnder(process.env.HOME!, "acme")).toBe(rtPaths.orgDir("acme"));
+    expect(rtPaths.orgsDirUnder(process.env.HOME!)).toBe(rtPaths.orgsDir());
   });
 });

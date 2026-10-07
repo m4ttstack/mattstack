@@ -20,6 +20,7 @@ import { logCliEvent } from "../../cli-logger.ts";
 import { logFailureDetail, UserActionableError } from "../../errors.ts";
 import { readIntent } from "../intent.ts";
 import { toFailedOutcome } from "./step-utils.ts";
+import { orgDirUnder } from "../../rt-paths.ts";
 
 /**
  * Resolves this run's create opts from whichever source triggered
@@ -169,7 +170,7 @@ async function teamJoinRun(ctx: ApplyContext): Promise<StepOutcome> {
 /** A create or join that stopped partway leaves a folder without these, and must run again. */
 function teamCloned(ctx: ApplyContext): boolean {
   if (ctx.team.slug === "" || !discoverOrgs(ctx.p).includes(ctx.team.slug)) return false;
-  const config = ctx.p.readFile(join(ctx.p.home, ".mattstack", "teams", ctx.team.slug, ".git", "config"));
+  const config = ctx.p.readFile(join(orgDirUnder(ctx.p.home, ctx.team.slug), ".git", "config"));
   return config !== null && parseOriginUrl(config) !== null;
 }
 

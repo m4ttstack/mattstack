@@ -18,7 +18,7 @@ The working rules for `getSetting`/`setSetting`, scope choice and latches are
 the `rt-settings` skill (`skills/rt-settings/SKILL.md`); this file does not
 repeat them.
 
-Shared settings live in an org clone (`~/.mattstack/teams/<org>/`) as an
+Shared settings live in an org clone (`~/.mattstack/orgs/<org>/`) as an
 org store and one store per team folder. The resolver reads the org layer
 and the active team's layer (`activeTeam()` in rt-client). A shared write is
 refused unless this Mac's role owns the file
@@ -34,6 +34,9 @@ Never hard-code `main` for the org clone: publish, team sync, pack sync,
 `rt team status` and the conversion script all follow the checkout. Two
 exceptions: `rt team create` starts a new org on main, and `rt team invite`
 refuses off main, because joiners clone main.
+The old `~/.mattstack/teams/` root is legacy: `lib/__tests__/no-legacy-teams-root.test.ts`
+keeps it out of source, and the `org.folder` step of `rt setup update` moves a
+clone found there.
 
 ## Repo identity
 

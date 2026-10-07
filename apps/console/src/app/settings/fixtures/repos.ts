@@ -4,7 +4,7 @@ import type {
 } from '@mattstack/settings-kit/react';
 
 const USER = '~/.mattstack/user/settings.user.jsonc';
-const TEAM = '~/.mattstack/teams/acme/settings.team.jsonc';
+const TEAM = '~/.mattstack/orgs/acme/settings.team.jsonc';
 const STOREFRONT = 'gitlab.example.com/acme/storefront';
 const BILLING = 'gitlab.example.com/acme/billing';
 

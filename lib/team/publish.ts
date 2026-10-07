@@ -16,6 +16,7 @@ import { assertMayWrite, roleFor } from "./roles.ts";
 import { mayWritePath, ownedRoots } from "../../packages/rt-client/src/settings/org-roles.ts";
 import { GIT_OBJECT_ID, unpublishedPaths } from "./publish-history.ts";
 import { orgBranch } from "./org-branch.ts";
+import { orgDirUnder } from "../rt-paths.ts";
 
 export interface PublishTeamResult {
   remote: string;
@@ -56,12 +57,12 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   } catch (err) {
     // validateSlug's own error isn't a UserActionableError — this is the one
     // place that would let an unvalidated `--team ../../some-repo` resolve
-    // to a directory outside teamsDir() and run git there.
+    // to a directory outside orgsDir() and run git there.
     throw new UserActionableError("invalid-team-slug", "That is not a team name rt can use", {}, { log: err instanceof Error ? err.message : String(err) });
   }
   if (ownedRoots(roleFor(p, slug)).length === 0) assertMayWrite(p, slug, "mattstack/org/settings.org.jsonc");
 
-  const dir = join(p.home, ".mattstack", "teams", slug);
+  const dir = orgDirUnder(p.home, slug);
   if (!p.exists(dir)) {
     throw new UserActionableError("no-team-zone", `The ${slug} team is not on this Mac`, {}, { next: "rt team create" });
   }

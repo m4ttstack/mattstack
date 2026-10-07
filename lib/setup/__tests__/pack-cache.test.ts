@@ -4,7 +4,7 @@ import { fakeProbes } from "./fakes.ts";
 import { parsePluginList, readServedPacks } from "../pack-cache.ts";
 
 const home = "/fake-home";
-const clone = join(home, ".mattstack", "teams", "acme");
+const clone = join(home, ".mattstack", "orgs", "acme");
 const marketplacePath = join(clone, ".claude-plugin", "marketplace.json");
 
 describe("parsePluginList", () => {

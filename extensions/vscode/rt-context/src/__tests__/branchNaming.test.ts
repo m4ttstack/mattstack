@@ -10,7 +10,7 @@ import { loadBranchNamingConfig } from '../branchNaming';
 // docs/settings-architecture.md's store table.
 const userSettingsPath = (home: string) => join(home, '.mattstack', 'user', 'settings.user.jsonc');
 const teamSettingsPath = (home: string, team: string) =>
-  join(home, '.mattstack', 'teams', team, 'mattstack', 'org', 'settings.org.jsonc');
+  join(home, '.mattstack', 'orgs', team, 'mattstack', 'org', 'settings.org.jsonc');
 
 // Every test repoints HOME at a fresh temp dir (call-time HOME resolution,
 // same convention as rt-client's own settings tests) so the settings store
@@ -48,7 +48,7 @@ describe('loadBranchNamingConfig', () => {
   /** An org clone, so `setSetting(..., "org", ...)` has a store to write. */
   function seedTeamStore(team: string, username: string | null = 'dev1'): void {
     const path = teamSettingsPath(home, team);
-    mkdirSync(join(home, '.mattstack', 'teams', team, 'mattstack', 'org'), { recursive: true });
+    mkdirSync(join(home, '.mattstack', 'orgs', team, 'mattstack', 'org'), { recursive: true });
     writeFileSync(path, JSON.stringify({ 'mattstack.org': { admins: ['dev1'], teams: { widgets: { owners: ['dev2'] } } } }));
     if (username !== null) {
       const localDir = join(home, '.mattstack', 'rt', 'teams');

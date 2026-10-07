@@ -191,7 +191,7 @@ describe("composePlan", () => {
         exec: readyExec,
         tray: grantedTray,
         // The join case alone seeds a marketplace.json, and it's deliberately unparseable so a team.* row actually exists to assert against below.
-        files: isJoin ? { "/fake-home/.mattstack/teams/acme/.claude-plugin/marketplace.json": "not json" } : {},
+        files: isJoin ? { "/fake-home/.mattstack/orgs/acme/.claude-plugin/marketplace.json": "not json" } : {},
       });
       writeIntent(p, intent);
       const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", orgs: [] });

@@ -983,20 +983,20 @@ describe("runApplyWith: --only runs unsatisfied prerequisites first", () => {
       const p = ctx.p as ReturnType<typeof fakeProbes>;
       const both = async () => [await byId("team.join").satisfied!(ctx), await byId("team.create").satisfied!(ctx)];
 
-      p.mkdirp("/fake-home/.mattstack/teams/acme");
-      p.mkdirp("/fake-home/.mattstack/teams/acme/.git");
+      p.mkdirp("/fake-home/.mattstack/orgs/acme");
+      p.mkdirp("/fake-home/.mattstack/orgs/acme/.git");
       expect(await both()).toEqual([false, false]);
-      p.writeFile("/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc", "{}");
+      p.writeFile("/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc", "{}");
       expect(await both()).toEqual([false, false]);
-      p.writeFile("/fake-home/.mattstack/teams/acme/.git/config", '[remote "upstream"]\n\turl = https://example.com/acme/other.git\n');
+      p.writeFile("/fake-home/.mattstack/orgs/acme/.git/config", '[remote "upstream"]\n\turl = https://example.com/acme/other.git\n');
       expect(await both()).toEqual([false, false]);
-      p.writeFile("/fake-home/.mattstack/teams/acme/.git/config", '[remote "origin"]\n\turl = https://example.com/acme/team.git\n');
+      p.writeFile("/fake-home/.mattstack/orgs/acme/.git/config", '[remote "origin"]\n\turl = https://example.com/acme/team.git\n');
       expect(await both()).toEqual([true, true]);
     });
 
     test("a run with no team yet never reads a team step as satisfied", async () => {
       const { ctx } = testCtx({ team: { slug: "", name: "", mode: "none" } });
-      ctx.p.mkdirp("/fake-home/.mattstack/teams/.git");
+      ctx.p.mkdirp("/fake-home/.mattstack/orgs/.git");
       expect(await byId("team.create").satisfied!(ctx)).toBe(false);
     });
   });
@@ -1118,7 +1118,7 @@ describe("wire bytes", () => {
 
 describe("createApplyContext", () => {
   test("reloadTeam discovers an org and refreshes requirements after its identity changes", async () => {
-    const p = fakeProbes({ home: "/h", dirs: { "/h/.mattstack/teams": ["acme"], "/h/.mattstack/teams/acme/mattstack/teams": ["widgets"] } });
+    const p = fakeProbes({ home: "/h", dirs: { "/h/.mattstack/orgs": ["acme"], "/h/.mattstack/orgs/acme/mattstack/teams": ["widgets"] } });
     const ctx = await createApplyContext({
       probes: p,
       emit: () => {},
@@ -1130,11 +1130,11 @@ describe("createApplyContext", () => {
       flags: { nonInteractive: true, teamOfOne: false, ci: false },
     });
     expect(ctx.team.slug).toBe("");
-    p.writeFile("/h/.mattstack/teams/acme/mattstack/org/settings.org.jsonc", JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["widgets"] }] }));
-    p.writeFile("/h/.mattstack/teams/acme/.git/config", '[remote "origin"]\nurl = https://github.com/acme/org.git\n');
+    p.writeFile("/h/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc", JSON.stringify({ "mattstack.roster": [{ username: "dev1", teams: ["widgets"] }] }));
+    p.writeFile("/h/.mattstack/orgs/acme/.git/config", '[remote "origin"]\nurl = https://github.com/acme/org.git\n');
     ctx.identity = { login: async () => "dev1" };
     p.writeFile(
-      "/h/.mattstack/teams/acme/mattstack/teams/widgets/packs/widgets/requirements.jsonc",
+      "/h/.mattstack/orgs/acme/mattstack/teams/widgets/packs/widgets/requirements.jsonc",
       JSON.stringify({ tools: [{ name: "acme-tool", why: "work" }], integrations: [] }),
     );
     await runApplyWith(
@@ -1195,8 +1195,8 @@ describe("createApplyContext", () => {
     try {
       const p = fakeProbes({
         home: "/fake-home",
-        files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
-        dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+        files: { "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}" },
+        dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
       });
       const ctx = await createApplyContext({
         probes: p,

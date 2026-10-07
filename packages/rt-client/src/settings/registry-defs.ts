@@ -169,7 +169,7 @@ const ROWS: readonly SettingDef[] = [
     default: { enabled: true, debounceSec: 20, pushDelaySec: 60, janitorThresholdHours: 6, janitorIntervalMin: 30, pullIntervalSec: 300 },
     merge: "deep",
     migrated: true,
-    description: "Team-clone snapshot daemon config: the home snapshot's fields plus pullIntervalSec, the fast-forward/rebase pull cadence for every clone under ~/.mattstack/teams.",
+    description: "Team-clone snapshot daemon config: the home snapshot's fields plus pullIntervalSec, the fast-forward/rebase pull cadence for every clone under ~/.mattstack/orgs.",
   },
   {
     key: "rt.sync",

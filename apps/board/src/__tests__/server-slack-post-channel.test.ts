@@ -23,7 +23,7 @@ const fakeHome = mkdtempSync(join(tmpdir(), 'board-slack-post-channel-'));
 const teamDir = join(
   fakeHome,
   '.mattstack',
-  'teams',
+  'orgs',
   'testteam',
   'mattstack',
   'org'

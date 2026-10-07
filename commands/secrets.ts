@@ -1,6 +1,6 @@
 /**
  * rt secrets — sops-encrypted secrets under ~/.mattstack/user/secrets/, or
- * (with --team) the N-recipient team store under ~/.mattstack/teams/<slug>/.
+ * (with --team) the N-recipient team store under ~/.mattstack/orgs/<slug>/.
  *
  *   rt secrets set <domain> <key> [--team <slug>] [--stdin]      write one key
  *   rt secrets list <domain> [--team <slug>]                     list a domain's key names (never values)

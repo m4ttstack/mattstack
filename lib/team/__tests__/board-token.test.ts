@@ -4,7 +4,7 @@ import { boardPeering, readBoardSwitchboardToken } from "../board-token.ts";
 
 const HOME = "/fake-home";
 const COMPILED_ENV = `${HOME}/.mattstack/board/.env`;
-const TEAMS = `${HOME}/.mattstack/teams`;
+const TEAMS = `${HOME}/.mattstack/orgs`;
 
 /** One team this machine joined by invite, so only the token sources decide the verdict. */
 function joined(files: Record<string, string> = {}, env: Record<string, string> = {}) {

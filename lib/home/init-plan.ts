@@ -9,8 +9,8 @@
 import { isSafeMachineKeySegment } from "../rt-paths.ts";
 import { renderHomeGitignore } from "./boundary.ts";
 
-/** ~/.mattstack state-zone directories: no repo, never travel. */
-export const STATE_DIR_NAMES = ["rt", "deck", "shepherdr", "repos", "ci-attendants", "work", "teams"];
+/** ~/.mattstack state-zone directories: no repo, never travel. `teams` stays so an older rt on this account still finds its folder. */
+export const STATE_DIR_NAMES = ["rt", "deck", "shepherdr", "repos", "ci-attendants", "work", "orgs", "teams"];
 
 export interface HomeState {
   userRepoPresent: boolean;

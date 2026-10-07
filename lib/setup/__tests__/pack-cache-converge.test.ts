@@ -5,7 +5,7 @@ import { convergePackCache, CONVERGE_BUDGET_MS, PACK_EXEC_TIMEOUT_MS } from "../
 import type { ExecResult } from "../probes.ts";
 
 const home = "/fake-home";
-const clone = join(home, ".mattstack", "teams", "acme");
+const clone = join(home, ".mattstack", "orgs", "acme");
 const marketplacePath = join(clone, ".claude-plugin", "marketplace.json");
 
 const quietLog = { info: () => {}, warn: () => {}, error: () => {} } as never;

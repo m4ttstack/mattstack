@@ -21,7 +21,7 @@ function probes(username: string | null, orgStore: string | null = `// org\n${JS
 
 describe("orgStoreFile", () => {
   test("is the org clone's settings file under the given home", () => {
-    expect(ORG_STORE).toBe("/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc");
+    expect(ORG_STORE).toBe("/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc");
   });
 });
 

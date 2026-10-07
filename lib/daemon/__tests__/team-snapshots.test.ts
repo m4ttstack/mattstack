@@ -41,7 +41,7 @@ function harness(opts: Record<string, unknown> = {}) {
   const deps = {
     log,
     broadcast: () => {},
-    teamsDir: root,
+    orgsDir: root,
     probes: fakeProbes({ home: root }),
     readSettings: () => ({ ...settings }),
     start: ((spec: SnapshotSpec) => {
@@ -102,7 +102,20 @@ describe("startTeamSnapshots", () => {
     h.cleanup();
   });
 
-  test("the teams/ watch is armed non-recursively, and a clone that appears fires a rescan on its own", async () => {
+  test("scans and watches the orgs root, not the legacy teams root", async () => {
+    const h = harness();
+    const orgs = join(h.root, ".mattstack", "orgs");
+    clone(orgs, "acme");
+    clone(join(h.root, ".mattstack", "teams"), "widgets");
+    const handle = startTeamSnapshots({ ...h.deps, orgsDir: orgs });
+    await handle.ready;
+    expect(h.started.map((s) => s.spec.repoDir)).toEqual([join(orgs, "acme")]);
+    expect(h.watchCalls.map((c) => c.path)).toEqual([orgs]);
+    handle.stop();
+    h.cleanup();
+  });
+
+  test("the orgs/ watch is armed non-recursively, and a clone that appears fires a rescan on its own", async () => {
     const h = harness();
     const handle = startTeamSnapshots(h.deps);
     await handle.ready;
@@ -122,7 +135,7 @@ describe("startTeamSnapshots", () => {
     h.cleanup();
   });
 
-  test("a teams/ watch that cannot be armed warns and leaves the interval rescan as the only discovery path", async () => {
+  test("an orgs/ watch that cannot be armed warns and leaves the interval rescan as the only discovery path", async () => {
     const h = harness();
     h.breakWatch();
     clone(h.root, "acme");
@@ -156,7 +169,7 @@ describe("startTeamSnapshots", () => {
     expect(h.started).toHaveLength(0);
 
     // The origin lands inside the clone's .git/config, which the non-recursive
-    // teams/ watch never sees. Only the interval rescan can find it.
+    // orgs/ watch never sees. Only the interval rescan can find it.
     writeFileSync(join(dir, ".git", "config"), `[remote "origin"]\n\turl = https://gitlab.com/acme/late-origin.git\n`);
     h.fireInterval();
     await flush();
@@ -171,7 +184,7 @@ describe("startTeamSnapshots", () => {
     await handle.ready;
     expect(h.pending).toHaveLength(1);
 
-    // teams/ replaced by a regular file: existsSync still passes, readdirSync throws ENOTDIR.
+    // orgs/ replaced by a regular file: existsSync still passes, readdirSync throws ENOTDIR.
     rmSync(h.root, { recursive: true, force: true });
     writeFileSync(h.root, "not a directory");
     h.fireInterval();
@@ -189,15 +202,15 @@ describe("startTeamSnapshots", () => {
     h.cleanup();
   });
 
-  test("a teams/ that cannot be read at boot resolves ready and stays inert, never rejecting into the daemon's boot window", async () => {
+  test("an orgs/ that cannot be read at boot resolves ready and stays inert, never rejecting into the daemon's boot window", async () => {
     const h = harness();
-    const notADir = join(h.root, "teams-as-a-file");
+    const notADir = join(h.root, "orgs-as-a-file");
     writeFileSync(notADir, "not a directory");
     const rejections: unknown[] = [];
     const onRejection = (err: unknown) => rejections.push(err);
     process.on("unhandledRejection", onRejection);
     try {
-      const handle = startTeamSnapshots({ ...h.deps, teamsDir: notADir });
+      const handle = startTeamSnapshots({ ...h.deps, orgsDir: notADir });
       await handle.ready;
       await flush();
       expect(handle.status()).toEqual([]);
@@ -330,7 +343,7 @@ describe("startTeamSnapshots", () => {
     const ROLES = { "mattstack.org": { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } } };
     function orgWith(h: ReturnType<typeof harness>, username: string | null): void {
       clone(h.root, "acme");
-      h.deps.probes.writeFile(join(h.root, ".mattstack", "teams", "acme", "mattstack", "org", "settings.org.jsonc"), JSON.stringify(ROLES));
+      h.deps.probes.writeFile(join(h.root, ".mattstack", "orgs", "acme", "mattstack", "org", "settings.org.jsonc"), JSON.stringify(ROLES));
       if (username) writeTeamLocal(h.deps.probes, "acme", { createdByRt: false, joinedByRt: true, rtMayManageMembership: false, forgeUsername: username });
     }
     async function specFor(username: string | null): Promise<SnapshotSpec> {
@@ -378,7 +391,7 @@ describe("startTeamSnapshots", () => {
       orgWith(h, "dev2");
       const handle = startTeamSnapshots(h.deps);
       await handle.ready;
-      h.deps.probes.writeFile(join(h.root, ".mattstack", "teams", "acme", "mattstack", "org", "settings.org.jsonc"), JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { gadgets: { owners: ["dev2"] } } } }));
+      h.deps.probes.writeFile(join(h.root, ".mattstack", "orgs", "acme", "mattstack", "org", "settings.org.jsonc"), JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: { gadgets: { owners: ["dev2"] } } } }));
       await handle.rescan();
       expect(h.startedSpecs()).toHaveLength(2);
       expect(h.startedSpecs().at(-1)?.scope!("mattstack/teams/gadgets/settings.team.jsonc")).toBe(true);

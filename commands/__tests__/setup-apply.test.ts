@@ -521,8 +521,8 @@ describe("setupIntent", () => {
   test("rt setup intent solo refuses with team-exists when a team clone is on disk, and writes nothing", async () => {
     const deps = baseIntentDeps({
       probes: fakeProbes({
-        files: { "/fake-home/.mattstack/teams/acme/mattstack/org/settings.org.jsonc": "{}" },
-        dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+        files: { "/fake-home/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc": "{}" },
+        dirs: { "/fake-home/.mattstack/orgs": ["acme"] },
       }),
     });
 

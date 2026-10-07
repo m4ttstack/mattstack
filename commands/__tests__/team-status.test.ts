@@ -11,7 +11,7 @@ import { setWarningLog, __test__ as warnTest } from "../../lib/ui/warn.ts";
 
 const HOME = "/home/x";
 const SLUG = "acme";
-const TEAM_DIR = join(HOME, ".mattstack", "teams", SLUG);
+const TEAM_DIR = join(HOME, ".mattstack", "orgs", SLUG);
 const GIT_CONFIG = `[remote "origin"]\n\turl = git@github.com:acme/widgets.git\n`;
 
 function baseDeps(overrides: Partial<TeamDeps> = {}): TeamDeps & { lines: string[] } {
@@ -363,7 +363,7 @@ describe("teamStatus", () => {
   });
 
   test("two local teams and no --team -> still exits 2 with ambiguous-team, never solo", async () => {
-    const teams = join(process.env.HOME!, ".mattstack", "teams");
+    const teams = join(process.env.HOME!, ".mattstack", "orgs");
     for (const team of ["acme", "beta"]) {
       mkdirSync(join(teams, team, "mattstack", "org"), { recursive: true });
       writeFileSync(join(teams, team, "mattstack", "org", "settings.org.jsonc"), "{}");

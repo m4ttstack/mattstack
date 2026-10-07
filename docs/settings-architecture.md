@@ -34,8 +34,8 @@ identity in the path:
 
 | Scope   | File | Tracked in |
 |---|---|---|
-| org     | `~/.mattstack/teams/<org>/mattstack/org/settings.org.jsonc` | the org's repo, shared by every team |
-| team    | `~/.mattstack/teams/<org>/mattstack/teams/<team>/settings.team.jsonc` | the same repo, one folder per team |
+| org     | `~/.mattstack/orgs/<org>/mattstack/org/settings.org.jsonc` | the org's repo, shared by every team |
+| team    | `~/.mattstack/orgs/<org>/mattstack/teams/<team>/settings.team.jsonc` | the same repo, one folder per team |
 | user    | `~/.mattstack/user/settings.user.jsonc` | the personal repo (`mattstack-home`) |
 | machine | `~/.mattstack/user/local/<machine-key>/settings.local.jsonc` | the personal repo — tracked and KEYED per machine ("travels keyed"); machines never share a profile |
 
@@ -46,8 +46,8 @@ is the authority (override honored only as a safe single path segment). The rt
 snapshot daemon auto-commits and pushes the personal repo (debounced; claimed
 zones in `user/snapshot-owners.jsonc` excluded; `rt home claim|release`), so
 every store write becomes a `snapshot:` commit within ~80s — by design.
-The same engine runs one instance per org clone under `~/.mattstack/teams/`
-(`rt.teamSnapshot`, machine scope; the folder keeps the name `teams/`): it
+The same engine runs one instance per org clone under `~/.mattstack/orgs/`
+(`rt.teamSnapshot`, machine scope): it
 commits only `mattstack/`, `.sops.yaml` and `.claude-plugin/` (leaving the
 org's and each team's `packs/` folder to the janitor, since packs publish
 through their own commit), pulls (fast-forward or rebase) at boot, every

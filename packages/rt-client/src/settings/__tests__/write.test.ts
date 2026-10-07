@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { machineSettingsPath, orgDir, orgSettingsPath, teamLocalPath, teamSettingsPath, teamsDir, userSettingsPath } from "../paths.ts";
+import { machineSettingsPath, orgDir, orgSettingsPath, teamLocalPath, teamSettingsPath, orgsDir, userSettingsPath } from "../paths.ts";
 import { getSetting } from "../resolve.ts";
 import { readStore } from "../stores.ts";
 import { pruneStoreName, setSetting, setSettingsNoticeSink, unsetSetting, type SettingsNotice } from "../write.ts";
@@ -190,13 +190,13 @@ describe("settings/write", () => {
         setSetting("rt.roles", { backend: { hook: "/Users/matt/bin/dev.sh" } }, "user", {
           repoIdentity: IDENTITY,
         }),
-      ).toThrow(/path literal|\$\{team|\$\{repoRoot/i);
+      ).toThrow(/path literal|\$\{org|\$\{repoRoot/i);
     });
 
-    test("only a path-guard refusal suggests ${team:<name>} or ${repoRoot}", () => {
+    test("only a path-guard refusal suggests ${org} or ${repoRoot}", () => {
       expect(() =>
         setSetting("rt.roles", { backend: { hook: "/Users/matt/bin/dev.sh" } }, "user", { repoIdentity: IDENTITY }),
-      ).toThrow("use ${team:<name>} or ${repoRoot} instead");
+      ).toThrow("use ${org} or ${repoRoot} instead");
       let typeMessage = "";
       try {
         setSetting("rt.homeSnapshot", "nope", "machine");
@@ -204,7 +204,7 @@ describe("settings/write", () => {
         typeMessage = (err as Error).message;
       }
       expect(typeMessage).toContain("expected object, got string");
-      expect(typeMessage).not.toContain("${team");
+      expect(typeMessage).not.toContain("${org");
     });
 
     test("refuses a home-relative path literal in a pathGuardFields field", () => {
@@ -549,10 +549,10 @@ describe("settings/write", () => {
     });
   });
 
-  // ─── sanity: teamsDir is honored ────────────────────────────────────────────
+  // ─── sanity: orgsDir is honored ────────────────────────────────────────────
 
-  test("uses the HOME-relative teamsDir for team store discovery", () => {
-    expect(teamsDir()).toContain(home);
+  test("uses the HOME-relative orgsDir for team store discovery", () => {
+    expect(orgsDir()).toContain(home);
   });
 });
 

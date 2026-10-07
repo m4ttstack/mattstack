@@ -37,7 +37,7 @@ function makeWorld() {
 type TeamSpec = { projects?: string[]; packs: Record<string, object> };
 
 function org(root: string, name: string, opts: { projects: string[]; teams: Record<string, TeamSpec>; base?: Record<string, object> }): void {
-  const dir = join(root, "teams", name);
+  const dir = join(root, "orgs", name);
   write(join(dir, "mattstack", "mattstack.jsonc"), JSON.stringify({ role: "org", org: name }));
   write(join(dir, "mattstack", "org", "settings.org.jsonc"), JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": opts.projects }));
   for (const [team, spec] of Object.entries(opts.teams)) {
@@ -52,7 +52,7 @@ function org(root: string, name: string, opts: { projects: string[]; teams: Reco
   }
 }
 
-const teamFolder = (root: string, orgName: string, team: string) => join(root, "teams", orgName, "mattstack", "teams", team);
+const teamFolder = (root: string, orgName: string, team: string) => join(root, "orgs", orgName, "mattstack", "teams", team);
 
 function body(path: string): { bindings: Record<string, Record<string, string>>; pipelines: Record<string, string[]>; skills: { enabled: string[] } } {
   return JSON.parse(readFileSync(path, "utf8").split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n"));
@@ -288,7 +288,7 @@ describe("materializeRepo", () => {
 });
 
 describe("materializeRepo org base pack", () => {
-  const baseDir = (root: string, name: string) => join(root, "teams", "acme", "mattstack", "org", "packs", name);
+  const baseDir = (root: string, name: string) => join(root, "orgs", "acme", "mattstack", "org", "packs", name);
 
   test("a team pack that extends the org base layers default, base, pack", () => {
     const { root, engine } = makeWorld();
@@ -497,7 +497,7 @@ describe("materializeRepo stale bindings files", () => {
   test("a repo no team claims any more has its pack files left alone", () => {
     const { root, deps } = twoZones();
     const before = readFileSync(packFile(root, "widgets"), "utf8");
-    write(join(root, "teams", "acme", "mattstack", "org", "settings.org.jsonc"), JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": [] }));
+    write(join(root, "orgs", "acme", "mattstack", "org", "settings.org.jsonc"), JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": [] }));
     const out = materializeRepo(deps, REMOTE);
     expect(out).toEqual({ kind: "undeclared", repo: "gitlab.example.com/acme/widgets" });
     expect(readFileSync(packFile(root, "widgets"), "utf8")).toBe(before);
@@ -581,7 +581,7 @@ describe("stale bindings files (team-folder zones)", () => {
     const { root, engine } = makeWorld();
     org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } }, gadgets: { packs: {} } } });
     stale(root, "gadgets", "acme/gadgets");
-    const teamsBefore = snapshot(join(root, "teams"));
+    const teamsBefore = snapshot(join(root, "orgs"));
     const engineBefore = snapshot(engine);
     const calls: string[] = [];
     const moves: Array<[string, string]> = [];
@@ -601,7 +601,7 @@ describe("stale bindings files (team-folder zones)", () => {
     expect(out.pruned).toEqual([`${fileFor(root, "gadgets")}.stale`]);
     expect([...new Set(calls)].filter((name) => !["exists", "readFile", "readDir", "writeFile", "mkdirp", "rename"].includes(name))).toEqual([]);
     expect(moves.filter(([from]) => !written.has(from))).toEqual([[fileFor(root, "gadgets"), `${fileFor(root, "gadgets")}.stale`]]);
-    expect(snapshot(join(root, "teams"))).toEqual(teamsBefore);
+    expect(snapshot(join(root, "orgs"))).toEqual(teamsBefore);
     expect(snapshot(engine)).toEqual(engineBefore);
   });
 });
