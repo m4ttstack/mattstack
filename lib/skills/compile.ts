@@ -7,6 +7,7 @@ import type {
   CompiledFile,
   CompileResult,
   PlaceholderContext,
+  PlannedAttachments,
   Side,
   StageEntry,
   StepSource,
@@ -513,6 +514,7 @@ export function compileSkill(
     where?: string;
     verbSides?: Record<string, Side>;
     side?: Side;
+    plannedAttachments?: PlannedAttachments;
     trace?: (entry: TraceEntry) => void;
   } = {},
 ): CompileResult {
@@ -548,6 +550,7 @@ export function compileSkill(
     verbSides: opts.verbSides ?? {},
     side: opts.side ?? "skills",
     packRoot: opts.packRoot ?? null,
+    plannedAttachments: opts.plannedAttachments,
   };
 
   const allowedTools = buildAllowedTools(step, boundSlots, opts.stageAllowedTools ?? [], ctx);
