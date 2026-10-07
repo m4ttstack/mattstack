@@ -105,8 +105,8 @@ export function GraphTab({ pack, height }: { pack: string; height: string }) {
   const layout = useMemo(() => (view ? layoutTemplate(view) : null), [view]);
   const onSelect = useCallback((select: string) => patch({ select }), [patch]);
   const drawerOpen = useMemo(
-    () => selectedContent(url, view, anatomy) !== null,
-    [url, view, anatomy]
+    () => selectedContent(url, view, anatomy, check) !== null,
+    [url, view, anatomy, check]
   );
   const [drawerMode] = useDrawerMode();
   const header = useBottomInStage();

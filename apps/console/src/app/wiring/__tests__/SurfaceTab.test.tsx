@@ -1,7 +1,13 @@
 import { notifications } from '@mattstack/app-kit/notifications';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -105,6 +111,46 @@ describe('SurfaceTab: public rows render as on', () => {
     expect(
       screen.getByRole('switch', { name: /^model-tiering$/ })
     ).not.toBeChecked();
+  });
+});
+
+describe('SurfaceTab: a row an org base pack owns', () => {
+  const BASE_ROWS = [
+    {
+      name: 'dev-servers',
+      kind: 'compiled',
+      status: 'internal',
+      base: 'acme-base',
+    },
+    { name: 'ship', kind: 'compiled', status: 'public' },
+  ];
+
+  it('shows a from-base badge and locks the toggle, while a plain compiled row keeps both', async () => {
+    renderSurfaceTab(BASE_ROWS);
+    const row = await screen.findByTestId('surface-row-dev-servers');
+
+    expect(within(row).getByText('from acme-base')).toBeInTheDocument();
+    expect(within(row).queryByText('compiled')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('switch', { name: /^dev-servers$/ })
+    ).toBeDisabled();
+
+    const plain = screen.getByTestId('surface-row-ship');
+    expect(within(plain).getByText('compiled')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: /^ship$/ })).toBeEnabled();
+  });
+
+  it('says why on hover', async () => {
+    renderSurfaceTab(BASE_ROWS);
+    const row = await screen.findByTestId('surface-row-dev-servers');
+
+    await userEvent.hover(within(row).getByTestId('surface-lock-dev-servers'));
+
+    expect(
+      await screen.findByText(
+        'The org base pack decides. Verbs read it from attachments/, so it stays internal.'
+      )
+    ).toBeInTheDocument();
   });
 });
 
@@ -397,6 +443,33 @@ describe('SurfaceTab: open in editor', () => {
     // A row composition has no source for shows no link, rather than a dead one.
     expect(
       screen.queryByTestId('surface-open-watch-ci')
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers no editor button on a base row, which compile rewrites', async () => {
+    renderSurfaceTab(
+      [
+        {
+          name: 'dev-servers',
+          kind: 'compiled',
+          status: 'internal',
+          base: 'acme-base',
+        },
+        { name: 'review', kind: 'compiled', status: 'public' },
+      ],
+      {
+        verbs: [
+          { name: 'dev-servers', sourcePath: '/p/skills/dev-servers/SKILL.md' },
+          { name: 'review', sourcePath: '/p/skills/review/SKILL.md' },
+        ],
+      }
+    );
+
+    expect(
+      await screen.findByTestId('surface-open-review')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('surface-open-dev-servers')
     ).not.toBeInTheDocument();
   });
 });

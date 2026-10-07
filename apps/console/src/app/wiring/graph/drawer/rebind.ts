@@ -6,12 +6,14 @@ import {
   type BindingSite,
   type SkillsComposition,
 } from '../../outline';
+import { ownerOf, type Owner } from '../../owner';
 import { slotFactsOf } from '../model/templateModel';
 
 export type RebindOption = {
   binding: string;
   name: string;
   plugin: string;
+  owner: Owner;
   /** Where else the fill is bound: "bound here now", "bound nowhere", "bound
       in its fallback slot", "bound by 2 other skills". */
   where: string;
@@ -23,6 +25,9 @@ export type RebindChoices = {
   required: string;
   /** The binding that fills the slot now, or null when nothing does. */
   current: string | null;
+  /** Who owns the current fill; a fill rt does not list is the plugin its
+      binding names. */
+  currentOwner: Owner | null;
   /** Every fill with the slot's contract, the current one first. */
   options: RebindOption[];
 };
@@ -99,10 +104,19 @@ export function rebindChoices(
     required:
       facts?.required == null ? 'unknown' : facts.required ? 'yes' : 'no',
     current,
+    currentOwner:
+      current === null
+        ? null
+        : ownerOf(
+            current,
+            composition.fills.find(fill => fill.binding === current),
+            composition.pack
+          ),
     options: ranked.map(({ fill, here, ownSlots, others }) => ({
       binding: fill.binding,
       name: suffixOf(fill.binding),
       plugin: pluginOf(fill.binding),
+      owner: ownerOf(fill.binding, fill, composition.pack),
       where: whereBound(here, ownSlots, others),
     })),
   };

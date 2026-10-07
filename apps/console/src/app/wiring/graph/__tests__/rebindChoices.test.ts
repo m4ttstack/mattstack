@@ -45,6 +45,58 @@ describe('rebindChoices', () => {
   });
 });
 
+describe('rebindChoices owners', () => {
+  const fromBase = () => {
+    const composition = designFixture('composition');
+    composition.fills = composition.fills.map(fill =>
+      fill.binding === 'acme:plan-policy-strict'
+        ? {
+            ...fill,
+            binding: 'acme-base:plan-policy-strict',
+            origin: 'base' as const,
+            base: 'acme-base',
+            baseVersion: '0.1.0',
+          }
+        : fill
+    );
+    return composition;
+  };
+  const choices = (composition = fromBase()) =>
+    rebindChoices(composition, 'stage-plan', 'mattstack:stage-plan', 'domain');
+
+  it('names a base fill as the org base and a pack fill as the pack', () => {
+    const { options } = choices();
+    expect(options.map(option => [option.name, option.owner])).toEqual([
+      ['plan-policy', { kind: 'pack' }],
+      [
+        'plan-policy-strict',
+        { kind: 'base', name: 'acme-base', version: '0.1.0' },
+      ],
+      ['plan-policy-lite', { kind: 'pack' }],
+    ]);
+  });
+
+  it('owns the current fill by its composition fill, and a missing one as a plugin', () => {
+    expect(choices().currentOwner).toEqual({ kind: 'pack' });
+    const composition = designFixture('composition');
+    composition.fills = composition.fills.map(fill =>
+      fill.binding === 'acme:plan-policy'
+        ? {
+            ...fill,
+            origin: 'base' as const,
+            base: 'acme-base',
+            baseVersion: '0.1.0',
+          }
+        : fill
+    );
+    expect(choices(composition).currentOwner).toEqual({
+      kind: 'base',
+      name: 'acme-base',
+      version: '0.1.0',
+    });
+  });
+});
+
 /** stage-plan with extra slots of its own, each bound to the given fill. */
 function withOwnSlots(slots: Record<string, string>) {
   const composition = designFixture('composition');

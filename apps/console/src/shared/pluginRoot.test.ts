@@ -12,6 +12,14 @@ describe('pluginRootOf', () => {
     expect(pluginRootOf('/r/attachments/review/review/SKILL.md')).toBe('/r');
   });
 
+  it('resolves an org base pack fill back to the base pack root', () => {
+    expect(
+      pluginRootOf(
+        '/o/acme/mattstack/org/packs/acme-base/attachments/plan-policy/SKILL.md'
+      )
+    ).toBe('/o/acme/mattstack/org/packs/acme-base');
+  });
+
   it('takes the innermost layout when the root itself contains a skills dir', () => {
     expect(pluginRootOf('/a/skills/b/attachments/c/SKILL.md')).toBe(
       '/a/skills/b'

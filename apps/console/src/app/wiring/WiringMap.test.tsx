@@ -284,6 +284,42 @@ describe('WiringMap: the pack', () => {
   });
 });
 
+describe('WiringMap: the base a pack extends', () => {
+  it('names the base beside the pack actions when the pack extends one', async () => {
+    mockHappyPath();
+    compositionGet.mockResolvedValue(
+      ok({ ...COMPOSITION, extends: { name: 'acme-base', version: '0.1.0' } })
+    );
+    renderWiring();
+
+    await screen.findByText('extends acme-base');
+    expect(screen.getByTestId('pack-extends')).toHaveAttribute(
+      'title',
+      "This pack's fills and shared attachments come partly from the org's acme-base base pack."
+    );
+    expect(screen.getByTestId('open-pack')).toBeInTheDocument();
+  });
+
+  it('shows nothing when the pack extends none', async () => {
+    mockHappyPath();
+    compositionGet.mockResolvedValue(ok({ ...COMPOSITION, extends: null }));
+    renderWiring();
+
+    await screen.findByTestId('open-pack');
+    await screen.findByTestId('focus-pipeline:feature');
+    expect(screen.queryByText(/^extends /)).not.toBeInTheDocument();
+  });
+
+  it('shows nothing when an older rt answers without the field', async () => {
+    mockHappyPath();
+    renderWiring();
+
+    await screen.findByTestId('open-pack');
+    await screen.findByTestId('focus-pipeline:feature');
+    expect(screen.queryByText(/^extends /)).not.toBeInTheDocument();
+  });
+});
+
 describe('WiringMap: the header row', () => {
   it('leads the tab row with the page title and trails it with the pack actions, outside the tablist', async () => {
     mockHappyPath();

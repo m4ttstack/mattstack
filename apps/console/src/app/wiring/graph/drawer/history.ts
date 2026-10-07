@@ -1,4 +1,5 @@
-import { pluginOf, type SkillsCheck } from '../../outline';
+import { type SkillsCheck } from '../../outline';
+import { baseLabel, ownerOf, type Owner } from '../../owner';
 import type { SkillsAnatomy } from '../../useWiring';
 import type { FocusItem } from '../model/focusModel';
 import { fileLabelOf, staleReason } from '../model/templateModel';
@@ -21,6 +22,7 @@ export type BuiltFromRow = {
   builtWith: string | null;
   installed: string;
   status: FileStatus;
+  owner: Owner;
 };
 
 export type StaleStep = {
@@ -33,20 +35,24 @@ export type StaleStep = {
 function rowOf(
   source: AnatomySource,
   kind: BuiltFromRow['kind'],
-  status: FileStatus
+  status: FileStatus,
+  pack: string
 ): BuiltFromRow {
   const file = fileLabelOf(source.path);
+  const owner = ownerOf(source.ref, source, pack);
+  const builtWith = (): string =>
+    owner.kind === 'base'
+      ? baseLabel(owner)
+      : `${owner.kind === 'pack' ? pack : owner.name} ${source.builtVersion}`;
   return {
     path: source.path,
     name: file.split('/')[0] ?? file,
     file,
     kind,
-    builtWith:
-      source.builtVersion === null
-        ? null
-        : `${pluginOf(source.ref)} ${source.builtVersion}`,
-    installed: source.version,
+    builtWith: source.builtVersion === null ? null : builtWith(),
+    installed: owner.kind === 'base' ? 'org base' : source.version,
     status,
+    owner,
   };
 }
 
@@ -67,6 +73,8 @@ export function builtFrom(
     if (!row) return 'unmeasured';
     if (row.status === 'never-compiled') return 'not built';
     if (stale && changed) return 'changed';
+    if (ownerOf(source.ref, source, anatomy.pack).kind === 'base')
+      return 'unchanged';
     return source.builtVersion === source.version ? 'current' : 'unchanged';
   };
 
@@ -74,7 +82,8 @@ export function builtFrom(
     rowOf(
       anatomy.template,
       'template',
-      statusOf(anatomy.template, causes.includes('source'))
+      statusOf(anatomy.template, causes.includes('source')),
+      anatomy.pack
     ),
   ];
   const seen = new Set([anatomy.template.path]);
@@ -84,10 +93,13 @@ export function builtFrom(
     if (seen.has(source.path)) continue;
     seen.add(source.path);
     const kind =
-      part.kind === 'slot' && pluginOf(source.ref) === anatomy.pack
+      part.kind === 'slot' &&
+      ownerOf(source.ref, source, anatomy.pack).kind === 'pack'
         ? 'pack text'
         : 'partial';
-    rows.push(rowOf(source, kind, statusOf(source, part.changed)));
+    rows.push(
+      rowOf(source, kind, statusOf(source, part.changed), anatomy.pack)
+    );
   }
   return rows;
 }
@@ -107,6 +119,12 @@ export function stampNote(
 /** Whether the copy of one file in a skill is current, in a plain sentence
     named for that skill. */
 export function fileNote(row: BuiltFromRow, skill: string): string {
+  if (
+    row.owner.kind === 'base' &&
+    row.status !== 'not built' &&
+    row.status !== 'unmeasured'
+  )
+    return `${skill} was built from the org's ${row.owner.name} base pack. rt check says whether it is current.`;
   switch (row.status) {
     case 'unchanged':
       return `This ${row.kind} has not changed since ${skill} was built with ${row.builtWith}, so the copy in ${skill} is current.`;

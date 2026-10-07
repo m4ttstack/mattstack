@@ -7,6 +7,7 @@ import {
   type SkillsCheck,
   type SkillsComposition,
 } from '../../outline';
+import { ownerOf, type Owner } from '../../owner';
 import type { SkillsAnatomy, SkillsChanges } from '../../useWiring';
 import { stepLabel } from './focusModel';
 
@@ -56,6 +57,8 @@ export type TemplateRow =
       boundTo: string | null;
       /** rt's message for a slot it could not resolve. */
       resolveError: string | null;
+      /** Which layer chose the binding: `pack`, `override` or `base:<name>`. */
+      layer: string | null;
     };
 
 export type InputCard = {
@@ -70,6 +73,9 @@ export type InputCard = {
   state: RowState;
   /** Skills in this pack that paste this partial in, or bind this fill. */
   usedBy: number;
+  /** Who owns the fill, set only for a skill another app owns, whose card has
+      no anatomy part to read it from. */
+  owner?: Owner;
 };
 
 /** `unknown` is check having no row for the skill: rt said nothing, which is
@@ -423,6 +429,7 @@ export function buildTemplateView(input: {
       fill: part.kind === 'slot' && part.source ? partLabel(part) : null,
       boundTo: facts?.boundTo ?? null,
       resolveError: facts?.resolveError ?? null,
+      layer: facts?.layer ?? null,
     });
 
     if (part.kind === 'verb.path') {
@@ -576,19 +583,28 @@ function cardFace(
       };
   }
   const source = part.source!;
-  const plugin = pluginOf(source.ref);
-  return plugin === pack
-    ? {
+  const owner = ownerOf(source.ref, source, pack);
+  switch (owner.kind) {
+    case 'pack':
+      return {
         ...file,
         title: sourceTitle,
         subtitle: `written by ${pack} · ${source.lines} lines`,
         subtitleTone: 'accent',
-      }
-    : {
+      };
+    case 'base':
+      return {
         ...file,
         title: sourceTitle,
-        subtitle: `${plugin} default${pickedBy(facts?.layer ?? null)}`,
+        subtitle: `${owner.name} · org base${pickedBy(facts?.layer ?? null)}`,
       };
+    case 'plugin':
+      return {
+        ...file,
+        title: sourceTitle,
+        subtitle: `${owner.name} default${pickedBy(facts?.layer ?? null)}`,
+      };
+  }
 }
 
 /** rt's message without the `<step>: slot "<name>": ` it opens with, which
@@ -639,8 +655,9 @@ export function appSkillView(
       fill: slot.boundTo,
       boundTo: slot.boundTo,
       resolveError: null,
+      layer: slot.layer ?? null,
     });
-    const plugin = pluginOf(slot.boundTo);
+    const owner = ownerOf(slot.boundTo, fill?.origin ? fill : slot, pack);
     inputs.push({
       id: `slot:${slot.name}`,
       rowId: id,
@@ -648,18 +665,19 @@ export function appSkillView(
       usedBy: composition.binders.filter(other =>
         other.slots.some(s => s.boundTo === slot.boundTo)
       ).length,
+      owner,
       ...(fill
         ? {
             title: fileLabelOf(fill.sourcePath),
             icon: 'fileText' as const,
             path: fill.sourcePath,
-            ...(plugin === pack
+            ...(owner.kind === 'pack'
               ? {
                   subtitle: `written by ${pack}`,
                   subtitleTone: 'accent' as const,
                 }
               : {
-                  subtitle: `${plugin} default${pickedBy(slot.layer ?? null)}`,
+                  subtitle: `${owner.kind === 'base' ? `${owner.name} · org base` : `${owner.name} default`}${pickedBy(slot.layer ?? null)}`,
                   subtitleTone: 'dimmed' as const,
                 }),
           }
@@ -704,7 +722,8 @@ export function appSkillView(
 
 /** Who chose a default fill, for the layers rt names a chooser for. */
 function pickedBy(layer: string | null): string {
-  if (layer === 'pack' || layer === 'override' || layer?.startsWith('base:'))
+  if (layer?.startsWith('base:')) return ' · picked by the org base';
+  if (layer === 'pack' || layer === 'override')
     return ` · picked by ${layerLabel(layer)}`;
   return '';
 }

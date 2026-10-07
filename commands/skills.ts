@@ -63,6 +63,7 @@ import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
+import { originFor, originOf, originOfDir, type Origin } from "../lib/skills/origin.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
   installedVersionFor,
@@ -628,7 +629,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
           details: `Rename the base pack folder ${baseRoot.dir} so its fills do not replace ${baseRoot.name}'s.`,
         });
       }
-      pluginRoots.byName[baseRoot.name] = { dir: baseRoot.dir, version: baseRoot.version };
+      pluginRoots.byName[baseRoot.name] = { dir: baseRoot.dir, version: baseRoot.version, baseVersion: baseRoot.baseVersion };
       (pluginRoots.folderOnly ??= new Set()).add(baseRoot.name);
     }
   }
@@ -1550,6 +1551,8 @@ export async function skillsPacks(args: string[]): Promise<void> {
 
 // ─── rt skills composition ─────────────────────────────────────────────────
 
+type OriginFields = Partial<Origin>;
+
 type CompositionSlot = {
   name: string;
   contract: string;
@@ -1567,7 +1570,7 @@ type CompositionSlot = {
   registered: boolean | null;
   inlined: boolean | null;
   resolveError?: string;
-};
+} & OriginFields;
 
 type CompositionVerb = {
   name: string;
@@ -1589,10 +1592,10 @@ type CompositionBinder = {
   verb: string | null;
   kind: CompositionBinderKind;
   /** `layer` names the bindings layer that set the slot, as a verb slot's does. */
-  slots: { name: string; boundTo: string; layer: string | null }[];
+  slots: ({ name: string; boundTo: string; layer: string | null } & OriginFields)[];
 };
 
-type CompositionFill = { binding: string; provides: string; sourcePath: string; registered: boolean };
+type CompositionFill = { binding: string; provides: string; sourcePath: string; registered: boolean } & OriginFields;
 
 type CompositionTarget = {
   name: string;
@@ -1632,6 +1635,8 @@ export type CompositionPayload = {
   pipelines: Record<string, string[]>;
   /** Every compile target, roster verbs and pipeline stages both, where `verbs` is the roster only. */
   targets: CompositionTarget[];
+  /** The org base this pack extends, null when none. */
+  extends: { name: string; version: string | null } | null;
 };
 
 /**
@@ -1703,6 +1708,7 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
         fillVersion: fill.version,
         registered: fill.registered,
         inlined,
+        ...originFor(resolved.pluginRoots, fill.plugin, fill.dir),
       };
     } catch (err) {
       return {
@@ -1772,13 +1778,24 @@ function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): 
         name,
         boundTo,
         layer: resolved.provenance[`${ref} ${name}`] ?? null,
+        ...bindingOrigin(resolved.pluginRoots, boundTo),
       })),
     };
   });
 }
 
-function buildCompositionTargets(resolved: Resolved, publicSet: Set<string> | null): CompositionTarget[] {
-  return compileTargets(resolved, publicSet, null).targets.map((t) => {
+/** A binder slot names its fill only by binding, so its origin is found where the verb slot's is: the dir loadAttachment resolves. */
+function bindingOrigin(roots: PluginRoots, boundTo: string): Partial<Origin> {
+  const plugin = boundTo.split(":")[0] ?? "";
+  try {
+    return originFor(roots, plugin, loadAttachment(boundTo, "binder", roots).dir);
+  } catch {
+    return originOf(roots, plugin);
+  }
+}
+
+function buildCompositionTargets(resolved: Resolved, plan: CompilePlan): CompositionTarget[] {
+  return plan.targets.map((t) => {
     let step: StepSource | null = null;
     let engineError: string | null = null;
     try {
@@ -1831,7 +1848,7 @@ function enumerateFills(pluginRoots: PluginRoots): CompositionFill[] {
           continue; // unreadable SKILL.md: not a usable fill
         }
         if (!provides) continue; // no metadata.provides: a roster/verb skill, not a fill
-        fills.push({ binding: `${pluginName}:${entry.name}`, provides, sourcePath: skillMdPath, registered });
+        fills.push({ binding: `${pluginName}:${entry.name}`, provides, sourcePath: skillMdPath, registered, ...originFor(pluginRoots, pluginName, entry.dir) });
       }
     }
   }
@@ -1870,7 +1887,9 @@ export async function skillsComposition(args: string[]): Promise<void> {
     const verbs = resolved.fullRoster.map((verb) => buildCompositionVerb(verb, resolved, publicSet));
     const fills = enumerateFills(resolved.pluginRoots);
     const binders = buildBinders(resolved, pipelines);
-    const targets = buildCompositionTargets(resolved, publicSet);
+    const compilePlan = compileTargets(resolved, publicSet, null);
+    const targets = buildCompositionTargets(resolved, compilePlan);
+    const base = resolved.fullRoster.length > 0 ? basePlanFor(resolved, compilePlan.verbSides).base : null;
 
     const payload: CompositionPayload = {
       pack: resolved.team,
@@ -1881,6 +1900,7 @@ export async function skillsComposition(args: string[]): Promise<void> {
       binders,
       pipelines,
       targets,
+      extends: base ? { name: base.name, version: base.version } : null,
     };
 
     if (flags.json) {
@@ -1942,12 +1962,12 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
     const sources: Record<string, AnatomySource> = {};
     for (const [name, inc] of Object.entries(includes)) {
       const key = `include:${name}`;
-      sources[key] = { ref: `${inc.plugin}:${name}`, path: join(inc.dir, "SKILL.md"), version: inc.version, builtVersion: builtVersions.get(key) ?? null, lines: inc.body.split("\n").length };
+      sources[key] = { ref: `${inc.plugin}:${name}`, path: join(inc.dir, "SKILL.md"), version: inc.version, builtVersion: builtVersions.get(key) ?? null, lines: inc.body.split("\n").length, ...originFor(resolved.pluginRoots, inc.plugin, inc.dir) };
     }
     for (const [slot, fill] of Object.entries(fills)) {
       if (!fill) continue;
       const key = `slot:${slot}`;
-      sources[key] = { ref: fill.binding, path: join(fill.dir, "SKILL.md"), version: fill.version, builtVersion: builtVersions.get(key) ?? null, lines: fill.body.split("\n").length };
+      sources[key] = { ref: fill.binding, path: join(fill.dir, "SKILL.md"), version: fill.version, builtVersion: builtVersions.get(key) ?? null, lines: fill.body.split("\n").length, ...originFor(resolved.pluginRoots, fill.plugin, fill.dir) };
     }
     const targets: Record<string, AnatomyTarget> = {};
     for (const t of plan.targets) {
@@ -1979,6 +1999,7 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
         version: step.version,
         builtVersion: onDisk ? STEP_VERSION_RE.exec(onDisk)?.[1] ?? null : null,
         lines: fileLineCount(readFileSync(templatePath, "utf8")),
+        ...originFor(resolved.pluginRoots, step.plugin, step.dir),
       },
       rendered: { path: renderedPath, exists: onDisk !== null, lines: fileLineCount(shown) },
       status,
@@ -2292,7 +2313,7 @@ type SurfaceFlags = {
   json: boolean;
 };
 
-export type SurfaceRow = { name: string; kind: "compiled" | "hand-authored" | "missing"; status: "public" | "internal" };
+export type SurfaceRow = { name: string; kind: "compiled" | "hand-authored" | "missing"; status: "public" | "internal"; base?: string };
 
 function kindLabel(kind: SurfaceRow["kind"]): string {
   return kind === "missing" ? "(no files on disk)" : kind;
@@ -2408,10 +2429,13 @@ export function computeRows(
   const rows = [...names].sort().map((name) => {
     const dir = skillEntries.get(name)?.dir ?? attachmentEntries.get(name)?.dir ?? null;
     const isStage = stageNames.has(name);
+    const origin = dir ? originOfDir(dir) : {};
+    const base = "origin" in origin ? origin.base : null;
     return {
       name,
       kind: isStage ? ("compiled" as const) : allNames.has(name) ? classify(name, dir, verbNames) : ("missing" as const),
-      status: (publicSet.has(name) ? "public" : "internal") as "public" | "internal",
+      status: (base === null && publicSet.has(name) ? "public" : "internal") as "public" | "internal",
+      ...(base === null ? {} : { base }),
     };
   });
 
@@ -2610,7 +2634,7 @@ async function runSet(names: string[], want: "public" | "internal", flags: Surfa
   const { packDir } = await resolveSurfacePaths(flags);
   if (!flags.dryRun) refuseUnlessPackOwned(packDir);
   const verbNames = new Set(readVerbRoster(packDir).map((v) => v.name));
-  const { skillsNames, allNames } = collectRegistry(packDir, verbNames);
+  const { skillsNames, allNames, attachmentEntries } = collectRegistry(packDir, verbNames);
   const stageNames = stageNamesFor(flags, packDir);
 
   // Validated before anything is written: an unknown name in a list of ten
@@ -2621,6 +2645,18 @@ async function runSet(names: string[], want: "public" | "internal", flags: Surfa
       throw new SkillsUsageError(
         `"${name}" is not a known skill or verb in this pack (checked skills/, attachments/, stubs.jsonc)`,
       );
+    }
+  }
+
+  if (want === "public") {
+    for (const name of names) {
+      const dir = attachmentEntries.get(name)?.dir;
+      const origin = dir ? originOfDir(dir) : {};
+      if ("origin" in origin) {
+        const title = `${name} comes from ${origin.base}`;
+        const why = "The org base pack decides. Verbs read it from attachments/, so it stays internal.";
+        throw new SkillsRefusal(`${title}. ${why}`, { title, why });
+      }
     }
   }
 
@@ -2713,12 +2749,13 @@ async function runPalette(flags: SurfaceFlags): Promise<void> {
 
   refuseUnlessPackOwned(packDir);
   const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
-  const options = rows.map((row) => ({
+  const editable = rows.filter((row) => row.base === undefined);
+  const options = editable.map((row) => ({
     value: row.name,
     label: row.name,
     hint: `${row.status.padEnd(9)}${kindLabel(row.kind)}`,
   }));
-  const initialValues = rows.filter((row) => row.status === "public").map((row) => row.name);
+  const initialValues = editable.filter((row) => row.status === "public").map((row) => row.name);
 
   const selected = await filterableMultiselect({
     message: "rt skills surface",

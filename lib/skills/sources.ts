@@ -9,6 +9,7 @@ import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { validateSlug } from "../secrets/store.ts";
 import { warn } from "../ui/warn.ts";
 import { findPlaceholders } from "./placeholders.ts";
+import { packPluginIdentity } from "./provenance.ts";
 import type { AttachmentSource, SlotSpec, StepSource, VerbDef } from "./types.ts";
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
@@ -39,7 +40,7 @@ export function stripFrontmatter(
 export type PluginListEntry = { id: string; installPath: string; enabled?: boolean; scope?: string; version?: string };
 
 export type PluginRoots = {
-  byName: Record<string, { dir: string; version: string }>;
+  byName: Record<string, { dir: string; version: string; baseVersion?: string | null }>;
   list: PluginListEntry[];
   /** Roots that are read from a folder and never installed: a fill found under their skills/ cannot be invoked at run time. */
   folderOnly?: Set<string>;
@@ -269,15 +270,15 @@ function canonicalHome(): string | null {
 }
 
 /** One org repo's base packs under `<orgRoot>/mattstack/org/packs/`: the folders materialize would admit as a base. */
-export function orgBasePackRoots(orgRoot: string): { name: string; dir: string; version: string }[] {
-  const out: { name: string; dir: string; version: string }[] = [];
+export function orgBasePackRoots(orgRoot: string): { name: string; dir: string; version: string; baseVersion: string | null }[] {
+  const out: { name: string; dir: string; version: string; baseVersion: string | null }[] = [];
   if (readJsoncObject(join(orgRoot, "mattstack", "mattstack.jsonc"))?.role !== "org") return out;
   const packs = join(orgRoot, "mattstack", "org", "packs");
   for (const name of listDirs(packs)) {
     if (!TEAM_NAME_RE.test(name)) continue;
     const dir = join(packs, name);
     if (readJsoncObject(join(dir, "pack", "skills.jsonc"))?.base !== true) continue;
-    out.push({ name, dir: realpathSync(dir), version: "org" });
+    out.push({ name, dir: realpathSync(dir), version: "org", baseVersion: packPluginIdentity(dir)?.version || null });
   }
   return out;
 }

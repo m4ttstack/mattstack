@@ -26,7 +26,15 @@ import {
 } from './outline';
 import { QuietBadge } from './QuietBadge';
 import { SOFT_RULE } from './softRule';
-import { useCompositionSnapshot, useSkillsCheck } from './useWiring';
+import {
+  useCompositionSnapshot,
+  useSkillsCheck,
+  type SkillsCheckPayload,
+} from './useWiring';
+
+type SkillsCheckAttachment = NonNullable<
+  SkillsCheckPayload['attachments']
+>[number];
 
 export interface HealthTabProps {
   pack: string;
@@ -84,6 +92,12 @@ function orphanWhy(orphan: OrphanFillEntry): string {
     : 'unregistered fill · nothing binds it';
 }
 
+function baseCopyWhy(copy: SkillsCheckAttachment): string {
+  return copy.base === null
+    ? 'orphaned · compile removes it'
+    : `from ${copy.base} · ${copy.status}`;
+}
+
 function slugify(label: string): string {
   return label.toLowerCase().replace(/\s+/g, '-');
 }
@@ -135,7 +149,11 @@ interface HealthIssueRowProps {
   testId: string;
   name: string;
   reference: string | null;
-  why: string;
+  why?: string;
+  /** Free-form text (an rt error with paths or git output) takes the whole
+      row and wraps, instead of the fixed-width name column the group's
+      `overflow: hidden` would clip. */
+  wrapName?: boolean;
   /** A verb row opens its skill on the Graph tab; an orphan FILL has nothing
       to open, so it renders as a plain, non-interactive line (no button, no
       chevron). */
@@ -150,6 +168,7 @@ function HealthIssueRow({
   name,
   reference,
   why,
+  wrapName,
   onOpen,
   onPreviewCompile,
 }: HealthIssueRowProps) {
@@ -176,7 +195,15 @@ function HealthIssueRow({
       style={{ padding: '11px 16px', cursor: onOpen ? 'pointer' : 'default' }}
       data-testid={`health-row-${testId}`}
     >
-      <Text fz={13} fw={700} style={{ flex: 'none' }}>
+      <Text
+        fz={13}
+        fw={wrapName ? 400 : 700}
+        style={
+          wrapName
+            ? { flex: 1, minWidth: 0, overflowWrap: 'anywhere' }
+            : { flex: 'none' }
+        }
+      >
         {name}
       </Text>
       {reference && (
@@ -184,15 +211,17 @@ function HealthIssueRow({
           {reference}
         </Text>
       )}
-      <div style={{ flex: 1, minWidth: 0 }} />
-      <Text
-        fz={11}
-        c={text.muted}
-        truncate
-        style={{ flex: 'none', maxWidth: 260 }}
-      >
-        {why}
-      </Text>
+      {!wrapName && <div style={{ flex: 1, minWidth: 0 }} />}
+      {why && (
+        <Text
+          fz={11}
+          c={text.muted}
+          truncate
+          style={{ flex: 'none', maxWidth: 260 }}
+        >
+          {why}
+        </Text>
+      )}
       {onPreviewCompile && (
         <UnstyledButton
           type="button"
@@ -386,13 +415,40 @@ export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
     })),
   ];
 
+  // An rt too old to report base attachments sends neither field.
+  const attachments = checkQuery.data?.attachments ?? [];
+  const baseErrors = checkQuery.data?.baseErrors ?? [];
+  const staleCopies = attachments.filter(copy => copy.status === 'stale');
+  const unbuiltCopies = attachments.filter(
+    copy => copy.status === 'never-compiled'
+  );
+  const baseRows = [
+    ...attachments
+      .filter(copy => copy.status !== 'in-sync')
+      .map(copy => ({
+        kind: 'copy' as const,
+        key: `copy:${copy.base ?? ''}:${copy.name}`,
+        copy,
+      })),
+    ...baseErrors.map((message, i) => ({
+      kind: 'error' as const,
+      key: `base-error:${i}`,
+      message,
+    })),
+  ];
+
+  const staleCount = groups.staleEntries.length + staleCopies.length;
+  const neverCompiledCount =
+    groups.neverCompiledEntries.length + unbuiltCopies.length;
+
   const clean =
-    groups.staleEntries.length === 0 &&
-    groups.neverCompiledEntries.length === 0 &&
+    staleCount === 0 &&
+    neverCompiledCount === 0 &&
+    baseRows.length === 0 &&
     unwiredRows.length === 0;
 
   const hasDrift =
-    groups.staleEntries.length > 0 || groups.neverCompiledEntries.length > 0;
+    staleCount > 0 || neverCompiledCount > 0 || baseRows.length > 0;
   // An rt too old to report `installed` must not surface a bar claiming
   // current-ness; drift alone still earns one (sync fixes exactly drift).
   const showCachesBar = hasDrift || checkQuery.data?.installed != null;
@@ -409,13 +465,9 @@ export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
         data-testid="health-stats"
       >
         <StatCard count={groups.inSyncCount} label="In sync" color="ok" />
+        <StatCard count={staleCount} label="Source newer" color="warn" />
         <StatCard
-          count={groups.staleEntries.length}
-          label="Source newer"
-          color="warn"
-        />
-        <StatCard
-          count={groups.neverCompiledEntries.length}
+          count={neverCompiledCount}
           label="Never compiled"
           color="bad"
         />
@@ -491,6 +543,33 @@ export function HealthTab({ pack, onOpenSkill }: HealthTabProps) {
                     onPreviewCompile={() => openSkill(entry.verb)}
                   />
                 )}
+              />
+            )}
+
+            {baseRows.length > 0 && (
+              <HealthGroupCard
+                title="Org base"
+                intent="warn"
+                caption="attachments copied from the org base, and base problems"
+                entries={baseRows}
+                getKey={row => row.key}
+                renderRow={row =>
+                  row.kind === 'copy' ? (
+                    <HealthIssueRow
+                      testId={row.key}
+                      name={row.copy.name}
+                      reference={null}
+                      why={baseCopyWhy(row.copy)}
+                    />
+                  ) : (
+                    <HealthIssueRow
+                      testId={row.key}
+                      name={row.message}
+                      reference={null}
+                      wrapName
+                    />
+                  )
+                }
               />
             )}
 

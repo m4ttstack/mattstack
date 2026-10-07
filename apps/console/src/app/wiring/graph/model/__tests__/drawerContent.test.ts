@@ -205,6 +205,62 @@ describe('an include row (drawer-include-row)', () => {
   });
 });
 
+describe('a slot row the layer chose (drawer-rebind)', () => {
+  const layered = (layer: string, mode?: 'reference') => {
+    const layeredComposition = {
+      ...composition,
+      verbs: composition.verbs.map(verb => ({
+        ...verb,
+        slots: verb.slots.map(slot => ({ ...slot, layer })),
+      })),
+      binders: composition.binders.map(binder => ({
+        ...binder,
+        slots: binder.slots.map(slot => ({ ...slot, layer })),
+      })),
+    };
+    const layeredAnatomy = mode
+      ? {
+          ...anatomyPlan,
+          parts: anatomyPlan.parts.map(part =>
+            part.name === 'domain' && part.kind === 'slot'
+              ? { ...part, mode }
+              : part
+          ),
+        }
+      : anatomyPlan;
+    const view = buildTemplateView({
+      anatomy: layeredAnatomy,
+      composition: layeredComposition,
+      check,
+      changes: undefined,
+      step: 2,
+    });
+    return drawerContent(parseTarget('row:136')!, view, layeredAnatomy, null)
+      ?.sentence;
+  };
+
+  it('says the org base fills a slot the base bound', () => {
+    expect(layered('base:acme-base')).toBe(
+      'The domain slot. The org base fills it with plan-policy: 80 lines.'
+    );
+  });
+
+  it('says the org base links a referenced slot the base bound', () => {
+    expect(layered('base:acme-base', 'reference')).toBe(
+      'The domain slot. The org base links it to plan-policy rather than pasting it in.'
+    );
+  });
+
+  it.each(['pack', 'override'])('keeps "This pack" for the %s layer', layer => {
+    expect(layered(layer)).toBe(
+      'The domain slot. This pack fills it with plan-policy: 80 lines.'
+    );
+    expect(layered(layer, 'reference')).toBe(
+      'The domain slot. This pack links it to plan-policy rather than pasting it in.'
+    );
+  });
+});
+
 describe('a slot row (drawer-rebind)', () => {
   const content = plan('row:136');
 
@@ -393,6 +449,110 @@ describe('an input card (drawer-input-card)', () => {
   });
 });
 
+describe('an input card for a fill from the org base', () => {
+  const baseView = (baseVersion: string | null) => {
+    const baseComposition = JSON.parse(
+      JSON.stringify(composition)
+        .replaceAll('"acme:plan-policy-lite"', '"acme-base:plan-policy"')
+        .replaceAll('"acme:plan-policy"', '"acme-base:plan-policy"')
+    ) as typeof composition;
+    const anatomy = {
+      ...anatomyPlan,
+      parts: anatomyPlan.parts.map(part =>
+        part.name === 'domain'
+          ? {
+              ...part,
+              source: {
+                ref: 'acme-base:plan-policy',
+                path: '/fixture/orgs/acme/base/attachments/plan-policy/SKILL.md',
+                version: 'org',
+                builtVersion: 'org',
+                lines: 80,
+                origin: 'base' as const,
+                base: 'acme-base',
+                baseVersion,
+              },
+            }
+          : part
+      ),
+    };
+    const view = buildTemplateView({
+      anatomy,
+      composition: baseComposition,
+      check,
+      changes: undefined,
+      step: 2,
+    });
+    return drawerContent(
+      parseTarget('input:slot:domain')!,
+      view,
+      anatomy,
+      null
+    )!;
+  };
+
+  it('words it as a base pack, read only here', () => {
+    const content = baseView('0.1.0');
+    expect(content.meta).toBe(
+      'acme-base 0.1.0 · org base pack, read only here'
+    );
+    expect(content.sentence).toBe(
+      "From the org's acme-base base pack. 2 skills in this pack use it."
+    );
+    expect(content.badge).toBe('partial');
+    expect(content.usedBy).toMatchObject({
+      kind: 'fill',
+      owner: { kind: 'base', name: 'acme-base', version: '0.1.0' },
+    });
+  });
+
+  it('never prints the org token as a version', () => {
+    const content = baseView(null);
+    expect(content.meta).toBe('acme-base · org base pack, read only here');
+    expect(JSON.stringify(content)).not.toMatch(/acme-base org\b/);
+    expect(JSON.stringify(content)).not.toMatch(/org ·/);
+  });
+
+  it('adds where a team-pack copy comes from when the ref belongs to this pack', () => {
+    const anatomy = {
+      ...anatomyPlan,
+      parts: anatomyPlan.parts.map(part =>
+        part.name === 'domain'
+          ? {
+              ...part,
+              source: {
+                ...part.source!,
+                origin: 'base' as const,
+                base: 'acme-base',
+                baseVersion: '0.1.0',
+              },
+            }
+          : part
+      ),
+    };
+    const view = buildTemplateView({
+      anatomy,
+      composition,
+      check,
+      changes: undefined,
+      step: 2,
+    });
+    const content = drawerContent(
+      parseTarget('input:slot:domain')!,
+      view,
+      anatomy,
+      null
+    )!;
+    expect(content.badge).toBe('partial');
+    expect(content.sentence).toBe(
+      "From the org's acme-base base pack. 1 skill in this pack uses it. Compile copies it from the org's acme-base base pack and rewrites it on every compile; edit it there."
+    );
+    expect(view.inputs.find(card => card.id === 'slot:domain')!.subtitle).toBe(
+      'acme-base · org base · picked by this pack'
+    );
+  });
+});
+
 describe('the output card (drawer-history)', () => {
   it('reads as the board does when in sync', () => {
     expect(plan('output')).toMatchObject({
@@ -478,6 +638,42 @@ describe('a links-to chip', () => {
       sentence: "This step's text links to it at line 32.",
       tabs: ['text'],
     });
+  });
+});
+
+describe('a links-to chip into a base attachment copy', () => {
+  const withCopy = {
+    ...check,
+    attachments: [
+      {
+        name: 'gates',
+        base: 'acme-base',
+        status: 'in-sync' as const,
+        staleFiles: [],
+        orphanFiles: [],
+      },
+    ],
+  };
+  const link = (checked: typeof check) =>
+    drawerContent(
+      parseTarget('link:../../attachments/gates/SKILL.md')!,
+      planView,
+      anatomyPlan,
+      null,
+      checked
+    );
+
+  it('names the base and says compile rewrites the copy', () => {
+    const content = link(withCopy);
+    expect(content?.badge).toBe('from acme-base');
+    expect(content?.sentence).toBe(
+      "This step's text links to it at line 32. Compile copies it from the org's acme-base base pack and rewrites it on every compile; edit it there."
+    );
+  });
+
+  it('keeps pack text when the check holds no such row', () => {
+    expect(link(check)?.badge).toBe('pack text');
+    expect(link({ ...withCopy, attachments: [] })?.badge).toBe('pack text');
   });
 });
 

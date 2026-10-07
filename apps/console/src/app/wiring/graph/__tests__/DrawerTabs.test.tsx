@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SkillsComposition } from '../../outline';
 import { BuiltFromTable } from '../drawer/BuiltFromTable';
-import { builtFrom, staleSteps } from '../drawer/history';
+import { builtFrom, fileNote, staleSteps } from '../drawer/history';
 import { usedBySites } from '../drawer/usedBy';
 import { buildFocusGroups } from '../model/focusModel';
 import { designFixture, designSource } from './designFixtures';
@@ -337,6 +337,92 @@ describe('builtFrom', () => {
     ]);
   });
 
+  it('words a file from the org base as a base, never the org token', () => {
+    const anatomy = designFixture('anatomy.stage-plan');
+    const rows = builtFrom(
+      {
+        ...anatomy,
+        parts: anatomy.parts.map(part =>
+          part.name === 'domain'
+            ? {
+                ...part,
+                source: {
+                  ref: 'acme-base:plan-policy',
+                  path: '/fixture/orgs/acme/base/attachments/plan-policy/SKILL.md',
+                  version: 'org',
+                  builtVersion: 'org',
+                  lines: 80,
+                  origin: 'base' as const,
+                  base: 'acme-base',
+                  baseVersion: '0.1.0',
+                },
+              }
+            : part
+        ),
+      },
+      designFixture('check').verbs.find(row => row.name === 'stage-plan')
+    );
+    const base = rows.find(row => row.file === 'plan-policy/SKILL.md')!;
+
+    expect(base).toMatchObject({
+      kind: 'partial',
+      builtWith: 'acme-base 0.1.0',
+      installed: 'org base',
+      owner: { kind: 'base', name: 'acme-base', version: '0.1.0' },
+    });
+    expect(fileNote(base, 'stage-plan')).toBe(
+      "stage-plan was built from the org's acme-base base pack. rt check says whether it is current."
+    );
+    expect(fileNote({ ...base, status: 'not built' }, 'stage-plan')).toBe(
+      'stage-plan has never been built, so it holds no copy of this partial yet.'
+    );
+  });
+
+  describe('a base file takes its status from rt check, never the org token', () => {
+    const baseAnatomy = (changed: boolean) => {
+      const anatomy = designFixture('anatomy.stage-plan');
+      return {
+        ...anatomy,
+        parts: anatomy.parts.map(part =>
+          part.name === 'domain'
+            ? {
+                ...part,
+                changed,
+                source: {
+                  ref: 'acme-base:plan-policy',
+                  path: '/fixture/orgs/acme/base/attachments/plan-policy/SKILL.md',
+                  version: 'org',
+                  builtVersion: 'org',
+                  lines: 80,
+                  origin: 'base' as const,
+                  base: 'acme-base',
+                  baseVersion: '0.1.0',
+                },
+              }
+            : part
+        ),
+      };
+    };
+    const checkRow = designFixture('check').verbs.find(
+      row => row.name === 'stage-plan'
+    )!;
+    const statusOfBase = (
+      anatomy: ReturnType<typeof baseAnatomy>,
+      row: typeof checkRow
+    ) =>
+      builtFrom(anatomy, row).find(r => r.file === 'plan-policy/SKILL.md')!
+        .status;
+
+    it('reads unchanged for a verb check calls in sync', () => {
+      expect(statusOfBase(baseAnatomy(false), checkRow)).toBe('unchanged');
+    });
+
+    it('reads changed for a stale verb whose base file changed, as a plugin file does', () => {
+      const stale = { ...checkRow, status: 'stale' as const };
+      expect(statusOfBase(baseAnatomy(true), stale)).toBe('changed');
+    });
+  });
+
   it('says unmeasured for every file when check has no row for the skill', () => {
     const rows = builtFrom(designFixture('anatomy.stage-plan'), undefined);
 
@@ -388,6 +474,39 @@ describe('Used by tab', () => {
 
     expect(tab).toHaveTextContent(
       'Edit it in the mattstack plugin. Every skill above picks up the change on its next compile.'
+    );
+  });
+
+  it("says a base fill is edited in the org's base pack", async () => {
+    const plan = designFixture('anatomy.stage-plan');
+    anatomyGet.mockImplementation(() =>
+      Promise.resolve(
+        ok({
+          ...plan,
+          parts: plan.parts.map(part =>
+            part.name === 'domain'
+              ? {
+                  ...part,
+                  source: {
+                    ...part.source!,
+                    ref: 'acme-base:plan-policy',
+                    origin: 'base',
+                    base: 'acme-base',
+                    baseVersion: '0.1.0',
+                  },
+                }
+              : part
+          ),
+        })
+      )
+    );
+    renderAt(
+      '?tab=graph&focus=stage-plan&select=input:slot:domain&drawerTab=used-by'
+    );
+    const tab = await screen.findByTestId('drawer-used-by');
+
+    expect(tab).toHaveTextContent(
+      "Edit it in the org's acme-base base pack. Every skill above picks up the change on its next compile."
     );
   });
 
@@ -617,6 +736,7 @@ describe('BuiltFromTable', () => {
             builtWith: null,
             installed: '0.30.4',
             status: 'not built',
+            owner: { kind: 'plugin', name: 'mattstack' },
           },
         ]}
       />
