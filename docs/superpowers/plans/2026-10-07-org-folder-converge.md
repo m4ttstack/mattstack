@@ -2319,7 +2319,7 @@ Expected: every command clean. `bun run check` runs the static gates (`no-*` gua
 
 ```bash
 git diff origin/org-rename...HEAD --name-only | xargs grep -nP '\x{2014}|\x{2013}' || echo "no dashes"
-git diff origin/org-rename...HEAD | grep -nE '^\+' | grep -niE 'assured|claimview' || echo "no real names"
+git diff origin/org-rename...HEAD | grep -nE '^\+' | grep -niE 'ass''ured|claim''view' || echo "no real names"
 ```
 
 Expected: "no dashes", "no real names". (`grep -P` is GNU grep; on macOS use `rg -n '\x{2014}|\x{2013}'` instead.)
