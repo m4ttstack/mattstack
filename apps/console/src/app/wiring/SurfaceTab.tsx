@@ -303,7 +303,7 @@ function SurfaceGridRow({
           public
         </Text>
       ) : null}
-      {sourcePath && (
+      {sourcePath && !locked && (
         <Tooltip label="Open in editor" openDelay={300}>
           <ActionIcon
             component="a"

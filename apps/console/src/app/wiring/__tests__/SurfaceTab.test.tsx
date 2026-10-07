@@ -445,4 +445,31 @@ describe('SurfaceTab: open in editor', () => {
       screen.queryByTestId('surface-open-watch-ci')
     ).not.toBeInTheDocument();
   });
+
+  it('offers no editor button on a base row, which compile rewrites', async () => {
+    renderSurfaceTab(
+      [
+        {
+          name: 'dev-servers',
+          kind: 'compiled',
+          status: 'internal',
+          base: 'acme-base',
+        },
+        { name: 'review', kind: 'compiled', status: 'public' },
+      ],
+      {
+        verbs: [
+          { name: 'dev-servers', sourcePath: '/p/skills/dev-servers/SKILL.md' },
+          { name: 'review', sourcePath: '/p/skills/review/SKILL.md' },
+        ],
+      }
+    );
+
+    expect(
+      await screen.findByTestId('surface-open-review')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('surface-open-dev-servers')
+    ).not.toBeInTheDocument();
+  });
 });
