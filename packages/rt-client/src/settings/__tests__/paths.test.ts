@@ -168,7 +168,7 @@ describe("settings/paths", () => {
       expect(orgPacksDir("acme")).toBe(`${root}/mattstack/org/packs`);
       expect(teamFoldersDir("acme")).toBe(`${root}/mattstack/teams`);
       expect(teamFolderDir("acme", "widgets")).toBe(`${root}/mattstack/teams/widgets`);
-      expect(teamPackDir("acme", "widgets")).toBe(`${root}/mattstack/teams/widgets/packs/widgets`);
+      expect(teamPackDir("acme", "widgets")).toBe(`${root}/mattstack/teams/widgets/plugin`);
     });
   });
 });

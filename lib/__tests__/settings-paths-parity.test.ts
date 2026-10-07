@@ -114,7 +114,7 @@ describe("settings paths parity (lib/rt-paths.ts vs rt-client/settings/paths.ts)
       orgPacksDir: `${org}/mattstack/org/packs`,
       teamFoldersDir: `${org}/mattstack/teams`,
       teamFolderDir: `${org}/mattstack/teams/widgets`,
-      teamPackDir: `${org}/mattstack/teams/widgets/packs/widgets`,
+      teamPackDir: `${org}/mattstack/teams/widgets/plugin`,
       teamSettingsPath: `${org}/mattstack/teams/widgets/settings.team.jsonc`,
     };
     for (const side of [clientPaths, rtPaths]) {
