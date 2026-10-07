@@ -634,6 +634,37 @@ describe("skillsCompile", () => {
     expect(existsSync(join(baseDir, "skills"))).toBe(false);
   });
 
+  test("composition tags a base fill, its slot and binder slot, and names the base the pack extends", async () => {
+    const mattstackDir = makeMattstackDir();
+    seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
+    const baseDir = join(mattstackDir, "orgs", "acme", "mattstack", "org", "packs", "acme-base");
+    const packDir = teamPackDir(mattstackDir, "acme", "widgets");
+    writeFile(join(baseDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme-base", version: "0.1.0" }));
+    writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:watch-ci-domain", forge: "mattstack:gitlab-forge" } } }));
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD);
+    writeFile(join(baseDir, "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
+    writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ extends: "acme-base" }));
+    writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+    const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, enginePackDir: join(mattstackDir, "plugins", "mattstack") }, "https://gitlab.example.com/acme/widgets.git");
+    if (out.kind !== "written") throw new Error(out.kind);
+
+    const io = captureSkills();
+    try {
+      await skillsComposition(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--json"]);
+      const payload = JSON.parse(io.stdout());
+      const tag = { origin: "base", base: "acme-base", baseVersion: "0.1.0" };
+      expect(payload.extends).toEqual({ name: "acme-base", version: "0.1.0" });
+      expect(payload.fills.find((f: { binding: string }) => f.binding === "acme-base:watch-ci-domain")).toMatchObject(tag);
+      expect(payload.fills.find((f: { binding: string }) => f.binding.startsWith("mattstack:"))).not.toHaveProperty("origin");
+      const slot = payload.verbs.find((v: { name: string }) => v.name === "watch-ci").slots.find((s: { name: string }) => s.name === "domain");
+      expect(slot).toMatchObject({ boundTo: "acme-base:watch-ci-domain", fillVersion: "org", ...tag });
+      const binderSlot = payload.binders.flatMap((b: { slots: { boundTo: string }[] }) => b.slots).find((s: { boundTo: string }) => s.boundTo === "acme-base:watch-ci-domain");
+      expect(binderSlot).toMatchObject(tag);
+    } finally {
+      io.restore();
+    }
+  });
+
   for (const externalCopy of [false, true]) test(`a numeric-leading org materializes and compiles inherited base fills in its ${externalCopy ? "external copy" : "clone"}`, async () => {
     const mattstackDir = makeMattstackDir();
     seedOrg(mattstackDir, "1acme", { projects: ["acme/widgets"], teams: ["team-1acme"] });
@@ -3052,7 +3083,7 @@ describe("skillsComposition --json", () => {
     await skillsComposition(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--json"]);
 
     const parsed = JSON.parse(io.lines().join("\n"));
-    expect(parsed).toEqual({ pack: "acme", packDir, manifestPath: null, verbs: [], fills: [], binders: [], pipelines: {}, targets: [] });
+    expect(parsed).toEqual({ pack: "acme", packDir, manifestPath: null, verbs: [], fills: [], binders: [], pipelines: {}, targets: [], extends: null });
   });
 
   test("manifestPath is the absolute manifest the bindings came from, not <packDir>/skills.jsonc", async () => {

@@ -63,6 +63,7 @@ import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { findPlaceholders, type TraceEntry } from "../lib/skills/placeholders.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
+import { originFor, originOf, type Origin } from "../lib/skills/origin.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
 import {
   installedVersionFor,
@@ -1540,6 +1541,8 @@ export async function skillsPacks(args: string[]): Promise<void> {
 
 // ─── rt skills composition ─────────────────────────────────────────────────
 
+type OriginFields = Partial<Origin>;
+
 type CompositionSlot = {
   name: string;
   contract: string;
@@ -1557,7 +1560,7 @@ type CompositionSlot = {
   registered: boolean | null;
   inlined: boolean | null;
   resolveError?: string;
-};
+} & OriginFields;
 
 type CompositionVerb = {
   name: string;
@@ -1579,10 +1582,10 @@ type CompositionBinder = {
   verb: string | null;
   kind: CompositionBinderKind;
   /** `layer` names the bindings layer that set the slot, as a verb slot's does. */
-  slots: { name: string; boundTo: string; layer: string | null }[];
+  slots: ({ name: string; boundTo: string; layer: string | null } & OriginFields)[];
 };
 
-type CompositionFill = { binding: string; provides: string; sourcePath: string; registered: boolean };
+type CompositionFill = { binding: string; provides: string; sourcePath: string; registered: boolean } & OriginFields;
 
 type CompositionTarget = {
   name: string;
@@ -1622,6 +1625,8 @@ export type CompositionPayload = {
   pipelines: Record<string, string[]>;
   /** Every compile target, roster verbs and pipeline stages both, where `verbs` is the roster only. */
   targets: CompositionTarget[];
+  /** The org base this pack extends, null when none. */
+  extends: { name: string; version: string | null } | null;
 };
 
 /**
@@ -1693,6 +1698,7 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
         fillVersion: fill.version,
         registered: fill.registered,
         inlined,
+        ...originFor(resolved.pluginRoots, fill.plugin, fill.dir),
       };
     } catch (err) {
       return {
@@ -1762,9 +1768,20 @@ function buildBinders(resolved: Resolved, pipelines: Record<string, string[]>): 
         name,
         boundTo,
         layer: resolved.provenance[`${ref} ${name}`] ?? null,
+        ...bindingOrigin(resolved.pluginRoots, boundTo),
       })),
     };
   });
+}
+
+/** A binder slot names its fill only by binding, so its origin is found where the verb slot's is: the dir loadAttachment resolves. */
+function bindingOrigin(roots: PluginRoots, boundTo: string): Partial<Origin> {
+  const plugin = boundTo.split(":")[0] ?? "";
+  try {
+    return originFor(roots, plugin, loadAttachment(boundTo, "binder", roots).dir);
+  } catch {
+    return originOf(roots, plugin);
+  }
 }
 
 function buildCompositionTargets(resolved: Resolved, publicSet: Set<string> | null): CompositionTarget[] {
@@ -1821,7 +1838,7 @@ function enumerateFills(pluginRoots: PluginRoots): CompositionFill[] {
           continue; // unreadable SKILL.md: not a usable fill
         }
         if (!provides) continue; // no metadata.provides: a roster/verb skill, not a fill
-        fills.push({ binding: `${pluginName}:${entry.name}`, provides, sourcePath: skillMdPath, registered });
+        fills.push({ binding: `${pluginName}:${entry.name}`, provides, sourcePath: skillMdPath, registered, ...originFor(pluginRoots, pluginName, entry.dir) });
       }
     }
   }
@@ -1861,6 +1878,7 @@ export async function skillsComposition(args: string[]): Promise<void> {
     const fills = enumerateFills(resolved.pluginRoots);
     const binders = buildBinders(resolved, pipelines);
     const targets = buildCompositionTargets(resolved, publicSet);
+    const base = resolved.fullRoster.length > 0 ? basePlanFor(resolved, compileTargets(resolved, publicSet, null).verbSides).base : null;
 
     const payload: CompositionPayload = {
       pack: resolved.team,
@@ -1871,6 +1889,7 @@ export async function skillsComposition(args: string[]): Promise<void> {
       binders,
       pipelines,
       targets,
+      extends: base ? { name: base.name, version: base.version } : null,
     };
 
     if (flags.json) {
