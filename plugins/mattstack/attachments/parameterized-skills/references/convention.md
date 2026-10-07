@@ -335,14 +335,14 @@ An org repo is cloned at `~/.mattstack/orgs/<org>/`, and
 `mattstack/mattstack.jsonc` marks it: `{"role":"org","org":"acme"}`.
 
 - Each team is a folder `mattstack/teams/<team>/` (`^[a-z][a-z0-9-]*$`)
-  holding at most one pack, `packs/<team>/`, named after the team: the
-  plugin name users type (`/widgets:work`).
+  holding at most one pack, `plugin/` (the team's Claude plugin), named
+  after the team: the plugin name users type (`/widgets:work`).
 - The org base pack, when the org has one, sits at
   `mattstack/org/packs/<org>-base/`. A team pack that `extends` it gets
   each of its non-fill attachments copied in at compile, marked by a
   `compiled.json`, with `{{pack.name}}` expanded to the team pack's name.
 - Only `.claude-plugin/marketplace.json` sits at the repo root. It lists
-  every team pack with its source under `mattstack/teams/<team>/packs/<team>`
+  every team pack with its source under `mattstack/teams/<team>/plugin`
   and never the base pack.
 - Schema: `plugin/schemas/org-marker.schema.json`.
 
@@ -367,7 +367,9 @@ fragment's `extends` names by bare name (one level, read from the org's
 `~/.mattstack/user/skills/overrides.jsonc`. Two packs never conflict: each
 gets its own file. A team folder holds one pack, which claims the team's
 `board.projects`; a base pack says `"base": true` in its fragment, so it
-claims no repo, gets no file, and is never installed. The
+claims no repo, gets no file, and is never installed; a base fill only
+`board:*` slots bind is copied into the team pack at compile and its board
+bindings are rewritten to `<team plugin>:<name>` at materialize. The
 file's header names the layer each binding came from
 (`default`, `base:<pack>`, `pack`, `override`). Fragments and overrides are
 JSONC with full-line `//` comments only.
