@@ -23,6 +23,7 @@ import type { AgeExecResult, AgeKeySeam } from "../../home/age-key.ts";
 import type { ExecResult } from "../../setup/probes.ts";
 import { SWITCHBOARD_URL } from "../../../packages/rt-client/src/switchboard.ts";
 import { readTeamLocal, teamLocalPath, updateTeamLocal } from "../team-local.ts";
+import { ORG_CLONE_FOLDERS } from "../org-clone.ts";
 import * as isolation from "../../../packages/rt-client/src/test-isolation.ts";
 
 const HOME = "/home";
@@ -510,7 +511,7 @@ describe("joinRedeem", () => {
     const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
 
     expect(result.access).toBe("ok");
-    expect(p.calls.exec).toContainEqual(["git", "clone", REMOTE, TEAM_DIR]);
+    expect(p.calls.exec).toContainEqual(["git", "clone", "--sparse", REMOTE, TEAM_DIR]);
     expect(relay.callOrder).toEqual(["fetch", "redeem", "reply"]);
     expect(relay.redeemCalls).toEqual([ID_HEX]);
 
@@ -521,6 +522,65 @@ describe("joinRedeem", () => {
 
     // The code itself never leaks into the result.
     expect(JSON.stringify(result)).not.toContain(CODE);
+  });
+
+  test("the clone is sparse: it checks out only the org folders rt reads, in cone mode, inside the new clone", async () => {
+    const calls: { argv: string[]; cwd?: string }[] = [];
+    const p = redeemProbes({
+      exec: (argv, opts) => {
+        calls.push({ argv, cwd: opts?.cwd });
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    const { seams } = baseJoinRedeemSeams();
+
+    const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+
+    expect(result.access).toBe("ok");
+    const cloneAt = calls.findIndex((c) => c.argv[1] === "clone");
+    const sparseAt = calls.findIndex((c) => c.argv[1] === "sparse-checkout");
+    expect(sparseAt).toBeGreaterThan(cloneAt);
+    expect(calls[sparseAt]).toEqual({ argv: ["git", "sparse-checkout", "set", "--cone", ...ORG_CLONE_FOLDERS], cwd: TEAM_DIR });
+    expect([...ORG_CLONE_FOLDERS].sort()).toEqual([".claude-plugin", "mattstack"]);
+  });
+
+  test("a sparse checkout that fails removes the half-made clone and fails like a failed clone, before the invite is used", async () => {
+    const p = redeemProbes({
+      exec: (argv) => {
+        if (argv[1] === "sparse-checkout") return { code: 128, stdout: "", stderr: "fatal: cannot update sparse checkout" };
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    const relay = fakeRelay();
+    const { seams } = baseJoinRedeemSeams();
+
+    const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
+
+    expect(result.access).toBe("unreachable");
+    expect(result.message).toContain("cannot update sparse checkout");
+    expect(p.calls.removed).toContain(TEAM_DIR);
+    expect(relay.redeemCalls).toEqual([]);
+    expect(readTeamLocal(p, POINTER.team).joinedByRt).toBeFalsy();
+    expect(readIntent(p)?.mode).toBe("join");
+  });
+
+  test("the sparse checkout carries the same token and git env as the clone", async () => {
+    const calls: { argv: string[]; opts?: Parameters<Probes["exec"]>[1] }[] = [];
+    const p = redeemProbes({
+      exec: (argv, opts) => {
+        calls.push({ argv, opts });
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    const { seams } = baseJoinRedeemSeams({ forgeToken: async () => "glpat-secret" });
+
+    await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+
+    const sparse = calls.find((c) => c.argv.includes("sparse-checkout"))!;
+    expect(sparse.argv.join(" ")).not.toContain("glpat-secret");
+    expect(sparse.opts?.env?.RT_GIT_TOKEN).toBe("glpat-secret");
+    expect(sparse.opts?.env?.GIT_TERMINAL_PROMPT).toBe("0");
+    expect(sparse.opts?.env?.GIT_PROTOCOL_FROM_USER).toBe("0");
   });
 
   test("clone uses GIT_TERMINAL_PROMPT=0 and GIT_PROTOCOL_FROM_USER=0", async () => {
@@ -1331,7 +1391,7 @@ describe("joinRedeem", () => {
       const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
 
       expect(result.access).toBe("unreachable");
-      expect(p.calls.exec).toContainEqual(["git", "clone", REMOTE, TEAM_DIR]);
+      expect(p.calls.exec).toContainEqual(["git", "clone", "--sparse", REMOTE, TEAM_DIR]);
       expect(result.message).not.toMatch(/invite.*(dead|unknown|expired)/i);
     });
 
@@ -1426,7 +1486,7 @@ describe("joinRedeem", () => {
     expect(message).toContain("Join again to finish; you do not need a new code.");
     expect((caught as JoinKeyExchangeError).detail).toBeDefined();
     // The clone and the redeem really did happen — this is a reportable half-state, not a rollback.
-    expect(p.calls.exec).toContainEqual(["git", "clone", REMOTE, TEAM_DIR]);
+    expect(p.calls.exec).toContainEqual(["git", "clone", "--sparse", REMOTE, TEAM_DIR]);
     expect(relay.redeemCalls).toEqual([ID_HEX]);
   });
 
@@ -1451,7 +1511,7 @@ describe("joinRedeem", () => {
     expect((caught as UserActionableError).next).toBe("gh auth login");
     // The team WAS cloned (identity resolution needs the just-cloned settings), but
     // relay.redeem must never have run — the invite is still valid for a retry.
-    expect(p.calls.exec).toContainEqual(["git", "clone", REMOTE, TEAM_DIR]);
+    expect(p.calls.exec).toContainEqual(["git", "clone", "--sparse", REMOTE, TEAM_DIR]);
     expect(relay.redeemCalls).toHaveLength(0);
     expect(relay.replyCalls).toHaveLength(0);
   });
@@ -1862,6 +1922,55 @@ test("a real clone whose marker names another org is removed, with no record and
     expect(existsSync(pathJoin(home, ".mattstack", "orgs", "acme"))).toBe(false);
     expect(existsSync(teamLocalPath(home, "acme"))).toBe(false);
     expect(existsSync(intentPath(home))).toBe(false);
+  } finally {
+    if (priorHome === undefined) delete process.env.HOME; else process.env.HOME = priorHome;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("a real join clone holds only the org folders and the top-level files, and its index keeps the rest", async () => {
+  const home = mkdtempSync(pathJoin(tmpdir(), "join-sparse-"));
+  const priorHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const env = { ...childEnv(), GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+    const work = pathJoin(home, "work");
+    const seed: Record<string, string> = {
+      "mattstack/mattstack.jsonc": `{ "role": "org", "org": "acme" }\n`,
+      "mattstack/org/settings.org.jsonc": rosterWith("dev2"),
+      "mattstack/teams/widgets/plugin/README.md": "widgets pack\n",
+      ".claude-plugin/marketplace.json": `{ "name": "acme", "plugins": [] }\n`,
+      ".sops.yaml": "creation_rules: []\n",
+      "apps/widgets/index.ts": "export {};\n",
+      "docs/guide.md": "guide\n",
+    };
+    for (const [rel, text] of Object.entries(seed)) {
+      mkdirSync(pathJoin(work, rel, ".."), { recursive: true });
+      writeFileSync(pathJoin(work, rel), text);
+    }
+    const bare = pathJoin(home, "origin.git");
+    execFileSync("git", ["init", "-q", "-b", "main", work], { env });
+    execFileSync("git", ["-C", work, "add", "."], { env });
+    execFileSync("git", ["-C", work, "commit", "-q", "-m", "org"], { env });
+    execFileSync("git", ["clone", "-q", "--bare", work, bare], { env });
+
+    const p = createRealProbes();
+    const realExec = p.exec.bind(p);
+    // The pointer's remote must be an https url; the clone itself reads the local bare repo, which join's GIT_PROTOCOL_FROM_USER=0 would refuse as a file transport.
+    p.exec = (argv, opts) => realExec(argv.map((arg) => (arg === REMOTE ? bare : arg)), { ...opts, env: { ...opts?.env, GIT_PROTOCOL_FROM_USER: "1" } });
+
+    const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+
+    expect(result.access).toBe("ok");
+    const dir = pathJoin(home, ".mattstack", "orgs", "acme");
+    for (const rel of ["mattstack/mattstack.jsonc", "mattstack/org/settings.org.jsonc", "mattstack/teams/widgets/plugin/README.md", ".claude-plugin/marketplace.json", ".sops.yaml"]) {
+      expect(existsSync(pathJoin(dir, rel))).toBe(true);
+    }
+    expect(existsSync(pathJoin(dir, "apps"))).toBe(false);
+    expect(existsSync(pathJoin(dir, "docs"))).toBe(false);
+    expect(execFileSync("git", ["-C", dir, "sparse-checkout", "list"], { env }).toString().trim().split("\n").sort()).toEqual([".claude-plugin", "mattstack"]);
+    expect(execFileSync("git", ["-C", dir, "status", "--porcelain"], { env }).toString()).toBe("");
+    expect(execFileSync("git", ["-C", dir, "ls-files", "--", "apps", "docs"], { env }).toString().trim().split("\n").sort()).toEqual(["apps/widgets/index.ts", "docs/guide.md"]);
   } finally {
     if (priorHome === undefined) delete process.env.HOME; else process.env.HOME = priorHome;
     rmSync(home, { recursive: true, force: true });
