@@ -21,7 +21,7 @@ export interface OrgHandlerOpts {
 
 const refuse = (code: string, message: string) => ({ ok: false as const, error: `${code}: ${message}`, failure: { code, message } });
 
-/** Relocates the clone's index row in this process, scoped to the clone's own identity: unscoped, planLocate refuses whenever any other repo rt knows is missing. The hold is already held, so the `repos:locate` handler (which takes it) would deadlock. */
+/** Relocates the clone's index row in this process, scoped to the clone's own identity: unscoped, planLocate refuses a clone with no row of its own while any other repo rt knows is missing. The hold is already held, so the `repos:locate` handler (which takes it) would deadlock. */
 const locateDirect: LocateFn = async (newPath) => {
   // The memo may hold the clone's identity under its old path; it takes no argument and clears everything.
   clearIdentityMemo();
@@ -62,11 +62,12 @@ export function createOrgHandlers(opts: OrgHandlerOpts): Record<"org:move", (pay
       try {
         return await opts.withReconcilerHeld(async () => {
           const result = await runOrgMove(probes, { from: source, to: target, locate: locateDirect });
-          if (!result.ok) return refuse("move-failed", `${result.stage}: ${result.error}`);
+          // A cleanup failure lands after the index row moved: watchers must follow it, since a retry finds `from` gone.
           if (result.index === "moved") {
             opts.refreshWatchedRepos();
             opts.emitEvent("repo:moved", { from: source, to: target });
           }
+          if (!result.ok) return refuse("move-failed", `${result.stage}: ${result.error}`);
           opts.emitEvent("org:moved", { from: source, to: target });
           return { ok: true, data: result };
         });

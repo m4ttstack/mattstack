@@ -6,7 +6,8 @@ import { join } from "path";
 import { closeStateDb, setKvValue, getKvValue } from "../../state/index.ts";
 import { saveRegistry, loadRegistry } from "../../worktree/registry.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../../settings/identity.ts";
-import { createOrgHandlers } from "../handlers/org.ts";
+import { createRealProbes } from "../../setup/probes.ts";
+import { createOrgHandlers, type OrgHandlerOpts } from "../handlers/org.ts";
 
 describe("org:move", () => {
   const origHome = process.env.HOME;
@@ -15,6 +16,7 @@ describe("org:move", () => {
   let events: { topic: string; payload: unknown }[];
   let paused: string[][];
   let resumed: string[][];
+  let opts: OrgHandlerOpts;
   let handlers: ReturnType<typeof createOrgHandlers>;
 
   beforeEach(() => {
@@ -25,7 +27,7 @@ describe("org:move", () => {
     events = [];
     paused = [];
     resumed = [];
-    handlers = createOrgHandlers({
+    opts = {
       withReconcilerHeld: async (fn) => {
         order.push("hold-start");
         try {
@@ -43,7 +45,8 @@ describe("org:move", () => {
         pause: (slugs) => { order.push("pause"); paused.push(slugs); },
         resume: async (slugs) => { order.push("resume"); resumed.push(slugs); },
       },
-    });
+    };
+    handlers = createOrgHandlers(opts);
   });
 
   afterEach(() => {
@@ -70,7 +73,7 @@ describe("org:move", () => {
     return identity;
   }
 
-  /** An unrelated repo rt knows whose folder is gone: the condition that makes an unscoped locate refuse. */
+  /** An unrelated repo rt knows whose folder is gone: an unscoped locate then refuses a clone with no row of its own. */
   async function lostStranger(): Promise<void> {
     const dir = join(home, "stranger");
     mkdirSync(dir, { recursive: true });
@@ -137,6 +140,25 @@ describe("org:move", () => {
     expect(res).toMatchObject({ ok: false, failure: { code: "move-failed" } });
     expect(res.failure.message).toContain("old-path-exists");
     expect(order).toEqual(["pause", "hold-start", "hold-end", "resume"]);
+  });
+
+  test("a cleanup failure after a real move still refreshes watchers and emits repo:moved, but not org:moved", async () => {
+    const from = clone("teams", "widgets", "acme");
+    const identity = await register(from);
+    mkdirSync(recordsDir(), { recursive: true });
+    writeFileSync(join(recordsDir(), "widgets.json"), JSON.stringify({ forgeUsername: "dev1" }));
+    const to = join(home, ".mattstack", "orgs", "acme");
+    const real = createRealProbes();
+    const failing = createOrgHandlers({ ...opts, probes: { ...real, removeFile: () => { throw new Error("removal refused"); } } });
+
+    const res = await failing["org:move"]({ from, to });
+    expect(res).toMatchObject({ ok: false, failure: { code: "move-failed" } });
+    expect(res.failure.message).toContain("cleanup");
+    expect(existsSync(to)).toBe(true);
+    expect(getKvValue<string | null>("repo-index", identity, null)).toBe(to);
+    expect(order.filter((step) => step === "refresh")).toHaveLength(1);
+    expect(events.map((e) => e.topic)).toEqual(["repo:moved"]);
+    expect(resumed).toEqual([["widgets", "acme"]]);
   });
 
   test("refuses a target outside the orgs root", async () => {
