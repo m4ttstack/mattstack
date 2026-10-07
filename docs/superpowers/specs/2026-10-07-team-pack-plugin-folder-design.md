@@ -178,8 +178,12 @@ Who checks, in the order a Mac meets them:
 The board's `activeTeamPack` keeps returning `null` (no pack): rt-client is
 a library the apps read at render time, and the Mac's rt names the fix.
 
-The detector is the only production code beside the conversion script that
-spells the old path, and the guard test allowlists exactly these two files.
+The detector module and the conversion planner
+(`scripts/lib/move-team-packs.ts`) are the only production code that spells
+the old path, and the guard test allowlists exactly those two files. The
+script's wrapper builds its input paths through `nestedTeamPackRel`, so it
+stays off the allowlist. The header comment of `lib/setup/requirements.ts`
+spells the old path today and is rewritten with the function.
 
 ## 5. The snapshot zone
 
