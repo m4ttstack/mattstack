@@ -107,6 +107,14 @@ const tab = z.looseObject({
 // rt's board.keys setup step writes bare repo names; gitq's own loader reads { path, name? }.
 const gitqRepo = z.union([z.string(), z.looseObject({ path: z.string(), name: z.string().optional() })]);
 
+const sdmResourceEntry = z.looseObject({
+  label: z.string().optional(),
+  tier: z.string().optional(),
+  production: z.boolean().optional(),
+  reasonSuggestion: z.string().optional(),
+  db: z.looseObject({ database: z.string().optional(), schema: z.string().optional(), user: z.string().optional() }).optional(),
+});
+
 export const SCHEMAS = {
   "rt.roles": z.record(z.string(), role),
   "rt.intercepts": z.array(z.looseObject({ command: z.string().min(1), matches: z.array(interceptMatch) })),
@@ -160,16 +168,9 @@ export const SCHEMAS = {
   "rt.presets": z.record(z.string(), z.looseObject({ entries: z.array(presetEntry) })),
   "rt.dopplerTemplate": z.array(z.looseObject({ path: z.string(), project: z.string(), config: z.string() })),
   "rt.worktreeApp": z.looseObject({ enabled: z.boolean().optional(), killProcesses: z.boolean().optional(), claudeHook: z.enum(["installed", "declined"]).optional() }),
-  "rt.sdmEnrichment": z.record(
-    z.string(),
-    z.looseObject({
-      label: z.string().optional(),
-      tier: z.string().optional(),
-      production: z.boolean().optional(),
-      reasonSuggestion: z.string().optional(),
-      db: z.looseObject({ database: z.string().optional(), schema: z.string().optional(), user: z.string().optional() }).optional(),
-    }),
-  ),
+  "rt.sdmEnrichment": z.record(z.string(), sdmResourceEntry),
+  "sdm.resources": z.record(z.string(), sdmResourceEntry).meta({ labels: { key: "resource", value: "override" } }),
+  "sdm.carriers": z.record(z.string(), z.looseObject({ label: z.string() })).meta({ labels: { key: "tenant tag", value: "carrier" } }),
   "rt.gitStatus": z.looseObject({ sweep: z.boolean(), sweepIntervalSec: z.number(), fetchIntervalSec: z.number() }),
   "rt.hooks": z.looseObject({ enabled: z.boolean().optional(), hooks: z.record(z.string(), z.boolean()).optional() }),
   "rt.trustedBrowserOrigins": z.array(z.string()),

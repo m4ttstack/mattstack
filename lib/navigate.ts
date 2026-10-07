@@ -16,6 +16,10 @@ export interface NavOption {
   hint?: string;
   /** A picker tone for the row, by name (PickSegment's tone vocabulary). */
   tone?: string;
+  /** Extra segments drawn after the label (and hint), in order. */
+  cells?: { text: string; tone?: string; bold?: boolean }[];
+  /** The text the filter ranks; the label when absent. */
+  match?: string;
   /** Marks this option as a visual separator. The cursor skips over it and selecting it re-shows the picker. */
   separator?: boolean;
 }
