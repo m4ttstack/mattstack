@@ -35,6 +35,10 @@ interface SkillsCompositionSlot {
   resolveError?: string;
   /** Which layer of the pack's bindings file set this slot: "default", "base:<pack>", "pack" or "override". Optional because an rt older than the field answers without it. */
   layer?: string | null;
+  /** Set when the slot came from a base. Optional because an rt older than the field answers without it. */
+  origin?: 'base';
+  base?: string;
+  baseVersion?: string | null;
 }
 interface SkillsCompositionVerb {
   name: string;
@@ -56,7 +60,15 @@ interface SkillsCompositionBinder {
   verb: string | null;
   kind: 'verb' | 'stage' | 'skill' | 'external';
   /** `layer` is optional because an rt older than the field answers without it. */
-  slots: { name: string; boundTo: string; layer?: string | null }[];
+  slots: {
+    name: string;
+    boundTo: string;
+    layer?: string | null;
+    /** Set when the slot came from a base. Optional because an rt older than the field answers without it. */
+    origin?: 'base';
+    base?: string;
+    baseVersion?: string | null;
+  }[];
   /** The console's own addition, on an `external` binder: the SKILL.md the
       app installed under that name, or null when none is installed. */
   skillFile?: string | null;
@@ -66,6 +78,10 @@ interface SkillsCompositionFill {
   provides: string;
   sourcePath: string;
   registered: boolean;
+  /** Set when the fill came from a base. Optional because an rt older than the field answers without it. */
+  origin?: 'base';
+  base?: string;
+  baseVersion?: string | null;
 }
 /** One compile target: a roster verb or a stage, with where its template and
     its compiled artifact live. `placeholders[].line` counts the engine file's
@@ -102,6 +118,8 @@ interface SkillsCompositionResponse {
       absent and null both mean "no path to show," and neither is a path a
       caller may fabricate. */
   manifestPath?: string | null;
+  /** The base this pack extends, or null for a pack that extends none. Optional because an rt older than the field answers without it. */
+  extends?: { name: string; version: string | null } | null;
 }
 
 interface SkillsCheckVerbRow {
@@ -122,11 +140,22 @@ interface SkillsCheckInstalled {
   sourceVersion: string;
   status: 'current' | 'lagging' | 'missing';
 }
+/** One attachment file set the pack vendors, from its own plugin or a base. */
+interface SkillsCheckAttachmentRow {
+  name: string;
+  base: string | null;
+  status: 'in-sync' | 'stale' | 'never-compiled' | 'orphaned';
+  staleFiles: string[];
+  orphanFiles: string[];
+}
 interface SkillsCheckResponse {
   pack: string;
   packDir: string;
   verbs: SkillsCheckVerbRow[];
   installed?: SkillsCheckInstalled | null;
+  /** Optional because an rt older than the field answers without it. */
+  attachments?: SkillsCheckAttachmentRow[];
+  baseErrors?: string[];
 }
 
 /** `rt skills sync --pack <x> --json`, passed through verbatim. Exit 1 with
@@ -159,6 +188,8 @@ interface SkillsSurfaceRow {
   name: string;
   kind: 'compiled' | 'hand-authored' | 'missing';
   status: 'public' | 'internal';
+  /** Names the base a base-owned row came from. Optional because an rt older than the field answers without it. */
+  base?: string;
 }
 interface SkillsSurfaceResponse {
   pack: string;
@@ -215,6 +246,10 @@ interface SkillsAnatomySource {
   version: string;
   builtVersion: string | null;
   lines: number;
+  /** Set when the source came from a base. Optional because an rt older than the field answers without it. */
+  origin?: 'base';
+  base?: string;
+  baseVersion?: string | null;
 }
 interface SkillsAnatomyTarget {
   skill: string;
