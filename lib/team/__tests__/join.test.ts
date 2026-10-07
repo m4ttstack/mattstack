@@ -1,7 +1,9 @@
 import { describe, test, expect, beforeEach, spyOn } from "bun:test";
 import { join as pathJoin } from "path";
-import { mkdtempSync, rmSync } from "fs";
+import { execFileSync } from "child_process";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
+import { childEnv } from "../../subprocess.ts";
 import { seedOrg } from "../../../packages/rt-client/test/org-fixture.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting, setSettingsNoticeSink } from "../../settings/write.ts";
@@ -1524,6 +1526,72 @@ describe("joinRedeem", () => {
     expect(result.message).not.toMatch(/[\x00-\x1f\x7f]/);
     expect(result.team.owner).not.toContain("\r");
   });
+
+  describe("an invite naming the org by an old name", () => {
+    const MARKER = `${TEAM_DIR}/mattstack/mattstack.jsonc`;
+    const renamed = { [MARKER]: `// org marker\n{ "role": "org", "org": "globex" }` };
+
+    async function refusal(p: ReturnType<typeof redeemProbes>, relay = fakeRelay()): Promise<UserActionableError> {
+      const err = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams).then(() => null, (e: unknown) => e);
+      expect(err).toBeInstanceOf(UserActionableError);
+      return err as UserActionableError;
+    }
+
+    test("is refused as invite-stale before the roster pull or the redeem", async () => {
+      const p = redeemProbes({ files: renamed });
+      const relay = fakeRelay();
+      const err = await refusal(p, relay);
+      expect(err.code).toBe("invite-stale");
+      expect(err.message).toBe("This invite names the org by an old name; ask for a fresh one");
+      expect(relay.redeemCalls).toEqual([]);
+      expect(p.calls.exec.some((argv) => argv.includes("pull"))).toBe(false);
+    });
+
+    test("removes the fresh clone, writes no record and leaves no intent", async () => {
+      const p = redeemProbes({ files: renamed });
+      await refusal(p);
+      expect(p.exists(MARKER)).toBe(false);
+      expect(p.exists(ORG_STORE)).toBe(false);
+      expect(p.exists(teamLocalPath(HOME, POINTER.team))).toBe(false);
+      expect(readIntent(p)).toBeNull();
+    });
+
+    test("a prior record for the slug keeps its fields and its joinedByRt", async () => {
+      const p = redeemProbes({ files: { ...renamed, [teamLocalPath(HOME, POINTER.team)]: JSON.stringify({ joinedByRt: false, forgeUsername: "dev1" }) } });
+      await refusal(p);
+      const record = readTeamLocal(p, POINTER.team);
+      expect(record.joinedByRt).toBe(false);
+      expect(record.forgeUsername).toBe("dev1");
+    });
+
+    test("an intent for a different invite is put back byte for byte", async () => {
+      const prior = JSON.stringify({ v: 1, at: "2026-08-01T00:00:00.000Z", mode: "create", team: { slug: "gadgets", name: "Gadgets", remote: "https://github.com/acme/gadgets.git", others: false } });
+      const p = redeemProbes({ files: { ...renamed, [intentPath(HOME)]: prior } });
+      await refusal(p);
+      expect(p.readFile(intentPath(HOME))).toBe(prior);
+    });
+
+    test("this invite's own saved join intent survives, so the setup app's resume keeps showing the refusal", async () => {
+      const saved = JSON.stringify({ v: 1, at: "2026-08-01T00:00:00.000Z", mode: "join", join: { id: ID_HEX, keyB64: Buffer.from(KEY).toString("base64"), pointer: POINTER } });
+      const p = redeemProbes({ files: { ...renamed, [intentPath(HOME)]: saved } });
+      const err = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, {}, baseJoinRedeemSeams().seams).then(() => null, (e: unknown) => e);
+      expect((err as UserActionableError).code).toBe("invite-stale");
+      expect(p.readFile(intentPath(HOME))).toBe(saved);
+    });
+
+    test("a marker naming the pointer's own org joins as before", async () => {
+      const p = redeemProbes({ files: { [MARKER]: `{ "role": "org", "org": "acme" }` } });
+      const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+      expect(result.access).toBe("ok");
+    });
+
+    test("an org folder already on this Mac is never removed, whatever its marker says", async () => {
+      const p = redeemProbes({ dirs: { [TEAM_DIR]: [".git"] }, files: { ...renamed, [`${TEAM_DIR}/.git/config`]: gitConfigWithRemote(REMOTE) } });
+      const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+      expect(result.access).toBe("ok");
+      expect(p.exists(MARKER)).toBe(true);
+    });
+  });
 });
 
 describe("joinRedeem's relay failure reports what it actually persisted", () => {
@@ -1705,6 +1773,39 @@ test("a joined identity reads the selected team's board title through the resolv
     expect(notices).toHaveLength(1);
   } finally {
     setSettingsNoticeSink(priorSink);
+    if (priorHome === undefined) delete process.env.HOME; else process.env.HOME = priorHome;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("a real clone whose marker names another org is removed, with no record and no intent left", async () => {
+  const home = mkdtempSync(pathJoin(tmpdir(), "join-stale-"));
+  const priorHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const env = { ...childEnv(), GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+    const work = pathJoin(home, "work");
+    mkdirSync(pathJoin(work, "mattstack", "org"), { recursive: true });
+    writeFileSync(pathJoin(work, "mattstack", "mattstack.jsonc"), `{ "role": "org", "org": "globex" }\n`);
+    writeFileSync(pathJoin(work, "mattstack", "org", "settings.org.jsonc"), rosterWith("dev2"));
+    const bare = pathJoin(home, "origin.git");
+    execFileSync("git", ["init", "-q", "-b", "main", work], { env });
+    execFileSync("git", ["-C", work, "add", "."], { env });
+    execFileSync("git", ["-C", work, "commit", "-q", "-m", "org"], { env });
+    execFileSync("git", ["clone", "-q", "--bare", work, bare], { env });
+
+    const p = createRealProbes();
+    const realExec = p.exec.bind(p);
+    // The pointer's remote must be an https url; the clone itself reads the local bare repo, which join's GIT_PROTOCOL_FROM_USER=0 would refuse as a file transport.
+    p.exec = (argv, opts) => realExec(argv.map((arg) => (arg === REMOTE ? bare : arg)), { ...opts, env: { ...opts?.env, GIT_PROTOCOL_FROM_USER: "1" } });
+
+    const err = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams).then(() => null, (e: unknown) => e);
+
+    expect((err as UserActionableError).code).toBe("invite-stale");
+    expect(existsSync(pathJoin(home, ".mattstack", "teams", "acme"))).toBe(false);
+    expect(existsSync(teamLocalPath(home, "acme"))).toBe(false);
+    expect(existsSync(intentPath(home))).toBe(false);
+  } finally {
     if (priorHome === undefined) delete process.env.HOME; else process.env.HOME = priorHome;
     rmSync(home, { recursive: true, force: true });
   }
