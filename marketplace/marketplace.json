@@ -15,7 +15,7 @@
         "source": "url",
         "url": "https://github.com/m4ttstack/fast-browser.git",
         "ref": "main",
-        "sha": "aac4b69cb0f07961bd89f932e612e70438c2effa"
+        "sha": "be1ffb209ab415742f9752ee730bef2548e6b180"
       },
       "description": "macOS and Chrome alpha browser automation for Claude Code and Codex"
     },
