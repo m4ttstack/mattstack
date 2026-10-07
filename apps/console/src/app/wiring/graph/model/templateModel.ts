@@ -718,7 +718,8 @@ export function appSkillView(
 
 /** Who chose a default fill, for the layers rt names a chooser for. */
 function pickedBy(layer: string | null): string {
-  if (layer === 'pack' || layer === 'override' || layer?.startsWith('base:'))
+  if (layer?.startsWith('base:')) return ' · picked by the org base';
+  if (layer === 'pack' || layer === 'override')
     return ` · picked by ${layerLabel(layer)}`;
   return '';
 }
