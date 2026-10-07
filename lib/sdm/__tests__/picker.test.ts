@@ -102,17 +102,8 @@ describe("buildPickerOptions", () => {
     expect(s.label.startsWith("✓ ")).toBe(true);  // standing access, not connected
     expect(d.label.startsWith("  ")).toBe(true);  // on-demand
     expect(q.tone).toBe("blue");
-    expect(s.tone).toBe("peach");
-    expect(d.tone).toBe("mint");
-  });
-
-  test("a row names its tier's tone, and no option carries an escape sequence", () => {
-    const options = buildPickerOptions([conn("p", "production"), conn("q", "qa"), conn("x")], []);
-    const rows = options.filter(o => !o.separator);
-    expect(rows.find(o => o.value === "demo:p")!.tone).toBe("coral");
-    expect(rows.find(o => o.value === "demo:q")!.tone).toBe("pink");
-    expect(rows.find(o => o.value === "demo:x")!.tone).toBeUndefined();
-    expect(JSON.stringify(options)).not.toContain("\\u001b");
+    expect(s.tone).toBeUndefined();
+    expect(d.tone).toBeUndefined();
   });
 });
 
@@ -203,7 +194,7 @@ describe("the pick request", () => {
     fake = undefined;
   });
 
-  test("an sdm row reaches rt-ui as a bold label and a dim hint, and nothing else", async () => {
+  test("an sdm row reaches rt-ui as a bold label column, then access and dim resource cells", async () => {
     fake = installFakePick([{ kind: "result", result: { action: "cancel", value: null, query: "" } }]);
     const options = buildPickerOptions(
       [{ ...conn("q", "qa"), standingAccess: true }, conn("d", "development")],
@@ -212,8 +203,8 @@ describe("the pick request", () => {
     );
     await runNavPicker({ options, message: "sdm connections", breadcrumb: ["rt", "sdm", "connections"] });
     expect(fake.calls[0]!.request.rows).toEqual([
-      { value: "demo:d", match: "  d", left: [{ text: "  d", bold: true, column: true }, { text: "  example-d  development", tone: "dim" }], group: "Development" },
-      { value: "demo:q", match: "● q", left: [{ text: "● q", bold: true, column: true }, { text: "  example-q  qa", tone: "dim" }], group: "QA" },
+      { value: "demo:d", match: "Development example-d", left: [{ text: "  d", bold: true, column: true }, { text: "  ", }, { text: "  example-d", tone: "dim" }], group: "Development" },
+      { value: "demo:q", match: "QA example-q", left: [{ text: "● q", bold: true, column: true, tone: "blue" }, { text: "  " }, { text: "  example-q", tone: "dim" }], group: "QA" },
     ]);
   });
 });
