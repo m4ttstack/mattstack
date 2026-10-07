@@ -347,6 +347,14 @@ export function createGatesStore(opts: {
     });
     addConsumedAtTxn();
   }
+  // A reconciler before 2026-10-06 marked a delivery stuck when the pane
+  // closed after reading the answer. Those rows read "answer not delivered"
+  // on the board for as long as their MR's lane is live.
+  // The CASE keeps json_extract off a malformed delivery text, which would
+  // otherwise raise and stop the store opening.
+  db.exec(
+    "UPDATE gates SET delivery = json_set(delivery, '$.outcome', 'confirmed') WHERE consumedAt IS NOT NULL AND (CASE WHEN json_valid(delivery) THEN json_extract(delivery, '$.outcome') END) = 'stuck';",
+  );
 
   const subCols = new Set(
     (db.query("PRAGMA table_info(gate_subscriptions)").all() as Array<{ name: string }>).map((c) => c.name),

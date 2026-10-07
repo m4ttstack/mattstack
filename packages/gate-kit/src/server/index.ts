@@ -40,18 +40,27 @@ export interface ResolveOriginFocusOpts {
   panesUnavailable?: boolean;
 }
 
-/** Shared focus rule: direct by origin.paneId, else worktree match against
-    live pane cwds, else a human-readable reason for a disabled affordance
-    or a 400 body. */
+export const ORIGIN_PANE_CLOSED_REASON = 'the pane that asked this has closed';
+
+/** Shared focus rule: origin.paneId while that pane is still listed live,
+    else a worktree match against live pane cwds, else a human-readable
+    reason for a disabled affordance or a 400 body. A gate's pane closes
+    when its run finishes or is relaunched, and a stored id handed to herdr
+    then only earns a raw not-found error. With the pane list unreadable the
+    stored id is the best guess left, so it is returned as it was. */
 export function resolveOriginFocus(
   origin: GateOrigin | undefined,
   panes: Array<{ paneId: string; cwd?: string }>,
   opts: ResolveOriginFocusOpts = {}
 ): FocusResolution {
   if (origin?.paneId) {
-    return opts.carryTabId && origin.tabId !== undefined
-      ? { ok: true, paneId: origin.paneId, tabId: origin.tabId }
-      : { ok: true, paneId: origin.paneId };
+    const paneId = origin.paneId;
+    const live = opts.panesUnavailable || panes.some(p => p.paneId === paneId);
+    if (live) {
+      return opts.carryTabId && origin.tabId !== undefined
+        ? { ok: true, paneId, tabId: origin.tabId }
+        : { ok: true, paneId };
+    }
   }
   if (origin?.worktree) {
     if (opts.panesUnavailable) {
@@ -61,10 +70,12 @@ export function resolveOriginFocus(
     const match = panes.find(
       p => p.cwd !== undefined && normalizeWorktreePath(p.cwd) === target
     );
-    return match
-      ? { ok: true, paneId: match.paneId }
+    if (match) return { ok: true, paneId: match.paneId };
+    return origin.paneId
+      ? { ok: false, reason: ORIGIN_PANE_CLOSED_REASON }
       : { ok: false, reason: 'no live pane matches the origin worktree' };
   }
+  if (origin?.paneId) return { ok: false, reason: ORIGIN_PANE_CLOSED_REASON };
   return { ok: false, reason: 'no origin on this gate' };
 }
 
@@ -77,11 +88,10 @@ export interface PanesForOriginResult {
   fetchFailed: boolean;
 }
 
-/** Fetches live panes only when the resolution actually needs them: a direct
-    `origin.paneId` never touches the pane list, so a fetch that would only
-    be discarded (or a call the daemon has to serve for nothing) never
-    happens; the worktree-fallback path is the only one that needs to know
-    what's live. */
+/** Fetches live panes whenever the resolution has something to check them
+    against: a stored `origin.paneId` is only worth focusing while it is
+    still listed, and the worktree fallback needs the list outright. An
+    origin naming neither never touches the pane list. */
 export async function panesForOrigin(
   origin: GateOrigin | undefined,
   listPanes: () => Promise<{
@@ -89,7 +99,7 @@ export async function panesForOrigin(
     data?: { panes: Array<{ paneId: string; cwd?: string }> } | null;
   }>
 ): Promise<PanesForOriginResult> {
-  if (origin?.paneId || !origin?.worktree)
+  if (!origin?.paneId && !origin?.worktree)
     return { panes: [], fetchFailed: false };
   try {
     const res = await listPanes();

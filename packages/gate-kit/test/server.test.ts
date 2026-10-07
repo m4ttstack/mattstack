@@ -5,26 +5,57 @@ import { describe, expect, test } from 'vitest';
 
 import {
   normalizeWorktreePath,
+  ORIGIN_PANE_CLOSED_REASON,
   panesForOrigin,
   resolveOriginFocus,
 } from '@mattstack/gate-kit/server';
 
 describe('resolveOriginFocus', () => {
-  test('paneId wins directly; tabId is dropped unless carryTabId asks for it', () => {
+  const live = [{ paneId: 'p1', cwd: '/w' }];
+
+  test('a live paneId wins directly; tabId is dropped unless carryTabId asks for it', () => {
     expect(
-      resolveOriginFocus({ paneId: 'p1', tabId: 't1', worktree: '/w' }, [])
+      resolveOriginFocus({ paneId: 'p1', tabId: 't1', worktree: '/w' }, live)
     ).toEqual({ ok: true, paneId: 'p1' });
   });
 
   test('carryTabId threads tabId through for the board tab fallback', () => {
     expect(
-      resolveOriginFocus({ paneId: 'p1', tabId: 't1', worktree: '/w' }, [], {
+      resolveOriginFocus({ paneId: 'p1', tabId: 't1', worktree: '/w' }, live, {
         carryTabId: true,
       })
     ).toEqual({ ok: true, paneId: 'p1', tabId: 't1' });
     expect(
-      resolveOriginFocus({ paneId: 'p1' }, [], { carryTabId: true })
+      resolveOriginFocus({ paneId: 'p1' }, live, { carryTabId: true })
     ).toEqual({ ok: true, paneId: 'p1' });
+  });
+
+  test('a paneId no longer listed falls back to a live pane in the origin worktree', () => {
+    expect(
+      resolveOriginFocus({ paneId: 'gone', tabId: 't1', worktree: '/w' }, [
+        { paneId: 'p9', cwd: '/w' },
+      ])
+    ).toEqual({ ok: true, paneId: 'p9' });
+  });
+
+  test('a paneId no longer listed, with nothing live to stand in, says the pane closed', () => {
+    expect(resolveOriginFocus({ paneId: 'gone', worktree: '/w' }, [])).toEqual({
+      ok: false,
+      reason: ORIGIN_PANE_CLOSED_REASON,
+    });
+    expect(resolveOriginFocus({ paneId: 'gone' }, [])).toEqual({
+      ok: false,
+      reason: ORIGIN_PANE_CLOSED_REASON,
+    });
+  });
+
+  test('with the pane list unreadable the stored paneId is still the best guess', () => {
+    expect(
+      resolveOriginFocus({ paneId: 'p1', tabId: 't1' }, [], {
+        panesUnavailable: true,
+        carryTabId: true,
+      })
+    ).toEqual({ ok: true, paneId: 'p1', tabId: 't1' });
   });
 
   test("worktree matches a live pane's cwd when no paneId is on the origin", () => {
@@ -149,15 +180,16 @@ describe('normalizeWorktreePath', () => {
 });
 
 describe('panesForOrigin', () => {
-  test('a direct paneId never fetches the pane list', async () => {
+  test('a paneId origin fetches the pane list too, so the id can be checked against it', async () => {
     let calls = 0;
+    const panes = [{ paneId: 'p1', cwd: '/w' }];
     const listPanes = async () => {
       calls++;
-      return { ok: true, data: { panes: [] } };
+      return { ok: true, data: { panes } };
     };
     const result = await panesForOrigin({ paneId: 'p1' }, listPanes);
-    expect(result).toEqual({ panes: [], fetchFailed: false });
-    expect(calls).toBe(0);
+    expect(result).toEqual({ panes, fetchFailed: false });
+    expect(calls).toBe(1);
   });
 
   test('no origin at all never fetches the pane list', async () => {
