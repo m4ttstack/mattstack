@@ -138,41 +138,54 @@ first update and every later rename.
 
 It runs as the update-safe step `org.folder`, placed before `org.pull` in
 `runUpdateWith`, and `org.pull` calls it again when a pull changed the
-marker's `org`. The step is idempotent: a Mac whose folder already matches
-reports `done` with no work.
+marker's `org`. The step is idempotent: on every run it checks each piece
+below against the clone as it stands now, does only the pieces that are
+off, and reports `done` with no work when every piece already matches. It
+never decides from the folder name alone that there is nothing to do, so a
+run that stopped halfway (a move done, the records or the marketplace not)
+finishes at the next run.
 
-For each marked clone (under `orgsDir()` whose marker disagrees with its
-folder, or under `legacyTeamsDir()`):
+For each marked clone under `orgsDir()` and under `legacyTeamsDir()`:
 
 1. **Skip** a folder with no `mattstack/mattstack.jsonc` carrying
    `role: "org"`, or the old `role: "team"` with an `org` field. The detail
    names it, so a leaked fixture is visible.
 2. **Derive the target** `orgs/<marker org>`, validated with the slug rule.
    The old one-team marker carries `org` too, so a member whose clone is
-   still on the old layout moves the same way.
-3. **Refuse** when the clone has uncommitted changes to tracked files
-   (untracked files move with the folder), is mid-rebase, or when the target
-   already exists with a different origin. Nothing commits or cleans a dirty
-   clone that stays behind under `teams/`, so the detail names the folder
-   and says to commit the changes if they are yours or discard them with
-   `git -C <folder> checkout -- .` on a Mac that only pulls, then run the
-   update again. When the target exists with the same origin, the move is
-   already done: fall through to the record steps.
-4. **Move under the daemon's hold.** A new daemon verb
-   `org:move { from, to }` pauses that clone's snapshot engine (a per-clone
-   pause is new; today the engine only stops or rescans), runs the rename,
-   the record renames and the repo relocation below under the reconciler
-   hold, then rescans team snapshots. The records are renamed before the
-   rescan, because the engine's ownership reads `forgeUsername` from
-   `rt/teams/<org>.json`. Without a daemon the step does the same work
-   directly. A daemon that does not know the verb (a source checkout newer
-   than the running daemon) makes the outcome `failed` with the remedy
-   `rt daemon restart`, then `rt setup update --force`; the step never
-   renames beside a running daemon.
-5. **Rename records**: `rt/teams/<old>.json` to `<org>.json` under the
+   still on the old layout moves the same way. The clone's current folder
+   name is `<folder>`; it equals `<org>` once the folder piece is done.
+3. **Refuse** a pending folder piece when the clone has uncommitted
+   changes to tracked files (untracked files move with the folder), is
+   mid-rebase, or when the target already exists with a different origin.
+   Nothing commits or cleans a dirty clone that stays behind under
+   `teams/`, so the detail names the folder and says to commit the changes
+   if they are yours or discard them with a checkout of the tracked files
+   on a Mac that only pulls, then run the update again. A target that
+   exists with the same origin while the source folder is gone means the
+   folder piece is done; the other pieces still run.
+4. **Hold the daemon.** A new daemon verb `org:move { from, to }` pauses
+   that clone's snapshot engine (a per-clone pause is new; today the engine
+   only stops or rescans), runs the record renames, the folder rename and
+   the repo relocation below in that order under the reconciler hold, then
+   rescans team snapshots. The records go first because the folder is the
+   only thing that remembers the old name: once it has moved, nothing says
+   what `rt/teams/<old>.json` was called, while a record renamed ahead of a
+   folder that then fails to move is found by its new name at the next run.
+   The engine's ownership reads `forgeUsername` from `rt/teams/<org>.json`
+   after the rescan, by which time both are renamed. Without a daemon the
+   step does the same work directly, in the same order. A daemon that does
+   not know the verb (a source checkout newer than the running daemon)
+   makes the outcome `failed` with the remedy `rt daemon restart`, then
+   `rt setup update --force`; the step never renames beside a running
+   daemon.
+5. **Rename records**: `rt/teams/<folder>.json` to `<org>.json` under the
    record lock in `lib/team/team-local.ts` (exported for this), and
-   `rt/invites/<old>.json` the same way. Each is skipped when already done.
-6. **Repo index**: relocate the clone with no `repo` argument, so the
+   `rt/invites/<folder>.json` the same way. The piece is done when
+   `<org>.json` exists; it is skipped when neither name exists (a Mac with
+   no record for this clone).
+6. **Move the folder**: rename the clone to `orgs/<org>`. Done when the
+   clone already sits there.
+7. **Repo index**: relocate the clone with no `repo` argument, so the
    identity row finds the moved clone and `repos.json`, `cd-cache.json`,
    the `repo-index` kv and `git_badges` follow. Inside `org:move` this is
    `planLocate` and `applyLocate` called directly, with the
@@ -181,29 +194,34 @@ folder, or under `legacyTeamsDir()`):
    through it (`locateMovedRepo` would send `repos:locate` to the daemon
    and wait on the hold `org:move` already holds). Without a daemon the step
    calls `locateMovedRepo({ newPath })` from `lib/repo-locate-dispatch.ts`.
-   A `nothing-lost` refusal means rt never registered the clone (a member's
-   Mac) and counts as done; `identity-mismatch` and `old-path-exists` are
+   It runs on every pass: a row that already carries the current path and a
+   `nothing-lost` refusal (rt never registered the clone, as on a member's
+   Mac) both count as done; `identity-mismatch` and `old-path-exists` are
    failures.
-7. **Claude marketplace**: for every Claude config dir
-   (`claudeConfigDirs`), read which plugins were installed from the
-   marketplace and whether each is enabled, then `claude plugin marketplace
-   remove <name>`, `add <new folder>` and `claude plugin install
-   <plugin>@<name>` for each one, restoring its enabled state; the name
-   comes from `.claude-plugin/marketplace.json`. Removing a marketplace is
-   believed to uninstall its plugins, and the plugins step under `update`
-   leaves a plugin alone once it has gone missing, so the reinstall is this
-   step's job; the plan verifies the CLI's behaviour first. Rewrite the
-   matching `marketplaces[]` entry in `setup-state.json`.
-8. **Secrets**: the sops rules are clone-relative; nothing moves.
+8. **Claude marketplace**: for every Claude config dir
+   (`claudeConfigDirs`), read the registered marketplaces
+   (`parseMarketplaceList` in `lib/setup/steps/plugins.ts` over
+   `claude plugin marketplace list --json`) and find the one whose name is
+   this clone's `.claude-plugin/marketplace.json` name. The piece is done
+   when its source path is the clone's current folder, and skipped when the
+   marketplace is not registered at all. Else read which plugins were
+   installed from it and whether each is enabled, then `claude plugin
+   marketplace remove <name>`, `add <current folder>` and `claude plugin
+   install <plugin>@<name>` for each one, restoring its enabled state.
+   Removing a marketplace is believed to uninstall its plugins, and the
+   plugins step under `update` leaves a plugin alone once it has gone
+   missing, so the reinstall is this step's job; the plan verifies the
+   CLI's behaviour first. Rewrite the matching `marketplaces[]` entry in
+   `setup-state.json`.
+9. **Secrets**: the sops rules are clone-relative; nothing moves.
 
-The outcomes combine into one: `done` when nothing needed moving or every
-move finished; `failed` (detail naming the folder and the reason, remedy
-`rt setup update --force` after the fix) when any clone was refused or a
-move failed; `partial` (remedy carrying the exact claude commands) when the
-move and records are done but the marketplace step failed or claude is
-missing. A rerun checks each piece on its own, so a Mac that stopped halfway
-finishes without redoing what is done. The step never writes into the
-clone.
+The outcomes combine into one: `done` when every piece matched or every
+pending piece finished; `failed` (detail naming the folder and the reason,
+remedy `rt setup update --force` after the fix) when a folder piece was
+refused or a rename, move or relocation failed; `partial` (remedy carrying
+the exact claude commands) when records, folder and index are done but the
+marketplace piece failed or claude is missing. The step never writes into
+the clone.
 
 ### When a member's Mac converges
 
@@ -250,8 +268,10 @@ clone, join reads the marker. When its `org` differs from the pointer's
 slug, join removes the fresh clone, restores the records it wrote before
 cloning (the way its existing clone-failure path does) and refuses with
 `invite-stale`: "This invite names the org by an old name; ask for a fresh
-one". An admin's invite always carries the current name, since the
-admin's folder converges as part of the rename.
+one". The admin who ran the rename mints invites under the new name at
+once, since the rename converges that Mac; another admin's Mac, or an
+invite minted before the rename, carries the old name until that Mac
+converges, and the refusal covers both.
 
 ## 6. The conversion script
 
@@ -276,20 +296,48 @@ Compile therefore writes a base's attachments into the team pack it
 compiles:
 
 - A team pack names its base with `"extends": "<base>"` in its
-  `pack/skills.jsonc` (already supported).
-- For each `attachments/<name>/` in the base, compile writes
-  `attachments/<name>/` in the team pack with `compiled:` metadata naming
-  the base and its version, exactly as it writes compiled stages today.
-- A team that has its own source `attachments/<name>/` keeps it: the
-  team's copy wins, and compile emits nothing for that name.
-- The emitted files go through the same placeholder expansion as a compiled
-  stage, in the team pack's context, so `{{verb.path:<verb>}}` and
-  `{{pack.path:<attachment>/<file>}}` resolve to the team pack. A new
-  placeholder, `{{pack.name}}`, expands to the compiling pack's plugin name,
-  so a base attachment can name a team verb as `{{pack.name}}:ship`.
-- `rt skills check` reports an emitted attachment whose base source changed
-  as drift, and compile removes an emitted attachment whose base source is
-  gone (it removes only output it wrote, by its `compiled:` metadata).
+  `pack/skills.jsonc`. Materialize and the manifest merge already read it;
+  compile today registers every org base pack for fills and never reads
+  `extends`, so it learns to, and a pack without `extends` emits nothing.
+- **Which attachments:** every `attachments/<name>/` in the base except one
+  whose `SKILL.md` carries `metadata.provides`: that is a fill or include,
+  and compile already inlines it into the team's verbs.
+- **Where:** `attachments/<name>/` in the team pack. Each emitted folder
+  carries `compiled.json` at its root, naming the base, its version and
+  every file compile wrote there. That file is the provenance: a folder
+  with it is compile's output and is rewritten on every compile; a folder
+  without it is the team's own. `isCompiledDir` in `commands/skills.ts` and
+  the mcp lint treat a folder carrying `compiled.json` as compiled output,
+  the way they treat a `SKILL.md` opening with the compiler header.
+- **The team's copy wins:** a team source `attachments/<name>/` (no
+  `compiled.json`) keeps its content and compile emits nothing for that
+  name. To override a base attachment the team deletes the emitted folder
+  and authors its own.
+- **Clashes:** a base attachment whose name is a compile target of the team
+  pack (either side, `verbSides`) or a hand-authored `skills/<name>` is a
+  compile error naming both.
+- **Order:** compile emits the base attachments first, before any target
+  compiles, so `{{pack.path:<attachment>/<file>}}` in a team verb finds the
+  emitted file on disk on a clean compile as well as a recompile. The
+  existence check in `packPath` stays; its comment, which says only
+  pack-authored source is addressable, is updated to say emitted base
+  attachments are too, since they are on disk before targets compile.
+- **Placeholders:** an emitted `.md` file gets exactly three placeholders:
+  `{{pack.name}}` (new) expands to the compiling pack's plugin name, so a
+  base attachment can name a team verb as `{{pack.name}}:ship`;
+  `{{verb.path:<verb>}}` and `{{pack.path:<attachment>/<file>}}` resolve
+  as for a fill, in the team pack. `verb.path` is computed from the emitted
+  file's own depth under the pack, so a file at
+  `attachments/<name>/references/x.md` gets one more `../` than the
+  folder's `SKILL.md`. Any other `{{...}}` text in a `.md` file passes
+  through unchanged, and every non-`.md` file is copied byte for byte, so a
+  script or a template example that carries braces compiles. This is a new
+  function beside `substituteIncludesOnly`, not `substitute`, which needs
+  an engine's slots and stage metadata.
+- **Drift and cleanup:** `rt skills check` compares each emitted folder to a
+  fresh emit and reports a difference as drift. Compile removes an emitted
+  folder (one carrying `compiled.json`) whose base no longer has that
+  attachment, or whose pack no longer extends a base.
 
 Then the shared attachments move: a base pack named for the org is created
 (`<org>-base`, so `acme-base` for the acme org), the org-wide attachments move into
@@ -350,9 +398,11 @@ dark.
   the segment guard, no org), the `org.folder` row's three states and the
   guard test.
 - Converge tests through `steps-*.test.ts`-style fakes: a clean move from
-  `teams/`, a rename inside `orgs/`, a folder already matching (no work),
-  an unmarked folder skipped, a dirty clone refused, a rerun after each
-  partial state, `nothing-lost` from the relocation, the marketplace step
+  `teams/`, a rename inside `orgs/`, every piece already matching (no
+  work), a folder that matches with a stale record, index row or
+  marketplace path (only that piece runs), an unmarked folder skipped, a
+  dirty clone refused, a rerun after an interruption at each point of the
+  record-folder-index order, `nothing-lost` from the relocation, the marketplace step
   when claude is absent (`partial` with the commands), a daemon that does
   not know `org:move`, a member's clone still on the old layout, and
   `org.pull` re-running converge after a pull that changed the marker.
@@ -362,9 +412,12 @@ dark.
 - `rt team rename` tests: admin only, slug rule, same name, a taken name,
   dirty and behind refusals, the marker commit on a trial branch, and the
   local converge that follows; the `--json` envelope.
-- Compile tests for base attachments: emitted with `compiled:` metadata, a
-  team override wins, placeholders resolve in the team pack's context,
-  `{{pack.name}}`, drift after a base change, cleanup after a base removal.
+- Compile tests for base attachments: emitted with `compiled.json`, a fill
+  or include not emitted, a team override wins, a name clash refused,
+  `{{pack.path}}` to an emitted file on a clean compile, the three
+  placeholders in a nested `.md`, braces in a script untouched,
+  `{{pack.name}}`, drift after a base change, cleanup after a base removal
+  and after `extends` is dropped, `isCompiledDir` on an emitted folder.
 - Conversion script tests for `--org` and both placeholder forms.
 - The e2e settings test keeps asserting `${team:e2eteam}` expansion, now
   through the alias, and gains `${org}`.
