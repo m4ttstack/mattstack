@@ -152,7 +152,7 @@ import type { PortEntry } from "./port-scanner.ts";
 import { backgroundUnit, runUnits, stopUnits, type DaemonUnit } from "./daemon/lifecycle.ts";
 import { integrationsEnabled } from "./agent-integrations/context.ts";
 import { createDeliveryService, type DeliveryService } from "./agent-integrations/delivery.ts";
-import { createGateQuestions, setGateQuestions, type GateQuestions } from "./agent-integrations/questions.ts";
+import { createGateQuestions, gateCommandsVia, setGateQuestions, type GateQuestions } from "./agent-integrations/questions.ts";
 
 // Legacy state migration (RT-46). Must run BEFORE the logger's first write can
 // create the new rt dir and turn a clean rename of a real legacy tree into a
@@ -703,6 +703,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         gateQuestions = createGateQuestions({
           gates: gatesStore,
           db: () => getStateDb("daemon"),
+          commands: gateCommandsVia(handleCommand),
           signal: gateQuestionShutdown.signal,
           log: loggerHandle.childLogger("gate-questions"),
           emit: (topic, payload) => {

@@ -104,6 +104,22 @@ export const CODEX_METHODS_OUTSIDE_FIXTURE: Readonly<Record<string, string>> = {
     + "{ status: notLoaded | notSubscribed | unsubscribed } (.harness-spike/live-04/report.md, 0.160.x)",
 };
 
+/** Replies Mattstack sends to server requests, with the result fields each carries; `respond` writes no other. */
+export const CODEX_SERVER_REQUEST_REPLIES: Readonly<Record<string, readonly string[]>> = {
+  "item/tool/requestUserInput": ["answers"],
+};
+
+/**
+ * Native evidence read outside the app-server protocol, with where its shape
+ * was confirmed. Each is read as evidence only, never called or written, and
+ * an entry in any other shape is no evidence.
+ */
+export const CODEX_EVIDENCE_OUTSIDE_PROTOCOL: Readonly<Record<string, string>> = {
+  "rollout function_call_output": "a line { type: response_item, payload: { type: function_call_output, call_id, output } } "
+    + "in the JSONL file at Thread.path, call_id = the question request's itemId; output is the answers JSON or "
+    + "\"aborted by user ...\" (.harness-spike/live-07 rollout-case*.jsonl, 0.160.x)",
+};
+
 export const CODEX_STATUS_ENUMS = {
   thread: ["notLoaded", "idle", "systemError", "active"],
   activeFlag: ["waitingOnApproval", "waitingOnUserInput"],

@@ -259,6 +259,7 @@ export function mcpTools(): McpToolDef[] {
         if (input.subject !== undefined) payload.subject = input.subject as string;
         if (caller.session) payload.sessionId = caller.session;
         if (caller.pane) payload.paneId = caller.pane;
+        if (caller.harness) payload.harness = caller.harness;
         return fromResponse(await gateAsk(payload));
       },
     },

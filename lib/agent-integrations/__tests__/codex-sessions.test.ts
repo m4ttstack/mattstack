@@ -715,10 +715,10 @@ describe("codex observations", () => {
     s.push(agentMessage("T1", "U1", { id: "A2", delivery: "async", questions: [{ id: "q2" }] }));
     expect(data(await sessions.observe(binding("T1"))).execution).toBe("working");
 
+    // Synchronous plan-mode forms are owned through gates (codex-questions.test.ts); async questions never are.
     const report = await codexIntegration.capabilities("herdr");
-    for (const cap of ["questions-form", "questions-wait", "question-recovery", "questions-async"] as const) {
-      expect(report.supported).not.toContain(cap);
-    }
+    for (const cap of ["questions-wait", "questions-async"] as const) expect(report.supported).not.toContain(cap);
+    for (const cap of ["questions-form", "question-recovery"] as const) expect(report.supported).toContain(cap);
   });
 
   test("an agentMessage saying DONE cannot mark execution idle", async () => {
@@ -866,9 +866,10 @@ describe("terminal attachment", () => {
 describe("registration", () => {
   test("codex loads its session adapter and advertises only what it provides", async () => {
     expect(typeof codexIntegration.loadSessions).toBe("function");
+    expect(typeof codexIntegration.loadQuestions).toBe("function");
     for (const mode of ["herdr", "headless"] as const) {
       const report = await codexIntegration.capabilities(mode);
-      expect(report.supported).toEqual(["launch", "resume", "observe", "peer-idle", "peer-working"]);
+      expect(report.supported).toEqual(["launch", "resume", "observe", "peer-idle", "peer-working", "questions-form", "question-recovery"]);
       expect(typeof report.readiness.ready).toBe("boolean");
     }
   });

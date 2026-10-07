@@ -28,6 +28,8 @@
  * queue/add in flight or queued rows, held again for those rows when a
  * connection opens), lets it go when the last is confirmed or after HOLD_MS,
  * and lets a Herdr launch's own subscription go once its terminal attached.
+ * A pending question holds the thread the same way until it ends or the
+ * window passes, and is held again before it is answered (`questions.ts`).
  * Threads rt runs headless keep theirs. The subscription is `thread/resume`
  * with nothing but the thread id and `excludeTurns`: the method table refuses
  * every override field, so it re-decides no settings (gate spike G6, hooks
@@ -56,7 +58,7 @@ import type {
 } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { buildCodexRemoteResumeCommand } from "../../agent-argv/codex.ts";
 import type {
-  LaunchHost, LaunchRequest, MessageAdapter, NativeLaunch, SessionAdapter, WorkCompletion, WorkReceipt,
+  LaunchHost, LaunchRequest, MessageAdapter, NativeLaunch, QuestionAdapter, SessionAdapter, WorkCompletion, WorkReceipt,
 } from "../contracts.ts";
 import { getStateDb } from "../../state/db.ts";
 import { integrationsEnabled } from "../switch.ts";
@@ -72,6 +74,7 @@ import { DELIVERY_SWEEP_INTERVAL_MS, MAX_DELIVERY_BACKOFF_TICKS } from "../deliv
 import { listQueuedFrames } from "../delivery-store.ts";
 import { codexEventHub } from "./events.ts";
 import type { CodexMessagingDeps } from "./messaging.ts";
+import { createCodexQuestions, type CodexQuestionDeps } from "./questions.ts";
 import { setCodexLinkProbe, setCodexThreadProbe } from "./link.ts";
 import { canonicalCodexProfile } from "./profile.ts";
 import { CODEX_STATUS_ENUMS, isRecord, type CodexEvent, type CodexThreadStatus } from "./protocol.ts";
@@ -96,7 +99,7 @@ export interface CodexSessionAdapter extends SessionAdapter {
   disown(binding: SessionBinding): void;
   /**
    * While the switch is on, keeps this connection subscribed to the bound
-   * thread until delivery `id` is released or its window ends; refused when
+   * thread until hold `id` is released or its window ends; refused when
    * Codex has not loaded the thread.
    */
   hold(binding: SessionBinding, id: string): Promise<Outcome<void>>;
@@ -108,6 +111,8 @@ export interface CodexSessionAdapter extends SessionAdapter {
   held(threadId: string, id: string): boolean;
   /** Whether the binding can take input now: its thread loaded and, for a Herdr attachment, codex in its pane at the last observe. */
   live(binding: SessionBinding): boolean | undefined;
+  /** Asks herdr now whether codex runs in a Herdr attachment's pane; a failed check is false. */
+  paneLive(binding: SessionBinding): Promise<boolean>;
 }
 
 /** unloaded: the app server no longer runs the thread, or closed it (a close follows every unload, live-04). ended: its sessionEnd hook ran. */
@@ -289,8 +294,10 @@ export function codexReadiness(
  * observe, and both take peer input through the native queue, which starts an
  * idle thread and holds input for a working one's next boundary (spike 2026-10-04).
  */
-export function codexSupported(_mode: Mode): Array<"launch" | "resume" | "observe" | "peer-idle" | "peer-working"> {
-  return ["launch", "resume", "observe", "peer-idle", "peer-working"];
+export function codexSupported(_mode: Mode): Array<
+  "launch" | "resume" | "observe" | "peer-idle" | "peer-working" | "questions-form" | "question-recovery"
+> {
+  return ["launch", "resume", "observe", "peer-idle", "peer-working", "questions-form", "question-recovery"];
 }
 
 function threadOf(result: unknown): Record<string, unknown> | undefined {
@@ -729,6 +736,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     release,
     held: (threadId, id) => holders.get(threadId)?.has(id) === true,
     live,
+    paneLive,
     disown(binding) {
       if (!checkRef(binding.native).ok) return;
       const threadId = binding.native.value;
@@ -951,6 +959,7 @@ export type CodexSessionLoaderDeps = {
   connect(options: CodexControlOptions): Promise<CodexControl>;
   sessions: Partial<CodexSessionDeps>;
   messaging: Partial<CodexMessagingDeps>;
+  questions: Partial<CodexQuestionDeps>;
   /** The state db the default `outstanding` and `headless` read. */
   db(): Database;
   /** Attached Codex bindings with deliveries still queued at their current attachment, and those deliveries' ids; held each time a connection opens. */
@@ -963,12 +972,19 @@ export type CodexSessionLoader = {
   load(): Promise<SessionAdapter>;
   /** Messaging on the sessions' own connection, so both share its one event subscription. */
   loadMessaging(): Promise<MessageAdapter>;
+  /** The live connection's question adapter, which has listened for native questions since that connection opened. */
+  loadQuestions(): Promise<QuestionAdapter>;
   status(): LoaderStatus;
   /** The live connection's id, or null; never connects. */
   connection(): string | null;
   /** Whether the binding can take input, as the live connection knows it; undefined without a connection for its profile. Never connects. */
   bindingLive(binding: SessionBinding): boolean | undefined;
 };
+
+/** Stands in when no connection could be made: nothing was answered, so the completion stays pending. */
+function unavailableQuestions(message: string): QuestionAdapter {
+  return { complete: async () => ({ ok: false, error: { code: "not-ready", message } }) };
+}
 
 /** Stands in when no connection could be made; nothing can have been sent. */
 function unavailableMessaging(message: string): MessageAdapter {
@@ -998,6 +1014,7 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     connect: (options) => connectCodexControl(options, { log: controlLog }),
     sessions: {},
     messaging: {},
+    questions: {},
     db: () => getStateDb(),
     headless: () => (integrationsEnabled() ? listAttachedBindings(deps.db(), HARNESS).filter((b) => b.attachment.mode === "headless") : []),
     outstanding: () => {
@@ -1009,7 +1026,9 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     },
     ...overrides,
   };
-  let current: { control: CodexControl; adapter: CodexSessionAdapter; messaging?: Promise<MessageAdapter> } | undefined;
+  let current: {
+    control: CodexControl; adapter: CodexSessionAdapter; questions: QuestionAdapter; messaging?: Promise<MessageAdapter>;
+  } | undefined;
   let opening: Promise<SessionAdapter> | undefined;
   let failure: { error: { code: FaultCode; message: string }; attempts: number; retryAt: number; adapter: SessionAdapter } | undefined;
 
@@ -1031,7 +1050,9 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     }
     failure = undefined;
     const adapter = createCodexSessions(control, { ...deps.sessions, endpoint: endpoint.data });
-    current = { control, adapter };
+    // Listening from the first event: a question already pending is replayed as soon as a hold resumes its thread.
+    const questions = createCodexQuestions(control, { sessions: adapter, ...deps.questions });
+    current = { control, adapter, questions };
     await Promise.all([keepHeadless(adapter, control.profile), holdOutstanding(adapter, control.profile)]);
     return adapter;
   }
@@ -1081,6 +1102,11 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
           ...deps.messaging,
         })));
     },
+    async loadQuestions() {
+      await load();
+      const live = current && !current.control.closed ? current : undefined;
+      return live?.questions ?? unavailableQuestions(failure?.error.message ?? "rt has no connection to the Codex app server");
+    },
     status() {
       if (current && !current.control.closed) return { state: "live" };
       if (failure) return { state: "failed", message: failure.error.message };
@@ -1114,4 +1140,8 @@ export function loadCodexSessions(): Promise<SessionAdapter> {
 
 export function loadCodexMessaging(): Promise<MessageAdapter> {
   return sharedLoader().loadMessaging();
+}
+
+export function loadCodexQuestions(): Promise<QuestionAdapter> {
+  return sharedLoader().loadQuestions();
 }

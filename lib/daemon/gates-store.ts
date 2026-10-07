@@ -18,6 +18,7 @@ import {
   type GateAnswer,
   type GateRow,
   type GateOrigin,
+  type GateNudge,
   type GateSubscription,
   type ExecutorState,
 } from "../../packages/rt-client/src/commands.ts";
@@ -51,7 +52,7 @@ export interface GatesStore {
     meta?: Record<string, unknown>;
     agent?: string;
     pane?: string;
-    nudge?: { session: string };
+    nudge?: GateNudge;
     context?: string;
     origin?: GateOrigin;
     owner?: string;
@@ -336,6 +337,7 @@ export function createGatesStore(opts: {
       presentation    TEXT NOT NULL,
       boundAt         INTEGER NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS gate_native_questions_item ON gate_native_questions (nativeThread, nativeItem);
 
     CREATE TABLE IF NOT EXISTS gate_native_completion (
       gateId      TEXT PRIMARY KEY,

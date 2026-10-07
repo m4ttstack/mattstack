@@ -150,13 +150,22 @@ export async function boundCaller(context?: ToolContext): Promise<Outcome<Caller
   return context.caller();
 }
 
-/** The session a gate or an answer belongs to: the bound native session when on, CLAUDE_CODE_SESSION_ID when off. */
-export async function callerSession(env: NodeJS.ProcessEnv, context?: ToolContext): Promise<{ session?: string; pane?: string } | { error: string }> {
+/**
+ * The session a gate or an answer belongs to: the bound native session when
+ * on, CLAUDE_CODE_SESSION_ID when off. `harness` names a bound session that
+ * is not Claude Code's.
+ */
+export async function callerSession(
+  env: NodeJS.ProcessEnv, context?: ToolContext,
+): Promise<{ session?: string; pane?: string; harness?: string } | { error: string }> {
   const caller = await boundCaller(context);
   if (caller === null) return { session: env.CLAUDE_CODE_SESSION_ID || undefined, pane: env.HERDR_PANE_ID || undefined };
   if (!caller.ok) return { error: callerRefusal(caller.error) };
   const { native, attachment } = caller.data.binding;
-  return { session: native.value, ...(attachment.pane && { pane: attachment.pane }) };
+  return {
+    session: native.value, ...(attachment.pane && { pane: attachment.pane }),
+    ...(native.harness !== "claude" && { harness: native.harness }),
+  };
 }
 
 export function requireJobEnv(env: NodeJS.ProcessEnv): { herd: string; job: string } | { error: string } {

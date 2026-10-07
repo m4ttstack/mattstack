@@ -35,7 +35,8 @@ describe("builtinRegistry", () => {
     for (const integration of builtinRegistry().list()) {
       const report = await integration.capabilities("herdr");
       const peer = integration.loadMessaging ? ["peer-idle", "peer-working"] as const : [];
-      const form = integration.loadQuestions ? ["questions-form"] as const : [];
+      // Recovery needs durable native question ids, which only Codex's requests carry.
+      const form = !integration.loadQuestions ? [] : integration.id === "codex" ? ["questions-form", "question-recovery"] as const : ["questions-form"] as const;
       if (integration.loadSessions) expect(report.supported).toEqual(["launch", "resume", "observe", ...peer, ...form]);
       else expect(report).toMatchObject({ supported: [], readiness: { ready: false } });
     }

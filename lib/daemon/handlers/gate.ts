@@ -5,7 +5,7 @@
  */
 
 import type { Logger } from "pino";
-import type { Commands } from "../../../packages/rt-client/src/commands.ts";
+import type { Commands, GateNudge } from "../../../packages/rt-client/src/commands.ts";
 import { GATE_BY_PANE } from "../../../packages/rt-client/src/commands.ts";
 import { parsePaneRef } from "../../../packages/rt-client/src/pane-ref.ts";
 import { unwrapGateAnswerValue, validateGateAnswers } from "../../../packages/rt-client/src/gate-answers.ts";
@@ -162,8 +162,14 @@ function invalidOrigin(v: unknown): string | null {
 
 /** gate-push resolves delivery off `nudge.session`; a malformed nudge would
     silently become "no delivery target" instead of a loud open-time reject. */
-function isValidNudge(v: unknown): v is { session: string } {
-  return isPlainObject(v) && typeof v.session === "string" && v.session.length > 0;
+function isValidNudge(v: unknown): v is GateNudge {
+  return isPlainObject(v) && typeof v.session === "string" && v.session.length > 0
+    && (v.harness === undefined || (typeof v.harness === "string" && v.harness.length > 0));
+}
+
+/** Claude Code's sessions keep the nudge they always had; only another harness is named on it. */
+function nudgeFor(session: string, harness: string | undefined): GateNudge {
+  return harness && harness !== "claude" ? { session, harness } : { session };
 }
 
 /** One pane in either spelling: a bound caller names a background pane by its
@@ -280,6 +286,9 @@ async function runExecutorGuarantee(row: GateRow, deps: GuaranteeDeps): Promise<
   // attachment, which that question never completes against, and an Escape
   // could cancel it.
   if (deps.nativeOwns?.(row)) return;
+  // The expectation's Escape retry and relaunch read a Claude Code pane.
+  const harness = row.nudge?.harness;
+  if (harness !== undefined && harness !== "claude") return;
   const hints = gateHints(row);
   const { state } = deps.reconciler.executorFor(hints);
 
@@ -764,6 +773,7 @@ export function createGateHandlers(
     }
     const sessionId = typeof payload?.sessionId === "string" && payload.sessionId.trim() ? payload.sessionId.trim() : undefined;
     const paneId = typeof payload?.paneId === "string" && payload.paneId.trim() ? payload.paneId.trim() : undefined;
+    const harness = typeof payload?.harness === "string" && payload.harness.trim() ? payload.harness.trim() : undefined;
     const explicitSubject = typeof payload?.subject === "string" && payload.subject.trim() ? payload.subject.trim() : undefined;
 
     const resolved = await resolveSubject({ subject: explicitSubject, sessionId });
@@ -826,7 +836,7 @@ export function createGateHandlers(
       ...(typeof payload?.agent === "string" && payload.agent.trim() ? { agent: payload.agent } : {}),
       ...(context !== undefined ? { context } : {}),
       ...(paneId ? { pane: paneId } : {}),
-      ...(presentation === "form" && sessionId ? { nudge: { session: sessionId } } : {}),
+      ...(presentation === "form" && sessionId ? { nudge: nudgeFor(sessionId, harness) } : {}),
       origin,
     });
     if (!opened.ok) return opened;

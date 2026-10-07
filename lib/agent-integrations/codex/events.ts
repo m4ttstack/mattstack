@@ -38,6 +38,7 @@ export class CodexEventHub {
   private readonly threads = new Map<string, Thread>();
   private readonly waiters = new Set<{ threadId: string; turnId: string; settle(status: TurnStatus): void }>();
   private readonly listeners = new Set<(event: CodexEvent) => void>();
+  private readonly statusListeners = new Set<(threadId: string, status: CodexThreadStatus) => void>();
 
   /** A listener that throws stops the rest hearing that event; the connection logs it. */
   constructor(control: CodexControl) {
@@ -52,6 +53,14 @@ export class CodexEventHub {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
+    };
+  }
+
+  /** Every status the hub takes for a thread, whether an event announced it or a read of the thread returned it. */
+  watchStatus(listener: (threadId: string, status: CodexThreadStatus) => void): () => void {
+    this.statusListeners.add(listener);
+    return () => {
+      this.statusListeners.delete(listener);
     };
   }
 
@@ -73,14 +82,14 @@ export class CodexEventHub {
   seed(threadId: string, status: CodexThreadStatus): void {
     if (this.threads.has(threadId)) return;
     const thread = this.thread(threadId, "codex-thread");
-    this.status(thread, status);
+    this.status(thread, status, threadId);
   }
 
   /** A status the thread itself just answered with, newer than anything heard about it before the reply. */
   refresh(threadId: string, status: CodexThreadStatus): void {
     const thread = this.thread(threadId, "codex-thread");
     thread.source = "codex-thread";
-    this.status(thread, status);
+    this.status(thread, status, threadId);
   }
 
   /**
@@ -125,7 +134,12 @@ export class CodexEventHub {
     return thread;
   }
 
-  private status(thread: Thread, status: CodexThreadStatus): void {
+  private status(thread: Thread, status: CodexThreadStatus, threadId: string): void {
+    this.applyStatus(thread, status);
+    for (const listener of [...this.statusListeners]) listener(threadId, status);
+  }
+
+  private applyStatus(thread: Thread, status: CodexThreadStatus): void {
     switch (status.type) {
       case "idle":
         thread.connectivity = "connected";
@@ -159,7 +173,7 @@ export class CodexEventHub {
     switch (event.method) {
       case "thread/started":
       case "thread/status/changed":
-        this.status(thread, event.status);
+        this.status(thread, event.status, event.threadId);
         return;
       case "thread/closed":
         this.unloaded(thread);

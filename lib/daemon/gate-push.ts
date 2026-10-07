@@ -236,10 +236,15 @@ export function createGatePush(opts: {
     log,
   });
 
-  /** A gate no harness owns ends through Claude's question completion; one with no nudge has no pane to wake. */
+  /**
+   * A gate no harness owns ends through Claude's question completion; one
+   * with no nudge has no pane to wake. Another harness's session has no
+   * Claude inbox, and its pane must never take Claude's Escape: it reads the
+   * answer through its gate wait.
+   */
   async function pushToPane(row: GateRow): Promise<void> {
     const target = nudgedQuestion(row);
-    if (target) await claude.complete(target.binding, target.question, row);
+    if (target && target.binding.native.harness === "claude") await claude.complete(target.binding, target.question, row);
   }
 
   function recordSubscriptionOutcome(sub: GateSubscription, ok: boolean): void {

@@ -53,15 +53,16 @@ export type ClaudeQuestionDeps = {
 const fail = <T>(code: FaultCode, message: string): Outcome<T> => ({ ok: false, error: { code, message } });
 
 /**
- * The session a Claude gate nudges, as the binding its completion runs
- * against. Nothing is stored: the nudge is the only reference rt holds.
+ * The session a gate nudges, as the binding its completion runs against.
+ * Nothing is stored: the nudge is the only reference rt holds, and it names
+ * a harness only when the session is not Claude Code's.
  */
 export function nudgedQuestion(row: GateRow): { binding: SessionBinding; question: QuestionBinding } | null {
   const session = row.nudge?.session;
   if (!session) return null;
   const binding: SessionBinding = {
     key: session, identity: session,
-    native: { harness: HARNESS, profile: "", kind: "id", value: session },
+    native: { harness: row.nudge?.harness ?? HARNESS, profile: "", kind: "id", value: session },
     attachment: { generation: 0, mode: "herdr" },
   };
   const presentation = row.origin?.presentation === "form" ? "form" : "wait";

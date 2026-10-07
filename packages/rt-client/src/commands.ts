@@ -188,6 +188,9 @@ export { gateOptionValue, gateOptionLabel } from "./gate-options.ts";
     that supplies none (the board status-bin answers `by: "pane"` with no
     session) still matches self by `by === GATE_BY_PANE`. */
 export interface GateAnswer { answers: Record<string, string | string[] | { value: string | string[]; note?: string; text?: string }>; by: string; answeredAt: number; overridden?: boolean; session?: string }
+/** `harness` is set only for a session that is not Claude Code's: no Claude
+    inbox doorbell or Escape is ever aimed at its pane. */
+export interface GateNudge { session: string; harness?: string }
 export interface GateRow {
   id: string; subject: string; kind: string;
   questions: GateQuestion[]; meta: Record<string, unknown> | null;
@@ -202,7 +205,7 @@ export interface GateRow {
   /** Set only when `closedReason` is "superseded": the id of the gate that superseded this one. */
   supersededBy: string | null;
   agent: string | null; pane: string | null;
-  nudge: { session: string } | null;
+  nudge: GateNudge | null;
   delivery: { outcome: "delivered" | "dead-pane" | "confirmed" | "stuck"; at: number } | null;
   released: boolean;
   /** Set once the nudged pane has provably read the answer: it self-answered
@@ -995,7 +998,7 @@ export interface Commands {
   "reconciler:clear": { payload: { agentId: string }; data: { cleared: true } };
 
   // ─── Gate facility (BOARD-20/21) ─────────────────────────────────────────
-  "gate:open": { payload: { subject: string; kind: string; questions: GateQuestion[]; meta?: Record<string, unknown>; agent?: string; pane?: string; nudge?: { session: string }; context?: string; origin?: GateOrigin }; data: { id: string; supersededId: string | null } };
+  "gate:open": { payload: { subject: string; kind: string; questions: GateQuestion[]; meta?: Record<string, unknown>; agent?: string; pane?: string; nudge?: GateNudge; context?: string; origin?: GateOrigin }; data: { id: string; supersededId: string | null } };
   /** Ceremony layer over gate:open: resolves subject from the caller's
       session (an explicit subject always wins as the subject, but still
       picks up run linkage from the session's own running run; else its
@@ -1016,6 +1019,8 @@ export interface Commands {
       subject?: string;
       sessionId?: string;
       paneId?: string;
+      /** The asking session's harness when it is not Claude Code; recorded on the nudge. */
+      harness?: string;
       meta?: Record<string, unknown>;
       agent?: string;
       origin?: { surface?: string; tabId?: string; worktree?: string };

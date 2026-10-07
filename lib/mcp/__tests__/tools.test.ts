@@ -1477,7 +1477,7 @@ describe("resolved caller sessions", () => {
       expect(res.ok, c.tool).toBe(true);
     }
     const sent = Object.fromEntries(calls.map((c) => [c.cmd, c.payload]));
-    expect(sent["gate:ask"]).toMatchObject({ sessionId: "thread-one", paneId: "wTK:p1" });
+    expect(sent["gate:ask"]).toMatchObject({ sessionId: "thread-one", paneId: "wTK:p1", harness: "codex" });
     expect(sent["chat:post"]).toMatchObject({ handle: "remy.ab12" });
     expect(sent["chat:dm"]).toMatchObject({ from: "remy.ab12", sessionId: "thread-one" });
     expect(sent["herd:answer"]).toMatchObject({ gate: "g1", sessionId: "thread-one" });

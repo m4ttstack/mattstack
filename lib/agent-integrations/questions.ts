@@ -30,9 +30,10 @@ import type { Logger } from "pino";
 import type {
   Capability, FaultCode, Mode, Outcome, QuestionBinding, SessionBinding,
 } from "../../packages/rt-client/src/agent-integrations.ts";
+import { GATE_BY_PANE, type Commands } from "../../packages/rt-client/src/commands.ts";
 import { validateGateAnswers } from "../../packages/rt-client/src/gate-answers.ts";
 import type { NativeQuestionSeam } from "../daemon/gate-push.ts";
-import { answeredByNudgedPane, type GateRow, type GatesStore } from "../daemon/gates-store.ts";
+import { answeredByNudgedPane, type GateAnswer, type GateRow, type GatesStore } from "../daemon/gates-store.ts";
 import { getStateDb } from "../state/db.ts";
 import { builtinRegistry } from "./builtins.ts";
 import type { IntegrationRegistry, QuestionAdapter } from "./contracts.ts";
@@ -48,8 +49,61 @@ export const RETRY_MAX_MS = 30 * 60_000;
 /** Native attempts before a completion that never finishes is marked stuck, about two and a half hours of retries. */
 export const MAX_COMPLETION_ATTEMPTS = 8;
 
+/**
+ * The gate verbs an integration presents a native question through, so a
+ * gate it opens, answers or closes takes the same validation, supersede,
+ * events and push as any other caller's.
+ */
+export type GateCommands = {
+  ask(payload: Commands["gate:ask"]["payload"]): Promise<Outcome<{ id: string }>>;
+  answer(payload: Commands["gate:answer"]["payload"]): Promise<Outcome<GateRow>>;
+  close(id: string): Promise<Outcome<void>>;
+};
+
+type CommandReply = { ok: true; data?: unknown } | { ok: false; error?: unknown };
+
+/**
+ * The gate verbs through the daemon's command seam, so a gate a harness
+ * presents is validated, superseded, announced, pushed and logged like any
+ * other caller's.
+ */
+export function gateCommandsVia(handle: (cmd: string, payload: unknown) => Promise<CommandReply>): GateCommands {
+  const refused = (reply: { error?: unknown }) =>
+    fail<never>("refused", typeof reply.error === "string" ? reply.error : "the gate service refused");
+  return {
+    async ask(payload) {
+      const reply = await handle("gate:ask", payload);
+      return reply.ok ? ok(reply.data as { id: string }) : refused(reply);
+    },
+    async answer(payload) {
+      const reply = await handle("gate:answer", payload);
+      return reply.ok ? ok((reply.data as { row: GateRow }).row) : refused(reply);
+    },
+    async close(id) {
+      const reply = await handle("gate:close", { id, reason: "abandoned" });
+      return reply.ok ? ok(undefined) : refused(reply);
+    },
+  };
+}
+
+/** What an integration needs to show a native question as a gate and keep the two in step. */
+export interface NativeGates {
+  /** The gate already presenting this native item, whatever its state. */
+  find(thread: string, item: string): GateRow | null;
+  get(gateId: string): GateRow | null;
+  ask(payload: Commands["gate:ask"]["payload"]): Promise<Outcome<{ id: string }>>;
+  /** Records an answer the session gave in its own native form, as the session's own. */
+  answer(gateId: string, answers: GateAnswer["answers"], session: string): Promise<Outcome<GateRow>>;
+  /** Closes a gate whose native question ended unanswered. */
+  close(gateId: string): Promise<Outcome<void>>;
+  /** A native question rt cannot present or answer: logged and announced, never counted as an answer. */
+  attention(detail: Record<string, unknown> & { reason: string }): void;
+}
+
 export type GateQuestionDeps = {
   gates: Pick<GatesStore, "get" | "markConsumed" | "markDelivery" | "nativeQuestions">;
+  /** Absent, an integration can complete bound gates but present none. */
+  commands?: GateCommands;
   /** The session store's binding for a key, attached or not. */
   storedBinding(key: string): SessionBinding | null;
   /** Whether the harness completes native questions, read without loading its code. */
@@ -89,6 +143,7 @@ export interface GateQuestions extends NativeQuestionSeam {
   completion(gateId: string): CompletionRecord | null;
   /** Settles once every completion and recovery this service started has finished. */
   idle(): Promise<void>;
+  readonly native: NativeGates;
 }
 
 const OFF = "agent integrations are off, so native questions are not completed";
@@ -426,7 +481,31 @@ export function createGateQuestions(
         await Promise.allSettled([...tracked, ...inflight.values()]);
       }
     },
+    native: nativeGates(),
   };
+
+  function nativeGates(): NativeGates {
+    const unwired = <T>(): Promise<Outcome<T>> => Promise.resolve(fail("not-ready", "gate commands are not wired in this process"));
+    const guarded = <T>(work: () => Promise<Outcome<T>>): Promise<Outcome<T>> => {
+      if (!deps.enabled()) return Promise.resolve(fail("unsupported", OFF));
+      return work().catch((err) => fail<T>("transient", messageOf(err)));
+    };
+    return {
+      find(thread, item) {
+        const gateId = store().gateForItem(thread, item);
+        return gateId ? deps.gates.get(gateId) : null;
+      },
+      get: (gateId) => deps.gates.get(gateId),
+      ask: (payload) => guarded(() => deps.commands?.ask(payload) ?? unwired()),
+      answer: (gateId, answers, session) => guarded(() =>
+        deps.commands?.answer({ id: gateId, answers, by: GATE_BY_PANE, session }) ?? unwired()),
+      close: (gateId) => guarded(() => deps.commands?.close(gateId) ?? unwired()),
+      attention(detail) {
+        deps.log?.warn(detail, "gate: a native question needs a person; it is not a gate rt can answer");
+        deps.emit?.("gate.native-attention", detail);
+      },
+    };
+  }
 }
 
 let active: GateQuestions | null = null;
@@ -434,6 +513,11 @@ let active: GateQuestions | null = null;
 /** Installs the daemon's service behind the module-level verbs below; null removes it. */
 export function setGateQuestions(service: GateQuestions | null): void {
   active = service;
+}
+
+/** The installed service, for an integration that presents native questions; null outside the daemon. */
+export function gateQuestionService(): GateQuestions | null {
+  return active;
 }
 
 const NO_SERVICE = "native question completion is not running in this process";
