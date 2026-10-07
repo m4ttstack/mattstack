@@ -600,8 +600,23 @@ describe('rowStatus: gates', () => {
       })
     ).toBe('one reply to post');
     expect(word({ kind: 'respond-plan', questions: [thread(1)] })).toBe(
-      'src/features/quiet-mode/flows/port-v2-handler.ts:1'
+      'one question to answer'
     );
+  });
+
+  test('a long question collapses to a count; the sheet carries the text', () => {
+    const long = {
+      id: 'q',
+      label:
+        'Gate 1 picked fix on a tenant-logo thread, but no code fix was proposed. What should change?',
+      multi: false,
+      options: [],
+    };
+    const word = (questions: unknown[]) =>
+      rowStatus(mr({ gates: [gate({ questions })] as never }), NOW, NONE, ME)
+        .line.word;
+    expect(word([long])).toBe('one question to answer');
+    expect(word([long, long, long])).toBe('3 questions to answer');
   });
 
   test('a parked gate says so in the detail', () => {
