@@ -17,7 +17,7 @@ import { displayName } from './display-name';
 import { doing, type DoingLine } from './doing';
 import { MUTED_XS } from './presence-bits';
 import type { RosterBuddy } from './roster-types';
-import { HANDLE_PALETTE, type SpeakerHue } from './speaker-hue';
+import { speakerHue, type SpeakerHue } from './speaker-hue';
 import { StateDot } from './StateDot';
 
 export type AgentNameVariant = 'inline' | 'name';
@@ -57,8 +57,8 @@ export const MESSAGE_HANDLE: AgentNameSize = {
 };
 
 /** A handle's sprite in its assigned creature and hue, the one its name
-    chip shares. A handle with no assigned look hashes both, against the
-    palette the chip's own fallback rotation draws from. */
+    chip shares. A handle with no assigned look hashes its creature and
+    takes the chip's own hashed hue, so the two still match. */
 function HandleSprite({ handle, size }: { handle: string; size: number }) {
   const look = useBuddies()?.lookOf(handle);
   return look ? (
@@ -73,7 +73,8 @@ function HandleSprite({ handle, size }: { handle: string; size: number }) {
   ) : (
     <Invadr
       id={handle}
-      palette={HANDLE_PALETTE}
+      palette={[speakerHue(handle).text]}
+      color={0}
       size={size}
       className={classes.avatar}
     />

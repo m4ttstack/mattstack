@@ -33,13 +33,6 @@ const HUES_FILL = [
 export const ACCENT = 'var(--mantine-color-accent-text)';
 const ACCENT_FILL = 'var(--tk-fill-accent)';
 
-/** The same rotation, accent included, that the avatar sprite hashes a
-    handle against when nobody assigned it a look, so its color and the name
-    chip's are drawn from the same tokens without being forced equal. The
-    avatar sprite has no font-size context to band against, so this reads
-    the small-band text array; any of the three would serve. */
-export const HANDLE_PALETTE = [ACCENT, ...HUES_SMALL];
-
 /** A 31-multiplier char-code fold, the same shape as Java's `String.hashCode`. */
 function foldHash(handle: string): number {
   let hash = 0;
