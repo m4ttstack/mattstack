@@ -35,8 +35,8 @@ async function cloneIdentity(dir: string): Promise<string> {
   return serializeIdentity(await deriveRepoIdentity(dir));
 }
 
-/** Replaceable in tests: the relocation, the identity derivation and the marketplace piece all reach outside the Probes seam. */
-export const orgFolderSeams = { locate: locateMovedRepo, identity: cloneIdentity, marketplace: convergeMarketplace };
+/** Replaceable in tests: the relocation, the identity derivation, the marketplace piece and the clock all reach outside the Probes seam. */
+export const orgFolderSeams = { locate: locateMovedRepo, identity: cloneIdentity, marketplace: convergeMarketplace, now: Date.now };
 
 interface Clone {
   dir: string;
@@ -121,9 +121,12 @@ const DAEMON_REFUSALS = new Set(["dirty", "rebasing", "status-unreadable"]);
 
 async function moveViaDaemon(p: Probes, clone: Clone): Promise<DaemonMove> {
   const dir = tilde(p.home, clone.dir);
+  const started = orgFolderSeams.now();
   const res = (await p.daemon("org:move", { from: clone.dir, to: clone.target }, ORG_MOVE_TIMEOUT_MS)) as MoveReply | null;
   if (res === null) {
-    // No answer is a client timeout; the daemon may still finish the move after it, so the disk says what happened.
+    // A fast null is a refused connection (a crashed daemon can leave rt.sock behind), not a timeout.
+    if (orgFolderSeams.now() - started < ORG_MOVE_TIMEOUT_MS / 4) return { failed: `The rt daemon is not answering, so ${dir} stayed where it is`, remedy: DAEMON_STALE_REMEDY };
+    // A timeout: the daemon may still finish the move after it, so the disk says what happened.
     if (!p.exists(clone.dir) && p.exists(clone.target)) return { lateMove: true };
     return { failed: `The rt daemon did not answer within two minutes and may still be moving ${dir}`, remedy: DAEMON_SLOW_REMEDY };
   }

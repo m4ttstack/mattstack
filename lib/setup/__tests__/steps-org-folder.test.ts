@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ApplyContext } from "../apply.ts";
 import type { Probes } from "../probes.ts";
-import { convergeOrgFolder, DAEMON_SLOW_REMEDY, DAEMON_STALE_REMEDY, ORG_FOLDER_REMEDY, orgFolderSeams, orgFolderStep } from "../steps/org-folder.ts";
+import { convergeOrgFolder, DAEMON_SLOW_REMEDY, DAEMON_STALE_REMEDY, ORG_FOLDER_REMEDY, ORG_MOVE_TIMEOUT_MS, orgFolderSeams, orgFolderStep } from "../steps/org-folder.ts";
 import { fakeProbes as baseFakeProbes, ok, type ExecScript } from "./fakes.ts";
 
 const HOME = "/h";
@@ -70,10 +70,19 @@ function makeCtx(p: Probes, overrides: Partial<ApplyContext> = {}): { ctx: Apply
 const origSeams = { ...orgFolderSeams };
 afterEach(() => Object.assign(orgFolderSeams, origSeams));
 
+/** A fake clock the step reads around the daemon call; `timedOut` runs the daemon's side, then moves the clock past the move bound before the null comes back. */
+let clock = 0;
+const timedOut = (daemonSide: () => void = () => {}) => async () => {
+  daemonSide();
+  clock += ORG_MOVE_TIMEOUT_MS;
+  return null;
+};
+
 function seams(opts: { locate?: (newPath: string) => Promise<{ ok: boolean; error?: string }>; marketplace?: typeof orgFolderSeams.marketplace } = {}) {
   const located: { newPath: string; repo?: string }[] = [];
   const marketplaces: { dir: string; stalePaths: string[] }[] = [];
   orgFolderSeams.identity = async (dir) => `gitlab.example.com/acme/org@${dir}`;
+  orgFolderSeams.now = () => clock;
   orgFolderSeams.locate = (async (req: { newPath: string; repo?: string }) => {
     located.push(req);
     const r = await (opts.locate ?? (async () => ({ ok: true })))(req.newPath);
@@ -311,7 +320,7 @@ describe("org.folder: the step", () => {
     expect(p.calls.renames).toEqual([]);
   });
 
-  test("a daemon that does not know org:move fails with the restart remedy, and so does one that does not answer", async () => {
+  test("a daemon that does not know org:move fails with the restart remedy", async () => {
     seams();
     const withSock = (daemon: Probes["daemon"]) => fakeProbes({ roots: { teams: ["acme"] }, fixture: legacy(), dirs: { [RT]: ["teams", "invites", "rt.sock"] }, files: { [`${RT}/rt.sock`]: "" }, daemon });
     const stale = withSock(async () => ({ ok: false, code: "unknown-command", version: "2.0.0", error: 'daemon at version 2.0.0 does not know "org:move"' }) as never);
@@ -319,9 +328,19 @@ describe("org.folder: the step", () => {
     expect(stale.calls.renames).toEqual([]);
   });
 
-  test("a daemon that does not answer in time and left the folder in place fails with the wait-then-force remedy", async () => {
+  test("a daemon that refuses the connection at once fails as not answering, with the restart remedy", async () => {
     seams();
     const p = fakeProbes({ roots: { teams: ["acme"] }, fixture: legacy(), dirs: { [RT]: ["teams", "invites", "rt.sock"] }, files: { [`${RT}/rt.sock`]: "" }, daemon: async () => null });
+    const out = await convergeOrgFolder(makeCtx(p).ctx);
+    expect(out).toMatchObject({ state: "failed", remedy: DAEMON_STALE_REMEDY });
+    expect(out.detail).toContain(`The rt daemon is not answering, so ${T(`${TEAMS}/acme`)} stayed where it is`);
+    expect(out.detail).not.toContain("two minutes");
+    expect(p.calls.renames).toEqual([]);
+  });
+
+  test("a daemon that does not answer in time and left the folder in place fails with the wait-then-force remedy", async () => {
+    seams();
+    const p = fakeProbes({ roots: { teams: ["acme"] }, fixture: legacy(), dirs: { [RT]: ["teams", "invites", "rt.sock"] }, files: { [`${RT}/rt.sock`]: "" }, daemon: timedOut() });
     const out = await convergeOrgFolder(makeCtx(p).ctx);
     expect(out).toMatchObject({ state: "failed", remedy: DAEMON_SLOW_REMEDY });
     expect(out.detail).toContain(`The rt daemon did not answer within two minutes and may still be moving ${T(`${TEAMS}/acme`)}`);
@@ -336,10 +355,7 @@ describe("org.folder: the step", () => {
       dirs: { [RT]: ["teams", "invites", "rt.sock"], [ORGS]: [], [`${RT}/teams`]: ["widgets.json", "acme.json"] },
       files: { [`${RT}/rt.sock`]: "", [`${RT}/teams/widgets.json`]: "{}", [`${RT}/teams/acme.json`]: JSON.stringify({ forgeUsername: "dev1", movedFrom: "widgets" }) },
     });
-    p.daemon = async () => {
-      p.rename(`${TEAMS}/widgets`, `${ORGS}/acme`);
-      return null;
-    };
+    p.daemon = timedOut(() => p.rename(`${TEAMS}/widgets`, `${ORGS}/acme`));
     let reloaded = 0;
     const out = await convergeOrgFolder(makeCtx(p, { reloadTeam: () => { reloaded += 1; } }).ctx);
     expect(out.state).toBe("done");
@@ -355,10 +371,7 @@ describe("org.folder: the step", () => {
   test("a late move whose index piece then fails says the folder moved", async () => {
     seams({ locate: async () => ({ ok: false, error: "identity-mismatch: another repo" }) });
     const p = fakeProbes({ roots: { teams: ["acme"] }, fixture: legacy(), dirs: { [RT]: ["teams", "invites", "rt.sock"], [ORGS]: [] }, files: { [`${RT}/rt.sock`]: "" } });
-    p.daemon = async () => {
-      p.rename(`${TEAMS}/acme`, `${ORGS}/acme`);
-      return null;
-    };
+    p.daemon = timedOut(() => p.rename(`${TEAMS}/acme`, `${ORGS}/acme`));
     const out = await convergeOrgFolder(makeCtx(p).ctx);
     expect(out).toMatchObject({ state: "failed", remedy: ORG_FOLDER_REMEDY });
     expect(out.detail).toContain(`${T(`${TEAMS}/acme`)} moved to ${T(`${ORGS}/acme`)} but its repo index row was not updated: identity-mismatch`);
