@@ -50,8 +50,14 @@ function tagMap(tags: string[]): Record<string, string> {
 export function carrierFromName(name: string, known: string[]): string | undefined {
   const padded = `-${name}-`;
   let best: string | undefined;
+  let bestAt = -1;
   for (const tenant of known) {
-    if (padded.includes(`-${tenant}-`) && (best === undefined || tenant.length > best.length)) best = tenant;
+    const at = padded.lastIndexOf(`-${tenant}-`);
+    if (at < 0) continue;
+    if (at > bestAt || (at === bestAt && tenant.length > (best?.length ?? 0))) {
+      best = tenant;
+      bestAt = at;
+    }
   }
   return best;
 }

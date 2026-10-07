@@ -99,12 +99,27 @@ describe("production flag and empty tag values", () => {
   });
 });
 
+describe("org-prefixed legacy names", () => {
+  test("a legacy row picks the later carrier even when the prefix is a tenant elsewhere", () => {
+    const rs = [
+      tagged("initech-core-db", { tenant: "initech" }),
+      tagged("acme-core-db", { tenant: "acme" }),
+      tagged("initech-acme-qa-read-only", { env: "qa" }),
+    ];
+    const c = buildSdmConnections(rs, {}).find(x => x.sdmResource === "initech-acme-qa-read-only")!;
+    expect(c).toMatchObject({ carrierTag: "acme", legacy: true });
+  });
+});
+
 describe("carrierFromName", () => {
   test("matches whole dash segments only", () => {
     expect(carrierFromName("acmeco-qa", ["acme"])).toBeUndefined();
     expect(carrierFromName("x-acme-qa", ["acme"])).toBe("acme");
   });
-  test("longest match wins", () => {
+  test("the tenant named latest wins over an org-wide prefix", () => {
+    expect(carrierFromName("initech-acme-qa-read-only", ["initech", "acme"])).toBe("acme");
+  });
+  test("same position: longest match wins", () => {
     expect(carrierFromName("acme-perf-db", ["acme", "acme-perf"])).toBe("acme-perf");
   });
 });
