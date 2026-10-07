@@ -104,7 +104,7 @@ function claudeBinding(over: Partial<SessionBinding> = {}, generation = 2): Sess
 
 async function codex(
   handlers: Record<string, Handler> = {},
-  options: { experimental?: boolean; bare?: boolean; persisted?: CodexMessagingDeps["persisted"] } = {},
+  options: { experimental?: boolean; bare?: boolean; persisted?: CodexMessagingDeps["persisted"]; deps?: Partial<CodexMessagingDeps> } = {},
 ) {
   const clock = new FakeClock();
   let socket!: FakeSocket;
@@ -127,7 +127,7 @@ async function codex(
   controls.push(control);
   let current: SessionBinding | null = codexBinding();
   const messaging = options.bare ? undefined! : createCodexMessaging(control, {
-    currentBinding: () => current, persisted: options.persisted ?? (() => null),
+    currentBinding: () => current, persisted: options.persisted ?? (() => null), ...options.deps,
   });
   return {
     clock, control, messaging,
@@ -588,6 +588,52 @@ describe("queued deliveries an earlier connection submitted (M2b review)", () =>
       expect(await x.messaging.reconcile!(codexBinding(), ID)).toEqual({ ok: true, data: null });
       expect(x.methods()).toEqual([]);
     }
+  });
+});
+
+describe("holding the thread only while a delivery is outstanding (M2b round 2)", () => {
+  test("a hold is taken before the queue and released by the echo that confirms the delivery", async () => {
+    const calls: string[] = [];
+    const x = await codex({}, {
+      deps: {
+        hold: async (b, id) => { calls.push(`hold ${b.native.value} ${id}`); return { ok: true, data: undefined }; },
+        release: (threadId, id) => { calls.push(`release ${threadId} ${id}`); },
+      },
+    });
+    expect(data(await x.messaging.submit(codexBinding(), input())).evidence).toBe("queued");
+    expect(calls).toEqual([`hold ${THREAD} d-17-remy`]);
+    x.socket().push(userStarted(THREAD, "U1", "I1", "d-17-remy"));
+    expect(calls).toEqual([`hold ${THREAD} d-17-remy`, `release ${THREAD} d-17-remy`]);
+  });
+
+  test("a hold the session adapter refuses sends nothing", async () => {
+    const x = await codex({}, { deps: { hold: async () => ({ ok: false, error: { code: "not-ready", message: "thread T1 is not loaded" } }) } });
+    expect(await x.messaging.submit(codexBinding(), input())).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(x.methods()).toEqual([]);
+  });
+
+  test("a refused queue releases its hold", async () => {
+    const released: string[] = [];
+    const x = await codex({ "thread/queue/add": (s, m) => s.push({ id: m.id, error: { code: -32600, message: "no" } }) }, {
+      deps: { release: (_t, id) => { released.push(id); } },
+    });
+    await x.messaging.submit(codexBinding(), input());
+    expect(released).toEqual(["d-17-remy"]);
+  });
+
+  test("once a delivery's hold has lapsed, its echo is looked for in the thread's history", async () => {
+    let held = true;
+    const x = await codex({
+      "thread/read": (s, m) => s.push({
+        id: m.id,
+        result: { thread: { id: m.params.threadId, turns: [{ id: "U4", items: [{ type: "userMessage", id: "I4", clientId: "d-17-remy", content: [] }] }] } },
+      }),
+    }, { deps: { held: () => held } });
+    await x.messaging.submit(codexBinding(), input());
+    expect(data(await x.messaging.reconcile!(codexBinding(), "d-17-remy"))).toMatchObject({ evidence: "queued" });
+    expect(x.methods()).toEqual(["thread/queue/add"]);
+    held = false;
+    expect(data(await x.messaging.reconcile!(codexBinding(), "d-17-remy"))).toMatchObject({ evidence: "consumed", turnId: "U4", itemId: "I4" });
   });
 });
 

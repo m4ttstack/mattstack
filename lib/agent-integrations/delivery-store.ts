@@ -48,7 +48,9 @@ const SELECT_FRAME_SQL = `SELECT ${COLUMNS} FROM agent_deliveries WHERE frame_id
 const SELECT_DUE_SQL = `SELECT ${COLUMNS} FROM agent_deliveries
 WHERE state IN ('pending', 'ambiguous', 'queued') AND next_attempt_at IS NOT NULL AND next_attempt_at <= ?
 ORDER BY next_attempt_at, updated_at LIMIT ?;`;
-const SELECT_READ_SQL = `SELECT ${COLUMNS} FROM agent_deliveries d
+const SELECT_QUEUED_FRAMES_SQL = `SELECT DISTINCT frame_id FROM agent_deliveries
+WHERE session_key = ? AND generation = ? AND state = 'queued' ORDER BY frame_id;`;
+const SELECT_READ_SQL =`SELECT ${COLUMNS} FROM agent_deliveries d
 WHERE d.recipient = ? AND d.state IN ('pending', 'ambiguous') AND d.room IS NOT NULL AND d.room <> ? AND d.message_id IS NOT NULL
   AND d.message_id <= (SELECT m.last_read_id FROM chat_members m WHERE m.room = d.room AND m.handle = d.recipient);`;
 const RECORD_ATTEMPT_SQL = `INSERT INTO agent_deliveries
@@ -183,6 +185,11 @@ export function settleEvidence(
     receipt.evidence, receipt.nativeId ?? null, receipt.turnId ?? null, receipt.itemId ?? null, nextAttemptAt, now,
     attempt.frameId, attempt.sessionKey, attempt.generation,
   ), undefined);
+}
+
+/** The frames still queued under one attachment: the deliveries awaiting confirmation there. */
+export function listQueuedFrames(db: Database, sessionKey: string, generation: number): string[] {
+  return (db.query(SELECT_QUEUED_FRAMES_SQL).all(sessionKey, generation) as Array<{ frame_id: string }>).map((r) => r.frame_id);
 }
 
 /** A recipient's unresolved chat rows whose message their read cursor has already passed. */

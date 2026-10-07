@@ -49,10 +49,10 @@ function fakeMessaging(opts: { submit?: Submit; reconcile?: Reconcile; connectio
   return { adapter, submits, reconciles };
 }
 
-function bindSession(db: Database, value: string, harness = "codex"): SessionBinding {
+function bindSession(db: Database, value: string, harness = "codex", mode: "herdr" | "headless" = "herdr"): SessionBinding {
   const store = createSessionStore(db);
   const reservation = store.reserve({ identity: `id-${value}` });
-  const bound = store.bind(reservation, { harness, profile: "default", kind: "id", value }, { mode: "herdr", pane: "p1" });
+  const bound = store.bind(reservation, { harness, profile: "default", kind: "id", value }, mode === "herdr" ? { mode, pane: "p1" } : { mode });
   if (!bound.ok) throw new Error(bound.error.message);
   return bound.data;
 }
@@ -651,11 +651,15 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 /**
  * Room "general" with author "a" and recipient "b", whose session is bound in
  * `harnessId`. `link` is the harness's messaging connection; `claudeInbox`
- * gives a Claude session a live registry inbox.
+ * gives a Claude session a live registry inbox. `paneAgent` is the agent herdr
+ * shows in the binding's pane (`null`: no such pane), the harness by default.
  */
 async function chatFixture(
   messaging: { adapter: MessageAdapter }, harnessId = "codex",
-  opts: { link?: () => string | null; claudeInbox?: boolean; live?: () => boolean | undefined } = {},
+  opts: {
+    link?: () => string | null; claudeInbox?: boolean; live?: () => boolean | undefined;
+    paneAgent?: () => string | null; mode?: "herdr" | "headless";
+  } = {},
 ) {
   const db = openStateDb(dbPath());
   const { service, clock } = harness(db, messaging, {
@@ -669,15 +673,18 @@ async function chatFixture(
     ? { resolve: (id) => (id === "sess-b" ? inbox : null), alive: () => true, resolveAll: () => new Map([["sess-b", inbox]]) }
     : { resolve: () => null, alive: () => false, resolveAll: () => new Map() };
   const herdrCalls: string[] = [];
-  const herdr = (async (method: string) => {
+  const paneAgent = opts.paneAgent ?? (() => harnessId);
+  const herdr = (async (method: string, params: { target?: string }) => {
     herdrCalls.push(method);
+    const agent = method === "agent.get" && params.target === "p1" ? paneAgent() : null;
+    if (agent !== null) return { ok: true, result: { agent: { agent, agent_status: "idle" } } };
     return { ok: false, code: "unreachable", message: "no herdr in this test" };
   }) as unknown as typeof herdrRequest;
   const h = createChatHandlers({ db, emitEvent: () => 0, inboxDeps, herdr, log: quietLog, retryDelayMs: 0, delivery: service });
   await h["chat:join"]({ room: "general", handle: "a", wakeOn: "all" });
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "all" });
   signIn({ sessionId: "sess-b", continueId: "b" }, db);
-  const binding = bindSession(db, "sess-b", harnessId);
+  const binding = bindSession(db, "sess-b", harnessId, opts.mode);
   const sweep = createChatDeliverySweep({
     db, deliveryChains: new Map(), inboxDeps, herdr, log: quietLog, retryDelayMs: 0,
     registryDeps, delivery: service, now: () => clock.now,
@@ -921,6 +928,44 @@ describe("chat through harness delivery", () => {
     await x.h["chat:mark"]({ handle: "b", room: "general", upto: first });
     expect(row(x.db, chatDeliveryId(first, "b")).state).toBe("superseded");
     expect(row(x.db, chatDeliveryId(second, "b")).state).toBe("pending");
+  });
+
+  test("nothing is queued once the pane has gone or no longer runs codex: rows stay pending and the cursor stays (M2b round 2)", async () => {
+    for (const after of [null, "claude"]) {
+      let agent: string | null = "codex";
+      let up = false;
+      const messaging = fakeMessaging({ submit: (input) => (up ? ok({ id: input.id, evidence: "queued", nativeId: "sess-b" }) : fault("transient")) });
+      const x = await chatFixture(messaging, "codex", { paneAgent: () => agent });
+      const first = await x.post("one");
+      await waitFor(() => messaging.submits.length === 2);
+      await Bun.sleep(5);
+      expect(row(x.db, chatDeliveryId(first, "b")).state).toBe("pending");
+
+      agent = after;
+      up = true;
+      const second = await x.post("two");
+      await Bun.sleep(10);
+      x.clock.now += DELIVERY_SWEEP_INTERVAL_MS;
+      await x.sweep();
+      expect(messaging.submits).toHaveLength(2);
+      expect(row(x.db, chatDeliveryId(first, "b")).state).toBe("pending");
+      expect(readDelivery(x.db, chatDeliveryId(second, "b"))).toBeNull();
+      expect(lastReadId(x.db, "general", "b")).toBeLessThan(first);
+      expect((await x.posted("three")).delivery).toEqual({ b: "later" });
+
+      agent = "codex";
+      x.clock.now += DELIVERY_SWEEP_INTERVAL_MS;
+      await x.sweep();
+      await waitFor(() => lastReadId(x.db, "general", "b") >= second);
+    }
+  });
+
+  test("a headless Codex binding takes delivery with no pane to check (M2b round 2)", async () => {
+    const messaging = fakeMessaging({ submit: (input) => ok({ id: input.id, evidence: "queued", nativeId: "sess-b" }) });
+    const x = await chatFixture(messaging, "codex", { mode: "headless", paneAgent: () => null });
+    const id = await x.post("hi");
+    await waitFor(() => lastReadId(x.db, "general", "b") === id);
+    expect(x.herdrCalls).not.toContain("agent.get");
   });
 
   test("chat:post reports each recipient's delivery evidence (sent, queued, later)", async () => {

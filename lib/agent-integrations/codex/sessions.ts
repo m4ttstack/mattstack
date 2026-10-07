@@ -21,16 +21,21 @@
  * Limit: tools run in the user-started app server, whose env rt cannot set, so a worker's gate identity comes from its binding.
  *
  * A connection hears a thread's item events only once it started or resumed
- * that thread (live-03 probe-events.jsonl), so with agent.integrations.enabled
- * on, every attached bound thread the app server has loaded is subscribed
- * when a connection opens, and any other the first time it is observed:
- * `thread/resume` with nothing but the thread id and `excludeTurns`. The
- * method table refuses every override field, so a resume re-decides no
- * settings (the thread keeps its start-time sandbox and policy: gate spike
- * G6, hooks follow-up), adds no turn, and a question it replays is never
- * answered unless a gate answers it. A thread that is not loaded is never
- * resumed, since that would load it with no terminal: it is reported gone
- * instead, as an unload, close or sessionEnd hook heard later is.
+ * that thread (live-03 probe-events.jsonl), and its subscription keeps the
+ * thread loaded after the thread's terminal quits, where queued input then
+ * runs headless (live-04). So with agent.integrations.enabled on, rt holds a
+ * subscription only while the thread has deliveries awaiting confirmation (a
+ * queue/add in flight or queued rows, held again for those rows when a
+ * connection opens), lets it go when the last is confirmed or after HOLD_MS,
+ * and lets a Herdr launch's own subscription go once its terminal attached.
+ * Threads rt runs headless keep theirs. The subscription is `thread/resume`
+ * with nothing but the thread id and `excludeTurns`: the method table refuses
+ * every override field, so it re-decides no settings (gate spike G6, hooks
+ * follow-up), adds no turn, and a question it replays is never answered
+ * unless a gate answers it. A thread that is not loaded is never resumed,
+ * since that would load it with no terminal: it is reported gone instead, as
+ * an unload, close or sessionEnd hook heard later is. A Herdr attachment is
+ * live only while herdr shows codex in its pane, checked at each observe.
  *
  * This adapter never assigns a herd job and never writes the session store;
  * what a gone thread means for its binding and presence is `lifecycle`'s.
@@ -56,6 +61,8 @@ import {
   CodexControlError, connectCodexControl, discoverCodexEndpoint,
   type CodexClock, type CodexControl, type CodexControlLog, type CodexControlOptions, type CodexEndpoint, type LaunchReservation,
 } from "./control.ts";
+import { DELIVERY_SWEEP_INTERVAL_MS, MAX_DELIVERY_BACKOFF_TICKS } from "../delivery.ts";
+import { listQueuedFrames } from "../delivery-store.ts";
 import { codexEventHub } from "./events.ts";
 import type { CodexMessagingDeps } from "./messaging.ts";
 import { setCodexLinkProbe, setCodexThreadProbe } from "./link.ts";
@@ -80,8 +87,18 @@ export interface CodexSessionAdapter extends SessionAdapter {
   adopt(binding: SessionBinding): Outcome<void>;
   /** Releases a bound thread: its events stop arriving, and only a later attachment, launch or resume owns it again. */
   disown(binding: SessionBinding): void;
-  /** Owns a bound thread and, while the switch is on, subscribes this connection to it if the app server has it loaded. */
-  subscribe(binding: SessionBinding): Promise<Outcome<void>>;
+  /**
+   * While the switch is on, keeps this connection subscribed to the bound
+   * thread until delivery `id` is released or its window ends; refused when
+   * Codex has not loaded the thread.
+   */
+  hold(binding: SessionBinding, id: string): Promise<Outcome<void>>;
+  /** Delivery `id` is confirmed or given up: the last one out unsubscribes a thread rt does not run itself. */
+  release(threadId: string, id: string): void;
+  /** Whether delivery `id` still holds its thread's subscription, so its echo can still arrive. */
+  held(threadId: string, id: string): boolean;
+  /** Whether the binding can take input now: its thread loaded and, for a Herdr attachment, codex in its pane at the last observe. */
+  live(binding: SessionBinding): boolean | undefined;
 }
 
 /** unloaded: the app server no longer runs the thread. ended: Codex closed it, or its sessionEnd hook ran. */
@@ -126,7 +143,12 @@ export type CodexSessionDeps = {
   enabled(): boolean;
   /** Reports a bound thread gone; `generation` is the attachment that saw it, when one did. True when its binding was detached or ended. */
   lifecycle(native: NativeSessionRef, event: CodexThreadGone, generation?: number): Promise<boolean>;
+  /** Whether herdr shows codex running in a Herdr attachment's pane now; false when herdr cannot say. */
+  paneRuns(binding: SessionBinding): Promise<boolean>;
 };
+
+/** How long one delivery keeps its thread subscribed: the interval the queued recheck saturates at. */
+const HOLD_MS = DELIVERY_SWEEP_INTERVAL_MS * MAX_DELIVERY_BACKOFF_TICKS;
 
 const ATTACH_READS = CODEX_ATTACH_READS;
 const ATTACH_READ_MS = CODEX_ATTACH_READ_MS;
@@ -203,6 +225,12 @@ function defaultDeps(): CodexSessionDeps {
     lifecycle: async (native, event, generation) => {
       const { reportSessionGone } = await import("../presence.ts");
       return reportSessionGone(native, event, generation);
+    },
+    paneRuns: async (binding) => {
+      const [{ herdrRequest }, { bindingPaneRuns }] = await Promise.all([
+        import("../../herdr/client.ts"), import("../../daemon/pane-input.ts"),
+      ]);
+      return bindingPaneRuns(herdrRequest, binding);
     },
     openPane: openHostPane,
     confirmAttached: async (opened, expected, host) => {
@@ -324,14 +352,40 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     released.delete(threadId);
     control.adopt(threadId);
   };
-  /** Threads this connection started or resumed, so their item events reach it, until Codex unloads or closes them. */
+  /** Threads this connection started or resumed, so their item events reach it, until it unsubscribes or Codex unloads them. */
   const subscribed = new Set<string>();
+  /** Threads rt runs with no terminal: rt's subscription is what keeps them loaded, so only a release ends it. */
+  const headless = new Set<string>();
+  /** Deliveries awaiting confirmation, by thread, each with the timer that lets it go after HOLD_MS. */
+  const holders = new Map<string, Map<string, unknown>>();
+  /** Subscriptions being made now, so concurrent holds resume a thread once. */
+  const subscribing = new Map<string, Promise<"subscribed" | "unloaded" | "unknown">>();
+  /** What herdr last showed in each Herdr attachment's pane, by thread and the generation that was checked. */
+  const panes = new Map<string, { generation: number; live: boolean }>();
+
+  function dropHolders(threadId: string): void {
+    for (const timer of holders.get(threadId)?.values() ?? []) deps.clock.clearTimeout(timer);
+    holders.delete(threadId);
+  }
 
   /** Ends this connection's subscription to a thread it owns; a thread it does not own is never named. */
   function unsubscribe(threadId: string): void {
+    dropHolders(threadId);
+    headless.delete(threadId);
     subscribed.delete(threadId);
     if (control.closed || !control.owns(threadId)) return;
     control.request("thread/unsubscribe", { threadId }).catch(() => {});
+  }
+
+  /** The last outstanding delivery confirmed or timed out: a thread rt does not run itself is let go. */
+  function release(threadId: string, id: string): void {
+    const held = holders.get(threadId);
+    if (!held?.has(id)) return;
+    deps.clock.clearTimeout(held.get(id));
+    held.delete(id);
+    if (held.size > 0) return;
+    holders.delete(threadId);
+    if (subscribed.has(threadId) && !headless.has(threadId)) unsubscribe(threadId);
   }
 
   /** A detach or an end rt applied lets the thread go: it is unsubscribed but stays owned, so its status still arrives. */
@@ -352,37 +406,79 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     if (deps.enabled()) void reportGone(event.threadId, gone);
   });
 
-  /**
-   * Reads the thread's status and, when the app server has it loaded,
-   * subscribes this connection with a bare resume. An unloaded thread is
-   * reported gone and left unloaded. A failed read or resume leaves it
-   * unsubscribed for the next observe to try.
-   */
-  async function subscribeThread(threadId: string, generation: number): Promise<void> {
-    if (subscribed.has(threadId) || control.closed) return;
+  /** The thread's status, read off the thread and kept in the hub. */
+  async function readStatus(threadId: string): Promise<CodexThreadStatus | undefined> {
     let status: CodexThreadStatus | undefined;
     try {
       status = threadStatus(threadOf(await control.request("thread/read", { threadId, includeTurns: false }))?.status);
     } catch {
-      return;
+      return undefined;
     }
-    if (!status) return;
-    hub.refresh(threadId, status);
+    if (status) hub.refresh(threadId, status);
+    return status;
+  }
+
+  /**
+   * Reads the thread's status and, when the app server has it loaded,
+   * subscribes this connection with a bare resume. An unloaded thread is
+   * reported gone and left unloaded, since resuming would load it with no
+   * terminal (live-04). A failed read or resume leaves it unsubscribed.
+   */
+  async function subscribeThread(threadId: string, generation: number): Promise<"subscribed" | "unloaded" | "unknown"> {
+    if (subscribed.has(threadId)) return "subscribed";
+    if (control.closed) return "unknown";
+    const status = await readStatus(threadId);
+    if (!status) return "unknown";
     if (status.type === "notLoaded") {
       await reportGone(threadId, "unloaded", generation);
-      return;
+      return "unloaded";
     }
     let resumed: unknown;
     try {
       resumed = await control.request("thread/resume", { threadId, excludeTurns: true });
     } catch {
-      return;
+      return "unknown";
     }
     const thread = threadOf(resumed);
-    if (thread?.id !== threadId) return;
+    if (thread?.id !== threadId) return "unknown";
     subscribed.add(threadId);
     const now = threadStatus(thread.status);
     if (now) hub.refresh(threadId, now);
+    return "subscribed";
+  }
+
+  /**
+   * Keeps this connection subscribed to the binding's thread while delivery
+   * `id` awaits confirmation, so its echo arrives: until `release`, or
+   * HOLD_MS, after which only the thread's history can confirm it. A thread
+   * Codex has not loaded refuses the hold, so nothing is queued to it.
+   */
+  async function hold(binding: SessionBinding, id: string): Promise<Outcome<void>> {
+    const owned = adopt(binding);
+    if (!owned.ok) return owned;
+    if (!deps.enabled()) return ok(undefined);
+    const threadId = binding.native.value;
+    const held = holders.get(threadId) ?? new Map<string, unknown>();
+    holders.set(threadId, held);
+    if (held.has(id)) deps.clock.clearTimeout(held.get(id));
+    held.set(id, deps.clock.setTimeout(() => release(threadId, id), HOLD_MS));
+    let pending = subscribing.get(threadId);
+    if (!pending) {
+      pending = subscribeThread(threadId, binding.attachment.generation).finally(() => subscribing.delete(threadId));
+      subscribing.set(threadId, pending);
+    }
+    if ((await pending) !== "unloaded") return ok(undefined);
+    release(threadId, id);
+    return fail("not-ready", `Codex is not running thread ${threadId} now, so nothing was sent`);
+  }
+
+  /** Herdr attachments are live only with fresh pane evidence; a headless one only by its thread. */
+  function live(binding: SessionBinding): boolean | undefined {
+    const threadId = binding.native.value;
+    const loaded = hub.live(threadId);
+    if (binding.attachment.mode !== "herdr") return loaded;
+    const pane = panes.get(threadId);
+    return loaded === true && pane?.generation === binding.attachment.generation && pane.live;
   }
 
   /**
@@ -537,19 +633,17 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     if (at !== undefined && at >= binding.attachment.generation) {
       return fail("stale-binding", `thread ${threadId} was released at attachment ${at}, so attachment ${binding.attachment.generation} cannot take it back`);
     }
-    own(threadId);
+    if (!control.owns(threadId)) own(threadId);
     return ok(undefined);
   }
 
   return {
     carriesReservations: true,
     adopt,
-    async subscribe(binding) {
-      const owned = adopt(binding);
-      if (!owned.ok) return owned;
-      if (deps.enabled()) await subscribeThread(binding.native.value, binding.attachment.generation);
-      return ok(undefined);
-    },
+    hold,
+    release,
+    held: (threadId, id) => holders.get(threadId)?.has(id) === true,
+    live,
     disown(binding) {
       if (!checkRef(binding.native).ok) return;
       const threadId = binding.native.value;
@@ -594,12 +688,15 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
 
         const settings = settingsOf(entry.result);
         if (request.mode === "headless") {
+          headless.add(threadId);
           settle(key, entry);
           return ok({ native: ref(threadId), attachment: { mode: "headless" }, settings });
         }
         const attached = await attach(entry, threadId, [CODEX_INIT_PROMPT], request.reservationId, request.host);
         if (!attached.ok) return attached;
         settle(key, entry);
+        // The terminal now keeps its thread loaded; rt's own subscription would keep it loaded after the terminal quits (live-04).
+        if (deps.enabled() && !holders.has(threadId)) unsubscribe(threadId);
         return ok({ native: ref(threadId), ...attached.data, settings });
       });
     },
@@ -645,6 +742,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
             return fail("ambiguous", `Codex resumed ${String(now?.id)} instead of thread ${threadId}; rt will not continue a different conversation`);
           }
           subscribed.add(threadId);
+          headless.add(threadId);
           return ok({ native, attachment: { mode: "headless" }, settings: settingsOf(resumed) });
         }
 
@@ -673,7 +771,18 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
       const threadId = binding.native.value;
       control.adopt(threadId);
       if (deps.enabled()) {
-        await subscribeThread(threadId, binding.attachment.generation);
+        // Status changes reach a connection that is not subscribed (live-04), so one read keeps the hub current.
+        if (!hub.view(threadId)) await readStatus(threadId);
+        if (hub.live(threadId) === false) await reportGone(threadId, "unloaded", binding.attachment.generation);
+        if (binding.attachment.mode === "herdr") {
+          let live = false;
+          try {
+            live = await deps.paneRuns(binding);
+          } catch {
+            live = false;
+          }
+          panes.set(threadId, { generation: binding.attachment.generation, live });
+        }
       } else if (!hub.view(threadId)) {
         try {
           const status = threadStatus(threadOf(await control.request("thread/read", { threadId, includeTurns: false }))?.status);
@@ -753,8 +862,8 @@ export type CodexSessionLoaderDeps = {
   connect(options: CodexControlOptions): Promise<CodexControl>;
   sessions: Partial<CodexSessionDeps>;
   messaging: Partial<CodexMessagingDeps>;
-  /** The attached Codex bindings, subscribed each time a connection opens. */
-  attached(): SessionBinding[];
+  /** Attached Codex bindings with deliveries still queued at their current attachment, and those deliveries' ids; held each time a connection opens. */
+  outstanding(): Array<{ binding: SessionBinding; ids: string[] }>;
 };
 
 export type CodexSessionLoader = {
@@ -764,8 +873,8 @@ export type CodexSessionLoader = {
   status(): LoaderStatus;
   /** The live connection's id, or null; never connects. */
   connection(): string | null;
-  /** What the live connection has heard about the thread's liveness; undefined without a connection for that profile. Never connects. */
-  threadLive(threadId: string, profile: string): boolean | undefined;
+  /** Whether the binding can take input, as the live connection knows it; undefined without a connection for its profile. Never connects. */
+  bindingLive(binding: SessionBinding): boolean | undefined;
 };
 
 /** Stands in when no connection could be made; nothing can have been sent. */
@@ -796,7 +905,13 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     connect: (options) => connectCodexControl(options, { log: controlLog }),
     sessions: {},
     messaging: {},
-    attached: () => (integrationsEnabled() ? listAttachedBindings(getStateDb(), HARNESS) : []),
+    outstanding: () => {
+      if (!integrationsEnabled()) return [];
+      const db = getStateDb();
+      return listAttachedBindings(db, HARNESS)
+        .map((binding) => ({ binding, ids: listQueuedFrames(db, binding.key, binding.attachment.generation) }))
+        .filter((o) => o.ids.length > 0);
+    },
     ...overrides,
   };
   let current: { control: CodexControl; adapter: CodexSessionAdapter; messaging?: Promise<MessageAdapter> } | undefined;
@@ -822,19 +937,19 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     failure = undefined;
     const adapter = createCodexSessions(control, { ...deps.sessions, endpoint: endpoint.data });
     current = { control, adapter };
-    await subscribeAttached(adapter, control.profile);
+    await holdOutstanding(adapter, control.profile);
     return adapter;
   }
 
-  /** A new connection hears nothing of the threads an earlier one was subscribed to until it subscribes them itself. */
-  async function subscribeAttached(adapter: CodexSessionAdapter, profile: string): Promise<void> {
-    let bindings: SessionBinding[];
+  /** A new connection hears no echo of a delivery an earlier one queued until it holds that delivery's thread itself. */
+  async function holdOutstanding(adapter: CodexSessionAdapter, profile: string): Promise<void> {
+    let outstanding: Array<{ binding: SessionBinding; ids: string[] }>;
     try {
-      bindings = deps.attached().filter((b) => b.native.harness === HARNESS && b.native.profile === profile);
+      outstanding = deps.outstanding().filter((o) => o.binding.native.harness === HARNESS && o.binding.native.profile === profile);
     } catch {
       return;
     }
-    await Promise.all(bindings.map((b) => adapter.subscribe(b).catch(() => undefined)));
+    await Promise.all(outstanding.flatMap((o) => o.ids.map((id) => adapter.hold(o.binding, id).catch(() => undefined))));
   }
 
   function load(): Promise<SessionAdapter> {
@@ -852,7 +967,13 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
       const live = current && !current.control.closed ? current : undefined;
       if (!live) return unavailableMessaging(failure?.error.message ?? "rt has no connection to the Codex app server");
       return (live.messaging ??= import("./messaging.ts").then(({ createCodexMessaging }) =>
-        createCodexMessaging(live.control, { adopt: (binding) => live.adapter.adopt(binding), ...deps.messaging })));
+        createCodexMessaging(live.control, {
+          adopt: (binding) => live.adapter.adopt(binding),
+          hold: (binding, id) => live.adapter.hold(binding, id),
+          release: (threadId, id) => live.adapter.release(threadId, id),
+          held: (threadId, id) => live.adapter.held(threadId, id),
+          ...deps.messaging,
+        })));
     },
     status() {
       if (current && !current.control.closed) return { state: "live" };
@@ -862,9 +983,9 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     connection() {
       return current && !current.control.closed ? current.control.connection : null;
     },
-    threadLive(threadId, profile) {
-      if (!current || current.control.closed || current.control.profile !== profile) return undefined;
-      return codexEventHub(current.control).live(threadId);
+    bindingLive(binding) {
+      if (!current || current.control.closed || current.control.profile !== binding.native.profile) return undefined;
+      return current.adapter.live(binding);
     },
   };
 }
@@ -876,7 +997,7 @@ function sharedLoader(): CodexSessionLoader {
     const loader = createCodexSessionLoader();
     shared = loader;
     setCodexLinkProbe(() => loader.connection());
-    setCodexThreadProbe((threadId, profile) => loader.threadLive(threadId, profile));
+    setCodexThreadProbe((binding) => loader.bindingLive(binding));
   }
   return shared;
 }

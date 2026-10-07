@@ -60,7 +60,7 @@ import { chatViewerUrl, readChatViewerUrlSetting } from "../../chat-viewer-url.t
 import { getSetting } from "../../settings/resolve.ts";
 import { herdrRequest } from "../../herdr/client.ts";
 import { injectIntoPane, herdrError, isCallerPane } from "../inject.ts";
-import { messagingTarget, observeThroughIntegration, sendAsPeerInput, type PaneInputRoute } from "../pane-input.ts";
+import { bindingPaneRuns, messagingTarget, observeThroughIntegration, sendAsPeerInput, type PaneInputRoute } from "../pane-input.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
 import type { HerdrPane, HerdrSnapshot } from "./pane.ts";
 import { resolveInbox, inboxAlive } from "../../claude-registry.ts";
@@ -245,7 +245,7 @@ async function deliverPost(
   if (bound) {
     // A session whose transport is down is skipped the way a dead inbox is
     // below: no attempt, no warning, no badge, and the room log keeps it owed.
-    if (!harnessReachable(bound.delivery, bound.binding, presence.sessionId, deps)) return { delivered: false, count: 0 };
+    if (!(await harnessTakesInput(bound.delivery, bound.binding, presence.sessionId, deps, herdr))) return { delivered: false, count: 0 };
     return deliverBound(db, bound.delivery, bound.binding, herdr, log, recipient, presence.pane, msg);
   }
   const binding = deps.resolve(presence.sessionId);
@@ -306,6 +306,24 @@ function harnessReachable(delivery: DeliveryService, binding: SessionBinding, se
     return inbox !== null && inbox !== undefined && inboxAlive(inbox);
   }
   return delivery.connection(binding.native.harness) !== null && delivery.live(binding) !== false;
+}
+
+/**
+ * harnessReachable, and for a session another harness runs in a Herdr pane,
+ * herdr showing that harness in the pane right now: a thread whose terminal
+ * quit can stay loaded and would run queued input headless (live-04), so
+ * nothing is sent without the pane.
+ */
+async function harnessTakesInput(
+  delivery: DeliveryService, binding: SessionBinding, sessionId: string, deps: InboxDeps, herdr: typeof herdrRequest,
+): Promise<boolean> {
+  if (!harnessReachable(delivery, binding, sessionId, deps)) return false;
+  if (binding.native.harness === "claude" || binding.attachment.mode !== "herdr") return true;
+  try {
+    return await bindingPaneRuns(herdr, binding);
+  } catch {
+    return false;
+  }
 }
 
 /** The one attached binding a presence's session id names, or null when there is none or more than one. */
@@ -421,13 +439,14 @@ async function deliverReceipt(
   log: Logger,
   args: { to: string; from: string; kind: "ack" | "claim"; text: string; messageId: number },
   delivery?: DeliveryService,
+  herdr: typeof herdrRequest = herdrRequest,
 ): Promise<void> {
   const { to, from, kind, text, messageId } = args;
   const presence = presenceForHandle(to, db);
   if (!presence || presence.signedOutAt !== undefined) return;
   const bound = harnessRoute(delivery, presence.sessionId, db);
   if (bound) {
-    if (!harnessReachable(bound.delivery, bound.binding, presence.sessionId, deps)) return;
+    if (!(await harnessTakesInput(bound.delivery, bound.binding, presence.sessionId, deps, herdr))) return;
     const id = `r-${kind}-${messageId}-${to}-${crypto.randomUUID().slice(0, 8)}`;
     const sent = await bound.delivery.deliverPeerInput(bound.binding, oneShotInput({ id, sender: `${identityName(from, db)} (${kind})`, body: text, recipient: to }));
     if (!sent.ok) log.warn({ to, from, id: messageId, err: sent.error.message, harness: bound.binding.native.harness }, `chat: ${kind} receipt push failed`);
@@ -450,10 +469,11 @@ function deliverAck(
   log: Logger,
   args: { author: string; acker: string; messageId: number; body: string },
   delivery?: DeliveryService,
+  herdr: typeof herdrRequest = herdrRequest,
 ): Promise<void> {
   const { author, acker, messageId, body } = args;
   const text = `${identityName(acker, db)} acknowledged your message #${messageId}: "${previewBody(body)}"`;
-  return deliverReceipt(db, deps, log, { to: author, from: acker, kind: "ack", text, messageId }, delivery);
+  return deliverReceipt(db, deps, log, { to: author, from: acker, kind: "ack", text, messageId }, delivery, herdr);
 }
 
 /**
@@ -468,6 +488,7 @@ async function deliverClaim(
   log: Logger,
   args: { author: string; claimer: string; messageId: number; body: string; previousHolder?: string },
   delivery?: DeliveryService,
+  herdr: typeof herdrRequest = herdrRequest,
 ): Promise<void> {
   const { author, claimer, messageId, body, previousHolder } = args;
   const preview = previewBody(body);
@@ -479,7 +500,7 @@ async function deliverClaim(
     kind: "claim",
     text: `${claimerName} claimed your message #${messageId}${takeover}: "${preview}"`,
     messageId,
-  }, delivery);
+  }, delivery, herdr);
   if (!previousHolder) return;
   await deliverReceipt(db, deps, log, {
     to: previousHolder,
@@ -487,7 +508,7 @@ async function deliverClaim(
     kind: "claim",
     text: `${claimerName} took over #${messageId} from you: "${preview}"`,
     messageId,
-  }, delivery);
+  }, delivery, herdr);
 }
 
 function chainKey(room: string, handle: string): string {
@@ -869,10 +890,11 @@ async function deliverWelcomeOnce(
   welcome: Welcome,
   catchupCursors: Array<{ room: string; upToId: number }>,
   delivery?: DeliveryService,
+  herdr: typeof herdrRequest = herdrRequest,
 ): Promise<void> {
   const bound = harnessRoute(delivery, sessionId, db);
   if (bound) {
-    if (!harnessReachable(bound.delivery, bound.binding, sessionId, deps)) return;
+    if (!(await harnessTakesInput(bound.delivery, bound.binding, sessionId, deps, herdr))) return;
     const sent = await bound.delivery.deliverPeerInput(bound.binding, oneShotInput({ id: welcome.id, sender: WELCOME_SENDER, body: welcome.body, recipient: handle }));
     if (!sent.ok) return;
   } else {
@@ -898,9 +920,10 @@ function deliverWelcome(
   welcome: Welcome,
   catchupCursors: Array<{ room: string; upToId: number }>,
   delivery?: DeliveryService,
+  herdr: typeof herdrRequest = herdrRequest,
 ): Promise<void> {
   return serializeDelivery(chains, chainKey(WELCOME_CHAIN_ROOM, handle), () =>
-    deliverWelcomeOnce(db, deps, sessionId, handle, welcome, catchupCursors, delivery),
+    deliverWelcomeOnce(db, deps, sessionId, handle, welcome, catchupCursors, delivery, herdr),
   );
 }
 
@@ -1324,7 +1347,7 @@ export function createChatHandlers(opts: {
       if (!res.already) {
         const { author, body } = res;
         queueMicrotask(() => {
-          deliverAck(db, inboxDeps, log, { author, acker: handle, messageId: id, body }, opts.delivery).catch((err) => {
+          deliverAck(db, inboxDeps, log, { author, acker: handle, messageId: id, body }, opts.delivery, herdr).catch((err) => {
             log.warn({ err, id, handle }, "chat: ack delivery failed");
           });
         });
@@ -1355,7 +1378,7 @@ export function createChatHandlers(opts: {
       const { author, room, body, previousHolder } = res;
       const authorName = identityName(author, db);
       queueMicrotask(() => {
-        deliverClaim(db, inboxDeps, log, { author, claimer: handle, messageId: id, body, previousHolder }, opts.delivery).catch((err) => {
+        deliverClaim(db, inboxDeps, log, { author, claimer: handle, messageId: id, body, previousHolder }, opts.delivery, herdr).catch((err) => {
           log.warn({ err, id, handle }, "chat: claim delivery failed");
         });
       });
@@ -1586,7 +1609,7 @@ export function createChatHandlers(opts: {
       const welcome: Welcome = { id: `w-${data.handle}-${crypto.randomUUID()}`, body: renderWelcome(data.name, rooms, catchup, senders) };
       const welcomeSessionId = sessionId;
       queueMicrotask(() => {
-        deliverWelcome(db, deliveryChains, inboxDeps, welcomeSessionId, data.handle, welcome, catchupCursors, opts.delivery).catch((err) => {
+        deliverWelcome(db, deliveryChains, inboxDeps, welcomeSessionId, data.handle, welcome, catchupCursors, opts.delivery, herdr).catch((err) => {
           log.warn({ err, handle: data.handle }, "chat: welcome delivery failed");
         });
       });

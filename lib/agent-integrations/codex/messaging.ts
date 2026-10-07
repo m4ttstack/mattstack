@@ -27,8 +27,10 @@
  * Thread ownership is the session adapter's: messaging asks it to adopt the
  * submission's thread, so a thread the sessions released is not taken back.
  * The echo reaches this connection only while it is subscribed to the thread,
- * which the session adapter arranges. A thread this connection last heard
- * unloaded or closed takes nothing, since the queue would hold it unrun.
+ * so each delivery holds the thread (`hold`) before it is queued and releases
+ * it once confirmed; once a hold has lapsed, the thread's history is where its
+ * echo is looked for. A thread this connection last heard unloaded or closed
+ * takes nothing, since the queue would hold it unrun.
  */
 
 import type {
@@ -58,6 +60,17 @@ export type CodexMessagingDeps = {
   adopt(binding: SessionBinding): Outcome<void>;
   /** The persisted delivery row for a logical id, or null. */
   persisted(inputId: string): Pick<DeliveryRow, "inputId" | "frameId" | "state" | "harness" | "sessionKey" | "generation" | "nativeId"> | null;
+  /**
+   * Subscribes this connection to the thread for delivery `id` until it is
+   * released, so its echo arrives; refused when nothing would run the thread.
+   * The loader routes it through the session adapter; on its own, messaging
+   * relies on whatever subscription the connection already has.
+   */
+  hold(binding: SessionBinding, id: string): Outcome<void> | Promise<Outcome<void>>;
+  /** Delivery `id` is confirmed or given up. */
+  release(threadId: string, id: string): void;
+  /** Whether delivery `id` still holds its thread's subscription; once it does not, its echo may have been missed. */
+  held(threadId: string, id: string): boolean;
 };
 
 type Evidence = "pending" | "ambiguous" | "failed" | "queued" | "consumed";
@@ -82,6 +95,9 @@ function defaultDeps(control: CodexControl): CodexMessagingDeps {
       return { ok: true, data: undefined };
     },
     persisted: (inputId) => readDelivery(getStateDb(), inputId),
+    hold: () => ({ ok: true, data: undefined }),
+    release: () => {},
+    held: () => true,
   };
 }
 
@@ -157,6 +173,7 @@ export function createCodexMessaging(control: CodexControl, overrides: Partial<C
     s.evidence = "consumed";
     s.turnId = turnId;
     s.itemId = itemId;
+    deps.release(s.threadId, s.id);
   }
 
   function observe(event: CodexEvent): void {
@@ -227,6 +244,13 @@ export function createCodexMessaging(control: CodexControl, overrides: Partial<C
       if (!owned.ok) return owned;
       const s: Submission = { id: input.id, sessionKey: binding.key, generation, threadId, evidence: "pending", contested };
       remember(s);
+      const holding = deps.hold(binding, input.id);
+      // Awaited only when the hold is asynchronous: a standalone hold queues in the same tick, as before holds existed.
+      const held = holding instanceof Promise ? await holding : holding;
+      if (!held.ok) {
+        if (submissions.get(input.id) === s) submissions.delete(input.id);
+        return held;
+      }
 
       let result: unknown;
       try {
@@ -238,6 +262,7 @@ export function createCodexMessaging(control: CodexControl, overrides: Partial<C
         if (s.evidence === "consumed") return { ok: true, data: receipt(s) };
         if (err instanceof CodexControlError && (err.code === "refused" || err.code === "unsupported")) {
           s.evidence = "failed";
+          deps.release(threadId, input.id);
           return fail(err.code, `Codex did not queue delivery ${input.id}: ${messageOf(err)}`);
         }
         s.evidence = "ambiguous";
@@ -260,7 +285,7 @@ export function createCodexMessaging(control: CodexControl, overrides: Partial<C
       if (s.generation !== binding.attachment.generation) {
         return fail("stale-binding", `delivery ${inputId} was submitted under attachment generation ${s.generation}, not ${binding.attachment.generation}`);
       }
-      if (s.recovered && s.evidence === "queued") await fromHistory(s, binding);
+      if (s.evidence === "queued" && (s.recovered || !deps.held(s.threadId, s.id))) await fromHistory(s, binding);
       return { ok: true, data: s.evidence === "queued" || s.evidence === "consumed" ? receipt(s) : null };
     },
   };

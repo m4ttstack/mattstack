@@ -95,13 +95,13 @@ export const CODEX_METHODS: Readonly<Record<string, MethodSpec>> = {
 };
 
 /**
- * Methods the saved schema fixture does not carry, with the evidence that
- * 0.160.0 takes them. Only what that evidence sent is allowed: the thread id.
+ * Methods in the generated schema that the saved fixture's curated subset
+ * does not carry, with where their shape was confirmed. The fixture is not
+ * regenerated for them; only the fields recorded here are allowed.
  */
 export const CODEX_METHODS_OUTSIDE_FIXTURE: Readonly<Record<string, string>> = {
-  "thread/unsubscribe": "sent as { threadId } to 0.160.0 by .harness-spike/hooks-review-01/effective.ts and "
-    + "hooks-followup-01/config-probe.ts; docs/superpowers/spikes/2026-10-05-codex-hooks-followup.md: "
-    + "\"the final inspection connection unsubscribed\"",
+  "thread/unsubscribe": "in `codex app-server generate-json-schema` as ThreadUnsubscribeParams { threadId }, answering "
+    + "{ status: notLoaded | notSubscribed | unsubscribed } (.harness-spike/live-04/report.md, 0.160.x)",
 };
 
 export const CODEX_STATUS_ENUMS = {

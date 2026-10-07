@@ -75,6 +75,7 @@ export async function fakeCodex(db: Database, config: string): Promise<FakeCodex
       return { ok: true, data: { pane: `w9:p${panes.length}`, tabId: `w9:t${panes.length}`, workspaceId: "w9" } };
     },
     confirmAttached: async () => ({ ok: true, data: undefined }),
+    paneRuns: async () => true,
   });
   const integration = {
     ...codexIntegration,

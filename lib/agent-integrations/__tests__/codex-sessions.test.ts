@@ -8,11 +8,13 @@ import type { LaunchRequest } from "../contracts.ts";
 import {
   connectCodexControl, type CodexClock, type CodexControl, type CodexSocket, type CodexSocketHandlers,
 } from "../codex/control.ts";
+import { codexEventHub } from "../codex/events.ts";
 import { codexIntegration } from "../codex/integration.ts";
 import {
   attachEvidence, awaitCodexHistory, CODEX_INIT_PROMPT, codexReadiness, createCodexSessionLoader, createCodexSessions,
-  DISCOVERY_BACKOFF_CAP_MS, DISCOVERY_BACKOFF_MS, type CodexSessionDeps, type PaneLaunch, type UnresolvedLaunch,
+  DISCOVERY_BACKOFF_CAP_MS, DISCOVERY_BACKOFF_MS, type CodexSessionDeps, type CodexSessionLoaderDeps, type PaneLaunch, type UnresolvedLaunch,
 } from "../codex/sessions.ts";
+import { DELIVERY_SWEEP_INTERVAL_MS, MAX_DELIVERY_BACKOFF_TICKS } from "../delivery.ts";
 import { workDigest } from "../work-submissions.ts";
 
 type Message = Record<string, any>;
@@ -106,6 +108,8 @@ const DEFAULTS: Record<string, Handler> = {
     id: m.id,
     result: { thread: { id: m.params.threadId, cwd: "/work/a", status: { type: "idle" } }, cwd: "/work/a", sandbox: SANDBOX, approvalPolicy: "never" },
   }),
+  /** live-04: `{ status: notLoaded | notSubscribed | unsubscribed }`. */
+  "thread/unsubscribe": (s, m) => s.push({ id: m.id, result: { status: "unsubscribed" } }),
 };
 
 const sockets: FakeSocket[] = [];
@@ -173,6 +177,7 @@ async function harness(
       confirmed.push({ ...expected, pane: opened.pane });
       return confirm;
     },
+    paneRuns: async () => true,
   };
   return {
     clock, control, ops, panes, confirmed, deps, config, writeConfig,
@@ -956,31 +961,47 @@ describe("registration", () => {
   });
 });
 
+
 /**
- * live-03 (probe-events.jsonl): a connection that never started or resumed a
- * thread hears only its thread/status/changed; item events reach only the
- * connections subscribed to it, which thread/start and thread/resume make.
- * `loaded` is each thread's native status; resuming an unloaded thread loads it.
+ * live-03 (probe-events.jsonl) and live-04: a connection that never started
+ * or resumed a thread hears only its status changes and thread/closed; item
+ * events reach only the connections subscribed to it, which thread/start and
+ * thread/resume make and thread/unsubscribe ends. `loaded` is each thread's
+ * native status; resuming an unloaded thread loads it. `history` is what
+ * thread/read with turns returns: the clientId each turn's user message carried.
  */
-function subscribingServer(loaded: Record<string, string>) {
+function subscribingServer(loaded: Record<string, string>, history: Record<string, Array<{ turn: string; item: string; clientId: string }>> = {}) {
   const subscribed = new Set<string>();
   const status = (threadId: string) => ({ type: loaded[threadId] ?? "notLoaded", ...(loaded[threadId] === "active" && { activeFlags: [] }) });
   const handlers: Record<string, Handler> = {
     "thread/read": (s, m) => s.push({
-      id: m.id, result: { thread: { id: m.params.threadId, cwd: "/work/a", status: status(m.params.threadId), preview: "x", turns: [] } },
+      id: m.id,
+      result: {
+        thread: {
+          id: m.params.threadId, cwd: "/work/a", status: status(m.params.threadId), preview: "x",
+          turns: m.params.includeTurns
+            ? (history[m.params.threadId] ?? []).map((h) => ({ id: h.turn, status: "completed", items: [{ type: "userMessage", id: h.item, clientId: h.clientId, content: [] }] }))
+            : [],
+        },
+      },
     }),
     "thread/resume": (s, m) => {
       subscribed.add(m.params.threadId);
       if (loaded[m.params.threadId] === undefined || loaded[m.params.threadId] === "notLoaded") loaded[m.params.threadId] = "idle";
       s.push({ id: m.id, result: { thread: { id: m.params.threadId, cwd: "/work/a", status: status(m.params.threadId) }, cwd: "/work/a" } });
     },
+    "thread/unsubscribe": (s, m) => {
+      const was = subscribed.delete(m.params.threadId);
+      s.push({ id: m.id, result: { status: was ? "unsubscribed" : "notSubscribed" } });
+    },
+    "thread/queue/add": (s, m) => s.push({ id: m.id, result: { queuedSubmission: { id: `Q-${m.params.clientUserMessageId}`, clientUserMessageId: m.params.clientUserMessageId } } }),
   };
   /** What the native server sends this connection when the thread takes a user message. */
-  const userMessage = (s: FakeSocket, threadId: string, clientId: string) => {
+  const userMessage = (s: FakeSocket, threadId: string, clientId: string, turnId = "U9", itemId = "I9") => {
     s.push(statusChanged(threadId, { type: "active", activeFlags: [] }));
     if (!subscribed.has(threadId)) return;
-    s.push(turn("turn/started", threadId, "U9"));
-    s.push({ method: "item/started", params: { threadId, turnId: "U9", startedAtMs: 1, item: { type: "userMessage", id: "I9", clientId, content: [] } } });
+    s.push(turn("turn/started", threadId, turnId));
+    s.push({ method: "item/started", params: { threadId, turnId, startedAtMs: 1, item: { type: "userMessage", id: itemId, clientId, content: [] } } });
   };
   return { handlers, subscribed, userMessage };
 }
@@ -991,105 +1012,109 @@ const queuedAndTaken = (server: ReturnType<typeof subscribingServer>): Handler =
   server.userMessage(s, "T1", m.params.clientUserMessageId);
 };
 const peerInput = { id: "d-5-remy", sender: "max (#general)", body: "hi", recipient: "remy" };
+const peer = (id: string) => ({ ...peerInput, id });
+/** How long one delivery keeps its thread subscribed: the queued recheck's saturated interval. */
+const HOLD_MS = DELIVERY_SWEEP_INTERVAL_MS * MAX_DELIVERY_BACKOFF_TICKS;
 
-describe("subscription to bound threads (M2b D1)", () => {
-  test("on connect the loader subscribes every attached loaded thread with a bare resume, and never resumes an unloaded one", async () => {
-    const server = subscribingServer({ T1: "idle", T2: "notLoaded", T3: "active" });
+function loaderOn(h: Awaited<ReturnType<typeof harness>>, over: Partial<CodexSessionLoaderDeps> = {}, sessions: Partial<CodexSessionDeps> = {}) {
+  return createCodexSessionLoader({
+    env: {}, now: () => 0,
+    discover: async () => ({ ok: true, data: { socketPath: SOCKET } }),
+    connect: async () => h.control,
+    outstanding: () => [],
+    messaging: { currentBinding: () => binding("T1"), persisted: () => null },
+    ...over,
+    sessions: { ...h.deps, enabled: () => true, lifecycle: async () => false, ...sessions },
+  });
+}
+
+describe("subscription only while deliveries are outstanding (M2b round 2)", () => {
+  test("a queue/add subscribes first, and the echo that confirms it unsubscribes: nothing stays subscribed", async () => {
+    const server = subscribingServer({ T1: "idle" });
+    server.handlers["thread/queue/add"] = queuedAndTaken(server);
+    const h = await harness(server.handlers);
+    const messaging = await loaderOn(h).loadMessaging();
+    expect(data(await messaging.submit(binding("T1"), peerInput)).evidence).toBe("consumed");
+    expect(h.ops).toEqual(["thread/read", "thread/resume", "thread/queue/add", "thread/unsubscribe"]);
+    expect(h.requests("thread/resume")[0]!.params).toEqual({ threadId: "T1", excludeTurns: true });
+    expect(h.requests("thread/unsubscribe")[0]!.params).toEqual({ threadId: "T1" });
+    expect([...server.subscribed]).toEqual([]);
+  });
+
+  test("two outstanding deliveries share one subscription, held until the last one is confirmed", async () => {
+    const server = subscribingServer({ T1: "idle" });
+    const h = await harness(server.handlers);
+    const messaging = await loaderOn(h).loadMessaging();
+    expect(data(await messaging.submit(binding("T1"), peer("d-1-remy"))).evidence).toBe("queued");
+    expect(data(await messaging.submit(binding("T1"), peer("d-2-remy"))).evidence).toBe("queued");
+    expect(h.requests("thread/resume")).toHaveLength(1);
+    server.userMessage(h.socket(), "T1", "d-1-remy", "U1", "I1");
+    expect(h.requests("thread/unsubscribe")).toEqual([]);
+    server.userMessage(h.socket(), "T1", "d-2-remy", "U2", "I2");
+    expect(h.requests("thread/unsubscribe")).toHaveLength(1);
+    expect(data(await messaging.reconcile!(binding("T1"), "d-2-remy"))).toMatchObject({ evidence: "consumed", turnId: "U2", itemId: "I2" });
+    expect([...server.subscribed]).toEqual([]);
+  });
+
+  test("a hold that outlasts its window lets go, and the delivery is then confirmed from the thread's history", async () => {
+    const server = subscribingServer({ T1: "idle" }, { T1: [{ turn: "U7", item: "I7", clientId: "d-5-remy" }] });
+    const h = await harness(server.handlers);
+    const messaging = await loaderOn(h).loadMessaging();
+    expect(data(await messaging.submit(binding("T1"), peerInput)).evidence).toBe("queued");
+    h.clock.advance(HOLD_MS - 1);
+    expect(h.requests("thread/unsubscribe")).toEqual([]);
+    h.clock.advance(1);
+    expect(h.requests("thread/unsubscribe")).toHaveLength(1);
+    expect(data(await messaging.reconcile!(binding("T1"), "d-5-remy"))).toMatchObject({ evidence: "consumed", turnId: "U7", itemId: "I7" });
+    expect(h.requests("thread/read").map((m) => m.params)).toEqual([{ threadId: "T1", includeTurns: false }, { threadId: "T1", includeTurns: true }]);
+  });
+
+  test("an unloaded thread takes nothing: nothing is queued and nothing stays subscribed", async () => {
+    const server = subscribingServer({ T1: "notLoaded" });
     const h = await harness(server.handlers);
     const gone: Gone[] = [];
-    const foreign = binding("T4", { key: "k4", native: { ...binding("T4").native, profile: "/other/.codex" } });
-    const loader = createCodexSessionLoader({
-      env: {}, now: () => 0,
-      discover: async () => ({ ok: true, data: { socketPath: SOCKET } }),
-      connect: async () => h.control,
-      attached: () => [binding("T1"), binding("T2", { key: "k2" }), binding("T3", { key: "k3" }), foreign],
-      sessions: { ...h.deps, enabled: () => true, lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); return false; } },
-    });
-    await loader.load();
-    expect(h.requests("thread/read").map((m) => m.params)).toEqual([
-      { threadId: "T1", includeTurns: false }, { threadId: "T2", includeTurns: false }, { threadId: "T3", includeTurns: false },
-    ]);
-    expect(h.requests("thread/resume").map((m) => m.params)).toEqual([{ threadId: "T1", excludeTurns: true }, { threadId: "T3", excludeTurns: true }]);
-    expect(h.ops.filter((op) => op !== "thread/read" && op !== "thread/resume")).toEqual([]);
-    expect([...server.subscribed]).toEqual(["T1", "T3"]);
-    expect(gone).toEqual([{ value: "T2", event: "unloaded", generation: 3 }]);
-    expect(loader.threadLive("T1", "default")).toBe(true);
-    expect(loader.threadLive("T2", "default")).toBe(false);
-    expect(loader.threadLive("T9", "default")).toBeUndefined();
-    expect(loader.threadLive("T1", "/other/.codex")).toBeUndefined();
+    const messaging = await loaderOn(h, {}, { lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); return false; } }).loadMessaging();
+    expect(await messaging.submit(binding("T1"), peerInput)).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(h.ops).toEqual(["thread/read"]);
+    expect(gone).toEqual([{ value: "T1", event: "unloaded", generation: 3 }]);
   });
 
-  test("a reconnect subscribes the bound threads again on the new connection, and a delivery's echo then reaches it", async () => {
-    const server = subscribingServer({ T1: "idle" });
-    server.handlers["thread/queue/add"] = queuedAndTaken(server);
-    const first = await harness(server.handlers);
-    const second = await harness(server.handlers);
-    const connections = [first.control, second.control];
-    const loader = createCodexSessionLoader({
-      env: {}, now: () => 0,
-      discover: async () => ({ ok: true, data: { socketPath: SOCKET } }),
-      connect: async () => connections.shift()!,
-      attached: () => [binding("T1")],
-      sessions: { ...first.deps, enabled: () => true, lifecycle: async () => false },
-      messaging: { currentBinding: () => binding("T1") },
-    });
-    await loader.load();
-    first.control.close();
-    await loader.load();
-    expect(second.requests("thread/resume").map((m) => m.params)).toEqual([{ threadId: "T1", excludeTurns: true }]);
-
-    second.socket().sent.length = 0;
-    const messaging = await loader.loadMessaging();
-    expect(data(await messaging.submit(binding("T1"), peerInput)).evidence).toBe("consumed");
-    expect(second.socket().sent.map((m) => m.method)).toEqual(["thread/queue/add"]);
-    expect(data(await messaging.reconcile!(binding("T1"), peerInput.id))).toMatchObject({ evidence: "consumed", turnId: "U9", itemId: "I9" });
-  });
-
-  test("without a subscription the echo never arrives, which is the live-03 failure", async () => {
-    const server = subscribingServer({ T1: "idle" });
-    server.handlers["thread/queue/add"] = queuedAndTaken(server);
+  test("after a reconnect only threads with outstanding rows are subscribed, and the recovered echo confirms and lets go", async () => {
+    const server = subscribingServer({ T1: "idle", T2: "idle" });
     const h = await harness(server.handlers);
-    const loader = createCodexSessionLoader({
-      env: {}, now: () => 0,
-      discover: async () => ({ ok: true, data: { socketPath: SOCKET } }),
-      connect: async () => h.control,
-      attached: () => [],
-      sessions: { ...h.deps, enabled: () => true, lifecycle: async () => false },
-      messaging: { currentBinding: () => binding("T1") },
+    const loader = loaderOn(h, {
+      outstanding: () => [{ binding: binding("T1"), ids: ["d-5-remy"] }],
+      messaging: {
+        currentBinding: () => binding("T1"),
+        persisted: (id) => (id === "d-5-remy"
+          ? { inputId: id, frameId: id, state: "queued", harness: "codex", sessionKey: "k1", generation: 3, nativeId: "T1" }
+          : null),
+      },
     });
     const messaging = await loader.loadMessaging();
-    await messaging.submit(binding("T1"), peerInput);
-    expect(data(await messaging.reconcile!(binding("T1"), peerInput.id))).toMatchObject({ evidence: "queued" });
+    expect(h.requests("thread/resume").map((m) => m.params)).toEqual([{ threadId: "T1", excludeTurns: true }]);
+    server.userMessage(h.socket(), "T1", "d-5-remy");
+    expect(data(await messaging.reconcile!(binding("T1"), "d-5-remy"))).toMatchObject({ evidence: "consumed", turnId: "U9", itemId: "I9" });
+    expect(h.requests("thread/unsubscribe").map((m) => m.params)).toEqual([{ threadId: "T1" }]);
+    expect(h.requests("thread/queue/add")).toEqual([]);
   });
 
-  test("observe subscribes a thread loaded after the connection opened, once", async () => {
+  test("a launched Herdr thread is let go once its terminal attached; a headless one stays subscribed", async () => {
+    const herdr = await harness();
+    data(await herdr.sessions({ enabled: () => true }).launch(request()));
+    expect(herdr.ops.at(-1)).toBe("thread/unsubscribe");
+    const headless = await harness();
+    data(await headless.sessions({ enabled: () => true }).launch(request({ mode: "headless" })));
+    expect(headless.requests("thread/unsubscribe")).toEqual([]);
+  });
+
+  test("observe reads a thread's status once and never subscribes", async () => {
     const server = subscribingServer({ T1: "idle" });
     const h = await harness(server.handlers);
     const sessions = h.sessions({ enabled: () => true, lifecycle: async () => false });
     expect(data(await sessions.observe(binding("T1")))).toMatchObject({ connectivity: "connected", execution: "idle" });
     await sessions.observe(binding("T1"));
-    expect(h.ops).toEqual(["thread/read", "thread/resume"]);
-    expect(h.requests("thread/resume")[0]!.params).toEqual({ threadId: "T1", excludeTurns: true });
-  });
-
-  test("a thread this connection launched is already subscribed", async () => {
-    const h = await harness();
-    const sessions = h.sessions({ enabled: () => true, lifecycle: async () => false });
-    data(await sessions.launch(request({ mode: "headless" })));
-    const before = h.ops.length;
-    await sessions.observe(binding("T1"));
-    expect(h.ops.slice(before)).toEqual([]);
-  });
-
-  test("with the switch off observe subscribes nothing and no lifecycle is reported", async () => {
-    const server = subscribingServer({ T1: "idle" });
-    const h = await harness(server.handlers);
-    const gone: Gone[] = [];
-    const sessions = h.sessions({ enabled: () => false, lifecycle: async (native, event) => { gone.push({ value: native.value, event }); return false; } });
-    await sessions.observe(binding("T1"));
-    h.socket().push(statusChanged("T1", { type: "notLoaded" }));
     expect(h.ops).toEqual(["thread/read"]);
-    expect(gone).toEqual([]);
   });
 });
 
@@ -1104,7 +1129,7 @@ describe("per-thread liveness (M2b D2)", () => {
     expect(h.requests("thread/resume")).toEqual([]);
   });
 
-  test("native unload, close and the sessionEnd hook end a subscribed thread; other hooks do not", async () => {
+  test("native unload, close and the sessionEnd hook end a thread rt owns; other hooks do not", async () => {
     const server = subscribingServer({ T1: "idle", T2: "idle", T3: "idle" });
     const h = await harness(server.handlers);
     const gone: Gone[] = [];
@@ -1117,25 +1142,70 @@ describe("per-thread liveness (M2b D2)", () => {
     s.push({ method: "hook/started", params: { threadId: "T3", turnId: null, run: { id: "h2", eventName: "sessionEnd", status: "running" } } });
     await Bun.sleep(1);
     expect(gone).toEqual([{ value: "T1", event: "unloaded" }, { value: "T2", event: "ended" }, { value: "T3", event: "ended" }]);
+  });
 
-    server.subscribed.clear();
-    const before = h.requests("thread/resume").length;
-    s.push(statusChanged("T1", { type: "idle" }));
+  test("with the switch off observe holds nothing and no lifecycle is reported", async () => {
+    const server = subscribingServer({ T1: "idle" });
+    const h = await harness(server.handlers);
+    const gone: Gone[] = [];
+    const sessions = h.sessions({ enabled: () => false, lifecycle: async (native, event) => { gone.push({ value: native.value, event }); return false; } });
     await sessions.observe(binding("T1"));
-    expect(h.requests("thread/resume").length).toBe(before + 1);
+    h.socket().push(statusChanged("T1", { type: "notLoaded" }));
+    expect(h.ops).toEqual(["thread/read"]);
+    expect(gone).toEqual([]);
+  });
+});
+
+describe("a Herdr attachment needs its codex pane (M2b round 2)", () => {
+  test("live only while the thread is loaded and herdr shows codex in the pane; offline when the pane goes though the thread stays loaded", async () => {
+    const server = subscribingServer({ T1: "idle" });
+    const h = await harness(server.handlers);
+    let pane = true;
+    const checked: string[] = [];
+    const loader = loaderOn(h, {}, { paneRuns: async (b) => { checked.push(`${b.native.value}@${b.attachment.pane}`); return pane; } });
+    const sessions = await loader.load();
+    expect(loader.bindingLive(binding("T1"))).toBe(false);
+    await sessions.observe(binding("T1"));
+    expect(loader.bindingLive(binding("T1"))).toBe(true);
+    pane = false;
+    await sessions.observe(binding("T1"));
+    expect(loader.bindingLive(binding("T1"))).toBe(false);
+    expect(codexEventHub(h.control).live("T1")).toBe(true);
+    pane = true;
+    await sessions.observe(binding("T1"));
+    expect(loader.bindingLive(binding("T1", { attachment: { generation: 4, mode: "herdr", pane: "p2" } }))).toBe(false);
+    h.socket().push(statusChanged("T1", { type: "notLoaded" }));
+    expect(loader.bindingLive(binding("T1"))).toBe(false);
+    expect(checked).toEqual(["T1@p1", "T1@p1", "T1@p1"]);
+  });
+
+  test("a headless attachment keeps loaded-only liveness and is never checked against a pane", async () => {
+    const server = subscribingServer({ T1: "idle" });
+    const h = await harness(server.handlers);
+    let checks = 0;
+    const loader = loaderOn(h, {}, { paneRuns: async () => { checks++; return false; } });
+    const sessions = await loader.load();
+    const headless = binding("T1", { attachment: { generation: 3, mode: "headless" } });
+    expect(loader.bindingLive(headless)).toBeUndefined();
+    await sessions.observe(headless);
+    expect(loader.bindingLive(headless)).toBe(true);
+    h.socket().push(statusChanged("T1", { type: "notLoaded" }));
+    expect(loader.bindingLive(headless)).toBe(false);
+    expect(checks).toBe(0);
   });
 });
 
 describe("unsubscribing threads rt lets go (M2b review)", () => {
-  test("disowning a thread rt owns unsubscribes it before releasing it", async () => {
+  test("disowning a held thread unsubscribes it before releasing it", async () => {
     const server = subscribingServer({ T1: "idle" });
     const h = await harness(server.handlers);
     const sessions = h.sessions({ enabled: () => true, lifecycle: async () => false });
-    await sessions.observe(binding("T1"));
+    data(await sessions.hold(binding("T1"), "d-1-remy"));
     sessions.disown(binding("T1"));
     expect(h.requests("thread/unsubscribe").map((m) => m.params)).toEqual([{ threadId: "T1" }]);
     sessions.disown(binding("T1"));
     expect(h.requests("thread/unsubscribe")).toHaveLength(1);
+    expect(h.clock.active).toBe(0);
   });
 
   test("a detach or an end rt applied unsubscribes the thread; a report that changed nothing does not", async () => {
@@ -1143,7 +1213,7 @@ describe("unsubscribing threads rt lets go (M2b review)", () => {
     const h = await harness(server.handlers);
     const applied = new Set(["T1", "T2", "T4"]);
     const sessions = h.sessions({ enabled: () => true, lifecycle: async (native) => applied.has(native.value) });
-    for (const t of ["T1", "T2", "T3"]) await sessions.observe(binding(t));
+    for (const t of ["T1", "T2", "T3"]) data(await sessions.hold(binding(t), `d-${t}`));
     const s = h.socket();
     s.push(statusChanged("T1", { type: "notLoaded" }));
     s.push({ method: "thread/closed", params: { threadId: "T2" } });
@@ -1151,6 +1221,8 @@ describe("unsubscribing threads rt lets go (M2b review)", () => {
     await Bun.sleep(1);
     await sessions.observe(binding("T4"));
     expect(h.requests("thread/unsubscribe").map((m) => m.params.threadId)).toEqual(["T1", "T2", "T4"]);
+    sessions.release("T3", "d-T3");
+    expect(h.clock.active).toBe(0);
   });
 
   test("a thread rt does not own is never unsubscribed", async () => {
@@ -1169,29 +1241,5 @@ describe("unsubscribing threads rt lets go (M2b review)", () => {
     h.socket().push({ method: "thread/closed", params: { threadId: "T1" } });
     await Bun.sleep(1);
     expect(h.requests("thread/unsubscribe")).toEqual([]);
-  });
-});
-
-describe("queued deliveries across a reconnect (M2b review)", () => {
-  test("after a daemon restart the resubscribed connection's echo of a delivery queued earlier is consumption", async () => {
-    const server = subscribingServer({ T1: "idle" });
-    const h = await harness(server.handlers);
-    const loader = createCodexSessionLoader({
-      env: {}, now: () => 0,
-      discover: async () => ({ ok: true, data: { socketPath: SOCKET } }),
-      connect: async () => h.control,
-      attached: () => [binding("T1")],
-      sessions: { ...h.deps, enabled: () => true, lifecycle: async () => false },
-      messaging: {
-        currentBinding: () => binding("T1"),
-        persisted: (id) => (id === "d-5-remy"
-          ? { inputId: id, frameId: id, state: "queued", harness: "codex", sessionKey: "k1", generation: 3, nativeId: "T1" }
-          : null),
-      },
-    });
-    const messaging = await loader.loadMessaging();
-    server.userMessage(h.socket(), "T1", "d-5-remy");
-    expect(data(await messaging.reconcile!(binding("T1"), "d-5-remy"))).toMatchObject({ evidence: "consumed", turnId: "U9", itemId: "I9" });
-    expect(h.requests("thread/queue/add")).toEqual([]);
   });
 });

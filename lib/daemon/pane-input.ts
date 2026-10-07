@@ -21,6 +21,7 @@ import { oneShotInput, type DeliveryService } from "../agent-integrations/delive
 import { listBindingsAtPane } from "../agent-integrations/session-store.ts";
 import type { herdrRequest } from "../herdr/client.ts";
 import type { InjectResult } from "./inject.ts";
+import { resolvePaneRef } from "./pane-ref-socket.ts";
 
 export type PaneInputRoute = {
   db: Database;
@@ -45,8 +46,23 @@ export async function messagingTarget(route: PaneInputRoute, target: PaneTarget)
   if (!binding) return null;
   const integration = route.integrations.get(binding.native.harness);
   if (!integration || integration.typedPaneInput) return null;
-  const shown = await route.herdr<{ agent: { agent: string } }>("agent.get", { target: target.paneId }, { sockPath: target.sockPath });
-  return shown.ok && shown.result.agent.agent === binding.native.harness ? binding : null;
+  return (await paneRunsHarness(route.herdr, target, binding.native.harness)) ? binding : null;
+}
+
+/** Whether herdr shows `harness` running in the pane now; false when the pane is gone or herdr cannot say. */
+export async function paneRunsHarness(
+  herdr: typeof herdrRequest, target: Pick<PaneTarget, "paneId" | "sockPath">, harness: string,
+): Promise<boolean> {
+  const shown = await herdr<{ agent: { agent: string } }>("agent.get", { target: target.paneId }, { sockPath: target.sockPath });
+  return shown.ok && shown.result?.agent?.agent === harness;
+}
+
+/** Whether herdr shows the binding's own harness in the pane its attachment names; false for an attachment with no pane. */
+export async function bindingPaneRuns(herdr: typeof herdrRequest, binding: SessionBinding): Promise<boolean> {
+  const pane = binding.attachment.pane;
+  if (!pane) return false;
+  const { paneId, sockPath } = resolvePaneRef(pane);
+  return paneRunsHarness(herdr, { paneId, sockPath: binding.attachment.socket ?? sockPath }, binding.native.harness);
 }
 
 /** Sends `inputs` in order to a session messagingTarget found; the first refusal stops the rest. */

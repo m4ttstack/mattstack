@@ -182,7 +182,7 @@ describe("chat identity follows the native session, not the pane", () => {
   });
 
   test("self-posts never come back as unread or as a delivery", async () => {
-    const x = fixture({ inbox: ["sess-kai"] });
+    const x = fixture({ inbox: ["sess-kai"], paneAgents: { "w1:p1": "codex", "w2:p1": "codex" } });
     const original = await x.signIn({ sessionId: "thread-1", pane: "w1:p1" });
     const binding = bind(x.db, codexRef("thread-1"), "w1:p1", original.handle);
     const kai = await x.signIn({ sessionId: "sess-kai", continue: "kai" });
@@ -394,7 +394,7 @@ describe("a Codex thread its app server no longer runs (M2b D2)", () => {
 
 describe("delivery goes through the session's harness", () => {
   test("a bound session's welcome and receipts go through its messaging, and the sender's own room post never does", async () => {
-    const x = fixture({ inbox: ["sess-kai"] });
+    const x = fixture({ inbox: ["sess-kai"], paneAgents: { "w1:p1": "codex" } });
     const kai = await x.signIn({ sessionId: "sess-kai", continue: "kai" });
     await x.h["chat:join"]({ room: "r", handle: kai.handle, wakeOn: "all" });
     const early = await x.h["chat:post"]({ room: "r", handle: kai.handle, body: "waiting for you" });
@@ -427,6 +427,8 @@ describe("delivery goes through the session's harness", () => {
     const x = fixture({ observe: () => observed, paneAgents: { "w1:p1": "codex" } });
     const t1 = await x.signIn({ sessionId: "thread-1", pane: "w1:p1" });
     bind(x.db, codexRef("thread-1"), "w1:p1", t1.handle);
+    await Bun.sleep(5);
+    const calls = x.herdrCalls.length;
 
     const sent = await x.h["chat:invite"]({ paneId: "w1:p1", room: "build", from: "matt", note: "the deploy is red" });
     expect(sent).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "queued" } });
@@ -434,14 +436,14 @@ describe("delivery goes through the session's harness", () => {
     expect(invite.input.sender).toBe("matt");
     expect(invite.input.body).toContain('chat_join (room "build")');
     expect(invite.input.body).toContain("note from matt: the deploy is red");
-    expect(x.herdrCalls).toEqual(["agent.get"]);
+    expect(x.herdrCalls.slice(calls)).toEqual(["agent.get"]);
 
     observed = { ...IDLE, execution: "blocked" };
     const before = x.submits.length;
     const blocked = await x.h["chat:invite"]({ paneId: "w1:p1", room: "build", from: "matt" });
     expect(blocked).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "refused", reason: "at a prompt" } });
     expect(x.submits.length).toBe(before);
-    expect(x.herdrCalls).toEqual(["agent.get", "agent.get"]);
+    expect(x.herdrCalls.slice(calls)).toEqual(["agent.get", "agent.get"]);
 
     const self = await x.h["chat:invite"]({ paneId: "w1:p1", room: "build", from: "matt", callerPane: "w1:p1" });
     expect(self).toEqual({ ok: true, data: { paneId: "w1:p1", delivered: "refused", reason: "that is this pane" } });
