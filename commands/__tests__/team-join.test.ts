@@ -185,6 +185,30 @@ describe("teamJoin", () => {
     }
   });
 
+  const staleMarker = { [`${HOME}/.mattstack/teams/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "globex" }` };
+
+  test("an invite naming the org by an old name is refused, not failed", async () => {
+    const deps = baseDeps({ probes: fakeProbes({ home: HOME, fetch: relayFetch(), exec: () => ({ code: 0, stdout: "", stderr: "" }), files: staleMarker }) });
+    const io = captureOut();
+    ui.__test__.setHuman(() => false);
+    try {
+      const code = await runExpectingProcessExit(() => teamJoin([], {}, deps));
+      expect(code).toBe(2);
+      expect(io.stderr()).toStartWith("[refused] This invite names the org by an old name; ask for a fresh one\n  why: The org was renamed after this invite was made; a fresh invite from your admin joins it.\n");
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("--json carries invite-stale in the usual error envelope", async () => {
+    const deps = baseDeps({ probes: fakeProbes({ home: HOME, fetch: relayFetch(), exec: () => ({ code: 0, stdout: "", stderr: "" }), files: staleMarker }) });
+    const code = await runExpectingProcessExit(() => teamJoin(["--json"], {}, deps));
+    expect(code).toBe(2);
+    const body = JSON.parse(deps.lines[0]!);
+    expect(body.error.code).toBe("invite-stale");
+    expect(body.error.message).toBe("This invite names the org by an old name; ask for a fresh one");
+  });
+
   test("--dry-run --json prints the exact contract envelope for an accessible invite", async () => {
     const deps = baseDeps({ probes: fakeProbes({ home: HOME, fetch: relayFetch(), exec: () => ({ code: 0, stdout: "", stderr: "" }) }) });
 
