@@ -152,6 +152,7 @@ import type { PortEntry } from "./port-scanner.ts";
 import { backgroundUnit, runUnits, stopUnits, type DaemonUnit } from "./daemon/lifecycle.ts";
 import { integrationsEnabled } from "./agent-integrations/context.ts";
 import { createDeliveryService, type DeliveryService } from "./agent-integrations/delivery.ts";
+import { createGateQuestions, setGateQuestions, type GateQuestions } from "./agent-integrations/questions.ts";
 
 // Legacy state migration (RT-46). Must run BEFORE the logger's first write can
 // create the new rt dir and turn a clean rename of a real legacy tree into a
@@ -375,6 +376,12 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
   let chatDelivery: DeliveryService | undefined;
   const deliveryShutdown = new AbortController();
   let deliveryRecovery: DaemonUnit | undefined;
+  // Native question completion for gates a harness asked (built with the
+  // gates store in phase 4, recovered in phase 6). One abort cancels its
+  // startup and reconnect recovery and every completion still in flight.
+  let gateQuestions: GateQuestions;
+  const gateQuestionShutdown = new AbortController();
+  let gateQuestionRecovery: DaemonUnit | undefined;
   let healthInterval: ReturnType<typeof setInterval> | null = null;
   let loopMon: ReturnType<typeof startLoopMonitor>;
   let handlerCtx: HandlerContext;
@@ -691,6 +698,20 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         gatesStore = createGatesStore({ dbPath: join(RT_DIR, "gates.db"), log });
         herdStore = createHerdStore({ dbPath: join(RT_DIR, "herds.db"), log });
         bgClaims = createBgClaimsStore({ dbPath: join(RT_DIR, "bg-claims.db"), log });
+        // Reads state.db only when called, and only while agent integrations
+        // are on, so it is safe to build before the state-db unit opens it.
+        gateQuestions = createGateQuestions({
+          gates: gatesStore,
+          db: () => getStateDb("daemon"),
+          signal: gateQuestionShutdown.signal,
+          log: loggerHandle.childLogger("gate-questions"),
+          emit: (topic, payload) => {
+            const emittedAt = Date.now();
+            const eventId = eventsBus.emitAt(topic, payload, emittedAt);
+            emit("event", { id: eventId, topic, payload, emittedAt });
+          },
+        });
+        setGateQuestions(gateQuestions);
         // Session id -> socket resolution goes through the claude-registry
         // (pane inboxes), never a bespoke lookup: it's the same binding
         // rt chat delivery already resolves through.
@@ -707,6 +728,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           log,
           injectEscape: createEscapeInjector(),
           paneStatus: createPaneStatusProbe(),
+          native: gateQuestions,
         });
         gateEscalation = createGateEscalation({
           store: gatesStore,
@@ -1107,6 +1129,25 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           await delivery.idle();
         }, (err) => deliveryLog.warn({ err }, "delivery: startup reconciliation failed"));
         await deliveryRecovery.start();
+        // Gates a previous daemon answered or closed without finishing their
+        // native question are completed from the stored row at boot, and
+        // again whenever a harness comes back on a new connection.
+        const questionLog = loggerHandle.childLogger("gate-questions");
+        gateQuestionRecovery = backgroundUnit("gate-question-recovery", gateQuestionShutdown, async (signal) => {
+          if (integrationsEnabled()) {
+            const recovered = await gateQuestions.recoverGateQuestions();
+            if (recovered.completed + recovered.pending > 0) questionLog.info(recovered, "gate: native questions a previous daemon left unfinished");
+          }
+          if (!signal.aborted) await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+          await gateQuestions.idle();
+        }, (err) => questionLog.warn({ err }, "gate: native question recovery failed"));
+        await gateQuestionRecovery.start();
+        sweepHandles.push(scheduleSweep(
+          "gate-question-reconnect",
+          () => gateQuestions.noteConnections(),
+          { bootDelayMs: 30_000, intervalMs: 30_000 },
+          log,
+        ));
         // Keeps cd-cache.json warm for `rt cd`; uses the async repo-index
         // builder, never execSync, since this runs on the daemon thread.
         sweepHandles.push(scheduleSweep(
@@ -1260,6 +1301,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         peerWaker?.stop();
         hooksGuard?.closeAll();
         await deliveryRecovery?.stop();
+        await gateQuestionRecovery?.stop();
       },
     },
 

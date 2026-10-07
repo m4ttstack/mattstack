@@ -547,8 +547,11 @@ export function createGateHandlers(
         // Fetched fresh (unlike the event payload above): a form-blocked pane
         // on the superseded gate never gets an answer, so it needs the same
         // doorbell-then-Escape delivery onAnswered gives a real answer.
+        // A native question still has to be ended when its own pane asks
+        // again; its integration gets the closed row, which names the
+        // superseding gate, and decides what the pane is sent.
         const supersededRow = store.get(supersededId);
-        if (supersededRow && !sameOpenerPane(row, supersededRow)) {
+        if (supersededRow && (!sameOpenerPane(row, supersededRow) || push.nativeOwns?.(supersededRow))) {
           firePush(push.onClosed(supersededRow), { verb: "gate:open", gateId: supersededRow.id });
         }
       }

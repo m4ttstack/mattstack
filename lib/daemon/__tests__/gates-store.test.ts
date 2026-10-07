@@ -695,3 +695,98 @@ describe("unconsumedAnsweredPushes", () => {
     expect(s.unconsumedAnsweredPushes(twoHoursLater).map((r) => r.id)).toEqual([]);
   });
 });
+
+describe("gates store — native question completion", () => {
+  const binding = (gateId: string) => ({
+    gateId, sessionKey: "s1", generation: 3,
+    nativeThread: "thread-1", nativeTurn: "turn-1", nativeItem: "item-1",
+    nativeQuestions: ["q"], presentation: "form" as const,
+  });
+
+  test("bindings and completion intent survive close and reopen, apart from the gate's answer", () => {
+    const path = tmp("gates.db");
+    const s = createGatesStore({ dbPath: path, log });
+    const id = openGate(s, "run:r1");
+    s.nativeQuestions().bind(binding(id));
+    s.answer(id, { q: "a" }, "console");
+    const winningAnswer = s.get(id)!.answer;
+    s.nativeQuestions().intend(id, "fp-1");
+    s.close_();
+
+    const reopened = createGatesStore({ dbPath: path, log });
+    expect(reopened.nativeQuestions().get(id)).toEqual(binding(id));
+    const completion = reopened.nativeQuestions().completion(id)!;
+    expect(completion.state).toBe("pending");
+    expect(completion.fingerprint).toBe("fp-1");
+    expect(reopened.get(id)!.answer).toEqual(winningAnswer);
+    reopened.close_();
+  });
+
+  test("a pending or failed completion never changes the stored winning answer", () => {
+    const s = store();
+    const id = openGate(s, "run:r1");
+    s.nativeQuestions().bind(binding(id));
+    s.answer(id, { q: "a" }, "console");
+    const winningAnswer = s.get(id)!.answer;
+    s.nativeQuestions().intend(id, "fp-1");
+    expect(s.nativeQuestions().settle(id, "pending", "transient: socket closed")).toBe(true);
+    const completion = s.nativeQuestions().completion(id)!;
+    expect(completion.state).toBe("pending");
+    expect(completion.detail).toBe("transient: socket closed");
+    expect(s.get(id)!.answer).toEqual(winningAnswer);
+    expect(s.get(id)!.status).toBe("answered");
+    s.close_();
+  });
+
+  test("intent keeps its first fingerprint, and a terminal state is never overwritten", () => {
+    const s = store();
+    const id = openGate(s, "run:r1");
+    s.nativeQuestions().bind(binding(id));
+    expect(s.nativeQuestions().intend(id, "fp-1").attempts).toBe(1);
+    const again = s.nativeQuestions().intend(id, "fp-2");
+    expect(again.fingerprint).toBe("fp-1");
+    expect(again.attempts).toBe(2);
+    expect(s.nativeQuestions().settle(id, "conflict", "native reply differs")).toBe(true);
+    expect(s.nativeQuestions().settle(id, "completed", null)).toBe(false);
+    expect(s.nativeQuestions().intend(id, "fp-1").state).toBe("conflict");
+    expect(s.nativeQuestions().completion(id)!.state).toBe("conflict");
+    s.close_();
+  });
+
+  test("recoverable lists answered and closed bound gates whose completion is missing or pending", () => {
+    const s = store();
+    const open = openGate(s, "run:open");
+    const answered = openGate(s, "run:answered");
+    const closed = openGate(s, "run:closed");
+    const done = openGate(s, "run:done");
+    const unbound = openGate(s, "run:unbound");
+    for (const id of [open, answered, closed, done]) s.nativeQuestions().bind(binding(id));
+    s.answer(answered, { q: "a" }, "console");
+    s.close(closed, "abandoned");
+    s.answer(done, { q: "b" }, "console");
+    s.nativeQuestions().intend(done, "fp");
+    s.nativeQuestions().settle(done, "completed", null);
+    s.answer(unbound, { q: "a" }, "console");
+    expect(s.nativeQuestions().recoverable(10).sort()).toEqual([answered, closed].sort());
+    expect(s.nativeQuestions().recoverable(1)).toHaveLength(1);
+    s.close_();
+  });
+
+  test("a gates.db from before these tables gains them on open, and orphans are pruned", () => {
+    const path = tmp("gates.db");
+    const first = createGatesStore({ dbPath: path, log });
+    const id = openGate(first, "run:r1");
+    first.__db!.exec("DROP TABLE gate_native_questions; DROP TABLE gate_native_completion;");
+    first.close_();
+
+    const s = createGatesStore({ dbPath: path, log });
+    s.nativeQuestions().bind(binding(id));
+    s.nativeQuestions().bind(binding("gone-gate"));
+    s.nativeQuestions().intend("gone-gate", "fp");
+    expect(s.nativeQuestions().pruneOrphans()).toBe(2);
+    expect(s.nativeQuestions().get("gone-gate")).toBeNull();
+    expect(s.nativeQuestions().completion("gone-gate")).toBeNull();
+    expect(s.nativeQuestions().get(id)).not.toBeNull();
+    s.close_();
+  });
+});

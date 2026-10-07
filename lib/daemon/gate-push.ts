@@ -97,6 +97,22 @@ export const GATE_SUBSCRIPTION_PHRASE = (row: Pick<GateRow, "id" | "status" | "o
 const DEFAULT_DEAD_AFTER_FAILURES = 3;
 const DEFAULT_MAX_PANE_RETRIES = 20;
 
+/**
+ * A gate a harness asked as a native question is ended through that question,
+ * never through the pane push: its integration completes or dismisses it from
+ * the stored row. Subscription fan-out is unchanged either way.
+ */
+export interface NativeQuestionSeam {
+  /**
+   * Whether a native question completes `row`. Synchronous and cheap for a
+   * gate no harness asked (one indexed read), since it runs on every push;
+   * false while agent integrations are off.
+   */
+  owns(row: GateRow): boolean;
+  /** Completes the gate's native question from the stored row. */
+  settle(row: GateRow): Promise<void>;
+}
+
 export interface GatePush {
   /** Pane push (attended gates with a nudge) + subscription fan-out. */
   onAnswered(row: GateRow): Promise<void>;
@@ -109,6 +125,8 @@ export interface GatePush {
   /** Retry dead-pane nudges up to maxPaneRetries per gate, plus the
       answered-unconsumed re-delivery sweep. */
   retryDeadPanes(): Promise<{ retried: number; delivered: number; gaveUp: number; reNudged: number }>;
+  /** The native seam's ownership test, when one is wired (see NativeQuestionSeam). */
+  nativeOwns?(row: GateRow): boolean;
 }
 
 export function createGatePush(opts: {
@@ -126,8 +144,9 @@ export function createGatePush(opts: {
   /** Required for any Escape: without it every push is doorbell-only. */
   paneStatus?: PaneStatusProbe;
   maxPaneRetries?: number;
+  native?: NativeQuestionSeam;
 }): GatePush {
-  const { store, deliver, resolveSession, resolveAll, log } = opts;
+  const { store, deliver, resolveSession, resolveAll, log, native } = opts;
   const deadAfterFailures = opts.deadAfterFailures ?? DEFAULT_DEAD_AFTER_FAILURES;
   const maxPaneRetries = opts.maxPaneRetries ?? DEFAULT_MAX_PANE_RETRIES;
 
@@ -316,22 +335,32 @@ export function createGatePush(opts: {
     await Promise.all(subs.map((sub) => pushToSubscription(row, sub, registry)));
   }
 
+  function settleNative(row: GateRow): Promise<void> {
+    return native!.settle(row).catch((err) => log.warn({ err, gateId: row.id }, "gate-push: native question completion threw"));
+  }
+
+  const ownedNatively = (row: GateRow): boolean => native?.owns(row) ?? false;
+
   return {
     async onAnswered(row) {
       // Self-answer rule: no doorbell back to the pane that recorded it. No
       // delivery stamp either, so the row never enters deadPanePushes() and
       // retryDeadPanes has nothing to redeliver.
-      const pane = answeredByNudgedPane(row)
-        ? Promise.resolve()
-        : pushToPane(row, GATE_ANSWERED_PHRASE(row.id, row.answer?.by));
+      const pane = ownedNatively(row)
+        ? settleNative(row)
+        : answeredByNudgedPane(row)
+          ? Promise.resolve()
+          : pushToPane(row, GATE_ANSWERED_PHRASE(row.id, row.answer?.by));
       await Promise.all([pane, fanOut(row)]);
     },
     async onOpened(row) {
       await fanOut(row);
     },
     async onClosed(row) {
-      await pushToPane(row, GATE_CLOSED_PHRASE(row.id, row.closedReason));
+      if (ownedNatively(row)) await settleNative(row);
+      else await pushToPane(row, GATE_CLOSED_PHRASE(row.id, row.closedReason));
     },
+    ...(native && { nativeOwns: (row: GateRow) => native.owns(row) }),
     async retryDeadPanes() {
       if (paneRetriesInFlight) return { retried: 0, delivered: 0, gaveUp: 0, reNudged: 0 };
       paneRetriesInFlight = true;
@@ -339,6 +368,9 @@ export function createGatePush(opts: {
         let retried = 0, delivered = 0, gaveUp = 0;
         const live = new Set<string>();
         for (const row of store.deadPanePushes()) {
+          // A natively completed gate's pane is its integration's to wake;
+          // native question recovery retries what is still pending.
+          if (ownedNatively(row)) continue;
           live.add(row.id);
           const attempts = paneAttempts.get(row.id) ?? 0;
           if (attempts >= maxPaneRetries) continue;
@@ -365,6 +397,7 @@ export function createGatePush(opts: {
         let reNudged = 0;
         const unconsumedLive = new Set<string>();
         for (const row of store.unconsumedAnsweredPushes()) {
+          if (ownedNatively(row)) continue;
           unconsumedLive.add(row.id);
           const counter = (consumeSweepCounter.get(row.id) ?? 0) + 1;
           consumeSweepCounter.set(row.id, counter);

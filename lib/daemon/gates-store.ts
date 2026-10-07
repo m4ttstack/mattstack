@@ -22,6 +22,7 @@ import {
   type ExecutorState,
 } from "../../packages/rt-client/src/commands.ts";
 import { normalizeGateQuestions } from "../../packages/rt-client/src/gate-options.ts";
+import { createQuestionStore, type QuestionStore } from "../agent-integrations/question-store.ts";
 
 export type { GateStatus, GateQuestion, GateAnswer, GateRow, GateOrigin, GateSubscription, ExecutorState };
 export { GATE_BY_PANE };
@@ -107,6 +108,8 @@ export interface GatesStore {
       than `olderThanMs`; a dead row that was never delivered is pruned
       immediately, regardless of `olderThanMs`. Returns rows removed. */
   pruneDeadSubscriptions(olderThanMs: number, now?: number): number;
+  /** Native question bindings and completions, on this store's database; built on first use. */
+  nativeQuestions(): QuestionStore;
   close_(): void;
   /** Test-only debug accessor for the underlying handle (e.g. pragma checks). Not for feature code. */
   __db?: Database;
@@ -321,6 +324,28 @@ export function createGatesStore(opts: {
       scope         TEXT NOT NULL DEFAULT 'prefix',
       ownerRef      TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS gate_native_questions (
+      gateId          TEXT PRIMARY KEY,
+      sessionKey      TEXT NOT NULL,
+      generation      INTEGER NOT NULL,
+      nativeThread    TEXT,
+      nativeTurn      TEXT,
+      nativeItem      TEXT,
+      nativeQuestions TEXT,
+      presentation    TEXT NOT NULL,
+      boundAt         INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS gate_native_completion (
+      gateId      TEXT PRIMARY KEY,
+      state       TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      attempts    INTEGER NOT NULL DEFAULT 0,
+      detail      TEXT,
+      createdAt   INTEGER NOT NULL,
+      updatedAt   INTEGER NOT NULL
+    );
   `);
 
   // Idempotent migration for a gates.db predating the newer columns:
@@ -531,6 +556,7 @@ export function createGatesStore(opts: {
     signal?: AbortSignal;
   }
   const waiters = new Map<string, Set<Waiter>>();
+  let questionStore: QuestionStore | undefined;
 
   const settle = (gateId: string, w: Waiter, result: WaitResult): void => {
     const set = waiters.get(gateId);
@@ -763,6 +789,11 @@ export function createGatesStore(opts: {
 
     pruneDeadSubscriptions(olderThanMs, now) {
       return performPruneDeadSubscriptions(olderThanMs, now);
+    },
+
+    nativeQuestions() {
+      questionStore ??= createQuestionStore(db);
+      return questionStore;
     },
 
     deadPanePushes() {

@@ -4,7 +4,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { resolveAllLiveInboxes, resolveInbox, resolveLiveInbox } from "../../claude-registry.ts";
 import pino from "pino";
-import { createGatesStore, GATE_BY_PANE, type GatesStore, type GateQuestion } from "../gates-store.ts";
+import { createGatesStore, GATE_BY_PANE, type GatesStore, type GateQuestion, type GateRow } from "../gates-store.ts";
 import { createGatePush, GATE_ANSWERED_PHRASE, GATE_CLOSED_PHRASE, GATE_SUBSCRIPTION_PHRASE, safeSurface } from "../gate-push.ts";
 import { wrapCrossSession } from "../inbox.ts";
 import type { LivePane, PaneHints } from "../pane-resolve-live.ts";
@@ -931,6 +931,114 @@ describe("safeSurface (answering-surface allowlist, prompt-injection hardening)"
   });
 });
 
+describe("gate-push — gates a native question completes", () => {
+  /** A native seam that owns the gate ids in `owned` (or none while `off`) and records each settle. */
+  function nativeSeam(owned: Set<string>, opts: { off?: boolean } = {}) {
+    const settled: GateRow[] = [];
+    const ownerCalls = { count: 0 };
+    return {
+      settled, ownerCalls,
+      native: {
+        owns: (row: GateRow) => {
+          ownerCalls.count++;
+          return !opts.off && owned.has(row.id);
+        },
+        settle: async (row: GateRow) => { settled.push(row); },
+      },
+    };
+  }
+
+  function nativeHarness(owned: Set<string>, opts: { off?: boolean } = {}) {
+    const store = freshStore();
+    const events: string[] = [];
+    const seam = nativeSeam(owned, opts);
+    const push = createGatePush({
+      store,
+      deliver: async (socketPath: string) => { events.push(`deliver:${socketPath}`); return { ok: true as const }; },
+      resolveSession: (sessionId) => ({ socketPath: sessionId }),
+      log,
+      injectEscape: async (hints: PaneHints) => { events.push(`inject:${hints.paneId}`); return { ok: true as const, paneRef: hints.paneId ?? "" }; },
+      paneStatus: async (hints: PaneHints) => ({ paneRef: hints.paneId ?? "", status: "blocked" as const }),
+      native: seam.native,
+    });
+    return { store, push, events, ...seam };
+  }
+
+  function formGate(store: GatesStore): GateRow {
+    return store.open({
+      subject: "run:r1", kind: "clarify", questions: qs(),
+      nudge: { session: "sess-1" }, pane: "pane-7", origin: { presentation: "form", paneId: "pane-7" },
+    }).row;
+  }
+
+  test("an owned answered gate is settled natively: no doorbell, no Escape, no delivery stamp; fan-out unchanged", async () => {
+    const owned = new Set<string>();
+    const { store, push, events, settled } = nativeHarness(owned);
+    store.subscribe({ subjectPrefix: "run:", session: "shep-1" });
+    const row = formGate(store);
+    owned.add(row.id);
+    store.answer(row.id, { q: "a" }, "console");
+    await push.onAnswered(store.get(row.id)!);
+    expect(settled.map((r) => r.id)).toEqual([row.id]);
+    expect(events).toEqual(["deliver:shep-1"]);
+    expect(store.get(row.id)!.delivery).toBeNull();
+  });
+
+  test("the subscriber that wrote the answer is still not notified of an owned gate", async () => {
+    const owned = new Set<string>();
+    const { store, push, events } = nativeHarness(owned);
+    store.subscribe({ subjectPrefix: "run:", session: "shep-1" });
+    const row = formGate(store);
+    owned.add(row.id);
+    store.answer(row.id, { q: "a" }, "shepherd", { session: "shep-1" });
+    await push.onAnswered(store.get(row.id)!);
+    expect(events).toEqual([]);
+  });
+
+  test("an owned closed gate is settled natively instead of doorbell-then-Escape", async () => {
+    const owned = new Set<string>();
+    const { store, push, events, settled } = nativeHarness(owned);
+    const row = formGate(store);
+    owned.add(row.id);
+    store.close(row.id, "abandoned");
+    await push.onClosed(store.get(row.id)!);
+    expect(settled.map((r) => r.status)).toEqual(["closed"]);
+    expect(events).toEqual([]);
+  });
+
+  test("with no native owner (integrations off) an answered gate is pushed as today", async () => {
+    const { store, push, events, settled } = nativeHarness(new Set(), { off: true });
+    const row = formGate(store);
+    store.answer(row.id, { q: "a" }, "console");
+    await push.onAnswered(store.get(row.id)!);
+    expect(settled).toEqual([]);
+    expect(events).toEqual(["deliver:sess-1", "inject:pane-7"]);
+    expect(store.get(row.id)!.delivery!.outcome).toBe("delivered");
+  });
+
+  test("the retry passes never chase an owned gate's pane", async () => {
+    const owned = new Set<string>();
+    const { store, push, events } = nativeHarness(owned);
+    const dead = formGate(store);
+    store.answer(dead.id, { q: "a" }, "console");
+    store.markDelivery(dead.id, "dead-pane");
+    const unconsumed = store.open({ subject: "run:r2", kind: "clarify", questions: qs(), nudge: { session: "sess-2" } }).row;
+    store.answer(unconsumed.id, { q: "a" }, "console");
+    store.markDelivery(unconsumed.id, "stuck");
+    owned.add(dead.id);
+    owned.add(unconsumed.id);
+    for (let i = 0; i < 4; i++) await push.retryDeadPanes();
+    expect(events).toEqual([]);
+    expect(store.get(dead.id)!.delivery!.outcome).toBe("dead-pane");
+  });
+
+  test("the retry passes make no ownership read when there is nothing to retry", async () => {
+    const { push, ownerCalls } = nativeHarness(new Set());
+    await push.retryDeadPanes();
+    expect(ownerCalls.count).toBe(0);
+  });
+});
+
 /** The behavior above is only real if the daemon resolves through the
     liveness-checked pair: wired to the raw registry read, a crashed pane's
     lingering row reads alive and the dead-pane pass never sees it. */
@@ -941,4 +1049,5 @@ test("the daemon wires gate-push to the liveness-checked resolvers", () => {
   expect(wiring).toContain("resolveSession: resolveLiveInbox");
   expect(wiring).toContain("resolveAll: resolveAllLiveInboxes");
   expect(wiring).toContain("paneStatus: createPaneStatusProbe()");
+  expect(wiring).toContain("native: gateQuestions");
 });
