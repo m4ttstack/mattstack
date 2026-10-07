@@ -38,6 +38,7 @@ import { orgStoreFile } from "./org-store.ts";
 import { HANDLE_PATTERN } from "./invite.ts";
 import { forgeLogin } from "./forge.ts";
 import { gitWithToken } from "./git-credential.ts";
+import { ORG_CLONE_FOLDERS } from "./org-clone.ts";
 import { decodeCode, open, sealReply } from "./invite-crypto.ts";
 import { AUTH_FAILURE_PATTERN } from "./publish.ts";
 import { scrub, withoutUrls } from "./redact.ts";
@@ -560,11 +561,20 @@ export async function joinRedeem(
     alreadyCloned = true;
   } else {
     p.mkdirp(orgsDirUnder(p.home));
-    const git = gitWithToken(["clone", pointer.remote, dir], token, GIT_ENV, { remote: pointer.remote });
+    const git = gitWithToken(["clone", "--sparse", pointer.remote, dir], token, GIT_ENV, { remote: pointer.remote });
     const clone = await p.exec(git.argv, { env: git.env });
     if (clone.code !== 0) {
       updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });
       return gitAccessResult(pointer, clone);
+    }
+    const cone = gitWithToken(["sparse-checkout", "set", "--cone", ...ORG_CLONE_FOLDERS], token, GIT_ENV, { remote: pointer.remote });
+    const sparse = await p.exec(cone.argv, { cwd: dir, env: cone.env });
+    if (sparse.code !== 0) {
+      // A clone without its org folders would read as already cloned on the next join, so it goes.
+      p.removeDir(dir);
+      updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });
+      const failed = gitAccessResult(pointer, sparse);
+      return p.exists(dir) ? { ...failed, message: `${failed.message} rt could not remove the folder it cloned, so remove ${dir} before you join again.` } : failed;
     }
   }
 

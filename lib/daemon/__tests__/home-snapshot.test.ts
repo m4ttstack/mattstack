@@ -2547,6 +2547,81 @@ describe("teamSnapshotSpec", () => {
     expect(calls.find((c) => gitVerb(c) === "commit")).toContain(`snapshot (janitor): ${WIDGETS_PACK} dirty >2h, owner matt`);
     handle.stop();
   }));
+
+  test("on a sparse clone, a snapshot replays the remote's out-of-cone commits, pushes only its own paths, and the remote keeps every file", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-team-snapshot-sparse-")));
+    const env = { ...childEnv(), GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+    const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, env }).toString();
+    const write = (dir: string, rel: string, text: string) => {
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      writeFileSync(join(dir, rel), text);
+    };
+    const origin = join(root, "origin.git");
+    const full = join(root, "full");
+    const clone = join(root, "acme");
+    const db = openStateDb(join(root, "state.db"), "cli");
+    try {
+      git(root, "init", "--bare", "-q", "-b", "main", origin);
+      git(root, "init", "-q", "-b", "main", full);
+      for (const [rel, text] of Object.entries({
+        "mattstack/mattstack.jsonc": `{ "role": "org", "org": "acme" }\n`,
+        "mattstack/org/settings.org.jsonc": "{}\n",
+        "mattstack/teams/widgets/settings.team.jsonc": "{}\n",
+        ".claude-plugin/marketplace.json": `{ "name": "acme", "plugins": [] }\n`,
+        ".sops.yaml": "creation_rules: []\n",
+        "apps/widgets/index.ts": "export const v = 1;\n",
+        "docs/guide.md": "guide\n",
+      })) write(full, rel, text);
+      git(full, "add", ".");
+      git(full, "commit", "-q", "-m", "org");
+      git(full, "remote", "add", "origin", origin);
+      git(full, "push", "-q", "-u", "origin", "main");
+
+      git(root, "clone", "-q", "--sparse", origin, clone);
+      git(clone, "sparse-checkout", "set", "--cone", ".claude-plugin", "mattstack");
+      expect(existsSync(join(clone, "apps"))).toBe(false);
+
+      write(full, "apps/widgets/index.ts", "export const v = 2;\n");
+      write(full, "docs/new.md", "new\n");
+      git(full, "add", ".");
+      git(full, "commit", "-q", "-m", "app work");
+      git(full, "push", "-q", "origin", "main");
+
+      write(clone, "mattstack/teams/widgets/settings.team.jsonc", `{ "board.title": "Widgets" }\n`);
+      write(clone, ".sops.yaml", "creation_rules: [] # edited\n");
+
+      const handle = startSnapshot(
+        teamSnapshotSpec("acme", clone, { ownedRoots: ADMIN_ROOTS, pullIntervalSec: 3600, originUrl: "https://gitlab.example.com/acme/org.git", probes: adminProbes(), readToken: async () => null }),
+        { log: fakeLog(), broadcast: () => {}, db, readSettings: () => ({ ...DEFAULT_SETTINGS, pushDelaySec: 1 }), readOwners: () => NO_OWNERS },
+      );
+      await handle.ready;
+      const result = await handle.runNow("manual");
+      expect(result.committed).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await handle.settled();
+      handle.stop();
+
+      expect(git(origin, "rev-parse", "refs/heads/main").trim()).toBe(git(clone, "rev-parse", "HEAD").trim());
+      expect(git(origin, "show", "--name-only", "--pretty=format:", "main").trim().split("\n").sort()).toEqual([".sops.yaml", "mattstack/teams/widgets/settings.team.jsonc"]);
+      expect(git(origin, "ls-tree", "-r", "--name-only", "main").trim().split("\n").sort()).toEqual([
+        ".claude-plugin/marketplace.json",
+        ".sops.yaml",
+        "apps/widgets/index.ts",
+        "docs/guide.md",
+        "docs/new.md",
+        "mattstack/mattstack.jsonc",
+        "mattstack/org/settings.org.jsonc",
+        "mattstack/teams/widgets/settings.team.jsonc",
+      ]);
+      expect(git(origin, "show", "main:apps/widgets/index.ts")).toBe("export const v = 2;\n");
+      expect(existsSync(join(clone, "apps"))).toBe(false);
+      expect(existsSync(join(clone, "docs"))).toBe(false);
+      expect(git(clone, "status", "--porcelain")).toBe("");
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
 });
 
 function teamSpecFor(tokenValue: string | null = "glpat-team") {

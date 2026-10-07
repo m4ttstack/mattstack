@@ -6,6 +6,7 @@ import { UserActionableError, failureFor, logFailureDetail } from "../lib/errors
 import { shellQuote } from "../lib/herdr-launch.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { childEnv } from "../lib/subprocess.ts";
+import { ORG_CLONE_FOLDERS } from "../lib/team/org-clone.ts";
 import { nestedTeamPackRel, teamPackRel } from "../lib/team/team-pack-path.ts";
 import * as out from "../lib/ui/out.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
@@ -98,7 +99,7 @@ function main(): void {
     refuse(recorded === null ? "This Mac has no recorded forge username" : `This Mac is recorded as ${recorded}`, `The recorded username must match ${admin} so you can publish as this org's admin.`, recorded === null ? "rt setup apply --only team.identity" : USAGE);
   }
   if (git("status", "--porcelain", "--untracked-files=all").trim() !== "") refuse("The clone has uncommitted changes", "Commit or discard them before moving.");
-  if (git("status", "--porcelain", "--untracked-files=all", "--ignored", "--", "mattstack", ".claude-plugin").trim() !== "") refuse("The clone has ignored files in its managed folders", "Move them aside before moving so a failed move can restore the clean start.");
+  if (git("status", "--porcelain", "--untracked-files=all", "--ignored", "--", ...ORG_CLONE_FOLDERS).trim() !== "") refuse("The clone has ignored files in its managed folders", "Move them aside before moving so a failed move can restore the clean start.");
   let branch: string | null;
   try {
     branch = git("symbolic-ref", "-q", "--short", "HEAD").trim() || null;
