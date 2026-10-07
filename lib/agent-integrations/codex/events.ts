@@ -37,9 +37,22 @@ const requestKey = (id: CodexRequestId): string => `${typeof id}:${id}`;
 export class CodexEventHub {
   private readonly threads = new Map<string, Thread>();
   private readonly waiters = new Set<{ threadId: string; turnId: string; settle(status: TurnStatus): void }>();
+  private readonly listeners = new Set<(event: CodexEvent) => void>();
 
+  /** A listener that throws stops the rest hearing that event; the connection logs it. */
   constructor(control: CodexControl) {
-    control.subscribe((event) => this.apply(event));
+    control.subscribe((event) => {
+      this.apply(event);
+      for (const listener of [...this.listeners]) listener(event);
+    });
+  }
+
+  /** Another consumer on this connection hears each event after the hub applies it, through the hub's one subscription. */
+  listen(listener: (event: CodexEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   view(threadId: string): ThreadView | undefined {

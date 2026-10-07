@@ -18,4 +18,5 @@ export const codexIntegration: HarnessIntegration = {
     { name: "yolo", kind: "boolean" },
   ],
   loadSessions: async () => (await import("./sessions.ts")).loadCodexSessions(),
+  loadMessaging: async () => (await import("./sessions.ts")).loadCodexMessaging(),
 };

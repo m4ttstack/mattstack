@@ -22,4 +22,5 @@ export const claudeIntegration: HarnessIntegration = {
     { name: "yolo", kind: "boolean" },
   ],
   loadSessions: async () => (await import("./sessions.ts")).createClaudeSessions(),
+  loadMessaging: async () => (await import("./messaging.ts")).createClaudeMessaging(),
 };

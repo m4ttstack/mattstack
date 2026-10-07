@@ -29,6 +29,15 @@ test("wrapCrossSession neutralizes attribute-breaking characters in the label", 
   expect(wrapped.split("\n")[0]).not.toContain("<y>");
 });
 
+test("wrapCrossSession carries a supplied delivery id after the label and neutralizes it the same way", () => {
+  expect(wrapCrossSession("max (#general)", "body", "d-17-remy")).toBe(
+    '<cross-session-message from-name="max (#general)" delivery-id="d-17-remy">\nbody\n</cross-session-message>',
+  );
+  expect(wrapCrossSession("max", "body", 'd" x="<y>').split("\n")[0]).toBe(
+    `<cross-session-message from-name="max" delivery-id="d' x=''y'">`,
+  );
+});
+
 test("deliveryLabel names the sender by name for one message and counts a batch", () => {
   expect(deliveryLabel([{ room: "general", dm: false, name: "max" }])).toBe("max (#general)");
   expect(deliveryLabel([{ room: "dm-1", dm: true, name: "eli" }])).toBe("eli (dm)");
@@ -110,6 +119,19 @@ test("deliverToInbox writes exactly one msgV:1 user frame line", async () => {
   expect(frame.priority).toBe("next");
   expect(frame.message).toEqual({ role: "user", content: "[#general] max: hello" });
   expect(typeof frame.msg_id).toBe("string");
+});
+
+test("deliverToInbox uses a supplied transport message id and keeps the frame otherwise unchanged", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "inbox-")), "s.sock");
+  const lines: string[] = [];
+  const server = Bun.listen({ unix: path, socket: { data(_s, d) { lines.push(d.toString()); } } });
+  const res = await deliverToInbox(path, "hello", { msgId: "6f1c2c1e-3a4b-4c5d-8e9f-0a1b2c3d4e5f" });
+  await Bun.sleep(30);
+  server.stop(true);
+  expect(res.ok).toBe(true);
+  expect(lines.join("")).toBe(
+    '{"msgV":1,"msg_id":"6f1c2c1e-3a4b-4c5d-8e9f-0a1b2c3d4e5f","type":"user","message":{"role":"user","content":"hello"},"priority":"next"}\n',
+  );
 });
 
 test("deliverToInbox reports failure on a dead socket", async () => {

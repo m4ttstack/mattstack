@@ -123,8 +123,20 @@ export interface SessionAdapter {
   /** Native evidence that an interrupted submission reached the session; null when there is none. */
   reconcileWork?(binding: SessionBinding, probe: WorkProbe, sweep?: ObservationSweep): Promise<Outcome<DeliveryReceipt | null>>;
 }
+/**
+ * Peer input into a bound session. `input.id` is the logical delivery id and
+ * stays the same across retries; `input.sender` labels who it is from as the
+ * recipient sees it, and `input.body` is the rendered text, reply guidance
+ * included. Both reach the session verbatim inside a peer-message envelope.
+ *
+ * A receipt states only the evidence the harness gave: `submitted` (written to
+ * the transport), `queued` (a native queue acknowledged it) or `consumed` (the
+ * session was seen taking it). None of them is completed work, and an
+ * ambiguous outcome is a fault, never a receipt.
+ */
 export interface MessageAdapter {
   submit(binding: SessionBinding, input: PeerInput): Promise<Outcome<DeliveryReceipt>>;
+  /** Evidence observed since submission, from the binding's own attachment generation; null when there is none. */
   reconcile?(binding: SessionBinding, inputId: string): Promise<Outcome<DeliveryReceipt | null>>;
 }
 export interface QuestionAdapter {

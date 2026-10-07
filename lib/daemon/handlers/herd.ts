@@ -72,7 +72,7 @@ export interface HerdDeps {
 }
 
 export const SHEPHERD_HANDLE = "shepherd";
-export const SYSTEM_HANDLE = "herdr";
+export { SYSTEM_HANDLE } from "../system-handle.ts";
 export const MILESTONE_OPTIONS = ["Approve", "Revise", "Spawn a reviewer"] as const;
 
 /** Herd questions only: every other gate (MR review, pipeline, board) carries

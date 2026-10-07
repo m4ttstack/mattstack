@@ -31,10 +31,11 @@ describe("builtinRegistry", () => {
     expect(await names("codex")).not.toContain("account");
   });
 
-  test("a built-in advertises session capabilities only with its session adapter", async () => {
+  test("a built-in advertises session capabilities only with its session adapter, and peer delivery only with messaging", async () => {
     for (const integration of builtinRegistry().list()) {
       const report = await integration.capabilities("herdr");
-      if (integration.loadSessions) expect(report.supported).toEqual(["launch", "resume", "observe"]);
+      const peer = integration.loadMessaging ? ["peer-idle", "peer-working"] as const : [];
+      if (integration.loadSessions) expect(report.supported).toEqual(["launch", "resume", "observe", ...peer]);
       else expect(report).toMatchObject({ supported: [], readiness: { ready: false } });
     }
     expect(typeof builtinRegistry().get("claude")!.loadSessions).toBe("function");

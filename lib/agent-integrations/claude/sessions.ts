@@ -262,9 +262,13 @@ export function claudeReadiness(
  * Both modes launch and resume. Claude Code takes its first work on its launch
  * line, so a launch that has work to follow binds rt's minted session id and
  * starts nothing; the process starts when that work is submitted.
+ *
+ * Only an interactive session takes peer input: its inbox starts a turn when
+ * idle and reads between tool calls when working. A headless run is launched
+ * without inbound acceptance, so it advertises neither.
  */
-export function claudeSupported(_mode: Mode): Array<"launch" | "resume" | "observe"> {
-  return ["launch", "resume", "observe"];
+export function claudeSupported(mode: Mode): Array<"launch" | "resume" | "observe" | "peer-idle" | "peer-working"> {
+  return mode === "herdr" ? ["launch", "resume", "observe", "peer-idle", "peer-working"] : ["launch", "resume", "observe"];
 }
 
 const NOT_SUBMITTABLE = "Claude Code takes its first work on its launch line; rt cannot yet submit work to a running Claude session";

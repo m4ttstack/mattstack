@@ -409,7 +409,7 @@ describe("registration", () => {
     expect(typeof adapter.observe).toBe("function");
     const herdr = await claudeIntegration.capabilities("herdr");
     const headless = await claudeIntegration.capabilities("headless");
-    expect(herdr.supported).toEqual(["launch", "resume", "observe"]);
+    expect(herdr.supported).toEqual(["launch", "resume", "observe", "peer-idle", "peer-working"]);
     expect(headless.supported).toEqual(["launch", "resume", "observe"]);
     expect(typeof herdr.readiness.ready).toBe("boolean");
   });

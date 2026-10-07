@@ -30,7 +30,9 @@ import type {
   FaultCode, Mode, NativeSessionRef, Outcome, Readiness, SessionBinding,
 } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { buildCodexRemoteResumeCommand } from "../../agent-argv/codex.ts";
-import type { LaunchHost, LaunchRequest, NativeLaunch, SessionAdapter, WorkCompletion, WorkReceipt } from "../contracts.ts";
+import type {
+  LaunchHost, LaunchRequest, MessageAdapter, NativeLaunch, SessionAdapter, WorkCompletion, WorkReceipt,
+} from "../contracts.ts";
 import { getStateDb } from "../../state/db.ts";
 import { openHostPane, type HostPaneLaunch, type HostPaneOpened } from "../herdr-pane.ts";
 import { readReservation } from "../session-store.ts";
@@ -41,6 +43,7 @@ import {
   type CodexClock, type CodexControl, type CodexControlLog, type CodexControlOptions, type CodexEndpoint, type LaunchReservation,
 } from "./control.ts";
 import { codexEventHub } from "./events.ts";
+import type { CodexMessagingDeps } from "./messaging.ts";
 import { canonicalCodexProfile } from "./profile.ts";
 import { CODEX_STATUS_ENUMS, isRecord, type CodexThreadStatus } from "./protocol.ts";
 import { codexConfigPath, codexFolderTrust } from "./trust.ts";
@@ -208,9 +211,13 @@ export function codexReadiness(
   }
 }
 
-/** Both modes run on an owned app-server thread, so both launch, resume and observe. */
-export function codexSupported(_mode: Mode): Array<"launch" | "resume" | "observe"> {
-  return ["launch", "resume", "observe"];
+/**
+ * Both modes run on an owned app-server thread, so both launch, resume and
+ * observe, and both take peer input through the native queue, which starts an
+ * idle thread and holds input for a working one's next boundary (spike 2026-10-04).
+ */
+export function codexSupported(_mode: Mode): Array<"launch" | "resume" | "observe" | "peer-idle" | "peer-working"> {
+  return ["launch", "resume", "observe", "peer-idle", "peer-working"];
 }
 
 function threadOf(result: unknown): Record<string, unknown> | undefined {
@@ -601,12 +608,21 @@ export type CodexSessionLoaderDeps = {
   discover(): Promise<Outcome<CodexEndpoint>>;
   connect(options: CodexControlOptions): Promise<CodexControl>;
   sessions: Partial<CodexSessionDeps>;
+  messaging: Partial<CodexMessagingDeps>;
 };
 
 export type CodexSessionLoader = {
   load(): Promise<SessionAdapter>;
+  /** Messaging on the sessions' own connection, so both share its one event subscription. */
+  loadMessaging(): Promise<MessageAdapter>;
   status(): LoaderStatus;
 };
+
+/** Stands in when no connection could be made; nothing can have been sent. */
+function unavailableMessaging(message: string): MessageAdapter {
+  const error = { code: "not-ready" as const, message };
+  return { submit: async () => ({ ok: false, error }), reconcile: async () => ({ ok: false, error }) };
+}
 
 /** The wait after the first failed connection attempt; each further failure doubles it, up to the cap. */
 export const DISCOVERY_BACKOFF_MS = 15_000;
@@ -629,9 +645,10 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     discover: () => discoverCodexEndpoint(),
     connect: (options) => connectCodexControl(options, { log: controlLog }),
     sessions: {},
+    messaging: {},
     ...overrides,
   };
-  let current: { control: CodexControl; adapter: SessionAdapter } | undefined;
+  let current: { control: CodexControl; adapter: SessionAdapter; messaging?: Promise<MessageAdapter> } | undefined;
   let opening: Promise<SessionAdapter> | undefined;
   let failure: { error: { code: FaultCode; message: string }; attempts: number; retryAt: number; adapter: SessionAdapter } | undefined;
 
@@ -657,13 +674,21 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     return adapter;
   }
 
+  function load(): Promise<SessionAdapter> {
+    if (current && !current.control.closed) return Promise.resolve(current.adapter);
+    if (failure && deps.now() < failure.retryAt) return Promise.resolve(failure.adapter);
+    return (opening ??= open().finally(() => {
+      opening = undefined;
+    }));
+  }
+
   return {
-    load() {
-      if (current && !current.control.closed) return Promise.resolve(current.adapter);
-      if (failure && deps.now() < failure.retryAt) return Promise.resolve(failure.adapter);
-      return (opening ??= open().finally(() => {
-        opening = undefined;
-      }));
+    load,
+    async loadMessaging() {
+      await load();
+      const live = current && !current.control.closed ? current : undefined;
+      if (!live) return unavailableMessaging(failure?.error.message ?? "rt has no connection to the Codex app server");
+      return (live.messaging ??= import("./messaging.ts").then(({ createCodexMessaging }) => createCodexMessaging(live.control, deps.messaging)));
     },
     status() {
       if (current && !current.control.closed) return { state: "live" };
@@ -677,4 +702,8 @@ let shared: CodexSessionLoader | undefined;
 
 export function loadCodexSessions(): Promise<SessionAdapter> {
   return (shared ??= createCodexSessionLoader()).load();
+}
+
+export function loadCodexMessaging(): Promise<MessageAdapter> {
+  return (shared ??= createCodexSessionLoader()).loadMessaging();
 }

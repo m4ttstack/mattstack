@@ -1,4 +1,4 @@
-import { SYSTEM_HANDLE } from "./handlers/herd.ts";
+import { SYSTEM_HANDLE } from "./system-handle.ts";
 
 // 1000ms once let one slow-but-alive recipient (heavy load, not actually
 // gone) register as a dropped push -- the failure that started the silent
@@ -61,15 +61,16 @@ export async function probeInboxReachability(
   return Promise.race([attempt, timeout]);
 }
 
+/** `msgId` is the frame's transport id; without one each frame gets a fresh uuid. */
 export async function deliverToInbox(
   socketPath: string,
   content: string,
-  opts?: { timeoutMs?: number },
+  opts?: { timeoutMs?: number; msgId?: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const frame = {
     msgV: 1,
-    msg_id: crypto.randomUUID(),
+    msg_id: opts?.msgId ?? crypto.randomUUID(),
     type: "user",
     message: { role: "user", content },
     priority: "next",
@@ -168,10 +169,15 @@ export function senderHints(senders: HintSender[]): string[] {
  * (taught in the body), so advertising an unreachable address would misteach
  * the reply path. The envelope changes presentation only -- the model always
  * receives the full body.
+ *
+ * `deliveryId` is the stable logical delivery id, carried as an attribute
+ * after `from-name` so a later in-session consumer can report evidence under
+ * it; without one the envelope is exactly what it always was.
  */
-export function wrapCrossSession(label: string, body: string): string {
-  const safe = label.replace(/["<>]/g, "'");
-  return `<cross-session-message from-name="${safe}">\n${body}\n</cross-session-message>`;
+export function wrapCrossSession(label: string, body: string, deliveryId?: string): string {
+  const attr = (value: string) => value.replace(/["<>]/g, "'");
+  const id = deliveryId === undefined ? "" : ` delivery-id="${attr(deliveryId)}"`;
+  return `<cross-session-message from-name="${attr(label)}"${id}>\n${body}\n</cross-session-message>`;
 }
 
 /**

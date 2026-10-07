@@ -858,7 +858,7 @@ describe("registration", () => {
     expect(typeof codexIntegration.loadSessions).toBe("function");
     for (const mode of ["herdr", "headless"] as const) {
       const report = await codexIntegration.capabilities(mode);
-      expect(report.supported).toEqual(["launch", "resume", "observe"]);
+      expect(report.supported).toEqual(["launch", "resume", "observe", "peer-idle", "peer-working"]);
       expect(typeof report.readiness.ready).toBe("boolean");
     }
   });
