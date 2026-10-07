@@ -7,11 +7,12 @@ import { rosterFrom } from "../packages/rt-client/src/settings/active-team.ts";
 import { activeTeamFor } from "../lib/team/active-team.ts";
 import { roleFor, rolesFor } from "../lib/team/roles.ts";
 /**
- * rt team create|publish|invite|join|members|status: the team-repo
+ * rt team create|publish|rename|invite|join|members|status: the team-repo
  * lifecycle verbs.
  *
  *   rt team create <name> [--first-team <name>] (--remote <url> | --create-repo <owner>) [--others] [--json]
  *   rt team publish [--team <slug>] --remote <url> [--json]
+ *   rt team rename <name> [--team <org>] [--json]
  *   rt team invite --handle <h> [--teams <team>[,<team>]] [--team <org>] [--require-peering] [--json]
  *   rt team join [--dry-run] [--json]   (code on stdin as {"code":"..."}, or a prompt on a TTY)
  *   rt team members sync [--team <slug>] [--json]
@@ -35,6 +36,7 @@ import { orgDirUnder, orgSettingsPath } from "../lib/rt-paths.ts";
 import { createRealTeamSecretsSeams } from "../lib/secrets/team-store.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { listOrgs, parseStoreText, readStore, TEAM_NAME_RE } from "../lib/settings/stores.ts";
+import type { ApplyContext } from "../lib/setup/apply.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
@@ -56,9 +58,12 @@ import { canonicalHandle, readPeeredBoards, realReadLocalSecret, type ReadLocalS
 import { MembersKeyError, MembersSyncAbortedError, membersRemove, membersSetTeams, membersSync, realMembersSeams, teamRemote, type BoardPeeringOutcome, type MembersSeams, type MembersRemoveResult, type MembersSyncResult } from "../lib/team/members.ts";
 import { peerOwnBoard, realPeerSeams, type PeerResult, type PeerSeams } from "../lib/team/peer.ts";
 import { publishTeam } from "../lib/team/publish.ts";
+import { renameOrg, type ConvergeOutcome, type RenameResult, type RenameSeams } from "../lib/team/rename.ts";
 import { commitPendingPackShares, droppedShareBlocks, droppedShares, packShareBlocks, rememberPackShare, sharePack } from "../lib/team/share-pack.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
 import { createRelayClient } from "../lib/team/relay-client.ts";
+import { withoutUrls } from "../lib/team/redact.ts";
+import { logCliEvent } from "../lib/cli-logger.ts";
 import { checkedOutBranch } from "../lib/team/org-branch.ts";
 import { switchboardUrl } from "../packages/rt-client/src/switchboard.ts";
 import type { CommandContext } from "../lib/command-tree.ts";
@@ -100,6 +105,8 @@ export interface TeamDeps {
   readLocalSecret?: ReadLocalSecret;
   /** Overrides `peerOwnBoard`'s seams; real by default, with `readLocalSecret` above as its secret reader. */
   peerSeams?: Partial<PeerSeams>;
+  /** Overrides `renameOrg`'s seams; real by default. */
+  renameSeams?: Partial<RenameSeams>;
 }
 
 async function defaultReadCode(json: boolean): Promise<string> {
@@ -175,6 +182,13 @@ const REFUSAL_CODES = new Set([
   "org-detached",
   "peer-needs-admin",
   "board-registered-elsewhere",
+  "bad-org-name",
+  "rename-not-admin",
+  "rename-same-name",
+  "rename-name-taken",
+  "org-not-converged",
+  "org-uncommitted",
+  "org-behind",
   "invite-stale",
 ]);
 
@@ -185,7 +199,7 @@ function exitTeamError(err: UserActionableError, json: boolean, deps: TeamDeps):
   out.note(
     out.line("refused", err.message),
     ...(err.why ? [out.callout("why", err.why)] : []),
-    ...(err.next ? [out.callout("next", out.cmd(err.next))] : []),
+    ...(err.next ? [out.callout("next", err.thenRun ? ["Run ", out.cmd(err.next), ", then ", out.cmd(err.thenRun)] : out.cmd(err.next))] : []),
   );
   process.exit(2);
 }
@@ -368,6 +382,76 @@ export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: 
       const hint = res.data.detail ? `outcome: ${outcome}, ${res.data.detail}` : `outcome: ${outcome}`;
       out.print(out.line("warn", `The ${slug} team pull ended in a way rt does not recognize`, hint));
     }
+  } catch (err) {
+    if (err instanceof UserActionableError) exitTeamError(err, json, deps);
+    throw err;
+  }
+}
+
+/** A step's log lines go to the CLI log under `module`; every other event is the step engine's, which these callers do not run. */
+async function applyContextFor(deps: TeamDeps, module: string): Promise<ApplyContext> {
+  const { createApplyContext } = await import("../lib/setup/apply.ts");
+  const { createRealSecretsExecSeam } = await import("../lib/secrets/store.ts");
+  const { realSecretPresence } = await import("../lib/setup/plan.ts");
+  return createApplyContext({
+    probes: deps.probes,
+    emit: (ev) => {
+      if (ev.event === "log") logCliEvent("debug", module, withoutUrls(ev.line));
+    },
+    secrets: deps.secrets ?? { ageKeySeam: deps.ageKeySeam ?? createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() },
+    relay: createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env)),
+    secretPresence: deps.secretPresence ?? realSecretPresence(),
+    flags: { nonInteractive: true, teamOfOne: false, ci: false, update: true },
+  });
+}
+
+async function convergeHere(deps: TeamDeps): Promise<ConvergeOutcome> {
+  const { convergeOrgFolder } = await import("../lib/setup/steps/org-folder.ts");
+  return convergeOrgFolder(await applyContextFor(deps, "team.rename"));
+}
+
+export function renameBlocks(result: RenameResult): Block[] {
+  const here = result.converged
+    ? [out.line("done", `This Mac's org folder is now ${result.to}`)]
+    : [
+        result.convergeState === "partial"
+          ? out.line("needs-you", "This Mac's org folder moved, with one step left for you", result.convergeDetail)
+          : out.line("needs-you", "This Mac's org folder has not moved yet", result.convergeDetail),
+        (result.convergeRemedy ? out.callout("fix", result.convergeRemedy) : out.callout("next", out.cmd("rt setup update --force"))),
+      ];
+  return [
+    out.line("done", `Renamed your org to ${result.to}`, `was ${result.from}`),
+    ...here,
+    out.callout("note", ["Your teammates' Macs follow at their next update, or now with ", out.cmd("rt setup update --force")]),
+  ];
+}
+
+function realRenameSeams(deps: TeamDeps): RenameSeams {
+  return { forgeToken: deps.forgeToken ?? storedForgeToken, converge: () => convergeHere(deps), ...deps.renameSeams };
+}
+
+export async function teamRename(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
+  const json = args.includes("--json");
+  if (json) out.payloadOnStdout();
+  const to = positional(args, ["--team"])[0];
+  if (!to) usageError(deps, json, "What should your org be called?", "rt team rename <name> [--team <org>] [--json]");
+  try {
+    const from = resolveTeamSlug(args, "team rename");
+    const result = await renameOrg(deps.probes, from, to, realRenameSeams(deps));
+    if (json) {
+      const converge = result.converged
+        ? {}
+        : {
+            converge: {
+              state: result.convergeState,
+              ...(result.convergeDetail ? { detail: result.convergeDetail } : {}),
+              ...(result.convergeRemedy ? { remedy: result.convergeRemedy } : {}),
+            },
+          };
+      deps.print(JSON.stringify(envelope({ ok: true, from: result.from, to: result.to, converged: result.converged, ...converge })));
+      return;
+    }
+    out.print(...renameBlocks(result));
   } catch (err) {
     if (err instanceof UserActionableError) exitTeamError(err, json, deps);
     throw err;
@@ -908,19 +992,9 @@ export async function realUseTeamSeams(deps: TeamDeps): Promise<UseTeamSeams> {
     },
     writeUserSetting: (key, value) => { setSetting(key, value, "user"); },
     installPack: async () => {
-      const { createApplyContext } = await import("../lib/setup/apply.ts");
       const { installPlugins } = await import("../lib/setup/steps/plugins.ts");
       const { materializeSkills } = await import("../lib/setup/skills-materialize.ts");
-      const { createRealSecretsExecSeam } = await import("../lib/secrets/store.ts");
-      const { realSecretPresence } = await import("../lib/setup/plan.ts");
-      const ctx = await createApplyContext({
-        probes: deps.probes,
-        emit: () => {},
-        secrets: deps.secrets ?? { ageKeySeam: deps.ageKeySeam ?? createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() },
-        relay: createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env)),
-        secretPresence: deps.secretPresence ?? realSecretPresence(),
-        flags: { nonInteractive: true, teamOfOne: false, ci: false, update: true },
-      });
+      const ctx = await applyContextFor(deps, "team.use");
       const plugins = await installPlugins(ctx);
       if (plugins.state === "failed") return { ok: false, detail: plugins.detail };
       if (plugins.state === "skipped") await materializeSkills(ctx.p, {});
