@@ -69,7 +69,7 @@ The joiner opens the invite link, or pastes the code into **Join a team** in set
 - If the joiner's forge account (GitHub or GitLab) cannot see the repo, a warning names the problem and suggests asking for access. The `access.team-repo` checklist row holds Install until access is resolved.
 - If access is confirmed, setup continues normally.
 
-An invite minted before the org was renamed names the org by its old name. The join refuses it with "This invite names the org by an old name; ask for a fresh one", and leaves nothing behind; ask an admin for a new invite.
+An invite minted before the org was renamed names the org by its old name. The join refuses it with "This invite names the org by an old name; ask for a fresh one" and removes the clone it just made; ask an admin for a new invite.
 
 The invite also carries the joiner's board token. When this Mac's board ends up without one, the **Board peering** row says the board does not peer yet. It never holds up Install or Finish, but setup keeps listing it, and the setup check after an app update notifies you about it. The fix is on the admin's side: ask them to re-invite your board, with `rt team invite --handle <your forge username>` (then run `rt team join` with the new code). The row turns ready once the token arrives. It shows only when your team runs a board, and on the Mac that created the org only when that Mac holds the switchboard admin token, in which case `rt team peer` connects its board. It shows an error with a **Re-check** when the switchboard does not answer.
 
@@ -113,7 +113,7 @@ Make and test the change, then merge `org-trial` into `main` on your forge and s
 The org's name is what its repo says it is, not the folder on any one Mac. An admin renames it with:
 
 ```bash
-rt team rename acme-co
+rt team rename gadgets
 ```
 
 The rename refuses when your clone has uncommitted changes or is behind the org repo, the same as `rt team publish`. It commits the new name on the branch your clone has checked out, pushes it, and moves your own folder to `~/.mattstack/orgs/<new name>/` right away. Team folders, packs and the marketplace's name stay as they were.
@@ -128,7 +128,7 @@ Until then their clone keeps the old folder name and everything keeps working. T
 
 ### Moving from the old folder
 
-Older versions of mattstack kept the org under `~/.mattstack/teams/<org>/`. The first setup check after an update moves it to `~/.mattstack/orgs/<org>/`, along with rt's record of it, the repo list and the Claude marketplace that serves your packs. Nothing in the org repo changes. When the move cannot run (uncommitted changes in the clone, a rebase in progress), the **Org folder** row says what is in the way; fix it and run `rt setup update --force`.
+Older versions of mattstack kept the org under `~/.mattstack/teams/<org>/`. The first setup check after an update moves it to `~/.mattstack/orgs/<org>/`, along with rt's record of it, the repo list and the Claude marketplace that serves your packs. Nothing in the org repo changes. When the move cannot run (uncommitted changes in the clone, a rebase in progress), the setup check's notification and the output of `rt setup update --force` say what is in the way, while the **Org folder** row only says the folder has not moved yet. Fix it and run `rt setup update --force`.
 
 ## Forge grants
 

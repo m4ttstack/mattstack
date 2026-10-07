@@ -53,8 +53,8 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    deprecated alias for `${org}` that ignores the name and warns. An older
    rt passes `${org}` through verbatim, so an org or team store keeps
    `${team:<org>}`, in existing values and new ones, until every member
-   runs an rt that knows `${org}`; then one commit rewrites them all. User
-   and machine stores take `${org}` now.
+   runs an rt that knows `${org}`; then one commit rewrites them all. A
+   machine store takes `${org}` now.
    The `team` layer is the ACTIVE team's folder only; other teams' folders
    are never folded in. The active team is the one `mattstack.activeTeam`
    names when the roster lists you on it, else your first roster team; a

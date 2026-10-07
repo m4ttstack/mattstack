@@ -112,9 +112,10 @@ refuse a second clone while one exists.
 The clone's folder is named for the org's marker (`org` in
 `mattstack/mattstack.jsonc`). The `org.folder` step of `rt setup update`
 moves a clone whose folder does not match, including one still under the
-legacy `~/.mattstack/teams/` root, through the daemon verb `org:move`, which
-pauses that clone's engine for the move and resumes it after, so the engine
-never commits or pulls in a folder mid-move. `rt team rename <name>` changes the marker
+legacy `~/.mattstack/teams/` root. When the daemon is up the move goes
+through its verb `org:move`, which pauses that clone's engine for the move
+and resumes it after, so the engine never commits or pulls in a folder
+mid-move; with no daemon the step moves the folder itself. `rt team rename <name>` changes the marker
 and runs the same step on the admin's Mac.
 The team instance differs from the home one in four ways:
 

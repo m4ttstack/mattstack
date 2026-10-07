@@ -65,8 +65,8 @@ one team of it. A team is a folder under `mattstack/teams/` whose name matches
 The org clone's folder is the org's name, the `org` field of its marker
 (`mattstack/mattstack.jsonc`). `rt team rename <name>` (admins only) commits
 and publishes a new marker; the `org.folder` step of `rt setup update` then
-moves each Mac's folder and its `~/.mattstack/rt/teams/<org>.json` record to
-match, and moves a clone still under the legacy `~/.mattstack/teams/` root.
+moves each Mac's folder and its `~/.mattstack/rt/teams` and `rt/invites`
+records to match, and moves a clone still under the legacy `~/.mattstack/teams/` root.
 Every reader keys on the folder, so a Mac that has not converged yet keeps
 working under the old name.
 
@@ -74,7 +74,7 @@ A string value can name paths through a closed set of variables, which the
 resolver expands on read: `${repoRoot}`, `${worktree}`, `${home}` and
 `${org}`, the current org clone's root. `${team:<name>}` is a deprecated
 alias for `${org}`: the name is ignored (it must still be one path segment)
-and the first use in a process warns. Shared stores keep `${team:<name>}`
+and the first use of each name in a process warns. Shared stores keep `${team:<name>}`
 until every member runs an rt that knows `${org}`, since an older rt passes
 `${org}` through verbatim. `${org}` and the alias throw on a Mac with no org.
 Any other `${...}` (an interceptor's `${port}`) passes through untouched.
