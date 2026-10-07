@@ -36,6 +36,7 @@ const PATTERNS = [
   /\.mattstack\/teams\b/,
   /["']\.mattstack["']\s*,\s*["']teams["']/,
   /mattstackHome\(\)\s*,\s*["']teams["']/,
+  /\bmattstackRoot\b\s*,\s*["']teams["']/,
   /\blegacyTeamsDir\(\)/,
 ];
 
