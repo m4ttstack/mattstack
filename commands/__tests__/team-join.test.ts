@@ -325,7 +325,7 @@ describe("teamJoin", () => {
     expect(body).toEqual({ contract: 1, team: { slug: "acme", name: "Acme", owner: "matt" }, teams: ["widgets"], access: "ok", peering: "idle", message: "Joined Acme, owned by matt.", intent: "written" });
 
     const dir = pathJoin(HOME, ".mattstack", "orgs", "acme");
-    expect(probes.calls.exec).toContainEqual(["git", "clone", REMOTE, dir]);
+    expect(probes.calls.exec).toContainEqual(["git", "clone", "--sparse", REMOTE, dir]);
   });
 
   test("redeem: an admin token in the team's secrets, explicitly faked via TeamDeps, peering applied", async () => {
@@ -469,6 +469,6 @@ describe("teamJoin", () => {
     expect(body.error.message).toContain("has not been used yet");
     expect(urls.some((u) => u.endsWith("/redeem"))).toBe(false);
     const dir = pathJoin(HOME, ".mattstack", "orgs", "acme");
-    expect(probes.calls.exec).toContainEqual(["git", "clone", REMOTE, dir]);
+    expect(probes.calls.exec).toContainEqual(["git", "clone", "--sparse", REMOTE, dir]);
   });
 });

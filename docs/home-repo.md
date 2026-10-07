@@ -109,6 +109,14 @@ window; a clone with no remote is skipped until `rt team publish --remote`
 gives it one). A machine holds one org: `rt team join` and `rt team create`
 refuse a second clone while one exists.
 
+`rt team join` clones sparse, in cone mode: only `mattstack/`,
+`.claude-plugin/` and the repo's top-level files (`.sops.yaml` among them)
+are checked out (`ORG_CLONE_FOLDERS` in `lib/team/org-clone.ts`). Anything
+else the org repo holds stays in the history and on the remote, untouched by
+the engine, since its scope never reaches outside those folders. A clone
+made before this, or one `rt team create` started, is a full checkout and
+stays one.
+
 The clone's folder is named for the org's marker (`org` in
 `mattstack/mattstack.jsonc`). The `org.folder` step of `rt setup update`
 moves a clone whose folder does not match, including one still under the
