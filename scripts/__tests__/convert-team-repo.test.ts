@@ -131,6 +131,37 @@ describe("planConversion", () => {
     expect(settings(plan.writes["mattstack/teams/widgets/settings.team.jsonc"]!)["board.slack"]).toEqual({ channel: "#widgets", singleTemplate: "{title}" });
   });
 
+  test("mattstack.integrations keeps the forge, slack app and Linear workspace at the org; the Linear team key and the dead switchboard block leave", () => {
+    const old = settings(oldClone().files["mattstack/settings.team.jsonc"]!);
+    const plan = run(oldClone({
+      "mattstack/settings.team.jsonc": JSON.stringify({
+        ...old,
+        "mattstack.integrations": {
+          forge: { host: "gitlab.example.com", provider: "gitlab" },
+          slack: { appId: "A1", clientId: "C1" },
+          linear: { workspace: "acme", teamKey: "WID" },
+          switchboard: { url: "https://switchboard.example.com" },
+        },
+      }),
+    }));
+    const org = settings(plan.writes["mattstack/org/settings.org.jsonc"]!);
+    const team = settings(plan.writes["mattstack/teams/widgets/settings.team.jsonc"]!);
+    expect(org["mattstack.integrations"]).toEqual({
+      forge: { host: "gitlab.example.com", provider: "gitlab" },
+      slack: { appId: "A1", clientId: "C1" },
+      linear: { workspace: "acme" },
+    });
+    expect(team["mattstack.integrations"]).toEqual({ linear: { teamKey: "WID" } });
+    expect(plan.report).toContain("mattstack.integrations.switchboard is retired; left out of the new stores");
+    expect(plan.report).toContain("mattstack.integrations.linear.teamKey names the team's own Linear team; moved to the team");
+  });
+
+  test("mattstack.integrations with no Linear team key writes nothing to the team", () => {
+    const plan = run();
+    const team = settings(plan.writes["mattstack/teams/widgets/settings.team.jsonc"]!);
+    expect("mattstack.integrations" in team).toBe(false);
+  });
+
   test("claude.plugins: the team's own pack goes to the team, the rest stays at the org", () => {
     const plan = run();
     expect(settings(plan.writes["mattstack/org/settings.org.jsonc"]!)["claude.plugins"]).toEqual(["acme-tools@acme"]);

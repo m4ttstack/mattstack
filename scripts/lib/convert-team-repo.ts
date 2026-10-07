@@ -180,6 +180,23 @@ export function planConversion(input: ConvertInput, opts: ConvertOpts): ConvertP
       if (mine.length > 0) teamStore[key] = mine;
       continue;
     }
+    if (key === "mattstack.integrations" && value !== null && typeof value === "object" && !Array.isArray(value)) {
+      const { switchboard, linear, ...rest } = value as Json;
+      const atOrg: Json = { ...rest };
+      if (switchboard !== undefined) report.push("mattstack.integrations.switchboard is retired; left out of the new stores");
+      if (linear !== null && typeof linear === "object" && !Array.isArray(linear)) {
+        const { teamKey, ...workspace } = linear as Json;
+        if (Object.keys(workspace).length > 0) atOrg.linear = workspace;
+        if (teamKey !== undefined) {
+          teamStore[key] = { linear: { teamKey } };
+          report.push("mattstack.integrations.linear.teamKey names the team's own Linear team; moved to the team");
+        }
+      } else if (linear !== undefined) {
+        atOrg.linear = linear;
+      }
+      if (Object.keys(atOrg).length > 0) org[key] = atOrg;
+      continue;
+    }
     if (key === "board.slack" && value !== null && typeof value === "object" && !Array.isArray(value)) {
       const entries = Object.entries(value as Json);
       const atOrg = Object.fromEntries(entries.filter(([field]) => SLACK_ORG_FIELDS.has(field)));
