@@ -830,7 +830,7 @@ function removeEmittedUnit(packDir: string, rel: string, into: CompileWrites): v
   const slash = rel.indexOf("/");
   if (slash < 0) return;
   const groupDir = join(packDir, "attachments", rel.slice(0, slash));
-  if (readdirSync(groupDir).length === 0) rmdirSync(groupDir);
+  if (existsSync(groupDir) && readdirSync(groupDir).length === 0) rmdirSync(groupDir);
 }
 
 function writeCompiledVerb(packDir: string, outDir: string, result: { files: CompiledFile[] }, into: CompileWrites): void {
