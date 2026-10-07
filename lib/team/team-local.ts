@@ -124,7 +124,7 @@ function sleepSync(ms: number): void {
 }
 
 /** Several rt processes update one record (a share, setup, a publish); without the lock a read-modify-write can drop another's field. A lock still there after a second is a dead writer's, so it is taken over. */
-function withRecordLock<T>(p: RecordWriter & Pick<Probes, "mkdirExclusive" | "removeDir">, slug: string, fn: () => T): T {
+export function withRecordLock<T>(p: RecordWriter & Pick<Probes, "mkdirExclusive" | "removeDir">, slug: string, fn: () => T): T {
   const lock = `${teamLocalPath(p.home, slug)}.lock`;
   p.mkdirp(dirname(lock));
   let held = false;

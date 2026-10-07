@@ -895,6 +895,21 @@ describe("org.folder row", () => {
     expect(r?.action).toMatchObject({ type: "steps", steps: ["Run: rt setup update --force"] });
   });
 
+  test("a one-team-layout clone under orgs/ with a mismatched folder reads as error even though discoverOrgs misses it", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/widgets/mattstack/mattstack.jsonc": JSON.stringify({ role: "team", org: "acme" }),
+        "/h/.mattstack/orgs/widgets/.git/config": '[remote "origin"]\n\turl = https://gitlab.example.com/acme/org.git\n',
+      },
+      dirs: { "/h/.mattstack/orgs": ["widgets"], "/h/.mattstack/teams": [] },
+    });
+    const r = orgFolderRow(p, []);
+    expect(r?.status).toBe("error");
+    expect(r?.detail).toContain("widgets");
+    expect(r?.detail).toContain("acme");
+  });
+
   test("error lists every mismatched org with both paths", () => {
     const p = fakeProbes({
       home: "/h",
