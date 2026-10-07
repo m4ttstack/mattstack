@@ -55,13 +55,12 @@
  */
 
 import { homedir } from "os";
-import { join } from "path";
 import { activeTeamFrom } from "./active-team.ts";
-import { machineSettingsPath, orgSettingsPath, orgsDir, teamSettingsPath, userSettingsPath } from "./paths.ts";
+import { machineSettingsPath, orgDir, orgSettingsPath, teamSettingsPath, userSettingsPath } from "./paths.ts";
 import { currentStoreName, readSection, storeNameStatus, worstLabel, type OlderLabel, type OlderNameRead, type SectionRead } from "./migrate.ts";
 import { allDefs, getDef, isMigrated, validateValue, type SettingDef, type SettingScope } from "./registry-machinery.ts";
 import { checkSchema, type SchemaIssue } from "./schema.ts";
-import { listOrgs, readStore, TEAM_NAME_RE, type StoreFile } from "./stores.ts";
+import { currentOrg, listOrgs, readStore, TEAM_NAME_RE, type StoreFile } from "./stores.ts";
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -176,7 +175,8 @@ export interface ExpandCtx {
   repoRoot?: string;
   worktree?: string;
   home: string;
-  orgsDir: string;
+  /** The current org clone's root, or null on a Mac with no org. */
+  orgDir: string | null;
 }
 
 // ─── Variables ───────────────────────────────────────────────────────────────
@@ -185,15 +185,16 @@ const VAR_RE = /\$\{([^}]*)\}/g;
 const TEAM_VAR_RE = /^team:(.+)$/;
 
 /**
- * Replaces ONLY `${repoRoot}`, `${worktree}`, `${home}` and `${team:<name>}`.
- * Every other `${...}` passes through verbatim — domain templates like the
- * interceptor's `${port}` are not ours to expand, and the same string may hold
- * both kinds, so substitution is per-occurrence. `${team:<name>}` is lexical:
- * `<orgsDir>/<name>` with no existence check (a missing team surfaces at use
- * time through the consumer's own fail-open path), but the name must be a
- * single directory segment — see `teamPath`. A closed-set variable with no
- * context in `ctx` throws — silently emitting a half-expanded path is the
- * dishonesty this design bans.
+ * Replaces ONLY `${repoRoot}`, `${worktree}`, `${home}`, `${org}` and
+ * `${team:<name>}`. Every other `${...}` passes through verbatim: domain
+ * templates like the interceptor's `${port}` are not ours to expand, and the
+ * same string may hold both kinds, so substitution is per-occurrence. `${org}`
+ * is the current org clone's root, and `${team:<name>}` is a deprecated alias
+ * for the same path: the name is ignored, because a shared store may still
+ * spell the org's old folder name, but it must be a single directory segment
+ * (see `teamSegment`). Both throw on a Mac with no org. A closed-set variable
+ * with no context in `ctx` throws, because silently emitting a half-expanded
+ * path is the dishonesty this design bans.
  *
  * Recurses through arrays and plain objects; non-strings pass through. Never
  * mutates its input.
@@ -214,29 +215,31 @@ function expandString(input: string, ctx: ExpandCtx): string {
     if (name === "home") return ctx.home;
     if (name === "repoRoot") return required(ctx.repoRoot, "repoRoot", "a repo path");
     if (name === "worktree") return required(ctx.worktree, "worktree", "a worktree path");
+    if (name === "org") return orgRoot(ctx);
     const team = TEAM_VAR_RE.exec(name);
-    if (team) return teamPath(ctx.orgsDir, team[1] as string);
-    return match; // not ours — pass through verbatim
+    if (team) {
+      teamSegment(team[1] as string);
+      emitSettingsWarning(`rt: \${team:${team[1]}} is deprecated; use \${org}`);
+      return orgRoot(ctx);
+    }
+    return match;
   });
 }
 
-/**
- * `${team:<name>}` → `<orgsDir>/<name>`, but only for a name that is a single
- * directory segment. `<name>` is a team NAME, and `join()` normalizes away
- * `..`, so `${team:../../.ssh}` would quietly resolve to a path OUTSIDE the
- * teams dir — a store value (a team store's own, even) that reads or executes
- * from anywhere on disk while still looking like a team-relative reference.
- * Any `/`, `\` or `..` therefore throws, on the same closed-set footing as an
- * unsatisfiable `${repoRoot}`: `get` surfaces it, `list` degrades that one
- * value to an `expandError`, and no half-expanded path is ever emitted.
- */
-function teamPath(root: string, name: string): string {
+function orgRoot(ctx: ExpandCtx): string {
+  if (ctx.orgDir === null || ctx.orgDir === "") {
+    throw new Error("rt: cannot expand ${org}: this Mac has no org clone");
+  }
+  return ctx.orgDir;
+}
+
+/** `${team:<name>}` keeps its segment guard: a traversing name was a store value that reached outside the clone, and the alias must not quietly accept one. */
+function teamSegment(name: string): void {
   if (name.includes("/") || name.includes("\\") || name.includes("..")) {
     throw new Error(
       `rt: cannot expand \${team:${name}} — a team name must be a single directory segment (no "/", "\\" or "..")`,
     );
   }
-  return join(root, name);
 }
 
 function required(value: string | undefined, name: string, needs: string): string {
@@ -712,11 +715,12 @@ function unknownKey(key: string): Error {
 }
 
 function expandCtxFrom(opts: ResolveOpts): ExpandCtx {
+  const org = currentOrg();
   return {
     repoRoot: opts.expandCtx?.repoRoot,
     worktree: opts.expandCtx?.worktree,
     home: process.env.HOME ?? homedir(),
-    orgsDir: orgsDir(),
+    orgDir: org === null ? null : orgDir(org),
   };
 }
 

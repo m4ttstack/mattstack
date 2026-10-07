@@ -236,9 +236,9 @@ function write(path: string, content: string): void {
  * this repo, plus a key this rt has never heard of (the version-skew degrade)
  * and the `onDeck`/`ready` half of the deep-merge proof case.
  *
- * `${team:e2eteam}` expands to the team ZONE ROOT (~/.mattstack/orgs/e2eteam),
- * NOT to the mattstack/ subdirectory the settings file itself lives in — the
- * hook stub is placed accordingly.
+ * `${org}` and its deprecated alias `${team:e2eteam}` expand to the org clone's
+ * root (~/.mattstack/orgs/e2eteam), NOT to the mattstack/ subdirectory the
+ * settings file itself lives in, so the hook stub is placed accordingly.
  */
 function teamStoreText(): string {
   return `// e2e team store for ${TEAM} — shared keys, committed to the team zone.
@@ -257,7 +257,8 @@ function teamStoreText(): string {
           // \${team:...} is closed-set and expands; \${port} is the
           // interceptor's own template and must pass through verbatim.
           "hook": "sh \${team:${TEAM}}/hook.sh"
-        }
+        },
+        "api": { "hook": "sh \${org}/hook.sh" }
       },
       "rt.intercepts": [
         {
@@ -395,13 +396,14 @@ describe("rt settings (four stores, one resolver — e2e)", () => {
 
   // ── 1. reads ───────────────────────────────────────────────────────────────
 
-  test("get resolves a store-only key, expands ${team:...} and passes ${port} through", async () => {
+  test("get resolves a store-only key, expands ${org} and ${team:...} and passes ${port} through", async () => {
     const out = await rtJson(["settings", "get", "rt.roles", "--repo", REPO_NAME, "--json"]);
     expect(out.ok).toBe(true);
     expect(out.migrated).toBe(true);
     expect(out.value.web.pool).toEqual([{ from: poolBase, to: poolBase + 5 }]);
-    // Closed-set variable → the team ZONE ROOT, with no mattstack/ segment.
+    // Both closed-set forms reach the org clone's root, with no mattstack/ segment.
     expect(out.value.web.hook).toBe(`sh ${join(home, ".mattstack", "orgs", TEAM)}/hook.sh`);
+    expect(out.value.api.hook).toBe(`sh ${join(home, ".mattstack", "orgs", TEAM)}/hook.sh`);
     // Domain template → untouched.
     expect(out.value.web.env.PORT).toBe("${port}");
     expect(out.provenance).toEqual([{ scope: "org.repo", file: teamStore }]);
