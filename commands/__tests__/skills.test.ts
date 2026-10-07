@@ -1232,6 +1232,24 @@ describe("base pack attachments", () => {
     expect(existsSync(team())).toBe(false);
   });
 
+  test("a grouped unit whose leaf collides is a plan error, never the duplicate-name throw, in a pack with a surface", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam();
+    writeFile(join(packDir, "pack", "surface.jsonc"), JSON.stringify({ public: ["watch-ci"] }));
+    writeFile(join(baseDir, "attachments", "review", "watch-ci", "SKILL.md"), "---\nname: watch-ci\n---\nbody\n");
+    writeFile(join(baseDir, "attachments", "review", "self-review", "SKILL.md"), "---\nname: self-review\n---\nbody\n");
+    writeFile(join(packDir, "attachments", "self-review", "SKILL.md"), "---\nname: self-review\n---\nours\n");
+
+    const refused = await compile();
+
+    expect(refused.exitCode).toBeDefined();
+    expect(refused.exitCode).not.toBe(0);
+    const shown = refused.errors.join("\n");
+    expect(shown).toContain("acme-base attachment review/watch-ci has the same name as the widgets verb watch-ci; rename one of them");
+    expect(shown).toContain("acme-base attachment review/self-review has the same name as the widgets attachment attachments/self-review; rename one of them");
+    expect(shown).not.toContain("appears twice");
+    expect(existsSync(join(packDir, "attachments", "review"))).toBe(false);
+  });
+
   test("a group folder that still holds the team's own files outlives its last emitted unit", async () => {
     const { baseDir, packDir, compile } = seedBaseAndTeam();
     writeFile(join(baseDir, "attachments", "review", "self-review", "SKILL.md"), "---\nname: self-review\n---\nbody\n");

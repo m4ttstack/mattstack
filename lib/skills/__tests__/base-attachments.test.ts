@@ -271,6 +271,52 @@ describe("grouped base attachments", () => {
     ]);
   });
 
+  test("a grouped unit whose leaf is a verb name is a clash naming the verb", () => {
+    put(unit("self-review", "SKILL.md"), "body\n");
+    expect(plan({ ship: "skills", "self-review": "attachments" }).errors).toEqual([
+      "acme-base attachment review/self-review has the same name as the widgets verb self-review; rename one of them",
+    ]);
+  });
+
+  test("a unit whose leaf names a team attachment elsewhere is a clash naming that attachment", () => {
+    put(unit("self-review", "SKILL.md"), "body\n");
+    put(join(packDir(), "attachments", "self-review", "SKILL.md"), "mine\n");
+    expect(plan().errors).toEqual([
+      "acme-base attachment review/self-review has the same name as the widgets attachment attachments/self-review; rename one of them",
+    ]);
+    rmSync(join(packDir(), "attachments", "self-review"), { recursive: true });
+    put(join(packDir(), "attachments", "other", "self-review", "SKILL.md"), "mine\n");
+    expect(plan().errors).toEqual([
+      "acme-base attachment review/self-review has the same name as the widgets attachment attachments/other/self-review; rename one of them",
+    ]);
+    rmSync(unit(), { recursive: true });
+    put(join(baseDir(), "attachments", "self-review", "SKILL.md"), "flat\n");
+    expect(plan().errors).toEqual([
+      "acme-base attachment self-review has the same name as the widgets attachment attachments/other/self-review; rename one of them",
+    ]);
+  });
+
+  test("two base units sharing a leaf are reported once", () => {
+    put(unit("self-review", "SKILL.md"), "body\n");
+    put(join(baseDir(), "attachments", "pipeline", "self-review", "SKILL.md"), "body\n");
+    put(join(baseDir(), "attachments", "self-review", "SKILL.md"), "flat\n");
+    expect(plan().errors).toEqual([
+      "acme-base attachments pipeline/self-review and review/self-review share the name self-review; rename one of them",
+      "acme-base attachments review/self-review and self-review share the name self-review; rename one of them",
+    ]);
+  });
+
+  test("a stale emitted unit or the unit's own copy is no clash", () => {
+    put(unit("self-review", "SKILL.md"), "body\n");
+    put(join(packDir(), "attachments", "self-review", "compiled.json"), emittedMarker);
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    expect(result.emits.map((e) => e.name)).toEqual(["review/self-review"]);
+    expect(result.stale).toEqual([{ name: "self-review", why: "dropped" }]);
+    put(join(packDir(), "attachments", "review", "self-review", "SKILL.md"), "mine\n");
+    expect(plan().errors).toEqual([]);
+  });
+
   test("pack.path reaches a grouped emitted file on a clean plan", () => {
     put(unit("self-review", "SKILL.md"), "body\n");
     put(unit("self-review", "references", "x.md"), "x\n");

@@ -135,6 +135,26 @@ function baseUnits(baseName: string, attachmentsDir: string, errors: string[]): 
   return units;
 }
 
+/**
+ * The team's attachments by bare name, the way the surface verbs enumerate
+ * them (which refuse one name twice): a folder with a SKILL.md, else its
+ * leaves that have one, else the folder itself. Emitted units are left out,
+ * since the plan re-emits or removes each of them.
+ */
+function teamAttachmentNames(attachmentsDir: string): Map<string, string[]> {
+  const names = new Map<string, string[]>();
+  const add = (name: string, rel: string) => {
+    if (!isEmittedAttachmentDir(join(attachmentsDir, rel))) names.set(name, [...(names.get(name) ?? []), rel]);
+  };
+  for (const top of listDirs(attachmentsDir)) {
+    const dir = join(attachmentsDir, top);
+    const leaves = existsSync(join(dir, "SKILL.md")) ? [] : listDirs(dir).filter((leaf) => existsSync(join(dir, leaf, "SKILL.md")));
+    if (leaves.length === 0) add(top, top);
+    for (const leaf of leaves) add(leaf, `${top}/${leaf}`);
+  }
+  return names;
+}
+
 /** A team folder is its own copy unless compile put it there: an emitted unit, or a group holding nothing but emitted units. */
 function isTeamOwned(dir: string): boolean {
   if (!existsSync(dir) || isEmittedAttachmentDir(dir)) return false;
@@ -159,13 +179,24 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
   const kept: string[] = [];
   const retired: string[] = [];
   const records: { name: string; srcDir: string; files: string[] }[] = [];
-  for (const { rel: name, srcDir } of baseUnits(base.name, join(base.dir, "attachments"), errors)) {
-    if (isFill(srcDir)) continue;
+  const units = baseUnits(base.name, join(base.dir, "attachments"), errors).filter((u) => !isFill(u.srcDir));
+  const leafOf = (rel: string) => rel.slice(rel.lastIndexOf("/") + 1);
+  const teamNames = teamAttachmentNames(attachmentsDir);
+  for (const { rel: name, srcDir } of units) {
     const label = `${base.name} attachment ${name}`;
     const [group, leaf] = name.split("/") as [string, string | undefined];
     const groupDir = join(attachmentsDir, group);
+    const sharing = units.map((u) => u.rel).filter((rel) => rel !== name && leafOf(rel) === leafOf(name));
+    const teamClash = (teamNames.get(leafOf(name)) ?? []).find((rel) => rel !== name);
     if (Object.hasOwn(verbSides, group)) {
       errors.push(`${label} has the same name as the ${packName} verb ${group}; rename one of them`);
+    } else if (leaf !== undefined && Object.hasOwn(verbSides, leaf)) {
+      errors.push(`${label} has the same name as the ${packName} verb ${leaf}; rename one of them`);
+    } else if (teamClash !== undefined) {
+      errors.push(`${label} has the same name as the ${packName} attachment attachments/${teamClash}; rename one of them`);
+    } else if (sharing.length > 0) {
+      const partner = sharing.sort().find((rel) => rel > name);
+      if (partner !== undefined) errors.push(`${base.name} attachments ${name} and ${partner} share the name ${leafOf(name)}; rename one of them`);
     } else if (isHandAuthored(join(packDir, "skills", name))) {
       errors.push(`${label} has the same name as the ${packName} skill skills/${name}; rename one of them`);
     } else if (leaf !== undefined && existsSync(join(groupDir, "SKILL.md")) && !isEmittedAttachmentDir(groupDir)) {
