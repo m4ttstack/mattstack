@@ -247,7 +247,7 @@ export async function settingsGet(args: string[]): Promise<void> {
   const note = migratedNote(def);
   out.print(out.kv(key, undefined, describeProvenance(resolved.provenance)), ...(note ? [out.callout("note", note)] : []));
   if (resolved.value !== undefined) out.payload(`${formatValuePretty(resolved.value)}\n`);
-  noteTeamAliases(teamAliasesSeen());
+  noteTeamAliases(teamAliasesIn(getSetting(key, { repoIdentity: repoCtx.repoIdentity, expand: false }).value));
 }
 
 // ─── set / unset ────────────────────────────────────────────────────────────

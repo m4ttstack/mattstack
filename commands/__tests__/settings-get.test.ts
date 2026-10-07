@@ -13,7 +13,7 @@ import { setSetting, setSettingsNoticeSink } from "../../lib/settings/write.ts";
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
-import { setSettingsWarnSink } from "../../lib/settings/resolve.ts";
+import { getSetting, setSettingsWarnSink } from "../../lib/settings/resolve.ts";
 import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 
 describe("rt settings get / list / explain", () => {
@@ -129,6 +129,12 @@ describe("rt settings get / list / explain", () => {
       await settingsGet(["board.title"]);
       expect(cap.stdout()).toBe(`${join(home, ".mattstack", "orgs", "acme")}/title\n`);
       expect(cap.stderr()).toEndWith(NOTICE);
+    });
+
+    test("get of another key says nothing, even after the alias was expanded", async () => {
+      getSetting("board.title");
+      await settingsGet(["rt.logLevel"]);
+      expect(cap.stderr()).not.toContain("${team:");
     });
 
     test("list names the alias", async () => {
