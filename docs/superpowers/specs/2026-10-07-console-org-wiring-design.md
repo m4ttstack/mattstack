@@ -131,7 +131,9 @@ imports from the latter. The payload types in `commands/skills.ts` and
   `surface.jsonc` says, since that is where it sits and stays. A base name
   already in the file's `public` list (an earlier flip wrote it) is
   harmless: `apply` already skips compiled rows, and `set <name>
-  --internal` stays allowed and removes the name from the file.
+  --internal` stays allowed and removes the name from the file. This changes the
+  `status` value `list --json` reports for such a row (the keys stay); the
+  PR body calls it out.
 
 ## 3. Console: one owner helper
 
@@ -217,8 +219,11 @@ so they never collide with a pack-relative path.
 
 - **History** (`/api/skills/history`) for a verb that binds a base fill
   adds that fill's dir as a second pathspec to the same `git -C packDir
-  log`, given repo-root-relative (`:(top)<path>`). A base commit then shows
-  in the verb's list.
+  log`, given repo-root-relative (`:(top)<path>`, the fill dir's realpath
+  relativized against `--show-toplevel`, itself a realpath, so a symlinked
+  org clone still matches). A base commit then shows in the verb's list,
+  and its `files` under a base dir take the `base:<name>/` coordinate, the
+  same form dirty files use.
 - **Diff** (`/api/skills/diff`) keeps its `--relative` pack diff and, for
   the base fill dirs the pack's composition names, runs a second
   `git diff --no-color <from>..<to> -- :(top)<path>...` with no
@@ -235,6 +240,10 @@ so they never collide with a pack-relative path.
   unattributed, as today.
 - When a base dir sits outside the pack's repo (git says so), the routes
   drop that pathspec rather than fail.
+- A board-only base fill is bound to its team-pack copy, so it adds no base
+  pathspec: an edit on the base side shows in no history or diff until
+  compile copies it again, and the copy's change then shows in the pack's
+  own diff.
 - The VersionTimeline note says "The step's own source lives in its engine
   plugin, and base fills in the org's base pack, outside this pack's
   folder."
