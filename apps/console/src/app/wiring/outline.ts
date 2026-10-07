@@ -16,9 +16,29 @@ type CompositionFill = SkillsComposition['fills'][number];
 type CompositionBinder = NonNullable<SkillsComposition['binders']>[number];
 type CheckVerb = SkillsCheck['verbs'][number];
 
+/** Compile copies a base's board-only fills into the pack, and materialize
+    binds the copy, so the base original is never bound by name. */
+function hasBoundTeamCopy(
+  fill: CompositionFill,
+  composition: SpineComposition,
+  boundBindings: ReadonlySet<string>
+): boolean {
+  if (fill.origin !== 'base' || !composition.pack) return false;
+  const fillName = fill.binding.slice(fill.binding.indexOf(':') + 1);
+  return composition.fills.some(
+    copy =>
+      copy !== fill &&
+      copy.origin === 'base' &&
+      copy.base === fill.base &&
+      copy.binding === `${composition.pack}:${fillName}` &&
+      boundBindings.has(copy.binding)
+  );
+}
+
 /** Only the fields the spine needs -- `pack`/`packDir` ride along on the
     real response but `buildSpine` has no use for them. */
 export interface SpineComposition {
+  pack?: string;
   verbs: CompositionVerb[];
   fills: CompositionFill[];
   binders?: CompositionBinder[];
@@ -496,7 +516,11 @@ export function buildSpine(
   }
 
   const orphans: OrphanFillEntry[] = composition.fills
-    .filter(fill => !boundBindings.has(fill.binding))
+    .filter(
+      fill =>
+        !boundBindings.has(fill.binding) &&
+        !hasBoundTeamCopy(fill, composition, boundBindings)
+    )
     .map(fill => ({
       fill: fill.binding,
       provides: fill.provides,

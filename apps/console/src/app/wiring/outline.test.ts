@@ -639,3 +639,68 @@ describe('buildSpine: orphaned fills', () => {
     );
   });
 });
+
+describe('buildSpine: a base fill and its compiled team copy', () => {
+  const baseFill = (binding: string) => ({
+    ...fill(binding, 'mr-review@1'),
+    origin: 'base' as const,
+    base: 'acme-base',
+    baseVersion: '0.1.0',
+  });
+  const copied: SpineComposition = {
+    pack: 'acme',
+    verbs: [],
+    fills: [baseFill('acme-base:board-review'), baseFill('acme:board-review')],
+    binders: [
+      {
+        ref: 'board:review',
+        verb: null,
+        kind: 'external',
+        slots: [
+          {
+            name: 'review',
+            boundTo: 'acme:board-review',
+            layer: 'base:acme-base',
+            origin: 'base',
+            base: 'acme-base',
+            baseVersion: '0.1.0',
+          },
+        ],
+      },
+    ],
+  };
+
+  it('is not orphaned when the bound team copy is compiled from it', () => {
+    expect(buildSpine(copied, EMPTY_CHECK).orphans).toEqual([]);
+  });
+
+  it('stays orphaned when no copy and no binding reaches it', () => {
+    const spine = buildSpine(
+      { ...copied, fills: [...copied.fills, baseFill('acme-base:spare')] },
+      EMPTY_CHECK
+    );
+
+    expect(spine.orphans.map(o => o.fill)).toEqual(['acme-base:spare']);
+  });
+
+  it('stays orphaned when the same-named copy is not bound', () => {
+    const spine = buildSpine({ ...copied, binders: [] }, EMPTY_CHECK);
+
+    expect(spine.orphans.map(o => o.fill)).toEqual([
+      'acme-base:board-review',
+      'acme:board-review',
+    ]);
+  });
+
+  it('leaves a non-base fill with a bound same-named sibling orphaned', () => {
+    const spine = buildSpine(
+      {
+        ...copied,
+        fills: [fill('other:board-review', 'mr-review@1'), ...copied.fills],
+      },
+      EMPTY_CHECK
+    );
+
+    expect(spine.orphans.map(o => o.fill)).toEqual(['other:board-review']);
+  });
+});
