@@ -86,6 +86,19 @@ describe("tag-derived fields", () => {
   });
 });
 
+describe("production flag and empty tag values", () => {
+  const prod = [tagged("globex-prod-db", { env: "prod", tenant: "globex" })];
+  test("tag-derived production tier sets production; enrichment false wins", () => {
+    expect(buildSdmConnections(prod, {})[0]!.production).toBe(true);
+    expect(buildSdmConnections(prod, { "globex-prod-db": { production: false } })[0]!.production).toBe(false);
+  });
+  test("an empty tenant value is ignored: carrier inferred, row legacy", () => {
+    const rs = [tagged("globex-prod-db", { tenant: "globex" }), tagged("old-globex-qa", { tenant: "" })];
+    const c = buildSdmConnections(rs, {}).find(x => x.sdmResource === "old-globex-qa")!;
+    expect(c).toMatchObject({ carrierTag: "globex", legacy: true });
+  });
+});
+
 describe("carrierFromName", () => {
   test("matches whole dash segments only", () => {
     expect(carrierFromName("acmeco-qa", ["acme"])).toBeUndefined();
@@ -102,5 +115,6 @@ describe("tierFromEnv", () => {
     expect(tierFromEnv("prod")).toBe("production");
     expect(tierFromEnv("training")).toBe("training");
     expect(tierFromEnv(undefined)).toBeUndefined();
+    expect(tierFromEnv("constructor")).toBe("constructor");
   });
 });

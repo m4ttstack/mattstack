@@ -34,14 +34,15 @@ export interface SdmConnection {
 const ENV_TIER: Record<string, string> = { dev: "development", prod: "production" };
 
 export function tierFromEnv(env: string | undefined): string | undefined {
-  return env === undefined ? undefined : (ENV_TIER[env] ?? env);
+  if (env === undefined) return undefined;
+  return Object.hasOwn(ENV_TIER, env) ? ENV_TIER[env] : env;
 }
 
 function tagMap(tags: string[]): Record<string, string> {
   const map: Record<string, string> = {};
   for (const tag of tags) {
     const eq = tag.indexOf("=");
-    if (eq > 0) map[tag.slice(0, eq)] = tag.slice(eq + 1);
+    if (eq > 0 && eq < tag.length - 1) map[tag.slice(0, eq)] = tag.slice(eq + 1);
   }
   return map;
 }
@@ -74,12 +75,13 @@ export function buildSdmConnections(
       const carrier = carrierTag === undefined ? undefined : carrierLabel(carrierTag, carriers);
       const built = carrier === undefined ? r.name : [carrier, tags.env, tags.domain, tags.access].filter(Boolean).join(" ");
       const label = e?.label ?? built;
+      const tier = e?.tier ?? tierFromEnv(tags.env);
       return {
         key: `sdm:${r.name}`,
         label,
         sdmResource: r.name,
-        tier: e?.tier ?? tierFromEnv(tags.env),
-        production: e?.production ?? false,
+        tier,
+        production: e?.production ?? tier === "production",
         reasonSuggestion: e?.reasonSuggestion ?? `investigating ${label} data`,
         db: e?.db,
         standingAccess: r.standingAccess,
