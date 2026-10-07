@@ -52,7 +52,7 @@ describe("buildPickerOptions", () => {
     expect(options[0]!.separator).toBe(true);
     expect(options[0]!.label).toBe("Other");
     expect(options[1]!.value).toBe("demo:x");
-    expect(options[1]!.hint).toContain("example-x");
+    expect(options[1]!.cells!.map(c => c.text).join(" ")).toContain("example-x");
   });
 
   test("a stale-key recent dedups against the catalog by resource, using the current label/key", () => {
@@ -113,6 +113,86 @@ describe("buildPickerOptions", () => {
     expect(rows.find(o => o.value === "demo:q")!.tone).toBe("pink");
     expect(rows.find(o => o.value === "demo:x")!.tone).toBeUndefined();
     expect(JSON.stringify(options)).not.toContain("\\u001b");
+  });
+});
+
+const tc = (res: string, o: Partial<SdmConnection>): SdmConnection => ({
+  key: `sdm:${res}`, label: res, sdmResource: res, customLabel: false, legacy: false, ...o,
+});
+
+describe("buildPickerOptions: tag layout", () => {
+  const CONNS = [
+    tc("globex-qa-core-db-read", { tier: "qa", carrier: "Globex", env: "qa", domain: "core", access: "read" }),
+    tc("acme-qa-billing-db-write", { tier: "qa", carrier: "Acme", env: "qa", domain: "billing", access: "write" }),
+    tc("acme-qa-core-db-admin", { tier: "qa", carrier: "Acme", env: "qa", domain: "core", access: "admin" }),
+    tc("old-acme-qa", { tier: "qa", carrier: "Acme", env: "qa", domain: "core", access: "admin", legacy: true }),
+    tc("acme-qa-core-db-read", { tier: "qa", carrier: "Acme", env: "qa", domain: "core", access: "read" }),
+    tc("acme-qa-core-ro", { tier: "qa", carrier: "Acme", env: "qa", domain: "core", access: "reader" }),
+    tc("orphan-qa-db", { tier: "qa", env: "qa", domain: "core", access: "read" }),
+    tc("acme-prod-core-db-read", { tier: "production", carrier: "Acme", env: "prod", domain: "core", access: "read" }),
+    tc("untagged", {}),
+  ];
+  const opts = () => buildPickerOptions(CONNS, []);
+  const seps = () => opts().filter(o => o.separator).map(o => o.label);
+  const rowsUnder = (header: string) => {
+    const all = opts();
+    const start = all.findIndex(o => o.separator && o.label === header);
+    const next = all.findIndex((o, i) => i > start && o.separator);
+    return all.slice(start + 1, next === -1 ? undefined : next);
+  };
+
+  test("headers: environment then carrier, carrier-less after, Other last", () => {
+    expect(seps()).toEqual(["QA · Acme", "QA · Globex", "QA", "Production · Acme", "Other"]);
+  });
+
+  test("rows: core first, then access read < reader < write < admin, legacy after its twin", () => {
+    expect(rowsUnder("QA · Acme").map(o => o.value)).toEqual([
+      "sdm:acme-qa-core-db-read", "sdm:acme-qa-core-ro", "sdm:acme-qa-core-db-admin", "sdm:old-acme-qa", "sdm:acme-qa-billing-db-write",
+    ]);
+  });
+
+  test("row cells: access tone, resource, old marker", () => {
+    const [read, , admin, legacy] = rowsUnder("QA · Acme");
+    expect(read!.label.trim()).toBe("core");
+    expect(read!.cells![0]).toMatchObject({ text: expect.stringMatching(/^read\s*$/) });
+    expect(read!.cells![0]!.tone).toBeUndefined();
+    expect(admin!.cells![0]).toMatchObject({ tone: "coral", bold: true });
+    expect(rowsUnder("QA · Acme")[4]!.cells![0]).toMatchObject({ tone: "peach", bold: true });
+    expect(legacy!.cells!.at(-1)).toEqual({ text: "old", tone: "faint" });
+    expect(read!.cells![1]).toMatchObject({ text: expect.stringContaining("acme-qa-core-db-read"), tone: "dim" });
+  });
+
+  test("access and resource columns are padded to one width across the list", () => {
+    const rows = opts().filter(o => !o.separator && o.cells);
+    expect(new Set(rows.map(r => r.cells![0]!.text.length)).size).toBe(1);
+    expect(new Set(rows.map(r => r.cells![1]!.text.length)).size).toBe(1);
+  });
+
+  test("match carries carrier, environment, domain, access and resource", () => {
+    const row = rowsUnder("QA · Acme")[0]!;
+    expect(row.match).toBe("Acme QA qa core read acme-qa-core-db-read");
+  });
+
+  test("a custom label shows in the first column", () => {
+    const o = buildPickerOptions([tc("acme-qa-core-db-read", { tier: "qa", carrier: "Acme", domain: "core", access: "read", label: "Main", customLabel: true })], []);
+    expect(o[1]!.label.trim()).toBe("Main");
+  });
+
+  test("recent rows lead with carrier and environment", () => {
+    const o = buildPickerOptions(CONNS, [{ key: "sdm:acme-qa-core-db-read", label: "x", sdmResource: "acme-qa-core-db-read", lastConnectedAt: "2026-07-01T00:00:00.000Z" }]);
+    expect(o[0]!.label).toBe("Recent");
+    expect(o[1]!.label.trim()).toBe("Acme QA  core");
+  });
+
+  test("a recent whose resource left the catalog renders from its stored label with no cells", () => {
+    const o = buildPickerOptions(CONNS, [{ key: "sdm:gone", label: "Gone DB", sdmResource: "gone", tier: "qa", lastConnectedAt: "2026-07-01T00:00:00.000Z" }]);
+    expect(o[1]!.label.trim()).toBe("Gone DB");
+    expect(o[1]!.cells).toBeUndefined();
+  });
+
+  test("every connection appears exactly once", () => {
+    const keys = opts().filter(o => !o.separator).map(o => o.value);
+    expect(keys.sort()).toEqual(CONNS.map(c => c.key).sort());
   });
 });
 
