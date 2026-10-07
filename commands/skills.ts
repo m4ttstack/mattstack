@@ -1480,6 +1480,7 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
   }
   blocks.push(...payload.baseErrors.map((baseError) => out.line("failed", baseError)));
   blocks.push(...payload.compileErrors.map((compileError) => out.line("failed", compileError)));
+  if (payload.compileErrors.length > 0) stale = true;
   if (stale) blocks.push(out.callout("next", out.cmd("rt skills compile")));
   if (payload.installed) blocks.push(...installedCacheBlocks(payload.installed));
 

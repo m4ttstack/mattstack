@@ -196,3 +196,9 @@ test("a dry run says why it would remove an emitted folder", () => {
     ].join("\n"),
   );
 });
+
+test("check names a verb whose compile throws and points at the compile that shows it", () => {
+  const text = renderPlain(checkBlocks({ ...base, drift: true, compileErrors: ['verb "watch-ci": no fill acme:missing'] }, false));
+  expect(text).toContain('[failed] verb "watch-ci": no fill acme:missing');
+  expect(text).toContain("next: rt skills compile");
+});
