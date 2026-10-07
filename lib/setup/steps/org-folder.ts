@@ -23,6 +23,11 @@ import { toFailedOutcome } from "./step-utils.ts";
 export const ORG_MOVE_TIMEOUT_MS = 120_000;
 export const ORG_FOLDER_REMEDY = "Run rt setup update --force after the fix";
 export const DAEMON_STALE_REMEDY = "Run rt daemon restart, then rt setup update --force";
+export const DAEMON_SLOW_REMEDY = "Wait a minute, then run rt setup update --force";
+
+function tilde(home: string, path: string): string {
+  return path === home ? "~" : path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+}
 
 /** The clone's own serialized identity: every relocation is scoped to it, because an unscoped locate refuses whenever any other repo rt knows is missing. */
 async function cloneIdentity(dir: string): Promise<string> {
@@ -49,6 +54,7 @@ interface MoveReply {
 }
 
 function scan(p: Probes): { clones: Clone[]; strays: string[]; unreadable: string[]; folders: Set<string> } {
+  const t = (path: string): string => tilde(p.home, path);
   const clones: Clone[] = [];
   const strays: string[] = [];
   const unreadable: string[] = [];
@@ -61,11 +67,11 @@ function scan(p: Probes): { clones: Clone[]; strays: string[]; unreadable: strin
       folders.add(folder);
       const marker = markerState(p, dir);
       if (marker.kind === "none") {
-        strays.push(dir);
+        strays.push(t(dir));
         continue;
       }
       if (marker.kind === "invalid") {
-        unreadable.push(`${dir} has a marker rt could not read (${marker.why}), left alone`);
+        unreadable.push(`${t(dir)} has a marker rt could not read (${marker.why}), left alone`);
         continue;
       }
       clones.push({ dir, folder, org: marker.org, target: orgDirUnder(p.home, marker.org) });
@@ -80,23 +86,25 @@ function originOf(p: Probes, dir: string): string | null {
 }
 
 async function refusal(p: Probes, clone: Clone, claimed: Set<string>): Promise<string | null> {
-  if (claimed.has(clone.target)) return `${clone.dir} is a second clone of the ${clone.org} org, so it stayed where it is`;
+  const dir = tilde(p.home, clone.dir);
+  const target = tilde(p.home, clone.target);
+  if (claimed.has(clone.target)) return `${dir} is a second clone of the ${clone.org} org, so it stayed where it is`;
   const status = await p.exec(["git", "-C", clone.dir, "status", "--porcelain", "--untracked-files=no"]);
   if (status.code !== 0) {
     // Unknown is dirty: a clone whose status cannot be read is never renamed.
-    return `rt could not read the git status of ${clone.dir} (${status.stderr.trim() || `exit ${status.code}`}), so it stayed where it is`;
+    return `rt could not read the git status of ${dir} (${status.stderr.trim() || `exit ${status.code}`}), so it stayed where it is`;
   }
   if (status.stdout.trim() !== "") {
-    return `${clone.dir} has uncommitted changes to tracked files. Commit them if they are yours, or discard them with a checkout of the tracked files on a Mac that only pulls, then run the update again`;
+    return `${dir} has uncommitted changes to tracked files. Commit them if they are yours, or discard them with a checkout of the tracked files on a Mac that only pulls, then run the update again`;
   }
   if (p.exists(join(clone.dir, ".git", "rebase-merge")) || p.exists(join(clone.dir, ".git", "rebase-apply"))) {
-    return `${clone.dir} is in the middle of a rebase. Finish or abort it, then run the update again`;
+    return `${dir} is in the middle of a rebase. Finish or abort it, then run the update again`;
   }
   if (p.exists(clone.target)) {
     const source = originOf(p, clone.dir);
     return source !== null && source === originOf(p, clone.target)
-      ? `the ${clone.org} org sits in both ${clone.dir} and ${clone.target}. Move the old copy aside`
-      : `${clone.target} already holds a clone of a different origin, so ${clone.dir} stayed where it is`;
+      ? `the ${clone.org} org sits in both ${dir} and ${target}. Move the old copy aside`
+      : `${target} already holds a clone of a different origin, so ${dir} stayed where it is`;
   }
   return null;
 }
@@ -106,12 +114,28 @@ const locate: LocateFn = async (newPath) => {
   return outcome.ok ? { ok: true, moved: !outcome.dryRun } : { ok: false, error: outcome.error };
 };
 
-async function moveViaDaemon(p: Probes, clone: Clone): Promise<{ result: OrgMoveResult } | { failed: string; remedy: string }> {
+type DaemonMove = { result: OrgMoveResult } | { lateMove: true } | { failed: string; remedy: string };
+
+async function moveViaDaemon(p: Probes, clone: Clone): Promise<DaemonMove> {
+  const dir = tilde(p.home, clone.dir);
   const res = (await p.daemon("org:move", { from: clone.dir, to: clone.target }, ORG_MOVE_TIMEOUT_MS)) as MoveReply | null;
-  if (res === null) return { failed: `The rt daemon is running but did not answer, so ${clone.dir} stayed where it is`, remedy: DAEMON_STALE_REMEDY };
-  if (!res.ok && res.code === "unknown-command") return { failed: `The running rt daemon does not know how to move an org folder, so ${clone.dir} stayed where it is`, remedy: DAEMON_STALE_REMEDY };
-  if (!res.ok || !res.data) return { failed: `${clone.dir} was not moved: ${res.failure?.message ?? res.error ?? "the daemon gave no reason"}`, remedy: ORG_FOLDER_REMEDY };
+  if (res === null) {
+    // No answer is a client timeout; the daemon may still finish the move after it, so the disk says what happened.
+    if (!p.exists(clone.dir) && p.exists(clone.target)) return { lateMove: true };
+    return { failed: `The rt daemon did not answer within two minutes and may still be moving ${dir}`, remedy: DAEMON_SLOW_REMEDY };
+  }
+  if (!res.ok && res.code === "unknown-command") return { failed: `The running rt daemon does not know how to move an org folder, so ${dir} stayed where it is`, remedy: DAEMON_STALE_REMEDY };
+  if (!res.ok && res.data) return { result: res.data };
+  if (!res.ok || !res.data) return { failed: `${dir} was not moved: ${res.failure?.message ?? res.error ?? "the daemon gave no reason"}`, remedy: ORG_FOLDER_REMEDY };
   return { result: res.data };
+}
+
+function moveFailure(p: Probes, clone: Clone, result: OrgMoveResult): string {
+  const dir = tilde(p.home, clone.dir);
+  const target = tilde(p.home, clone.target);
+  if (!result.folderMoved) return `${dir} was not moved (${result.stage}): ${result.error}`;
+  const what = result.stage === "cleanup" ? "its old records were not removed" : "its repo index row was not updated";
+  return `${dir} moved to ${target} but ${what}: ${result.error}`;
 }
 
 export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome> {
@@ -120,8 +144,10 @@ export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome>
   const strayNote = [...(strays.length ? [`not an org clone, left alone: ${strays.join(", ")}`] : []), ...unreadable].join("; ") || null;
   if (clones.length === 0) return { state: "skipped", detail: ["No org on this Mac", strayNote].filter(Boolean).join("; ") };
 
+  const t = (path: string): string => tilde(p.home, path);
   const notes: string[] = [];
-  const failures: { detail: string; remedy: string }[] = [];
+  /** A refusal is a clone rt chose to leave alone; everything else is a daemon or move failure. */
+  const failures: { detail: string; remedy: string; refusal?: true }[] = [];
   const partials: { detail: string; commands: string[]; line: string }[] = [];
   const claimed = new Set<string>();
   let moved = false;
@@ -132,7 +158,7 @@ export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome>
     if (clone.dir !== clone.target) {
       const why = await refusal(p, clone, claimed);
       if (why !== null) {
-        failures.push({ detail: why, remedy: ORG_FOLDER_REMEDY });
+        failures.push({ detail: why, remedy: ORG_FOLDER_REMEDY, refusal: true });
         continue;
       }
       // Only a move claims its target: a clone already in place answers a second copy through the target-exists check, which names both folders.
@@ -142,24 +168,28 @@ export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome>
         failures.push({ detail: outcome.failed, remedy: outcome.remedy });
         continue;
       }
-      if (!outcome.result.ok) {
-        failures.push({ detail: `${clone.dir} was not moved (${outcome.result.stage}): ${outcome.result.error}`, remedy: ORG_FOLDER_REMEDY });
+      if ("result" in outcome && !outcome.result.ok) {
+        failures.push({ detail: moveFailure(p, clone, outcome.result), remedy: ORG_FOLDER_REMEDY });
         continue;
       }
       movedNow = moved = true;
       folders.delete(clone.folder);
       folders.add(clone.org);
-      notes.push(`Moved ${clone.org} to ${clone.target}`);
-      if (outcome.result.removed.length) notes.push(`removed ${outcome.result.removed.join(", ")}`);
+      if ("lateMove" in outcome) {
+        notes.push(`Moved ${clone.org} to ${t(clone.target)} after the rt daemon stopped answering, so the next rt setup update checks its records and repo index row`);
+      } else {
+        notes.push(`Moved ${clone.org} to ${t(clone.target)}`);
+        if (outcome.result.removed.length) notes.push(`removed ${outcome.result.removed.map(t).join(", ")}`);
+      }
     } else {
       const located = await locate(clone.dir);
       if (!located.ok && classifyLocate(located.error) === "failed") {
-        failures.push({ detail: `${clone.dir} is in place but its repo index row was not updated: ${located.error}`, remedy: ORG_FOLDER_REMEDY });
+        failures.push({ detail: `${t(clone.dir)} is in place but its repo index row was not updated: ${located.error}`, remedy: ORG_FOLDER_REMEDY });
         continue;
       }
       const removed = cleanupMovedRecords(p, clone.org, (name) => folders.has(name));
       notes.push(`${clone.org} already in place`);
-      if (removed.length) notes.push(`removed ${removed.join(", ")}`);
+      if (removed.length) notes.push(`removed ${removed.map(t).join(", ")}`);
     }
     const market = await orgFolderSeams.marketplace(ctx, { dir: clone.target, stalePaths: movedNow ? [clone.dir] : [] });
     const commands = market.state === "partial" ? (market.commands ?? []) : [];
@@ -172,9 +202,12 @@ export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome>
   if (moved) ctx.reloadTeam?.();
 
   if (failures.length) {
-    const remedy = failures.some((f) => f.remedy === DAEMON_STALE_REMEDY) ? DAEMON_STALE_REMEDY : ORG_FOLDER_REMEDY;
-    // The handed-back plugin commands are built only during the re-point and never come back on a rerun, so they ride in the failed detail.
-    return { state: "failed", detail: [...failures.map((f) => f.detail), ...notes, ...partials.map((m) => m.line)].join("; "), remedy };
+    const remedy = [DAEMON_STALE_REMEDY, DAEMON_SLOW_REMEDY].find((r) => failures.some((f) => f.remedy === r)) ?? ORG_FOLDER_REMEDY;
+    // The handed-back plugin commands are built only during the re-point and never come back on a rerun, so they ride in the detail.
+    const detail = [...failures.map((f) => f.detail), ...notes, ...partials.map((m) => m.line)].join("; ");
+    // A full apply runs this step too, and a failed step stops Install; a clone rt left alone must not.
+    const blocking = failures.some((f) => !f.refusal) || ctx.update === true;
+    return { state: blocking ? "failed" : "partial", detail, remedy };
   }
   if (partials.length) {
     // A partial with no commands (Claude missing, an unreadable list) has nothing to run by hand yet, so it needs the fix-then-rerun.
