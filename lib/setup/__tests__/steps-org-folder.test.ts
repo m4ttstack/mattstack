@@ -328,21 +328,50 @@ describe("org.folder: the step", () => {
     expect(p.calls.renames).toEqual([]);
   });
 
-  test("a daemon that does not answer in time but moved the folder anyway is treated as moved", async () => {
+  test("a daemon that does not answer in time but moved the folder anyway is treated as moved, and the in-place pieces run for it", async () => {
     const s = seams();
-    const p = fakeProbes({ roots: { teams: ["acme"] }, fixture: legacy(), dirs: { [RT]: ["teams", "invites", "rt.sock"], [ORGS]: [] }, files: { [`${RT}/rt.sock`]: "" } });
+    const p = fakeProbes({
+      roots: { teams: ["widgets"] },
+      fixture: legacy("widgets", "acme"),
+      dirs: { [RT]: ["teams", "invites", "rt.sock"], [ORGS]: [], [`${RT}/teams`]: ["widgets.json", "acme.json"] },
+      files: { [`${RT}/rt.sock`]: "", [`${RT}/teams/widgets.json`]: "{}", [`${RT}/teams/acme.json`]: JSON.stringify({ forgeUsername: "dev1", movedFrom: "widgets" }) },
+    });
     p.daemon = async () => {
-      p.rename(`${TEAMS}/acme`, `${ORGS}/acme`);
+      p.rename(`${TEAMS}/widgets`, `${ORGS}/acme`);
       return null;
     };
     let reloaded = 0;
     const out = await convergeOrgFolder(makeCtx(p, { reloadTeam: () => { reloaded += 1; } }).ctx);
     expect(out.state).toBe("done");
-    expect(out.detail).toContain("Moved acme to ~/.mattstack/orgs/acme after the rt daemon stopped answering");
-    expect(out.detail).toContain("the next rt setup update checks its records and repo index row");
-    expect(s.located).toEqual([]);
-    expect(s.marketplaces).toEqual([{ dir: `${ORGS}/acme`, stalePaths: [`${TEAMS}/acme`] }]);
+    expect(out.detail).toContain("Moved acme to ~/.mattstack/orgs/acme");
+    expect(out.detail).toContain(`removed ${T(`${RT}/teams/widgets.json`)}`);
+    expect(s.located).toEqual([{ newPath: `${ORGS}/acme`, repo: `gitlab.example.com/acme/org@${ORGS}/acme` }]);
+    expect(s.marketplaces).toEqual([{ dir: `${ORGS}/acme`, stalePaths: [`${TEAMS}/widgets`] }]);
+    expect(p.exists(`${RT}/teams/widgets.json`)).toBe(false);
+    expect(JSON.parse(p.readFile(`${RT}/teams/acme.json`)!).movedFrom).toBeUndefined();
     expect(reloaded).toBe(1);
+  });
+
+  test("a late move whose index piece then fails says the folder moved", async () => {
+    seams({ locate: async () => ({ ok: false, error: "identity-mismatch: another repo" }) });
+    const p = fakeProbes({ roots: { teams: ["acme"] }, fixture: legacy(), dirs: { [RT]: ["teams", "invites", "rt.sock"], [ORGS]: [] }, files: { [`${RT}/rt.sock`]: "" } });
+    p.daemon = async () => {
+      p.rename(`${TEAMS}/acme`, `${ORGS}/acme`);
+      return null;
+    };
+    const out = await convergeOrgFolder(makeCtx(p).ctx);
+    expect(out).toMatchObject({ state: "failed", remedy: ORG_FOLDER_REMEDY });
+    expect(out.detail).toContain(`${T(`${TEAMS}/acme`)} moved to ${T(`${ORGS}/acme`)} but its repo index row was not updated: identity-mismatch`);
+  });
+
+  test("a daemon re-check refusal is a refusal: partial in a full apply with the step's wording, failed under an update", async () => {
+    seams();
+    const reply = async () => ({ ok: false, error: `dirty: ${TEAMS}/acme has uncommitted changes to tracked files`, failure: { code: "dirty", message: `${TEAMS}/acme has uncommitted changes to tracked files` } }) as never;
+    const withSock = () => fakeProbes({ roots: { teams: ["acme"] }, fixture: legacy(), dirs: { [RT]: ["teams", "invites", "rt.sock"] }, files: { [`${RT}/rt.sock`]: "" }, daemon: reply });
+    const full = await convergeOrgFolder(makeCtx(withSock()).ctx);
+    expect(full).toMatchObject({ state: "partial", remedy: ORG_FOLDER_REMEDY });
+    expect(full.detail).toContain(`${T(`${TEAMS}/acme`)} has uncommitted changes to tracked files. Commit them if they are yours`);
+    expect(await convergeOrgFolder(makeCtx(withSock(), { update: true }).ctx)).toMatchObject({ state: "failed", remedy: ORG_FOLDER_REMEDY });
   });
 
   test("a daemon refusal is failed with the daemon's message", async () => {
