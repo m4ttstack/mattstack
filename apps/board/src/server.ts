@@ -138,6 +138,10 @@ import {
   type ExecuteSweepActionIo,
 } from './gates/execute-sweep-action.ts';
 import {
+  resolveGateFocusTarget,
+  type FocusLane,
+} from './gates/focus-target.ts';
+import {
   GateResync,
   ingestRelayFrame,
   installBoardBridgeRule,
@@ -155,7 +159,6 @@ import {
 import { normalizeMrUrl, RunMrResolver } from './gates/run-mr.ts';
 import { type GateAnswers } from './gates/store.ts';
 import { domainForKind, planSweep, pruneOffBoardGates } from './gates/sweep.ts';
-import { type FocusLane, resolveGateFocusTarget } from './gates/focus-target.ts';
 import { gateOrigin } from './gates/wait-meta.ts';
 import {
   closeTab,

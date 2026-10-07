@@ -10,9 +10,11 @@ const ORIGIN = {
 
 describe('resolveGateFocusTarget', () => {
   it("focuses the origin pane while it's live", () => {
-    expect(
-      resolveGateFocusTarget(ORIGIN, [{ paneId: 'wTT:p2' }], [])
-    ).toEqual({ ok: true, paneId: 'wTT:p2', tabId: 'wTT:t2' });
+    expect(resolveGateFocusTarget(ORIGIN, [{ paneId: 'wTT:p2' }], [])).toEqual({
+      ok: true,
+      paneId: 'wTT:p2',
+      tabId: 'wTT:t2',
+    });
   });
 
   it("falls back to the MR's live lane pane once the origin pane has closed", () => {

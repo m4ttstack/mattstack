@@ -1,8 +1,8 @@
-import type { GateOrigin } from '@mattstack/rt-client';
 import {
   ORIGIN_PANE_CLOSED_REASON,
   resolveOriginFocus,
 } from '@mattstack/gate-kit/server';
+import type { GateOrigin } from '@mattstack/rt-client';
 
 export interface FocusLane {
   paneId?: string;
@@ -10,8 +10,7 @@ export interface FocusLane {
 }
 
 export type GateFocusTarget =
-  | { ok: true; paneId?: string; tabId?: string }
-  | { ok: false; reason: string };
+  { ok: true; paneId?: string; tabId?: string } | { ok: false; reason: string };
 
 /** Where "focus pane" on a gate should land. The origin pane wins while it
     is live; once it has closed, the MR's current board lane (a re-review or

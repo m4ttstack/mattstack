@@ -341,7 +341,9 @@ describe('POST /api/gates/:id/focus', () => {
       ok: true,
       data: {
         gates: [
-          row({ origin: { paneId: 'gone', worktree: '/w', presentation: 'form' } }),
+          row({
+            origin: { paneId: 'gone', worktree: '/w', presentation: 'form' },
+          }),
         ],
         cursor: 1,
       },
