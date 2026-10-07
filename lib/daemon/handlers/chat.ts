@@ -340,7 +340,11 @@ function attachedBinding(sessionId: string, db: Database): SessionBinding | null
  * acknowledgement from a session its harness now reports not running moves
  * nothing either, since nothing would run the queue (live-03 step 7).
  * Messages an earlier frame already got there are passed over first, so a
- * rebuilt frame carries only what is still owed.
+ * rebuilt frame carries only what is still owed, and so are messages the
+ * recipient read with rt chat read while that evidence was being checked:
+ * those are theirs already (live-05 D6). A frame that goes stale after that
+ * is refused unsent by the delivery service, and the room log keeps what is
+ * still owed for the sweep.
  */
 async function deliverBound(
   db: Database,
@@ -355,12 +359,12 @@ async function deliverBound(
   let others = pendingMessages(msg.room, recipient, msg.id, db).filter((m) => m.handle !== recipient);
   if (others.length === 0) return { delivered: false, count: 0 };
   const held = await delivery.settled(binding, others.map((m) => chatDeliveryId(m.id, recipient)));
+  // That wait can outlast a read by the recipient; the cursor is read again so nothing it passed meanwhile goes out.
+  const owed = new Set(pendingMessages(msg.room, recipient, msg.id, db).map((m) => m.id));
   const arrived = others.filter((m) => held.has(chatDeliveryId(m.id, recipient)));
   const through = arrived.length > 0 ? arrived[arrived.length - 1]!.id : 0;
-  if (through > 0) {
-    markDelivered(msg.room, recipient, through, db);
-    others = others.filter((m) => m.id > through);
-  }
+  if (through > 0) markDelivered(msg.room, recipient, through, db);
+  others = others.filter((m) => m.id > through && owed.has(m.id));
   if (others.length === 0) {
     touchLastSeen(binding.native.value, Date.now(), db);
     return { delivered: true, count: arrived.length };
@@ -378,6 +382,10 @@ async function deliverBound(
   const result = await delivery.deliverPeerInput(binding, input);
   if (!result.ok) {
     const { code, message } = result.error;
+    if (code === "stale-frame") {
+      log.info({ recipient, room: msg.room, harness: binding.native.harness, err: message }, "chat: the frame went stale while it was prepared; the room log keeps what is still owed");
+      return { delivered: false, count: 0 };
+    }
     log.warn(
       { recipient, room: msg.room, err: message, code, harness: binding.native.harness },
       code === "ambiguous" ? "chat: delivery outcome unknown; the room log keeps it owed" : "chat: delivery push failed after retry",

@@ -15,7 +15,7 @@ import {
   chatDeliveryId, createDeliveryService, DELIVERY_SWEEP_INTERVAL_MS, deliveryBackoffTicks, MAX_DELIVERY_BACKOFF_TICKS, oneShotInput,
   type DeliveryDeps, type DeliveryInput,
 } from "../delivery.ts";
-import { readDelivery, recordAttempt, type DeliveryRow } from "../delivery-store.ts";
+import { readDelivery, recordAttempt, settleEvidence, supersedeDelivery, type DeliveryRow } from "../delivery-store.ts";
 import { createSessionStore } from "../session-store.ts";
 
 let n = 0;
@@ -298,6 +298,34 @@ describe("delivery evidence", () => {
     expect(messaging.submits.map((s) => s.input.id)).toEqual([ids[1]!, later]);
     expect(row(db, ids[0]!)).toMatchObject({ frameId: later, attempts: 2 });
     expect(await service.deliverPeerInput(binding, peer("x", { constituents: [{ id: ids[0]! }] }))).toMatchObject({ ok: false, error: { code: "invalid" } });
+  });
+});
+
+describe("a settled row is never written back (live-05 D6)", () => {
+  test("an attempt naming a superseded or consumed constituent is refused unwritten: its frame would carry what the recipient already has", async () => {
+    const db = openStateDb(dbPath());
+    const binding = bindSession(db, "T1");
+    const messaging = fakeMessaging({ submit: () => fault("ambiguous"), reconcile: () => ok(null) });
+    const { service, clock } = harness(db, messaging);
+    const [a, b, c] = [5, 6, 7].map((m) => chatDeliveryId(m, "remy"));
+    const constituents = (ids: string[]) => ids.map((id) => ({ id, room: "general", messageId: Number(id.split("-")[1]) }));
+    await service.deliverPeerInput(binding, peer(b!, { constituents: constituents([a!, b!]) }));
+    expect(supersedeDelivery(db, row(db, a!), "the recipient read it", clock.now)).toBe(true);
+    const before = [a!, b!].map((id) => row(db, id));
+
+    const attempt = { frameId: b!, recipient: "remy", sessionKey: binding.key, generation: binding.attachment.generation, harness: "codex", constituents: constituents([a!, b!]) };
+    expect(recordAttempt(db, attempt, clock.now + 1, clock.now + 2)).toMatchObject({ ok: false, error: { code: "stale-frame" } });
+    expect([a!, b!].map((id) => row(db, id))).toEqual(before);
+    expect(await service.deliverPeerInput(binding, peer(b!, { constituents: constituents([a!, b!]) }))).toMatchObject({ ok: false, error: { code: "stale-frame" } });
+    expect(messaging.submits).toHaveLength(1);
+    expect([a!, b!].map((id) => row(db, id))).toEqual(before);
+
+    settleEvidence(db, attempt, { id: b!, evidence: "consumed", nativeId: "T1", turnId: "U1", itemId: "I1" }, clock.now + 3);
+    expect(row(db, b!).state).toBe("consumed");
+    expect(await service.deliverPeerInput(binding, peer(c!, { constituents: constituents([b!, c!]) }))).toMatchObject({ ok: false, error: { code: "stale-frame" } });
+    expect(messaging.submits).toHaveLength(1);
+    expect(readDelivery(db, c!)).toBeNull();
+    expect(row(db, b!)).toMatchObject({ state: "consumed", attempts: 1 });
   });
 });
 
@@ -921,6 +949,48 @@ describe("chat through harness delivery", () => {
     }
     expect(messaging.submits).toHaveLength(1);
     expect(row(x.db, chatDeliveryId(id, "b")).state).toBe("superseded");
+  });
+
+  test("a read that lands while an attempt waits on evidence wins: nothing is sent, and the rows it settled stay superseded (live-05 D6)", async () => {
+    let gate: Promise<void> | null = null;
+    let reconciles = 0;
+    const messaging = fakeMessaging({ submit: () => fault("ambiguous"), reconcile: () => ok(null) });
+    messaging.adapter.reconcile = async () => {
+      reconciles++;
+      if (gate) await gate;
+      return ok(null);
+    };
+    const x = await chatFixture(messaging);
+    const first = await x.post("one");
+    await waitFor(() => messaging.submits.length === 1);
+    const second = await x.post("two");
+    await waitFor(() => messaging.submits.length === 2);
+    await Bun.sleep(5);
+    const rows = () => [first, second].map((m) => row(x.db, chatDeliveryId(m, "b")));
+    expect(rows().map((r) => r.state)).toEqual(["ambiguous", "ambiguous"]);
+    const attempts = rows().map((r) => r.attempts);
+
+    let release!: () => void;
+    gate = new Promise<void>((resolve) => { release = resolve; });
+    const seen = reconciles;
+    // The clock has not moved, so the evidence pass finds nothing due: the sweep's attempt is what reads evidence, and it blocks there.
+    const sweeping = x.sweep();
+    await waitFor(() => reconciles === seen + 1);
+    expect(messaging.submits).toHaveLength(2);
+    expect((await x.h["chat:read"]({ handle: "b", room: "general" })).ok).toBe(true);
+    expect(rows().map((r) => r.state)).toEqual(["superseded", "superseded"]);
+    release();
+    await sweeping;
+
+    expect(messaging.submits).toHaveLength(2);
+    expect(rows()).toMatchObject([{ state: "superseded", attempts: attempts[0] }, { state: "superseded", attempts: attempts[1] }]);
+    expect(rows().map((r) => r.nextAttemptAt)).toEqual([undefined, undefined]);
+    expect(lastReadId(x.db, "general", "b")).toBe(second);
+    gate = null;
+    x.clock.now += DELIVERY_SWEEP_INTERVAL_MS * 3;
+    await x.sweep();
+    expect(messaging.submits).toHaveLength(2);
+    expect(rows().map((r) => r.state)).toEqual(["superseded", "superseded"]);
   });
 
   test("a delivery settled superseded tells its harness to stop waiting on it, under the attachment it went to (M2b round 3)", async () => {

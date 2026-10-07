@@ -16,6 +16,10 @@ import {
   type UnresolvedLaunch,
 } from "../codex/sessions.ts";
 import { DELIVERY_SWEEP_INTERVAL_MS, MAX_DELIVERY_BACKOFF_TICKS } from "../delivery.ts";
+import { readDelivery, recordAttempt, settleAttempt } from "../delivery-store.ts";
+import { createSessionStore } from "../session-store.ts";
+import { setSetting } from "../../settings/write.ts";
+import { openStateDb } from "../../state/db.ts";
 import { workDigest } from "../work-submissions.ts";
 
 type Message = Record<string, any>;
@@ -1131,7 +1135,7 @@ describe("per-thread liveness (M2b D2)", () => {
     expect(h.requests("thread/resume")).toEqual([]);
   });
 
-  test("native unload, close and the sessionEnd hook end a thread rt owns; other hooks do not", async () => {
+  test("a native unload and a close each report a thread rt owns unloaded; only the sessionEnd hook ends it, and other hooks do nothing (live-05 ruling)", async () => {
     const server = subscribingServer({ T1: "idle", T2: "idle", T3: "idle" });
     const h = await harness(server.handlers);
     const gone: Gone[] = [];
@@ -1140,10 +1144,11 @@ describe("per-thread liveness (M2b D2)", () => {
     const s = h.socket();
     s.push({ method: "hook/completed", params: { threadId: "T3", turnId: "U1", run: { id: "h1", eventName: "stop", status: "completed" } } });
     s.push(statusChanged("T1", { type: "notLoaded" }));
+    // Codex closes a thread about 60 s after its last subscriber leaves (live-04), TUI quit or not, so a close detaches and never signs out.
     s.push({ method: "thread/closed", params: { threadId: "T2" } });
     s.push({ method: "hook/started", params: { threadId: "T3", turnId: null, run: { id: "h2", eventName: "sessionEnd", status: "running" } } });
     await Bun.sleep(1);
-    expect(gone).toEqual([{ value: "T1", event: "unloaded" }, { value: "T2", event: "ended" }, { value: "T3", event: "ended" }]);
+    expect(gone).toEqual([{ value: "T1", event: "unloaded" }, { value: "T2", event: "unloaded" }, { value: "T3", event: "ended" }]);
   });
 
   test("with the switch off observe holds nothing and no lifecycle is reported", async () => {
@@ -1188,7 +1193,8 @@ describe("a Herdr attachment needs its codex pane (M2b round 2)", () => {
     const loader = loaderOn(h, {}, { paneRuns: async () => { checks++; return false; } });
     const sessions = await loader.load();
     const headless = binding("T1", { attachment: { generation: 3, mode: "headless" } });
-    expect(loader.bindingLive(headless)).toBeUndefined();
+    // Only rt's own subscription keeps a headless thread loaded, so one this connection knows nothing of is not live (live-05 D7).
+    expect(loader.bindingLive(headless)).toBe(false);
     await sessions.observe(headless);
     expect(loader.bindingLive(headless)).toBe(true);
     h.socket().push(statusChanged("T1", { type: "notLoaded" }));
@@ -1330,5 +1336,104 @@ describe("round 3: headless threads, hold races and every ending (M2b review)", 
     expect(done.turnId).toBe("U0");
     await done.completion;
     expect(h.requests("turn/start").map((m) => m.params.threadId)).toEqual(["T1", "T2"]);
+  });
+});
+
+describe("round 4: headless bindings as the store records them, keep retries, close detaches (live-05)", () => {
+  const headlessBinding = (value: string, key = "k1") => binding(value, { key, attachment: { generation: 3, mode: "headless" } });
+
+  test("a connection keeps and holds the headless bindings the state db records, bound as rt agent start --surface headless binds them", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const dir = mkdtempSync(join(tmpdir(), "rt-codex-loader-db-"));
+    try {
+      const db = openStateDb(join(dir, "state.db"));
+      const store = createSessionStore(db);
+      const bindHeadless = (identity: string, value: string) =>
+        data(store.bind(store.reserve({ identity }), { harness: "codex", profile: "default", kind: "id", value }, { mode: "headless" }));
+      const kept = bindHeadless("m5head.2ocd", "T1");
+      const owed = bindHeadless("m5head.3pqr", "T2");
+      const paned = data(store.bind(store.reserve({ identity: "m5worker.1405" }), { harness: "codex", profile: "default", kind: "id", value: "T3" }, { mode: "herdr", pane: "w1:p1" }));
+      const attempt = { frameId: "d-5-remy", recipient: "remy", sessionKey: owed.key, generation: 1, harness: "codex", constituents: [{ id: "d-5-remy" }] };
+      data(recordAttempt(db, attempt, 1, 2));
+      settleAttempt(db, attempt, "queued", 1, { receipt: { nativeId: "T2" } });
+
+      const server = subscribingServer({ T1: "idle", T2: "idle", T3: "idle" });
+      const h = await harness(server.handlers);
+      const loader = createCodexSessionLoader({
+        env: {}, now: () => 0, discover: async () => ({ ok: true, data: { socketPath: SOCKET } }), connect: async () => h.control,
+        db: () => db, messaging: { currentBinding: (key) => store.get(key), persisted: (id) => readDelivery(db, id) },
+        sessions: { ...h.deps, enabled: () => true, lifecycle: async () => false },
+      });
+      const messaging = await loader.loadMessaging();
+      expect(h.requests("thread/resume").map((m) => m.params.threadId).sort()).toEqual(["T1", "T2"]);
+      expect([...server.subscribed].sort()).toEqual(["T1", "T2"]);
+      server.userMessage(h.socket(), "T2", "d-5-remy");
+      expect(data(await messaging.reconcile!(owed, "d-5-remy"))).toMatchObject({ evidence: "consumed" });
+      expect(h.requests("thread/unsubscribe")).toEqual([]);
+      expect(loader.bindingLive(kept)).toBe(true);
+      expect(loader.bindingLive(owed)).toBe(true);
+      expect(loader.bindingLive(paned)).toBe(false);
+    } finally {
+      setSetting("agent.integrations.enabled", false, "machine");
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("observe subscribes a headless thread again when its keep failed at connect, once, and never an unloaded one", async () => {
+    const server = subscribingServer({ T1: "idle", T2: "notLoaded" });
+    let failing = 1;
+    const resume = server.handlers["thread/resume"]!;
+    server.handlers["thread/resume"] = (s, m) => {
+      if (failing-- > 0) s.push({ id: m.id, error: { code: -32603, message: "resume failed" } });
+      else resume(s, m);
+    };
+    const h = await harness(server.handlers);
+    const gone: Gone[] = [];
+    const headlessT1 = headlessBinding("T1");
+    const headlessT2 = headlessBinding("T2", "k2");
+    const loader = loaderOn(h, { headless: () => [headlessT1] }, {
+      lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); return true; },
+    });
+    const sessions = (await loader.load()) as CodexSessionAdapter;
+    expect(h.requests("thread/resume")).toHaveLength(1);
+    expect([...server.subscribed]).toEqual([]);
+
+    await sessions.observe(headlessT1);
+    expect(h.requests("thread/resume").map((m) => m.params)).toEqual([{ threadId: "T1", excludeTurns: true }, { threadId: "T1", excludeTurns: true }]);
+    expect([...server.subscribed]).toEqual(["T1"]);
+    await sessions.observe(headlessT1);
+    expect(h.requests("thread/resume")).toHaveLength(2);
+    data(await sessions.hold(headlessT1, "d-1-remy"));
+    sessions.release("T1", "d-1-remy");
+    expect(h.requests("thread/unsubscribe")).toEqual([]);
+    expect(loader.bindingLive(headlessT1)).toBe(true);
+    expect(gone).toEqual([]);
+
+    await sessions.observe(headlessT2);
+    expect(gone).toEqual([{ value: "T2", event: "unloaded", generation: 3 }]);
+    expect(h.requests("thread/resume")).toHaveLength(2);
+    expect(h.requests("thread/unsubscribe").map((m) => m.params.threadId)).toEqual(["T2"]);
+    expect(loader.bindingLive(headlessT2)).toBe(false);
+  });
+
+  test("a keep that fails leaves alone the headless mark a launch set meanwhile, so the launched thread is never let go", async () => {
+    const server = subscribingServer({ T1: "idle" });
+    const pending: Array<{ s: FakeSocket; m: Message }> = [];
+    server.handlers["thread/resume"] = (s, m) => { pending.push({ s, m }); };
+    const h = await harness(server.handlers);
+    const sessions = h.sessions({ enabled: () => true, lifecycle: async () => false });
+    const headlessT1 = headlessBinding("T1");
+    const kept = sessions.keep(headlessT1);
+    await Bun.sleep(1);
+    expect(pending).toHaveLength(1);
+    data(await sessions.launch(request({ mode: "headless" })));
+    const { s, m } = pending.shift()!;
+    s.push({ id: m.id, error: { code: -32603, message: "resume failed" } });
+    expect(await kept).toMatchObject({ ok: false, error: { code: "transient" } });
+
+    data(await sessions.hold(headlessT1, "d-1-remy"));
+    sessions.release("T1", "d-1-remy");
+    expect(h.requests("thread/unsubscribe")).toEqual([]);
+    expect(h.clock.active).toBe(0);
   });
 });

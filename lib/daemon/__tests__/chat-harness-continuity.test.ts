@@ -354,7 +354,8 @@ describe("a Codex thread its app server no longer runs (M2b D2)", () => {
     expect(status(x, "thread-1")).toBe("idle");
   });
 
-  test("a closed thread or its sessionEnd hook ends the session: detached and signed out", async () => {
+  // A thread/closed is reported unloaded by the Codex adapter (it detaches and keeps the sign-in, as above); only the sessionEnd hook reports an end.
+  test("the sessionEnd hook ends the session: detached and signed out", async () => {
     const x = fixture();
     const t1 = await x.signIn({ sessionId: "thread-1", pane: "w1:p1" });
     writeChatSession({ sessionId: "thread-1", handle: t1.handle, baseHandle: t1.baseHandle, name: t1.name, signedInAt: 1 });

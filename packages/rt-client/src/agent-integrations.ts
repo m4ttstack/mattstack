@@ -7,7 +7,7 @@ export type Capability =
   | "question-recovery" | "questions-async" | "gate-policy"
   | "continuation-policy" | "background-state" | "skills" | "worktrees";
 export type FaultCode = "unsupported" | "not-ready" | "refused" | "transient"
-  | "stale-binding" | "ambiguous" | "invalid";
+  | "stale-binding" | "stale-frame" | "ambiguous" | "invalid";
 export type Outcome<T> = { ok: true; data: T }
   | { ok: false; error: { code: FaultCode; message: string } };
 export type NativeSessionRef = {

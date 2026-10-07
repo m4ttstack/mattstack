@@ -27,8 +27,9 @@ export function codexMessagingConnection(): string | null {
  * A Herdr attachment is true only when its thread is known loaded and herdr
  * showed codex in its pane when last checked; anything less, an unknown load
  * state included, is false. A headless attachment follows its thread alone:
- * true loaded, false unloaded or closed, undefined while the connection
- * knows nothing of it. Undefined for either while there is no connection.
+ * true only while it is known loaded, since rt's own subscription is what
+ * keeps it so, and a connection that knows nothing of it holds none.
+ * Undefined for either while there is no connection.
  */
 export function codexSessionLive(binding: SessionBinding): boolean | undefined {
   return bindingProbe?.(binding);

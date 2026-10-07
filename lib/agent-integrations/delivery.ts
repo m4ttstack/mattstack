@@ -12,7 +12,10 @@
  * attempt is reconciled against native evidence before it is sent again, and
  * where the harness has none the redelivery keeps the same id and claims
  * nothing. A consumed delivery is never sent again, and an earlier attempt
- * under another attachment is reconciled under that attachment first.
+ * under another attachment is reconciled under that attachment first. A
+ * frame that, by the time it is recorded, names a delivery already consumed
+ * or superseded is refused unsent (`stale-frame`): what it carries is the
+ * recipient's already, and the room log rebuilds what is still owed.
  *
  * Redelivery itself rides the chat delivery sweep, which rebuilds frames from
  * the room log; `reconcileDeliveries` is the bounded evidence pass the sweep

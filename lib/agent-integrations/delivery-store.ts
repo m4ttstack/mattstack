@@ -53,6 +53,7 @@ WHERE session_key = ? AND generation = ? AND state = 'queued' ORDER BY frame_id;
 const SELECT_READ_SQL =`SELECT ${COLUMNS} FROM agent_deliveries d
 WHERE d.recipient = ? AND d.state IN ('pending', 'ambiguous') AND d.room IS NOT NULL AND d.room <> ? AND d.message_id IS NOT NULL
   AND d.message_id <= (SELECT m.last_read_id FROM chat_members m WHERE m.room = d.room AND m.handle = d.recipient);`;
+const SELECT_STATE_SQL = "SELECT state FROM agent_deliveries WHERE input_id = ?;";
 const RECORD_ATTEMPT_SQL = `INSERT INTO agent_deliveries
   (input_id, recipient, session_key, generation, harness, state, frame_id, room, message_id, attempts, next_attempt_at, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, 1, ?, ?, ?)
@@ -62,7 +63,7 @@ ON CONFLICT(input_id) DO UPDATE SET
   room = COALESCE(excluded.room, room), message_id = COALESCE(excluded.message_id, message_id),
   native_id = NULL, turn_id = NULL, item_id = NULL, error = NULL, next_attempt_at = excluded.next_attempt_at,
   attempts = attempts + 1, updated_at = excluded.updated_at
-WHERE agent_deliveries.state <> 'consumed';`;
+WHERE agent_deliveries.state NOT IN ('consumed', 'superseded');`;
 const SETTLE_ATTEMPT_SQL = `UPDATE agent_deliveries SET state = ?, native_id = ?, turn_id = ?, item_id = ?, error = ?,
   next_attempt_at = ?, updated_at = ?
 WHERE frame_id = ? AND session_key = ? AND generation = ? AND state = 'pending';`;
@@ -124,15 +125,32 @@ export function listDueDeliveries(db: Database, now: number, limit: number): Del
   return (db.query(SELECT_DUE_SQL).all(now, limit) as Row[]).map(toDelivery);
 }
 
+/** A row in one of these states is the recipient's for good: a frame that still names it is stale. */
+const SETTLED_FOR_GOOD: ReadonlySet<string> = new Set(["consumed", "superseded"]);
+
+class StaleFrame extends Error {
+  constructor(readonly inputId: string, readonly state: string) {
+    super(`delivery ${inputId} is already ${state}`);
+  }
+}
+
 /**
  * The write before the native side effect: every constituent becomes pending
  * under this attempt's binding, already scheduled at `dueAt`, so an attempt a
  * crash interrupts before it is settled is still found by reconciliation. A
- * consumed constituent keeps its evidence.
+ * frame naming a constituent already consumed, or superseded by the
+ * recipient's own read while the frame was being prepared, is refused with
+ * nothing written (`stale-frame`): the recipient has that message, so the
+ * frame is rebuilt from what is still owed. The upsert itself never moves
+ * such a row back.
  */
 export function recordAttempt(db: Database, attempt: DeliveryAttempt, now: number, dueAt: number): Outcome<void> {
   try {
     db.transaction(() => {
+      for (const c of attempt.constituents) {
+        const state = (db.query(SELECT_STATE_SQL).get(c.id) as { state: string } | null)?.state;
+        if (state !== undefined && SETTLED_FOR_GOOD.has(state)) throw new StaleFrame(c.id, state);
+      }
       for (const c of attempt.constituents) {
         db.query(RECORD_ATTEMPT_SQL).run(
           c.id, attempt.recipient, attempt.sessionKey, attempt.generation, attempt.harness, attempt.frameId,
@@ -142,6 +160,7 @@ export function recordAttempt(db: Database, attempt: DeliveryAttempt, now: numbe
     })();
     return { ok: true, data: undefined };
   } catch (err) {
+    if (err instanceof StaleFrame) return fail("stale-frame", `${err.message}, so frame ${attempt.frameId} was not sent`);
     if (isBusyError(err)) return fail("transient", "the state database is busy, so nothing was sent");
     throw err;
   }

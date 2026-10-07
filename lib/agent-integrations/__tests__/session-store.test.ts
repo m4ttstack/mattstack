@@ -8,8 +8,8 @@ import { openStateDb, openStateDbGuarded, SCHEMA_VERSION } from "../../state/db.
 import { getAgent, insertAgent, type AgentRecord } from "../../state/agents-store.ts";
 import { sessionFilePath, writeChatSession } from "../../chat-session.ts";
 import {
-  claimReservation, createSessionStore, failReservation, markBindingReady, noteReservationError, pruneReservations,
-  readBindingReadiness, readBindingSelection, readReservation, recordLaunched,
+  claimReservation, createSessionStore, failReservation, listAttachedBindings, listEveryAttachedBinding, markBindingReady,
+  noteReservationError, pruneReservations, readBindingReadiness, readBindingSelection, readReservation, recordLaunched,
 } from "../session-store.ts";
 import { isDetachedClaudeBinding } from "../claude/sessions.ts";
 import { __test__, migrateLegacySessions, resolveLegacySession } from "../legacy.ts";
@@ -160,6 +160,28 @@ describe("explicit attachment state", () => {
     const back = store.replaceAttachment(first.key, 3, { mode: "herdr", pane: "w2:p1" });
     if (!back.ok) throw new Error(back.error.message);
     expect(isDetachedClaudeBinding(back.data)).toBe(false);
+  });
+
+  test("a harness's attached bindings are those its records say are attached: a headless one, with no pane, socket or process, is among them (live-05 D7)", () => {
+    const db = freshDb();
+    const store = createSessionStore(db);
+    // Exactly what `rt agent start --provider codex --surface headless` binds: the mode and nothing else.
+    const headless = store.bind(store.reserve({ identity: "m5head.2ocd" }), ref({ harness: "codex", value: "01a114d8" }), { mode: "headless" });
+    if (!headless.ok) throw new Error(headless.error.message);
+    expect(headless.data.attachment).toEqual({ generation: 1, mode: "headless" });
+    const paned = bound(db, "m5worker.1405", ref({ harness: "codex", value: "01a114b9" }));
+    bound(db, "remy.ab12", ref());
+
+    const attached = () => listAttachedBindings(db, "codex").map((b) => b.native.value).sort();
+    expect(attached()).toEqual(["01a114b9", "01a114d8"]);
+    expect(listEveryAttachedBinding(db).map((b) => b.native.value).sort()).toEqual(["01a114b9", "01a114d8", "sess-1"]);
+
+    if (!store.detach(headless.data.key, 1).ok) throw new Error("detach failed");
+    expect(attached()).toEqual(["01a114b9"]);
+    if (!store.replaceAttachment(headless.data.key, 2, { mode: "headless" }).ok) throw new Error("resume failed");
+    expect(attached()).toEqual(["01a114b9", "01a114d8"]);
+    if (!store.detach(paned.key, 1).ok) throw new Error("detach failed");
+    expect(attached()).toEqual(["01a114d8"]);
   });
 });
 

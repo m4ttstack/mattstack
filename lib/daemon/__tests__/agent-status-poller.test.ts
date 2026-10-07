@@ -218,10 +218,13 @@ test("with the switch on, every attached binding of a harness with a session ada
     const attached = bind("claude", "c-attached", { pane: "w1:p1" });
     const byPid = bind("claude", "c-pid", { pid: 7 });
     bind("claude", "c-dead-pid", { pid: 9, pane: "w3:p1" });
-    bind("claude", "c-nothing", {});
+    // Attached by its record though it names no pane or process: a binding's state is never inferred from the fields it lacks.
+    const nothing = bind("claude", "c-nothing", {});
     const detached = bind("claude", "c-detached", { pid: 8 });
     if (!store.detach(detached.key, 1).ok) throw new Error("detach failed");
     const codexBound = bind("codex", "x-attached", { pane: "w2:p1" });
+    const headlessCodex = store.bind(store.reserve({ identity: "id-x-headless" }), { harness: "codex", profile: "default", kind: "id", value: "x-headless" }, { mode: "headless" });
+    if (!headlessCodex.ok) throw new Error(headlessCodex.error.message);
 
     const seen: SessionBinding[] = [];
     const codexSeen: SessionBinding[] = [];
@@ -242,10 +245,28 @@ test("with the switch on, every attached binding of a harness with a session ada
       ]),
     });
     // A dead recorded process is skipped, never marked.
-    expect(seen.map((b) => b.key).sort()).toEqual([attached.key, byPid.key].sort());
-    expect(codexSeen.map((b) => b.key)).toEqual([codexBound.key]);
+    expect(seen.map((b) => b.key).sort()).toEqual([attached.key, byPid.key, nothing.key].sort());
+    expect(codexSeen.map((b) => b.key).sort()).toEqual([codexBound.key, headlessCodex.data.key].sort());
     expect(sweeps.size).toBe(1);
     expect(listAttachedBindings(db, "claude").map((b) => b.native.value)).toContain("c-dead-pid");
+  });
+});
+
+test("a harness whose only attached bindings are headless still has its sessions loaded and observed (live-05 D7)", async () => {
+  await withDb(async (db) => {
+    const store = createSessionStore(db);
+    // Exactly what `rt agent start --provider codex --surface headless` binds: the mode and nothing else.
+    const bound = store.bind(store.reserve({ identity: "m5head.2ocd" }), { harness: "codex", profile: "default", kind: "id", value: "01a114d8" }, { mode: "headless" });
+    if (!bound.ok) throw new Error(bound.error.message);
+    let loads = 0;
+    const seen: SessionBinding[] = [];
+    const adapter = { observe: async (b: SessionBinding) => { seen.push(b); return { ok: true, data: {} }; } } as unknown as SessionAdapter;
+    await observeBoundSessions({
+      enabled: () => true, db: () => db, recover: async () => {},
+      integrations: () => createRegistry([{ ...codexIntegration, loadSessions: async () => { loads++; return adapter; } }]),
+    });
+    expect(loads).toBe(1);
+    expect(seen.map((b) => [b.key, b.attachment])).toEqual([[bound.data.key, { generation: 1, mode: "headless" }]]);
   });
 });
 

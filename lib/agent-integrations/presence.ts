@@ -78,10 +78,13 @@ export async function applySessionPresence(binding: SessionBinding, event: Prese
  * process of its own to report it (a Codex thread its app server unloaded or
  * closed). The current attachment changes only when `generation`, where
  * given, is still current.
- * - unloaded: nothing runs input sent to the session, so the binding is
- *   detached and its presence reads offline; it stays signed in, so a resume
- *   that attaches it again brings it back as it was.
+ * - unloaded: nothing runs input sent to the session (the app server
+ *   unloaded the thread, or closed it, which follows every unload), so the
+ *   binding is detached and its presence reads offline; it stays signed in,
+ *   so a resume that attaches it again brings it back as it was.
  * - ended: the session ended, as a SessionEnd does: detached and signed out.
+ *   Codex reports that only from its sessionEnd hook; a close never ends a
+ *   session, since it cannot be told from an unload and the thread resumes.
  * Returns whether anything changed.
  */
 export async function reportSessionGone(

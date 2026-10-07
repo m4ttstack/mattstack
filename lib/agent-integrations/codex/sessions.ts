@@ -34,13 +34,20 @@
  * follow-up), adds no turn, and a question it replays is never answered
  * unless a gate answers it. A thread that is not loaded is never resumed,
  * since that would load it with no terminal: it is reported gone instead, as
- * an unload, close or sessionEnd hook heard later is. A Herdr attachment is
- * live only while herdr shows codex in its pane, checked at each observe.
+ * an unload, close or sessionEnd hook heard later is. A close is an unload:
+ * Codex closes a thread about 60 s after its last subscriber leaves (live-04),
+ * terminal quit or not, so it detaches the binding and never signs the
+ * session out; only the sessionEnd hook ends one. A Herdr attachment is
+ * live only while herdr shows codex in its pane, checked at each observe; a
+ * headless one only while its thread is known loaded, since rt's own
+ * subscription is what keeps it so, and observe makes that subscription
+ * again when a connection failed to.
  *
  * This adapter never assigns a herd job and never writes the session store;
  * what a gone thread means for its binding and presence is `lifecycle`'s.
  */
 
+import type { Database } from "bun:sqlite";
 import { existsSync } from "fs";
 import { homedir } from "os";
 import { isAbsolute, join, resolve } from "path";
@@ -54,7 +61,7 @@ import type {
 import { getStateDb } from "../../state/db.ts";
 import { integrationsEnabled } from "../switch.ts";
 import { openHostPane, type HostPaneLaunch, type HostPaneOpened } from "../herdr-pane.ts";
-import { listAttachedBindings, readReservation } from "../session-store.ts";
+import { isDetachedAttachment, listAttachedBindings, readReservation } from "../session-store.ts";
 import { CODEX_ATTACH_READ_MS, CODEX_ATTACH_READS, CODEX_INIT_TURN_TIMEOUT_MS } from "../timeouts.ts";
 import { workDigest } from "../work-submissions.ts";
 import {
@@ -103,7 +110,7 @@ export interface CodexSessionAdapter extends SessionAdapter {
   live(binding: SessionBinding): boolean | undefined;
 }
 
-/** unloaded: the app server no longer runs the thread. ended: Codex closed it, or its sessionEnd hook ran. */
+/** unloaded: the app server no longer runs the thread, or closed it (a close follows every unload, live-04). ended: its sessionEnd hook ran. */
 export type CodexThreadGone = "unloaded" | "ended";
 
 /** dropped: the resume finished after rt let the thread go, so it was undone at once. */
@@ -314,7 +321,7 @@ function goneBy(event: CodexEvent): CodexThreadGone | undefined {
     case "thread/status/changed":
       return event.status.type === "notLoaded" ? "unloaded" : undefined;
     case "thread/closed":
-      return "ended";
+      return "unloaded";
     case "hook/started":
     case "hook/completed":
       return event.run.eventName === "sessionEnd" ? "ended" : undefined;
@@ -528,10 +535,12 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     if (!owned.ok) return owned;
     if (!deps.enabled()) return ok(undefined);
     const threadId = binding.native.value;
+    const marked = headless.has(threadId);
     headless.add(threadId);
     const result = await subscribeOnce(threadId, binding.attachment.generation);
     if (result === "subscribed") return ok(undefined);
-    headless.delete(threadId);
+    // Only this keep's own mark comes off, and only while nothing subscribed the thread meanwhile: a headless launch or resume marks what it subscribes.
+    if (!marked && !subscribed.has(threadId)) headless.delete(threadId);
     return fail(result === "unloaded" ? "not-ready" : "transient", `rt could not subscribe to headless thread ${threadId} (${result})`);
   }
 
@@ -547,13 +556,13 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     return shown;
   }
 
-  /** Herdr attachments are live only with fresh pane evidence; a headless one only by its thread. */
+  /** Herdr attachments are live only with fresh pane evidence; a headless one only while its thread is known loaded, since only rt's subscription keeps it so. */
   function live(binding: SessionBinding): boolean | undefined {
     const threadId = binding.native.value;
-    const loaded = hub.live(threadId);
+    const loaded = hub.live(threadId) === true;
     if (binding.attachment.mode !== "herdr") return loaded;
     const pane = panes.get(threadId);
-    return loaded === true && pane?.generation === binding.attachment.generation && pane.live;
+    return loaded && pane?.generation === binding.attachment.generation && pane.live;
   }
 
   /**
@@ -850,9 +859,14 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
       const threadId = binding.native.value;
       control.adopt(threadId);
       if (deps.enabled()) {
-        // Status changes reach a connection that is not subscribed (live-04), so one read keeps the hub current.
-        if (!hub.view(threadId)) await readStatus(threadId);
-        if (hub.live(threadId) === false) await reportGone(threadId, "unloaded", binding.attachment.generation);
+        if (binding.attachment.mode === "headless" && !isDetachedAttachment(binding) && !subscribed.has(threadId) && hub.live(threadId) !== false) {
+          // A keep the connection failed at is made again here; it reads the status itself and reports an unloaded thread gone.
+          await keep(binding);
+        } else {
+          // Status changes reach a connection that is not subscribed (live-04), so one read keeps the hub current.
+          if (!hub.view(threadId)) await readStatus(threadId);
+          if (hub.live(threadId) === false) await reportGone(threadId, "unloaded", binding.attachment.generation);
+        }
         if (binding.attachment.mode === "herdr") await paneLive(binding);
       } else if (!hub.view(threadId)) {
         try {
@@ -937,6 +951,8 @@ export type CodexSessionLoaderDeps = {
   connect(options: CodexControlOptions): Promise<CodexControl>;
   sessions: Partial<CodexSessionDeps>;
   messaging: Partial<CodexMessagingDeps>;
+  /** The state db the default `outstanding` and `headless` read. */
+  db(): Database;
   /** Attached Codex bindings with deliveries still queued at their current attachment, and those deliveries' ids; held each time a connection opens. */
   outstanding(): Array<{ binding: SessionBinding; ids: string[] }>;
   /** Attached Codex bindings rt runs headless; each is subscribed again, and kept, when a connection opens. */
@@ -982,10 +998,11 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
     connect: (options) => connectCodexControl(options, { log: controlLog }),
     sessions: {},
     messaging: {},
-    headless: () => (integrationsEnabled() ? listAttachedBindings(getStateDb(), HARNESS).filter((b) => b.attachment.mode === "headless") : []),
+    db: () => getStateDb(),
+    headless: () => (integrationsEnabled() ? listAttachedBindings(deps.db(), HARNESS).filter((b) => b.attachment.mode === "headless") : []),
     outstanding: () => {
       if (!integrationsEnabled()) return [];
-      const db = getStateDb();
+      const db = deps.db();
       return listAttachedBindings(db, HARNESS)
         .map((binding) => ({ binding, ids: listQueuedFrames(db, binding.key, binding.attachment.generation) }))
         .filter((o) => o.ids.length > 0);
