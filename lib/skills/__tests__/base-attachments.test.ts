@@ -152,6 +152,16 @@ describe("planBaseAttachments", () => {
     expect(isEmittedAttachmentText(emittedMarker)).toBe(true);
   });
 
+  test("only compile's full shape is provenance", () => {
+    expect(isEmittedAttachmentText('{"base":"x"}')).toBe(false);
+    expect(isEmittedAttachmentText('{"base":"https://api.example","rows":[]}')).toBe(false);
+    expect(isEmittedAttachmentText('{"base":"x","files":[]}')).toBe(false);
+    expect(isEmittedAttachmentText('{"base":"x","version":3,"files":[]}')).toBe(false);
+    expect(isEmittedAttachmentText('{"base":"x","version":null,"files":{}}')).toBe(false);
+    expect(isEmittedAttachmentText(JSON.stringify({ base: "acme-base", version: null, files: [] }))).toBe(true);
+    expect(isEmittedAttachmentText(JSON.stringify({ base: "acme-base", version: "1.4.0", files: ["SKILL.md"] }))).toBe(true);
+  });
+
   test("a clashing name is reported once", () => {
     put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "{{pack.path:review-kit/x.md}}\n");
     expect(plan({ "review-kit": "attachments" }).errors).toEqual([clash]);

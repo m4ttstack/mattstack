@@ -1291,6 +1291,21 @@ describe("base pack attachments", () => {
     expect(readFileSync(join(packDir, "attachments", "data", "compiled.json"), "utf8")).toBe(`{"rows": []}\n`);
     expect(existsSync(join(packDir, "attachments", "data", "SKILL.md"))).toBe(true);
   });
+
+  test("a pack that never extends keeps a data folder whose compiled.json has a base key", async () => {
+    const mattstackDir = makeMattstackDir();
+    const packDir = makePackDir();
+    const manifestPath = makeManifest();
+    const data = `{"base":"https://api.example","rows":[]}`;
+    writeFile(join(packDir, "pack", "skills.jsonc"), "{}");
+    writeFile(join(packDir, "attachments", "data", "compiled.json"), data);
+
+    const { errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "t", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath]));
+
+    expect(errors).toEqual([]);
+    expect(readFileSync(join(packDir, "attachments", "data", "compiled.json"), "utf8")).toBe(data);
+  });
 });
 
 describe("skillsCompile --json write semantics", () => {

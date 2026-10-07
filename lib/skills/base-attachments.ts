@@ -25,7 +25,9 @@ export function isEmittedAttachmentText(text: string | null): boolean {
   if (text === null) return false;
   try {
     const parsed: unknown = JSON.parse(text);
-    return !!parsed && typeof parsed === "object" && !Array.isArray(parsed) && typeof (parsed as { base?: unknown }).base === "string";
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+    const { base, files, version } = parsed as { base?: unknown; files?: unknown; version?: unknown };
+    return typeof base === "string" && Array.isArray(files) && Object.hasOwn(parsed, "version") && (typeof version === "string" || version === null);
   } catch {
     return false;
   }
