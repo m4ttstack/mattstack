@@ -48,7 +48,7 @@ import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
 import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { validateChain } from "../lib/skills/chain.ts";
-import { isEmittedAttachmentDir, planBaseAttachments, plannedAttachmentsOf, type BaseAttachmentPlan } from "../lib/skills/base-attachments.ts";
+import { isEmittedAttachmentDir, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan } from "../lib/skills/base-attachments.ts";
 import { compileSkill, hasCompiledHeader, isInlined } from "../lib/skills/compile.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
@@ -932,6 +932,15 @@ function basePlanFor(resolved: Resolved, verbSides: Record<string, Side>): BaseA
   return planBaseAttachments({ packDir: resolved.packDir, packName: packPluginIdentity(resolved.packDir)?.name ?? resolved.team, verbSides });
 }
 
+export function requireBasePlan(resolved: Resolved, verbSides: Record<string, Side>): BaseAttachmentPlan {
+  const plan = basePlanFor(resolved, verbSides);
+  if (plan.errors.length > 0) {
+    const errors = plan.errors.join("\n");
+    throw new SkillsUsageError(errors, { title: "This pack's base cannot be used", details: errors });
+  }
+  return plan;
+}
+
 /**
  * The real-write path shared by skillsCompile and compilePackAll: compiles
  * every target, writes on success (sweeping a stale other-side dir first),
@@ -966,7 +975,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   const writing = write && failures.length === 0;
   const writes: CompileWrites = { written: [], removed: [] };
   if (writing) {
-    // Emitted folders land before any verb so a verb's {{pack.path}} into one names a file on disk.
+    // Stale folders go before any verb writes: an internal verb may now own a freed attachments/<name>.
     for (const s of plan.stale) removeCompiledDir(resolved.packDir, join(resolved.packDir, "attachments", s.name), writes);
     for (const e of plan.emits) writeCompiledVerb(resolved.packDir, join(resolved.packDir, "attachments", e.name), e, writes);
     for (const { target, outcome } of outcomes) {
@@ -1001,7 +1010,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   }
 
   const emitted: EmittedRow[] = [
-    ...plan.emits.map((e) => ({ name: e.name, base: plan.base!.name, files: e.files.length - 1 })),
+    ...plan.emits.map((e) => ({ name: e.name, base: plan.base!.name, files: e.files.filter((f) => f.path !== PROVENANCE_FILE).length })),
     ...plan.stale.map((s) => ({ name: s.name, removed: true as const, why: s.why })),
   ];
 
@@ -1070,10 +1079,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
     if (chainErrors.length > 0) throw new SkillsUsageError(chainErrors.join("\n"));
 
     const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, flags.verbs);
-    const plan = basePlanFor(resolved, verbSides);
-    if (plan.errors.length > 0) {
-      throw new SkillsUsageError(plan.errors.join("\n"), { title: "This pack's base attachments cannot be copied", details: plan.errors.join("\n") });
-    }
+    const plan = requireBasePlan(resolved, verbSides);
 
     if (flags.preview) {
       // Lint accepts a relative path to any KNOWN target, not only emitted ones: a
@@ -1805,10 +1811,7 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
       });
     }
 
-    const basePlan = basePlanFor(resolved, plan.verbSides);
-    if (basePlan.errors.length > 0) {
-      throw new SkillsUsageError(basePlan.errors.join("\n"), { title: "This pack's base attachments cannot be copied", details: basePlan.errors.join("\n") });
-    }
+    const basePlan = requireBasePlan(resolved, plan.verbSides);
     const trace: TraceEntry[] = [];
     const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, (e) => trace.push(e), plannedAttachmentsOf(basePlan));
     const main = result.files.find((f) => "content" in f && f.path === "SKILL.md");

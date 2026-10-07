@@ -1089,6 +1089,34 @@ describe("base pack attachments", () => {
     expect(existsSync(kit(packDir))).toBe(false);
   });
 
+  test("a failed verb leaves a stale emitted folder in place", async () => {
+    const { baseDir, packDir, compile, materialize } = seedBaseAndTeam();
+    await compile();
+    rmSync(join(baseDir, "attachments", "review-kit"), { recursive: true });
+    writeFile(join(baseDir, "pack", "skills.jsonc"), JSON.stringify({ base: true, bindings: { "mattstack:watch-ci": { domain: "acme-base:does-not-exist", forge: "mattstack:gitlab-forge" } } }));
+    materialize();
+
+    const failed = await compile();
+
+    expect(failed.exitCode).toBe(1);
+    expect(existsSync(kit(packDir, "compiled.json"))).toBe(true);
+  });
+
+  test("an extends naming a missing base fails compilePackAll and anatomy with the plan error", async () => {
+    const { mattstackDir, packDir } = seedBaseAndTeam();
+    writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ extends: "gadgets-base" }));
+    const message = "widgets extends gadgets-base, but the org has no base pack called gadgets-base";
+
+    const result = await compilePackAll({ packDir, mattstackDir });
+    expect(result).toEqual({ ok: false, errors: [message], written: [], removed: [] });
+
+    const anatomy = await runExpectingCleanExit(() =>
+      skillsAnatomy(["--skill", "watch-ci", "--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--json"]));
+    expect(anatomy.exitCode).toBe(1);
+    expect(anatomy.errors[0]).toBe("This pack's base cannot be used");
+    expect(anatomy.errors.join("\n")).toContain(message);
+  });
+
   test("the human output names what was copied", async () => {
     const { baseDir, compile } = seedBaseAndTeam();
     await compile();
