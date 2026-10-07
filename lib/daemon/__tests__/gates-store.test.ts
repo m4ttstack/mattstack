@@ -420,6 +420,10 @@ test("a stuck delivery on a consumed answer reads confirmed after reopen; an unc
   first.markConsumed(consumed.id);
   first.markDelivery(consumed.id, "stuck");
   first.markDelivery(unread.id, "stuck");
+  const broken = first.open({ subject: "mr:x/3", kind: "review-post", questions: qs(), nudge: { session: "s3" } }).row;
+  first.answer(broken.id, { q: "a" }, "board");
+  first.markConsumed(broken.id);
+  first.__db!.run("UPDATE gates SET delivery = ? WHERE id = ?", ["{not json", broken.id]);
   first.close_();
 
   const reopened = createGatesStore({ dbPath: path, log });

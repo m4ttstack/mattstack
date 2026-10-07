@@ -1087,14 +1087,23 @@ const resolveSignalTabId: TabIdResolver = signal => {
 function mrLanesForSubject(subject: string): FocusLane[] {
   if (!subject.startsWith('mr:')) return [];
   const mrUrl = subject.slice('mr:'.length);
-  return [
-    readReviewStates().get(mrUrl),
-    readRespondStates().get(mrUrl),
-    readDoctorStates().get(mrUrl),
-  ]
-    .filter(lane => lane !== undefined)
-    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-    .map(lane => ({ paneId: lane.paneId, tabId: lane.tabId }));
+  try {
+    return [
+      readReviewStates().get(mrUrl),
+      readRespondStates().get(mrUrl),
+      readDoctorStates().get(mrUrl),
+    ]
+      .filter(lane => lane !== undefined)
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+      .map(lane => ({ paneId: lane.paneId, tabId: lane.tabId }));
+  } catch (err) {
+    // The lane is one fallback among three; an unreadable state row must
+    // not cost the origin pane or the worktree match.
+    console.error(
+      `gate focus: lane state unreadable for ${mrUrl}: ${err instanceof Error ? err.message : err}`
+    );
+    return [];
+  }
 }
 
 async function livePanesOrNull(): Promise<Array<{
