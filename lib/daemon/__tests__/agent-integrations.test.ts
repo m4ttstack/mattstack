@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join, relative, resolve } from "path";
 import type {
@@ -15,6 +15,8 @@ import type {
 } from "../../agent-integrations/contracts.ts";
 import { createRegistry } from "../../agent-integrations/registry.ts";
 import { createSessionStore } from "../../agent-integrations/session-store.ts";
+import { launchGuard, launchInProgress } from "../../agent-integrations/launch.ts";
+import { fakeCodex } from "../../agent-integrations/__tests__/codex-fake-server.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
 import { herdrRequest } from "../../herdr/client.ts";
 import { fakeHerdr, HerdrFakeError, type FakeHerdrHandler } from "../../herdr/__tests__/fake-herdr.ts";
@@ -322,6 +324,74 @@ function spawnHarness(integrations: IntegrationRegistry, db: Database, opts: { s
   const h = harness(handler, { integrations, enabled, db, repoIndex: { "remote:example.com%2Facme%2Fdev": repoDir }, startAgent });
   return { ...h, service, starts, cwd: repoDir };
 }
+
+describe("a Codex folder-trust refusal leaves nothing behind", () => {
+  const promptDirs = (): string[] => {
+    try {
+      return readdirSync(join(rtDir(), "agent-prompts")).sort();
+    } catch {
+      return [];
+    }
+  };
+  const codexGuard = (cwd: string) => launchGuard({ harness: "codex", options: {} }, cwd);
+  const trustFolder = (config: string, cwd: string) => writeFileSync(config, `[projects."${cwd}"]\ntrust_level = "trusted"\n`);
+
+  async function codexSpawn(db: Database) {
+    const config = join(mkdtempSync(join(tmpdir(), "agent-int-codex-home-")), "config.toml");
+    writeFileSync(config, "");
+    const codex = await fakeCodex(db, config);
+    stops.push(() => codex.close());
+    return { codex, config, ...spawnHarness(createRegistry([recordedClaude(db).integration, codex.integration]), db) };
+  }
+
+  test("agent:start in an untrusted folder keeps no record, prompt or held folder; a fresh start after trusting attaches", async () => {
+    const db = freshDb();
+    const { codex, config, service, cwd } = await codexSpawn(db);
+    const prompts = promptDirs();
+    const payload = { repo: "remote:example.com%2Facme%2Fdev", cwd, provider: "codex", surface: "herdr" as const, prompt: "the brief" };
+
+    const refused = await service.start(payload);
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    expect("kept" in refused).toBe(false);
+    expect(refused.error).toContain("trust it");
+    expect(refused.error).not.toContain("kept");
+    const list = await service.handlers["agent:list"]({});
+    expect(list.ok && list.data.agents).toEqual([]);
+    expect(promptDirs()).toEqual(prompts);
+    expect(launchInProgress(db, codexGuard(cwd))).toBeNull();
+    expect(codex.ops).toEqual([]);
+
+    trustFolder(config, cwd);
+    const started = await service.start(payload);
+    if (!started.ok) throw new Error(started.error);
+    expect(codex.panes).toHaveLength(1);
+    expect(started.data).toMatchObject({ provider: "codex", paneId: "w9:p1" });
+  });
+
+  test("a switch-on pane:spawn in an untrusted folder keeps no record or held folder; a fresh spawn after trusting attaches", async () => {
+    const db = freshDb();
+    const { codex, config, pane, service, cwd } = await codexSpawn(db);
+    const prompts = promptDirs();
+
+    const refused = await pane["pane:spawn"]({ cwd, provider: "codex", prompt: "the brief" });
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    expect(refused.error).toContain("trust it");
+    expect((refused as { agentId?: string }).agentId).toBeUndefined();
+    const list = await service.handlers["agent:list"]({});
+    expect(list.ok && list.data.agents).toEqual([]);
+    expect(promptDirs()).toEqual(prompts);
+    expect(launchInProgress(db, codexGuard(cwd))).toBeNull();
+    expect(codex.ops).toEqual([]);
+
+    trustFolder(config, cwd);
+    const spawned = await pane["pane:spawn"]({ cwd, provider: "codex", prompt: "the brief" });
+    if (!spawned.ok) throw new Error(spawned.error);
+    expect(codex.panes).toHaveLength(1);
+    expect(spawned.data).toMatchObject({ agentId: expect.stringMatching(/\S/) });
+  });
+});
 
 describe("pane creation through agent:start's shared path", () => {
   test("a switch-on pane spawn puts no prompt text on the command line", async () => {

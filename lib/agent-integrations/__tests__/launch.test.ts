@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type {
@@ -14,6 +14,7 @@ import type {
 } from "../contracts.ts";
 import { createBoundLauncher, launchAttention, launchGuard, launchInProgress, type BoundLaunchRequest } from "../launch.ts";
 import { claudeIntegration } from "../claude/integration.ts";
+import { fakeCodex } from "./codex-fake-server.ts";
 import { createClaudeSessions } from "../claude/sessions.ts";
 import { createRegistry } from "../registry.ts";
 import {
@@ -734,5 +735,35 @@ describe("the ambiguous-submission sweep", () => {
     }
     await launcherFor([claude], { claimToken: "proc-B" }).recover();
     expect(herdrCalls).toBe(1);
+  });
+});
+
+describe("a Codex folder-trust refusal", () => {
+  test("is a certain no-op: the reservation fails, nothing holds the folder, and a fresh call after trusting attaches at once", async () => {
+    const cwd = realpathSync(mkdtempSync(join(dir, "work-")));
+    const config = join(dir, "codex-config.toml");
+    writeFileSync(config, "");
+    const codex = await fakeCodex(db, config);
+    try {
+      const store = createSessionStore(db);
+      const codexRequest = (reservationId: string): BoundLaunchRequest => ({
+        reservationId, cwd, mode: "herdr", selection: { harness: "codex", options: {} }, required: [], access: { readRoots: [] },
+      });
+      const first = store.reserve({ identity: "remy", agentId: "ag-untrusted" });
+      const refused = await launcherFor([codex.integration]).launchBoundAgent(codexRequest(first));
+      expect(refused).toMatchObject({ ok: false, error: { code: "refused" } });
+      expect(refused.ok ? "" : refused.error.message).toContain(cwd);
+      expect(readReservation(db, first)?.state).toBe("failed");
+      expect(launchInProgress(db, launchGuard({ harness: "codex", options: {} }, cwd))).toBeNull();
+      expect(launchAttention(db, "ag-untrusted")).toBeUndefined();
+      expect(codex.ops).toEqual([]);
+
+      writeFileSync(config, `[projects."${cwd}"]\ntrust_level = "trusted"\n`);
+      const bound = data(await launcherFor([codex.integration]).launchBoundAgent(codexRequest(store.reserve({ identity: "remy", agentId: "ag-trusted" }))));
+      expect(bound.attachment).toMatchObject({ mode: "herdr", pane: "w9:p1" });
+      expect(codex.ops).toEqual(["thread/start", "turn/start", "pane"]);
+    } finally {
+      codex.close();
+    }
   });
 });

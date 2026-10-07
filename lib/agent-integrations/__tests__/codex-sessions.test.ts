@@ -488,7 +488,7 @@ describe("folder trust", () => {
     const sessions = h.sessions();
 
     const outcome = await sessions.launch(request());
-    expect(outcome).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(outcome).toMatchObject({ ok: false, error: { code: "refused" } });
     expect(outcome.ok || outcome.error.message).toContain("/work/a");
     expect(outcome.ok || outcome.error.message).toContain("trust it");
     expect(h.ops).toEqual([]);
@@ -501,7 +501,7 @@ describe("folder trust", () => {
   test("once the person trusts the folder in Codex, a same-id retry launches and attaches once", async () => {
     const h = await harness({}, { codexConfig: null });
     const sessions = h.sessions();
-    expect(await sessions.launch(request())).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(await sessions.launch(request())).toMatchObject({ ok: false, error: { code: "refused" } });
 
     h.writeConfig(trustEntry("/work/a"));
     expect(data(await sessions.launch(request())).attachment).toEqual({ mode: "herdr", pane: "p1" });
@@ -512,7 +512,7 @@ describe("folder trust", () => {
     const h = await harness({}, { codexConfig: `[projects."/work/a"]\ntrust_level = "untrusted"\n` });
     const before = readFileSync(h.config, "utf8");
     const outcome = await h.sessions().resume(binding("T1").native, request({ reservationId: "r-resume" }));
-    expect(outcome).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(outcome).toMatchObject({ ok: false, error: { code: "refused" } });
     expect(outcome.ok || outcome.error.message).toContain("/work/a");
     expect(h.ops).toEqual([]);
     expect(h.panes).toEqual([]);
@@ -528,20 +528,20 @@ describe("folder trust", () => {
   test("a missing, unparsable or unlocatable Codex config refuses a Herdr attach", async () => {
     for (const config of [null, `[projects."/work/a"\ntrust_level = "trusted"\n`]) {
       const h = await harness({}, { codexConfig: config });
-      expect(await h.sessions().launch(request())).toMatchObject({ ok: false, error: { code: "not-ready" } });
+      expect(await h.sessions().launch(request())).toMatchObject({ ok: false, error: { code: "refused" } });
       expect(await h.sessions().resume(binding("T1").native, request({ reservationId: "r-resume" })))
-        .toMatchObject({ ok: false, error: { code: "not-ready" } });
+        .toMatchObject({ ok: false, error: { code: "refused" } });
       expect(h.ops).toEqual([]);
     }
     const nowhere = await harness();
     expect(await nowhere.sessions({ trustConfig: () => undefined }).launch(request()))
-      .toMatchObject({ ok: false, error: { code: "not-ready" } });
+      .toMatchObject({ ok: false, error: { code: "refused" } });
     expect(nowhere.ops).toEqual([]);
   });
 
   test("a trusted parent folder does not admit a Herdr attach in a folder inside it", async () => {
     const h = await harness({}, { codexConfig: trustEntry("/work") });
-    expect(await h.sessions().launch(request())).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(await h.sessions().launch(request())).toMatchObject({ ok: false, error: { code: "refused" } });
     expect(h.ops).toEqual([]);
   });
 

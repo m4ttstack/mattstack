@@ -342,8 +342,10 @@ job or mutates shared session generations.
   Codex 0.160's remote resume draws no trust prompt and saves trust for its
   folder without asking, so no dialog is detected: before any Herdr launch or
   resume, rt reads the active profile's `config.toml` (never writes it) and
-  returns `not-ready`, opening no pane, unless that exact folder has
-  `trust_level = "trusted"`. Headless needs no folder trust.
+  returns `refused`, making nothing, unless Codex trusts the folder: its own
+  entry has `trust_level = "trusted"`, or, with no entry, its git checkout's
+  top-level folder (a linked worktree's main repository) is trusted. A plain
+  parent folder passes nothing on. Headless needs no folder trust.
   The suites are green; the live checks are deferred to the sandbox, so this
   box stays open.
 - [x] Commit `feat: implement bound Codex sessions`.
