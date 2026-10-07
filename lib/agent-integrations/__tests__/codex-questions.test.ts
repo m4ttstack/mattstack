@@ -14,7 +14,7 @@ import {
 } from "../codex/control.ts";
 import { codexIntegration } from "../codex/integration.ts";
 import {
-  ANSWER_VALUE, bindCodexQuestion, createCodexQuestions, gateQuestionsOf, nativeAnswersOf, OTHER_VALUE, readRolloutTail, rolloutEvidence,
+  ANSWER_VALUE, bindCodexQuestion, createCodexQuestions, gateQuestionsOf, MAX_PRESENT_ATTEMPTS, nativeAnswersOf, OTHER_VALUE, readRolloutTail, rolloutEvidence,
   type CodexQuestionAdapter,
 } from "../codex/questions.ts";
 import {
@@ -81,6 +81,8 @@ class FakeAppServer {
   rollout = "";
   /** Rollout contents for the next reads, oldest first; `rollout` once it runs out. */
   rolloutQueue: string[] = [];
+  /** False stands for a read that stopped at its byte cap before the start of the file. */
+  rolloutWhole = true;
   sockets: FakeSocket[] = [];
   /** Answers each connection wrote, in order. */
   replies: Array<{ socket: FakeSocket; message: Message }> = [];
@@ -273,7 +275,7 @@ async function world(opts: { enabled?: boolean; mode?: "herdr" | "headless"; pan
       sessions: adapter,
       readRollout: async (path) => {
         reads.push(path);
-        return server.rolloutQueue.shift() ?? server.rollout;
+        return { text: server.rolloutQueue.shift() ?? server.rollout, whole: server.rolloutWhole };
       },
       sleep: async () => {},
     });
@@ -889,10 +891,59 @@ describe("rollout reads", () => {
     writeFileSync(path, filler + ROLLOUT + filler);
     const same = { color: { answers: ["Red"] }, size: { answers: ["Medium-ish"] } };
     const found = await readRolloutTail(path, CASE_M, { chunkBytes: 333 });
-    expect(rolloutEvidence(found, CASE_M, same).state).toBe("completed");
-    expect(found.length).toBeLessThan(filler.length * 2 + ROLLOUT.length);
+    expect(rolloutEvidence(found.text, CASE_M, same, found.whole).state).toBe("completed");
+    expect(found.text.length).toBeLessThan(filler.length * 2 + ROLLOUT.length);
     const capped = await readRolloutTail(path, CASE_M, { chunkBytes: 333, maxBytes: Buffer.byteLength(filler) / 2 });
-    expect(rolloutEvidence(capped, CASE_M, same).state).toBe("pending");
+    expect(capped.whole).toBe(false);
+    const unknown = rolloutEvidence(capped.text, CASE_M, same, capped.whole);
+    expect(unknown.state).toBe("pending");
+    expect(unknown).not.toHaveProperty("absent");
+    const whole = await readRolloutTail(path, "call_missing", { chunkBytes: 333 });
+    expect(whole.whole).toBe(true);
+    expect(rolloutEvidence(whole.text, "call_missing", same, whole.whole)).toMatchObject({ state: "pending", absent: true });
+  });
+
+  test("a read that stopped at its cap is no evidence the question is open: nothing is written", async () => {
+    const w = await world();
+    await w.connect();
+    w.server.resolveOnReply = false;
+    w.server.ask("T1", "U1", "I1", PICK);
+    await settled();
+    w.server.rolloutWhole = false;
+    const [gate] = w.gates();
+    expect((await answerGate(w, gate!.id, { pick: "A" })).ok).toBe(true);
+    await settled();
+    expect(w.reads.length).toBeGreaterThan(0);
+    expect(w.answersSent()).toEqual([]);
+    expect(w.service.completion(gate!.id)?.state).toBe("pending");
+  });
+
+  test("no line is missed at a chunk edge, multibyte text included", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rt-codex-rollout-"));
+    dirs.push(dir);
+    const path = join(dir, "rollout.jsonl");
+    const lines = Array.from({ length: 600 }, (_, i) =>
+      JSON.stringify({ type: "event_msg", ordinal: i, payload: { note: "ü€😀".repeat(i % 17), pad: "x".repeat((i * 7) % 113) } }));
+    const body = `${lines.join("\n")}\n`;
+    writeFileSync(path, body);
+    for (const chunkBytes of [7, 97, 1000, 4096, 65536]) {
+      const read = await readRolloutTail(path, "call_missing", { chunkBytes });
+      expect(read.whole).toBe(true);
+      expect(read.text).toBe(body);
+    }
+    // Eight MiB at the default chunk: every 64 KiB edge falls somewhere inside a line.
+    const big = body.repeat(Math.ceil((8 * 1024 * 1024) / Buffer.byteLength(body)));
+    writeFileSync(path, big);
+    const bigRead = await readRolloutTail(path, "call_missing");
+    expect(bigRead.whole).toBe(true);
+    expect(bigRead.text === big).toBe(true);
+    // The item's output line on every chunk edge a 97-byte read could put it on.
+    const output = ROLLOUT.split("\n").find((l) => l.includes(CASE_M) && l.includes("function_call_output"))!;
+    for (let at = 590; at < 600; at++) {
+      writeFileSync(path, `${[...lines.slice(0, at), output, ...lines.slice(at)].join("\n")}\n`);
+      const read = await readRolloutTail(path, CASE_M, { chunkBytes: 97 });
+      expect(rolloutEvidence(read.text, CASE_M, { color: { answers: ["Red"] }, size: { answers: ["Medium-ish"] } }, read.whole).state).toBe("completed");
+    }
   });
 
   test("a rollout path outside the Codex home's sessions is never read", async () => {
@@ -910,5 +961,91 @@ describe("rollout reads", () => {
       expect(w.answersSent()).toEqual([]);
       expect(w.service.completion(gate!.id)?.state).toBe("pending");
     }
+  });
+});
+
+describe("fix round 2", () => {
+  test("a status that ends an open request does nothing once the switch is off", async () => {
+    const w = await world();
+    await w.connect();
+    w.server.ask("T1", "U1", CASE_M, COLOR_SIZE);
+    await settled();
+    expect(w.gates()).toHaveLength(1);
+    const sentBefore = w.sent().length;
+    w.switchOn.value = false;
+    w.server.rollout = ROLLOUT;
+    w.server.resolve("T1");
+    await settled();
+    expect(w.sent().slice(sentBefore).filter((m) => m.method === "thread/read")).toEqual([]);
+    expect(w.reads).toEqual([]);
+    expect(w.answersSent()).toEqual([]);
+    expect(w.emitted).toEqual([]);
+    expect(w.gates()[0]!.status).toBe("open");
+  });
+
+  test("attention never emits with the switch off", () => {
+    const store = createGatesStore({ dbPath: join(mkdtempSync(join(tmpdir(), "rt-codex-attn-")), "gates.db"), log });
+    const emitted: string[] = [];
+    const service = createGateQuestions({ gates: store, enabled: () => false, emit: (topic) => { emitted.push(topic); }, log });
+    service.native.attention({ reason: "async-question" });
+    expect(emitted).toEqual([]);
+  });
+
+  /** gate:ask refused `failures` times, then the real handler. */
+  function refuseAsk(w: Awaited<ReturnType<typeof world>>, failures: number) {
+    const real = w.service.native.ask;
+    let calls = 0;
+    (w.service.native as { ask: typeof real }).ask = async (payload) => {
+      calls++;
+      if (calls <= failures) return { ok: false, error: { code: "transient", message: "the daemon is busy" } };
+      return real(payload);
+    };
+    return () => calls;
+  }
+
+  const replay = (w: Awaited<ReturnType<typeof world>>) =>
+    w.socket().push({ method: "item/tool/requestUserInput", id: 0, params: w.server.pending.get("T1")!.params });
+
+  test("a transient refusal leaves the request for the next replay, which opens the gate", async () => {
+    const w = await world();
+    await w.connect();
+    const calls = refuseAsk(w, 1);
+    w.server.ask("T1", "U1", "I1", PICK);
+    await settled();
+    expect(calls()).toBe(1);
+    expect(w.gates()).toEqual([]);
+    replay(w);
+    await settled();
+    expect(calls()).toBe(2);
+    expect(w.gates()).toHaveLength(1);
+    expect(w.emitted.filter((e) => e.topic === "gate.native-attention")).toEqual([]);
+  });
+
+  test("presentation is tried a bounded number of times, then left to the native form", async () => {
+    const w = await world();
+    await w.connect();
+    const calls = refuseAsk(w, Number.POSITIVE_INFINITY);
+    w.server.ask("T1", "U1", "I1", PICK);
+    await settled();
+    for (let i = 0; i < 6; i++) {
+      replay(w);
+      await settled();
+    }
+    expect(calls()).toBe(MAX_PRESENT_ATTEMPTS);
+    expect(w.gates()).toEqual([]);
+    expect(w.emitted.filter((e) => e.topic === "gate.native-attention")).toEqual([
+      { topic: "gate.native-attention", payload: expect.objectContaining({ reason: "unpresentable-question", threadId: "T1", itemId: "I1" }) },
+    ]);
+  });
+
+  test("an unlisted subject is left to the native form at once, and a replay does not ask again", async () => {
+    const w = await world({ subject: { ok: true, subject: "agent:agent-1" } });
+    await w.connect();
+    const calls = refuseAsk(w, 0);
+    w.server.ask("T1", "U1", "I1", PICK);
+    await settled();
+    replay(w);
+    await settled();
+    expect(calls()).toBe(1);
   });
 });

@@ -109,7 +109,7 @@ export interface NativeGates {
   answer(gateId: string, answers: GateAnswer["answers"], session: string): Promise<GateReply<GateRow>>;
   /** Closes a gate whose native question ended unanswered. */
   close(gateId: string): Promise<GateReply<void>>;
-  /** A native question rt cannot present or answer: logged and announced, never counted as an answer. */
+  /** A native question rt cannot present or answer: logged and announced, never counted as an answer; silent while the switch is off. */
   attention(detail: Record<string, unknown> & { reason: string }): void;
 }
 
@@ -516,6 +516,7 @@ export function createGateQuestions(
         deps.commands?.answer({ id: gateId, answers, by: GATE_BY_PANE, session }) ?? unwired()),
       close: (gateId) => guarded(() => deps.commands?.close(gateId) ?? unwired()),
       attention(detail) {
+        if (!deps.enabled()) return;
         deps.log?.warn(detail, "gate: a native question needs a person; it is not a gate rt can answer");
         deps.emit?.("gate.native-attention", detail);
       },

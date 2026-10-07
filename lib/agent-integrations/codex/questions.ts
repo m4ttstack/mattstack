@@ -67,6 +67,9 @@ const FREE_TEXT_DESCRIPTION = "Write your answer in the note.";
 const ROLLOUT_CHUNK_BYTES = 64 * 1024;
 const ROLLOUT_MAX_BYTES = 16 * 1024 * 1024;
 
+/** Refusals of a gate that cannot open later; any other refusal is retried at the next replay, up to MAX_PRESENT_ATTEMPTS. */
+const UNLISTED: ReadonlySet<string> = new Set(["no-subject", "unlisted-subject"]);
+export const MAX_PRESENT_ATTEMPTS = 3;
 /** Requests remembered per connection; the oldest ended ones go first. */
 const KEPT_REQUESTS = 256;
 /** Reads of the thread after a hold, waiting for its pending request to be replayed. */
@@ -92,7 +95,7 @@ export type CodexQuestionDeps = {
   /** The connection's session adapter, whose holds keep the thread subscribed. Without it nothing is held. */
   sessions?: Pick<CodexSessionAdapter, "hold" | "release" | "paneLive">;
   /** The rollout's whole lines from its end back to the item's output, or as far as the byte cap allows. */
-  readRollout(path: string, itemId: string): Promise<string>;
+  readRollout(path: string, itemId: string): Promise<RolloutTail>;
   sleep(ms: number): Promise<void>;
 };
 
@@ -120,26 +123,34 @@ function defaultDeps(control: CodexControl): CodexQuestionDeps {
   };
 }
 
-/** Whether `buf` holds a whole line naming both the item and a function_call_output. */
-function holdsOutputLine(buf: Buffer, wholeFirstLine: boolean, id: Buffer, marker: Buffer): boolean {
-  for (let at = buf.indexOf(id); at !== -1; at = buf.indexOf(id, at + id.length)) {
-    const lineStart = buf.lastIndexOf(0x0a, at);
-    if (lineStart === -1 && !wholeFirstLine) continue;
-    const lineEnd = buf.indexOf(0x0a, at);
-    const found = buf.indexOf(marker, lineStart + 1);
+/** Whether `lines`, which starts at a line start, holds a line naming both the item and a function_call_output. */
+function holdsOutputLine(lines: Buffer, id: Buffer, marker: Buffer): boolean {
+  for (let at = lines.indexOf(id); at !== -1; at = lines.indexOf(id, at + id.length)) {
+    const lineStart = lines.lastIndexOf(0x0a, at) + 1;
+    const lineEnd = lines.indexOf(0x0a, at);
+    const found = lines.indexOf(marker, lineStart);
     if (found !== -1 && (lineEnd === -1 || found < lineEnd)) return true;
   }
   return false;
 }
 
 /**
+ * A rollout's whole lines from its end back to the item's output line, or as
+ * far as the byte cap allowed. `whole` is true only when the read reached the
+ * start of the file, so an output missing from `text` is missing from the file.
+ */
+export type RolloutTail = { text: string; whole: boolean };
+
+/**
  * Reads a rollout backward from its end, a chunk at a time, until it holds
- * the item's output line or `maxBytes` were read. Only whole lines come back.
- * The file is opened read-only and never written.
+ * the item's output line or `maxBytes` were read. Each chunk is scanned once,
+ * with only the partial line it completes carried over, and lines are split
+ * at newline bytes, which never fall inside a multibyte character. The file
+ * is opened read-only and never written.
  */
 export async function readRolloutTail(
   path: string, itemId: string, opts: { chunkBytes?: number; maxBytes?: number } = {},
-): Promise<string> {
+): Promise<RolloutTail> {
   const chunkBytes = opts.chunkBytes ?? ROLLOUT_CHUNK_BYTES;
   const maxBytes = opts.maxBytes ?? ROLLOUT_MAX_BYTES;
   const id = Buffer.from(itemId);
@@ -149,18 +160,23 @@ export async function readRolloutTail(
     const { size } = await file.stat();
     const floor = Math.max(0, size - maxBytes);
     let start = size;
-    let tail = Buffer.alloc(0);
+    /** Whole lines read so far, the latest in the file first. */
+    const lines: Buffer[] = [];
+    /** The bytes before the first newline read so far: a line whose start is not read yet. */
+    let partial = Buffer.alloc(0);
     while (start > floor) {
       const from = Math.max(floor, start - chunkBytes);
       const chunk = Buffer.alloc(start - from);
       const { bytesRead } = await file.read(chunk, 0, chunk.length, from);
-      tail = Buffer.concat([chunk.subarray(0, bytesRead), tail]);
       start = from;
-      if (holdsOutputLine(tail, start === 0, id, marker)) break;
+      const span = Buffer.concat([chunk.subarray(0, bytesRead), partial]);
+      const firstBreak = span.indexOf(0x0a);
+      const completed = start === 0 ? span : firstBreak === -1 ? Buffer.alloc(0) : span.subarray(firstBreak + 1);
+      partial = start === 0 ? Buffer.alloc(0) : firstBreak === -1 ? span : span.subarray(0, firstBreak + 1);
+      if (completed.length > 0) lines.push(completed);
+      if (holdsOutputLine(completed, id, marker)) break;
     }
-    if (start === 0) return tail.toString("utf8");
-    const firstBreak = tail.indexOf(0x0a);
-    return firstBreak === -1 ? "" : tail.subarray(firstBreak + 1).toString("utf8");
+    return { text: Buffer.concat(lines.reverse()).toString("utf8"), whole: start === 0 };
   } finally {
     await file.close();
   }
@@ -260,9 +276,11 @@ function sameAnswers(a: NativeAnswers, b: NativeAnswers): boolean {
 /**
  * What the thread's rollout says became of one question: its output for the
  * item compared with `expected`, or with none, the answer it took. Only a
- * function_call_output with exactly this call id counts.
+ * function_call_output with exactly this call id counts. With `whole` false
+ * the text is only the tail rt read, so an output missing from it is unknown,
+ * never absent.
  */
-export function rolloutEvidence(text: string, itemId: string, expected: NativeAnswers | null): RolloutEvidence {
+export function rolloutEvidence(text: string, itemId: string, expected: NativeAnswers | null, whole = true): RolloutEvidence {
   const pending = (detail: string): RolloutEvidence => ({ state: "pending", detail });
   for (const line of text.split("\n")) {
     if (!line.includes(itemId)) continue;
@@ -290,7 +308,9 @@ export function rolloutEvidence(text: string, itemId: string, expected: NativeAn
       ? { state: "completed", detail: "the native question took the gate's answer" }
       : { state: "conflict", detail: "the native question took a different answer than the gate's" };
   }
-  return { state: "pending", detail: "the rollout has no output for this question yet", absent: true };
+  return whole
+    ? { state: "pending", detail: "the rollout has no output for this question yet", absent: true }
+    : { state: "pending", detail: "the part of the rollout rt read holds no output for this question" };
 }
 
 /** The durable binding for a request, under the session's current attachment. */
@@ -327,6 +347,8 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
   /** Gates whose completion runs in `complete` now, so a request event chains another rather than joining it. */
   const completing = new Set<string>();
   const announced = new Set<string>();
+  /** Refused presentations per request, by thread and item. */
+  const presentTries = new Map<string, number>();
   const keyOf = (threadId: string, itemId: string) => `${threadId}\0${itemId}`;
   const holdOf = (threadId: string) => `question:${threadId}`;
 
@@ -349,7 +371,10 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     requests.set(key, request);
     for (const [old, r] of requests) {
       if (requests.size <= KEPT_REQUESTS) return;
-      if (r.state !== "pending" && r.state !== "submitted") requests.delete(old);
+      if (r.state !== "pending" && r.state !== "submitted") {
+        requests.delete(old);
+        presentTries.delete(old);
+      }
     }
   }
 
@@ -414,11 +439,19 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
       else await bind(service, binding, event, existing.id);
       return;
     }
+    const key = keyOf(event.threadId, event.itemId);
     const opened = await openGate(service, binding, event);
     if (!opened.ok) {
-      leaveToNative(binding, event, opened.error.failure ?? "unpresentable-question", opened.error.message);
+      const failure = opened.error.failure;
+      const tries = (presentTries.get(key) ?? 0) + 1;
+      presentTries.set(key, tries);
+      // Only a subject no surface lists is final; anything else is tried again at the next replay, up to the cap.
+      if ((failure !== undefined && UNLISTED.has(failure)) || tries >= MAX_PRESENT_ATTEMPTS) {
+        leaveToNative(binding, event, failure !== undefined && UNLISTED.has(failure) ? failure : "unpresentable-question", opened.error.message);
+      }
       return;
     }
+    presentTries.delete(key);
     const bound = await bind(service, binding, event, opened.data.id);
     if (!bound.ok) {
       // An unbound gate could be answered with nothing to carry the answer to Codex.
@@ -473,13 +506,13 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
     }
     const rollout = rolloutPathOf(path, control.codexHome);
     if (!rollout) return pending("Codex named no rollout under its sessions for the thread");
-    let text: string;
+    let tail: RolloutTail;
     try {
-      text = await deps.readRollout(rollout, itemId);
+      tail = await deps.readRollout(rollout, itemId);
     } catch {
       return pending("the thread's rollout could not be read");
     }
-    return rolloutEvidence(text, itemId, expected);
+    return rolloutEvidence(tail.text, itemId, expected, tail.whole);
   }
 
   /** The rollout is written moments after a question resolves, so a pending reading is taken again a few times. */
@@ -523,7 +556,7 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
    * hears (live-07). Acted on once, however many of those arrive.
    */
   async function ended(request: Request): Promise<void> {
-    if (request.ended) return;
+    if (request.ended || !deps.enabled()) return;
     request.ended = true;
     const threadId = request.event.threadId;
     if (open(request)) request.state = "resolved";
@@ -597,7 +630,10 @@ export function createCodexQuestions(control: CodexControl, overrides: Partial<C
         }
         return;
       case "thread/closed":
-        for (const [key, request] of requests) if (request.event.threadId === event.threadId) requests.delete(key);
+        for (const [key, request] of requests) if (request.event.threadId === event.threadId) {
+          requests.delete(key);
+          presentTries.delete(key);
+        }
         return;
     }
   });
