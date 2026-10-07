@@ -991,6 +991,20 @@ describe("base pack attachments", () => {
     expect(JSON.parse(readFileSync(kit(packDir, "compiled.json"), "utf8"))).toEqual({ base: "acme-base", version: null, files: ["SKILL.md", "references/guide.md", "scripts/run.sh"] });
   });
 
+  test("a dotfile in a base attachment is copied byte for byte and listed, and check stays clean", async () => {
+    const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
+    writeFile(join(baseDir, "attachments", "review-kit", "scripts", ".env.example"), "TOKEN=\n");
+    writeFile(join(baseDir, "attachments", "review-kit", ".DS_Store"), "junk");
+
+    expect((await compile()).errors).toEqual([]);
+
+    expect(readFileSync(kit(packDir, "scripts", ".env.example"), "utf8")).toBe("TOKEN=\n");
+    expect(existsSync(kit(packDir, ".DS_Store"))).toBe(false);
+    expect(JSON.parse(readFileSync(kit(packDir, "compiled.json"), "utf8")).files).toEqual(["SKILL.md", "references/guide.md", "scripts/.env.example", "scripts/run.sh"]);
+    const payload = await checkPack({ packDir, mattstackDir });
+    expect(payload.attachments.map((row) => row.status)).toEqual(["in-sync"]);
+  });
+
   test("a fill in the base is inlined, never emitted", async () => {
     const { packDir, compile } = seedBaseAndTeam();
 

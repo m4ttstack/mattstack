@@ -31,15 +31,16 @@ describe("planBaseAttachments", () => {
     put(join(kit, "scripts", "run.sh"), "echo {{pack.name}}\n");
     put(join(kit, "README.md"), "readme\n");
     put(join(kit, ".DS_Store"), "junk");
+    put(join(kit, "scripts", ".shellcheckrc"), "disable=SC2034\n");
     const result = plan();
     expect(result.errors).toEqual([]);
     expect(result.emits.map((e) => e.name)).toEqual(["review-kit"]);
     const files = result.emits[0]!.files;
-    expect(files.map((f) => f.path)).toEqual(["README.md", "SKILL.md", "compiled.json", "references/guide.md", "scripts/run.sh"]);
+    expect(files.map((f) => f.path)).toEqual(["README.md", "SKILL.md", "compiled.json", "references/guide.md", "scripts/.shellcheckrc", "scripts/run.sh"]);
     expect((files.find((f) => f.path === "SKILL.md") as { content: string }).content).toContain("Use widgets:ship.");
     expect(files.find((f) => f.path === "scripts/run.sh")).toEqual({ path: "scripts/run.sh", copyFrom: join(kit, "scripts", "run.sh") });
     expect((files.find((f) => f.path === "compiled.json") as { content: string }).content).toBe(
-      JSON.stringify({ base: "acme-base", version: "1.4.0", files: ["README.md", "SKILL.md", "references/guide.md", "scripts/run.sh"] }, null, 2) + "\n",
+      JSON.stringify({ base: "acme-base", version: "1.4.0", files: ["README.md", "SKILL.md", "references/guide.md", "scripts/.shellcheckrc", "scripts/run.sh"] }, null, 2) + "\n",
     );
   });
 
@@ -188,6 +189,7 @@ describe("plan errors", () => {
     put(join(baseDir(), "attachments", "other-kit", "SKILL.md"), "body\n");
     const result = plan();
     expect(result.errors).toEqual([
+      "acme-base attachment review-kit has a symlink at .hidden-link; compile copies regular files only",
       "acme-base attachment review-kit has a symlink at a-dir-link; compile copies regular files only",
       "acme-base attachment review-kit has a symlink at scripts/z-link.sh; compile copies regular files only",
     ]);
@@ -220,18 +222,24 @@ describe("helpers", () => {
     expect(maskProvenanceVersion(a)).toBe(maskProvenanceVersion(b));
   });
 
-  test("walkAttachmentFiles and isSkippedAttachmentPath drop dotfiles and bytecode", () => {
+  test("walkAttachmentFiles and isSkippedAttachmentPath keep dotfiles and drop only known junk", () => {
     const dir = join(packDir(), "attachments", "kit");
     put(join(dir, "b.md"), "b");
     put(join(dir, "a", "c.txt"), "c");
     put(join(dir, ".hidden", "d.md"), "d");
+    put(join(dir, ".gitignore"), "out/\n");
+    put(join(dir, "scripts", ".env.example"), "TOKEN=\n");
+    put(join(dir, ".DS_Store"), "x");
+    put(join(dir, "a", ".DS_Store"), "x");
     put(join(dir, "__pycache__", "x.pyc"), "x");
     put(join(dir, "m.pyc"), "x");
-    expect(walkAttachmentFiles(dir).files).toEqual(["a/c.txt", "b.md"]);
+    expect(walkAttachmentFiles(dir).files).toEqual([".gitignore", ".hidden/d.md", "a/c.txt", "b.md", "scripts/.env.example"]);
     expect(isSkippedAttachmentPath("a/.DS_Store")).toBe(true);
     expect(isSkippedAttachmentPath("a/__pycache__/x.py")).toBe(true);
     expect(isSkippedAttachmentPath("a/x.pyc")).toBe(true);
     expect(isSkippedAttachmentPath("a/x.py")).toBe(false);
+    expect(isSkippedAttachmentPath(".shellcheckrc")).toBe(false);
+    expect(isSkippedAttachmentPath("a/.DS_Store.md")).toBe(false);
   });
 
   test("walkAttachmentFiles reports symlinks apart from files, skipping what the walk skips", () => {
@@ -240,7 +248,9 @@ describe("helpers", () => {
     put(join(dir, "a", "c.txt"), "c");
     symlinkSync("../b.md", join(dir, "a", "link.md"));
     symlinkSync("b.md", join(dir, ".link"));
-    expect(walkAttachmentFiles(dir)).toEqual({ files: ["a/c.txt", "b.md"], symlinks: ["a/link.md"] });
+    mkdirSync(join(dir, "__pycache__"));
+    symlinkSync("../b.md", join(dir, "__pycache__", "link.md"));
+    expect(walkAttachmentFiles(dir)).toEqual({ files: ["a/c.txt", "b.md"], symlinks: [".link", "a/link.md"] });
     expect(walkAttachmentFiles(dir).files).toEqual(["a/c.txt", "b.md"]);
   });
 });

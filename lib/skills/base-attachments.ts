@@ -47,7 +47,7 @@ export function maskProvenanceVersion(text: string): string {
 }
 
 export function isSkippedAttachmentPath(rel: string): boolean {
-  return rel.split("/").some((segment) => segment.startsWith(".") || segment === "__pycache__") || rel.endsWith(".pyc");
+  return rel.split("/").some((segment) => segment === ".DS_Store" || segment === "__pycache__") || rel.endsWith(".pyc");
 }
 
 export function walkAttachmentFiles(dir: string): { files: string[]; symlinks: string[] } {
