@@ -9,7 +9,9 @@ import type { EventsBus } from "../../daemon/events-bus.ts";
 import { createGatePush } from "../../daemon/gate-push.ts";
 import { createGatesStore, type GateQuestion, type GateRow, type GatesStore } from "../../daemon/gates-store.ts";
 import { createGateHandlers } from "../../daemon/handlers/gate.ts";
-import type { QuestionAdapter } from "../contracts.ts";
+import { builtinRegistry } from "../builtins.ts";
+import type { HarnessIntegration, QuestionAdapter } from "../contracts.ts";
+import { createRegistry } from "../registry.ts";
 import {
   answerFingerprint, bindGateQuestion, completeGateQuestion, createGateQuestions, MAX_COMPLETION_ATTEMPTS, recoverGateQuestions,
   RETRY_BASE_MS, setGateQuestions,
@@ -83,6 +85,7 @@ function setup(opts: {
     gates: store,
     storedBinding: (key) => sessions.get(key) ?? null,
     supports: (harness) => harness === "codex",
+    questionCapabilities: async (harness) => (harness === "codex" ? ["question-recovery", "questions-form"] : []),
     questionsFor: async () => fake.adapter,
     connectionOf: () => link.value,
     harnesses: () => ["codex"],
@@ -129,7 +132,7 @@ describe("answer survives failed completion", () => {
     const fake = fakeAdapter(() => ({ ok: false, error: { code: "transient", message: "socket closed" } }));
     const { store, questions, handlers, pushed } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    expect(questions.bindGateQuestion(questionFor(gate.id))).toEqual({ ok: true, data: undefined });
+    expect(await questions.bindGateQuestion(questionFor(gate.id))).toEqual({ ok: true, data: undefined });
 
     const res = await handlers["gate:answer"]({ id: gate.id, answers: ANSWERS, by: "console" });
     expect(res.ok).toBe(true);
@@ -149,7 +152,7 @@ describe("answer survives failed completion", () => {
     const fake = fakeAdapter();
     const { store, questions, handlers } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
 
     await handlers["gate:answer"]({ id: gate.id, answers: ANSWERS, by: "console" });
     await questions.idle();
@@ -173,7 +176,7 @@ describe("answer survives failed completion", () => {
     const { store, questions, handlers } = setup({ adapter: fake.adapter });
     questionsRef = questions;
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
 
     await handlers["gate:answer"]({ id: gate.id, answers: ANSWERS, by: "console" });
     await questions.idle();
@@ -187,7 +190,7 @@ describe("answer survives failed completion", () => {
     const fake = fakeAdapter(() => ({ ok: true, data: "pending" }));
     const { store, questions, handlers } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     const res = await handlers["gate:answer"]({ id: gate.id, answers: ANSWERS, by: "console" });
     await questions.idle();
     expect(store.get(gate.id)!.answer).toEqual(res.ok ? res.data.row.answer : null);
@@ -199,7 +202,7 @@ describe("answer survives failed completion", () => {
     const emitted: Array<{ topic: string; payload: Record<string, unknown> }> = [];
     const { store, questions, handlers } = setup({ adapter: fake.adapter, deps: { emit: (topic, payload) => emitted.push({ topic, payload }) } });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     const res = await handlers["gate:answer"]({ id: gate.id, answers: ANSWERS, by: "console" });
     await questions.idle();
 
@@ -227,7 +230,7 @@ describe("answer before wait", () => {
     const waited = await handlers["gate:wait"]({ id: gate.id, waitMs: 10 });
     expect(waited).toMatchObject({ ok: true, data: { status: "answered" } });
 
-    expect(questions.bindGateQuestion(questionFor(gate.id)).ok).toBe(true);
+    expect((await questions.bindGateQuestion(questionFor(gate.id))).ok).toBe(true);
     await questions.idle();
 
     expect(fake.calls).toHaveLength(1);
@@ -239,7 +242,7 @@ describe("answer before wait", () => {
   test("a wait registered before the answer still returns the authoritative row", async () => {
     const { store, questions, handlers } = setup();
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     const waiting = handlers["gate:wait"]({ id: gate.id, waitMs: 5_000 });
     const res = await handlers["gate:answer"]({ id: gate.id, answers: ANSWERS, by: "console" });
     const waited = await waiting;
@@ -253,7 +256,7 @@ describe("first answer wins", () => {
     const fake = fakeAdapter();
     const { store, questions, handlers } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
 
     const [first, second] = await Promise.all([
       handlers["gate:answer"]({ id: gate.id, answers: ANSWERS, by: "console" }),
@@ -274,7 +277,7 @@ describe("first answer wins", () => {
     const fake = fakeAdapter();
     const { store, questions, handlers } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
 
     await handlers["gate:answer"]({ id: gate.id, answers: ANSWERS, by: "pane", session: "thread-1" });
     await questions.idle();
@@ -295,7 +298,7 @@ describe("first answer wins", () => {
       subject: "run:r1", kind: "clarify", questions: twoQuestions(), origin: { runId: "r1" },
     });
     const id = opened.ok ? opened.data.id : "";
-    questions.bindGateQuestion(questionFor(id));
+    await questions.bindGateQuestion(questionFor(id));
 
     const refused = await handlers["gate:answer"]({ id, answers: ANSWERS, by: "console", session: "someone-else" });
     expect(refused).toMatchObject({ ok: false, error: "owned-by" });
@@ -315,7 +318,7 @@ describe("first answer wins", () => {
     const fake = fakeAdapter();
     const { store, questions, handlers } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     const res = await handlers["gate:answer"]({ id: gate.id, answers: { scope: "api", why: "x" }, by: "console" });
     expect(res).toMatchObject({ ok: false, error: "question scope expects an array (multi)" });
     await questions.idle();
@@ -330,7 +333,7 @@ describe("closed is not answered", () => {
     const fake = fakeAdapter();
     const { store, questions, handlers } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
 
     await handlers["gate:close"]({ id: gate.id, reason: "abandoned" });
     await questions.idle();
@@ -357,7 +360,7 @@ describe("closed is not answered", () => {
     const origin = { presentation: "wait" as const, paneId: "bg:w1:p2" };
     const first = await handlers["gate:open"]({ subject: "run:r1", kind: "clarify", questions: twoQuestions(), origin });
     const firstId = first.ok ? first.data.id : "";
-    questions.bindGateQuestion(questionFor(firstId));
+    await questions.bindGateQuestion(questionFor(firstId));
 
     await handlers["gate:open"]({ subject: "run:r1", kind: "clarify", questions: twoQuestions(), origin });
     await questions.idle();
@@ -372,7 +375,7 @@ describe("closed is not answered", () => {
     const { store, questions } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
     store.close(gate.id, "abandoned");
-    expect(questions.bindGateQuestion(questionFor(gate.id)).ok).toBe(true);
+    expect((await questions.bindGateQuestion(questionFor(gate.id))).ok).toBe(true);
     await questions.idle();
     expect(fake.calls[0]!.row.status).toBe("closed");
     expect(fake.calls[0]!.row.answer).toBeNull();
@@ -380,37 +383,87 @@ describe("closed is not answered", () => {
 });
 
 describe("binding", () => {
-  test("refuses with the switch off, an unknown gate, a stale generation, or a question the gate does not ask", () => {
+  test("refuses with the switch off, an unknown gate, a stale generation, or a question the gate does not ask", async () => {
     const { store, questions, switchOn, sessions } = setup();
     const gate = openGate(store);
-    expect(questions.bindGateQuestion(questionFor("nope")).ok).toBe(false);
-    expect(questions.bindGateQuestion(questionFor(gate.id, { nativeQuestions: ["scope", "other"] }))).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect((await questions.bindGateQuestion(questionFor("nope"))).ok).toBe(false);
+    expect(await questions.bindGateQuestion(questionFor(gate.id, { nativeQuestions: ["scope", "other"] }))).toMatchObject({ ok: false, error: { code: "invalid" } });
     sessions.set("s1", session("s1", 2));
-    expect(questions.bindGateQuestion(questionFor(gate.id))).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+    expect(await questions.bindGateQuestion(questionFor(gate.id))).toMatchObject({ ok: false, error: { code: "stale-binding" } });
     sessions.set("s1", session("s1", 1));
     switchOn.value = false;
-    expect(questions.bindGateQuestion(questionFor(gate.id))).toMatchObject({ ok: false, error: { code: "unsupported" } });
+    expect(await questions.bindGateQuestion(questionFor(gate.id))).toMatchObject({ ok: false, error: { code: "unsupported" } });
     switchOn.value = true;
-    expect(questions.bindGateQuestion(questionFor(gate.id)).ok).toBe(true);
+    expect((await questions.bindGateQuestion(questionFor(gate.id))).ok).toBe(true);
     // The same binding again is a no-op; a different native item for the same gate is refused.
-    expect(questions.bindGateQuestion(questionFor(gate.id)).ok).toBe(true);
-    expect(questions.bindGateQuestion(questionFor(gate.id, { nativeItem: "item-2" }))).toMatchObject({ ok: false, error: { code: "refused" } });
+    expect((await questions.bindGateQuestion(questionFor(gate.id))).ok).toBe(true);
+    expect(await questions.bindGateQuestion(questionFor(gate.id, { nativeItem: "item-2" }))).toMatchObject({ ok: false, error: { code: "refused" } });
   });
 
-  test("refuses a harness with no native question completion", () => {
+  test("refuses a harness with no native question completion", async () => {
     const { store, questions, sessions } = setup();
     const gate = openGate(store);
     sessions.set("s1", { ...session(), native: { ...session().native, harness: "claude" } });
-    expect(questions.bindGateQuestion(questionFor(gate.id))).toMatchObject({ ok: false, error: { code: "unsupported" } });
+    expect(await questions.bindGateQuestion(questionFor(gate.id))).toMatchObject({ ok: false, error: { code: "unsupported" } });
+  });
+
+  test("a built-in Claude session cannot bind: Claude advertises no question recovery", async () => {
+    const store = createGatesStore({ dbPath: dbPath(), log });
+    const claude: SessionBinding = {
+      key: "c1", identity: "id-c1",
+      native: { harness: "claude", profile: "default", kind: "id", value: "0b9d2f9a-1c4e-4f6a-9d7e-3b2a1c0d9e8f" },
+      attachment: { generation: 1, mode: "herdr" },
+    };
+    const questions = createGateQuestions({
+      gates: store, storedBinding: (key) => (key === "c1" ? claude : null), enabled: () => true, log,
+    });
+    const gate = openGate(store);
+    for (const presentation of ["form", "wait"] as const) {
+      const out = await questions.bindGateQuestion(questionFor(gate.id, { sessionKey: "c1", presentation, nativeQuestions: undefined }));
+      expect(out, presentation).toMatchObject({ ok: false, error: { code: "unsupported" } });
+    }
+    expect(store.nativeQuestions().get(gate.id)).toBeNull();
+    store.close_();
+  });
+
+  test("binding needs question recovery, and a form also needs questions-form", async () => {
+    const codex = builtinRegistry().get("codex")!;
+    const declares = (...supported: Array<"question-recovery" | "questions-form">): HarnessIntegration => ({
+      id: codex.id, label: codex.label, validateOptions: codex.validateOptions, options: codex.options,
+      loadSessions: codex.loadSessions!,
+      loadQuestions: async () => fakeAdapter().adapter,
+      capabilities: async (mode) => ({ mode, readiness: { ready: true }, supported }),
+    });
+    const cases: Array<[Array<"question-recovery" | "questions-form">, "form" | "wait", boolean]> = [
+      [["question-recovery", "questions-form"], "form", true],
+      [["question-recovery"], "wait", true],
+      [["question-recovery"], "form", false],
+      [["questions-form"], "form", false],
+      [[], "wait", false],
+    ];
+    for (const [supported, presentation, bound] of cases) {
+      const store = createGatesStore({ dbPath: dbPath(), log });
+      const questions = createGateQuestions({
+        gates: store, storedBinding: (key) => (key === "s1" ? session() : null), enabled: () => true, log,
+        registry: createRegistry([declares(...supported)]),
+      });
+      const gate = openGate(store);
+      const out = await questions.bindGateQuestion(questionFor(gate.id, { presentation }));
+      const label = `${supported.join("+") || "none"} ${presentation}`;
+      if (bound) expect(out, label).toEqual({ ok: true, data: undefined });
+      else expect(out, label).toMatchObject({ ok: false, error: { code: "unsupported" } });
+      expect(store.nativeQuestions().get(gate.id) !== null, label).toBe(bound);
+      store.close_();
+    }
   });
 
   test("the module-level verbs reach the installed service, and refuse without one", async () => {
     const { store, questions } = setup();
     const gate = openGate(store);
-    expect(bindGateQuestion(questionFor(gate.id))).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(await bindGateQuestion(questionFor(gate.id))).toMatchObject({ ok: false, error: { code: "not-ready" } });
     expect(await recoverGateQuestions()).toEqual({ completed: 0, pending: 0 });
     setGateQuestions(questions);
-    expect(bindGateQuestion(questionFor(gate.id)).ok).toBe(true);
+    expect((await bindGateQuestion(questionFor(gate.id))).ok).toBe(true);
     store.answer(gate.id, ANSWERS, "console");
     expect((await completeGateQuestion(gate.id)).ok).toBe(true);
   });
@@ -421,7 +474,7 @@ describe("switch and binding gates", () => {
     const fake = fakeAdapter();
     const { store, questions, handlers, switchOn, pushed } = setup({ adapter: fake.adapter });
     const gate = openGate(store, "run:r1", { nudge: { session: "sess-1" } });
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     switchOn.value = false;
 
     await handlers["gate:answer"]({ id: gate.id, answers: ANSWERS, by: "console" });
@@ -465,7 +518,7 @@ describe("attachment and generation", () => {
     const fake = fakeAdapter();
     const { store, questions, sessions } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     sessions.set("s1", session("s1", 2));
     store.answer(gate.id, ANSWERS, "console");
 
@@ -485,7 +538,7 @@ describe("attachment and generation", () => {
     const { store, questions, sessions } = setup({ adapter: fake.adapter });
     sessionsRef = sessions;
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     store.answer(gate.id, ANSWERS, "console");
 
     await questions.completeGateQuestion(gate.id);
@@ -498,7 +551,7 @@ describe("attachment and generation", () => {
     const fake = fakeAdapter(() => new Promise<CompleteResult>((resolve) => { release = resolve; }));
     const { store, questions, shutdown } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     store.answer(gate.id, ANSWERS, "console");
 
     const running = questions.completeGateQuestion(gate.id);
@@ -519,7 +572,7 @@ describe("recovery", () => {
     const path = dbPath();
     const first = setup({ path, adapter: fakeAdapter(() => ({ ok: false, error: { code: "transient", message: "app server went away" } })).adapter });
     const gate = openGate(first.store);
-    first.questions.bindGateQuestion(questionFor(gate.id));
+    await first.questions.bindGateQuestion(questionFor(gate.id));
     const res = await first.handlers["gate:answer"]({ id: gate.id, answers: ANSWERS, by: "console" });
     const winningAnswer = res.ok ? res.data.row.answer : null;
     await first.questions.idle();
@@ -545,7 +598,7 @@ describe("recovery", () => {
     const path = dbPath();
     const first = setup({ path });
     const gate = openGate(first.store);
-    first.questions.bindGateQuestion(questionFor(gate.id));
+    await first.questions.bindGateQuestion(questionFor(gate.id));
     first.store.answer(gate.id, ANSWERS, "console");
     first.store.close_();
 
@@ -562,8 +615,8 @@ describe("recovery", () => {
     const { store, questions } = setup({ adapter: fake.adapter });
     const open = openGate(store, "run:a");
     const answered = openGate(store, "run:b");
-    questions.bindGateQuestion(questionFor(open.id));
-    questions.bindGateQuestion(questionFor(answered.id));
+    await questions.bindGateQuestion(questionFor(open.id));
+    await questions.bindGateQuestion(questionFor(answered.id));
     store.answer(answered.id, ANSWERS, "console");
 
     expect(await questions.recoverGateQuestions()).toEqual({ completed: 0, pending: 1 });
@@ -575,7 +628,7 @@ describe("recovery", () => {
     const fake = fakeAdapter(() => (++n === 1 ? { ok: true, data: "pending" } : { ok: true, data: "completed" }));
     const { store, questions, link } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     store.answer(gate.id, ANSWERS, "console");
     expect(await questions.recoverGateQuestions()).toEqual({ completed: 0, pending: 1 });
 
@@ -595,7 +648,7 @@ describe("recovery", () => {
     const fake = fakeAdapter(() => ({ ok: true, data: "pending" }));
     const { store, questions, link } = setup({ adapter: fake.adapter, deps: { enabled: () => { reads++; return switchOn.value; } } });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     store.answer(gate.id, ANSWERS, "console");
     await questions.recoverGateQuestions();
     switchOn.value = false;
@@ -618,7 +671,7 @@ describe("retry on a stable connection", () => {
     const fake = fakeAdapter(() => (++n === 1 ? transient : { ok: true, data: "completed" }));
     const { store, questions, handlers, clock } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     await handlers["gate:answer"]({ id: gate.id, answers: ANSWERS, by: "console" });
     await questions.idle();
     expect(questions.completion(gate.id)!.state).toBe("pending");
@@ -635,7 +688,7 @@ describe("retry on a stable connection", () => {
     const fake = fakeAdapter(() => ({ ok: true, data: "pending" }));
     const { store, questions, clock } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     store.answer(gate.id, ANSWERS, "console");
     await questions.completeGateQuestion(gate.id);
     expect(fake.calls).toHaveLength(1);
@@ -659,15 +712,16 @@ describe("retry on a stable connection", () => {
   test("rows stuck pending rotate to the back, so a newer row still gets its turn", async () => {
     const fake = fakeAdapter((call) => (call.row.subject === "run:new" ? { ok: true, data: "completed" } : { ok: true, data: "pending" }));
     const { store, questions, clock } = setup({ adapter: fake.adapter, deps: { recoverLimit: 2 } });
-    const stuck = ["run:a", "run:b", "run:c"].map((subject) => {
+    const stuck: string[] = [];
+    for (const subject of ["run:a", "run:b", "run:c"]) {
       const gate = openGate(store, subject);
-      questions.bindGateQuestion(questionFor(gate.id));
+      await questions.bindGateQuestion(questionFor(gate.id));
       store.answer(gate.id, ANSWERS, "console");
       clock.now += 1;
-      return gate.id;
-    });
+      stuck.push(gate.id);
+    }
     const fresh = openGate(store, "run:new");
-    questions.bindGateQuestion(questionFor(fresh.id));
+    await questions.bindGateQuestion(questionFor(fresh.id));
     store.answer(fresh.id, ANSWERS, "console");
 
     for (let pass = 0; pass < 3; pass++) {
@@ -682,7 +736,7 @@ describe("retry on a stable connection", () => {
     const fake = fakeAdapter(() => transient);
     const { store, questions, handlers, clock, emitted } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     const res = await handlers["gate:answer"]({ id: gate.id, answers: ANSWERS, by: "console" });
     await questions.idle();
 
@@ -705,7 +759,7 @@ describe("retry on a stable connection", () => {
     const fake = fakeAdapter(() => transient);
     const { store, questions, clock } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     store.close(gate.id, "abandoned");
     for (let tick = 0; tick < MAX_COMPLETION_ATTEMPTS + 1; tick++) {
       clock.now += 60 * 60_000;
@@ -733,7 +787,7 @@ describe("retry on a stable connection", () => {
     const fake = fakeAdapter(() => ({ ok: true, data: "pending" }));
     const { store, questions, switchOn, clock } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     store.answer(gate.id, ANSWERS, "console");
     await questions.completeGateQuestion(gate.id);
     switchOn.value = false;
@@ -746,18 +800,18 @@ describe("retry on a stable connection", () => {
 describe("detached sessions", () => {
   const detached = (): SessionBinding => ({ ...session(), attachment: { ...session().attachment, detached: true } as SessionBinding["attachment"] });
 
-  test("binding to a detached session is refused as not ready", () => {
+  test("binding to a detached session is refused as not ready", async () => {
     const { store, questions, sessions } = setup();
     const gate = openGate(store);
     sessions.set("s1", detached());
-    expect(questions.bindGateQuestion(questionFor(gate.id))).toMatchObject({ ok: false, error: { code: "not-ready" } });
+    expect(await questions.bindGateQuestion(questionFor(gate.id))).toMatchObject({ ok: false, error: { code: "not-ready" } });
   });
 
   test("a session that detaches after binding leaves the completion pending, with no native call", async () => {
     const fake = fakeAdapter();
     const { store, questions, sessions } = setup({ adapter: fake.adapter });
     const gate = openGate(store);
-    questions.bindGateQuestion(questionFor(gate.id));
+    await questions.bindGateQuestion(questionFor(gate.id));
     sessions.set("s1", detached());
     store.answer(gate.id, ANSWERS, "console");
     expect(await questions.completeGateQuestion(gate.id)).toMatchObject({ ok: false, error: { code: "not-ready" } });

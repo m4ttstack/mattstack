@@ -27,13 +27,15 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "crypto";
 import type { Logger } from "pino";
-import type { FaultCode, Outcome, QuestionBinding, SessionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
+import type {
+  Capability, FaultCode, Mode, Outcome, QuestionBinding, SessionBinding,
+} from "../../packages/rt-client/src/agent-integrations.ts";
 import { validateGateAnswers } from "../../packages/rt-client/src/gate-answers.ts";
 import type { NativeQuestionSeam } from "../daemon/gate-push.ts";
 import { answeredByNudgedPane, type GateRow, type GatesStore } from "../daemon/gates-store.ts";
 import { getStateDb } from "../state/db.ts";
 import { builtinRegistry } from "./builtins.ts";
-import type { QuestionAdapter } from "./contracts.ts";
+import type { IntegrationRegistry, QuestionAdapter } from "./contracts.ts";
 import type { CompletionRecord, CompletionState, RetryDue } from "./question-store.ts";
 import { createSessionStore, isDetachedAttachment } from "./session-store.ts";
 import { integrationsEnabled } from "./switch.ts";
@@ -52,6 +54,8 @@ export type GateQuestionDeps = {
   storedBinding(key: string): SessionBinding | null;
   /** Whether the harness completes native questions, read without loading its code. */
   supports(harness: string): boolean;
+  /** What the harness advertises in a mode: owning a question needs question-recovery, a form questions-form too. */
+  questionCapabilities(harness: string, mode: Mode): Promise<readonly Capability[]>;
   questionsFor(harness: string): Promise<QuestionAdapter | undefined>;
   /** The harness's native connection now, without connecting: an id, null while it has none, undefined when it has none to track. */
   connectionOf(harness: string): string | null | undefined;
@@ -71,7 +75,7 @@ export interface GateQuestions extends NativeQuestionSeam {
    * session's current attachment. A gate already answered or closed starts
    * its completion at once.
    */
-  bindGateQuestion(binding: QuestionBinding): Outcome<void>;
+  bindGateQuestion(binding: QuestionBinding): Promise<Outcome<void>>;
   /** Completes the gate's native question from the stored row; ok only once it is completed. */
   completeGateQuestion(gateId: string): Promise<Outcome<void>>;
   /** One bounded pass, backoff ignored, over answered or closed bound gates whose completion is missing or pending. */
@@ -151,11 +155,11 @@ function untilAborted<T>(work: Promise<T>, signal?: AbortSignal): Promise<T | ty
   });
 }
 
-function defaultDeps(db: () => Database): Omit<GateQuestionDeps, "gates"> {
-  const registry = builtinRegistry();
+function defaultDeps(db: () => Database, registry: IntegrationRegistry): Omit<GateQuestionDeps, "gates"> {
   return {
     storedBinding: (key) => createSessionStore(db()).get(key),
     supports: (harness) => typeof registry.get(harness)?.loadQuestions === "function",
+    questionCapabilities: async (harness, mode) => (await registry.get(harness)?.capabilities(mode))?.supported ?? [],
     questionsFor: async (harness) => registry.get(harness)?.loadQuestions?.(),
     connectionOf: (harness) => registry.get(harness)?.messagingConnection?.(),
     harnesses: () => registry.list().map((integration) => integration.id),
@@ -166,9 +170,12 @@ function defaultDeps(db: () => Database): Omit<GateQuestionDeps, "gates"> {
 }
 
 export function createGateQuestions(
-  overrides: Partial<GateQuestionDeps> & Pick<GateQuestionDeps, "gates"> & { db?: () => Database },
+  overrides: Partial<GateQuestionDeps> & Pick<GateQuestionDeps, "gates"> & { db?: () => Database; registry?: IntegrationRegistry },
 ): GateQuestions {
-  const deps: GateQuestionDeps = { ...defaultDeps(overrides.db ?? (() => getStateDb())), ...overrides };
+  const deps: GateQuestionDeps = {
+    ...defaultDeps(overrides.db ?? (() => getStateDb()), overrides.registry ?? builtinRegistry()),
+    ...overrides,
+  };
   const store = () => deps.gates.nativeQuestions();
   const inflight = new Map<string, Promise<Outcome<void>>>();
   const tracked = new Set<Promise<unknown>>();
@@ -336,22 +343,44 @@ export function createGateQuestions(
 
   const recoverGateQuestions = () => recover("all");
 
+  /** Everything a binding is checked against without asking the harness: the switch, its shape, the gate and the session's current attachment. */
+  function bindable(binding: QuestionBinding): Outcome<SessionBinding> {
+    if (!deps.enabled()) return fail("unsupported", OFF);
+    const problem = bindingProblem(binding);
+    if (problem) return fail("invalid", problem);
+    const row = deps.gates.get(binding.gateId);
+    if (!row) return fail("invalid", `no gate ${binding.gateId}`);
+    const unasked = (binding.nativeQuestions ?? []).filter((id) => !row.questions.some((q) => q.id === id));
+    if (unasked.length > 0) return fail("invalid", `gate ${row.id} asks no question ${unasked.join(", ")}`);
+    const session = deps.storedBinding(binding.sessionKey);
+    if (!session) return fail("invalid", "no session binding has that key");
+    if (session.attachment.generation !== binding.generation) {
+      return fail("stale-binding", `attachment generation ${binding.generation} was replaced; the current one is ${session.attachment.generation}`);
+    }
+    if (isDetachedAttachment(session)) return fail("not-ready", "the session is detached; bind once it is attached again");
+    if (!deps.supports(session.native.harness)) return fail("unsupported", `${session.native.harness} does not complete native questions`);
+    return ok(session);
+  }
+
   return {
-    bindGateQuestion(binding) {
-      if (!deps.enabled()) return fail("unsupported", OFF);
-      const problem = bindingProblem(binding);
-      if (problem) return fail("invalid", problem);
-      const row = deps.gates.get(binding.gateId);
-      if (!row) return fail("invalid", `no gate ${binding.gateId}`);
-      const unasked = (binding.nativeQuestions ?? []).filter((id) => !row.questions.some((q) => q.id === id));
-      if (unasked.length > 0) return fail("invalid", `gate ${row.id} asks no question ${unasked.join(", ")}`);
-      const session = deps.storedBinding(binding.sessionKey);
-      if (!session) return fail("invalid", "no session binding has that key");
-      if (session.attachment.generation !== binding.generation) {
-        return fail("stale-binding", `attachment generation ${binding.generation} was replaced; the current one is ${session.attachment.generation}`);
+    async bindGateQuestion(binding) {
+      const checked = bindable(binding);
+      if (!checked.ok) return checked;
+      const harness = checked.data.native.harness;
+      let supported: readonly Capability[];
+      try {
+        supported = await deps.questionCapabilities(harness, checked.data.attachment.mode);
+      } catch (err) {
+        return fail("transient", `could not read what ${harness} supports: ${messageOf(err)}`);
       }
-      if (isDetachedAttachment(session)) return fail("not-ready", "the session is detached; bind once it is attached again");
-      if (!deps.supports(session.native.harness)) return fail("unsupported", `${session.native.harness} does not complete native questions`);
+      const needed: Capability[] = binding.presentation === "form" ? ["question-recovery", "questions-form"] : ["question-recovery"];
+      const missing = needed.filter((capability) => !supported.includes(capability));
+      if (missing.length > 0) {
+        return fail("unsupported", `${harness} cannot own a native question here: it does not advertise ${missing.join(", ")}`);
+      }
+      // The capability read awaited, so the gate and the session are checked again.
+      const current = bindable(binding);
+      if (!current.ok) return current;
       const q = store();
       const existing = q.get(binding.gateId);
       if (existing && sameBinding(existing, binding)) return ok(undefined);
@@ -360,10 +389,11 @@ export function createGateQuestions(
         // be replaced, and only before any completion began.
         const replaceable = existing.sessionKey === binding.sessionKey && existing.generation < binding.generation
           && q.completion(binding.gateId) === null;
-        if (!replaceable) return fail("refused", `gate ${row.id} is already bound to another native question`);
+        if (!replaceable) return fail("refused", `gate ${binding.gateId} is already bound to another native question`);
       }
       q.bind(binding, deps.now());
-      if (row.status === "answered" || row.status === "closed") void track(completeGateQuestion(row.id));
+      const row = deps.gates.get(binding.gateId);
+      if (row && (row.status === "answered" || row.status === "closed")) void track(completeGateQuestion(row.id));
       return ok(undefined);
     },
     completeGateQuestion,
@@ -408,8 +438,8 @@ export function setGateQuestions(service: GateQuestions | null): void {
 
 const NO_SERVICE = "native question completion is not running in this process";
 
-export function bindGateQuestion(binding: QuestionBinding): Outcome<void> {
-  return active ? active.bindGateQuestion(binding) : fail("not-ready", NO_SERVICE);
+export function bindGateQuestion(binding: QuestionBinding): Promise<Outcome<void>> {
+  return active ? active.bindGateQuestion(binding) : Promise.resolve(fail("not-ready", NO_SERVICE));
 }
 
 export function completeGateQuestion(gateId: string): Promise<Outcome<void>> {

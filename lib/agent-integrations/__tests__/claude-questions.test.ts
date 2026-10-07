@@ -168,9 +168,11 @@ describe("Claude question wiring", () => {
   test("the integration loads its question adapter and advertises a form only where a pane can be dismissed", async () => {
     expect(typeof claudeIntegration.loadQuestions).toBe("function");
     const adapter = await claudeIntegration.loadQuestions!();
+    // A stale binding is refused before any transport is reached, so this never reads the Claude registry under HOME.
     const row = formGate(store(), { presentation: "wait" });
     const target = nudgedQuestion(row)!;
-    expect(await adapter.complete(target.binding, target.question, row)).toEqual({ ok: true, data: "gone" });
+    const stale = { ...target.question, generation: target.question.generation + 1 };
+    expect(await adapter.complete(target.binding, stale, row)).toMatchObject({ ok: false, error: { code: "stale-binding" } });
     expect((await claudeIntegration.capabilities("herdr")).supported).toContain("questions-form");
     expect((await claudeIntegration.capabilities("headless")).supported).not.toContain("questions-form");
   });
