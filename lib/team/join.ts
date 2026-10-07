@@ -576,9 +576,13 @@ export async function joinRedeem(
     else clearIntent(p);
     const stuck = !alreadyCloned && p.exists(dir);
     const renamed = "The org was renamed after this invite was made; a fresh invite from your admin joins it.";
+    const why = alreadyCloned
+      ? `The org was renamed after this invite was made, and its folder on this Mac still has the old name. Move ${dir} aside, then join with a fresh invite from your admin.`
+      : stuck ? `${renamed} rt could not remove the folder it cloned, so remove ${dir} before you join again.` : renamed;
+    const folderNote = alreadyCloned ? `; kept the existing ${dir}` : stuck ? `; could not remove ${dir}` : "";
     throw new UserActionableError("invite-stale", "This invite names the org by an old name; ask for a fresh one", {}, {
-      why: stuck ? `${renamed} rt could not remove the folder it cloned, so remove ${dir} before you join again.` : renamed,
-      log: `the invite names ${pointer.team}; the org repo's marker names ${cloned}${stuck ? `; could not remove ${dir}` : ""}`,
+      why,
+      log: `the invite names ${pointer.team}; the org repo's marker names ${cloned}${folderNote}`,
     });
   }
 

@@ -1618,7 +1618,8 @@ describe("joinRedeem", () => {
         const err = await refusal(p, relay);
         expect(err.code).toBe("invite-stale");
         expect(err.message).toBe("This invite names the org by an old name; ask for a fresh one");
-        expect(err.why).toBe("The org was renamed after this invite was made; a fresh invite from your admin joins it.");
+        expect(err.why).toBe(`The org was renamed after this invite was made, and its folder on this Mac still has the old name. Move ${TEAM_DIR} aside, then join with a fresh invite from your admin.`);
+        expect(err.log).toContain(TEAM_DIR);
         expect(p.exists(MARKER)).toBe(true);
         expect(p.exists(`${TEAM_DIR}/.git/config`)).toBe(true);
         expect(relay.redeemCalls).toEqual([]);
