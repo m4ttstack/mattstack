@@ -321,6 +321,15 @@ describe('the org base scenarios', () => {
         ...BASE_TAG,
       },
     ]);
+    const shepherdrBinder = c.binders.find(
+      b => b.ref === 'mattstack:shepherdr'
+    )!;
+    expect(shepherdrBinder.slots.find(x => x.name === 'domain')).toEqual({
+      name: 'domain',
+      boundTo: 'acme-base:plan-policy',
+      layer: 'base:acme-base',
+      ...BASE_TAG,
+    });
     const slot = c.verbs
       .find(v => v.name === 'shepherdr')!
       .slots.find(x => x.name === 'domain');
@@ -395,6 +404,18 @@ describe('the org base scenarios', () => {
       'acme-base has no attachments/feature-flags',
     ]);
   });
+
+  it.each(ORG)(
+    '%s: check keeps every clean key besides the base ones',
+    async s => {
+      const { attachments, baseErrors, ...rest } = await json<
+        typeof check & { attachments: unknown; baseErrors: unknown }
+      >(s, pack('check'));
+      expect(attachments).toBeDefined();
+      expect(baseErrors).toBeDefined();
+      expect(rest).toEqual(check);
+    }
+  );
 
   it.each(ORG)('%s: surface list holds a base row', async s => {
     const result = await fixtureRt(s).runRt([

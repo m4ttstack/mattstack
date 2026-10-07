@@ -276,8 +276,17 @@ const BASE_BINDING = `${BASE}:plan-policy`;
 const BASE_PLAN_FILE = `/fixture/orgbase/${BASE}/attachments/plan-policy/SKILL.md`;
 const BASE_TAG = { origin: 'base', base: BASE, baseVersion: '0.1.0' } as const;
 
+const SHEPHERDR_BINDER = 'mattstack:shepherdr';
+const baseDomainSlot = {
+  name: 'domain',
+  boundTo: BASE_BINDING,
+  layer: `base:${BASE}`,
+  ...BASE_TAG,
+};
+
 /** The pack extends `acme-base`, whose plan-policy fills plan's domain slot
-    in place of the pack's own. */
+    in place of the pack's own. `acme:plan-policy-lite` stays in the fills as
+    a rebind candidate, like plan-policy-strict. */
 function baseFillsDomain(composition: Composition): Composition {
   return {
     ...composition,
@@ -301,21 +310,20 @@ function baseFillsDomain(composition: Composition): Composition {
           }
         : verb
     ),
-    binders: composition.binders.map(binder =>
-      binder.ref === PLAN_BINDER
-        ? {
-            ...binder,
-            slots: [
-              {
-                name: 'domain',
-                boundTo: BASE_BINDING,
-                layer: `base:${BASE}`,
-                ...BASE_TAG,
-              },
-            ],
-          }
-        : binder
-    ),
+    binders: composition.binders.map(binder => {
+      if (binder.ref === PLAN_BINDER) {
+        return { ...binder, slots: [baseDomainSlot] };
+      }
+      if (binder.ref === SHEPHERDR_BINDER) {
+        return {
+          ...binder,
+          slots: binder.slots.map(slot =>
+            slot.name === 'domain' ? baseDomainSlot : slot
+          ),
+        };
+      }
+      return binder;
+    }),
     fills: composition.fills.map(fill =>
       fill.binding === 'acme:plan-policy'
         ? {
