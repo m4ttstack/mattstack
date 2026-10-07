@@ -66,6 +66,10 @@ export interface SlotOutlineNode {
   fill: BoundFill | null;
   /** Null for a binder-only slot or an rt that predates the field. */
   layer: string | null;
+  /** Set when the slot came from an org base; absent for a binder-only slot
+      and an rt that predates the field. */
+  origin?: 'base';
+  base?: string;
 }
 
 export type BindingSiteKind = CompositionBinder['kind'];
@@ -337,6 +341,8 @@ export function buildSpine(
       fillSourcePath: slot.fillSourcePath,
       fill: slot.boundTo ? (fillsByBinding.get(slot.boundTo) ?? null) : null,
       layer: slot.layer ?? null,
+      ...(slot.origin === 'base' ? { origin: slot.origin } : {}),
+      ...(slot.base !== undefined ? { base: slot.base } : {}),
     }));
     const declared = new Set(slots.map(s => s.name));
 

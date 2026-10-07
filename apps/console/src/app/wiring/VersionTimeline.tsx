@@ -13,6 +13,7 @@ import {
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
 import { Icons } from '@mattstack/app-kit/icons';
 
+import { pluginRootOf } from '../../shared/pluginRoot';
 import { CommandProvenance } from '../runs/CommandProvenance';
 import type { SlotOutlineNode, WiringHealth } from './outline';
 import { QuietBadge } from './QuietBadge';
@@ -141,6 +142,31 @@ function RuntimeRow({
   );
 }
 
+/** Base name -> base pack root, for the slots a base fills from outside the
+    pack. A team-pack copy of a base fill sits in the pack's own diff, so it
+    adds no root. */
+function baseRootsOf(
+  slots: SlotOutlineNode[],
+  packDir: string
+): Record<string, string> {
+  const roots: Record<string, string> = {};
+  for (const slot of slots) {
+    if (slot.origin !== 'base' || !slot.base || !slot.fillSourcePath) continue;
+    if (slot.fillSourcePath.startsWith(`${packDir}/`)) continue;
+    const root = pluginRootOf(slot.fillSourcePath);
+    if (root) roots[slot.base] = root;
+  }
+  return roots;
+}
+
+/** One diff text for the parser: the base diff's hunks follow the pack's. */
+function joinDiffs(diff: string, baseDiff: string | undefined): string {
+  if (!baseDiff) return diff;
+  return diff === '' || diff.endsWith('\n')
+    ? diff + baseDiff
+    : `${diff}\n${baseDiff}`;
+}
+
 export interface VersionTimelineProps {
   pack: string;
   /** The roster verb whose history this is; `null` renders nothing (a
@@ -240,10 +266,14 @@ export function VersionTimeline({
             fillSourcePaths: Object.fromEntries(
               slots.map(slot => [slot.name, slot.fillSourcePath])
             ),
+            baseRoots: baseRootsOf(slots, diff.data.packDir),
           }
         : null,
     [diff.data, pack, artifactPath, sourcePath, slots]
   );
+  const diffText = diff.data
+    ? joinDiffs(diff.data.diff, diff.data.baseDiff)
+    : undefined;
 
   if (verb === null) return null;
 
@@ -317,7 +347,7 @@ export function VersionTimeline({
           <SeamCompare
             verb={verb ?? ''}
             body={preview.data?.content}
-            diff={diff.data?.diff}
+            diff={diffText}
             diffTruncated={diff.data?.truncated ?? false}
             index={index}
             isPending={diff.isPending || preview.isPending}
@@ -465,8 +495,8 @@ export function VersionTimeline({
             <Icons.info size={14} color={text.muted} style={{ flex: 'none' }} />
             <Text size="xs" c={text.muted}>
               This pack&apos;s repo holds the fills and the compiled output. The
-              step&apos;s own source lives in the mattstack plugin, a different
-              repo, so its changes are not in this list.
+              step&apos;s own source lives in its engine plugin, and base fills
+              in the org&apos;s base pack, outside this pack&apos;s folder.
             </Text>
           </Group>
         </Stack>

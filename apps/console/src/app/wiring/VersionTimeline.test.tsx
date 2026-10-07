@@ -21,6 +21,7 @@ vi.mock('../api', () => ({
 }));
 
 const { VersionTimeline, relativeTime } = await import('./VersionTimeline');
+type SlotOutlineNode = import('./outline').SlotOutlineNode;
 
 function ok(json: unknown) {
   return { ok: true, status: 200, json: async () => json };
@@ -76,7 +77,7 @@ const STEP_SOURCE =
   '/Users/matt/.claude/plugins/cache/mattstack/mattstack/0.8.0/attachments/pipeline/watch-ci/SKILL.md';
 const ARTIFACT = `${PACK_DIR}/skills/watch-ci`;
 /** Only the two fields the compare view reads off a slot. */
-const SLOTS = [
+const SLOTS: SlotOutlineNode[] = [
   {
     name: 'domain',
     contract: 'watch-ci-domain@1',
@@ -94,6 +95,7 @@ function renderTimeline(
     verb?: string | null;
     health?: 'in-sync' | 'source-newer' | 'never-compiled' | 'unknown';
     staleFiles?: string[];
+    slots?: typeof SLOTS;
   } = {}
 ) {
   const queryClient = new QueryClient({
@@ -109,7 +111,7 @@ function renderTimeline(
         staleFiles={over.staleFiles ?? []}
         sourcePath={STEP_SOURCE}
         artifactPath={ARTIFACT}
-        slots={SLOTS}
+        slots={over.slots ?? SLOTS}
       />
     </QueryClientProvider>
   );
@@ -281,7 +283,7 @@ describe('VersionTimeline: the history region', () => {
     await openedHistory();
 
     expect(screen.getByTestId('version-timeline')).toHaveTextContent(
-      "The step's own source lives in the mattstack plugin, a different repo"
+      "The step's own source lives in its engine plugin, and base fills in the org's base pack, outside this pack's folder."
     );
   });
 
@@ -412,5 +414,70 @@ describe('VersionTimeline: compare', () => {
       expect(screen.getByTestId('runtime-facts')).toBeInTheDocument()
     );
     expect(screen.queryByTestId('seam-compare')).not.toBeInTheDocument();
+  });
+});
+
+describe('VersionTimeline: org base fills', () => {
+  const BASE_ROOT = '/o/acme/mattstack/org/packs/acme-base';
+  const BASE_SLOTS: SlotOutlineNode[] = [
+    {
+      ...SLOTS[0],
+      boundTo: 'acme-base:plan-policy',
+      fillSourcePath: `${BASE_ROOT}/attachments/plan-policy/SKILL.md`,
+      origin: 'base',
+      base: 'acme-base',
+    },
+  ];
+  const BASE_BODY =
+    '---\nname: "watch-ci"\n---\n' +
+    '<!-- part: slot:domain binding=acme-base:plan-policy version=org path=attachments/plan-policy/SKILL.md lines=1-40 -->\n' +
+    'domain text\n';
+  const BASE_DIFF = [
+    'diff --git a/base:acme-base/attachments/plan-policy/SKILL.md b/base:acme-base/attachments/plan-policy/SKILL.md',
+    '--- a/base:acme-base/attachments/plan-policy/SKILL.md',
+    '+++ b/base:acme-base/attachments/plan-policy/SKILL.md',
+    '@@ -3,1 +3,2 @@ heading',
+    ' keep',
+    '+added in the base',
+    '',
+  ].join('\n');
+
+  it('attributes a base diff hunk to the slot its base fill fills', async () => {
+    historyGet.mockResolvedValue(ok(HISTORY));
+    diffGet.mockResolvedValue(
+      ok({
+        pack: 'demo',
+        packDir: PACK_DIR,
+        repoRoot: '/o/acme',
+        scope: '.',
+        from: '17f8273',
+        to: 'ed24bc4',
+        truncated: false,
+        diff: '',
+        baseDiff: BASE_DIFF,
+      })
+    );
+    compileGet.mockResolvedValue(ok({ content: BASE_BODY }));
+    const user = userEvent.setup();
+    renderTimeline({ slots: BASE_SLOTS });
+    await openedHistory();
+
+    await user.click(
+      within(screen.getByTestId('commit-ed24bc4')).getByRole('checkbox')
+    );
+    await user.click(
+      within(screen.getByTestId('commit-17f8273')).getByRole('checkbox')
+    );
+    await user.click(screen.getByTestId('compare-commits'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('attributed-hunk')).toBeInTheDocument()
+    );
+    expect(screen.getByTestId('attributed-hunk')).toHaveTextContent(
+      'slot domain'
+    );
+    expect(screen.getByTestId('attributed-hunk')).toHaveTextContent(
+      'added in the base'
+    );
   });
 });

@@ -316,6 +316,31 @@ describe('buildSpine: slots', () => {
   });
 });
 
+describe('buildSpine: base slots', () => {
+  it('keeps the origin and base of a slot filled from an org base', () => {
+    const composition: SpineComposition = {
+      ...PACK,
+      verbs: PACK.verbs.map(v =>
+        v.name === 'work'
+          ? {
+              ...v,
+              slots: [
+                { ...v.slots[0], origin: 'base' as const, base: 'acme-base' },
+              ],
+            }
+          : v
+      ),
+    };
+    const slot = buildSpine(composition, EMPTY_CHECK).orchestrator?.slots[0];
+
+    expect(slot?.origin).toBe('base');
+    expect(slot?.base).toBe('acme-base');
+    const plain = buildSpine(PACK, EMPTY_CHECK).orchestrator?.slots[0];
+    expect(plain?.origin).toBeUndefined();
+    expect(plain?.base).toBeUndefined();
+  });
+});
+
 describe('buildSpine: check-status health mapping', () => {
   const checkFor = (
     name: string,
