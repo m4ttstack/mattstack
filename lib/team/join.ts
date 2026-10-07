@@ -565,20 +565,21 @@ export async function joinRedeem(
       updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });
       return gitAccessResult(pointer, clone);
     }
-    const cloned = clonedOrgName(p, dir);
-    if (cloned !== null && cloned !== pointer.team) {
-      p.removeDir(dir);
-      if (priorRecordExists) updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });
-      else p.removeFile(teamLocalPath(p.home, pointer.team));
-      if (priorIntent !== null) p.writeFile(intentPath(p.home), priorIntent, 0o600);
-      else clearIntent(p);
-      const stuck = p.exists(dir);
-      const renamed = "The org was renamed after this invite was made; a fresh invite from your admin joins it.";
-      throw new UserActionableError("invite-stale", "This invite names the org by an old name; ask for a fresh one", {}, {
-        why: stuck ? `${renamed} rt could not remove the folder it cloned, so remove ${dir} before you join again.` : renamed,
-        log: `the invite names ${pointer.team}; the org repo's marker names ${cloned}${stuck ? `; could not remove ${dir}` : ""}`,
-      });
-    }
+  }
+
+  const cloned = clonedOrgName(p, dir);
+  if (cloned !== null && cloned !== pointer.team) {
+    if (!alreadyCloned) p.removeDir(dir);
+    if (priorRecordExists) updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });
+    else p.removeFile(teamLocalPath(p.home, pointer.team));
+    if (priorIntent !== null) p.writeFile(intentPath(p.home), priorIntent, 0o600);
+    else clearIntent(p);
+    const stuck = !alreadyCloned && p.exists(dir);
+    const renamed = "The org was renamed after this invite was made; a fresh invite from your admin joins it.";
+    throw new UserActionableError("invite-stale", "This invite names the org by an old name; ask for a fresh one", {}, {
+      why: stuck ? `${renamed} rt could not remove the folder it cloned, so remove ${dir} before you join again.` : renamed,
+      log: `the invite names ${pointer.team}; the org repo's marker names ${cloned}${stuck ? `; could not remove ${dir}` : ""}`,
+    });
   }
 
   if (!rosterLists(p, pointer.team, pointer.username)) {

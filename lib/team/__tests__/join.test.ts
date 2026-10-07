@@ -1586,7 +1586,8 @@ describe("joinRedeem", () => {
 
     test("names the folder in the why when rt cannot remove the clone it made", async () => {
       const p = redeemProbes({ dirs: { [TEAM_DIR]: ["mattstack"] }, files: renamed });
-      p.removeDir = () => {};
+      const removeDir = p.removeDir.bind(p);
+      p.removeDir = (path) => { if (path !== TEAM_DIR) removeDir(path); };
       const err = await refusal(p);
       expect(err.code).toBe("invite-stale");
       expect(err.message).toBe("This invite names the org by an old name; ask for a fresh one");
@@ -1608,11 +1609,43 @@ describe("joinRedeem", () => {
       expect(result.access).toBe("ok");
     });
 
-    test("an org folder already on this Mac is never removed, whatever its marker says", async () => {
-      const p = redeemProbes({ dirs: { [TEAM_DIR]: [".git"] }, files: { ...renamed, [`${TEAM_DIR}/.git/config`]: gitConfigWithRemote(REMOTE) } });
-      const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
-      expect(result.access).toBe("ok");
-      expect(p.exists(MARKER)).toBe(true);
+    describe("when the org folder is already on this Mac", () => {
+      const present = (extra: Record<string, string> = {}) => redeemProbes({ dirs: { [TEAM_DIR]: [".git"] }, files: { ...renamed, [`${TEAM_DIR}/.git/config`]: gitConfigWithRemote(REMOTE), ...extra } });
+
+      test("is refused as invite-stale, keeps the folder and its marker, and runs no pull or redeem", async () => {
+        const p = present();
+        const relay = fakeRelay();
+        const err = await refusal(p, relay);
+        expect(err.code).toBe("invite-stale");
+        expect(err.message).toBe("This invite names the org by an old name; ask for a fresh one");
+        expect(err.why).toBe("The org was renamed after this invite was made; a fresh invite from your admin joins it.");
+        expect(p.exists(MARKER)).toBe(true);
+        expect(p.exists(`${TEAM_DIR}/.git/config`)).toBe(true);
+        expect(relay.redeemCalls).toEqual([]);
+        expect(p.calls.exec.some((argv) => argv.includes("pull") || argv.includes("clone"))).toBe(false);
+      });
+
+      test("puts back the team record and the setup intent", async () => {
+        const prior = JSON.stringify({ v: 1, at: "2026-08-01T00:00:00.000Z", mode: "create", team: { slug: "gadgets", name: "Gadgets", remote: "https://github.com/acme/gadgets.git", others: false } });
+        const p = present({ [teamLocalPath(HOME, POINTER.team)]: JSON.stringify({ joinedByRt: false, forgeUsername: "dev1" }), [intentPath(HOME)]: prior });
+        await refusal(p);
+        expect(readTeamLocal(p, POINTER.team).joinedByRt).toBe(false);
+        expect(readTeamLocal(p, POINTER.team).forgeUsername).toBe("dev1");
+        expect(p.readFile(intentPath(HOME))).toBe(prior);
+      });
+
+      test("writes no record and leaves no intent when there was none before", async () => {
+        const p = present();
+        await refusal(p);
+        expect(p.exists(teamLocalPath(HOME, POINTER.team))).toBe(false);
+        expect(readIntent(p)).toBeNull();
+      });
+
+      test("a marker naming the pointer's own org joins ok", async () => {
+        const p = redeemProbes({ dirs: { [TEAM_DIR]: [".git"] }, files: { [MARKER]: `{ "role": "org", "org": "acme" }`, [`${TEAM_DIR}/.git/config`]: gitConfigWithRemote(REMOTE) } });
+        const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, baseJoinRedeemSeams().seams);
+        expect(result.access).toBe("ok");
+      });
     });
   });
 });
