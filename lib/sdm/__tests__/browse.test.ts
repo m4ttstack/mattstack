@@ -92,6 +92,10 @@ describe("production flag and empty tag values", () => {
     expect(buildSdmConnections(prod, {})[0]!.production).toBe(true);
     expect(buildSdmConnections(prod, { "globex-prod-db": { production: false } })[0]!.production).toBe(false);
   });
+  test("a blank scaffold entry falls back to the tags and keeps the production guard", () => {
+    const c = buildSdmConnections(prod, { "globex-prod-db": { label: "", tier: "" } })[0]!;
+    expect(c).toMatchObject({ tier: "production", label: "Globex prod", customLabel: false, production: true });
+  });
   test("an empty tenant value is ignored: carrier inferred, row legacy", () => {
     const rs = [tagged("globex-prod-db", { tenant: "globex" }), tagged("old-globex-qa", { tenant: "" })];
     const c = buildSdmConnections(rs, {}).find(x => x.sdmResource === "old-globex-qa")!;

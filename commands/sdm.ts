@@ -425,7 +425,7 @@ async function pickAndConnect(): Promise<void> {
     out.print(
       out.line("skipped", "No StrongDM connections found"),
       out.paragraph("rt reads your StrongDM catalog directly, so there is nothing to set up. Check that you are logged in and can reach at least one database."),
-      out.callout("tip", ["Nicer names for your connections: ", out.cmd("rt sdm enrichment init")]),
+      out.callout("tip", "Nicer names for your connections: set sdm.resources in the console settings, StrongDM group."),
       out.callout("note", ["The StrongDM CLI comes from ", INSTALL_LINK]),
     );
     return;

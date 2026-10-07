@@ -3,8 +3,9 @@
  * top of resources the catalog scanner (scan.ts) already discovered.
  *
  * Ownership-latch port (wave 2, registry keys `sdm.resources`, then the
- * deprecated `rt.sdmEnrichment`, team-only scope — enrichment names employer resources and must never be settable in
- * a user or machine store): the first of those keys with a value
+ * deprecated `rt.sdmEnrichment`, team-only scope; enrichment names
+ * employer resources and must never be settable in a user or machine
+ * store): the first of those keys with a value
  * wins; none set means the store does not own the data, so the legacy
  * ~/.mattstack/rt/sdm/enrichment.jsonc file stays authoritative, same as
  * always. Once the team store owns the key it wins WHOLESALE (a name-keyed

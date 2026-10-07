@@ -80,8 +80,8 @@ export function buildSdmConnections(
       const carrierTag = tags.tenant ?? carrierFromName(r.name, known);
       const carrier = carrierTag === undefined ? undefined : carrierLabel(carrierTag, carriers);
       const built = carrier === undefined ? r.name : [carrier, tags.env, tags.domain, tags.access].filter(Boolean).join(" ");
-      const label = e?.label ?? built;
-      const tier = e?.tier ?? tierFromEnv(tags.env);
+      const label = e?.label || built;
+      const tier = e?.tier || tierFromEnv(tags.env);
       return {
         key: `sdm:${r.name}`,
         label,
@@ -97,7 +97,7 @@ export function buildSdmConnections(
         domain: tags.domain,
         access: tags.access,
         legacy: tags.tenant === undefined,
-        customLabel: e?.label !== undefined,
+        customLabel: !!e?.label,
       };
     })
     .sort((a, b) => a.label.localeCompare(b.label));

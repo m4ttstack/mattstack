@@ -21,7 +21,7 @@ before listing.
 
 ## What the picker shows
 
-The picker groups every resource under an `<Environment> · <Carrier>` header, read from the `env` and `tenant` tags StrongDM already holds on each resource. You set nothing up. Each row shows the domain, your access and the resource, with `write` in peach and `admin` in coral. Recently used rows come first. Older resources that carry no tags are marked `old`, and rt guesses their carrier from the name.
+The picker groups every resource under an `<Environment> · <Carrier>` header, read from the `env` and `tenant` tags StrongDM already holds on each resource. You set nothing up. Each row shows the domain, your access and the resource, with `write` in peach and `admin` in coral. Recently used rows come first. Resources with no `tenant` tag are marked `old` when rt can guess their carrier from the name.
 
 A resource tagged `env=prod` counts as production: you get a confirmation prompt, and agents are refused. A resource override can turn that off with `"production": false`.
 
@@ -37,7 +37,7 @@ rt settings set sdm.resources '{"acme-db-staging":{"label":"acme staging","tier"
 
 | Field | Meaning |
 |---|---|
-| `label` | Shown in the picker (defaults to the raw resource name) |
+| `label` | Shown in the picker (defaults to a name built from the resource's tags, or its raw name when it has none) |
 | `tier` | `development` / `qa` / `staging` / `production` / anything: groups the picker |
 | `production` | `true` adds a confirm guard before connecting; `false` lifts the one a `prod` tag adds |
 | `reasonSuggestion` | Prefill for the access-request reason prompt |
@@ -49,6 +49,6 @@ rt settings set sdm.resources '{"acme-db-staging":{"label":"acme staging","tier"
 rt settings set sdm.carriers '{"acme":{"label":"Acme Insurance"}}' --scope team
 ```
 
-A tag with no entry shows capitalised, so `acme` appears as `Acme`. A resource missing from `sdm.resources` shows its raw name and connects with Postgres defaults.
+A tag with no entry shows capitalised, so `acme` appears as `Acme`. A resource missing from `sdm.resources` shows the name built from its tags (its raw name when it has none) and connects with Postgres defaults.
 
 rt reads overrides from `sdm.resources` first, then the deprecated `rt.sdmEnrichment` key, then the old local file at `~/.mattstack/rt/sdm/enrichment.jsonc` (`rt sdm enrichment` shows or scaffolds it). `rt setup update` moves an existing `rt.sdmEnrichment` to `sdm.resources` on the Mac of the team's owner, so there is nothing to do by hand.
