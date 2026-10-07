@@ -92,7 +92,7 @@ describe("org:move through the daemon", () => {
     expect(JSON.parse(readFileSync(join(home, ".mattstack", "rt", "teams", "acme.json"), "utf8"))).toMatchObject({ forgeUsername: "dev1" });
     expect(existsSync(join(home, ".mattstack", "rt", "teams", "widgets.json"))).toBe(false);
 
-    // The status read can race the daemon finishing its reply, so a short bounded poll absorbs that.
+    // org:move resumes the snapshot watcher before it replies; the bounded poll is purely defensive.
     let status = await send("team:snapshot-status", {});
     for (let i = 0; i < 20 && status.ok && status.data.length === 0; i++) {
       await Bun.sleep(100);
