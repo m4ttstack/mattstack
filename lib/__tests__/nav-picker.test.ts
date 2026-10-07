@@ -41,6 +41,23 @@ describe("options -> rows", () => {
     expect(rows[0]!.match).toBe("Alpha");
   });
 
+  test("cells append segments, match overrides the label, tone reaches the label", async () => {
+    fake = installFakePick([resultStep({ action: "select", value: "a" })]);
+    await runNavPicker({
+      message: "m",
+      options: [
+        { value: "a", label: "core", tone: "blue", match: "acme qa core", cells: [{ text: "write", tone: "peach" }] },
+        { value: "b", label: "plain", hint: "h" },
+      ],
+    });
+    const rows = fake.calls[0]!.request.rows;
+    expect(rows[0]).toMatchObject({
+      match: "acme qa core",
+      left: [{ text: "core", bold: true, column: true, tone: "blue" }, { text: "  write", tone: "peach" }],
+    });
+    expect(rows[1]).toEqual({ value: "b", match: "plain", left: [{ text: "plain", bold: true, column: true }, { text: "  h", tone: "dim" }] });
+  });
+
   test("a separator becomes a group boundary: its label names the group for the rows that follow, until the next separator", async () => {
     fake = installFakePick([resultStep({ action: "select", value: "x" })]);
     const options: NavOption[] = [
