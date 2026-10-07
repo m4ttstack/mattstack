@@ -1,6 +1,5 @@
 import { activeTeam, decideActiveTeam, type RosterEntry } from "../packages/rt-client/src/settings/active-team.ts";
 import { useTeam, type UseTeamSeams } from "../lib/team/use.ts";
-import type { ApplyContext } from "../lib/setup/apply.ts";
 import type { SecretsSeams } from "../lib/secrets/store.ts";
 import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
 import { orgStoreFile } from "../lib/team/org-store.ts";
@@ -37,6 +36,7 @@ import { orgDirUnder, orgSettingsPath } from "../lib/rt-paths.ts";
 import { createRealTeamSecretsSeams } from "../lib/secrets/team-store.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { listOrgs, parseStoreText, readStore, TEAM_NAME_RE } from "../lib/settings/stores.ts";
+import type { ApplyContext } from "../lib/setup/apply.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import * as out from "../lib/ui/out.ts";
 import type { Block, RenderStatus } from "../lib/ui/protocol.ts";
@@ -195,7 +195,7 @@ function exitTeamError(err: UserActionableError, json: boolean, deps: TeamDeps):
   out.note(
     out.line("refused", err.message),
     ...(err.why ? [out.callout("why", err.why)] : []),
-    ...(err.next ? [out.callout("next", out.cmd(err.next))] : []),
+    ...(err.next ? [out.callout("next", err.thenRun ? ["Run ", out.cmd(err.next), ", then ", out.cmd(err.thenRun)] : out.cmd(err.next))] : []),
   );
   process.exit(2);
 }
@@ -427,7 +427,7 @@ export async function teamRename(args: string[], _ctx: CommandContext = {}, deps
   const json = args.includes("--json");
   if (json) out.payloadOnStdout();
   const to = positional(args, ["--team"])[0];
-  if (!to) usageError(deps, json, "What should your org be called?", "rt team rename <name> [--json]");
+  if (!to) usageError(deps, json, "What should your org be called?", "rt team rename <name> [--team <org>] [--json]");
   try {
     const from = resolveTeamSlug(args, "team rename");
     const result = await renameOrg(deps.probes, from, to, realRenameSeams(deps));

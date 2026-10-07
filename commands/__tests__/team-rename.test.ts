@@ -1,4 +1,8 @@
+import { execFileSync } from "child_process";
+import { writeFileSync } from "fs";
+import { join } from "path";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { childEnv } from "../../lib/subprocess.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { cleanupOrgWorlds, orgWorld } from "../../lib/team/__tests__/org-world.ts";
@@ -51,6 +55,25 @@ describe("rt team rename", () => {
       expect(captured.stderr()).toContain("[refused] Only an org admin can rename the org");
     } finally { captured.restore(); }
   });
+
+  test("a behind clone shows the pull, then the rename to run after it", async () => {
+    const w = orgWorld();
+    const other = join(w.home, "other");
+    execFileSync("git", ["clone", "-q", w.remote, other], { env: childEnv() });
+    const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=dev2", "-c", "user.email=dev2@example.test", ...args], { cwd: other, env: childEnv() });
+    writeFileSync(join(other, "later.txt"), "x\n");
+    git("add", "later.txt");
+    git("commit", "-q", "-m", "later");
+    git("push", "-q", "origin", "main");
+    const { deps } = depsFor(w.p);
+    const captured = captureOut();
+    try {
+      expect(await exitCode(() => teamRename(["gadgets"], {}, deps))).toBe(2);
+      expect(captured.stderr()).toContain("[refused]");
+      expect(captured.stderr()).toContain("rt team pull --team acme");
+      expect(captured.stderr()).toContain("rt team rename gadgets");
+    } finally { captured.restore(); }
+  }, 15_000);
 
   test("--json refusal carries the code", async () => {
     const w = orgWorld("dev2");

@@ -87,8 +87,11 @@ async function prepare(p: Probes, from: string, to: string, seams: RenameSeams):
     });
   }
   if (to === from) throw new UserActionableError("rename-same-name", `Your org is already called ${to}`);
-  if (p.exists(orgDirUnder(p.home, to)) || p.exists(teamLocalPath(p.home, to))) {
+  if (p.exists(orgDirUnder(p.home, to))) {
     throw new UserActionableError("rename-name-taken", `This Mac already has an org folder called ${to}`, {}, { why: "Pick another name, or move that folder aside first." });
+  }
+  if (p.exists(teamLocalPath(p.home, to))) {
+    throw new UserActionableError("rename-name-taken", `This Mac still has a record of an org called ${to}`, {}, { why: "Pick another name." });
   }
   const dir = orgDirUnder(p.home, from);
   const marker = readMarker(p, dir);

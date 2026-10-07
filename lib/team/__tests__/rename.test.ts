@@ -44,7 +44,7 @@ describe("renameOrg refusals", () => {
   test("a name with a leftover rt record is refused", async () => {
     const w = orgWorld();
     writeFileSync(teamLocalPath(w.home, "gadgets"), "{}\n");
-    await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "rename-name-taken" });
+    await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "rename-name-taken", message: "This Mac still has a record of an org called gadgets", why: "Pick another name." });
   });
 
   test("a clone whose marker already names another org is refused until it converges", async () => {
@@ -79,6 +79,13 @@ describe("renameOrg refusals", () => {
     await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "org-behind", next: "rt team pull --team acme", thenRun: "rt team rename gadgets" });
     expect(marker(w.root).org).toBe("acme");
   }, 15_000);
+
+  test("a marker that is not valid json is refused", async () => {
+    const w = orgWorld();
+    writeFileSync(join(w.root, "mattstack", "mattstack.jsonc"), "not json {");
+    w.git("commit", "-q", "-am", "break the marker");
+    await expect(renameOrg(w.p, "acme", "gadgets", seams())).rejects.toMatchObject({ code: "org-marker-unreadable" });
+  });
 
   test("a detached clone is refused", async () => {
     const w = orgWorld();
