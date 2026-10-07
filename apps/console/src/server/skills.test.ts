@@ -2283,6 +2283,84 @@ describe('skills source route', () => {
     expect(res.status).toBe(200);
   });
 
+  const baseRoot = '/o/acme/mattstack/org/packs/acme-base';
+  const baseFill = {
+    binding: 'acme-base:plan-policy',
+    provides: 'plan-domain@1',
+    sourcePath: `${baseRoot}/attachments/plan-policy/SKILL.md`,
+    registered: false,
+  };
+  const baseRt = (fill: Record<string, unknown>) =>
+    fakeRtHandler(argv =>
+      argv[1] === 'composition'
+        ? {
+            code: 0,
+            stdout: JSON.stringify({
+              ...compositionOf('/packs/acme'),
+              fills: [fill],
+            }),
+            stderr: '',
+          }
+        : { code: 1, stdout: '', stderr: '' }
+    );
+  const baseFiles: Record<string, string> = {
+    [baseFill.sourcePath]: 'the base fill text',
+    [`${baseRoot}/PACK.md`]: 'the base pack manifest',
+  };
+  const baseRead: ReadPackFile = async p =>
+    p in baseFiles ? baseFiles[p]! : read(p);
+
+  it('serves a base fill the composition names', async () => {
+    const app = mountSkills(
+      new Hono(),
+      baseRt({
+        ...baseFill,
+        origin: 'base',
+        base: 'acme-base',
+        baseVersion: '0.1.0',
+      }).run,
+      noGit(),
+      baseRead,
+      identity
+    );
+
+    const res = await getSource(app, baseFill.sourcePath);
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      content: 'the base fill text',
+    });
+  });
+
+  it('still refuses a base file outside its skill dirs', async () => {
+    const app = mountSkills(
+      new Hono(),
+      baseRt({
+        ...baseFill,
+        origin: 'base',
+        base: 'acme-base',
+        baseVersion: '0.1.0',
+      }).run,
+      noGit(),
+      baseRead,
+      identity
+    );
+
+    expect((await getSource(app, `${baseRoot}/PACK.md`)).status).toBe(404);
+  });
+
+  it('refuses a base fill when the fill carries no origin (an older rt)', async () => {
+    const app = mountSkills(
+      new Hono(),
+      baseRt(baseFill).run,
+      noGit(),
+      baseRead,
+      identity
+    );
+
+    expect((await getSource(app, baseFill.sourcePath)).status).toBe(404);
+  });
+
   it('serves a markdown file under the engine plugin root skills directory', async () => {
     const app = mountSkills(
       new Hono(),

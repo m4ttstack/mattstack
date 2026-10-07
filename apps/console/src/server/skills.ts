@@ -1442,7 +1442,8 @@ export function mountSkills(
       try {
         // The readable roots come from rt, never from the request: the pack
         // directory plus the skill folders of the engines its verbs compile
-        // from, never the rest of an engine's plugin.
+        // from, never the rest of an engine's plugin. A base fill adds only
+        // its own base pack's skill folders.
         const { stdout } = await cachedRun([
           'skills',
           'composition',
@@ -1462,6 +1463,11 @@ export function mountSkills(
           const dir =
             binder.kind === 'external' ? appSkillDir(binder.ref) : null;
           if (dir) roots.add(dir);
+        }
+        for (const fill of composition.fills ?? []) {
+          if (fill.origin !== 'base') continue;
+          const root = pluginRootOf(fill.sourcePath);
+          if (root) for (const dir of pluginSkillDirs(root)) roots.add(dir);
         }
         // Confinement compares resolved against resolved, so a symlink inside
         // a root cannot lead out of it and a root reached through a symlink
