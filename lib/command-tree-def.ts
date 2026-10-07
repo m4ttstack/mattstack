@@ -2880,7 +2880,7 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/team.ts",
         fn: "teamPublish",
         args: [
-          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
           { name: "Remote", flag: "--remote", type: "text", placeholder: "https://github.com/acme/mattstack-team-acme.git", hint: "Set (or change) the remote before pushing" },
           SETUP_JSON_ARG,
         ],
@@ -2902,7 +2902,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "teamInvite",
         args: [
           { name: "Handle", flag: "--handle", type: "text", placeholder: "octocat", hint: "The invitee's forge username" },
-          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
           { name: "Teams", flag: "--teams", type: "text", placeholder: "widgets", hint: "The teams to put them on, comma separated; your own team when left out" },
           { name: "Require peering", flag: "--require-peering", type: "boolean", default: false, hint: "Refuse to mint an invite that cannot carry the invitee's board token" },
           SETUP_JSON_ARG,
@@ -2915,7 +2915,7 @@ export const TREE: Record<string, CommandNode> = {
         omitBehavior: "list",
         args: [
           { name: "State", type: "select", optional: true, hint: "Omit to show the current state", options: [{ value: "on", label: "on", hint: "invites grant forge read access" }, { value: "off", label: "off", hint: "invites print manual steps" }] },
-          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
           SETUP_JSON_ARG,
         ],
       },
@@ -2939,7 +2939,7 @@ export const TREE: Record<string, CommandNode> = {
             args: [
               { name: "Username", type: "text", placeholder: "dev2", hint: "The member's forge username" },
               { name: "Teams", flag: "--teams", type: "text", placeholder: "widgets,gadgets", hint: "Their teams, comma separated; the first is the one they start on" },
-              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
+              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
               SETUP_JSON_ARG,
             ],
           },
@@ -2948,7 +2948,7 @@ export const TREE: Record<string, CommandNode> = {
             module: "./commands/team.ts",
             fn: "teamMembersSync",
             args: [
-              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
+              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
               SETUP_JSON_ARG,
             ],
           },
@@ -2960,7 +2960,7 @@ export const TREE: Record<string, CommandNode> = {
             args: [
               { name: "Handle", type: "text", placeholder: "octocat", hint: "The member's forge username" },
               { name: "Key", flag: "--key", type: "text", placeholder: "age1...", hint: "The recipient to remove, if it isn't recorded on the roster (a hand-edited store, a suspect entry)" },
-              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
+              { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
               SETUP_JSON_ARG,
             ],
           },
@@ -2972,7 +2972,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "teamStatus",
         agentSafe: true,
         args: [
-          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
           SETUP_JSON_ARG,
         ],
       },
@@ -2981,7 +2981,7 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/team.ts",
         fn: "teamPeer",
         args: [
-          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
           { name: "Rotate", flag: "--rotate", type: "boolean", default: false, hint: "Issue a new board token even if the switchboard already knows your board; a board still using the old one stops working" },
           SETUP_JSON_ARG,
         ],
@@ -2991,7 +2991,7 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/team.ts",
         fn: "teamPull",
         args: [
-          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; leave out, since a Mac holds one" },
+          { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which org clone; your only one when left out" },
           SETUP_JSON_ARG,
         ],
       },

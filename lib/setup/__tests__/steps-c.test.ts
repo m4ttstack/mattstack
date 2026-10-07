@@ -1500,6 +1500,27 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(p.calls.exec).toEqual([call, call]);
     });
 
+    function withRegisteredMarketplace(entry: Record<string, unknown>) {
+      return fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/fast-browser": "bin", "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => (argv.includes("marketplace") && argv.includes("list") ? ok(JSON.stringify([entry])) : ok("")),
+      });
+    }
+
+    test("a mattstack marketplace registered from a local directory is handed to fast-browser as that directory", async () => {
+      const p = withRegisteredMarketplace({ name: "mattstack", source: "directory", path: "/Users/dev1/src/mattstack-marketplace" });
+      expect(await fastbrowserSetupStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Fast Browser is set up" });
+      expect(p.calls.exec.at(-1)).toEqual(["/usr/local/bin/fast-browser", "setup", "--host", "claude", "--source", "/Users/dev1/src/mattstack-marketplace"]);
+    });
+
+    test("a mattstack marketplace registered from GitHub keeps the GitHub source", async () => {
+      const p = withRegisteredMarketplace({ name: "mattstack", source: "git", url: "https://github.com/m4ttstack/mattstack-marketplace.git" });
+      expect(await fastbrowserSetupStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "Fast Browser is set up" });
+      expect(p.calls.exec.at(-1)).toEqual(["/usr/local/bin/fast-browser", "setup", "--host", "claude", "--source", "https://github.com/m4ttstack/mattstack-marketplace.git"]);
+    });
+
     test("not bundled, no user copy -> skipped honestly, never execs", async () => {
       const p = fakeProbes({ home, env: {} });
       const { ctx } = makeCtx(p);

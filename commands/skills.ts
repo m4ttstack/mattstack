@@ -872,7 +872,6 @@ type CompileOutcome = { ok: true; result: CompileResult } | { ok: false; message
  * needs both outcomes as data rather than a thrown SkillsUsageError -- --json
  * and --preview to report them, the writing mode to collect every target's
  * verdict before touching disk -- so this is the one place that catches both.
- * skillsCheck is the lone caller left that lets compileVerb throw.
  */
 function tryCompileVerb(target: CompileTarget, resolved: Resolved, emittedTargetDirs: string[], verbSides: Record<string, Side>, planned?: PlannedAttachments): CompileOutcome {
   const { verb, isStage } = target;
@@ -1270,6 +1269,8 @@ export type CheckPayload = {
   strictLint: boolean;
   attachments: AttachmentCheckRow[];
   baseErrors: string[];
+  /** A verb whose compile would refuse: no row can say so, so it rides here and counts as drift. */
+  compileErrors: string[];
   /** Whether the pack extends a base; tells an orphan whose base dropped it from one left by a removed extends. Not part of check --json. */
   extendsBase: boolean;
 };
@@ -1326,6 +1327,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
 
   let anyStale = false;
   const rows: CheckVerbRow[] = [];
+  const compileErrors: string[] = [];
 
   // Pack-level staleness: the stage list a compiled orchestrator carries no
   // longer folds, so recompiling would refuse. No row can express that, so
@@ -1352,7 +1354,13 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
       continue;
     }
 
-    const result = compileVerb(target, resolved, emittedTargetDirs, verbSides, undefined, planned);
+    const outcome = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned);
+    if (!outcome.ok) {
+      anyStale = true;
+      compileErrors.push(outcome.message);
+      continue;
+    }
+    const { result } = outcome;
     const staleFiles: string[] = [];
     const orphanFiles: string[] = [];
     const expectedPaths = new Set(result.files.map((f) => f.path));
@@ -1415,7 +1423,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const attachments = flags.verbs === null && baseErrors.length === 0 ? attachmentRows(resolved.packDir, plan) : [];
   if (baseErrors.length > 0 || attachments.some((row) => row.status !== "in-sync")) anyStale = true;
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, extendsBase: plan.base !== null };
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors, extendsBase: plan.base !== null };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -1471,6 +1479,8 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
     }
   }
   blocks.push(...payload.baseErrors.map((baseError) => out.line("failed", baseError)));
+  blocks.push(...payload.compileErrors.map((compileError) => out.line("failed", compileError)));
+  if (payload.compileErrors.length > 0) stale = true;
   if (stale) blocks.push(out.callout("next", out.cmd("rt skills compile")));
   if (payload.installed) blocks.push(...installedCacheBlocks(payload.installed));
 
@@ -1501,8 +1511,8 @@ export async function skillsCheck(args: string[]): Promise<void> {
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
-      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors } = payload;
-      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors });
+      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors } = payload;
+      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors, compileErrors });
       return;
     }
     out.print(...checkBlocks(payload, flags.strict));
