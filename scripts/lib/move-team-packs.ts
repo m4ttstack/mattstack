@@ -16,6 +16,14 @@ export interface MovePlan {
 
 type Json = Record<string, unknown>;
 
+/** A move the planner declines by policy, as opposed to a bug. */
+export class MoveRefusal extends Error {
+  constructor(message: string, readonly why: string) {
+    super(message);
+    this.name = "MoveRefusal";
+  }
+}
+
 export const ORG_STORE_REL = "mattstack/org/settings.org.jsonc";
 export const teamStoreRel = (team: string): string => `mattstack/teams/${team}/settings.team.jsonc`;
 
@@ -25,14 +33,14 @@ function objOf(files: Record<string, string>, rel: string): Json {
   if (text === undefined) return {};
   const errors: ParseError[] = [];
   const value: unknown = parse(text, errors, { allowTrailingComma: true });
-  if (errors.length > 0) throw new Error(`${rel} is not valid JSONC (${printParseErrorCode(errors[0]!.error)} at offset ${errors[0]!.offset}); fix it before moving`);
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error(`${rel} is not a JSON object; fix it before moving`);
+  if (errors.length > 0) throw new MoveRefusal(`${rel} is not valid JSONC (${printParseErrorCode(errors[0]!.error)} at offset ${errors[0]!.offset})`, "Fix it before moving.");
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new MoveRefusal(`${rel} is not a JSON object`, "Fix it before moving.");
   const check = (node: Node): void => {
     if (node.type === "object") {
       const seen = new Set<string>();
       for (const property of node.children ?? []) {
         const key = String(property.children?.[0]?.value);
-        if (seen.has(key)) throw new Error(`${rel} has a duplicate key ${key}; fix it before moving`);
+        if (seen.has(key)) throw new MoveRefusal(`${rel} has a duplicate key ${key}`, "Fix it before moving.");
         seen.add(key);
       }
     }
@@ -54,7 +62,7 @@ function escapeRegExp(text: string): string {
 
 function bumpPatch(team: string, version: unknown): string {
   const m = typeof version === "string" ? /^(\d+)\.(\d+)\.(\d+)$/.exec(version) : null;
-  if (!m) throw new Error(`The ${team} pack's version (${String(version)}) is not x.y.z, so the script cannot bump it`);
+  if (!m) throw new MoveRefusal(`The ${team} pack's version (${String(version)}) is not x.y.z`, "The script can only bump an x.y.z version. Set one before moving.");
   return `${m[1]}.${m[2]}.${Number(m[3]) + 1}`;
 }
 
@@ -81,7 +89,7 @@ function rewritePaths(value: unknown, swaps: [string, string][], note: (from: st
 
 export function planMove(input: MoveInput): MovePlan {
   const marker = objOf(input.files, "mattstack/mattstack.jsonc");
-  if (marker.role !== "org") throw new Error("This is not a mattstack org repo (mattstack/mattstack.jsonc does not say role: org)");
+  if (marker.role !== "org") throw new MoveRefusal("This is not a mattstack org repo", "mattstack/mattstack.jsonc does not say role: org.");
   const report: string[] = [];
   const moving: string[] = [];
   for (const team of [...input.teams].sort()) {
@@ -91,15 +99,15 @@ export function planMove(input: MoveInput): MovePlan {
       continue;
     }
     const strangers = nested.filter((name) => name !== team);
-    if (strangers.length > 0) throw new Error(`${team} has ${strangers.map((name) => `packs/${name}`).join(", ")}, which the script does not know how to place; a team's pack is named after the team`);
-    if (input.hasPlugin[team]) throw new Error(`${team} has both ${nestedTeamPackRel(team)} and ${teamPackRel(team)}; keep one before moving`);
+    if (strangers.length > 0) throw new MoveRefusal(`${team} has ${strangers.map((name) => `packs/${name}`).join(", ")}, which the script does not know how to place`, "A team's pack is named after the team.");
+    if (input.hasPlugin[team]) throw new MoveRefusal(`${team} has both ${nestedTeamPackRel(team)} and ${teamPackRel(team)}`, "Keep one before moving.");
     const manifestRel = `${nestedTeamPackRel(team)}/.claude-plugin/plugin.json`;
-    if (input.files[manifestRel] === undefined) throw new Error(`${manifestRel} is missing, so the script cannot bump the ${team} pack's version; add it before moving`);
+    if (input.files[manifestRel] === undefined) throw new MoveRefusal(`${manifestRel} is missing`, `The script cannot bump the ${team} pack's version without it. Add it before moving.`);
     objOf(input.files, manifestRel);
     moving.push(team);
   }
-  if (moving.length === 0) throw new Error("Every team's pack is already at plugin/ (or there is none): nothing to move");
-  if (input.files[".claude-plugin/marketplace.json"] === undefined) throw new Error(".claude-plugin/marketplace.json is missing, so there is no marketplace entry to point at the moved packs; restore it before moving");
+  if (moving.length === 0) throw new MoveRefusal("There is nothing to move", "Every team's pack is already at plugin/, or the team has none.");
+  if (input.files[".claude-plugin/marketplace.json"] === undefined) throw new MoveRefusal(".claude-plugin/marketplace.json is missing", "There is no marketplace entry to point at the moved packs. Restore it before moving.");
 
   const moves: [string, string][] = [];
   const writes: Record<string, string> = {};
@@ -131,12 +139,31 @@ export function planMove(input: MoveInput): MovePlan {
   }
 
   const market = objOf(input.files, ".claude-plugin/marketplace.json");
-  const plugins = (Array.isArray(market.plugins) ? (market.plugins as Json[]) : []).map((entry) => {
-    const team = typeof entry.name === "string" && versions.has(entry.name) ? entry.name : null;
+  const entries = Array.isArray(market.plugins) ? (market.plugins as Json[]) : [];
+  // `./a/b`, `a/b` and `./a/b/` all name one folder.
+  const folderOf = (source: unknown): string | null => (typeof source === "string" ? source.replace(/^\.\//, "").replace(/\/+$/, "") : null);
+  const teamFor = (entry: Json): string | null => {
+    if (typeof entry.name === "string" && versions.has(entry.name)) return entry.name;
+    return moving.find((team) => folderOf(entry.source) === nestedTeamPackRel(team)) ?? null;
+  };
+  const pointed = new Set<string>();
+  const plugins = entries.map((entry) => {
+    const team = teamFor(entry);
     if (team === null) return entry;
-    return { ...entry, source: teamPackSource(team), ...(entry.version !== undefined ? { version: versions.get(team) } : {}) };
+    pointed.add(team);
+    const name = String(entry.name);
+    const version = versions.get(team)!;
+    if (entry.source !== teamPackSource(team)) report.push(`marketplace: ${name} source ${String(entry.source)} to ${teamPackSource(team)}`);
+    if (entry.version !== undefined && entry.version !== version) report.push(`marketplace: ${name} version ${String(entry.version)} to ${version}`);
+    return { ...entry, source: teamPackSource(team), ...(entry.version !== undefined ? { version } : {}) };
   });
-  writes[".claude-plugin/marketplace.json"] = `${JSON.stringify({ ...market, plugins }, null, 2)}\n`;
+  for (const entry of plugins) {
+    const folder = folderOf(entry.source);
+    const team = folder === null ? undefined : moving.find((t) => folder === nestedTeamPackRel(t) || folder.startsWith(`${nestedTeamPackRel(t)}/`));
+    if (team !== undefined) throw new MoveRefusal(`The marketplace entry ${String(entry.name)} points inside ${nestedTeamPackRel(team)}`, `The move removes that folder, and the script cannot tell where the entry belongs. Point it at ${teamPackSource(team)} or remove it before moving.`);
+  }
+  for (const team of moving) if (!pointed.has(team)) report.push(`no marketplace entry for ${team}`);
+  if (JSON.stringify(plugins) !== JSON.stringify(entries)) writes[".claude-plugin/marketplace.json"] = `${JSON.stringify({ ...market, plugins }, null, 2)}\n`;
 
   return { moves, writes, report };
 }

@@ -10,7 +10,7 @@ import { nestedTeamPackRel, teamPackRel } from "../lib/team/team-pack-path.ts";
 import * as out from "../lib/ui/out.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import { readForgeUsername, sameUser } from "../packages/rt-client/src/index.ts";
-import { ORG_STORE_REL, planMove, teamStoreRel, type MoveInput } from "./lib/move-team-packs.ts";
+import { MoveRefusal, ORG_STORE_REL, planMove, teamStoreRel, type MoveInput } from "./lib/move-team-packs.ts";
 
 const USAGE = "bun scripts/move-team-packs-to-plugin.ts <clone-dir> --admin <username> [--write]";
 
@@ -69,7 +69,7 @@ function main(): void {
   const input: MoveInput = { files: {}, teams, nested: {}, hasPlugin: {} };
   const wanted = ["mattstack/mattstack.jsonc", ".claude-plugin/marketplace.json", ORG_STORE_REL, ...teams.map(teamStoreRel)];
   for (const team of teams) {
-    input.nested[team] = dirs(`mattstack/teams/${team}/packs`);
+    input.nested[team] = dirs(dirname(nestedTeamPackRel(team)));
     input.hasPlugin[team] = existsSync(join(clone, teamPackRel(team)));
     if (input.nested[team]!.includes(team)) wanted.push(`${nestedTeamPackRel(team)}/.claude-plugin/plugin.json`, `${nestedTeamPackRel(team)}/pack/skills.jsonc`);
   }
@@ -81,7 +81,8 @@ function main(): void {
   try {
     plan = planMove(input);
   } catch (err) {
-    throw new UserActionableError("invalid-move", "This clone's team packs cannot be moved", {}, { why: err instanceof Error ? err.message : String(err) });
+    if (err instanceof MoveRefusal) refuse(err.message, err.why);
+    throw err;
   }
   for (const rel of [...plan.moves.flat(), ...Object.keys(plan.writes)]) assertNoLink(rel);
   out.print(out.section("Move plan", undefined, ...plan.report.map((line) => out.paragraph(line))), out.section("Moves", undefined, out.table(plan.moves.map(([from, to]) => [from, to]))));

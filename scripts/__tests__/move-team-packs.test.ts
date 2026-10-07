@@ -6,7 +6,7 @@ import { dirname, join } from "path";
 import { parse } from "jsonc-parser";
 import { machineSettingsPath } from "../../lib/rt-paths.ts";
 import { childEnv } from "../../lib/subprocess.ts";
-import { planMove, type MoveInput } from "../lib/move-team-packs.ts";
+import { MoveRefusal, planMove, type MoveInput } from "../lib/move-team-packs.ts";
 
 const ORG_STORE = "mattstack/org/settings.org.jsonc";
 const WIDGETS_STORE = "mattstack/teams/widgets/settings.team.jsonc";
@@ -57,6 +57,52 @@ describe("planMove", () => {
     const market = JSON.stringify({ name: "acme", plugins: [{ name: "widgets", source: `./${NESTED}`, version: "1.4.2" }] });
     const plan = planMove(orgRepo({ files: { ".claude-plugin/marketplace.json": market } }));
     expect(JSON.parse(plan.writes[".claude-plugin/marketplace.json"]!).plugins[0]).toEqual({ name: "widgets", source: `./${MOVED}`, version: "1.4.3" });
+  });
+
+  test("an entry under another name whose source is the nested pack is pointed at plugin/ too", () => {
+    const market = JSON.stringify({ name: "acme", plugins: [
+      { name: "widgets", source: `./${NESTED}` },
+      { name: "widgets-alias", source: `./${NESTED}/`, version: "1.4.2" },
+      { name: "widgets-bare", source: NESTED },
+    ] });
+    const plan = planMove(orgRepo({ files: { ".claude-plugin/marketplace.json": market } }));
+    expect(JSON.parse(plan.writes[".claude-plugin/marketplace.json"]!).plugins).toEqual([
+      { name: "widgets", source: `./${MOVED}` },
+      { name: "widgets-alias", source: `./${MOVED}`, version: "1.4.3" },
+      { name: "widgets-bare", source: `./${MOVED}` },
+    ]);
+    expect(plan.report).toContain(`marketplace: widgets-alias source ./${NESTED}/ to ./${MOVED}`);
+    expect(plan.report).toContain("marketplace: widgets-alias version 1.4.2 to 1.4.3");
+    expect(plan.report).toContain(`marketplace: widgets-bare source ${NESTED} to ./${MOVED}`);
+  });
+
+  test("an entry that points inside the moved folder is refused, since the move removes it", () => {
+    const market = JSON.stringify({ name: "acme", plugins: [{ name: "widgets", source: `./${NESTED}` }, { name: "widgets-sub", source: `./${NESTED}/sub` }] });
+    expect(() => planMove(orgRepo({ files: { ".claude-plugin/marketplace.json": market } }))).toThrow(`The marketplace entry widgets-sub points inside ${NESTED}`);
+  });
+
+  test("the report names each marketplace re-point", () => {
+    expect(planMove(orgRepo()).report).toContain(`marketplace: widgets source ./${NESTED} to ./${MOVED}`);
+  });
+
+  test("a moved team with no marketplace entry is reported, and an unchanged marketplace is not written", () => {
+    const market = JSON.stringify({ name: "acme", plugins: [{ name: "acme-base", source: "./mattstack/org/packs/acme-base" }] });
+    const plan = planMove(orgRepo({ files: { ".claude-plugin/marketplace.json": market } }));
+    expect(plan.report).toContain("no marketplace entry for widgets");
+    expect(plan.writes[".claude-plugin/marketplace.json"]).toBeUndefined();
+    expect(plan.moves).toEqual([[NESTED, MOVED]]);
+  });
+
+  test("a refusal is a MoveRefusal that carries why apart from its title", () => {
+    let thrown: unknown;
+    try {
+      planMove(orgRepo({ hasPlugin: { widgets: true, gadgets: false } }));
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(MoveRefusal);
+    expect((thrown as MoveRefusal).message).toBe(`widgets has both ${NESTED} and ${MOVED}`);
+    expect((thrown as MoveRefusal).why).toBe("Keep one before moving.");
   });
 
   test("rewrites stored values that spell the nested path under ${org} and ${team:}, and nothing else", () => {
@@ -247,8 +293,10 @@ describe("the wrapper", () => {
     const dir = tempClone({ [`${MOVED}/.keep`]: "keep these original bytes" });
     const before = snapshot(dir);
     const result = runScript(dir, "--write");
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr.toString()).toContain("has both");
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr.toString().startsWith(`[refused] widgets has both ${NESTED} and ${MOVED}`)).toBe(true);
+    expect(result.stderr.toString()).toContain("Keep one before moving.");
+    expect(result.stderr.toString()).not.toContain("[failed]");
     expect(snapshot(dir)).toBe(before);
   });
 
