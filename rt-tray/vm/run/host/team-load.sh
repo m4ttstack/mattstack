@@ -31,7 +31,7 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:/Applications/mattstack.app/Contents/Helpers:/usr/bin:/bin:/usr/sbin:/sbin"
 RT=/tmp/rt-new; chmod +x "$RT"
 security unlock-keychain -p "$VM_TESTER_PASS" "$HOME/Library/Keychains/login.keychain-db"
-TEAM="$HOME/.mattstack/teams/$SLUG"; [ -d "$TEAM/.git" ] || { echo "no team clone at $TEAM" >&2; exit 1; }
+TEAM="$HOME/.mattstack/orgs/$SLUG"; [ -d "$TEAM/.git" ] || { echo "no team clone at $TEAM" >&2; exit 1; }
 FIX=/tmp/team-fixture; rm -rf "$FIX"; mkdir -p "$FIX"; tar -xzf /tmp/team-fixture.tgz -C "$FIX"
 
 if [ -d "$FIX/plugins" ]; then

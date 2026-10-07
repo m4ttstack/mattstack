@@ -8,6 +8,7 @@ import { fakeProbes } from "../../setup/__tests__/fakes.ts";
 import { publishTeam } from "../publish.ts";
 import { teamLocalPath } from "../team-local.ts";
 import { UserActionableError } from "../../errors.ts";
+import { cleanupOrgWorlds, orgWorld } from "./org-world.ts";
 
 const DIR = "/home/x/.mattstack/orgs/acme";
 
@@ -234,6 +235,34 @@ describe("publishTeam", () => {
     expect(err.log).not.toContain("SECRET");
   });
 
+  function rejectedTrackedPush(secondLookup: { code: number; stdout: string; stderr: string }) {
+    let lookups = 0;
+    return fakeProbes({ home: "/home/x", dirs: { [DIR]: [] },
+      exec: (argv) => {
+        if (argv.includes("symbolic-ref")) return { code: 0, stdout: "main\n", stderr: "" };
+        if (argv.includes("get-url")) return { code: 0, stdout: "https://github.com/acme/repo.git\n", stderr: "" };
+        if (argv.includes("ls-remote")) return ++lookups === 1 ? { code: 0, stdout: "", stderr: "" } : secondLookup;
+        if (argv[0] === "git" && argv.includes("push")) return { code: 1, stdout: "", stderr: "! [rejected]        main -> main (fetch first)\nerror: failed to push some refs" };
+        return { code: 0, stdout: "", stderr: "" };
+      }, files: {
+      [`${DIR}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": { admins: ["dev1"], teams: {} } }),
+      [teamLocalPath("/home/x", "acme")]: JSON.stringify({ forgeUsername: "dev1" }),
+    } });
+  }
+
+  test("a fetch-first rejection on a tracked clone says the org moved when the remote cannot be read again", async () => {
+    const p = rejectedTrackedPush({ code: 128, stdout: "", stderr: "fatal: unable to access" });
+    await expect(publishTeam(p, "acme", null)).rejects.toMatchObject({ code: "org-moved", next: "rt team pull --team acme", thenRun: "rt team publish --team acme" });
+  });
+
+  test("a rejected push on a tracked clone whose remote reads back unmoved is a push failure, never remote-not-empty", async () => {
+    const p = rejectedTrackedPush({ code: 0, stdout: "", stderr: "" });
+    const err = await publishTeam(p, "acme", null).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UserActionableError);
+    expect((err as UserActionableError).code).toBe("push-failed");
+    expect((err as UserActionableError).log).toContain("fetch first");
+  });
+
   test("a credential-bearing remote is stripped of userinfo before it reaches the returned result (the JSON envelope's source)", async () => {
     const p = probesWithZone({ home: "/home/x" });
     const result = await publishTeam(p, "acme", "https://x-access-token:SECRET@github.com/acme/repo.git");
@@ -242,23 +271,6 @@ describe("publishTeam", () => {
     expect(result.detail).not.toContain("SECRET");
   });
 });
-
-  test("a rejected push on an org that has been pushed before says the org moved, never that the repo is not empty", async () => {
-    const p = probesWithZone({
-      home: "/home/x",
-      exec: (argv) =>
-        argv[0] === "git" && argv.includes("push")
-          ? { code: 1, stdout: "", stderr: "! [rejected]        main -> main (fetch first)\nerror: failed to push some refs" }
-          : { code: 0, stdout: "", stderr: "" },
-    });
-    await expect(publishTeam(p, "acme", null)).rejects.toMatchObject({
-      code: "org-moved",
-      message: "The org repo has changes this Mac does not have yet",
-      why: "Someone else pushed first, so pull their changes before you publish again.",
-      next: "rt team pull --team acme",
-      thenRun: "rt team publish --team acme",
-    });
-  });
 
 const publishHomes: string[] = [];
 afterEach(() => { for (const home of publishHomes.splice(0)) rmSync(home, { recursive: true, force: true }); });
@@ -391,4 +403,51 @@ for (const blocked of ["commits", "paths", "multiple-urls", "missing-main", "mis
   };
   await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "team-pull-only" });
   expect(w.pushes()).toBe(0);
+});
+
+describe("a declined push is told apart from an org that moved", () => {
+  afterEach(cleanupOrgWorlds);
+
+  function pending(w: ReturnType<typeof orgWorld>): void {
+    const store = "mattstack/teams/widgets/settings.team.jsonc";
+    writeFileSync(join(w.root, store), JSON.stringify({ "board.title": "widgets, renamed" }));
+    w.git("add", "--", store);
+    w.git("commit", "-q", "-m", "pending");
+  }
+
+  function teammatePush(w: ReturnType<typeof orgWorld>): void {
+    const other = join(w.home, "other");
+    execFileSync("git", ["clone", "-q", "-b", "main", w.remote, other], { env: childEnv() });
+    const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=dev2", "-c", "user.email=dev2@example.test", "-c", "core.hooksPath=/dev/null", ...args], { cwd: other, env: childEnv() });
+    writeFileSync(join(other, "later.txt"), "x\n");
+    git("add", "later.txt");
+    git("commit", "-q", "-m", "later");
+    git("push", "-q", "origin", "main");
+  }
+
+  test("a pre-receive hook decline is a push failure carrying the push's own log", async () => {
+    const w = orgWorld();
+    pending(w);
+    writeFileSync(join(w.remote, "hooks", "pre-receive"), "#!/bin/sh\necho 'widgets: branch is protected' >&2\nexit 1\n", { mode: 0o755 });
+    const err = await publishTeam(w.p, "acme", null).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UserActionableError);
+    expect(err).toMatchObject({ code: "push-failed" });
+    expect((err as UserActionableError).log).toContain("branch is protected");
+  }, 15_000);
+
+  test("a teammate's push landing during this one says the org moved", async () => {
+    const w = orgWorld();
+    pending(w);
+    const realExec = w.p.exec.bind(w.p);
+    let raced = false;
+    w.p.exec = async (argv, opts) => {
+      if (!raced && argv.includes("push")) {
+        raced = true;
+        teammatePush(w);
+      }
+      return realExec(argv, opts);
+    };
+    await expect(publishTeam(w.p, "acme", null)).rejects.toMatchObject({ code: "org-moved", next: "rt team pull --team acme", thenRun: "rt team publish --team acme" });
+    expect(raced).toBe(true);
+  }, 15_000);
 });

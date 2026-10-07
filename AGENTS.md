@@ -38,6 +38,20 @@ The old `~/.mattstack/teams/` root is legacy: `lib/__tests__/no-legacy-teams-roo
 keeps it out of source, and the `org.folder` step of `rt setup update` moves a
 clone found there.
 
+An org's name is its marker's `org` (`mattstack/mattstack.jsonc`), and the
+clone's folder follows it: the `org.folder` step converges the folder, the
+`rt/teams` and `rt/invites` records, the repo index and the Claude
+marketplace on every `rt setup update` and full `rt setup apply`, and never
+writes into the clone. `rt team rename <name>` (admins only) commits and
+publishes the new marker and converges this Mac at once; a member's Mac
+follows at its next update. A store value names the org clone as `${org}`;
+`${team:<name>}` is a deprecated alias for the same path that ignores the
+name and warns once per process for each name. Shared stores keep the alias until every
+member runs an rt that knows `${org}`, because an older rt passes `${org}`
+through verbatim. Read
+`docs/superpowers/specs/2026-10-06-orgs-root-design.md` before touching
+converge, rename or either placeholder.
+
 ## Repo identity
 
 Every per-repo store, daemon payload and REST path keys on a serialized repo
