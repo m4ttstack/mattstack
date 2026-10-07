@@ -505,8 +505,10 @@ describe("unknown IDs refuse", () => {
   test("a folder outside every repo rt knows is refused, since its agent could not be recorded", async () => {
     const db = freshDb();
     const { pane, starts } = spawnHarness(createRegistry([recordedClaude(db).integration]), db);
-    const res = await pane["pane:spawn"]({ cwd: mkdtempSync(join(tmpdir(), "agent-int-loose-")) });
-    expect(res.ok).toBe(false);
+    const loose = mkdtempSync(join(tmpdir(), "agent-int-loose-"));
+    const res = await pane["pane:spawn"]({ cwd: loose });
+    const message = `${loose} is not in a repository rt knows, so no agent can start there. Pick a folder inside a repository rt tracks.`;
+    expect(res).toEqual({ ok: false, error: message, failure: { code: "repo-unknown", message } });
     expect(starts).toHaveLength(0);
   });
 

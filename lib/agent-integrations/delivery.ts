@@ -28,7 +28,7 @@ import { getStateDb } from "../state/db.ts";
 import { builtinRegistry } from "./builtins.ts";
 import type { MessageAdapter } from "./contracts.ts";
 import {
-  isInterrupted, listDueDeliveries, markHarnessDue, markInterrupted, owedByRoomLog, pruneDeliveries, readDelivery, readFrame, receiptOfDelivery,
+  isInterrupted, listDueDeliveries, markHarnessDue, markInterrupted, ONE_SHOT_ROOM, owedByRoomLog, pruneDeliveries, readDelivery, readFrame, receiptOfDelivery,
   recordAttempt, scheduleDelivery, settleAttempt, settleEvidence, type DeliveryAttempt, type DeliveryRow,
 } from "./delivery-store.ts";
 import { createSessionStore } from "./session-store.ts";
@@ -59,6 +59,11 @@ export function chatDeliveryId(messageId: number, recipient: string): string {
 export type DeliveryConstituent = { id: string; room?: string; messageId?: number };
 /** Peer input plus the logical deliveries its frame carries; without constituents the frame is its own one delivery. */
 export type DeliveryInput = PeerInput & { constituents?: readonly DeliveryConstituent[] };
+
+/** A delivery no room log owes (a welcome, a receipt, an invite): one attempt and its one retry, and nothing redelivers it after. */
+export function oneShotInput(input: PeerInput): DeliveryInput {
+  return { ...input, constituents: [{ id: input.id, room: ONE_SHOT_ROOM }] };
+}
 
 export type DeliveryDeps = {
   db(): Database;

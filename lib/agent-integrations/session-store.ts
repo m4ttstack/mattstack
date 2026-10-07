@@ -55,6 +55,10 @@ const SELECT_BY_NATIVE_SQL =
 const SELECT_BY_VALUE_SQL = `SELECT ${BINDING_COLUMNS} FROM agent_session_bindings WHERE native_value = ? ORDER BY bound_at, key;`;
 const SELECT_ATTACHED_SQL = `SELECT ${BINDING_COLUMNS} FROM agent_session_bindings
 WHERE harness = ? AND (pane IS NOT NULL OR socket IS NOT NULL OR pid IS NOT NULL) ORDER BY bound_at, key;`;
+const SELECT_EVERY_ATTACHED_SQL =
+  `SELECT ${BINDING_COLUMNS} FROM agent_session_bindings WHERE attachment_state = 'attached' ORDER BY bound_at, key;`;
+const SELECT_AT_PANE_SQL =
+  `SELECT ${BINDING_COLUMNS} FROM agent_session_bindings WHERE pane = ? AND attachment_state = 'attached' ORDER BY attached_at DESC, key;`;
 const SELECT_BY_AGENT_SQL =
   `SELECT ${BINDING_COLUMNS} FROM agent_session_bindings WHERE agent_id = ? ORDER BY attached_at DESC, bound_at DESC, key;`;
 const INSERT_BINDING_SQL = `INSERT INTO agent_session_bindings (${BINDING_COLUMNS}, bound_at, attached_at, selection)
@@ -157,6 +161,16 @@ export function listBindingsByNativeValue(db: Database, value: string): SessionB
 /** A harness's bindings whose attachment still names a pane, socket or process. */
 export function listAttachedBindings(db: Database, harness: string): SessionBinding[] {
   return (db.query(SELECT_ATTACHED_SQL).all(harness) as BindingRow[]).map(toBinding);
+}
+
+/** Every binding recorded as attached, in any harness and mode, headless included. */
+export function listEveryAttachedBinding(db: Database): SessionBinding[] {
+  return (db.query(SELECT_EVERY_ATTACHED_SQL).all() as BindingRow[]).map(toBinding);
+}
+
+/** The attached bindings whose attachment names `pane`, as the ref it was recorded under; the most recently attached first. */
+export function listBindingsAtPane(db: Database, pane: string): SessionBinding[] {
+  return (db.query(SELECT_AT_PANE_SQL).all(pane) as BindingRow[]).map(toBinding);
 }
 
 /** An agent record's bindings, the most recently attached first. */

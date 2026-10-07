@@ -1883,3 +1883,118 @@ describe("a signed-in pane whose session id changed", () => {
     expect(authors()).not.toContain(tyler);
   });
 });
+
+describe("integrations on: chat follows the harness session", () => {
+  const SHIMS = mkdtempSync(join(tmpdir(), "rt-chat-shims-"));
+  const CALLS = join(SHIMS, "calls.log");
+  for (const bin of ["herdr", "claude", "codex", "cswap"]) {
+    writeFileSync(join(SHIMS, bin), `#!/bin/sh\necho "${bin} $*" >> "${CALLS}"\nexit 1\n`, { mode: 0o755 });
+  }
+  let origPath: string | undefined;
+  beforeEach(() => {
+    origPath = process.env.PATH;
+    process.env.PATH = `${SHIMS}:${process.env.PATH}`;
+    writeFileSync(CALLS, "");
+  });
+  afterEach(() => {
+    process.env.PATH = origPath;
+    expect(readFileSync(CALLS, "utf8")).toBe("");
+  });
+
+  const bindClaude = (session: string, pane: string, identity = "nova.0001") => {
+    const store = createSessionStore(getStateDb());
+    const bound = store.bind(store.reserve({ identity }), { harness: "claude", profile: "default", kind: "id", value: session }, { mode: "herdr", pane });
+    if (!bound.ok) throw new Error(bound.error.message);
+    return bound.data;
+  };
+  const bindingOf = (session: string) => listBindingsByNativeValue(getStateDb(), session)[0]!;
+  const handleIn = (session: string): string => JSON.parse(readFileSync(sessionFilePath(session), "utf8")).handle;
+
+  test("a bound session with no session file is told to sign in, as its tools are, whatever --as says", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    bindClaude("bound-1", "w1:p1");
+    for (const extra of [[], ["--as", "scout"]]) {
+      const r = await runChatRaw(["post", "r", "hello", "--session", "bound-1", ...extra]);
+      expect(r.code).toBe(1);
+      expect(r.stderr).toStartWith("This session is not signed in to chat");
+      expect(r.stderr).toContain("rt chat sign-in");
+    }
+    expect(seen.map((s) => s.cmd)).not.toContain("chat:post");
+  });
+
+  test("with the switch off the same session still posts under the handle it derives", async () => {
+    bindClaude("bound-1", "w1:p1");
+    await runChat(["join", "r", "--as", "scout", "--session", "bound-1"]);
+    await runChat(["post", "r", "hello", "--as", "scout", "--session", "bound-1"]);
+    expect(seen.find((s) => s.cmd === "chat:post")!.payload).toMatchObject({ handle: "scout" });
+  });
+
+  test("rooms --session answers for another signed-in session that no binding names, and only rooms does", async () => {
+    await signInInProcess({ as: "ivy", session: "ivy-1", room: "build" });
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    setSetting("agent.integrations.enabled", true, "machine");
+    const listed = await runChatRaw(["rooms", "--session", "ivy-1", "--json"]);
+    expect(listed.code).toBe(0);
+    expect(JSON.parse(listed.stdout).rooms.map((r: { room: string }) => r.room)).toEqual(["build"]);
+    await expect(runChatRaw(["post", "build", "hi", "--session", "ivy-1"])).rejects.toBeInstanceOf(UserActionableError);
+    await expect(runChatRaw(["rooms", "--session", "nobody-1", "--json"])).rejects.toBeInstanceOf(UserActionableError);
+  });
+
+  test("a SessionEnd from a pane the session has left signs nothing out; one from its own pane signs it out", async () => {
+    await signInInProcess({ as: "remy", session: "s-end", noRoom: true });
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    setSetting("agent.integrations.enabled", true, "machine");
+    bindClaude("s-end", "w2:p1", handleIn("s-end"));
+
+    process.env.HERDR_PANE_ID = "w1:p1";
+    const stale = await runChatRaw(["sign-out", "--quiet", "--session", "s-end", "--ended"]);
+    expect(stale).toMatchObject({ code: 0, stdout: "", stderr: "" });
+    expect(existsSync(sessionFilePath("s-end"))).toBe(true);
+    expect(presenceForSession("s-end", getStateDb())?.signedOutAt).toBeUndefined();
+
+    process.env.HERDR_PANE_ID = "w2:p1";
+    const own = await runChatRaw(["sign-out", "--quiet", "--session", "s-end", "--ended"]);
+    expect(own).toMatchObject({ code: 0, stdout: "", stderr: "" });
+    expect(existsSync(sessionFilePath("s-end"))).toBe(false);
+    expect(presenceForSession("s-end", getStateDb())?.signedOutAt).toBeDefined();
+    expect(seen.map((s) => s.cmd)).not.toContain("chat:sign-out");
+  });
+
+  test("with the switch off --ended signs out exactly as the hook always has", async () => {
+    await signInInProcess({ as: "remy", session: "s-end", noRoom: true });
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    bindClaude("s-end", "w2:p1");
+    process.env.HERDR_PANE_ID = "w1:p1";
+    const r = await runChatRaw(["sign-out", "--quiet", "--session", "s-end", "--ended"]);
+    expect(r).toMatchObject({ code: 0, stdout: "", stderr: "" });
+    expect(seen.filter((s) => s.cmd === "chat:sign-out").map((s) => s.payload)).toEqual([{ sessionId: "s-end" }]);
+    expect(existsSync(sessionFilePath("s-end"))).toBe(false);
+  });
+
+  test("lifecycle resume moves a bound session's attachment and presence to the reporting pane, and only with the switch on", async () => {
+    await signInInProcess({ as: "remy", session: "s-res", noRoom: true });
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    const bound = bindClaude("s-res", "w1:p1", handleIn("s-res"));
+    process.env.HERDR_PANE_ID = "w2:p1";
+    const before = seen.length;
+
+    const off = await runChatRaw(["lifecycle", "resume", "--session", "s-res"]);
+    expect(off).toMatchObject({ code: 0, stdout: "", stderr: "" });
+    expect(bindingOf("s-res").attachment).toMatchObject({ generation: bound.attachment.generation, pane: "w1:p1" });
+
+    setSetting("agent.integrations.enabled", true, "machine");
+    const on = await runChatRaw(["lifecycle", "resume", "--session", "s-res"]);
+    expect(on).toMatchObject({ code: 0, stdout: "", stderr: "" });
+    expect(bindingOf("s-res").attachment).toMatchObject({ generation: bound.attachment.generation + 1, pane: "w2:p1" });
+    expect(presenceForSession("s-res", getStateDb())?.pane).toBe("w2:p1");
+    expect(seen.length).toBe(before);
+  });
+
+  test("lifecycle is hidden: absent from the usage line and the verb list, and it names its usage", async () => {
+    expect((await runChatRaw(["--help"])).stdout).not.toContain("lifecycle");
+    expect((await runChatRaw(["nope"])).stderr).not.toContain("lifecycle");
+    const bad = await runChatRaw(["lifecycle", "nap"]);
+    expect(bad.code).toBe(1);
+    expect(bad.stderr).toContain("rt chat lifecycle <resume|compact>");
+  });
+});

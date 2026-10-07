@@ -187,7 +187,15 @@ export function markHarnessDue(db: Database, harness: string, now: number): numb
 }
 
 /** Whether the room log still owes this delivery: the recipient's cursor is behind its message. Outside chat it always is. */
+/**
+ * The room of a delivery no room log owes: a welcome, a receipt, an invite.
+ * Nothing rebuilds one, so after its attempt settles it is never scheduled
+ * again. `#` is never part of a chat name, so no room log can match it.
+ */
+export const ONE_SHOT_ROOM = "#once";
+
 export function owedByRoomLog(db: Database, row: Pick<DeliveryRow, "room" | "messageId" | "recipient">): boolean {
+  if (row.room === ONE_SHOT_ROOM) return false;
   if (row.room === undefined || row.messageId === undefined) return true;
   const member = db.query(OWED_SQL).get(row.room, row.recipient) as { last_read_id: number } | null;
   return member !== null && member.last_read_id < row.messageId;

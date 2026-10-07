@@ -35,6 +35,7 @@ import type { AgentInvocation } from "../../agent-argv/types.ts";
 import { registryRoots, resolveAllInboxes, sessionForPid, type InboxBinding } from "../../claude-registry.ts";
 import type { AgentEntry } from "../../runs/liveness.ts";
 import { isAlive } from "../../runner/workspace-registry.ts";
+import { selfPaneRef } from "../../self-pane.ts";
 import { isBusyError } from "../../state/busy.ts";
 import type {
   LaunchHost, LaunchRequest, NativeLaunch, PreparedLaunch, RunWorkProcess, SessionAdapter, WorkReceipt,
@@ -526,9 +527,8 @@ export async function prepareClaudeSignIn(
 
   const found = registryRow(registry, overrides.processAlive ?? isAlive, sessionId);
   const live = found?.live ? found : undefined;
-  const attachment: AttachmentInput = {
-    mode: "herdr", ...(text(env.HERDR_PANE_ID) && { pane: env.HERDR_PANE_ID }), ...(live && { pid: live.row.pid }),
-  };
+  const pane = selfPaneRef(env);
+  const attachment: AttachmentInput = { mode: "herdr", ...(pane !== undefined && { pane }), ...(live && { pid: live.row.pid }) };
   const store = createSessionStore(db);
   const recorded = listBindingsByNativeValue(db, sessionId).filter((b) => b.native.harness === HARNESS && b.native.kind === "id");
   const refused = fail<SessionBinding | null>("refused", `Claude Code session ${sessionId} already belongs to another identity`);
@@ -547,4 +547,57 @@ export async function prepareClaudeSignIn(
   if (profile === undefined) return unbound;
   const native = claudeRef(profile, sessionId);
   return (identity) => store.bind(store.reserve({ identity }), native, attachment);
+}
+
+/** What a Claude Code lifecycle hook's report came to; `unbound` leaves the caller on its path from before bindings. */
+export type ClaudeLifecycleOutcome = "applied" | "stale" | "unbound";
+
+/**
+ * A Claude Code hook's lifecycle report (SessionStart resume or compact,
+ * SessionEnd) for `sessionId`, fed to the shared presence service. The hook
+ * runs in the reporting process's environment, so its pane says which
+ * attachment the event came from: a report from a pane the session has since
+ * left (a resume elsewhere, then the old process exiting) is stale and
+ * changes nothing. A resume in a new pane, or one that brings a detached
+ * session back while Claude Code's registry shows it live, records that
+ * attachment first. Only a session exactly one Claude binding names is
+ * handled here.
+ */
+export async function reportClaudeLifecycle(
+  sessionId: string, event: "resume" | "compact" | "end", env: NodeJS.ProcessEnv,
+  overrides: SignInDeps & { enabled?: () => boolean; now?: () => number; deleteSessionFile?: (sessionId: string) => void } = {},
+): Promise<ClaudeLifecycleOutcome> {
+  const enabled = overrides.enabled ?? (await import("../context.ts")).integrationsEnabled;
+  if (!enabled()) return "unbound";
+  const db = overrides.db ?? (await import("../../state/db.ts")).getStateDb();
+  const recorded = listBindingsByNativeValue(db, sessionId).filter((b) => b.native.harness === HARNESS && b.native.kind === "id");
+  if (recorded.length !== 1) return "unbound";
+  const binding = recorded[0]!;
+  // Loaded here, not at the top: listing integrations must never pull in the chat modules presence reaches.
+  const { applySessionPresence } = await import("../presence.ts");
+  const presence = { db, enabled, now: overrides.now, deleteSessionFile: overrides.deleteSessionFile };
+  const pane = selfPaneRef(env);
+  const detached = isDetachedClaudeBinding(binding);
+  const elsewhere = pane !== undefined && binding.attachment.pane !== undefined && binding.attachment.pane !== pane;
+
+  if (event !== "resume") {
+    if (detached) return "unbound";
+    if (elsewhere) return "stale";
+    await applySessionPresence(binding, event, presence);
+    return "applied";
+  }
+  const moved = detached || pane !== binding.attachment.pane;
+  if (!moved) {
+    await applySessionPresence(binding, "resume", presence);
+    return "applied";
+  }
+  const found = registryRow(overrides.registry ?? defaultRegistry, overrides.processAlive ?? isAlive, sessionId);
+  if (detached && !found?.live) return "unbound";
+  const attachment: AttachmentInput = pane !== undefined
+    ? { mode: "herdr", pane }
+    : { mode: binding.attachment.mode, ...(found?.live && { pid: found.row.pid }) };
+  const replaced = createSessionStore(db).replaceAttachment(binding.key, binding.attachment.generation, attachment);
+  if (!replaced.ok) return "stale";
+  await applySessionPresence(replaced.data, "resume", presence);
+  return "applied";
 }

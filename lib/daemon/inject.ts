@@ -106,7 +106,20 @@ async function restoreDraft(herdr: typeof herdrRequest, paneId: string, sockPath
 }
 
 /**
- * herdr's injection delivery, shared by chat:invite and pane:send. Returns the
+ * Whether the bare `paneId` on `sockPath`'s server is the caller's own pane.
+ * callerPane arrives as a ref (bare or bg:-prefixed, per selfPaneRef), so
+ * paneId is re-addressed into the same ref space: a bg:w1:p1 caller and a
+ * bare w1:p1 target are the same pane.
+ */
+export function isCallerPane(paneId: string, sockPath: string | undefined, callerPane: string | undefined): boolean {
+  return callerPane !== undefined && callerPane === formatPaneRef(paneId, sockPath === bgSocketPath() ? "bg" : "visible");
+}
+
+/**
+ * herdr's injection delivery, shared by chat:invite and pane:send. It is
+ * Claude Code's typed pane input (HarnessIntegration.typedPaneInput); a
+ * session whose integration takes such input as peer input is invited
+ * through its messaging instead (lib/daemon/handlers/chat.ts). Returns the
  * CommandResult shape both handlers already return: a refused/accepted/queued
  * outcome is `{ ok: true, data }`; a herdr-unavailable or unexpected herdr error
  * is `{ ok: false, error }` (via herdrError), so a caller returns it directly.
@@ -126,13 +139,7 @@ export async function injectIntoPane(opts: InjectOptions): Promise<{ ok: true; d
   const waitMs = opts.promptWaitMs ?? DEFAULT_WAIT_MS;
   const ok = (delivered: InjectDelivery, reason?: string) =>
     ({ ok: true as const, data: reason ? { paneId, delivered, reason } : { paneId, delivered } });
-  // callerPane arrives as a ref (bare or bg:-prefixed, per selfPaneRef); paneId
-  // here is always the bare id the caller's ref already resolved against
-  // (see the docstring above), so the comparison must re-address paneId into
-  // the same ref space -- a bg:w1:p1 caller vs. a bare w1:p1 target would
-  // never match even when they are the exact same pane.
-  const targetRef = formatPaneRef(paneId, sockPath === bgSocketPath() ? "bg" : "visible");
-  if (callerPane && callerPane === targetRef) return ok("refused", "that is this pane");
+  if (isCallerPane(paneId, sockPath, callerPane)) return ok("refused", "that is this pane");
 
   const probe = await herdr<{ agent: { agent: string; agent_status: string } }>("agent.get", { target: paneId }, { sockPath });
   if (!probe.ok) {

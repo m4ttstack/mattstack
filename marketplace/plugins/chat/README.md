@@ -25,13 +25,18 @@ once you're signed in.
 ## Hooks
 
 - **SessionEnd**: `session-end.sh` (5s timeout). Best-effort
-  `rt chat sign-out --quiet`, so a closed terminal doesn't leave a presence
-  row heartbeating after nothing is listening. Fires for every session;
-  a missing session file (never signed in) is the common case.
+  `rt chat sign-out --quiet --ended`, so a closed terminal doesn't leave a
+  presence row heartbeating after nothing is listening. Fires for every
+  session; a missing session file (never signed in) is the common case.
+  `--ended` marks it as the session's own process ending, so a session that
+  has since resumed in another pane stays signed in there.
 - **SessionStart, matcher `resume|compact|fork`**: `session-start.sh`
   (3s timeout). Reminds an already-signed-in session that it is active
   after Claude Code recreates the process. Never fires on a fresh start or
-  `/clear`... a session file existing is what makes that safe.
+  `/clear`... a session file existing is what makes that safe. A resume or
+  compaction is also reported with `rt chat lifecycle`, in the background
+  with its output discarded, so rt can follow a session that resumed in
+  another pane.
 
 Every hook reads `.session_id` from stdin, resolves the session file at
 `~/.mattstack/rt/chat/sessions/<id>.json`, and exits 0 silently the moment

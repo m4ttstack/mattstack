@@ -3,6 +3,11 @@
 # session is still active after Claude Code recreates the process.
 # Never fires on startup/clear -- a session file existing is what makes this
 # safe, and sign-in is the only thing allowed to create one.
+#
+# A resume or compaction is also reported to rt (`rt chat lifecycle`), in the
+# background and with every byte it prints discarded, so this hook's own
+# output and timing are unchanged; rt does nothing with it unless
+# agent.integrations.enabled is on.
 set -u
 
 home="${HOME:-}"
@@ -13,6 +18,7 @@ command -v jq >/dev/null 2>&1 || exit 0
 input="$(cat 2>/dev/null)" || exit 0
 session_id="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
 [ -n "$session_id" ] || exit 0
+source_kind="$(printf '%s' "$input" | jq -r '.source // empty' 2>/dev/null)"
 
 session_file="$home/.mattstack/rt/chat/sessions/$session_id.json"
 [ -f "$session_file" ] || exit 0
@@ -29,4 +35,12 @@ else
 fi
 
 jq -nc --arg msg "$message" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $msg}}' 2>/dev/null
+
+case "$source_kind" in
+  resume|compact)
+    if command -v rt >/dev/null 2>&1; then
+      (rt chat lifecycle "$source_kind" --session "$session_id" </dev/null >/dev/null 2>&1 &)
+    fi
+    ;;
+esac
 exit 0

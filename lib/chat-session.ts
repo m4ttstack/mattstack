@@ -10,7 +10,8 @@
  */
 import { readdirSync, unlinkSync } from "fs";
 import { join } from "path";
-import { extractCliEvidence, integrationsEnabled, resolveCliSession } from "./agent-integrations/context.ts";
+import type { SessionBinding } from "../packages/rt-client/src/agent-integrations.ts";
+import { extractCliEvidence, integrationsEnabled, lendsPaneIdentity, resolveCliBinding, resolveCliSession } from "./agent-integrations/context.ts";
 import { UserActionableError } from "./errors.ts";
 import { readJson, writeJson } from "./json-store.ts";
 import { rtDir } from "./rt-paths.ts";
@@ -110,12 +111,17 @@ export function sessionName(s: Pick<ChatSession, "handle" | "name">): string {
  * With agent.integrations.enabled on, either source (or CODEX_THREAD_ID)
  * must resolve to exactly one session binding, else the command refuses,
  * except a never-bound Claude session, which keeps its environment id.
+ * `readOnly` callers only look (another pane's rooms, for herdr-chat): an
+ * explicit `--session` no binding names still answers for the session file
+ * its own sign-in wrote, which is all a look needs.
  */
-export function currentSessionId(args: string[]): string | undefined {
+export function currentSessionId(args: string[], opts: { readOnly?: boolean } = {}): string | undefined {
   if (integrationsEnabled()) {
     const resolved = resolveCliSession(args, process.env);
-    if (!resolved.ok) throw unattributed(resolved.error.message);
-    return resolved.data;
+    if (resolved.ok) return resolved.data;
+    const explicit = explicitSession(args);
+    if (opts.readOnly && explicit !== undefined && readChatSession(explicit)) return explicit;
+    throw unattributed(resolved.error.message);
   }
   const i = args.indexOf("--session");
   const value = i >= 0 ? args[i + 1] : undefined;
@@ -124,6 +130,26 @@ export function currentSessionId(args: string[]): string | undefined {
   // in as the literal next flag's name.
   if (value !== undefined && !value.startsWith("--")) return value;
   return process.env.CLAUDE_CODE_SESSION_ID || undefined;
+}
+
+function explicitSession(args: string[]): string | undefined {
+  const i = args.indexOf("--session");
+  const value = i >= 0 ? args[i + 1] : undefined;
+  return value !== undefined && !value.startsWith("--") ? value : undefined;
+}
+
+/**
+ * The binding this command's session evidence names, with
+ * agent.integrations.enabled on; undefined when the switch is off, for a
+ * plain shell, and for a session no live binding names.
+ */
+export function boundCliSession(args: string[]): SessionBinding | undefined {
+  return integrationsEnabled() ? resolveCliBinding(args, process.env) : undefined;
+}
+
+/** Whether the identity signed in as `holder` may stand in at its pane for this command's session; see lendsPaneIdentity. */
+export function paneIdentityLendable(holder: string): boolean {
+  return lendsPaneIdentity(holder);
 }
 
 /**
@@ -143,8 +169,12 @@ function unattributed(why: string): UserActionableError {
   return new UserActionableError("caller-unattributed", "rt cannot tell which agent session ran this command", {}, { why });
 }
 
-/** The session `rt chat sign-in` acts as, and, for a Claude Code session not bound yet, how to bind it once the daemon names its identity. */
-export type SignInSession = { sessionId: string | undefined; bind?: (identity: string) => void };
+/**
+ * The session `rt chat sign-in` acts as; `binding` when one already names it,
+ * and, for a Claude Code session not bound yet, how to bind it once the
+ * daemon names its identity.
+ */
+export type SignInSession = { sessionId: string | undefined; binding?: SessionBinding; bind?: (identity: string) => void };
 
 /**
  * currentSessionId, except that with agent.integrations.enabled on a Claude
@@ -156,7 +186,10 @@ export type SignInSession = { sessionId: string | undefined; bind?: (identity: s
 export async function signInSession(args: string[]): Promise<SignInSession> {
   if (!integrationsEnabled()) return { sessionId: currentSessionId(args) };
   const resolved = resolveCliSession(args, process.env, {}, { bindingsOnly: true });
-  if (resolved.ok) return { sessionId: resolved.data };
+  if (resolved.ok) {
+    const binding = resolveCliBinding(args, process.env);
+    return { sessionId: resolved.data, ...(binding && { binding }) };
+  }
   const evidence = extractCliEvidence(args, process.env);
   const claim = !evidence.ok ? undefined
     : evidence.data.raw !== undefined ? { sessionId: evidence.data.raw, explicit: true }

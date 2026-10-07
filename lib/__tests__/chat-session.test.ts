@@ -257,7 +257,8 @@ describe("currentSessionId through session bindings", () => {
     expect(createSessionStore(getStateDb()).find({ harness: "claude", profile: "default", kind: "id", value: "claude-manual" })?.identity).toBe("remy.ab12");
     // A repeat sign-in resolves the binding it already has.
     const again = await signInSession(["sign-in"]);
-    expect(again).toEqual({ sessionId: "claude-manual" });
+    expect(again).toMatchObject({ sessionId: "claude-manual", binding: { identity: "remy.ab12", native: { value: "claude-manual" } } });
+    expect(again.bind).toBeUndefined();
   });
 
   test("integrations on: a Codex thread with no binding still refuses at sign-in", async () => {

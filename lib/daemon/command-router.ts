@@ -46,7 +46,8 @@ import { reconcileFreshness, getFreshnessSnapshot } from "./freshness.ts";
 import { wrapWithDemand } from "./demand-tracker.ts";
 import type { SystemProcessScanner } from "./system-process-scanner.ts";
 import { findRun, findRunningRunByWorktree, findRunsBySession } from "../runs/store.ts";
-import { presenceForSession } from "../state/presence-store.ts";
+import { defaultRegistryDeps, presenceForSession } from "../state/presence-store.ts";
+import { withHarnessLiveness } from "../agent-integrations/presence.ts";
 import { identityNames, mintIdentity, resolveHandle } from "../state/identity-store.ts";
 import { resolveInbox } from "../claude-registry.ts";
 import { probeInboxReachability } from "./inbox.ts";
@@ -160,11 +161,15 @@ export function buildRoutedHandlers(opts: {
     broadcast("event", frame);
     return frame.id;
   };
+  const integrations = builtinRegistry();
+  // Presence liveness for sessions outside Claude Code's registry, while agent.integrations.enabled is on.
+  const presenceRegistry = withHarnessLiveness(defaultRegistryDeps, {
+    db: () => opts.stateDb, connection: (harness) => integrations.get(harness)?.messagingConnection?.(),
+  });
   const chatHandlers = createChatHandlers({
     db: opts.stateDb, emitEvent, repoIndex: ctx.repoIndex, log: ctx.log, deliveryChains: opts.chatDeliveryChains,
-    delivery: opts.chatDelivery,
+    delivery: opts.chatDelivery, registryDeps: presenceRegistry, integrations,
   });
-  const integrations = builtinRegistry();
   const agentService = createAgentService({
     db: opts.stateDb, emitEvent, log: ctx.log,
     bg: opts.bgService, bgClaims: opts.bgClaims, lifecycle: opts.herdLifecycle, integrations,
@@ -173,7 +178,7 @@ export function buildRoutedHandlers(opts: {
   const paneHandlers = createPaneHandlers({
     db: opts.stateDb, repoIndex: ctx.repoIndex, bg: opts.bgService, log: ctx.log,
     herdrRunnerFor: (socket) => defaultHerdrRunner(socket ? { ...process.env, HERDR_SOCKET_PATH: socket } : process.env),
-    relocation: opts.relocation, integrations, startAgent: agentService.start,
+    relocation: opts.relocation, integrations, startAgent: agentService.start, registryDeps: presenceRegistry,
   });
   const worktreeHandlers = createWorktreeHandlers({ repoIndex: ctx.repoIndex, cache: ctx.cache, log: ctx.log }, opts.worktree);
   const worktreeTriageHandlers = createWorktreeTriageHandlers(

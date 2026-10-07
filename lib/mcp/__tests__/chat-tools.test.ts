@@ -628,6 +628,83 @@ describe("chat tools: resolved caller sessions", () => {
     expect(f.calls[1]!.a.handle).toBe("tyler.gb3v");
   });
 
+  // A Codex app server's tools share one environment, so a bound caller is never its CLAUDE_CODE_SESSION_ID.
+  const SHARED_ENV = { CLAUDE_CODE_SESSION_ID: "app-server-env", HERDR_PANE_ID: "w1:p2" } as NodeJS.ProcessEnv;
+  const SESSION_TOOLS: Array<[string, Record<string, unknown>, string]> = [
+    ["chat_away", { text: "rebasing" }, "away"], ["chat_back", {}, "back"], ["chat_sign_out", {}, "signOut"],
+  ];
+
+  test.each(SESSION_TOOLS)("%s acts as the bound session when integrations are on", async (name, input, fn) => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const f = fake();
+    const r = await f.tool(name).handler(input, SHARED_ENV, undefined, RESOLVED);
+    expect(r.ok).toBe(true);
+    expect(f.calls.find((c) => c.fn === fn)!.a.sessionId).toBe("s1");
+    if (name === "chat_sign_out") expect(f.calls.find((c) => c.fn === "deleteSession")!.a).toBe("s1");
+  });
+
+  test.each(SESSION_TOOLS)("%s refuses an unresolved caller when integrations are on", async (name, input) => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const f = fake();
+    const r = await f.tool(name).handler(input, SHARED_ENV, undefined, UNRESOLVED);
+    expect(r).toEqual({ ok: false, body: undefined, error: "this call cannot be attributed to a session: no trusted session evidence came with this call" });
+    expect(f.calls).toEqual([]);
+  });
+
+  test.each(SESSION_TOOLS)("%s keeps the environment's session for a Claude caller no binding names", async (name, input, fn) => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const f = fake();
+    await f.tool(name).handler(input, ENV, undefined, { caller: async () => null });
+    expect(f.calls.find((c) => c.fn === fn)!.a.sessionId).toBe("s1");
+  });
+
+  test("chat_sign_in signs the bound session in, with no Claude registry check, and the bound pane rides along to join", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const f = fake({ alive: false });
+    const r = await f.tool("chat_sign_in").handler({ cwd: "/work" }, SHARED_ENV, undefined, RESOLVED);
+    expect(r).toEqual({ ok: true, body: { handle: "ann", name: "ann", room: "rt", continued: false } });
+    expect(f.calls).toEqual([{ fn: "spawnRt", a: { path: ["chat", "sign-in"], rest: ["--session", "s1"] }, o: { cwd: "/work" } }]);
+    const join = fake();
+    await join.tool("chat_join").handler({ room: "build" }, SHARED_ENV, undefined, RESOLVED);
+    expect(join.calls[0]!.a.pane).toBe("wTK:p1");
+  });
+
+  test("chat_sign_in still refuses a Claude caller no binding names whose session is gone", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const f = fake({ alive: false });
+    const r = await f.tool("chat_sign_in").handler({}, ENV, undefined, { caller: async () => null });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("cannot be reached");
+    expect(f.calls).toEqual([]);
+  });
+
+  test("chat_sign_in refuses an unresolved caller before anything runs", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const f = fake();
+    const r = await f.tool("chat_sign_in").handler({}, SHARED_ENV, undefined, UNRESOLVED);
+    expect(r.error).toContain("cannot be attributed");
+    expect(f.calls).toEqual([]);
+  });
+
+  test("chat_invite names the bound caller's own pane, not the server's", async () => {
+    setSetting("agent.integrations.enabled", true, "machine");
+    const f = fake();
+    await f.tool("chat_invite").handler({ pane: "w2:p1", room: "build" }, SHARED_ENV, undefined, RESOLVED);
+    expect(f.calls.find((c) => c.fn === "invite")!.a.callerPane).toBe("wTK:p1");
+  });
+
+  test.each([...SESSION_TOOLS.map(([n, i]) => [n, i] as [string, Record<string, unknown>]), ["chat_sign_in", {}] as [string, Record<string, unknown>]])(
+    "%s is unchanged when integrations are off, even for an unresolvable caller",
+    async (name, input) => {
+      const before = fake();
+      const r1 = await before.tool(name).handler(input, ENV);
+      const after = fake();
+      const r2 = await after.tool(name).handler(input, ENV, undefined, UNRESOLVED);
+      expect(r2).toEqual(r1);
+      expect(after.calls).toEqual(before.calls);
+    },
+  );
+
   test.each(ALL_HANDLE_TOOLS)("%s is unchanged when integrations are off, even for an unresolvable caller", async (name, input) => {
     const before = fake();
     const r1 = await before.tool(name).handler(input, ENV);

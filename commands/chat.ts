@@ -56,15 +56,18 @@ import { getSetting } from "../lib/settings/resolve.ts";
 import { isValidChatName, pruneMessages, getStateDb } from "../lib/state/index.ts";
 import { shellQuote } from "../lib/herdr-launch.ts";
 import {
+  boundCliSession,
   currentSessionId,
   deleteChatSession,
   isValidSessionId,
   paneContinuationApplies,
+  paneIdentityLendable,
   readChatSession,
   sessionName,
   signInSession,
   writeChatSession,
 } from "../lib/chat-session.ts";
+import { integrationsEnabled } from "../lib/agent-integrations/context.ts";
 import { chatViewerUrl, readChatViewerUrlSetting } from "../lib/chat-viewer-url.ts";
 import { parseDuration } from "./events.ts";
 import * as out from "../lib/ui/out.ts";
@@ -188,6 +191,11 @@ function refuse(...blocks: Block[]): never {
 
 const NAME_WHY = "Names use lowercase letters, digits, dots, dashes and underscores.";
 const SESSION_ID_INVALID: out.FailureInput = { title: "That session id is not valid", why: "A session id uses letters, digits, dots, dashes and underscores." };
+const NOT_SIGNED_IN: out.FailureInput = {
+  title: "This session is not signed in to chat",
+  why: "A session rt tracks speaks in chat only as the identity it signs in as.",
+  next: out.cmd("rt chat sign-in"),
+};
 function noSession(form: string): out.FailureInput {
   return { title: "rt cannot tell which session this is", why: "Chat needs a session id. Claude Code sets one for you; anywhere else, name the session yourself.", next: out.cmd(`rt chat ${form} --session <id>`) };
 }
@@ -433,7 +441,7 @@ async function paneIdentity(args: string[]): Promise<ChatIdentity | null> {
   const res = await chatBuddies({ ...sockOpts(args), timeoutMs: PANE_LOOKUP_TIMEOUT_MS });
   if (!res.ok || !res.data) return null;
   const row = res.data.buddies.find((b) => b.pane === pane && b.status !== "offline");
-  return row ? { handle: row.handle, name: row.name ?? row.handle, sessionId: row.sessionId } : null;
+  return row && paneIdentityLendable(row.sessionId) ? { handle: row.handle, name: row.name ?? row.handle, sessionId: row.sessionId } : null;
 }
 
 function refuseSecondIdentity(name: string): never {
@@ -448,20 +456,22 @@ function refuseSecondIdentity(name: string): never {
  * silently overridden: a second identity is exactly the desync the base
  * resolution order exists to prevent.
  */
-async function resolveIdentity(args: string[]): Promise<ChatIdentity> {
-  const sessionId = currentSessionId(args);
+async function resolveIdentity(args: string[], opts: { readOnly?: boolean } = {}): Promise<ChatIdentity> {
+  const sessionId = currentSessionId(args, opts);
   const session = readChatSession(sessionId);
   const signedIn = session ? { handle: session.handle, name: sessionName(session), sessionId: session.sessionId } : await paneIdentity(args);
   if (signedIn) {
     if (flagValue(args, "--as") !== undefined) refuseSecondIdentity(signedIn.name);
     return signedIn;
   }
+  // With agent.integrations.enabled on, a session a binding names has only the identity it signs in as, as its tools do.
+  if (boundCliSession(args)) fail(NOT_SIGNED_IN);
   const handle = resolveBaseHandle(args);
   return { handle, name: handle, sessionId };
 }
 
-async function resolveHandle(args: string[]): Promise<string> {
-  return (await resolveIdentity(args)).handle;
+async function resolveHandle(args: string[], opts: { readOnly?: boolean } = {}): Promise<string> {
+  return (await resolveIdentity(args, opts)).handle;
 }
 
 function safeCwd(): string | undefined {
@@ -1058,7 +1068,7 @@ async function runRead(args: string[]): Promise<void> {
 }
 
 async function runRooms(args: string[]): Promise<void> {
-  const handle = await resolveHandle(args);
+  const handle = await resolveHandle(args, { readOnly: true });
   requireValidName("handle", handle);
 
   const res = await chatRooms({ handle });
@@ -1235,7 +1245,8 @@ async function runSignIn(args: string[]): Promise<void> {
   const parsedIdentity = identity ? parseIdentity(identity.identity) : null;
   const repo = identity ? repoLabel(identity.identity) : undefined;
   const branch = root ? getCurrentBranch() ?? undefined : undefined;
-  const pane = selfPaneRef();
+  // A bound session's pane is its attachment's: this process can be a host's (an app server, an MCP server) rather than the session's own.
+  const pane = target.binding ? target.binding.attachment.pane : selfPaneRef();
   const statusText = flagValue(args, "--status");
 
   const noRoomFlag = args.includes("--no-room");
@@ -1344,7 +1355,8 @@ async function runSignOut(args: string[]): Promise<void> {
   }
 
   const quiet = args.includes("--quiet");
-  const sessionId = currentSessionId(args);
+  const ended = args.includes("--ended") && integrationsEnabled();
+  const sessionId = ended ? hookSession(args) : currentSessionId(args);
   if (!sessionId) {
     if (quiet) return;
     fail(noSession("sign-out"));
@@ -1355,9 +1367,18 @@ async function runSignOut(args: string[]): Promise<void> {
   }
 
   const session = readChatSession(sessionId);
+  const lifecycle = ended ? await endedSession(sessionId) : "unbound";
+  if (lifecycle === "stale") {
+    if (args.includes("--json")) {
+      if (!quiet) out.json({ ok: true, kept: true });
+    } else if (!quiet) {
+      say("this session goes on in another pane, so it stays signed in");
+    }
+    return;
+  }
   // Bounded well under the SessionEnd hook's 5s budget, so a slow/wedged
   // daemon can't eat the budget local cleanup (below) still needs to run.
-  const res = await chatSignOut({ sessionId }, { timeoutMs: 3000 });
+  const res = lifecycle === "applied" ? { ok: true as const } : await chatSignOut({ sessionId }, { timeoutMs: 3000 });
 
   deleteChatSession(sessionId);
 
@@ -1373,6 +1394,43 @@ async function runSignOut(args: string[]): Promise<void> {
   } else if (!quiet) {
     say(session ? `✓ signed out (${sessionName(session)})` : "✓ signed out");
   }
+}
+
+/** The session a Claude Code hook reports for: its `--session`, which the hook reads from Claude's own event, else this process's. */
+function hookSession(args: string[]): string | undefined {
+  const named = flagValue(args, "--session");
+  if (named !== undefined && !named.startsWith("--")) return named;
+  return process.env.CLAUDE_CODE_SESSION_ID || undefined;
+}
+
+/**
+ * `--ended` is the SessionEnd hook's report that this session's process
+ * ended. With agent.integrations.enabled on it goes through the shared
+ * presence service, which signs out only the session's current attachment:
+ * a process that ends after its session moved to another pane signs nothing
+ * out. A session no binding names signs out as it always has.
+ */
+async function endedSession(sessionId: string): Promise<"applied" | "stale" | "unbound"> {
+  const { reportClaudeLifecycle } = await import("../lib/agent-integrations/claude/sessions.ts");
+  return reportClaudeLifecycle(sessionId, "end", process.env);
+}
+
+/**
+ * `rt chat lifecycle <resume|compact> [--session <id>]`, hidden: the
+ * SessionStart hook's report that Claude Code resumed or compacted a session.
+ * With agent.integrations.enabled on it feeds the shared presence service, so
+ * a resume in another pane moves the session's attachment and presence there;
+ * off, it does nothing. It prints nothing a hook would pass on.
+ */
+async function runLifecycle(args: string[]): Promise<void> {
+  const event = positional(args);
+  if (event !== "resume" && event !== "compact") failUsage("Which lifecycle event?", "rt chat lifecycle <resume|compact>");
+  if (!integrationsEnabled()) return;
+  const sessionId = hookSession(args);
+  if (!sessionId || !isValidSessionId(sessionId)) return;
+  const { reportClaudeLifecycle } = await import("../lib/agent-integrations/claude/sessions.ts");
+  const outcome = await reportClaudeLifecycle(sessionId, event, process.env);
+  if (args.includes("--json")) out.json({ ok: true, outcome });
 }
 
 /**
@@ -1472,6 +1530,11 @@ const VERBS: Record<string, (args: string[]) => Promise<void>> = {
   invite: runInvite,
 };
 
+/** Verbs only hooks run: never offered in the picker, the usage line or the verb list. */
+const HIDDEN_VERBS: Record<string, (args: string[]) => Promise<void>> = {
+  lifecycle: runLifecycle,
+};
+
 const VERB_HINTS: Record<string, string> = {
   read: "show recent messages",
   ack: "acknowledge one message, waking only its author",
@@ -1519,7 +1582,7 @@ export async function chat(args: string[]): Promise<void> {
     usage();
     return;
   }
-  const handler = VERBS[verb];
+  const handler = VERBS[verb] ?? HIDDEN_VERBS[verb];
   if (!handler) fail({ title: `rt chat has no verb called ${verb}`, next: out.cmd("rt chat --help"), details: `Verbs: ${Object.keys(VERBS).join(", ")}` });
   await handler(rest);
 }

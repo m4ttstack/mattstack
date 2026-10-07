@@ -2,6 +2,10 @@
 # SessionEnd: best-effort sign-out so a closed terminal does not leave a
 # presence row heartbeating after nothing is listening.
 #
+# --ended says this is the session's own process ending, so rt can leave a
+# session that has since resumed in another pane signed in there. An rt that
+# predates the flag ignores it and signs out as before.
+#
 # SessionEnd fires for every session, and most never signed in, so the
 # no-session-file check must run before anything else touches rt or the
 # daemon. Always exits 0 -- a session shutdown must never fail on this.
@@ -20,5 +24,5 @@ session_file="$home/.mattstack/rt/chat/sessions/$session_id.json"
 [ -f "$session_file" ] || exit 0
 
 command -v rt >/dev/null 2>&1 || exit 0
-rt chat sign-out --quiet --session "$session_id" >/dev/null 2>&1
+rt chat sign-out --quiet --session "$session_id" --ended >/dev/null 2>&1
 exit 0

@@ -50,7 +50,7 @@ export interface PresenceThresholds {
 
 /** The registry probe, fakeable the same way lib/daemon/handlers/chat.ts's InboxDeps is: real implementations by default, swapped for a fake in tests that need a dead or alive binding on demand. */
 export type RegistryDeps = { resolve: typeof resolveInbox; alive: typeof inboxAlive; resolveAll: typeof resolveAllInboxes };
-const defaultRegistryDeps: RegistryDeps = { resolve: resolveInbox, alive: inboxAlive, resolveAll: resolveAllInboxes };
+export const defaultRegistryDeps: RegistryDeps = { resolve: resolveInbox, alive: inboxAlive, resolveAll: resolveAllInboxes };
 
 /**
  * One registry scan (`deps.resolveAll()`) turned into a per-session lookup,
@@ -394,6 +394,22 @@ export function signOut(sessionId: string, now: number = Date.now(), db: Databas
   // A sign-out lost to a busy write is not re-derivable later the way a
   // cache-class status write is (R057): retry rather than warn-and-drop.
   runCriticalWrite("signOut", () => { db.query(UPDATE_SIGN_OUT_SQL).run(now, sessionId); }, { sessionId });
+}
+
+const UPDATE_PANE_SQL = `UPDATE chat_presence SET pane = ? WHERE session_id = ?;`;
+
+/**
+ * Seats `sessionId`'s presence at `pane` (or nowhere), and takes the pane off
+ * every other session's row: a pane runs one session, so the pane-keyed
+ * lookups (the pane's identity, herdr-chat's status) must never name an
+ * earlier one. A session with no presence row only frees the pane.
+ */
+export function movePresencePane(sessionId: string, pane: string | null, db: Database = getStateDb()): void {
+  const run = db.transaction(() => {
+    if (pane !== null) db.query(RELEASE_PANE_SQL).run(pane, sessionId);
+    db.query(UPDATE_PANE_SQL).run(pane, sessionId);
+  });
+  runCriticalWrite("movePresencePane", () => run.immediate(), { sessionId });
 }
 
 export function setAway(sessionId: string, text: string | null, db: Database = getStateDb()): void {

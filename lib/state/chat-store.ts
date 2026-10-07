@@ -308,6 +308,15 @@ export function joinRoom(
   return run.immediate();
 }
 
+const SELECT_MEMBER_CURSOR_SQL = "SELECT last_read_id FROM chat_members WHERE room = ? AND handle = ?;";
+
+/** Messages past `handle`'s cursor in `room` that someone else wrote: a member's own posts are never unread to it. 0 for a non-member. */
+export function unreadFromOthers(room: string, handle: string, db: Database = getStateDb()): number {
+  const member = db.query(SELECT_MEMBER_CURSOR_SQL).get(room, handle) as { last_read_id: number } | null;
+  if (!member) return 0;
+  return (db.query(SELECT_ROOM_UNREAD_SQL).get(room, member.last_read_id, handle) as { n: number }).n;
+}
+
 export function leaveRoom(room: string, handle: string, db: Database = getStateDb()): void {
   // Cache-class (R057): re-issuing chat:leave is harmless, so a busy write
   // here warns and defers rather than throwing.

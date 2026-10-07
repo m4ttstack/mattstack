@@ -16,7 +16,9 @@ import { inboxAlive, resolveInbox } from "../claude-registry.ts";
 import { parseDuration } from "../duration.ts";
 import { selfPaneRef } from "../self-pane.ts";
 import { spawnRtJson, type RtVerbResult } from "./rt-verb.ts";
-import { callerChatHandle, checkChatName, checkOptional, checkRequired, err, fromResponse, ok, type McpToolDef, type ToolContext } from "./shared.ts";
+import {
+  boundCaller, callerChatHandle, callerRefusal, checkChatName, checkOptional, checkRequired, err, fromResponse, ok, type McpToolDef, type ToolContext,
+} from "./shared.ts";
 
 export interface ChatToolDeps {
   read: typeof chatRead; messages: typeof chatMessages; mark: typeof chatMark; rooms: typeof chatRooms;
@@ -80,6 +82,28 @@ const NOTE_FROM = /note\s+from/i;
 const AWAY_MAX = 300;
 /** Away text is one line: no exception for newline or tab here, unlike NOTE_CONTROL. */
 const AWAY_CONTROL = new RegExp(`[\\u0000-\\u001f\\u007f-\\u009f${BIDI_CONTROLS}]`);
+
+/**
+ * The session a session-keyed tool acts as. With agent.integrations.enabled
+ * on, a bound caller is its binding's native session, whatever the server's
+ * environment says (a Codex app server's tools share one environment); off,
+ * or for a Claude session no binding names, it is CLAUDE_CODE_SESSION_ID.
+ * `bound` is set only for a bound caller, whose attached binding is the
+ * evidence its session is live.
+ */
+async function callerChatSession(env: NodeJS.ProcessEnv, context?: ToolContext): Promise<{ sessionId: string; bound: boolean } | { error: string }> {
+  const caller = await boundCaller(context);
+  if (caller === null) return env.CLAUDE_CODE_SESSION_ID ? { sessionId: env.CLAUDE_CODE_SESSION_ID, bound: false } : { error: NO_SESSION };
+  if (!caller.ok) return { error: callerRefusal(caller.error) };
+  return { sessionId: caller.data.binding.native.value, bound: true };
+}
+
+/** The caller's own pane: its binding's when bound, since the server's environment can belong to a host process; else this process's. */
+async function callerPane(env: NodeJS.ProcessEnv, context?: ToolContext): Promise<string | undefined> {
+  const caller = await boundCaller(context);
+  if (caller === null || !caller.ok) return selfPaneRef(env);
+  return caller.data.binding.attachment.pane;
+}
 
 function flagValueError(name: string, v: unknown): string | undefined {
   if (v === undefined) return undefined;
@@ -213,7 +237,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         if (input.wakeOn !== undefined) payload.wakeOn = input.wakeOn as "mention" | "all" | "none";
         const cwd = (input.cwd as string | undefined) ?? deps.serverCwd();
         if (cwd) payload.cwd = cwd;
-        const pane = selfPaneRef(env);
+        const pane = await callerPane(env, context);
         if (pane) payload.pane = pane;
         const res = await deps.join(payload);
         return res.ok ? ok({ room, ...res.data }) : fromResponse(res);
@@ -237,9 +261,10 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       description: "Set an away message on this session's chat presence without signing out; chat_back clears it.",
       inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false },
       shellForms: ["rt chat away"],
-      async handler(input, env) {
-        const sessionId = env.CLAUDE_CODE_SESSION_ID;
-        if (!sessionId) return err(NO_SESSION);
+      async handler(input, env, _signal, context) {
+        const caller = await callerChatSession(env, context);
+        if ("error" in caller) return err(caller.error);
+        const { sessionId } = caller;
         const bad = checkRequired(input, [{ name: "text", type: "string" }]);
         if (bad) return err(bad);
         const text = input.text as string;
@@ -254,10 +279,10 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       description: "Clear this session's chat away message.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       shellForms: ["rt chat back"],
-      async handler(_input, env) {
-        const sessionId = env.CLAUDE_CODE_SESSION_ID;
-        if (!sessionId) return err(NO_SESSION);
-        return fromResponse(await deps.back({ sessionId }));
+      async handler(_input, env, _signal, context) {
+        const caller = await callerChatSession(env, context);
+        if ("error" in caller) return err(caller.error);
+        return fromResponse(await deps.back({ sessionId: caller.sessionId }));
       },
     },
     {
@@ -274,9 +299,10 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         example: "rt chat sign-in",
         note: "after a /clear the tool refuses and Bash is correct; mark that line <!-- mcp-lint: allow -->",
       }],
-      async handler(input, env) {
-        const sessionId = env.CLAUDE_CODE_SESSION_ID;
-        if (!sessionId) return err(NO_SESSION);
+      async handler(input, env, _signal, context) {
+        const caller = await callerChatSession(env, context);
+        if ("error" in caller) return err(caller.error);
+        const { sessionId } = caller;
         const bad = checkOptional(input, [{ name: "noRoom", type: "boolean" }])
           ?? flagValueError("as", input.as) ?? flagValueError("room", input.room) ?? flagValueError("status", input.status)
           ?? (input.as !== undefined ? checkChatName("as", input.as) : undefined)
@@ -317,7 +343,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
             }
           }
         }
-        if (!deps.sessionAlive(sessionId)) return err(REPLACED);
+        if (!caller.bound && !deps.sessionAlive(sessionId)) return err(REPLACED);
         const rest = ["--session", sessionId];
         if (typeof input.as === "string") rest.push("--name", input.as);
         if (typeof input.room === "string") rest.push("--room", input.room);
@@ -338,9 +364,10 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       description: "Sign this session out of rt chat: drop its presence and delete its session file. Room memberships are kept.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       shellForms: ["rt chat sign-out"],
-      async handler(_input, env) {
-        const sessionId = env.CLAUDE_CODE_SESSION_ID;
-        if (!sessionId) return err(NO_SESSION);
+      async handler(_input, env, _signal, context) {
+        const caller = await callerChatSession(env, context);
+        if ("error" in caller) return err(caller.error);
+        const { sessionId } = caller;
         const res = await deps.signOut({ sessionId }, { timeoutMs: SIGN_OUT_TIMEOUT_MS });
         // Local cleanup runs whatever the daemon said, as the CLI's sign-out does: a stranded file keeps resolving to a dead handle.
         deps.deleteSession(sessionId);
@@ -384,8 +411,8 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         }
         const payload: Commands["chat:invite"]["payload"] = { paneId: input.pane as string, room: input.room as string, from: id.handle };
         if (typeof input.note === "string") payload.note = input.note;
-        const callerPane = selfPaneRef(env);
-        if (callerPane) payload.callerPane = callerPane;
+        const ownPane = await callerPane(env, context);
+        if (ownPane) payload.callerPane = ownPane;
         return fromResponse(await deps.invite(payload));
       },
     },

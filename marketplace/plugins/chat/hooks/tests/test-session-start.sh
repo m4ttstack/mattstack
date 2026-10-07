@@ -9,9 +9,32 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK="$DIR/../session-start.sh"
 
 SANDBOX="$(mktemp -d)"; trap 'rm -rf "$SANDBOX"' EXIT
-mkdir -p "$SANDBOX/home/.mattstack/rt/chat/sessions"
+mkdir -p "$SANDBOX/bin" "$SANDBOX/home/.mattstack/rt/chat/sessions"
 SESSIONS_DIR="$SANDBOX/home/.mattstack/rt/chat/sessions"
 ERRFILE="$SANDBOX/stderr"
+
+# `rt` is stubbed on PATH: it records its arguments and prints to both streams,
+# which the hook must never pass on.
+cat > "$SANDBOX/bin/rt" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$RT_STUB_CALLS"
+echo "rt stdout"; echo "rt stderr" >&2
+STUB
+chmod +x "$SANDBOX/bin/rt"
+export PATH="$SANDBOX/bin:$PATH"
+export RT_STUB_CALLS="$SANDBOX/rt-calls"
+: > "$RT_STUB_CALLS"
+
+# The lifecycle report runs in the background: wait for the call wanted, or a short while for none.
+calls_after() {
+  local want="$1" i
+  for i in $(seq 1 40); do
+    [ -n "$want" ] && [ "$(cat "$RT_STUB_CALLS")" = "$want" ] && break
+    sleep 0.05
+  done
+  cat "$RT_STUB_CALLS"
+  : > "$RT_STUB_CALLS"
+}
 
 fails=0
 check() { # name expected actual
@@ -31,6 +54,7 @@ run '{"session_id":"never-signed-in","source":"resume"}'
 check "no session file: no stdout" "" "$out"
 check "no session file: no stderr" "" "$err"
 check "no session file: exits 0" "0" "$rc"
+check "no session file: rt never called" "" "$(calls_after "")"
 
 # ── signed in, with a room: injects handle + room ───────────────────────────
 echo '{"sessionId":"sess-a","handle":"rt-chat-wt-2","baseHandle":"rt-chat-wt","room":"repo-tools"}' \
@@ -40,6 +64,7 @@ want='{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":
 check "signed in with room" "$want" "$out"
 check "signed in with room: no stderr" "" "$err"
 check "signed in with room: exits 0" "0" "$rc"
+check "a resume is reported to rt" "chat lifecycle resume --session sess-a" "$(calls_after "chat lifecycle resume --session sess-a")"
 
 # ── signed in, no room ───────────────────────────────────────────────────────
 echo '{"sessionId":"sess-b","handle":"deck-main","baseHandle":"deck-main"}' \
@@ -49,6 +74,7 @@ want='{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":
 check "signed in without room" "$want" "$out"
 check "signed in without room: no stderr" "" "$err"
 check "signed in without room: exits 0" "0" "$rc"
+check "a fork is not reported to rt" "" "$(calls_after "")"
 
 # ── signed in with a display name: shows the name, never the id ─────────────
 echo '{"sessionId":"sess-d","handle":"remy.k3f9","baseHandle":"remy","name":"remy","room":"repo-tools"}' \
@@ -58,6 +84,7 @@ want='{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":
 check "signed in with a name" "$want" "$out"
 check "signed in with a name: no stderr" "" "$err"
 check "signed in with a name: exits 0" "0" "$rc"
+check "a resume names its own session" "chat lifecycle resume --session sess-d" "$(calls_after "chat lifecycle resume --session sess-d")"
 
 # ── a suffixed display name, no room ────────────────────────────────────────
 echo '{"sessionId":"sess-e","handle":"remy.x9y8","baseHandle":"remy","name":"remy-2"}' \
@@ -67,6 +94,7 @@ want='{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":
 check "signed in with a suffixed name" "$want" "$out"
 check "signed in with a suffixed name: no stderr" "" "$err"
 check "signed in with a suffixed name: exits 0" "0" "$rc"
+check "a compaction is reported to rt" "chat lifecycle compact --session sess-e" "$(calls_after "chat lifecycle compact --session sess-e")"
 
 # ── no session_id: silent ────────────────────────────────────────────────────
 run '{"source":"resume"}'

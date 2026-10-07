@@ -46,13 +46,13 @@ check "no session file: no stderr" "" "$err"
 check "no session file: exits 0" "0" "$rc"
 check "no session file: sign-out never called" "" "$(cat "$RT_STUB_CALLS")"
 
-# ── session file exists: sign-out runs with --quiet and the session id ──────
+# ── session file exists: sign-out runs with --quiet, the session id and --ended ──
 echo '{"sessionId":"sess-a","handle":"rt-chat-wt"}' > "$SESSIONS_DIR/sess-a.json"
 run '{"session_id":"sess-a"}'
 check "signed-in session: no stdout" "" "$out"
 check "signed-in session: no stderr" "" "$err"
 check "signed-in session: exits 0" "0" "$rc"
-check "signed-in session: sign-out invoked" "chat sign-out --quiet --session sess-a" "$(cat "$RT_STUB_CALLS")"
+check "signed-in session: sign-out invoked" "chat sign-out --quiet --session sess-a --ended" "$(cat "$RT_STUB_CALLS")"
 
 # ── no session_id at all: silent, never calls rt ─────────────────────────────
 run '{"hook_event_name":"SessionEnd"}'

@@ -12,6 +12,7 @@ import {
   releaseClaim,
   isValidChatName,
   joinRoom,
+  unreadFromOthers,
   leaveRoom,
   resolveMentions,
   postMessage,
@@ -58,11 +59,11 @@ import { CHAT_NOTIFICATION_CATEGORY, notifyEnabled } from "../../notifier.ts";
 import { chatViewerUrl, readChatViewerUrlSetting } from "../../chat-viewer-url.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { herdrRequest } from "../../herdr/client.ts";
-import { injectIntoPane, herdrError } from "../inject.ts";
+import { injectIntoPane, herdrError, isCallerPane, type InjectResult } from "../inject.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
-import type { HerdrSnapshot } from "./pane.ts";
+import type { HerdrPane, HerdrSnapshot } from "./pane.ts";
 import { resolveInbox, inboxAlive } from "../../claude-registry.ts";
-import { withProcessSession } from "../pane-process-session.ts";
+import { withIntegrationSession, withProcessSession } from "../pane-process-session.ts";
 import { deliverToInbox, deliveryLabel, renderDeliveries, replySteer, senderHints, wrapCrossSession, type HintSender } from "../inbox.ts";
 import { repoForCwd, branchForCwd } from "../../repo-for-cwd.ts";
 import { deriveRoomForCwdAsync } from "../../chat-room.ts";
@@ -71,12 +72,14 @@ import { runCapture } from "../../subprocess.ts";
 import { lazyChildLogger } from "../../daemon-logger.ts";
 import { deleteChatSession } from "../../chat-session.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
-import type { SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
+import type { Observation, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
+import { builtinRegistry } from "../../agent-integrations/builtins.ts";
 import { integrationsEnabled } from "../../agent-integrations/context.ts";
+import type { IntegrationRegistry } from "../../agent-integrations/contracts.ts";
 import {
-  chatDeliveryId, deliveryBackoffTicks, MAX_CONSECUTIVE_DELIVERY_FAILURES, type DeliveryInput, type DeliveryService,
+  chatDeliveryId, deliveryBackoffTicks, MAX_CONSECUTIVE_DELIVERY_FAILURES, oneShotInput, type DeliveryInput, type DeliveryService,
 } from "../../agent-integrations/delivery.ts";
-import { isDetachedAttachment, listBindingsByNativeValue } from "../../agent-integrations/session-store.ts";
+import { isDetachedAttachment, listBindingsAtPane, listBindingsByNativeValue } from "../../agent-integrations/session-store.ts";
 import type { CommandResult } from "./types.ts";
 
 export type InboxDeps = { resolve: typeof resolveInbox; deliver: typeof deliverToInbox };
@@ -378,10 +381,19 @@ async function deliverReceipt(
   deps: InboxDeps,
   log: Logger,
   args: { to: string; from: string; kind: "ack" | "claim"; text: string; messageId: number },
+  delivery?: DeliveryService,
 ): Promise<void> {
   const { to, from, kind, text, messageId } = args;
   const presence = presenceForHandle(to, db);
   if (!presence || presence.signedOutAt !== undefined) return;
+  const bound = harnessRoute(delivery, presence.sessionId, db);
+  if (bound) {
+    if (!harnessReachable(bound.delivery, bound.binding, presence.sessionId, deps)) return;
+    const id = `r-${kind}-${messageId}-${to}-${crypto.randomUUID().slice(0, 8)}`;
+    const sent = await bound.delivery.deliverPeerInput(bound.binding, oneShotInput({ id, sender: `${identityName(from, db)} (${kind})`, body: text, recipient: to }));
+    if (!sent.ok) log.warn({ to, from, id: messageId, err: sent.error.message, harness: bound.binding.native.harness }, `chat: ${kind} receipt push failed`);
+    return;
+  }
   const binding = deps.resolve(presence.sessionId);
   if (!binding || !inboxAlive(binding)) return;
   const result = await deps.deliver(binding.socketPath, wrapCrossSession(`${identityName(from, db)} (${kind})`, text));
@@ -398,10 +410,11 @@ function deliverAck(
   deps: InboxDeps,
   log: Logger,
   args: { author: string; acker: string; messageId: number; body: string },
+  delivery?: DeliveryService,
 ): Promise<void> {
   const { author, acker, messageId, body } = args;
   const text = `${identityName(acker, db)} acknowledged your message #${messageId}: "${previewBody(body)}"`;
-  return deliverReceipt(db, deps, log, { to: author, from: acker, kind: "ack", text, messageId });
+  return deliverReceipt(db, deps, log, { to: author, from: acker, kind: "ack", text, messageId }, delivery);
 }
 
 /**
@@ -415,6 +428,7 @@ async function deliverClaim(
   deps: InboxDeps,
   log: Logger,
   args: { author: string; claimer: string; messageId: number; body: string; previousHolder?: string },
+  delivery?: DeliveryService,
 ): Promise<void> {
   const { author, claimer, messageId, body, previousHolder } = args;
   const preview = previewBody(body);
@@ -426,7 +440,7 @@ async function deliverClaim(
     kind: "claim",
     text: `${claimerName} claimed your message #${messageId}${takeover}: "${preview}"`,
     messageId,
-  });
+  }, delivery);
   if (!previousHolder) return;
   await deliverReceipt(db, deps, log, {
     to: previousHolder,
@@ -434,7 +448,7 @@ async function deliverClaim(
     kind: "claim",
     text: `${claimerName} took over #${messageId} from you: "${preview}"`,
     messageId,
-  });
+  }, delivery);
 }
 
 function chainKey(room: string, handle: string): string {
@@ -812,16 +826,28 @@ async function deliverWelcomeOnce(
   deps: InboxDeps,
   sessionId: string,
   handle: string,
-  content: string,
+  welcome: Welcome,
   catchupCursors: Array<{ room: string; upToId: number }>,
+  delivery?: DeliveryService,
 ): Promise<void> {
-  const binding = deps.resolve(sessionId);
-  if (!binding || !inboxAlive(binding)) return;
-  const result = await deps.deliver(binding.socketPath, content);
-  if (!result.ok) return;
+  const bound = harnessRoute(delivery, sessionId, db);
+  if (bound) {
+    if (!harnessReachable(bound.delivery, bound.binding, sessionId, deps)) return;
+    const sent = await bound.delivery.deliverPeerInput(bound.binding, oneShotInput({ id: welcome.id, sender: WELCOME_SENDER, body: welcome.body, recipient: handle }));
+    if (!sent.ok) return;
+  } else {
+    const binding = deps.resolve(sessionId);
+    if (!binding || !inboxAlive(binding)) return;
+    const result = await deps.deliver(binding.socketPath, wrapCrossSession(WELCOME_SENDER, welcome.body));
+    if (!result.ok) return;
+  }
   for (const { room, upToId } of catchupCursors) markDelivered(room, handle, upToId, db);
   touchLastSeen(sessionId, Date.now(), db);
 }
+
+/** A welcome's text and the logical id its harness delivery goes out under; one per sign-in. */
+type Welcome = { id: string; body: string };
+const WELCOME_SENDER = "rt chat";
 
 function deliverWelcome(
   db: Database,
@@ -829,11 +855,12 @@ function deliverWelcome(
   deps: InboxDeps,
   sessionId: string,
   handle: string,
-  content: string,
+  welcome: Welcome,
   catchupCursors: Array<{ room: string; upToId: number }>,
+  delivery?: DeliveryService,
 ): Promise<void> {
   return serializeDelivery(chains, chainKey(WELCOME_CHAIN_ROOM, handle), () =>
-    deliverWelcomeOnce(db, deps, sessionId, handle, content, catchupCursors),
+    deliverWelcomeOnce(db, deps, sessionId, handle, welcome, catchupCursors, delivery),
   );
 }
 
@@ -888,16 +915,18 @@ function findPaneSession(snapshot: HerdrSnapshot, paneId: string): { sessionId: 
   return { sessionId: pane.agent_session.value, cwd: pane.foreground_cwd ?? pane.cwd };
 }
 
+/** Fills a pane's session where herdr reported none. */
+type PaneSessionFill = (pane: HerdrPane, sockPath: string | undefined) => Promise<HerdrPane>;
+
 async function findPaneSessionOrProcess(
-  herdr: typeof herdrRequest,
   snapshot: HerdrSnapshot,
   paneId: string,
   sockPath: string | undefined,
-  registryRoots: string[] | undefined,
+  fill: PaneSessionFill,
 ): Promise<{ sessionId: string; cwd?: string } | null> {
   const pane = snapshot.panes.find((p) => p.pane_id === paneId);
   if (!pane) return null;
-  return findPaneSession({ ...snapshot, panes: [await withProcessSession(herdr, pane, sockPath, registryRoots)] }, paneId);
+  return findPaneSession({ ...snapshot, panes: [await fill(pane, sockPath)] }, paneId);
 }
 
 // Mirrors pane.ts's REGISTER_BUDGET_MS/REGISTER_POLL_MS wait: a few seconds
@@ -924,18 +953,51 @@ async function findPaneSessionRetrying(
   paneId: string,
   budgetMs: number,
   pollMs: number,
-  sockPath?: string,
-  registryRoots?: string[],
+  sockPath: string | undefined,
+  lookup: PaneSessionLookup,
 ): Promise<{ ok: true; session: { sessionId: string; cwd?: string } } | { ok: false; error: string }> {
   const deadline = Date.now() + budgetMs;
   for (;;) {
     const snap = await herdr<{ snapshot: HerdrSnapshot }>("session.snapshot", {}, { sockPath });
     if (!snap.ok) return herdrError(snap);
-    const resolved = await findPaneSessionOrProcess(herdr, snap.result.snapshot, paneId, sockPath, registryRoots);
+    const resolved = await findPaneSessionOrProcess(snap.result.snapshot, paneId, sockPath, lookup.fill);
     if (resolved) return { ok: true, session: resolved };
-    if (Date.now() >= deadline) return { ok: false, error: `chat: no Claude session found for pane "${paneId}"` };
+    if (Date.now() >= deadline) return { ok: false, error: lookup.missing(paneId) };
     await Bun.sleep(pollMs);
   }
+}
+
+/** How `sign-in --pane`/`sign-out --pane` find a pane's session, and what they say when there is none. */
+type PaneSessionLookup = { fill: PaneSessionFill; missing: (pane: string) => string };
+
+/**
+ * Off, today's: herdr's report, else the pane's Claude process in Claude
+ * Code's registry. With agent.integrations.enabled on, herdr's report, else
+ * the session most recently attached at `ref` (a pane runs one session, so
+ * the newest attachment there is the current one), else the pane's process
+ * through its own harness's lookup; no harness is assumed.
+ */
+function paneSessionLookup(
+  herdr: typeof herdrRequest, db: Database, ref: string, registryRoots: string[] | undefined, integrations: IntegrationRegistry,
+): PaneSessionLookup {
+  if (!integrationsEnabled()) {
+    return {
+      fill: (pane, sockPath) => withProcessSession(herdr, pane, sockPath, registryRoots),
+      missing: (pane) => `chat: no Claude session found for pane "${pane}"`,
+    };
+  }
+  return {
+    fill: async (pane, sockPath) => {
+      if (pane.agent_session?.kind === "id") return pane;
+      const newest = listBindingsAtPane(db, ref)[0];
+      if (newest) {
+        const { native } = newest;
+        return { ...pane, agent_session: { source: "binding", agent: native.harness, kind: native.kind, value: native.value } };
+      }
+      return withIntegrationSession(herdr, pane, sockPath, pane.agent === undefined ? undefined : integrations.get(pane.agent)?.sessionForPid);
+    },
+    missing: (pane) => `chat: no agent session found for pane "${pane}"`,
+  };
 }
 
 /**
@@ -1045,6 +1107,13 @@ export function inviteText(room: string, from: string, note?: string): string {
   return body ? `${head} note from ${from}: ${body}` : head;
 }
 
+/** An invite as peer input, for a session with no typed join command: what inviteText's command asks, said in words. */
+export function inviteMessage(room: string, from: string, note?: string): string {
+  const head = `${from} invites you to #${room}. Join it with chat_join (room "${room}"), read its recent messages with chat_read (room "${room}", last 20), and post a one-line hello.`;
+  const body = note?.replace(/\s*[\r\n\u2028\u2029]+\s*/g, " ").trim();
+  return body ? `${head}\nnote from ${from}: ${body}` : head;
+}
+
 export function createChatHandlers(opts: {
   db: Database;
   emitEvent: (topic: string, payload?: unknown) => unknown;
@@ -1068,6 +1137,10 @@ export function createChatHandlers(opts: {
   deliveryChains?: Map<string, Promise<void>>;
   /** Harness delivery with persisted evidence, used only while agent.integrations.enabled is on; the same service the sweep reconciles. */
   delivery?: DeliveryService;
+  /** The harnesses a pane's session or an invite is routed through while agent.integrations.enabled is on; the built-in ones by default. */
+  integrations?: IntegrationRegistry;
+  /** A bound session's observed state, before an invite reaches it as peer input; its integration's own observation by default. */
+  observeSession?: (binding: SessionBinding) => Promise<Observation | null>;
 }): {
   // A mapped type over CHAT_COMMANDS with a direct `unknown` payload, not
   // `Pick<TypedHandlers, ...>`: a wider `unknown` param still satisfies
@@ -1091,6 +1164,46 @@ export function createChatHandlers(opts: {
   // Also shared with the delivery sweep when the caller passes one in, so a
   // sweep re-delivery chains behind rather than races an in-flight post.
   const deliveryChains = opts.deliveryChains ?? new Map<string, Promise<void>>();
+  const integrations = opts.integrations ?? builtinRegistry();
+  const observeSession = opts.observeSession ?? (async (binding: SessionBinding): Promise<Observation | null> => {
+    const sessions = await integrations.get(binding.native.harness)?.loadSessions?.();
+    const seen = sessions ? await sessions.observe(binding) : null;
+    return seen?.ok ? seen.data : null;
+  });
+
+  /**
+   * With agent.integrations.enabled on, an invite to a pane whose current
+   * session (the one most recently attached there) belongs to a harness
+   * without typed pane input reaches it as peer input through its messaging.
+   * A session blocked on a question is refused, never typed into: the invite
+   * would land in the question form. Null keeps herdr's typed prompt, Claude
+   * Code's composer-preserving path.
+   */
+  async function inviteThroughMessaging(
+    ref: string, room: string, from: string, note: string | undefined,
+  ): Promise<{ ok: true; data: InjectResult } | { ok: false; error: string } | null> {
+    if (!opts.delivery || !integrationsEnabled()) return null;
+    const binding = listBindingsAtPane(db, ref)[0];
+    if (!binding) return null;
+    const integration = integrations.get(binding.native.harness);
+    if (!integration || integration.typedPaneInput) return null;
+    const refused = (reason: string) => ({ ok: true as const, data: { paneId: ref, delivered: "refused" as const, reason } });
+    if (!harnessReachable(opts.delivery, binding, binding.native.value, inboxDeps)) return refused("not connected");
+    let seen: Observation | null = null;
+    try {
+      seen = await observeSession(binding);
+    } catch (err) {
+      log.warn({ err, harness: binding.native.harness }, "chat: invite could not observe the session; sending it anyway");
+    }
+    if (seen?.execution === "blocked") return refused("at a prompt");
+    const fromName = identityName(from, db);
+    const body = inviteMessage(room, fromName, note);
+    const sent = await opts.delivery.deliverPeerInput(binding, oneShotInput({
+      id: `i-${room}-${crypto.randomUUID()}`, sender: fromName, body, recipient: binding.identity,
+    }));
+    if (!sent.ok) return refused(sent.error.message);
+    return { ok: true, data: { paneId: ref, delivered: sent.data.evidence === "queued" ? "queued" : "accepted" } };
+  }
   const resolveMention = (m: string): string => (m === "here" ? m : resolveHandle(m, db));
   const namesOf = (ids: string[]): string[] => {
     const names = identityNames(ids, db);
@@ -1110,7 +1223,9 @@ export function createChatHandlers(opts: {
       const handle = resolveHandle(payload.handle, db);
       try {
         const data = joinRoom({ room, handle, wakeOn, cwd, pane }, db);
-        return { ok: true, data: { ...data, name: identityName(data.handle, db) } };
+        // With agent.integrations.enabled on, a member's own posts never count as unread to it.
+        const unread = integrationsEnabled() ? unreadFromOthers(room, data.handle, db) : data.unread;
+        return { ok: true, data: { ...data, unread, name: identityName(data.handle, db) } };
       } catch (err) {
         return failureFrom(err);
       }
@@ -1179,7 +1294,7 @@ export function createChatHandlers(opts: {
       if (!res.already) {
         const { author, body } = res;
         queueMicrotask(() => {
-          deliverAck(db, inboxDeps, log, { author, acker: handle, messageId: id, body }).catch((err) => {
+          deliverAck(db, inboxDeps, log, { author, acker: handle, messageId: id, body }, opts.delivery).catch((err) => {
             log.warn({ err, id, handle }, "chat: ack delivery failed");
           });
         });
@@ -1210,7 +1325,7 @@ export function createChatHandlers(opts: {
       const { author, room, body, previousHolder } = res;
       const authorName = identityName(author, db);
       queueMicrotask(() => {
-        deliverClaim(db, inboxDeps, log, { author, claimer: handle, messageId: id, body, previousHolder }).catch((err) => {
+        deliverClaim(db, inboxDeps, log, { author, claimer: handle, messageId: id, body, previousHolder }, opts.delivery).catch((err) => {
           log.warn({ err, id, handle }, "chat: claim delivery failed");
         });
       });
@@ -1345,7 +1460,8 @@ export function createChatHandlers(opts: {
       if (viaPane) {
         if (!pane) return { ok: false, error: "chat: sign-in --pane requires a pane id" };
         const { paneId: paneRef, sockPath } = resolvePaneRef(pane);
-        const resolved = await findPaneSessionRetrying(herdr, paneRef, paneSessionBudgetMs, paneSessionPollMs, sockPath, claudeRegistryRoots);
+        const lookup = paneSessionLookup(herdr, db, pane, claudeRegistryRoots, integrations);
+        const resolved = await findPaneSessionRetrying(herdr, paneRef, paneSessionBudgetMs, paneSessionPollMs, sockPath, lookup);
         if (!resolved.ok) return resolved;
         sessionId = resolved.session.sessionId;
         if (signInCwd === undefined) signInCwd = resolved.session.cwd;
@@ -1434,10 +1550,10 @@ export function createChatHandlers(opts: {
         r.messages.map((m) => ({ handle: m.handle, name: m.name, room: r.room, passedOn: resolveHandle(m.handle, db) !== m.handle })),
       );
       const catchupCursors = peeked.map((r) => ({ room: r.room, upToId: r.messages[r.messages.length - 1]!.id }));
-      const welcomeContent = wrapCrossSession("rt chat", renderWelcome(data.name, rooms, catchup, senders));
+      const welcome: Welcome = { id: `w-${data.handle}-${crypto.randomUUID()}`, body: renderWelcome(data.name, rooms, catchup, senders) };
       const welcomeSessionId = sessionId;
       queueMicrotask(() => {
-        deliverWelcome(db, deliveryChains, inboxDeps, welcomeSessionId, data.handle, welcomeContent, catchupCursors).catch((err) => {
+        deliverWelcome(db, deliveryChains, inboxDeps, welcomeSessionId, data.handle, welcome, catchupCursors, opts.delivery).catch((err) => {
           log.warn({ err, handle: data.handle }, "chat: welcome delivery failed");
         });
       });
@@ -1460,8 +1576,9 @@ export function createChatHandlers(opts: {
         const { paneId: paneRef, sockPath } = resolvePaneRef(payload.pane);
         const snap = await herdr<{ snapshot: HerdrSnapshot }>("session.snapshot", {}, { sockPath });
         if (!snap.ok) return herdrError(snap);
-        const resolved = await findPaneSessionOrProcess(herdr, snap.result.snapshot, paneRef, sockPath, claudeRegistryRoots);
-        if (!resolved) return { ok: false, error: `chat: no Claude session found for pane "${payload.pane}"` };
+        const lookup = paneSessionLookup(herdr, db, payload.pane, claudeRegistryRoots, integrations);
+        const resolved = await findPaneSessionOrProcess(snap.result.snapshot, paneRef, sockPath, lookup.fill);
+        if (!resolved) return { ok: false, error: lookup.missing(payload.pane) };
         sessionId = resolved.sessionId;
       }
       if (!sessionId) return { ok: false, error: "chat: sign-out requires a sessionId or --pane" };
@@ -1525,7 +1642,9 @@ export function createChatHandlers(opts: {
       if (!isValidChatName(room)) return { ok: false, error: `invalid room "${room}"` };
       if (!isValidChatName(from)) return { ok: false, error: `invalid handle "${from}"` };
       const resolved = resolvePaneRef(paneId);
-      const res = await injectIntoPane({ paneId: resolved.paneId, text: inviteText(room, identityName(from, db), note), callerPane, herdr, sockPath: resolved.sockPath });
+      if (isCallerPane(resolved.paneId, resolved.sockPath, callerPane)) return { ok: true, data: { paneId, delivered: "refused", reason: "that is this pane" } };
+      const res = (await inviteThroughMessaging(paneId, room, from, note))
+        ?? await injectIntoPane({ paneId: resolved.paneId, text: inviteText(room, identityName(from, db), note), callerPane, herdr, sockPath: resolved.sockPath });
       if (!res.ok) return res;
       // Round-trip: echo the ref the caller addressed, not the bare id.
       return { ok: true, data: { ...res.data, paneId } };

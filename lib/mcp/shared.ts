@@ -7,7 +7,7 @@
 import { chatBuddies, herdList } from "../../packages/rt-client/src/index.ts";
 import type { RtResponse } from "../../packages/rt-client/src/index.ts";
 import type { CallerContext, Outcome } from "../../packages/rt-client/src/agent-integrations.ts";
-import { integrationsEnabled, type CallerEvidence } from "../agent-integrations/context.ts";
+import { integrationsEnabled, lendsPaneIdentity, type CallerEvidence } from "../agent-integrations/context.ts";
 import { readChatSession, sessionName, type ChatSession } from "../chat-session.ts";
 import { explainError } from "../explain-error.ts";
 import { selfPaneRef } from "../self-pane.ts";
@@ -203,12 +203,15 @@ const PANE_LOOKUP_TIMEOUT_MS = 2000;
  * No derived-handle fallback: a tool call with no signed-in identity is a
  * hard error, unlike the CLI's resolveHandle. With no session file for this
  * session id, the live identity signed in at this herdr pane stands in: a
- * forked or resumed session keeps its pane but not its session file.
+ * forked or resumed session keeps its pane but not its session file. With
+ * agent.integrations.enabled on, an identity a bound session holds is never
+ * lent this way (lendsPaneIdentity).
  */
 export async function requireChatHandle(
   env: NodeJS.ProcessEnv,
   read: (id: string | undefined) => ChatSession | null = readChatSession,
   buddies: ChatBuddiesFn = chatBuddies,
+  lends: (sessionId: string) => boolean = (id) => lendsPaneIdentity(id),
 ): Promise<{ handle: string; name: string; sessionId: string } | { error: string }> {
   const session = read(env.CLAUDE_CODE_SESSION_ID);
   if (session) return { handle: session.handle, name: sessionName(session), sessionId: session.sessionId };
@@ -216,7 +219,7 @@ export async function requireChatHandle(
   if (!pane) return { error: SIGN_IN_HINT };
   const res = await buddies({ timeoutMs: PANE_LOOKUP_TIMEOUT_MS });
   const row = res.ok ? res.data?.buddies.find((b) => b.pane === pane && b.status !== "offline") : undefined;
-  if (!row) return { error: SIGN_IN_HINT };
+  if (!row || !lends(row.sessionId)) return { error: SIGN_IN_HINT };
   return { handle: row.handle, name: row.name ?? row.handle, sessionId: row.sessionId };
 }
 
@@ -232,9 +235,10 @@ export async function callerChatHandle(
   context?: ToolContext,
   read: (id: string | undefined) => ChatSession | null = readChatSession,
   buddies: ChatBuddiesFn = chatBuddies,
+  lends?: (sessionId: string) => boolean,
 ): Promise<{ handle: string; name: string; sessionId?: string } | { error: string }> {
   const caller = await boundCaller(context);
-  if (caller === null) return requireChatHandle(env, read, buddies);
+  if (caller === null) return requireChatHandle(env, read, buddies, lends);
   if (!caller.ok) return { error: callerRefusal(caller.error) };
   const sessionId = caller.data.binding.native.value;
   const session = read(sessionId);

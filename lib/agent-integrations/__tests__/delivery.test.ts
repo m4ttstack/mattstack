@@ -11,7 +11,7 @@ import { setSetting } from "../../settings/write.ts";
 import { listMessages, openStateDb, signIn, type RegistryDeps } from "../../state/index.ts";
 import type { MessageAdapter } from "../contracts.ts";
 import {
-  chatDeliveryId, createDeliveryService, DELIVERY_SWEEP_INTERVAL_MS, deliveryBackoffTicks, MAX_DELIVERY_BACKOFF_TICKS,
+  chatDeliveryId, createDeliveryService, DELIVERY_SWEEP_INTERVAL_MS, deliveryBackoffTicks, MAX_DELIVERY_BACKOFF_TICKS, oneShotInput,
   type DeliveryDeps, type DeliveryInput,
 } from "../delivery.ts";
 import { readDelivery, recordAttempt, type DeliveryRow } from "../delivery-store.ts";
@@ -293,6 +293,27 @@ describe("delivery evidence", () => {
     expect(messaging.submits.map((s) => s.input.id)).toEqual([ids[1]!, later]);
     expect(row(db, ids[0]!)).toMatchObject({ frameId: later, attempts: 2 });
     expect(await service.deliverPeerInput(binding, peer("x", { constituents: [{ id: ids[0]! }] }))).toMatchObject({ ok: false, error: { code: "invalid" } });
+  });
+});
+
+describe("one-shot deliveries", () => {
+  test("a welcome, receipt or invite that fails gets its one retry and is never scheduled again, since no room log owes it", async () => {
+    const db = openStateDb(dbPath());
+    const binding = bindSession(db, "T1");
+    const messaging = fakeMessaging({ submit: () => fault("transient") });
+    const { service, clock, sleeps } = harness(db, messaging);
+    const sent = await service.deliverPeerInput(binding, oneShotInput({ id: "w-remy-1", sender: "rt chat", body: "welcome", recipient: "remy" }));
+    expect(sent.ok).toBe(false);
+    expect(messaging.submits).toHaveLength(2);
+    expect(sleeps).toEqual([300]);
+    expect(row(db, "w-remy-1")).toMatchObject({ state: "pending", room: "#once" });
+
+    clock.now += DELIVERY_SWEEP_INTERVAL_MS;
+    expect(await service.reconcileDeliveries(clock.now)).toEqual({ retried: 0, ambiguous: 0 });
+    expect(row(db, "w-remy-1").nextAttemptAt).toBeUndefined();
+    clock.now += 10 * DELIVERY_SWEEP_INTERVAL_MS;
+    expect(await service.reconcileDeliveries(clock.now)).toEqual({ retried: 0, ambiguous: 0 });
+    expect(messaging.submits).toHaveLength(2);
   });
 });
 

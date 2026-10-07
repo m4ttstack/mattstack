@@ -27,6 +27,7 @@ import { formatPaneRef } from "../../packages/rt-client/src/pane-ref.ts";
 import { getAgent, updateAgentPane, updateAgentSessionId } from "../state/agents-store.ts";
 import { getStateDb } from "../state/db.ts";
 import { admit } from "./admission.ts";
+import { applySessionPresence, type PresenceEvent } from "./presence.ts";
 import { builtinRegistry } from "./builtins.ts";
 import {
   createObservationSweep,
@@ -70,6 +71,8 @@ export type LauncherDeps = {
   store: SessionStore;
   syncAgent(db: Database, binding: SessionBinding, surface?: LaunchSurface): void;
   now(): number;
+  /** The shared chat presence service, told each lifecycle event a launch observes. */
+  presence(binding: SessionBinding, event: PresenceEvent): Promise<void>;
 };
 
 type PolicyReady = { adapter: PolicyAdapter; prepared: PreparedPolicy };
@@ -185,6 +188,7 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     store: overrides.store ?? createSessionStore(db),
     syncAgent: overrides.syncAgent ?? syncAgentRecord,
     now: overrides.now ?? Date.now,
+    presence: overrides.presence ?? ((binding, event) => applySessionPresence(binding, event, { db })),
   };
   const { store, registry, claimToken } = deps;
   /** The launch each binding was prepared by in this process, handed to its first work submission. */
@@ -193,6 +197,15 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
   const madeHere = new Map<string, NativeLaunch>();
 
   const flight = (...parts: string[]) => [claimToken, ...parts].join("\0");
+
+  /** Presence follows the binding; a failure there never fails the launch that made the session. */
+  async function observed(binding: SessionBinding, event: PresenceEvent): Promise<void> {
+    try {
+      await deps.presence(binding, event);
+    } catch (err) {
+      void warnOnce("chat presence could not follow a session's launch", { key: binding.key, event, err: messageOf(err) });
+    }
+  }
 
   function foreignSessionEnv(harness: string): string[] {
     return registry.list().filter((i) => i.id !== harness).flatMap((i) => [...(i.sessionEnv ?? [])]);
@@ -240,6 +253,7 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
     if (!bound.ok) return bound;
     madeHere.delete(reservationId);
     deps.syncAgent(db, bound.data, made.surface);
+    await observed(bound.data, kind === "resume" ? "resume" : "start");
     return finish(integration, bound.data, request, kind, made.surface, policy);
   }
 
@@ -401,6 +415,7 @@ export function createBoundLauncher(overrides: Partial<LauncherDeps> = {}): Boun
       const moved = store.replaceAttachment(current.key, current.attachment.generation, attachment);
       if (moved.ok) {
         bound = moved.data;
+        await observed(bound, launch?.kind === "resume" ? "resume" : "start");
         const readiness = readBindingReadiness(db, current.key);
         if (readiness && policyNeeded(readiness.required).length === 0) markBindingReady(db, current.key, bound.attachment.generation, readiness.required);
       } else {

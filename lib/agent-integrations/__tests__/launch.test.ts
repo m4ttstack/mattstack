@@ -767,3 +767,36 @@ describe("a Codex folder-trust refusal", () => {
     }
   });
 });
+
+describe("chat presence follows the launches the launcher binds", () => {
+  test("a launch reports start and a resume reports resume, each with the binding's current attachment", async () => {
+    const { integration } = fake();
+    const store = createSessionStore(db);
+    const events: Array<{ event: string; key: string; generation: number; pane?: string }> = [];
+    const launcher = createBoundLauncher({
+      db, registry: createRegistry([integration]), claimToken: "proc-A",
+      presence: async (binding, event) => {
+        events.push({ event, key: binding.key, generation: binding.attachment.generation, pane: binding.attachment.pane });
+      },
+    });
+    const launched = data(await launcher.launchBoundAgent(request(store.reserve({ identity: "remy" }))));
+    const resumed = data(await launcher.launchBoundAgent(request(store.reserve({ identity: "remy" }), { resumeKey: launched.key })));
+    expect(events).toEqual([
+      { event: "start", key: launched.key, generation: launched.attachment.generation, pane: "w1:p1" },
+      { event: "resume", key: launched.key, generation: resumed.attachment.generation, pane: "w2:p9" },
+    ]);
+    expect(resumed.attachment.generation).toBe(launched.attachment.generation + 1);
+  });
+
+  test("a presence failure never fails the launch that made the session", async () => {
+    const { integration } = fake();
+    const launcher = createBoundLauncher({
+      db, registry: createRegistry([integration]), claimToken: "proc-A",
+      presence: async () => {
+        throw new Error("presence is down");
+      },
+    });
+    const launched = data(await launcher.launchBoundAgent(request(createSessionStore(db).reserve({ identity: "remy" }))));
+    expect(launched.native.value).toBe("T1");
+  });
+});

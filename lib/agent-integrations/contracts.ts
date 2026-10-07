@@ -200,6 +200,12 @@ export type HarnessIntegration = {
    * harness's transport has no connection to wait for.
    */
   readonly messagingConnection?: () => string | null;
+  /**
+   * Input typed into the session's pane, an invite's join command, is
+   * prompted there through herdr, which keeps a draft in the composer. Absent,
+   * such input reaches the session as peer input through its messaging.
+   */
+  readonly typedPaneInput?: boolean;
   capabilities(mode: Mode): Promise<CapabilityReport>;
   validateOptions(options: AgentOptions): Outcome<AgentOptions>;
   options(): Promise<OptionDescriptor[]>;

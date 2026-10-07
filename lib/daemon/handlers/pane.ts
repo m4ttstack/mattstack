@@ -267,7 +267,11 @@ export function createPaneHandlers(opts: {
       if (!known) return { ok: false, error: `unknown cswap account "${account}"` };
     }
     const repo = repoKeyForCwd(cwd);
-    if (!repo) return { ok: false, error: `${cwd} is not in a repo rt knows, so pane:spawn cannot record the agent it starts there` };
+    if (!repo) {
+      // Shown as-is by the chat viewer's new-agent form, so it says what to do, and `failure` lets the app tell this refusal from a daemon fault.
+      const message = `${cwd} is not in a repository rt knows, so no agent can start there. Pick a folder inside a repository rt tracks.`;
+      return { ok: false, error: message, failure: { code: "repo-unknown", message } };
+    }
     const label = payload.workspace ?? getSetting<string>("chat.herdrWorkspace").value ?? "chat";
     const started = await startAgent({
       repo, cwd, surface: "herdr", provider: payload.provider ?? DEFAULT_PANE_HARNESS,
