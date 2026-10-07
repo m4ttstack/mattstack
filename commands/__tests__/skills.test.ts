@@ -1027,6 +1027,17 @@ describe("base pack attachments", () => {
     expect(existsSync(kit(packDir))).toBe(false);
   });
 
+  test("a relative link onto a base attachment does not warn on the compile that first writes it", async () => {
+    const linked = DOMAIN_SKILL_MD.replace(/\n$/, "\nRead `../../attachments/review-kit/SKILL.md` first.\n");
+    const { packDir, compile } = seedBaseAndTeam({ domainBody: linked });
+    io.clear();
+
+    expect((await compile()).errors).toEqual([]);
+
+    expect(existsSync(kit(packDir, "SKILL.md"))).toBe(true);
+    expect(io.stdout() + io.stderr()).not.toContain("not an emitted file");
+  });
+
   test("a team's own folder wins", async () => {
     const { baseDir, packDir, compile } = seedBaseAndTeam();
     writeFile(kit(packDir, "SKILL.md"), "team copy\n");

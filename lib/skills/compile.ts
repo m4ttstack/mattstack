@@ -131,13 +131,25 @@ function escapesPackRoot(layout: CompiledLayout, relPath: string): boolean {
  * `check` can disagree across a file add or removal, and a scoped `--verb` run
  * has fewer target dirs to match against than a whole-pack run.
  */
-function packSatisfies(layout: CompiledLayout, relPath: string, emittedTargetDirs: string[]): boolean {
+function packSatisfies(layout: CompiledLayout, relPath: string, emittedTargetDirs: string[], planned?: PlannedAttachments): boolean {
   const abs = resolvePath(layout.compiledDir, relPath);
   if (existsSync(abs)) return true;
+  if (plannedFile(layout, abs, planned)) return true;
   return emittedTargetDirs.some((dir) => {
     const target = resolvePath(dir);
     return abs === target || abs.startsWith(`${target}${sep}`);
   });
+}
+
+/** Base attachments are written before any target, so the plan, not the disk, says what they will hold. */
+function plannedFile(layout: CompiledLayout, abs: string, planned?: PlannedAttachments): boolean {
+  if (!planned) return false;
+  const rel = relativePath(join(layout.packRoot, "attachments"), abs);
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return false;
+  for (const [unit, files] of planned) {
+    if (rel.startsWith(`${unit}${sep}`) && files.has(rel.slice(unit.length + 1))) return true;
+  }
+  return false;
 }
 
 /** rt's own namespace, always linted even when no pack is installed. */
@@ -428,6 +440,7 @@ function lintReferences(
     exemptPaths?: string[];
     layout?: CompiledLayout | null;
     emittedTargetDirs?: string[];
+    plannedAttachments?: PlannedAttachments;
   },
 ): string[] {
   const warnings: string[] = [];
@@ -459,7 +472,7 @@ function lintReferences(
     if (!namesFile || seenPaths.has(text)) continue;
     seenPaths.add(text);
     if (kind === "token" && (exemptPrefixes.some((p) => text.startsWith(p)) || exemptPaths.includes(text))) continue;
-    if (kind === "relative" && opts.layout && packSatisfies(opts.layout, relPath, emittedTargetDirs)) continue;
+    if (kind === "relative" && opts.layout && packSatisfies(opts.layout, relPath, emittedTargetDirs, opts.plannedAttachments)) continue;
     if (!emittedPaths.has(relPath)) {
       warnings.push(
         kind === "asset"
@@ -579,6 +592,7 @@ export function compileSkill(
       exemptPaths: packPaths,
       layout,
       emittedTargetDirs: opts.emittedTargetDirs ?? [],
+      plannedAttachments: opts.plannedAttachments,
     }),
     ...notes,
   ];
