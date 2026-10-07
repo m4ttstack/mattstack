@@ -890,8 +890,63 @@ describe("org.folder row", () => {
     });
     const r = orgFolderRow(p, ["widgets"]);
     expect(r?.status).toBe("error");
-    expect(r?.detail).toContain("acme");
-    expect(r?.detail).toContain("widgets");
+    expect(r?.detail).toContain("~/.mattstack/orgs/widgets");
+    expect(r?.detail).toContain("~/.mattstack/orgs/acme");
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["Run: rt setup update --force"] });
+  });
+
+  test("error lists every mismatched org with both paths", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/widgets/mattstack/mattstack.jsonc": marker("acme"),
+        "/h/.mattstack/orgs/gadgets/mattstack/mattstack.jsonc": marker("dev1"),
+      },
+      dirs: { "/h/.mattstack/orgs": ["widgets", "gadgets"], "/h/.mattstack/teams": [] },
+    });
+    const r = orgFolderRow(p, ["widgets", "gadgets"]);
+    expect(r?.status).toBe("error");
+    for (const path of ["~/.mattstack/orgs/widgets", "~/.mattstack/orgs/acme", "~/.mattstack/orgs/gadgets", "~/.mattstack/orgs/dev1"]) {
+      expect(r?.detail).toContain(path);
+    }
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["Run: rt setup update --force"] });
+  });
+
+  test("an old role: team marker with an org field under teams/ reads needs-you", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: { "/h/.mattstack/teams/acme/mattstack/mattstack.jsonc": JSON.stringify({ role: "team", org: "acme" }) },
+      dirs: { "/h/.mattstack/orgs": [], "/h/.mattstack/teams": ["acme"] },
+    });
+    expect(orgFolderRow(p, [])?.status).toBe("needs-you");
+  });
+
+  test.each([
+    ["another role", JSON.stringify({ role: "member", org: "acme" })],
+    ["no role", JSON.stringify({ org: "acme" })],
+    ["an org that fails the slug rule", JSON.stringify({ role: "org", org: "Acme Org" })],
+    ["a malformed marker", "{ role: org"],
+  ])("a marker with %s under teams/ is ignored", (_label, text) => {
+    const p = fakeProbes({
+      home: "/h",
+      files: { "/h/.mattstack/teams/acme/mattstack/mattstack.jsonc": text },
+      dirs: { "/h/.mattstack/orgs": [], "/h/.mattstack/teams": ["acme"] },
+    });
+    expect(orgFolderRow(p, [])).toBeNull();
+  });
+
+  test("error when a renamed old copy under teams/ holds an org already under orgs/", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": marker("acme"),
+        "/h/.mattstack/teams/acme-old/mattstack/mattstack.jsonc": marker("acme"),
+      },
+      dirs: { "/h/.mattstack/orgs": ["acme"], "/h/.mattstack/teams": ["acme-old"] },
+    });
+    const r = orgFolderRow(p, ["acme"]);
+    expect(r?.status).toBe("error");
+    expect(r?.detail).toContain("~/.mattstack/teams/acme-old");
   });
 
   test("error when the same clone sits in both roots", () => {
