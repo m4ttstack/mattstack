@@ -4,7 +4,7 @@ import { execFileSync } from "child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { compilePackAll, computeRows, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsDiscard, skillsMaterialize, skillsPacks, type DiscardIo } from "../skills.ts";
+import { checkPack, compilePackAll, computeRows, installedInfoFor, skillsAnatomy, skillsChanges, skillsCheck, skillsCompile, skillsComposition, skillsDiscard, skillsMaterialize, skillsPacks, type DiscardIo } from "../skills.ts";
 import { compileSkill } from "../../lib/skills/compile.ts";
 import { materializeRepo, type MaterializeFs } from "../../lib/skills/materialize.ts";
 import { invocableRoster, loadAttachment, loadStepSource } from "../../lib/skills/sources.ts";
@@ -1169,6 +1169,99 @@ describe("base pack attachments", () => {
 
     expect(errors).toEqual([]);
     expect(io.lines().join("\n")).toContain("attachments/review-kit/references/guide.md");
+  });
+
+  describe("check", () => {
+    const inSync = { name: "review-kit", base: "acme-base", status: "in-sync" as const, staleFiles: [] as string[], orphanFiles: [] as string[] };
+    const guide = (baseDir: string) => join(baseDir, "attachments", "review-kit", "references", "guide.md");
+
+    test("check is clean right after a compile", async () => {
+      const { mattstackDir, packDir, compile } = seedBaseAndTeam();
+      await compile();
+
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.attachments).toEqual([inSync]);
+      expect(payload.drift).toBe(false);
+    });
+
+    test("a base change is drift", async () => {
+      const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
+      await compile();
+      writeFileSync(guide(baseDir), readFileSync(guide(baseDir), "utf8") + "One more line.\n");
+
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.attachments).toEqual([{ ...inSync, status: "stale", staleFiles: ["references/guide.md"] }]);
+      expect(payload.drift).toBe(true);
+    });
+
+    test("a base file removed is an orphan; a base version bump alone is not drift", async () => {
+      const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
+      await compile();
+      writeFile(join(baseDir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme-base", version: "2.0.0" }));
+
+      expect((await checkPack({ packDir, mattstackDir })).attachments).toEqual([inSync]);
+
+      rmSync(join(baseDir, "attachments", "review-kit", "scripts", "run.sh"));
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.attachments).toEqual([{ ...inSync, status: "stale", staleFiles: ["compiled.json"], orphanFiles: ["scripts/run.sh"] }]);
+      expect(payload.drift).toBe(true);
+    });
+
+    test("never compiled and orphaned", async () => {
+      const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
+
+      expect((await checkPack({ packDir, mattstackDir })).attachments).toEqual([{ ...inSync, status: "never-compiled" }]);
+
+      await compile();
+      rmSync(join(baseDir, "attachments", "review-kit"), { recursive: true });
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.attachments).toEqual([{
+        name: "review-kit",
+        base: null,
+        status: "orphaned",
+        staleFiles: [],
+        orphanFiles: ["SKILL.md", "compiled.json", "references/guide.md", "scripts/run.sh"],
+      }]);
+      expect(payload.drift).toBe(true);
+    });
+
+    test("the human output names drift and the fix", async () => {
+      const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
+      await compile();
+      writeFileSync(guide(baseDir), readFileSync(guide(baseDir), "utf8") + "One more line.\n");
+      io.clear();
+
+      await skillsCheck(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir]);
+
+      const shown = io.stdout();
+      expect(shown).toContain("review-kit");
+      expect(shown).toContain("changed since the last compile: references/guide.md");
+      expect(shown).toContain("rt skills compile");
+      expect(process.exitCode).toBe(1);
+    });
+
+    test("run leftovers are not drift", async () => {
+      const { mattstackDir, packDir, compile } = seedBaseAndTeam();
+      await compile();
+      writeFile(kit(packDir, "scripts", "__pycache__", "run.cpython-312.pyc"), "bytes");
+      writeFile(kit(packDir, ".DS_Store"), "bytes");
+
+      const payload = await checkPack({ packDir, mattstackDir });
+
+      expect(payload.attachments).toEqual([inSync]);
+      expect(payload.drift).toBe(false);
+    });
+
+    test("a plan error fails check", async () => {
+      const { mattstackDir, baseDir, packDir } = seedBaseAndTeam();
+      writeFile(join(baseDir, "attachments", "watch-ci", "SKILL.md"), "---\nname: watch-ci\n---\nbase copy\n");
+
+      await expect(checkPack({ packDir, mattstackDir })).rejects.toThrow("has the same name as the widgets verb watch-ci");
+    });
   });
 
   test("a pack that never extends keeps a hand-authored compiled.json", async () => {

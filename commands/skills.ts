@@ -48,7 +48,7 @@ import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
 import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { validateChain } from "../lib/skills/chain.ts";
-import { isEmittedAttachmentDir, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan } from "../lib/skills/base-attachments.ts";
+import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan } from "../lib/skills/base-attachments.ts";
 import { compileSkill, hasCompiledHeader, isInlined } from "../lib/skills/compile.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
@@ -1223,6 +1223,14 @@ export function installedInfoFor(
   return { plugin: self.name, marketplace, version, sourceVersion: self.version, status };
 }
 
+type AttachmentCheckRow = {
+  name: string;
+  base: string | null;
+  status: "in-sync" | "stale" | "never-compiled" | "orphaned";
+  staleFiles: string[];
+  orphanFiles: string[];
+};
+
 export type CheckPayload = {
   pack: string;
   packDir: string;
@@ -1233,7 +1241,49 @@ export type CheckPayload = {
   mcpLint: LintHit[];
   scriptLint: LintHit[];
   strictLint: boolean;
+  attachments: AttachmentCheckRow[];
 };
+
+/** Files a run leaves beside the copy (a script's __pycache__, a git-ignored output) are not drift, matching the verb rows. */
+function leftovers(packDir: string, name: string): string[] {
+  const rel = join("attachments", name);
+  const files = listFilesRecursive(join(packDir, rel)).filter((f) => !isSkippedAttachmentPath(f));
+  const ignored = gitIgnoredFiles(packDir, files.map((f) => join(rel, f)));
+  return files.filter((f) => !ignored.has(join(rel, f))).sort();
+}
+
+function attachmentRows(packDir: string, plan: BaseAttachmentPlan): AttachmentCheckRow[] {
+  const rows: AttachmentCheckRow[] = [];
+  for (const emit of plan.emits) {
+    const dir = join(packDir, "attachments", emit.name);
+    const base = plan.base!.name;
+    if (!existsSync(dir)) {
+      rows.push({ name: emit.name, base, status: "never-compiled", staleFiles: [], orphanFiles: [] });
+      continue;
+    }
+    const staleFiles: string[] = [];
+    for (const file of emit.files) {
+      const dest = join(dir, file.path);
+      if (!existsSync(dest)) {
+        staleFiles.push(file.path);
+        continue;
+      }
+      if (file.path === PROVENANCE_FILE && "content" in file) {
+        if (maskProvenanceVersion(readFileSync(dest, "utf8")) !== maskProvenanceVersion(file.content)) staleFiles.push(file.path);
+        continue;
+      }
+      const expected = "content" in file ? Buffer.from(file.content) : readFileSync(file.copyFrom);
+      if (!readFileSync(dest).equals(expected)) staleFiles.push(file.path);
+    }
+    const expected = new Set(emit.files.map((f) => f.path));
+    const orphanFiles = leftovers(packDir, emit.name).filter((f) => !expected.has(f));
+    rows.push({ name: emit.name, base, status: staleFiles.length > 0 || orphanFiles.length > 0 ? "stale" : "in-sync", staleFiles, orphanFiles });
+  }
+  for (const s of plan.stale) {
+    rows.push({ name: s.name, base: null, status: "orphaned", staleFiles: [], orphanFiles: leftovers(packDir, s.name) });
+  }
+  return rows;
+}
 
 async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const resolved = await resolve(flags);
@@ -1254,6 +1304,8 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   // Lint accepts a relative path to any KNOWN target, not only emitted ones: a
   // scoped compile still renders {{verb.path}} to siblings it is not writing.
   const emittedTargetDirs = knownTargetDirs;
+  const plan = requireBasePlan(resolved, verbSides);
+  const planned = plannedAttachmentsOf(plan);
 
   for (const target of targets) {
     const { verb, isPublic } = target;
@@ -1266,7 +1318,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
       continue;
     }
 
-    const result = compileVerb(target, resolved, emittedTargetDirs, verbSides);
+    const result = compileVerb(target, resolved, emittedTargetDirs, verbSides, undefined, planned);
     const staleFiles: string[] = [];
     const orphanFiles: string[] = [];
     const expectedPaths = new Set(result.files.map((f) => f.path));
@@ -1325,7 +1377,10 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const scriptLint = lintPackScripts(resolved.packDir, rules);
   const strictLint = packStrictLint(resolved.packDir);
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint };
+  const attachments = flags.verbs === null ? attachmentRows(resolved.packDir, plan) : [];
+  if (attachments.some((row) => row.status !== "in-sync")) anyStale = true;
+
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -1365,6 +1420,21 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
       blocks.push(out.line("done", row.name, "current"));
     }
   }
+  for (const row of payload.attachments) {
+    if (row.status === "in-sync") {
+      blocks.push(out.line("done", row.name, `copied from ${row.base}, current`));
+      continue;
+    }
+    stale = true;
+    if (row.status === "never-compiled") {
+      blocks.push(out.line("stale", row.name, `not copied from ${row.base} yet`));
+    } else if (row.status === "orphaned") {
+      blocks.push(out.line("stale", row.name, "its base no longer has it"));
+    } else {
+      const files = [...row.staleFiles, ...row.orphanFiles.map((f) => `${f} (orphan)`)].join(", ");
+      blocks.push(out.line("stale", row.name, `changed since the last compile: ${files}`));
+    }
+  }
   if (stale) blocks.push(out.callout("next", out.cmd("rt skills compile")));
   if (payload.installed) blocks.push(...installedCacheBlocks(payload.installed));
 
@@ -1395,8 +1465,8 @@ export async function skillsCheck(args: string[]): Promise<void> {
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
-      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint } = payload;
-      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint });
+      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments } = payload;
+      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments });
       return;
     }
     out.print(...checkBlocks(payload, flags.strict));

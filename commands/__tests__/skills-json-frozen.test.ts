@@ -45,12 +45,12 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-test("skills check --json is the check payload minus drift, in this key order", async () => {
+test("skills check --json is the check payload minus drift, in this key order, with attachments last", async () => {
   const dir = makePack();
-  const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint } = await checkPack({ packDir: dir });
+  const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments } = await checkPack({ packDir: dir });
   io.clear();
   await skillsCheck(["--pack-dir", dir, "--json"]);
-  expect(io.stdout()).toBe(JSON.stringify({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint }) + "\n");
+  expect(io.stdout()).toBe(JSON.stringify({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments }) + "\n");
 });
 
 test("skills compile --json is one line with these keys", async () => {
