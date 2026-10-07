@@ -171,6 +171,16 @@ function isDirectory(path: string): boolean {
 
 type PackPathView = Pick<PlaceholderContext, "verbSides" | "packRoot" | "plannedAttachments">;
 
+/** An emitted unit one group deep is planned as <group>/<name>, so its files are named past one more segment of <file>. */
+function plannedUnit(plan: PlannedAttachments | undefined, attachment: string, file: string): { unit: string; unitFile: string; planned: ReadonlySet<string> | undefined } {
+  const flat = plan?.get(attachment);
+  if (flat) return { unit: attachment, unitFile: file, planned: flat };
+  const slash = file.indexOf("/");
+  const grouped = slash > 0 ? plan?.get(`${attachment}/${file.slice(0, slash)}`) : undefined;
+  if (grouped) return { unit: `${attachment}/${file.slice(0, slash)}`, unitFile: file.slice(slash + 1), planned: grouped };
+  return { unit: attachment, unitFile: file, planned: undefined };
+}
+
 /**
  * Anchored on the invoking skill's dir rather than this file's, so the same
  * text works inside a shell command from any public skill in the pack. A
@@ -192,14 +202,14 @@ function packPath(view: PackPathView, arg: string | undefined, raw: string, wher
   if (attachment in view.verbSides) throw new Error(`${where}: ${raw} -- ${attachment} is a compiled verb; pack.path names source files only`);
   const packRoot = view.packRoot;
   if (!packRoot) throw new Error(`${where}: ${raw} -- pack.path needs a pack root`);
-  const planned = view.plannedAttachments?.get(attachment);
-  const onAttachments = planned ? planned.size > 0 : isDirectory(join(packRoot, "attachments", attachment));
-  const onSkills = isDirectory(join(packRoot, "skills", attachment));
-  if (onAttachments && onSkills) throw new Error(`${where}: ${raw} -- ${attachment} exists under both attachments/ and skills/`);
+  const { unit, unitFile, planned } = plannedUnit(view.plannedAttachments, attachment, file);
+  const onAttachments = planned ? planned.size > 0 : isDirectory(join(packRoot, "attachments", unit));
+  const onSkills = isDirectory(join(packRoot, "skills", unit));
+  if (onAttachments && onSkills) throw new Error(`${where}: ${raw} -- ${unit} exists under both attachments/ and skills/`);
   const side = onAttachments ? "attachments" : onSkills ? "skills" : null;
-  if (!side) throw new Error(`${where}: ${raw} -- ${attachment} is not a directory under attachments/ or skills/`);
+  if (!side) throw new Error(`${where}: ${raw} -- ${unit} is not a directory under attachments/ or skills/`);
   const rel = `${side}/${attachment}/${file}`;
-  const exists = side === "attachments" && planned ? planned.has(file) : existsSync(join(packRoot, rel));
+  const exists = side === "attachments" && planned ? planned.has(unitFile) : existsSync(join(packRoot, rel));
   if (!exists) throw new Error(`${where}: ${raw} -- ${rel} does not exist`);
   return `${SKILL_DIR_TOKEN}/../../${rel}`;
 }

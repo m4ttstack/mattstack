@@ -1180,6 +1180,56 @@ describe("base pack attachments", () => {
     expect(rows.find((r) => r.name === "own")?.kind).toBe("hand-authored");
   });
 
+  test("a grouped base attachment is copied to its relative path, checked under that name, and removed with its emptied group", async () => {
+    const { mattstackDir, baseDir, packDir, compile } = seedBaseAndTeam();
+    const group = (...rest: string[]) => join(baseDir, "attachments", "review", ...rest);
+    const team = (...rest: string[]) => join(packDir, "attachments", "review", ...rest);
+    writeFile(group("self-review", "SKILL.md"), "---\nname: self-review\n---\nRead {{verb.path:watch-ci}}.\n");
+    writeFile(group("receive-review", "SKILL.md"), "---\nname: receive-review\n---\nbody\n");
+
+    expect((await compile()).errors).toEqual([]);
+    expect(readFileSync(team("self-review", "SKILL.md"), "utf8")).toBe("---\nname: self-review\n---\nRead ../../../skills/watch-ci/SKILL.md.\n");
+    expect(JSON.parse(readFileSync(team("self-review", "compiled.json"), "utf8"))).toEqual({ base: "acme-base", version: null, files: ["SKILL.md"] });
+    expect(existsSync(team("compiled.json"))).toBe(false);
+    expect(io.lines().join("\n")).toContain("Copied review/self-review");
+
+    const payload = await checkPack({ packDir, mattstackDir });
+    expect(payload.attachments.map((row) => [row.name, row.status]).sort()).toEqual([["review-kit", "in-sync"], ["review/receive-review", "in-sync"], ["review/self-review", "in-sync"]]);
+    expect(payload.drift).toBe(false);
+
+    rmSync(group("self-review"), { recursive: true });
+    expect((await compile()).errors).toEqual([]);
+    expect(existsSync(team("self-review"))).toBe(false);
+    expect(existsSync(team("receive-review", "compiled.json"))).toBe(true);
+
+    rmSync(group(), { recursive: true });
+    expect((await compile()).errors).toEqual([]);
+    expect(existsSync(team())).toBe(false);
+  });
+
+  test("a group folder that still holds the team's own files outlives its last emitted unit", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam();
+    writeFile(join(baseDir, "attachments", "review", "self-review", "SKILL.md"), "---\nname: self-review\n---\nbody\n");
+    await compile();
+    writeFile(join(packDir, "attachments", "review", "notes.md"), "ours\n");
+
+    rmSync(join(baseDir, "attachments", "review"), { recursive: true });
+    expect((await compile()).errors).toEqual([]);
+
+    expect(existsSync(join(packDir, "attachments", "review", "self-review"))).toBe(false);
+    expect(readFileSync(join(packDir, "attachments", "review", "notes.md"), "utf8")).toBe("ours\n");
+  });
+
+  test("a group folder holding emitted units is not a skill of its own, and its units read as compiled", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam();
+    writeFile(join(baseDir, "attachments", "review", "self-review", "SKILL.md"), "---\nname: self-review\n---\nbody\n");
+    await compile();
+
+    const { rows } = computeRows(packDir, new Set(["watch-ci"]), null, new Set());
+    expect(rows.find((r) => r.name === "self-review")?.kind).toBe("compiled");
+    expect(rows.find((r) => r.name === "review")).toBeUndefined();
+  });
+
   test("a pack that extends a base but has no verbs still emits", async () => {
     const mattstackDir = makeMattstackDir();
     seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });

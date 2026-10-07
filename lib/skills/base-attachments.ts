@@ -90,11 +90,62 @@ function resolveBase(packDir: string, packName: string, name: unknown): BaseRef 
   return { name, dir, version: packPluginIdentity(dir)?.version || null };
 }
 
+/**
+ * An emitted unit sits at attachments/<name> or one group deep at
+ * attachments/<group>/<name>, the depth loadAttachment resolves; a folder
+ * holding a SKILL.md is never a group, so nothing inside it is scanned.
+ */
+export function listEmittedUnits(attachmentsDir: string): string[] {
+  const units: string[] = [];
+  for (const top of listDirs(attachmentsDir)) {
+    const dir = join(attachmentsDir, top);
+    if (isEmittedAttachmentDir(dir)) units.push(top);
+    else if (!existsSync(join(dir, "SKILL.md"))) units.push(...listDirs(dir).filter((leaf) => isEmittedAttachmentDir(join(dir, leaf))).map((leaf) => `${top}/${leaf}`));
+  }
+  return units;
+}
+
+type BaseUnit = { rel: string; srcDir: string };
+
+function baseUnits(baseName: string, attachmentsDir: string, errors: string[]): BaseUnit[] {
+  const units: BaseUnit[] = [];
+  for (const top of listDirs(attachmentsDir)) {
+    if (top.startsWith(".")) continue;
+    const dir = join(attachmentsDir, top);
+    if (existsSync(join(dir, "SKILL.md"))) {
+      units.push({ rel: top, srcDir: dir });
+      continue;
+    }
+    for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      if (isSkippedAttachmentPath(entry.name)) continue;
+      const child = join(dir, entry.name);
+      if (entry.isDirectory() && existsSync(join(child, "SKILL.md"))) {
+        units.push({ rel: `${top}/${entry.name}`, srcDir: child });
+        continue;
+      }
+      if (entry.isDirectory()) {
+        const { files, symlinks } = walkAttachmentFiles(child);
+        if (files.length === 0 && symlinks.length === 0) continue;
+      }
+      errors.push(`${baseName} attachment folder ${top} holds ${entry.name} outside any attachment; compile copies only folders with a SKILL.md`);
+    }
+  }
+  return units;
+}
+
+/** A team folder is its own copy unless compile put it there: an emitted unit, or a group holding nothing but emitted units. */
+function isTeamOwned(dir: string): boolean {
+  if (!existsSync(dir) || isEmittedAttachmentDir(dir)) return false;
+  if (existsSync(join(dir, "SKILL.md"))) return true;
+  return readdirSync(dir, { withFileTypes: true }).some((entry) =>
+    !isSkippedAttachmentPath(entry.name) && !(entry.isDirectory() && isEmittedAttachmentDir(join(dir, entry.name))));
+}
+
 export function planBaseAttachments(input: { packDir: string; packName: string; verbSides: Record<string, Side> }): BaseAttachmentPlan {
   const { packDir, packName, verbSides } = input;
   const ext = readJsoncObject(join(packDir, "pack", "skills.jsonc"))?.extends;
   const attachmentsDir = join(packDir, "attachments");
-  const onDiskEmitted = listDirs(attachmentsDir).filter((name) => isEmittedAttachmentDir(join(attachmentsDir, name)));
+  const onDiskEmitted = listEmittedUnits(attachmentsDir);
 
   if (ext === undefined) {
     return { base: null, emits: [], kept: [], stale: onDiskEmitted.map((name) => ({ name, why: "no-base" as const })), errors: [] };
@@ -105,18 +156,20 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
   const errors: string[] = [];
   const kept: string[] = [];
   const records: { name: string; srcDir: string; files: string[] }[] = [];
-  for (const name of listDirs(join(base.dir, "attachments"))) {
-    if (name.startsWith(".")) continue;
-    const srcDir = join(base.dir, "attachments", name);
+  for (const { rel: name, srcDir } of baseUnits(base.name, join(base.dir, "attachments"), errors)) {
     if (isFill(srcDir)) continue;
     const label = `${base.name} attachment ${name}`;
-    if (Object.hasOwn(verbSides, name)) {
-      errors.push(`${label} has the same name as the ${packName} verb ${name}; rename one of them`);
+    const [group, leaf] = name.split("/") as [string, string | undefined];
+    const groupDir = join(attachmentsDir, group);
+    if (Object.hasOwn(verbSides, group)) {
+      errors.push(`${label} has the same name as the ${packName} verb ${group}; rename one of them`);
     } else if (isHandAuthored(join(packDir, "skills", name))) {
       errors.push(`${label} has the same name as the ${packName} skill skills/${name}; rename one of them`);
+    } else if (leaf !== undefined && existsSync(join(groupDir, "SKILL.md")) && !isEmittedAttachmentDir(groupDir)) {
+      errors.push(`${label} would land inside the ${packName} attachment attachments/${group}; rename one of them`);
     } else if (existsSync(join(srcDir, PROVENANCE_FILE))) {
       errors.push(`${label} carries ${PROVENANCE_FILE}, a name compile keeps for itself`);
-    } else if (existsSync(join(attachmentsDir, name)) && !isEmittedAttachmentDir(join(attachmentsDir, name))) {
+    } else if (isTeamOwned(join(attachmentsDir, name))) {
       kept.push(name);
     } else {
       const { files, symlinks } = walkAttachmentFiles(srcDir);

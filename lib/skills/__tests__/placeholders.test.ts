@@ -405,6 +405,18 @@ describe("pack.path with planned attachments", () => {
       .toThrow("ship: {{pack.path:review-kit/old.md}} -- attachments/review-kit/old.md does not exist");
   });
 
+  test("a planned unit one group deep is addressed as <group>/<name>/<file>", () => {
+    const root = mkdtempSync(join(tmpdir(), "rt-pack-path-planned-"));
+    const planned = new Map([["review/self-review", new Set(["SKILL.md", "references/guide.md"])]]);
+    expect(substitute("{{pack.path:review/self-review/references/guide.md}}", ctx({ packRoot: root, plannedAttachments: planned }), "ship").body)
+      .toBe("${CLAUDE_SKILL_DIR}/../../attachments/review/self-review/references/guide.md");
+    expect(() => substitute("{{pack.path:review/self-review/old.md}}", ctx({ packRoot: root, plannedAttachments: planned }), "ship"))
+      .toThrow("ship: {{pack.path:review/self-review/old.md}} -- attachments/review/self-review/old.md does not exist");
+    const gone = new Map([["review/old-review", new Set<string>()]]);
+    expect(() => substitute("{{pack.path:review/old-review/x.md}}", ctx({ packRoot: root, plannedAttachments: gone }), "ship"))
+      .toThrow("ship: {{pack.path:review/old-review/x.md}} -- review/old-review is not a directory under attachments/ or skills/");
+  });
+
   test("an attachment planned for removal is not a directory", () => {
     const root = mkdtempSync(join(tmpdir(), "rt-pack-path-planned-"));
     mkdirSync(join(root, "attachments", "gone"), { recursive: true });

@@ -26,7 +26,7 @@
  */
 
 import { execFileSync, spawnSync } from "child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { applyEdits, modify } from "jsonc-parser";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
@@ -824,6 +824,15 @@ function removeCompiledDir(packDir: string, dir: string, into: CompileWrites): v
   rmSync(dir, { recursive: true, force: true });
 }
 
+/** Removes an emitted base unit; a group folder goes with its last unit only when nothing else is left in it. */
+function removeEmittedUnit(packDir: string, rel: string, into: CompileWrites): void {
+  removeCompiledDir(packDir, join(packDir, "attachments", rel), into);
+  const slash = rel.indexOf("/");
+  if (slash < 0) return;
+  const groupDir = join(packDir, "attachments", rel.slice(0, slash));
+  if (readdirSync(groupDir).length === 0) rmdirSync(groupDir);
+}
+
 function writeCompiledVerb(packDir: string, outDir: string, result: { files: CompiledFile[] }, into: CompileWrites): void {
   const before = listFilesRecursive(outDir);
   rmSync(outDir, { recursive: true, force: true });
@@ -980,7 +989,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
   const writes: CompileWrites = { written: [], removed: [] };
   if (writing) {
     // Stale folders go before any verb writes: an internal verb may now own a freed attachments/<name>.
-    for (const s of plan.stale) removeCompiledDir(resolved.packDir, join(resolved.packDir, "attachments", s.name), writes);
+    for (const s of plan.stale) removeEmittedUnit(resolved.packDir, s.name, writes);
     for (const e of plan.emits) writeCompiledVerb(resolved.packDir, join(resolved.packDir, "attachments", e.name), e, writes);
     for (const { target, outcome } of outcomes) {
       if (!outcome.ok) continue;

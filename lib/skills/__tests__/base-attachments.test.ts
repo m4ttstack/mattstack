@@ -169,6 +169,109 @@ describe("planBaseAttachments", () => {
   });
 });
 
+describe("grouped base attachments", () => {
+  const unit = (...rest: string[]) => join(baseDir(), "attachments", "review", ...rest);
+
+  test("each unit one group deep is emitted at its relative path, and a grouped fill is skipped", () => {
+    put(unit("self-review", "SKILL.md"), "---\nname: self-review\n---\nSee {{verb.path:ship}}.\n");
+    put(unit("self-review", "references", "guide.md"), "Back to {{verb.path:ship}}.\n");
+    put(unit("receive-review", "SKILL.md"), "---\nname: receive-review\n---\nbody\n");
+    put(unit("review-domain", "SKILL.md"), "---\nname: review-domain\nmetadata:\n  provides: review-domain@1\n---\nbody\n");
+    put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "flat\n");
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    expect(result.emits.map((e) => e.name)).toEqual(["review/receive-review", "review/self-review", "review-kit"]);
+    const files = result.emits.find((e) => e.name === "review/self-review")!.files;
+    expect((files.find((f) => f.path === "SKILL.md") as { content: string }).content).toContain("See ../../../skills/ship/SKILL.md.");
+    expect((files.find((f) => f.path === "references/guide.md") as { content: string }).content).toBe("Back to ../../../../skills/ship/SKILL.md.\n");
+    expect((files.find((f) => f.path === "compiled.json") as { content: string }).content).toBe(
+      JSON.stringify({ base: "acme-base", version: "1.4.0", files: ["SKILL.md", "references/guide.md"] }, null, 2) + "\n",
+    );
+    expect([...plannedAttachmentsOf(result).keys()].sort()).toEqual(["review-kit", "review/receive-review", "review/self-review"]);
+  });
+
+  test("a verb named like the group is a clash naming the unit and the verb", () => {
+    put(unit("self-review", "SKILL.md"), "body\n");
+    expect(plan({ ship: "skills", review: "attachments" }).errors).toEqual([
+      "acme-base attachment review/self-review has the same name as the widgets verb review; rename one of them",
+    ]);
+  });
+
+  test("a hand-authored skills/<group>/<name> is a clash", () => {
+    put(unit("self-review", "SKILL.md"), "body\n");
+    put(join(packDir(), "skills", "review", "self-review", "SKILL.md"), "---\nname: self-review\n---\nmine\n");
+    expect(plan().errors).toEqual([
+      "acme-base attachment review/self-review has the same name as the widgets skill skills/review/self-review; rename one of them",
+    ]);
+  });
+
+  test("a team attachment at the group path is an error, since nothing may land inside it", () => {
+    put(unit("self-review", "SKILL.md"), "body\n");
+    put(join(packDir(), "attachments", "review", "SKILL.md"), "---\nname: review\n---\nmine\n");
+    expect(plan().errors).toEqual([
+      "acme-base attachment review/self-review would land inside the widgets attachment attachments/review; rename one of them",
+    ]);
+  });
+
+  test("a team's own unit at the same relative path wins", () => {
+    put(unit("self-review", "SKILL.md"), "body\n");
+    put(join(packDir(), "attachments", "review", "self-review", "SKILL.md"), "mine\n");
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    expect(result.kept).toEqual(["review/self-review"]);
+    expect(result.emits).toEqual([]);
+  });
+
+  test("an emitted unit one group deep is stale once the base drops it or the pack stops extending", () => {
+    put(join(packDir(), "attachments", "review", "old-review", "compiled.json"), emittedMarker);
+    put(join(packDir(), "attachments", "review", "own", "SKILL.md"), "mine\n");
+    put(unit("self-review", "SKILL.md"), "body\n");
+    expect(plan().stale).toEqual([{ name: "review/old-review", why: "dropped" }]);
+    put(join(packDir(), "pack", "skills.jsonc"), "{}");
+    expect(plan().stale).toEqual([{ name: "review/old-review", why: "no-base" }]);
+  });
+
+  test("a team attachment holding a SKILL.md is never scanned for emitted units", () => {
+    put(join(packDir(), "pack", "skills.jsonc"), "{}");
+    put(join(packDir(), "attachments", "own", "SKILL.md"), "mine\n");
+    put(join(packDir(), "attachments", "own", "data", "compiled.json"), emittedMarker);
+    expect(plan().stale).toEqual([]);
+  });
+
+  test("a group folder holding only emitted units is not the team's own copy of a flat unit", () => {
+    put(join(packDir(), "attachments", "review", "self-review", "compiled.json"), emittedMarker);
+    put(join(baseDir(), "attachments", "review", "SKILL.md"), "flat now\n");
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    expect(result.kept).toEqual([]);
+    expect(result.emits.map((e) => e.name)).toEqual(["review"]);
+    expect(result.stale).toEqual([{ name: "review/self-review", why: "dropped" }]);
+  });
+
+  test("anything in a group folder outside a unit is an error, never dropped", () => {
+    put(unit("self-review", "SKILL.md"), "body\n");
+    put(unit("README.md"), "about the group\n");
+    put(unit("shared", "x.json"), "{}\n");
+    put(unit(".DS_Store"), "junk");
+    put(join(baseDir(), "attachments", "data", "rows.json"), "[]\n");
+    expect(plan().errors).toEqual([
+      "acme-base attachment folder data holds rows.json outside any attachment; compile copies only folders with a SKILL.md",
+      "acme-base attachment folder review holds README.md outside any attachment; compile copies only folders with a SKILL.md",
+      "acme-base attachment folder review holds shared outside any attachment; compile copies only folders with a SKILL.md",
+    ]);
+  });
+
+  test("pack.path reaches a grouped emitted file on a clean plan", () => {
+    put(unit("self-review", "SKILL.md"), "body\n");
+    put(unit("self-review", "references", "x.md"), "x\n");
+    put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "see {{pack.path:review/self-review/references/x.md}}\n");
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    const skill = result.emits.find((e) => e.name === "review-kit")!.files.find((f) => f.path === "SKILL.md") as { content: string };
+    expect(skill.content).toBe("see ${CLAUDE_SKILL_DIR}/../../attachments/review/self-review/references/x.md\n");
+  });
+});
+
 describe("plan errors", () => {
   test("a plan error clears an existing stale entry", () => {
     put(join(packDir(), "attachments", "old-kit", "compiled.json"), emittedMarker);

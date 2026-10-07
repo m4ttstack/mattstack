@@ -156,9 +156,11 @@ const DISK: LintDeps = { list: walkLintedRoots, read: readOrNull };
     would point the author at a generated file the next compile rewrites. A
     compiled verb dir also holds vendored files that carry no header, so the
     header on its SKILL.md marks the whole subtree as output. A folder carrying
-    compiled.json (an emitted base attachment) is output the same way. */
+    compiled.json (an emitted base attachment) is output the same way, and
+    under attachments/ so is one a group deep whose group has no SKILL.md. */
 function lintedSources(dir: string, deps: LintDeps, exts: readonly string[]): Array<{ path: string; text: string }> {
   const roots = LINTED_ROOTS.map((r) => join(dir, r) + sep);
+  const attachmentsRoot = join(dir, "attachments") + sep;
   const texts = new Map<string, string | null>();
   const read = (path: string): string | null => {
     if (!texts.has(path)) texts.set(path, deps.read(path));
@@ -169,7 +171,9 @@ function lintedSources(dir: string, deps: LintDeps, exts: readonly string[]): Ar
     const segments = path.slice(root.length).split(sep);
     if (segments.length < 2) return false;
     const dir = join(root, segments[0]!);
-    return isEmittedAttachmentText(read(join(dir, PROVENANCE_FILE))) || (read(join(dir, "SKILL.md"))?.includes(HEADER_COMMENT) ?? false);
+    const skillMd = read(join(dir, "SKILL.md"));
+    if (isEmittedAttachmentText(read(join(dir, PROVENANCE_FILE))) || (skillMd?.includes(HEADER_COMMENT) ?? false)) return true;
+    return root === attachmentsRoot && segments.length >= 3 && skillMd === null && isEmittedAttachmentText(read(join(dir, segments[1]!, PROVENANCE_FILE)));
   };
   const out: Array<{ path: string; text: string }> = [];
   for (const path of deps.list(dir).filter((p) => exts.some((e) => p.endsWith(e)) && roots.some((r) => p.startsWith(r))).sort()) {
