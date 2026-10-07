@@ -182,8 +182,21 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
   const retired: string[] = [];
   const records: { name: string; srcDir: string; files: string[] }[] = [];
   const leafOf = (rel: string) => rel.slice(rel.lastIndexOf("/") + 1);
-  const boardFills = boardOnlyBaseFills(base.name, mergedBindings(readJsoncObject(join(base.dir, "pack", "skills.jsonc")), own));
-  const units = baseUnits(base.name, join(base.dir, "attachments"), errors).filter((u) => !isFill(u.srcDir) || boardFills.has(leafOf(u.rel)));
+  const bindings = mergedBindings(readJsoncObject(join(base.dir, "pack", "skills.jsonc")), own);
+  const boardFills = boardOnlyBaseFills(base.name, bindings);
+  const allUnits = baseUnits(base.name, join(base.dir, "attachments"), errors);
+  // The board resolves <plugin>:<name> at attachments/<name> only, so a fill it cannot reach is refused here rather than in the pane.
+  for (const name of boardFills) {
+    if (allUnits.some((u) => u.rel === name) || isTeamOwned(join(attachmentsDir, name))) continue;
+    const grouped = allUnits.find((u) => leafOf(u.rel) === name);
+    if (grouped) {
+      errors.push(`${base.name} keeps its board fill ${name} at attachments/${grouped.rel}; the board only finds attachments/${name}`);
+      continue;
+    }
+    const engineRef = Object.entries(bindings).find(([ref, slots]) => ref.startsWith("board:") && Object.values(slots).includes(`${base.name}:${name}`))?.[0];
+    errors.push(`${base.name} binds ${engineRef} to ${base.name}:${name}, but has no attachments/${name}`);
+  }
+  const units = allUnits.filter((u) => !isFill(u.srcDir) || boardFills.has(leafOf(u.rel)));
   const teamNames = teamAttachmentNames(attachmentsDir);
   for (const { rel: name, srcDir } of units) {
     const label = `${base.name} attachment ${name}`;

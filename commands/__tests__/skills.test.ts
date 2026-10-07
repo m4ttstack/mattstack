@@ -998,6 +998,29 @@ describe("base pack attachments", () => {
     expect((await checkPack({ packDir, mattstackDir })).attachments.map((row) => [row.name, row.status])).toContainEqual(["board-review", "in-sync"]);
   });
 
+  test("a board binding onto a fill the base does not have is refused at compile", async () => {
+    const { packDir, compile } = seedBaseAndTeam({ bindings: { "board:review": { review: "acme-base:board-reveiw" } }, baseFiles: { "attachments/board-review/SKILL.md": BOARD_REVIEW_MD } });
+
+    const { errors } = await compile();
+
+    expect(errors.join("\n")).toContain("acme-base binds board:review to acme-base:board-reveiw, but has no attachments/board-reveiw");
+    expect(existsSync(join(packDir, "attachments", "board-review"))).toBe(false);
+  });
+
+  test("a board fill the base keeps in a group is refused at compile", async () => {
+    const { compile } = seedBaseAndTeam({ bindings: BOARD, baseFiles: { "attachments/board/board-review/SKILL.md": BOARD_REVIEW_MD } });
+
+    const { errors } = await compile();
+
+    expect(errors.join("\n")).toContain("acme-base keeps its board fill board-review at attachments/board/board-review; the board only finds attachments/board-review");
+  });
+
+  test("a board binding onto a fill only the team carries compiles clean", async () => {
+    const { compile } = seedBaseAndTeam({ bindings: BOARD, teamFiles: { "attachments/board-review/SKILL.md": BOARD_REVIEW_MD } });
+
+    expect((await compile()).errors).toEqual([]);
+  });
+
   test("a board fill the base stops binding from a board slot is removed from the team pack", async () => {
     const { baseDir, packDir, compile, materialize } = seedBaseAndTeam({ bindings: BOARD, baseFiles: { "attachments/board-review/SKILL.md": BOARD_REVIEW_MD } });
     expect((await compile()).errors).toEqual([]);
