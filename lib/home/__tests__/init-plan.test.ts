@@ -152,6 +152,11 @@ describe("buildInitPlan", () => {
     expect(plan.blocked).toBe("skills-symlink-real-file");
   });
 
+  test("home init creates the orgs root and keeps the legacy teams root", () => {
+    expect(STATE_DIR_NAMES).toContain("orgs");
+    expect(STATE_DIR_NAMES).toContain("teams");
+  });
+
   test("STATE_DIR_NAMES includes ci-attendants (per the spec's state-zone tree)", () => {
     expect(STATE_DIR_NAMES).toContain("ci-attendants");
   });

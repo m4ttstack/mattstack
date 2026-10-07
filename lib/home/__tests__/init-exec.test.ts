@@ -264,6 +264,7 @@ describe("executeInitPlan", () => {
       "mkdirp", // repos
       "mkdirp", // ci-attendants
       "mkdirp", // work
+      "mkdirp", // orgs
       "mkdirp", // teams
       "run", // git clone
       "exists", // user/.gitignore
