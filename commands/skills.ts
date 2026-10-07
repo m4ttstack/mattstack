@@ -35,6 +35,7 @@ import { readOrgRoles } from "../packages/rt-client/src/settings/active-team.ts"
 import { readForgeUsername } from "../packages/rt-client/src/settings/team-local-read.ts";
 import { roleOf, writeRefusalFor } from "../packages/rt-client/src/settings/org-roles.ts";
 import { mattstackHome } from "../lib/rt-paths.ts";
+import { TEAM_PACK_FOLDER } from "../lib/team/team-pack-path.ts";
 import { childEnv, runCapture } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import { readDevModeConfig } from "./settings.ts";
@@ -514,11 +515,11 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
     );
   }
 
-  // Team packs sit at <repo>/mattstack/teams/<team>/packs/<team>; that path
+  // Team packs sit at <repo>/mattstack/teams/<team>/plugin; that path
   // shape survives worktrees, unlike the clone's location, and a team pack's
   // pack/skills.jsonc is a merge fragment, never its manifest.
   const parts = resolvePath(packDir).split(sep);
-  const teamShaped = parts.at(-2) === "packs" && parts.at(-4) === "teams" && parts.at(-5) === "mattstack";
+  const teamShaped = parts.at(-1) === TEAM_PACK_FOLDER && parts.at(-3) === "teams" && parts.at(-4) === "mattstack";
   const standalone = !isUnder(join(mattstackRoot, "orgs"), packDir) && !teamShaped;
   if (standalone && existsSync(ownManifest)) return ownManifest;
   throw new SkillsUsageError(

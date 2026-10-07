@@ -9,19 +9,19 @@ export function materializeWorld(home: string, opts: { fragment?: string; remote
       [engine]: ["pack"],
       [`${home}/.mattstack/orgs`]: ["acme"],
       [`${org}/teams`]: hasSibling ? ["gadgets", "widgets"] : ["widgets"],
-      [`${org}/teams/widgets/packs`]: ["widgets"],
-      ...(hasSibling ? { [`${org}/teams/gadgets/packs`]: ["gadgets"] } : {}),
+      [`${org}/teams/widgets`]: ["plugin", "settings.team.jsonc"],
+      ...(hasSibling ? { [`${org}/teams/gadgets`]: ["plugin", "settings.team.jsonc"] } : {}),
     },
     files: {
       [`${engine}/pack/skills.jsonc`]: "{}",
       [`${org}/mattstack.jsonc`]: JSON.stringify({ role: "org", org: "acme" }),
       [`${org}/org/settings.org.jsonc`]: JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }),
       [`${org}/teams/widgets/settings.team.jsonc`]: "{}",
-      [`${org}/teams/widgets/packs/widgets/pack/skills.jsonc`]: opts.fragment ?? "{}",
+      [`${org}/teams/widgets/plugin/pack/skills.jsonc`]: opts.fragment ?? "{}",
       ...(hasSibling
         ? {
             [`${org}/teams/gadgets/settings.team.jsonc`]: "{}",
-            [`${org}/teams/gadgets/packs/gadgets/pack/skills.jsonc`]: opts.siblingFragment!,
+            [`${org}/teams/gadgets/plugin/pack/skills.jsonc`]: opts.siblingFragment!,
           }
         : {}),
     },

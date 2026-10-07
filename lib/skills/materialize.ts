@@ -1,6 +1,6 @@
 import { dirname, join } from "path";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
-import { isPackDir, parseRemote, readZonesFrom, zoneTeamConfigReads, type InitFs, type RepoRef, type ZoneInfo } from "./init.ts";
+import { isPackDir, parseRemote, readZonesFrom, zonePackDir, zoneTeamConfigReads, type InitFs, type RepoRef, type ZoneInfo } from "./init.ts";
 import { FragmentError, mergeLayers, parseFragment, readManifestZone, renderManifest, type Fragment, type Layer } from "./manifest-merge.ts";
 import { legacyManifestPath, packManifestPath } from "./manifest-paths.ts";
 import { boardOnlyBaseFills, mergedBindings, retargetBoardFills } from "./board-fills.ts";
@@ -30,22 +30,19 @@ function readFragment(fs: MaterializeFs, path: string): Fragment | null {
 /** A pack's own fragment, parsed once: the base check and the merge read the same parse. */
 type ClaimingPack = { name: string; own: Fragment | { error: string } };
 
+/** The team's one pack at plugin/, when it is there and is not a base. */
 function claimingPacksIn(fs: MaterializeFs, zone: ZoneInfo): ClaimingPack[] {
-  const packsDir = join(zone.dir, "packs");
-  const out: ClaimingPack[] = [];
-  for (const name of fs.readDir(packsDir).sort()) {
-    if (!isPackDir(fs, join(packsDir, name))) continue;
-    const path = join(packsDir, name, "pack", "skills.jsonc");
-    try {
-      const own = readFragment(fs, path);
-      if (!own) out.push({ name, own: { error: `${path} is missing` } });
-      else if (own.base !== true) out.push({ name, own });
-    } catch (err) {
-      if (!(err instanceof FragmentError)) throw err;
-      out.push({ name, own: { error: err.message } });
-    }
+  const packDir = zonePackDir(zone);
+  if (!isPackDir(fs, packDir)) return [];
+  const path = join(packDir, "pack", "skills.jsonc");
+  try {
+    const own = readFragment(fs, path);
+    if (!own) return [{ name: zone.team, own: { error: `${path} is missing` } }];
+    return own.base === true ? [] : [{ name: zone.team, own }];
+  } catch (err) {
+    if (!(err instanceof FragmentError)) throw err;
+    return [{ name: zone.team, own: { error: err.message } }];
   }
-  return out;
 }
 
 /** The org base pack a team pack extends, read from the org folder of the same clone. It is never installed. */
@@ -94,7 +91,7 @@ function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, ow
       const baseName = base.label.slice("base:".length);
       const fills = boardOnlyBaseFills(baseName, mergedBindings(base.fragment, own));
       if (fills.size > 0) {
-        const pluginJson = join(zone.dir, "packs", pack, ".claude-plugin", "plugin.json");
+        const pluginJson = join(zonePackDir(zone), ".claude-plugin", "plugin.json");
         const plugin = packPluginName(deps.fs, pluginJson);
         if (!plugin) return { pack, zone: zone.slug, ok: false, detail: `${pack} carries board fills from ${baseName}, but ${pluginJson} names no plugin for the board to find them under` };
         retargetBoardFills(merged.bindings, baseName, fills, plugin);
@@ -183,12 +180,6 @@ export function materializeRepo(deps: MaterializeDeps, remote: string | null): M
 
   const packs: PackOutcome[] = [];
   for (const { zone, claiming } of claims) {
-    const names = claiming.map((c) => c.name);
-    if (names.length > 1) {
-      const detail = `team "${zone.team}" holds ${names.length} packs (${names.join(", ")}) that all claim ${repo}; a team folder binds one pack per repo, so keep one and move the shared fills to the org base pack`;
-      for (const pack of names) packs.push({ pack, zone: zone.slug, ok: false, detail });
-      continue;
-    }
     for (const { name: pack, own } of claiming) {
       const holders = zonesByPack.get(pack)!;
       if (holders.length > 1) {

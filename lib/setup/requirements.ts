@@ -1,7 +1,7 @@
 /**
  * Pack requirements reader: parses the active team's pack requirements at
- * orgs/<org>/mattstack/teams/<team>/packs/<team>/requirements.jsonc, the
- * only pack this Mac installs, so `rt setup` can fold pack-declared
+ * orgs/<org>/mattstack/teams/<team>/plugin/requirements.jsonc, the only
+ * pack this Mac installs, so `rt setup` can fold pack-declared
  * tools/integrations into the plan.
  */
 
@@ -12,6 +12,7 @@ import { stripJsonc } from "../jsonc.ts";
 import { activeTeamFor } from "../team/active-team.ts";
 import type { Probes } from "./probes.ts";
 import { orgDirUnder } from "../rt-paths.ts";
+import { TEAM_PACK_FOLDER, isUnconvertedTeamPack, remedySentence, unconvertedTeamPackError } from "../team/team-pack-path.ts";
 
 export interface ToolRequirement {
   name: string;
@@ -38,7 +39,13 @@ const KNOWN_INTEGRATION_IDS = new Set<Integration>(Object.keys(INTEGRATIONS) as 
 /** The active team's pack requirements; [] when this Mac has no active team or the pack declares none. */
 export function readPackRequirements(p: Pick<Probes, "readDir" | "readFile" | "exists" | "home">, org: string, team: string | null = activeTeamFor(p, org).team): PackRequirements[] {
   if (team === null) return [];
-  const file = join(orgDirUnder(p.home, org), "mattstack", "teams", team, "packs", team, REQUIREMENTS_FILE);
+  const orgDir = orgDirUnder(p.home, org);
+  const teamFolder = join(orgDir, "mattstack", "teams", team);
+  // A throw here would fail the whole plan before any row draws, so the reader reports through `error`.
+  if (isUnconvertedTeamPack(p, teamFolder, team)) {
+    return [{ pack: team, tools: [], integrations: [], error: remedySentence(unconvertedTeamPackError(orgDir, team)) }];
+  }
+  const file = join(teamFolder, TEAM_PACK_FOLDER, REQUIREMENTS_FILE);
   if (!p.exists(file)) return [];
   const text = p.readFile(file);
   // A file that is there but cannot be read is reported, never skipped.

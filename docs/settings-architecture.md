@@ -49,7 +49,7 @@ every store write becomes a `snapshot:` commit within ~80s — by design.
 The same engine runs one instance per org clone under `~/.mattstack/orgs/`
 (`rt.teamSnapshot`, machine scope): it
 commits only `mattstack/`, `.sops.yaml` and `.claude-plugin/` (leaving the
-org's and each team's `packs/` folder to the janitor, since packs publish
+org's `packs/` and each team's `plugin/` folder to the janitor, since packs publish
 through their own commit), pulls (fast-forward or rebase) at boot, every
 `pullIntervalSec` and before every push, and surfaces a rebase conflict as
 the `team.sync` checklist row instead of resolving it. So a `--scope org` or `--scope team`

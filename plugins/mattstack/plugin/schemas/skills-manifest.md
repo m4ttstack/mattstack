@@ -36,7 +36,7 @@ fragment, then the user's overrides. Later layers win per slot.
 |---|---|---|
 | `version` | const `1` | everyone; the only required key |
 | `extends` | bare base pack name (`"acme-base"`) | `rt skills materialize` and `rt skills compile`; fragment only (`pack/skills.jsonc`), never in a generated file. Names a folder under the org's `mattstack/org/packs/`; the base pack's bindings layer under this pack's, one level, overridden slot by slot |
-| `base` | boolean | `rt skills materialize`; fragment only. `true` marks the org's base pack at `mattstack/org/packs/<name>/`: it never claims a repo, gets no bindings file of its own, and is never installed, so its fills (under `attachments/`) are inlined by each team's compile. Materialize reads it from the org folder, so its bindings reach every Mac at once; compiled fills follow at the team owner's next compile |
+| `base` | boolean | `rt skills materialize`; fragment only. `true` marks the org's base pack at `mattstack/org/packs/<name>/`: it never claims a repo, gets no bindings file of its own, and is never installed, so its fills (under `attachments/`) are inlined by each team's compile, except a fill only `board:*` slots bind, which compile copies into the team pack (at `plugin/attachments/<name>/`) for the board to open. Materialize reads it from the org folder, so its bindings reach every Mac at once; compiled fills follow at the team owner's next compile |
 | `skills.enabled` | array of skill names | documentation in phase 1 |
 | `pipelines` | work type -> the stage-skill names a pack rosters (all eight `stage-*` for `work`) | `rt skills compile` (stage roster); not resolved at run time |
 | `bindings` | wrapper name -> { slot -> inner skill name } | `resolve-args.sh` (phase 1) |

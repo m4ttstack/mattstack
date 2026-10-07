@@ -176,8 +176,10 @@ checkout is not the RED pass; it tests the tool, not the pipeline.
 ### Write the rule in the author's words
 
 Paths, for the widgets team in the acme org (the pack carries its team's
-name): `~/.mattstack/orgs/acme/mattstack/teams/widgets/packs/widgets/skills/context/SKILL.md`
-for context, `.../packs/widgets/attachments/<fill>/SKILL.md` for a fill.
+name): `~/.mattstack/orgs/acme/mattstack/teams/widgets/plugin/skills/context/SKILL.md`
+for context, `.../plugin/attachments/<fill>/SKILL.md` for a fill. The org
+clone's `.claude-plugin/marketplace.json` lists the pack with the source
+`./mattstack/teams/widgets/plugin`.
 `rt skills packs` (Bash, one-time) prints the pack dir.
 
 A fill has this frontmatter and nothing else in it:
@@ -312,8 +314,14 @@ admin adds by hand at `mattstack/org/packs/acme-base/` in the org repo:
   the same entry for `mattstack:stage-watch-ci`.
 - `pack/surface.jsonc` is `{ "public": [] }`.
 - Its fills sit under `attachments/<fill>/`, never `skills/`: nothing
-  installs a base pack, so its fills are always inlined into a team's
-  compiled verbs.
+  installs a base pack, so its fills are inlined into a team's compiled
+  verbs. The one exception is a fill that only `board:*` slots bind:
+  compile copies it into the team pack too, at `plugin/attachments/<name>/`,
+  because the board opens a fill by `<plugin>:<name>` while it runs, and
+  materialize points those board bindings at `<team plugin>:<name>`.
+  Compile refuses a base that binds a board slot to a fill it has no
+  `attachments/<name>/` for, or keeps that fill one group deep: the board
+  finds `attachments/<name>` only.
 
 A team pack uses it with `"extends": "acme-base"` in its own
 `pack/skills.jsonc`. The base is never listed in `claude.plugins` and has
@@ -336,7 +344,8 @@ script) is not a fill, and the base is never installed, so compile copies
 it into the team pack. When a team pack `extends` a base, each compile:
 
 - copies every base `attachments/<name>/` (or `attachments/<group>/<name>/`)
-  that holds a `SKILL.md` and is not a fill (no `metadata.provides`) to the
+  that holds a `SKILL.md` and is not a fill (no `metadata.provides`), plus
+  every fill that only `board:*` slots bind, to the
   same path in the team pack;
 - writes `compiled.json` (the base, its version, the files) into each
   copied folder: that file marks compile's output, which the next compile

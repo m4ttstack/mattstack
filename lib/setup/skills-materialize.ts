@@ -15,6 +15,7 @@ import { parseRemote } from "../skills/init.ts";
 import { ENGINE_PACK_REF, findInstalledPluginDir } from "../skills/installed-plugins.ts";
 import { materializeRepo, type MaterializeRepoOutcome, type PackOutcome } from "../skills/materialize.ts";
 import { UserActionableError } from "../errors.ts";
+import { remedySentence } from "../team/team-pack-path.ts";
 import type { Probes } from "./probes.ts";
 
 export const ENGINE_PACK_MISSING_CODE = "engine-pack-missing";
@@ -137,7 +138,7 @@ export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: 
     try {
       outcome = materializeRepo(deps, await originRemote(p, target.path));
     } catch (err) {
-      repos.push({ ...target, ok: false, detail: err instanceof Error ? err.message : String(err) });
+      repos.push({ ...target, ok: false, detail: err instanceof UserActionableError ? remedySentence(err) : err instanceof Error ? err.message : String(err) });
       continue;
     }
     if (outcome.kind === "no-remote") {

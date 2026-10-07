@@ -822,7 +822,7 @@ describe("teamAdd", () => {
     const { at, ...body } = JSON.parse(deps.lines[0]!);
     expect(typeof at).toBe("string");
     expect(body).toEqual({ contract: 1, org: "acme", team: "gadgets", dir: `${ZONE_DIR}/mattstack/teams/gadgets`, owners: ["dev2", "dev1"], wrote: expect.any(Array), published: { pushed: false, reason: expect.any(String), next: "rt team publish --team acme" } });
-    expect(deps.probes.exists(`${body.dir}/packs/gadgets/pack/skills.jsonc`)).toBe(true);
+    expect(deps.probes.exists(`${body.dir}/plugin/pack/skills.jsonc`)).toBe(true);
     expect(deps.writes).toHaveLength(1);
   });
 
@@ -838,7 +838,7 @@ describe("teamAdd", () => {
       expect(w.pushes).toHaveLength(1);
       const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
       expect(files).toContain(".claude-plugin/marketplace.json");
-      expect(files).toContain("mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc");
+      expect(files).toContain("mattstack/teams/gadgets/plugin/pack/skills.jsonc");
       expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([expect.objectContaining({ name: "gadgets" })]);
     });
 
@@ -853,7 +853,7 @@ describe("teamAdd", () => {
         expect(captured.stdout()).toContain("The gadgets pack is not shared with your org yet");
         expect(captured.stdout()).toContain("rt team publish");
       } finally { captured.restore(); }
-      expect(w.p.exists(join(w.root, "mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc"))).toBe(true);
+      expect(w.p.exists(join(w.root, "mattstack/teams/gadgets/plugin/pack/skills.jsonc"))).toBe(true);
       expect(w.atOrigin("log", "--format=%s", "main").trim()).toBe("seed");
     });
 
@@ -881,7 +881,7 @@ describe("teamAdd", () => {
 
       expect(w.atOrigin("log", "--format=%s", "main").trim().split("\n")).toEqual(["skills: new gadgets pack", "seed"]);
       const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
-      expect(files).toContain("mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc");
+      expect(files).toContain("mattstack/teams/gadgets/plugin/pack/skills.jsonc");
       expect(files).toContain(".claude-plugin/marketplace.json");
       expect(files).not.toContain("notes.txt");
       expect(files).not.toContain("mattstack/teams/widgets/settings.team.jsonc");
@@ -936,19 +936,19 @@ describe("teamAdd", () => {
 
       expect(w.atOrigin("log", "--format=%s", "main").trim().split("\n")).toEqual(["skills: new gadgets pack", "seed"]);
       const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
-      expect(files).toContain("mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc");
+      expect(files).toContain("mattstack/teams/gadgets/plugin/pack/skills.jsonc");
       expect(files).toContain(".claude-plugin/marketplace.json");
     });
 
     test("a remembered share this Mac's role can no longer write is skipped with a note, and the publish goes on", async () => {
       const w = orgWorld("dev2");
-      mkdirSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets"), { recursive: true });
-      writeFileSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets/PACK.md"), "gadgets\n");
-      mkdirSync(join(w.root, "mattstack/teams/widgets/packs/widgets"), { recursive: true });
-      writeFileSync(join(w.root, "mattstack/teams/widgets/packs/widgets/PACK.md"), "widgets\n");
+      mkdirSync(join(w.root, "mattstack/teams/gadgets/plugin"), { recursive: true });
+      writeFileSync(join(w.root, "mattstack/teams/gadgets/plugin/PACK.md"), "gadgets\n");
+      mkdirSync(join(w.root, "mattstack/teams/widgets/plugin"), { recursive: true });
+      writeFileSync(join(w.root, "mattstack/teams/widgets/plugin/PACK.md"), "widgets\n");
       updateTeamLocal(w.p, "acme", { pendingPackShares: [
         { pack: "gadgets", paths: ["mattstack/teams/gadgets", ".claude-plugin/marketplace.json"] },
-        { pack: "widgets", paths: ["mattstack/teams/widgets/packs/widgets"] },
+        { pack: "widgets", paths: ["mattstack/teams/widgets/plugin"] },
       ] });
       const captured = captureOut();
       try {
@@ -957,19 +957,19 @@ describe("teamAdd", () => {
         expect(captured.stdout()).toContain("Shared the widgets pack with your org");
       } finally { captured.restore(); }
       const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
-      expect(files).toEqual(["mattstack/teams/widgets/packs/widgets/PACK.md"]);
+      expect(files).toEqual(["mattstack/teams/widgets/plugin/PACK.md"]);
       expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
     });
 
     test("--json names each remembered share it dropped beside the push", async () => {
       const w = orgWorld("dev2");
-      mkdirSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets"), { recursive: true });
-      writeFileSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets/PACK.md"), "gadgets\n");
-      mkdirSync(join(w.root, "mattstack/teams/widgets/packs/widgets"), { recursive: true });
-      writeFileSync(join(w.root, "mattstack/teams/widgets/packs/widgets/PACK.md"), "widgets\n");
+      mkdirSync(join(w.root, "mattstack/teams/gadgets/plugin"), { recursive: true });
+      writeFileSync(join(w.root, "mattstack/teams/gadgets/plugin/PACK.md"), "gadgets\n");
+      mkdirSync(join(w.root, "mattstack/teams/widgets/plugin"), { recursive: true });
+      writeFileSync(join(w.root, "mattstack/teams/widgets/plugin/PACK.md"), "widgets\n");
       updateTeamLocal(w.p, "acme", { pendingPackShares: [
         { pack: "gadgets", paths: ["mattstack/teams/gadgets", ".claude-plugin/marketplace.json"] },
-        { pack: "widgets", paths: ["mattstack/teams/widgets/packs/widgets"] },
+        { pack: "widgets", paths: ["mattstack/teams/widgets/plugin"] },
       ] });
       const deps = baseDeps({ probes: w.p, forgeToken: async () => null });
       const captured = captureOut();
@@ -1006,8 +1006,8 @@ describe("teamAdd", () => {
 
     test("a member's Mac never commits a remembered share", async () => {
       const w = orgWorld("dev3");
-      mkdirSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets"), { recursive: true });
-      writeFileSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets/README.md"), "gadgets\n");
+      mkdirSync(join(w.root, "mattstack/teams/gadgets/plugin"), { recursive: true });
+      writeFileSync(join(w.root, "mattstack/teams/gadgets/plugin/README.md"), "gadgets\n");
       updateTeamLocal(w.p, "acme", { pendingPackShares: [{ pack: "gadgets", paths: ["mattstack/teams/gadgets"] }] });
       const deps = baseDeps({ probes: w.p, forgeToken: async () => null });
       expect(await runExpectingProcessExit(() => teamPublish(["--team", "acme", "--json"], {}, deps))).toBe(2);

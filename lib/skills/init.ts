@@ -10,6 +10,7 @@ import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 import type { PackShare } from "../team/share-pack.ts";
 import { orgsDirUnder } from "../rt-paths.ts";
+import { TEAM_PACK_FOLDER, isUnconvertedTeamPack, teamPackSource, unconvertedTeamPackError } from "../team/team-pack-path.ts";
 
 /** Strips only the userinfo (scheme://user:pass@) so the rest of a rejected remote URL stays in the message; withoutUrls's full-URL redaction would leave nothing readable here. */
 function withoutCredentials(message: string): string {
@@ -135,8 +136,8 @@ function forgeHost(section: Record<string, unknown> | null): unknown {
   return (stored("mattstack.integrations", section) as { forge?: { host?: unknown } | null } | undefined)?.forge?.host;
 }
 
-export function zonePackDir(zone: Pick<ZoneInfo, "dir" | "team">): string {
-  return join(zone.dir, "packs", zone.team);
+export function zonePackDir(zone: Pick<ZoneInfo, "dir">): string {
+  return join(zone.dir, TEAM_PACK_FOLDER);
 }
 
 /** A team folder can land before its settings file (a partial pull); only a parsed settings file says what the team claims. */
@@ -171,7 +172,8 @@ export function readZonesFrom(fs: InitFs, teams: string): ZoneInfo[] {
         hostOnly(stored("board.gitlabHost", orgSettings)) ??
         hostOnly(forgeHost(teamSettings)) ??
         hostOnly(forgeHost(orgSettings));
-      const packDir = zonePackDir({ dir, team });
+      if (isUnconvertedTeamPack(fs, dir, team)) throw unconvertedTeamPackError(orgDir, team);
+      const packDir = zonePackDir({ dir });
       zones.push({ slug: `${org}/${team}`, org, team, orgDir, dir, host, projects, marketplace, hasPack: isPackDir(fs, packDir) && !isBasePack(fs, packDir), packCompiled: packIsCompiled(fs, packDir) });
     }
   }
@@ -450,7 +452,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null; tea
   if (packIsCompiled(deps.fs, packDir)) {
     return refuse("pack-exists", "This team already has a pack, and rt never changes an existing pack. To add to it, use the mattstack:extending-a-pack skill");
   }
-  const packSource = `./mattstack/teams/${zone.team}/packs/${zone.team}`;
+  const packSource = teamPackSource(zone.team);
   const marketOnDiskEarly = deps.fs.readFile(join(zone.orgDir, ".claude-plugin", "marketplace.json"));
   const entryThere = marketOnDiskEarly !== null && addMarketplacePlugin(marketOnDiskEarly, pack, packDescription(pack), packSource) === marketOnDiskEarly;
   for (const relPath of [`mattstack/teams/${zone.team}`, ...(entryThere ? [] : [".claude-plugin/marketplace.json"])]) {

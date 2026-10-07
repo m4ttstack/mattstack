@@ -27,9 +27,9 @@ describe("sharePack", () => {
     expect(w.atOrigin("log", "--format=%s", "main").trim().split("\n")).toEqual(["skills: new gadgets pack", "seed"]);
     const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
     expect(files).toContain(".claude-plugin/marketplace.json");
-    expect(files).toContain("mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc");
-    expect(files).toContain("mattstack/teams/gadgets/packs/gadgets/.claude-plugin/plugin.json");
-    expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([expect.objectContaining({ name: "gadgets", source: "./mattstack/teams/gadgets/packs/gadgets" })]);
+    expect(files).toContain("mattstack/teams/gadgets/plugin/pack/skills.jsonc");
+    expect(files).toContain("mattstack/teams/gadgets/plugin/.claude-plugin/plugin.json");
+    expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([expect.objectContaining({ name: "gadgets", source: "./mattstack/teams/gadgets/plugin" })]);
   });
 
   test("a failed push keeps the pack on this Mac and names the publish command", async () => {
@@ -40,14 +40,14 @@ describe("sharePack", () => {
     expect(shared).toMatchObject({ pushed: false, next: "rt team publish --team acme" });
     if (shared.pushed) return;
     expect(shared.reason.length).toBeGreaterThan(0);
-    expect(w.p.exists(join(w.root, "mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc"))).toBe(true);
+    expect(w.p.exists(join(w.root, "mattstack/teams/gadgets/plugin/pack/skills.jsonc"))).toBe(true);
     expect(w.atOrigin("log", "--format=%s", "main").trim()).toBe("seed");
   });
 
   test("a failed commit is remembered, and the publish that follows commits only the remembered paths", async () => {
     const w = orgWorld();
     addTeam(w.p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams);
-    const paths = ["mattstack/teams/gadgets/packs/gadgets", ".claude-plugin/marketplace.json"];
+    const paths = ["mattstack/teams/gadgets/plugin", ".claude-plugin/marketplace.json"];
     writeFileSync(join(w.root, ".git", "index.lock"), "");
     const shared = await sharePack(w.p, "acme", "gadgets", paths, async () => null);
     expect(shared).toMatchObject({ pushed: false, next: "rt team publish --team acme" });
@@ -58,7 +58,7 @@ describe("sharePack", () => {
     await publishTeam(w.p, "acme", null, { token: null, tokenRemote: w.remote });
 
     const files = w.atOrigin("show", "--name-only", "--format=", "main").trim().split("\n");
-    expect(files).toContain("mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc");
+    expect(files).toContain("mattstack/teams/gadgets/plugin/pack/skills.jsonc");
     expect(files).toContain(".claude-plugin/marketplace.json");
     expect(files).not.toContain("mattstack/teams/gadgets/settings.team.jsonc");
     expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
@@ -77,7 +77,7 @@ describe("sharePack", () => {
     const tree = w.atOrigin("ls-tree", "-r", "--name-only", "main");
     const named = JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins.map((plugin: { name: string }) => plugin.name).sort();
     expect(named).toEqual(["gadgets", "tools"]);
-    for (const name of named) expect(tree).toContain(`mattstack/teams/${name}/packs/${name}/pack/skills.jsonc`);
+    for (const name of named) expect(tree).toContain(`mattstack/teams/${name}/plugin/pack/skills.jsonc`);
     expect(w.pushes).toHaveLength(1);
     expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
   });
@@ -118,13 +118,13 @@ describe("sharePack", () => {
 
   test("a share reports the remembered shares it dropped because this Mac may no longer write them", async () => {
     const w = orgWorld("dev2");
-    mkdirSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets"), { recursive: true });
-    writeFileSync(join(w.root, "mattstack/teams/gadgets/packs/gadgets/PACK.md"), "gadgets\n");
-    mkdirSync(join(w.root, "mattstack/teams/widgets/packs/widgets"), { recursive: true });
-    writeFileSync(join(w.root, "mattstack/teams/widgets/packs/widgets/PACK.md"), "widgets\n");
+    mkdirSync(join(w.root, "mattstack/teams/gadgets/plugin"), { recursive: true });
+    writeFileSync(join(w.root, "mattstack/teams/gadgets/plugin/PACK.md"), "gadgets\n");
+    mkdirSync(join(w.root, "mattstack/teams/widgets/plugin"), { recursive: true });
+    writeFileSync(join(w.root, "mattstack/teams/widgets/plugin/PACK.md"), "widgets\n");
     updateTeamLocal(w.p, "acme", { pendingPackShares: [{ pack: "gadgets", paths: ["mattstack/teams/gadgets", ".claude-plugin/marketplace.json"] }] });
 
-    const shared = await sharePack(w.p, "acme", "widgets", ["mattstack/teams/widgets/packs/widgets"], async () => null);
+    const shared = await sharePack(w.p, "acme", "widgets", ["mattstack/teams/widgets/plugin"], async () => null);
 
     expect(shared).toMatchObject({ pushed: true, skipped: [{ pack: "gadgets", message: "The gadgets team's files belong to its owners" }] });
     const text = renderPlain(packShareBlocks("widgets", shared));
@@ -148,7 +148,7 @@ describe("sharePack", () => {
 
   test("a remembered pack whose folder is gone is dropped, not committed", async () => {
     const w = orgWorld();
-    updateTeamLocal(w.p, "acme", { pendingPackShares: [{ pack: "gadgets", paths: ["mattstack/teams/gadgets/packs/gadgets", ".claude-plugin/marketplace.json"] }] });
+    updateTeamLocal(w.p, "acme", { pendingPackShares: [{ pack: "gadgets", paths: ["mattstack/teams/gadgets/plugin", ".claude-plugin/marketplace.json"] }] });
     expect(await commitPendingPackShares(w.p, "acme")).toEqual({ committed: [], skipped: [] });
     expect(readTeamLocal(w.p, "acme").pendingPackShares).toBeUndefined();
     expect(w.git("log", "--format=%s").trim()).toBe("seed");
@@ -158,7 +158,7 @@ describe("sharePack", () => {
     const w = orgWorld();
     addTeam(w.p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams);
     writeFileSync(join(w.root, ".git", "index.lock"), "");
-    await sharePack(w.p, "acme", "gadgets", ["mattstack/teams/gadgets/packs/gadgets", ".claude-plugin/marketplace.json"], async () => null);
+    await sharePack(w.p, "acme", "gadgets", ["mattstack/teams/gadgets/plugin", ".claude-plugin/marketplace.json"], async () => null);
     rmSync(join(w.root, ".git", "index.lock"));
     writeFileSync(join(w.root, "mattstack/teams/widgets/settings.team.jsonc"), "{ \"board.title\": \"edited\" }\n");
 
@@ -187,7 +187,7 @@ describe("sharePack", () => {
 
     expect(await commitPendingPackShares(w.p, "acme")).toEqual({ committed: ["gadgets"], skipped: [] });
     await publishTeam(w.p, "acme", null, { token: null, tokenRemote: w.remote });
-    expect(w.atOrigin("show", "main:mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc").length).toBeGreaterThan(0);
+    expect(w.atOrigin("show", "main:mattstack/teams/gadgets/plugin/pack/skills.jsonc").length).toBeGreaterThan(0);
     expect(JSON.parse(w.atOrigin("show", "main:.claude-plugin/marketplace.json")).plugins).toEqual([expect.objectContaining({ name: "gadgets" })]);
   }, 15_000);
 
@@ -208,7 +208,7 @@ describe("sharePack", () => {
       },
       exec: (argv) => { calls.push(argv); return { code: 0, stdout: "", stderr: "" }; },
     });
-    await expect(sharePack(p, "acme", "widgets", ["mattstack/teams/widgets/packs/widgets"], async () => null)).rejects.toMatchObject({ code: "team-pull-only" });
+    await expect(sharePack(p, "acme", "widgets", ["mattstack/teams/widgets/plugin"], async () => null)).rejects.toMatchObject({ code: "team-pull-only" });
     expect(calls).toEqual([]);
   });
 });

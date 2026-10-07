@@ -240,7 +240,7 @@ describe("orgFolderPacks", () => {
     const org = join(root, "orgs", "acme");
     writeFile(join(org, "mattstack", "mattstack.jsonc"), `{ "role": "org", "org": "acme" }`);
     writeFile(join(org, ".claude-plugin", "marketplace.json"), `{ "name": "acme-market", "plugins": [] }`);
-    const widgets = join(org, "mattstack", "teams", "widgets", "packs", "widgets");
+    const widgets = join(org, "mattstack", "teams", "widgets", "plugin");
     writeFile(join(widgets, "pack", "surface.jsonc"), `{ "public": ["work"] }`);
     const base = join(org, "mattstack", "org", "packs", "acme-base");
     writeFile(join(base, "pack", "surface.jsonc"), `{ "public": [] }`);
@@ -255,6 +255,12 @@ describe("orgFolderPacks", () => {
       ["acme-base", base, null, true],
       ["widgets", widgets, "acme-market", undefined],
     ]);
+  });
+
+  test("a team folder still holding packs/<team> is refused with the conversion remedy", () => {
+    const { root, org } = makeOrg();
+    writeFile(join(org, "mattstack", "teams", "gadgets", "packs", "gadgets", "pack", "skills.jsonc"), `{}`);
+    expect(() => orgFolderPacks(root)).toThrow("Your org repo still keeps the gadgets pack at mattstack/teams/gadgets/packs/gadgets");
   });
 
   test("a folder under the org's packs is a base only when its fragment says so", () => {
@@ -292,7 +298,7 @@ describe("orgFolderPacks", () => {
 
   test("a folder whose name is not a valid team or pack name never becomes a pack", () => {
     const { root, org } = makeOrg();
-    writeFile(join(org, "mattstack", "teams", "Bad_Team", "packs", "Bad_Team", "pack", "surface.jsonc"), `{ "public": [] }`);
+    writeFile(join(org, "mattstack", "teams", "Bad_Team", "plugin", "pack", "surface.jsonc"), `{ "public": [] }`);
     writeFile(join(org, "mattstack", "org", "packs", "Bad Base", "pack", "surface.jsonc"), `{ "public": [] }`);
     expect(orgFolderPacks(root).map((p) => p.name)).toEqual(["acme-base", "widgets"]);
   });

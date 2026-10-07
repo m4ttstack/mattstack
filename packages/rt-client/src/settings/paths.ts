@@ -85,9 +85,9 @@ export function teamFolderDir(org: string, team: string): string {
   return join(teamFoldersDir(org), team);
 }
 
-/** A team's pack carries the team's name. */
+/** A team's pack is its Claude plugin, the one folder under the team a member's Mac installs. */
 export function teamPackDir(org: string, team: string): string {
-  return join(teamFolderDir(org, team), "packs", team);
+  return join(teamFolderDir(org, team), "plugin");
 }
 
 /**

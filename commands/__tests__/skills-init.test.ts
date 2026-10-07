@@ -330,8 +330,8 @@ describe("skillsInit", () => {
       [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com", "board.projects": ["acme/api"] }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
-      [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/packs/acme/pack/skills.jsonc`]: "{}",
-      [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/packs/acme/skills/work/SKILL.md`]: "compiled",
+      [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/plugin/pack/skills.jsonc`]: "{}",
+      [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/plugin/skills/work/SKILL.md`]: "compiled",
     });
     await skillsInit([], {}, stubDeps({ fs, home: HOME, gitRemote: async () => ({ kind: "ok", url: "git@gitlab.com:acme/api.git" }) }));
     expect(io.stdout()).toBe("");

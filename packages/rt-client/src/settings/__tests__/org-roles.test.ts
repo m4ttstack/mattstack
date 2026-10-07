@@ -70,7 +70,7 @@ describe("what a role may write", () => {
   test("an owner owns their team folders only", () => {
     expect(ownedRoots(owner)).toEqual(["mattstack/teams/gadgets"]);
     expect(mayWritePath(owner, "mattstack/teams/gadgets/settings.team.jsonc")).toBe(true);
-    expect(mayWritePath(owner, "mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc")).toBe(true);
+    expect(mayWritePath(owner, "mattstack/teams/gadgets/plugin/pack/skills.jsonc")).toBe(true);
     for (const path of ["mattstack/teams/widgets/settings.team.jsonc", "mattstack/org/settings.org.jsonc", ".claude-plugin/marketplace.json", ".sops.yaml", "mattstack/teams/gadgets-evil/x"]) {
       expect(mayWritePath(owner, path)).toBe(false);
     }

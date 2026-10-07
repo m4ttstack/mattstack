@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "mattstack org marker (mattstack/mattstack.jsonc)",
-  "description": "Marks an org clone at mattstack/mattstack.jsonc. Team folders sit under mattstack/teams/<team>/, each holding at most one pack named after the team.",
+  "description": "Marks an org clone at mattstack/mattstack.jsonc. Team folders sit under mattstack/teams/<team>/, each holding at most one pack, at plugin/, named after the team.",
   "type": "object",
   "required": ["role", "org"],
   "properties": {

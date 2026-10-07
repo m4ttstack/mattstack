@@ -834,7 +834,7 @@ describe("bind writes the team pack fragment", () => {
 describe("applyBind", () => {
   test("team pack: writes the fragment, regenerates, and reports a shadowing override", async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
-    const packDir = join(root, "teams", "acme", "mattstack", "packs", "widgets");
+    const packDir = join(root, "mattstack", "teams", "widgets", "plugin");
     writeFile(join(packDir, "pack", "skills.jsonc"), `{\n  "bindings": {}\n}\n`);
     const manifestPath = join(root, "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
     writeFile(manifestPath, "{}");
@@ -874,7 +874,7 @@ describe("applyBind", () => {
       process.env.HOME = join(root, "home");
       mkdirSync(process.env.HOME, { recursive: true });
       process.env.RT_ENGINE_PACK_DIR = join(root, "missing-engine-pack");
-      const packDir = join(root, "teams", "acme", "mattstack", "packs", "widgets");
+      const packDir = join(root, "mattstack", "teams", "widgets", "plugin");
       const fragmentPath = join(packDir, "pack", "skills.jsonc");
       writeFile(fragmentPath, `{\n  "bindings": {}\n}\n`);
       const manifestPath = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
@@ -957,7 +957,7 @@ describe("applyBind", () => {
       writeFile(join(orgDir, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
       writeFile(join(orgDir, "org", "settings.org.jsonc"), JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets", "acme/gadgets"] }));
       writeFile(join(orgDir, "teams", "widgets", "settings.team.jsonc"), "{}");
-      writeFile(join(orgDir, "teams", "widgets", "packs", "widgets", "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { domain: "widgets:ci" } } }));
+      writeFile(join(orgDir, "teams", "widgets", "plugin", "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { domain: "widgets:ci" } } }));
       for (const name of registered) {
         const dir = join(root, "src", name);
         execFileSync("git", ["init", "-q", dir]);
@@ -1076,7 +1076,7 @@ describe("pack role refusals", () => {
       try {
         seedOrg({ org: "acme", username, roles: { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } }, teams: { widgets: {} } });
         const orgRoot = join(process.env.HOME!, ".mattstack", "orgs", "acme");
-        const packDir = target === "root" ? orgRoot : target === "..pack" ? join(orgRoot, "..pack") : join(orgRoot, "mattstack", "teams", "widgets", "packs", "widgets");
+        const packDir = target === "root" ? orgRoot : target === "..pack" ? join(orgRoot, "..pack") : join(orgRoot, "mattstack", "teams", "widgets", "plugin");
         writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
         const title = target === "team" ? "The widgets team's files belong to its owners" : "The org's shared files belong to its admins";
         const refusal = `${title}. ${target === "team" ? "Ask dev2 (the team's owner) or dev1 (an org admin) to make this change." : "Ask dev1 (an org admin) to make this change."}`;
@@ -1112,7 +1112,7 @@ describe("a Mac with two org clones", () => {
         const roles = { admins: ["dev1"], teams: { widgets: { owners: ["dev2"] } } };
         seed({ org: "acme", username: "dev4", roles, teams: { widgets: {} } });
         seed({ org: "beta", username: "dev4", roles, teams: { widgets: {} } });
-        const packDir = join(process.env.HOME!, ".mattstack", "orgs", "beta", "mattstack", "teams", "widgets", "packs", "widgets");
+        const packDir = join(process.env.HOME!, ".mattstack", "orgs", "beta", "mattstack", "teams", "widgets", "plugin");
         writeFile(join(packDir, ".claude-plugin", "plugin.json"), '{"name":"widgets","version":"1.0.0"}');
         const title = "This pack is in the beta org, not the one this Mac uses";
         const refusal = `${title}. rt works with one org per Mac, and this Mac uses acme`;

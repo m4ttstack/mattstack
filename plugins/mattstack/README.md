@@ -372,8 +372,8 @@ see [Configuration](#configuration).
 
 A domain team does not fork this repo. It runs `rt skills init` in its repo
 (the `creating-a-pack` skill walks through it), which scaffolds a pack in
-the team's folder of the org repo (`mattstack/teams/<team>/packs/<team>/`,
-named after the team): a `work` verb compiled from the engines here with every
+the team's folder of the org repo (`mattstack/teams/<team>/plugin/`, the
+team's Claude plugin): a `work` verb compiled from the engines here with every
 domain slot unbound, so the generic pipeline runs on day one. Rules are
 added later as fills, one slot at a time, through the `extending-a-pack`
 skill; each fill is a small skill declaring `metadata.provides` and bound
@@ -385,7 +385,9 @@ The bindings manifest schema lives at
 `"extends": "acme-base"` to build on its org's base pack, overriding its
 fills slot by slot. The base lives at `mattstack/org/packs/acme-base/` in
 the org repo, marks itself `"base": true`, keeps its fills under
-`attachments/`, and is never installed: a team's compile inlines its fills.
+`attachments/`, and is never installed: a team's compile inlines its fills,
+except a fill only `board:*` slots bind, which it copies into the team pack
+for the board to open.
 `pack/skills.jsonc` in this repo is a
 real example: it binds `mattstack:shepherdr`'s `tiering`, `strategy`, and
 `accounts` slots and leaves `domain` unbound.

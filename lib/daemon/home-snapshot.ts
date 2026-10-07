@@ -52,6 +52,7 @@ import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
 import { HOME_SNAPSHOT_NS, recordHomePush, type HomePushRecord } from "../home/push-record.ts";
 import { isUnderZone, parsePorcelainZ, planSnapshot, scopeEntries } from "./home-snapshot-plan.ts";
+import { teamPackRel } from "../team/team-pack-path.ts";
 
 export type SnapshotReason = "manual" | "watch" | "janitor";
 
@@ -394,7 +395,7 @@ function teamStandingZones(repoDir: string, log: Logger): Owners["zones"] {
     if (code !== "ENOENT" && code !== "ENOTDIR") throw err;
   }
   const legacy = !existsSync(join(repoDir, "mattstack", "org")) || existsSync(join(repoDir, "mattstack", "packs")) ? ["mattstack/packs/"] : [];
-  const zones = [...legacy, "mattstack/org/packs/", ...teams.map((team) => `mattstack/teams/${team}/packs/`)];
+  const zones = [...legacy, "mattstack/org/packs/", ...teams.map((team) => `${teamPackRel(team)}/`)];
   return Object.fromEntries(zones.map((zone) => [zone, { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" }]));
 }
 

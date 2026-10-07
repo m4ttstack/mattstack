@@ -8,7 +8,7 @@ import { isEmittedAttachmentDir, isEmittedAttachmentText, isSkippedAttachmentPat
 let root: string;
 const put = (path: string, text: string) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text); };
 const baseDir = () => join(root, "mattstack", "org", "packs", "acme-base");
-const packDir = () => join(root, "mattstack", "teams", "widgets", "packs", "widgets");
+const packDir = () => join(root, "mattstack", "teams", "widgets", "plugin");
 const plan = (verbSides: Record<string, "skills" | "attachments"> = { ship: "skills" }) =>
   planBaseAttachments({ packDir: packDir(), packName: "widgets", verbSides });
 const emittedMarker = JSON.stringify({ base: "acme-base", version: null, files: [] });

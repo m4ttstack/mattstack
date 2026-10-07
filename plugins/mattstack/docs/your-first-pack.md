@@ -53,11 +53,11 @@ rt skills init --json --team widgets
 machine, so the pack always lands in that org. It writes, in the org clone:
 
 ```
-mattstack/teams/widgets/packs/widgets/.claude-plugin/plugin.json   the pack's plugin manifest, version 0.1.0
-mattstack/teams/widgets/packs/widgets/PACK.md                       what this pack is and where to go next
-mattstack/teams/widgets/packs/widgets/pack/surface.jsonc            which verbs are public (work)
-mattstack/teams/widgets/packs/widgets/pack/stubs.jsonc              the verb roster: work, compiled from the mattstack engine
-mattstack/teams/widgets/packs/widgets/pack/skills.jsonc             the bindings fragment: the eight-stage feature pipeline, model tiering, GitLab CI
+mattstack/teams/widgets/plugin/.claude-plugin/plugin.json          the pack's plugin manifest, version 0.1.0
+mattstack/teams/widgets/plugin/PACK.md                              what this pack is and where to go next
+mattstack/teams/widgets/plugin/pack/surface.jsonc                   which verbs are public (work)
+mattstack/teams/widgets/plugin/pack/stubs.jsonc                     the verb roster: work, compiled from the mattstack engine
+mattstack/teams/widgets/plugin/pack/skills.jsonc                    the bindings fragment: the eight-stage feature pipeline, model tiering, GitLab CI
 mattstack/teams/widgets/settings.team.jsonc                         the repo added to the team's board.projects
 .claude-plugin/marketplace.json                                     the pack listed as a plugin
 ```
@@ -130,7 +130,7 @@ you will see, in order:
 
 1. **RED.** The skill runs the ship stage without the rule on a small task in
    a worktree and stops before the push, recording that nothing ran lint.
-2. **The fill.** `mattstack/teams/widgets/packs/widgets/attachments/ship-lint/SKILL.md`, a
+2. **The fill.** `mattstack/teams/widgets/plugin/attachments/ship-lint/SKILL.md`, a
    small skill whose frontmatter declares `metadata.provides:
    "ship-domain@1"` and whose body is the rule in your team's words: run
    `bun run lint`, and on failure do not push.
@@ -169,8 +169,9 @@ admin adds by hand at `mattstack/org/packs/acme-base/` in the org repo:
 - `pack/skills.jsonc` says `"base": true` and binds the shared fills.
 - `pack/surface.jsonc` is `{ "public": [] }`.
 - The fills sit under `attachments/<fill>/`, never `skills/`: nothing
-  installs a base pack, so its fills are always inlined into each team's
-  compiled verbs.
+  installs a base pack, so its fills are inlined into each team's
+  compiled verbs (a fill only `board:*` slots bind is copied into the team
+  pack as well, since the board opens it by name while it runs).
 
 A team pack uses it with `"extends": "acme-base"` in its
 `pack/skills.jsonc`, and its own fills override the base's slot by slot.
@@ -196,7 +197,7 @@ leaves it alone.
 | thing | path |
 | --- | --- |
 | the org clone (a git clone the daemon keeps in sync) | `~/.mattstack/orgs/<org>/` |
-| a team's pack | `~/.mattstack/orgs/<org>/mattstack/teams/<team>/packs/<team>/` |
+| a team's pack | `~/.mattstack/orgs/<org>/mattstack/teams/<team>/plugin/` |
 | the org's base pack | `~/.mattstack/orgs/<org>/mattstack/org/packs/<org>-base/` |
 | the bindings file per repo and pack (generated, never edited) | `~/.mattstack/repos/<host>-<path>/packs/<pack>/skills.jsonc` |
 | the installed copy sessions load | `~/.claude/plugins/cache/<marketplace>/<pack>/<version>/` |

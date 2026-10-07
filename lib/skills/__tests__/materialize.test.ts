@@ -34,7 +34,7 @@ function makeWorld() {
   return { home, root, engine };
 }
 
-type TeamSpec = { projects?: string[]; packs: Record<string, object> };
+type TeamSpec = { projects?: string[]; pack?: object };
 
 function org(root: string, name: string, opts: { projects: string[]; teams: Record<string, TeamSpec>; base?: Record<string, object> }): void {
   const dir = join(root, "orgs", name);
@@ -43,9 +43,7 @@ function org(root: string, name: string, opts: { projects: string[]; teams: Reco
   for (const [team, spec] of Object.entries(opts.teams)) {
     const teamDir = teamFolder(root, name, team);
     write(join(teamDir, "settings.team.jsonc"), JSON.stringify(spec.projects ? { "board.projects": spec.projects } : {}));
-    for (const [pack, fragment] of Object.entries(spec.packs)) {
-      write(join(teamDir, "packs", pack, "pack", "skills.jsonc"), JSON.stringify(fragment));
-    }
+    if (spec.pack) write(join(teamDir, "plugin", "pack", "skills.jsonc"), JSON.stringify(spec.pack));
   }
   for (const [base, fragment] of Object.entries(opts.base ?? {})) {
     write(join(dir, "mattstack", "org", "packs", base, "pack", "skills.jsonc"), JSON.stringify(fragment));
@@ -66,15 +64,15 @@ describe("materializeRepo", () => {
 
   test("no team claims the repo -> undeclared", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/other"], teams: { widgets: { packs: { widgets: {} } } } });
+    org(root, "acme", { projects: ["acme/other"], teams: { widgets: { pack: {} } } });
     expect(materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE)).toEqual({ kind: "undeclared", repo: "gitlab.example.com/acme/widgets" });
   });
 
   test("two teams on one repo each get their own pack file with their own stage-gates fill", () => {
     const { root, engine } = makeWorld();
     org(root, "acme", { projects: ["acme/widgets"], teams: {
-      widgets: { packs: { widgets: { bindings: { "mattstack:stage-gates": { domain: "widgets:gates" } } } } },
-      gadgets: { packs: { gadgets: { bindings: { "mattstack:stage-gates": { domain: "gadgets:gates" } } } } },
+      widgets: { pack: { bindings: { "mattstack:stage-gates": { domain: "widgets:gates" } } } },
+      gadgets: { pack: { bindings: { "mattstack:stage-gates": { domain: "gadgets:gates" } } } },
     } });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     expect(out.kind).toBe("written");
@@ -89,7 +87,7 @@ describe("materializeRepo", () => {
     const { root, engine } = makeWorld();
     org(root, "acme", {
       projects: ["acme/widgets"],
-      teams: { widgets: { packs: { widgets: { extends: "acme-base", bindings: { "mattstack:stage-gates": { domain: "widgets:gates" } } } } } },
+      teams: { widgets: { pack: { extends: "acme-base", bindings: { "mattstack:stage-gates": { domain: "widgets:gates" } } } } },
       base: { "acme-base": { base: true, bindings: { "mattstack:stage-gates": { domain: "acme-base:gates" }, "mattstack:watch-ci": { forge: "mattstack:gitlab-forge" }, "mattstack:stage-ship": { policy: "acme-base:squash" } } } },
     });
     write(join(root, "user", "skills", "overrides.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { forge: "me:forge" } } }));
@@ -109,7 +107,7 @@ describe("materializeRepo", () => {
 
   test("a missing base is a per-pack error and other packs on the repo still write", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } }, gadgets: { packs: { gadgets: { extends: "acme-base" } } } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} }, gadgets: { pack: { extends: "acme-base" } } } });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
     const gadgets = out.packs.find((p) => p.pack === "gadgets")!;
@@ -122,32 +120,23 @@ describe("materializeRepo", () => {
   test("a type-invalid fragment fails only its own pack", () => {
     const { root, engine } = makeWorld();
     org(root, "acme", { projects: ["acme/widgets"], teams: {
-      widgets: { packs: { widgets: { bindings: { "mattstack:stage-gates": { domain: "widgets:gates" } } } } },
-      gadgets: { packs: { gadgets: { bindings: { "mattstack:stage-gates": null } } } },
+      widgets: { pack: { bindings: { "mattstack:stage-gates": { domain: "widgets:gates" } } } },
+      gadgets: { pack: { bindings: { "mattstack:stage-gates": null } } },
     } });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
     const gadgets = out.packs.find((p) => p.pack === "gadgets")!;
     expect(gadgets.ok).toBe(false);
-    if (!gadgets.ok) expect(gadgets.detail).toContain(join(teamFolder(root, "acme", "gadgets"), "packs", "gadgets", "pack", "skills.jsonc"));
+    if (!gadgets.ok) expect(gadgets.detail).toContain(join(teamFolder(root, "acme", "gadgets"), "plugin", "pack", "skills.jsonc"));
     expect(out.packs.find((p) => p.pack === "widgets")!.ok).toBe(true);
     expect(body(join(root, "repos", SLUG, "packs", "widgets", "skills.jsonc")).bindings["mattstack:stage-gates"]!.domain).toBe("widgets:gates");
-  });
-
-  test("two packs in one team folder that claims the repo are both refused", () => {
-    const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { acme: { packs: { widgets: {}, gadgets: {} } } } });
-    const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
-    if (out.kind !== "written") throw new Error(out.kind);
-    expect(out.packs.every((p) => !p.ok)).toBe(true);
-    if (!out.packs[0]!.ok) expect(out.packs[0]!.detail).toContain('team "acme" holds 2 packs (gadgets, widgets) that all claim gitlab.example.com/acme/widgets');
   });
 
   test("a team that sets no projects holds the base pack without claiming anything", () => {
     const { root, engine } = makeWorld();
     org(root, "acme", { projects: ["acme/widgets"], teams: {
-      "acme-base-team": { projects: [], packs: { "acme-base": {} } },
-      widgets: { packs: { widgets: {} } },
+      "acme-base-team": { projects: [], pack: { base: true } },
+      widgets: { pack: {} },
     } });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
@@ -156,38 +145,29 @@ describe("materializeRepo", () => {
 
   test("an invalid pack fragment is a per-pack error naming the file", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: {} } } });
-    write(join(teamFolder(root, "acme", "widgets"), "packs", "widgets", "pack", "skills.jsonc"), "{ nope");
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: {} } });
+    write(join(teamFolder(root, "acme", "widgets"), "plugin", "pack", "skills.jsonc"), "{ nope");
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
     expect(out.packs[0]).toMatchObject({ ok: false });
-    if (!out.packs[0]!.ok) expect(out.packs[0]!.detail).toContain("widgets/pack/skills.jsonc");
+    if (!out.packs[0]!.ok) expect(out.packs[0]!.detail).toContain("widgets/plugin/pack/skills.jsonc");
   });
 
-  test("a base pack beside a claiming pack in one zone claims nothing and gets no file", () => {
+  test("a base pack in a team's plugin slot claims nothing and gets no file", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {}, "acme-base": { base: true } } } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} }, gadgets: { pack: { base: true } } } });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
     expect(out.packs.map((p) => [p.pack, p.ok])).toEqual([["widgets", true]]);
     expect(readdirSync(join(root, "repos", SLUG, "packs"))).toEqual(["widgets"]);
   });
 
-  test("a base pack is not counted when two claiming packs share a team folder", () => {
-    const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { acme: { packs: { widgets: {}, gadgets: {}, "acme-base": { base: true } } } } });
-    const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
-    if (out.kind !== "written") throw new Error(out.kind);
-    expect(out.packs.map((p) => [p.pack, p.ok])).toEqual([["gadgets", false], ["widgets", false]]);
-    if (!out.packs[0]!.ok) expect(out.packs[0]!.detail).toContain('team "acme" holds 2 packs (gadgets, widgets) that all claim');
-  });
-
   test("one base pack name in two declaring teams is not refused", () => {
     const { root, engine } = makeWorld();
     org(root, "acme", { projects: ["acme/widgets"], teams: {
-      widgets: { packs: { widgets: {}, "acme-base": { base: true } } },
-      gadgets: { packs: { gadgets: {}, "acme-base": { base: true } } },
-    } });
+      widgets: { pack: {} },
+      gadgets: { pack: {} },
+    }, base: { "acme-base": { base: true } } });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
     expect(out.packs.map((p) => [p.pack, p.ok])).toEqual([["gadgets", true], ["widgets", true]]);
@@ -195,18 +175,17 @@ describe("materializeRepo", () => {
 
   test("a declaring team folder holding only base packs writes nothing", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { acme: { packs: { "acme-base": { base: true } } } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { acme: { pack: { base: true } } } });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     expect(out).toMatchObject({ kind: "written", packs: [] });
     expect(existsSync(join(root, "repos", SLUG, "packs"))).toBe(false);
   });
 
-  test("a claiming pack extending the base beside it in its own team folder merges the org base layer, not the copy beside it", () => {
+  test("a team pack extending a base merges the org base layer", () => {
     const { root, engine } = makeWorld();
-    const zoneCopy = { base: true, bindings: { "mattstack:stage-ship": { policy: "acme-base:unpublished" } } };
     org(root, "acme", {
       projects: ["acme/widgets"],
-      teams: { acme: { packs: { widgets: { extends: "acme-base" }, "acme-base": zoneCopy } } },
+      teams: { widgets: { pack: { extends: "acme-base" } } },
       base: { "acme-base": { base: true, bindings: { "mattstack:stage-ship": { policy: "acme-base:squash" } } } },
     });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
@@ -218,21 +197,22 @@ describe("materializeRepo", () => {
     expect(body(widgets.path).bindings["mattstack:stage-ship"]!.policy).toBe("acme-base:squash");
   });
 
-  test("one pack name in two declaring teams is refused in both", () => {
+  test("one team name in two orgs that both claim the repo is refused in both", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { alpha: { packs: { widgets: {} } }, beta: { packs: { widgets: {} } } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} } } });
+    org(root, "initech", { projects: ["acme/widgets"], teams: { widgets: { pack: {} } } });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
-    expect(out.packs.map((p) => [p.pack, p.zone, p.ok])).toEqual([["widgets", "acme/alpha", false], ["widgets", "acme/beta", false]]);
+    expect(out.packs.map((p) => [p.pack, p.zone, p.ok])).toEqual([["widgets", "acme/widgets", false], ["widgets", "initech/widgets", false]]);
     for (const p of out.packs) {
-      if (!p.ok) expect(p.detail).toContain('pack "widgets" is in 2 zones (acme/alpha, acme/beta) that all claim gitlab.example.com/acme/widgets');
+      if (!p.ok) expect(p.detail).toContain('pack "widgets" is in 2 zones (acme/widgets, initech/widgets) that all claim gitlab.example.com/acme/widgets');
     }
     expect(existsSync(join(root, "repos", SLUG, "packs", "widgets", "skills.jsonc"))).toBe(false);
   });
 
-  test("a declaring team folder with no packs writes nothing", () => {
+  test("a declaring team folder with no pack writes nothing", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { acme: { packs: {} } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { acme: {} } });
     write(join(root, "repos", SLUG, "skills.jsonc"), "{}");
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     expect(out).toEqual({ kind: "written", repo: "gitlab.example.com/acme/widgets", slug: SLUG, packs: [], migrated: null, pruned: [], pruneWarnings: [] });
@@ -242,7 +222,7 @@ describe("materializeRepo", () => {
 
   test("the old merged file is renamed .migrated, never deleted", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} } } });
     write(join(root, "repos", SLUG, "skills.jsonc"), "{}");
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
@@ -253,7 +233,7 @@ describe("materializeRepo", () => {
 
   test("the old merged file stays in place when every pack failed", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: { extends: "acme-base" } } } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: { extends: "acme-base" } } } });
     write(join(root, "repos", SLUG, "skills.jsonc"), "{}");
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
@@ -265,7 +245,7 @@ describe("materializeRepo", () => {
 
   test("the file is rewritten in place on a second run (no stray tmp file)", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} } } });
     const deps = { fs: realFs, mattstackRoot: root, enginePackDir: engine };
     materializeRepo(deps, REMOTE);
     materializeRepo(deps, REMOTE);
@@ -274,7 +254,7 @@ describe("materializeRepo", () => {
 
   test("an invalid overrides file fails every pack with the override path", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } }, gadgets: { packs: { gadgets: {} } } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} }, gadgets: { pack: {} } } });
     write(join(root, "user", "skills", "overrides.jsonc"), "{ nope");
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
@@ -294,7 +274,7 @@ describe("materializeRepo org base pack", () => {
     const { root, engine } = makeWorld();
     org(root, "acme", {
       projects: ["acme/widgets"],
-      teams: { widgets: { packs: { widgets: { extends: "acme-base", bindings: { "mattstack:stage-gates": { domain: "widgets:gates" } } } } } },
+      teams: { widgets: { pack: { extends: "acme-base", bindings: { "mattstack:stage-gates": { domain: "widgets:gates" } } } } },
       base: { "acme-base": { base: true, bindings: { "mattstack:stage-watch-ci": { forge: "acme-base:ci-forge" } } } },
     });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
@@ -309,7 +289,7 @@ describe("materializeRepo org base pack", () => {
     const { root, engine } = makeWorld();
     org(root, "acme", {
       projects: ["acme/widgets"],
-      teams: { widgets: { packs: { widgets: { extends: "acme-base" } } }, gadgets: { packs: { gadgets: { extends: "acme-base" } } } },
+      teams: { widgets: { pack: { extends: "acme-base" } }, gadgets: { pack: { extends: "acme-base" } } },
       base: { "acme-base": { base: true } },
     });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
@@ -320,7 +300,7 @@ describe("materializeRepo org base pack", () => {
 
   test("a missing base says the org has no base pack of that name", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: { extends: "acme-base" } } } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: { extends: "acme-base" } } } });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
     expect(out.packs[0]).toMatchObject({ ok: false, detail: `widgets extends acme-base, but the org has no base pack called acme-base` });
@@ -328,7 +308,7 @@ describe("materializeRepo org base pack", () => {
 
   test("the plugin@marketplace form is refused", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: { extends: "acme-base@acme" } } } }, base: { "shared-base": { base: true } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: { extends: "acme-base@acme" } } }, base: { "shared-base": { base: true } } });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
     expect(out.packs[0]).toMatchObject({ ok: false, detail: 'widgets extends "acme-base@acme", which is not a base pack name; name the folder under the org\'s packs, for example "extends": "shared-base"' });
@@ -336,7 +316,7 @@ describe("materializeRepo org base pack", () => {
 
   test("a name that would climb out of the packs folder is refused before any path is built", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: { extends: "../teams" } } } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: { extends: "../teams" } } } });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
     expect(out.packs[0]).toMatchObject({ ok: false, detail: 'widgets extends "../teams", which is not a base pack name; name the folder under the org\'s packs, for example "extends": "<base folder name>"' });
@@ -346,7 +326,7 @@ describe("materializeRepo org base pack", () => {
     const { root, engine } = makeWorld();
     org(root, "acme", {
       projects: ["acme/widgets"],
-      teams: { widgets: { packs: { widgets: { extends: "plain" } } }, gadgets: { packs: { gadgets: { extends: "deep" } } } },
+      teams: { widgets: { pack: { extends: "plain" } }, gadgets: { pack: { extends: "deep" } } },
       base: { plain: {}, deep: { base: true, extends: "deeper" } },
     });
     const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
@@ -354,6 +334,33 @@ describe("materializeRepo org base pack", () => {
     const byPack = Object.fromEntries(out.packs.map((p) => [p.pack, p.ok ? "" : p.detail]));
     expect(byPack.widgets).toBe("widgets extends plain, but the org's plain pack is not marked as a base pack");
     expect(byPack.gadgets).toBe("gadgets extends deep, which extends deeper; a base pack cannot extend another");
+  });
+
+  test("a base fill bound only from a board slot is pointed at the team plugin named in plugin/.claude-plugin/plugin.json", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", {
+      projects: ["acme/widgets"],
+      teams: { widgets: { pack: { extends: "acme-base" } } },
+      base: { "acme-base": { base: true, bindings: { "board:triage": { domain: "acme-base:triage-rules" } } } },
+    });
+    write(join(teamFolder(root, "acme", "widgets"), "plugin", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "widgets", version: "0.1.0" }));
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs[0]!.ok).toBe(true);
+    expect(body(join(root, "repos", SLUG, "packs", "widgets", "skills.jsonc")).bindings["board:triage"]!.domain).toBe("widgets:triage-rules");
+  });
+
+  test("a board-only base fill with no plugin.json beside the pack is a per-pack error naming the file", () => {
+    const { root, engine } = makeWorld();
+    org(root, "acme", {
+      projects: ["acme/widgets"],
+      teams: { widgets: { pack: { extends: "acme-base" } } },
+      base: { "acme-base": { base: true, bindings: { "board:triage": { domain: "acme-base:triage-rules" } } } },
+    });
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs[0]).toMatchObject({ ok: false });
+    if (!out.packs[0]!.ok) expect(out.packs[0]!.detail).toContain(join("widgets", "plugin", ".claude-plugin", "plugin.json"));
   });
 });
 
@@ -364,7 +371,7 @@ describe("materializeRepo stale bindings files", () => {
 
   function twoZones() {
     const world = makeWorld();
-    org(world.root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } }, gadgets: { packs: { gadgets: {} } } } });
+    org(world.root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} }, gadgets: { pack: {} } } });
     const deps = { fs: realFs, mattstackRoot: world.root, enginePackDir: world.engine };
     materializeRepo(deps, REMOTE);
     return { ...world, deps };
@@ -375,7 +382,7 @@ describe("materializeRepo stale bindings files", () => {
     const gadgets = packFile(root, "gadgets");
     const before = readFileSync(gadgets, "utf8");
     write(`${gadgets}.stale`, "older");
-    rmSync(join(gadgetsFolder(root), "packs", "gadgets"), { recursive: true });
+    rmSync(join(gadgetsFolder(root), "plugin"), { recursive: true });
 
     const out = materializeRepo(deps, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
@@ -446,7 +453,7 @@ describe("materializeRepo stale bindings files", () => {
 
   test("a rename that fails is a warning on the outcome, never a lost repo row", () => {
     const { root, deps } = twoZones();
-    rmSync(join(gadgetsFolder(root), "packs", "gadgets"), { recursive: true });
+    rmSync(join(gadgetsFolder(root), "plugin"), { recursive: true });
     const gadgets = packFile(root, "gadgets");
     const fs: MaterializeFs = {
       ...realFs,
@@ -465,7 +472,7 @@ describe("materializeRepo stale bindings files", () => {
 
   test("a pack that turns into a base pack has its file set aside", () => {
     const { root, deps } = twoZones();
-    write(join(gadgetsFolder(root), "packs", "gadgets", "pack", "skills.jsonc"), JSON.stringify({ base: true }));
+    write(join(gadgetsFolder(root), "plugin", "pack", "skills.jsonc"), JSON.stringify({ base: true }));
     const out = materializeRepo(deps, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
     expect(out.pruned).toEqual([`${packFile(root, "gadgets")}.stale`]);
@@ -475,7 +482,7 @@ describe("materializeRepo stale bindings files", () => {
     const { root, deps } = twoZones();
     const gadgets = packFile(root, "gadgets");
     const before = readFileSync(gadgets, "utf8");
-    write(join(gadgetsFolder(root), "packs", "gadgets", "pack", "skills.jsonc"), "{ nope");
+    write(join(gadgetsFolder(root), "plugin", "pack", "skills.jsonc"), "{ nope");
 
     const out = materializeRepo(deps, REMOTE);
     if (out.kind !== "written") throw new Error(out.kind);
@@ -531,28 +538,28 @@ describe("stale bindings files (team-folder zones)", () => {
 
   test("the header records <org>/<team>", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} } } });
     run(root, engine);
     expect(readFileSync(fileFor(root, "widgets"), "utf8")).toContain("// zone: acme/widgets");
   });
 
   test("a file whose team no longer claims this repo is set aside", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } }, gadgets: { projects: ["acme/gadgets"], packs: { gadgets: {} } } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} }, gadgets: { projects: ["acme/gadgets"], pack: {} } } });
     stale(root, "gadgets", "acme/gadgets");
     expect(run(root, engine).pruned).toEqual([`${fileFor(root, "gadgets")}.stale`]);
   });
 
   test("a file whose team no longer has that pack is set aside", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } }, gadgets: { packs: {} } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} }, gadgets: {} } });
     stale(root, "gadgets", "acme/gadgets");
     expect(run(root, engine).pruned).toEqual([`${fileFor(root, "gadgets")}.stale`]);
   });
 
   test("a missing team folder, a team whose settings do not parse, and a missing org clone set nothing aside", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} } } });
     write(join(teamFolder(root, "acme", "broken"), "settings.team.jsonc"), "{ not json");
     stale(root, "gone", "acme/gone");
     stale(root, "broken", "acme/broken");
@@ -563,7 +570,7 @@ describe("stale bindings files (team-folder zones)", () => {
 
   test("a file written before the org layout (its header names only the clone) is left alone", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} } } });
     stale(root, "legacy", "acme");
     expect(run(root, engine).pruned).toEqual([]);
     expect(existsSync(fileFor(root, "legacy"))).toBe(true);
@@ -571,7 +578,7 @@ describe("stale bindings files (team-folder zones)", () => {
 
   test("a folder that is not named like a pack is refused even when its header names a zone to sweep", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } }, gadgets: { packs: {} } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} }, gadgets: {} } });
     stale(root, "Not_A_Pack", "acme/gadgets");
     expect(run(root, engine).pruned).toEqual([]);
     expect(existsSync(fileFor(root, "Not_A_Pack"))).toBe(true);
@@ -579,7 +586,7 @@ describe("stale bindings files (team-folder zones)", () => {
 
   test("a sweep renames one generated bindings file to a sibling .stale and touches nothing else", () => {
     const { root, engine } = makeWorld();
-    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { packs: { widgets: {} } }, gadgets: { packs: {} } } });
+    org(root, "acme", { projects: ["acme/widgets"], teams: { widgets: { pack: {} }, gadgets: {} } });
     stale(root, "gadgets", "acme/gadgets");
     const teamsBefore = snapshot(join(root, "orgs"));
     const engineBefore = snapshot(engine);

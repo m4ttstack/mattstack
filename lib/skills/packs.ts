@@ -3,6 +3,7 @@ import { homedir } from "os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "path";
 import { fileURLToPath } from "url";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
+import { TEAM_PACK_FOLDER, isUnconvertedTeamPack, unconvertedTeamPackError } from "../team/team-pack-path.ts";
 import { stripJsonc } from "./sources.ts";
 
 export type PackLayout = "flat" | "grouped";
@@ -156,7 +157,9 @@ export function orgFolderPacks(mattstackRoot: string): PackInfo[] {
     const teamsDir = join(orgDir, "mattstack", "teams");
     for (const team of subdirs(teamsDir)) {
       if (!TEAM_NAME_RE.test(team)) continue;
-      const pack = packFromDir(team, join(teamsDir, team, "packs", team), marketplace);
+      const teamDir = join(teamsDir, team);
+      if (isUnconvertedTeamPack({ exists: existsSync }, teamDir, team)) throw unconvertedTeamPackError(orgDir, team);
+      const pack = packFromDir(team, join(teamDir, TEAM_PACK_FOLDER), marketplace);
       if (pack) found.push(pack);
     }
   }
