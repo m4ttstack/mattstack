@@ -7,6 +7,7 @@ import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import { STEP_IDS } from "../contract.ts";
 import { installShims } from "../../endpoint/shim.ts";
 import { homeInitStep, homeRestoreStep } from "./home.ts";
+import { orgFolderStep } from "./org-folder.ts";
 import { orgPullStep, teamIdentityStep } from "./org.ts";
 import { teamCreateStep, teamJoinStep } from "./team.ts";
 import { secretsWriteStep } from "./secrets.ts";
@@ -55,6 +56,7 @@ export const STEPS: StepDef[] = [
   homeRestoreStep,
   teamCreateStep,
   teamJoinStep,
+  orgFolderStep,
   orgPullStep,
   teamIdentityStep,
   secretsWriteStep,

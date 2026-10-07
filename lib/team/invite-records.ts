@@ -17,6 +17,9 @@ export interface InviteRecord {
 
 export type InviteRecords = Record<string, InviteRecord>;
 
+/** A copied file's tie to the folder name its org moved from: a string beside the handles, never a handle's record, so the reader skips it. */
+const MOVED_FROM = "movedFrom";
+
 const RECORDS_MODE = 0o600;
 const RECORDS_DIR_MODE = 0o700;
 
@@ -51,9 +54,23 @@ export function readInviteRecords(p: Pick<Probes, "readFile" | "home">, slug: st
 
   const records = emptyRecords();
   for (const [handle, rec] of Object.entries(parsed as Record<string, unknown>)) {
+    if (handle === MOVED_FROM && typeof rec === "string") continue;
     records[handle] = rec as InviteRecord;
   }
   return records;
+}
+
+export function readInviteMovedFrom(p: Pick<Probes, "readFile" | "home">, slug: string): string | undefined {
+  const raw = p.readFile(inviteRecordsPath(p.home, slug));
+  if (raw === null) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+    const value = (parsed as Record<string, unknown>)[MOVED_FROM];
+    return typeof value === "string" && value !== "" ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isExpired(rec: InviteRecord, now: Date): boolean {
@@ -64,15 +81,19 @@ function writeRecords(
   p: Pick<Probes, "writeFile" | "mkdirp" | "chmod" | "home" | "now">,
   slug: string,
   records: InviteRecords,
+  movedFrom: string | undefined,
 ): void {
   const pruned = emptyRecords();
   for (const [handle, rec] of Object.entries(records)) {
     if (!isExpired(rec, p.now())) pruned[handle] = rec;
   }
+  writeRaw(p, slug, movedFrom === undefined ? pruned : { ...pruned, [MOVED_FROM]: movedFrom });
+}
 
+function writeRaw(p: Pick<Probes, "writeFile" | "mkdirp" | "chmod" | "home">, slug: string, body: Record<string, unknown>): void {
   const path = inviteRecordsPath(p.home, slug);
   p.mkdirp(dirname(path), RECORDS_DIR_MODE);
-  p.writeFile(path, JSON.stringify(pruned), RECORDS_MODE);
+  p.writeFile(path, JSON.stringify(body), RECORDS_MODE);
   // writeFile's mode only takes effect on a freshly-created inode; chmod
   // re-asserts 0600 on a file that already existed looser (restored from a
   // backup, rsynced from another machine, hand-created).
@@ -87,7 +108,7 @@ export function upsertInviteRecord(
 ): void {
   const records = readInviteRecords(p, slug);
   records[handle] = rec;
-  writeRecords(p, slug, records);
+  writeRecords(p, slug, records, readInviteMovedFrom(p, slug));
 }
 
 export function removeInviteRecord(
@@ -98,5 +119,11 @@ export function removeInviteRecord(
   const records = readInviteRecords(p, slug);
   if (!(handle in records)) return;
   delete records[handle];
-  writeRecords(p, slug, records);
+  writeRecords(p, slug, records, readInviteMovedFrom(p, slug));
+}
+
+/** Drops the moved-from tie and keeps every record as it is, expired ones included: clearing the tie is not a write that should prune. */
+export function clearInviteMovedFrom(p: Pick<Probes, "readFile" | "writeFile" | "mkdirp" | "chmod" | "home">, slug: string): void {
+  if (readInviteMovedFrom(p, slug) === undefined) return;
+  writeRaw(p, slug, readInviteRecords(p, slug));
 }

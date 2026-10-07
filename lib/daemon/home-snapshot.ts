@@ -123,6 +123,8 @@ export interface HomeSnapshotHandle {
   /** Fetch, then fast-forward or rebase. A spec without a `pull` policy always skips. `converge:false` keeps the post-pull hook out of the caller's own path; a pull that moved HEAD still converges, once the push settles. */
   pullNow(opts?: { converge?: boolean }): Promise<PullResult>;
   status(): SnapshotStatus;
+  /** Resolves once no commit cycle, pull, push or post-pull hook (and the git children they started) is in flight; at once when idle. `stop` keeps new timer-driven work from starting, not work already running. */
+  settled(): Promise<void>;
   /** Resolves once startup arming (the enabled + is-a-repo checks) has settled. Not needed by the daemon (which just fires and forgets); tests await it so assertions don't race the async repo check. */
   ready: Promise<void>;
 }
@@ -1529,6 +1531,16 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     };
   }
 
+  /** Loops because a settling run can start the push it scheduled, and a push can drain a deferred converge. */
+  async function settled(): Promise<void> {
+    for (;;) {
+      const lock = gitLock;
+      const busy = [runInFlight, pullInFlight, pushInFlight, hookInFlight].filter((p) => p !== null);
+      await Promise.allSettled([lock, ...busy]);
+      if (lock === gitLock && runInFlight === null && pullInFlight === null && pushInFlight === null && hookInFlight === null) return;
+    }
+  }
+
   function stop(): void {
     stopped = true;
     if (watcher) { try { watcher.close(); } catch { /* already closed */ } }
@@ -1541,5 +1553,5 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     if (gitProbeRetryTimer) deps.clearTimeout(gitProbeRetryTimer);
   }
 
-  return { stop, runNow, pullNow, status, ready: readyPromise };
+  return { stop, runNow, pullNow, status, settled, ready: readyPromise };
 }

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { callerCswapAccount, listCswapAccounts, parseCswapList } from "../cswap.ts";
+import { callerCswapAccount, cswapConfigDirs, listCswapAccounts, parseCswapList } from "../cswap.ts";
+import { fakeProbes } from "../setup/__tests__/fakes.ts";
 
 const CAPTURED = `
 A newer version of claude-swap is available (0.25.0). You are using 0.23.0. Run \`cswap upgrade\` to update.
@@ -73,4 +74,15 @@ test("callerCswapAccount is undefined when cswap fails or reports no active acco
   expect(await callerCswapAccount(env, async () => ({ stdout: "not json", stderr: "", exitCode: 0 }))).toBeUndefined();
   const none = JSON.stringify({ activeAccountNumber: null, accounts: [] });
   expect(await callerCswapAccount(env, async () => ({ stdout: none, stderr: "", exitCode: 0 }))).toBeUndefined();
+});
+
+test("cswapConfigDirs lists each account folder under the cswap sessions root, sorted, and skips files", () => {
+  const root = "/home/x/.claude-swap-backup/sessions";
+  const p = fakeProbes({
+    home: "/home/x",
+    files: { [`${root}/notes.txt`]: "x" },
+    dirs: { [root]: ["4-dev2_acme.test", "1-dev1_acme.test", "notes.txt"], [`${root}/1-dev1_acme.test`]: [], [`${root}/4-dev2_acme.test`]: [] },
+  });
+  expect(cswapConfigDirs(p)).toEqual([`${root}/1-dev1_acme.test`, `${root}/4-dev2_acme.test`]);
+  expect(cswapConfigDirs(fakeProbes({ home: "/home/x" }))).toEqual([]);
 });

@@ -123,6 +123,7 @@ export const STEP_IDS = [
   "home.restore",
   "team.create",
   "team.join",
+  "org.folder",
   "org.pull",
   "team.identity",
   "secrets.write",

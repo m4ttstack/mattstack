@@ -19,12 +19,11 @@ import { isDevModeWrapperContent } from "../../dev-mode.ts";
 import { processFlavor } from "../../flavor.ts";
 import { appBundlePath, linkPath } from "../../deps/resolve.ts";
 import { interceptsOutOfDate, localBinDir, shimReport } from "../../endpoint/shim.ts";
-import { stripJsonc } from "../../jsonc.ts";
-import { DEV_TRAY_APP_BUNDLE, legacyDirsPresent, legacyTrayAppPaths, orgDirUnder, RT_DIR_LABEL, TRAY_APP_BUNDLE } from "../../rt-paths.ts";
+import { DEV_TRAY_APP_BUNDLE, legacyDirsPresent, legacyTrayAppPaths, orgDirUnder, orgsDirUnder, RT_DIR_LABEL, TRAY_APP_BUNDLE } from "../../rt-paths.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { detectShellFrom, END_MARKER, MARKER, shellRcPathFor } from "../../shell-integration.ts";
 import { readHomePushRecord, type HomePushRecord } from "../../home/push-record.ts";
-import { validateSlug } from "../../secrets/store.ts";
+import { markerOrg } from "../../team/org-marker.ts";
 import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { hasCommits, hasRemote, isGitRepo, originPushState } from "../home-git.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
@@ -669,35 +668,17 @@ export const ORG_FOLDER_ROW_ID = "org.folder";
 
 const ORG_FOLDER_CONVERGE_ACTION: Action = { type: "steps", label: "Show steps…", steps: ["Run: rt setup update --force"] };
 
-/** An old clone may still carry a `role: "team"` marker with an `org` field; any other marker is not an org clone. */
-function markerOrg(p: Probes, dir: string): string | null {
-  const raw = p.readFile(join(dir, "mattstack", "mattstack.jsonc"));
-  if (raw === null) return null;
-  let marker: unknown;
-  try {
-    marker = JSON.parse(stripJsonc(raw));
-  } catch {
-    return null;
-  }
-  if (!marker || typeof marker !== "object") return null;
-  const { role, org } = marker as Record<string, unknown>;
-  if ((role !== "org" && role !== "team") || typeof org !== "string") return null;
-  try {
-    validateSlug(org);
-  } catch {
-    return null;
-  }
-  return org;
-}
-
 export function orgFolderRow(p: Probes, orgs: string[]): Row | null {
   const legacyRoot = join(p.home, ".mattstack", "teams");
+  const orgsRoot = orgsDirUnder(p.home);
+  // discoverOrgs lists only clones with an org settings file; a clone still on the one-team layout has none, and its folder may still disagree with its marker.
+  const folders = [...new Set([...orgs, ...p.readDir(orgsRoot).filter((name) => p.exists(join(orgsRoot, name, ".git", "config")))])].sort();
   const legacy = p.readDir(legacyRoot).flatMap((folder) => {
     const org = markerOrg(p, join(legacyRoot, folder));
     return org === null ? [] : [{ folder, org }];
   });
-  if (orgs.length === 0 && legacy.length === 0) return null;
-  const mismatched = orgs.flatMap((folder) => {
+  if (folders.length === 0 && legacy.length === 0) return null;
+  const mismatched = folders.flatMap((folder) => {
     const org = markerOrg(p, orgDirUnder(p.home, folder));
     return org !== null && org !== folder ? [{ folder, org }] : [];
   });
@@ -715,7 +696,7 @@ export function orgFolderRow(p: Probes, orgs: string[]): Row | null {
       .join("; ");
     return row({ ...base, status: "error", detail, action: ORG_FOLDER_CONVERGE_ACTION });
   }
-  const inBoth = legacy.filter((l) => orgs.includes(l.org));
+  const inBoth = legacy.filter((l) => folders.includes(l.org));
   if (inBoth.length > 0) {
     const where = inBoth.map((l) => `the ${l.org} org sits in both ~/.mattstack/orgs/${l.org} and ~/.mattstack/teams/${l.folder}`).join("; ");
     return row({ ...base, status: "error", detail: `${where}. Move the old copy aside.` });
@@ -728,7 +709,7 @@ export function orgFolderRow(p: Probes, orgs: string[]): Row | null {
       action: ORG_FOLDER_CONVERGE_ACTION,
     });
   }
-  return row({ ...base, status: "ready", detail: `${orgs.join(", ")} under ~/.mattstack/orgs` });
+  return row({ ...base, status: "ready", detail: `${folders.join(", ")} under ~/.mattstack/orgs` });
 }
 
 // ─── entry point ────────────────────────────────────────────────────────────

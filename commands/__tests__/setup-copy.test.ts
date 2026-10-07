@@ -94,7 +94,7 @@ describe("the setup plan's shape and copy", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  test("apply emits the org pull and identity titles after a join", async () => {
+  test("apply emits the org folder, pull and identity titles after a join", async () => {
     const events: ApplyEvent[] = [];
     const ctx = await createApplyContext({
       probes: fakeProbes(),
@@ -133,8 +133,8 @@ describe("the setup plan's shape and copy", () => {
     const event = events.find((event) => event.event === "plan");
     if (!event || event.event !== "plan") throw new Error("missing apply plan");
     const at = event.steps.findIndex((step) => step.id === "team.join");
-    expect(event.steps.slice(at, at + 3).map((step) => step.id)).toEqual(["team.join", "org.pull", "team.identity"]);
-    expect(event.steps.slice(at + 1, at + 3).map((step) => ({ id: step.id, title: step.title }))).toMatchSnapshot();
+    expect(event.steps.slice(at, at + 4).map((step) => step.id)).toEqual(["team.join", "org.folder", "org.pull", "team.identity"]);
+    expect(event.steps.slice(at + 1, at + 4).map((step) => ({ id: step.id, title: step.title }))).toMatchSnapshot();
   });
 
   for (const mode of ["plan", "status"] as const) {

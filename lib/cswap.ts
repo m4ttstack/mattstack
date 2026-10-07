@@ -1,6 +1,7 @@
 import { homedir } from "os";
 import { join } from "path";
 import type { PaneAccount } from "../packages/rt-client/src/commands.ts";
+import type { Probes } from "./setup/probes.ts";
 import { runCapture } from "./subprocess.ts";
 
 const ACCOUNT_LINE = /^\s*(\d+):\s+(\S+)(?:\s+\[([^\]]+)\])?/;
@@ -53,4 +54,10 @@ export async function listCswapAccounts(exec: typeof runCapture = runCapture): P
   const res = await exec([cswapBin(), "list"], { timeoutMs: 5_000 });
   if (res.exitCode !== 0) return [];
   return parseCswapList(res.stdout);
+}
+
+/** Each cswap account's Claude config dir: the folder `cswap run` sets CLAUDE_CONFIG_DIR to, one per account under ~/.claude-swap-backup/sessions. */
+export function cswapConfigDirs(p: Pick<Probes, "home" | "readDir" | "statPath">): string[] {
+  const root = join(p.home, ".claude-swap-backup", "sessions");
+  return p.readDir(root).sort().map((name) => join(root, name)).filter((dir) => p.statPath(dir)?.isDirectory === true);
 }

@@ -58,9 +58,14 @@ export interface TeamSnapshotsHandle {
   status(): TeamSnapshotEntry[];
   pullNow(slug: string): Promise<PullResult>;
   ready: Promise<void>;
+  /** Stops these clones' engines, waits (up to `PAUSE_SETTLE_MS` each) for git work they already started, and keeps `rescan` from starting them until `resume`: `org:move` renames a clone's folder and must not race a pull into it. */
+  pause(slugs: string[]): Promise<void>;
+  /** Lifts `pause`, arms the orgs/ watch when boot could not, then rescans. */
+  resume(slugs: string[]): Promise<void>;
 }
 
 const RESCAN_DEBOUNCE_MS = 2000;
+export const PAUSE_SETTLE_MS = 30_000;
 
 
 function originOf(dir: string): string | null {
@@ -81,6 +86,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
   const readSettings = rawDeps.readSettings ?? (() => getSetting<TeamSnapshotSettings>("rt.teamSnapshot").value);
   const converge = rawDeps.converge ?? convergePackCache;
   const instances = new Map<string, { handle: SnapshotHandle; dir: string; owned: string }>();
+  const held = new Set<string>();
   const skippedNoRemote = new Set<string>();
   let watcher: { close(): void } | null = null;
   let debounce: ReturnType<typeof setTimeout> | null = null;
@@ -148,6 +154,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
       for (const slug of readdirSync(orgsRoot).sort()) {
         const dir = join(orgsRoot, slug);
         if (!existsSync(join(dir, ".git"))) continue;
+        if (held.has(slug)) continue;
         present.add(slug);
         const roots = ownedFor(slug);
         const owned = roots.join("\n");
@@ -203,6 +210,29 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
     }
   }
 
+  /** Arms the non-recursive orgs/ watch once; a boot on a Mac whose orgs/ does not exist yet leaves it unarmed, and `resume` tries again after a move created the root. */
+  function armWatch(): void {
+    if (watcher || stopped) return;
+    try {
+      watcher = watch(orgsRoot, { recursive: false }, () => {
+        if (debounce) clearTimer(debounce);
+        debounce = setTimer(() => { debounce = null; void safeRescan(); }, RESCAN_DEBOUNCE_MS);
+      });
+    } catch (err) {
+      rawDeps.log.warn({ err, orgsRoot }, "team-snapshots: cannot watch orgs/; new clones are picked up on the interval rescan");
+    }
+  }
+
+  /** A git child that outlives the bound is logged and left: the move then runs beside it, which the move's own clone checks are there to catch. */
+  async function settleWithin(slug: string, handle: SnapshotHandle): Promise<void> {
+    let expire!: () => void;
+    const timedOut = new Promise<"timeout">((resolve) => { expire = () => resolve("timeout"); });
+    const timer = setTimer(() => expire(), PAUSE_SETTLE_MS);
+    const outcome = await Promise.race([handle.settled().then(() => "settled" as const), timedOut]);
+    clearTimer(timer);
+    if (outcome === "timeout") rawDeps.log.warn({ slug, waitedMs: PAUSE_SETTLE_MS }, "team-snapshots: git work in the paused clone is still running; continuing");
+  }
+
   let resolveReady!: () => void;
   const ready = new Promise<void>((resolve) => { resolveReady = resolve; });
 
@@ -213,14 +243,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
     try {
       await safeRescan();
       if (stopped) return;
-      try {
-        watcher = watch(orgsRoot, { recursive: false }, () => {
-          if (debounce) clearTimer(debounce);
-          debounce = setTimer(() => { debounce = null; void safeRescan(); }, RESCAN_DEBOUNCE_MS);
-        });
-      } catch (err) {
-        rawDeps.log.warn({ err, orgsRoot }, "team-snapshots: cannot watch orgs/; new clones are picked up on the interval rescan");
-      }
+      armWatch();
       // Armed even when the setting is off, unlike the engine's own startup:
       // `rescan` returns early on its own while disabled, so a live flip of
       // `rt.teamSnapshot.enabled` is discovered on the next watch event or
@@ -243,6 +266,24 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
       if (interval) clearTimer(interval);
       for (const inst of instances.values()) inst.handle.stop();
       instances.clear();
+    },
+    async pause(slugs) {
+      const stopping: { slug: string; handle: SnapshotHandle }[] = [];
+      for (const slug of slugs) {
+        held.add(slug);
+        const inst = instances.get(slug);
+        if (!inst) continue;
+        inst.handle.stop();
+        instances.delete(slug);
+        stopping.push({ slug, handle: inst.handle });
+        rawDeps.log.info({ slug }, "team-snapshots: paused for a folder move");
+      }
+      await Promise.all(stopping.map(({ slug, handle }) => settleWithin(slug, handle)));
+    },
+    async resume(slugs) {
+      for (const slug of slugs) held.delete(slug);
+      armWatch();
+      await safeRescan();
     },
     status: () => [...instances.entries()].map(([slug, inst]) => ({ slug, ...inst.handle.status() })),
     async pullNow(slug) {
