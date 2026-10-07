@@ -10,10 +10,10 @@
 
 import { join } from "path";
 import { orgDirUnder, orgsDirUnder } from "../../rt-paths.ts";
-import { locateMovedRepo } from "../../repo-locate-dispatch.ts";
+import { daemonPresentIn, locateMovedRepo } from "../../repo-locate-dispatch.ts";
 import { clearIdentityMemo, deriveRepoIdentity, serializeIdentity } from "../../settings/identity.ts";
 import { classifyLocate, cleanupMovedRecords, runOrgMove, type LocateFn, type OrgMoveResult } from "../../team/org-folder-move.ts";
-import { markerOrg } from "../../team/org-marker.ts";
+import { markerState } from "../../team/org-marker.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import type { Probes } from "../probes.ts";
 import { parseOriginUrl } from "../team-settings.ts";
@@ -48,9 +48,10 @@ interface MoveReply {
   failure?: { code: string; message: string };
 }
 
-function scan(p: Probes): { clones: Clone[]; strays: string[]; folders: Set<string> } {
+function scan(p: Probes): { clones: Clone[]; strays: string[]; unreadable: string[]; folders: Set<string> } {
   const clones: Clone[] = [];
   const strays: string[] = [];
+  const unreadable: string[] = [];
   const folders = new Set<string>();
   for (const root of [orgsDirUnder(p.home), join(p.home, ".mattstack", "teams")]) {
     for (const folder of p.readDir(root).sort()) {
@@ -58,15 +59,19 @@ function scan(p: Probes): { clones: Clone[]; strays: string[]; folders: Set<stri
       if (folder.startsWith(".")) continue;
       const dir = join(root, folder);
       folders.add(folder);
-      const org = markerOrg(p, dir);
-      if (org === null) {
+      const marker = markerState(p, dir);
+      if (marker.kind === "none") {
         strays.push(dir);
         continue;
       }
-      clones.push({ dir, folder, org, target: orgDirUnder(p.home, org) });
+      if (marker.kind === "invalid") {
+        unreadable.push(`${dir} has a marker rt could not read (${marker.why}), left alone`);
+        continue;
+      }
+      clones.push({ dir, folder, org: marker.org, target: orgDirUnder(p.home, marker.org) });
     }
   }
-  return { clones, strays, folders };
+  return { clones, strays, unreadable, folders };
 }
 
 function originOf(p: Probes, dir: string): string | null {
@@ -111,8 +116,8 @@ async function moveViaDaemon(p: Probes, clone: Clone): Promise<{ result: OrgMove
 
 export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome> {
   const p = ctx.p;
-  const { clones, strays, folders } = scan(p);
-  const strayNote = strays.length ? `not an org clone, left alone: ${strays.join(", ")}` : null;
+  const { clones, strays, unreadable, folders } = scan(p);
+  const strayNote = [...(strays.length ? [`not an org clone, left alone: ${strays.join(", ")}`] : []), ...unreadable].join("; ") || null;
   if (clones.length === 0) return { state: "skipped", detail: ["No org on this Mac", strayNote].filter(Boolean).join("; ") };
 
   const notes: string[] = [];
@@ -120,7 +125,7 @@ export async function convergeOrgFolder(ctx: ApplyContext): Promise<StepOutcome>
   const partials: { detail: string; commands: string[]; line: string }[] = [];
   const claimed = new Set<string>();
   let moved = false;
-  const daemonUp = p.exists(join(p.home, ".mattstack", "rt", "rt.sock"));
+  const daemonUp = daemonPresentIn(join(p.home, ".mattstack", "rt"), p);
 
   for (const clone of clones) {
     let movedNow = false;

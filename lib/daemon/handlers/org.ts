@@ -22,15 +22,15 @@ export interface OrgHandlerOpts {
 const refuse = (code: string, message: string) => ({ ok: false as const, error: `${code}: ${message}`, failure: { code, message } });
 
 /** Relocates the clone's index row in this process, scoped to the clone's own identity: unscoped, planLocate refuses a clone with no row of its own while any other repo rt knows is missing. The hold is already held, so the `repos:locate` handler (which takes it) would deadlock. */
-const locateDirect: LocateFn = async (newPath) => {
-  // The memo may hold the clone's identity under its old path; it takes no argument and clears everything.
+async function locateDirect(newPath: string): Promise<{ ok: true; moved: true; identity: string } | { ok: false; error: string }> {
+  // The memo may still hold the clone's identity derived at its old path, which would scope the locate to a stale key.
   clearIdentityMemo();
   const identity = serializeIdentity(await deriveRepoIdentity(newPath));
   const plan = await planLocate({ newPath, repo: identity });
   if (isRefusal(plan)) return { ok: false, error: `${plan.refusal}: ${plan.message}` };
   const result = await applyLocate(plan);
-  return result.ok ? { ok: true, moved: true } : { ok: false, error: result.error ?? "locate failed" };
-};
+  return result.ok ? { ok: true, moved: true, identity: result.identity } : { ok: false, error: result.error ?? "locate failed" };
+}
 
 export function createOrgHandlers(opts: OrgHandlerOpts): Record<"org:move", (payload: any) => Promise<any>> & HandlerMap {
   const probes = opts.probes ?? createRealProbes();
@@ -61,11 +61,17 @@ export function createOrgHandlers(opts: OrgHandlerOpts): Record<"org:move", (pay
       opts.teamSnapshots.pause(slugs);
       try {
         return await opts.withReconcilerHeld(async () => {
-          const result = await runOrgMove(probes, { from: source, to: target, locate: locateDirect });
+          let identity: string | null = null;
+          const locate: LocateFn = async (newPath) => {
+            const located = await locateDirect(newPath);
+            if (located.ok) identity = located.identity;
+            return located;
+          };
+          const result = await runOrgMove(probes, { from: source, to: target, locate });
           // A cleanup failure lands after the index row moved: watchers must follow it, since a retry finds `from` gone.
           if (result.index === "moved") {
             opts.refreshWatchedRepos();
-            opts.emitEvent("repo:moved", { from: source, to: target });
+            opts.emitEvent("repo:moved", { identity, from: source, to: target });
           }
           if (!result.ok) return refuse("move-failed", `${result.stage}: ${result.error}`);
           opts.emitEvent("org:moved", { from: source, to: target });

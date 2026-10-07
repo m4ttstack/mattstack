@@ -106,6 +106,7 @@ describe("org:move", () => {
     expect(paused).toEqual([["widgets", "acme"]]);
     expect(resumed).toEqual([["widgets", "acme"]]);
     expect(order).toEqual(["pause", "hold-start", "refresh", "emit:repo:moved", "emit:org:moved", "hold-end", "resume"]);
+    expect(events[0]).toEqual({ topic: "repo:moved", payload: { identity, from, to } });
     expect(events[1]).toEqual({ topic: "org:moved", payload: { from, to } });
   });
 
@@ -157,7 +158,7 @@ describe("org:move", () => {
     expect(existsSync(to)).toBe(true);
     expect(getKvValue<string | null>("repo-index", identity, null)).toBe(to);
     expect(order.filter((step) => step === "refresh")).toHaveLength(1);
-    expect(events.map((e) => e.topic)).toEqual(["repo:moved"]);
+    expect(events).toEqual([{ topic: "repo:moved", payload: { identity, from, to } }]);
     expect(resumed).toEqual([["widgets", "acme"]]);
   });
 

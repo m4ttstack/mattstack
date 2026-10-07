@@ -21,7 +21,7 @@ function ctxFor(p: Probes): ApplyContext {
   return { p, emit: () => {}, log: () => {}, intent: null, team: { slug: "", name: "", mode: "none" }, snapshot: null, reqs: [], nonInteractive: true, teamOfOne: false, appPath: null, ci: false, secrets: {} as never, teamSecrets: () => ({}) as never, relay: {} as never, secretPresence: { has: async () => null }, redact: () => {}, need: async () => "no-app" } as ApplyContext;
 }
 
-function claudeFake(opts: { registeredAt: string | null; plugins: { id: string; scope?: string; enabled: boolean }[]; fail?: string }) {
+function claudeFake(opts: { registeredAt: string | null; plugins: { id: string; scope?: string; enabled: boolean; projectPath?: string }[]; fail?: string }) {
   const calls: string[][] = [];
   const exec: ExecScript = (argv) => {
     calls.push(argv);
@@ -29,7 +29,7 @@ function claudeFake(opts: { registeredAt: string | null; plugins: { id: string; 
     const sliced = argv.slice(1).join(" ");
     if (opts.fail && sliced.startsWith(opts.fail)) return { code: 1, stdout: "", stderr: `boom: ${sliced}` };
     if (verb === "marketplace" && sub === "list") return ok(JSON.stringify(opts.registeredAt === null ? [] : [{ name: "acme", source: "directory", path: opts.registeredAt, installLocation: opts.registeredAt }]));
-    if (verb === "list") return ok(JSON.stringify(opts.plugins.map((pl) => ({ id: pl.id, version: "1.0.0", scope: pl.scope ?? "user", enabled: pl.enabled }))));
+    if (verb === "list") return ok(JSON.stringify(opts.plugins.map((pl) => ({ id: pl.id, version: "1.0.0", scope: pl.scope ?? "user", enabled: pl.enabled, ...(pl.projectPath ? { projectPath: pl.projectPath } : {}) }))));
     return ok("");
   };
   return { calls, exec, commands: () => calls.map((c) => c.slice(1).join(" ")) };
@@ -85,14 +85,14 @@ describe("convergeMarketplace", () => {
     expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
   });
 
-  test("a plugin installed for one project is handed back, never installed by rt", async () => {
+  test("a plugin installed for one project is handed back as an install only, never installed or disabled by rt", async () => {
     const claude = claudeFake({ registeredAt: old(), plugins: [{ id: "widgets@acme", enabled: true }, { id: "gadgets@acme", scope: "local", enabled: false }, { id: "other@mattstack", enabled: true }] });
     const p = probes(claude.exec);
     updateSetupState(p, (s) => ({ ...s, marketplaces: [...s.marketplaces, old(), "https://github.com/acme/mattstack-marketplace.git"] }));
     const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [old()] });
     expect(out.state).toBe("partial");
     expect(out.detail).toContain("gadgets@acme must be reinstalled from the project that used it");
-    expect(out.commands).toEqual(["claude plugin install gadgets@acme --scope local", "claude plugin disable gadgets@acme"]);
+    expect(out.commands).toEqual(["claude plugin install gadgets@acme --scope local"]);
     expect(claude.commands()).toEqual([
       "plugin marketplace list --json",
       "plugin list --json",
@@ -104,6 +104,30 @@ describe("convergeMarketplace", () => {
     const state = readSetupState(p);
     expect(state.marketplaces).toEqual([clone(), "https://github.com/acme/mattstack-marketplace.git"]);
     expect(state.orgMarketplaceMoves ?? []).toEqual([]);
+  });
+
+  test("a project plugin whose project claude names is handed back as an install run in that project", async () => {
+    const project = join(home, "src", "widgets-app");
+    const claude = claudeFake({ registeredAt: old(), plugins: [{ id: "gadgets@acme", scope: "project", enabled: false, projectPath: project }] });
+    const p = probes(claude.exec);
+    p.env.CLAUDE_CONFIG_DIR = join(home, "cfg2");
+    const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [old()] });
+    expect(out.state).toBe("partial");
+    expect(out.detail).toContain("gadgets@acme must be reinstalled from the project that used it");
+    expect(out.commands).toEqual([`cd ${project} && CLAUDE_CONFIG_DIR=${join(home, "cfg2")} claude plugin install gadgets@acme --scope project`]);
+    expect(claude.commands().some((c) => c.includes("disable"))).toBe(false);
+  });
+
+  test("the pending record carries a project plugin's project path", async () => {
+    const project = join(home, "src", "widgets-app");
+    const claude = claudeFake({ registeredAt: old(), plugins: [{ id: "gadgets@acme", scope: "local", enabled: true, projectPath: project }], fail: "plugin marketplace add" });
+    const p = probes(claude.exec);
+    const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [old()] });
+    expect(out.state).toBe("partial");
+    expect(out.commands).toEqual([`claude plugin marketplace add ${clone()}`, `cd ${project} && claude plugin install gadgets@acme --scope local`]);
+    expect(readSetupState(p).orgMarketplaceMoves).toEqual([
+      { marketplace: "acme", dir: clone(), configDir: defaultCfg(), plugins: [{ id: "gadgets@acme", scope: "local", enabled: true, projectPath: project }] },
+    ]);
   });
 
   test("the pending record is written before the remove and kept when a reinstall fails", async () => {
@@ -238,7 +262,7 @@ describe("convergeMarketplace", () => {
     updateSetupState(p, (s) => ({ ...s, orgMarketplaceMoves: [{ marketplace: "acme", dir: clone(), configDir: defaultCfg(), plugins: [{ id: "widgets@acme", scope: "user", enabled: true }, { id: "gadgets@acme", scope: "local", enabled: false }] }] }));
     const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [] });
     expect(out.state).toBe("partial");
-    expect(out.commands).toEqual(["claude plugin install gadgets@acme --scope local", "claude plugin disable gadgets@acme"]);
+    expect(out.commands).toEqual(["claude plugin install gadgets@acme --scope local"]);
     expect(claude.commands()).toEqual(["plugin marketplace list --json", "plugin list --json", "plugin install widgets@acme --scope user"]);
     expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
   });
