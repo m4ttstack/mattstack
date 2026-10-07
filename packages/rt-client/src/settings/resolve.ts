@@ -282,11 +282,39 @@ function readStores(view: { team?: string | null } = {}): StoreBundle {
 let multiOrgWarned: string | null = null;
 const aliasWarned = new Set<string>();
 
-/** Once per process and per name: with no sink bound, `emitSettingsWarning` does not dedupe, and every resolution expands the alias again. */
+/**
+ * Once per process and per name, and never on stderr: every rt command whose
+ * settings spell the alias would repeat it to every member until the shared
+ * store moves to `${org}`. The settings verbs show it, through
+ * `teamAliasesSeen` and `teamAliasesIn`.
+ */
 function warnTeamAlias(name: string): void {
   if (aliasWarned.has(name)) return;
   aliasWarned.add(name);
-  emitSettingsWarning(`rt: \${team:${name}} is deprecated; use \${org}`);
+  const msg = `rt: \${team:${name}} is deprecated; use \${org}`;
+  if (warnSink) emitSettingsWarning(msg);
+  else logSink?.(msg);
+}
+
+/** The `${team:<name>}` names this process has expanded, in first-seen order. */
+export function teamAliasesSeen(): string[] {
+  return [...aliasWarned];
+}
+
+/** The `${team:<name>}` names a raw, unexpanded value spells, in first-seen order. */
+export function teamAliasesIn(value: unknown): string[] {
+  const names = new Set<string>();
+  const visit = (v: unknown): void => {
+    if (typeof v === "string") {
+      for (const m of v.matchAll(VAR_RE)) {
+        const team = TEAM_VAR_RE.exec(m[1] as string);
+        if (team) names.add(team[1] as string);
+      }
+    } else if (Array.isArray(v)) v.forEach(visit);
+    else if (isPlainObject(v)) Object.values(v).forEach(visit);
+  };
+  visit(value);
+  return [...names];
 }
 
 /** Once per process and per set of clones: every settings read folds the stores, so an unguarded warning would repeat on each one. */
@@ -736,7 +764,13 @@ function expandCtxFrom(opts: ResolveOpts, stores: StoreBundle): ExpandCtx {
 }
 
 let warnSink: ((msg: string) => void) | null = null;
+let logSink: ((msg: string) => void) | null = null;
 const warnedOnce = new Set<string>();
+
+/** The CLI binds its log here for a notice that is logged and never printed; the warn sink, when bound, takes those too. */
+export function setSettingsLogSink(sink: ((msg: string) => void) | null): void {
+  logSink = sink;
+}
 
 /** The daemon binds a deduped log.warn here so a hot-path getSetting on a
  *  disallowed-scope key warns once, not every tick. Default: console.warn

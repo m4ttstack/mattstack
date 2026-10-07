@@ -13,6 +13,8 @@ import { setSetting, setSettingsNoticeSink } from "../../lib/settings/write.ts";
 import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
 import * as out from "../../lib/ui/out.ts";
 import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
+import { setSettingsWarnSink } from "../../lib/settings/resolve.ts";
+import { seedOrg } from "../../packages/rt-client/test/org-fixture.ts";
 
 describe("rt settings get / list / explain", () => {
   const origHome = process.env.HOME;
@@ -113,5 +115,42 @@ describe("rt settings get / list / explain", () => {
     expect(lines.some((l) => /^  - machine\s+.*not set$/.test(l))).toBe(true);
     expect(lines.findIndex((l) => l.startsWith("  - user"))).toBeLessThan(lines.findIndex((l) => l.startsWith("  - machine")));
     expect(cap.stderr()).toBe("");
+  });
+  describe("a store that still spells ${team:<name>}", () => {
+    const NOTICE = "[warning] Your settings still use ${team:acme}  write ${org} in its place\n";
+
+    beforeEach(() => {
+      // Clears the once-per-process record of aliases already expanded.
+      setSettingsWarnSink(null);
+      seedOrg({ org: "acme", settings: { "board.title": "${team:acme}/title" } });
+    });
+
+    test("get names the alias on stderr", async () => {
+      await settingsGet(["board.title"]);
+      expect(cap.stdout()).toBe(`${join(home, ".mattstack", "orgs", "acme")}/title\n`);
+      expect(cap.stderr()).toEndWith(NOTICE);
+    });
+
+    test("list names the alias", async () => {
+      await settingsList([]);
+      expect(cap.stderr()).toBe(NOTICE);
+    });
+
+    test("explain names the alias", async () => {
+      await settingsExplain(["board.title"]);
+      expect(cap.stderr()).toBe(NOTICE);
+    });
+
+    test("--json keeps stderr empty", async () => {
+      await settingsGet(["board.title", "--json"]);
+      await settingsList(["--json"]);
+      await settingsExplain(["board.title", "--json"]);
+      expect(cap.stderr()).toBe("");
+    });
+
+    test("a key whose value has no alias says nothing about it", async () => {
+      await settingsExplain(["rt.logLevel"]);
+      expect(cap.stderr()).toBe("");
+    });
   });
 });
