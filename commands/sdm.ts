@@ -631,7 +631,7 @@ export function enrichmentSkeleton(names: string[]): string {
  * `rt sdm enrichment`: show how much of the scanned catalog is enriched.
  * `rt sdm enrichment init`: scaffold ~/.mattstack/rt/sdm/enrichment.jsonc with one
  * entry per scanned resource, refusing to clobber an existing file, or once
- * the team store owns `rt.sdmEnrichment` (the ownership latch), refusing to
+ * the team store owns `sdm.resources` (the ownership latch), refusing to
  * scaffold the file at all, since the store is authoritative from here on.
  */
 export async function enrichmentCmd(rest: string[]): Promise<void> {
