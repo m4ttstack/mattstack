@@ -19,39 +19,36 @@ Every real datasource you can reach shows up in the picker. If `rt sdm connect`
 only shows recents, your session expired; it logs you back in automatically
 before listing.
 
-## Enrichment (optional, declarative)
+## What the picker shows
 
-Raw StrongDM names (`example-alpha-staging`) work as-is, but you can give them
-nicer labels, group them by tier, and set connect defaults with a declarative
-file you own at `~/.mattstack/rt/sdm/enrichment.jsonc`. Nothing runs to enrich;
-rt just reads this JSON and overlays it on the live catalog.
+The picker groups every resource under an `<Environment> · <Carrier>` header, read from the `env` and `tenant` tags StrongDM already holds on each resource. You set nothing up. Each row shows the domain, your access and the resource, with `write` in peach and `admin` in coral. Recently used rows come first. Older resources that carry no tags are marked `old`, and rt guesses their carrier from the name.
 
-Scaffold it from your current catalog, then fill in the labels:
+A resource tagged `env=prod` counts as production: you get a confirmation prompt, and agents are refused. A resource override can turn that off with `"production": false`.
+
+## Overrides and carrier names (optional)
+
+Two team settings tune what the picker shows. Edit them in console settings under StrongDM, or from the terminal with `rt settings set ... --scope team`.
+
+`sdm.resources` gives a resource a nicer label and connect defaults:
 
 ```bash
-rt sdm enrichment init    # writes the enrichment file: every resource, blank labels
-rt sdm enrichment         # show the file path + how many resources are enriched vs raw
-```
-
-```jsonc
-{
-  // map a StrongDM resource name to a nicer label + connect metadata
-  "example-alpha-staging": { "label": "alpha staging", "tier": "staging",    "db": { "schema": "public" } },
-  "example-alpha-prod":    { "label": "alpha prod",    "tier": "production", "production": true }
-}
+rt settings set sdm.resources '{"acme-db-staging":{"label":"acme staging","tier":"staging","db":{"schema":"public"}},"acme-db-prod":{"label":"acme prod","tier":"production","production":true}}' --scope team
 ```
 
 | Field | Meaning |
 |---|---|
 | `label` | Shown in the picker (defaults to the raw resource name) |
 | `tier` | `development` / `qa` / `staging` / `production` / anything: groups the picker |
-| `production` | `true` adds a confirm guard before connecting |
+| `production` | `true` adds a confirm guard before connecting; `false` lifts the one a `prod` tag adds |
 | `reasonSuggestion` | Prefill for the access-request reason prompt |
 | `db` | `{ database, schema, user }` hints used to verify the tunnel after connecting |
 
-A resource missing from the file just shows its raw name and connects with
-Postgres defaults. Keep the file in your own repo and copy or symlink it to
-`~/.mattstack/rt/sdm/enrichment.jsonc` to share it with your team.
+`sdm.carriers` names a carrier. The key is the `tenant` tag value:
 
-Teams can skip the file entirely: when the team settings store owns the
-`rt.sdmEnrichment` key, its value replaces the local file wholesale.
+```bash
+rt settings set sdm.carriers '{"acme":{"label":"Acme Insurance"}}' --scope team
+```
+
+A tag with no entry shows capitalised, so `acme` appears as `Acme`. A resource missing from `sdm.resources` shows its raw name and connects with Postgres defaults.
+
+rt reads overrides from `sdm.resources` first, then the deprecated `rt.sdmEnrichment` key, then the old local file at `~/.mattstack/rt/sdm/enrichment.jsonc` (`rt sdm enrichment` shows or scaffolds it). `rt setup update` moves an existing `rt.sdmEnrichment` to `sdm.resources` on the Mac of the team's owner, so there is nothing to do by hand.
