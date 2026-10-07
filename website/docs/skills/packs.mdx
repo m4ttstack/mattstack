@@ -68,13 +68,14 @@ For the lint example, you see a failing run first, with nothing running lint. Th
 
 ## Fills the whole org shares
 
-A rule every team follows goes in the org's base pack, a folder the org admin adds by hand at `mattstack/org/packs/acme-base/` in the org repo. A team pack uses it with `"extends": "acme-base"` in its `pack/skills.jsonc`, and its own fills override the base's slot by slot. Bindings follow the base at once on every machine; compiled fills follow at the team owner's next `rt skills compile`. The base is never installed.
+A rule every team follows goes in the org's base pack, a folder the org admin adds by hand at `mattstack/org/packs/acme-base/` in the org repo. A team pack uses it with `"extends": "acme-base"` in its `pack/skills.jsonc`, and its own fills override the base's slot by slot. Bindings follow the base at once on every machine; compiled fills follow at the team owner's next `rt skills compile`. The base is never installed, so a base fill reaches a team's verbs by being compiled in. One exception: a fill that only `board:*` slots bind is copied into the team pack as well, because the board opens a fill by `<plugin>:<name>` while it runs and compile never inlines a board slot; materialize then points those board bindings at `<team plugin>:<name>`.
 
 ## Files the whole org shares
 
 A fill is text compiled into a verb. A file a skill opens while it runs (a reference, a checklist, a script) has to sit inside the installed team pack, and the base is never installed. So when a team pack extends a base, `rt skills compile` copies the base's attachments into the team pack:
 
-- **What is copied:** every attachment folder in the base that has a `SKILL.md` and is not a fill (a fill's `SKILL.md` carries `metadata.provides`; compile inlines it instead). An attachment can sit one group deep, as in `attachments/<group>/<name>/`.
+- **What is copied:** every attachment folder in the base that has a `SKILL.md` and is not a fill (a fill's `SKILL.md` carries `metadata.provides`; compile inlines it instead, unless only `board:*` slots bind it, in which case it is copied too). An attachment can sit one group deep, as in `attachments/<group>/<name>/`.
+- **A board fill the base cannot deliver is refused:** compile stops when the base binds a `board:*` slot to a fill it has no `attachments/<name>/` for, or keeps that fill one group deep, since the board finds `attachments/<name>` only.
 - **Where it lands:** the same path under the team pack's `attachments/`. Each copied folder gets a `compiled.json` naming the base, its version and the files compile wrote. That file marks the folder as compile's output: the next successful compile rewrites it, and `rt skills check` reports it as drift when it no longer matches the base.
 - **Placeholders:** in a copied `.md` file, `{{pack.name}}` becomes the team pack's plugin name, so a base attachment names a team verb as `{{pack.name}}:ship`. `{{verb.path:<verb>}}` and `{{pack.path:<attachment>/<file>}}` resolve in the team pack. Any other `{{...}}` text, and every file that is not `.md`, is copied as it is.
 - **The team's own folder wins:** when the team pack has its own `attachments/<name>/` (no `compiled.json` that compile wrote; a data file of that name in another shape does not count), compile leaves it alone and copies nothing for that name. To override a base attachment, delete the copied folder and write your own in its place.
@@ -90,9 +91,9 @@ Don't edit a copied folder: the next successful compile overwrites it. Edit the 
 | Thing | Path |
 | --- | --- |
 | The org clone | `~/.mattstack/orgs/<org>/` |
-| A team's pack | `~/.mattstack/orgs/<org>/mattstack/teams/<team>/packs/<team>/` |
+| A team's pack | `~/.mattstack/orgs/<org>/mattstack/teams/<team>/plugin/` |
 | The org's base pack | `~/.mattstack/orgs/<org>/mattstack/org/packs/<org>-base/` |
-| A base attachment copied into a team pack | `.../packs/<team>/attachments/<name>/`, with `compiled.json` |
+| A base attachment copied into a team pack | `.../plugin/attachments/<name>/`, with `compiled.json` |
 | The installed copy sessions load | `~/.claude/plugins/cache/<marketplace>/<pack>/<version>/` |
 
 Packs are the exception to the daemon's automatic commits: the pack's author commits and pushes a pack's edits, and [`rt skills sync`](/rt/reference/skills/sync) brings the installed copies current. See [Teams and invites](/start/teams#team-packs) for how a member's Mac receives the pack.
