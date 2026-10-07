@@ -189,7 +189,7 @@ export function createDeliveryService(overrides: Partial<DeliveryDeps> = {}): De
     return adapter;
   }
 
-  /** A harness on a new connection starts with empty native records, so its owed rows are reconciled now. */
+  /** A harness on a new connection starts with empty native records, so its owed and queued rows are reconciled now. */
   function noteAdapter(harness: string, adapter: MessageAdapter): void {
     if (adapter.connection === undefined) return;
     const seen = connections.get(harness);

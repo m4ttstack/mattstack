@@ -65,6 +65,9 @@ export const CODEX_METHODS: Readonly<Record<string, MethodSpec>> = {
     scope: "owned", experimental: false, required: ["threadId"], fields: ["includeTurns", "threadId"],
     experimentalFields: [], refused: [],
   },
+  "thread/unsubscribe": {
+    scope: "owned", experimental: false, required: ["threadId"], fields: ["threadId"], experimentalFields: [], refused: [],
+  },
   "turn/start": {
     scope: "owned", experimental: false, required: ["input", "threadId"],
     fields: [
@@ -89,6 +92,16 @@ export const CODEX_METHODS: Readonly<Record<string, MethodSpec>> = {
     scope: "owned", experimental: true, required: ["threadId"], fields: ["cursor", "limit", "threadId"],
     experimentalFields: ["cursor", "limit", "threadId"], refused: [],
   },
+};
+
+/**
+ * Methods the saved schema fixture does not carry, with the evidence that
+ * 0.160.0 takes them. Only what that evidence sent is allowed: the thread id.
+ */
+export const CODEX_METHODS_OUTSIDE_FIXTURE: Readonly<Record<string, string>> = {
+  "thread/unsubscribe": "sent as { threadId } to 0.160.0 by .harness-spike/hooks-review-01/effective.ts and "
+    + "hooks-followup-01/config-probe.ts; docs/superpowers/spikes/2026-10-05-codex-hooks-followup.md: "
+    + "\"the final inspection connection unsubscribed\"",
 };
 
 export const CODEX_STATUS_ENUMS = {

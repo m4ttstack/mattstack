@@ -124,8 +124,8 @@ export type CodexSessionDeps = {
   reservationSettled(reservationId: string): boolean;
   /** agent.integrations.enabled: bound threads are subscribed, and reported gone, only while it is on. */
   enabled(): boolean;
-  /** Reports a bound thread gone; `generation` is the attachment that saw it, when one did. */
-  lifecycle(native: NativeSessionRef, event: CodexThreadGone, generation?: number): Promise<void>;
+  /** Reports a bound thread gone; `generation` is the attachment that saw it, when one did. True when its binding was detached or ended. */
+  lifecycle(native: NativeSessionRef, event: CodexThreadGone, generation?: number): Promise<boolean>;
 };
 
 const ATTACH_READS = CODEX_ATTACH_READS;
@@ -202,7 +202,7 @@ function defaultDeps(): CodexSessionDeps {
     enabled: integrationsEnabled,
     lifecycle: async (native, event, generation) => {
       const { reportSessionGone } = await import("../presence.ts");
-      await reportSessionGone(native, event, generation);
+      return reportSessionGone(native, event, generation);
     },
     openPane: openHostPane,
     confirmAttached: async (opened, expected, host) => {
@@ -327,11 +327,29 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
   /** Threads this connection started or resumed, so their item events reach it, until Codex unloads or closes them. */
   const subscribed = new Set<string>();
 
+  /** Ends this connection's subscription to a thread it owns; a thread it does not own is never named. */
+  function unsubscribe(threadId: string): void {
+    subscribed.delete(threadId);
+    if (control.closed || !control.owns(threadId)) return;
+    control.request("thread/unsubscribe", { threadId }).catch(() => {});
+  }
+
+  /** A detach or an end rt applied lets the thread go: it is unsubscribed but stays owned, so its status still arrives. */
+  async function reportGone(threadId: string, event: CodexThreadGone, generation?: number): Promise<void> {
+    let applied = false;
+    try {
+      applied = await deps.lifecycle(ref(threadId), event, generation);
+    } catch {
+      return;
+    }
+    if (applied) unsubscribe(threadId);
+  }
+
   hub.listen((event) => {
     const gone = goneBy(event);
     if (!gone) return;
     subscribed.delete(event.threadId);
-    if (deps.enabled()) void deps.lifecycle(ref(event.threadId), gone).catch(() => {});
+    if (deps.enabled()) void reportGone(event.threadId, gone);
   });
 
   /**
@@ -351,7 +369,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
     if (!status) return;
     hub.refresh(threadId, status);
     if (status.type === "notLoaded") {
-      await deps.lifecycle(ref(threadId), "unloaded", generation).catch(() => {});
+      await reportGone(threadId, "unloaded", generation);
       return;
     }
     let resumed: unknown;
@@ -536,6 +554,7 @@ export function createCodexSessions(control: CodexControl, overrides: Partial<Co
       if (!checkRef(binding.native).ok) return;
       const threadId = binding.native.value;
       released.set(threadId, Math.max(released.get(threadId) ?? 0, binding.attachment.generation));
+      unsubscribe(threadId);
       control.disown(threadId);
     },
     async launch(request) {

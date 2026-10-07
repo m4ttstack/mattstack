@@ -1003,7 +1003,7 @@ describe("subscription to bound threads (M2b D1)", () => {
       discover: async () => ({ ok: true, data: { socketPath: SOCKET } }),
       connect: async () => h.control,
       attached: () => [binding("T1"), binding("T2", { key: "k2" }), binding("T3", { key: "k3" }), foreign],
-      sessions: { ...h.deps, enabled: () => true, lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); } },
+      sessions: { ...h.deps, enabled: () => true, lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); return false; } },
     });
     await loader.load();
     expect(h.requests("thread/read").map((m) => m.params)).toEqual([
@@ -1030,7 +1030,7 @@ describe("subscription to bound threads (M2b D1)", () => {
       discover: async () => ({ ok: true, data: { socketPath: SOCKET } }),
       connect: async () => connections.shift()!,
       attached: () => [binding("T1")],
-      sessions: { ...first.deps, enabled: () => true, lifecycle: async () => {} },
+      sessions: { ...first.deps, enabled: () => true, lifecycle: async () => false },
       messaging: { currentBinding: () => binding("T1") },
     });
     await loader.load();
@@ -1054,7 +1054,7 @@ describe("subscription to bound threads (M2b D1)", () => {
       discover: async () => ({ ok: true, data: { socketPath: SOCKET } }),
       connect: async () => h.control,
       attached: () => [],
-      sessions: { ...h.deps, enabled: () => true, lifecycle: async () => {} },
+      sessions: { ...h.deps, enabled: () => true, lifecycle: async () => false },
       messaging: { currentBinding: () => binding("T1") },
     });
     const messaging = await loader.loadMessaging();
@@ -1065,7 +1065,7 @@ describe("subscription to bound threads (M2b D1)", () => {
   test("observe subscribes a thread loaded after the connection opened, once", async () => {
     const server = subscribingServer({ T1: "idle" });
     const h = await harness(server.handlers);
-    const sessions = h.sessions({ enabled: () => true, lifecycle: async () => {} });
+    const sessions = h.sessions({ enabled: () => true, lifecycle: async () => false });
     expect(data(await sessions.observe(binding("T1")))).toMatchObject({ connectivity: "connected", execution: "idle" });
     await sessions.observe(binding("T1"));
     expect(h.ops).toEqual(["thread/read", "thread/resume"]);
@@ -1074,7 +1074,7 @@ describe("subscription to bound threads (M2b D1)", () => {
 
   test("a thread this connection launched is already subscribed", async () => {
     const h = await harness();
-    const sessions = h.sessions({ enabled: () => true, lifecycle: async () => {} });
+    const sessions = h.sessions({ enabled: () => true, lifecycle: async () => false });
     data(await sessions.launch(request({ mode: "headless" })));
     const before = h.ops.length;
     await sessions.observe(binding("T1"));
@@ -1085,7 +1085,7 @@ describe("subscription to bound threads (M2b D1)", () => {
     const server = subscribingServer({ T1: "idle" });
     const h = await harness(server.handlers);
     const gone: Gone[] = [];
-    const sessions = h.sessions({ enabled: () => false, lifecycle: async (native, event) => { gone.push({ value: native.value, event }); } });
+    const sessions = h.sessions({ enabled: () => false, lifecycle: async (native, event) => { gone.push({ value: native.value, event }); return false; } });
     await sessions.observe(binding("T1"));
     h.socket().push(statusChanged("T1", { type: "notLoaded" }));
     expect(h.ops).toEqual(["thread/read"]);
@@ -1098,7 +1098,7 @@ describe("per-thread liveness (M2b D2)", () => {
     const server = subscribingServer({ T1: "notLoaded" });
     const h = await harness(server.handlers);
     const gone: Gone[] = [];
-    const sessions = h.sessions({ enabled: () => true, lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); } });
+    const sessions = h.sessions({ enabled: () => true, lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); return false; } });
     expect(data(await sessions.observe(binding("T1")))).toMatchObject({ connectivity: "disconnected" });
     expect(gone).toEqual([{ value: "T1", event: "unloaded", generation: 3 }]);
     expect(h.requests("thread/resume")).toEqual([]);
@@ -1108,7 +1108,7 @@ describe("per-thread liveness (M2b D2)", () => {
     const server = subscribingServer({ T1: "idle", T2: "idle", T3: "idle" });
     const h = await harness(server.handlers);
     const gone: Gone[] = [];
-    const sessions = h.sessions({ enabled: () => true, lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); } });
+    const sessions = h.sessions({ enabled: () => true, lifecycle: async (native, event, generation) => { gone.push({ value: native.value, event, generation }); return false; } });
     for (const t of ["T1", "T2", "T3"]) await sessions.observe(binding(t));
     const s = h.socket();
     s.push({ method: "hook/completed", params: { threadId: "T3", turnId: "U1", run: { id: "h1", eventName: "stop", status: "completed" } } });
@@ -1123,5 +1123,75 @@ describe("per-thread liveness (M2b D2)", () => {
     s.push(statusChanged("T1", { type: "idle" }));
     await sessions.observe(binding("T1"));
     expect(h.requests("thread/resume").length).toBe(before + 1);
+  });
+});
+
+describe("unsubscribing threads rt lets go (M2b review)", () => {
+  test("disowning a thread rt owns unsubscribes it before releasing it", async () => {
+    const server = subscribingServer({ T1: "idle" });
+    const h = await harness(server.handlers);
+    const sessions = h.sessions({ enabled: () => true, lifecycle: async () => false });
+    await sessions.observe(binding("T1"));
+    sessions.disown(binding("T1"));
+    expect(h.requests("thread/unsubscribe").map((m) => m.params)).toEqual([{ threadId: "T1" }]);
+    sessions.disown(binding("T1"));
+    expect(h.requests("thread/unsubscribe")).toHaveLength(1);
+  });
+
+  test("a detach or an end rt applied unsubscribes the thread; a report that changed nothing does not", async () => {
+    const server = subscribingServer({ T1: "idle", T2: "idle", T3: "idle", T4: "notLoaded" });
+    const h = await harness(server.handlers);
+    const applied = new Set(["T1", "T2", "T4"]);
+    const sessions = h.sessions({ enabled: () => true, lifecycle: async (native) => applied.has(native.value) });
+    for (const t of ["T1", "T2", "T3"]) await sessions.observe(binding(t));
+    const s = h.socket();
+    s.push(statusChanged("T1", { type: "notLoaded" }));
+    s.push({ method: "thread/closed", params: { threadId: "T2" } });
+    s.push({ method: "thread/closed", params: { threadId: "T3" } });
+    await Bun.sleep(1);
+    await sessions.observe(binding("T4"));
+    expect(h.requests("thread/unsubscribe").map((m) => m.params.threadId)).toEqual(["T1", "T2", "T4"]);
+  });
+
+  test("a thread rt does not own is never unsubscribed", async () => {
+    const h = await harness();
+    const sessions = h.sessions({ enabled: () => true, lifecycle: async () => true });
+    sessions.disown(binding("T9"));
+    sessions.disown({ ...binding("T1"), native: { ...binding("T1").native, profile: "/other/.codex" } });
+    h.socket().push({ method: "thread/closed", params: { threadId: "T9" } });
+    await Bun.sleep(1);
+    expect(h.requests("thread/unsubscribe")).toEqual([]);
+  });
+
+  test("with the switch off nothing is unsubscribed on an end", async () => {
+    const h = await harness({}, { threads: ["T1"] });
+    h.sessions({ enabled: () => false, lifecycle: async () => true });
+    h.socket().push({ method: "thread/closed", params: { threadId: "T1" } });
+    await Bun.sleep(1);
+    expect(h.requests("thread/unsubscribe")).toEqual([]);
+  });
+});
+
+describe("queued deliveries across a reconnect (M2b review)", () => {
+  test("after a daemon restart the resubscribed connection's echo of a delivery queued earlier is consumption", async () => {
+    const server = subscribingServer({ T1: "idle" });
+    const h = await harness(server.handlers);
+    const loader = createCodexSessionLoader({
+      env: {}, now: () => 0,
+      discover: async () => ({ ok: true, data: { socketPath: SOCKET } }),
+      connect: async () => h.control,
+      attached: () => [binding("T1")],
+      sessions: { ...h.deps, enabled: () => true, lifecycle: async () => false },
+      messaging: {
+        currentBinding: () => binding("T1"),
+        persisted: (id) => (id === "d-5-remy"
+          ? { inputId: id, frameId: id, state: "queued", harness: "codex", sessionKey: "k1", generation: 3, nativeId: "T1" }
+          : null),
+      },
+    });
+    const messaging = await loader.loadMessaging();
+    server.userMessage(h.socket(), "T1", "d-5-remy");
+    expect(data(await messaging.reconcile!(binding("T1"), "d-5-remy"))).toMatchObject({ evidence: "consumed", turnId: "U9", itemId: "I9" });
+    expect(h.requests("thread/queue/add")).toEqual([]);
   });
 });

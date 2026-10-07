@@ -405,6 +405,30 @@ describe("attachments and connections", () => {
   });
 });
 
+describe("queued evidence across a reconnect (M2b review)", () => {
+  test("a reconnect makes queued rows due at once, so the new connection's recovered evidence settles them", async () => {
+    const db = openStateDb(dbPath());
+    const binding = bindSession(db, "T1");
+    const one = fakeMessaging({ connection: "conn-1", submit: (input) => ok({ id: input.id, evidence: "queued", nativeId: "T1" }) });
+    const two = fakeMessaging({
+      connection: "conn-2",
+      submit: (input) => ok({ id: input.id, evidence: "queued", nativeId: "T1" }),
+      reconcile: (_b, id) => ok({ id, evidence: "consumed", nativeId: "T1", turnId: "U1", itemId: "I1" }),
+    });
+    let live = one;
+    const { service, clock } = harness(db, one, { messagingFor: async () => live.adapter });
+    const id = chatDeliveryId(17, "remy");
+    await service.deliverPeerInput(binding, peer(id));
+    expect(row(db, id)).toMatchObject({ state: "queued", nextAttemptAt: clock.now + DELIVERY_SWEEP_INTERVAL_MS });
+    live = two;
+    clock.now += 1;
+    await service.deliverPeerInput(binding, peer(chatDeliveryId(18, "remy")));
+    await service.idle();
+    expect(row(db, id)).toMatchObject({ state: "consumed", turnId: "U1", itemId: "I1" });
+    expect(two.submits.map((s) => s.input.id)).toEqual([chatDeliveryId(18, "remy")]);
+  });
+});
+
 describe("queued evidence (M2b D3)", () => {
   test("a queued delivery is rechecked with doubling backoff until its echo makes it consumed, and is never sent again", async () => {
     const db = openStateDb(dbPath());

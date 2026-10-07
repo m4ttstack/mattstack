@@ -9,7 +9,7 @@ import { claudeTransportId, createClaudeMessaging, type ClaudeMessagingDeps } fr
 import {
   connectCodexControl, type CodexClock, type CodexControl, type CodexSocket, type CodexSocketHandlers,
 } from "../codex/control.ts";
-import { createCodexMessaging } from "../codex/messaging.ts";
+import { createCodexMessaging, type CodexMessagingDeps } from "../codex/messaging.ts";
 import { createCodexSessionLoader, createCodexSessions, type CodexSessionAdapter } from "../codex/sessions.ts";
 
 type Message = Record<string, any>;
@@ -102,7 +102,10 @@ function claudeBinding(over: Partial<SessionBinding> = {}, generation = 2): Sess
   };
 }
 
-async function codex(handlers: Record<string, Handler> = {}, options: { experimental?: boolean; bare?: boolean } = {}) {
+async function codex(
+  handlers: Record<string, Handler> = {},
+  options: { experimental?: boolean; bare?: boolean; persisted?: CodexMessagingDeps["persisted"] } = {},
+) {
   const clock = new FakeClock();
   let socket!: FakeSocket;
   const server: Record<string, Handler> = { "thread/queue/add": (s, m) => s.push(queuedReply(m)), ...handlers };
@@ -123,7 +126,9 @@ async function codex(handlers: Record<string, Handler> = {}, options: { experime
   );
   controls.push(control);
   let current: SessionBinding | null = codexBinding();
-  const messaging = options.bare ? undefined! : createCodexMessaging(control, { currentBinding: () => current });
+  const messaging = options.bare ? undefined! : createCodexMessaging(control, {
+    currentBinding: () => current, persisted: options.persisted ?? (() => null),
+  });
   return {
     clock, control, messaging,
     socket: () => socket,
@@ -520,6 +525,69 @@ describe("codex messaging evidence", () => {
     createCodexMessaging(fresh.control, { currentBinding: () => codexBinding() });
     createCodexMessaging(fresh.control, { currentBinding: () => codexBinding() });
     expect(subscriptions).toBe(1);
+  });
+});
+
+describe("queued deliveries an earlier connection submitted (M2b review)", () => {
+  const ID = "d-17-remy";
+  type Persisted = NonNullable<ReturnType<CodexMessagingDeps["persisted"]>>;
+  const row = (over: Partial<Persisted> = {}): Persisted => ({
+    inputId: ID, frameId: ID, state: "queued", harness: "codex", sessionKey: "k1", generation: 3, nativeId: THREAD, ...over,
+  });
+  const persisted = (r: Persisted) => (id: string) => (id === r.inputId ? r : null);
+  const history = (clientId: string): Handler => (s, m) => s.push({
+    id: m.id,
+    result: {
+      thread: {
+        id: m.params.threadId,
+        turns: [
+          { id: "U0", status: "completed", items: [{ type: "userMessage", id: "I0", clientId: "someone-else", content: [] }] },
+          { id: "U1", status: "completed", items: [{ type: "userMessage", id: "I1", clientId, content: [] }, { type: "agentMessage", id: "A1", text: "ok" }] },
+        ],
+      },
+    },
+  });
+
+  test("the resubscribed connection's echo of a persisted queued delivery is consumption", async () => {
+    const x = await codex({}, { persisted: persisted(row()) });
+    x.control.adopt(THREAD);
+    x.socket().push(userStarted(THREAD, "U1", "I1", ID));
+    expect(data(await x.messaging.reconcile!(codexBinding(), ID))).toEqual({ id: ID, evidence: "consumed", nativeId: THREAD, turnId: "U1", itemId: "I1" });
+    expect(x.methods()).toEqual([]);
+  });
+
+  test("an echo that landed while rt was away is found by its exact clientId in the thread's history", async () => {
+    const x = await codex({ "thread/read": history(ID) }, { persisted: persisted(row()) });
+    expect(data(await x.messaging.reconcile!(codexBinding(), ID))).toEqual({ id: ID, evidence: "consumed", nativeId: THREAD, turnId: "U1", itemId: "I1" });
+    expect(x.socket().sent.filter((m) => m.method === "thread/read").map((m) => m.params)).toEqual([{ threadId: THREAD, includeTurns: true }]);
+    expect(x.methods()).toEqual(["thread/read"]);
+  });
+
+  test("another clientId, another thread, or a replaced attachment is never consumption", async () => {
+    const other = await codex({ "thread/read": history("d-99-remy") }, { persisted: persisted(row()) });
+    other.control.adopt(THREAD);
+    other.control.adopt("T2");
+    other.socket().push(userStarted(THREAD, "U2", "I2", "d-99-remy"));
+    other.socket().push(userStarted("T2", "U3", "I3", ID));
+    expect(data(await other.messaging.reconcile!(codexBinding(), ID))).toEqual({ id: ID, evidence: "queued", nativeId: THREAD });
+
+    const replaced = await codex({ "thread/read": history(ID) }, { persisted: persisted(row()) });
+    replaced.setCurrent(codexBinding({}, 4));
+    replaced.control.adopt(THREAD);
+    replaced.socket().push(userStarted(THREAD, "U1", "I1", ID));
+    expect(data(await replaced.messaging.reconcile!(codexBinding(), ID))).toEqual({ id: ID, evidence: "queued", nativeId: THREAD });
+  });
+
+  test("a row from another generation is stale, and a row that is not this thread's queued delivery seeds nothing", async () => {
+    const stale = await codex({ "thread/read": history(ID) }, { persisted: persisted(row({ generation: 2 })) });
+    expect(await stale.messaging.reconcile!(codexBinding(), ID)).toMatchObject({ ok: false, error: { code: "stale-binding" } });
+    for (const over of [
+      { state: "ambiguous" }, { state: "consumed" }, { harness: "claude" }, { nativeId: "T2" }, { frameId: "d-18-remy" }, { sessionKey: "k9" },
+    ] as Array<Partial<Persisted>>) {
+      const x = await codex({ "thread/read": history(ID) }, { persisted: persisted(row(over)) });
+      expect(await x.messaging.reconcile!(codexBinding(), ID)).toEqual({ ok: true, data: null });
+      expect(x.methods()).toEqual([]);
+    }
   });
 });
 

@@ -5,7 +5,7 @@ import {
   connectCodexControl, discoverCodexEndpoint,
   type CodexClock, type CodexControl, type CodexSocket, type CodexSocketHandlers,
 } from "../codex/control.ts";
-import { CODEX_EVENT_FIELDS, CODEX_METHODS, CODEX_PROTOCOL_VERSION, CODEX_STATUS_ENUMS } from "../codex/protocol.ts";
+import { CODEX_EVENT_FIELDS, CODEX_METHODS, CODEX_METHODS_OUTSIDE_FIXTURE, CODEX_PROTOCOL_VERSION, CODEX_STATUS_ENUMS } from "../codex/protocol.ts";
 
 type Event = Parameters<Parameters<CodexControl["subscribe"]>[0]>[0];
 type Message = Record<string, any>;
@@ -236,6 +236,7 @@ describe("codex control", () => {
       ["initialize", { threadId: "T1", clientInfo: { name: "x", version: "1" } }],
       ["thread/resume", { threadId: "FOREIGN" }],
       ["thread/read", { threadId: "FOREIGN", includeTurns: false }],
+      ["thread/unsubscribe", { threadId: "FOREIGN" }],
       ["experimentalFeature/list", { threadId: "FOREIGN" }],
       ["thread/start", { cwd: "/elsewhere" }],
     ] as const) {
@@ -246,6 +247,7 @@ describe("codex control", () => {
     expect((await rejection(control.request("thread/start", { threadId: "T1", cwd: "/elsewhere" }))).code).toBe("unsupported");
     expect((await rejection(control.request("thread/resume", { threadId: "T1", path: "/x.jsonl" }))).code).toBe("unsupported");
     expect((await rejection(control.request("thread/read", { includeTurns: false }))).code).toBe("invalid");
+    expect((await rejection(control.request("thread/unsubscribe", { threadId: "T1", force: true }))).code).toBe("unsupported");
     expect(h.socket().sent.length).toBe(sentBefore);
   });
 
@@ -545,7 +547,15 @@ describe("codex protocol", () => {
 
   test("the method table matches the saved schema fixture", () => {
     expect(fixture.codexVersion).toBe(CODEX_PROTOCOL_VERSION);
+    expect(Object.keys(CODEX_METHODS_OUTSIDE_FIXTURE)).toEqual(["thread/unsubscribe"]);
+    for (const method of Object.keys(CODEX_METHODS_OUTSIDE_FIXTURE)) {
+      expect(fixture.clientRequests[method], method).toBeUndefined();
+      expect(CODEX_METHODS[method]).toEqual({
+        scope: "owned", experimental: false, required: ["threadId"], fields: ["threadId"], experimentalFields: [], refused: [],
+      });
+    }
     for (const [method, spec] of Object.entries(CODEX_METHODS)) {
+      if (Object.hasOwn(CODEX_METHODS_OUTSIDE_FIXTURE, method)) continue;
       const native = fixture.clientRequests[method];
       expect(native, method).toBeDefined();
       for (const field of [...spec.fields, ...spec.refused]) expect(native.params.properties, `${method}.${field}`).toContain(field);

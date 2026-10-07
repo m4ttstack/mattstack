@@ -68,6 +68,8 @@ export interface CodexControl {
   respond(handle: ActiveQuestionHandle, answers: Record<string, { answers: string[] }>): Outcome<void>;
   adopt(threadId: string): void;
   disown(threadId: string): void;
+  /** Whether this connection owns the thread: adopted, or created by one of its active launches. */
+  owns(threadId: string): boolean;
   reserveLaunch(cwd: string): Outcome<LaunchReservation>;
   close(): void;
 }
@@ -265,7 +267,7 @@ class Control implements CodexControl {
     this.shutdown(new CodexControlError("transient", "The Codex control connection is closed."));
   }
 
-  private owns(threadId: string): boolean {
+  owns(threadId: string): boolean {
     if (this.adopted.has(threadId)) return true;
     for (const r of this.reservations) if (r.active && r.threadId === threadId) return true;
     return false;

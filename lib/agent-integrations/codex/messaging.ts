@@ -14,10 +14,15 @@
  * Anything else, including a reply in an unrecognised shape, is not evidence.
  * Consumption is never completed work, and a duplicate echo keeps the first.
  *
- * Records live in memory for this connection only; after a reconnect there is
- * nothing to reconcile and a caller keeps its own uncertainty. A delivery
- * already consumed on this thread is answered with that receipt and never
- * queued again, whatever attachment asks.
+ * Records live in memory for this connection. A delivery an earlier connection
+ * queued is picked up from its persisted row (`persisted`) when its echo or a
+ * reconcile names it: only a `queued` row of this harness whose frame is that
+ * very id, on the echo's thread. Its echo then counts as above, and an echo
+ * that landed while no connection heard it is found by the same exact
+ * `clientId` in the thread's own history (`thread/read` with turns), under
+ * the same current-attachment check. A delivery already consumed on this
+ * thread is answered with that receipt and never queued again, whatever
+ * attachment asks.
  *
  * Thread ownership is the session adapter's: messaging asks it to adopt the
  * submission's thread, so a thread the sessions released is not taken back.
@@ -32,6 +37,7 @@ import type {
 import { wrapCrossSession } from "../../daemon/inbox.ts";
 import { getStateDb } from "../../state/db.ts";
 import type { MessageAdapter } from "../contracts.ts";
+import { readDelivery, type DeliveryRow } from "../delivery-store.ts";
 import { createSessionStore, isDetachedAttachment, type SessionStore } from "../session-store.ts";
 import { CodexControlError, type CodexControl } from "./control.ts";
 import { codexEventHub } from "./events.ts";
@@ -50,6 +56,8 @@ export type CodexMessagingDeps = {
    * own, messaging adopts the thread directly.
    */
   adopt(binding: SessionBinding): Outcome<void>;
+  /** The persisted delivery row for a logical id, or null. */
+  persisted(inputId: string): Pick<DeliveryRow, "inputId" | "frameId" | "state" | "harness" | "sessionKey" | "generation" | "nativeId"> | null;
 };
 
 type Evidence = "pending" | "ambiguous" | "failed" | "queued" | "consumed";
@@ -58,6 +66,8 @@ type Submission = {
   turnId?: string; itemId?: string;
   /** An earlier attachment's attempt on this thread may still echo the same id, so no echo can be told apart. */
   contested: boolean;
+  /** Picked up from a row an earlier connection queued, so its echo may have landed while nothing listened. */
+  recovered?: true;
 };
 
 const fail = <T>(code: FaultCode, message: string): Outcome<T> => ({ ok: false, error: { code, message } });
@@ -71,6 +81,7 @@ function defaultDeps(control: CodexControl): CodexMessagingDeps {
       control.adopt(binding.native.value);
       return { ok: true, data: undefined };
     },
+    persisted: (inputId) => readDelivery(getStateDb(), inputId),
   };
 }
 
@@ -124,17 +135,58 @@ export function createCodexMessaging(control: CodexControl, overrides: Partial<C
     }
   }
 
+  /** A submission for a delivery an earlier connection queued on `threadId`, from its persisted row. */
+  function recover(id: string, threadId: string): Submission | undefined {
+    let row: ReturnType<CodexMessagingDeps["persisted"]>;
+    try {
+      row = deps.persisted(id);
+    } catch {
+      return undefined;
+    }
+    if (!row || row.state !== "queued" || row.harness !== HARNESS || row.frameId !== id || row.nativeId !== threadId) return undefined;
+    const s: Submission = {
+      id, sessionKey: row.sessionKey, generation: row.generation, threadId, evidence: "queued", contested: false, recovered: true,
+    };
+    remember(s);
+    return s;
+  }
+
+  function consume(s: Submission, turnId: string, itemId: string): void {
+    if (s.contested || s.evidence === "consumed" || s.evidence === "failed") return;
+    if (!isCurrent(s.sessionKey, s.generation, s.threadId)) return;
+    s.evidence = "consumed";
+    s.turnId = turnId;
+    s.itemId = itemId;
+  }
+
   function observe(event: CodexEvent): void {
     if (event.method !== "item/started" || event.item.type !== "userMessage" || event.connection !== control.connection) return;
     const clientId = event.item.clientId;
     if (clientId === null) return;
-    const s = submissions.get(clientId);
-    if (!s || s.contested || s.threadId !== event.threadId) return;
-    if (s.evidence === "consumed" || s.evidence === "failed") return;
-    if (!isCurrent(s.sessionKey, s.generation, s.threadId)) return;
-    s.evidence = "consumed";
-    s.turnId = event.turnId;
-    s.itemId = event.item.id;
+    const s = submissions.get(clientId) ?? recover(clientId, event.threadId);
+    if (!s || s.threadId !== event.threadId) return;
+    consume(s, event.turnId, event.item.id);
+  }
+
+  /** The thread's own history: the turn whose user message carries exactly this delivery's clientId. */
+  async function fromHistory(s: Submission, binding: SessionBinding): Promise<void> {
+    if (control.closed || !deps.adopt(binding).ok) return;
+    let read: unknown;
+    try {
+      read = await control.request("thread/read", { threadId: s.threadId, includeTurns: true });
+    } catch {
+      return;
+    }
+    const thread = isRecord(read) && isRecord(read.thread) ? read.thread : undefined;
+    if (thread?.id !== s.threadId || !Array.isArray(thread.turns)) return;
+    for (const turn of thread.turns) {
+      if (!isRecord(turn) || typeof turn.id !== "string" || !Array.isArray(turn.items)) continue;
+      const item = turn.items.find((i) => isRecord(i) && i.type === "userMessage" && i.clientId === s.id && typeof i.id === "string");
+      if (isRecord(item)) {
+        consume(s, turn.id, item.id as string);
+        return;
+      }
+    }
   }
 
   const hub = codexEventHub(control);
@@ -203,11 +255,12 @@ export function createCodexMessaging(control: CodexControl, overrides: Partial<C
     async reconcile(binding, inputId): Promise<Outcome<DeliveryReceipt | null>> {
       const ref = checkRef(binding);
       if (!ref.ok) return ref;
-      const s = submissions.get(inputId);
+      const s = submissions.get(inputId) ?? recover(inputId, ref.data);
       if (!s || s.sessionKey !== binding.key || s.threadId !== ref.data) return { ok: true, data: null };
       if (s.generation !== binding.attachment.generation) {
         return fail("stale-binding", `delivery ${inputId} was submitted under attachment generation ${s.generation}, not ${binding.attachment.generation}`);
       }
+      if (s.recovered && s.evidence === "queued") await fromHistory(s, binding);
       return { ok: true, data: s.evidence === "queued" || s.evidence === "consumed" ? receipt(s) : null };
     },
   };

@@ -74,7 +74,7 @@ WHERE input_id = ? AND state IN ('pending', 'ambiguous', 'queued') AND updated_a
 const SUPERSEDE_SQL = `UPDATE agent_deliveries SET state = 'superseded', error = ?, next_attempt_at = NULL, updated_at = ?
 WHERE input_id = ? AND state IN ('pending', 'ambiguous') AND updated_at = ?;`;
 const HARNESS_DUE_SQL = `UPDATE agent_deliveries SET next_attempt_at = ?
-WHERE harness = ? AND state IN ('pending', 'ambiguous') AND next_attempt_at IS NOT NULL AND next_attempt_at > ?;`;
+WHERE harness = ? AND state IN ('pending', 'ambiguous', 'queued') AND next_attempt_at IS NOT NULL AND next_attempt_at > ?;`;
 const OWED_SQL = "SELECT last_read_id FROM chat_members WHERE room = ? AND handle = ?;";
 const PRUNE_SQL = `DELETE FROM agent_deliveries WHERE rowid IN (
   SELECT rowid FROM agent_deliveries WHERE updated_at < ? AND (state NOT IN ('pending', 'ambiguous', 'queued') OR next_attempt_at IS NULL) LIMIT ?
@@ -200,7 +200,7 @@ export function scheduleDelivery(db: Database, row: Pick<DeliveryRow, "inputId" 
   quietly(() => db.query(SCHEDULE_SQL).run(nextAttemptAt, now, row.inputId, row.updatedAt), undefined);
 }
 
-/** After a reconnect, a harness's scheduled unresolved rows are due now. */
+/** After a reconnect, a harness's scheduled unresolved and queued rows are due now. */
 export function markHarnessDue(db: Database, harness: string, now: number): number {
   return quietly(() => db.query(HARNESS_DUE_SQL).run(now, harness, now).changes, 0);
 }
