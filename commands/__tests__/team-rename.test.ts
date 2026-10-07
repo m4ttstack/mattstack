@@ -3,7 +3,8 @@ import { captureOut } from "../../lib/ui/__tests__/capture-out.ts";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { cleanupOrgWorlds, orgWorld } from "../../lib/team/__tests__/org-world.ts";
 import type { ConvergeOutcome } from "../../lib/team/rename.ts";
-import { renameBlocks, teamRename, type TeamDeps } from "../team.ts";
+import * as orgFolder from "../../lib/setup/steps/org-folder.ts";
+import { realTeamDeps, renameBlocks, teamRename, type TeamDeps } from "../team.ts";
 
 afterEach(cleanupOrgWorlds);
 
@@ -78,4 +79,15 @@ describe("rt team rename", () => {
     expect(text).toContain("claude is missing");
     expect(text).toContain("Run claude plugin marketplace add");
   });
+});
+
+test("the real converge seam runs the org.folder step", async () => {
+  const w = orgWorld();
+  const spy = spyOn(orgFolder, "convergeOrgFolder").mockResolvedValue({ state: "done", detail: "Moved acme" });
+  try {
+    const lines: string[] = [];
+    await teamRename(["gadgets", "--json"], {}, { ...realTeamDeps(), probes: w.p, print: (s) => lines.push(s), forgeToken: async () => null });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(lines[0]!)).toMatchObject({ converged: true });
+  } finally { spy.mockRestore(); }
 });

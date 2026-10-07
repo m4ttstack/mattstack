@@ -1,5 +1,6 @@
 import { activeTeam, decideActiveTeam, type RosterEntry } from "../packages/rt-client/src/settings/active-team.ts";
 import { useTeam, type UseTeamSeams } from "../lib/team/use.ts";
+import type { ApplyContext } from "../lib/setup/apply.ts";
 import type { SecretsSeams } from "../lib/secrets/store.ts";
 import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
 import { orgStoreFile } from "../lib/team/org-store.ts";
@@ -383,9 +384,23 @@ export async function teamPull(args: string[], _ctx: CommandContext = {}, deps: 
   }
 }
 
-/** Replaced by the converge step once it lands; until then this Mac's folder moves at its next update. */
-async function convergeLater(): Promise<ConvergeOutcome> {
-  return { state: "skipped", detail: "This Mac's folder moves at its next update" };
+async function applyContextFor(deps: TeamDeps): Promise<ApplyContext> {
+  const { createApplyContext } = await import("../lib/setup/apply.ts");
+  const { createRealSecretsExecSeam } = await import("../lib/secrets/store.ts");
+  const { realSecretPresence } = await import("../lib/setup/plan.ts");
+  return createApplyContext({
+    probes: deps.probes,
+    emit: () => {},
+    secrets: deps.secrets ?? { ageKeySeam: deps.ageKeySeam ?? createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() },
+    relay: createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env)),
+    secretPresence: deps.secretPresence ?? realSecretPresence(),
+    flags: { nonInteractive: true, teamOfOne: false, ci: false, update: true },
+  });
+}
+
+async function convergeHere(deps: TeamDeps): Promise<ConvergeOutcome> {
+  const { convergeOrgFolder } = await import("../lib/setup/steps/org-folder.ts");
+  return convergeOrgFolder(await applyContextFor(deps));
 }
 
 export function renameBlocks(result: RenameResult): Block[] {
@@ -403,7 +418,7 @@ export function renameBlocks(result: RenameResult): Block[] {
 }
 
 function realRenameSeams(deps: TeamDeps): RenameSeams {
-  return { forgeToken: deps.forgeToken ?? storedForgeToken, converge: convergeLater, ...deps.renameSeams };
+  return { forgeToken: deps.forgeToken ?? storedForgeToken, converge: () => convergeHere(deps), ...deps.renameSeams };
 }
 
 export async function teamRename(args: string[], _ctx: CommandContext = {}, deps: TeamDeps = realTeamDeps()): Promise<void> {
@@ -959,19 +974,9 @@ export async function realUseTeamSeams(deps: TeamDeps): Promise<UseTeamSeams> {
     },
     writeUserSetting: (key, value) => { setSetting(key, value, "user"); },
     installPack: async () => {
-      const { createApplyContext } = await import("../lib/setup/apply.ts");
       const { installPlugins } = await import("../lib/setup/steps/plugins.ts");
       const { materializeSkills } = await import("../lib/setup/skills-materialize.ts");
-      const { createRealSecretsExecSeam } = await import("../lib/secrets/store.ts");
-      const { realSecretPresence } = await import("../lib/setup/plan.ts");
-      const ctx = await createApplyContext({
-        probes: deps.probes,
-        emit: () => {},
-        secrets: deps.secrets ?? { ageKeySeam: deps.ageKeySeam ?? createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() },
-        relay: createRelayClient(deps.probes.fetch, switchboardUrl(deps.probes.env)),
-        secretPresence: deps.secretPresence ?? realSecretPresence(),
-        flags: { nonInteractive: true, teamOfOne: false, ci: false, update: true },
-      });
+      const ctx = await applyContextFor(deps);
       const plugins = await installPlugins(ctx);
       if (plugins.state === "failed") return { ok: false, detail: plugins.detail };
       if (plugins.state === "skipped") await materializeSkills(ctx.p, {});
