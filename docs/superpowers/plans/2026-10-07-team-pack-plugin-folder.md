@@ -577,7 +577,7 @@ const teamPackDir = (mattstackRoot: string, org: string, team: string) =>
 Line 757 `teamPackDir(mattstackDir, "acme", "acme", "acme-base")` becomes `teamPackDir(mattstackDir, "acme", "acme")` (the base fragment written there makes it a base pack in the team's slot, which is what the test exercises). Every other caller drops nothing (they pass three arguments). Any literal `"packs", "<team>"` after a `teams/<team>` in this file or the other five test files becomes `"plugin"`:
 
 ```bash
-rg -n 'teams/(widgets|gadgets|acme|t)/packs/\1|"teams", "(widgets|gadgets|acme|t)", "packs", "\2"' commands/__tests__/
+rg -nP 'teams/(widgets|gadgets|acme|t)/packs/\1|"teams", "(widgets|gadgets|acme|t)", "packs", "\2"' commands/__tests__/
 ```
 
 fix each hit by hand (the path is `teams/<t>/plugin` or `"teams", "<t>", "plugin"`).
@@ -657,7 +657,7 @@ Add to `lib/setup/__tests__/requirements.test.ts` inside `describe("readPackRequ
     const nested = `${root}/mattstack/teams/widgets/packs/widgets/requirements.jsonc`;
     const manifest = `${root}/mattstack/teams/widgets/packs/widgets/pack/skills.jsonc`;
     const p = fakeProbes({ home: "/fake-home", files: { [nested]: '{ "tools":[], "integrations":[] }', [manifest]: "{}" } });
-    expect(readPackRequirements(p, "acme")).toEqual([{
+    expect(readPackRequirements(p, "acme", "widgets")).toEqual([{
       pack: "widgets",
       tools: [],
       integrations: [],
@@ -666,7 +666,7 @@ Add to `lib/setup/__tests__/requirements.test.ts` inside `describe("readPackRequ
   });
 ```
 
-(`root` in that describe is `/fake-home/.mattstack/orgs/acme`; the fake probes already resolve the active team to `widgets` in the first test, so the same seeding applies.)
+(`root` in that describe is `/fake-home/.mattstack/orgs/acme`. The test passes `"widgets"` as the third argument: with no roster seeded, `activeTeamFor` resolves null and the reader would return `[]` before and after the change.)
 
 Add to `lib/setup/__tests__/skills-materialize.test.ts`, beside `"a declaring zone that holds no pack is noManifest, not a success"`:
 
@@ -914,6 +914,7 @@ function orgRepo(overrides: Partial<MoveInput> = {}): MoveInput {
       [ORG_STORE]: JSON.stringify({
         "board.projects": ["acme/widgets"],
         repos: { "gitlab.example.com/acme/widgets": { "rt.roles": { dev: { hook: "${org}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh" } } } },
+        "rt.extraHook": "${org}/mattstack/teams/widgets/packs/widgets-extra/hooks/x.sh",
       }),
       [WIDGETS_STORE]: JSON.stringify({ "board.title": "Widgets", "rt.endpoint": { script: "${team:acme}/mattstack/teams/widgets/packs/widgets/scripts/run.ts" } }),
       "mattstack/teams/gadgets/settings.team.jsonc": "{}",
@@ -947,6 +948,7 @@ describe("planMove", () => {
     expect(parse(plan.writes[ORG_STORE]!).repos["gitlab.example.com/acme/widgets"]["rt.roles"].dev.hook).toBe("${org}/mattstack/teams/widgets/plugin/hooks/dev.sh");
     expect(parse(plan.writes[WIDGETS_STORE]!)["rt.endpoint"].script).toBe("${team:acme}/mattstack/teams/widgets/plugin/scripts/run.ts");
     expect(plan.writes["mattstack/teams/gadgets/settings.team.jsonc"]).toBeUndefined();
+    expect(parse(plan.writes[ORG_STORE]!)["rt.extraHook"]).toBe("${org}/mattstack/teams/widgets/packs/widgets-extra/hooks/x.sh");
     expect(plan.report).toContain("rewrote ${org}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh to ${org}/mattstack/teams/widgets/plugin/hooks/dev.sh");
   });
 
@@ -1150,7 +1152,7 @@ Expected: PASS.
 #!/usr/bin/env bun
 // scripts/move-team-packs-to-plugin.ts
 import { execFileSync } from "child_process";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, rmdirSync, writeFileSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
 import { UserActionableError, failureFor, logFailureDetail } from "../lib/errors.ts";
 import { shellQuote } from "../lib/herdr-launch.ts";
@@ -1301,6 +1303,9 @@ function main(): void {
     for (const [from, to] of plan.moves) {
       mkdirSync(dirname(join(clone, to)), { recursive: true });
       git("mv", "--", from, to);
+      // git mv leaves the emptied packs/ folder on disk; git itself never tracks it.
+      const parent = dirname(join(clone, from));
+      if (readdirSync(parent).length === 0) rmdirSync(parent);
     }
     for (const [rel, text] of Object.entries(plan.writes)) {
       mkdirSync(dirname(join(clone, rel)), { recursive: true });
@@ -1329,6 +1334,8 @@ try {
 ```
 
 The `newTargets` set excludes the moved pack's own `plugin.json` write, which lands inside the moved folder after `git mv` and so exists at write time by design.
+
+`MovePlan` carries no `deletes`: the only deletion is the emptied `packs/` parent, which the wrapper removes right after each `git mv` (git never tracks an empty folder, so a rollback's `git reset --hard` restores the moved files and `existingDirectories` restores the folder).
 
 - [ ] **Step 6: Add the wrapper tests**
 
@@ -1661,8 +1668,8 @@ Append three rows to `plugins/mattstack/CERTIFICATION.md` above the closing ledg
 
 - [ ] **Step 4: Check for leftovers**
 
-Run: `rg -n 'teams/[^/ ]+/packs/|packs/<team>|packs/widgets' plugins/mattstack --glob '!CERTIFICATION.md' --glob '!docs/superpowers/**'`
-Expected: no output. (`plugins/mattstack/docs/superpowers/` holds historical specs, which the spec says not to edit; the guard in Task 13 skips `superpowers` too.)
+Run: `rg -n 'teams/[^/ ]+/packs/|packs/<team>' plugins/mattstack --glob '!CERTIFICATION.md' --glob '!**/docs/superpowers/**'`
+Expected: no output. Run before the edits it hits exactly the Step 2 list. (`plugins/mattstack/docs/superpowers/` holds historical specs, which the spec says not to edit, and rg anchors a glob at the cwd, hence the `**/` prefix; `plugin/tests/test-resolve-args.sh` builds the machine-local bindings path `repos/<slug>/packs/widgets`, which stays, so `packs/widgets` is not in the pattern; the guard in Task 13 skips `superpowers` too.)
 
 - [ ] **Step 5: Commit**
 

@@ -212,7 +212,7 @@ bun scripts/move-team-packs-to-plugin.ts <clone-dir> --admin <username> [--write
 ```
 
 The planner (`planMove(input)`), a pure function over the files it is
-given, returns `{ moves, deletes, writes, report }`:
+given, returns `{ moves, writes, report }`:
 
 - **Input:** the marker, the marketplace, and for every folder under
   `mattstack/teams/` the nested manifest `packs/<team>/pack/skills.jsonc`
@@ -226,7 +226,9 @@ given, returns `{ moves, deletes, writes, report }`:
   with a nested pack at all ("nothing to move").
 - **Moves:** `mattstack/teams/<team>/packs/<team>` to
   `mattstack/teams/<team>/plugin` for every team with a nested pack. `git mv`
-  of the folder leaves `packs/` empty, and git drops the empty parent.
+  of the folder leaves an empty `packs/` on disk, which the wrapper removes
+  right after the move (git never tracks an empty folder, so there is no
+  `deletes` list to plan).
 - **Writes:** the moved pack's `.claude-plugin/plugin.json` with its patch
   version bumped; `.claude-plugin/marketplace.json` with each moved pack's
   entry pointed at `./mattstack/teams/<team>/plugin` (and its `version`
