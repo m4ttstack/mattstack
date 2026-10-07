@@ -31,7 +31,7 @@
 4. A base with no `plugin.json` or no `version`: `baseVersion: null`, and the console prints the base name with no version and never the word `org`.
 5. A grouped emitted unit (`attachments/group/leaf/`): the link badge still matches by `attachments/<rel>/` prefix, and the surface leaf row is tagged.
 
-Each line has its test in the owning task (Tasks 1, 5, 2, 1+6, 8).
+Each line has its test in the owning task (Tasks 1, 5, 2, 1+6, 4+8).
 
 ---
 
@@ -442,6 +442,14 @@ describe("emitted base attachments", () => {
     }
   });
 
+  test("a grouped emitted unit tags its leaf row", () => {
+    const packDir = withEmitted([]);
+    writeFile(join(packDir, "attachments", "refs", "feature-flags", "SKILL.md"), "---\nname: feature-flags\n---\nbody\n");
+    writeFile(join(packDir, "attachments", "refs", "feature-flags", "compiled.json"), JSON.stringify({ base: "acme-base", version: "0.1.0", files: ["SKILL.md"] }));
+    const { rows } = computeRows(packDir, new Set(), { public: [] }, new Set());
+    expect(rows.find((r) => r.name === "feature-flags")).toMatchObject({ status: "internal", base: "acme-base" });
+  });
+
   test("making one internal is allowed and drops a stale public entry", async () => {
     const packDir = withEmitted(["dev-servers"]);
     await skillsSurface(["set", "dev-servers", "--internal", "--pack-dir", packDir, "--json"]);
@@ -523,7 +531,7 @@ git commit -m "skills surface: name a row's base, keep it internal, refuse makin
   - `type Owner = { kind: 'pack' } | { kind: 'base'; name: string; version: string | null } | { kind: 'plugin'; name: string }`
   - `ownerOf(ref: string, item: OriginFields | null | undefined, pack: string): Owner`
   - `baseLabel(owner: Extract<Owner, { kind: 'base' }>): string` returning `acme-base 0.1.0` or `acme-base`.
-  - Server interfaces: `SkillsCompositionSlot`, `SkillsCompositionFill`, binder slot, `SkillsAnatomySource` extend `OriginFields` (declare the three fields inline on each, since server code cannot import from `app/`); `SkillsCompositionResponse.extends?: { name: string; version: string | null } | null`; `SkillsSurfaceRow.base?: string`; `SkillsCheckResponse.attachments?: SkillsCheckAttachmentRow[]` and `baseErrors?: string[]` with `interface SkillsCheckAttachmentRow { name: string; base: string; status: 'in-sync' | 'stale' | 'never-compiled' | 'orphaned'; staleFiles: string[]; orphanFiles: string[] }`.
+  - Server interfaces: `SkillsCompositionSlot`, `SkillsCompositionFill`, binder slot, `SkillsAnatomySource` extend `OriginFields` (declare the three fields inline on each, since server code cannot import from `app/`); `SkillsCompositionResponse.extends?: { name: string; version: string | null } | null`; `SkillsSurfaceRow.base?: string`; `SkillsCheckResponse.attachments?: SkillsCheckAttachmentRow[]` and `baseErrors?: string[]` with `interface SkillsCheckAttachmentRow { name: string; base: string | null; status: 'in-sync' | 'stale' | 'never-compiled' | 'orphaned'; staleFiles: string[]; orphanFiles: string[] }`.
 
 - [ ] **Step 1: Failing test `owner.test.ts`**
 
@@ -762,7 +770,7 @@ git commit -m "console: serve an org base fill's text"
 
 **Interfaces:**
 - Consumes: `SkillsCheckAttachmentRow` (Task 5), `SkillsSurfaceRow.base`.
-- Produces: `baseCopyOf(path: string, attachments: { name: string; base: string }[] | undefined): string | null`, the base name when the pack-relative `path` sits under `attachments/<name>/` for some row (grouped `name` like `group/leaf` included), else null. `linkContent` gains a `check` argument (thread from `drawerContent`'s caller, which already reads the check query; if it does not, pass `check?.attachments`).
+- Produces: `baseCopyOf(path: string, attachments: { name: string; base: string | null }[] | undefined): string | null`, the base name when the pack-relative `path` sits under `attachments/<name>/` for some row whose `base` is not null (grouped `name` like `group/leaf` included), else null. A row with `base: null` is an orphaned copy and never matches. `linkContent` gains a `check` argument (thread from `drawerContent`'s caller, which already reads the check query; if it does not, pass `check?.attachments`).
 
 - [ ] **Step 1: Failing tests**
 
@@ -776,6 +784,7 @@ import { baseCopyOf } from './baseCopies';
 const rows = [
   { name: 'dev-servers', base: 'acme-base' },
   { name: 'refs/feature-flags', base: 'acme-base' },
+  { name: 'gone', base: null },
 ];
 
 describe('baseCopyOf', () => {
@@ -788,6 +797,10 @@ describe('baseCopyOf', () => {
     expect(baseCopyOf('attachments/dev-servers-extra/SKILL.md', rows)).toBeNull();
     expect(baseCopyOf('attachments/capture-evidence/SKILL.md', rows)).toBeNull();
     expect(baseCopyOf('attachments/dev-servers/SKILL.md', undefined)).toBeNull();
+    expect(baseCopyOf('foo-attachments/dev-servers/SKILL.md', rows)).toBeNull();
+  });
+  it('never matches an orphaned row, which has no base', () => {
+    expect(baseCopyOf('attachments/gone/SKILL.md', rows)).toBeNull();
   });
 });
 ```
@@ -806,14 +819,19 @@ Run: `bun run test -- src/app/wiring/baseCopies.test.ts src/app/wiring/graph/mod
 
 ```ts
 /** A link is written relative to the verb that holds it, so only the part from `attachments/` on is the pack-relative path. */
+const ATTACHMENTS = /(^|\/)attachments\//;
+
 export function baseCopyOf(
   path: string,
-  attachments: { name: string; base: string }[] | undefined
+  attachments: { name: string; base: string | null }[] | undefined
 ): string | null {
-  const at = path.indexOf('attachments/');
-  if (at === -1 || !attachments) return null;
-  const rel = path.slice(at + 'attachments/'.length);
-  return attachments.find(row => rel.startsWith(`${row.name}/`))?.base ?? null;
+  const match = ATTACHMENTS.exec(path);
+  if (!match || !attachments) return null;
+  const rel = path.slice(match.index + match[0].length);
+  return (
+    attachments.find(row => row.base !== null && rel.startsWith(`${row.name}/`))
+      ?.base ?? null
+  );
 }
 ```
 
@@ -853,7 +871,10 @@ it('counts a stale base attachment as source newer and lists it under Org base',
   // expect the Source newer card to read 1, an "Org base" group listing "dev-servers" with "stale" and "acme-base", no "All in sync."
 });
 it('counts a never-compiled base attachment as never compiled', () => {});
-it('lists an orphaned attachment and a base error under Org base, counted in no card, and still not clean', () => {});
+it('lists an orphaned attachment (base: null) and a base error under Org base, counted in no card, and still not clean', () => {
+  // attachments: [{ name: 'gone', base: null, status: 'orphaned', staleFiles: [], orphanFiles: ['SKILL.md'] }], baseErrors: ['acme-base has no attachments/feature-flags']
+  // expect the row to read "gone" with "orphaned · compile removes it" and no "from null" anywhere in the tab
+});
 it('stays All in sync when attachments are all in-sync and there are no base errors', () => {});
 it('reads as today when rt sends no attachments field', () => {});
 ```
@@ -874,7 +895,7 @@ Run: `bun run test -- src/app/wiring/__tests__/HealthTab.test.tsx`
   const baseRows = attachments.filter(a => a.status !== 'in-sync');
 ```
 
-Add `staleCopies.length` to the Source newer card count and `unbuiltCopies.length` to the Never compiled card count; `clean` additionally requires `baseRows.length === 0 && baseErrors.length === 0`; `hasDrift` additionally is true when `baseRows.length > 0 || baseErrors.length > 0`. Render an "Org base" group (same component the other groups use) listing each `baseRows` entry as `<name>` with `from <base> · <status>` and each base error as its text, shown only when either list is non-empty.
+Add `staleCopies.length` to the Source newer card count and `unbuiltCopies.length` to the Never compiled card count; `clean` additionally requires `baseRows.length === 0 && baseErrors.length === 0`; `hasDrift` additionally is true when `baseRows.length > 0 || baseErrors.length > 0`. Render an "Org base" group (same component the other groups use) listing each `baseRows` entry as `<name>` with `from <base> · <status>`, or, for a row whose `base` is null (orphaned), `orphaned · compile removes it`, and each base error as its text, shown only when either list is non-empty. No row may render the text `null`.
 
 - [ ] **Step 4: Run, expect PASS; typecheck**
 
@@ -900,7 +921,7 @@ git commit -m "console health: count org base attachment drift and base errors"
 **Interfaces:**
 - Produces:
   - `interface BaseScope { base: string; root: string; top: string }`: `root` the base pack root (realpath), `top` a dir relative to the repo top (`:(top)` pathspec body).
-  - `baseScopesFor(composition, verb: string | null, repoRoot: string, realpath): Promise<BaseScope[]>`: one per distinct base fill dir the verb's slots (or, with no verb, every verb's slots) bind, from slots with `origin === 'base'` whose `fillSourcePath` lies outside `packDir`; the dir is the fill's folder (`dirname(fillSourcePath)`), realpath'd, relativized against `repoRoot`; a dir that relativizes outside the repo (`..`) is dropped.
+  - `baseScopesFor(composition, verb: string | null, repoRoot: string, realpath): Promise<BaseScope[]>`: one per distinct base fill dir the verb's slots (or, with no verb, every verb's slots) bind (roster verbs only: a pipeline stage's slots carry no `fillSourcePath`, the same gap as today, and the PR body says so), from slots with `origin === 'base'` whose `fillSourcePath` lies outside `packDir`; the dir is the fill's folder (`dirname(fillSourcePath)`), realpath'd, relativized against `repoRoot`; a dir that relativizes outside the repo (`..`) is dropped.
   - `toBaseCoordinate(path: string, scopes: BaseScope[], repoRoot: string): string`: a repo-root-relative path under a scope's root becomes `base:<name>/<path inside the base pack>`; any other path is returned unchanged.
   - `SkillsDiffResponse.baseDiff?: string` (paths rewritten), history `commits[].files` and `runtime.dirtyFiles` rewritten for base paths.
   - `seamPackPath(seam, index)` returns `base:<name>/<seam.path>` for a base seam; `SeamSourceIndex` gains `baseRoots: Record<string, string>` (base name to root dir) built from composition slots with `origin === 'base'`.
@@ -1035,7 +1056,9 @@ Implement in the routes: fetch composition with `cachedRun(['skills','compositio
 
 In `seamAttribution.test.ts`, a seam `{ kind: 'slot', slot: 'domain', ref: 'acme-base:plan-policy', path: 'attachments/plan-policy/SKILL.md', lines: [1, 40] }` with `index.fillSourcePaths.domain = '/o/acme/mattstack/org/packs/acme-base/attachments/plan-policy/SKILL.md'`, `index.baseRoots = { 'acme-base': '/o/acme/mattstack/org/packs/acme-base' }` gives `seamPackPath` `base:acme-base/attachments/plan-policy/SKILL.md`, and `attributeHunk({ path: 'base:acme-base/attachments/plan-policy/SKILL.md', lines: [3, 5] }, ...)` names that seam. A seam whose ref is a plugin keeps returning null.
 
-Implement: in `seamPackPath`, before the `pluginOf(seam.ref) !== index.pack` bail, `const base = pluginOf(seam.ref); const baseRoot = index.baseRoots?.[base]; if (baseRoot && absolute.startsWith(\`${baseRoot}/\`)) return \`base:${base}/${seam.path}\`;`. Build `baseRoots` where the index is built (search `fillSourcePaths:` in `src/app/wiring`) from slots with `origin === 'base'`, root from `pluginRootOf` imported from `src/shared/pluginRoot`. Where the timeline parses `diff.diff` into hunks, also parse `diff.baseDiff ?? ''` and concatenate the hunks.
+Add `origin?: 'base'` and `base?: string` to `SlotOutlineNode` (`src/app/wiring/outline.ts:~45`) and copy them from the composition slot where `outline.ts` sets `fillSourcePath` (~line 337), with an `outline.test.ts` case that a base slot keeps them. Make `baseRoots` optional on `SeamSourceIndex` (`baseRoots?: Record<string, string>`), so `SeamCompare.tsx:~244`, which builds an index too, keeps compiling; give it the same `baseRoots` from its slots.
+
+Implement: in `seamPackPath`, before the `pluginOf(seam.ref) !== index.pack` bail, `const base = pluginOf(seam.ref); const baseRoot = index.baseRoots?.[base]; if (baseRoot && absolute.startsWith(\`${baseRoot}/\`)) return \`base:${base}/${seam.path}\`;`. Build `baseRoots` where the index is built (`VersionTimeline.tsx:~233-245` and `SeamCompare.tsx:~244`) from the `SlotOutlineNode`s with `origin === 'base'`, root from `pluginRootOf` imported from `src/shared/pluginRoot`. Where the timeline parses `diff.diff` into hunks, also parse `diff.baseDiff ?? ''` and concatenate the hunks. Add a `VersionTimeline.test.tsx` case: a composition whose domain slot is a base fill, a diff response whose `baseDiff` holds one hunk inside that fill's seam span, and the timeline shows that change attributed to the domain slot (copy the file's existing attribution test and change the data).
 
 `VersionTimeline.tsx:466-469`: replace the sentence with "The step's own source lives in its engine plugin, and base fills in the org's base pack, outside this pack's folder." and update `VersionTimeline.test.tsx`'s expectation of it.
 
@@ -1091,7 +1114,7 @@ git commit -m "console wiring: show the base a pack extends"
 **Files:**
 - Modify: `apps/console/src/server/fixtures/design/scenarios.ts` (table, `SCENARIOS`, defs)
 - Create: `apps/console/src/server/fixtures/design/files/orgbase/acme-base/attachments/plan-policy/SKILL.md`, `files/orgbase/acme-base/.claude-plugin/plugin.json`, `files/packs/acme/attachments/dev-servers/SKILL.md`, `files/packs/acme/attachments/dev-servers/compiled.json`
-- Modify: `fixtureRt.ts` only if a scenario needs a verb it does not answer today
+- Modify: `fixtureRt.ts`: answer `skills surface list --pack acme --json` (today it refuses every surface call)
 - Test: `fixtureRt.test.ts`, `boards.test.ts` (must stay green: the board scenarios do not change)
 
 **Interfaces:**
@@ -1100,7 +1123,7 @@ git commit -m "console wiring: show the base a pack extends"
 
 - [ ] **Step 1: Failing fixture tests**
 
-In `fixtureRt.test.ts`: under `org-base`, composition `extends` is `{ name: 'acme-base', version: '0.1.0' }`; stage-plan's `domain` slot is bound to `acme-base:plan-policy` with `fillSourcePath` `/fixture/orgbase/acme-base/attachments/plan-policy/SKILL.md`, `fillVersion: 'org'` and the three origin fields; the matching `fills[]` row is tagged; the stage-plan anatomy's domain part `source` is tagged with `ref: 'acme-base:plan-policy'`, `version: 'org'`, `builtVersion: 'org'`; check's `attachments` is `[{ name: 'dev-servers', base: 'acme-base', status: 'in-sync', staleFiles: [], orphanFiles: [] }]` and `baseErrors: []`; the anatomy's `links` include `../../attachments/dev-servers/SKILL.md`. Under `org-base-drift`, the same with the attachment `stale` (`staleFiles: ['SKILL.md']`) and `baseErrors: ['acme-base has no attachments/feature-flags']`, and check exits 1. Reading the base fill file through `readPackFile` succeeds.
+In `fixtureRt.test.ts`: under `org-base`, composition `extends` is `{ name: 'acme-base', version: '0.1.0' }`; stage-plan's `domain` slot is bound to `acme-base:plan-policy` with `fillSourcePath` `/fixture/orgbase/acme-base/attachments/plan-policy/SKILL.md`, `fillVersion: 'org'` and the three origin fields; the matching `fills[]` row is tagged; the stage-plan anatomy's domain part `source` is tagged with `ref: 'acme-base:plan-policy'`, `version: 'org'`, `builtVersion: 'org'`; check's `attachments` is `[{ name: 'dev-servers', base: 'acme-base', status: 'in-sync', staleFiles: [], orphanFiles: [] }]` and `baseErrors: []`; the anatomy's `links` include `../../attachments/dev-servers/SKILL.md`. Under `org-base-drift`, the same with the attachment `stale` (`staleFiles: ['SKILL.md']`) and `baseErrors: ['acme-base has no attachments/feature-flags']`, and check exits 1. Reading the base fill file through `readPackFile` succeeds. Under both org scenarios, `surface list --json` answers `{ pack: 'acme', packDir: '/fixture/packs/acme', rows: [...] }` holding `{ name: 'dev-servers', kind: 'compiled', status: 'internal', base: 'acme-base' }` beside a plain compiled row and a fill row; every other scenario keeps refusing surface, as today.
 
 - [ ] **Step 2: Run, expect FAIL**
 
@@ -1108,7 +1131,7 @@ Run: `bun run test -- src/server/fixtures/design`
 
 - [ ] **Step 3: Implement**
 
-Add both names to `SCENARIOS` and the table comment. Each def edits `clean` data: `composition` maps the stage-plan verb's and the `mattstack:stage-plan` binder's `domain` slot and the `acme:plan-policy` fill to the base binding and path, and adds `extends`; `check` adds `attachments` and `baseErrors`; `anatomy['stage-plan']` edits `anatomy.stage-plan.json`'s domain part source and appends the link. Put the plan-policy text in the base file (copy `files/packs/acme/attachments/plan-policy/SKILL.md`) and write a short `dev-servers/SKILL.md` ("Start the dev servers for acme widgets." and two lines of placeholder steps). `compiled.json`: `{"base":"acme-base","version":"0.1.0","files":["SKILL.md"]}`.
+Add both names to `SCENARIOS` and the table comment. Each def edits `clean` data: `composition` maps the stage-plan verb's and the `mattstack:stage-plan` binder's `domain` slot and the `acme:plan-policy` fill to the base binding and path, and adds `extends`; `check` adds `attachments` and `baseErrors`; `anatomy['stage-plan']` edits `anatomy.stage-plan.json`'s domain part source and appends the link. Add a `surface` case to `fixtureRt.ts`'s switch: `if (argv[2] === 'list' && def.surface) return answer(JSON.stringify(def.surface));` else refuse, with `surface?: { pack: string; packDir: string; rows: { name: string; kind: string; status: string; base?: string }[] }` on `ScenarioDef`. Put the plan-policy text in the base file (copy `files/packs/acme/attachments/plan-policy/SKILL.md`) and write a short `dev-servers/SKILL.md` ("Start the dev servers for acme widgets." and two lines of placeholder steps). `compiled.json`: `{"base":"acme-base","version":"0.1.0","files":["SKILL.md"]}`.
 
 - [ ] **Step 4: Run, expect PASS, boards included**
 
@@ -1145,13 +1168,17 @@ Expected: all green. Fix anything red with a test-first commit.
 
 - [ ] **Step 3: Render the fixture scenarios, light and dark**
 
-From `apps/console`: `bun x vite build`, then `CONSOLE_FIXTURE=design CONSOLE_FIXTURE_SCENARIO=org-base PORT=11092 bun run src/server/index.ts` (background; stop it by its own task when done). In Fast Browser (`fast-browser:fast-browsing`, one `browser_run_code_unsafe` per flow), at 1500x950, for each scheme (the console's colour scheme toggle in the rail, or `localStorage` key the kit uses; find it in `@mattstack/app-kit`): screenshot `/wiring?pack=acme&focus=stage-plan`, the domain card's drawer (Text, Used by, History tabs), the rebind panel and its option list, a link to `dev-servers`, Surface, and Health. Restart with `org-base-drift` and screenshot Health. Save into `.superpowers/shots/`. Look at each one and write down plainly what reads wrong (wording, overlap, contrast, a badge that clips).
+From `apps/console`: `bun x vite build`, then `CONSOLE_FIXTURE=design CONSOLE_FIXTURE_SCENARIO=org-base PORT=11092 bun run src/server/index.ts` (background; stop it by its own task when done). In Fast Browser (`fast-browser:fast-browsing`, one `browser_run_code_unsafe` per flow), at 1500x950, for each scheme (the console's colour scheme toggle in the rail, or `localStorage` key the kit uses; find it in `@mattstack/app-kit`): screenshot `/wiring?pack=acme&focus=stage-plan`, the domain card's drawer (Text, Used by, History tabs), the rebind panel and its option list, a link to `dev-servers`, Surface, and Health. Restart with `org-base-drift` and screenshot Health. Save into `.superpowers/shots/`. The fixture's repo root is the pack dir, so `/fixture/orgbase` is outside it and the base pathspec in history and diff (F9) is never exercised there: F9 is checked on the live render only (Step 4). Look at each one and write down plainly what reads wrong (wording, overlap, contrast, a badge that clips).
 
 - [ ] **Step 4: Render the live org, light and dark**
 
-The served console reads the installed `rt`, which does not have this branch's rt changes. Write a scratch launcher in the scratchpad (never committed) that starts the console server with its `runRt` replaced by one spawning `bun <worktree>/cli.ts` (see how `src/server/index.ts` builds the app and how `mountSkills` takes `runRt`), on port 11093, and view the real team pack the same way as Step 3. Never restart the deck-served console. Screenshots of the live org contain real names: keep them in `.superpowers/shots/live/` (git-ignored) and never attach them to the PR.
+The served console reads the installed `rt`, which does not have this branch's rt changes. Write a scratch launcher in the scratchpad (never committed) that starts the console server with its `runRt` replaced by one spawning `bun <worktree>/cli.ts` (see how `src/server/index.ts` builds the app and how `mountSkills` takes `runRt`), on port 11093, and view the real team pack the same way as Step 3, including a verb with a base fill's History tab, to check F9: a base commit in the list and its files in the `base:<name>/` coordinate. Never restart the deck-served console. Screenshots of the live org contain real names: keep them in `.superpowers/shots/live/` (git-ignored) and never attach them to the PR.
 
-- [ ] **Step 5: Commit the docs**
+- [ ] **Step 5: Notes for the PR body**
+
+Append to `.superpowers/pr-notes.md` (git-ignored), for the integrator: `rt skills surface list --json` now reports a base row's `status` as `internal` (a value change, keys unchanged); a pipeline stage that binds a base fill gets no base history (stage slots carry no `fillSourcePath`, as before); files both this branch and the rt-followups lane changed, from `git diff --name-only origin/main...HEAD` intersected with that lane's list (ask it in chat).
+
+- [ ] **Step 6: Commit the docs**
 
 ```bash
 git add apps/console/AGENTS.md

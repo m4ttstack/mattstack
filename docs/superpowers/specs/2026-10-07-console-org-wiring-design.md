@@ -257,7 +257,7 @@ composition's `extends` is set; absent or null shows nothing.
 
 The design fixture gains an `acme-base` base with one fill bound into a
 verb and one emitted attachment a verb links to, plus a scenario
-`base-drift` where that attachment is stale and a base error is listed.
+`org-base-drift` where that attachment is stale and a base error is listed.
 Tests:
 
 - rt: `originOf` and `originOfDir` (by name, by path, path winning, a bad
@@ -276,7 +276,7 @@ Tests:
 
 `bun run console:test` (or the app's `test`, `typecheck`, `lint`), `bun run
 check`, the targeted rt tests, and the console rendered in Fast Browser in
-light and dark against both the live org and the fixture's `base-drift`
+light and dark against both the live org and the fixture's `org-base-drift`
 scenario, every changed view looked at and described.
 
 ## Out of scope
