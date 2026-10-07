@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { buildSdmConnections } from "../browse.ts";
+import { buildSdmConnections, carrierFromName, tierFromEnv } from "../browse.ts";
 
 const RES = [
   { name: "acme-db-qa", type: "postgres", tags: [], standingAccess: true },
@@ -21,5 +21,86 @@ describe("buildSdmConnections", () => {
     const c = buildSdmConnections(RES, ENR).find(x => x.sdmResource === "acme-orphan-thing")!;
     expect(c.label).toBe("acme-orphan-thing");
     expect(c.tier).toBeUndefined();
+  });
+});
+
+const tagged = (name: string, tags: Record<string, string>) => ({
+  name, type: "postgres", standingAccess: false,
+  tags: Object.entries(tags).map(([k, v]) => `${k}=${v}`),
+});
+
+describe("tag-derived fields", () => {
+  const CATALOG = [
+    tagged("acme-qa-core-db-read", { env: "qa", tenant: "acme", domain: "core", access: "read" }),
+    tagged("acme-perf-staging-core-db-read", { env: "staging", tenant: "acme-perf", domain: "core", access: "read" }),
+    tagged("globex-prod-core-db-write", { env: "prod", tenant: "globex", domain: "core", access: "write" }),
+    tagged("old-acme-qa", { env: "qa", domain: "core", access: "admin" }),
+    tagged("old-acme-perf-thing", { env: "dev", domain: "core", access: "reader" }),
+    tagged("mystery-db", { env: "labs", domain: "core", access: "read" }),
+    { name: "status-only-db", type: "postgres", tags: [], standingAccess: true },
+  ];
+  const by = (name: string, carriers = {}) => buildSdmConnections(CATALOG, {}, carriers).find(c => c.sdmResource === name)!;
+
+  test("tier comes from env: prod -> production, dev -> development, others as-is", () => {
+    expect(by("globex-prod-core-db-write").tier).toBe("production");
+    expect(by("old-acme-perf-thing").tier).toBe("development");
+    expect(by("acme-qa-core-db-read").tier).toBe("qa");
+    expect(by("mystery-db").tier).toBe("labs");
+  });
+
+  test("an enrichment tier overrides env", () => {
+    const c = buildSdmConnections(CATALOG, { "acme-qa-core-db-read": { tier: "staging" } }).find(x => x.sdmResource === "acme-qa-core-db-read")!;
+    expect(c.tier).toBe("staging");
+  });
+
+  test("carrier from the tenant tag, display name from the map, else capitalised", () => {
+    expect(by("globex-prod-core-db-write", { globex: { label: "Globex Corp" } })).toMatchObject({ carrier: "Globex Corp", carrierTag: "globex", legacy: false });
+    expect(by("acme-qa-core-db-read")).toMatchObject({ carrier: "Acme", carrierTag: "acme" });
+  });
+
+  test("no tenant tag: carrier inferred from the name, longest known tenant wins, row is legacy", () => {
+    expect(by("old-acme-qa")).toMatchObject({ carrierTag: "acme", legacy: true });
+    expect(by("old-acme-perf-thing")).toMatchObject({ carrierTag: "acme-perf", legacy: true });
+  });
+
+  test("no tenant tag and no known tenant in the name: carrier unset", () => {
+    expect(by("mystery-db").carrier).toBeUndefined();
+  });
+
+  test("a resource with no tags at all keeps its raw name, no tier", () => {
+    const c = by("status-only-db");
+    expect(c.label).toBe("status-only-db");
+    expect(c.tier).toBeUndefined();
+    expect(c.carrier).toBeUndefined();
+  });
+
+  test("domain, access and env carried as-is; read and reader stay distinct", () => {
+    expect(by("acme-qa-core-db-read")).toMatchObject({ env: "qa", domain: "core", access: "read" });
+    expect(by("old-acme-perf-thing").access).toBe("reader");
+  });
+
+  test("label: enrichment label is custom; otherwise built from carrier, env, domain, access", () => {
+    const enriched = buildSdmConnections(CATALOG, { "acme-qa-core-db-read": { label: "Acme main" } }).find(x => x.sdmResource === "acme-qa-core-db-read")!;
+    expect(enriched).toMatchObject({ label: "Acme main", customLabel: true });
+    expect(by("acme-qa-core-db-read")).toMatchObject({ label: "Acme qa core read", customLabel: false });
+  });
+});
+
+describe("carrierFromName", () => {
+  test("matches whole dash segments only", () => {
+    expect(carrierFromName("acmeco-qa", ["acme"])).toBeUndefined();
+    expect(carrierFromName("x-acme-qa", ["acme"])).toBe("acme");
+  });
+  test("longest match wins", () => {
+    expect(carrierFromName("acme-perf-db", ["acme", "acme-perf"])).toBe("acme-perf");
+  });
+});
+
+describe("tierFromEnv", () => {
+  test("maps dev/prod, passes others, undefined stays undefined", () => {
+    expect(tierFromEnv("dev")).toBe("development");
+    expect(tierFromEnv("prod")).toBe("production");
+    expect(tierFromEnv("training")).toBe("training");
+    expect(tierFromEnv(undefined)).toBeUndefined();
   });
 });
