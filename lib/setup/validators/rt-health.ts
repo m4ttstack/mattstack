@@ -19,7 +19,8 @@ import { isDevModeWrapperContent } from "../../dev-mode.ts";
 import { processFlavor } from "../../flavor.ts";
 import { appBundlePath, linkPath } from "../../deps/resolve.ts";
 import { interceptsOutOfDate, localBinDir, shimReport } from "../../endpoint/shim.ts";
-import { DEV_TRAY_APP_BUNDLE, legacyDirsPresent, legacyTrayAppPaths, RT_DIR_LABEL, TRAY_APP_BUNDLE } from "../../rt-paths.ts";
+import { stripJsonc } from "../../jsonc.ts";
+import { DEV_TRAY_APP_BUNDLE, legacyDirsPresent, legacyTrayAppPaths, orgDirUnder, RT_DIR_LABEL, TRAY_APP_BUNDLE } from "../../rt-paths.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { detectShellFrom, END_MARKER, MARKER, shellRcPathFor } from "../../shell-integration.ts";
 import { readHomePushRecord, type HomePushRecord } from "../../home/push-record.ts";
@@ -662,6 +663,57 @@ export function oneTeamRow(slugs: string[]): Row | null {
   });
 }
 
+/** The org clone's folder is its identity, and the marker inside must agree. A marked clone still under the old teams root has not been moved by the org.folder converge step. */
+export const ORG_FOLDER_ROW_ID = "org.folder";
+
+function markerOrg(p: Probes, dir: string): string | null {
+  const raw = p.readFile(join(dir, "mattstack", "mattstack.jsonc"));
+  if (raw === null) return null;
+  let marker: unknown;
+  try {
+    marker = JSON.parse(stripJsonc(raw));
+  } catch {
+    return null;
+  }
+  const org = marker && typeof marker === "object" ? (marker as Record<string, unknown>).org : undefined;
+  return typeof org === "string" && org !== "" ? org : null;
+}
+
+export function orgFolderRow(p: Probes, orgs: string[]): Row | null {
+  const legacyRoot = join(p.home, ".mattstack", "teams");
+  const legacy = p.readDir(legacyRoot).filter((name) => markerOrg(p, join(legacyRoot, name)) !== null);
+  if (orgs.length === 0 && legacy.length === 0) return null;
+  const mismatched = orgs.flatMap((org) => {
+    const named = markerOrg(p, orgDirUnder(p.home, org));
+    return named !== null && named !== org ? [{ org, named }] : [];
+  });
+  const base = {
+    id: ORG_FOLDER_ROW_ID,
+    kind: "tool" as const,
+    title: "Org folder",
+    why: "rt reads the org clone from ~/.mattstack/orgs/<org>, and the folder name must match the org the clone's marker names.",
+    required: false,
+    recheck: "on-activate" as const,
+  };
+  if (mismatched.length > 0) {
+    const m = mismatched[0]!;
+    return row({ ...base, status: "error", detail: `the clone at ~/.mattstack/orgs/${m.org} says it is the ${m.named} org. Move the folder to match the marker.` });
+  }
+  const inBoth = legacy.filter((name) => orgs.includes(name));
+  if (inBoth.length > 0) {
+    return row({ ...base, status: "error", detail: `${inBoth.join(", ")} sits in both ~/.mattstack/orgs and ~/.mattstack/teams. Move the old copy aside.` });
+  }
+  if (legacy.length > 0) {
+    return row({
+      ...base,
+      status: "needs-you",
+      detail: `your org has not moved yet: ${legacy.join(", ")} still sits under ~/.mattstack/teams`,
+      action: { type: "steps", label: "Show steps…", steps: ["Run: rt setup update --force"] },
+    });
+  }
+  return row({ ...base, status: "ready", detail: `${orgs.join(", ")} under ~/.mattstack/orgs` });
+}
+
 // ─── entry point ────────────────────────────────────────────────────────────
 
 function readTeamSnapshotSettings(): TeamSnapshotSettings | undefined {
@@ -684,6 +736,7 @@ export async function rtHealthRows(
   // stays behind the only condition that needs it.
   const slugs = discoverOrgs(p);
   const oneTeam = oneTeamRow(slugs);
+  const orgFolder = orgFolderRow(p, slugs);
   let teamSync: Row | null = null;
   if (slugs.length > 0) {
     const settings = readSnapshotSettings();
@@ -710,5 +763,6 @@ export async function rtHealthRows(
     await homeBackupRow(join(p.home, ".mattstack", "user"), p.exec),
     ...(teamSync ? [teamSync] : []),
     ...(oneTeam ? [oneTeam] : []),
+    ...(orgFolder ? [orgFolder] : []),
   ];
 }

@@ -8,7 +8,7 @@ import { DAEMON_CONFIG_PATH } from "../../daemon-config.ts";
 import { DEV_MODE_TAG } from "../../dev-mode.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { setSetting } from "../../settings/write.ts";
-import { homeBackupRow, isTeamSyncFirstPullPending, oneTeamRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
+import { homeBackupRow, isTeamSyncFirstPullPending, ORG_FOLDER_ROW_ID, oneTeamRow, orgFolderRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
 import { fakeProbes, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import { createRealProbes } from "../probes.ts";
@@ -844,6 +844,85 @@ describe("oneTeamRow", () => {
     const r = await pickRow(rtHealthRows(p, { ci: false }, () => undefined), "team.one-per-machine");
 
     expect(r.detail).toContain("acme, globex");
+  });
+});
+
+describe("org.folder row", () => {
+  const marker = (org: string) => JSON.stringify({ role: "org", org });
+
+  test("ready when the one org's marker matches its folder and teams/ is empty", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: { "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": marker("acme") },
+      dirs: { "/h/.mattstack/orgs": ["acme"], "/h/.mattstack/teams": [] },
+    });
+    const r = orgFolderRow(p, ["acme"]);
+    expect(r?.id).toBe(ORG_FOLDER_ROW_ID);
+    expect(r?.status).toBe("ready");
+  });
+
+  test("an unmarked folder under teams/ is ignored", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: { "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": marker("acme") },
+      dirs: { "/h/.mattstack/orgs": ["acme"], "/h/.mattstack/teams": ["stray"], "/h/.mattstack/teams/stray": [] },
+    });
+    expect(orgFolderRow(p, ["acme"])?.status).toBe("ready");
+  });
+
+  test("needs-you when a marked clone still sits under teams/", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: { "/h/.mattstack/teams/acme/mattstack/mattstack.jsonc": marker("acme") },
+      dirs: { "/h/.mattstack/orgs": [], "/h/.mattstack/teams": ["acme"] },
+    });
+    const r = orgFolderRow(p, []);
+    expect(r?.status).toBe("needs-you");
+    expect(r?.detail).toContain("has not moved yet");
+    expect(r?.action).toMatchObject({ type: "steps", steps: ["Run: rt setup update --force"] });
+  });
+
+  test("error when a marker names a different org than its folder", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: { "/h/.mattstack/orgs/widgets/mattstack/mattstack.jsonc": marker("acme") },
+      dirs: { "/h/.mattstack/orgs": ["widgets"], "/h/.mattstack/teams": [] },
+    });
+    const r = orgFolderRow(p, ["widgets"]);
+    expect(r?.status).toBe("error");
+    expect(r?.detail).toContain("acme");
+    expect(r?.detail).toContain("widgets");
+  });
+
+  test("error when the same clone sits in both roots", () => {
+    const p = fakeProbes({
+      home: "/h",
+      files: {
+        "/h/.mattstack/orgs/acme/mattstack/mattstack.jsonc": marker("acme"),
+        "/h/.mattstack/teams/acme/mattstack/mattstack.jsonc": marker("acme"),
+      },
+      dirs: { "/h/.mattstack/orgs": ["acme"], "/h/.mattstack/teams": ["acme"] },
+    });
+    expect(orgFolderRow(p, ["acme"])?.status).toBe("error");
+  });
+
+  test("null on a Mac with no org and nothing under teams/", () => {
+    const p = fakeProbes({ home: "/h", dirs: { "/h/.mattstack/orgs": [], "/h/.mattstack/teams": [] } });
+    expect(orgFolderRow(p, [])).toBeNull();
+  });
+
+  test("rtHealthRows carries the row right after the one-team row", async () => {
+    const orgs = join("/h", ".mattstack", "orgs");
+    const p = fakeProbes({
+      home: "/h",
+      dirs: { [orgs]: ["acme", "widgets"] },
+      files: {
+        [join(orgs, "acme", "mattstack", "org", "settings.org.jsonc")]: "{}",
+        [join(orgs, "widgets", "mattstack", "org", "settings.org.jsonc")]: "{}",
+      },
+    });
+    const ids = (await rtHealthRows(p, { ci: false }, () => undefined)).map((r) => r.id);
+    expect(ids.slice(-2)).toEqual(["team.one-per-machine", ORG_FOLDER_ROW_ID]);
   });
 });
 
