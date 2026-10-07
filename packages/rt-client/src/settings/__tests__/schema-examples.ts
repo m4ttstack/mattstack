@@ -160,6 +160,14 @@ export const EXAMPLES: Record<string, Example> = {
     good: [{}, { "acme-staging-db": { label: "Staging DB", tier: "staging", production: false, reasonSuggestion: "debugging", db: { database: "app", schema: "public", user: "readonly" } } }],
     bad: [{ value: { "acme-staging-db": { production: "no" } }, path: ["acme-staging-db", "production"] }],
   },
+  "sdm.resources": {
+    good: [{}, { "acme-staging-db": { label: "Staging DB", tier: "staging", production: false, reasonSuggestion: "debugging", db: { database: "app", schema: "public", user: "readonly" } } }],
+    bad: [{ value: { "acme-staging-db": { production: "no" } }, path: ["acme-staging-db", "production"] }],
+  },
+  "sdm.carriers": {
+    good: [{}, { acme: { label: "Acme Corp" } }],
+    bad: [{ value: { acme: { label: 7 } }, path: ["acme", "label"] }],
+  },
   "rt.gitStatus": {
     good: [{ sweep: true, sweepIntervalSec: 300, fetchIntervalSec: 900 }],
     bad: [{ value: { sweep: true, sweepIntervalSec: "300", fetchIntervalSec: 900 }, path: ["sweepIntervalSec"] }],

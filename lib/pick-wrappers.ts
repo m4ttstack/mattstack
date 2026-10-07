@@ -149,11 +149,12 @@ function navOptionsToRows(options: NavOption[]): PickRow[] {
       group = o.label;
       continue;
     }
-    const left: PickSegment[] = [{ text: o.label, bold: true, column: true }];
+    const left: PickSegment[] = [{ text: o.label, bold: true, column: true, ...(o.tone ? { tone: o.tone } : {}) }];
     if (o.hint) left.push({ text: `  ${o.hint}`, tone: "dim" });
-    // Filtering sees the label only; the hint is display (the old fzf nav
-    // primitive matched a single column with --nth=1).
-    rows.push({ value: o.value, match: o.label, left, ...(group ? { group } : {}) });
+    for (const cell of o.cells ?? []) left.push({ text: `  ${cell.text}`, ...(cell.tone ? { tone: cell.tone } : {}), ...(cell.bold ? { bold: true } : {}) });
+    // Filtering sees the label (or the option's own match text) only; the hint
+    // and cells are display.
+    rows.push({ value: o.value, match: o.match ?? o.label, left, ...(group ? { group } : {}) });
   }
   return rows;
 }

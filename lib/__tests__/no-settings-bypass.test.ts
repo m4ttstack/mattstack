@@ -78,12 +78,14 @@ const ALLOWLIST: Record<Rule, Record<string, Allowed>> = {
     "lib/team/org-store.ts": { count: 1, reason: "the one Probes-seamed path to the org store, shared by the active-team and role readers" },
   },
   "raw store reader": {
+    "lib/setup/migrations/sdm-resources-key.ts": { count: 2, reason: "the sdm.resources migration reads each org and team store's own value; the merged view would copy an org value into a team store" },
     "commands/team.ts": { count: 2, reason: ROSTER_READ },
     "lib/team/invite.ts": { count: 2, reason: ROSTER_READ },
     "lib/team/members.ts": { count: 2, reason: ROSTER_READ },
     "packages/rt-client/src/index.ts": { count: 1, reason: "rt-client's public entry re-exports the resolver" },
   },
   "store path helper": {
+    "lib/setup/migrations/sdm-resources-key.ts": { count: 4, reason: "the sdm.resources migration reads each org and team store's own value; the merged view would copy an org value into a team store" },
     "commands/team.ts": { count: 2, reason: "names the org store its roster read targets" },
     "lib/team/invite.ts": { count: 2, reason: "names the org store its roster read targets" },
     "lib/team/members.ts": { count: 2, reason: "names the org store its roster read targets" },

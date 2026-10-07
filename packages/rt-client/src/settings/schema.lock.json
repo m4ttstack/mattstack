@@ -1892,6 +1892,79 @@
       "additionalProperties": {}
     }
   },
+  "sdm.carriers": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "additionalProperties": {}
+      },
+      "labels": {
+        "key": "tenant tag",
+        "value": "carrier"
+      }
+    }
+  },
+  "sdm.resources": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string"
+          },
+          "production": {
+            "type": "boolean"
+          },
+          "reasonSuggestion": {
+            "type": "string"
+          },
+          "db": {
+            "type": "object",
+            "properties": {
+              "database": {
+                "type": "string"
+              },
+              "schema": {
+                "type": "string"
+              },
+              "user": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": {}
+          }
+        },
+        "additionalProperties": {}
+      },
+      "labels": {
+        "key": "resource",
+        "value": "override"
+      }
+    }
+  },
   "setup.waived": {
     "storeVersion": 1,
     "schema": {

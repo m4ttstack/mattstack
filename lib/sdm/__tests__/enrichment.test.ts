@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { loadEnrichment, stripJsonc } from "../enrichment.ts";
+import { loadCarriers, loadEnrichment, stripJsonc } from "../enrichment.ts";
 import { mkdtempSync, writeFileSync, mkdirSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join, dirname } from "path";
@@ -55,6 +55,55 @@ describe("loadEnrichment", () => {
     writeStore(sharedStorePath("acme"), { "rt.sdmEnrichment": ["nope"] });
 
     expect(loadEnrichment(p)).toEqual({ "acme-db-qa": { label: "from file" } });
+  });
+
+  test("sdm.resources wins over rt.sdmEnrichment and the file", () => {
+    const p = write(`{ "file-only": { "label": "from file" } }`);
+    writeStore(sharedStorePath("acme"), {
+      "sdm.resources": { "acme-db-qa": { label: "new key" } },
+      "rt.sdmEnrichment": { "acme-db-qa": { label: "old key" } },
+    });
+
+    expect(loadEnrichment(p)).toEqual({ "acme-db-qa": { label: "new key" } });
+  });
+
+  test("rt.sdmEnrichment still wins over the file when sdm.resources is unset", () => {
+    const p = write(`{ "file-only": { "label": "from file" } }`);
+    writeStore(sharedStorePath("acme"), { "rt.sdmEnrichment": { "acme-db-qa": { label: "old key" } } });
+
+    expect(loadEnrichment(p)).toEqual({ "acme-db-qa": { label: "old key" } });
+  });
+});
+
+describe("loadCarriers", () => {
+  let io: ReturnType<typeof captureOut>;
+
+  beforeEach(() => {
+    process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "car-home-")));
+    warnings.reset();
+    setWarningLog(() => {});
+    io = captureOut();
+    out.__test__.setHuman(() => false);
+  });
+  afterEach(() => {
+    io.restore();
+    warnings.reset();
+  });
+
+  test("unset -> {}", () => {
+    expect(loadCarriers()).toEqual({});
+  });
+
+  test("reads the team map", () => {
+    writeStore(sharedStorePath("acme"), { "sdm.carriers": { globex: { label: "Globex Corp" } } });
+
+    expect(loadCarriers()).toEqual({ globex: { label: "Globex Corp" } });
+  });
+
+  test("an invalid value -> {} (never throws)", () => {
+    writeStore(sharedStorePath("acme"), { "sdm.carriers": ["nope"] });
+
+    expect(loadCarriers()).toEqual({});
   });
 });
 

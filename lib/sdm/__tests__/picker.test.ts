@@ -52,7 +52,7 @@ describe("buildPickerOptions", () => {
     expect(options[0]!.separator).toBe(true);
     expect(options[0]!.label).toBe("Other");
     expect(options[1]!.value).toBe("demo:x");
-    expect(options[1]!.hint).toContain("example-x");
+    expect(options[1]!.cells!.map(c => c.text).join(" ")).toContain("example-x");
   });
 
   test("a stale-key recent dedups against the catalog by resource, using the current label/key", () => {
@@ -102,17 +102,111 @@ describe("buildPickerOptions", () => {
     expect(s.label.startsWith("✓ ")).toBe(true);  // standing access, not connected
     expect(d.label.startsWith("  ")).toBe(true);  // on-demand
     expect(q.tone).toBe("blue");
-    expect(s.tone).toBe("peach");
-    expect(d.tone).toBe("mint");
+    expect(s.tone).toBeUndefined();
+    expect(d.tone).toBeUndefined();
+  });
+});
+
+const tc = (res: string, o: Partial<SdmConnection>): SdmConnection => ({
+  key: `sdm:${res}`, label: res, sdmResource: res, customLabel: false, legacy: false, ...o,
+});
+
+describe("buildPickerOptions: tag layout", () => {
+  const CONNS = [
+    tc("globex-qa-core-db-read", { tier: "qa", carrier: "Globex", env: "qa", domain: "core", access: "read" }),
+    tc("acme-qa-billing-db-write", { tier: "qa", carrier: "Acme", env: "qa", domain: "billing", access: "write" }),
+    tc("acme-qa-core-db-admin", { tier: "qa", carrier: "Acme", env: "qa", domain: "core", access: "admin" }),
+    tc("old-acme-qa", { tier: "qa", carrier: "Acme", env: "qa", domain: "core", access: "admin", legacy: true }),
+    tc("acme-qa-core-db-read", { tier: "qa", carrier: "Acme", env: "qa", domain: "core", access: "read" }),
+    tc("acme-qa-core-ro", { tier: "qa", carrier: "Acme", env: "qa", domain: "core", access: "reader" }),
+    tc("orphan-qa-db", { tier: "qa", env: "qa", domain: "core", access: "read" }),
+    tc("acme-prod-core-db-read", { tier: "production", carrier: "Acme", env: "prod", domain: "core", access: "read" }),
+    tc("untagged", {}),
+  ];
+  const opts = () => buildPickerOptions(CONNS, []);
+  const seps = () => opts().filter(o => o.separator).map(o => o.label);
+  const rowsUnder = (header: string) => {
+    const all = opts();
+    const start = all.findIndex(o => o.separator && o.label === header);
+    const next = all.findIndex((o, i) => i > start && o.separator);
+    return all.slice(start + 1, next === -1 ? undefined : next);
+  };
+
+  test("headers: environment then carrier, carrier-less after, Other last", () => {
+    expect(seps()).toEqual(["QA · Acme", "QA · Globex", "QA", "Production · Acme", "Other"]);
   });
 
-  test("a row names its tier's tone, and no option carries an escape sequence", () => {
-    const options = buildPickerOptions([conn("p", "production"), conn("q", "qa"), conn("x")], []);
-    const rows = options.filter(o => !o.separator);
-    expect(rows.find(o => o.value === "demo:p")!.tone).toBe("coral");
-    expect(rows.find(o => o.value === "demo:q")!.tone).toBe("pink");
-    expect(rows.find(o => o.value === "demo:x")!.tone).toBeUndefined();
-    expect(JSON.stringify(options)).not.toContain("\\u001b");
+  test("rows: core first, then access read < reader < write < admin, legacy after its twin", () => {
+    expect(rowsUnder("QA · Acme").map(o => o.value)).toEqual([
+      "sdm:acme-qa-core-db-read", "sdm:acme-qa-core-ro", "sdm:acme-qa-core-db-admin", "sdm:old-acme-qa", "sdm:acme-qa-billing-db-write",
+    ]);
+  });
+
+  test("row cells: access tone, resource, old marker", () => {
+    const [read, , admin, legacy] = rowsUnder("QA · Acme");
+    expect(read!.label.trim()).toBe("core");
+    expect(read!.cells![0]).toMatchObject({ text: expect.stringMatching(/^read\s*$/) });
+    expect(read!.cells![0]!.tone).toBeUndefined();
+    expect(admin!.cells![0]).toMatchObject({ tone: "coral", bold: true });
+    expect(rowsUnder("QA · Acme")[4]!.cells![0]).toMatchObject({ tone: "peach", bold: true });
+    expect(legacy!.cells!.at(-1)).toEqual({ text: "old", tone: "faint" });
+    expect(read!.cells![1]).toMatchObject({ text: expect.stringContaining("acme-qa-core-db-read"), tone: "dim" });
+  });
+
+  test("access and resource columns are padded to one width across the list", () => {
+    const rows = opts().filter(o => !o.separator && o.cells);
+    expect(new Set(rows.map(r => r.cells![0]!.text.length)).size).toBe(1);
+    expect(new Set(rows.map(r => r.cells![1]!.text.length)).size).toBe(1);
+  });
+
+  test("match carries carrier, environment, domain, access and resource", () => {
+    const row = rowsUnder("QA · Acme")[0]!;
+    expect(row.match).toBe("Acme QA qa core read acme-qa-core-db-read");
+  });
+
+  test("a custom label shows in the first column", () => {
+    const o = buildPickerOptions([tc("acme-qa-core-db-read", { tier: "qa", carrier: "Acme", domain: "core", access: "read", label: "Main", customLabel: true })], []);
+    expect(o[1]!.label.trim()).toBe("Main");
+  });
+
+  test("recent rows lead with carrier and environment", () => {
+    const o = buildPickerOptions(CONNS, [{ key: "sdm:acme-qa-core-db-read", label: "x", sdmResource: "acme-qa-core-db-read", lastConnectedAt: "2026-07-01T00:00:00.000Z" }]);
+    expect(o[0]!.label).toBe("Recent");
+    expect(o[1]!.label.trim()).toBe("Acme QA  core");
+  });
+
+  test("a recent whose resource left the catalog renders from its stored label with no cells", () => {
+    const o = buildPickerOptions(CONNS, [{ key: "sdm:gone", label: "Gone DB", sdmResource: "gone", tier: "qa", lastConnectedAt: "2026-07-01T00:00:00.000Z" }]);
+    expect(o[1]!.label.trim()).toBe("Gone DB");
+    expect(o[1]!.cells).toBeUndefined();
+  });
+
+  test("a custom label is matched by its own text", () => {
+    const o = buildPickerOptions([tc("acme-qa-core-db-read", { tier: "qa", carrier: "Acme", domain: "core", access: "read", label: "Main", customLabel: true })], []);
+    expect(o[1]!.match).toContain("Main");
+  });
+
+  test("domain-less rows sort after named domains", () => {
+    const o = buildPickerOptions([
+      tc("nodomain", { tier: "qa", carrier: "Acme", access: "read" }),
+      tc("acme-qa-zeta", { tier: "qa", carrier: "Acme", domain: "zeta", access: "read" }),
+      tc("acme-qa-core", { tier: "qa", carrier: "Acme", domain: "core", access: "read" }),
+    ], []);
+    expect(o.filter(x => !x.separator).map(x => x.value)).toEqual(["sdm:acme-qa-core", "sdm:acme-qa-zeta", "sdm:nodomain"]);
+  });
+
+  test("no access cell when no connection has an access tag", () => {
+    const o = buildPickerOptions([tc("acme-qa-x", { tier: "qa", carrier: "Acme", domain: "core" })], []);
+    expect(o[1]!.cells).toHaveLength(1);
+  });
+
+  test("no label or cell carries an escape sequence", () => {
+    expect(JSON.stringify(opts())).not.toContain("\\u001b");
+  });
+
+  test("every connection appears exactly once", () => {
+    const keys = opts().filter(o => !o.separator).map(o => o.value);
+    expect(keys.sort()).toEqual(CONNS.map(c => c.key).sort());
   });
 });
 
@@ -123,7 +217,7 @@ describe("the pick request", () => {
     fake = undefined;
   });
 
-  test("an sdm row reaches rt-ui as a bold label and a dim hint, and nothing else", async () => {
+  test("an sdm row reaches rt-ui as a bold label column, then access and dim resource cells", async () => {
     fake = installFakePick([{ kind: "result", result: { action: "cancel", value: null, query: "" } }]);
     const options = buildPickerOptions(
       [{ ...conn("q", "qa"), standingAccess: true }, conn("d", "development")],
@@ -132,8 +226,8 @@ describe("the pick request", () => {
     );
     await runNavPicker({ options, message: "sdm connections", breadcrumb: ["rt", "sdm", "connections"] });
     expect(fake.calls[0]!.request.rows).toEqual([
-      { value: "demo:d", match: "  d", left: [{ text: "  d", bold: true, column: true }, { text: "  example-d  development", tone: "dim" }], group: "Development" },
-      { value: "demo:q", match: "● q", left: [{ text: "● q", bold: true, column: true }, { text: "  example-q  qa", tone: "dim" }], group: "QA" },
+      { value: "demo:d", match: "d Development example-d", left: [{ text: "  d", bold: true, column: true }, { text: "  example-d", tone: "dim" }], group: "Development" },
+      { value: "demo:q", match: "q QA example-q", left: [{ text: "● q", bold: true, column: true, tone: "blue" }, { text: "  example-q", tone: "dim" }], group: "QA" },
     ]);
   });
 });

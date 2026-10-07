@@ -152,6 +152,17 @@ describe("settings/registry", () => {
       expect(def?.default).toBeUndefined();
     });
 
+    test("sdm.resources and sdm.carriers are team maps with no default (ownership latch)", () => {
+      for (const key of ["sdm.resources", "sdm.carriers"]) {
+        const def = getDef(key);
+
+        expect(def?.scopes).toEqual(["team", "org"]);
+        expect(def?.type).toBe("object");
+        expect(def?.merge).toBe("replace");
+        expect(def?.default).toBeUndefined();
+      }
+    });
+
     test("board.reReview is a user, team and org gate defaulting enabled (a fresh key, not a latch port)", () => {
       const def = getDef("board.reReview");
 
@@ -297,7 +308,7 @@ describe("settings/registry", () => {
       expect(def?.merge).toBe("replace");
     });
 
-    test("has exactly the 28 migrated:true keys and the 49 suite keys", () => {
+    test("has exactly the 28 migrated:true keys and the 51 suite keys", () => {
       const migratedFalseKeys: string[] = [];
       const migratedTrueKeys = [
         "rt.roles", "rt.intercepts", "rt.ignoredMrs", "rt.worktrees", "rt.worktreeReadyApproval", "rt.repoIdentityOverrides", "rt.repoRoots",
@@ -391,8 +402,10 @@ describe("settings/registry", () => {
         "herd.watchdog.notifyHuman",
         "herd.watchdog.midRunTrustAccept",
         "panes.relocationAutoAccept",
+        "sdm.carriers",
+        "sdm.resources",
       ];
-      expect(suiteKeys).toHaveLength(84);
+      expect(suiteKeys).toHaveLength(86);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

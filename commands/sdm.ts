@@ -31,7 +31,7 @@ import {
 } from "../lib/sdm/core.ts";
 import { scanSdmResources, type SdmResource } from "../lib/sdm/scan.ts";
 import { buildSdmConnections, type SdmConnection } from "../lib/sdm/browse.ts";
-import { loadEnrichment, probeEnrichmentStore } from "../lib/sdm/enrichment.ts";
+import { loadCarriers, loadEnrichment, probeEnrichmentStore } from "../lib/sdm/enrichment.ts";
 import { buildConnectionsJson, buildConnectionsRefusal, buildConnectJson, buildProductionRefusal, buildStatusJson, shouldRefuseProduction } from "../lib/sdm/agent-json.ts";
 import { loadSdmState, recordRecent, type RecentEntry } from "../lib/sdm/state.ts";
 import { runGuidedConnect, type GuidedResult, type GuidedTarget } from "../lib/sdm/flow.ts";
@@ -425,13 +425,13 @@ async function pickAndConnect(): Promise<void> {
     out.print(
       out.line("skipped", "No StrongDM connections found"),
       out.paragraph("rt reads your StrongDM catalog directly, so there is nothing to set up. Check that you are logged in and can reach at least one database."),
-      out.callout("tip", ["Nicer names for your connections: ", out.cmd("rt sdm enrichment init")]),
+      out.callout("tip", "Nicer names for your connections: set sdm.resources in the console settings, StrongDM group."),
       out.callout("note", ["The StrongDM CLI comes from ", INSTALL_LINK]),
     );
     return;
   }
 
-  const connections = buildSdmConnections(resources, loadEnrichment());
+  const connections = buildSdmConnections(resources, loadEnrichment(), loadCarriers());
   // Live connection state for the "● connected" badge: a fresh sdm status
   // snapshot (not the cached scan), so the picker reflects active tunnels now.
   const snapshot = await getSdmSnapshot();
@@ -493,7 +493,7 @@ export async function connectCmd(rest: string[], _ctx?: CommandContext): Promise
     return;
   }
   const { resources } = await getScan();
-  const connections = buildSdmConnections(resources, loadEnrichment());
+  const connections = buildSdmConnections(resources, loadEnrichment(), loadCarriers());
   const target =
     connections.find(c => c.key === key) ??
     loadSdmState().recents.find(r => r.key === key);
@@ -530,7 +530,7 @@ export async function connectionsCmd(rest: string[]): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const connections = buildSdmConnections(resources, loadEnrichment());
+  const connections = buildSdmConnections(resources, loadEnrichment(), loadCarriers());
   if (json) {
     out.json(buildConnectionsJson(connections, snapshot.resources), 2);
     return;
@@ -631,7 +631,7 @@ export function enrichmentSkeleton(names: string[]): string {
  * `rt sdm enrichment`: show how much of the scanned catalog is enriched.
  * `rt sdm enrichment init`: scaffold ~/.mattstack/rt/sdm/enrichment.jsonc with one
  * entry per scanned resource, refusing to clobber an existing file, or once
- * the team store owns `rt.sdmEnrichment` (the ownership latch), refusing to
+ * the team store owns `sdm.resources` (the ownership latch), refusing to
  * scaffold the file at all, since the store is authoritative from here on.
  */
 export async function enrichmentCmd(rest: string[]): Promise<void> {
