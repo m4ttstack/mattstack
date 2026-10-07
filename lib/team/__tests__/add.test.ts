@@ -23,7 +23,7 @@ function world(username = "dev1") {
       [`${ROOT}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
       [`${ROOT}/mattstack/org/settings.org.jsonc`]: JSON.stringify({ "mattstack.org": roles }),
       [`${ROOT}/mattstack/teams/widgets/settings.team.jsonc`]: "{}",
-      [`${ROOT}/.claude-plugin/marketplace.json`]: JSON.stringify({ name: "acme", owner: { name: "Acme" }, plugins: [{ name: "widgets", source: "./mattstack/teams/widgets/packs/widgets" }] }, null, 2),
+      [`${ROOT}/.claude-plugin/marketplace.json`]: JSON.stringify({ name: "acme", owner: { name: "Acme" }, plugins: [{ name: "widgets", source: "./mattstack/teams/widgets/plugin" }] }, null, 2),
       [teamLocalPath(HOME, "acme")]: JSON.stringify({ forgeUsername: username }),
     },
   });
@@ -37,14 +37,14 @@ describe("addTeam", () => {
     const { p, seams, writes } = world();
     const out = addTeam(p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams);
     const dir = `${ROOT}/mattstack/teams/gadgets`;
-    expect(out.wrote).toEqual([`${dir}/settings.team.jsonc`, `${dir}/packs/gadgets/.claude-plugin/plugin.json`, `${dir}/packs/gadgets/PACK.md`, `${dir}/packs/gadgets/pack/surface.jsonc`, `${dir}/packs/gadgets/pack/stubs.jsonc`, `${dir}/packs/gadgets/pack/skills.jsonc`, `${ROOT}/.claude-plugin/marketplace.json`]);
+    expect(out.wrote).toEqual([`${dir}/settings.team.jsonc`, `${dir}/plugin/.claude-plugin/plugin.json`, `${dir}/plugin/PACK.md`, `${dir}/plugin/pack/surface.jsonc`, `${dir}/plugin/pack/stubs.jsonc`, `${dir}/plugin/pack/skills.jsonc`, `${ROOT}/.claude-plugin/marketplace.json`]);
     expect(out).toMatchObject({ org: "acme", team: "gadgets", dir, owners: ["dev2"] });
     expect(JSON.parse(p.readFile(`${dir}/settings.team.jsonc`)!.split("\n").filter((l) => !l.startsWith("//")).join("\n"))).toEqual({ "board.title": "gadgets" });
-    expect(JSON.parse(p.readFile(`${dir}/packs/gadgets/.claude-plugin/plugin.json`)!)).toMatchObject({ name: "gadgets", version: "0.1.0" });
-    expect(p.exists(`${dir}/packs/gadgets/pack/skills.jsonc`)).toBe(true);
-    expect(p.exists(`${dir}/packs/gadgets/pack/stubs.jsonc`)).toBe(true);
+    expect(JSON.parse(p.readFile(`${dir}/plugin/.claude-plugin/plugin.json`)!)).toMatchObject({ name: "gadgets", version: "0.1.0" });
+    expect(p.exists(`${dir}/plugin/pack/skills.jsonc`)).toBe(true);
+    expect(p.exists(`${dir}/plugin/pack/stubs.jsonc`)).toBe(true);
     const market = JSON.parse(p.readFile(`${ROOT}/.claude-plugin/marketplace.json`)!) as { plugins: { name: string; source: string }[] };
-    expect(market.plugins.map((x) => [x.name, x.source])).toEqual([["widgets", "./mattstack/teams/widgets/packs/widgets"], ["gadgets", "./mattstack/teams/gadgets/packs/gadgets"]]);
+    expect(market.plugins.map((x) => [x.name, x.source])).toEqual([["widgets", "./mattstack/teams/widgets/plugin"], ["gadgets", "./mattstack/teams/gadgets/plugin"]]);
     expect(writes).toEqual([["mattstack.org", { admins: ["dev1"], teams: { widgets: { owners: ["dev1"] }, gadgets: { owners: ["dev2"] } } }]]);
   });
 
@@ -110,7 +110,7 @@ describe("addTeam write boundaries", () => {
       if (path.endsWith("settings.team.jsonc")) writeFile(`${ROOT}/mattstack/org/settings.org.jsonc`, JSON.stringify({ "mattstack.org": { admins: ["dev2"], teams: {} } }));
     };
     expect(() => addTeam(p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams)).toThrow();
-    expect(p.exists(`${ROOT}/mattstack/teams/gadgets/packs/gadgets/pack/skills.jsonc`)).toBe(false);
+    expect(p.exists(`${ROOT}/mattstack/teams/gadgets/plugin/pack/skills.jsonc`)).toBe(false);
     expect(writes).toEqual([]);
   });
 });
@@ -134,7 +134,7 @@ describe("addTeam marketplace validation", () => {
   });
 });
 
-for (const source of ["./old-pack", "./mattstack/teams/widgets/packs/widgets"]) {
+for (const source of ["./old-pack", "./mattstack/teams/widgets/plugin"]) {
   test(`conflicting gadgets source ${source} preserves all files before adding a team`, () => {
     const { p, seams, writes } = world();
     const path = `${ROOT}/.claude-plugin/marketplace.json`;
@@ -152,9 +152,9 @@ for (const source of ["./old-pack", "./mattstack/teams/widgets/packs/widgets"]) 
 test("a matching gadgets marketplace entry is reused once", () => {
   const { p, seams } = world();
   const path = `${ROOT}/.claude-plugin/marketplace.json`;
-  p.writeFile(path, JSON.stringify({ name: "acme", plugins: [{ name: "gadgets", source: "./mattstack/teams/gadgets/packs/gadgets" }] }));
+  p.writeFile(path, JSON.stringify({ name: "acme", plugins: [{ name: "gadgets", source: "./mattstack/teams/gadgets/plugin" }] }));
   addTeam(p, { org: "acme", team: "gadgets", owners: ["dev2"] }, seams);
-  expect(JSON.parse(p.readFile(path)!).plugins).toEqual([{ name: "gadgets", source: "./mattstack/teams/gadgets/packs/gadgets" }]);
+  expect(JSON.parse(p.readFile(path)!).plugins).toEqual([{ name: "gadgets", source: "./mattstack/teams/gadgets/plugin" }]);
 });
 
 test("marketplace collision preserves real git index and worktree bytes", () => {
@@ -174,7 +174,7 @@ test("marketplace collision preserves real git index and worktree bytes", () => 
     git("add", "."); git("commit", "-q", "-m", "seed");
     writeFileSync(market, JSON.stringify({ name: "acme", plugins: [{ name: "gadgets", source: "./old-pack" }] }));
     git("add", "--", ".claude-plugin/marketplace.json");
-    const working = JSON.stringify({ name: "acme", plugins: [{ name: "gadgets", source: "./mattstack/teams/widgets/packs/widgets" }] });
+    const working = JSON.stringify({ name: "acme", plugins: [{ name: "gadgets", source: "./mattstack/teams/widgets/plugin" }] });
     writeFileSync(market, working);
     const index = readFileSync(join(root, ".git/index"));
     const roles = p.readFile(join(root, "mattstack/org/settings.org.jsonc"));
