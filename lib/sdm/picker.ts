@@ -54,6 +54,7 @@ function accessRank(access: string | undefined): number {
 
 function compareRows(a: SdmConnection, b: SdmConnection): number {
   return Number(a.domain !== "core") - Number(b.domain !== "core")
+    || Number(a.domain === undefined) - Number(b.domain === undefined)
     || (a.domain ?? "").localeCompare(b.domain ?? "")
     || accessRank(a.access) - accessRank(b.access)
     || Number(a.legacy ?? false) - Number(b.legacy ?? false)
@@ -65,7 +66,7 @@ function firstColumn(c: SdmConnection): string {
 }
 
 function matchText(c: SdmConnection): string {
-  return [c.carrier, c.tier ? tierLabel(c.tier) : undefined, c.env, c.domain, c.access, c.sdmResource]
+  return [c.customLabel || !c.domain ? c.label : undefined, c.carrier, c.tier ? tierLabel(c.tier) : undefined, c.env, c.domain, c.access, c.sdmResource]
     .filter(Boolean).join(" ");
 }
 
@@ -83,10 +84,9 @@ interface Widths { access: number; resource: number }
 function cellsFor(c: SdmConnection, w: Widths): NonNullable<NavOption["cells"]> {
   const access = c.access ?? "";
   const tone = ACCESS_TONE[access];
-  const cells: NonNullable<NavOption["cells"]> = [
-    { text: access.padEnd(w.access), ...(tone ? { tone, bold: true } : {}) },
-    { text: c.sdmResource.padEnd(w.resource), tone: "dim" },
-  ];
+  const cells: NonNullable<NavOption["cells"]> = [];
+  if (w.access > 0) cells.push({ text: access.padEnd(w.access), ...(tone ? { tone, bold: true } : {}) });
+  cells.push({ text: c.sdmResource.padEnd(w.resource), tone: "dim" });
   if (c.legacy && c.carrier) cells.push({ text: "old", tone: "faint" });
   return cells;
 }

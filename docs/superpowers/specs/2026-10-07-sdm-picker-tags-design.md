@@ -137,7 +137,7 @@ caller in `commands/sdm.ts` reads it with `getSetting("sdm.carriers")`.
 
 `navOptionsToRows` passes `tone` to the label segment, appends `cells`, and
 uses `match`. The sdm picker sets `match` to carrier, environment, domain,
-access and resource name, so typing `acme qa write` finds a row even though
+access and resource name, and the row's label when it shows one, so typing `acme qa write` finds a row even though
 the header carries the carrier. Other pickers set neither field and render
 as before.
 

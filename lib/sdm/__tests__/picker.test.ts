@@ -181,6 +181,29 @@ describe("buildPickerOptions: tag layout", () => {
     expect(o[1]!.cells).toBeUndefined();
   });
 
+  test("a custom label is matched by its own text", () => {
+    const o = buildPickerOptions([tc("acme-qa-core-db-read", { tier: "qa", carrier: "Acme", domain: "core", access: "read", label: "Main", customLabel: true })], []);
+    expect(o[1]!.match).toContain("Main");
+  });
+
+  test("domain-less rows sort after named domains", () => {
+    const o = buildPickerOptions([
+      tc("nodomain", { tier: "qa", carrier: "Acme", access: "read" }),
+      tc("acme-qa-zeta", { tier: "qa", carrier: "Acme", domain: "zeta", access: "read" }),
+      tc("acme-qa-core", { tier: "qa", carrier: "Acme", domain: "core", access: "read" }),
+    ], []);
+    expect(o.filter(x => !x.separator).map(x => x.value)).toEqual(["sdm:acme-qa-core", "sdm:acme-qa-zeta", "sdm:nodomain"]);
+  });
+
+  test("no access cell when no connection has an access tag", () => {
+    const o = buildPickerOptions([tc("acme-qa-x", { tier: "qa", carrier: "Acme", domain: "core" })], []);
+    expect(o[1]!.cells).toHaveLength(1);
+  });
+
+  test("no label or cell carries an escape sequence", () => {
+    expect(JSON.stringify(opts())).not.toContain("\\u001b");
+  });
+
   test("every connection appears exactly once", () => {
     const keys = opts().filter(o => !o.separator).map(o => o.value);
     expect(keys.sort()).toEqual(CONNS.map(c => c.key).sort());
@@ -203,8 +226,8 @@ describe("the pick request", () => {
     );
     await runNavPicker({ options, message: "sdm connections", breadcrumb: ["rt", "sdm", "connections"] });
     expect(fake.calls[0]!.request.rows).toEqual([
-      { value: "demo:d", match: "Development example-d", left: [{ text: "  d", bold: true, column: true }, { text: "  ", }, { text: "  example-d", tone: "dim" }], group: "Development" },
-      { value: "demo:q", match: "QA example-q", left: [{ text: "● q", bold: true, column: true, tone: "blue" }, { text: "  " }, { text: "  example-q", tone: "dim" }], group: "QA" },
+      { value: "demo:d", match: "d Development example-d", left: [{ text: "  d", bold: true, column: true }, { text: "  example-d", tone: "dim" }], group: "Development" },
+      { value: "demo:q", match: "q QA example-q", left: [{ text: "● q", bold: true, column: true, tone: "blue" }, { text: "  example-q", tone: "dim" }], group: "QA" },
     ]);
   });
 });
