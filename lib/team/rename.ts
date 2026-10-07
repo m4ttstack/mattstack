@@ -5,14 +5,13 @@ import { orgDirUnder } from "../rt-paths.ts";
 import { validateSlug } from "../secrets/store.ts";
 import type { Probes } from "../setup/probes.ts";
 import { commitFiles } from "./create.ts";
-import { gitWithToken } from "./git-credential.ts";
 import { inviteRecordsPath } from "./invite-records.ts";
 import { teamRemote } from "./members.ts";
 import { orgBranch, shellQuote } from "./org-branch.ts";
 import { markerOrg } from "./org-marker.ts";
 import { GIT_OBJECT_ID } from "./publish-history.ts";
 import { publishTeam } from "./publish.ts";
-import { withoutUrls } from "./redact.ts";
+import { remoteHead, remoteMovedPast } from "./remote-head.ts";
 import { assertMayWrite, roleFor, rolesFor } from "./roles.ts";
 import { teamLocalPath } from "./team-local.ts";
 
@@ -40,7 +39,6 @@ interface Prepared {
   remote: string | null;
   token: string | null;
   markerText: string;
-  remoteSha: string | null;
 }
 
 function readMarker(p: Probes, dir: string): { text: string; org: string } {
@@ -54,24 +52,10 @@ function readMarker(p: Probes, dir: string): { text: string; org: string } {
   return { text, org };
 }
 
-type RemoteLookup = { ok: true; sha: string | null } | { ok: false; log: string };
-
-async function remoteSha(p: Probes, dir: string, branch: string, remote: string | null, token: string | null): Promise<RemoteLookup> {
-  const lookup = gitWithToken(["ls-remote", "--refs", "origin", `refs/heads/${branch}`], token, { GIT_TERMINAL_PROMPT: "0" }, { remote });
-  const res = await p.exec(lookup.argv, { cwd: dir, env: lookup.env });
-  if (res.code !== 0) return { ok: false, log: withoutUrls(`${res.stdout}\n${res.stderr}`.trim()) };
-  return { ok: true, sha: res.stdout.trim().split("\n").filter(Boolean)[0]?.split("\t")[0] ?? null };
-}
-
-/** The remote's sha for the branch, null when the remote has no such branch yet. */
-async function assertNotBehind(p: Probes, dir: string, branch: string, from: string, to: string, remote: string | null, token: string | null): Promise<string | null> {
-  const found = await remoteSha(p, dir, branch, remote, token);
+async function assertNotBehind(p: Probes, dir: string, branch: string, from: string, to: string, remote: string | null, token: string | null): Promise<void> {
+  const found = await remoteHead(p, dir, "origin", `refs/heads/${branch}`, token, remote);
   if (!found.ok) throw new UserActionableError("org-unreachable", "rt could not reach the org repo", {}, { log: found.log });
-  const sha = found.sha;
-  if (sha === null) return null;
-  const known = GIT_OBJECT_ID.test(sha) && (await p.exec(["git", "cat-file", "-e", `${sha}^{commit}`], { cwd: dir })).code === 0;
-  if (known && (await p.exec(["git", "merge-base", "--is-ancestor", sha, "HEAD"], { cwd: dir })).code === 0) return sha;
-  throw behindError(from, to);
+  if (await remoteMovedPast(p, dir, found, "HEAD")) throw behindError(from, to);
 }
 
 function behindError(from: string, to: string, log?: string): UserActionableError {
@@ -134,8 +118,8 @@ async function prepare(p: Probes, from: string, to: string, seams: RenameSeams):
   }
   const remote = teamRemote(p, from);
   const token = remote ? await seams.forgeToken(p, remote) : null;
-  const sha = await assertNotBehind(p, dir, branch, from, to, remote, token);
-  return { dir, branch, remote, token, markerText: marker.text, remoteSha: sha };
+  await assertNotBehind(p, dir, branch, from, to, remote, token);
+  return { dir, branch, remote, token, markerText: marker.text };
 }
 
 /** Resets only when HEAD is still the rename commit on top of `before`; otherwise points at a revert, which never drops a commit made meanwhile. */
@@ -149,14 +133,6 @@ async function undoRenameCommit(p: Probes, dir: string, before: string, renameSh
     next: safe ? `git -C ${shellQuote(dir)} reset --keep ${before}` : `git -C ${shellQuote(dir)} revert --no-edit ${renameSha}`,
     log: cause instanceof Error ? cause.message : String(cause),
   });
-}
-
-/** A rejected push is "behind" only when the remote branch really moved; otherwise its rules refused it. */
-async function whyRefused(p: Probes, prepared: Prepared, from: string, to: string, err: UserActionableError): Promise<UserActionableError> {
-  const log = err.log ?? err.message;
-  const now = await remoteSha(p, prepared.dir, prepared.branch, prepared.remote, prepared.token);
-  if (now.ok && now.sha !== prepared.remoteSha) return behindError(from, to, log);
-  return pushRefusedError(log);
 }
 
 async function convergeSafely(p: Probes, seams: RenameSeams): Promise<ConvergeOutcome> {
@@ -199,7 +175,8 @@ export async function renameOrg(p: Probes, from: string, to: string, seams: Rena
     await publishTeam(p, from, null, { token: prepared.token, tokenRemote: prepared.remote });
   } catch (err) {
     await undoRenameCommit(p, dir, before, renameSha, err);
-    if (err instanceof UserActionableError && err.code === "org-moved") throw await whyRefused(p, prepared, from, to, err);
+    if (err instanceof UserActionableError && err.code === "org-moved") throw behindError(from, to, err.log ?? err.message);
+    if (err instanceof UserActionableError && err.code === "push-failed") throw pushRefusedError(err.log ?? err.message);
     throw err;
   }
   const outcome = await convergeSafely(p, seams);

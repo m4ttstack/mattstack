@@ -42,10 +42,21 @@ export function mattstackMarketplaceSource(env: Record<string, string | undefine
  * The same source as fast-browser's `--source` wants it: Claude Code records a
  * git marketplace with its .git suffix, and fast-browser compares that string
  * exactly, refusing a mattstack marketplace registered from any other source.
+ * A Mac whose mattstack marketplace is a local folder (the dev marketplace)
+ * hands over that folder, which fast-browser compares by its real path.
  */
-export function fastBrowserMarketplaceSource(env: Record<string, string | undefined>): string {
-  const registered = mattstackMarketplaceSource(env);
-  return registered.endsWith(".git") ? registered : `${registered}.git`;
+export function fastBrowserMarketplaceSource(env: Record<string, string | undefined>, registered: RegisteredMarketplace | null = null): string {
+  if (registered?.kind === "directory" && registered.source) return registered.source;
+  const source = mattstackMarketplaceSource(env);
+  return source.endsWith(".git") ? source : `${source}.git`;
+}
+
+/** The mattstack marketplace as Claude Code has it registered; null when there is no claude, no such marketplace, or no listing to read. */
+export async function registeredMattstackMarketplace(p: Probes): Promise<RegisteredMarketplace | null> {
+  const claude = resolveTool(p, "claude");
+  if (!claude.exec) return null;
+  const listed = await listMarketplaces((args) => p.exec([...claude.exec!, ...args], { timeoutMs: PACK_EXEC_TIMEOUT_MS }));
+  return listed?.find((m) => m.name === "mattstack") ?? null;
 }
 export const OFFICIAL_MARKETPLACE_SOURCE = "anthropics/claude-plugins-official";
 const RETRY_REMEDY = "Open Claude Code once so it finishes first-run, then Retry.";

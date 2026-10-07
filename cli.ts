@@ -103,6 +103,8 @@ if (args[0] !== "--daemon") {
   // The daemon never sets this: its warnings stay on its own log surface.
   const { setWarningLog } = await import("./lib/ui/warn.ts");
   setWarningLog((module, message, context) => logCliEvent("warn", module, message, context), { quiet: isInterceptRun });
+  const { setSettingsLogSink } = await import("./lib/settings/resolve.ts");
+  setSettingsLogSink((message) => logCliEvent("warn", "settings", message, {}));
 }
 await reportMigrations();
 

@@ -29,7 +29,10 @@ import {
   listSettings,
   listUnregisteredSettings,
   repoSectionsFor,
+  setSettingsLogSink,
   setSettingsWarnSink,
+  teamAliasesIn,
+  teamAliasesSeen,
   type ExplainRow,
   type Provenance,
 } from "../resolve.ts";
@@ -693,13 +696,47 @@ describe("settings/resolve", () => {
       }
     });
 
-    test("the alias warns once per name even with no sink bound", () => {
+    test("with no warn sink bound the alias goes to the log sink once per name, never to stderr", () => {
+      setSettingsWarnSink(null);
+      const logged: string[] = [];
+      setSettingsLogSink((m) => logged.push(m));
+      try {
+        expandVariables("${team:acme}/packs", ctx());
+        expandVariables("bun ${team:acme}/hook.ts", ctx());
+        expandVariables("${team:old-name}/packs", ctx());
+        const deprecations = warnSpy.mock.calls.map(([msg]) => String(msg)).filter((msg) => msg.includes("is deprecated; use ${org}"));
+        expect(deprecations).toEqual([]);
+        expect(logged).toEqual(["rt: ${team:acme} is deprecated; use ${org}", "rt: ${team:old-name} is deprecated; use ${org}"]);
+        expect(teamAliasesSeen()).toEqual(["acme", "old-name"]);
+      } finally {
+        setSettingsLogSink(null);
+      }
+    });
+
+    test("with no sink bound at all the alias prints nothing", () => {
       setSettingsWarnSink(null);
       expandVariables("${team:acme}/packs", ctx());
-      expandVariables("bun ${team:acme}/hook.ts", ctx());
-      expandVariables("${team:old-name}/packs", ctx());
-      const deprecations = warnSpy.mock.calls.map(([msg]) => String(msg)).filter((msg) => msg.includes("is deprecated; use ${org}"));
-      expect(deprecations).toEqual(["rt: ${team:acme} is deprecated; use ${org}", "rt: ${team:old-name} is deprecated; use ${org}"]);
+      expect(warnSpy.mock.calls.some(([msg]) => String(msg).includes("is deprecated"))).toBe(false);
+    });
+
+    test("a bound log sink leaves every other settings warning on stderr", () => {
+      setSettingsWarnSink(null);
+      const logged: string[] = [];
+      setSettingsLogSink((m) => logged.push(m));
+      try {
+        writeOrg({ "claude.plugins": ["shared@acme"] });
+        writeUser({ "claude.plugins": "mine@elsewhere" });
+        getSetting<string[]>("claude.plugins");
+        expect(warnSpy.mock.calls.some(([msg]) => String(msg).includes('ignoring "claude.plugins" from the user scope'))).toBe(true);
+        expect(logged).toEqual([]);
+      } finally {
+        setSettingsLogSink(null);
+      }
+    });
+
+    test("teamAliasesIn names each alias a raw value spells", () => {
+      expect(teamAliasesIn({ a: "${team:acme}/x", b: ["${org}/y", "bun ${team:old-name}/h.ts ${team:acme}"], c: 3 })).toEqual(["acme", "old-name"]);
+      expect(teamAliasesIn("${org}/x")).toEqual([]);
     });
 
     test("${org} and the alias throw on a Mac with no org, never pass through", () => {

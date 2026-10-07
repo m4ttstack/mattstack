@@ -22,7 +22,7 @@ import { BREW_FORMULAE, VENDOR_INSTALLERS, claudeConfigDirs, installTool, setupT
 import { bundledToolExec } from "../lib/deps/resolve.ts";
 import { DEFAULT_EXPOSED } from "../lib/deps/links.ts";
 import { listOrgs } from "../lib/settings/stores.ts";
-import { fastBrowserMarketplaceSource } from "../lib/setup/steps/plugins.ts";
+import { fastBrowserMarketplaceSource, registeredMattstackMarketplace } from "../lib/setup/steps/plugins.ts";
 
 function tool(args: string[]): string | undefined {
   return args.find((a) => !a.startsWith("--"));
@@ -111,7 +111,8 @@ export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: P
 
   let result: Awaited<ReturnType<typeof setupTool>>;
   try {
-    result = await setupTool(p, t, { configDirs, marketplaceSource: fastBrowserMarketplaceSource(p.env) });
+    const registered = t === "fast-browser" ? await registeredMattstackMarketplace(p) : null;
+    result = await setupTool(p, t, { configDirs, marketplaceSource: fastBrowserMarketplaceSource(p.env, registered) });
   } catch (err) {
     if (err instanceof UserActionableError) exitUserError(err, json);
     throw err;

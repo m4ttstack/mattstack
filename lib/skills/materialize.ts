@@ -3,6 +3,7 @@ import { TEAM_NAME_RE } from "../settings/stores.ts";
 import { isPackDir, parseRemote, readZonesFrom, zoneTeamConfigReads, type InitFs, type RepoRef, type ZoneInfo } from "./init.ts";
 import { FragmentError, mergeLayers, parseFragment, readManifestZone, renderManifest, type Fragment, type Layer } from "./manifest-merge.ts";
 import { legacyManifestPath, packManifestPath } from "./manifest-paths.ts";
+import { boardOnlyBaseFills, mergedBindings, retargetBoardFills } from "./board-fills.ts";
 
 export type MaterializeFs = InitFs & { rename(from: string, to: string): void };
 
@@ -63,6 +64,18 @@ function baseLayer(deps: MaterializeDeps, zone: ZoneInfo, pack: string, name: st
   return { label: `base:${name}`, fragment };
 }
 
+/** The plugin name a Mac installs the pack under, which is how the board finds a fill the pack carries; null without one. */
+function packPluginName(fs: MaterializeFs, pluginJson: string): string | null {
+  const text = fs.readFile(pluginJson);
+  if (text === null) return null;
+  try {
+    const name = (JSON.parse(text) as { name?: unknown }).name;
+    return typeof name === "string" && name !== "" ? name : null;
+  } catch {
+    return null;
+  }
+}
+
 function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, own: Fragment, repo: string, slug: string, defaults: Layer | null, override: Layer | null): PackOutcome {
   try {
     const layers: Layer[] = [];
@@ -75,8 +88,21 @@ function materializePack(deps: MaterializeDeps, zone: ZoneInfo, pack: string, ow
     layers.push({ label: "pack", fragment: own });
     if (override) layers.push(override);
 
+    const merged = mergeLayers(layers);
+    const base = layers.find((l) => l.label.startsWith("base:"));
+    if (base) {
+      const baseName = base.label.slice("base:".length);
+      const fills = boardOnlyBaseFills(baseName, mergedBindings(base.fragment, own));
+      if (fills.size > 0) {
+        const pluginJson = join(zone.dir, "packs", pack, ".claude-plugin", "plugin.json");
+        const plugin = packPluginName(deps.fs, pluginJson);
+        if (!plugin) return { pack, zone: zone.slug, ok: false, detail: `${pack} carries board fills from ${baseName}, but ${pluginJson} names no plugin for the board to find them under` };
+        retargetBoardFills(merged.bindings, baseName, fills, plugin);
+      }
+    }
+
     const path = packManifestPath(deps.mattstackRoot, slug, pack);
-    const text = renderManifest(mergeLayers(layers), { repo, pack, zone: zone.slug });
+    const text = renderManifest(merged, { repo, pack, zone: zone.slug });
     deps.fs.mkdirp(dirname(path));
     const tmp = `${path}.tmp`;
     deps.fs.writeFile(tmp, text);

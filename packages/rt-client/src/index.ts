@@ -167,7 +167,7 @@ export type { PaneServer, PaneRef } from "./pane-ref.ts";
 
 // ─── Settings (RT-50) ────────────────────────────────────────────────────────
 
-export { getSetting, getOrgSetting, listSettings, explainSetting, expandVariables, isSharedScope, SCOPE_ORDER, setSettingsWarnSink, mergedValueWith, currentMergedValue, listStoreRepoIdentities, listUnregisteredSettings, repoSectionsFor } from "./settings/resolve.ts";
+export { getSetting, getOrgSetting, listSettings, explainSetting, expandVariables, isSharedScope, SCOPE_ORDER, setSettingsWarnSink, setSettingsLogSink, teamAliasesSeen, teamAliasesIn, mergedValueWith, currentMergedValue, listStoreRepoIdentities, listUnregisteredSettings, repoSectionsFor } from "./settings/resolve.ts";
 export type {
   Scope,
   Provenance,

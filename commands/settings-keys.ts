@@ -35,6 +35,8 @@ import {
   explainSetting,
   getSetting,
   listSettings,
+  teamAliasesIn,
+  teamAliasesSeen,
   type ExplainRow,
   type ListedSetting,
   type Provenance,
@@ -86,6 +88,13 @@ function failWithError(err: unknown): never {
   const message = err instanceof Error ? err.message : String(err);
   out.fail({ title: message.replace(/^rt: /, "") });
   process.exit(1);
+}
+
+/** The deprecated alias is logged, never printed, by every other command; a person reading settings is told here. */
+function noteTeamAliases(names: string[]): void {
+  if (names.length === 0) return;
+  const spelled = names.map((n) => `\${team:${n}}`).join(", ");
+  out.note(out.line("warn", `Your settings still use ${spelled}`, "write ${org} in its place"));
 }
 
 function uniqueNotices(notices: SettingsNotice[]): SettingsNotice[] {
@@ -238,6 +247,7 @@ export async function settingsGet(args: string[]): Promise<void> {
   const note = migratedNote(def);
   out.print(out.kv(key, undefined, describeProvenance(resolved.provenance)), ...(note ? [out.callout("note", note)] : []));
   if (resolved.value !== undefined) out.payload(`${formatValuePretty(resolved.value)}\n`);
+  noteTeamAliases(teamAliasesIn(getSetting(key, { repoIdentity: repoCtx.repoIdentity, expand: false }).value));
 }
 
 // ─── set / unset ────────────────────────────────────────────────────────────
@@ -460,6 +470,7 @@ export async function settingsList(args: string[]): Promise<void> {
   }
 
   out.print(out.table(settings.map(renderListRow)));
+  noteTeamAliases(teamAliasesSeen());
 }
 
 /** One table row: the key, then the value with any caveats beside it. */
@@ -512,6 +523,7 @@ export async function settingsExplain(args: string[]): Promise<void> {
   }
 
   out.print(out.tree(out.key(key), rows.flatMap((row) => renderExplainRow(row, currentName))));
+  noteTeamAliases(teamAliasesIn(rows.map((row) => row.value)));
 }
 
 /**

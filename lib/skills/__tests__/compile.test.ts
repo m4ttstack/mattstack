@@ -656,6 +656,36 @@ describe("compileSkill with placeholders", () => {
     expect(r.warnings).toEqual(["body references ../../attachments/self-review/SKILL.md which is not an emitted file"]);
   });
 
+  test("a relative read onto a base attachment this compile plans to write is silent on a clean tree", () => {
+    const packRoot = tempPackRoot();
+    const r = compileSkill(verb, { ...slotless, body: "read `../../attachments/self-review/SKILL.md`" }, {}, new Set(), {
+      packRoot,
+      compiledDir: join(packRoot, "skills", "work"),
+      plannedAttachments: new Map([["self-review", new Set(["SKILL.md", "compiled.json"])]]),
+    });
+    expect(r.warnings).toEqual([]);
+  });
+
+  test("a planned base attachment satisfies only the files it plans", () => {
+    const packRoot = tempPackRoot();
+    const r = compileSkill(verb, { ...slotless, body: "read `../../attachments/self-review/missing.md`" }, {}, new Set(), {
+      packRoot,
+      compiledDir: join(packRoot, "skills", "work"),
+      plannedAttachments: new Map([["self-review", new Set(["SKILL.md"])]]),
+    });
+    expect(r.warnings).toEqual(["body references ../../attachments/self-review/missing.md which is not an emitted file"]);
+  });
+
+  test("a relative read onto a grouped planned base attachment is silent", () => {
+    const packRoot = tempPackRoot();
+    const r = compileSkill(verb, { ...slotless, body: "read `../../attachments/review/self/SKILL.md`" }, {}, new Set(), {
+      packRoot,
+      compiledDir: join(packRoot, "skills", "work"),
+      plannedAttachments: new Map([["review/self", new Set(["SKILL.md"])]]),
+    });
+    expect(r.warnings).toEqual([]);
+  });
+
   test("a relative read onto a file the pack already carries is silent", () => {
     const packRoot = tempPackRoot();
     mkdirSync(join(packRoot, "attachments", "self-review"), { recursive: true });
