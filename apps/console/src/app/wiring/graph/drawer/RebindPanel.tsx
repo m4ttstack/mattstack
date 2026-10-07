@@ -164,7 +164,9 @@ export function RebindPanel({
               {choices.current ? suffixOf(choices.current) : 'nothing bound'}
             </Text>
             <Text fz={10} lh="normal" c={MUTED} data-parity="tag">
-              now
+              {choices.currentOwner?.kind === 'base'
+                ? `${choices.currentOwner.name} · org base · now`
+                : 'now'}
             </Text>
           </Paper>
           <Icon name="arrowRight" size={16} color={MUTED} data-parity="arrow" />
@@ -253,7 +255,7 @@ export function RebindPanel({
                       {option.name}
                     </Text>
                     <Text span fz={11} lh="normal" c={MUTED} data-parity="s">
-                      {option.plugin} · {option.where}
+                      {`${option.owner.kind === 'base' ? `${option.owner.name} · org base` : option.plugin} · ${option.where}`}
                     </Text>
                     {active && (
                       <Icon

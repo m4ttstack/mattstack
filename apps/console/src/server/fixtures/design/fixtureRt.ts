@@ -209,6 +209,10 @@ export function fixtureRt(scenario: FixtureScenario): FixtureRt {
         );
       case 'sync':
         return answer(await readJsonText('sync.json'));
+      case 'surface':
+        return argv[2] === 'list' && def.surface
+          ? answer(JSON.stringify(def.surface))
+          : refuse(argv);
       default:
         return refuse(argv);
     }

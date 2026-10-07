@@ -48,6 +48,7 @@ export function WiringMap() {
     url.pack !== null && pack !== null && pack !== url.pack ? url.pack : null;
 
   const snapshot = useCompositionSnapshot(pack);
+  const base = snapshot.data?.extends ?? null;
   const unsynced = useUnsyncedBanner(pack);
   const showTab = (tab: WiringTab) => patch({ tab });
   const notch = pack
@@ -133,6 +134,16 @@ export function WiringMap() {
         >
           Open pack
         </Button>
+      )}
+      {pack && base && (
+        <Badge
+          size="sm"
+          variant="quiet"
+          title={`This pack's fills and shared attachments come partly from the org's ${base.name} base pack.`}
+          data-testid="pack-extends"
+        >
+          {`extends ${base.name}`}
+        </Badge>
       )}
       {packs.length > 1 && pack && (
         <Select

@@ -625,6 +625,70 @@ describe('slot states', () => {
   });
 });
 
+describe('a fill that came from the org base', () => {
+  const BASE = {
+    ref: 'acme-base:plan-policy',
+    path: '/fixture/orgs/acme/base/attachments/plan-policy/SKILL.md',
+    version: 'org',
+    builtVersion: 'org',
+    lines: 80,
+  };
+  const subtitleOf = (source: Record<string, unknown>) =>
+    buildTemplateView({
+      anatomy: withPart(anatomyPlan, 'domain', {
+        source: source as Part['source'],
+      }),
+      composition,
+      check,
+      changes: undefined,
+      step: 2,
+    }).inputs.find(card => card.id === 'slot:domain')!.subtitle;
+
+  it('calls it an org base, never a default or the pack text', () => {
+    expect(
+      subtitleOf({
+        ...BASE,
+        origin: 'base',
+        base: 'acme-base',
+        baseVersion: '0.1.0',
+      })
+    ).toBe('acme-base · org base · picked by this pack');
+  });
+
+  it('says the org base picked it, without repeating the name', () => {
+    const baseLayer: SkillsComposition = {
+      ...composition,
+      verbs: composition.verbs.map(verb => ({
+        ...verb,
+        slots: verb.slots.map(slot => ({ ...slot, layer: 'base:acme-base' })),
+      })),
+      binders: composition.binders.map(binder => ({
+        ...binder,
+        slots: binder.slots.map(slot => ({ ...slot, layer: 'base:acme-base' })),
+      })),
+    };
+    const subtitle = buildTemplateView({
+      anatomy: withPart(anatomyPlan, 'domain', {
+        source: {
+          ...BASE,
+          origin: 'base',
+          base: 'acme-base',
+          baseVersion: '0.1.0',
+        } as Part['source'],
+      }),
+      composition: baseLayer,
+      check,
+      changes: undefined,
+      step: 2,
+    }).inputs.find(card => card.id === 'slot:domain')!.subtitle;
+    expect(subtitle).toBe('acme-base · org base · picked by the org base');
+  });
+
+  it('keeps the plugin wording when rt sends no origin', () => {
+    expect(subtitleOf(BASE)).toBe('acme-base default · picked by this pack');
+  });
+});
+
 describe('engines without a template trace', () => {
   it('gutters the rows of a legacy engine by their rendered lines', () => {
     const legacy: SkillsAnatomy = {
@@ -901,7 +965,7 @@ describe('who picked a default fill', () => {
   it.each([
     ['pack', 'mattstack default · picked by this pack'],
     ['override', 'mattstack default · picked by your override'],
-    ['base:globex', 'mattstack default · picked by base: globex'],
+    ['base:globex', 'mattstack default · picked by the org base'],
     ['default', 'mattstack default'],
     [null, 'mattstack default'],
   ])('layer %s', (layer, subtitle) => {

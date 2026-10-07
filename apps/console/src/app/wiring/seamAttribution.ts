@@ -137,6 +137,10 @@ export interface SeamSourceIndex {
   /** Slot name -> `slots[].fillSourcePath`. Paired by NAME, which is why a
       seam is never matched to a source by comparing two relative paths. */
   fillSourcePaths: Record<string, string | null>;
+  /** Base name -> the org base pack's root, for the slots filled from a base
+      outside this pack. A hunk in such a fill arrives as
+      `base:<name>/<path>`, never as a pack path. */
+  baseRoots?: Record<string, string>;
 }
 
 /**
@@ -160,7 +164,10 @@ export interface SeamSourceIndex {
  *    coincidence that would misattribute. `loadStepSource` and
  *    `loadAttachment` both search `<plugin>/skills/<name>` before
  *    `attachments/`, so `skills/<name>/SKILL.md` is a reachable seam path and
- *    is byte-identical to a compiled artifact's pack-relative path.
+ *    is byte-identical to a compiled artifact's pack-relative path. The one
+ *    exception is a fill from an org base in the same repo, which the route
+ *    diffs separately and names `base:<name>/<path>`: such a seam lands
+ *    there, and only when its source sits exactly under that base's root.
  *
  * And compiled output is excluded outright: no seam's span is measured in an
  * artifact, so a hunk under the verb's own `artifactPath` can never be one.
@@ -177,7 +184,11 @@ export function seamPackPath(
         : (index.fillSourcePaths[seam.slot] ?? null);
   if (absolute === null) return null;
   if (!absolute.endsWith(`/${seam.path}`)) return null;
-  if (pluginOf(seam.ref) !== index.pack) return null;
+  const base = pluginOf(seam.ref);
+  const baseRoot = index.baseRoots?.[base];
+  if (baseRoot && absolute === `${baseRoot}/${seam.path}`)
+    return `base:${base}/${seam.path}`;
+  if (base !== index.pack) return null;
 
   const inPack = `${index.packDir}/${seam.path}`;
   if (index.artifactPath && inPack.startsWith(`${index.artifactPath}/`)) {

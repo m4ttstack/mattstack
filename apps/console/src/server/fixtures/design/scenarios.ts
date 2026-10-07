@@ -16,6 +16,8 @@
  * | `anatomy-failed`   | rt fails to read plan                                 |
  * | `check-failed`     | `rt skills check` fails                               |
  * | `changes-failed`   | the pending-changes poll fails                        |
+ * | `org-base`         | the pack extends `acme-base`, which fills plan's domain |
+ * | `org-base-drift`   | `org-base`, with a stale base copy and a base error   |
  */
 
 export const SCENARIOS = [
@@ -31,6 +33,8 @@ export const SCENARIOS = [
   'anatomy-failed',
   'check-failed',
   'changes-failed',
+  'org-base',
+  'org-base-drift',
 ] as const;
 
 export type FixtureScenario = (typeof SCENARIOS)[number];
@@ -59,6 +63,8 @@ interface Anatomy {
 
 interface Composition {
   verbs: { name: string; slots: Record<string, unknown>[] }[];
+  fills: { binding: string }[];
+  extends?: { name: string; version: string | null } | null;
   targets: { name: string; slots: { name: string; required: boolean }[] }[];
   binders: {
     ref: string;
@@ -68,6 +74,14 @@ interface Composition {
 
 interface Check {
   verbs: { name: string; status: string }[];
+  attachments?: unknown[];
+  baseErrors?: string[];
+}
+
+interface Surface {
+  pack: string;
+  packDir: string;
+  rows: { name: string; kind: string; status: string; base?: string }[];
 }
 
 /** What rt prints when a verb fails: an exit code and stderr, no stdout. */
@@ -89,6 +103,8 @@ export interface ScenarioDef {
   >;
   /** A `/fixture` file, edited, or null where it does not exist. */
   files?: Record<string, ((text: string) => string) | null>;
+  /** `rt skills surface list`; every scenario without one refuses it. */
+  surface?: Surface;
 }
 
 const PLAN_FILE = 'anatomy.stage-plan.json';
@@ -255,6 +271,118 @@ const unboundPlan = {
   files: { [PLAN_RENDERED]: withoutDomainBody },
 } satisfies Partial<ScenarioDef>;
 
+const BASE = 'acme-base';
+const BASE_BINDING = `${BASE}:plan-policy`;
+const BASE_PLAN_FILE = `/fixture/orgbase/${BASE}/attachments/plan-policy/SKILL.md`;
+const BASE_TAG = { origin: 'base', base: BASE, baseVersion: '0.1.0' } as const;
+
+const SHEPHERDR_BINDER = 'mattstack:shepherdr';
+const baseDomainSlot = {
+  name: 'domain',
+  boundTo: BASE_BINDING,
+  layer: `base:${BASE}`,
+  ...BASE_TAG,
+};
+
+/** The pack extends `acme-base`, whose plan-policy fills plan's domain slot
+    in place of the pack's own. `acme:plan-policy-lite` stays in the fills as
+    a rebind candidate, like plan-policy-strict. */
+function baseFillsDomain(composition: Composition): Composition {
+  return {
+    ...composition,
+    extends: { name: BASE, version: '0.1.0' },
+    verbs: composition.verbs.map(verb =>
+      verb.name === 'shepherdr'
+        ? {
+            ...verb,
+            slots: verb.slots.map(slot =>
+              slot.name === 'domain'
+                ? {
+                    ...slot,
+                    boundTo: BASE_BINDING,
+                    layer: `base:${BASE}`,
+                    fillSourcePath: BASE_PLAN_FILE,
+                    fillVersion: 'org',
+                    ...BASE_TAG,
+                  }
+                : slot
+            ),
+          }
+        : verb
+    ),
+    binders: composition.binders.map(binder => {
+      if (binder.ref === PLAN_BINDER) {
+        return { ...binder, slots: [baseDomainSlot] };
+      }
+      if (binder.ref === SHEPHERDR_BINDER) {
+        return {
+          ...binder,
+          slots: binder.slots.map(slot =>
+            slot.name === 'domain' ? baseDomainSlot : slot
+          ),
+        };
+      }
+      return binder;
+    }),
+    fills: composition.fills.map(fill =>
+      fill.binding === 'acme:plan-policy'
+        ? {
+            ...fill,
+            binding: BASE_BINDING,
+            sourcePath: BASE_PLAN_FILE,
+            ...BASE_TAG,
+          }
+        : fill
+    ),
+  };
+}
+
+/** Plan's domain part reads from the base fill, whose version is the `org`
+    token rt reports for an org base. */
+function domainFromBase(anatomy: Anatomy): Anatomy {
+  return {
+    ...anatomy,
+    parts: anatomy.parts.map(part =>
+      part.name === 'domain'
+        ? {
+            ...part,
+            source: {
+              ...(part.source as object),
+              ref: BASE_BINDING,
+              path: BASE_PLAN_FILE,
+              version: 'org',
+              builtVersion: 'org',
+              ...BASE_TAG,
+            },
+          }
+        : part
+    ),
+  };
+}
+
+const attachmentRow = (status: 'in-sync' | 'stale') => ({
+  name: 'dev-servers',
+  base: BASE,
+  status,
+  staleFiles: status === 'stale' ? ['SKILL.md'] : [],
+  orphanFiles: [],
+});
+
+const orgBase = {
+  subject: 'stage-plan',
+  composition: baseFillsDomain,
+  anatomy: { 'stage-plan': { file: PLAN_FILE, edit: domainFromBase } },
+  surface: {
+    pack: 'acme',
+    packDir: '/fixture/packs/acme',
+    rows: [
+      { name: 'dev-servers', kind: 'compiled', status: 'internal', base: BASE },
+      { name: 'gates', kind: 'compiled', status: 'internal' },
+      { name: 'plan-policy', kind: 'hand-authored', status: 'internal' },
+    ],
+  },
+} satisfies Partial<ScenarioDef>;
+
 const DEFS: Record<FixtureScenario, ScenarioDef> = {
   clean: { subject: 'stage-plan' },
   unsynced: { subject: 'stage-plan' },
@@ -321,6 +449,22 @@ const DEFS: Record<FixtureScenario, ScenarioDef> = {
       code: 1,
       stderr: 'rt skills changes: /fixture/packs/acme is not a git checkout',
     },
+  },
+  'org-base': {
+    ...orgBase,
+    check: check => ({
+      ...check,
+      attachments: [attachmentRow('in-sync')],
+      baseErrors: [],
+    }),
+  },
+  'org-base-drift': {
+    ...orgBase,
+    check: check => ({
+      ...check,
+      attachments: [attachmentRow('stale')],
+      baseErrors: [`${BASE} has no attachments/feature-flags`],
+    }),
   },
 };
 

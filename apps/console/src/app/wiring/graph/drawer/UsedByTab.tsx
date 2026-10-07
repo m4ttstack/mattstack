@@ -19,10 +19,15 @@ function siteAt(site: UsedBySite, kind: DrawerUsedBy['kind']): string {
   return kind === 'include' ? 'pastes it in' : 'binds it';
 }
 
-function editNote(usedBy: DrawerUsedBy, pack: string): string {
-  return usedBy.plugin === pack
-    ? 'Edit it in this pack. Every skill above picks up the change when you sync.'
-    : `Edit it in the ${usedBy.plugin} plugin. Every skill above picks up the change on its next compile.`;
+function editNote({ owner, plugin }: DrawerUsedBy): string {
+  switch (owner.kind) {
+    case 'pack':
+      return 'Edit it in this pack. Every skill above picks up the change when you sync.';
+    case 'base':
+      return `Edit it in the org's ${owner.name} base pack. Every skill above picks up the change on its next compile.`;
+    case 'plugin':
+      return `Edit it in the ${plugin} plugin. Every skill above picks up the change on its next compile.`;
+  }
 }
 
 function SiteFile({ site, here }: { site: UsedBySite; here: boolean }) {
@@ -99,7 +104,6 @@ function SiteRow({
  * grouped as the focus list groups them, each row focusing its skill.
  */
 export function UsedByTab({
-  pack,
   skill,
   slot,
   usedBy,
@@ -107,7 +111,6 @@ export function UsedByTab({
   groups,
   onFocus,
 }: {
-  pack: string;
   /** The skill the drawer was opened from. */
   skill: string;
   /** The slot the drawer was opened from, for a fill. */
@@ -151,7 +154,7 @@ export function UsedByTab({
           </Stack>
         ))}
         <Text fz={11} lh="normal" c={MUTED} data-parity="note">
-          {editNote(usedBy, pack)}
+          {editNote(usedBy)}
         </Text>
       </Stack>
     </Box>

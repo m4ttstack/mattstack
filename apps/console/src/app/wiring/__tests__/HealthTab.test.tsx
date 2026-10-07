@@ -299,6 +299,151 @@ describe('HealthTab: empty state', () => {
   });
 });
 
+describe('HealthTab: org base drift', () => {
+  const STALE_COPY = {
+    name: 'dev-servers',
+    base: 'acme-base',
+    status: 'stale' as const,
+    staleFiles: ['SKILL.md'],
+    orphanFiles: [],
+  };
+  const IN_SYNC_COPY = {
+    name: 'feature-flags',
+    base: 'acme-base',
+    status: 'in-sync' as const,
+    staleFiles: [],
+    orphanFiles: [],
+  };
+
+  it('counts a stale base attachment as source newer and lists it under Org base', async () => {
+    renderHealthTab(undefined, ALL_IN_SYNC_COMPOSITION, {
+      ...ALL_IN_SYNC_CHECK,
+      attachments: [STALE_COPY],
+      baseErrors: [],
+    });
+
+    expect(
+      await screen.findByTestId('health-stat-source-newer')
+    ).toHaveTextContent('1');
+    expect(screen.getByTestId('health-stat-never-compiled')).toHaveTextContent(
+      '0'
+    );
+    const group = screen.getByTestId('health-group-org-base');
+    expect(group).toHaveTextContent('dev-servers');
+    expect(group).toHaveTextContent('from acme-base · stale');
+    expect(screen.queryByTestId('health-empty')).not.toBeInTheDocument();
+    expect(screen.queryByText('All in sync.')).not.toBeInTheDocument();
+    expect(screen.getByTestId('installed-caches-bar')).toBeInTheDocument();
+  });
+
+  it('counts a never-compiled base attachment as never compiled', async () => {
+    renderHealthTab(undefined, ALL_IN_SYNC_COMPOSITION, {
+      ...ALL_IN_SYNC_CHECK,
+      attachments: [
+        {
+          name: 'dev-servers',
+          base: 'acme-base',
+          status: 'never-compiled',
+          staleFiles: [],
+          orphanFiles: [],
+        },
+      ],
+      baseErrors: [],
+    });
+
+    expect(
+      await screen.findByTestId('health-stat-never-compiled')
+    ).toHaveTextContent('1');
+    expect(screen.getByTestId('health-stat-source-newer')).toHaveTextContent(
+      '0'
+    );
+    expect(screen.getByTestId('health-group-org-base')).toHaveTextContent(
+      'from acme-base · never-compiled'
+    );
+    expect(screen.queryByTestId('health-empty')).not.toBeInTheDocument();
+  });
+
+  it('lists an orphaned attachment and a base error under Org base, counted in no card, and still not clean', async () => {
+    renderHealthTab(undefined, ALL_IN_SYNC_COMPOSITION, {
+      ...ALL_IN_SYNC_CHECK,
+      attachments: [
+        {
+          name: 'gone',
+          base: null,
+          status: 'orphaned',
+          staleFiles: [],
+          orphanFiles: ['SKILL.md'],
+        },
+      ],
+      baseErrors: ['acme-base has no attachments/feature-flags'],
+    });
+
+    const group = await screen.findByTestId('health-group-org-base');
+    expect(group).toHaveTextContent('gone');
+    expect(group).toHaveTextContent('orphaned · compile removes it');
+    expect(group).toHaveTextContent(
+      'acme-base has no attachments/feature-flags'
+    );
+    expect(screen.getByTestId('health-group-count-org-base')).toHaveTextContent(
+      '2'
+    );
+    expect(screen.getByTestId('health-stat-source-newer')).toHaveTextContent(
+      '0'
+    );
+    expect(screen.getByTestId('health-stat-never-compiled')).toHaveTextContent(
+      '0'
+    );
+    expect(screen.queryByTestId('health-empty')).not.toBeInTheDocument();
+    expect(screen.getByTestId('health-tab').textContent).not.toMatch(/null/);
+  });
+
+  it('treats a base error alone as drift, listed under Org base with its full text', async () => {
+    const message =
+      'acme-base has no attachments/feature-flags (looked in /orgs/acme/bases/acme-base/attachments)';
+    renderHealthTab(undefined, ALL_IN_SYNC_COMPOSITION, {
+      ...ALL_IN_SYNC_CHECK,
+      attachments: [IN_SYNC_COPY],
+      baseErrors: [message],
+    });
+
+    const group = await screen.findByTestId('health-group-org-base');
+    expect(group).toHaveTextContent(message);
+    expect(screen.getByTestId('health-group-count-org-base')).toHaveTextContent(
+      '1'
+    );
+    expect(screen.queryByTestId('health-empty')).not.toBeInTheDocument();
+    expect(screen.queryByText('All in sync.')).not.toBeInTheDocument();
+    expect(screen.getByTestId('installed-caches-bar')).toBeInTheDocument();
+  });
+
+  it('stays All in sync when attachments are all in-sync and there are no base errors', async () => {
+    renderHealthTab(undefined, ALL_IN_SYNC_COMPOSITION, {
+      ...ALL_IN_SYNC_CHECK,
+      attachments: [IN_SYNC_COPY],
+      baseErrors: [],
+    });
+
+    expect(await screen.findByTestId('health-empty')).toHaveTextContent(
+      'All in sync.'
+    );
+    expect(
+      screen.queryByTestId('health-group-org-base')
+    ).not.toBeInTheDocument();
+  });
+
+  it('reads as today when rt sends no attachments field', async () => {
+    renderHealthTab(undefined, ALL_IN_SYNC_COMPOSITION, ALL_IN_SYNC_CHECK);
+
+    expect(await screen.findByTestId('health-empty')).toHaveTextContent(
+      'All in sync.'
+    );
+    expect(
+      screen.queryByTestId('health-group-org-base')
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('health-stat-in-sync')).toHaveTextContent('2');
+  });
+});
+
 const LAG_CHECK = {
   ...ALL_IN_SYNC_CHECK,
   installed: {

@@ -137,11 +137,12 @@ function usePublicSwitch(pack: string) {
 export function selectedContent(
   url: WiringUrl,
   view: TemplateView | null,
-  anatomy: SkillsAnatomy | undefined
+  anatomy: SkillsAnatomy | undefined,
+  check?: SkillsCheck
 ): DrawerContent | null {
   const target = parseTarget(url.select);
   return target && view && anatomy
-    ? drawerContent(target, view, anatomy, url.view)
+    ? drawerContent(target, view, anatomy, url.view, check)
     : null;
 }
 
@@ -185,8 +186,8 @@ export function SkillDrawer({
   const [wrap, setWrap] = useDrawerWrap();
   const target = useMemo(() => parseTarget(url.select), [url.select]);
   const current = useMemo(
-    () => selectedContent(url, view, anatomy),
-    [url, view, anatomy]
+    () => selectedContent(url, view, anatomy, check),
+    [url, view, anatomy, check]
   );
   const content = useLastPresent(current);
   const opened = current !== null;
@@ -490,7 +491,6 @@ export function SkillDrawer({
       )}
       {tab === 'used-by' && content.usedBy && composition && groups && (
         <UsedByTab
-          pack={pack}
           skill={anatomy.skill}
           slot={content.slot?.name ?? null}
           usedBy={content.usedBy}

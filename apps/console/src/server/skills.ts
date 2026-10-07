@@ -5,6 +5,13 @@ import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 
 import { pluginRootOf, pluginSkillDirs } from '../shared/pluginRoot';
+import {
+  basePathspec,
+  baseScopesFor,
+  rewriteDiffPaths,
+  toBaseCoordinate,
+  type BaseScope,
+} from './baseScopes';
 import { runGit as liveRunGit, type RunGit } from './git-bin';
 import { GIT_LOG_FORMAT, parseGitLog, type GitCommit } from './gitLog';
 import {
@@ -35,6 +42,10 @@ interface SkillsCompositionSlot {
   resolveError?: string;
   /** Which layer of the pack's bindings file set this slot: "default", "base:<pack>", "pack" or "override". Optional because an rt older than the field answers without it. */
   layer?: string | null;
+  /** Set when the slot came from a base. Optional because an rt older than the field answers without it. */
+  origin?: 'base';
+  base?: string;
+  baseVersion?: string | null;
 }
 interface SkillsCompositionVerb {
   name: string;
@@ -56,7 +67,15 @@ interface SkillsCompositionBinder {
   verb: string | null;
   kind: 'verb' | 'stage' | 'skill' | 'external';
   /** `layer` is optional because an rt older than the field answers without it. */
-  slots: { name: string; boundTo: string; layer?: string | null }[];
+  slots: {
+    name: string;
+    boundTo: string;
+    layer?: string | null;
+    /** Set when the slot came from a base. Optional because an rt older than the field answers without it. */
+    origin?: 'base';
+    base?: string;
+    baseVersion?: string | null;
+  }[];
   /** The console's own addition, on an `external` binder: the SKILL.md the
       app installed under that name, or null when none is installed. */
   skillFile?: string | null;
@@ -66,6 +85,10 @@ interface SkillsCompositionFill {
   provides: string;
   sourcePath: string;
   registered: boolean;
+  /** Set when the fill came from a base. Optional because an rt older than the field answers without it. */
+  origin?: 'base';
+  base?: string;
+  baseVersion?: string | null;
 }
 /** One compile target: a roster verb or a stage, with where its template and
     its compiled artifact live. `placeholders[].line` counts the engine file's
@@ -102,6 +125,8 @@ interface SkillsCompositionResponse {
       absent and null both mean "no path to show," and neither is a path a
       caller may fabricate. */
   manifestPath?: string | null;
+  /** The base this pack extends, or null for a pack that extends none. Optional because an rt older than the field answers without it. */
+  extends?: { name: string; version: string | null } | null;
 }
 
 interface SkillsCheckVerbRow {
@@ -122,11 +147,22 @@ interface SkillsCheckInstalled {
   sourceVersion: string;
   status: 'current' | 'lagging' | 'missing';
 }
+/** One attachment file set the pack vendors, from its own plugin or a base. */
+interface SkillsCheckAttachmentRow {
+  name: string;
+  base: string | null;
+  status: 'in-sync' | 'stale' | 'never-compiled' | 'orphaned';
+  staleFiles: string[];
+  orphanFiles: string[];
+}
 interface SkillsCheckResponse {
   pack: string;
   packDir: string;
   verbs: SkillsCheckVerbRow[];
   installed?: SkillsCheckInstalled | null;
+  /** Optional because an rt older than the field answers without it. */
+  attachments?: SkillsCheckAttachmentRow[];
+  baseErrors?: string[];
 }
 
 /** `rt skills sync --pack <x> --json`, passed through verbatim. Exit 1 with
@@ -159,6 +195,8 @@ interface SkillsSurfaceRow {
   name: string;
   kind: 'compiled' | 'hand-authored' | 'missing';
   status: 'public' | 'internal';
+  /** Names the base a base-owned row came from. Optional because an rt older than the field answers without it. */
+  base?: string;
 }
 interface SkillsSurfaceResponse {
   pack: string;
@@ -215,6 +253,10 @@ interface SkillsAnatomySource {
   version: string;
   builtVersion: string | null;
   lines: number;
+  /** Set when the source came from a base. Optional because an rt older than the field answers without it. */
+  origin?: 'base';
+  base?: string;
+  baseVersion?: string | null;
 }
 interface SkillsAnatomyTarget {
   skill: string;
@@ -302,8 +344,9 @@ interface SkillsDiscardResponse {
  */
 interface SkillsRuntimeFacts {
   /** Paths `git status` reported as changed within `scope`, relative to the
-      REPOSITORY ROOT (the same frame `--name-only` uses), capped. Null when
-      status did not answer. */
+      REPOSITORY ROOT (the same frame `--name-only` uses), capped. A path in
+      an org base fill the verb binds is named `base:<name>/<path>`. Null
+      when status did not answer. */
   dirtyFiles: string[] | null;
   /** True when `dirtyFiles` was cut to the cap. */
   moreDirtyFiles: boolean;
@@ -322,6 +365,9 @@ interface SkillsHistoryResponse {
   repoRoot: string;
   /** The pathspec the log was scoped to, relative to `packDir`. */
   scope: string;
+  /** The `:(top,literal)` pathspecs of the org base fill folders the verb binds,
+      added after `scope`. Absent when there are none. */
+  basePathspecs?: string[];
   verb: string | null;
   /** The bound actually applied, which is the requested one clamped. */
   limit: number;
@@ -345,10 +391,17 @@ interface SkillsDiffResponse {
   scope: string;
   from: string;
   to: string;
-  /** True when the diff was cut at the byte bound. */
+  /** True when the diff, or the base diff, was cut at the shared byte
+      bound. */
   truncated: boolean;
   /** Unified diff text, verbatim, with paths relative to `packDir`. */
   diff: string;
+  /** The same range over the org base fill folders the pack's verbs bind,
+      each path in the `base:<name>/<path inside the base pack>` coordinate.
+      Absent when no verb binds a base fill outside the pack. */
+  baseDiff?: string;
+  /** The `:(top,literal)` pathspecs `baseDiff` was taken over; absent with it. */
+  basePathspecs?: string[];
 }
 
 const historyQuery = validator(
@@ -473,14 +526,13 @@ function parseGitStatus(stdout: string): string[] {
 
 /** Cut at a line boundary, so the tail of a truncated diff is never half a
     hunk header that a parser would then read as a real one. */
-function boundDiff(stdout: string): { diff: string; truncated: boolean } {
-  if (stdout.length <= MAX_DIFF_BYTES)
-    return { diff: stdout, truncated: false };
-  const cut = stdout.lastIndexOf('\n', MAX_DIFF_BYTES);
-  return {
-    diff: stdout.slice(0, cut === -1 ? MAX_DIFF_BYTES : cut + 1),
-    truncated: true,
-  };
+function boundDiff(
+  stdout: string,
+  max: number = MAX_DIFF_BYTES
+): { diff: string; truncated: boolean } {
+  if (stdout.length <= max) return { diff: stdout, truncated: false };
+  const cut = max > 0 ? stdout.lastIndexOf('\n', max - 1) : -1;
+  return { diff: stdout.slice(0, cut + 1), truncated: true };
 }
 
 function findPackDir(payload: unknown, pack: string): string | null {
@@ -730,7 +782,7 @@ export function mountSkills(
   /** Null when status did not answer -- see `SkillsRuntimeFacts.dirtyFiles`. */
   async function dirtyFilesIn(
     packDir: string,
-    scope: string
+    scopes: string[]
   ): Promise<string[] | null> {
     const status = await runGit([
       '-C',
@@ -738,9 +790,40 @@ export function mountSkills(
       'status',
       '--porcelain',
       '--',
-      scope,
+      ...scopes,
     ]);
     return status.code === 0 ? parseGitStatus(status.stdout) : null;
+  }
+
+  /** The org base fill folders `verb` (every verb, for null) binds outside
+      the pack. A composition rt cannot give is no base scopes, never a
+      failed route: the pack's own history still answers. */
+  async function baseScopesOf(
+    pack: string,
+    packDir: string,
+    verb: string | null,
+    repoRoot: string
+  ): Promise<BaseScope[]> {
+    try {
+      const { stdout } = await cachedRun([
+        'skills',
+        'composition',
+        '--pack',
+        pack,
+        '--json',
+      ]);
+      const payload = parseJsonPayload(stdout) as
+        Partial<SkillsCompositionResponse> | undefined;
+      if (!Array.isArray(payload?.verbs)) return [];
+      return await baseScopesFor(
+        { packDir, verbs: payload.verbs },
+        verb,
+        repoRoot,
+        realpath
+      );
+    } catch {
+      return [];
+    }
   }
 
   async function cachedRun(argv: string[]): Promise<RtRunResult> {
@@ -1230,7 +1313,18 @@ export function mountSkills(
           );
         }
 
+        const repoRoot = root.stdout.trim();
         const scope = verb ? `skills/${verb}` : '.';
+        const baseScopes = await baseScopesOf(
+          pack,
+          packDir,
+          verb ?? null,
+          repoRoot
+        );
+        const basePathspecs = baseScopes.map(basePathspec);
+        const pathspecs = [scope, ...basePathspecs];
+        const toCoordinate = (path: string) =>
+          toBaseCoordinate(path, baseScopes, repoRoot);
         // One over the bound, so "there is more history" is observed rather
         // than inferred from a full page.
         const log = await runGit([
@@ -1242,23 +1336,28 @@ export function mountSkills(
           '--name-only',
           `--format=${GIT_LOG_FORMAT}`,
           '--',
-          scope,
+          ...pathspecs,
         ]);
         if (log.code !== 0) {
           return c.json({ error: log.stderr.trim() || 'git log failed' }, 502);
         }
 
-        const [dirtyFiles, packVersion] = await Promise.all([
-          dirtyFilesIn(packDir, scope),
+        const [rawDirtyFiles, packVersion] = await Promise.all([
+          dirtyFilesIn(packDir, pathspecs),
           packVersionOf(packDir),
         ]);
+        const dirtyFiles = rawDirtyFiles && rawDirtyFiles.map(toCoordinate);
 
-        const commits = parseGitLog(log.stdout);
+        const commits = parseGitLog(log.stdout).map(commit => ({
+          ...commit,
+          files: commit.files.map(toCoordinate),
+        }));
         const response: SkillsHistoryResponse = {
           pack,
           packDir,
-          repoRoot: root.stdout.trim(),
+          repoRoot,
           scope,
+          ...(basePathspecs.length > 0 ? { basePathspecs } : {}),
           verb: verb ?? null,
           limit,
           truncated: commits.length > limit,
@@ -1341,17 +1440,44 @@ export function mountSkills(
           );
         }
 
+        const repoRoot = root.stdout.trim();
         const bounded = boundDiff(diff.stdout);
         const response: SkillsDiffResponse = {
           pack,
           packDir,
-          repoRoot: root.stdout.trim(),
+          repoRoot,
           scope: '.',
           from,
           to,
           truncated: bounded.truncated,
           diff: bounded.diff,
         };
+
+        const baseScopes = await baseScopesOf(pack, packDir, null, repoRoot);
+        const basePathspecs = baseScopes.map(basePathspec);
+        if (basePathspecs.length > 0) {
+          // No `--relative`: a base fill sits outside the pack dir, so its
+          // paths are repo paths until rewritten to the base coordinate.
+          const base = await runGit([
+            '-C',
+            packDir,
+            'diff',
+            '--no-color',
+            `${from}..${to}`,
+            '--',
+            ...basePathspecs,
+          ]);
+          // A base diff that fails drops out: the pack diff still answers.
+          if (base.code === 0) {
+            const boundedBase = boundDiff(
+              rewriteDiffPaths(base.stdout, baseScopes, repoRoot),
+              MAX_DIFF_BYTES - bounded.diff.length
+            );
+            response.baseDiff = boundedBase.diff;
+            response.basePathspecs = basePathspecs;
+            response.truncated = bounded.truncated || boundedBase.truncated;
+          }
+        }
         return c.json(response, 200);
       } catch (err) {
         if (err instanceof RtNotFoundError) {
@@ -1407,7 +1533,10 @@ export function mountSkills(
       try {
         // The readable roots come from rt, never from the request: the pack
         // directory plus the skill folders of the engines its verbs compile
-        // from, never the rest of an engine's plugin.
+        // from, never the rest of an engine's plugin. A base fill adds only
+        // the skill folders of the base this pack extends, and only when the
+        // fill is named for that base: rt also tags a fill by a folder's
+        // compiled.json, which can sit inside an unrelated plugin.
         const { stdout } = await cachedRun([
           'skills',
           'composition',
@@ -1427,6 +1556,19 @@ export function mountSkills(
           const dir =
             binder.kind === 'external' ? appSkillDir(binder.ref) : null;
           if (dir) roots.add(dir);
+        }
+        for (const fill of composition.fills ?? []) {
+          if (fill.origin !== 'base') continue;
+          const plugin = fill.binding.split(':')[0];
+          if (
+            !fill.base ||
+            plugin !== fill.base ||
+            fill.base !== composition.extends?.name
+          ) {
+            continue;
+          }
+          const root = pluginRootOf(fill.sourcePath);
+          if (root) for (const dir of pluginSkillDirs(root)) roots.add(dir);
         }
         // Confinement compares resolved against resolved, so a symlink inside
         // a root cannot lead out of it and a root reached through a symlink

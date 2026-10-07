@@ -253,6 +253,67 @@ describe('seamPackPath', () => {
   });
 });
 
+describe('seamPackPath: org base fills', () => {
+  const BASE_ROOT = '/o/acme/mattstack/org/packs/acme-base';
+  const DOMAIN = seam({
+    kind: 'slot',
+    slot: 'domain',
+    ref: 'acme-base:plan-policy',
+    path: 'attachments/plan-policy/SKILL.md',
+    lines: [1, 40],
+  });
+  const index: SeamSourceIndex = {
+    pack: 'acme',
+    packDir: '/o/acme/mattstack/teams/acme/packs/acme',
+    artifactPath: '/o/acme/mattstack/teams/acme/packs/acme/skills/plan',
+    stepSourcePath: null,
+    fillSourcePaths: {
+      domain: `${BASE_ROOT}/attachments/plan-policy/SKILL.md`,
+      forge: `${MATTSTACK_ROOT}/attachments/ci-forge-gitlab/SKILL.md`,
+    },
+    baseRoots: { 'acme-base': BASE_ROOT },
+  };
+
+  it('places a base fill at its base coordinate', () => {
+    expect(seamPackPath(DOMAIN, index)).toBe(
+      'base:acme-base/attachments/plan-policy/SKILL.md'
+    );
+  });
+
+  it('attributes a base diff hunk to the base seam', () => {
+    const placedSeams = [{ seam: DOMAIN, path: seamPackPath(DOMAIN, index) }];
+    expect(
+      attributeHunk(
+        {
+          path: 'base:acme-base/attachments/plan-policy/SKILL.md',
+          lines: [3, 5],
+        },
+        placedSeams
+      )
+    ).toBe(DOMAIN);
+  });
+
+  it('keeps refusing a fill bound from a plugin', () => {
+    const forge = seam({
+      slot: 'forge',
+      ref: 'mattstack:ci-forge-gitlab',
+      path: 'attachments/ci-forge-gitlab/SKILL.md',
+      lines: [9, 45],
+    });
+    expect(seamPackPath(forge, index)).toBeNull();
+  });
+
+  it('refuses a base seam whose source lies outside the base root', () => {
+    const elsewhere: SeamSourceIndex = {
+      ...index,
+      fillSourcePaths: {
+        domain: '/m/other/attachments/plan-policy/SKILL.md',
+      },
+    };
+    expect(seamPackPath(DOMAIN, elsewhere)).toBeNull();
+  });
+});
+
 const DIFF = `diff --git a/attachments/review-criteria/SKILL.md b/attachments/review-criteria/SKILL.md
 index 1111111..2222222 100644
 --- a/attachments/review-criteria/SKILL.md

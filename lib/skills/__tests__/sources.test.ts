@@ -632,8 +632,22 @@ describe("org base pack roots", () => {
 
   test("each org base pack is a root named after its folder", () => {
     const { root, base } = makeRoot();
-    expect(orgBasePackRoots(join(root, "orgs", "acme"))).toEqual([{ name: "acme-base", dir: realpathSync(base), version: "org" }]);
+    expect(orgBasePackRoots(join(root, "orgs", "acme"))).toEqual([{ name: "acme-base", dir: realpathSync(base), version: "org", baseVersion: null }]);
     expect(orgBasePackRoots(join(root, "nope", "orgs", "acme"))).toEqual([]);
+  });
+
+  test("a base root carries its plugin.json version beside the org token", () => {
+    const { root, base } = makeRoot();
+    mkdirSync(join(base, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(base, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme-base", version: "0.1.0" }));
+    expect(orgBasePackRoots(join(root, "orgs", "acme"))).toEqual([{ name: "acme-base", dir: realpathSync(base), version: "org", baseVersion: "0.1.0" }]);
+  });
+
+  test("a base whose plugin.json has an empty version has a null baseVersion", () => {
+    const { root, base } = makeRoot();
+    mkdirSync(join(base, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(base, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "acme-base", version: "" }));
+    expect(orgBasePackRoots(join(root, "orgs", "acme"))[0]?.baseVersion).toBeNull();
   });
 
   test("only the named org's bases are roots", () => {

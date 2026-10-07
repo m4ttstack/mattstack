@@ -119,8 +119,9 @@ function useSurfaceStaging(rows: SkillsSurfaceRow[], pack: string) {
   function toggle(name: string) {
     const row = rows.find(r => r.name === name);
     // A `missing` skill has no files on disk; rt rejects it either direction,
-    // so it can be read but never staged.
-    if (!row || row.kind === 'missing') return;
+    // so it can be read but never staged; a base row stays internal because
+    // rt refuses to make it public.
+    if (!row || row.kind === 'missing' || row.base !== undefined) return;
     setStaged(prev => {
       const next = new Map(prev);
       const current = next.get(name) ?? row.status;
@@ -142,6 +143,9 @@ const KIND_BADGE: Record<
   'hand-authored': { label: 'fill', color: 'cyan' },
   missing: { label: 'missing', color: 'bad' },
 };
+
+const BASE_LOCK_LABEL =
+  'The org base pack decides. Verbs read it from attachments/, so it stays internal.';
 
 type SurfaceFilterKind = 'all' | 'public' | 'internal' | 'fill' | 'compiled';
 
@@ -223,7 +227,17 @@ function SurfaceGridRow({
   const { bg, text, border } = useSchemeColors();
   const editorHref = useEditorHref();
   const staged = next !== row.status;
+  const locked = row.base !== undefined;
   const badge = KIND_BADGE[row.kind];
+  const toggle = (
+    <Switch
+      checked={next === 'public'}
+      onChange={() => onToggle(row.name)}
+      aria-label={row.name}
+      disabled={locked}
+      size="sm"
+    />
+  );
 
   return (
     <Group
@@ -240,23 +254,40 @@ function SurfaceGridRow({
       }}
       data-testid={`surface-row-${row.name}`}
     >
-      <Switch
-        checked={next === 'public'}
-        onChange={() => onToggle(row.name)}
-        aria-label={row.name}
-        size="sm"
-      />
+      {locked ? (
+        <Tooltip label={BASE_LOCK_LABEL} openDelay={300}>
+          <span
+            data-testid={`surface-lock-${row.name}`}
+            style={{ display: 'inline-flex', flex: 'none' }}
+          >
+            {toggle}
+          </span>
+        </Tooltip>
+      ) : (
+        toggle
+      )}
       <Text size="sm" fw={600} style={{ flex: 'none' }}>
         {row.name}
       </Text>
-      <Badge
-        size="xs"
-        variant="light"
-        color={badge.color}
-        style={{ flex: 'none' }}
-      >
-        {badge.label}
-      </Badge>
+      {locked ? (
+        <Badge
+          size="xs"
+          variant="default"
+          c={text.muted}
+          style={{ flex: 'none' }}
+        >
+          from {row.base}
+        </Badge>
+      ) : (
+        <Badge
+          size="xs"
+          variant="light"
+          color={badge.color}
+          style={{ flex: 'none' }}
+        >
+          {badge.label}
+        </Badge>
+      )}
       <div style={{ flex: 1, minWidth: 0 }} />
       {staged ? (
         <Text
@@ -272,7 +303,7 @@ function SurfaceGridRow({
           public
         </Text>
       ) : null}
-      {sourcePath && (
+      {sourcePath && !locked && (
         <Tooltip label="Open in editor" openDelay={300}>
           <ActionIcon
             component="a"
