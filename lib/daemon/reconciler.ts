@@ -336,11 +336,12 @@ export function createReconciler(deps: ReconcilerDeps): Reconciler {
       const paneLive = pane !== null && pane.agentStatus !== "blocked";
 
       if (pe.expect === "leave-blocked") {
-        // A pane that read the answer and then closed (a review run that
-        // posted and exited) delivered it; only a closed pane that never
-        // consumed the answer is a delivery failure.
-        const closedAfterConsuming = pane === null && deps.store.get(pe.gateId)?.consumedAt != null;
-        if (closedAfterConsuming || (paneLive && !(await formOnScreen(pane)))) {
+        // A consumed answer was delivered whatever the pane looks like now:
+        // the pane may have closed (a review that posted and exited) or be
+        // blocked on its NEXT form, and an Escape sent then would cancel that
+        // form. Only an unconsumed answer needs the pane watched.
+        const consumed = deps.store.get(pe.gateId)?.consumedAt != null;
+        if (consumed || (paneLive && !(await formOnScreen(pane)))) {
           deps.store.markDelivery(pe.gateId, "confirmed");
           deps.emit("reconciler.delivery", { gateId: pe.gateId, outcome: "confirmed" });
           continue;

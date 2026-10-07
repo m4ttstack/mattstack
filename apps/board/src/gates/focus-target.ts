@@ -1,5 +1,8 @@
 import type { GateOrigin } from '@mattstack/rt-client';
-import { resolveOriginFocus } from '@mattstack/gate-kit/server';
+import {
+  ORIGIN_PANE_CLOSED_REASON,
+  resolveOriginFocus,
+} from '@mattstack/gate-kit/server';
 
 export interface FocusLane {
   paneId?: string;
@@ -50,8 +53,7 @@ export function resolveGateFocusTarget(
     if (byWorktree.ok) return byWorktree;
   }
 
-  if (origin?.paneId)
-    return { ok: false, reason: 'the pane that asked this has closed' };
+  if (origin?.paneId) return { ok: false, reason: ORIGIN_PANE_CLOSED_REASON };
   if (origin?.worktree)
     return { ok: false, reason: 'no live pane matches the origin worktree' };
   return { ok: false, reason: 'no origin on this gate' };

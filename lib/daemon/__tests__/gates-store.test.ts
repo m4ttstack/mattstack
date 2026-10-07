@@ -408,6 +408,26 @@ test("an existing gates.db without the W4 columns gains them on open (ALTER migr
   store.close_();
 });
 
+test("a stuck delivery on a consumed answer reads confirmed after reopen; an unconsumed one stays stuck", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rt-gates-repair-"));
+  dirs.push(dir);
+  const path = join(dir, "gates.db");
+  const first = createGatesStore({ dbPath: path, log });
+  const consumed = first.open({ subject: "mr:x/1", kind: "review-post", questions: qs(), nudge: { session: "s1" } }).row;
+  const unread = first.open({ subject: "mr:x/2", kind: "review-post", questions: qs(), nudge: { session: "s2" } }).row;
+  first.answer(consumed.id, { q: "a" }, "board");
+  first.answer(unread.id, { q: "a" }, "board");
+  first.markConsumed(consumed.id);
+  first.markDelivery(consumed.id, "stuck");
+  first.markDelivery(unread.id, "stuck");
+  first.close_();
+
+  const reopened = createGatesStore({ dbPath: path, log });
+  expect(reopened.get(consumed.id)!.delivery).toMatchObject({ outcome: "confirmed" });
+  expect(reopened.get(unread.id)!.delivery).toMatchObject({ outcome: "stuck" });
+  reopened.close_();
+});
+
 describe("gates store (ownership)", () => {
   test("open stores owner and get returns it", () => {
     const s = store();

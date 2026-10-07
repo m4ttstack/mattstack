@@ -312,7 +312,7 @@ function focus(id: string) {
 }
 
 describe('POST /api/gates/:id/focus', () => {
-  it('focuses directly by origin.paneId', async () => {
+  it('focuses by origin.paneId while that pane is still listed', async () => {
     vi.mocked(rt.gateList).mockResolvedValueOnce({
       ok: true,
       data: {
@@ -320,6 +320,10 @@ describe('POST /api/gates/:id/focus', () => {
         cursor: 1,
       },
     });
+    vi.mocked(rt.paneList).mockResolvedValueOnce({
+      ok: true,
+      data: { panes: [{ paneId: 'p1', cwd: '/w' }] },
+    } as never);
     vi.mocked(rt.paneFocus).mockResolvedValueOnce({
       ok: true,
       data: { paneId: 'p1', focused: true },
@@ -330,7 +334,52 @@ describe('POST /api/gates/:id/focus', () => {
       { paneId: 'p1' },
       expect.anything()
     );
-    expect(rt.paneList).not.toHaveBeenCalled();
+  });
+
+  it('a closed origin pane falls back to a live pane in the origin worktree', async () => {
+    vi.mocked(rt.gateList).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        gates: [
+          row({ origin: { paneId: 'gone', worktree: '/w', presentation: 'form' } }),
+        ],
+        cursor: 1,
+      },
+    });
+    vi.mocked(rt.paneList).mockResolvedValueOnce({
+      ok: true,
+      data: { panes: [{ paneId: 'p9', cwd: '/w' }] },
+    } as never);
+    vi.mocked(rt.paneFocus).mockResolvedValueOnce({
+      ok: true,
+      data: { paneId: 'p9', focused: true },
+    });
+    const res = await focus('g1');
+    expect(res.status).toBe(200);
+    expect(rt.paneFocus).toHaveBeenCalledWith(
+      { paneId: 'p9' },
+      expect.anything()
+    );
+  });
+
+  it('a closed origin pane with nothing live to stand in is a 400 that says so, never a dead focus', async () => {
+    vi.mocked(rt.gateList).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        gates: [row({ origin: { paneId: 'gone', presentation: 'form' } })],
+        cursor: 1,
+      },
+    });
+    vi.mocked(rt.paneList).mockResolvedValueOnce({
+      ok: true,
+      data: { panes: [] },
+    } as never);
+    const res = await focus('g1');
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: 'the pane that asked this has closed',
+    });
+    expect(rt.paneFocus).not.toHaveBeenCalled();
   });
 
   it('falls back to a worktree match against live pane cwds', async () => {
@@ -401,6 +450,10 @@ describe('POST /api/gates/:id/focus', () => {
         cursor: 1,
       },
     });
+    vi.mocked(rt.paneList).mockResolvedValueOnce({
+      ok: true,
+      data: { panes: [{ paneId: 'p1', cwd: '/w' }] },
+    } as never);
     vi.mocked(rt.paneFocus).mockResolvedValueOnce({
       ok: false,
       error: 'pane:focus failed: no such pane',
