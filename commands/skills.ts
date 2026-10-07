@@ -26,7 +26,7 @@
  */
 
 import { execFileSync, spawnSync } from "child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "fs";
 import { applyEdits, modify } from "jsonc-parser";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "path";
@@ -48,7 +48,8 @@ import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
 import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { validateChain } from "../lib/skills/chain.ts";
-import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
+import { isEmittedAttachmentDir, isSkippedAttachmentPath, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, PROVENANCE_FILE, type BaseAttachmentPlan } from "../lib/skills/base-attachments.ts";
+import { compileSkill, hasCompiledHeader, isInlined } from "../lib/skills/compile.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
@@ -83,7 +84,7 @@ import {
   type PluginRoots,
   type SurfaceConfig,
 } from "../lib/skills/sources.ts";
-import type { AttachmentSource, CompileResult, Side, StageEntry, StepSource, VerbDef } from "../lib/skills/types.ts";
+import type { AttachmentSource, CompiledFile, CompileResult, PlannedAttachments, Side, StageEntry, StepSource, VerbDef } from "../lib/skills/types.ts";
 
 export const NO_PACKS_WHY = "A pack is a folder with a surface file: a plugin from a directory marketplace, or a team's or the org's pack folder in your org repo.";
 
@@ -743,6 +744,7 @@ function compileVerb(
   emittedTargetDirs: string[],
   verbSides: Record<string, Side>,
   trace?: (entry: TraceEntry) => void,
+  planned?: PlannedAttachments,
 ): CompileResult & { anatomy?: CompileAnatomy } {
   const { isPublic, isStage } = target;
   let verb = target.verb;
@@ -788,6 +790,7 @@ function compileVerb(
       where,
       verbSides,
       side: isPublic ? "skills" : "attachments",
+      plannedAttachments: planned,
       trace,
     });
     if (!trace) return result;
@@ -821,7 +824,16 @@ function removeCompiledDir(packDir: string, dir: string, into: CompileWrites): v
   rmSync(dir, { recursive: true, force: true });
 }
 
-function writeCompiledVerb(packDir: string, outDir: string, result: CompileResult, into: CompileWrites): void {
+/** Removes an emitted base unit; a group folder goes with its last unit only when nothing else is left in it. */
+function removeEmittedUnit(packDir: string, rel: string, into: CompileWrites): void {
+  removeCompiledDir(packDir, join(packDir, "attachments", rel), into);
+  const slash = rel.indexOf("/");
+  if (slash < 0) return;
+  const groupDir = join(packDir, "attachments", rel.slice(0, slash));
+  if (existsSync(groupDir) && readdirSync(groupDir).length === 0) rmdirSync(groupDir);
+}
+
+function writeCompiledVerb(packDir: string, outDir: string, result: { files: CompiledFile[] }, into: CompileWrites): void {
   const before = listFilesRecursive(outDir);
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
@@ -862,10 +874,10 @@ type CompileOutcome = { ok: true; result: CompileResult } | { ok: false; message
  * verdict before touching disk -- so this is the one place that catches both.
  * skillsCheck is the lone caller left that lets compileVerb throw.
  */
-function tryCompileVerb(target: CompileTarget, resolved: Resolved, emittedTargetDirs: string[], verbSides: Record<string, Side>): CompileOutcome {
+function tryCompileVerb(target: CompileTarget, resolved: Resolved, emittedTargetDirs: string[], verbSides: Record<string, Side>, planned?: PlannedAttachments): CompileOutcome {
   const { verb, isStage } = target;
   try {
-    const result = compileVerb(target, resolved, emittedTargetDirs, verbSides);
+    const result = compileVerb(target, resolved, emittedTargetDirs, verbSides, undefined, planned);
     if (result.errors.length > 0) {
       return { ok: false, message: `${isStage ? "stage" : "verb"} "${verb.name}": ${result.errors.join("; ")}` };
     }
@@ -925,6 +937,23 @@ function compileTargets(resolved: Resolved, publicSet: Set<string> | null, verbF
   return { targets, verbSides, knownTargetDirs };
 }
 
+/** A pack that extends a base only for its fills copies nothing, so it needs no plugin name; one that would copy an attachment does. */
+function basePlanFor(resolved: Resolved, verbSides: Record<string, Side>): BaseAttachmentPlan {
+  const pluginName = packPluginIdentity(resolved.packDir)?.name;
+  const plan = planBaseAttachments({ packDir: resolved.packDir, packName: pluginName ?? resolved.team, verbSides });
+  if (pluginName || plan.base === null || plan.emits.length === 0) return plan;
+  return { base: null, emits: [], kept: [], stale: [], retired: [], errors: [`${resolved.team} extends ${plan.base.name}, but it has no .claude-plugin/plugin.json name to give {{pack.name}}`] };
+}
+
+function requireBasePlan(resolved: Resolved, verbSides: Record<string, Side>): BaseAttachmentPlan {
+  const plan = basePlanFor(resolved, verbSides);
+  if (plan.errors.length > 0) {
+    const errors = plan.errors.join("\n");
+    throw new SkillsUsageError(errors, { title: "This pack's base cannot be used", details: errors });
+  }
+  return plan;
+}
+
 /**
  * The real-write path shared by skillsCompile and compilePackAll: compiles
  * every target, writes on success (sweeping a stale other-side dir first),
@@ -934,11 +963,12 @@ function compileTargets(resolved: Resolved, publicSet: Set<string> | null, verbF
  * and no process.exit here: callers own how outcomes/failures/misplaced
  * become human or JSON output and how the process exits.
  */
-function performCompile(resolved: Resolved, verbFilter: string[] | null, write: boolean): {
+function performCompile(resolved: Resolved, verbFilter: string[] | null, write: boolean, plan: BaseAttachmentPlan): {
   outcomes: { target: CompileTarget; outcome: CompileOutcome }[];
   failures: string[];
   misplaced: string[];
   writes: CompileWrites;
+  emitted: EmittedRow[];
 } {
   if (write) refuseUnlessPackOwned(resolved.packDir);
   const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
@@ -949,14 +979,19 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
 
   // Every target is compiled before any is written: a run that aborts midway
   // leaves already-emitted verbs referencing stage dirs that never landed.
+  const planned = plannedAttachmentsOf(plan);
   const outcomes: { target: CompileTarget; outcome: CompileOutcome }[] = targets.map(
-    (target) => ({ target, outcome: tryCompileVerb(target, resolved, emittedTargetDirs, verbSides) }),
+    (target) => ({ target, outcome: tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned) }),
   );
   const failures = outcomes.flatMap(({ outcome }) => (outcome.ok ? [] : [outcome.message]));
 
   const writing = write && failures.length === 0;
   const writes: CompileWrites = { written: [], removed: [] };
   if (writing) {
+    // Stale folders go before any verb writes: an internal verb may now own a freed attachments/<name>.
+    for (const s of plan.stale) removeEmittedUnit(resolved.packDir, s.name, writes);
+    for (const rel of plan.retired) removeCompiledDir(resolved.packDir, join(resolved.packDir, "attachments", rel), writes);
+    for (const e of plan.emits) writeCompiledVerb(resolved.packDir, join(resolved.packDir, "attachments", e.name), e, writes);
     for (const { target, outcome } of outcomes) {
       if (!outcome.ok) continue;
       const { verb, isPublic } = target;
@@ -988,22 +1023,49 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
     }
   }
 
-  return { outcomes, failures, misplaced, writes };
+  // A retired folder's file that the base copy rewrites is written, not removed.
+  const rewritten = new Set(writes.written);
+  writes.removed = writes.removed.filter((path) => !rewritten.has(path));
+
+  const emitted: EmittedRow[] = [
+    ...plan.retired.map((name) => ({ name, removed: true as const, why: "retired" as const })),
+    ...plan.emits.map((e) => ({ name: e.name, base: plan.base!.name, files: e.files.filter((f) => f.path !== PROVENANCE_FILE).length })),
+    ...plan.kept.map((name) => ({ name, base: plan.base!.name, kept: true as const })),
+    ...plan.stale.map((s) => ({ name: s.name, removed: true as const, why: s.why })),
+  ];
+
+  return { outcomes, failures, misplaced, writes, emitted };
 }
 
 export type CompiledRow = { name: string; side: Side; files: number; warnings: string[] };
 
+export type EmittedRow =
+  | { name: string; base: string; files: number }
+  | { name: string; base: string; kept: true }
+  | { name: string; removed: true; why: "dropped" | "no-base" | "retired" };
+
 const countOf = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 
-export function compileBlocks(rows: CompiledRow[], writing: boolean): Block[] {
-  if (rows.length === 0) return [out.line("skipped", "Nothing to compile", "this pack has no verbs")];
-  return rows.flatMap((row) => [
+export function compileBlocks(rows: CompiledRow[], writing: boolean, emitted: EmittedRow[] = []): Block[] {
+  if (rows.length === 0 && emitted.length === 0) return [out.line("skipped", "Nothing to compile", "this pack has no verbs")];
+  const removedWhy = (why: "dropped" | "no-base" | "retired") =>
+    why === "dropped" ? "its base no longer has it" : why === "no-base" ? "this pack no longer extends a base" : "left by a verb this pack no longer compiles";
+  const copies = emitted.map((row) => "kept" in row
+    ? out.line("skipped", row.name, `your own copy; the one in ${row.base} is not copied`)
+    : "removed" in row
+    ? writing
+      ? out.line("done", `Removed ${row.name}`, removedWhy(row.why))
+      : out.line("pending", row.name, `would remove; ${removedWhy(row.why)}`)
+    : writing
+      ? out.line("done", `Copied ${row.name}`, `from ${row.base}, ${countOf(row.files, "file", "files")}`)
+      : out.line("pending", row.name, `would copy ${countOf(row.files, "file", "files")} from ${row.base}`));
+  return [...copies, ...rows.flatMap((row) => [
     writing
       ? out.line(row.warnings.some((w) => !w.startsWith("note: ")) ? "warn" : "done", `Compiled ${row.name}`, `${countOf(row.files, "file", "files")} in ${row.side}/`)
       : out.line("pending", row.name, `would write ${countOf(row.files, "file", "files")}`),
     // compile.ts writes its surface-internal notes with their own "note: " label.
     ...(row.warnings.length > 0 ? [out.callout("note", ...row.warnings.map((w) => w.replace(/^note: /, "")))] : []),
-  ]);
+  ])];
 }
 
 export function compileFailure(failures: string[]): out.FailureInput {
@@ -1043,14 +1105,17 @@ export async function skillsCompile(args: string[]): Promise<void> {
     const chainErrors = pipelineChainErrors(resolved);
     if (chainErrors.length > 0) throw new SkillsUsageError(chainErrors.join("\n"));
 
+    const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, flags.verbs);
+    const plan = requireBasePlan(resolved, verbSides);
+
     if (flags.preview) {
-      const { targets, verbSides, knownTargetDirs } = compileTargets(resolved, publicSet, flags.verbs);
       // Lint accepts a relative path to any KNOWN target, not only emitted ones: a
       // scoped compile still renders {{verb.path}} to siblings it is not writing.
       const emittedTargetDirs = knownTargetDirs;
+      const planned = plannedAttachmentsOf(plan);
       for (const target of targets) {
         const { verb } = target;
-        const outcome = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides);
+        const outcome = tryCompileVerb(target, resolved, emittedTargetDirs, verbSides, planned);
         if (!outcome.ok) {
           // A lint-erroring verb has no previewable body -- say so on stderr
           // and leave stdout empty rather than silently producing nothing.
@@ -1072,16 +1137,15 @@ export async function skillsCompile(args: string[]): Promise<void> {
 
     let compiledResult: ReturnType<typeof performCompile>;
     try {
-      compiledResult = performCompile(resolved, flags.verbs, !flags.dryRun);
+      compiledResult = performCompile(resolved, flags.verbs, !flags.dryRun, plan);
     } catch (err) {
       if (!(err instanceof SkillsRefusal) || !flags.json) throw err;
-      const { targets } = compileTargets(resolved, publicSet, flags.verbs);
       const shown = skillsFailure(err);
       out.note(out.line("refused", shown.title), ...(shown.why ? [out.callout("why", shown.why)] : []));
       out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written: false, verbs: targets.map(target => ({ name: target.verb.name, status: "errored", files: [], warnings: [], errors: [err.message], side: target.isPublic ? "skills" : "attachments" })), misplaced: [] });
       process.exit(2);
     }
-    const { outcomes, failures, misplaced } = compiledResult;
+    const { outcomes, failures, misplaced, emitted } = compiledResult;
     if (failures.length > 0 && !flags.json) {
       out.fail(compileFailure(failures));
       process.exit(1);
@@ -1100,7 +1164,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
       // caller reading the code (not just the payload) sees it, matching the
       // non-JSON path's exits. `written` stays honest on an empty target set.
       if (failures.length > 0 || misplaced.length > 0) process.exitCode = 1;
-      const written = writing && outcomes.length > 0;
+      const written = writing && (outcomes.length > 0 || emitted.some((row) => !("kept" in row)));
       out.json({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced });
       return;
     }
@@ -1108,7 +1172,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
     const compiled: CompiledRow[] = outcomes.flatMap(({ target, outcome }) =>
       outcome.ok ? [{ name: target.verb.name, side: target.isPublic ? ("skills" as const) : ("attachments" as const), files: outcome.result.files.length, warnings: outcome.result.warnings }] : [],
     );
-    out.print(...compileBlocks(compiled, writing));
+    out.print(...compileBlocks(compiled, writing, emitted));
 
     if (misplaced.length > 0) {
       out.fail(misplacedFailure(misplaced));
@@ -1137,8 +1201,11 @@ export async function compilePackAll(opts: { pack?: string; packDir?: string; ma
   const resolved = await resolve(parseFlags(args));
   const chainErrors = pipelineChainErrors(resolved);
   if (chainErrors.length > 0) return { ok: false, errors: chainErrors, written: [], removed: [] };
+  const publicSet = resolved.surface ? new Set(resolved.surface.public) : null;
+  const plan = basePlanFor(resolved, compileTargets(resolved, publicSet, opts.verbs ?? null).verbSides);
+  if (plan.errors.length > 0) return { ok: false, errors: plan.errors, written: [], removed: [] };
   try {
-    const { failures, misplaced, writes } = performCompile(resolved, opts.verbs ?? null, opts.write ?? true);
+    const { failures, misplaced, writes } = performCompile(resolved, opts.verbs ?? null, opts.write ?? true, plan);
     const errors = [...failures, ...misplaced.map((name) => `misplaced: ${name}`)];
     return { ok: errors.length === 0, errors, ...writes };
   } catch (err) {
@@ -1183,6 +1250,14 @@ export function installedInfoFor(
   return { plugin: self.name, marketplace, version, sourceVersion: self.version, status };
 }
 
+type AttachmentCheckRow = {
+  name: string;
+  base: string | null;
+  status: "in-sync" | "stale" | "never-compiled" | "orphaned";
+  staleFiles: string[];
+  orphanFiles: string[];
+};
+
 export type CheckPayload = {
   pack: string;
   packDir: string;
@@ -1193,7 +1268,56 @@ export type CheckPayload = {
   mcpLint: LintHit[];
   scriptLint: LintHit[];
   strictLint: boolean;
+  attachments: AttachmentCheckRow[];
+  baseErrors: string[];
+  /** Whether the pack extends a base; tells an orphan whose base dropped it from one left by a removed extends. Not part of check --json. */
+  extendsBase: boolean;
 };
+
+/** Files a run leaves beside the copy (a script's __pycache__, a git-ignored output) are not drift, matching the verb rows. */
+function leftovers(packDir: string, name: string): string[] {
+  const rel = join("attachments", name);
+  const files = listFilesRecursive(join(packDir, rel)).filter((f) => !isSkippedAttachmentPath(f));
+  const ignored = gitIgnoredFiles(packDir, files.map((f) => join(rel, f)));
+  return files.filter((f) => !ignored.has(join(rel, f))).sort();
+}
+
+function attachmentRows(packDir: string, plan: BaseAttachmentPlan): AttachmentCheckRow[] {
+  const rows: AttachmentCheckRow[] = [];
+  for (const emit of plan.emits) {
+    const dir = join(packDir, "attachments", emit.name);
+    const base = plan.base!.name;
+    if (!existsSync(dir)) {
+      rows.push({ name: emit.name, base, status: "never-compiled", staleFiles: [], orphanFiles: [] });
+      continue;
+    }
+    const staleFiles: string[] = [];
+    for (const file of emit.files) {
+      const dest = join(dir, file.path);
+      if (!existsSync(dest)) {
+        staleFiles.push(file.path);
+        continue;
+      }
+      if (file.path === PROVENANCE_FILE && "content" in file) {
+        if (maskProvenanceVersion(readFileSync(dest, "utf8")) !== maskProvenanceVersion(file.content)) staleFiles.push(file.path);
+        continue;
+      }
+      if ("content" in file) {
+        if (!readFileSync(dest).equals(Buffer.from(file.content))) staleFiles.push(file.path);
+        continue;
+      }
+      const executable = (path: string) => (statSync(path).mode & 0o111) !== 0;
+      if (!readFileSync(dest).equals(readFileSync(file.copyFrom)) || executable(dest) !== executable(file.copyFrom)) staleFiles.push(file.path);
+    }
+    const expected = new Set(emit.files.map((f) => f.path));
+    const orphanFiles = leftovers(packDir, emit.name).filter((f) => !expected.has(f));
+    rows.push({ name: emit.name, base, status: staleFiles.length > 0 || orphanFiles.length > 0 ? "stale" : "in-sync", staleFiles, orphanFiles });
+  }
+  for (const s of plan.stale) {
+    rows.push({ name: s.name, base: null, status: "orphaned", staleFiles: [], orphanFiles: leftovers(packDir, s.name) });
+  }
+  return rows;
+}
 
 async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const resolved = await resolve(flags);
@@ -1214,6 +1338,8 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   // Lint accepts a relative path to any KNOWN target, not only emitted ones: a
   // scoped compile still renders {{verb.path}} to siblings it is not writing.
   const emittedTargetDirs = knownTargetDirs;
+  const plan = basePlanFor(resolved, verbSides);
+  const planned = plannedAttachmentsOf(plan);
 
   for (const target of targets) {
     const { verb, isPublic } = target;
@@ -1226,7 +1352,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
       continue;
     }
 
-    const result = compileVerb(target, resolved, emittedTargetDirs, verbSides);
+    const result = compileVerb(target, resolved, emittedTargetDirs, verbSides, undefined, planned);
     const staleFiles: string[] = [];
     const orphanFiles: string[] = [];
     const expectedPaths = new Set(result.files.map((f) => f.path));
@@ -1285,7 +1411,11 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const scriptLint = lintPackScripts(resolved.packDir, rules);
   const strictLint = packStrictLint(resolved.packDir);
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint };
+  const baseErrors = plan.errors;
+  const attachments = flags.verbs === null && baseErrors.length === 0 ? attachmentRows(resolved.packDir, plan) : [];
+  if (baseErrors.length > 0 || attachments.some((row) => row.status !== "in-sync")) anyStale = true;
+
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, baseErrors, extendsBase: plan.base !== null };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -1325,6 +1455,22 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
       blocks.push(out.line("done", row.name, "current"));
     }
   }
+  for (const row of payload.attachments) {
+    if (row.status === "in-sync") {
+      blocks.push(out.line("done", row.name, `copied from ${row.base}, current`));
+      continue;
+    }
+    stale = true;
+    if (row.status === "never-compiled") {
+      blocks.push(out.line("stale", row.name, `not copied from ${row.base} yet`));
+    } else if (row.status === "orphaned") {
+      blocks.push(out.line("stale", row.name, payload.extendsBase ? "its base no longer has it" : "this pack no longer extends a base"));
+    } else {
+      const files = [...row.staleFiles, ...row.orphanFiles.map((f) => `${f} (orphan)`)].join(", ");
+      blocks.push(out.line("stale", row.name, `changed since the last compile: ${files}`));
+    }
+  }
+  blocks.push(...payload.baseErrors.map((baseError) => out.line("failed", baseError)));
   if (stale) blocks.push(out.callout("next", out.cmd("rt skills compile")));
   if (payload.installed) blocks.push(...installedCacheBlocks(payload.installed));
 
@@ -1355,8 +1501,8 @@ export async function skillsCheck(args: string[]): Promise<void> {
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
-      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint } = payload;
-      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint });
+      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors } = payload;
+      out.json({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint, attachments, baseErrors });
       return;
     }
     out.print(...checkBlocks(payload, flags.strict));
@@ -1771,8 +1917,9 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
       });
     }
 
+    const basePlan = requireBasePlan(resolved, plan.verbSides);
     const trace: TraceEntry[] = [];
-    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, (e) => trace.push(e));
+    const result = compileVerb(target, resolved, plan.knownTargetDirs, plan.verbSides, (e) => trace.push(e), plannedAttachmentsOf(basePlan));
     const main = result.files.find((f) => "content" in f && f.path === "SKILL.md");
     if (!main || !("content" in main) || !result.anatomy) throw new SkillsUsageError(`${skill}: produced no SKILL.md`);
     const fresh = main.content;
@@ -2182,13 +2329,10 @@ function isHandWrittenDir(dir: string): boolean {
 }
 
 function isCompiledDir(dir: string): boolean {
-  const skillMdPath = join(dir, "SKILL.md");
-  if (!existsSync(skillMdPath)) return false;
-  const { body } = stripFrontmatter(readFileSync(skillMdPath, "utf8"));
-  return body.startsWith(HEADER_COMMENT);
+  return isEmittedAttachmentDir(dir) || hasCompiledHeader(dir);
 }
 
-/** Stub verb names are always compile targets; a materialized dir carrying the compiler header is one too, even if its verb was since retired from stubs.jsonc. */
+/** Stub verb names are always compile targets; a materialized dir carrying the compiler header is one too, even if its verb was since retired from stubs.jsonc, and so is a dir carrying compile's compiled.json, a base attachment compile copied in. */
 function classify(name: string, dir: string | null, verbNames: Set<string>): "compiled" | "hand-authored" {
   if (verbNames.has(name)) return "compiled";
   if (dir && isCompiledDir(dir)) return "compiled";

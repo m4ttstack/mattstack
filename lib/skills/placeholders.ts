@@ -1,6 +1,6 @@
 import { existsSync, statSync } from "fs";
-import { join } from "path";
-import type { AttachmentSource, PlaceholderContext, StageEntry } from "./types.ts";
+import { join, posix } from "path";
+import type { AttachmentSource, PlaceholderContext, PlannedAttachments, Side, StageEntry } from "./types.ts";
 
 export type Placeholder = { kind: string; arg: string | null; line: number; raw: string };
 
@@ -91,6 +91,41 @@ export function substituteIncludesOnly(body: string, ctx: PlaceholderContext, wh
   return { body: out.join("\n"), packPaths };
 }
 
+export type AttachmentRenderOpts = {
+  packName: string;
+  fileRel: string;
+  verbSides: Record<string, Side>;
+  packRoot: string;
+  plannedAttachments?: PlannedAttachments;
+  where: string;
+};
+
+/**
+ * An emitted base attachment is read as a plain file, so it gets only what
+ * makes sense outside a compiled verb; every other brace passes through so
+ * template examples in the text survive.
+ */
+export function substituteAttachmentPlaceholders(body: string, opts: AttachmentRenderOpts): string {
+  const { where } = opts;
+  return body.replace(PLACEHOLDER_RE, (raw, kind: string, arg?: string) => {
+    switch (kind) {
+      case "pack.name":
+        if (arg !== undefined) throw new Error(`${where}: ${raw} -- pack.name takes no argument`);
+        return opts.packName;
+      case "verb.path": {
+        if (arg === undefined || !VERB_NAME_RE.test(arg)) throw new Error(`${where}: ${raw} -- verb name must match [a-z][a-z0-9-]*`);
+        const side = opts.verbSides[arg];
+        if (!side) throw new Error(`${where}: ${raw} -- ${arg} is not a compiled verb of this pack`);
+        return posix.relative(posix.dirname(opts.fileRel), `${side}/${arg}/SKILL.md`);
+      }
+      case "pack.path":
+        return packPath(opts, arg, raw, where);
+      default:
+        return raw;
+    }
+  });
+}
+
 function workTypeText(pipelines: Record<string, StageEntry[]>, where: string): string {
   const types = Object.keys(pipelines);
   if (types.length === 0) throw new Error(`${where}: {{work-type}} cannot be filled -- the manifest declares no pipelines`);
@@ -134,14 +169,33 @@ function isDirectory(path: string): boolean {
   }
 }
 
+type PackPathView = Pick<PlaceholderContext, "verbSides" | "packRoot" | "plannedAttachments">;
+
+/**
+ * An emitted unit one group deep is planned as <group>/<name>, so its files
+ * are named past one more segment of <file>. A flat unit planned for removal
+ * (an empty set) yields to a grouped unit at the same group, which is what a
+ * base that turned the flat folder into a group leaves behind.
+ */
+function plannedUnit(plan: PlannedAttachments | undefined, attachment: string, file: string): { unit: string; unitFile: string; planned: ReadonlySet<string> | undefined } {
+  const flat = plan?.get(attachment);
+  if (flat && flat.size > 0) return { unit: attachment, unitFile: file, planned: flat };
+  const slash = file.indexOf("/");
+  const grouped = slash > 0 ? plan?.get(`${attachment}/${file.slice(0, slash)}`) : undefined;
+  if (grouped) return { unit: `${attachment}/${file.slice(0, slash)}`, unitFile: file.slice(slash + 1), planned: grouped };
+  return { unit: attachment, unitFile: file, planned: flat };
+}
+
 /**
  * Anchored on the invoking skill's dir rather than this file's, so the same
  * text works inside a shell command from any public skill in the pack. A
  * compiled target's output is written only after every target compiles, so
  * naming one would pass the existence check on a recompile and fail on a
- * clean one; only pack-authored source is addressable.
+ * clean one. Pack-authored source is addressable, and so are the base
+ * attachments compile emits: they are planned before any target compiles,
+ * and for those names the plan, not the disk, says what will exist.
  */
-function packPath(ctx: PlaceholderContext, arg: string | undefined, raw: string, where: string): string {
+function packPath(view: PackPathView, arg: string | undefined, raw: string, where: string): string {
   const slash = arg?.indexOf("/") ?? -1;
   if (!arg || slash <= 0 || slash === arg.length - 1) throw new Error(`${where}: ${raw} -- pack.path takes <attachment>/<file>`);
   const attachment = arg.slice(0, slash);
@@ -150,15 +204,18 @@ function packPath(ctx: PlaceholderContext, arg: string | undefined, raw: string,
   if (file.split("/").some((s) => s === "" || s === "." || s === "..")) {
     throw new Error(`${where}: ${raw} -- <file> may not contain "..", "." or empty segments`);
   }
-  if (attachment in ctx.verbSides) throw new Error(`${where}: ${raw} -- ${attachment} is a compiled verb; pack.path names source files only`);
-  const packRoot = ctx.packRoot;
+  if (attachment in view.verbSides) throw new Error(`${where}: ${raw} -- ${attachment} is a compiled verb; pack.path names source files only`);
+  const packRoot = view.packRoot;
   if (!packRoot) throw new Error(`${where}: ${raw} -- pack.path needs a pack root`);
-  const sides = (["attachments", "skills"] as const).filter((side) => isDirectory(join(packRoot, side, attachment)));
-  if (sides.length === 2) throw new Error(`${where}: ${raw} -- ${attachment} exists under both attachments/ and skills/`);
-  const side = sides[0];
-  if (!side) throw new Error(`${where}: ${raw} -- ${attachment} is not a directory under attachments/ or skills/`);
+  const { unit, unitFile, planned } = plannedUnit(view.plannedAttachments, attachment, file);
+  const onAttachments = planned ? planned.size > 0 : isDirectory(join(packRoot, "attachments", unit));
+  const onSkills = isDirectory(join(packRoot, "skills", unit));
+  if (onAttachments && onSkills) throw new Error(`${where}: ${raw} -- ${unit} exists under both attachments/ and skills/`);
+  const side = onAttachments ? "attachments" : onSkills ? "skills" : null;
+  if (!side) throw new Error(`${where}: ${raw} -- ${unit} is not a directory under attachments/ or skills/`);
   const rel = `${side}/${attachment}/${file}`;
-  if (!existsSync(join(packRoot, rel))) throw new Error(`${where}: ${raw} -- ${rel} does not exist`);
+  const exists = side === "attachments" && planned ? planned.has(unitFile) : existsSync(join(packRoot, rel));
+  if (!exists) throw new Error(`${where}: ${raw} -- ${rel} does not exist`);
   return `${SKILL_DIR_TOKEN}/../../${rel}`;
 }
 

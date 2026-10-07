@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
-import { checkBlocks, compositionBlocks, installedCacheBlocks, materializeBlocks, packsBlocks, type CheckPayload, type CompositionPayload } from "../skills.ts";
+import { checkBlocks, compileBlocks, compositionBlocks, installedCacheBlocks, materializeBlocks, packsBlocks, type CheckPayload, type CompositionPayload } from "../skills.ts";
 
-const base: CheckPayload = { pack: "acme", packDir: "/p", verbs: [], chainErrors: [], installed: null, drift: false, mcpLint: [], scriptLint: [], strictLint: false };
+const base: CheckPayload = { pack: "acme", packDir: "/p", verbs: [], chainErrors: [], installed: null, drift: false, mcpLint: [], scriptLint: [], strictLint: false, attachments: [], baseErrors: [], extendsBase: true };
 
 test("check lists each verb, names what moved, and gives the fix once", () => {
   const payload: CheckPayload = {
@@ -31,9 +31,54 @@ test("check lists each verb, names what moved, and gives the fix once", () => {
   );
 });
 
+test("check shows one line per attachment row and names why an orphan is stale", () => {
+  const row = { base: "acme-base", staleFiles: [] as string[], orphanFiles: [] as string[] };
+  const payload: CheckPayload = {
+    ...base,
+    drift: true,
+    attachments: [
+      { ...row, name: "current-kit", status: "in-sync" },
+      { ...row, name: "changed-kit", status: "stale", staleFiles: ["SKILL.md"], orphanFiles: ["old.md"] },
+      { ...row, name: "new-kit", status: "never-compiled" },
+      { ...row, name: "dropped-kit", base: null, status: "orphaned", orphanFiles: ["SKILL.md"] },
+    ],
+  };
+  expect(renderPlain(checkBlocks(payload, false))).toBe(
+    [
+      "[ok] current-kit  copied from acme-base, current",
+      "[out of date] changed-kit  changed since the last compile: SKILL.md, old.md (orphan)",
+      "[out of date] new-kit  not copied from acme-base yet",
+      "[out of date] dropped-kit  its base no longer has it",
+      "  next: rt skills compile",
+      "[ok] mcp lint  clean",
+      "",
+    ].join("\n"),
+  );
+
+  const unextended: CheckPayload = { ...base, drift: true, extendsBase: false, attachments: [{ ...row, name: "left-kit", base: null, status: "orphaned", orphanFiles: ["SKILL.md"] }] };
+  expect(renderPlain(checkBlocks(unextended, false))).toContain("[out of date] left-kit  this pack no longer extends a base\n");
+});
+
 test("a chain error is a failed line", () => {
   expect(renderPlain(checkBlocks({ ...base, chainErrors: ['stage "stage-ship" consumes "commits" that no earlier stage produces'] }, false))).toBe(
     '[failed] stage "stage-ship" consumes "commits" that no earlier stage produces\n[ok] mcp lint  clean\n',
+  );
+});
+
+test("a base plan error is a failed line where the attachment rows go, with no compile hint", () => {
+  const payload: CheckPayload = {
+    ...base,
+    drift: true,
+    verbs: [{ name: "watch-ci", status: "in-sync", staleFiles: [], orphanFiles: [], side: "skills" }],
+    baseErrors: ["widgets extends gadgets-base, but the org has no base pack called gadgets-base"],
+  };
+  expect(renderPlain(checkBlocks(payload, false))).toBe(
+    [
+      "[ok] watch-ci  current",
+      "[failed] widgets extends gadgets-base, but the org has no base pack called gadgets-base",
+      "[ok] mcp lint  clean",
+      "",
+    ].join("\n"),
   );
 });
 
@@ -116,5 +161,38 @@ test("materialize rows: written, nothing declared, failed, and a skip", () => {
   );
   expect(renderPlain(materializeBlocks({ skipped: true, reason: "engine-pack-missing: install the mattstack plugin first", repos: [] }))).toBe(
     "[skipped] Nothing was written  engine-pack-missing: install the mattstack plugin first\n",
+  );
+});
+
+test("compile names a team's own copy that shadows a base attachment", () => {
+  expect(renderPlain(compileBlocks([], true, [{ name: "review-kit", base: "acme-base", kept: true }]))).toBe(
+    "[skipped] review-kit  your own copy; the one in acme-base is not copied\n",
+  );
+  expect(renderPlain(compileBlocks([], false, [{ name: "review-kit", base: "acme-base", kept: true }]))).toBe(
+    "[skipped] review-kit  your own copy; the one in acme-base is not copied\n",
+  );
+});
+
+test("a dry run says why it would remove an emitted folder", () => {
+  const rows = [
+    { name: "old-kit", removed: true as const, why: "dropped" as const },
+    { name: "left-kit", removed: true as const, why: "no-base" as const },
+    { name: "review-kit", removed: true as const, why: "retired" as const },
+  ];
+  expect(renderPlain(compileBlocks([], false, rows))).toBe(
+    [
+      "[not yet] old-kit  would remove; its base no longer has it",
+      "[not yet] left-kit  would remove; this pack no longer extends a base",
+      "[not yet] review-kit  would remove; left by a verb this pack no longer compiles",
+      "",
+    ].join("\n"),
+  );
+  expect(renderPlain(compileBlocks([], true, rows))).toBe(
+    [
+      "[ok] Removed old-kit  its base no longer has it",
+      "[ok] Removed left-kit  this pack no longer extends a base",
+      "[ok] Removed review-kit  left by a verb this pack no longer compiles",
+      "",
+    ].join("\n"),
   );
 });

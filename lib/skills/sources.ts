@@ -205,7 +205,7 @@ export function listFilesUnder(dir: string, exclude: Set<string>): string[] {
   return out.sort();
 }
 
-function listDirs(dir: string): string[] {
+export function listDirs(dir: string): string[] {
   try {
     return readdirSync(dir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
@@ -216,7 +216,7 @@ function listDirs(dir: string): string[] {
   }
 }
 
-function readJsoncObject(path: string): Record<string, unknown> | null {
+export function readJsoncObject(path: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(stripJsonc(readFileSync(path, "utf8")));
     return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;

@@ -41,6 +41,8 @@ export type StageEntry = {
   name: string; stage: string; dir: string; consumes: string[]; produces: string[];
 };
 
+export type PlannedAttachments = ReadonlyMap<string, ReadonlySet<string>>;
+
 export type PlaceholderContext = {
   fills: Record<string, AttachmentSource | null>;
   slotMode: Record<string, "inline" | "reference">;
@@ -57,4 +59,5 @@ export type PlaceholderContext = {
   verbSides: Record<string, Side>;
   side: Side;
   packRoot: string | null;
+  plannedAttachments?: PlannedAttachments;
 };
