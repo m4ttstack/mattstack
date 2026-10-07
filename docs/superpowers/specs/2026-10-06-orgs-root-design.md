@@ -188,10 +188,16 @@ For each marked clone under `orgsDir()` and under `legacyTeamsDir()`:
 6. **Move the folder**: rename the clone to `orgs/<org>`. Done when the
    clone already sits there. Once it sits there, and after the relocation
    below, remove `rt/teams/<folder>.json` and `rt/invites/<folder>.json`
-   for the old name; an old-name record with no folder beside it is
-   removed on any later run too.
-7. **Repo index**: relocate the clone with no `repo` argument, so the
-   identity row finds the moved clone and `repos.json`, `cd-cache.json`,
+   for the old name. The copy writes `movedFrom: <folder>` into
+   `<org>.json`, cleared once the old records are gone, and a later run
+   removes only an old-name record that a `movedFrom` names and that has
+   no folder beside it; a record with no folder and no `movedFrom` is left
+   alone, because `rt team join` writes its record before it clones.
+7. **Repo index**: relocate the clone by its own identity (the
+   serialized identity derived from the clone), never unscoped: an
+   unscoped locate fails when any other repo rt knows is missing, or when
+   the clone has no origin yet. The identity row finds the moved clone and
+   `repos.json`, `cd-cache.json`,
    the `repo-index` kv and `git_badges` follow. Inside `org:move` this is
    `planLocate` and `applyLocate` called directly, with the
    `refreshWatchedRepos` and the event the `repos:locate` handler emits;
@@ -213,11 +219,15 @@ For each marked clone under `orgsDir()` and under `legacyTeamsDir()`:
    installed from it and whether each is enabled, then `claude plugin
    marketplace remove <name>`, `add <current folder>` and `claude plugin
    install <plugin>@<name>` for each one, restoring its enabled state.
-   Removing a marketplace is believed to uninstall its plugins, and the
+   Removing a marketplace uninstalls its plugins (verified), and the
    plugins step under `update` leaves a plugin alone once it has gone
-   missing, so the reinstall is this step's job; the plan verifies the
-   CLI's behaviour first. Rewrite the matching `marketplaces[]` entry in
-   `setup-state.json`.
+   missing, so the reinstall is this step's job. Before the remove, the
+   step writes a pending record to `setup-state.json` (marketplace name,
+   clone folder, config dir, each plugin's id, scope and enabled state);
+   any run that finds a pending record whose marketplace is not registered
+   adds it and reinstalls from that record, and the record is cleared on
+   success, so a run halted between remove and add finishes at the next
+   one. Rewrite the matching `marketplaces[]` entry in `setup-state.json`.
 9. **Secrets**: the sops rules are clone-relative; nothing moves.
 
 The outcomes combine into one: `done` when every piece matched or every
