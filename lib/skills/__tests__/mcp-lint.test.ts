@@ -5,6 +5,7 @@ import { join } from "path";
 import { listAgentSafe } from "../../command-tree-resolve.ts";
 import { TREE } from "../../command-tree-def.ts";
 import { mcpTools } from "../../mcp/tools.ts";
+import { PROVENANCE_FILE } from "../base-attachments.ts";
 import { HEADER_COMMENT } from "../compile.ts";
 import { commandPattern, deriveRules, formatHit, KEPT_ON_BASH, lintedMarkdownFiles, lintPackDir, lintPackScripts, lintScriptText, lintSkillText, pickRule, SCRIPT_ONLY_RULES } from "../mcp-lint.ts";
 
@@ -272,6 +273,26 @@ describe("lintPackDir on disk", () => {
       writeFileSync(join(pack, "skills", "other", "SKILL.md"), "`git push`\n");
       expect(lintPackDir(pack, RULES).map((h) => h.file)).toEqual([join(pack, "skills", "other", "SKILL.md")]);
       expect(lintedMarkdownFiles(pack)).toEqual([join(pack, "skills", "other", "SKILL.md")]);
+    } finally {
+      rmSync(pack, { recursive: true, force: true });
+    }
+  });
+
+  test("a folder carrying compiled.json is compiled output and skipped whole", () => {
+    const pack = mkdtempSync(join(tmpdir(), "rt-mcp-lint-emitted-"));
+    try {
+      mkdirSync(join(pack, "attachments", "review-kit", "references"), { recursive: true });
+      mkdirSync(join(pack, "attachments", "own"), { recursive: true });
+      writeFileSync(join(pack, "attachments", "review-kit", "compiled.json"), JSON.stringify({ base: "acme-base", version: null, files: [] }));
+      mkdirSync(join(pack, "attachments", "data"), { recursive: true });
+      writeFileSync(join(pack, "attachments", "data", "compiled.json"), "{\"rows\": []}\n");
+      writeFileSync(join(pack, "attachments", "data", "SKILL.md"), "`git push`\n");
+      writeFileSync(join(pack, "attachments", "review-kit", "SKILL.md"), "`git push`\n");
+      writeFileSync(join(pack, "attachments", "review-kit", "references", "x.md"), "`git push -u`\n");
+      writeFileSync(join(pack, "attachments", "review-kit", "run.sh"), "git push\n");
+      writeFileSync(join(pack, "attachments", "own", "SKILL.md"), "`git push`\n");
+      expect(lintPackDir(pack, RULES).map((h) => h.file)).toEqual([join(pack, "attachments", "data", "SKILL.md"), join(pack, "attachments", "own", "SKILL.md")]);
+      expect(lintPackScripts(pack, RULES)).toEqual([]);
     } finally {
       rmSync(pack, { recursive: true, force: true });
     }

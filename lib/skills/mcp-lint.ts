@@ -1,6 +1,7 @@
 import { lstatSync, readdirSync, readFileSync } from "fs";
 import { join, sep } from "path";
 import type { ShellForms } from "../mcp/shared.ts";
+import { isEmittedAttachmentText, PROVENANCE_FILE } from "./base-attachments.ts";
 import { HEADER_COMMENT } from "./compile.ts";
 
 export interface LintRule { id: string; pattern: RegExp; tool: string | null; note?: string; example: string; source: "tool" | "leaf" | "script" }
@@ -154,7 +155,8 @@ const DISK: LintDeps = { list: walkLintedRoots, read: readOrNull };
 /** Compiled output is skipped: its sources are linted already, and a hit there
     would point the author at a generated file the next compile rewrites. A
     compiled verb dir also holds vendored files that carry no header, so the
-    header on its SKILL.md marks the whole subtree as output. */
+    header on its SKILL.md marks the whole subtree as output. A folder carrying
+    compiled.json (an emitted base attachment) is output the same way. */
 function lintedSources(dir: string, deps: LintDeps, exts: readonly string[]): Array<{ path: string; text: string }> {
   const roots = LINTED_ROOTS.map((r) => join(dir, r) + sep);
   const texts = new Map<string, string | null>();
@@ -162,15 +164,16 @@ function lintedSources(dir: string, deps: LintDeps, exts: readonly string[]): Ar
     if (!texts.has(path)) texts.set(path, deps.read(path));
     return texts.get(path)!;
   };
-  const compiledVerbDir = (path: string): boolean => {
+  const compiledDir = (path: string): boolean => {
     const root = roots.find((r) => path.startsWith(r))!;
     const segments = path.slice(root.length).split(sep);
     if (segments.length < 2) return false;
-    return read(join(root, segments[0]!, "SKILL.md"))?.includes(HEADER_COMMENT) ?? false;
+    const dir = join(root, segments[0]!);
+    return isEmittedAttachmentText(read(join(dir, PROVENANCE_FILE))) || (read(join(dir, "SKILL.md"))?.includes(HEADER_COMMENT) ?? false);
   };
   const out: Array<{ path: string; text: string }> = [];
   for (const path of deps.list(dir).filter((p) => exts.some((e) => p.endsWith(e)) && roots.some((r) => p.startsWith(r))).sort()) {
-    if (compiledVerbDir(path)) continue;
+    if (compiledDir(path)) continue;
     const text = read(path);
     if (text !== null && !text.includes(HEADER_COMMENT)) out.push({ path, text });
   }
