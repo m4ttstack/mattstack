@@ -144,7 +144,6 @@ const KIND_BADGE: Record<
   missing: { label: 'missing', color: 'bad' },
 };
 
-const BASE_BADGE_COLOR = 'gray';
 const BASE_LOCK_LABEL =
   'The org base pack decides. Verbs read it from attachments/, so it stays internal.';
 
@@ -228,16 +227,14 @@ function SurfaceGridRow({
   const { bg, text, border } = useSchemeColors();
   const editorHref = useEditorHref();
   const staged = next !== row.status;
-  const badge =
-    row.base !== undefined
-      ? { label: `from ${row.base}`, color: BASE_BADGE_COLOR }
-      : KIND_BADGE[row.kind];
+  const locked = row.base !== undefined;
+  const badge = KIND_BADGE[row.kind];
   const toggle = (
     <Switch
       checked={next === 'public'}
       onChange={() => onToggle(row.name)}
       aria-label={row.name}
-      disabled={row.base !== undefined}
+      disabled={locked}
       size="sm"
     />
   );
@@ -257,7 +254,7 @@ function SurfaceGridRow({
       }}
       data-testid={`surface-row-${row.name}`}
     >
-      {row.base !== undefined ? (
+      {locked ? (
         <Tooltip label={BASE_LOCK_LABEL} openDelay={300}>
           <span
             data-testid={`surface-lock-${row.name}`}
@@ -272,14 +269,25 @@ function SurfaceGridRow({
       <Text size="sm" fw={600} style={{ flex: 'none' }}>
         {row.name}
       </Text>
-      <Badge
-        size="xs"
-        variant="light"
-        color={badge.color}
-        style={{ flex: 'none' }}
-      >
-        {badge.label}
-      </Badge>
+      {locked ? (
+        <Badge
+          size="xs"
+          variant="default"
+          c={text.muted}
+          style={{ flex: 'none' }}
+        >
+          from {row.base}
+        </Badge>
+      ) : (
+        <Badge
+          size="xs"
+          variant="light"
+          color={badge.color}
+          style={{ flex: 'none' }}
+        >
+          {badge.label}
+        </Badge>
+      )}
       <div style={{ flex: 1, minWidth: 0 }} />
       {staged ? (
         <Text
