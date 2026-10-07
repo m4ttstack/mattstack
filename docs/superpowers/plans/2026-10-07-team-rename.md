@@ -31,7 +31,7 @@
 2. A push that fails after the marker commit: the rename must not half-happen; the commit is undone (`git reset --keep HEAD~1`), the marker reads the old name and the clone is clean. (Task 2)
 3. A trial branch the remote has never seen: that is not "behind"; the rename publishes and creates the branch there, leaving `main` untouched. (Task 2)
 4. A name with capitals or spaces (`Acme Labs`): refused as a bad name before anything is written or committed. (Task 1)
-5. A converge that fails or ends `partial` after a successful publish: the rename still succeeded; exit 0, `converged: false`, and a person sees the converge detail and `rt setup update --force`. (Task 3)
+5. A converge that fails, throws, or ends `partial` after a successful publish: the rename still succeeded; exit 0, `converged: false`, and a person sees the converge detail and `rt setup update --force`. (Task 3)
 
 ---
 
@@ -340,7 +340,7 @@ Behaviour after `prepare`:
 1. `assertMayWrite(p, from, MARKER_RELATIVE)`; write the marker with `applyEdits(text, modify(text, ["org"], to, { formattingOptions: { insertSpaces: true, tabSize: 2 } }))`.
 2. `commitFiles(p, from, [MARKER_RELATIVE], \`org: rename to ${to}\`)`. When it throws, restore the marker text and rethrow. When it returns `false` (nothing staged), restore the marker text and throw `UserActionableError("rename-commit-failed", "rt could not commit the new name")`, so the reset below can never undo a commit the rename did not make.
 3. `publishTeam(p, from, null, { token, tokenRemote: remote })`. When it throws: `git reset -q --keep HEAD~1` in `dir`; if that reset exits non-zero throw `UserActionableError("rename-undo-failed", "rt could not undo the rename after the push failed", {}, { why: "Your copy of the org has a rename commit the org repo does not have.", next: \`git -C ${shellQuote(dir)} reset --keep HEAD~1\`, log: <the publish error's message> })`. When the reset worked and the publish error's code is `org-moved` (its `thenRun` names `rt team publish`, which after the reset would publish nothing), throw the `org-behind` error from Task 1 (`next: rt team pull --team <from>`, `thenRun: rt team rename <to>`, `log`: the publish error's message). Rethrow every other publish error as is.
-4. `const outcome = await seams.converge(p)`; return `{ from, to, converged: outcome.state === "done", ...(outcome.state !== "done" && outcome.detail ? { convergeDetail: outcome.detail } : {}), ...(outcome.state !== "done" && outcome.remedy ? { convergeRemedy: outcome.remedy } : {}) }`.
+4. `const outcome = await convergeSafely(p, seams)`, where a throw from the seam (a daemon rt cannot reach, a locate that throws) becomes `{ state: "failed", detail: err.message, remedy: "Run rt setup update --force" }` after `logFailureDetail(err)` for a `UserActionableError`: the rename already happened, so it must still report success with `converged: false`. Return `{ from, to, converged: outcome.state === "done", ...(outcome.state !== "done" && outcome.detail ? { convergeDetail: outcome.detail } : {}), ...(outcome.state !== "done" && outcome.remedy ? { convergeRemedy: outcome.remedy } : {}) }`.
 
 - [ ] **Step 1: Write the failing tests** (append to `rename.test.ts`)
 
@@ -387,6 +387,13 @@ describe("renameOrg", () => {
     expect(w.atOrigin("log", "-1", "--format=%s", "main").trim()).toBe("org: rename to gadgets");
   });
 
+  test("a converge that throws still reports the published rename", async () => {
+    const w = orgWorld();
+    const result = await renameOrg(w.p, "acme", "gadgets", { forgeToken: async () => null, converge: async () => { throw new Error("the daemon went away"); } });
+    expect(result).toMatchObject({ from: "acme", to: "gadgets", converged: false, convergeDetail: "the daemon went away" });
+    expect(w.atOrigin("show", "main:mattstack/mattstack.jsonc")).toContain(`"org": "gadgets"`);
+  });
+
   test("a marker with comments keeps them", async () => {
     const w = orgWorld();
     writeFileSync(join(w.root, "mattstack", "mattstack.jsonc"), `// the org marker\n{\n  "role": "org",\n  "org": "acme"\n}\n`);
@@ -407,9 +414,18 @@ Expected: the five new tests FAIL with `not yet`; Task 1's still pass.
 
 - [ ] **Step 3: Implement the tail**
 
-Add imports `applyEdits, modify` (beside `parse`), `commitFiles` from `./create.ts`, `publishTeam` from `./publish.ts`, `assertMayWrite` from `./roles.ts`, and replace `renameOrg`:
+Change the errors import to `import { UserActionableError, logFailureDetail } from "../errors.ts";`. Add imports `applyEdits, modify` (beside `parse`), `commitFiles` from `./create.ts`, `publishTeam` from `./publish.ts`, `assertMayWrite` from `./roles.ts`, and replace `renameOrg`:
 
 ```ts
+async function convergeSafely(p: Probes, seams: RenameSeams): Promise<ConvergeOutcome> {
+  try {
+    return await seams.converge(p);
+  } catch (err) {
+    if (err instanceof UserActionableError) logFailureDetail(err);
+    return { state: "failed", detail: err instanceof Error ? err.message : String(err), remedy: "Run rt setup update --force" };
+  }
+}
+
 export async function renameOrg(p: Probes, from: string, to: string, seams: RenameSeams): Promise<RenameResult> {
   const { dir, remote, token, markerText } = await prepare(p, from, to, seams);
   const markerPath = join(dir, MARKER_RELATIVE);
@@ -440,7 +456,7 @@ export async function renameOrg(p: Probes, from: string, to: string, seams: Rena
     if (err instanceof UserActionableError && err.code === "org-moved") throw behindError(from, to, err.message);
     throw err;
   }
-  const outcome = await seams.converge(p);
+  const outcome = await convergeSafely(p, seams);
   const done = outcome.state === "done";
   return {
     from,
@@ -457,7 +473,7 @@ export async function renameOrg(p: Probes, from: string, to: string, seams: Rena
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `bun test lib/team/__tests__/rename.test.ts`
-Expected: PASS (15 tests).
+Expected: PASS (16 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -485,7 +501,7 @@ Until Task 4, the real `converge` seam is a placeholder in `commands/team.ts`:
 ```ts
 /** Replaced by the converge step once it lands; until then this Mac's folder moves at its next update. */
 async function convergeLater(): Promise<ConvergeOutcome> {
-  return { state: "skipped", detail: "This Mac's folder moves at its next update", remedy: "rt setup update --force" };
+  return { state: "skipped", detail: "This Mac's folder moves at its next update" };
 }
 ```
 
