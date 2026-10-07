@@ -116,7 +116,7 @@ The org's name is what its repo says it is, not the folder on any one Mac. An ad
 rt team rename gadgets
 ```
 
-The rename refuses when your clone has uncommitted changes or is behind the org repo, the same as `rt team publish`. It commits the new name on the branch your clone has checked out, pushes it, and moves your own folder to `~/.mattstack/orgs/<new name>/` right away. Team folders, packs and the marketplace's name stay as they were.
+The rename refuses when your clone has uncommitted changes to tracked files or is behind the org repo, the same as `rt team publish`. It commits the new name on the branch your clone has checked out, pushes it, and moves your own folder to `~/.mattstack/orgs/<new name>/` right away. Team folders, packs and the marketplace's name stay as they were.
 
 Each member's Mac follows at its next setup check after an app update. To follow now, run:
 
@@ -128,7 +128,7 @@ Until then their clone keeps the old folder name and everything keeps working. T
 
 ### Moving from the old folder
 
-Older versions of mattstack kept the org under `~/.mattstack/teams/<org>/`. The first setup check after an update moves it to `~/.mattstack/orgs/<org>/`, along with rt's record of it, the repo list and the Claude marketplace that serves your packs. Nothing in the org repo changes. When the move cannot run (uncommitted changes in the clone, a rebase in progress), the setup check's notification and the output of `rt setup update --force` say what is in the way, while the **Org folder** row only says the folder has not moved yet. Fix it and run `rt setup update --force`.
+Older versions of mattstack kept the org under `~/.mattstack/teams/<org>/`. The first setup check after an update moves it to `~/.mattstack/orgs/<org>/`, along with rt's record of it, the repo list and the Claude marketplace that serves your packs. Nothing in the org repo changes. When the move cannot run (uncommitted changes to tracked files in the clone, a rebase in progress; untracked files move with the folder), the setup check's notification and the output of `rt setup update --force` say what is in the way, while the **Org folder** row only says the folder has not moved yet. Fix it and run `rt setup update --force`.
 
 ## Forge grants
 

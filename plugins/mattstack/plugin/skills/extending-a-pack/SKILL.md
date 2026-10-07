@@ -347,7 +347,8 @@ it into the team pack. When a team pack `extends` a base, each compile:
   plugin name (`{{pack.name}}:watch-ci` becomes `widgets:watch-ci`), plus
   `{{verb.path:<verb>}}` and `{{pack.path:<attachment>/<file>}}` as in a
   fill; any other `{{...}}` and every non-`.md` file copies as written;
-- leaves a team's own `attachments/<name>/` (no `compiled.json`) alone and
+- leaves a team's own `attachments/<name>/` (no `compiled.json` in
+  compile's shape) alone and
   copies nothing for that name: to override a base attachment, delete the
   copied folder and author the team's own in its place;
 - refuses a base attachment named like a team verb, a hand-written team
@@ -355,8 +356,9 @@ it into the team pack. When a team pack `extends` a base, each compile:
 - removes a copied folder whose base attachment is gone, or every copied
   folder once the pack stops extending a base.
 
-Edit the base's attachment, never the copy, then bump the base and
-compile each team pack.
+A compile with any failing verb writes and removes nothing, copies
+included. Edit the base's attachment, never the copy, then bump the base
+and compile each team pack.
 
 ## Publish
 
