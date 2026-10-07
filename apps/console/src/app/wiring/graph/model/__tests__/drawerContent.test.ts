@@ -393,6 +393,110 @@ describe('an input card (drawer-input-card)', () => {
   });
 });
 
+describe('an input card for a fill from the org base', () => {
+  const baseView = (baseVersion: string | null) => {
+    const baseComposition = JSON.parse(
+      JSON.stringify(composition)
+        .replaceAll('"acme:plan-policy-lite"', '"acme-base:plan-policy"')
+        .replaceAll('"acme:plan-policy"', '"acme-base:plan-policy"')
+    ) as typeof composition;
+    const anatomy = {
+      ...anatomyPlan,
+      parts: anatomyPlan.parts.map(part =>
+        part.name === 'domain'
+          ? {
+              ...part,
+              source: {
+                ref: 'acme-base:plan-policy',
+                path: '/fixture/orgs/acme/base/attachments/plan-policy/SKILL.md',
+                version: 'org',
+                builtVersion: 'org',
+                lines: 80,
+                origin: 'base' as const,
+                base: 'acme-base',
+                baseVersion,
+              },
+            }
+          : part
+      ),
+    };
+    const view = buildTemplateView({
+      anatomy,
+      composition: baseComposition,
+      check,
+      changes: undefined,
+      step: 2,
+    });
+    return drawerContent(
+      parseTarget('input:slot:domain')!,
+      view,
+      anatomy,
+      null
+    )!;
+  };
+
+  it('words it as a base pack, read only here', () => {
+    const content = baseView('0.1.0');
+    expect(content.meta).toBe(
+      'acme-base 0.1.0 · org base pack, read only here'
+    );
+    expect(content.sentence).toBe(
+      "From the org's acme-base base pack. 2 skills in this pack use it."
+    );
+    expect(content.badge).toBe('partial');
+    expect(content.usedBy).toMatchObject({
+      kind: 'fill',
+      owner: { kind: 'base', name: 'acme-base', version: '0.1.0' },
+    });
+  });
+
+  it('never prints the org token as a version', () => {
+    const content = baseView(null);
+    expect(content.meta).toBe('acme-base · org base pack, read only here');
+    expect(JSON.stringify(content)).not.toMatch(/acme-base org\b/);
+    expect(JSON.stringify(content)).not.toMatch(/org ·/);
+  });
+
+  it('adds where a team-pack copy comes from when the ref belongs to this pack', () => {
+    const anatomy = {
+      ...anatomyPlan,
+      parts: anatomyPlan.parts.map(part =>
+        part.name === 'domain'
+          ? {
+              ...part,
+              source: {
+                ...part.source!,
+                origin: 'base' as const,
+                base: 'acme-base',
+                baseVersion: '0.1.0',
+              },
+            }
+          : part
+      ),
+    };
+    const view = buildTemplateView({
+      anatomy,
+      composition,
+      check,
+      changes: undefined,
+      step: 2,
+    });
+    const content = drawerContent(
+      parseTarget('input:slot:domain')!,
+      view,
+      anatomy,
+      null
+    )!;
+    expect(content.badge).toBe('partial');
+    expect(content.sentence).toBe(
+      "From the org's acme-base base pack. 1 skill in this pack uses it. Compile copies it from the org's acme-base base pack and rewrites it on every compile; edit it there."
+    );
+    expect(view.inputs.find(card => card.id === 'slot:domain')!.subtitle).toBe(
+      'acme-base · org base · picked by this pack'
+    );
+  });
+});
+
 describe('the output card (drawer-history)', () => {
   it('reads as the board does when in sync', () => {
     expect(plan('output')).toMatchObject({

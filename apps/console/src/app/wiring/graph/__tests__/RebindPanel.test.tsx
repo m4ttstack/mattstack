@@ -240,6 +240,36 @@ describe('RebindPanel', () => {
     ]);
   });
 
+  it('calls a fill from the org base an org base, in the list and as the current fill', async () => {
+    const composition = designFixture('composition');
+    composition.fills = composition.fills.map(fill =>
+      fill.binding === 'acme:plan-policy' || fill.binding === STRICT
+        ? {
+            ...fill,
+            origin: 'base' as const,
+            base: 'acme-base',
+            baseVersion: '0.1.0',
+          }
+        : fill
+    );
+    compositionGet.mockImplementation(() => Promise.resolve(ok(composition)));
+    renderAt(REBIND);
+    const root = await openPicker();
+
+    expect(
+      within(root)
+        .getAllByRole('option')
+        .map(option => option.textContent)
+    ).toEqual([
+      'plan-policyacme-base · org base · bound here now',
+      'plan-policy-strictacme-base · org base · bound nowhere',
+      'plan-policy-liteacme · bound by 1 other skill',
+    ]);
+    expect(within(root).getByTestId('rebind-current')).toHaveTextContent(
+      'plan-policyacme-base · org base · now'
+    );
+  });
+
   it('picks a fill without a confirm or a write, and names the command Apply runs', async () => {
     renderAt(REBIND);
     const root = await pickStrict();

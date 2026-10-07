@@ -48,6 +48,57 @@ describe('appSkillView', () => {
     );
   });
 
+  it('calls a fill that came from the org base an org base, not written by the pack', () => {
+    const fromBase = {
+      ...composition,
+      binders: composition.binders.map(binder =>
+        binder.ref === 'board:doctor'
+          ? {
+              ...binder,
+              slots: [
+                {
+                  name: 'domain',
+                  boundTo: 'acme:board-fill',
+                  layer: 'pack',
+                  origin: 'base' as const,
+                  base: 'acme-base',
+                  baseVersion: '0.1.0',
+                },
+              ],
+            }
+          : binder
+      ),
+      fills: [
+        ...composition.fills,
+        {
+          binding: 'acme:board-fill',
+          provides: 'board-fill@1',
+          sourcePath: '/fixture/packs/acme/attachments/board-fill/SKILL.md',
+          registered: true,
+        },
+      ],
+    };
+    const { view, anatomy } = appSkillView(fromBase, 'board:doctor', 'acme')!;
+
+    expect(view.inputs[0]!.subtitle).toBe(
+      'acme-base · org base · picked by this pack'
+    );
+    expect(
+      drawerContent(
+        parseTarget(`input:${view.inputs[0]!.id}`)!,
+        view,
+        anatomy,
+        null
+      )
+    ).toMatchObject({
+      meta: 'acme-base 0.1.0 · org base pack, read only here',
+      badge: 'partial',
+      sentence:
+        "From the org's acme-base base pack. board:doctor reads it through its domain slot. Compile copies it from the org's acme-base base pack and rewrites it on every compile; edit it there.",
+      usedBy: { kind: 'fill', owner: { kind: 'base', name: 'acme-base' } },
+    });
+  });
+
   it('builds nothing for a skill this pack does not fill as another app', () => {
     expect(appSkillView(composition, 'work', 'acme')).toBeNull();
   });

@@ -625,6 +625,41 @@ describe('slot states', () => {
   });
 });
 
+describe('a fill that came from the org base', () => {
+  const BASE = {
+    ref: 'acme-base:plan-policy',
+    path: '/fixture/orgs/acme/base/attachments/plan-policy/SKILL.md',
+    version: 'org',
+    builtVersion: 'org',
+    lines: 80,
+  };
+  const subtitleOf = (source: Record<string, unknown>) =>
+    buildTemplateView({
+      anatomy: withPart(anatomyPlan, 'domain', {
+        source: source as Part['source'],
+      }),
+      composition,
+      check,
+      changes: undefined,
+      step: 2,
+    }).inputs.find(card => card.id === 'slot:domain')!.subtitle;
+
+  it('calls it an org base, never a default or the pack text', () => {
+    expect(
+      subtitleOf({
+        ...BASE,
+        origin: 'base',
+        base: 'acme-base',
+        baseVersion: '0.1.0',
+      })
+    ).toBe('acme-base · org base · picked by this pack');
+  });
+
+  it('keeps the plugin wording when rt sends no origin', () => {
+    expect(subtitleOf(BASE)).toBe('acme-base default · picked by this pack');
+  });
+});
+
 describe('engines without a template trace', () => {
   it('gutters the rows of a legacy engine by their rendered lines', () => {
     const legacy: SkillsAnatomy = {

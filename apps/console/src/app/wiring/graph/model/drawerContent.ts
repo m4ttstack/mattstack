@@ -1,4 +1,5 @@
 import { pluginOf } from '../../outline';
+import { baseLabel, ownerOf, type Owner } from '../../owner';
 import type { SkillsAnatomy } from '../../useWiring';
 import type { DrawerTab, WiringView } from '../useWiringUrl';
 import { STATUS_TONE, type StatusTone } from './statusTone';
@@ -36,6 +37,7 @@ export type DrawerUsedBy = {
   kind: 'include' | 'fill';
   name: string;
   plugin: string;
+  owner: Owner;
 };
 
 export type DrawerBand = {
@@ -152,11 +154,22 @@ function scopeOf(view: TemplateView): string {
   return view.textNoun === 'step' ? 'this step' : 'this skill';
 }
 
-function ownerMeta(source: AnatomySource, pack: string): string {
-  const plugin = pluginOf(source.ref);
-  return plugin === pack
-    ? `${pack} ${source.version}`
-    : `${plugin} ${source.version} · installed copy, read only`;
+function ownerMeta(owner: Owner, source: AnatomySource, pack: string): string {
+  switch (owner.kind) {
+    case 'pack':
+      return `${pack} ${source.version}`;
+    case 'base':
+      return `${baseLabel(owner)} · org base pack, read only here`;
+    case 'plugin':
+      return `${owner.name} ${source.version} · installed copy, read only`;
+  }
+}
+
+/** A team-pack copy of a base file: compile writes it into this pack. */
+function copiedFromBase(owner: Owner, ref: string, pack: string): string {
+  return owner.kind === 'base' && pluginOf(ref) === pack
+    ? ` Compile copies it from the org's ${owner.name} base pack and rewrites it on every compile; edit it there.`
+    : '';
 }
 
 /** A skill with no rendered file only ever shows its template. */
@@ -182,7 +195,11 @@ function fileFace(
         filePath: anatomy.template.path,
         fileLabel: view.templateFile,
         badge: null,
-        meta: ownerMeta(anatomy.template, anatomy.pack),
+        meta: ownerMeta(
+          ownerOf(anatomy.template.ref, anatomy.template, anatomy.pack),
+          anatomy.template,
+          anatomy.pack
+        ),
         tabs: ['text'],
         canToggle: true,
         view: shown,
@@ -391,20 +408,25 @@ function inputContent(
   anatomy: SkillsAnatomy
 ): DrawerContent {
   const plugin = pluginOf(source.ref);
-  const packText = part.kind === 'slot' && plugin === anatomy.pack;
+  const owner = ownerOf(source.ref, source, anatomy.pack);
+  const packText = part.kind === 'slot' && owner.kind === 'pack';
   const one = card.usedBy === 1;
   const skills = `${countOf(card.usedBy, 'skill', 'skills')} in this pack`;
+  const uses = `${skills} ${one ? 'uses' : 'use'} it.`;
+  const verb = part.kind === 'include' ? (one ? 'pastes' : 'paste') : null;
   const sentence =
-    part.kind === 'include'
-      ? `A ${plugin} partial. ${skills} ${one ? 'pastes' : 'paste'} it in.`
-      : packText
-        ? `Written by ${anatomy.pack}. ${skills} ${one ? 'uses' : 'use'} it.`
-        : `A ${plugin} default. ${skills} ${one ? 'uses' : 'use'} it.`;
+    owner.kind === 'base'
+      ? `From the org's ${owner.name} base pack. ${verb ? `${skills} ${verb} it in.` : uses}${copiedFromBase(owner, source.ref, anatomy.pack)}`
+      : part.kind === 'include'
+        ? `A ${plugin} partial. ${skills} ${verb} it in.`
+        : packText
+          ? `Written by ${anatomy.pack}. ${uses}`
+          : `A ${plugin} default. ${uses}`;
   return {
     filePath: source.path,
     fileLabel: card.title,
     badge: packText ? 'pack text' : 'partial',
-    meta: ownerMeta(source, anatomy.pack),
+    meta: ownerMeta(owner, source, anatomy.pack),
     canToggle: false,
     view: 'template',
     chip: null,
@@ -419,8 +441,8 @@ function inputContent(
         : null,
     usedBy:
       part.kind === 'include'
-        ? { kind: 'include', name: part.name ?? '', plugin }
-        : { kind: 'fill', name: source.ref, plugin },
+        ? { kind: 'include', name: part.name ?? '', plugin, owner }
+        : { kind: 'fill', name: source.ref, plugin, owner },
     error: null,
   };
 }
@@ -463,22 +485,28 @@ function appFillContent(
   }
   if (!card?.path) return null;
   const plugin = pluginOf(row.boundTo);
-  const own = plugin === pack;
+  const owner = card.owner ?? ownerOf(row.boundTo, null, pack);
+  const own = owner.kind === 'pack';
+  const base = owner.kind === 'base';
   return {
     filePath: card.path,
     fileLabel: card.title,
     badge: own ? 'pack text' : 'partial',
-    meta: own ? pack : `${plugin} · installed copy, read only`,
+    meta: base
+      ? `${baseLabel(owner)} · org base pack, read only here`
+      : own
+        ? pack
+        : `${plugin} · installed copy, read only`,
     canToggle: false,
     view: 'template',
     chip: null,
     dot: null,
-    sentence: `${own ? `Written by ${pack}` : `A ${plugin} default`}. ${view.skill} reads it through its ${row.name} slot.`,
+    sentence: `${base ? `From the org's ${owner.name} base pack` : own ? `Written by ${pack}` : `A ${plugin} default`}. ${view.skill} reads it through its ${row.name} slot.${copiedFromBase(owner, row.boundTo, pack)}`,
     highlight: NO_HIGHLIGHT,
     bands: [],
     tabs: ['text', 'used-by'],
     slot: null,
-    usedBy: { kind: 'fill', name: row.boundTo, plugin },
+    usedBy: { kind: 'fill', name: row.boundTo, plugin, owner },
     error: null,
   };
 }

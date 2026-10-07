@@ -7,6 +7,7 @@ import {
   type SkillsCheck,
   type SkillsComposition,
 } from '../../outline';
+import { ownerOf, type Owner } from '../../owner';
 import type { SkillsAnatomy, SkillsChanges } from '../../useWiring';
 import { stepLabel } from './focusModel';
 
@@ -70,6 +71,9 @@ export type InputCard = {
   state: RowState;
   /** Skills in this pack that paste this partial in, or bind this fill. */
   usedBy: number;
+  /** Who owns the fill, set only for a skill another app owns, whose card has
+      no anatomy part to read it from. */
+  owner?: Owner;
 };
 
 /** `unknown` is check having no row for the skill: rt said nothing, which is
@@ -576,19 +580,28 @@ function cardFace(
       };
   }
   const source = part.source!;
-  const plugin = pluginOf(source.ref);
-  return plugin === pack
-    ? {
+  const owner = ownerOf(source.ref, source, pack);
+  switch (owner.kind) {
+    case 'pack':
+      return {
         ...file,
         title: sourceTitle,
         subtitle: `written by ${pack} · ${source.lines} lines`,
         subtitleTone: 'accent',
-      }
-    : {
+      };
+    case 'base':
+      return {
         ...file,
         title: sourceTitle,
-        subtitle: `${plugin} default${pickedBy(facts?.layer ?? null)}`,
+        subtitle: `${owner.name} · org base${pickedBy(facts?.layer ?? null)}`,
       };
+    case 'plugin':
+      return {
+        ...file,
+        title: sourceTitle,
+        subtitle: `${owner.name} default${pickedBy(facts?.layer ?? null)}`,
+      };
+  }
 }
 
 /** rt's message without the `<step>: slot "<name>": ` it opens with, which
@@ -640,7 +653,7 @@ export function appSkillView(
       boundTo: slot.boundTo,
       resolveError: null,
     });
-    const plugin = pluginOf(slot.boundTo);
+    const owner = ownerOf(slot.boundTo, fill?.origin ? fill : slot, pack);
     inputs.push({
       id: `slot:${slot.name}`,
       rowId: id,
@@ -648,18 +661,19 @@ export function appSkillView(
       usedBy: composition.binders.filter(other =>
         other.slots.some(s => s.boundTo === slot.boundTo)
       ).length,
+      owner,
       ...(fill
         ? {
             title: fileLabelOf(fill.sourcePath),
             icon: 'fileText' as const,
             path: fill.sourcePath,
-            ...(plugin === pack
+            ...(owner.kind === 'pack'
               ? {
                   subtitle: `written by ${pack}`,
                   subtitleTone: 'accent' as const,
                 }
               : {
-                  subtitle: `${plugin} default${pickedBy(slot.layer ?? null)}`,
+                  subtitle: `${owner.kind === 'base' ? `${owner.name} · org base` : `${owner.name} default`}${pickedBy(slot.layer ?? null)}`,
                   subtitleTone: 'dimmed' as const,
                 }),
           }

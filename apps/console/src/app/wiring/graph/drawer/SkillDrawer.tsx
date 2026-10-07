@@ -490,7 +490,6 @@ export function SkillDrawer({
       )}
       {tab === 'used-by' && content.usedBy && composition && groups && (
         <UsedByTab
-          pack={pack}
           skill={anatomy.skill}
           slot={content.slot?.name ?? null}
           usedBy={content.usedBy}
