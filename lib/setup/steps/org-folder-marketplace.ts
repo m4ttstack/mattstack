@@ -5,11 +5,13 @@
  * add, reinstall each user plugin, then disable the ones that were off; a
  * project or local plugin is handed back as an install to run in its project.
  * A pending record in setup-state is written before the remove, so a run that
- * stops between remove and add is finished by the next one.
+ * stops between remove and add is finished by the next one. Every Claude config
+ * dir is re-pointed: the default one and each cswap account's.
  */
 
 import { realpathSync } from "fs";
 import { join, resolve } from "path";
+import { cswapConfigDirs } from "../../cswap.ts";
 import { stripJsonc } from "../../jsonc.ts";
 import { resolveTool } from "../../deps/resolve.ts";
 import type { ApplyContext } from "../apply.ts";
@@ -123,7 +125,7 @@ const pluralPlugins = (n: number): string => `${n} plugin${n === 1 ? "" : "s"}`;
 export async function convergeMarketplace(ctx: ApplyContext, clone: { dir: string; stalePaths: string[] }): Promise<MarketplaceOutcome> {
   const name = marketplaceName(ctx.p, clone.dir);
   if (name === null) return { state: "skipped", detail: "the clone declares no Claude marketplace" };
-  const configDirs = claudeConfigDirs(ctx.p, []);
+  const configDirs = claudeConfigDirs(ctx.p, cswapConfigDirs(ctx.p));
   const defaultDir = configDirs[0]!;
   const prefixFor = (dir: string): string => (dir === defaultDir && ctx.p.env.CLAUDE_CONFIG_DIR === undefined ? "" : `CLAUDE_CONFIG_DIR=${dir} `);
 

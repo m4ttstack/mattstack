@@ -279,4 +279,64 @@ describe("convergeMarketplace", () => {
     expect(new Set(envs)).toEqual(new Set([join(home, "cfg2")]));
     expect(out.commands?.[0]).toBe(`CLAUDE_CONFIG_DIR=${join(home, "cfg2")} claude plugin marketplace add ${clone()}`);
   });
+
+  describe("cswap accounts", () => {
+    const sessions = () => join(home, ".claude-swap-backup", "sessions");
+    const dev1 = () => join(sessions(), "1-dev1_acme.test");
+    const dev2 = () => join(sessions(), "2-dev2_acme.test");
+
+    /** One claude per config dir: each keeps its own registration, so a re-point in one leaves the others as they were. */
+    function perDir(registered: Record<string, string | null>, opts: { failIn?: string; fail?: string } = {}) {
+      const seen: string[] = [];
+      const exec: ExecScript = (argv, o) => {
+        const cfg = o?.env?.CLAUDE_CONFIG_DIR ?? "";
+        const sliced = argv.slice(1).join(" ");
+        seen.push(`${cfg}: ${sliced}`);
+        if (cfg === opts.failIn && opts.fail && sliced.startsWith(opts.fail)) return { code: 1, stdout: "", stderr: `boom: ${sliced}` };
+        const [, , verb, sub] = argv;
+        if (verb === "marketplace" && sub === "list") {
+          const at = registered[cfg] ?? null;
+          return ok(JSON.stringify(at === null ? [] : [{ name: "acme", source: "directory", path: at, installLocation: at }]));
+        }
+        if (verb === "marketplace" && sub === "remove") registered[cfg] = null;
+        if (verb === "marketplace" && sub === "add") registered[cfg] = argv.at(-1)!;
+        if (verb === "list") return ok(JSON.stringify([{ id: "widgets@acme", version: "1.0.0", scope: "user", enabled: true }]));
+        return ok("");
+      };
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { [CLAUDE]: "bin", [join(clone(), ".claude-plugin", "marketplace.json")]: '{ "name": "acme", "plugins": [] }', [join(sessions(), "notes.txt")]: "x" },
+        dirs: { [sessions()]: ["2-dev2_acme.test", "1-dev1_acme.test", "notes.txt"], [dev1()]: [], [dev2()]: [] },
+      });
+      p.exec = (argv, o) => Promise.resolve(exec(argv, o));
+      return { p, seen };
+    }
+
+    test("every account's config dir is re-pointed, each driven with its own CLAUDE_CONFIG_DIR", async () => {
+      const { p, seen } = perDir({ [defaultCfg()]: old(), [dev1()]: old(), [dev2()]: null });
+      const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [old()] });
+      expect(out.state).toBe("done");
+      expect(out.detail).toContain(`acme re-pointed in ${defaultCfg()}`);
+      expect(out.detail).toContain(`acme re-pointed in ${dev1()}`);
+      expect(out.detail).toContain(`acme is not registered in ${dev2()}`);
+      expect(seen.filter((line) => line.startsWith(`${dev1()}: `))).toEqual([
+        `${dev1()}: plugin marketplace list --json`,
+        `${dev1()}: plugin list --json`,
+        `${dev1()}: plugin marketplace remove acme`,
+        `${dev1()}: plugin marketplace add ${clone()}`,
+        `${dev1()}: plugin install widgets@acme --scope user`,
+      ]);
+      expect(seen.some((line) => line.startsWith(join(sessions(), "notes.txt")))).toBe(false);
+      expect(readSetupState(p).orgMarketplaceMoves ?? []).toEqual([]);
+    });
+
+    test("a re-point that stops in one account keeps that account's pending record and hands back its own commands", async () => {
+      const { p } = perDir({ [defaultCfg()]: old(), [dev1()]: old() }, { failIn: dev1(), fail: "plugin install" });
+      const out = await convergeMarketplace(ctxFor(p), { dir: clone(), stalePaths: [old()] });
+      expect(out.state).toBe("partial");
+      expect(out.commands).toEqual([`CLAUDE_CONFIG_DIR=${dev1()} claude plugin install widgets@acme --scope user`]);
+      expect((readSetupState(p).orgMarketplaceMoves ?? []).map((m) => m.configDir)).toEqual([dev1()]);
+    });
+  });
 });
