@@ -58,6 +58,10 @@ export interface TeamSnapshotsHandle {
   status(): TeamSnapshotEntry[];
   pullNow(slug: string): Promise<PullResult>;
   ready: Promise<void>;
+  /** Stops these clones' engines and keeps `rescan` from starting them until `resume`: `org:move` renames a clone's folder and must not race a pull into it. */
+  pause(slugs: string[]): void;
+  /** Lifts `pause`, arms the orgs/ watch when boot could not, then rescans. */
+  resume(slugs: string[]): Promise<void>;
 }
 
 const RESCAN_DEBOUNCE_MS = 2000;
@@ -81,6 +85,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
   const readSettings = rawDeps.readSettings ?? (() => getSetting<TeamSnapshotSettings>("rt.teamSnapshot").value);
   const converge = rawDeps.converge ?? convergePackCache;
   const instances = new Map<string, { handle: SnapshotHandle; dir: string; owned: string }>();
+  const held = new Set<string>();
   const skippedNoRemote = new Set<string>();
   let watcher: { close(): void } | null = null;
   let debounce: ReturnType<typeof setTimeout> | null = null;
@@ -148,6 +153,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
       for (const slug of readdirSync(orgsRoot).sort()) {
         const dir = join(orgsRoot, slug);
         if (!existsSync(join(dir, ".git"))) continue;
+        if (held.has(slug)) continue;
         present.add(slug);
         const roots = ownedFor(slug);
         const owned = roots.join("\n");
@@ -203,6 +209,19 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
     }
   }
 
+  /** Arms the non-recursive orgs/ watch once; a boot on a Mac whose orgs/ does not exist yet leaves it unarmed, and `resume` tries again after a move created the root. */
+  function armWatch(): void {
+    if (watcher || stopped) return;
+    try {
+      watcher = watch(orgsRoot, { recursive: false }, () => {
+        if (debounce) clearTimer(debounce);
+        debounce = setTimer(() => { debounce = null; void safeRescan(); }, RESCAN_DEBOUNCE_MS);
+      });
+    } catch (err) {
+      rawDeps.log.warn({ err, orgsRoot }, "team-snapshots: cannot watch orgs/; new clones are picked up on the interval rescan");
+    }
+  }
+
   let resolveReady!: () => void;
   const ready = new Promise<void>((resolve) => { resolveReady = resolve; });
 
@@ -213,14 +232,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
     try {
       await safeRescan();
       if (stopped) return;
-      try {
-        watcher = watch(orgsRoot, { recursive: false }, () => {
-          if (debounce) clearTimer(debounce);
-          debounce = setTimer(() => { debounce = null; void safeRescan(); }, RESCAN_DEBOUNCE_MS);
-        });
-      } catch (err) {
-        rawDeps.log.warn({ err, orgsRoot }, "team-snapshots: cannot watch orgs/; new clones are picked up on the interval rescan");
-      }
+      armWatch();
       // Armed even when the setting is off, unlike the engine's own startup:
       // `rescan` returns early on its own while disabled, so a live flip of
       // `rt.teamSnapshot.enabled` is discovered on the next watch event or
@@ -243,6 +255,21 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
       if (interval) clearTimer(interval);
       for (const inst of instances.values()) inst.handle.stop();
       instances.clear();
+    },
+    pause(slugs) {
+      for (const slug of slugs) {
+        held.add(slug);
+        const inst = instances.get(slug);
+        if (!inst) continue;
+        inst.handle.stop();
+        instances.delete(slug);
+        rawDeps.log.info({ slug }, "team-snapshots: paused for a folder move");
+      }
+    },
+    async resume(slugs) {
+      for (const slug of slugs) held.delete(slug);
+      armWatch();
+      await safeRescan();
     },
     status: () => [...instances.entries()].map(([slug, inst]) => ({ slug, ...inst.handle.status() })),
     async pullNow(slug) {

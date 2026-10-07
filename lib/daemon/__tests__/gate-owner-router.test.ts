@@ -72,7 +72,7 @@ function buildHandlers(herdStore: ReturnType<typeof createHerdStore> = createHer
     },
     bgClaims: { claim: () => {}, release: () => false, releaseByPane: () => [], list: () => [], close_: () => {} },
     homeSnapshot: { stop: () => {}, runNow: async () => ({}) as any, pullNow: async () => ({}) as any, status: () => ({}) as any, ready: Promise.resolve() },
-    teamSnapshots: { stop() {}, rescan: async () => {}, status: () => [], pullNow: async () => ({ outcome: "skipped", detail: null }), ready: Promise.resolve() },
+    teamSnapshots: { stop() {}, rescan: async () => {}, status: () => [], pullNow: async () => ({ outcome: "skipped", detail: null }), ready: Promise.resolve(), pause() {}, resume: async () => {} },
     repos: { withReconcilerHeld: async (fn) => fn(), refreshWatchedRepos: () => {} },
     gitBadges: { readAll: () => new Map(), replaceRepo: () => ({ changed: false }), dropRepos: () => [] },
     gitStatusSweep: { tick: async () => {}, sweepNow: async () => ({ changed: [] }), lastSweepAt: () => null, errors: () => new Map() },
