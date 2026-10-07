@@ -8,13 +8,13 @@ import { createChatDeliverySweep, createChatHandlers, type InboxDeps } from "../
 import { backgroundUnit } from "../../daemon/lifecycle.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
 import { setSetting } from "../../settings/write.ts";
-import { listMessages, openStateDb, signIn } from "../../state/index.ts";
+import { listMessages, openStateDb, signIn, type RegistryDeps } from "../../state/index.ts";
 import type { MessageAdapter } from "../contracts.ts";
 import {
   chatDeliveryId, createDeliveryService, DELIVERY_SWEEP_INTERVAL_MS, deliveryBackoffTicks, MAX_DELIVERY_BACKOFF_TICKS,
   type DeliveryDeps, type DeliveryInput,
 } from "../delivery.ts";
-import { readDelivery, type DeliveryRow } from "../delivery-store.ts";
+import { readDelivery, recordAttempt, type DeliveryRow } from "../delivery-store.ts";
 import { createSessionStore } from "../session-store.ts";
 
 let n = 0;
@@ -24,7 +24,7 @@ const T0 = 1_700_000_000_000;
 const ok = <T>(data: T): Outcome<T> => ({ ok: true, data });
 const fault = <T>(code: "ambiguous" | "transient" | "not-ready" | "refused", message: string = code): Outcome<T> => ({ ok: false, error: { code, message } });
 
-type Submit = (input: PeerInput, call: number, binding: SessionBinding) => Outcome<DeliveryReceipt>;
+type Submit = (input: PeerInput, call: number, binding: SessionBinding) => Outcome<DeliveryReceipt> | Promise<Outcome<DeliveryReceipt>>;
 type Reconcile = (binding: SessionBinding, id: string) => Outcome<DeliveryReceipt | null>;
 
 /** A harness that answers from a script and records every native call. */
@@ -68,6 +68,7 @@ function harness(db: Database, messaging: { adapter: MessageAdapter }, over: Par
   const service = createDeliveryService({
     db: () => db,
     messagingFor: async () => messaging.adapter,
+    connectionOf: () => "conn-test",
     now: () => clock.now,
     sleep: async (ms) => {
       sleeps.push(ms);
@@ -195,14 +196,23 @@ describe("delivery evidence", () => {
     const binding = bindSession(db, "T1");
     const before = fakeMessaging({
       connection: "conn-1",
-      submit: (input) => (input.id.startsWith("d-1-") ? fault("transient") : input.id.startsWith("d-2-") ? fault("ambiguous") : ok({ id: input.id, evidence: "queued", nativeId: "T1" })),
+      submit: (input) => {
+        if (input.id.startsWith("d-1-")) return fault("transient");
+        if (input.id.startsWith("d-2-")) return fault("ambiguous");
+        // The process dies while this frame is on the wire: the attempt is recorded and never settled.
+        if (input.id.startsWith("d-4-")) return new Promise<Outcome<DeliveryReceipt>>(() => {});
+        return ok({ id: input.id, evidence: "queued", nativeId: "T1" });
+      },
       reconcile: (_b, id) => ok(id.startsWith("d-3-") ? { id, evidence: "queued", nativeId: "T1" } : null),
     });
     const first = harness(db, before);
-    const [pending, ambiguous, queued] = [chatDeliveryId(1, "remy"), chatDeliveryId(2, "remy"), chatDeliveryId(3, "remy")];
+    const [pending, ambiguous, queued, crashed] = [1, 2, 3, 4].map((m) => chatDeliveryId(m, "remy")) as [string, string, string, string];
     await first.service.deliverPeerInput(binding, peer(pending));
     await first.service.deliverPeerInput(binding, peer(ambiguous));
     await first.service.deliverPeerInput(binding, peer(queued));
+    void first.service.deliverPeerInput(binding, peer(crashed));
+    await waitFor(() => before.submits.some((s) => s.input.id === crashed));
+    expect(row(db, crashed)).toMatchObject({ state: "pending", attempts: 1, nextAttemptAt: first.clock.now + DELIVERY_SWEEP_INTERVAL_MS });
     db.close();
 
     db = openStateDb(path);
@@ -213,11 +223,19 @@ describe("delivery evidence", () => {
     });
     const second = harness(db, after);
     second.clock.now = first.clock.now + DELIVERY_SWEEP_INTERVAL_MS;
-    expect(await second.service.reconcileDeliveries(second.clock.now)).toEqual({ retried: 2, ambiguous: 1 });
+    expect(await second.service.reconcileDeliveries(second.clock.now)).toEqual({ retried: 3, ambiguous: 2 });
     expect(row(db, pending).state).toBe("pending");
     expect(row(db, ambiguous).state).toBe("ambiguous");
     expect(row(db, queued).state).toBe("queued");
+    expect(row(db, crashed)).toMatchObject({ state: "ambiguous", error: "the attempt was interrupted before its outcome was recorded" });
+    expect(after.reconciles.map((r) => r.id)).toContain(crashed);
     expect(after.submits).toEqual([]);
+
+    const resent = await second.service.deliverPeerInput(binding, peer(crashed));
+    expect(resent).toEqual(ok({ id: crashed, evidence: "queued", nativeId: "T1" }));
+    expect(after.reconciles.filter((r) => r.id === crashed)).toHaveLength(2);
+    expect(after.submits.map((s) => s.input.id)).toEqual([crashed]);
+    after.submits.length = 0;
 
     expect(await second.service.deliverPeerInput(binding, peer(queued))).toEqual(ok({ id: queued, evidence: "queued", nativeId: "T1" }));
     expect(after.submits).toEqual([]);
@@ -226,6 +244,32 @@ describe("delivery evidence", () => {
     expect(after.submits.map((s) => s.input.id)).toEqual([ambiguous]);
     expect(redelivered).toEqual(ok({ id: ambiguous, evidence: "queued", nativeId: "T1" }));
     expect(row(db, ambiguous).state).toBe("queued");
+  });
+
+  test("an attempt interrupted mid-submit is reconciled before it is sent again, and its evidence stops the resend", async () => {
+    const db = openStateDb(dbPath());
+    const binding = bindSession(db, "T1");
+    const id = chatDeliveryId(17, "remy");
+    const recorded = recordAttempt(db, {
+      frameId: id, recipient: "remy", sessionKey: binding.key, generation: binding.attachment.generation, harness: "codex",
+      constituents: [{ id }],
+    }, T0 - 60_000, T0 - 30_000);
+    expect(recorded.ok).toBe(true);
+    const order: string[] = [];
+    const messaging = fakeMessaging({
+      submit: (input) => {
+        order.push("submit");
+        return ok({ id: input.id, evidence: "queued", nativeId: "T1" });
+      },
+      reconcile: (_b, rid) => {
+        order.push("reconcile");
+        return ok({ id: rid, evidence: "consumed", nativeId: "T1", turnId: "U1", itemId: "I1" });
+      },
+    });
+    const { service } = harness(db, messaging);
+    expect(await service.deliverPeerInput(binding, peer(id))).toEqual(ok({ id, evidence: "consumed", nativeId: "T1", turnId: "U1", itemId: "I1" }));
+    expect(order).toEqual(["reconcile"]);
+    expect(row(db, id).state).toBe("consumed");
   });
 
   test("a batched frame goes out under its newest constituent's id and records every constituent", async () => {
@@ -447,26 +491,44 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   }
 }
 
-/** Room "general" with author "a" and recipient "b", whose session is bound in `harnessId`. */
-async function chatFixture(messaging: { adapter: MessageAdapter }, harnessId = "codex") {
+/**
+ * Room "general" with author "a" and recipient "b", whose session is bound in
+ * `harnessId`. `link` is the harness's messaging connection; `claudeInbox`
+ * gives a Claude session a live registry inbox.
+ */
+async function chatFixture(
+  messaging: { adapter: MessageAdapter }, harnessId = "codex",
+  opts: { link?: () => string | null; claudeInbox?: boolean } = {},
+) {
   const db = openStateDb(dbPath());
-  const { service, clock } = harness(db, messaging, { log: quietLog });
-  const h = createChatHandlers({ db, emitEvent: () => 0, inboxDeps: noInbox, herdr: noHerdr, log: quietLog, retryDelayMs: 0, delivery: service });
+  const { service, clock } = harness(db, messaging, { log: quietLog, connectionOf: opts.link ?? (() => "conn-test") });
+  const sock = join(tmpdir(), `delivery-inbox-${process.pid}-${n++}`);
+  await Bun.write(sock, "");
+  const inbox = { pid: process.pid, socketPath: sock, status: "idle" as const };
+  const inboxDeps: InboxDeps = opts.claudeInbox ? { ...noInbox, resolve: (id) => (id === "sess-b" ? inbox : null) } : noInbox;
+  const registryDeps: RegistryDeps = opts.claudeInbox
+    ? { resolve: (id) => (id === "sess-b" ? inbox : null), alive: () => true, resolveAll: () => new Map([["sess-b", inbox]]) }
+    : { resolve: () => null, alive: () => false, resolveAll: () => new Map() };
+  const herdrCalls: string[] = [];
+  const herdr = (async (method: string) => {
+    herdrCalls.push(method);
+    return { ok: false, code: "unreachable", message: "no herdr in this test" };
+  }) as unknown as typeof herdrRequest;
+  const h = createChatHandlers({ db, emitEvent: () => 0, inboxDeps, herdr, log: quietLog, retryDelayMs: 0, delivery: service });
   await h["chat:join"]({ room: "general", handle: "a", wakeOn: "all" });
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "all" });
   signIn({ sessionId: "sess-b", continueId: "b" }, db);
   const binding = bindSession(db, "sess-b", harnessId);
   const sweep = createChatDeliverySweep({
-    db, deliveryChains: new Map(), inboxDeps: noInbox, herdr: noHerdr, log: quietLog, retryDelayMs: 0,
-    registryDeps: { resolve: () => null, alive: () => false, resolveAll: () => new Map() },
-    delivery: service, now: () => clock.now,
+    db, deliveryChains: new Map(), inboxDeps, herdr, log: quietLog, retryDelayMs: 0,
+    registryDeps, delivery: service, now: () => clock.now,
   });
   const post = async (body: string) => {
     const posted = await h["chat:post"]({ room: "general", handle: "a", body });
     if (!posted.ok) throw new Error(posted.error);
     return posted.data.id;
   };
-  return { db, h, service, clock, binding, sweep, post };
+  return { db, h, service, clock, binding, sweep, post, herdrCalls };
 }
 
 describe("chat through harness delivery", () => {
@@ -512,20 +574,67 @@ describe("chat through harness delivery", () => {
     ]);
   });
 
-  test("a Claude-bound recipient whose registry inbox is dead is not a sweep target, as today", async () => {
+  test("a Claude-bound recipient whose registry inbox is dead is skipped, as today", async () => {
     const messaging = fakeMessaging({ submit: () => fault("not-ready") });
     const x = await chatFixture(messaging, "claude");
-    await x.post("hi");
-    await waitFor(() => messaging.submits.length === 1);
-    await Bun.sleep(5);
+    const id = await x.post("hi");
+    await Bun.sleep(10);
     x.clock.now += DELIVERY_SWEEP_INTERVAL_MS;
     expect(await x.sweep()).toEqual({ sweptPairs: 0, recoveredMessages: 0 });
-    expect(messaging.submits).toHaveLength(1);
+    expect(messaging.submits).toEqual([]);
+    expect(x.herdrCalls).toEqual([]);
+    expect(lastReadId(x.db, "general", "b")).toBeLessThan(id);
+  });
+
+  test("while a bound harness has no connection nothing is attempted and no backoff builds", async () => {
+    let link: string | null = null;
+    const messaging = fakeMessaging({ submit: (input) => ok({ id: input.id, evidence: "queued", nativeId: "sess-b" }) });
+    const x = await chatFixture(messaging, "codex", { link: () => link });
+    const id = await x.post("hi");
+    await Bun.sleep(10);
+    for (let tick = 0; tick < 200; tick++) {
+      x.clock.now += DELIVERY_SWEEP_INTERVAL_MS;
+      expect(await x.sweep()).toEqual({ sweptPairs: 0, recoveredMessages: 0 });
+    }
+    expect(messaging.submits).toEqual([]);
+    expect(x.herdrCalls).toEqual([]);
+    link = "conn-1";
+    x.clock.now += DELIVERY_SWEEP_INTERVAL_MS;
+    expect(await x.sweep()).toEqual({ sweptPairs: 1, recoveredMessages: 1 });
+    expect(lastReadId(x.db, "general", "b")).toBe(id);
+  });
+
+  test("outage, then reconnect with no new post, delivers on the next tick", async () => {
+    let link: string | null = "conn-1";
+    let up = false;
+    const messaging = fakeMessaging({
+      submit: (input) => (up ? ok({ id: input.id, evidence: "queued", nativeId: "sess-b" }) : fault("transient")),
+    });
+    const x = await chatFixture(messaging, "codex", { link: () => link });
+    const id = await x.post("hi");
+    await waitFor(() => messaging.submits.length === 2);
+    await Bun.sleep(5);
+    for (let tick = 0; tick < 150; tick++) {
+      x.clock.now += DELIVERY_SWEEP_INTERVAL_MS;
+      await x.sweep();
+    }
+    link = null;
+    for (let tick = 0; tick < 10; tick++) {
+      x.clock.now += DELIVERY_SWEEP_INTERVAL_MS;
+      await x.sweep();
+    }
+    const beforeReconnect = messaging.submits.length;
+    link = "conn-2";
+    up = true;
+    x.clock.now += DELIVERY_SWEEP_INTERVAL_MS;
+    expect(await x.sweep()).toEqual({ sweptPairs: 1, recoveredMessages: 1 });
+    expect(messaging.submits.length).toBe(beforeReconnect + 1);
+    expect(lastReadId(x.db, "general", "b")).toBe(id);
   });
 
   test("Claude's submitted evidence moves the cursor as today and is never relabelled consumed", async () => {
     const messaging = fakeMessaging({ submit: (input) => ok({ id: input.id, evidence: "submitted", nativeId: "sess-b" }) });
-    const x = await chatFixture(messaging, "claude");
+    const x = await chatFixture(messaging, "claude", { claudeInbox: true });
     const id = await x.post("hi");
     await waitFor(() => lastReadId(x.db, "general", "b") === id);
     expect(row(x.db, chatDeliveryId(id, "b")).state).toBe("submitted");

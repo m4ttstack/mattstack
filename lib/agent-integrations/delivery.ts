@@ -28,7 +28,7 @@ import { getStateDb } from "../state/db.ts";
 import { builtinRegistry } from "./builtins.ts";
 import type { MessageAdapter } from "./contracts.ts";
 import {
-  listDueDeliveries, markHarnessDue, owedByRoomLog, pruneDeliveries, readDelivery, readFrame, receiptOfDelivery,
+  isInterrupted, listDueDeliveries, markHarnessDue, markInterrupted, owedByRoomLog, pruneDeliveries, readDelivery, readFrame, receiptOfDelivery,
   recordAttempt, scheduleDelivery, settleAttempt, settleEvidence, type DeliveryAttempt, type DeliveryRow,
 } from "./delivery-store.ts";
 import { createSessionStore } from "./session-store.ts";
@@ -65,6 +65,8 @@ export type DeliveryDeps = {
   messagingFor(binding: SessionBinding): Promise<MessageAdapter | undefined>;
   /** The store's binding for a key, attached or not. */
   storedBinding(key: string): SessionBinding | null;
+  /** The harness's messaging connection now, without connecting: an id, null while it has none, undefined when it has no connection to wait for. */
+  connectionOf(harness: string): string | null | undefined;
   now(): number;
   sleep(ms: number): Promise<void>;
   retryDelayMs: number;
@@ -95,6 +97,8 @@ export interface DeliveryService {
   settled(binding: SessionBinding, ids: readonly string[]): Promise<Set<string>>;
   /** Settles once a reconciliation pass a reconnect started has finished. */
   idle(): Promise<void>;
+  /** The harness's messaging connection now, read without connecting (see DeliveryDeps.connectionOf). */
+  connection(harness: string): string | null | undefined;
 }
 
 /** Nothing was sent and a later attempt may succeed. */
@@ -112,6 +116,7 @@ function defaultDeps(db: () => Database): DeliveryDeps {
     db,
     messagingFor: async (binding) => registry.get(binding.native.harness)?.loadMessaging?.(),
     storedBinding: (key) => createSessionStore(db()).get(key),
+    connectionOf: (harness) => registry.get(harness)?.messagingConnection?.(),
     now: Date.now,
     sleep: (ms) => Bun.sleep(ms),
     retryDelayMs: DEFAULT_DELIVERY_RETRY_DELAY_MS,
@@ -132,6 +137,16 @@ export function createDeliveryService(overrides: Partial<DeliveryDeps> = {}): De
   const deps: DeliveryDeps = { ...defaultDeps(overrides.db ?? (() => getStateDb())), ...overrides };
   const connections = new Map<string, string>();
   let reconnectPass: Promise<unknown> | undefined;
+  /** Frames this process is sending now; their pending rows are not interrupted. */
+  const sending = new Set<string>();
+
+  /** An interrupted attempt is ambiguous from here on; returns the row as it now stands. */
+  function settleInterrupted(row: DeliveryRow): DeliveryRow {
+    if (!isInterrupted(row) || sending.has(row.frameId)) return row;
+    const db = deps.db();
+    markInterrupted(db, row, deps.now());
+    return readDelivery(db, row.inputId) ?? row;
+  }
 
   async function adapterFor(binding: SessionBinding): Promise<MessageAdapter | undefined> {
     let adapter: MessageAdapter | undefined;
@@ -184,13 +199,17 @@ export function createDeliveryService(overrides: Partial<DeliveryDeps> = {}): De
       generation: binding.attachment.generation, harness: binding.native.harness,
       constituents: input.constituents?.length ? input.constituents : [{ id: input.id }],
     };
-    const recorded = recordAttempt(db, record, deps.now());
+    const startedAt = deps.now();
+    const recorded = recordAttempt(db, record, startedAt, startedAt + DELIVERY_SWEEP_INTERVAL_MS);
     if (!recorded.ok) return recorded;
     let out: Outcome<DeliveryReceipt>;
+    sending.add(input.id);
     try {
       out = await adapter.submit(binding, peer);
     } catch (err) {
       out = fail("ambiguous", `the ${binding.native.harness} transport threw while sending delivery ${input.id}: ${messageOf(err)}`);
+    } finally {
+      sending.delete(input.id);
     }
     const now = deps.now();
     const attempts = readDelivery(db, input.id)?.attempts ?? 1;
@@ -211,7 +230,8 @@ export function createDeliveryService(overrides: Partial<DeliveryDeps> = {}): De
       return fail("invalid", `frame ${input.id} must go out under one of its constituents' ids`);
     }
     const peer: PeerInput = { id: input.id, sender: input.sender, body: input.body, recipient: input.recipient };
-    const prior = readDelivery(deps.db(), input.id);
+    const stored = readDelivery(deps.db(), input.id);
+    const prior = stored ? settleInterrupted(stored) : null;
     if (prior?.state === "consumed") return ok(receiptOfDelivery(prior));
     if (prior && prior.frameId === input.id && (prior.state === "submitted" || prior.state === "queued" || prior.state === "ambiguous")) {
       if (sameAttachment(prior, binding) && prior.state !== "ambiguous") return ok(receiptOfDelivery(prior));
@@ -242,9 +262,13 @@ export function createDeliveryService(overrides: Partial<DeliveryDeps> = {}): De
     }
     for (const [frameId, rows] of frames) {
       if (signal?.aborted) break;
-      const owed = rows.filter((row) => owedByRoomLog(db, row));
+      let owed = rows.filter((row) => owedByRoomLog(db, row));
       for (const row of rows) if (!owed.includes(row)) scheduleDelivery(db, row, null, now);
       if (owed.length === 0) continue;
+      if (owed.some((row) => isInterrupted(row) && !sending.has(frameId))) {
+        markInterrupted(db, owed[0]!, now);
+        owed = owed.map((row) => readDelivery(db, row.inputId) ?? row);
+      }
       const head = readFrame(db, frameId).find((row) => row.inputId === frameId) ?? owed[0]!;
       if (owed.some((row) => row.state === "ambiguous") && (await evidenceFrom(head))) continue;
       for (const row of owed) {
@@ -262,12 +286,14 @@ export function createDeliveryService(overrides: Partial<DeliveryDeps> = {}): De
     idle: async () => {
       await reconnectPass;
     },
+    connection: (harness) => deps.connectionOf(harness),
     async settled(binding, ids) {
       const db = deps.db();
       const held = new Set<string>();
       const checked = new Set<string>();
       for (const id of ids) {
-        let row = readDelivery(db, id);
+        const stored = readDelivery(db, id);
+        let row = stored ? settleInterrupted(stored) : null;
         if (row?.state === "ambiguous" && !checked.has(row.frameId)) {
           checked.add(row.frameId);
           if (await evidenceFrom(row)) row = readDelivery(db, id);

@@ -237,7 +237,12 @@ async function deliverPost(
   const presence = presenceForHandle(recipient, db);
   if (!presence || presence.signedOutAt !== undefined) return { delivered: false, count: 0 };
   const bound = harnessRoute(delivery, presence.sessionId, db);
-  if (bound) return deliverBound(db, bound.delivery, bound.binding, herdr, log, recipient, presence.pane, msg);
+  if (bound) {
+    // A session whose transport is down is skipped the way a dead inbox is
+    // below: no attempt, no warning, no badge, and the room log keeps it owed.
+    if (!harnessReachable(bound.delivery, bound.binding, presence.sessionId, deps)) return { delivered: false, count: 0 };
+    return deliverBound(db, bound.delivery, bound.binding, herdr, log, recipient, presence.pane, msg);
+  }
   const binding = deps.resolve(presence.sessionId);
   if (!binding || !inboxAlive(binding)) return { delivered: false, count: 0 };
   const pending = pendingMessages(msg.room, recipient, msg.id, db);
@@ -282,6 +287,19 @@ function harnessRoute(
   if (!delivery || !integrationsEnabled()) return null;
   const binding = attachedBinding(sessionId, db);
   return binding ? { delivery, binding } : null;
+}
+
+/**
+ * Whether a bound session can take input now, read without connecting: a
+ * Claude session by its registry inbox, as the inbox path reads it; any other
+ * harness by its messaging connection.
+ */
+function harnessReachable(delivery: DeliveryService, binding: SessionBinding, sessionId: string, deps: InboxDeps): boolean {
+  if (binding.native.harness === "claude") {
+    const inbox = deps.resolve(sessionId);
+    return inbox !== null && inbox !== undefined && inboxAlive(inbox);
+  }
+  return delivery.connection(binding.native.harness) !== null;
 }
 
 /** The one attached binding a presence's session id names, or null when there is none or more than one. */
@@ -628,6 +646,20 @@ export function createChatDeliverySweep(opts: {
   // of `failureCounts`, letting a stale `entry` clobber the other run's
   // streak. Skipping is always safe: the next tick rescans from the store.
   let inFlight = false;
+  // Each harness's messaging connection as the last tick that read it saw it,
+  // and this tick's reading, so a new connection is noticed once per tick.
+  const lastLinks = new Map<string, string | null | undefined>();
+  const linksThisTick = new Map<string, { live: boolean; reconnected: boolean }>();
+  function linkOf(delivery: DeliveryService, harnessId: string): { live: boolean; reconnected: boolean } {
+    const seen = linksThisTick.get(harnessId);
+    if (seen) return seen;
+    const now = delivery.connection(harnessId);
+    const before = lastLinks.get(harnessId);
+    const link = { live: now !== null, reconnected: lastLinks.has(harnessId) && now !== null && now !== before };
+    lastLinks.set(harnessId, now);
+    linksThisTick.set(harnessId, link);
+    return link;
+  }
 
   return async function sweepPendingDeliveries(): Promise<{ sweptPairs: number; recoveredMessages: number }> {
     if (inFlight) return { sweptPairs: 0, recoveredMessages: 0 };
@@ -641,6 +673,7 @@ export function createChatDeliverySweep(opts: {
 
   async function runSweep(): Promise<{ sweptPairs: number; recoveredMessages: number }> {
     tick += 1;
+    linksThisTick.clear();
     const harness = opts.delivery && integrationsEnabled() ? opts.delivery : undefined;
     if (harness) {
       try {
@@ -680,20 +713,32 @@ export function createChatDeliverySweep(opts: {
     // A signed-out presence is skipped before even doing the (now cheap,
     // in-memory) alive check -- its binding can never matter either.
     const aliveSessionIds = new Set<string>();
+    const reconnectedSessions = new Set<string>();
     if (presenceByHandle.size > 0) {
       const scoped = snapshotRegistryDeps(opts.registryDeps);
       for (const presence of presenceByHandle.values()) {
         if (presence.signedOutAt !== undefined) continue;
-        // A bound session outside Claude's registry is a target; its harness
-        // reports whether it can take input. A Claude session's liveness
-        // stays the registry's, read below in the one scan.
+        // A bound session outside Claude's registry is a target only while
+        // its harness has a connection, so an outage builds no failure
+        // streak, as a dead Claude inbox builds none. A Claude session's
+        // liveness stays the registry's, read below in the one scan.
         const bound = harness ? attachedBinding(presence.sessionId, db) : null;
-        if (bound && bound.native.harness !== "claude") {
-          aliveSessionIds.add(presence.sessionId);
+        if (bound && harness && bound.native.harness !== "claude") {
+          const link = linkOf(harness, bound.native.harness);
+          if (link.live) aliveSessionIds.add(presence.sessionId);
+          if (link.reconnected) reconnectedSessions.add(presence.sessionId);
           continue;
         }
         const binding = scoped.resolve(presence.sessionId);
         if (binding && scoped.alive(binding)) aliveSessionIds.add(presence.sessionId);
+      }
+    }
+    // A harness that came back on a new connection gets its recipients
+    // attempted this tick, whatever backoff they built before it went away.
+    if (reconnectedSessions.size > 0) {
+      for (const pair of stale) {
+        const presence = presenceByHandle.get(pair.handle);
+        if (presence && reconnectedSessions.has(presence.sessionId)) failureCounts.delete(chainKey(pair.room, pair.handle));
       }
     }
 

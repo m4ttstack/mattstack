@@ -46,18 +46,20 @@ const SELECT_DUE_SQL = `SELECT ${COLUMNS} FROM agent_deliveries
 WHERE state IN ('pending', 'ambiguous') AND next_attempt_at IS NOT NULL AND next_attempt_at <= ?
 ORDER BY next_attempt_at, updated_at LIMIT ?;`;
 const RECORD_ATTEMPT_SQL = `INSERT INTO agent_deliveries
-  (input_id, recipient, session_key, generation, harness, state, frame_id, room, message_id, attempts, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, 1, ?, ?)
+  (input_id, recipient, session_key, generation, harness, state, frame_id, room, message_id, attempts, next_attempt_at, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, 1, ?, ?, ?)
 ON CONFLICT(input_id) DO UPDATE SET
   recipient = excluded.recipient, session_key = excluded.session_key, generation = excluded.generation,
   harness = excluded.harness, state = 'pending', frame_id = excluded.frame_id,
   room = COALESCE(excluded.room, room), message_id = COALESCE(excluded.message_id, message_id),
-  native_id = NULL, turn_id = NULL, item_id = NULL, error = NULL, next_attempt_at = NULL,
+  native_id = NULL, turn_id = NULL, item_id = NULL, error = NULL, next_attempt_at = excluded.next_attempt_at,
   attempts = attempts + 1, updated_at = excluded.updated_at
 WHERE agent_deliveries.state <> 'consumed';`;
 const SETTLE_ATTEMPT_SQL = `UPDATE agent_deliveries SET state = ?, native_id = ?, turn_id = ?, item_id = ?, error = ?,
   next_attempt_at = ?, updated_at = ?
 WHERE frame_id = ? AND session_key = ? AND generation = ? AND state = 'pending';`;
+const INTERRUPTED_SQL = `UPDATE agent_deliveries SET state = 'ambiguous', error = ?, updated_at = ?
+WHERE frame_id = ? AND session_key = ? AND generation = ? AND state = 'pending' AND error IS NULL;`;
 const SETTLE_EVIDENCE_SQL = `UPDATE agent_deliveries SET state = ?, native_id = COALESCE(?, native_id),
   turn_id = COALESCE(?, turn_id), item_id = COALESCE(?, item_id), error = NULL, next_attempt_at = NULL, updated_at = ?
 WHERE frame_id = ? AND session_key = ? AND generation = ? AND state IN ('pending', 'ambiguous', 'submitted', 'queued');`;
@@ -114,15 +116,17 @@ export function listDueDeliveries(db: Database, now: number, limit: number): Del
 
 /**
  * The write before the native side effect: every constituent becomes pending
- * under this attempt's binding. A consumed constituent keeps its evidence.
+ * under this attempt's binding, already scheduled at `dueAt`, so an attempt a
+ * crash interrupts before it is settled is still found by reconciliation. A
+ * consumed constituent keeps its evidence.
  */
-export function recordAttempt(db: Database, attempt: DeliveryAttempt, now: number): Outcome<void> {
+export function recordAttempt(db: Database, attempt: DeliveryAttempt, now: number, dueAt: number): Outcome<void> {
   try {
     db.transaction(() => {
       for (const c of attempt.constituents) {
         db.query(RECORD_ATTEMPT_SQL).run(
           c.id, attempt.recipient, attempt.sessionKey, attempt.generation, attempt.harness, attempt.frameId,
-          c.room ?? null, c.messageId ?? null, now, now,
+          c.room ?? null, c.messageId ?? null, dueAt, now, now,
         );
       }
     })();
@@ -142,6 +146,23 @@ export function settleAttempt(
   quietly(() => db.query(SETTLE_ATTEMPT_SQL).run(
     state, r?.nativeId ?? null, r?.turnId ?? null, r?.itemId ?? null, detail.error ?? null, detail.nextAttemptAt ?? null, now,
     attempt.frameId, attempt.sessionKey, attempt.generation,
+  ), undefined);
+}
+
+/**
+ * A pending row with no recorded outcome whose attempt is not running: the
+ * process that sent it stopped between recording and settling, so the frame
+ * may have gone out. Every failure settles with its error, so only an
+ * unsettled attempt is pending without one.
+ */
+export function isInterrupted(row: DeliveryRow): boolean {
+  return row.state === "pending" && row.error === undefined && row.attempts > 0;
+}
+
+/** Records an interrupted attempt's frame as ambiguous, so it is reconciled before anything is sent again. */
+export function markInterrupted(db: Database, row: Pick<DeliveryRow, "frameId" | "sessionKey" | "generation">, now: number): void {
+  quietly(() => db.query(INTERRUPTED_SQL).run(
+    "the attempt was interrupted before its outcome was recorded", now, row.frameId, row.sessionKey, row.generation,
   ), undefined);
 }
 

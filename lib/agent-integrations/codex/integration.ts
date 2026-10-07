@@ -1,9 +1,11 @@
 import type { HarnessIntegration } from "../contracts.ts";
+import { codexMessagingConnection } from "./link.ts";
 
 export const codexIntegration: HarnessIntegration = {
   id: "codex",
   label: "Codex",
   sessionEnv: ["CODEX_THREAD_ID"],
+  messagingConnection: codexMessagingConnection,
   capabilities: async (mode) => {
     const { codexReadiness, codexSupported } = await import("./sessions.ts");
     return { mode, supported: codexSupported(mode), readiness: codexReadiness() };

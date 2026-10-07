@@ -194,6 +194,12 @@ export type HarnessIntegration = {
    * Absent when the harness cannot match a pane to a session by process.
    */
   readonly sessionForPid?: (pid: number) => Promise<string | null>;
+  /**
+   * The id of the connection peer messaging would use now, or null while it
+   * has none, read without loading, connecting or spawning. Absent when the
+   * harness's transport has no connection to wait for.
+   */
+  readonly messagingConnection?: () => string | null;
   capabilities(mode: Mode): Promise<CapabilityReport>;
   validateOptions(options: AgentOptions): Outcome<AgentOptions>;
   options(): Promise<OptionDescriptor[]>;

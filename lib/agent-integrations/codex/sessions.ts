@@ -44,6 +44,7 @@ import {
 } from "./control.ts";
 import { codexEventHub } from "./events.ts";
 import type { CodexMessagingDeps } from "./messaging.ts";
+import { setCodexLinkProbe } from "./link.ts";
 import { canonicalCodexProfile } from "./profile.ts";
 import { CODEX_STATUS_ENUMS, isRecord, type CodexThreadStatus } from "./protocol.ts";
 import { codexConfigPath, codexFolderTrust } from "./trust.ts";
@@ -643,6 +644,8 @@ export type CodexSessionLoader = {
   /** Messaging on the sessions' own connection, so both share its one event subscription. */
   loadMessaging(): Promise<MessageAdapter>;
   status(): LoaderStatus;
+  /** The live connection's id, or null; never connects. */
+  connection(): string | null;
 };
 
 /** Stands in when no connection could be made; nothing can have been sent. */
@@ -723,15 +726,27 @@ export function createCodexSessionLoader(overrides: Partial<CodexSessionLoaderDe
       if (failure) return { state: "failed", message: failure.error.message };
       return current ? { state: "closed" } : { state: "never" };
     },
+    connection() {
+      return current && !current.control.closed ? current.control.connection : null;
+    },
   };
 }
 
 let shared: CodexSessionLoader | undefined;
 
+function sharedLoader(): CodexSessionLoader {
+  if (!shared) {
+    const loader = createCodexSessionLoader();
+    shared = loader;
+    setCodexLinkProbe(() => loader.connection());
+  }
+  return shared;
+}
+
 export function loadCodexSessions(): Promise<SessionAdapter> {
-  return (shared ??= createCodexSessionLoader()).load();
+  return sharedLoader().load();
 }
 
 export function loadCodexMessaging(): Promise<MessageAdapter> {
-  return (shared ??= createCodexSessionLoader()).loadMessaging();
+  return sharedLoader().loadMessaging();
 }
