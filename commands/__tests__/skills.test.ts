@@ -1042,6 +1042,18 @@ describe("base pack attachments", () => {
     expect(existsSync(kit(skillClash.packDir))).toBe(false);
   });
 
+  test("a symlink in a base attachment is refused, and nothing is written", async () => {
+    const { baseDir, packDir, compile } = seedBaseAndTeam();
+    symlinkSync("run.sh", join(baseDir, "attachments", "review-kit", "scripts", "link.sh"));
+
+    const refused = await compile();
+
+    expect(refused.exitCode).toBeDefined();
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.errors.join("\n")).toContain("acme-base attachment review-kit has a symlink at scripts/link.sh; compile copies regular files only");
+    expect(existsSync(kit(packDir))).toBe(false);
+  });
+
   test("cleanup after the base drops an attachment and after extends is dropped", async () => {
     const dropped = seedBaseAndTeam();
     writeFile(join(dropped.packDir, "attachments", "own", "SKILL.md"), "---\nname: own\n---\nours\n");

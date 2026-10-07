@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { HEADER_COMMENT } from "../compile.ts";
-import { isEmittedAttachmentDir, isEmittedAttachmentText, isSkippedAttachmentPath, listAttachmentFiles, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf } from "../base-attachments.ts";
+import { isEmittedAttachmentDir, isEmittedAttachmentText, isSkippedAttachmentPath, listAttachmentFiles, maskProvenanceVersion, planBaseAttachments, plannedAttachmentsOf, walkAttachmentFiles } from "../base-attachments.ts";
 
 let root: string;
 const put = (path: string, text: string) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text); };
@@ -178,6 +178,22 @@ describe("plan errors", () => {
     expect(result.emits).toEqual([]);
   });
 
+  test("a symlink in a base attachment is a plan error, one per link, and the attachment is not emitted", () => {
+    const kit = join(baseDir(), "attachments", "review-kit");
+    put(join(kit, "SKILL.md"), "body\n");
+    put(join(kit, "scripts", "run.sh"), "echo hi\n");
+    symlinkSync("run.sh", join(kit, "scripts", "z-link.sh"));
+    symlinkSync("scripts", join(kit, "a-dir-link"));
+    symlinkSync("SKILL.md", join(kit, ".hidden-link"));
+    put(join(baseDir(), "attachments", "other-kit", "SKILL.md"), "body\n");
+    const result = plan();
+    expect(result.errors).toEqual([
+      "acme-base attachment review-kit has a symlink at a-dir-link; compile copies regular files only",
+      "acme-base attachment review-kit has a symlink at scripts/z-link.sh; compile copies regular files only",
+    ]);
+    expect(result.emits).toEqual([]);
+  });
+
   test("a base folder named like an Object property is not a clash", () => {
     put(join(baseDir(), "attachments", "constructor", "SKILL.md"), "body\n");
     const result = plan();
@@ -216,5 +232,15 @@ describe("helpers", () => {
     expect(isSkippedAttachmentPath("a/__pycache__/x.py")).toBe(true);
     expect(isSkippedAttachmentPath("a/x.pyc")).toBe(true);
     expect(isSkippedAttachmentPath("a/x.py")).toBe(false);
+  });
+
+  test("walkAttachmentFiles reports symlinks apart from files, skipping what the walk skips", () => {
+    const dir = join(packDir(), "attachments", "kit");
+    put(join(dir, "b.md"), "b");
+    put(join(dir, "a", "c.txt"), "c");
+    symlinkSync("../b.md", join(dir, "a", "link.md"));
+    symlinkSync("b.md", join(dir, ".link"));
+    expect(walkAttachmentFiles(dir)).toEqual({ files: ["a/c.txt", "b.md"], symlinks: ["a/link.md"] });
+    expect(listAttachmentFiles(dir)).toEqual(["a/c.txt", "b.md"]);
   });
 });

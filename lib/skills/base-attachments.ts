@@ -50,18 +50,24 @@ export function isSkippedAttachmentPath(rel: string): boolean {
   return rel.split("/").some((segment) => segment.startsWith(".") || segment === "__pycache__") || rel.endsWith(".pyc");
 }
 
-export function listAttachmentFiles(dir: string): string[] {
-  const out: string[] = [];
+export function walkAttachmentFiles(dir: string): { files: string[]; symlinks: string[] } {
+  const files: string[] = [];
+  const symlinks: string[] = [];
   const walk = (sub: string) => {
     for (const entry of readdirSync(sub ? join(dir, sub) : dir, { withFileTypes: true })) {
       const rel = sub ? `${sub}/${entry.name}` : entry.name;
       if (isSkippedAttachmentPath(rel)) continue;
       if (entry.isDirectory()) walk(rel);
-      else if (entry.isFile()) out.push(rel);
+      else if (entry.isFile()) files.push(rel);
+      else if (entry.isSymbolicLink()) symlinks.push(rel);
     }
   };
   walk("");
-  return out.sort();
+  return { files: files.sort(), symlinks: symlinks.sort() };
+}
+
+export function listAttachmentFiles(dir: string): string[] {
+  return walkAttachmentFiles(dir).files;
 }
 
 function isFill(dir: string): boolean {
@@ -117,7 +123,9 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
     } else if (existsSync(join(attachmentsDir, name)) && !isEmittedAttachmentDir(join(attachmentsDir, name))) {
       kept.push(name);
     } else {
-      records.push({ name, srcDir, files: listAttachmentFiles(srcDir) });
+      const { files, symlinks } = walkAttachmentFiles(srcDir);
+      if (symlinks.length > 0) errors.push(...symlinks.map((rel) => `${label} has a symlink at ${rel}; compile copies regular files only`));
+      else records.push({ name, srcDir, files });
     }
   }
 
