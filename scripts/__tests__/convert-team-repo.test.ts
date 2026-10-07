@@ -925,4 +925,32 @@ exec "$RT_CONVERT_REAL_GIT" "$@"
     const zones = readZonesFrom(fs, dirname(dir));
     expect(zones).toEqual([expect.objectContaining({ slug: "acme/widgets", host: "gitlab.example.com", projects: ["acme/widgets"], hasPack: true })]);
   });
+
+  test("--org writes that name into the marker and keeps ${team:<folder>} in old values", () => {
+    ready();
+    const dir = tempClone();
+    const out = runScript(dir, "--org", "globex", "--write", "--roster-confirmed");
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(readFileSync(join(dir, "mattstack", "mattstack.jsonc"), "utf8"))).toEqual({ role: "org", org: "globex" });
+    expect(readFileSync(join(dir, "mattstack", "org", "settings.org.jsonc"), "utf8")).toContain("${team:acme}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh");
+  });
+
+  test("--org-placeholder writes ${org}", () => {
+    ready();
+    const dir = tempClone();
+    expect(runScript(dir, "--org-placeholder", "--write", "--roster-confirmed").exitCode).toBe(0);
+    const org = readFileSync(join(dir, "mattstack", "org", "settings.org.jsonc"), "utf8");
+    expect(org).toContain("${org}/mattstack/teams/widgets/packs/widgets/hooks/dev.sh");
+    expect(org).not.toContain("${team:acme}");
+  });
+
+  test("an --org that breaks the slug rule, or a second --org, is a usage failure and changes nothing", () => {
+    const dir = tempClone();
+    const before = snapshot(dir);
+    for (const extra of [["--org", "Globex"], ["--org", "globex", "--org", "gadgets"], ["--org", "--write"]]) {
+      const out = runScript(dir, ...extra);
+      expect(out.exitCode).toBe(2);
+      expect(snapshot(dir)).toBe(before);
+    }
+  });
 });
