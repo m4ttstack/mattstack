@@ -158,6 +158,29 @@ describe("planBaseAttachments", () => {
   });
 });
 
+describe("plan errors", () => {
+  test("a plan error clears an existing stale entry", () => {
+    put(join(packDir(), "attachments", "old-kit", "compiled.json"), emittedMarker);
+    put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "body\n");
+    const result = plan({ "review-kit": "attachments" });
+    expect(result.errors).toEqual([clash]);
+    expect(result.stale).toEqual([]);
+    expect(result.emits).toEqual([]);
+  });
+
+  test("a base folder named like an Object property is not a clash", () => {
+    put(join(baseDir(), "attachments", "constructor", "SKILL.md"), "body\n");
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    expect(result.emits.map((e) => e.name)).toEqual(["constructor"]);
+  });
+
+  test("a folder named compiled.json is not provenance and does not throw", () => {
+    mkdirSync(join(packDir(), "attachments", "odd", "compiled.json"), { recursive: true });
+    expect(isEmittedAttachmentDir(join(packDir(), "attachments", "odd"))).toBe(false);
+  });
+});
+
 describe("helpers", () => {
   test("isEmittedAttachmentDir reads the folder's compiled.json", () => {
     put(join(packDir(), "attachments", "a", "compiled.json"), emittedMarker);

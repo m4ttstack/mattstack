@@ -1,7 +1,7 @@
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
-import { HEADER_COMMENT } from "./compile.ts";
+import { hasCompiledHeader } from "./compile.ts";
 import { substituteAttachmentPlaceholders } from "./placeholders.ts";
 import { packPluginIdentity } from "./provenance.ts";
 import { listDirs, orgOfPackDir, readJsoncObject, stripFrontmatter } from "./sources.ts";
@@ -33,7 +33,11 @@ export function isEmittedAttachmentText(text: string | null): boolean {
 
 export function isEmittedAttachmentDir(dir: string): boolean {
   const path = join(dir, PROVENANCE_FILE);
-  return existsSync(path) && isEmittedAttachmentText(readFileSync(path, "utf8"));
+  try {
+    return statSync(path).isFile() && isEmittedAttachmentText(readFileSync(path, "utf8"));
+  } catch {
+    return false;
+  }
 }
 
 export function maskProvenanceVersion(text: string): string {
@@ -66,9 +70,7 @@ function isFill(dir: string): boolean {
 }
 
 function isHandAuthored(dir: string): boolean {
-  const skillMd = join(dir, "SKILL.md");
-  if (!existsSync(skillMd)) return false;
-  return !stripFrontmatter(readFileSync(skillMd, "utf8")).body.startsWith(HEADER_COMMENT);
+  return existsSync(join(dir, "SKILL.md")) && !hasCompiledHeader(dir);
 }
 
 function resolveBase(packDir: string, packName: string, name: unknown): BaseRef | string {
@@ -104,7 +106,7 @@ export function planBaseAttachments(input: { packDir: string; packName: string; 
     const srcDir = join(base.dir, "attachments", name);
     if (isFill(srcDir)) continue;
     const label = `${base.name} attachment ${name}`;
-    if (name in verbSides) {
+    if (Object.hasOwn(verbSides, name)) {
       errors.push(`${label} has the same name as the ${packName} verb ${name}; rename one of them`);
     } else if (isHandAuthored(join(packDir, "skills", name))) {
       errors.push(`${label} has the same name as the ${packName} skill skills/${name}; rename one of them`);

@@ -1,6 +1,7 @@
-import { existsSync } from "fs";
-import { isAbsolute, relative as relativePath, resolve as resolvePath, sep } from "path";
+import { existsSync, readFileSync } from "fs";
+import { isAbsolute, join, relative as relativePath, resolve as resolvePath, sep } from "path";
 import { assertNoPlaceholders, findPlaceholders, skillDirFor, substitute, substituteIncludesOnly, type TraceEntry } from "./placeholders.ts";
+import { stripFrontmatter } from "./sources.ts";
 import type {
   AttachmentSource,
   CompiledFile,
@@ -18,6 +19,13 @@ const RESOLVER_RE = /\bresolve-args\.sh\b/;
 /** Exported so `rt skills surface` can classify a directory as compiled by checking its SKILL.md body prefix. */
 export const HEADER_COMMENT =
   "<!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->";
+
+/** True when the folder's SKILL.md body opens with the compiler header, which marks it as compile output rather than hand-written. */
+export function hasCompiledHeader(dir: string): boolean {
+  const skillMdPath = join(dir, "SKILL.md");
+  if (!existsSync(skillMdPath)) return false;
+  return stripFrontmatter(readFileSync(skillMdPath, "utf8")).body.startsWith(HEADER_COMMENT);
+}
 
 const SKILL_DIR_PATH_RE = /\$\{CLAUDE_SKILL_DIR\}\/[^\s"'`)]+/g;
 

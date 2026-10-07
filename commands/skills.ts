@@ -48,7 +48,7 @@ import { UserActionableError, exitUserError } from "../lib/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
 import { findEnginePackDir, materializeSkills, registeredCheckoutForSlug, setAsideLine, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { validateChain } from "../lib/skills/chain.ts";
-import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
+import { compileSkill, hasCompiledHeader, isInlined } from "../lib/skills/compile.ts";
 import { buildParts, linksIn, partsFromMarkers, partsOnDisk, type AnatomyPayload, type AnatomySource, type AnatomyTarget } from "../lib/skills/anatomy.ts";
 import { describeGitFailure, fullyInScope, isNotARepo, literalPathspecs, packRelative, packSideChanges, parseCleanDryRun, parsePorcelain, pendingSignature, pruneEmptiedDirs, SIGNATURE_RE, touchesPack, withHashes, type ChangesPayload, type GitRun, type HashedFile, type PackSideChanges, type PendingFile } from "../lib/skills/changes.ts";
 import { changedPartKeys, partExtents, skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
@@ -2182,10 +2182,7 @@ function isHandWrittenDir(dir: string): boolean {
 }
 
 function isCompiledDir(dir: string): boolean {
-  const skillMdPath = join(dir, "SKILL.md");
-  if (!existsSync(skillMdPath)) return false;
-  const { body } = stripFrontmatter(readFileSync(skillMdPath, "utf8"));
-  return body.startsWith(HEADER_COMMENT);
+  return hasCompiledHeader(dir);
 }
 
 /** Stub verb names are always compile targets; a materialized dir carrying the compiler header is one too, even if its verb was since retired from stubs.jsonc. */
