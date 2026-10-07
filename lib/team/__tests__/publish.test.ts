@@ -235,6 +235,20 @@ describe("publishTeam", () => {
     expect(err.log).not.toContain("SECRET");
   });
 
+  test("a rejected push on an org that has been pushed before never says the repo is not empty, even when the remote cannot be read again", async () => {
+    const p = probesWithZone({
+      home: "/home/x",
+      exec: (argv) =>
+        argv[0] === "git" && argv.includes("push")
+          ? { code: 1, stdout: "", stderr: "! [rejected]        main -> main (fetch first)\nerror: failed to push some refs" }
+          : { code: 0, stdout: "", stderr: "" },
+    });
+    const err = await publishTeam(p, "acme", null).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UserActionableError);
+    expect((err as UserActionableError).code).toBe("push-failed");
+    expect((err as UserActionableError).log).toContain("fetch first");
+  });
+
   test("a credential-bearing remote is stripped of userinfo before it reaches the returned result (the JSON envelope's source)", async () => {
     const p = probesWithZone({ home: "/home/x" });
     const result = await publishTeam(p, "acme", "https://x-access-token:SECRET@github.com/acme/repo.git");

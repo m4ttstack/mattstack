@@ -28,16 +28,16 @@ export interface PublishTeamResult {
 /** git's own auth-failure phrasing on a denied push — distinguishes a credentials problem (user-actionable) from every other push failure. Exported for join.ts, which classifies `git ls-remote`/`git clone` failures the same way. */
 export const AUTH_FAILURE_PATTERN = /authentication failed|permission denied|could not read username|denied to|403|access denied/i;
 
-/** git's non-fast-forward rejection — the contract requires an existing EMPTY repo, so this specific shape means the pasted/created remote already has commits, not a generic push failure. A hook's `[remote rejected]` is not one. */
+/** git's non-fast-forward rejection: the contract requires an existing EMPTY repo, so on a clone that has never pushed this shape means the pasted/created remote already has commits. A hook's `[remote rejected]` is not one. */
 const REJECTED_PATTERN = /\[rejected\]|fetch first|non-fast-forward/i;
 
 /** Classifies a failed `git push` into a typed, redacted error — never a plain `Error` that would crash the caller instead of rendering. */
-function classifyPushFailure(result: ExecResult, branch: string): UserActionableError {
+function classifyPushFailure(result: ExecResult, branch: string, tracked: boolean): UserActionableError {
   const text = `${result.stdout}\n${result.stderr}`;
   if (result.code === 128 && AUTH_FAILURE_PATTERN.test(text)) {
     return new UserActionableError("push-denied", "The forge would not let rt push to the team repo", {}, { why: "Check that you can push to it.", log: withoutUrls(text.trim()) });
   }
-  if (REJECTED_PATTERN.test(text)) {
+  if (!tracked && REJECTED_PATTERN.test(text)) {
     return new UserActionableError("remote-not-empty", "The team repo already has commits", {}, {
       why: "rt starts a team in an empty repo.",
       log: `the remote already has commits rt can't fast-forward past; rt team create expects an existing EMPTY repository: ${withoutUrls(text.trim())}`,
@@ -113,7 +113,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
         log: withoutUrls(text.trim()),
       });
     }
-    throw classifyPushFailure(push, branch);
+    throw classifyPushFailure(push, branch, tracked);
   }
 
   const publicRemote = stripUserinfo(activeRemote);
