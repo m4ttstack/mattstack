@@ -70,7 +70,7 @@ describe("renameOrg refusals", () => {
   test("a clone behind its origin is refused and pointed at a pull", async () => {
     const w = orgWorld();
     const other = join(w.home, "other");
-    execFileSync("git", ["clone", "-q", w.remote, other], { env: childEnv() });
+    execFileSync("git", ["clone", "-q", "-b", "main", w.remote, other], { env: childEnv() });
     const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=dev2", "-c", "user.email=dev2@example.test", ...args], { cwd: other, env: childEnv() });
     writeFileSync(join(other, "later.txt"), "x\n");
     git("add", "later.txt");
