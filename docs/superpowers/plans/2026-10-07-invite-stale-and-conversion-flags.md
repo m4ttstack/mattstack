@@ -25,6 +25,12 @@
 
 ## Decisions this plan makes (flag at review)
 
+> **Superseded during review.** The shipped join differs from Task 1's code below in four ways; the code on the branch is the reference:
+> - Decision 1 changed: the marker is checked on both branches, a fresh clone and a folder already on this Mac. On a mismatch join refuses either way, but removes only a folder it cloned in this call; a folder already on this Mac is kept.
+> - `clonedOrgName` also requires the marker's `org` to pass `validateSlug`, as `orgOfPackDir` does; an invalid slug reads as no org marker.
+> - When rt cannot remove a fresh clone, the refusal's `why` names the folder so you can remove it.
+> - The real-git test sets `GIT_PROTOCOL_FROM_USER=1` in its exec wrapper, since join's `GIT_ENV` blocks the local file transport the bare repo uses.
+
 1. **Only a fresh clone is checked.** When the org folder was already on this Mac (`alreadyCloned`, the resume path), join never removes it: removing a folder this call did not create could destroy a working org.
 2. **Only an org marker is compared.** The check fires when the marker parses, has `role: "org"` and a string `org` that differs from `pointer.team`, the same reading `orgOfPackDir` uses. A missing, unparsable or non-org marker falls through to today's behavior (the roster check), so existing joins and fixtures are untouched.
 3. **"No record behind" means both records join wrote before cloning go back to what they were.** `~/.mattstack/rt/teams/<slug>.json`: removed when it did not exist before this call, otherwise `joinedByRt` restored (the existing clone-failure path's rule). `~/.mattstack/rt/setup-intent.json`: removed when it did not exist before this call, otherwise its prior bytes are written back verbatim, even when they are this same invite's join intent. Clearing that intent would break the setup app: `teamJoinRun` (`lib/setup/steps/team.ts`) resumes from it, and with it gone the next Retry reports "Already joined" and the step drops out, so the wizard would look joined when it is not. Kept, the row keeps showing the refusal until a fresh code's dry run overwrites the intent.
