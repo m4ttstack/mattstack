@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { renderPlain } from "../../lib/ui/out-plain.ts";
 import { checkBlocks, compositionBlocks, installedCacheBlocks, materializeBlocks, packsBlocks, type CheckPayload, type CompositionPayload } from "../skills.ts";
 
-const base: CheckPayload = { pack: "acme", packDir: "/p", verbs: [], chainErrors: [], installed: null, drift: false, mcpLint: [], scriptLint: [], strictLint: false, attachments: [] };
+const base: CheckPayload = { pack: "acme", packDir: "/p", verbs: [], chainErrors: [], installed: null, drift: false, mcpLint: [], scriptLint: [], strictLint: false, attachments: [], extendsBase: true };
 
 test("check lists each verb, names what moved, and gives the fix once", () => {
   const payload: CheckPayload = {
@@ -29,6 +29,34 @@ test("check lists each verb, names what moved, and gives the fix once", () => {
       "",
     ].join("\n"),
   );
+});
+
+test("check shows one line per attachment row and names why an orphan is stale", () => {
+  const row = { base: "acme-base", staleFiles: [] as string[], orphanFiles: [] as string[] };
+  const payload: CheckPayload = {
+    ...base,
+    drift: true,
+    attachments: [
+      { ...row, name: "current-kit", status: "in-sync" },
+      { ...row, name: "changed-kit", status: "stale", staleFiles: ["SKILL.md"], orphanFiles: ["old.md"] },
+      { ...row, name: "new-kit", status: "never-compiled" },
+      { ...row, name: "dropped-kit", base: null, status: "orphaned", orphanFiles: ["SKILL.md"] },
+    ],
+  };
+  expect(renderPlain(checkBlocks(payload, false))).toBe(
+    [
+      "[ok] current-kit  copied from acme-base, current",
+      "[out of date] changed-kit  changed since the last compile: SKILL.md, old.md (orphan)",
+      "[out of date] new-kit  not copied from acme-base yet",
+      "[out of date] dropped-kit  its base no longer has it",
+      "  next: rt skills compile",
+      "[ok] mcp lint  clean",
+      "",
+    ].join("\n"),
+  );
+
+  const unextended: CheckPayload = { ...base, drift: true, extendsBase: false, attachments: [{ ...row, name: "left-kit", base: null, status: "orphaned", orphanFiles: ["SKILL.md"] }] };
+  expect(renderPlain(checkBlocks(unextended, false))).toContain("[out of date] left-kit  this pack no longer extends a base\n");
 });
 
 test("a chain error is a failed line", () => {

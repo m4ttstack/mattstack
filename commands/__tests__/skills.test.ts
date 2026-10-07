@@ -1244,6 +1244,18 @@ describe("base pack attachments", () => {
       expect(process.exitCode).toBe(1);
     });
 
+    test("a folder left after extends was dropped says the pack no longer extends a base", async () => {
+      const { mattstackDir, packDir, compile, materialize } = seedBaseAndTeam();
+      await compile();
+      writeFile(join(packDir, "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { forge: "mattstack:gitlab-forge" } } }));
+      materialize();
+      io.clear();
+
+      await skillsCheck(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir]);
+
+      expect(io.stdout()).toContain("review-kit  this pack no longer extends a base");
+    });
+
     test("run leftovers are not drift", async () => {
       const { mattstackDir, packDir, compile } = seedBaseAndTeam();
       await compile();

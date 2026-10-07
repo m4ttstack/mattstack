@@ -1242,6 +1242,8 @@ export type CheckPayload = {
   scriptLint: LintHit[];
   strictLint: boolean;
   attachments: AttachmentCheckRow[];
+  /** Whether the pack extends a base; tells an orphan whose base dropped it from one left by a removed extends. Not part of check --json. */
+  extendsBase: boolean;
 };
 
 /** Files a run leaves beside the copy (a script's __pycache__, a git-ignored output) are not drift, matching the verb rows. */
@@ -1380,7 +1382,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   const attachments = flags.verbs === null ? attachmentRows(resolved.packDir, plan) : [];
   if (attachments.some((row) => row.status !== "in-sync")) anyStale = true;
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments };
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint, attachments, extendsBase: plan.base !== null };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -1429,7 +1431,7 @@ export function checkBlocks(payload: CheckPayload, strictFlag: boolean): Block[]
     if (row.status === "never-compiled") {
       blocks.push(out.line("stale", row.name, `not copied from ${row.base} yet`));
     } else if (row.status === "orphaned") {
-      blocks.push(out.line("stale", row.name, "its base no longer has it"));
+      blocks.push(out.line("stale", row.name, payload.extendsBase ? "its base no longer has it" : "this pack no longer extends a base"));
     } else {
       const files = [...row.staleFiles, ...row.orphanFiles.map((f) => `${f} (orphan)`)].join(", ");
       blocks.push(out.line("stale", row.name, `changed since the last compile: ${files}`));
