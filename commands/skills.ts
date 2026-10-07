@@ -1951,12 +1951,12 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
     const sources: Record<string, AnatomySource> = {};
     for (const [name, inc] of Object.entries(includes)) {
       const key = `include:${name}`;
-      sources[key] = { ref: `${inc.plugin}:${name}`, path: join(inc.dir, "SKILL.md"), version: inc.version, builtVersion: builtVersions.get(key) ?? null, lines: inc.body.split("\n").length };
+      sources[key] = { ref: `${inc.plugin}:${name}`, path: join(inc.dir, "SKILL.md"), version: inc.version, builtVersion: builtVersions.get(key) ?? null, lines: inc.body.split("\n").length, ...originFor(resolved.pluginRoots, inc.plugin, inc.dir) };
     }
     for (const [slot, fill] of Object.entries(fills)) {
       if (!fill) continue;
       const key = `slot:${slot}`;
-      sources[key] = { ref: fill.binding, path: join(fill.dir, "SKILL.md"), version: fill.version, builtVersion: builtVersions.get(key) ?? null, lines: fill.body.split("\n").length };
+      sources[key] = { ref: fill.binding, path: join(fill.dir, "SKILL.md"), version: fill.version, builtVersion: builtVersions.get(key) ?? null, lines: fill.body.split("\n").length, ...originFor(resolved.pluginRoots, fill.plugin, fill.dir) };
     }
     const targets: Record<string, AnatomyTarget> = {};
     for (const t of plan.targets) {
@@ -1988,6 +1988,7 @@ export async function skillsAnatomy(args: string[]): Promise<void> {
         version: step.version,
         builtVersion: onDisk ? STEP_VERSION_RE.exec(onDisk)?.[1] ?? null : null,
         lines: fileLineCount(readFileSync(templatePath, "utf8")),
+        ...originFor(resolved.pluginRoots, step.plugin, step.dir),
       },
       rendered: { path: renderedPath, exists: onDisk !== null, lines: fileLineCount(shown) },
       status,

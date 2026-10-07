@@ -2,7 +2,7 @@ import { partExtents, type DriftCause, type PartExtent } from "./drift.ts";
 import type { TraceEntry } from "./placeholders.ts";
 
 export type AnatomyPartKind = "text" | "include" | "slot" | "verb.path" | "variable";
-export type AnatomySource = { ref: string; path: string; version: string; builtVersion: string | null; lines: number };
+export type AnatomySource = { ref: string; path: string; version: string; builtVersion: string | null; lines: number; origin?: "base"; base?: string; baseVersion?: string | null };
 export type AnatomyTarget = { skill: string; path: string; lines: number | null };
 export type AnatomyPart = {
   kind: AnatomyPartKind;

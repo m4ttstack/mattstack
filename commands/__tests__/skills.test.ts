@@ -634,7 +634,7 @@ describe("skillsCompile", () => {
     expect(existsSync(join(baseDir, "skills"))).toBe(false);
   });
 
-  test("composition tags a base fill, its slot and binder slot, and names the base the pack extends", async () => {
+  function seedBaseFixture(): { mattstackDir: string; packDir: string; baseDir: string } {
     const mattstackDir = makeMattstackDir();
     seedOrg(mattstackDir, "acme", { projects: ["acme/widgets"], teams: ["widgets"] });
     const baseDir = join(mattstackDir, "orgs", "acme", "mattstack", "org", "packs", "acme-base");
@@ -647,6 +647,11 @@ describe("skillsCompile", () => {
     writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
     const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, enginePackDir: join(mattstackDir, "plugins", "mattstack") }, "https://gitlab.example.com/acme/widgets.git");
     if (out.kind !== "written") throw new Error(out.kind);
+    return { mattstackDir, packDir, baseDir };
+  }
+
+  test("composition tags a base fill, its slot and binder slot, and names the base the pack extends", async () => {
+    const { mattstackDir, packDir } = seedBaseFixture();
 
     const io = captureSkills();
     try {
@@ -660,6 +665,21 @@ describe("skillsCompile", () => {
       expect(slot).toMatchObject({ boundTo: "acme-base:watch-ci-domain", fillVersion: "org", ...tag });
       const binderSlot = payload.binders.flatMap((b: { slots: { boundTo: string }[] }) => b.slots).find((s: { boundTo: string }) => s.boundTo === "acme-base:watch-ci-domain");
       expect(binderSlot).toMatchObject(tag);
+    } finally {
+      io.restore();
+    }
+  });
+
+  test("anatomy tags a base fill's source and leaves the engine's alone", async () => {
+    const { mattstackDir, packDir } = seedBaseFixture();
+    await runExpectingCleanExit(() => skillsCompile(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
+    const io = captureSkills();
+    try {
+      await skillsAnatomy(["--team", "widgets", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--skill", "watch-ci", "--json"]);
+      const payload = JSON.parse(io.stdout());
+      const domain = payload.parts.find((p: { kind: string; name: string }) => p.kind === "slot" && p.name === "domain");
+      expect(domain.source).toMatchObject({ ref: "acme-base:watch-ci-domain", version: "org", origin: "base", base: "acme-base", baseVersion: "0.1.0" });
+      expect(payload.template).not.toHaveProperty("origin");
     } finally {
       io.restore();
     }
