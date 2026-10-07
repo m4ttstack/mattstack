@@ -6,6 +6,7 @@ import {
   nestedTeamPackRel,
   remedySentence,
   teamPackRel,
+  teamOfPackDir,
   teamPackSource,
   unconvertedTeamPackError,
 } from "../team-pack-path.ts";
@@ -19,6 +20,18 @@ describe("the team pack path", () => {
     expect(teamPackRel("widgets")).toBe("mattstack/teams/widgets/plugin");
     expect(teamPackSource("widgets")).toBe("./mattstack/teams/widgets/plugin");
     expect(nestedTeamPackRel("widgets")).toBe("mattstack/teams/widgets/packs/widgets");
+  });
+});
+
+describe("teamOfPackDir", () => {
+  test("names the team for a team plugin folder", () => {
+    expect(teamOfPackDir(`${FOLDER}/plugin`)).toBe("widgets");
+  });
+  test("is null for every other shape", () => {
+    expect(teamOfPackDir("/h/src/plugins/gadgets")).toBeNull();
+    expect(teamOfPackDir(`${FOLDER}/packs/widgets`)).toBeNull();
+    expect(teamOfPackDir("/h/mattstack/other/widgets/plugin")).toBeNull();
+    expect(teamOfPackDir("/h/teams/widgets/plugin")).toBeNull();
   });
 });
 

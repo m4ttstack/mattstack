@@ -3,7 +3,7 @@ import { homedir } from "os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "path";
 import { fileURLToPath } from "url";
 import { TEAM_NAME_RE } from "../settings/stores.ts";
-import { TEAM_PACK_FOLDER, isUnconvertedTeamPack, unconvertedTeamPackError } from "../team/team-pack-path.ts";
+import { TEAM_PACK_FOLDER, isUnconvertedTeamPack, teamOfPackDir, unconvertedTeamPackError } from "../team/team-pack-path.ts";
 import { stripJsonc } from "./sources.ts";
 
 export type PackLayout = "flat" | "grouped";
@@ -236,7 +236,8 @@ export function whichPackWhy(packs: PackInfo[]): string {
  * The pack whose tree contains startDir, or null. Walks upward on the same
  * surface.jsonc marker discovery uses, so a compile run from inside a
  * worktree acts on that worktree's sources rather than whatever checkout the
- * marketplace registry points at. The name is the directory basename;
+ * marketplace registry points at. The name is the directory basename, or
+ * the team's for a team plugin folder;
  * callers with a better identity source (the pack's own plugin.json) may
  * override it.
  */
@@ -256,7 +257,7 @@ export function findEnclosingPack(startDir: string): PackInfo | null {
     // whose root directory is literally named "pack" loses this tiebreak and
     // resolves to its parent; that shape has no unambiguous marker.
     const parentClaimsSame = parent !== dir && surfaceFileFor(parent) === surfacePath;
-    if (surfacePath && !parentClaimsSame) return packFromDir(basename(dir), dir, null);
+    if (surfacePath && !parentClaimsSame) return packFromDir(teamOfPackDir(dir) ?? basename(dir), dir, null);
     if (parent === dir) return null;
     dir = parent;
   }

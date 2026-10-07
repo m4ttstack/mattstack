@@ -4,7 +4,7 @@
  * the pack's place in the org repo reads it from here; the pre-move path
  * is spelled here only for the detector, and in the conversion planner.
  */
-import { join } from "path";
+import { basename, dirname, join } from "path";
 import { UserActionableError } from "../errors.ts";
 
 export const TEAM_PACK_FOLDER = "plugin";
@@ -15,6 +15,15 @@ export function teamPackRel(team: string): string {
 
 export function teamPackSource(team: string): string {
   return `./${teamPackRel(team)}`;
+}
+
+/** The team a pack folder belongs to when it sits at mattstack/teams/<team>/plugin, else null. */
+export function teamOfPackDir(packDir: string): string | null {
+  if (basename(packDir) !== TEAM_PACK_FOLDER) return null;
+  const teamFolder = dirname(packDir);
+  const teamsDir = dirname(teamFolder);
+  if (basename(teamsDir) !== "teams" || basename(dirname(teamsDir)) !== "mattstack") return null;
+  return basename(teamFolder) || null;
 }
 
 export function nestedTeamPackRel(team: string): string {

@@ -174,6 +174,16 @@ test("compile names a team's own copy that shadows a base attachment", () => {
   );
 });
 
+test("a copied base attachment lists its warnings under it", () => {
+  const rows = [{ name: "review-kit", base: "acme-base", files: 1, warnings: ["SKILL.md references ../missing/SKILL.md which is not an emitted file"] }];
+  expect(renderPlain(compileBlocks([], true, rows))).toBe(
+    "[warning] Copied review-kit  from acme-base, 1 file\n  note: SKILL.md references ../missing/SKILL.md which is not an emitted file\n",
+  );
+  expect(renderPlain(compileBlocks([], false, rows))).toBe(
+    "[not yet] review-kit  would copy 1 file from acme-base\n  note: SKILL.md references ../missing/SKILL.md which is not an emitted file\n",
+  );
+});
+
 test("a dry run says why it would remove an emitted folder", () => {
   const rows = [
     { name: "old-kit", removed: true as const, why: "dropped" as const },

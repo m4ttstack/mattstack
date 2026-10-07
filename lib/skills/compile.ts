@@ -41,7 +41,7 @@ const RELATIVE_PATH_RE = /(?<![^\s("'`[<,])\.\.\/[^\s"'`)]+/g;
 const BARE_ASSET_RE = /(?<![^\s("'`[<,])(?:scripts|references)\/[^\s"'`)]+/g;
 
 /** Where a compiled verb lands, so a body path can be resolved the way the reading agent will resolve it. */
-type CompiledLayout = { packRoot: string; compiledDir: string };
+export type CompiledLayout = { packRoot: string; compiledDir: string };
 
 type BodyPath = {
   text: string;
@@ -150,6 +150,16 @@ function plannedFile(layout: CompiledLayout, abs: string, planned?: PlannedAttac
     if (rel.startsWith(`${unit}${sep}`) && files.has(rel.slice(unit.length + 1))) return true;
   }
   return false;
+}
+
+/** The `../` paths in a file that nothing in the pack satisfies, counting one that leaves the pack. */
+export function unresolvedRelativePaths(text: string, layout: CompiledLayout, emittedTargetDirs: string[], planned?: PlannedAttachments): string[] {
+  const dead = new Set<string>();
+  for (const { text: path, relPath, kind, namesFile } of bodyPaths(text)) {
+    if (kind !== "relative" || !namesFile) continue;
+    if (escapesPackRoot(layout, relPath) || !packSatisfies(layout, relPath, emittedTargetDirs, planned)) dead.add(path);
+  }
+  return [...dead];
 }
 
 /** rt's own namespace, always linted even when no pack is installed. */

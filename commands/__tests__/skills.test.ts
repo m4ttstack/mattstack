@@ -1347,8 +1347,17 @@ describe("base pack attachments", () => {
     expect(refused.errors.join("\n")).toContain(message);
     expect(existsSync(kit(packDir))).toBe(false);
 
-    const fallbackMessage = message.replace("widgets extends", "plugin extends");
-    expect(await compilePackAll({ packDir, mattstackDir, manifest: manifestFile() })).toEqual({ ok: false, errors: [fallbackMessage], written: [], removed: [] });
+    expect(await compilePackAll({ packDir, mattstackDir, manifest: manifestFile() })).toEqual({ ok: false, errors: [message], written: [], removed: [] });
+  });
+
+  test("a copied attachment's dead relative link is a warning, and the copy still lands", async () => {
+    const { packDir, compile } = seedBaseAndTeam({ baseFiles: { "attachments/gates-note/SKILL.md": "---\nname: gates-note\n---\nSee `../stage-gates/SKILL.md`.\n" } });
+    const { exitCode } = await compile();
+    expect(exitCode).toBeUndefined();
+    const printed = io.lines().join("\n");
+    expect(printed).toContain("Copied gates-note");
+    expect(printed).toContain("SKILL.md references ../stage-gates/SKILL.md which is not an emitted file");
+    expect(existsSync(join(packDir, "attachments", "gates-note", "SKILL.md"))).toBe(true);
   });
 
   test("the human output names what was copied", async () => {
@@ -1879,6 +1888,32 @@ describe("skillsCompile --pack-dir validation", () => {
 
     const payload = JSON.parse(io.lines()[0]!);
     expect(payload.pack).toBe("t");
+  });
+
+  test("--pack-dir on a team plugin folder with no plugin identity names the team, not plugin", async () => {
+    const mattstackDir = makeMattstackDir();
+    const clone = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-clone-")));
+    const packDir = join(clone, "mattstack", "teams", "widgets", "plugin");
+    writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+    const manifestPath = makeManifest();
+
+    await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci", "--dry-run", "--json"]);
+
+    const payload = JSON.parse(io.lines()[0]!);
+    expect(payload.pack).toBe("widgets");
+  });
+
+  test("--pack-dir on any other folder with no plugin identity still names the folder", async () => {
+    const mattstackDir = makeMattstackDir();
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-skills-cli-flat-")));
+    const packDir = join(root, "plugins", "gadgets");
+    writeFile(join(packDir, "pack", "stubs.jsonc"), STUBS_JSONC);
+    const manifestPath = makeManifest();
+
+    await skillsCompile(["--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--verb", "watch-ci", "--dry-run", "--json"]);
+
+    const payload = JSON.parse(io.lines()[0]!);
+    expect(payload.pack).toBe("gadgets");
   });
 });
 

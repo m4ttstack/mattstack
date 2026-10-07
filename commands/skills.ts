@@ -35,7 +35,7 @@ import { readOrgRoles } from "../packages/rt-client/src/settings/active-team.ts"
 import { readForgeUsername } from "../packages/rt-client/src/settings/team-local-read.ts";
 import { roleOf, writeRefusalFor } from "../packages/rt-client/src/settings/org-roles.ts";
 import { mattstackHome } from "../lib/rt-paths.ts";
-import { TEAM_PACK_FOLDER } from "../lib/team/team-pack-path.ts";
+import { TEAM_PACK_FOLDER, teamOfPackDir } from "../lib/team/team-pack-path.ts";
 import { childEnv, runCapture } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import { readDevModeConfig } from "./settings.ts";
@@ -219,13 +219,15 @@ type PackTarget = { team: string; packDir: string };
  */
 /**
  * A pack directory is named for its pack in every layout that produces one
- * (`packs/<name>/`, `plugins/<name>/`), so the directory answers "which pack"
- * when the pack carries no plugin identity and `--pack` was omitted. Naming
+ * (`packs/<name>/`, `plugins/<name>/`) except a team's, which is always
+ * `plugin/` and takes its team folder's name, so the directory answers "which
+ * pack" when the pack carries no plugin identity and `--pack` was omitted. Naming
  * a specific team here instead meant a general-purpose tool carried one
  * team's slug as its default.
  */
 function packNameFor(packDir: string): string {
-  return basename(resolvePath(packDir)) || "pack";
+  const dir = resolvePath(packDir);
+  return teamOfPackDir(dir) ?? (basename(dir) || "pack");
 }
 
 function packTeamFor(packDir: string): string {
@@ -1030,7 +1032,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
 
   const emitted: EmittedRow[] = [
     ...plan.retired.map((name) => ({ name, removed: true as const, why: "retired" as const })),
-    ...plan.emits.map((e) => ({ name: e.name, base: plan.base!.name, files: e.files.filter((f) => f.path !== PROVENANCE_FILE).length })),
+    ...plan.emits.map((e) => ({ name: e.name, base: plan.base!.name, files: e.files.filter((f) => f.path !== PROVENANCE_FILE).length, warnings: e.warnings })),
     ...plan.kept.map((name) => ({ name, base: plan.base!.name, kept: true as const })),
     ...plan.stale.map((s) => ({ name: s.name, removed: true as const, why: s.why })),
   ];
@@ -1041,7 +1043,7 @@ function performCompile(resolved: Resolved, verbFilter: string[] | null, write: 
 export type CompiledRow = { name: string; side: Side; files: number; warnings: string[] };
 
 export type EmittedRow =
-  | { name: string; base: string; files: number }
+  | { name: string; base: string; files: number; warnings?: string[] }
   | { name: string; base: string; kept: true }
   | { name: string; removed: true; why: "dropped" | "no-base" | "retired" };
 
@@ -1051,15 +1053,18 @@ export function compileBlocks(rows: CompiledRow[], writing: boolean, emitted: Em
   if (rows.length === 0 && emitted.length === 0) return [out.line("skipped", "Nothing to compile", "this pack has no verbs")];
   const removedWhy = (why: "dropped" | "no-base" | "retired") =>
     why === "dropped" ? "its base no longer has it" : why === "no-base" ? "this pack no longer extends a base" : "left by a verb this pack no longer compiles";
-  const copies = emitted.map((row) => "kept" in row
-    ? out.line("skipped", row.name, `your own copy; the one in ${row.base} is not copied`)
+  const copies = emitted.flatMap((row) => "kept" in row
+    ? [out.line("skipped", row.name, `your own copy; the one in ${row.base} is not copied`)]
     : "removed" in row
-    ? writing
+    ? [writing
       ? out.line("done", `Removed ${row.name}`, removedWhy(row.why))
-      : out.line("pending", row.name, `would remove; ${removedWhy(row.why)}`)
-    : writing
-      ? out.line("done", `Copied ${row.name}`, `from ${row.base}, ${countOf(row.files, "file", "files")}`)
-      : out.line("pending", row.name, `would copy ${countOf(row.files, "file", "files")} from ${row.base}`));
+      : out.line("pending", row.name, `would remove; ${removedWhy(row.why)}`)]
+    : [
+      writing
+        ? out.line(row.warnings?.length ? "warn" : "done", `Copied ${row.name}`, `from ${row.base}, ${countOf(row.files, "file", "files")}`)
+        : out.line("pending", row.name, `would copy ${countOf(row.files, "file", "files")} from ${row.base}`),
+      ...(row.warnings?.length ? [out.callout("note", ...row.warnings)] : []),
+    ]);
   return [...copies, ...rows.flatMap((row) => [
     writing
       ? out.line(row.warnings.some((w) => !w.startsWith("note: ")) ? "warn" : "done", `Compiled ${row.name}`, `${countOf(row.files, "file", "files")} in ${row.side}/`)

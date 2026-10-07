@@ -44,6 +44,34 @@ describe("planBaseAttachments", () => {
     );
   });
 
+  test("a relative link the team pack cannot satisfy is a warning on the emitted copy", () => {
+    put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "---\nname: review-kit\n---\nRead [the gates](../missing/SKILL.md) first.\n");
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    expect(result.emits.map((e) => [e.name, e.warnings])).toEqual([
+      ["review-kit", ["SKILL.md references ../missing/SKILL.md which is not an emitted file"]],
+    ]);
+  });
+
+  test("a relative link onto another emitted attachment or a team file on disk is not a warning", () => {
+    put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "See `../stage-gates/SKILL.md` and [ours](../own/SKILL.md).\n");
+    put(join(baseDir(), "attachments", "stage-gates", "SKILL.md"), "gates\n");
+    put(join(packDir(), "attachments", "own", "SKILL.md"), "mine\n");
+    const result = plan();
+    expect(result.errors).toEqual([]);
+    expect(result.emits.map((e) => [e.name, e.warnings])).toEqual([["review-kit", []], ["stage-gates", []]]);
+  });
+
+  test("a relative link onto a compiled verb is not a warning", () => {
+    put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "Then run `../../skills/ship/SKILL.md`.\n");
+    expect(plan().emits.map((e) => e.warnings)).toEqual([[]]);
+  });
+
+  test("a relative link that leaves the team pack is a warning", () => {
+    put(join(baseDir(), "attachments", "review-kit", "SKILL.md"), "See `../../../outside/SKILL.md`.\n");
+    expect(plan().emits.map((e) => e.warnings)).toEqual([["SKILL.md references ../../../outside/SKILL.md which is not an emitted file"]]);
+  });
+
   test("a fill (metadata.provides) is not emitted", () => {
     put(join(baseDir(), "attachments", "watch-ci-domain", "SKILL.md"), "---\nname: watch-ci-domain\nmetadata:\n  provides: watch-ci-domain@1\n---\nbody\n");
     expect(plan().emits).toEqual([]);
