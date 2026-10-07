@@ -98,7 +98,7 @@ export const TEAM_NAME_RE = /^[a-z][a-z0-9-]*$/;
  * brick `rt settings` or any reader behind it. A clone that was symlinked in
  * and later moved leaves a dangling symlink here, and the follow-the-link stat
  * that keeps symlinked clones working throws ENOENT on exactly that, so the
- * scan is guarded twice: around the readdir (an unreadable teams dir means no
+ * scan is guarded twice: around the readdir (an unreadable orgs dir means no
  * orgs), and around EACH entry (a dangling link, an EACCES, or a stat that
  * loses a race with a concurrent move skips that entry and leaves the healthy
  * clones intact).

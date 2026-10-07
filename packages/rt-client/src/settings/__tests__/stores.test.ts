@@ -196,18 +196,26 @@ describe("settings/stores", () => {
       }
     });
 
-    test("no teams dir at all lists no orgs, and does not throw", () => {
+    test("no orgs dir at all lists no orgs, and does not throw", () => {
       expect(listOrgs()).toEqual([]);
       expect(currentOrg()).toBeNull();
     });
 
-    test("a symlinked org clone still counts", () => {
+    test("listOrgs reads orgs/ and ignores a clone left under teams/", () => {
+      mkdirSync(join(home, ".mattstack", "orgs", "acme", "mattstack", "org"), { recursive: true });
+      writeFileSync(join(home, ".mattstack", "orgs", "acme", "mattstack", "org", "settings.org.jsonc"), "{}\n");
+      mkdirSync(join(home, ".mattstack", "teams", "widgets", "mattstack", "org"), { recursive: true });
+      writeFileSync(join(home, ".mattstack", "teams", "widgets", "mattstack", "org", "settings.org.jsonc"), "{}\n");
+      expect(listOrgs()).toEqual(["acme"]);
+      expect(currentOrg()).toBe("acme");
+    });
+
+    test("listOrgs follows a symlinked clone under orgs/", () => {
       const real = join(home, "elsewhere", "acme");
       mkdirSync(join(real, "mattstack", "org"), { recursive: true });
-      writeFileSync(join(real, "mattstack", "org", "settings.org.jsonc"), "{}");
-      mkdirSync(orgsDir(), { recursive: true });
-      symlinkSync(real, join(orgsDir(), "acme"));
-
+      writeFileSync(join(real, "mattstack", "org", "settings.org.jsonc"), "{}\n");
+      mkdirSync(join(home, ".mattstack", "orgs"), { recursive: true });
+      symlinkSync(real, join(home, ".mattstack", "orgs", "acme"));
       expect(listOrgs()).toEqual(["acme"]);
     });
 
@@ -229,7 +237,7 @@ describe("settings/stores", () => {
       }
     });
 
-    test("an unreadable teams dir lists no orgs, warns, and does not throw", () => {
+    test("an unreadable orgs dir lists no orgs, warns, and does not throw", () => {
       const dir = orgsDir();
       mkdirSync(dir, { recursive: true });
       chmodSync(dir, 0o000);
