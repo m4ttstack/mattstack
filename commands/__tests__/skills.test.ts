@@ -1144,6 +1144,20 @@ describe("base pack attachments", () => {
     expect(anatomy.errors.join("\n")).toContain(message);
   });
 
+  test("an extends pack with no plugin name cannot fill pack.name, and nothing is copied", async () => {
+    const { mattstackDir, packDir, compile } = seedBaseAndTeam();
+    rmSync(join(packDir, ".claude-plugin", "plugin.json"));
+    const message = "widgets extends acme-base, but it has no .claude-plugin/plugin.json name to give {{pack.name}}";
+
+    const refused = await compile();
+    expect(refused.exitCode).toBeDefined();
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.errors.join("\n")).toContain(message);
+    expect(existsSync(kit(packDir))).toBe(false);
+
+    expect(await compilePackAll({ packDir, mattstackDir })).toEqual({ ok: false, errors: [message], written: [], removed: [] });
+  });
+
   test("the human output names what was copied", async () => {
     const { baseDir, compile } = seedBaseAndTeam();
     await compile();

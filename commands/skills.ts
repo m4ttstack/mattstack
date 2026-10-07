@@ -73,6 +73,7 @@ import {
   orgBasePackRoots,
   orgOfPackDir,
   parseStageQualifiedName,
+  readJsoncObject,
   readManifestBindings,
   readManifestPipelines,
   readSurface,
@@ -929,7 +930,14 @@ function compileTargets(resolved: Resolved, publicSet: Set<string> | null, verbF
 }
 
 function basePlanFor(resolved: Resolved, verbSides: Record<string, Side>): BaseAttachmentPlan {
-  return planBaseAttachments({ packDir: resolved.packDir, packName: packPluginIdentity(resolved.packDir)?.name ?? resolved.team, verbSides });
+  const pluginName = packPluginIdentity(resolved.packDir)?.name;
+  if (!pluginName) {
+    const ext = readJsoncObject(join(resolved.packDir, "pack", "skills.jsonc"))?.extends;
+    if (ext !== undefined) {
+      return { base: null, emits: [], kept: [], stale: [], errors: [`${resolved.team} extends ${String(ext)}, but it has no .claude-plugin/plugin.json name to give {{pack.name}}`] };
+    }
+  }
+  return planBaseAttachments({ packDir: resolved.packDir, packName: pluginName ?? resolved.team, verbSides });
 }
 
 function requireBasePlan(resolved: Resolved, verbSides: Record<string, Side>): BaseAttachmentPlan {
