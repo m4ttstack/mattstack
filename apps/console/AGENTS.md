@@ -100,6 +100,7 @@ The Wiring page (`WiringMap.tsx`) shows the mattstack skill graph read from
   `notifications`, and one write per pack runs at a time. The banner's Sync and Discard send the
   `signature` of the `changes` read their confirm listed; the server refuses a commit-pending sync
   or a discard without one, and rt refuses either once the pack no longer matches it.
+- **Org base packs.** rt tags a fill, slot, binder slot or anatomy source from an org base pack with `origin: "base"`, `base` and `baseVersion` (a team-pack copy carrying `compiled.json` included), names the pack's base in composition's `extends`, and marks surface rows with `base`. Every view reads the owner through `ownerOf` (`owner.ts`), never by comparing plugin names or reading rt's `org` version token. History, diff and dirty files name a base path as `base:<name>/<path in the base>`. The design fixture's `org-base` and `org-base-drift` scenarios draw all of it.
 - **Surface and Health tabs** (`SurfaceTab.tsx`, `HealthTab.tsx`). `VersionTimeline` and
   `SeamCompare` serve the drawer's History tab.
 
