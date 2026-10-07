@@ -4249,7 +4249,15 @@ async function handleAgentSignal(
     try {
       const snapshot = await cache.get();
       const mr = snapshot.mrs.find(m => m.webUrl === signal.mrUrl);
-      if (mr) {
+      // Latches belong to the reviewer whose token posted them. With no
+      // resolvable identity this board cannot tell its own apart, so it
+      // leaves the work to the triage pass rather than guess.
+      const self = mr
+        ? await resolveDispatchIdentity(readMemory(), async () =>
+            (await gitlab()).validateToken()
+          )
+        : null;
+      if (mr && self) {
         const projectId = parseRepoId(mr.repositoryId);
         const projectPath =
           projectPathFromWebUrl(signal.mrUrl, config.gitlabHost) ?? '';
@@ -4259,17 +4267,17 @@ async function handleAgentSignal(
         // promise nothing keeps.
         if (signal.outcome === 'comment' && loadReReviewConfig().enabled) {
           const detail = await readLatchDetail(mr);
-          // A live latch (armed, either resolved or not) already exists
-          // for this MR -- a spent one must never suppress a fresh post,
-          // or the feature disables itself forever the first time a
-          // latch is ever spent.
-          if (detail && !hasArmedLatch(findLatches(detail))) {
+          // This reviewer already has a live latch (armed, either resolved
+          // or not) on this MR -- a spent one must never suppress a fresh
+          // post, or the feature disables itself forever the first time a
+          // latch is ever spent. Another reviewer's latch never counts.
+          if (detail && !hasArmedLatch(findLatches(detail, self))) {
             await postLatch(gw, projectId, projectPath, signal.mrUrl, mr.iid);
           }
         } else if (signal.outcome === 'approve') {
           const detail = await readLatchDetail(mr);
-          // Every latch found, not just the canonical one: an armed
-          // duplicate left behind here is unreachable to the triage
+          // Every latch of this reviewer's, not just the canonical one: an
+          // armed duplicate left behind here is unreachable to the triage
           // pass's repair step once the canon it stops at is spent.
           if (detail)
             await spendAllLatches(
@@ -4277,7 +4285,7 @@ async function handleAgentSignal(
               projectId,
               projectPath,
               mr.iid,
-              findLatches(detail)
+              findLatches(detail, self)
             );
         }
       }

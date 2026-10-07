@@ -229,7 +229,9 @@ try {
         // Encoded, not the bare rtRepos value: readDetail below passes this
         // straight to readDiscussions, which is daemon-identity-keyed.
         rtRepo: repoIdentityField(m.rtRepo) ?? '',
-        isApproved: !!m.reviews.isApproved,
+        approvedBySelf: m.reviews.approvedBy.some(
+          r => r.username.toLowerCase() === username.toLowerCase()
+        ),
       }));
   };
 
@@ -337,7 +339,7 @@ try {
   // memory, and this one runs whether or not a switchboard is configured, so
   // the persist below sits outside that block.
   const latchToken = await loadGitLabToken();
-  if (!peerMode && latchToken && reReview.enabled) {
+  if (!peerMode && latchToken && username && reReview.enabled) {
     try {
       const latchResult = await runLatchPass({
         readReviewStates,
@@ -351,6 +353,7 @@ try {
           return { discussions: res.data.discussions } as MRDetail;
         },
         gateway: latchGateway(boardConfig.gitlabHost, latchToken),
+        self: username,
         launchReReview: (mrUrl, iid) =>
           launchReReview(mrUrl, iid, {
             cwd: boardConfig.reviewCwd,

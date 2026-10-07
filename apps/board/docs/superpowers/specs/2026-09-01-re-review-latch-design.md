@@ -75,6 +75,18 @@ The pass therefore checks `reviews.isApproved` (glance `types.d.ts:264`, on the
 MR it already fetched): an approved MR **spends** the latch rather than
 dispatching. That is state 4's transition reached from the other direction.
 
+> **Amended 2026-10-07: one latch per reviewer.** A latch belongs to the
+> reviewer whose token posted it (its author), and each board reads, posts,
+> spends and answers only its own (`findLatches(detail, owner)`). Two
+> reviewers on one MR each get a latch, and resolving one starts only its
+> author's re-review. The approval check above is now per reviewer: only the
+> latch owner's own approval (a review that ends approved, or their name in
+> GitLab's approvers) spends their latch. Another reviewer's approval, or the
+> MR reaching its required count, no longer does, so resolving a reviewer's
+> latch on an MR others approved still starts that reviewer's re-review. The
+> pass also posts no missing latch for a reviewer who already approved in
+> GitLab.
+
 Unlike the server-driven spend, this one does not take the MR out of scope. The
 review state stays `done` with a `comment` outcome, so the pass keeps fetching
 that MR every tick until the state is pruned, and on every one of those ticks

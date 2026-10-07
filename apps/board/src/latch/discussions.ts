@@ -21,14 +21,19 @@ export interface LatchRef {
   body: string;
 }
 
-/** Every latch on the MR, newest first. glance's Discussion has no timestamp
-    of its own, so ordering comes from the root note's createdAt, which GitLab
-    leaves untouched when the spend edits the body. */
-export function findLatches(detail: MRDetail): LatchRef[] {
+/** Every latch on the MR that `owner` posted, newest first. Each reviewer's
+    board posts with that reviewer's own token, so the author is the reviewer
+    the latch belongs to: another reviewer's latch is never this board's to
+    post beside, spend or answer. glance's Discussion has no timestamp of its
+    own, so ordering comes from the root note's createdAt, which GitLab leaves
+    untouched when the spend edits the body. */
+export function findLatches(detail: MRDetail, owner: string): LatchRef[] {
+  const self = owner.toLowerCase();
   const out: LatchRef[] = [];
   for (const d of detail.discussions) {
     const root = d.notes[0];
     if (!root) continue;
+    if (root.author?.username.toLowerCase() !== self) continue;
     const kind = latchKindOf(root.body ?? '');
     if (!kind) continue;
     out.push({

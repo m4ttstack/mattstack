@@ -37,7 +37,9 @@ export interface LatchMrFacts {
       an error, so the distinction matters: sending a bare repo name here would
       silently disable triage. */
   rtRepo: string;
-  isApproved: boolean;
+  /** This board's reviewer is among the MR's GitLab approvers. Approvals
+      from anyone else never touch this reviewer's latch. */
+  approvedBySelf: boolean;
 }
 
 export interface LatchPassDeps {
@@ -54,6 +56,9 @@ export interface LatchPassDeps {
   readDetail(mr: LatchMrFacts): Promise<MRDetail | null>;
   gateway: LatchGateway;
   launchReReview(mrUrl: string, iid: number): Promise<ReReviewLaunch>;
+  /** The GitLab username behind this board's token: the only author whose
+      latches this pass reads, posts, spends or answers. */
+  self: string;
   memory: DispatchMemory;
   /** Cooldown and budget only. The pass's on/off switch is `reReview`, never
       cfg.enabled: that flag is the doctor/nudge sweeps' per-developer opt-in. */
@@ -141,7 +146,7 @@ export async function runLatchPass(
         result.skipped++;
         continue;
       }
-      const latches = findLatches(detail);
+      const latches = findLatches(detail, deps.self);
       let review = live;
       if (!review) {
         // Zero discussions is indistinguishable from the daemon's
@@ -188,6 +193,7 @@ export async function runLatchPass(
       if (!canon) {
         if (
           review.outcome === 'comment' &&
+          !mr.approvedBySelf &&
           now - review.updatedAt >= LATCH_POST_GRACE_MS
         ) {
           await postLatch(
@@ -242,7 +248,7 @@ export async function runLatchPass(
       // forever, since the next tick sees the now-spent canon and stops at step 1
       // before ever looking at it.
       if (carriers.length === 0) {
-        if (review.outcome === 'approve') {
+        if (review.outcome === 'approve' || mr.approvedBySelf) {
           await spendAll(deps, mr, latches);
           deps.appendAudit({
             ts: now,
@@ -258,12 +264,13 @@ export async function runLatchPass(
         continue;
       }
 
-      // Step 3: a human resolved a latch. An approved MR spends rather than
-      // dispatching, whichever direction the approval came from. Every latch on
-      // the MR, not just canon and the request carriers: an armed-unresolved
-      // extra left out here would strand live on the next tick, which stops at
-      // step 1 on the now-spent canon and never looks at it again.
-      if (mr.isApproved || review.outcome === 'approve') {
+      // Step 3: a human resolved a latch. This reviewer's own approval spends
+      // rather than dispatching, whether it came through a review or GitLab;
+      // anyone else's approval leaves the request standing. Every own latch,
+      // not just canon and the request carriers: an armed-unresolved extra
+      // left out here would strand live on the next tick, which stops at step
+      // 1 on the now-spent canon and never looks at it again.
+      if (mr.approvedBySelf || review.outcome === 'approve') {
         await spendAll(deps, mr, latches);
         deps.appendAudit({
           ts: now,
@@ -403,7 +410,7 @@ async function consume(
   }
 }
 
-/** Terminal disposal of every latch copy on an approved MR. */
+/** Terminal disposal of every copy of this reviewer's latch once they approve. */
 async function spendAll(
   deps: LatchPassDeps,
   mr: LatchMrFacts,
