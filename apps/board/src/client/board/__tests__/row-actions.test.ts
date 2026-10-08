@@ -833,8 +833,8 @@ test('call doctor says what it does at the api tier', () => {
     broken,
     actionEnvOf({ ...ownEnv, doctorTier: 'api' }, broken)
   ).find(a => a.key === 'doctor');
-  expect(doctor?.label).toBe('retry flaky jobs and watch CI');
-  expect(doctor?.bulk).toBe('retry flaky jobs and watch CI');
+  expect(doctor?.label).toBe('call doctor (CI only)');
+  expect(doctor?.bulk).toBe('call doctor (CI only)');
 });
 
 test('a running doctor whose pane is gone offers redo, not focus', () => {

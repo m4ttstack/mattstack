@@ -355,7 +355,7 @@ function doctorItemLabel(
   tier?: 'api' | 'checkout'
 ): string {
   if (!status || status === 'error')
-    return tier === 'api' ? 'retry flaky jobs and watch CI' : 'call doctor';
+    return tier === 'api' ? 'call doctor (CI only)' : 'call doctor';
   if (status === 'done' || interrupted) return 'redo doctor';
   return 'focus doctor';
 }

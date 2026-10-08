@@ -146,7 +146,7 @@ test('doctorItemLabel: focus while alive, redo once interrupted or done, honest 
   expect(doctorItemLabel(undefined)).toBe('call doctor');
   expect(doctorItemLabel(undefined, false, 'checkout')).toBe('call doctor');
   expect(doctorItemLabel(undefined, false, 'api')).toBe(
-    'retry flaky jobs and watch CI'
+    'call doctor (CI only)'
   );
   expect(doctorItemLabel('rebasing')).toBe('focus doctor');
   expect(doctorItemLabel('rebasing', true)).toBe('redo doctor');
