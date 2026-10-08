@@ -153,14 +153,17 @@ describe("org:move", () => {
   test("a relocation failure fails the move after the rename, and the engine still resumes", async () => {
     const from = clone("teams", "widgets", "acme");
     await register(from);
-    // A linked worktree of the clone that git no longer lists: the relocation's verification refuses it.
+    // A registry row under the clone that is a worktree of another repo: repair leaves it be, and the relocation's verification refuses it.
+    const other = join(home, "other");
+    mkdirSync(other, { recursive: true });
+    execSync("git init -q -b main && git -c user.email=dev1@gitlab.example.com -c user.name=dev1 commit --allow-empty -q -m init", { cwd: other, stdio: "pipe" });
     const ghost = join(from, ".worktrees", "ghost");
-    mkdirSync(ghost, { recursive: true });
+    execSync(`git worktree add -q -b ghost ${ghost}`, { cwd: other, stdio: "pipe" });
     const identity = serializeIdentity(await deriveRepoIdentity(from));
     saveRegistry(identity, [...loadRegistry(identity), { name: "ghost", path: ghost, kind: "ephemeral", branch: "ghost", createdAt: "2026-01-01T00:00:00.000Z" }]);
     const res = await handlers["org:move"]({ from, to: join(home, ".mattstack", "orgs", "acme") });
     expect(res).toMatchObject({ ok: false, failure: { code: "move-failed" } });
-    expect(res.failure.message).toContain("index: ");
+    expect(res.failure.message).toContain("git does not list it as a worktree");
     expect(order).toEqual(["pause", "hold-start", "hold-end", "resume"]);
   });
 
