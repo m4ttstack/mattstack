@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { execFileSync, spawnSync } from "child_process";
 import {
   mkdtempSync, mkdirSync, rmSync, copyFileSync, writeFileSync,
-  chmodSync, existsSync, readFileSync,
+  chmodSync, existsSync, readFileSync, readdirSync, symlinkSync,
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -19,7 +19,7 @@ const SPARKLE_BIN = join(ROOT, "rt-tray", "deps", "tools", "sparkle", "bin");
 const GEN = join(SPARKLE_BIN, "generate_appcast");
 const SIGN = join(SPARKLE_BIN, "sign_update");
 const MAKE_ZIP = join(ROOT, "scripts", "release", "make-zip.sh");
-const APPCAST_SH = join(ROOT, "scripts", "release", "appcast.sh");
+const RELEASE_SCRIPTS = join(ROOT, "scripts", "release");
 
 const HAVE_SPARKLE = existsSync(GEN) && existsSync(SIGN);
 if (!HAVE_SPARKLE) {
@@ -74,7 +74,7 @@ function deriveThrowawayKey(workdir: string): { sparkleEdKey: string; publicKeyB
   };
 }
 
-const MINIMAL_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
+const minimalPlist = (version: string, build: string) => `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -85,9 +85,9 @@ const MINIMAL_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>${version}</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>${build}</string>
 </dict>
 </plist>
 `;
@@ -96,12 +96,16 @@ const MINIMAL_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 // for codesign and generate_appcast's own signing-identity check to succeed,
 // and independent of whatever bundle rt-tray/build.sh happens to have
 // produced in this checkout (that bundle can run into the hundreds of MB).
-function buildFixtureApp(workdir: string): string {
-  const appPath = join(workdir, "mattstack-fixture.app");
+// The build number mirrors build.sh's numeric_build (X*1000000 + Y*1000 + Z),
+// because that is what sparkle:version and a minimum update version compare.
+function buildFixtureApp(workdir: string, version = "1.0.0"): string {
+  const [maj, min, pat] = version.split(".").map(Number);
+  const build = String(maj! * 1000000 + min! * 1000 + pat!);
+  const appPath = join(workdir, `app-${version}`, "mattstack-fixture.app");
   mkdirSync(join(appPath, "Contents", "MacOS"), { recursive: true });
   copyFileSync("/bin/echo", join(appPath, "Contents", "MacOS", "mattstack-fixture"));
   chmodSync(join(appPath, "Contents", "MacOS", "mattstack-fixture"), 0o755);
-  writeFileSync(join(appPath, "Contents", "Info.plist"), MINIMAL_PLIST);
+  writeFileSync(join(appPath, "Contents", "Info.plist"), minimalPlist(version, build));
   return appPath;
 }
 
@@ -123,8 +127,23 @@ function writeCurl404Shim(binDir: string): void {
   chmodSync(join(binDir, "curl"), 0o755);
 }
 
-function runAppcastSh(archivesDir: string, tag: string, sparkleEdKey: string, fakeBin: string) {
-  return spawnSync("bash", [APPCAST_SH, archivesDir, tag], {
+// A stand-in for the repo root: the release scripts plus the Sparkle tools,
+// and a declaration file only when a test writes one, so the suite never
+// depends on what rt-tray/sparkle-minimum-update says today.
+function makeReleaseRoot(workdir: string, declaration?: string): string {
+  const root = join(workdir, "root");
+  mkdirSync(join(root, "scripts", "release"), { recursive: true });
+  for (const f of readdirSync(RELEASE_SCRIPTS)) {
+    if (f.endsWith(".sh")) copyFileSync(join(RELEASE_SCRIPTS, f), join(root, "scripts", "release", f));
+  }
+  mkdirSync(join(root, "rt-tray"));
+  if (existsSync(join(ROOT, "rt-tray", "deps"))) symlinkSync(join(ROOT, "rt-tray", "deps"), join(root, "rt-tray", "deps"));
+  if (declaration !== undefined) writeFileSync(join(root, "rt-tray", "sparkle-minimum-update"), declaration);
+  return root;
+}
+
+function runAppcastSh(root: string, archivesDir: string, tag: string, sparkleEdKey: string, fakeBin: string) {
+  return spawnSync("bash", [join(root, "scripts", "release", "appcast.sh"), archivesDir, tag], {
     env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, SPARKLE_ED_KEY: sparkleEdKey, GITHUB_REPOSITORY: "m4ttstack/mattstack" },
     encoding: "utf8",
   });
@@ -148,7 +167,7 @@ describe.skipIf(!HAVE_SPARKLE)("appcast.sh signing (offline, throwaway key)", ()
       mkdirSync(fakeBin);
       writeCurl404Shim(fakeBin);
 
-      const result = runAppcastSh(archivesDir, "v1.0.0", sparkleEdKey, fakeBin);
+      const result = runAppcastSh(makeReleaseRoot(workdir), archivesDir, "v1.0.0", sparkleEdKey, fakeBin);
       expect(result.status).toBe(0);
 
       const appcastXml = readFileSync(join(archivesDir, "appcast.xml"), "utf8");
@@ -183,11 +202,188 @@ describe.skipIf(!HAVE_SPARKLE)("appcast.sh signing (offline, throwaway key)", ()
       mkdirSync(fakeBin);
       writeCurl404Shim(fakeBin);
 
-      const result = runAppcastSh(archivesDir, "v1.0.0", sparkleEdKey, fakeBin);
+      const result = runAppcastSh(makeReleaseRoot(workdir), archivesDir, "v1.0.0", sparkleEdKey, fakeBin);
       expect(result.status).not.toBe(0);
       expect(result.stderr).toMatch(/edSignature|does not match/);
     } finally {
       rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+});
+
+// A curl that serves a fake GitHub Releases tree from <serveDir>:
+// releases/latest/download/<f> reads <serveDir>/latest/<f>, and
+// releases/download/<tag>/<f> reads <serveDir>/<tag>/<f>. Anything else is a 404.
+function writeCurlServeShim(binDir: string, serveDir: string): void {
+  writeFileSync(join(binDir, "curl"), `#!/bin/bash
+out=""; url=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -o|-w) [ "$1" = -o ] && out="$2"; shift 2 ;;
+        -*) shift ;;
+        *) url="$1"; shift ;;
+    esac
+done
+rel="\${url#https://github.com/m4ttstack/mattstack/releases/}"
+case "$rel" in
+    latest/download/*) f="${serveDir}/latest/\${rel#latest/download/}" ;;
+    download/*) f="${serveDir}/\${rel#download/}" ;;
+    *) f="" ;;
+esac
+if [ -n "$f" ] && [ -f "$f" ]; then cp "$f" "$out"; echo 200; else echo 404; fi
+`);
+  chmodSync(join(binDir, "curl"), 0o755);
+}
+
+// Publishes what appcast.sh left in <archivesDir> the way Create Release does:
+// every file becomes an asset of <tag>, and its appcast becomes the latest one.
+function publish(archivesDir: string, serveDir: string, tag: string): void {
+  mkdirSync(join(serveDir, tag), { recursive: true });
+  mkdirSync(join(serveDir, "latest"), { recursive: true });
+  for (const f of readdirSync(archivesDir)) copyFileSync(join(archivesDir, f), join(serveDir, tag, f));
+  copyFileSync(join(archivesDir, "appcast.xml"), join(serveDir, "latest", "appcast.xml"));
+}
+
+function itemFor(appcastXml: string, shortVersion: string): string | undefined {
+  return appcastXml.match(/<item>[\s\S]*?<\/item>/g)?.find((i) => i.includes(`<title>${shortVersion}</title>`));
+}
+
+// Releases 1.0.0 then 1.0.1 into a fake Releases tree, so a third release
+// finds a real two-item feed with deltas, as v2.22.0 will find v2.21.1's.
+function releaseHistory(workdir: string) {
+  const { sparkleEdKey, publicKeyB64 } = deriveThrowawayKey(workdir);
+  const serveDir = join(workdir, "serve");
+  const fakeBin = join(workdir, "fakebin");
+  mkdirSync(fakeBin);
+  writeCurlServeShim(fakeBin, serveDir);
+
+  const cut = (version: string, root: string) => {
+    const appPath = buildFixtureApp(workdir, version);
+    stampPublicKeyAndSign(appPath, publicKeyB64);
+    const archivesDir = join(workdir, `archives-${version}`);
+    mkdirSync(archivesDir);
+    execFileSync("bash", [MAKE_ZIP, appPath, join(archivesDir, `mattstack-${version}.zip`)]);
+    const result = runAppcastSh(root, archivesDir, `v${version}`, sparkleEdKey, fakeBin);
+    return { result, archivesDir };
+  };
+
+  const plainRoot = makeReleaseRoot(join(workdir, "plain-root"));
+  for (const version of ["1.0.0", "1.0.1"]) {
+    const { result, archivesDir } = cut(version, plainRoot);
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    publish(archivesDir, serveDir, `v${version}`);
+  }
+  const previousFeed = readFileSync(join(serveDir, "latest", "appcast.xml"), "utf8");
+  return { cut, previousFeed };
+}
+
+describe.skipIf(!HAVE_SPARKLE)("appcast.sh minimum update version (offline, throwaway key)", () => {
+  test("a declared minimum lands on the new item only, and the older items are kept unchanged", () => {
+    const workdir = mkdtempSync(join(tmpdir(), "mattstack-release-appcast-min-"));
+    try {
+      mkdirSync(join(workdir, "plain-root"));
+      const { cut, previousFeed } = releaseHistory(workdir);
+      expect(itemFor(previousFeed, "1.0.1")).toContain("<sparkle:deltas>");
+
+      const root = makeReleaseRoot(workdir, "release=1.1.0\nminimum=1.0.1\n");
+      const { result, archivesDir } = cut("1.1.0", root);
+      expect(result.status).toBe(0);
+
+      const feed = readFileSync(join(archivesDir, "appcast.xml"), "utf8");
+      expect(itemFor(feed, "1.1.0")).toContain("<sparkle:minimumUpdateVersion>1000001</sparkle:minimumUpdateVersion>");
+      expect(feed.match(/minimumUpdateVersion>/g)?.length).toBe(2);
+      expect(itemFor(feed, "1.0.1")).toBe(itemFor(previousFeed, "1.0.1"));
+      expect(itemFor(feed, "1.0.0")).toBe(itemFor(previousFeed, "1.0.0"));
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  test("without a declaration the new item carries no minimum and the older items are kept", () => {
+    const workdir = mkdtempSync(join(tmpdir(), "mattstack-release-appcast-nomin-"));
+    try {
+      mkdirSync(join(workdir, "plain-root"));
+      const { cut, previousFeed } = releaseHistory(workdir);
+
+      const { result, archivesDir } = cut("1.1.0", makeReleaseRoot(workdir));
+      expect(result.status).toBe(0);
+
+      const feed = readFileSync(join(archivesDir, "appcast.xml"), "utf8");
+      expect(feed).not.toContain("minimumUpdateVersion");
+      expect(itemFor(feed, "1.1.0")).toContain("mattstack-1.1.0.zip");
+      expect(itemFor(feed, "1.0.0")).toBe(itemFor(previousFeed, "1.0.0"));
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  test("refuses a minimum the previous feed has no item for", () => {
+    const workdir = mkdtempSync(join(tmpdir(), "mattstack-release-appcast-minmissing-"));
+    try {
+      mkdirSync(join(workdir, "plain-root"));
+      const { cut } = releaseHistory(workdir);
+
+      const root = makeReleaseRoot(workdir, "release=1.1.0\nminimum=1.0.2\n");
+      const { result } = cut("1.1.0", root);
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("1000002");
+      expect(result.stderr).toContain("sparkle-minimum-update");
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  }, 120_000);
+});
+
+// The resolver needs no Sparkle tools, so these run on every machine.
+describe("minimum-update.sh", () => {
+  function resolve(tag: string, declaration?: string) {
+    const workdir = mkdtempSync(join(tmpdir(), "mattstack-release-minimum-"));
+    try {
+      const root = makeReleaseRoot(workdir, declaration);
+      return spawnSync("bash", [join(root, "scripts", "release", "minimum-update.sh"), tag], { encoding: "utf8" });
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  }
+
+  test("prints nothing when no release declares a minimum", () => {
+    const r = resolve("v2.22.0");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe("");
+  });
+
+  test("prints the minimum as a bundle version for the declared release", () => {
+    const r = resolve("v2.22.0", "# a note\nrelease=2.22.0\nminimum=2.21.1\n");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe("2021001\n");
+  });
+
+  test("applies to a rehearsal of an earlier version, so a dry run proves it", () => {
+    const r = resolve("v2.21.2-ci41", "release=2.22.0\nminimum=2.21.1\n");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe("2021001\n");
+  });
+
+  test("refuses a release past the declared one, so a stale declaration cannot ship", () => {
+    const r = resolve("v2.23.0", "release=2.22.0\nminimum=2.21.1\n");
+    expect(r.status).not.toBe(0);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toContain("2.22.0");
+    expect(r.stderr).toContain("sparkle-minimum-update");
+  });
+
+  test("refuses a minimum that is not below the version being cut", () => {
+    const r = resolve("v2.21.1-ci3", "release=2.22.0\nminimum=2.21.1\n");
+    expect(r.status).not.toBe(0);
+    expect(r.stdout).toBe("");
+  });
+
+  test("refuses a declaration that is not two X.Y.Z versions", () => {
+    for (const bad of ["release=2.22.0\n", "minimum=2.21.1\n", "release=2.22\nminimum=2.21.1\n", "release=2.22.0\nminimum=v2.21.1\n"]) {
+      const r = resolve("v2.22.0", bad);
+      expect(r.status).not.toBe(0);
+      expect(r.stdout).toBe("");
     }
   });
 });
