@@ -795,10 +795,11 @@ settle (`AppDelegate.settleAgentsAfterLaunch`); rt decides whether anything
 happens (`lib/setup/update.ts`: setup not finished, already stamped for
 this version, or run), and only one run at a time holds
 `~/.mattstack/rt/setup-update.lock` (`lib/setup/update-lock.ts`); a second
-one reports `skipped: "running"`. A run is pending migrations, then
-`org.pull` and `team.identity`, then the other `StepDef`s with
+one reports `skipped: "running"`. A run is `org.folder` and `org.pull`, then
+pending migrations, then `team.identity` and the other `StepDef`s with
 `updateSafe: true`, then `verify`, through `runUpdateWith` in
-`lib/setup/apply.ts`. No failed outcome stops it, and a migration that
+`lib/setup/apply.ts`, so a migration that reads the org sees the clone at
+`orgs/<org>` holding what `main` holds now. No failed outcome stops it, and a migration that
 throws is one more failed item; only a step that throws a plain error
 ends the run, as a bug (exit 1, no stamp). Otherwise the version is
 stamped in `~/.mattstack/rt/setup-state.json` whatever the outcome. Two
