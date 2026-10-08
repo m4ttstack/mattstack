@@ -30,7 +30,11 @@ $ gitq add featx --parent main
 gitq: --stack required (have: demo, second)
 ```
 
-`pickStack` backs `add`, `remove`, `sync`, `absorb`, `split`, `fold`, `reparent`, `rename`, `reset`, and `publish`. `continue` and `abort` read `ctx.flags.stack` directly instead of calling `pickStack`, to disambiguate which *parked* cascade to resume when more than one stack is parked at once (`findParkedLease`, `src/cli/slots.ts:99-110`); with only one parked cascade, no flag is needed there either, and with none at all both commands say `nothing to continue (no parked cascade)` regardless of whether you asked for `continue` or `abort`. `track` and `untrack` take the stack name as a plain positional argument instead of `--stack`: `track` is creating a new stack, so there is nothing yet to disambiguate, and `untrack` names the one it removes. `stacks`, `diagnose`, `preflight`, `log`, `undo`, and `import` never take `--stack` at all: the first four report on every tracked stack in one call, `undo` resolves the most recent operation for the repo regardless of which stack it touched, and `import` replaces the whole store.
+`pickStack` backs `add`, `remove`, `sync`, `absorb`, `split`, `fold`, `reparent`, `rename`, `reset`, and `publish`. `continue` and `abort` read `ctx.flags.stack` directly instead of calling `pickStack`. They use it to pick which *parked* cascade to resume when more than one stack is parked at once (`findParkedLease`, `src/cli/slots.ts:99-110`). With only one parked cascade, no flag is needed there either. With none at all, both commands say `nothing to continue (no parked cascade)` regardless of whether you asked for `continue` or `abort`. `track` and `untrack` take the stack name as a plain positional argument instead of `--stack`. `track` is creating a new stack, so there is nothing yet to disambiguate, and `untrack` names the one it removes. `stacks`, `diagnose`, `preflight`, `log`, `undo`, and `import` never take `--stack` at all:
+
+- The first four report on every tracked stack in one call.
+- `undo` resolves the most recent operation for the repo regardless of which stack it touched.
+- `import` replaces the whole store.
 
 ## Command-specific flags
 
@@ -51,7 +55,7 @@ gitq: --stack required (have: demo, second)
 
 ## `--help` answers before the command runs
 
-`gitq --help` prints the command table; `gitq <command> --help` prints that command's synopsis. Both exit `0`, and `-h` is the same flag. Help is handled in the dispatcher before `createContext` (`src/cli/main.ts:112-117`), so it resolves no repo, reads no store, and takes no lease: `gitq absorb --help` outside a git repo prints usage rather than failing, and inside one with a dirty worktree it absorbs nothing.
+`gitq --help` prints the command table; `gitq <command> --help` prints that command's synopsis. Both exit `0`, and `-h` is the same flag. Help is handled in the dispatcher before `createContext` (`src/cli/main.ts:112-117`), so it resolves no repo, reads no store, and takes no lease. `gitq absorb --help` outside a git repo prints usage rather than failing. Inside one with a dirty worktree, it absorbs nothing.
 
 That ordering is the point. Every mutating command is one word away from its own help flag, and until this was handled `--help` fell through to the command itself: `gitq absorb --help` ran a real absorb.
 

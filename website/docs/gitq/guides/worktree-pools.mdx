@@ -5,7 +5,9 @@ sidebar_position: 4
 
 # Work in a worktree pool
 
-Some setups do not have one checkout of a repo. They have a parent directory full of them: a primary worktree plus a dozen or more siblings, one per branch someone is actively looking at, all sharing the same `.git`. gitq detects a pool and works across it: a stack's branches can live in several worktrees, not only the one you are in.
+Some setups do not have one checkout of a repo. They have a parent directory full of them. A primary worktree sits there with a dozen or more siblings, one per branch someone is actively looking at. All of them share the same `.git`.
+
+gitq detects a pool and works across it. A stack's branches can live in several worktrees, not only the one you are in.
 
 For how slots and state work, see [Work slots and leases](/gitq/concepts/work-slots) and [Where state lives](/gitq/concepts/state).
 
@@ -26,7 +28,7 @@ The same identity keying is why leases and the operation log are pool-wide too: 
 | **Pool**: the primary worktree has at least one sibling worktree of its own in the same parent directory | Alongside them, as another sibling: `~/repos/myrepo/gitq-1`. |
 | **Anything else**, including a plain single-worktree clone | Out of tree, at `~/.mattstack/gitq/work/<hash>/gitq-1`. |
 
-That placement is a default, not a rule. Setting `workSlotLocation` to `root` in `settings.json` skips the pool detection entirely and puts every new slot under the out-of-tree root, which is what you want when the "pool" gitq detects is really just a directory full of unrelated clones that happens to contain one sibling worktree. See [`workSlotLocation`](/gitq/concepts/work-slots#workslotlocation).
+That placement is a default, not a rule. Setting `workSlotLocation` to `root` in `settings.json` skips the pool detection entirely and puts every new slot under the out-of-tree root. Use it when the "pool" gitq detects is really a directory full of unrelated clones that happens to contain one sibling worktree. See [`workSlotLocation`](/gitq/concepts/work-slots#workslotlocation).
 
 The out-of-tree root follows gitq's config directory: `<config dir>/work/`, which is `~/.mattstack/gitq/work/<hash>/` by default and `$GITQ_CONFIG_DIR/work/<hash>/` when that variable moves the config directory (`getWorkSlotRoot`, `src/core/config-paths.ts`). Slots already leased under the older `~/.cache/gitq/work` root keep working and are not moved. Pool slots are unaffected either way: they are siblings of your own worktrees, wherever those live.
 

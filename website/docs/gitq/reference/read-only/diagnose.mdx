@@ -15,7 +15,7 @@ gitq diagnose
 
 ## Behavior
 
-For each tracked stack, collects a snapshot of git state (current branch, dirty/staged, rebase in progress, and per-branch divergence and tombstone drift) and classifies every node into exactly one situation, decided by the first matching rule in a fixed priority order (`src/core/stack-diagnostics.ts`). The human output is one block per stack, one line per branch: `  <branch>: <situation>`.
+For each tracked stack, collects a snapshot of git state (current branch, dirty/staged, rebase in progress, and per-branch divergence and tombstone drift). It then classifies every node into exactly one situation, decided by the first matching rule in a fixed priority order (`src/core/stack-diagnostics.ts`). The human output is one block per stack, one line per branch: `  <branch>: <situation>`.
 
 - A branch currently checked out in a sibling worktree (never a work slot, since those run detached) gets a suffix naming it: `  feat-api: behind-parent [in feature-tree]` (`src/cli/commands/diagnose.ts:18`).
 - The full set of situations, in priority order, and what each means, is documented once, in [Reading the tree](/gitq/getting-started/reading-the-tree#the-situations). This page does not repeat that table.

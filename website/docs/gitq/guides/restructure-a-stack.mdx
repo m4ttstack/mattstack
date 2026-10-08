@@ -27,7 +27,7 @@ See [The pause protocol](/gitq/concepts/pause-protocol).
 
 ## What surgery does to your checkout
 
-**Surgery does not switch the branch your checkout is on, with one exception: `fold` (below).** `split --files` and `reparent` replay commits detached in a leased [work slot](/gitq/concepts/work-slots) and then move the branch ref with a compare and swap; `split --at`, `rename`, and `reset` are pure ref operations that replay nothing at all. Whatever branch you were on, you are still on.
+**Surgery does not switch the branch your checkout is on, with one exception: `fold` (below).** `split --files` and `reparent` replay commits detached in a leased [work slot](/gitq/concepts/work-slots), then move the branch ref with a compare and swap. `split --at`, `rename`, and `reset` are pure ref operations that replay nothing at all. Whatever branch you were on, you are still on.
 
 That is not the same as "your files do not change". If the branch being rewritten is the one you have checked out, and your tree is clean and sitting exactly on its old head, gitq moves the ref and resets your worktree to the new head for you. Standing on `feat-core` and splitting it:
 
@@ -106,7 +106,7 @@ graph TD
 
 What it does to the tree: the new branch is inserted **between** the source and its children. `feat-ui` was cut from the full three commit `feat-core`, so its base still lives on `feat-core-docs`, and gitq reparents it there rather than leaving it hanging off a branch that no longer contains its base.
 
-No commits are rewritten and no working tree is read or written. gitq creates the new branch at the source's current head first, so nothing is ever unreachable even if the process dies mid-operation, then rewinds the source ref to the split point with a compare and swap:
+No commits are rewritten and no working tree is read or written. gitq creates the new branch at the source's current head first, so nothing is ever unreachable even if the process dies mid-operation. Then it rewinds the source ref to the split point with a compare and swap:
 
 ```bash
 git log --oneline feat-core

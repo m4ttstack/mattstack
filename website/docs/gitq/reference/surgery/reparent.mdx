@@ -29,7 +29,7 @@ Refuses up front, before anything runs: `--onto` naming neither the stack root n
 `reparentBranch` (`src/core/reparent.ts:33-114`) then runs in two phases:
 
 1. **The branch's own rebase.** `git rebase --onto <newParentHead> <oldBase> <branch>`, detached in the slot, finalized by compare-and-swap.
-2. **The descendant cascade**, if the branch has any children. This is the same cascade engine `sync` uses (`RebaseEngine.restackFrom`, whose sole caller in the whole codebase is `reparent.ts:107`), seeded with the branch's pre-move head so children compute their fork point off the old head rather than a merge-base against the rewritten one.
+2. **The descendant cascade**, if the branch has any children. This is the same cascade engine `sync` uses (`RebaseEngine.restackFrom`, whose sole caller in the whole codebase is `reparent.ts:107`). It is seeded with the branch's pre-move head, so children compute their fork point off the old head rather than a merge-base against the rewritten one.
 
 `reparent` is the only surgery command that runs that shared cascade loop, and the only one whose descendants can leave you mid-rebase.
 

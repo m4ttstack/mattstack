@@ -11,7 +11,7 @@ It is a companion to the CLI, not a replacement for it. Everything it displays c
 
 ## Configure it
 
-The server reads `config.json` from the [app root](/gitq/reference/configuration#the-app-root) -- `~/.mattstack/gitq`, from a checkout as much as from the compiled binary, unless `GITQ_APP_ROOT` moves it. Start from the example:
+The server reads `config.json` from the [app root](/gitq/reference/configuration#the-app-root), `~/.mattstack/gitq`, from a checkout as much as from the compiled binary, unless `GITQ_APP_ROOT` moves it. Start from the example:
 
 ```bash
 mkdir -p ~/.mattstack/gitq
@@ -32,7 +32,7 @@ cp config.example.json ~/.mattstack/gitq/config.json
 | `port` | Port to listen on. Defaults to `11008`. The `PORT` environment variable wins over this, so a launch agent can pin the port without editing the file. |
 | `herdrWorkspace` | The herdr workspace label that action tabs are launched into. Defaults to `gitq`. |
 
-There is no forge field. Each repo's provider, instance and token come from that repo's own git remote, so a board-wide host could never be right for more than one of them; a self-hosted instance is named once in `settings.json`'s `forges` for the whole of gitq. A `gitlabHost` key used to sit here validated and unread; an existing `config.json` still carrying it loads fine, ignored.
+There is no forge field. Each repo's provider, instance and token come from that repo's own git remote, so a board-wide host could never be right for more than one of them. A self-hosted instance is named once in `settings.json`'s `forges` for the whole of gitq. A `gitlabHost` key used to sit here validated and unread. An existing `config.json` still carrying it loads fine, ignored.
 
 Config is read once at startup. Editing `config.json` needs a restart. See [Configuration](/gitq/reference/configuration).
 

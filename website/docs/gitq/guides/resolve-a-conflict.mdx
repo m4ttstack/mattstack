@@ -227,7 +227,9 @@ git status --short --branch
 ## feat-handlers
 ```
 
-Still on `feat-handlers`, still clean, no rebase in progress, and `feat-api` still at its pre-sync head. gitq rebases in a leased [work slot](/gitq/concepts/work-slots) with a detached HEAD and only moves your branch refs at the very end, so a paused cascade leaves the still-conflicted and not-yet-attempted branches alone. It is a different story for a branch the walk already finished: if your clean checkout had been sitting on `feat-api` instead, gitq would have reset it to `feat-api`'s new head the moment that branch's rebase landed, the same way [surgery resets a clean checkout](/gitq/guides/restructure-a-stack#what-surgery-does-to-your-checkout) sitting on a branch it rewrites.
+Still on `feat-handlers`, still clean, no rebase in progress, and `feat-api` still at its pre-sync head. gitq rebases in a leased [work slot](/gitq/concepts/work-slots) with a detached HEAD. It only moves your branch refs at the very end. So a paused cascade leaves the still-conflicted and not-yet-attempted branches alone.
+
+It is a different story for a branch the walk already finished. Suppose your clean checkout had been sitting on `feat-api` instead. gitq would have reset it to `feat-api`'s new head the moment that branch's rebase landed. That is the same way [surgery resets a clean checkout](/gitq/guides/restructure-a-stack#what-surgery-does-to-your-checkout) sitting on a branch it rewrites.
 
 The mid-rebase state is in the slot, and it is an ordinary one:
 
@@ -583,7 +585,13 @@ gitq continue
 completed: feat-api FAILED (rebase --continue failed)
 ```
 
-Exit `1`. That call does release the lease and clear the pause, so the stack is usable again, but nothing was rebased: `feat-api` is still at `04f74e1`, the branches in `remainingBranches` were never attempted, and your resolution is stranded as an unreferenced commit in the slot. `gitq abort` afterwards just says `nothing to continue (no parked cascade)`.
+Exit `1`. That call does release the lease and clear the pause, so the stack is usable again. But nothing was rebased:
+
+- `feat-api` is still at `04f74e1`.
+- The branches in `remainingBranches` were never attempted.
+- Your resolution is stranded as an unreferenced commit in the slot.
+
+`gitq abort` afterwards only says `nothing to continue (no parked cascade)`.
 
 The recovery is to run `gitq sync` again and resolve the same conflict, this time ending with `gitq continue`. The same rule covers `git rebase --abort` and `git rebase --skip`: while gitq owns the cascade, the only two commands that end it are `gitq continue` and `gitq abort`.
 
