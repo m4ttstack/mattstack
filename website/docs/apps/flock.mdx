@@ -13,7 +13,7 @@ flock is a native macOS window onto your [herdr](https://github.com/herdrdev/her
 
 ## Open it
 
-Download `Flock-<version>.dmg` from the [latest release](https://github.com/m4ttstack/flock/releases/latest), open it and drag Flock onto Applications. It needs macOS 15 or later on Apple silicon and herdr 0.9 or later on your `PATH`. Start herdr the way you normally do, then open Flock. It attaches to your default herdr session and shows it straight away, and offers a Start herdr button if herdr is not running. Flock checks for updates by itself, or use Flock > Check for Updates.
+Download the `.dmg` from flock's [latest release](https://github.com/m4ttstack/flock/releases/latest), open it and drag Flock onto Applications. It needs macOS 15 or later on Apple silicon and herdr 0.9 or later on your `PATH`. Start herdr the way you normally do, then open Flock. It attaches to your default herdr session and shows it straight away, and offers a Start herdr button if herdr is not running. Flock checks for updates by itself, or use Flock > Check for Updates.
 
 ## What you do in it
 
@@ -40,7 +40,7 @@ Drag sidebar rows, tabs and panes to move them, right-click any of them for its 
 Every pane as a card, sorted into three lanes by what it needs from you:
 
 - **NEEDS YOU** holds blocked panes, then done ones. When it is empty it says "Nothing needs you".
-- **WORKING** holds working panes, then BACKGROUND: Claude Code panes still running something behind their prompt (see [the mauve ring](#the-mauve-ring)).
+- **WORKING** holds working panes, then BACKGROUND: Claude Code panes still running something behind their prompt (see [Background work](#background-work)).
 - **AT REST** holds everything else, by when it last changed: Last hour, Earlier today, Yesterday, This week, Older and Unknown.
 
 Cards are grouped under their workspace's symbol and name. Each card shows the pane's status mark, its title, how long it has been in that state (for example "blocked 12m"), its branch and a timeline of its status over the last hour. Settings > Overview > Bottom line chooses whether that line shows the branch, the repo and branch, or nothing.
@@ -65,14 +65,14 @@ The colors below are from Tokyo Night (Tokyo Night Day on a light page), flock's
 | <FlockStatus status="blocked" /> | blocked | The agent stopped and is waiting for you. Its notification stays until you answer it, and its card stays in NEEDS YOU until it is unblocked. |
 | <FlockStatus status="done" /> | done | The agent finished. It clears to idle once you look at the pane. |
 | <FlockStatus status="idle" /> | idle | An agent is in the pane, idle. |
-| <FlockStatus status="background" /> | background work | See [the mauve ring](#the-mauve-ring). |
+| <FlockStatus status="background" /> | background work | Claude Code is back at its prompt but still running something. See [Background work](#background-work). |
 | <FlockStatus status="unknown" /> | no agent | A plain shell, or anything else herdr detects no agent in. Its pane label reads "idle", dimmed. |
 
 A pane's label carries the status word in the same color: working, blocked, done or idle.
 
-### The mauve ring
+### Background work
 
-herdr calls a Claude Code pane idle or done as soon as Claude Code is back at its prompt, even when it is still running background shells, monitors or subagents. flock reads the footer Claude Code draws under its prompt every 10 seconds, and when it counts any of those, the pane gets a mauve ring in place of its idle or done mark.
+herdr calls a Claude Code pane idle or done as soon as Claude Code is back at its prompt, even while background shells, monitors or subagents are still running. flock reads the footer under Claude Code's prompt every 10 seconds. When the footer counts any of those, the pane shows the background work mark, a mauve ring, in place of idle or done.
 
 The pane label shows the reason in place of the status word, for example "1 shell", "2 monitors" or "1 subagent". In Overview the card moves to WORKING under BACKGROUND, with the reason and its age, such as "1 shell · 3m". When the work ends, the pane goes back to idle or done.
 
