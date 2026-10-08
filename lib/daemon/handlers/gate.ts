@@ -13,7 +13,7 @@ import type { CommandResult } from "./types.ts";
 import type { EventsBus } from "../events-bus.ts";
 import type { GatesStore, GateQuestion, GateAnswer, GateRow, GateOrigin } from "../gates-store.ts";
 import type { GatePush } from "../gate-push.ts";
-import { gateHints } from "../gate-push.ts";
+import { GATE_BY_PANE_PERSON, gateHints } from "../gate-push.ts";
 import type { Reconciler } from "../reconciler.ts";
 import type { AgentRecord } from "../../state/agents-store.ts";
 import type { PaneHints } from "../pane-resolve-live.ts";
@@ -618,10 +618,11 @@ export function createGateHandlers(
       }
 
       // Herd-owned gates require the owning shepherd's own session (or the
-      // answering pane itself, or an explicit human --override); a null/
-      // "human" owner is open to any caller.
+      // answering pane itself, a person answering in that pane, or an
+      // explicit human --override); a null/"human" owner is open to any caller.
       const owner = gate.owner;
-      if (owner?.startsWith("herd:") && payload?.override !== true && by !== GATE_BY_PANE) {
+      const fromPane = by === GATE_BY_PANE || by === GATE_BY_PANE_PERSON;
+      if (owner?.startsWith("herd:") && payload?.override !== true && !fromPane) {
         const shepherd = herdShepherd?.(owner.slice("herd:".length)) ?? null;
         const session = typeof payload?.session === "string" ? payload.session : "";
         if (!shepherd || session !== shepherd) return { ok: false as const, error: "owned-by", owner };

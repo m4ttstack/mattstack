@@ -31,8 +31,11 @@ type Form = { gate: FormGate; index: number; answers: Answer; picked: string[]; 
 const optionValue = (o: GateOption) => (typeof o === 'string' ? o : o.value)
 const optionLabel = (o: GateOption) => (typeof o === 'string' ? o : o.label || o.value)
 
-/** The display kit: draws its pane through the hub's core render and close hooks, so it never lapses with a block. */
-export function createDisplay(hub: Hub): Display {
+/**
+ * The display kit: draws its pane through the hub's core render and close
+ * hooks, so it never lapses with a block. Each kit owns one pane id.
+ */
+export function createDisplay(hub: Hub, pane: { id: string; title: string } = { id: FORM_PANE_ID, title: 'Gate' }): Display {
   let form: Form | null = null
 
   function finish(api: ModApi, answer: Answer | null, closing: boolean): void {
@@ -40,7 +43,7 @@ export function createDisplay(hub: Hub): Display {
     if (!done) return
     form = null
     done.settle(answer)
-    if (closing) api.ui.close(FORM_PANE_ID).catch(() => {})
+    if (closing) api.ui.close(pane.id).catch(() => {})
   }
 
   function answer(api: ModApi, value: Answer[string]): void {
@@ -91,8 +94,8 @@ export function createDisplay(hub: Hub): Display {
     return el.Box({ flexDirection: 'column', children })
   }
 
-  hub.onRender('Pane', async (api, e, next) => (form && e.requestId === FORM_PANE_ID ? draw(api, e, form) : next(e)))
-  hub.onClose(FORM_PANE_ID, api => finish(api, null, false))
+  hub.onRender('Pane', async (api, e, next) => (form && e.requestId === pane.id ? draw(api, e, form) : next(e)))
+  hub.onClose(pane.id, api => finish(api, null, false))
 
   return {
     async formPane(api, gate) {
@@ -102,7 +105,7 @@ export function createDisplay(hub: Hub): Display {
         form = { gate, index: 0, answers: {}, picked: [], note: '', settle: resolve }
       })
       try {
-        await api.ui.open({ id: FORM_PANE_ID, title: 'Gate', focus: true, closeOnEscape: true })
+        await api.ui.open({ id: pane.id, title: pane.title, focus: true, closeOnEscape: true })
       } catch (err) {
         api.ui.log(`mattstack-mods: the gate form pane could not open: ${err instanceof Error ? err.message : String(err)}`, { to: 'debug' })
         finish(api, null, false)

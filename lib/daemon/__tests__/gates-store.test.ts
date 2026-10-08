@@ -609,6 +609,21 @@ describe("the losing answer path", () => {
   });
 });
 
+describe("a person's answer from the waiting session's pane", () => {
+  test("pane-person is not the pane reconciling its own gate: nothing is released or consumed, so the session is still woken", () => {
+    const s = store();
+    const row = s.open({ subject: "herd:h/j1", kind: "question", questions: qs(), pane: "pane-1", nudge: { session: "s1" } }).row;
+    const out = s.answer(row.id, { q: "a" }, "pane-person");
+    expect(out.ok).toBe(true);
+    expect(out.released).toBe(false);
+    const stored = s.get(row.id)!;
+    expect(stored.answer).toMatchObject({ by: "pane-person" });
+    expect(stored.answer!.session).toBeUndefined();
+    expect(stored.released).toBe(false);
+    expect(stored.consumedAt).toBeNull();
+  });
+});
+
 describe("unconsumedAnsweredPushes", () => {
   test("includes delivered/confirmed/stuck answered-nudged rows with no consumedAt; excludes dead-pane, undelivered, and already-consumed rows", () => {
     const s = store();

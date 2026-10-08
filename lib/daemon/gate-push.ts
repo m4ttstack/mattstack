@@ -57,8 +57,13 @@ export function gateHints(row: Pick<GateRow, "origin" | "pane" | "nudge">): Pane
     cap still runs on the lookup key so a known name survives odd whitespace and
     an unknown one is bounded before it is discarded. */
 const SURFACE_CAP = 32;
+/** The `by` the waiting session's own pane records when a person answers there
+    (the mattstack-mods gate panel). The model cannot press that pane, so it
+    is never the session answering its own gate. */
+export const GATE_BY_PANE_PERSON = "pane-person";
 const KNOWN_SURFACES: Record<string, string> = {
   [GATE_BY_PANE]: "pane",
+  [GATE_BY_PANE_PERSON]: "this session's pane, by a person",
   console: "console",
   board: "board",
   shepherd: "shepherd",

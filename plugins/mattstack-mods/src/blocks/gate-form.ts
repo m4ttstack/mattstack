@@ -28,7 +28,14 @@ const GATE_ID = /^[A-Za-z0-9_-]{1,128}$/
 const DOORBELL = /^\[gate\] (\S+) (?:answered by .+; re-read the registry and proceed on the recorded answer\.|superseded by a newer gate; re-read the registry and proceed\.|closed; re-read the registry and proceed\.)$/
 
 // `by` is free text a caller chose; only a known surface is named back to the model.
-const SURFACES: Record<string, string> = { pane: 'pane', console: 'console', board: 'board', shepherd: 'shepherd', human: 'human' }
+const SURFACES: Record<string, string> = {
+  pane: 'pane',
+  'pane-person': "this session's pane, by a person",
+  console: 'console',
+  board: 'board',
+  shepherd: 'shepherd',
+  human: 'human',
+}
 export const surface = (by: string | undefined) => SURFACES[(by ?? '').trim()] ?? 'another surface'
 
 const optionValue = (o: GateOption) => (typeof o === 'string' ? o : o.value)

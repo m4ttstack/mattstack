@@ -21,8 +21,8 @@ so every feature takes its existing path.
 | `src/core/rpc.ts` | One call to a daemon verb over `rt.sock`, capped at 25 s. |
 | `src/core/blocks.ts` | The block names. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `src/core/version.ts` | The minimum engine version, the check against it, and the plugin version the link reports. |
-| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `gate-form.ts` races a gate's form against the gate's own answer; `gate-wait.ts` waits on a wait gate and wakes the session with its answer. |
-| `src/blocks/display.ts` | The display kit: `formPane` asks a gate in a focused pane, for where the built-in dialog cannot be drawn. |
+| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `gate-form.ts` races a gate's form against the gate's own answer; `gate-wait.ts` waits on a wait gate and wakes the session with its answer; `gate-panel.ts` lets a person answer the session's own wait gate from its pane. |
+| `src/blocks/display.ts` | The display kit: `formPane` asks a gate in a focused pane. Each kit owns one pane id: the gate form's, or the gate panel's. |
 | `src/blocks/sections.ts` | The reply rule section's text and the reply-line trim. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `types/index.d.ts` | The plugin's own contract: the `$.state` values it keeps. |
 | `tests/` | `claude plugin test` cases. They drive the hub and link with the stubbed `$` in `tests/stub.ts`. |
@@ -248,6 +248,36 @@ session's wait gates again and resumes a wait for each one stamped
 `wake: "mod"` that the session has not read. A reloaded plugin so picks up
 its waits, an answer that landed while no wait ran is delivered once, and a
 gate the model covers with its own `rt gate wait` is never touched.
+
+## The gate panel
+
+The `gate-panel` block (`src/blocks/gate-panel.ts`) lets a person answer a
+wait gate from the pane of the session waiting on it, as a herd worker
+waits for its shepherd. After each register rt takes and at the end of each
+turn, it reads the event cursor, then this session's own open wait gates
+(`gate:list { open: true, session, presentation: "wait" }`). It never looks
+at the pane id, since herdr reuses them, and it drops any row whose
+`origin.session` is not this session's, for a daemon that ignores the
+filter. Each listed gate is watched with `link.wait` on `gate/*/<id>`, and
+any event for it reads the list again, so an answer elsewhere or a close
+takes the row away without a timer.
+
+While a gate is open the band above the prompt shows a plain Button,
+`1: Waiting on your answer: <question>`, with a dim line counting any more
+behind it. A survey in the band takes precedence. Pressing it (`1` at an
+empty prompt, or a click) opens the `gate-panel` pane through the display
+kit: one Button per option, a note field, and Skip. The pane closes by
+itself when the gate is answered elsewhere or withdrawn.
+
+An answer there is `gate:answer { id, answers, by: "pane-person" }`, with
+no session, so rt records it as a person's answer from this pane
+("this session's pane, by a person") and treats it like a board answer: the
+`gate-wait` block, `rt gate wait` or the doorbell wakes the session, and the
+shepherd and board hear of it through the usual fan-out. rt lets
+`pane-person` answer a herd-owned gate, as it does `pane`. Only a press in
+the band or the pane reaches `gate:answer`: the block subscribes to no tool
+call, delivery or command. An answer that lost the race to another surface,
+or that rt refused, is reported in the transcript.
 
 ## The reply rule section
 

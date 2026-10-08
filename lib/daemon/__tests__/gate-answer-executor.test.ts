@@ -8,6 +8,8 @@ import { createGateHandlers, relaunchExecutor } from "../handlers/gate.ts";
 import { createReconciler } from "../reconciler.ts";
 import type { EventsBus } from "../events-bus.ts";
 import type { GatePush } from "../gate-push.ts";
+import { createGatePush, GATE_SUBSCRIPTION_PHRASE } from "../gate-push.ts";
+import { wrapCrossSession } from "../inbox.ts";
 import type { Reconciler, Expectation } from "../reconciler.ts";
 import type { LivePane } from "../pane-resolve-live.ts";
 import type { ExecutorState } from "../../../packages/rt-client/src/commands.ts";
@@ -540,6 +542,54 @@ describe("gate:answer executor guarantee: rejecting resumeAgent", () => {
     });
     return row;
   }
+});
+
+describe("gate:answer from the waiting session's pane, by a person", () => {
+  /** Real gate-push over the store, delivering to a fake inbox keyed by session id. */
+  function herdHarness() {
+    const store = freshStore();
+    const delivered: Array<{ session: string; body: string }> = [];
+    const push = createGatePush({
+      store,
+      deliver: async (socketPath: string, body: string) => {
+        delivered.push({ session: socketPath, body });
+        return { ok: true as const };
+      },
+      resolveSession: (sessionId: string) => ({ socketPath: sessionId }),
+      log,
+    });
+    const bus = { emitAt: () => 1 } as unknown as EventsBus;
+    const handlers = createGateHandlers(store, bus, () => {}, { push, log, herdShepherd: () => "shep-session" });
+    store.subscribe({ subjectPrefix: "", session: "shep-session", scope: "owner", ownerRef: "herd:h-1" });
+    const row = store.open({
+      subject: "herd:h-1/j1", kind: "question", questions: qs(), owner: "herd:h-1",
+      origin: { presentation: "wait", session: "worker-sess" },
+    }).row;
+    return { store, handlers, delivered, row };
+  }
+
+  test("a herd-owned gate answered here is accepted and the shepherd fan-out fires", async () => {
+    const { store, handlers, delivered, row } = herdHarness();
+
+    const res = await handlers["gate:answer"]({ id: row.id, answers: { q: "a" }, by: "pane-person" });
+    await flush();
+
+    expect(res.ok).toBe(true);
+    expect(store.get(row.id)!.answer).toMatchObject({ by: "pane-person", answers: { q: "a" } });
+    expect(delivered).toEqual([{
+      session: "shep-session",
+      body: wrapCrossSession("gate-facility", GATE_SUBSCRIPTION_PHRASE(store.get(row.id)!)),
+    }]);
+    expect(delivered[0]!.body).toContain("answered by this session's pane, by a person");
+  });
+
+  test("no other by value gains anything: an unknown surface without the shepherd's session is still refused", async () => {
+    const { handlers, row } = herdHarness();
+    for (const by of ["person", "pane-person-x", "Pane-Person"]) {
+      const res = await handlers["gate:answer"]({ id: row.id, answers: { q: "a" }, by });
+      expect(res).toEqual({ ok: false, error: "owned-by", owner: "herd:h-1" });
+    }
+  });
 });
 
 describe("gate:answer: push and guarantee are decoupled", () => {
