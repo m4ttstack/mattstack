@@ -745,7 +745,7 @@ git commit -m "board: the team directory is the only source of the review channe
   - `ownersPreviewOrPost`;
   - the `/slack/post` route;
   - `sweepOnce`;
-  - a new `NO_REVIEW_CHANNEL` constant.
+  - the `/slack/resolve` route and the signal-reaction path. The server imports `NO_REVIEW_CHANNEL` from `codeowner-posts.ts` and does not declare its own.
 - Modify: `apps/board/src/data.ts`. `configuredSlackChannels` filters out `''`.
 - Modify: `apps/board/src/client/board/slack-post-flow.ts`. A preview refused with exactly `NO_REVIEW_CHANNEL` is shown, with no fallback. Every other preview failure (5xx, a missing rtRepos mapping) still falls back to the team post, as today.
 - Modify:
@@ -966,7 +966,9 @@ git commit -m "board: route code owner sections by the team directory; no review
 **Files:**
 - Modify: `lib/setup/team-settings.ts` (`TeamIntegrations`, `readTeamSnapshot`)
 - Modify: `apps/boxscore/scripts/import-legacy-settings.ts`. It no longer writes `linear.teamKey` (lines ~87-100 and ~212).
-- Modify: `apps/boxscore/test/import-legacy.test.ts` (L50-78). Its `mergeIntegrations(current, { teamKey })` cases go away; the remaining host cases stay.
+- Modify: `apps/boxscore/test/import-legacy.test.ts` (L50-78):
+  - the `mergeIntegrations(current, { teamKey })` cases go away;
+  - the remaining host cases stay, but any of them that also passes `teamKey`, such as the first one with `host` plus `teamKey: 'ZZ'`, loses that argument and any `linear.teamKey` expectation, or it will not type-check.
 - Modify: `apps/boxscore/README.md` (L86). Drop the `linear.teamKey` mention, and say the team's Linear key is in `mattstack.directory`.
 - Modify: `lib/setup/integrations.ts` (the L47 comment). It names `mattstack.directory`'s `linear.team` instead of `mattstack.integrations.linear.teamKey`.
 - Test: `lib/setup/__tests__/team-settings.test.ts`
@@ -1299,7 +1301,7 @@ function apply(org: string, writes: Write[], scope: "org" | "team", opts: { team
     if (w.key === "board.tabs") {
       const file = scope === "team" ? teamSettingsPath(org, opts.team!) : orgSettingsPath(org);
       for (const older of readSection(getDef("board.tabs")!, readStore(file).global, { layer: false }).older)
-        pruneStoreName("board.tabs", older.name, scope, { ...opts, force: true });
+        pruneStoreName("board.tabs", older.storeName, scope, { ...opts, force: true });
     }
   }
   return writes.length;
