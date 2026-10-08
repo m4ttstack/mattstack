@@ -9,6 +9,7 @@ import { childEnv, runCapture } from "../../subprocess.ts";
 import { bumpPatchVersion, type RunResult, type SyncDeps, syncPack } from "../sync.ts";
 import { skillsChanges } from "../../../commands/skills.ts";
 import { captureSkills } from "./helpers.ts";
+import { updateSentence } from "../../team/org-marker.ts";
 
 type Call = { cmd: string; args: string[]; cwd?: string };
 
@@ -256,7 +257,7 @@ describe("syncPack", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize", "check"]);
+    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "layout-gate", "pull-pack", "update-engine", "materialize", "check"]);
     expect(report.ok).toBe(true);
     expect(report.restartNeeded).toBe(false);
     expect(calls.some((c) => c.args.includes("update"))).toBe(false);
@@ -320,7 +321,7 @@ describe("syncPack", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize", "check", "bump", "compile", "recheck"]);
+    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "layout-gate", "pull-pack", "update-engine", "materialize", "check", "bump", "compile", "recheck"]);
     const recheck = report.steps.find((s) => s.name === "recheck")!;
     expect(recheck.status).toBe("refused");
     expect(recheck.detail).toContain("mattstack:editing-skills");
@@ -687,7 +688,7 @@ describe("syncPack", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize"]);
+    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "layout-gate", "pull-pack", "update-engine", "materialize"]);
     expect(report.steps.at(-1)).toEqual({ name: "materialize", status: "failed", detail: "widgets: widgets extends acme-base@acme, which is not installed" });
     expect(report.ok).toBe(false);
   });
@@ -704,7 +705,7 @@ describe("syncPack", () => {
 
     const report = await syncPack(pack, engine, deps);
 
-    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "pull-pack", "update-engine", "materialize", "check"]);
+    expect(stepNames(report.steps)).toEqual(["guards", "pull-engine", "layout-gate", "pull-pack", "update-engine", "materialize", "check"]);
     const check = report.steps.find((s) => s.name === "check")!;
     expect(check.status).toBe("failed");
     expect(check.detail).toContain("manifest discovery found nothing");
@@ -999,7 +1000,7 @@ describe("in-tree engine", () => {
       "branch --show-current",
       "show main:mattstack/.claude-plugin/plugin.json",
     ]);
-    expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === pack.dir).map((c) => c.args[0])).toEqual(["status", "branch", "pull"]);
+    expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === pack.dir).map((c) => c.args[0])).toEqual(["status", "branch", "fetch", "pull"]);
     expect(report.steps.find((s) => s.name === "pull-engine")).toMatchObject({ status: "skipped" });
     expect(report.steps.find((s) => s.name === "update-engine")).toMatchObject({ status: "ran" });
   });
@@ -1231,7 +1232,7 @@ describe("commit-pending", () => {
     expect(steps["update-pack"]!.status).toBe("ran");
     expect(steps["verify-installed"]!.status).toBe("ran");
     expect(readVersion(pack.dir)).toBe("1.0.1");
-    expect(stepNames(report.steps).slice(0, 4)).toEqual(["guards", "pull-engine", "pull-pack", "commit-pending"]);
+    expect(stepNames(report.steps).slice(0, 5)).toEqual(["guards", "pull-engine", "layout-gate", "pull-pack", "commit-pending"]);
 
     const order = world.calls
       .filter((c) => c.cmd === "checkPack" || (c.cwd === pack.dir && ["pull", "add", "commit", "push"].includes(c.args[0]!)))
@@ -2475,4 +2476,66 @@ describe("--expect against real git", () => {
     expect(mustGit(root, "diff", "--cached", "--name-only")).toBe("");
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
+});
+
+describe("layout-gate step", () => {
+  const MARKER_SHOW = "show FETCH_HEAD:mattstack/mattstack.jsonc";
+  function gated(answer: { code: number; stdout?: string; stderr?: string }) {
+    const engine = fixturePack("mattstack", "mattstack", "1.2.3");
+    const pack = fixturePack("widgets", "widgets", "1.0.0");
+    const world: World = { calls: [], installed: { "mattstack@mattstack": "1.2.3", "widgets@widgets": "1.0.0" }, drift: [false] };
+    const deps = makeDeps(pack, engine, world);
+    const run = deps.run;
+    deps.run = async (cmd, args, opts) => {
+      if (cmd === "git" && args[0] === "-C" && args[1] === pack.dir && args.slice(2).join(" ") === MARKER_SHOW) {
+        world.calls.push({ cmd, args, cwd: opts?.cwd });
+        return { code: answer.code, stdout: answer.stdout ?? "", stderr: answer.stderr ?? "" };
+      }
+      return run(cmd, args, opts);
+    };
+    return { pack, engine, world, deps };
+  }
+  const pulled = (world: World, dir: string) => world.calls.some((c) => c.cmd === "git" && c.cwd === dir && c.args[0] === "pull");
+
+  test("a fetched tip on a layout above this rt refuses with the update sentence and never pulls", async () => {
+    const { pack, engine, world, deps } = gated({ code: 0, stdout: JSON.stringify({ role: "org", org: "acme" }) });
+    const report = await syncPack(pack, engine, deps);
+    expect(report.steps.find((s) => s.name === "layout-gate")).toMatchObject({ status: "refused" });
+    expect(report.steps.find((s) => s.name === "layout-gate")?.detail).toContain(updateSentence(2));
+    expect(report.steps.some((s) => s.name === "pull-pack")).toBe(false);
+    expect(world.calls.some((c) => c.cmd === "git" && c.cwd === pack.dir && c.args[0] === "fetch")).toBe(true);
+    expect(pulled(world, pack.dir)).toBe(false);
+  });
+
+  test("a one-team tip, or a tip with no marker, pulls as before", async () => {
+    for (const answer of [
+      { code: 0, stdout: JSON.stringify({ role: "team", namespace: "widgets", org: "acme" }) },
+      { code: 128, stderr: "fatal: path 'mattstack/mattstack.jsonc' does not exist in 'FETCH_HEAD'" },
+    ]) {
+      const { pack, engine, world, deps } = gated(answer);
+      const report = await syncPack(pack, engine, deps);
+      expect(report.steps.find((s) => s.name === "layout-gate")).toMatchObject({ status: "ran" });
+      expect(report.steps.find((s) => s.name === "pull-pack")).toMatchObject({ status: "ran" });
+      expect(pulled(world, pack.dir)).toBe(true);
+    }
+  });
+
+  test("a marker rt cannot read at the fetched tip fails without pulling", async () => {
+    const { pack, engine, world, deps } = gated({ code: 128, stderr: "fatal: bad object FETCH_HEAD" });
+    const report = await syncPack(pack, engine, deps);
+    expect(report.steps.find((s) => s.name === "layout-gate")).toMatchObject({ status: "failed" });
+    expect(report.steps.find((s) => s.name === "layout-gate")?.detail).toContain("bad object");
+    expect(pulled(world, pack.dir)).toBe(false);
+  });
+
+  test("a failed fetch fails without pulling", async () => {
+    const { pack, engine, world, deps } = gated({ code: 0, stdout: "" });
+    const run = deps.run;
+    deps.run = async (cmd, args, opts) =>
+      cmd === "git" && opts?.cwd === pack.dir && args[0] === "fetch" ? { code: 1, stdout: "", stderr: "fatal: unable to access remote" } : run(cmd, args, opts);
+    const report = await syncPack(pack, engine, deps);
+    expect(report.steps.find((s) => s.name === "layout-gate")).toMatchObject({ status: "failed" });
+    expect(report.steps.find((s) => s.name === "layout-gate")?.detail).toContain("unable to access remote");
+    expect(pulled(world, pack.dir)).toBe(false);
+  });
 });

@@ -108,6 +108,7 @@ export function syncMaterializeVerdict(r: MaterializeSkillsResult, pack: string)
 const STEP_TITLE: Record<string, string> = {
   guards: "Safety checks",
   "pull-engine": "Pull the engine",
+  "layout-gate": "Check the org layout",
   "pull-pack": "Pull the pack",
   "commit-pending": "Stage your pack edits",
   "update-engine": "Update the installed engine",
@@ -222,7 +223,7 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
   const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
   const deps: SyncDeps = overrides?.deps ?? {
     run: async (cmd, cmdArgs, opts) => {
-      const proc = Bun.spawn([cmd, ...cmdArgs], { cwd: opts?.cwd, env: childEnv(), stdout: "pipe", stderr: "pipe" });
+      const proc = Bun.spawn([cmd, ...cmdArgs], { cwd: opts?.cwd, env: { ...childEnv(), ...opts?.env }, stdout: "pipe", stderr: "pipe" });
       const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
       return { code: await proc.exited, stdout, stderr };
     },
