@@ -56,6 +56,8 @@ export interface ReviewInfo {
   dismissedAt?: number;
   /** The launch resolved no pack and ran the generic skill. */
   noPack?: boolean;
+  /** The highest review round the board has recorded for this MR. */
+  rounds?: number;
 }
 export interface RespondInfo {
   status: RespondStatus;
@@ -153,6 +155,9 @@ export type BoardMRWithReview = BoardMR & {
   review?: ReviewInfo;
   respond?: RespondInfo;
   doctor?: DoctorInfo;
+  /** A doctor launch here reaches a domain skill, so it can rebase in a
+      checkout; absent on older servers. */
+  doctorSkill?: boolean;
   /** Operator stood auto-doctor down on THIS MR (row-menu toggle); true only
       on the row it was set from, never computed for a descendant -- see
       attachStandDown. */
@@ -221,6 +226,8 @@ export interface BoardData {
   /** Whether auto-doctor (triage) is on for this board; absent on older
       servers. */
   triageEnabled?: boolean;
+  /** The tier a menu-launched doctor runs at; absent on older servers. */
+  doctorTier?: 'api' | 'checkout';
   /** The rt repos whose Code Owner section names carry Slack channels;
       absent on older servers. */
   ownerSlackRepos?: string[];

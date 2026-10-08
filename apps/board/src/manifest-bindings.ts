@@ -143,6 +143,27 @@ export function resolveBoardSkill(
   return { skill, source: 'manifest', pack };
 }
 
+/** Whether a doctor launch for `project` can reach a domain skill: the
+    config's own doctor skill, or a doctor binding in the team pack or any
+    tab's pack. Without one the doctor only has its generic, API-side path. */
+export function doctorSkillBound(
+  project: string,
+  cfg: BoardConfig,
+  mattstackHome?: string
+): boolean {
+  if (configSkillFor('doctor', cfg)) return true;
+  const packs = new Set(
+    [cfg.teamPack, ...cfg.tabs.map(t => t.pack)].filter(
+      (p): p is string => !!p && PACK_NAME_RE.test(p)
+    )
+  );
+  return [...packs].some(
+    pack =>
+      resolveBoardSkill('doctor', project, cfg, pack, mattstackHome).source ===
+      'manifest'
+  );
+}
+
 /** Resolve and log the skill a launch uses for the MR at `mrUrl`. Every
     launch site (server.ts and bin/triage.ts) goes through here so the
     "<kind> skill: <skill> (<source>, <pack>)" log line has one shape. */

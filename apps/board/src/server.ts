@@ -184,6 +184,7 @@ import {
 import { launchErrorMessage } from './launch-error.ts';
 import { hasLocalOrigin, isLocalRequest, requireJsonBody } from './local.ts';
 import {
+  doctorSkillBound,
   laneBoardTab,
   packForLaunch,
   requestBoardTab,
@@ -284,6 +285,7 @@ import {
   type ReviewState,
   type ReviewStatus,
 } from './review-state.ts';
+import { latestRounds } from './review-rounds.ts';
 import { attachNotes, MAX_NOTE_LEN, readNotes, writeNote } from './row-note.ts';
 import {
   attachSlack,
@@ -777,6 +779,15 @@ function resolveLaunchSkillFor(
   tabId: string | undefined
 ): string {
   return resolveLaunchSkill(kind, mrUrl, config, packForLaunch(config, tabId));
+}
+
+/** Whether a doctor launch on this MR reaches a domain skill (the
+    "rebase locally" item needs one to rebase in a checkout). */
+function doctorBound(webUrl: string | null | undefined): boolean {
+  const project = webUrl
+    ? projectPathFromWebUrl(webUrl, config.gitlabHost)
+    : null;
+  return !!project && doctorSkillBound(project, config);
 }
 
 /** `pack` for a LaunchPaneOpts/ReReviewCtx: absent rather than null when none applies. */
@@ -1595,7 +1606,10 @@ const httpServer = Bun.serve({
         const reconciler = await fetchReconcilerView();
         const decision = decisionGates(
           attachDoctors(
-            attachResponds(attachReviews(snapshot.mrs, reviews), responds),
+            attachResponds(
+              attachReviews(snapshot.mrs, reviews, latestRounds()),
+              responds
+            ),
             doctors
           ),
           visible,
@@ -1616,6 +1630,7 @@ const httpServer = Bun.serve({
         ).map(mr => ({
           ...mr,
           gates: joinGateExecutors(mr.gates, reconciler.executors),
+          doctorSkill: doctorBound(mr.webUrl),
         }));
         const { mrs: mrsWithOrphans, orphans } = joinExecutorOrphans(
           mrsWithGates,
@@ -1659,6 +1674,7 @@ const httpServer = Bun.serve({
             }),
             slackEnabled: !!slackToken,
             triageEnabled: triagePassEnabled(),
+            doctorTier: loadTriageConfig().tier,
             ownerSlackRepos: slackToken
               ? config.projects
                   .filter(p => codeownerSlackOn(config, p))
