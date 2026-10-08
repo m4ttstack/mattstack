@@ -190,63 +190,67 @@ export function isDefaultBranch(branch: string): boolean {
 
 // ─── Segment-form label (rt-ui picker rows) ──────────────────────────────────
 
-const PIPELINE_GLYPHS: Record<string, { glyph: string; tone: string }> = {
-  success: { glyph: "✓", tone: "mint" },
-  success_with_warnings: { glyph: "✓", tone: "peach" },
-  failed: { glyph: "✗", tone: "coral" },
-  running: { glyph: "⟳", tone: "cyan" },
-  pending: { glyph: "⟳", tone: "faint" },
-  created: { glyph: "○", tone: "faint" },
-  canceled: { glyph: "✗", tone: "faint" },
+const CHECKS_WORDS: Record<string, { text: string; tone: string }> = {
+  success: { text: "checks passed", tone: "mint" },
+  success_with_warnings: { text: "checks passed with warnings", tone: "peach" },
+  failed: { text: "checks failed", tone: "coral" },
+  running: { text: "checks running", tone: "cyan" },
+  pending: { text: "checks waiting", tone: "faint" },
+  created: { text: "checks waiting", tone: "faint" },
+  canceled: { text: "checks canceled", tone: "faint" },
 };
 
-const MR_STATE_GLYPHS: Record<string, { glyph: string; tone: string }> = {
-  opened: { glyph: "◉", tone: "mint" },
-  merged: { glyph: "●", tone: "blue" },
-  closed: { glyph: "○", tone: "coral" },
-};
+const MR_STATE_WORDS: Record<string, string> = { opened: "open", merged: "merged", closed: "closed" };
 
+/** The MR as `rt worktree list` words it; a merged or closed MR's checks can no longer change, so they are left off. */
+function mrSegments(mr: MRInfo): PickSegment[] {
+  const marker = mr.provider === "github" ? "#" : "!";
+  const parts: PickSegment[] = [{ text: `${marker}${mr.iid} ${MR_STATE_WORDS[mr.state] ?? mr.state}`, tone: "dim" }];
+  const checks = !MR_TERMINAL_STATES.has(mr.state) && mr.pipeline ? CHECKS_WORDS[mr.pipeline.status] : undefined;
+  if (checks) parts.push({ text: "  " }, { ...checks });
+  return parts;
+}
+
+function joined(parts: PickSegment[][]): PickSegment[] {
+  return parts.filter((p) => p.length > 0).flatMap((p, i) => (i === 0 ? p : [{ text: "  " }, ...p]));
+}
+
+export interface BranchSegmentOptions {
+  /** `[Local Only]` / `[main branch]` on a row with nothing else on its right; off where the tag would mislead. */
+  placeholderTags?: boolean;
+}
 
 /**
  * The branch label for the rt-ui picker's row model: a leading half (dir,
- * branch or ticket title) and a right-pinned half (pipeline, MR state, ticket
- * id), as segments with tones so the picker can recolor per theme and step
- * cursor-row weight itself. Linear's `stateColor` rides as `hex` because it
- * is a workspace's own truecolor, not one of the picker's named tones.
+ * then ticket title, MR title or branch) and a right-pinned half (MR status
+ * in words, ticket id), as segments with tones so the picker can recolor per
+ * theme and step cursor-row weight itself. Linear's `stateColor` rides as
+ * `hex` because it is a workspace's own truecolor, not one of the picker's
+ * named tones.
  *
  * `match` is the row's filter text: the picker only ranks against left-side
- * text by default, which would make the right-pinned linearId — and, on
- * ticket rows, the branch name and the clipped-off tail of the title —
- * unsearchable. It carries dirName, branch, full title, [state], and linearId.
+ * text by default, which would make the right-pinned linearId, and the branch
+ * name whenever a title replaced it, unsearchable.
  *
- * The meaningful half leads: ticket title / branch first, the worktree slot
- * name trailing dim. Default-branch rows are the exception — there the
- * checkout name IS the identity, so dirName keeps the lead.
+ * Default-branch rows keep the branch name: there the checkout name IS the
+ * identity.
  */
-export function formatBranchSegments(eb: EnrichedBranch): { left: PickSegment[]; right: PickSegment[]; match: string } {
-  const right: PickSegment[] = [];
-  if (eb.mr?.pipeline) {
-    const g = PIPELINE_GLYPHS[eb.mr.pipeline.status];
-    if (g) right.push({ text: g.glyph, tone: g.tone });
-  }
-  if (eb.mr) {
-    const g = MR_STATE_GLYPHS[eb.mr.state];
-    if (g) {
-      if (right.length > 0) right.push({ text: " " });
-      right.push({ text: g.glyph, tone: g.tone });
-    }
-  }
-
+export function formatBranchSegments(eb: EnrichedBranch, opts: BranchSegmentOptions = {}): { left: PickSegment[]; right: PickSegment[]; match: string } {
   const isDefault = DEFAULT_BRANCHES.has(eb.branch);
   const isTicketBranch = !!(eb.linearId && eb.ticket);
   const stateTag = isTicketBranch && eb.ticket!.stateName ? `[${eb.ticket!.stateName}]` : "";
+  const mrTitle = !isTicketBranch && !isDefault && eb.branch ? eb.mr?.title ?? "" : "";
   const match = [
     eb.dirName,
     eb.branch,
     isTicketBranch ? eb.ticket!.title : "",
     stateTag,
+    mrTitle,
     eb.linearId ?? "",
   ].filter(Boolean).join(" ");
+
+  const linear: PickSegment[] = eb.linearId ? [{ text: eb.linearId, tone: "dimmer" }] : [];
+  const right = joined([eb.mr ? mrSegments(eb.mr) : [], linear]);
 
   if (isTicketBranch) {
     const left: PickSegment[] = [
@@ -261,33 +265,19 @@ export function formatBranchSegments(eb: EnrichedBranch): { left: PickSegment[];
       );
     }
     left.push({ text: " " }, { text: eb.ticket!.title, tone: "dim" });
-    if (right.length > 0) right.push({ text: " " });
-    right.push({ text: eb.linearId!, tone: "dimmer" });
     return { left, right, match };
   }
 
   const left: PickSegment[] = !eb.branch
     ? [{ text: eb.dirName, bold: true, column: true }]
-    : isDefault
-      ? [
-          { text: eb.dirName, bold: true, column: true },
-          { text: "  ", tone: "faint" },
-          { text: eb.branch, tone: "dim" },
-        ]
-      : [
-          { text: eb.dirName, bold: true, column: true },
-          { text: "  ", tone: "faint" },
-          { text: eb.branch, tone: "dim" },
-        ];
+    : [
+        { text: eb.dirName, bold: true, column: true },
+        { text: "  ", tone: "faint" },
+        { text: mrTitle || eb.branch, tone: "dim" },
+      ];
 
-  if (right.length === 0) {
-    right.push(
-      eb.linearId
-        ? { text: eb.linearId, tone: "dimmer" }
-        : { text: isDefault ? "[main branch]" : "[Local Only]", tone: "dimmer" },
-    );
-  } else if (eb.linearId) {
-    right.push({ text: " " }, { text: eb.linearId, tone: "dimmer" });
+  if (right.length === 0 && opts.placeholderTags !== false) {
+    right.push({ text: isDefault ? "[main branch]" : "[Local Only]", tone: "dimmer" });
   }
 
   return { left, right, match };
