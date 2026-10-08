@@ -2438,6 +2438,7 @@ const httpServer = Bun.serve({
           note: launchNote,
           tier,
           fixClasses,
+          draftBin: manual.draftBin,
         })
           .then(result => {
             if (result.focusedExisting) return;

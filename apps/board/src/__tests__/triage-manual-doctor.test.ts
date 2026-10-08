@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
+import { draftBinPath } from '../herdr.ts';
 import type { TriageConfig } from '../triage/config.ts';
 import type { DispatchMemory } from '../triage/memory.ts';
 import {
@@ -78,5 +79,11 @@ describe('manualDoctorFields', () => {
       null
     );
     expect(checkout.tier).toBeUndefined();
+  });
+
+  test('carries the draft bin, as the auto and resume paths do', () => {
+    expect(manualDoctorFields(TRIAGE, 'a', null).draftBin).toBe(
+      draftBinPath()
+    );
   });
 });
