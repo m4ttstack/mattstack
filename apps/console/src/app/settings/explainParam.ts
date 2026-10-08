@@ -14,7 +14,8 @@ export interface OpenRow {
 
 /** The one open settings row, kept in `?explain=` (with `?tab=where` and
     `?fix=<layer>` when they apply) so a reload or a shared link reopens it.
-    A fix lives on Where it's set, so `?fix=` alone opens there. Every write
+    A fix lives on Where it's set, so `?fix=` alone opens there, and Value
+    with a fix writes `?tab=value` to stay on Value. Every write
     replaces the history entry: opening a row is not a page. */
 export function useOpenRow() {
   const [params, setParams] = useSearchParams();
@@ -40,6 +41,7 @@ export function useOpenRow() {
         if (next) {
           p.set(PARAM, next.key);
           if (next.tab === 'where') p.set(TAB, 'where');
+          else if (next.fix) p.set(TAB, 'value');
           if (next.fix) p.set(FIX, next.fix);
         } else p.delete(PARAM);
         if (opts.repo) p.set('repo', opts.repo);
