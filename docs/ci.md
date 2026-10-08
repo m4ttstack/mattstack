@@ -38,7 +38,8 @@ too, and its own test is added to the run. Then:
 
 - **skip**: nothing is left.
 - **full**: every unit test, in three shards. Any push, any change to
-  `checks.yml` or the scope script, a dropped-out file a unit test does
+  `checks.yml`, `e2e.yml` (the scope test pins both gates) or the scope
+  script, a dropped-out file a unit test does
   read, and any remaining file `--changed` cannot trace (a non-TypeScript
   file such as `bun.lock`, a fixture, the preload or its imports,
   `packages/glance/`).
@@ -48,13 +49,16 @@ too, and its own test is added to the run. Then:
   macOS runner and a wide one up to three. The estimate only sets wall time;
   bun's `--changed` still picks the tests.
 
-"Read by path" means a unit test or one of its imports holds the file's
-name as a whole quoted path segment (`"AGENTS.md"`, `join(ROOT, "rt-tray",
-"build.sh")`, `` `${ROOT}/AGENTS.md` ``). Prose that mentions a file does not
-count, generic names (`README.md`, `package.json`) count only by full path,
-and a `no-*` guard never counts, since `guards` runs every one whenever the
-shards are not full. Docs-site and apps files are never checked: the tests
-that read the site are guards, and `static`'s turbo run covers the apps.
+"Read by path" means a unit test or one of its imports names the file:
+its full repo path quoted (also after `../` or `${ROOT}/`), the same path
+spelled as `join()` segments (`"apps", "board", "server.ts"`), or its name
+as a whole quoted segment (`join(ROOT, "rt-tray", "build.sh")`). Prose that
+mentions a file does not count. Plugin files, apps files and generic names
+(`README.md`, `package.json`) count only by full path. A file a unit test
+imports never drops out. A `no-*` guard never counts as a reader, since
+`guards` runs every one whenever the shards are not full. Docs-site files
+are never checked: the tests that read the site are guards, and `static`'s
+`docs:check` covers the generated reference.
 
 ## What e2e skips
 

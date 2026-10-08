@@ -472,6 +472,10 @@ describe("e2e reach", () => {
     expect(jobsFor("pull_request", ["lib/team/share-pack.ts"], reach).e2e).toBe(true);
   });
 
+  test("a deleted rt module runs e2e, since a stale importer may still need it", () => {
+    expect(jobsFor("pull_request", ["lib/gone-module.ts"], reach).e2e).toBe(true);
+  });
+
   test("workspace packages and the scope script run e2e whatever the reach", () => {
     expect(jobsFor("pull_request", ["packages/rt-client/src/index.ts"], new Set()).e2e).toBe(true);
     expect(jobsFor("pull_request", ["scripts/ci/test-scope.ts"], new Set()).e2e).toBe(true);
@@ -551,6 +555,44 @@ describe("what counts as a test reading a file", () => {
     expect(reads(`// Named no-* per AGENTS.md`, ["AGENTS.md"])).toBe("skip");
     expect(reads(`spawn({ prompt: "read AGENTS.md" })`, ["AGENTS.md"])).toBe("skip");
     expect(reads(`docsImpact(["apps/AGENTS.md"])`, ["AGENTS.md"])).toBe("skip");
+  });
+
+  test("a full path behind a ../ prefix counts", () => {
+    expect(reads(`readFileSync(join(import.meta.dir, "../../plugins/x/ref.md"))`, ["plugins/x/ref.md"])).toBe("full");
+    expect(reads(`readFileSync(join(dir, "../../../rt-tray/Sources-core/A.swift"))`, ["rt-tray/Sources-core/A.swift"])).toBe("full");
+  });
+
+  test("a full path spelled as join() segments counts, an apps file included", () => {
+    expect(reads(`join(import.meta.dir, "..", "apps", "board", "switchboard", "server.ts")`, ["apps/board/switchboard/server.ts"])).toBe("full");
+    expect(reads(`join(ROOT, ".github", "workflows", "release.yml")`, [".github/workflows/release.yml"])).toBe("full");
+  });
+
+  test("an apps file's bare basename does not count", () => {
+    expect(reads(`join(dir, "server.ts")`, ["apps/board/switchboard/server.ts"])).toBe("skip");
+  });
+
+  test("the live tree: files read through ../ and join() run full", () => {
+    for (const f of [
+      "plugins/mattstack/attachments/orchestration/shepherdr/references/job-template.md",
+      "rt-tray/Sources-core/Services/DevBuild.swift",
+      ".github/workflows/release.yml",
+      "apps/board/src/slack.ts",
+      "apps/board/switchboard/server.ts",
+    ]) {
+      expect(decide(prInput([f])).mode).toBe("full");
+    }
+  });
+
+  test("e2e.yml runs full, since the scope test pins its gate", () => {
+    expect(decide(pr([".github/workflows/e2e.yml"])).mode).toBe("full");
+  });
+
+  test("a file a unit test imports never drops out, whatever its tree", () => {
+    const reading = new Map(sources);
+    reading.set("scripts/set-platform-version.ts", "export {}");
+    expect(decide({ event: "pull_request", changed: ["scripts/set-platform-version.ts"], sources: reading, preloadImports }).mode).toBe(
+      "changed",
+    );
   });
 
   test("a no-* guard reading the file does not force full: the guards job runs it", () => {

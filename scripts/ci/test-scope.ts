@@ -227,7 +227,8 @@ function isRootPackageTs(f: string): boolean {
 // e2e/setup.ts rebuilds the binary on any packages/*/package.json change.
 function e2eIgnores(f: string, reach?: ReadonlySet<string>): boolean {
   if (/^packages\/[^/]+\/package\.json$/.test(f)) return false;
-  if (reach && isRootPackageTs(f) && !reach.has(f)) return true;
+  // A deleted module is in no walk, but a stale importer may still need it.
+  if (reach && isRootPackageTs(f) && existsSync(join(ROOT, f)) && !reach.has(f)) return true;
   return (
     isProse(f) ||
     isAppsTree(f) ||
@@ -296,18 +297,25 @@ export function existingPluginDirs(root: string = ROOT): string[] {
     .sort();
 }
 
-// A plugin or workflow file matches by its repo path only: their basenames
-// (SKILL.md, lib.rs, Cargo.toml, ci.yml) are common enough to false-positive
-// against rt tests.
-// A name counts only as a whole quoted path segment ("AGENTS.md",
-// join(ROOT, "rt-tray", "build.sh"), `${ROOT}/AGENTS.md`), so prose that
-// mentions a file ("read AGENTS.md") or a longer path ending in its name
-// ("apps/AGENTS.md") does not. A no-* guard never counts: the guards job
-// runs every one whenever the shards do not run in full.
-function readBy(sources: Map<string, string>, f: string): string | undefined {
-  const name = isPluginTree(f) || isOtherCiConfig(f) || GENERIC_NAMES.has(basename(f)) ? f : basename(f);
-  const token = (s: string) => new RegExp(`(["'\`]|\\}/)${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'\`]`);
-  const patterns = [token(f), token(name)];
+// A file counts as read when its full repo path appears quoted (after a
+// quote, a "../" prefix or `${ROOT}/`), or its name appears as a whole
+// quoted segment (join(ROOT, ".github", "workflows", "release.yml")), so
+// prose that mentions a file ("read AGENTS.md") or a longer path ending in
+// its name ("apps/AGENTS.md") does not. Plugin files, generic names and
+// ordinary apps files count by full path only: their basenames (SKILL.md,
+// README.md, index.ts) are common enough to false-positive. A no-* guard
+// never counts: the guards job runs every one whenever the shards do not
+// run in full.
+function readBy(sources: Map<string, string>, f: string, opts: { fullPathOnly?: boolean } = {}): string | undefined {
+  const fullOnly = opts.fullPathOnly || isPluginTree(f) || GENERIC_NAMES.has(basename(f));
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patterns = [new RegExp(`(["'\`]|\\}/|\\.\\./)${escape(f)}["'\`]`)];
+  // The full path spelled as join() segments: "apps", "board", "server.ts".
+  const segments = f.split("/");
+  if (segments.length > 1) {
+    patterns.push(new RegExp(`["'\`]${segments.map(escape).join(`["'\`]\\s*,\\s*["'\`]`)}["'\`]`));
+  }
+  if (!fullOnly) patterns.push(new RegExp(`(["'\`]|\\}/)${escape(basename(f))}["'\`]`));
   for (const [source, text] of sources) {
     if (/^no-.*\.test\.tsx?$/.test(basename(source))) continue;
     if (patterns.some((p) => p.test(text))) return source;
@@ -345,8 +353,10 @@ function outsideShards(input: ScopeInput, f: string): boolean {
 // enough to false-positive against unrelated rt tests.
 // Repo metadata is never checked either: tests that name ".gitignore" write
 // their own.
+// An ordinary apps file counts only by its full repo path.
 function readerOf(input: ScopeInput, f: string): string | undefined {
-  if (isWebsiteTree(f) || META_FILES.has(f) || (isAppsTree(f) && !APPS_ROOT_FILES.has(f))) return undefined;
+  if (isWebsiteTree(f) || META_FILES.has(f)) return undefined;
+  if (isAppsTree(f) && !APPS_ROOT_FILES.has(f)) return readBy(input.sources, f, { fullPathOnly: true });
   return readBy(input.sources, f);
 }
 
@@ -356,9 +366,10 @@ function readerOf(input: ScopeInput, f: string): string | undefined {
 export function decide(input: ScopeInput): Decision {
   if (input.event !== "pull_request") return { mode: "full", reason: `${input.event} is not a pull request` };
   if (input.changed.length === 0) return { mode: "skip", reason: "no changed files" };
-  if (input.changed.includes(CHECKS_WORKFLOW)) {
-    return { mode: "full", reason: `${CHECKS_WORKFLOW} defines the shards` };
-  }
+  // checks.yml defines the shards, and the scope test pins both gates'
+  // wiring; that test reads them but is left out of the read set.
+  const workflow = input.changed.find((f) => f === CHECKS_WORKFLOW || f === E2E_WORKFLOW);
+  if (workflow) return { mode: "full", reason: `${workflow} is pinned by the scope test` };
 
   const rest: string[] = [];
   const extra: string[] = [];
@@ -368,7 +379,7 @@ export function decide(input: ScopeInput): Decision {
       extra.push(test);
       continue;
     }
-    if (!outsideShards(input, f)) {
+    if (input.sources.has(f) || !outsideShards(input, f)) {
       rest.push(f);
       continue;
     }
