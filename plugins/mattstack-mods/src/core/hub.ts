@@ -1,16 +1,21 @@
 import type {
   ClassicEventOf,
   ClassicResultOf,
+  Elements,
   EngineEventOf,
   EngineInterface,
   EngineResultOf,
   HttpInit,
   HttpResponse,
   On,
+  OpEventOf,
+  PaneOpenArgs,
   PluginState,
+  RenderSurface,
   SessionVersion,
   Timer,
   UiLogOptions,
+  UiOpenResult,
 } from 'claude-code'
 import type { ModBlock } from './blocks.ts'
 import { supportedEngine } from './version.ts'
@@ -23,6 +28,12 @@ export type ModApi = {
     log(text: string, options?: UiLogOptions): void
     /** An empty drawing for a render site: the row is skipped on screen, its stored message untouched. */
     blank(e: EngineEventOf['ui.render']): EngineResultOf['ui.render']
+    /** The element constructors of the surface `e` draws on. */
+    elements(e: EngineEventOf['ui.render']): Elements[RenderSurface]
+    open(pane: PaneOpenArgs): Promise<UiOpenResult>
+    close(id: string): Promise<void>
+    /** Asks the engine to draw this plugin's render sites again, after their state changed. */
+    redraw(): void
   }
   session: {
     version(): Promise<SessionVersion>
@@ -65,9 +76,14 @@ type Stop = ClassicEventOf['classic.Stop']
 type StopResult = ClassicResultOf['classic.Stop']
 type Render = EngineEventOf['ui.render']
 type RenderResult = EngineResultOf['ui.render']
+type PaneClose = OpEventOf['ui.close']
 
 type Maybe<T> = T | void | Promise<T | void>
 type ToolMatch = string | RegExp
+
+/** The rest of a chain and then the engine; `signal` aborts with the engine's own call (the person's interrupt). */
+export type Next<E, R> = ((e: E) => Promise<R>) & { readonly signal: AbortSignal }
+export type PermitNext = Next<ToolCall, ToolCallResult>
 
 export type ToolRule =
   | { stage: 'fill'; tool: ToolMatch; run(api: ModApi, e: ToolCall): ToolCall | Promise<ToolCall> }
@@ -75,7 +91,7 @@ export type ToolRule =
   | {
       stage: 'permit'
       tool: ToolMatch
-      run(api: ModApi, e: ToolCall, next: (e: ToolCall) => Promise<ToolCallResult>): Promise<ToolCallResult>
+      run(api: ModApi, e: ToolCall, next: PermitNext): Promise<ToolCallResult>
     }
   | { stage: 'tap'; tool: ToolMatch; run(api: ModApi, e: ToolCall, result: ToolCallResult): void | Promise<void> }
   | { stage: 'check'; tool: ToolMatch; run(api: ModApi, e: ToolCheck): Maybe<ToolCheckResult> }
@@ -88,6 +104,8 @@ export type ToolRule =
 export type ReceiveHandler = (api: ModApi, e: Receive, next: (e: Receive) => Promise<ReceiveResult>) => Maybe<ReceiveResult>
 export type StopHandler = (api: ModApi, e: Stop) => Maybe<{ block: string }>
 export type RenderHandler = (api: ModApi, e: Render, next: (e: Render) => Promise<RenderResult>) => Promise<RenderResult>
+/** Hears that one of this plugin's panes closed: by its own `close`, the person, or an unload. */
+export type CloseHandler = (api: ModApi, e: PaneClose) => void | Promise<void>
 
 export type LifecycleInputs = {
   'session-start': EngineEventOf['session.start']
@@ -107,6 +125,7 @@ export type Subscriptions = {
   onStop(handler: StopHandler): void
   onLifecycle<K extends Lifecycle>(event: K, handler: LifecycleHandler<K>): void
   onRender(component: string, handler: RenderHandler): void
+  onClose(pane: string, handler: CloseHandler): void
   section(id: string, text: () => string | null): void
 }
 
@@ -136,6 +155,7 @@ type Core = {
   stop(api: ModApi, e: Stop, next: (e: Stop) => Promise<StopResult>): Promise<StopResult>
   lifecycle<K extends Lifecycle>(api: ModApi, event: K, e: LifecycleInputs[K]): Promise<void>
   render(api: ModApi, e: Render, next: (e: Render) => Promise<RenderResult>): Promise<RenderResult>
+  close(api: ModApi, e: PaneClose): Promise<void>
   conversation(api: ModApi, source: ClassicEventOf['classic.SessionStart']['source']): Promise<void>
   sections(api: ModApi, e: EngineEventOf['prompt.compose']): Promise<{ id: string; text: string }[]>
 }
@@ -191,6 +211,7 @@ export function createHub(): Hub {
   const stoppers: Owned<{ handler: StopHandler }>[] = []
   const lifecycles: Owned<{ event: Lifecycle; handler: LifecycleHandler<any> }>[] = []
   const renderers: Owned<{ component: string; handler: RenderHandler }>[] = []
+  const closers: Owned<{ pane: string; handler: CloseHandler }>[] = []
   const sectionList: Owned<{ id: string; text: () => string | null }>[] = []
 
   const owned = <T extends object>(owner: ModBlock | null, label: string, value: T): Owned<T> => ({ ...value, owner, label })
@@ -236,9 +257,10 @@ export function createHub(): Hub {
   function chain<E, R>(
     api: ModApi,
     where: string,
-    subs: Owned<{ run: (api: ModApi, e: E, next: (e: E) => Promise<R>) => Maybe<R> }>[],
+    subs: Owned<{ run: (api: ModApi, e: E, next: Next<E, R>) => Maybe<R> }>[],
     bottom: (e: E) => Promise<R>,
   ): (e: E) => Promise<R> {
+    const signal = (bottom as { signal?: AbortSignal }).signal ?? new AbortController().signal
     // A subscriber that answers nothing has passed: what it handed next, if
     // it called next, else the event as it came, goes on down.
     const step = async (i: number, e: E): Promise<R> => {
@@ -247,7 +269,7 @@ export function createHub(): Hub {
       if (!active(sub)) return step(i + 1, e)
       let inner: Promise<R> | undefined
       let beneath: { error: unknown } | undefined
-      const rest = (next: E): Promise<R> => {
+      const rest = Object.assign((next: E): Promise<R> => {
         if (!inner) {
           inner = step(i + 1, next).catch(error => {
             beneath = { error }
@@ -258,7 +280,7 @@ export function createHub(): Hub {
           inner.catch(() => {})
         }
         return inner
-      }
+      }, { signal })
       try {
         const answer = await sub.run(api, e, rest)
         if (answer) return answer
@@ -377,6 +399,13 @@ export function createHub(): Hub {
       return subs.length === 0 ? next(e) : chain(api, 'ui.render', subs, next)(e)
     },
 
+    async close(api, e) {
+      for (const sub of closers) {
+        if (sub.pane !== e.id || !active(sub)) continue
+        await attempt(api, sub, 'ui.close', () => sub.handler(api, e))
+      }
+    },
+
     async conversation(api, source) {
       if (source === 'compact') return
       opening = source === 'startup' || source === 'clear'
@@ -427,6 +456,9 @@ export function createHub(): Hub {
       onRender(component, handler) {
         renderers.push(owned(owner, `${component} renderer`, { component, handler }))
       },
+      onClose(pane, handler) {
+        closers.push(owned(owner, `${pane} close handler`, { pane, handler }))
+      },
       section(id, text) {
         sectionList.push(owned(owner, `section ${id}`, { id, text }))
       },
@@ -464,6 +496,10 @@ function facade($: EngineInterface): ModApi {
     ui: {
       log: (text, options) => $.ui.log(text, options),
       blank: e => $.ui.resolve(e).Box({ children: [] }),
+      elements: e => $.ui.resolve(e),
+      open: pane => $.ui.open(pane),
+      close: id => $.ui.close({ id }),
+      redraw: () => $.ui.invalidate('ui.render'),
     },
     session: {
       version: () => $.session.version(),
@@ -539,6 +575,10 @@ export function attachHub(on: On, hub: Hub): void {
   on('session.receive', async ($, e, next) => core.receive(facade($), e, next))
   on('classic.Stop', async ($, e, next) => core.stop(facade($), e, next))
   on('ui.render', async ($, e, next) => core.render(facade($), e, next))
+  on('ui.close', async ($, e, next) => {
+    await core.close(facade($), e)
+    return next(e)
+  })
   on('prompt.compose', async ($, e, next) => {
     const beneath = await next(e)
     const added = await core.sections(facade($), e)

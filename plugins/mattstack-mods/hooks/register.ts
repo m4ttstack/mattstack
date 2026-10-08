@@ -1,5 +1,6 @@
 import type { Register } from 'claude-code'
 import { registerDelivery, trimReplyUnderSection } from '../src/blocks/delivery.ts'
+import { registerGateForm } from '../src/blocks/gate-form.ts'
 import { registerPresence } from '../src/blocks/presence.ts'
 import { REPLY_RULE_ID, REPLY_RULE_SECTION } from '../src/blocks/sections.ts'
 import { attachHub, createHub } from '../src/core/hub.ts'
@@ -14,5 +15,6 @@ export const register: Register = on => {
   hub.section(REPLY_RULE_ID, () => REPLY_RULE_SECTION)
   registerDelivery(hub, link, { edits: [trimReplyUnderSection] })
   registerPresence(hub, link)
+  registerGateForm(hub, link)
   attachHub(on, hub)
 }

@@ -807,4 +807,35 @@ describe("gates store — native question completion", () => {
     expect(s.nativeQuestions().get(id)).not.toBeNull();
     s.close_();
   });
+
+  test("a completion records which path completed it, and a gates.db from before the path column gains it", () => {
+    const path = tmp("gates.db");
+    const first = createGatesStore({ dbPath: path, log });
+    const old = openGate(first, "run:old");
+    first.__db!.exec(`
+      DROP TABLE gate_native_completion;
+      CREATE TABLE gate_native_completion (
+        gateId TEXT PRIMARY KEY, state TEXT NOT NULL, fingerprint TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0, detail TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL
+      );
+    `);
+    first.__db!.query("INSERT INTO gate_native_completion VALUES (?, 'completed', 'fp', 1, NULL, 1, 1)").run(old);
+    first.close_();
+
+    const s = createGatesStore({ dbPath: path, log });
+    expect(s.nativeQuestions().completion(old)!.path).toBeNull();
+    const viaMod = openGate(s, "run:mod");
+    const viaDoorbell = openGate(s, "run:doorbell");
+    s.nativeQuestions().intend(viaMod, "fp-m");
+    s.nativeQuestions().intend(viaDoorbell, "fp-d");
+    expect(s.nativeQuestions().settle(viaMod, "completed", null, 5, "mod-result")).toBe(true);
+    expect(s.nativeQuestions().settle(viaDoorbell, "gone", "the session no longer resolves", 6, "doorbell")).toBe(true);
+    expect(s.nativeQuestions().completion(viaMod)).toMatchObject({ state: "completed", path: "mod-result" });
+    expect(s.nativeQuestions().completion(viaDoorbell)).toMatchObject({ state: "gone", path: "doorbell" });
+    s.close_();
+
+    const again = createGatesStore({ dbPath: path, log });
+    expect(again.nativeQuestions().completion(viaMod)!.path).toBe("mod-result");
+    again.close_();
+  });
 });

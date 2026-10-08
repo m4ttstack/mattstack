@@ -1,8 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import pino from "pino";
+import type { ModBlock } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { createGatesStore, type GateRow, type GatesStore } from "../../daemon/gates-store.ts";
+import { openStateDb } from "../../state/db.ts";
 import { claudeIntegration } from "../claude/integration.ts";
-import { createClaudeQuestions, nudgedQuestion, type ClaudeQuestionDeps } from "../claude/questions.ts";
+import { createModLinks, TESTED_CLAUDE_CODE } from "../claude/mod-links.ts";
+import {
+  claudeModSeam, createClaudeQuestions, nudgedQuestion, type ClaudeModSeam, type ClaudeQuestionDeps,
+} from "../claude/questions.ts";
+import type { CompletionPath } from "../question-store.ts";
+import { createSessionStore } from "../session-store.ts";
 import type { LivePane } from "../../daemon/pane-resolve-live.ts";
 
 const log = pino({ level: "silent" });
@@ -161,6 +171,137 @@ describe("Claude question completion", () => {
     expect(target.question.nativeQuestions).toBeUndefined();
     const bare = s.open({ subject: "run:r1", kind: "clarify", questions: [{ id: "q", label: "Pick", multi: false, options: ["a"] }] }).row;
     expect(nudgedQuestion(bare)).toBeNull();
+  });
+});
+
+describe("Claude question completion through the mod", () => {
+  type Recorded = { gateId: string; path: CompletionPath; state: string };
+
+  /** A gate-form block that is live for `live` sessions and acks with `ack`; `moves` maps a /clear's old id to its new one. */
+  function modded(opts: { live?: string[]; ack?: boolean | "throw"; moves?: Record<string, string> } & Parameters<typeof fakes>[0] = {}) {
+    const f = fakes(opts);
+    const recorded: Recorded[] = [];
+    const mod: ClaudeModSeam = {
+      current: (session) => opts.moves?.[session] ?? session,
+      owns: (binding) => (opts.live ?? ["sess-1"]).includes(binding.native.value),
+      async complete(session, gateId) {
+        f.calls.push(`mod:${session}:${gateId}`);
+        if (opts.ack === "throw") throw new Error("inbox write failed");
+        return opts.ack ?? true;
+      },
+    };
+    const deps: ClaudeQuestionDeps = {
+      ...f.deps,
+      mod,
+      record: (row, path, state) => { recorded.push({ gateId: row.id, path, state }); },
+    };
+    return { ...f, deps, recorded };
+  }
+
+  test("a session with gate-form live gets no doorbell and no Escape", async () => {
+    const m = modded();
+    const row = formGate(store());
+    expect(await complete(m.deps, row)).toEqual({ ok: true, data: "completed" });
+    expect(m.calls).toEqual([`mod:sess-1:${row.id}`]);
+    expect(m.escapes).toHaveLength(0);
+    expect(m.recorded).toEqual([{ gateId: row.id, path: "mod-result", state: "completed" }]);
+  });
+
+  test("without the block, doorbell and Escape behave exactly as M5a", async () => {
+    const m = modded({ live: [] });
+    const row = formGate(store());
+    expect(await complete(m.deps, row)).toEqual({ ok: true, data: "completed" });
+    expect(m.calls).toEqual(["probe", `notify:${row.id}`, "escape:w1:p-sess-1"]);
+    expect(m.recorded).toEqual([]);
+
+    const self = modded({ live: [] });
+    const selfRow = formGate(store(), { by: "pane", session: "sess-1" });
+    expect(await complete(self.deps, selfRow)).toEqual({ ok: true, data: "completed" });
+    expect(self.calls).toEqual([]);
+  });
+
+  test("an unacked mod completion falls back to the doorbell once and records doorbell", async () => {
+    for (const ack of [false, "throw"] as const) {
+      const m = modded({ ack });
+      const row = formGate(store());
+      expect(await complete(m.deps, row), String(ack)).toEqual({ ok: true, data: "completed" });
+      expect(m.calls, String(ack)).toEqual([`mod:sess-1:${row.id}`, "probe", `notify:${row.id}`, "escape:w1:p-sess-1"]);
+      expect(m.recorded, String(ack)).toEqual([{ gateId: row.id, path: "doorbell", state: "completed" }]);
+    }
+
+    const dead = modded({ ack: false, notified: false, dead: true });
+    const deadRow = formGate(store());
+    expect(await complete(dead.deps, deadRow)).toEqual({ ok: true, data: "gone" });
+    expect(dead.recorded).toEqual([{ gateId: deadRow.id, path: "doorbell", state: "gone" }]);
+  });
+
+  test("a gate the pane answered itself is neither pushed nor recorded", async () => {
+    const m = modded();
+    const row = formGate(store(), { by: "pane", session: "sess-1" });
+    expect(await complete(m.deps, row)).toEqual({ ok: true, data: "completed" });
+    expect(m.calls).toEqual([]);
+    expect(m.recorded).toEqual([]);
+  });
+
+  test("a gate asked before /clear completes on the continued session", async () => {
+    const m = modded({ live: ["sess-2"], moves: { "sess-1": "sess-2" } });
+    const row = formGate(store());
+    expect(await complete(m.deps, row)).toEqual({ ok: true, data: "completed" });
+    expect(m.calls).toEqual([`mod:sess-2:${row.id}`]);
+
+    const notified: Array<string | undefined> = [];
+    const fallback = modded({ live: [], moves: { "sess-1": "sess-2" } });
+    const deps: ClaudeQuestionDeps = {
+      ...fallback.deps,
+      notify: async (r) => { notified.push(r.nudge?.session); return { ok: true, dead: false }; },
+    };
+    expect(await complete(deps, formGate(store()))).toEqual({ ok: true, data: "completed" });
+    expect(notified).toEqual(["sess-2"]);
+    expect(fallback.escapes).toEqual([{ gateId: expect.any(String), paneRef: "w1:p-sess-2" }]);
+
+    const answeredThere = modded({ live: ["sess-2"], moves: { "sess-1": "sess-2" } });
+    expect(await complete(answeredThere.deps, formGate(store(), { by: "pane", session: "sess-2" }))).toEqual({ ok: true, data: "completed" });
+    expect(answeredThere.calls).toEqual([]);
+  });
+
+  test("the daemon's seam follows a /clear continuation and asks the continued session's mod", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rt-claude-questions-"));
+    try {
+      const links = createModLinks({
+        now: () => 1_000_000, integrationsEnabled: () => true,
+        store: createSessionStore(openStateDb(join(dir, "state.db"))),
+      });
+      const reg = (sessionId: string, blocks: ModBlock[], previous?: { sessionId: string; linkId: string }) => {
+        const out = links.register({
+          sessionId, cwd: "/repo", root: "/repo", claudeCode: TESTED_CLAUDE_CODE.max, plugin: "0.1.0", blocks,
+          ...(previous && { previousSessionId: previous.sessionId, previousLinkId: previous.linkId }),
+        });
+        if (!out.ok) throw new Error(out.error.message);
+        return out.data.linkId;
+      };
+      const pushed: Array<{ session: string; kind: string; data: unknown }> = [];
+      const seam = claudeModSeam(links, async (session, kind, data) => {
+        pushed.push({ session, kind, data });
+        return { ok: true, data: { acked: true } };
+      });
+
+      const first = reg("sess-1", ["gate-form"]);
+      expect(seam.current("sess-1")).toBe("sess-1");
+      reg("sess-2", ["gate-form"], { sessionId: "sess-1", linkId: first });
+      expect(seam.current("sess-1")).toBe("sess-2");
+      expect(seam.current("sess-9")).toBe("sess-9");
+
+      const m = fakes();
+      const row = formGate(store());
+      const deps: ClaudeQuestionDeps = { ...m.deps, mod: seam, record: () => {} };
+      expect(await complete(deps, row)).toEqual({ ok: true, data: "completed" });
+      expect(pushed).toEqual([{ session: "sess-2", kind: "gate-complete", data: { id: row.id } }]);
+      expect(m.calls).toEqual([]);
+
+      expect(claudeModSeam(null).owns(nudgedQuestion(row)!.binding)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

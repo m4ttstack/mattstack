@@ -589,3 +589,59 @@ describe("gate:ask structured question context (RT-184)", () => {
     expect(res.error).toContain("1024 bytes");
   });
 });
+
+describe("gate:ask records the asking session, and gate:list filters on it", () => {
+  const ask = (handlers: ReturnType<typeof harness>["handlers"], payload: Record<string, unknown>) =>
+    handlers["gate:ask"]({ subject: "mr:https://x/1", context: "why this decision", ...payload } as never);
+
+  test("every presentation records the caller's session as origin.session; none is recorded without one", async () => {
+    const { handlers, store } = harness({ resolveSubject: () => ({ ok: true, subject: "mr:https://x/1" }) });
+    const form = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-1", paneId: "w1:p1" });
+    const wait = await ask(handlers, { questions: fiveOptionQuestion(), sessionId: "sess-1", paneId: "w1:p1", kind: "other" });
+    const paneless = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-2", kind: "third" });
+    const anonymous = await ask(handlers, { questions: twoOptionQuestion(), kind: "fourth" });
+    if (!form.ok || !wait.ok || !paneless.ok || !anonymous.ok) throw new Error("ask failed");
+    expect(store.get(form.data.id)!.origin).toEqual({ presentation: "form", paneId: "w1:p1", session: "sess-1" });
+    expect(store.get(wait.data.id)!.origin).toEqual({ presentation: "wait", paneId: "w1:p1", session: "sess-1" });
+    expect(store.get(paneless.data.id)!.origin).toEqual({ presentation: "wait", session: "sess-2" });
+    expect(store.get(anonymous.data.id)!.origin).toEqual({ presentation: "wait" });
+  });
+
+  test("a caller-supplied origin.session never passes through", async () => {
+    const { handlers, store } = harness({ resolveSubject: () => ({ ok: true, subject: "mr:https://x/1" }) });
+    const unresolved = await ask(handlers, { questions: twoOptionQuestion(), origin: { session: "someone-else" } });
+    const resolved = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-1", origin: { session: "someone-else" }, kind: "other" });
+    if (!unresolved.ok || !resolved.ok) throw new Error("ask failed");
+    expect(store.get(unresolved.data.id)!.origin?.session).toBeUndefined();
+    expect(store.get(resolved.data.id)!.origin?.session).toBe("sess-1");
+  });
+
+  test("gate:list session and presentation filters, and unfiltered results unchanged", async () => {
+    const { handlers, store } = harness({ resolveSubject: () => ({ ok: true, subject: "mr:https://x/1" }) });
+    const mine = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-1", paneId: "w1:p1" });
+    const mineWait = await ask(handlers, { questions: fiveOptionQuestion(), sessionId: "sess-1", paneId: "w1:p1", kind: "other" });
+    const theirs = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-2", paneId: "w1:p1", kind: "third" });
+    const raw = await handlers["gate:open"]({ subject: "run:r1", kind: "plain", questions: twoOptionQuestion() });
+    if (!mine.ok || !mineWait.ok || !theirs.ok || !raw.ok) throw new Error("open failed");
+    store.answer(mine.data.id, { q1: "yes" }, "board");
+
+    const ids = async (payload: Record<string, unknown>) => {
+      const res = await handlers["gate:list"](payload);
+      if (!res.ok) throw new Error(String(res.error));
+      return res.data.gates.map((g) => g.id);
+    };
+    expect(await ids({ session: "sess-1" })).toEqual([mine.data.id, mineWait.data.id]);
+    expect(await ids({ session: "sess-1", presentation: "form" })).toEqual([mine.data.id]);
+    expect(await ids({ open: true, session: "sess-1", presentation: "form" })).toEqual([]);
+    expect(await ids({ open: true, session: "sess-1" })).toEqual([mineWait.data.id]);
+    expect(await ids({ presentation: "form" })).toEqual([mine.data.id, theirs.data.id]);
+    expect(await ids({ session: "nobody" })).toEqual([]);
+
+    expect(await handlers["gate:list"]({})).toEqual({ ok: true, data: store.list({}) });
+    expect(await handlers["gate:list"]({ open: true })).toEqual({ ok: true, data: store.list({ open: true }) });
+    expect(await ids({})).toEqual([mine.data.id, mineWait.data.id, theirs.data.id, raw.data.id]);
+
+    const bad = await handlers["gate:list"]({ presentation: "modal" });
+    expect(bad.ok).toBe(false);
+  });
+});

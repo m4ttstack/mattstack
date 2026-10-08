@@ -5,7 +5,9 @@
  * on the store, never thrown, so a delivery failure can never fail a gate:*
  * verb.
  *
- * Binding rule: the pane push targets `row.nudge.session` ONLY. The opener records its own session id at `gate open`. No nudge means no push --
+ * Binding rule: the pane push targets `row.nudge.session` ONLY, or the
+ * session a Claude `/clear` continued it as (the mod link reports the move).
+ * The opener records its own session id at `gate open`. No nudge means no push --
  * the unattended-gate case blocks in `gate wait` with nothing to wake.
  *
  * The pane push is Claude's question completion
@@ -28,7 +30,8 @@
  */
 
 import type { Logger } from "pino";
-import { createClaudeQuestions, nudgedQuestion } from "../agent-integrations/claude/questions.ts";
+import { claudeModSeam, createClaudeQuestions, nudgedQuestion, type ClaudeModSeam } from "../agent-integrations/claude/questions.ts";
+import { answerFingerprint } from "../agent-integrations/questions.ts";
 import { deliverToInbox, wrapCrossSession } from "./inbox.ts";
 import type { GateRow, GateSubscription, GatesStore } from "./gates-store.ts";
 import { GATE_BY_PANE, answeredBySession } from "./gates-store.ts";
@@ -155,8 +158,11 @@ export function createGatePush(opts: {
   paneStatus?: PaneStatusProbe;
   maxPaneRetries?: number;
   native?: NativeQuestionSeam;
+  /** The Claude mod's gate-form path; absent, the daemon's installed mod links. */
+  claudeMod?: ClaudeModSeam;
 }): GatePush {
   const { store, deliver, resolveSession, resolveAll, log, native } = opts;
+  const claudeMod = opts.claudeMod ?? claudeModSeam();
   const deadAfterFailures = opts.deadAfterFailures ?? DEFAULT_DEAD_AFTER_FAILURES;
   const maxPaneRetries = opts.maxPaneRetries ?? DEFAULT_MAX_PANE_RETRIES;
 
@@ -214,7 +220,7 @@ export function createGatePush(opts: {
     opts: { recordDelivery?: boolean } = {},
   ): Promise<{ ok: boolean; dead: boolean }> {
     const recordDelivery = opts.recordDelivery ?? true;
-    const sessionId = row.nudge?.session;
+    const sessionId = row.nudge?.session && claudeMod.current(row.nudge.session);
     if (!sessionId) return { ok: false, dead: false };
     const binding = resolveSession(sessionId);
     if (!binding) {
@@ -233,6 +239,15 @@ export function createGatePush(opts: {
     notify: (row) => pushDoorbell(row, gateEndedPhrase(row)),
     paneStatus: paneStatus && ((row) => paneStatus(gateHints(row))),
     escape: injectEscape && ((row, paneRef) => injectEscape(gateHints(row), { paneRef })),
+    mod: claudeMod,
+    record: (row, path, state) => {
+      const completions = store.nativeQuestions();
+      completions.intend(row.id, answerFingerprint(row));
+      completions.settle(row.id, state, null, Date.now(), path);
+      // As a native completion does: the mod holds the answer for its model,
+      // either in the dialog it closes or in the reply to the model's own gate_answer.
+      if (path === "mod-result" && state === "completed" && row.status === "answered") store.markConsumed(row.id);
+    },
     log,
   });
 

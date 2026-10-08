@@ -21,7 +21,8 @@ so every feature takes its existing path.
 | `src/core/rpc.ts` | One call to a daemon verb over `rt.sock`, capped at 25 s. |
 | `src/core/blocks.ts` | The block names. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `src/core/version.ts` | The minimum engine version, the check against it, and the plugin version the link reports. |
-| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat. |
+| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `gate-form.ts` races a gate's form against the gate's own answer. |
+| `src/blocks/display.ts` | The display kit: `formPane` asks a gate in a focused pane, for where the built-in dialog cannot be drawn. |
 | `src/blocks/sections.ts` | The reply rule section's text and the reply-line trim. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `types/index.d.ts` | The plugin's own contract: the `$.state` values it keeps. |
 | `tests/` | `claude plugin test` cases. They drive the hub and link with the stubbed `$` in `tests/stub.ts`. |
@@ -57,7 +58,9 @@ Tool rules run in five stages:
 
 - `fill` returns the call's input, edited or not.
 - `guard` returns `{ refuse }` to stop the call.
-- `permit` wraps the call as middleware.
+- `permit` wraps the call as middleware. Its `next` carries the engine's
+  `signal`, which aborts when the person interrupts the call, so a wait the
+  rule starts can end with it.
 - `tap` sees the result after the call.
 - `check` answers `tool.check` with a decision.
 
@@ -100,6 +103,7 @@ A block reaches the daemon through the link:
   envelope before the model sees it, acks it with `session:ack` at once
   (the ack means the mod owns it), then runs the handler. A command with no
   handler, or whose block is not live, is not acked, so rt takes its fallback.
+  So is one the handler's `accepts` check answers false for.
 
 The core answers two diagnostic commands, the only kinds `rt.sock`'s
 `session:push` will send: `probe.ping` logs and acks, and `probe.wait` (`{ pattern, after }`)
@@ -147,6 +151,38 @@ view of itself:
 - **End.** The session's end reaches rt through the link's own `session:end`,
   which signs the session out. A `/clear` is not an end: rt moves the
   sign-in to the new session id when the link continues.
+
+## The gate form
+
+The `gate-form` block (`src/blocks/gate-form.ts`) takes over how a form gate
+ends in this session. An agent opens a form gate with `gate_ask`, then draws
+AskUserQuestion. The block never opens a gate. Its `permit` rule on
+AskUserQuestion:
+
+1. Reads the event cursor (`events:head`), then this session's own live form
+   gates (`gate:list { open: true, session, presentation: "form" }`), and
+   links the call to the newest one whose question labels cover every asked
+   question's text. With no match it passes the call through untouched.
+2. Shows the dialog with `next(e)`, and at the same time waits on
+   `gate/{answered,closed}/<id>` from that cursor with `link.wait`.
+3. The first to finish wins:
+   - The person's pick goes to the model as usual, and the block records
+     nothing: the model's own `gate_answer` after the form is the record.
+   - A gate event reads the gate's row back (`gate:list { session,
+     presentation: "form" }`) and closes the dialog with the row's answers,
+     keyed by question text and spelled as option labels, plus a line
+     naming the surface that answered. A closed or superseded gate closes
+     it with no answers and a withdrawn line.
+   - An interrupt aborts the wait with the call.
+
+rt completes a gate in a session with this block live by pushing
+`gate-complete { id }` instead of ringing the doorbell and sending Escape.
+The block acks it for any gate it linked, whether or not the dialog is still
+up, since its own wait is what closes the dialog. It does not ack a gate
+whose dialog the person dismissed: the model has nothing to read there, so
+rt rings the doorbell as it would without the mod. Doorbell rows
+(`[gate] <id> answered by ...`, superseded, closed) left over for a linked
+gate draw as nothing, except for a dismissed one.
 
 ## The reply rule section
 

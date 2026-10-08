@@ -23,6 +23,8 @@ export const TESTED_CLAUDE_CODE = { min: "2.1.293", max: "2.1.293" } as const;
 export const LINK_EXPIRY_MS = 30_000;
 const ACK_RETENTION_MS = 60_000;
 const HARNESS = "claude";
+/** Continuations remembered for continuedAs; the oldest go first. */
+const MOVES_KEPT = 1_000;
 
 /**
  * `previousSessionId` with `previousLinkId` is a link-reported id change (a
@@ -67,6 +69,11 @@ export interface ModLinks {
   setExecution(linkId: string, execution: ModExecution): Outcome<boolean>;
   /** The session's execution from its live link's presence block; null with no such block or no turn reported yet (herdr's status then stands). */
   execution(sessionId: string): ModExecution | null;
+  /**
+   * The native id `sessionId` continues as after every link-reported /clear
+   * since this daemon started, or `sessionId` itself. Held in memory only.
+   */
+  continuedAs(sessionId: string): string;
 }
 
 export type ModLinksDeps = {
@@ -128,6 +135,13 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
   const acks = new Map<string, ModAck>();
   const ackKey = (sessionId: string, commandId: string) => `${sessionId}\n${commandId}`;
   const executions = new Map<string, ModExecution>();
+  const moves = new Map<string, string>();
+
+  function moved(from: string, to: string): void {
+    moves.delete(from);
+    moves.set(from, to);
+    while (moves.size > MOVES_KEPT) moves.delete(moves.keys().next().value!);
+  }
 
   function drop(linkId: string): void {
     const link = links.get(linkId);
@@ -198,6 +212,7 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
         const continued = continueBinding(previous.sessionId, input.sessionId);
         if (!continued.ok) return continued;
         drop(previous.linkId);
+        moved(previous.sessionId, input.sessionId);
       }
       const superseded = bySession.get(input.sessionId);
       // A re-register (a cleared block) or a continuation keeps the turn last reported; a link this daemon
@@ -278,6 +293,16 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
       const link = current(sessionId);
       if (!link?.blocks.includes("presence")) return null;
       return executions.get(link.linkId) ?? null;
+    },
+
+    continuedAs(sessionId) {
+      let at = sessionId;
+      const seen = new Set([at]);
+      for (let next = moves.get(at); next !== undefined && !seen.has(next); next = moves.get(at)) {
+        seen.add(next);
+        at = next;
+      }
+      return at;
     },
   };
 }

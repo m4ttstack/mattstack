@@ -111,7 +111,7 @@ const questionContextBytes = (questions: GateQuestion[]): number =>
 const withoutQuestionContexts = (questions: GateQuestion[]): GateQuestion[] =>
   questions.map(({ context: _dropped, ...q }) => q);
 
-const ORIGIN_STRING_KEYS: ReadonlySet<string> = new Set(["paneId", "tabId", "runId", "worktree", "surface"]);
+const ORIGIN_STRING_KEYS: ReadonlySet<string> = new Set(["paneId", "tabId", "runId", "worktree", "surface", "session"]);
 
 /** Kinds whose gates legitimately carry no context: a milestone's artifact IS
     the material, and the reconciler's wait-path gate asks about a pane, not
@@ -129,7 +129,7 @@ const MISSING_CONTEXT_ERROR =
     never override them (would let a raw payload impersonate a pane or run
     the ceremony didn't actually resolve). `worktree` is deliberately absent:
     a passthrough worktree survives when subject resolution produced none. */
-const CEREMONY_ORIGIN_KEYS: ReadonlySet<string> = new Set(["presentation", "paneId", "runId"]);
+const CEREMONY_ORIGIN_KEYS: ReadonlySet<string> = new Set(["presentation", "paneId", "runId", "session"]);
 const ORIGIN_FIELD_CAP_BYTES = 1024;
 
 /** Returns an error message on an invalid origin, null when it validates.
@@ -685,10 +685,18 @@ export function createGateHandlers(
 
     "gate:list": async (rawPayload: unknown) => {
       const payload = rawPayload as Commands["gate:list"]["payload"] | undefined;
+      const presentation = payload?.presentation;
+      if (presentation !== undefined && presentation !== "form" && presentation !== "wait") {
+        return { ok: false as const, error: 'presentation must be "form" or "wait"' };
+      }
+      // Filters only narrow: any caller already lists every gate unfiltered.
+      const session = typeof payload?.session === "string" ? payload.session.trim() : "";
       const { gates, cursor } = store.list({
         open: payload?.open,
         subjectPrefix: payload?.subjectPrefix,
         kind: payload?.kind,
+        ...(session && { session }),
+        ...(presentation && { presentation }),
         cursor: num(payload?.cursor),
         limit: clampListLimit(num(payload?.limit)),
       });
@@ -840,6 +848,7 @@ export function createGateHandlers(
     );
     const derivedOrigin: GateOrigin = { presentation };
     if (paneId) derivedOrigin.paneId = paneId;
+    if (sessionId) derivedOrigin.session = sessionId;
     if (resolved.runId) derivedOrigin.runId = resolved.runId;
     const runWorktree = resolved.runWorktree ?? (resolved.runId ? deps.runWorktree?.(resolved.runId) ?? undefined : undefined);
     if (runWorktree) derivedOrigin.worktree = runWorktree;

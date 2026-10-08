@@ -174,6 +174,8 @@ export interface GateOrigin {
   worktree?: string;
   surface?: string;
   presentation?: "form" | "wait";
+  /** The asking session's native id, as gate:ask resolved it; never a caller's own claim. */
+  session?: string;
 }
 /** `context` is per-question material (what this one choice turns on);
     the gate-level `context` on the open/ask payload is the whole ask's. */
@@ -1136,7 +1138,9 @@ export interface Commands {
   "gate:wait": { payload: { id: string; waitMs?: number; sessionId?: string }; data: { status: "timeout" } | { status: "answered" | "closed"; row: GateRow } };
   /** Paged like events:list: an omitted `limit` clamps daemon-side rather than
    *  forcing a full-table read; `cursor` is the paging rowid to resume from. */
-  "gate:list": { payload: { open?: boolean; subjectPrefix?: string; kind?: string; limit?: number; cursor?: number }; data: { gates: GateRow[]; cursor: number } };
+  /** `session` matches the asking session gate:ask recorded (`origin.session`) and `presentation` the
+      origin's presentation; both only narrow what any caller can list unfiltered. */
+  "gate:list": { payload: { open?: boolean; subjectPrefix?: string; kind?: string; session?: string; presentation?: "form" | "wait"; limit?: number; cursor?: number }; data: { gates: GateRow[]; cursor: number } };
   "gate:park": { payload: { id: string }; data: { ok: true } };
   "gate:close": { payload: { id: string; reason: "abandoned" | "superseded" | "pruned" }; data: { ok: true } };
   "gate:subscribe": { payload: { subjectPrefix: string; session: string; scope?: "owner"; ownerRef?: string }; data: { id: string } };

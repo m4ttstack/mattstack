@@ -20,6 +20,9 @@ export type CompletionState = "pending" | "completed" | "gone" | "conflict" | "s
 /** Backoff for `recoverable`: a pending completion is due once `baseMs * 2^(attempts-1)`, capped at `maxMs`, has passed since its last update. */
 export type RetryDue = { now: number; baseMs: number; maxMs: number };
 
+/** How a Claude form gate's completion reached its session: the mod's own result, or the inbox doorbell. */
+export type CompletionPath = "mod-result" | "doorbell";
+
 export type CompletionRecord = {
   gateId: string;
   state: CompletionState;
@@ -29,6 +32,8 @@ export type CompletionRecord = {
   detail: string | null;
   createdAt: number;
   updatedAt: number;
+  /** Set only by a completion that names its path; null for a native question's. */
+  path: CompletionPath | null;
 };
 
 export interface QuestionStore {
@@ -47,8 +52,8 @@ export interface QuestionStore {
    * it now stands.
    */
   intend(gateId: string, fingerprint: string, now?: number): CompletionRecord;
-  /** Moves a pending completion to `state`; false when it was not pending. */
-  settle(gateId: string, state: CompletionState, detail: string | null, now?: number): boolean;
+  /** Moves a pending completion to `state`, recording `path` when given; false when it was not pending. */
+  settle(gateId: string, state: CompletionState, detail: string | null, now?: number, path?: CompletionPath): boolean;
   /**
    * Bound gates that are answered or closed and whose completion is missing
    * or pending, least recently tried first, so rows that stay pending rotate
@@ -99,7 +104,9 @@ const INTEND_SQL = `
   VALUES (?, 'pending', ?, 1, NULL, ?, ?)
   ON CONFLICT(gateId) DO UPDATE SET attempts = attempts + 1, updatedAt = excluded.updatedAt
   WHERE gate_native_completion.state = 'pending'`;
-const SETTLE_SQL = "UPDATE gate_native_completion SET state = ?, detail = ?, updatedAt = ? WHERE gateId = ? AND state = 'pending'";
+const SETTLE_SQL = `
+  UPDATE gate_native_completion SET state = ?, detail = ?, updatedAt = ?, path = COALESCE(?, path)
+  WHERE gateId = ? AND state = 'pending'`;
 const RECOVERABLE_SQL = `
   SELECT q.gateId AS gateId FROM gate_native_questions q
   JOIN gates g ON g.id = q.gateId
@@ -149,8 +156,8 @@ export function createQuestionStore(db: Database): QuestionStore {
       db.query(INTEND_SQL).run(gateId, fingerprint, now, now);
       return completion(gateId)!;
     },
-    settle(gateId, state, detail, now = Date.now()) {
-      return db.query(SETTLE_SQL).run(state, detail, now, gateId).changes > 0;
+    settle(gateId, state, detail, now = Date.now(), path) {
+      return db.query(SETTLE_SQL).run(state, detail, now, path ?? null, gateId).changes > 0;
     },
     recoverable(limit, due) {
       const capped = Math.max(1, Math.floor(limit));

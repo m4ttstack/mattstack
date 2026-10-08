@@ -1087,3 +1087,47 @@ test("the daemon wires gate-push to the liveness-checked resolvers", () => {
   expect(wiring).toContain("paneStatus: createPaneStatusProbe()");
   expect(wiring).toContain("native: gateQuestions");
 });
+
+describe("gate-push through the Claude mod", () => {
+  function modHarness(ack: boolean) {
+    const store = freshStore();
+    const delivered: string[] = [];
+    const pushed: Array<{ session: string; gateId: string }> = [];
+    const push = createGatePush({
+      store,
+      deliver: async (socketPath) => { delivered.push(socketPath); return { ok: true as const }; },
+      resolveSession: (sessionId) => ({ socketPath: sessionId }),
+      log,
+      claudeMod: {
+        current: (session) => session,
+        owns: () => true,
+        complete: async (session, gateId) => { pushed.push({ session, gateId }); return ack; },
+      },
+    });
+    const row = store.open({
+      subject: "mr:https://x/1", kind: "review-post", questions: qs(), nudge: { session: "sess-1" },
+      pane: "w1:p1", origin: { presentation: "form", paneId: "w1:p1" },
+    }).row;
+    store.answer(row.id, { q: "a" }, "board");
+    return { store, push, row: store.get(row.id)!, delivered, pushed };
+  }
+
+  test("an acked completion records mod-result and the answer as read, with no doorbell", async () => {
+    const h = modHarness(true);
+    await h.push.onAnswered(h.row);
+    expect(h.pushed).toEqual([{ session: "sess-1", gateId: h.row.id }]);
+    expect(h.delivered).toEqual([]);
+    expect(h.store.nativeQuestions().completion(h.row.id)).toMatchObject({ state: "completed", path: "mod-result" });
+    expect(h.store.get(h.row.id)!.consumedAt).not.toBeNull();
+    expect(h.store.get(h.row.id)!.delivery).toBeNull();
+  });
+
+  test("an unacked completion rings the doorbell once and records doorbell", async () => {
+    const h = modHarness(false);
+    await h.push.onAnswered(h.row);
+    expect(h.delivered).toEqual(["sess-1"]);
+    expect(h.store.nativeQuestions().completion(h.row.id)).toMatchObject({ state: "completed", path: "doorbell" });
+    expect(h.store.get(h.row.id)!.delivery!.outcome).toBe("delivered");
+    expect(h.store.get(h.row.id)!.consumedAt).toBeNull();
+  });
+});

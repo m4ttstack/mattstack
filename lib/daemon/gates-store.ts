@@ -58,7 +58,11 @@ export interface GatesStore {
     owner?: string;
   }): OpenResult;
   get(id: string): GateRow | null;
-  list(filter: { open?: boolean; subjectPrefix?: string; kind?: string; limit?: number; cursor?: number }): { gates: GateRow[]; cursor: number };
+  /** `session` and `presentation` match the row's `origin` (gate:ask's asking session and presentation). */
+  list(filter: {
+    open?: boolean; subjectPrefix?: string; kind?: string; session?: string; presentation?: "form" | "wait";
+    limit?: number; cursor?: number;
+  }): { gates: GateRow[]; cursor: number };
   /** `opts.session` is the writer's own session id, recorded on the answer
       so gate-push can skip notifying the surface that wrote it. */
   answer(id: string, answers: GateAnswer["answers"], by: string, opts?: { overridden?: boolean; session?: string }): AnswerResult;
@@ -346,7 +350,8 @@ export function createGatesStore(opts: {
       attempts    INTEGER NOT NULL DEFAULT 0,
       detail      TEXT,
       createdAt   INTEGER NOT NULL,
-      updatedAt   INTEGER NOT NULL
+      updatedAt   INTEGER NOT NULL,
+      path        TEXT
     );
   `);
 
@@ -391,6 +396,11 @@ export function createGatesStore(opts: {
     db.exec("UPDATE gate_subscriptions SET scope = 'prefix' WHERE scope IS NULL;");
   }
   if (!subCols.has("ownerRef")) db.exec("ALTER TABLE gate_subscriptions ADD COLUMN ownerRef TEXT;");
+
+  const completionCols = new Set(
+    (db.query("PRAGMA table_info(gate_native_completion)").all() as Array<{ name: string }>).map((c) => c.name),
+  );
+  if (!completionCols.has("path")) db.exec("ALTER TABLE gate_native_completion ADD COLUMN path TEXT;");
 
   const performPruneDeadSubscriptions = (olderThanMs: number, now = Date.now()): number => {
     const { changes } = pruneDeadSubStmt.run(now - olderThanMs);
@@ -626,6 +636,9 @@ export function createGatesStore(opts: {
       if (filter.open) { clauses.push("status = 'open'"); }
       if (filter.subjectPrefix) { clauses.push("subject LIKE ? ESCAPE '\\'"); params.push(`${filter.subjectPrefix.replace(/[%_\\]/g, "\\$&")}%`); }
       if (filter.kind) { clauses.push("kind = ?"); params.push(filter.kind); }
+      // origin is only ever written as JSON.stringify output, so json_extract cannot raise on it.
+      if (filter.session) { clauses.push("json_extract(origin, '$.session') = ?"); params.push(filter.session); }
+      if (filter.presentation) { clauses.push("json_extract(origin, '$.presentation') = ?"); params.push(filter.presentation); }
       const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
       const safeLimit = filter.limit == null ? undefined : Math.max(1, Math.floor(filter.limit));
       const limitClause = safeLimit != null ? "LIMIT ?" : "";

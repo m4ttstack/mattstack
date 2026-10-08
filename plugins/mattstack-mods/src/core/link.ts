@@ -27,9 +27,10 @@ export type Link = {
    * Routes daemon commands of `kind` to `handler`. The command is acked as soon
    * as it is accepted, before the handler runs: the ack means the mod owns it.
    * With `owner`, a command arriving while that block is not live is dropped
-   * unacked, so the daemon takes its fallback.
+   * unacked, so the daemon takes its fallback. With `accepts`, so is one it
+   * answers false for (or throws on): the mod does not own that command.
    */
-  onCommand(kind: string, handler: CommandHandler, owner?: ModBlock): void
+  onCommand(kind: string, handler: CommandHandler, owner?: ModBlock, accepts?: (cmd: Command) => boolean): void
   /**
    * Waits on the daemon's event bus from `after`, in rounds of ROUND_MS, until
    * `until` holds for the events gathered so far. Rejects with the signal's
@@ -99,7 +100,7 @@ export function createLink(hub: Hub): Link {
   let refreshing = false
   let subscribed = false
   let queue: Promise<void> = Promise.resolve()
-  const handlers = new Map<string, { handler: CommandHandler; owner?: ModBlock }>()
+  const handlers = new Map<string, { handler: CommandHandler; owner?: ModBlock; accepts?: (cmd: Command) => boolean }>()
 
   // Register, heartbeat, re-register and end each read and replace the link
   // id, so they run one at a time.
@@ -225,6 +226,18 @@ export function createLink(hub: Hub): Link {
     if (entry.owner && !hub.liveBlocks().includes(entry.owner)) {
       log(`command ${cmd.kind} ${cmd.id} is for ${entry.owner}, which is not live; not acked`)
       return
+    }
+    if (entry.accepts) {
+      let accepted = false
+      try {
+        accepted = entry.accepts(cmd)
+      } catch (err) {
+        log(`command ${cmd.kind} ${cmd.id} could not be checked: ${err instanceof Error ? err.message : String(err)}`)
+      }
+      if (!accepted) {
+        log(`command ${cmd.kind} ${cmd.id} is not one this mod owns; not acked`)
+        return
+      }
     }
     // The ack means the mod has taken the command, so rt never falls back
     // under a handler that is slow or straddles a /clear.
@@ -417,9 +430,9 @@ export function createLink(hub: Hub): Link {
       })
     },
 
-    onCommand(kind, handler, owner) {
+    onCommand(kind, handler, owner, accepts) {
       if (handlers.has(kind)) throw new Error(`mattstack-mods: command ${kind} already has a handler`)
-      handlers.set(kind, owner ? { handler, owner } : { handler })
+      handlers.set(kind, { handler, ...(owner && { owner }), ...(accepts && { accepts }) })
     },
 
     wait,
