@@ -179,6 +179,7 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
           originUrl,
           probes,
           ownedRoots: roots,
+          log: rawDeps.log.child({ team: slug }),
           onPulled: async () => {
             try {
               await converge(probes, slug, rawDeps.log.child({ team: slug }));

@@ -12,7 +12,8 @@ import { closeStateDb, getKvValue } from "../../state/index.ts";
 import { readHomePushRecord } from "../../home/push-record.ts";
 import { rtDir } from "../../rt-paths.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
-import { homeSnapshotSpec, startHomeSnapshot, startSnapshot, teamScope, teamSnapshotSpec, type HomeSnapshotDeps, type HomeSnapshotSettings } from "../home-snapshot.ts";
+import type { Probes } from "../../setup/probes.ts";
+import { homeSnapshotSpec, layoutGate, startHomeSnapshot, startSnapshot, teamScope, teamSnapshotSpec, type HomeSnapshotDeps, type HomeSnapshotSettings } from "../home-snapshot.ts";
 
 // ─── test doubles ────────────────────────────────────────────────────────────
 
@@ -2663,6 +2664,81 @@ function pullResponders(opts: { behind: number; ahead: number; rebase?: "ok" | "
     (argv) => gitVerb(argv) === "rebase" && argv.includes("--abort") ? (rmSync(rebaseDir, { recursive: true, force: true }), { stdout: "", stderr: "", exitCode: 0 }) : undefined,
   ];
 }
+
+describe("the layout gate", () => {
+  const gated = (gate: () => Promise<{ layout: number } | null>) => ({ ...teamSpecFor(null), pull: { intervalSec: 300, gate } });
+  const start = (gate: () => Promise<{ layout: number } | null>, behind: number) => {
+    const { deps, execCalls, log } = baseDeps({ exec: makeFakeExec([...pullResponders({ behind, ahead: 0 }), ...defaultResponders()]).fn });
+    const { repoDir: _r, ...rest } = deps;
+    return { handle: startSnapshot(gated(gate), rest), execCalls, log };
+  };
+
+  test("a hold: skipped with the update sentence, no merge, lastPullAt stamped, layoutHold set", async () => {
+    const { handle, execCalls, log } = start(async () => ({ layout: 3 }), 1);
+    await handle.ready;
+    const result = await handle.pullNow();
+    expect(result).toEqual({ outcome: "skipped", detail: "Your org uses layout 3 and this app reads up to 2. Update the app.", hold: { layout: 3, reads: 2 } });
+    expect(execCalls.some((argv) => gitVerb(argv) === "merge")).toBe(false);
+    const status = handle.status();
+    expect(status.lastPullAt).toBe(1_000_000);
+    expect(status.layoutHold).toEqual({ layout: 3, reads: 2 });
+    expect(status.lastPullSkipped).toBe(result.detail);
+    await handle.pullNow();
+    expect(log.calls.filter((c) => c.level === "info" && JSON.stringify(c.args).includes("holding the pull")).length).toBe(1);
+    handle.stop();
+  });
+
+  test("a passing gate fast-forwards and clears an earlier hold", async () => {
+    let layout: number | null = 3;
+    const { handle } = start(async () => (layout === null ? null : { layout }), 1);
+    await handle.ready;
+    await handle.pullNow();
+    expect(handle.status().layoutHold).toEqual({ layout: 3, reads: 2 });
+    layout = null;
+    const result = await handle.pullNow();
+    expect(result.outcome).toBe("fast-forwarded");
+    expect(handle.status().layoutHold).toBeNull();
+    handle.stop();
+  });
+
+  test("a gate that throws passes the pull and warns once", async () => {
+    const { handle, log } = start(async () => { throw new Error("object corrupt"); }, 1);
+    await handle.ready;
+    expect((await handle.pullNow()).outcome).toBe("fast-forwarded");
+    await handle.pullNow();
+    expect(log.calls.filter((c) => c.level === "warn" && JSON.stringify(c.args).includes("layout gate")).length).toBe(1);
+    handle.stop();
+  });
+
+  test("nothing to pull runs no gate", async () => {
+    let asked = 0;
+    const { handle } = start(async () => { asked++; return { layout: 3 }; }, 0);
+    await handle.ready;
+    expect((await handle.pullNow()).outcome).toBe("up-to-date");
+    expect(asked).toBe(0);
+    handle.stop();
+  });
+});
+
+describe("layoutGate", () => {
+  const exec = (res: { code: number; stdout: string; stderr: string }) => (async () => res) as unknown as Probes["exec"];
+  test("reads the marker at the ref through git show", async () => {
+    expect(await layoutGate(exec({ code: 0, stdout: '{ "role": "org", "org": "acme", "layout": 3 }', stderr: "" }), "/clone", "refs/remotes/origin/main", fakeLog())).toEqual({ layout: 3 });
+  });
+  test("a one-team marker, an org marker at ORG_LAYOUT or an unparsable one passes", async () => {
+    for (const stdout of ['{ "role": "team", "org": "acme" }', '{ "role": "org", "org": "acme" }', "{ nope"]) {
+      expect(await layoutGate(exec({ code: 0, stdout, stderr: "" }), "/clone", "ref", fakeLog())).toBeNull();
+    }
+  });
+  test("a missing marker passes silently; any other git failure passes with a warning", async () => {
+    const quiet = fakeLog();
+    expect(await layoutGate(exec({ code: 128, stdout: "", stderr: "fatal: path 'mattstack/mattstack.jsonc' does not exist in 'refs/remotes/origin/main'" }), "/clone", "ref", quiet)).toBeNull();
+    expect(quiet.calls.filter((c) => c.level === "warn").length).toBe(0);
+    const loud = fakeLog();
+    expect(await layoutGate(exec({ code: 128, stdout: "", stderr: "fatal: bad object" }), "/clone", "ref", loud)).toBeNull();
+    expect(loud.calls.filter((c) => c.level === "warn").length).toBe(1);
+  });
+});
 
 describe("role-scoped snapshot ownership", () => {
   test("a pull reports unowned rename sources but not unchanged copy sources, and clears repaired edits", async () => {

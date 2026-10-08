@@ -48,6 +48,8 @@ import { TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
 import { roleFor } from "../team/roles.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
 import { readTeamLocal, type PendingPackShare } from "../team/team-local.ts";
+import { updateSentence } from "../team/org-layout.ts";
+import { ORG_LAYOUT, ORG_MARKER_REL, parseMarker } from "../team/org-marker.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
 import { HOME_SNAPSHOT_NS, recordHomePush, type HomePushRecord } from "../home/push-record.ts";
@@ -83,6 +85,8 @@ export interface SnapshotResult {
 export interface PullResult {
   outcome: "up-to-date" | "fast-forwarded" | "rebased" | "conflict" | "skipped";
   detail: string | null;
+  /** Set only on a pull the layout gate held; a caller tells a hold from any other skip by this, never by the sentence. */
+  hold?: { layout: number; reads: number };
 }
 
 export interface SnapshotStatus {
@@ -172,6 +176,8 @@ export interface SnapshotSpec {
     intervalSec: number;
     /** Fired after a pull that moved HEAD, outside the git lock. */
     onPulled?: (outcome: "fast-forwarded" | "rebased") => Promise<void>;
+    /** Runs after the fetch with the remote-tracking ref; a non-null answer holds the pull at the current commit. */
+    gate?: (ref: string) => Promise<{ layout: number } | null>;
   };
   /** This Mac's role owns nothing in the clone, so the engine only fetches and fast-forwards. */
   pullOnly?: boolean;
@@ -425,6 +431,19 @@ function marketplaceOwed(shares: PendingPackShare[], repoDir: string, dirty: rea
   });
 }
 
+/** The org layout at `ref`, when it is one this rt does not read. A tip with no marker, a marker rt cannot parse, or a layout at or below ORG_LAYOUT passes. */
+export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: string, log: Pick<Logger, "warn">): Promise<{ layout: number } | null> {
+  const shown = await exec(["git", "-C", repoDir, "show", `${ref}:${ORG_MARKER_REL}`], { timeoutMs: GIT_TIMEOUT_MS });
+  if (shown.code !== 0) {
+    if (!/does not exist|exists on disk, but not in|not in the index/i.test(shown.stderr)) {
+      log.warn({ repoDir, ref, stderr: shown.stderr.trim() }, "layout gate: could not read the marker at the fetched tip; passing");
+    }
+    return null;
+  }
+  const marker = parseMarker(shown.stdout);
+  return marker.kind === "org" && marker.layout > ORG_LAYOUT ? { layout: marker.layout } : null;
+}
+
 /** A team clone: no legacy state file (nothing predates it), and it pulls (multi-writer), unlike the home repo. */
 export function teamSnapshotSpec(
   slug: string,
@@ -436,8 +455,10 @@ export function teamSnapshotSpec(
     ownedRoots: string[];
     readToken?: (p: Probes, remote: string) => Promise<string | null>;
     onPulled?: (outcome: "fast-forwarded" | "rebased") => Promise<void>;
+    log?: Pick<Logger, "warn">;
   },
 ): SnapshotSpec {
+  const log = opts.log ?? { warn() {} };
   const readToken = opts.readToken ?? storedForgeToken;
   const owns = (path: string) => opts.ownedRoots.some((root) => path === root || path.startsWith(`${root}/`));
   return {
@@ -457,7 +478,7 @@ export function teamSnapshotSpec(
       };
     },
     watch: teamScope,
-    pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled },
+    pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled, gate: (ref) => layoutGate(opts.probes.exec, repoDir, ref, log) },
     pullOnly: opts.ownedRoots.length === 0,
     tokenFor: () => readToken(opts.probes, opts.originUrl),
     originUrl: opts.originUrl,
@@ -524,6 +545,9 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
   let unownedDirty: string[] = [];
   let heldBack: string[] = [];
   let lastPullSkipped: string | null = null;
+  let layoutHold: { layout: number; reads: number } | null = null;
+  let loggedHold: number | null = null;
+  let loggedGateError: string | null = null;
   let conflicted: { at: number; detail: string } | null = null;
   /** `spec.tokenFor` is a keychain read plus a sops decrypt, so it is resolved once per pull interval rather than per git call. */
   let cachedToken: { value: string | null; at: number } | null = null;
@@ -928,6 +952,27 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
     // `rt team publish` after the rebase, or resetting the clone to origin.
     if (conflicted && ahead === 0) clearConflict();
     if (conflicted) return { outcome: "skipped", detail: conflicted.detail };
+    if (spec.pull?.gate && behind !== 0) {
+      let hold: { layout: number } | null = null;
+      try {
+        hold = await spec.pull.gate(`refs/remotes/origin/${branch}`);
+      } catch (err) {
+        if (loggedGateError !== String(err)) {
+          deps.log.warn({ err, id: spec.id }, `${label}: layout gate threw; passing`);
+          loggedGateError = String(err);
+        }
+      }
+      if (hold) {
+        layoutHold = { layout: hold.layout, reads: ORG_LAYOUT };
+        if (loggedHold !== hold.layout) {
+          deps.log.info({ id: spec.id, layout: hold.layout, reads: ORG_LAYOUT }, `${label}: holding the pull; the org is on a layout this rt does not read`);
+          loggedHold = hold.layout;
+        }
+        return { outcome: "skipped", detail: updateSentence(hold.layout), hold: layoutHold };
+      }
+      layoutHold = null;
+      loggedHold = null;
+    }
     if (behind === 0) return { outcome: "up-to-date", detail: null };
     if (ahead === 0) {
       const ff = await deps.exec(["git", "merge", "-q", "--ff-only", `refs/remotes/origin/${branch}`], { cwd: deps.repoDir, timeoutMs: GIT_TIMEOUT_MS, stderr: "pipe" });
@@ -1524,7 +1569,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       lastPullAt,
       lastPullError,
       lastPullSkipped,
-      layoutHold: null,
+      layoutHold,
       conflicted,
       pullOnly: current.pullOnly,
       unownedDirty: [...unownedDirty],
