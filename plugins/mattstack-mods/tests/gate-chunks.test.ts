@@ -109,3 +109,69 @@ describe('joinChunks', () => {
     expect(splitAnswers(new Map(), questions, { outcome: 'comment' })).toEqual({ outcome: 'comment' })
   })
 })
+
+// Per-thread questions are each their own question, never a chunk (gate-protocol's
+// gate-ctx table); the board's postPicks and readReviewGate never collapse them.
+const threadPair = (n: number, context: unknown): ChunkQuestion => ({
+  id: `thread-${n}`,
+  label: `queue/enqueue.ts:${n}`,
+  multi: true,
+  options: [
+    { value: `post:t${n}`, label: 'Post the reply (recommended)' },
+    { value: `resolve:t${n}`, label: 'Resolve the thread' },
+  ],
+  context: typeof context === 'string' ? context : JSON.stringify(context),
+})
+
+describe('joinChunks leaves per-thread questions alone', () => {
+  test('a respond-post gate: thread-1..3 with reply@1 stay three questions under their own ids', () => {
+    const questions = [1, 2, 3].map(n => threadPair(n, { 'gate-ctx': 'reply@1', thread: `t${n}`, file: 'queue/enqueue.ts:88', verb: 'reply', text: `reply ${n}` }))
+    const { questions: out, groups } = joinChunks(questions)
+    expect(out).toEqual(questions)
+    expect(groups.size).toBe(0)
+  })
+
+  test('a lone respond-post thread keeps its id, and a pair whose context fell back to prose is still a thread', () => {
+    const lone = [threadPair(1, { 'gate-ctx': 'reply@1', thread: 't1', file: 'a.ts:1', verb: 'fix', sha: 'ab12cd3', text: 'Fixed.' })]
+    expect(joinChunks(lone).questions.map(x => x.id)).toEqual(['thread-1'])
+    const prose = [threadPair(1, 'Reply to renee about the 204.'), threadPair(2, 'Reply to renee about the retry.')]
+    expect(joinChunks(prose).questions).toEqual(prose)
+  })
+
+  test('a re-review: carryover@1 threads stay unjoined while findings-1..4 still join', () => {
+    const carry = (n: number) => threadPair(n, { 'gate-ctx': 'carryover@1', thread: `t${n}`, round: 1, call: 'not-fixed', original: `original ${n}`, reply: `reply ${n}` })
+    const findings = [1, 2, 3, 4].map(n => withFindings(q(`findings-${n}`, [`f${n}`]), [`f${n}`]))
+    const questions = [carry(1), carry(2), ...findings, q('outcome', ['comment', 'approve'], false)]
+    const { questions: out, groups } = joinChunks(questions)
+    expect(out.map(x => x.id)).toEqual(['thread-1', 'thread-2', 'findings', 'outcome'])
+    expect(out[0]).toEqual(questions[0]!)
+    expect(out[1]).toEqual(questions[1]!)
+    expect([...groups.keys()]).toEqual(['findings'])
+    expect(groups.get('findings')).toEqual(['findings-1', 'findings-2', 'findings-3', 'findings-4'])
+  })
+
+  test('a thread@1, reply@1 or carryover@1 context marks a thread even without the post/resolve pair', () => {
+    const asThread = (n: number, context: unknown): ChunkQuestion => ({ ...q(`thread-${n}`, ['fix', 'reply']), context: JSON.stringify(context) })
+    const thread = { 'gate-ctx': 'thread@1', author: 'renee', severity: 'blocking', claim: { summary: 's' }, verdict: { call: 'valid' }, reply: { kind: 'none' } }
+    const reply = { 'gate-ctx': 'reply@1', thread: 't1', file: 'a.ts:1', verb: 'reply', text: 'ok' }
+    const carry = { 'gate-ctx': 'carryover@1', thread: 't1', round: 1, call: 'fixed', original: 'o', reply: 'r' }
+    for (const context of [thread, reply, carry]) {
+      const questions = [asThread(1, context), asThread(2, context)]
+      expect(joinChunks(questions).questions).toEqual(questions)
+    }
+  })
+})
+
+describe('joinChunks merges skipped@1', () => {
+  test("a joined skipped page carries every chunk's skipped entries", () => {
+    const skippedChunk = (n: number, ids: string[]): ChunkQuestion => ({
+      ...q(`skipped-${n}`, ids.map(id => `restore:${id}`)),
+      context: JSON.stringify({ 'gate-ctx': 'skipped@1', skipped: ids.map(id => ({ id, round: 1, severity: 'minor', title: `title ${id}`, changed: false })) }),
+    })
+    const { questions: out, groups } = joinChunks([skippedChunk(1, ['r1-f1', 'r1-f2']), skippedChunk(2, ['r1-f3'])])
+    expect(out.map(x => x.id)).toEqual(['skipped'])
+    expect(groups.get('skipped')).toEqual(['skipped-1', 'skipped-2'])
+    const ctx = parseGateCtx(out[0]!.context)
+    expect(ctx?.shape === 'skipped@1' && ctx.skipped.map(s => s.id)).toEqual(['r1-f1', 'r1-f2', 'r1-f3'])
+  })
+})
