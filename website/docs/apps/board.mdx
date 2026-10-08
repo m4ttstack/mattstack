@@ -82,20 +82,25 @@ The MR's channel is the board's Slack channel, or a code owners tab's own channe
 
 ### agent actions
 
-Every item here needs a local board. Each row links to what that agent does.
+Every item here needs a local board. Each row links to what that agent does. The labels follow one pattern: **focus** shows an agent that is still running, **resume** reopens an earlier conversation, and **redo** starts the work again from scratch.
 
 | Icon | Label | What it does | Shows when |
 | --- | --- | --- | --- |
 | <BoardIcon name="agent" lane="review" /> | review | Launches an agentic review. See [Review](#review). | The board has not reviewed the MR, or its last review failed. |
-| <BoardIcon name="agent" lane="review" /> | re-review | Launches a follow-up review, once the author has responded to yours. See [Re-review](#re-review). | The board's review finished, or someone already reviewed the MR. |
-| <BoardIcon name="agent" lane="review" /> | focus review | Shows the running review's pane. Once that pane is closed it reads "relaunch review", but it still only tries to show the pane and starts nothing. | A review is queued or running. |
-| <BoardIcon name="agent" lane="respond" /> | respond | Launches an agent that answers the review on your MR. See [Respond](#respond). Reads "restart response" after a finished one. | Your own MR. |
-| <BoardIcon name="agent" lane="respond" /> | focus response | Shows the running response's pane. Reads "relaunch response" once that pane is closed, and still starts nothing. | A response is running on your MR. |
-| <BoardIcon name="agent" lane="doctor" /> | call doctor | Launches the doctor on failing CI or conflicts. See [Doctor](#doctor). Reads "call doctor again" after a finished one. | Your own MR, with failing CI or conflicts. |
-| <BoardIcon name="agent" lane="doctor" /> | focus doctor | Shows the running doctor's pane. | The doctor is running, and the MR still has failing CI or conflicts. |
-| <BoardIcon name="agent" lane="doctor" /> | rebase locally | Launches the doctor to rebase your branch onto its target. See [Doctor](#doctor). | Your own MR, when it has conflicts or is behind its target. |
+| <BoardIcon name="agent" lane="review" /> | follow-up review (round N) | Launches a follow-up review, once the author has responded to yours. See [Follow-up review](#follow-up-review). Reads plain "follow-up review" when no round is recorded. | The board's review finished, or someone already reviewed the MR. |
+| <BoardIcon name="agent" lane="review" /> | focus review | Shows the running review's pane. | A review is running and its pane is open. |
+| <BoardIcon name="agent" lane="review" /> | redo review | Starts a new review from scratch, after you confirm. See [Redo](#redo). | The board's review finished, or its pane closed while it ran. |
+| <BoardIcon name="agent" lane="respond" /> | respond | Launches an agent that answers the review on your MR. See [Respond](#respond). | Your own MR, with no response yet or a failed one. |
+| <BoardIcon name="agent" lane="respond" /> | focus response | Shows the running response's pane. | A response is running on your MR and its pane is open. |
+| <BoardIcon name="agent" lane="respond" /> | redo response | Starts a new response from scratch, after you confirm. See [Redo](#redo). | The response finished, or its pane closed while it ran. |
+| <BoardIcon name="agent" lane="doctor" /> | call doctor (CI only) | Launches the doctor on failing CI or conflicts. See [Doctor](#doctor). Reads plain "call doctor" when auto-doctor may fix code. | Your own MR, with failing CI or conflicts. |
+| <BoardIcon name="agent" lane="doctor" /> | focus doctor | Shows the running doctor's pane. | The doctor is running and its pane is open. |
+| <BoardIcon name="agent" lane="doctor" /> | redo doctor | Starts a new doctor run from scratch, after you confirm. See [Redo](#redo). | The doctor finished, or its pane closed while it ran, and the MR still has failing CI or conflicts. |
+| <BoardIcon name="agent" lane="doctor" /> | rebase locally | Launches the doctor to rebase your branch onto its target. See [Doctor](#doctor). | Your own MR, when it has conflicts or is behind its target, and a doctor skill is set up for the tab you are on. |
 | <BoardIcon name="agentCloud" /> | request review from… | Asks a teammate's agent to review your MR. See [Asks between boards](#asks-between-boards). | Your own MR, when there is a teammate left to ask. Otherwise it sits greyed in **all agent actions**. |
 | <BoardIcon name="people" /> | ask dev1's agent to respond | Asks the author's agent to answer your review. See [Asks between boards](#asks-between-boards). | Someone else's MR, once this board's review finished with comments. |
+
+When a follow-up review is offered, **review** and **redo review** move into **all agent actions**.
 
 **ask dev1's agent to respond** is greyed with "ask already sent", "author's board isn't taking asks" or "no finished review with comments". A review left by hand on the MR does not count as a finished review here.
 
@@ -105,8 +110,8 @@ The rest of the agent work. Items with nothing to act on (no saved session, no r
 
 | Icon | Label | What it does |
 | --- | --- | --- |
-| <BoardIcon name="agent" lane="review" /> | review from scratch | Launches a new first review instead of a re-review. See [Review](#review). Offered when someone already reviewed the MR and the board's own review never ran or failed. |
-| <BoardIcon name="agent" lane="review" /> | resume review | Reopens the last review's session so you can talk to it. It starts no new work; a note becomes your first message. |
+| <BoardIcon name="agent" lane="review" /> | review / redo review | Shown here instead of in **agent actions** when a follow-up review is offered. |
+| <BoardIcon name="agent" lane="review" /> | resume review | Reopens the last review's conversation in its pane and shows it, so you can talk to it. It starts no new work; a note becomes your first message. |
 | <BoardIcon name="agent" lane="respond" /> | resume response | The same for the last response, on your own MR. |
 | <BoardIcon name="file" /> | view agent review | Opens the review's full report on the board. |
 | <BoardIcon name="file" /> | view agent response | Opens the response's full report on the board. |
@@ -130,7 +135,7 @@ It then posts the findings you chose as inline comments with a summary, and appr
 
 With Slack connected, the board marks the MR's Slack post as looking while the review runs, then commented or approved. After a comment result, with `board.reReview` on, the board also adds a thread asking the author to resolve it once everything is addressed. The board takes another pass when they do.
 
-#### Re-review
+#### Follow-up review
 
 Use it once the author has responded to your review: replied to your comments, resolved threads or pushed new commits.
 
@@ -139,6 +144,16 @@ It picks up the session from your first review, so it remembers what it found. F
 Back on the board, you choose which replies to post, which threads to resolve, which new findings to post and the review result. It posts them together.
 
 If you have no open threads on the MR, it does a full review instead.
+
+Each follow-up is a round, and the menu counts them: the first follow-up after a review is round 2. A new review, or a redo, starts the count again.
+
+#### Redo
+
+**redo review**, **redo response** and **redo doctor** start the work again from scratch, with no memory of the earlier run. Each asks first: "Redo review?", "This will start a new review from scratch." and "This MR already had a review. Are you sure?". Press **Redo review** to go ahead, or **Cancel**.
+
+Redo from the bulk menu asks once for every checked MR, for example "Redo 4 reviews?". When only some of them had a run already, it reads "Start 3 reviews?" and says how many did.
+
+When a review's or response's pane closes while it is still running, the row's status line says so and offers **resume** (when the conversation was saved), **redo** and **clear**. A doctor whose pane closed offers only **redo**.
 
 #### Respond
 
@@ -152,7 +167,7 @@ Before posting, it asks again: for each thread, whether to post the reply and wh
 
 #### Doctor
 
-**call doctor** works without stopping to ask, using auto-doctor's settings in `board.triage`. As shipped, it:
+**call doctor** works without stopping to ask, using auto-doctor's settings in `board.triage`. As shipped, the menu reads **call doctor (CI only)**, and the doctor:
 
 - never edits code, commits or pushes.
 - retries a job that looks flaky, once, then watches CI.
@@ -161,7 +176,7 @@ Before posting, it asks again: for each thread, whether to post the reply and wh
 
 To let it do more, change those settings. `cleanApiRebase` lets it start a rebase on the server. The `checkout` tier with `mechanicalLint` or `codeFix` lets it fix code and push, usually through a team pack's doctor skill. If it needs a decision, it asks on the board. The board closes its pane when it is done.
 
-**rebase locally** launches the doctor with one job: rebase the branch onto its target, resolve conflicts and push. With a team pack's doctor skill, it rebases in a local checkout and force-pushes with lease. Without one, it starts a rebase on the server instead. Conflicts the server cannot rebase end in an error, and an MR that is only behind, with green CI, is left as it is.
+**rebase locally** launches the doctor with one job: rebase the branch onto its target in a local checkout, resolve conflicts and force-push with lease. It needs a doctor skill: the `doctorSkill` setting, or a `board:doctor` binding in the pack of the board tab you are on, else your team's pack. Without one, the item is hidden; **rebase on target** in the **gitlab** flyout rebases on the server instead.
 
 ### gitlab
 
@@ -217,7 +232,7 @@ Checking a row swaps the tabs for a selection bar. To open the bulk menu, check 
 
 The bulk menu is titled "N selected". It offers only what every checked MR's own menu offers:
 
-- **agent actions**: review, re-review, call doctor and request review from….
+- **agent actions**: review, follow-up review, redo, call doctor and request review from….
 - **gitlab**: rebase on target, set auto-merge, cancel auto-merge, mark ready, mark as draft and merge.
 - **slack**: the three Slack reactions and find slack threads.
 

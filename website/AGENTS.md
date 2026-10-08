@@ -48,6 +48,11 @@ out and written.
   a concept adds its row.
 - Verify every claim against the source before you write it. A behavior you
   have not confirmed in code stays out of the page.
+- A table of actions reads as a table of contents: each row is one short
+  plain sentence ("Launches an agentic review.") that links to a section, and
+  the section says what happens for the reader. Leave internal mechanism out
+  of both: no "gate", no tool names, and say "the MR" rather than assuming a
+  forge, except in a menu named after one.
 - Name a feature by what it is, not how it looks: the section is
   "Background work", and the text can say its mark is a mauve ring.
 - The page never describes itself or how it was made: no "this page covers",
