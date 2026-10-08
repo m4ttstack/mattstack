@@ -6,8 +6,8 @@ import {
   agentResume,
   getRun,
   listRuns,
-  type RunFieldRow,
   serializeIdentity,
+  type RunFieldRow,
 } from '@mattstack/rt-client';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
@@ -172,7 +172,7 @@ export const runs = new Hono()
     }
     return c.json({ resumed: true as const, agentId }, 200);
   })
-  .get('/api/seen',async c => c.json(readSeen(), 200))
+  .get('/api/seen', async c => c.json(readSeen(), 200))
   .post('/api/seen/:runId', async c =>
     c.json(markSeen(c.req.param('runId')), 200)
   );

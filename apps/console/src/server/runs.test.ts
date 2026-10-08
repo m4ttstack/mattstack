@@ -361,9 +361,7 @@ describe('POST /api/runs/:repo/:runId/resume', () => {
   });
 
   it('404 when the run recorded no session', async () => {
-    vi.mocked(rt.getRun).mockResolvedValueOnce(
-      detail({ fields: [] }) as never
-    );
+    vi.mocked(rt.getRun).mockResolvedValueOnce(detail({ fields: [] }) as never);
     expect((await post()).status).toBe(404);
   });
 
