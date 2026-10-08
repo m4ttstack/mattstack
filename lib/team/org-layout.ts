@@ -30,17 +30,25 @@ export function orgLayoutWaitingError(state: Extract<OrgLayoutState, { kind: "wa
   return new UserActionableError("org-layout-waiting", layoutSentence(state));
 }
 
-/** The first clone by name, the way currentOrg picks; a folder without .git/config or a readable marker is not a clone. */
+/**
+ * Classifies the clone currentOrg would pick: the first by name, among folders
+ * with .git/config and an org-kind marker, that holds the org store. When none
+ * holds a store, the first by name with an org-kind marker.
+ */
 export function orgLayoutState(p: Pick<Probes, "readDir" | "readFile" | "exists" | "home">): OrgLayoutState {
   const root = orgsDirUnder(p.home);
+  let fallback: { slug: string; dir: string; layout: number } | null = null;
   for (const slug of [...p.readDir(root)].sort()) {
     const dir = orgDirUnder(p.home, slug);
     if (!p.exists(join(dir, ".git", "config"))) continue;
     const marker = markerState(p, dir);
     if (marker.kind !== "org") continue;
-    const storePresent = p.exists(join(dir, "mattstack", "org", "settings.org.jsonc"));
-    if (marker.layout === ORG_LAYOUT && storePresent) return { kind: "ready", slug };
+    if (!p.exists(join(dir, "mattstack", "org", "settings.org.jsonc"))) {
+      fallback ??= { slug, dir, layout: marker.layout };
+      continue;
+    }
+    if (marker.layout === ORG_LAYOUT) return { kind: "ready", slug };
     return { kind: "waiting", slug, dir, layout: marker.layout };
   }
-  return { kind: "none" };
+  return fallback ? { kind: "waiting", ...fallback } : { kind: "none" };
 }

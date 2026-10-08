@@ -41,6 +41,14 @@ describe("orgLayoutState", () => {
     const p = home({ zeta: { marker: marker("team", "zeta") }, acme: { marker: marker("org", "acme"), orgStore: true } });
     expect(orgLayoutState(p)).toEqual({ kind: "ready", slug: "acme" });
   });
+  test("a store-less waiting clone sorting first does not hide a ready one", () => {
+    const p = home({ aaa: { marker: marker("team", "aaa") }, bbb: { marker: marker("org", "bbb"), orgStore: true } });
+    expect(orgLayoutState(p)).toEqual({ kind: "ready", slug: "bbb" });
+  });
+  test("a store-holding waiting clone sorting first wins over a later ready one", () => {
+    const p = home({ aaa: { marker: marker("org", "aaa", 3), orgStore: true }, bbb: { marker: marker("org", "bbb"), orgStore: true } });
+    expect(orgLayoutState(p)).toEqual({ kind: "waiting", slug: "aaa", dir: `${orgs}/aaa`, layout: 3 });
+  });
   test("a folder without .git/config or without a marker is not a clone", () => {
     const p = fakeProbes({ home: H, dirs: { [orgs]: ["stray", "half"] }, files: { [`${orgs}/half/.git/config`]: "" } });
     expect(orgLayoutState(p)).toEqual({ kind: "none" });
