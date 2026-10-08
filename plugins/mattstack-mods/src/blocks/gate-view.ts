@@ -252,10 +252,9 @@ export function choiceSubtext(el: El, recommended: boolean, finding: FindingEntr
   if (recommended) rows.push(text(el, 'success', 'recommended', { bold: true }))
   if (finding) {
     const severity = SEVERITY[finding.severity]
-    const fixed = [text(el, severity.color, severity.label, { bold: true })]
+    const fixed = [text(el, severity.color, severity.label, { bold: true }), ...(finding.file ? [text(el, 'inactive', SEPARATOR)] : [])]
     const head = [el.Box({ flexDirection: 'row', flexShrink: 0, children: fixed })]
     if (finding.file) {
-      fixed.push(text(el, 'inactive', SEPARATOR))
       const room = width - severity.label.length - SEPARATOR.length
       head.push(el.Box({ flexShrink: 1, children: [text(el, 'inactive', clipStart(fileTail(finding.file), room), { wrap: 'truncate-start' })] }))
     }

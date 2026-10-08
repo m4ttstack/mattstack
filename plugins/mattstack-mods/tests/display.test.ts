@@ -62,12 +62,12 @@ function kit(bodyColumns = 40) {
     await h.fire('ui.close', { id, origin: { kind: 'plugin' } }, async () => {})
   }
   h.$.ui.invalidate = () => {}
-  h.$.ui.resolve = () => ({
-    Box: (props: any) => ({ element: 'Box', props }),
-    Text: (props: any) => ({ element: 'Text', props }),
-    Button: (props: any) => ({ element: 'Button', props }),
-    Input: (props: any) => ({ element: 'Input', props }),
+  // The engine hands out frozen plain data, so an element keeps the children it was built with.
+  const built = (element: string) => (props: any) => ({
+    element,
+    props: Array.isArray(props.children) ? { ...props, children: [...props.children] } : { ...props },
   })
+  h.$.ui.resolve = () => ({ Box: built('Box'), Text: built('Text'), Button: built('Button'), Input: built('Input') })
   const focused: { requestId: string; key: string }[] = []
   h.$.ui.focus = async (args: { requestId: string; key: string }) => (focused.push(args), {})
   const scrolled: unknown[] = []
@@ -539,6 +539,32 @@ describe('display kit', () => {
     expect(await k.enginePress('option-0')).toBe(false)
     expect(await k.enginePress('option-1')).toBe(true)
     expect(await answered).toEqual({ ship: 'no', when: 'later' })
+  })
+
+  test('two arrow steps in a row advance twice, before either focus move lands', async () => {
+    const k = kit()
+    void k.ask({ id: 'g-a', questions: [{ id: 'q', label: 'Which?', multi: true, options: ['mac', 'linux', 'win'] }] })
+    await flush()
+    await k.draw()
+    await k.ring('option-0', 'plugin')
+    // The stub's ui.focus raises no ui.focus event, as a move still in flight would not have yet.
+    expect(await k.scroll(1)).toBe(false)
+    expect(await k.scroll(1)).toBe(false)
+    expect(k.focused.map(f => f.key)).toEqual(['option-1', 'option-2'])
+    expect(await k.scroll(-1)).toBe(false)
+    expect(k.focused.at(-1)!.key).toBe('option-1')
+  })
+
+  test('a clock that fails lets a choice press through, without the hook throwing', async () => {
+    const k = kit()
+    const answered = k.ask({ id: 'g-c', questions: [{ id: 'ship', label: 'Ship it?', options: ['yes', 'no'] }] })
+    await flush()
+    k.h.$.clock.now = async () => {
+      throw new Error('clock gone')
+    }
+    expect(await k.enginePress('option-1')).toBe(true)
+    expect(await answered).toEqual({ ship: 'no' })
+    expect(k.h.logs.filter(l => l.text.includes('threw'))).toEqual([])
   })
 
   test('an arrow move onto a choice counts as the person moving onto it', async () => {

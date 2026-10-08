@@ -297,6 +297,8 @@ export function createDisplay(hub: Hub, pane: { id: string; title: string } = { 
       const at = open.ring === null ? -1 : open.stops.indexOf(open.ring)
       const to = at < 0 ? undefined : open.stops[at + e.by]
       if (!to) return next(e)
+      // Set before the move lands, so a second arrow steps on from this one.
+      open.ring = to
       open.moved = to
       quietly(() => api.ui.focus(pane.id, to))
       quietly(() => api.ui.scroll({ in: pane.id, to: { key: to } }))
@@ -308,7 +310,14 @@ export function createDisplay(hub: Hub, pane: { id: string; title: string } = { 
       const open = form
       if (!open || !e.element.startsWith('option-') || e.element === open.moved) return next(e)
       const until = await open.quietUntil
-      if ((await api.clock.now()) >= until) return next(e)
+      let now: number
+      try {
+        now = await api.clock.now()
+      } catch {
+        // With no clock to read, the window cannot be judged: the press goes through.
+        return next(e)
+      }
+      if (now >= until) return next(e)
       api.ui.log(`mattstack-mods: ignored ${e.element}, pressed within ${QUIET_MS} ms of its question showing`, { to: 'debug' })
       return { element: e.element }
     },
