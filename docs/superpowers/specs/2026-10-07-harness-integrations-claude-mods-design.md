@@ -31,7 +31,8 @@ Matt made these choices on 2026-10-07; they are not open here.
 2. Scope is the Claude Code mods project, with the extras checked one by
    one (see Scope).
 3. The abilities the tickets assumed were proven by two spikes before this
-   spec was written.
+   spec was written. One ability this design needs was not among them and
+   is named as a first live check (see Delivery).
 4. The mods ship as one plugin, separate from the mattstack plugin, which
    setup installs only while `agent.integrations.enabled` is on.
 5. One plugin holds the core and every feature as an internal block.
@@ -113,7 +114,7 @@ In scope (19 tickets and one new one):
 | BOARD-52 | Board status and stand-down | S5 |
 
 Out of scope, kept as optional work in the mods project: RT-392, RT-393,
-RT-399, RT-401, RT-403, RT-404, SKILLS-96. RT-398 was canceled (Flock's
+RT-388, RT-399, RT-401, RT-403, RT-404, SKILLS-96. RT-398 was canceled (Flock's
 hover card was removed). RT-394 is a duplicate.
 
 ## Architecture
@@ -139,6 +140,9 @@ engine themselves.
   `HERDR_PANE_ID`, Claude Code version, plugin version and the blocks that
   started. It re-registers when `/clear` changes the id and reports the end
   of a session.
+- **Heartbeat.** The core sends `session:heartbeat` every 10 s from a
+  `$.clock.every` timer, independent of any wait round. The daemon clears
+  the session's blocks when no heartbeat arrives for 30 s.
 - **Push.** Daemon commands arrive as inbox envelopes, which the core
   consumes in `session.receive` and routes to the block's handler.
 - **Waits.** A long wait is a chain of `events:wait` rounds of 25 s or less
@@ -146,10 +150,18 @@ engine themselves.
 - **Session context.** The core keeps a context record in `$.state`
   mirroring what the daemon resolved. It is a hint to the shared resolver
   and never grants authority.
-- **Hooks it owns.** The only `tool.call`/`tool.check` hook (the policy
-  registry, RT-407, in the order fill, guard, permit, call, tap), the only
-  `session.receive` hook (the delivery router, RT-408), the display kit
-  (RT-409) and the prompt sections (RT-410).
+- **Hooks it owns.** The core owns every engine hook the plugin uses, and
+  feature blocks subscribe to it:
+  - the only `tool.call`/`tool.check` hook (the policy registry, RT-407,
+    in the order fill, guard, permit, call, tap);
+  - the only `session.receive` hook (the delivery router, RT-408);
+  - the only `classic.Stop` hook, which asks each subscribed block
+    (the stop gate) in turn;
+  - the session and turn lifecycle hooks (`session.start`,
+    `classic.SessionStart`, turn start and end, session end), re-emitted to
+    blocks as events for presence, observe and the link;
+  - the `ui.render` sites for the display kit (RT-409) and the band;
+  - the prompt sections (RT-410).
 
 ### The daemon side (RT-405)
 
@@ -175,7 +187,11 @@ untouched.
 
 The link's register, report and end become the Claude lifecycle source,
 written into the same session store with the same key and generation rules.
-`/clear` re-registers under the new id. The context record feeds the shared
+`/clear` re-registers under the new id. A link-reported id change (the same
+mod, over the same link, reporting the old id and the new one) is the
+authorized continuation the main design requires: the identity is kept and
+the attachment generation advances. Without the link, `/clear` behaves as
+today, with no pane-based continuation for bound sessions. The context record feeds the shared
 caller-context resolver, which checks it against the live link. Without a
 link, today's claude-registry, shell-hook lifecycle and environment and
 ancestry resolution apply.
@@ -187,13 +203,24 @@ deliveries and reports each one under its delivery id when it hands it to
 the model. That upgrades the receipt from `submitted` to `consumed`, the
 evidence value Codex already uses.
 
+The router hands a delivery to the model by passing it through `next` with
+its text edited (the trimmed reply line below). The spikes proved consuming
+a delivery and passing one through unchanged, but not passing one through
+edited, so RT-408's first live check must confirm it. If it fails, the
+alternative is to consume the delivery and resubmit the edited text with
+`$.prompt.submit`, which changes the row's label to a plugin message and
+needs its own mid-turn check.
+
 Chat delivery rows are hidden on screen (RT-386). The model still reads
 them, and ctrl+o shows them.
 
 The reply rule (RT-390) is a prompt section present in every session with
 the mod. Because a section is fixed when a conversation starts, the router
 trims the Claude-only half of the per-delivery reply line ("never
-SendMessage") only in conversations that started with the section. The
+SendMessage") only in conversations that started with the section. It
+knows this from a `$.state` marker the core sets when it composes the
+section for a new conversation; a resumed conversation without the marker
+keeps the full line. The
 shared half (who sent it and how to reply) stays in every delivery, so
 Codex deliveries and Claude sessions without the section are unchanged.
 
@@ -224,8 +251,8 @@ answer wins:
 
 Sessions with `gate-form` live get no doorbell, no Escape and no screen
 read, and the leftover "[gate] answered" rows are hidden. The display kit
-is used only where the dialog cannot be shown. Herd workers keep
-wait-on-gate as today.
+is used only where the dialog cannot be shown. Herd workers keep using
+quiet gates and the wait path below rather than the form.
 
 **Wait gates.** When `gate_ask` opens a wait gate for a session with
 `gate-wait` live, its reply says the session will be woken. The block waits
@@ -270,8 +297,14 @@ already planned.
 
 For a session with `stop-gate` live, the pipeline Stop gate is a mod
 `classic.Stop` that blocks with a reason. The shell `pipeline-gate-stop.sh`
-asks for the session's blocks and stands down when the mod owns the gate.
-That check runs only with the switch on.
+stays installed, so a wedged or unloaded mod never leaves the gate
+unenforced. Both hooks ask the daemon the same `stop:check` for the
+session. The daemon answers the first check of a stop with the decision and
+tells a second check arriving within 2 s that the stop was already decided,
+so that one passes. Whichever hook runs, the gate holds once and its
+reason reaches the model once. That dedupe applies only with the switch
+on; with it off the shell hook behaves as today. M6's live check confirms
+both hook orders.
 
 The spill-read note becomes a prompt section. The time stamp stays a shell
 hook, because a prompt section is frozen per conversation. It moves only if
@@ -313,17 +346,21 @@ or absorbing that backgrounded work. If there is no way, the board shows
 - **Errors inside a block** pass the call through, as if the mod were not
   there, and clear that block for the session.
 - **No link** (daemon down, restarting, unreachable) clears every block, and
-  each adapter takes today's path. The link retries with its cursor. Shell
-  hooks stop standing down as soon as a block clears, so the stop gate never
-  has a gap.
+  each adapter takes today's path. The link retries with its cursor. A
+  wedged or unloaded mod sends no heartbeat, so its blocks clear within
+  30 s. The stop gate has no such window, because the shell Stop hook never
+  stands down on a block alone (see Policy).
 - **Unconfirmed commands.** The mod confirms each daemon command (complete a
   gate, nudge, sign in, stand down) under its id. An unconfirmed command
   falls back once, for that action only, and the record says which path
   completed it.
-- **Switch flips.** Turning the switch off removes the plugin, and the
-  daemon refuses `session:register`, so mods still loaded in running
-  sessions find no link and pass everything through. Turning it on takes
-  effect for sessions started after the install.
+- **Switch flips.** The plugin is installed or removed by the next
+  `rt setup apply` or `rt setup update` run (the app runs the latter at
+  every launch), so it can lag the flip. Turning the switch off takes
+  effect at once anyway: the daemon refuses `session:register` and clears
+  every block, so mods still loaded find no link and pass everything
+  through. Turning it on takes effect for sessions started after the
+  install.
 
 ## Claude Code versions
 
@@ -334,8 +371,9 @@ registers but gets no blocks, so everything falls back, and diagnostics say
 why. Only a test run (the plugin tests plus a pane check) widens the range.
 
 `rt agent integrations` shows each Claude session's link state and live
-blocks, and reports Codex's `experimentalApi` use, which closes the spec
-gap carried from M5c.
+blocks, and reports Codex's `experimentalApi` use. That meets the main
+design's requirement that experimental API use is "reported in diagnostic
+metadata", which nothing reports yet.
 
 ## Testing
 
@@ -346,13 +384,14 @@ gap carried from M5c.
   fixtures untouched) and an unconfirmed-command test (falls back once,
   records the path).
 - Daemon: contract tests for `session:*` and the block lifecycle (register,
-  heartbeat, `/clear`, end, switch off refuses).
+  heartbeat and its 30 s lapse, `/clear` continuation, end, switch off
+  refuses), and for `stop:check` deduping in both hook orders.
 - Matt's dev-app trial is the final end-to-end check.
 
 ## Documents and tickets
 
-- The main spec's mods paragraph points here, and its "Claude adapters
-  first wrap today's mechanisms" sentence is removed.
+- Done with this spec: the main spec's mods paragraph points here, and its
+  wrap-first sentence is gone.
 - A new package plan for the mods work runs before M6. The plan index's
   "Existing work and completion" section gets this design's scope table and
   out-of-scope list, and loses the wrap-first sequencing paragraph. M6, H3,
