@@ -12,7 +12,8 @@ import { closeStateDb, getKvValue } from "../../state/index.ts";
 import { readHomePushRecord } from "../../home/push-record.ts";
 import { rtDir } from "../../rt-paths.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
-import { homeSnapshotSpec, startHomeSnapshot, startSnapshot, teamScope, teamSnapshotSpec, type HomeSnapshotDeps, type HomeSnapshotSettings } from "../home-snapshot.ts";
+import { updateSentence } from "../../team/org-marker.ts";
+import { homeSnapshotSpec, layoutGate, startHomeSnapshot, startSnapshot, teamScope, teamSnapshotSpec, type HomeSnapshotDeps, type HomeSnapshotSettings } from "../home-snapshot.ts";
 
 // ─── test doubles ────────────────────────────────────────────────────────────
 
@@ -2243,6 +2244,17 @@ describe("teamSnapshotSpec", () => {
     expect(calls.find((c) => gitVerb(c) === "commit")).toContain("snapshot (janitor): mattstack/packs/ dirty >2h, owner matt");
     handle.stop();
   });
+
+  test("wires the layout gate through the clone's own probes", async () => {
+    const p = fakeProbes({
+      exec: (argv: string[]) =>
+        argv.join(" ") === "git -C /h/.mattstack/teams/widgets show refs/remotes/origin/main:mattstack/mattstack.jsonc"
+          ? { code: 0, stdout: JSON.stringify({ role: "org", org: "acme" }), stderr: "" }
+          : { code: 1, stdout: "", stderr: "unexpected argv" },
+    });
+    const spec = teamSnapshotSpec("widgets", "/h/.mattstack/teams/widgets", { pullIntervalSec: 300, originUrl: "https://gitlab.example.com/acme/widgets.git", probes: p, readToken: async () => null });
+    expect(await spec.pull?.gate?.("refs/remotes/origin/main")).toEqual({ layout: 2 });
+  });
 });
 
 function teamSpecFor(tokenValue: string | null = "glpat-team") {
@@ -2989,5 +3001,171 @@ describe("startSnapshot: pull", () => {
     expect(calls.some((c) => gitVerb(c) === "commit")).toBe(true);
     expect(handle.status().pullOnly).toBe(false);
     handle.stop();
+  });
+
+  describe("layout gate", () => {
+    function gatedSpec(gate: (ref: string) => Promise<{ layout: number } | null>) {
+      const spec = teamSpecFor();
+      return { ...spec, pullOnly: true, pull: { ...spec.pull, gate } };
+    }
+
+    test("a tip above this rt's layout holds: no fast-forward, skipped with the update sentence, lastPullAt stamped, layoutHold set", async () => {
+      const refs: string[] = [];
+      const { fn, calls } = makeFakeExec([...pullResponders({ behind: 1, ahead: 0 }), ...defaultResponders()]);
+      const { deps } = baseDeps({ exec: fn });
+      const { repoDir: _r, ...specDeps } = deps;
+      const handle = startSnapshot(gatedSpec(async (ref) => { refs.push(ref); return { layout: 2 }; }), specDeps);
+      await handle.ready;
+      const result = await handle.pullNow();
+      expect(result).toEqual({ outcome: "skipped", detail: updateSentence(2), hold: { layout: 2, reads: 1 } });
+      expect(refs.at(-1)).toBe("refs/remotes/origin/main");
+      expect(calls.some((c) => gitVerb(c) === "merge")).toBe(false);
+      expect(calls.some((c) => gitVerb(c) === "rebase")).toBe(false);
+      expect(handle.status().lastPullAt).toBeGreaterThan(0);
+      expect(handle.status().layoutHold).toEqual({ layout: 2, reads: 1 });
+      expect(handle.status().lastPullSkipped).toBe(updateSentence(2));
+      handle.stop();
+    });
+
+    test("a held pull with ahead commits never rebases", async () => {
+      const { fn, calls } = makeFakeExec([...pullResponders({ behind: 1, ahead: 1 }), ...defaultResponders()]);
+      const { deps } = baseDeps({ exec: fn });
+      const { repoDir: _r, ...specDeps } = deps;
+      const handle = startSnapshot(gatedSpec(async () => ({ layout: 2 })), specDeps);
+      await handle.ready;
+      expect((await handle.pullNow()).hold).toEqual({ layout: 2, reads: 1 });
+      expect(calls.some((c) => gitVerb(c) === "rebase")).toBe(false);
+      handle.stop();
+    });
+
+    test("a gate that passes fast-forwards as today and clears the hold", async () => {
+      let answer: { layout: number } | null = { layout: 2 };
+      const { fn, calls } = makeFakeExec([...pullResponders({ behind: 1, ahead: 0 }), ...defaultResponders()]);
+      const { deps } = baseDeps({ exec: fn });
+      const { repoDir: _r, ...specDeps } = deps;
+      const handle = startSnapshot(gatedSpec(async () => answer), specDeps);
+      await handle.ready;
+      expect((await handle.pullNow()).outcome).toBe("skipped");
+      answer = null;
+      const passed = await handle.pullNow();
+      expect(passed).toEqual({ outcome: "fast-forwarded", detail: null });
+      expect(calls.some((c) => gitVerb(c) === "merge")).toBe(true);
+      expect(handle.status().layoutHold).toBeNull();
+      handle.stop();
+    });
+
+    test("an up-to-date pull clears the hold without calling the gate", async () => {
+      let gateCalls = 0;
+      const exec = makeSwitchableExec([...pullResponders({ behind: 1, ahead: 0 }), ...defaultResponders()]);
+      const { deps } = baseDeps({ exec: exec.fn });
+      const { repoDir: _r, ...specDeps } = deps;
+      const handle = startSnapshot(gatedSpec(async () => { gateCalls++; return { layout: 2 }; }), specDeps);
+      await handle.ready;
+      await handle.pullNow();
+      const before = gateCalls;
+      exec.setResponders([...pullResponders({ behind: 0, ahead: 0 }), ...defaultResponders()]);
+      expect((await handle.pullNow()).outcome).toBe("up-to-date");
+      expect(gateCalls).toBe(before);
+      expect(handle.status().layoutHold).toBeNull();
+      handle.stop();
+    });
+
+    test("a hold logs once at info, again only when the held layout changes, and again after it cleared", async () => {
+      let answer: { layout: number } | null = { layout: 2 };
+      const { fn } = makeFakeExec([...pullResponders({ behind: 1, ahead: 0 }), ...defaultResponders()]);
+      const { deps, log } = baseDeps({ exec: fn });
+      const { repoDir: _r, ...specDeps } = deps;
+      const handle = startSnapshot(gatedSpec(async () => answer), specDeps);
+      await handle.ready;
+      const holdLogs = () => log.calls.filter((c) => c.level === "info" && typeof c.args[1] === "string" && (c.args[1] as string).includes("holding the pull")).length;
+      const base = holdLogs();
+      await handle.pullNow();
+      await handle.pullNow();
+      expect(holdLogs() - base).toBe(1);
+      answer = { layout: 3 };
+      await handle.pullNow();
+      expect(holdLogs() - base).toBe(2);
+      answer = null;
+      await handle.pullNow();
+      answer = { layout: 3 };
+      await handle.pullNow();
+      expect(holdLogs() - base).toBe(3);
+      handle.stop();
+    });
+
+    test("a gate that throws skips the tick without moving, warns once, and keeps an existing hold", async () => {
+      let mode: "hold" | "throw" = "throw";
+      const { fn, calls } = makeFakeExec([...pullResponders({ behind: 1, ahead: 0 }), ...defaultResponders()]);
+      const { deps, log } = baseDeps({ exec: fn });
+      const { repoDir: _r, ...specDeps } = deps;
+      const handle = startSnapshot(gatedSpec(async () => { if (mode === "throw") throw new Error("fatal: bad object"); return { layout: 2 }; }), specDeps);
+      await handle.ready;
+      const warns = () => log.calls.filter((c) => c.level === "warn" && typeof c.args[1] === "string" && (c.args[1] as string).includes("layout gate")).length;
+      const first = await handle.pullNow();
+      expect(first.outcome).toBe("skipped");
+      expect(first.detail).toContain("fatal: bad object");
+      expect(first.hold).toBeUndefined();
+      expect(handle.status().layoutGateError).toContain("fatal: bad object");
+      await handle.pullNow();
+      expect(warns()).toBe(1);
+      expect(calls.some((c) => gitVerb(c) === "merge")).toBe(false);
+      mode = "hold";
+      await handle.pullNow();
+      expect(handle.status().layoutGateError).toBeNull();
+      mode = "throw";
+      const kept = await handle.pullNow();
+      expect(kept.hold).toEqual({ layout: 2, reads: 1 });
+      expect(handle.status().layoutHold).toEqual({ layout: 2, reads: 1 });
+      handle.stop();
+    });
+
+    test("a spec with no gate (the home snapshot) never reports layoutHold", async () => {
+      const { fn } = makeFakeExec([...pullResponders({ behind: 1, ahead: 0 }), ...defaultResponders()]);
+      const { deps } = baseDeps({ exec: fn });
+      const { repoDir: _r, ...specDeps } = deps;
+      const handle = startSnapshot(teamSpecFor(), specDeps);
+      await handle.ready;
+      expect((await handle.pullNow()).outcome).toBe("fast-forwarded");
+      expect(handle.status().layoutHold).toBeNull();
+      handle.stop();
+    });
+  });
+});
+
+describe("layoutGate", () => {
+  const ref = "refs/remotes/origin/main";
+  const repoDir = "/h/.mattstack/teams/widgets";
+  function probesShowing(result: { code: number; stdout?: string; stderr?: string }) {
+    const argvs: string[][] = [];
+    const exec = async (argv: string[]) => { argvs.push(argv); return { code: result.code, stdout: result.stdout ?? "", stderr: result.stderr ?? "" }; };
+    return { exec, argvs };
+  }
+
+  test("the converted org marker (role org, no layout field) holds at layout 2", async () => {
+    const { exec, argvs } = probesShowing({ code: 0, stdout: JSON.stringify({ role: "org", org: "acme" }) });
+    expect(await layoutGate(exec, repoDir, ref)).toEqual({ layout: 2 });
+    expect(argvs[0]).toEqual(["git", "-C", repoDir, "show", `${ref}:mattstack/mattstack.jsonc`]);
+  });
+
+  test("the one-team marker passes", async () => {
+    const { exec } = probesShowing({ code: 0, stdout: JSON.stringify({ role: "team", namespace: "widgets", org: "acme" }) });
+    expect(await layoutGate(exec, repoDir, ref)).toBeNull();
+  });
+
+  test("a tip with no marker passes", async () => {
+    const { exec } = probesShowing({ code: 128, stderr: "fatal: path 'mattstack/mattstack.jsonc' does not exist in 'refs/remotes/origin/main'" });
+    expect(await layoutGate(exec, repoDir, ref)).toBeNull();
+  });
+
+  test("an invalid or foreign marker passes", async () => {
+    for (const stdout of ["{ nope", JSON.stringify({ role: "home" }), JSON.stringify({ role: "org", org: "acme", layout: "x" })]) {
+      const { exec } = probesShowing({ code: 0, stdout });
+      expect(await layoutGate(exec, repoDir, ref)).toBeNull();
+    }
+  });
+
+  test("any other git failure throws", async () => {
+    const { exec } = probesShowing({ code: 128, stderr: "fatal: bad object refs/remotes/origin/main" });
+    await expect(layoutGate(exec, repoDir, ref)).rejects.toThrow("bad object");
   });
 });
