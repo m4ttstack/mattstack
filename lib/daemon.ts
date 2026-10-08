@@ -152,7 +152,7 @@ import type { PortEntry } from "./port-scanner.ts";
 import { backgroundUnit, runUnits, stopUnits, type DaemonUnit } from "./daemon/lifecycle.ts";
 import { integrationsEnabled } from "./agent-integrations/context.ts";
 import { createDeliveryService, type DeliveryService } from "./agent-integrations/delivery.ts";
-import { createModLinks, type ModLinks } from "./agent-integrations/claude/mod-links.ts";
+import { createModLinks, installModLinks, type ModLinks } from "./agent-integrations/claude/mod-links.ts";
 import { createSessionStore } from "./agent-integrations/session-store.ts";
 import { createGateQuestions, gateCommandsVia, setGateQuestions, type GateQuestions } from "./agent-integrations/questions.ts";
 
@@ -1335,7 +1335,11 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         };
         freshnessEnv = { ctx: handlerCtx, broadcast: emit };
         const bgService: BgService = createBgService({ log });
-        modLinks = createModLinks({ now: Date.now, integrationsEnabled, store: createSessionStore(getStateDb("daemon")) });
+        modLinks = createModLinks({
+          now: Date.now, integrationsEnabled, store: createSessionStore(getStateDb("daemon")),
+          continued: (sessionKey, from, to) => { gatesStore.nativeQuestions().carryGeneration(sessionKey, from, to); },
+        });
+        installModLinks(modLinks);
         routedHandlers = buildRoutedHandlers({
           ctx: handlerCtx,
           broadcast: emit,

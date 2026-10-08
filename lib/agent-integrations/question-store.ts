@@ -57,6 +57,8 @@ export interface QuestionStore {
   recoverable(limit: number, due?: RetryDue): string[];
   /** Deletes bindings and completions whose gate no longer exists; returns how many rows went. */
   pruneOrphans(): number;
+  /** Moves a session's questions from one attachment generation to the next, for a continuation of the same session; returns how many moved. */
+  carryGeneration(sessionKey: string, from: number, to: number): number;
 }
 
 type BindingRow = {
@@ -116,6 +118,7 @@ const DUE_SQL = `
   LIMIT ?4`;
 const PRUNE_BINDINGS_SQL = "DELETE FROM gate_native_questions WHERE gateId NOT IN (SELECT id FROM gates)";
 const PRUNE_COMPLETIONS_SQL = "DELETE FROM gate_native_completion WHERE gateId NOT IN (SELECT id FROM gates)";
+const CARRY_GENERATION_SQL = "UPDATE gate_native_questions SET generation = ? WHERE sessionKey = ? AND generation = ?";
 
 export function createQuestionStore(db: Database): QuestionStore {
   const completion = (gateId: string): CompletionRecord | null =>
@@ -158,6 +161,9 @@ export function createQuestionStore(db: Database): QuestionStore {
     },
     pruneOrphans() {
       return db.transaction(() => db.query(PRUNE_BINDINGS_SQL).run().changes + db.query(PRUNE_COMPLETIONS_SQL).run().changes)();
+    },
+    carryGeneration(sessionKey, from, to) {
+      return db.query(CARRY_GENERATION_SQL).run(to, sessionKey, from).changes;
     },
   };
 }

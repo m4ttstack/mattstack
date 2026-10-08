@@ -45,6 +45,7 @@ import {
   createSessionStore, isDetachedAttachment, LEGACY_DEFAULT_PROFILE, listBindingsByNativeValue, type AttachmentInput, type SessionStore,
 } from "../session-store.ts";
 import { CROSS_SESSION_INBOUND_SETTINGS, writeClaudeGateHookSettings } from "./hooks.ts";
+import { installedModLinks } from "./mod-links.ts";
 
 export { CROSS_SESSION_INBOUND_SETTINGS };
 
@@ -143,6 +144,8 @@ export type ClaudeSessionDeps = {
   processAlive(pid: number): boolean;
   socketExists(path: string): boolean;
   cswapAccounts(): Promise<PaneAccount[]>;
+  /** Whether a mattstack-mods link is live for this native session id; while one is, the link owns the session's lifecycle. */
+  hasLiveLink(nativeId: string): boolean;
 };
 
 const HARNESS = "claude";
@@ -221,6 +224,7 @@ function defaultDeps(): ClaudeSessionDeps {
     processAlive: isAlive,
     socketExists: existsSync,
     cswapAccounts: defaultCswapAccounts,
+    hasLiveLink: (nativeId) => installedModLinks()?.linkOf(nativeId) != null,
   };
 }
 
@@ -424,7 +428,8 @@ export function createClaudeSessions(overrides: Partial<ClaudeSessionDeps> = {})
       const registry = sweep ? sweep.memo("claude:registry", () => snapshotRegistry(deps.registry)) : deps.registry;
       const agents = await (sweep ? sweep.memo("claude:agents", () => deps.agents()) : deps.agents());
       const moved = movedBy(binding, agents, registry, deps.processAlive);
-      if (moved) {
+      // A /clear moves the process to a new id before the link reports it; the link's re-register continues the binding instead.
+      if (moved && !deps.hasLiveLink(native.value)) {
         const detached = (await deps.store()).detach(binding.key, attachment.generation);
         if (!detached.ok) return detached;
         return seen({ connectivity: "disconnected", execution: "unknown", source: moved }, detached.data.attachment.generation);

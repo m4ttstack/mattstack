@@ -10,6 +10,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import pino from "pino";
 import { openStateDb } from "../../state/index.ts";
+import { createModLinks } from "../../agent-integrations/claude/mod-links.ts";
+import { createSessionStore } from "../../agent-integrations/session-store.ts";
 import { createChatHandlers } from "../handlers/chat.ts";
 import { createPaneHandlers } from "../handlers/pane.ts";
 import { createAgentHandlers } from "../handlers/agent.ts";
@@ -87,6 +89,7 @@ describe("R028: db is not a handler-map entry", () => {
       gitBadges: { readAll: () => new Map(), replaceRepo: () => ({ changed: false }), dropRepos: () => [] },
       gitStatusSweep: { tick: async () => {}, sweepNow: async () => ({ changed: [] }), lastSweepAt: () => null, errors: () => new Map() },
       stateDb: freshDb(),
+      modLinks: createModLinks({ now: Date.now, integrationsEnabled: () => false, store: createSessionStore(openStateDb(":memory:")) }),
     });
     expect(everyValueIsAFunction(handlers)).toBe(true);
   });

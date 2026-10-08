@@ -29,6 +29,7 @@ function registrationProblem(p: Record<string, unknown>): string | undefined {
   }
   if (!optionalText(p.pane)) return "pane must be a non-empty string when present";
   if (!optionalText(p.previousSessionId)) return "previousSessionId must be a non-empty string when present";
+  if (!optionalText(p.previousLinkId)) return "previousLinkId must be a non-empty string when present";
   if (!Array.isArray(p.blocks) || !p.blocks.every((b) => typeof b === "string")) return "blocks must be a list of block names";
   return undefined;
 }

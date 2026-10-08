@@ -6,7 +6,10 @@ import { join } from "path";
 import type { ModBlock, NativeSessionRef } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { openStateDb } from "../../state/db.ts";
 import { createSessionStore } from "../session-store.ts";
-import { createModLinks, TESTED_CLAUDE_CODE, type ModLinks } from "../claude/mod-links.ts";
+import { createModLinks, TESTED_CLAUDE_CODE, type ModLinks, type ModLinksDeps } from "../claude/mod-links.ts";
+import { createGatesStore } from "../../daemon/gates-store.ts";
+import { createGateQuestions } from "../questions.ts";
+import pino from "pino";
 
 let dir = "";
 let origHome: string | undefined;
@@ -24,7 +27,7 @@ afterEach(() => {
 
 const claudeRef = (value: string): NativeSessionRef => ({ harness: "claude", profile: "default", kind: "id", value });
 
-function harness(over: { enabled?: () => boolean } = {}) {
+function harness(over: { enabled?: () => boolean; continued?: ModLinksDeps["continued"] } = {}) {
   const db: Database = openStateDb(join(dir, "state.db"));
   const store = createSessionStore(db);
   const clock = { now: 1_000_000 };
@@ -32,6 +35,7 @@ function harness(over: { enabled?: () => boolean } = {}) {
     now: () => clock.now,
     integrationsEnabled: over.enabled ?? (() => true),
     store,
+    ...(over.continued && { continued: over.continued }),
   });
   return { db, store, clock, links };
 }
@@ -114,7 +118,7 @@ describe("mod links", () => {
     if (!bound.ok) throw new Error(bound.error.message);
     const old = register(links, "sess-1");
 
-    const next = register(links, "sess-2", { previousSessionId: "sess-1" });
+    const next = register(links, "sess-2", { previousSessionId: "sess-1", previousLinkId: old.linkId });
 
     const moved = store.get(bound.data.key);
     expect(moved?.key).toBe(bound.data.key);
@@ -137,12 +141,97 @@ describe("mod links", () => {
     expect(store.get(bound.data.key)).toEqual(bound.data);
     expect(links.live("sess-2", "delivery")).toBe(true);
 
-    register(links, "sess-1");
+    const expired = register(links, "sess-1");
     clock.now += 31_000;
-    register(links, "sess-3", { previousSessionId: "sess-1" });
+    register(links, "sess-3", { previousSessionId: "sess-1", previousLinkId: expired.linkId });
     expect(store.get(bound.data.key)).toEqual(bound.data);
     expect(store.find(claudeRef("sess-3"))).toBeNull();
     expect(links.live("sess-3", "delivery")).toBe(true);
+  });
+
+  test("a register naming a live previous id without its link id does not continue", () => {
+    const { links, store } = harness();
+    const bound = store.bind(store.reserve({ identity: "remy.ab12" }), claudeRef("sess-1"), { mode: "herdr", pane: "w1:p1" });
+    if (!bound.ok) throw new Error(bound.error.message);
+    const old = register(links, "sess-1");
+
+    register(links, "sess-2", { previousSessionId: "sess-1" });
+    expect(store.get(bound.data.key)).toEqual(bound.data);
+    expect(links.heartbeat(old.linkId).ok).toBe(true);
+    expect(links.live("sess-1", "delivery")).toBe(true);
+    expect(links.live("sess-2", "delivery")).toBe(true);
+  });
+
+  test("a wrong previousLinkId does not continue", () => {
+    const { links, store } = harness();
+    const bound = store.bind(store.reserve({ identity: "remy.ab12" }), claudeRef("sess-1"), { mode: "herdr", pane: "w1:p1" });
+    if (!bound.ok) throw new Error(bound.error.message);
+    const old = register(links, "sess-1");
+    const other = register(links, "sess-other");
+
+    register(links, "sess-2", { previousSessionId: "sess-1", previousLinkId: other.linkId });
+    register(links, "sess-3", { previousSessionId: "sess-1", previousLinkId: "ml-forged" });
+    expect(store.get(bound.data.key)).toEqual(bound.data);
+    expect(links.heartbeat(old.linkId).ok).toBe(true);
+    expect(links.heartbeat(other.linkId).ok).toBe(true);
+  });
+
+  test("continuing a detached binding is refused and registers fresh", () => {
+    const { links, store } = harness();
+    const bound = store.bind(store.reserve({ identity: "remy.ab12" }), claudeRef("sess-1"), { mode: "herdr", pane: "w1:p1" });
+    if (!bound.ok) throw new Error(bound.error.message);
+    const detached = store.detach(bound.data.key, 1);
+    if (!detached.ok) throw new Error(detached.error.message);
+    const old = register(links, "sess-1");
+
+    const next = register(links, "sess-2", { previousSessionId: "sess-1", previousLinkId: old.linkId });
+    expect(store.get(bound.data.key)).toEqual(detached.data);
+    expect(store.find(claudeRef("sess-2"))).toBeNull();
+    expect(links.linkOf("sess-2")?.linkId).toBe(next.linkId);
+  });
+
+  test("a gate asked before a continuation is still open after it", async () => {
+    const gates = createGatesStore({ dbPath: join(dir, "gates.db"), log: pino({ level: "silent" }) });
+    const { links, store } = harness({
+      continued: (key, from, to) => { gates.nativeQuestions().carryGeneration(key, from, to); },
+    });
+    const bound = store.bind(store.reserve({ identity: "remy.ab12" }), claudeRef("sess-1"), { mode: "herdr", pane: "w1:p1" });
+    if (!bound.ok) throw new Error(bound.error.message);
+    const gate = gates.open({ subject: "run:r1", kind: "clarify", questions: [{ id: "why", label: "Why?", multi: false, options: [] }] }).row;
+    gates.nativeQuestions().bind({ gateId: gate.id, sessionKey: bound.data.key, generation: 1, presentation: "form" });
+    const old = register(links, "sess-1");
+
+    register(links, "sess-2", { previousSessionId: "sess-1", previousLinkId: old.linkId });
+
+    expect(gates.get(gate.id)?.status).toBe("open");
+    expect(gates.nativeQuestions().get(gate.id)?.generation).toBe(2);
+    const completed: string[] = [];
+    const questions = createGateQuestions({
+      gates,
+      storedBinding: (key) => store.get(key),
+      supports: () => true,
+      questionCapabilities: async () => ["question-recovery", "questions-form"],
+      questionsFor: async () => ({ async complete(_b, q) { completed.push(q.gateId); return { ok: true, data: "completed" }; } }),
+      connectionOf: () => undefined,
+      harnesses: () => ["claude"],
+      enabled: () => true,
+      now: () => 1,
+      recoverLimit: 10,
+    });
+    gates.answer(gate.id, { why: { value: "", text: "because" } }, "console");
+    expect(await questions.completeGateQuestion(gate.id)).toEqual({ ok: true, data: undefined });
+    expect(completed).toEqual([gate.id]);
+  });
+
+  test("with no links held, a sweep or a read never reads the switch", () => {
+    let reads = 0;
+    const { links } = harness({ enabled: () => { reads++; return true; } });
+    expect(links.sweep()).toBe(0);
+    expect(links.live("sess-1", "delivery")).toBe(false);
+    expect(links.linkOf("sess-1")).toBeNull();
+    expect(links.has("ml-1")).toBe(false);
+    expect(links.heartbeat("ml-1").ok).toBe(false);
+    expect(reads).toBe(0);
   });
 
   test("two links for one session id: the newer wins and the older stops counting", () => {

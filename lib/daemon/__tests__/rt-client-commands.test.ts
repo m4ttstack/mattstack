@@ -18,6 +18,8 @@ import { COMMAND_NAMES } from "../../../packages/rt-client/src/commands.ts";
 import type { HandlerContext } from "../handlers/types.ts";
 import { fakeStore } from "./fake-cache-store.ts";
 import { openStateDb } from "../../state/index.ts";
+import { createModLinks } from "../../agent-integrations/claude/mod-links.ts";
+import { createSessionStore } from "../../agent-integrations/session-store.ts";
 
 // Handlers are only assembled here (never invoked), so the stub ctx/scanner
 // just need to satisfy the types -- no factory reaches into them eagerly.
@@ -121,6 +123,7 @@ describe("rt-client command coverage", () => {
       gitBadges: { readAll: () => new Map(), replaceRepo: () => ({ changed: false }), dropRepos: () => [] },
       gitStatusSweep: { tick: async () => {}, sweepNow: async () => ({ changed: [] }), lastSweepAt: () => null, errors: () => new Map() },
       stateDb: openStateDb(":memory:"),
+      modLinks: createModLinks({ now: Date.now, integrationsEnabled: () => false, store: createSessionStore(openStateDb(":memory:")) }),
     });
     for (const name of COMMAND_NAMES) {
       expect(handlers[name]).toBeDefined();

@@ -22,8 +22,13 @@ export const LINK_EXPIRY_MS = 30_000;
 const ACK_RETENTION_MS = 60_000;
 const HARNESS = "claude";
 
+/**
+ * `previousSessionId` with `previousLinkId` is a link-reported id change (a
+ * `/clear`): the same mod, over the link it kept, naming the old id and the
+ * new one. Only that pair continues the old id's binding.
+ */
 export type ModRegistration = {
-  sessionId: string; previousSessionId?: string; cwd: string; root: string; pane?: string;
+  sessionId: string; previousSessionId?: string; previousLinkId?: string; cwd: string; root: string; pane?: string;
   claudeCode: string; plugin: string; blocks: ModBlock[];
 };
 
@@ -52,7 +57,13 @@ export interface ModLinks {
   sweep(): number;
 }
 
-export type ModLinksDeps = { now(): number; integrationsEnabled(): boolean; store: SessionStore };
+export type ModLinksDeps = {
+  now(): number;
+  integrationsEnabled(): boolean;
+  store: SessionStore;
+  /** Called once a binding has continued from generation `from` to `to`, so stores outside state.db (gate questions) follow it. */
+  continued?(sessionKey: string, from: number, to: number): void;
+};
 
 function release(version: string): [number, number, number] | null {
   const m = /^(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
@@ -82,6 +93,18 @@ function fail(code: FaultCode, message: string): Outcome<never> {
 
 export const UNKNOWN_LINK = "no live link has that id; register again";
 
+let installed: ModLinks | null = null;
+
+/** Makes `links` the process's one registry; only the daemon installs one. */
+export function installModLinks(links: ModLinks | null): void {
+  installed = links;
+}
+
+/** The daemon's registry, or null in any process that holds no links (the CLI, a hook). */
+export function installedModLinks(): ModLinks | null {
+  return installed;
+}
+
 export function createModLinks(deps: ModLinksDeps): ModLinks {
   const links = new Map<string, ModLinkView>();
   const bySession = new Map<string, string>();
@@ -95,6 +118,8 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
   }
 
   function sweep(): number {
+    // With nothing held, the switch is not read: a daemon that never sees a mod pays nothing.
+    if (links.size === 0 && acks.size === 0) return 0;
     const now = deps.now();
     for (const [id, ack] of acks) if (now - ack.at >= ACK_RETENTION_MS) acks.delete(id);
     const enabled = deps.integrationsEnabled();
@@ -125,8 +150,13 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
       .filter((b) => b.native.harness === HARNESS && b.native.kind === "id");
     if (recorded.length !== 1) return { ok: true, data: undefined };
     const binding = recorded[0]!;
-    const moved = deps.store.continueNative(binding.key, binding.attachment.generation, { ...binding.native, value: next });
-    return !moved.ok && moved.error.code === "transient" ? moved : { ok: true, data: undefined };
+    const from = binding.attachment.generation;
+    const moved = deps.store.continueNative(binding.key, from, { ...binding.native, value: next });
+    if (moved.ok) {
+      if (moved.data.attachment.generation !== from) deps.continued?.(binding.key, from, moved.data.attachment.generation);
+      return { ok: true, data: undefined };
+    }
+    return moved.error.code === "transient" ? moved : { ok: true, data: undefined };
   }
 
   return {
@@ -135,9 +165,10 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
       if (!deps.integrationsEnabled()) {
         return fail("refused", "agent integrations are off, so rt takes no mod links");
       }
-      const previous = input.previousSessionId !== undefined && input.previousSessionId !== input.sessionId
+      const holder = input.previousSessionId !== undefined && input.previousSessionId !== input.sessionId
         ? current(input.previousSessionId)
         : null;
+      const previous = holder !== null && holder.linkId === input.previousLinkId ? holder : null;
       if (previous) {
         const continued = continueBinding(previous.sessionId, input.sessionId);
         if (!continued.ok) return continued;

@@ -870,11 +870,11 @@ export interface Commands {
    * Opens a link for one Claude Code session. `blocks` answers the blocks that
    * count: none for an engine outside the tested range. With the switch off it
    * fails with `failure.code` "refused". `previousSessionId` continues that
-   * session's binding only when a live link holds it.
+   * session's binding only when `previousLinkId` is the live link that holds it.
    */
   "session:register": {
     payload: {
-      sessionId: string; previousSessionId?: string; cwd: string; root: string; pane?: string;
+      sessionId: string; previousSessionId?: string; previousLinkId?: string; cwd: string; root: string; pane?: string;
       claudeCode: string; plugin: string; blocks: ModBlock[];
     };
     data: { linkId: string; blocks: ModBlock[] };

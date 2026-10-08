@@ -41,8 +41,10 @@ export interface SessionStore {
   /**
    * Moves a binding to the native session that continues it (a Claude
    * `/clear`): the native value changes, the key, identity and attachment are
-   * kept, and the generation advances. Only an authorized continuation may
-   * call this; the store does not judge that.
+   * kept, and the generation advances. Readiness and the policy proof recorded
+   * for the old generation move to the new one, since the continuation is the
+   * same session. A detached binding is refused. Only an authorized
+   * continuation may call this; the store does not judge that.
    */
   continueNative(key: string, expectedGeneration: number, next: NativeSessionRef): Outcome<SessionBinding>;
   /** Every binding whose native value is `value`, across harnesses, profiles and kinds. */
@@ -80,8 +82,10 @@ WHERE key = ?;`;
 const REPLACE_ATTACHMENT_SQL = `UPDATE agent_session_bindings
 SET generation = generation + 1, mode = ?, pane = ?, socket = ?, pid = ?, attachment_state = ?, attached_at = ?
 WHERE key = ? AND generation = ?;`;
-const CONTINUE_NATIVE_SQL = `UPDATE agent_session_bindings SET generation = generation + 1, native_value = ?
+const CONTINUE_NATIVE_SQL = `UPDATE agent_session_bindings
+SET generation = generation + 1, native_value = ?, ready_generation = ?, proof = ?
 WHERE key = ? AND generation = ?;`;
+const SELECT_CARRIED_SQL = "SELECT ready_generation, proof FROM agent_session_bindings WHERE key = ?;";
 
 interface ReservationRow {
   id: string; identity: string; agent_id: string | null; attempt_id: string | null; bound_key: string | null;
@@ -288,7 +292,15 @@ export function createSessionStore(db: Database): SessionStore {
         const holder = byNative(next);
         if (holder && holder.key !== key) return fail("refused", "that native session already has its own binding");
         if (holder) return { ok: true, data: toBinding(row) };
-        db.query(CONTINUE_NATIVE_SQL).run(next.value, key, expectedGeneration);
+        if (row.attachment_state === "detached") return fail("refused", "a detached session binding is not continued");
+        const carried = db.query(SELECT_CARRIED_SQL).get(key) as { ready_generation: number | null; proof: string | null };
+        const nextGeneration = expectedGeneration + 1;
+        const ready = carried.ready_generation === expectedGeneration ? nextGeneration : carried.ready_generation;
+        const proof = parseJson<PolicyProofRecord>(carried.proof);
+        const carriedProof = proof?.generation === expectedGeneration
+          ? JSON.stringify({ ...proof, generation: nextGeneration })
+          : carried.proof;
+        db.query(CONTINUE_NATIVE_SQL).run(next.value, ready, carriedProof, key, expectedGeneration);
         return { ok: true, data: toBinding(byKey(key)!) };
       }));
     },

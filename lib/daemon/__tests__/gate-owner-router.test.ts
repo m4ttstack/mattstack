@@ -21,6 +21,8 @@ import type { GatePush } from "../gate-push.ts";
 import type { HandlerContext } from "../handlers/types.ts";
 import { fakeStore } from "./fake-cache-store.ts";
 import { openStateDb } from "../../state/index.ts";
+import { createModLinks } from "../../agent-integrations/claude/mod-links.ts";
+import { createSessionStore } from "../../agent-integrations/session-store.ts";
 import { runStart } from "../../runs/start.ts";
 import { insertAgent, newAgentId } from "../../state/agents-store.ts";
 import { livenessFrom } from "../../runs/liveness.ts";
@@ -80,6 +82,7 @@ function buildHandlers(herdStore: ReturnType<typeof createHerdStore> = createHer
     // would make every subject-resolution case read this machine's live panes.
     runLiveness: async () => livenessFrom([]),
     stateDb,
+    modLinks: createModLinks({ now: Date.now, integrationsEnabled: () => false, store: createSessionStore(stateDb) }),
   });
   return { handlers, gatesStore, herdStore, stateDb };
 }

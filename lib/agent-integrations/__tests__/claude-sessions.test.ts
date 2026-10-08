@@ -326,6 +326,20 @@ describe("observations", () => {
     expect(data(await createClaudeSessions(h.deps).observe(stored))).toMatchObject({ source: "store", generation: 2 });
   });
 
+  test("observe does not detach a binding whose native id has a live link", async () => {
+    const db = freshDb();
+    const before = bindClaude(db, "remy.ab12", "sess-before", { pid: 4242, pane: "w1:p1" });
+    const asked: string[] = [];
+    const h = harness({
+      registry: registryOf({}, { 4242: "sess-after" }),
+      hasLiveLink: (id) => { asked.push(id); return id === "sess-before"; },
+    }, db);
+    const seen = data(await createClaudeSessions(h.deps).observe(before));
+    expect(seen.generation).toBe(1);
+    expect(asked).toEqual(["sess-before"]);
+    expect(createSessionStore(db).get(before.key)).toEqual(before);
+  });
+
   test("a pane now running another session detaches a pane-only binding; a pane with no session yet does not", async () => {
     const db = freshDb();
     const before = bindClaude(db, "remy.ab12", "sess-before", { pane: "w1:p1" });

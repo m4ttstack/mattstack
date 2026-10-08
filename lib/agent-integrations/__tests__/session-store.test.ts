@@ -155,6 +155,37 @@ describe("session store", () => {
     if (!stale.ok) expect(stale.error.code).toBe("stale-binding");
   });
 
+  test("a continued binding is ready when the old generation was", () => {
+    const db = freshDb();
+    const store = createSessionStore(db);
+    const original = bound(db, "remy.ab12", ref());
+    const proof = { sessionKey: original.key, generation: 1, revision: "r1", verified: ["gate-policy" as const], observedAt: 5 };
+    expect(markBindingReady(db, original.key, 1, ["gate-policy"], proof).ok).toBe(true);
+
+    const continued = store.continueNative(original.key, 1, ref({ value: "sess-2" }));
+    expect(continued.ok).toBe(true);
+    expect(readBindingReadiness(db, original.key)).toEqual({
+      generation: 2, required: ["gate-policy"], proof: { ...proof, generation: 2 },
+    });
+
+    const unready = bound(db, "kai.cd34", ref({ value: "sess-9" }));
+    expect(store.continueNative(unready.key, 1, ref({ value: "sess-10" })).ok).toBe(true);
+    expect(readBindingReadiness(db, unready.key)?.generation).toBeNull();
+  });
+
+  test("a detached binding is not continued", () => {
+    const db = freshDb();
+    const store = createSessionStore(db);
+    const original = bound(db, "remy.ab12", ref());
+    const detached = store.detach(original.key, 1);
+    if (!detached.ok) throw new Error(detached.error.message);
+
+    const refused = store.continueNative(original.key, 2, ref({ value: "sess-2" }));
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error.code).toBe("refused");
+    expect(store.get(original.key)).toEqual(detached.data);
+  });
+
   test("a continuation stays in its harness and profile and never takes another binding's session", () => {
     const db = freshDb();
     const store = createSessionStore(db);
