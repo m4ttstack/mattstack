@@ -482,3 +482,14 @@ a code {
 .footer {
   border-top: 1px solid var(--ms-border-soft);
 }
+
+/* Key symbols such as ⌘ and ⇧ are unreadable at Infima's small kbd size. */
+.markdown kbd {
+  font-family: var(--ifm-font-family-base);
+  font-size: 0.85em;
+  padding: 0.05rem 0.35rem;
+}
+
+.keys-table td:first-child {
+  white-space: nowrap;
+}

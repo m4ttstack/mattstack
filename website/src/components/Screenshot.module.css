@@ -1,0 +1,10 @@
+.figure {
+  margin: 0 0 var(--ifm-leading);
+}
+
+.figure img {
+  display: block;
+  max-width: 100%;
+  border: 1px solid var(--ms-border);
+  border-radius: 8px;
+}
