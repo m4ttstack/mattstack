@@ -116,7 +116,7 @@ Everything but **open in gitlab** needs a local board and your own MR. On anyone
 | --- | --- | --- |
 | <BoardIcon name="slack" /> | open MR post in slack | Opens the MR's Slack post. Greyed "no thread" until the thread is found. |
 | <BoardIcon name="slack" /> | post to #channel | Posts your MR to the channel. Greyed "thread exists" once it is posted. |
-| <BoardIcon name="slack" /> | post to code owners… | Opens a dialog to post your MR to each code owners section's channel that still has to approve. Shows only for a repo whose team settings turn on `board.codeowners.slack.fromSectionName`. |
+| <BoardIcon name="slack" /> | post to code owners… | Opens a dialog to post your MR to each code owners section's channel that still has to approve. Shows only for a repo whose settings turn on `board.codeowners.slack.fromSectionName`. |
 | <BoardIcon name="copy" /> | copy for slack | Copies a one-line link to the MR, in the team's Slack format, to the clipboard. Always offered. |
 
 Everything here but **copy for slack** needs a local board with Slack connected.
@@ -130,7 +130,7 @@ Everything here but **copy for slack** needs a local board with Slack connected.
 
 ### Several rows at once
 
-Check two or more rows and right-click one of them, or press **actions** in the selection bar, for the bulk menu. It is titled "N selected" and offers, under **agent actions**, **gitlab** and **slack**, only what every checked MR's own menu offers: review, re-review, call doctor, request review from…, rebase on target, set auto-merge, cancel auto-merge, mark ready, mark as draft, merge, the three Slack reactions and find slack threads. Merging asks "really merge N?", and starting more than three reviews, re-reviews or doctors asks too. When nothing fits all of them it says so.
+Checking a row swaps the tabs for a selection bar. Check two or more rows and right-click one of them, or press **actions** in the selection bar, for the bulk menu; with one row checked, both open that row's own menu. It is titled "N selected" and offers, under **agent actions**, **gitlab** and **slack**, only what every checked MR's own menu offers: review, re-review, call doctor, request review from…, rebase on target, set auto-merge, cancel auto-merge, mark ready, mark as draft, merge, the three Slack reactions and find slack threads. Merging asks "really merge N?", and starting more than three reviews, re-reviews or doctors asks too. When nothing fits all of them it says so.
 
 ## Show chips, Group and Sort
 
