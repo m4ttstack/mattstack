@@ -988,13 +988,19 @@ about either of the others, and the difference is invisible in the output.
 CI runs the unit suite as three macOS shards (`bun test --shard=i/3
 --timings=test-timings.json`, balanced by the committed timings file,
 which the Timings workflow regenerates) and runs the non-Mac gates on
-ubuntu. `scripts/ci/test-scope.ts` decides a PR's scope from its diff: only
-docs, Swift files or `plugins/` trees (each plugin has its own CI job)
-that no unit test reads skips the shards; a
-TypeScript-only diff runs `--changed=HEAD^1` plus every `no-*.test.ts`
-guard in the unit directories; any other change runs the full suite (a
-non-TypeScript file outside that skip set, a fixture, the preload or its
-imports, anything under `scripts/ci/`). Any other test that spawns
+ubuntu. `scripts/ci/test-scope.ts` decides a PR's scope from its diff, for
+the shards and for every path-gated job (`go`, `deck-macos`, `e2e-tests`,
+`glitter-pty`, `website`, the plugin jobs); `docs/ci.md` has the table.
+Files in trees the shards never run (docs, `website/`, `rt-tray/`, apps
+and `plugins/` trees, other workflows, `e2e/`) drop out of the diff unless a
+unit test reads them by quoted path; nothing left skips the shards, a
+TypeScript remainder runs `--changed=HEAD^1` on one to three shards sized
+from `test-timings.json`, and anything else runs the full suite (a
+non-TypeScript file such as `bun.lock`, a fixture, the preload or its
+imports, `checks.yml`, anything under `scripts/ci/`). Whenever the shards
+do not run in full, the ubuntu `guards` job runs every `no-*.test.ts`
+guard in the unit directories.
+Any other test that spawns
 `cli.ts` or reads source as text is not selected by `--changed`, so it
 must be named `no-*` to run on a PR at all; an un-prefixed one only runs
 on main, so a TypeScript-only PR can go green and break main there. When
@@ -1009,9 +1015,9 @@ frame, a CLI's `--json` envelope, a usage string) and for anything glitter or
 rt-ui paints: those have exact-string or screen assertions no unit suite
 covers. Run `bun run test:all`, or at least the one e2e or pty file covering
 the surface, before calling a change verified. The pty gate skips in CI unless
-the diff touches a path in `.github/workflows/e2e.yml`'s filter; a change to
-socket setup, `test-setup.ts` or `e2e/socket-path.ts` must be in that filter or
-the gate never runs (macOS caps a unix socket path at 104 bytes, and the gate
+the diff touches a path in `GLITTER_TRIGGERS` (`scripts/ci/test-scope.ts`); a
+change to socket setup, `test-setup.ts` or `e2e/socket-path.ts` must be in that
+list or the gate never runs (macOS caps a unix socket path at 104 bytes, and the gate
 is what catches a path that grew past it).
 
 The apps' packages under `packages/*` and `apps/*` are vitest or their own

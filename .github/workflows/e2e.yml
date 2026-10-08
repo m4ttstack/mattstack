@@ -14,34 +14,32 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # Which of this PR's files can affect what the pty gate paints. Cheap ubuntu job so
-  # the expensive macos one below can be skipped outright.
+  # Which of this event's files can affect the e2e suite and what the pty
+  # gate paints (scripts/ci/test-scope.ts; docs/ci.md has the table). Cheap
+  # ubuntu job so the expensive macos ones below can be skipped outright. A
+  # push to main runs both: main is what releases cut from. A PR checks out
+  # refs/pull/N/merge, so HEAD^1..HEAD is exactly the PR's diff.
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
-      glitter: ${{ steps.filter.outputs.glitter }}
+      e2e: ${{ steps.scope.outputs.e2e }}
+      glitter: ${{ steps.scope.outputs.glitter }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - id: filter
+          fetch-depth: 2
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - id: scope
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          # A push to main always runs it: main is what releases cut from, and
-          # a path filter that is wrong should fail there rather than ship.
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "glitter=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -qE '^(cli\.ts|ui/|lib/mission/|lib/ui/|lib/setup/|commands/setup\.ts|lib/errors\.ts|lib/cli-logger\.ts|lib/secrets/|commands/glitter\.ts|commands/settings[^/]*\.ts|lib/settings/|packages/rt-client/src/settings/write\.ts|packages/git-core/|e2e/(pty/|glitter-repo\.ts|interactive\.ts|harness\.ts|setup\.ts|socket-path\.ts)|test-setup\.ts|\.github/workflows/e2e\.yml|package\.json|commands/repos-reidentify\.ts|lib/command-tree\.ts|lib/plugins\.ts)'; then
-            echo "glitter=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "glitter=false" >> "$GITHUB_OUTPUT"
-          fi
+          EVENT_NAME: ${{ github.event_name }}
+        run: bun scripts/ci/test-scope.ts
 
-  e2e:
+  e2e-tests:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
@@ -95,10 +93,7 @@ jobs:
   # build the other e2e tests never touch. It is its own job so that cost
   # lands only on PRs that can actually break the board -- and so a run that
   # does not apply shows up as a skipped check rather than a silent pass.
-  #
-  # The trigger is every input the board is built from, NOT just ui/: the
-  # driver, the command, and git-core are TypeScript, and the two bugs this
-  # gate was written after (RT-221) were both TypeScript with no Go diff.
+  # GLITTER_TRIGGERS in scripts/ci/test-scope.ts lists what it paints from.
   glitter-pty:
     runs-on: macos-latest
     timeout-minutes: 15
@@ -146,3 +141,25 @@ jobs:
         run: bun run test:pty
         env:
           RT_BINARY: ${{ github.workspace }}/dist/rt
+
+  # The check branch protection requires, named e2e. Without always(), a
+  # failed changes job would skip e2e-tests, and a skipped required check
+  # reads as passing; e2e-tests may skip only when changes said so.
+  e2e:
+    needs: [changes, e2e-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: e2e passed or did not apply
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          TESTS: ${{ needs.e2e-tests.result }}
+          RUN: ${{ needs.changes.outputs.e2e }}
+        run: |
+          echo "changes=$CHANGES e2e-tests=$TESTS run=$RUN"
+          [ "$CHANGES" = success ] || { echo "changes did not succeed"; exit 1; }
+          [ "$TESTS" = success ] && exit 0
+          [ "$TESTS" = skipped ] && [ "$RUN" = false ] && exit 0
+          echo "e2e-tests was $TESTS with run=$RUN"
+          exit 1

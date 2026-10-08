@@ -8,13 +8,17 @@ import {
   CHANGED_ARGS,
   collectSources,
   decide,
+  e2eReach,
   existingPluginDirs,
   isPluginTree,
+  jobsFor,
   pluginDirs,
   prPluginDirs,
   ROOT,
   RT_PLUGIN_TRIGGERS,
   rtTriggeredPluginDirs,
+  selectedTests,
+  shardCount,
   unitDirs,
   websiteChanged,
   type ScopeInput,
@@ -69,16 +73,40 @@ describe("decide", () => {
     expect(decide(pr(["rt-tray/build.sh"])).mode).toBe("full");
   });
 
-  test("a tray plist nothing names is full", () => {
-    expect(decide(pr(["rt-tray/LaunchAgent.plist"])).mode).toBe("full");
+  test("a tray plist nothing names skips", () => {
+    expect(decide(pr(["rt-tray/LaunchAgent.plist"])).mode).toBe("skip");
   });
 
   test("a markdown fixture is full even when nothing names it", () => {
     expect(decide(pr(["lib/__tests__/fixtures/compile-native/pack/notes.md"])).mode).toBe("full");
   });
 
-  test("a markdown file next to a typescript change is full", () => {
-    expect(decide(pr(["README.md", "lib/x.ts"])).mode).toBe("full");
+  test("a markdown file next to a typescript change drops out, so the change runs --changed", () => {
+    const decision = decide(pr(["README.md", "lib/x.ts"]));
+    expect(decision.mode).toBe("changed");
+    expect(decision.reason).toContain("1 file(s) no unit test reads");
+  });
+
+  test.each([
+    ["AGENTS.md"],
+    ["docs/release-and-distribution.md"],
+    ["website/docs/apps/board-guide.mdx"],
+    ["apps/chat/package.json"],
+    ["apps/console/AGENTS.md"],
+    ["plugins/mattstack/skills/a/SKILL.md"],
+    ["rt-tray/Sources-core/Tray/Menu.swift"],
+  ])("%s beside typescript still runs --changed", (f) => {
+    expect(decide(prInput([f, "lib/daemon.ts"])).mode).toBe("changed");
+  });
+
+  test("a doc a unit test reads beside typescript is full, naming the reader", () => {
+    const decision = decide(pr(["rt-tray/Sources-core/Flavor/FlavorLaunch.swift", "lib/x.ts"]));
+    expect(decision.mode).toBe("full");
+    expect(decision.reason).toContain("lib/__tests__/dev-mode.test.ts");
+  });
+
+  test("a non-typescript file outside the skip set still forces full in a mixed diff", () => {
+    expect(decide(pr(["README.md", "lib/x.ts", "scripts/repo-purity.sh"])).mode).toBe("full");
   });
 
   test("skills are never docs", () => {
@@ -251,9 +279,9 @@ describe("plugins", () => {
     const changed = ["plugins/herdr-chat/skills/chat/SKILL.md"];
     expect(decide({ event: "pull_request", changed, sources: reading, preloadImports }).mode).toBe("skip");
   });
-  test("a plugin change beside rt code is full and still names the plugin", () => {
+  test("a plugin change beside rt code runs --changed and still names the plugin", () => {
     const changed = ["plugins/herdr-chat/src/lib.rs", "lib/foo.ts"];
-    expect(decide(pr(changed)).mode).toBe("full");
+    expect(decide(pr(changed)).mode).toBe("changed");
     expect(pluginDirs(changed)).toEqual(["plugins/herdr-chat"]);
   });
   test("isPluginTree needs a plugin name segment", () => {
@@ -343,4 +371,356 @@ describe("websiteChanged", () => {
   test("unrelated changes skip it", () => {
     expect(websiteChanged(["lib/daemon.ts", "apps/board/src/a.ts", "README.md"])).toBe(false);
   });
+});
+
+describe("workflow wiring", () => {
+  type Job = { needs?: string | string[]; if?: string; outputs?: Record<string, string> };
+  function jobs(file: string): Record<string, Job> {
+    return (Bun.YAML.parse(readFileSync(join(ROOT, ".github", "workflows", file), "utf8")) as { jobs: Record<string, Job> }).jobs;
+  }
+  function needs(job: Job): string[] {
+    return Array.isArray(job.needs) ? job.needs : job.needs ? [job.needs] : [];
+  }
+  const jobKeys = Object.keys(jobsFor("push", []));
+
+  test.each([
+    ["checks.yml", "checks"],
+    ["e2e.yml", "e2e"],
+  ])("the %s gate needs every job but itself, except the advisory pty gate", (file, gate) => {
+    const all = jobs(file);
+    const expected = Object.keys(all).filter((name) => name !== gate && name !== "glitter-pty");
+    expect(needs(all[gate]!).sort()).toEqual(expected.sort());
+    expect(all[gate]!.if).toBe("always()");
+  });
+
+  test.each(["checks.yml", "e2e.yml"])("every scope output %s reads is one the script writes", (file) => {
+    const scope = Object.values(jobs(file)).find((job) => job.outputs)!;
+    const written = new Set(["mode", "shards", "extra", "dirs", "always", "plugins", ...jobKeys]);
+    for (const name of Object.keys(scope.outputs!)) expect(written.has(name)).toBe(true);
+  });
+});
+
+describe("shard sizing", () => {
+  const timings = { "a.test.ts": 60_000, "b.test.ts": 60_000, "c.test.ts": 60_000, "d.test.ts": 60_000, "e.test.ts": 60_000, "f.test.ts": 60_000 };
+
+  test("full and skip runs take three shards", () => {
+    expect(shardCount("full", [], timings)).toBe(3);
+    expect(shardCount("skip", [], timings)).toBe(3);
+  });
+
+  test("a changed run takes as many shards as its tests weigh, one to three", () => {
+    expect(shardCount("changed", [], timings)).toBe(1);
+    expect(shardCount("changed", ["a.test.ts", "b.test.ts"], timings)).toBe(1);
+    expect(shardCount("changed", ["a.test.ts", "b.test.ts", "c.test.ts"], timings)).toBe(2);
+    expect(shardCount("changed", Object.keys(timings), timings)).toBe(3);
+  });
+
+  test("a test with no recorded timing counts a second", () => {
+    const one = { "a.test.ts": 3000 };
+    expect(shardCount("changed", ["new.test.ts"], one)).toBe(1);
+    expect(shardCount("changed", ["new.test.ts", "a.test.ts"], one)).toBe(3);
+  });
+
+  test("no timings file keeps three shards", () => {
+    expect(shardCount("changed", ["a.test.ts"], {})).toBe(3);
+  });
+});
+
+describe("selectedTests", () => {
+  const graph = new Map([
+    ["lib/__tests__/a.test.ts", ["lib/a.ts"]],
+    ["lib/__tests__/b.test.ts", ["lib/b.ts"]],
+    ["lib/a.ts", ["lib/shared.ts"]],
+    ["lib/b.ts", []],
+    ["lib/shared.ts", []],
+  ]);
+  const tests = ["lib/__tests__/a.test.ts", "lib/__tests__/b.test.ts"];
+
+  test("selects the tests whose import closure reaches a changed file", () => {
+    expect(selectedTests(["lib/shared.ts"], tests, graph)).toEqual(["lib/__tests__/a.test.ts"]);
+    expect(selectedTests(["lib/b.ts", "README.md"], tests, graph)).toEqual(["lib/__tests__/b.test.ts"]);
+  });
+
+  test("a changed test selects itself", () => {
+    expect(selectedTests(["lib/__tests__/b.test.ts"], tests, graph)).toEqual(["lib/__tests__/b.test.ts"]);
+  });
+
+  test("the real graph sizes a one-module change to one shard", () => {
+    const sel = selectedTests(["lib/team/share-pack.ts"], real.tests, real.graph);
+    expect(sel).toContain("lib/team/__tests__/share-pack.test.ts");
+    const timings = JSON.parse(readFileSync(join(ROOT, "test-timings.json"), "utf8")).files;
+    expect(shardCount("changed", sel, timings)).toBe(1);
+  });
+});
+
+describe("e2e reach", () => {
+  const reach = e2eReach();
+
+  test("reaches the commands the module registry imports, and e2e's own imports", () => {
+    expect(reach.has("cli.ts")).toBe(true);
+    expect(reach.has("commands/worktree.ts")).toBe(true);
+    expect(reach.has("lib/state/index.ts")).toBe(true);
+    expect(reach.has("lib/herdr/__tests__/fake-herdr.ts")).toBe(true);
+  });
+
+  test("a unit-test-only or script-only PR skips e2e", () => {
+    expect(jobsFor("pull_request", ["lib/team/__tests__/share-pack.test.ts"], reach).e2e).toBe(false);
+    expect(jobsFor("pull_request", ["scripts/ci/plugin-version-bumped.ts"], reach).e2e).toBe(false);
+  });
+
+  test("rt source the binary reaches runs e2e", () => {
+    expect(jobsFor("pull_request", ["lib/team/share-pack.ts"], reach).e2e).toBe(true);
+  });
+
+  test("a deleted rt module runs e2e, since a stale importer may still need it", () => {
+    expect(jobsFor("pull_request", ["lib/gone-module.ts"], reach).e2e).toBe(true);
+  });
+
+  test("workspace packages and the scope script run e2e whatever the reach", () => {
+    expect(jobsFor("pull_request", ["packages/rt-client/src/index.ts"], new Set()).e2e).toBe(true);
+    expect(jobsFor("pull_request", ["scripts/ci/test-scope.ts"], new Set()).e2e).toBe(true);
+  });
+});
+
+describe("the docs site and prose", () => {
+  test("a website-only PR skips the unit shards, even a page a test names as data", () => {
+    // scripts/__tests__/docs-impact.test.ts names website/docs/apps/board.mdx as an input.
+    const changed = ["website/docs/apps/board.mdx", "website/docs/apps/flock-guide.mdx", "website/sidebars.ts", "website/package.json"];
+    expect(decide(prInput(changed)).mode).toBe("skip");
+  });
+  test("mdx is docs", () => {
+    expect(decide(pr(["docs/guide.mdx"])).mode).toBe("skip");
+  });
+  test("website beside rt code runs --changed", () => {
+    expect(decide(pr(["website/docs/rt/index.mdx", "lib/x.ts"])).mode).toBe("changed");
+  });
+});
+
+describe("files the shards never run, beside typescript", () => {
+  test("a snapshot runs its own test as an extra, not the full suite", () => {
+    const decision = decide(prInput(["commands/__tests__/__snapshots__/setup-copy.test.ts.snap", "commands/setup.ts"]));
+    expect(decision.mode).toBe("changed");
+    expect(decision.extra).toEqual(["commands/__tests__/setup-copy.test.ts"]);
+  });
+
+  test("a snapshot alone is a changed run of its test", () => {
+    const decision = decide(prInput(["commands/__tests__/__snapshots__/dev.test.ts.snap"]));
+    expect(decision.mode).toBe("changed");
+    expect(decision.extra).toEqual(["commands/__tests__/dev.test.ts"]);
+  });
+
+  test("a snapshot whose test is gone is full", () => {
+    expect(decide(prInput(["commands/__tests__/__snapshots__/gone.test.ts.snap"])).mode).toBe("full");
+  });
+
+  test.each([
+    "e2e/tests/fixtures/sdm-json.json",
+    "e2e/tests/smoke.test.ts",
+    ".gitignore",
+    "rt-tray/vm/README.md",
+  ])("%s drops out", (f) => {
+    expect(decide(prInput([f, "lib/daemon.ts"])).mode).toBe("changed");
+  });
+
+  test.each(["rt-tray/build.sh", "rt-tray/sparkle-minimum-update"])("%s, which a unit test reads, still forces full", (f) => {
+    expect(decide(prInput([f, "lib/daemon.ts"])).mode).toBe("full");
+  });
+
+  test("an e2e file a unit test imports stays in the --changed set", () => {
+    const reading = new Map(sources);
+    reading.set("e2e/socket-path.ts", "export const x = 1;");
+    expect(decide({ event: "pull_request", changed: ["e2e/socket-path.ts"], sources: reading, preloadImports }).mode).toBe("changed");
+  });
+
+  test("lockfiles and manifests a test reads stay full", () => {
+    expect(decide(prInput(["bun.lock", "lib/daemon.ts"])).mode).toBe("full");
+    expect(decide(prInput(["marketplace/marketplace.json"])).mode).toBe("full");
+  });
+});
+
+describe("what counts as a test reading a file", () => {
+  function reads(text: string, changed: string[]) {
+    const reading = new Map(sources);
+    reading.set("lib/__tests__/reader.test.ts", text);
+    return decide({ event: "pull_request", changed, sources: reading, preloadImports }).mode;
+  }
+
+  test("a quoted path segment, a joined segment or a template tail counts", () => {
+    expect(reads(`readFileSync(join(ROOT, "AGENTS.md"))`, ["AGENTS.md"])).toBe("full");
+    expect(reads(`readFileSync(\`\${ROOT}/AGENTS.md\`)`, ["AGENTS.md"])).toBe("full");
+    expect(reads(`readFileSync(join(ROOT, "docs", "strongdm.md"))`, ["docs/strongdm.md"])).toBe("full");
+  });
+
+  test("prose that mentions the file, or a longer path ending in its name, does not", () => {
+    expect(reads(`// Named no-* per AGENTS.md`, ["AGENTS.md"])).toBe("skip");
+    expect(reads(`spawn({ prompt: "read AGENTS.md" })`, ["AGENTS.md"])).toBe("skip");
+    expect(reads(`docsImpact(["apps/AGENTS.md"])`, ["AGENTS.md"])).toBe("skip");
+  });
+
+  test("a full path behind a ../ prefix counts", () => {
+    expect(reads(`readFileSync(join(import.meta.dir, "../../plugins/x/ref.md"))`, ["plugins/x/ref.md"])).toBe("full");
+    expect(reads(`readFileSync(join(dir, "../../../rt-tray/Sources-core/A.swift"))`, ["rt-tray/Sources-core/A.swift"])).toBe("full");
+  });
+
+  test("a full path spelled as join() segments counts, an apps file included", () => {
+    expect(reads(`join(import.meta.dir, "..", "apps", "board", "switchboard", "server.ts")`, ["apps/board/switchboard/server.ts"])).toBe("full");
+    expect(reads(`join(ROOT, ".github", "workflows", "release.yml")`, [".github/workflows/release.yml"])).toBe("full");
+  });
+
+  test("an apps file's bare basename does not count", () => {
+    expect(reads(`join(dir, "server.ts")`, ["apps/board/switchboard/server.ts"])).toBe("skip");
+  });
+
+  test("the live tree: files read through ../ and join() run full", () => {
+    for (const f of [
+      "plugins/mattstack/attachments/orchestration/shepherdr/references/job-template.md",
+      "rt-tray/Sources-core/Services/DevBuild.swift",
+      ".github/workflows/release.yml",
+      "apps/board/src/slack.ts",
+      "apps/board/switchboard/server.ts",
+    ]) {
+      expect(decide(prInput([f])).mode).toBe("full");
+    }
+  });
+
+  test("e2e.yml runs full, since the scope test pins its gate", () => {
+    expect(decide(pr([".github/workflows/e2e.yml"])).mode).toBe("full");
+  });
+
+  test("a file a unit test imports never drops out, whatever its tree", () => {
+    const reading = new Map(sources);
+    reading.set("scripts/set-platform-version.ts", "export {}");
+    expect(decide({ event: "pull_request", changed: ["scripts/set-platform-version.ts"], sources: reading, preloadImports }).mode).toBe(
+      "changed",
+    );
+  });
+
+  test("a no-* guard reading the file does not force full: the guards job runs it", () => {
+    const reading = new Map(sources);
+    reading.set("lib/__tests__/no-doc-drift.test.ts", `readFileSync(join(ROOT, "AGENTS.md"))`);
+    expect(decide({ event: "pull_request", changed: ["AGENTS.md"], sources: reading, preloadImports }).mode).toBe("skip");
+  });
+});
+
+describe("workflow files", () => {
+  test("a workflow nothing reads skips the unit shards", () => {
+    expect(decide(prInput([".github/workflows/renovate.yml"])).mode).toBe("skip");
+  });
+  test("checks.yml runs the shards in full, since it defines them", () => {
+    const decision = decide(pr([".github/workflows/checks.yml"]));
+    expect(decision.mode).toBe("full");
+    expect(decision.reason).toContain("checks.yml");
+  });
+  test("a workflow a unit test reads by repo path runs full", () => {
+    const reading = new Map(sources);
+    reading.set("scripts/__tests__/renovate.test.ts", `readFileSync(join(ROOT, ".github/workflows/renovate.yml"))`);
+    const changed = [".github/workflows/renovate.yml"];
+    expect(decide({ event: "pull_request", changed, sources: reading, preloadImports }).mode).toBe("full");
+  });
+});
+
+describe("jobsFor", () => {
+  const none = { go: false, deck: false, e2e: false, glitter: false, website: false };
+  const every = { go: true, deck: true, e2e: true, glitter: true, website: true };
+
+  test("a push to main runs every job", () => {
+    expect(jobsFor("push", [])).toEqual(every);
+    expect(jobsFor("push", ["docs/a.md"])).toEqual(every);
+  });
+
+  test("a website-only PR builds the site and nothing else", () => {
+    expect(jobsFor("pull_request", ["website/docs/apps/board.mdx", "website/sidebars.ts", "website/package.json"])).toEqual({
+      ...none,
+      website: true,
+    });
+  });
+
+  test("a docs-only PR runs none of them", () => {
+    expect(jobsFor("pull_request", ["docs/architecture.md", "AGENTS.md", "docs/guide.mdx"])).toEqual(none);
+  });
+
+  test.each([
+    ["swift", ["rt-tray/Sources-core/Tray/Menu.swift"]],
+    ["a plugin", ["plugins/herdr-chat/src/lib.rs"]],
+    ["another workflow", [".github/workflows/renovate.yml"]],
+    ["another app", ["apps/board/src/App.tsx"]],
+  ])("%s runs none of them", (_, changed) => {
+    expect(jobsFor("pull_request", changed)).toEqual(none);
+  });
+
+  test("rt source runs e2e only", () => {
+    expect(jobsFor("pull_request", ["lib/daemon.ts", "commands/worktree.ts"])).toEqual({ ...none, e2e: true });
+  });
+
+  test("rt's ui layer also runs the pty gate", () => {
+    expect(jobsFor("pull_request", ["lib/ui/out.ts"])).toEqual({ ...none, e2e: true, glitter: true });
+  });
+
+  test("Go source runs go and the pty gate, not e2e", () => {
+    expect(jobsFor("pull_request", ["ui/internal/views/picker/scroll.go", "ui/go.sum"])).toEqual({
+      ...none,
+      go: true,
+      glitter: true,
+    });
+  });
+
+  test("a ui fixture both languages read runs go and e2e", () => {
+    const jobs = jobsFor("pull_request", ["ui/fixtures/clean-cases.json"]);
+    expect(jobs.go).toBe(true);
+    expect(jobs.e2e).toBe(true);
+  });
+
+  test("deck's own tree runs deck only", () => {
+    expect(jobsFor("pull_request", ["apps/deck/src/registry/bundle-catalog.ts"])).toEqual({ ...none, deck: true });
+  });
+
+  test("an apps package runs deck, which turbo narrows further", () => {
+    expect(jobsFor("pull_request", ["packages/ui/src/index.ts"])).toEqual({ ...none, deck: true });
+  });
+
+  test("a workspace package rt links runs deck and e2e", () => {
+    expect(jobsFor("pull_request", ["packages/rt-client/src/index.ts"])).toEqual({ ...none, deck: true, e2e: true });
+  });
+
+  test("an apps package manifest runs e2e, since a dependency bump can change the binary", () => {
+    expect(jobsFor("pull_request", ["packages/ui/package.json"]).e2e).toBe(true);
+  });
+
+  test("root manifests run deck and e2e, and package.json also go and the pty gate", () => {
+    expect(jobsFor("pull_request", ["package.json"])).toEqual({ ...every, website: false });
+    expect(jobsFor("pull_request", ["bun.lock"])).toEqual({ ...none, deck: true, e2e: true });
+  });
+
+  test("checks.yml runs every checks job", () => {
+    expect(jobsFor("pull_request", [".github/workflows/checks.yml"])).toEqual({ ...none, go: true, deck: true, website: true });
+  });
+
+  test("e2e.yml runs both e2e jobs", () => {
+    expect(jobsFor("pull_request", [".github/workflows/e2e.yml"])).toEqual({ ...none, e2e: true, glitter: true });
+  });
+
+  test("the scope script runs every job", () => {
+    expect(jobsFor("pull_request", ["scripts/ci/test-scope.ts"])).toEqual(every);
+  });
+
+  test.each([
+    "cli.ts",
+    "commands/glitter.ts",
+    "commands/settings-schema.ts",
+    "lib/mission/state.ts",
+    "packages/git-core/src/diff.ts",
+    "e2e/pty/glitter.test.ts",
+    "e2e/socket-path.ts",
+    "test-setup.ts",
+    "lib/command-tree.ts",
+  ])("%s runs the pty gate", (f) => {
+    expect(jobsFor("pull_request", [f]).glitter).toBe(true);
+  });
+
+  test.each(["lib/daemon.ts", "e2e/tests/smoke.test.ts", "commands/worktree.ts", "lib/command-tree-def.ts"])(
+    "%s leaves the pty gate alone",
+    (f) => {
+      expect(jobsFor("pull_request", [f]).glitter).toBe(false);
+    },
+  );
 });
