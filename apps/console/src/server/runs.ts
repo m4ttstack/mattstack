@@ -36,7 +36,9 @@ function cwdInside(cwd: string, worktree: string): boolean {
 }
 
 /** Matches the way the daemon's liveness mirror attributes a pane to a run:
-    by the recorded Claude session, else by a cwd inside the run's worktree. */
+    by the recorded Claude session, else by a cwd inside the run's worktree.
+    pane:list returns only panes herdr runs Claude in, so a plain shell never
+    matches; an agent whose status reads `unknown` still does, as in liveness. */
 function runHasPane(
   panes: ChatPane[],
   session: string,

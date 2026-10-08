@@ -419,6 +419,18 @@ describe('POST /api/runs/:repo/:runId/resume', () => {
     expect(rt.agentResume).not.toHaveBeenCalled();
   });
 
+  it('an agent pane in the worktree whose status reads unknown still gets 409', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(detail() as never);
+    vi.mocked(rt.paneList).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        panes: [{ ...pane({ cwd: '/wt/ron' }), agentStatus: 'unknown' }],
+      },
+    } as never);
+    expect((await post()).status).toBe(409);
+    expect(rt.agentResume).not.toHaveBeenCalled();
+  });
+
   it('a pane in a sibling folder that shares the worktree prefix does not block', async () => {
     vi.mocked(rt.getRun).mockResolvedValueOnce(detail() as never);
     vi.mocked(rt.paneList).mockResolvedValueOnce({
