@@ -10,7 +10,7 @@
  * All writes are idempotent (guarded by a marker comment).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -109,14 +109,15 @@ function zshenvBlock(): string {
 
 // ─── History hook blocks (also callable standalone for existing installs) ──────
 
-function posixHistoryHook(): string {
+/** `stateDir` is where `rt run` leaves its last command; it moved from ~/.rt to ~/.mattstack/rt, and rc files written before the move still carry the old path. */
+function posixHistoryHook(stateDir = "~/.mattstack/rt"): string {
   return [
     HISTORY_HOOK_MARKER,
     "# Replay rt run commands in shell history so up-arrow recalls the actual",
     "# command (e.g. \"npm run test\") instead of \"rt run\".",
     "_rt_history_hook() {",
-    '  if [[ -f ~/.mattstack/rt/last-run-command ]]; then',
-    '    local cmd=$(<~/.mattstack/rt/last-run-command)',
+    `  if [[ -f ${stateDir}/last-run-command ]]; then`,
+    `    local cmd=$(<${stateDir}/last-run-command)`,
     '    if [[ -n "$cmd" ]]; then',
     '      if [[ -n "$ZSH_VERSION" ]]; then',
     '        print -s "$cmd"',
@@ -124,7 +125,7 @@ function posixHistoryHook(): string {
     '        history -s "$cmd"',
     "      fi",
     "    fi",
-    '    rm -f ~/.mattstack/rt/last-run-command',
+    `    rm -f ${stateDir}/last-run-command`,
     "  fi",
     "}",
     'if [[ -n "$ZSH_VERSION" ]]; then',
@@ -166,6 +167,8 @@ export interface ShellIntegrationResult {
   rcPath: string;
   alreadyInstalled: boolean;
   written: boolean;
+  /** Set when an old block was repaired: the copy of the rc file taken before it was rewritten. */
+  backupPath?: string;
   error?: string;
 }
 
@@ -183,17 +186,20 @@ export function installShellIntegration(): ShellIntegrationResult {
   }
 
   let existing = existsSync(rcPath) ? readFileSync(rcPath, "utf8") : "";
+  let backupPath: string | undefined;
 
   // `rtcd` is what the tool.shell row checks for; a marked block without it
   // predates the alias and is replaced, or the row's remedy never lands.
   if (existing.includes(MARKER)) {
     if (existing.includes("rtcd")) return { shell, rcPath, alreadyInstalled: true, written: false };
-    const stripped = stripMarkedBlock(existing, MARKER);
-    if (stripped === null) {
+    const bounded = stripMarkedBlock(existing, MARKER);
+    const repaired = bounded === null && shell !== "fish" ? repairLegacyBlock(existing) : null;
+    if (bounded === null && repaired === null) {
       return { shell, rcPath, alreadyInstalled: false, written: false,
                error: `an older rt block in ${rcPath} has no end marker; remove it by hand, then retry` };
     }
-    existing = stripped;
+    if (repaired !== null) backupPath = `${rcPath}.rt-backup-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+    existing = bounded ?? repaired!;
   }
 
   const block = shell === "fish" ? fishBlock() : posixBlock();
@@ -203,8 +209,9 @@ export function installShellIntegration(): ShellIntegrationResult {
     if (shell === "fish") {
       mkdirSync(join(home(), ".config/fish/conf.d"), { recursive: true });
     }
+    if (backupPath) copyFileSync(rcPath, backupPath);
     writeFileSync(rcPath, existing + block);
-    return { shell, rcPath, alreadyInstalled: false, written: true };
+    return { shell, rcPath, alreadyInstalled: false, written: true, ...(backupPath ? { backupPath } : {}) };
   } catch (err: any) {
     return { shell, rcPath, alreadyInstalled: false, written: false,
              error: err?.message ?? String(err) };
@@ -309,6 +316,52 @@ function stripMarkedBlock(content: string, marker: string): string | null {
   if (content[end] === "\n") end += 1; // the block's own trailing newline
 
   return content.slice(0, start) + content.slice(end);
+}
+
+const LEGACY_LEAD_LINES = new Set([
+  'export PATH="$HOME/.local/bin:$PATH"',
+  'rt-cd() { local dir=$(rt cd 2>/dev/null); [ -n "$dir" ] && cd "$dir"; }',
+  "alias rtcd='rt-cd'",
+]);
+
+const LEGACY_RTCD_LINES = new Set([...LEGACY_LEAD_LINES].filter((line) => !line.startsWith("export PATH")));
+
+/** Every history hook rt has appended, as lines, without the trailing empty line `split` leaves. */
+function knownHistoryHooks(): string[][] {
+  return [posixHistoryHook(), posixHistoryHook("~/.rt")].map((hook) => hook.split("\n").slice(0, -1));
+}
+
+/**
+ * `content` without the lines an end-markerless rt block left in a posix rc
+ * file, or null when that cannot be done without guessing. Only lines rt
+ * wrote go: the marker (and the blank line its block opened with), the
+ * PATH, rt-cd and rtcd lines straight under it, any other rt-cd or rtcd line
+ * after it, and each history hook whose every line matches one rt wrote.
+ * The member's own lines between them stay, and so does rt cd's wrapper,
+ * which commands/cd.ts manages. More than one marker, or a history hook rt
+ * did not write word for word, returns null.
+ */
+export function repairLegacyBlock(content: string): string | null {
+  const lines = content.split("\n");
+  const markers = lines.flatMap((line, i) => (line === MARKER ? [i] : []));
+  if (markers.length !== 1) return null;
+  const markerAt = markers[0]!;
+
+  const drop = new Set<number>([markerAt]);
+  if (markerAt > 0 && lines[markerAt - 1] === "") drop.add(markerAt - 1);
+  let i = markerAt + 1;
+  while (i < lines.length && LEGACY_LEAD_LINES.has(lines[i]!)) drop.add(i++);
+  for (; i < lines.length; i++) if (LEGACY_RTCD_LINES.has(lines[i]!)) drop.add(i);
+
+  const hooks = knownHistoryHooks();
+  for (let at = 0; at < lines.length; at++) {
+    if (lines[at] !== HISTORY_HOOK_MARKER) continue;
+    const hook = hooks.find((h) => h.every((line, k) => lines[at + k] === line));
+    if (!hook) return null;
+    for (let k = 0; k < hook.length; k++) drop.add(at + k);
+  }
+
+  return lines.filter((_, at) => !drop.has(at)).join("\n");
 }
 
 /** The inverse of `installShellIntegration` — removes exactly what it wrote, leaving unrelated rc-file content untouched. A block installed before END_MARKER existed can't be located precisely; that case reports `manual: true` instead of guessing. */
