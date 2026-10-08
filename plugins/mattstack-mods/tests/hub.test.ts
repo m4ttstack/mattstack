@@ -1,38 +1,12 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { attachHub, createHub } from '../src/core/hub.ts'
-
-type Hook = (...args: any[]) => Promise<any>
+import { attachHub, createHub, START_TIMEOUT_MS } from '../src/core/hub.ts'
+import { flush, harness as stub, recorder } from './stub.ts'
 
 function harness(version = '2.1.293') {
-  const hooks = new Map<string, Hook>()
-  const on: any = (event: string, hook: Hook) => {
-    hooks.set(event, hook)
-  }
-  const logs: { text: string; to: string | undefined }[] = []
-  const $: any = {
-    ui: { log: (text: string, options?: { to?: string }) => logs.push({ text, to: options?.to }) },
-    session: { version: async () => ({ version, base: version, builtAt: '2026-10-07T00:00:00.000Z' }) },
-    http: { fetch: async () => { throw new Error('no network in tests') } },
-  }
+  const h = stub({ version })
   const hub = createHub()
-  attachHub(on, hub)
-  const fire = (event: string, e: unknown, next: Hook): Promise<any> => {
-    const hook = hooks.get(event)
-    if (!hook) throw new Error(`the hub registered no ${event} hook`)
-    return hook($, e, next)
-  }
-  const start = (isInteractive = true) =>
-    fire('session.start', { cwd: '/repo', surface: isInteractive ? 'terminal' : null, isInteractive }, async () => ({}))
-  return { hub, logs, fire, start }
-}
-
-function recorder(answer: unknown) {
-  const seen: unknown[] = []
-  const next: Hook = async e => {
-    seen.push(e)
-    return answer
-  }
-  return { seen, next }
+  attachHub(h.on, hub)
+  return { ...h, hub }
 }
 
 const BASH = { tool: 'Bash', command: 'ls' }
@@ -40,8 +14,8 @@ const BASH = { tool: 'Bash', command: 'ls' }
 describe('hub', () => {
   test('a throwing block is cleared and the call passes through', async () => {
     const h = harness()
-    h.hub.block('policy', async () => {
-      h.hub.onToolCall({ stage: 'guard', tool: 'Bash', run: () => { throw new Error('boom') } })
+    h.hub.block('policy', async (_api, b) => {
+      b.onToolCall({ stage: 'guard', tool: 'Bash', run: () => { throw new Error('boom') } })
     })
     await h.start()
     expect(h.hub.liveBlocks()).toEqual(['policy'])
@@ -53,16 +27,16 @@ describe('hub', () => {
     expect(engine.seen[0]).toBe(BASH)
     expect(result).toEqual({ result: 'ran' })
     expect(h.hub.liveBlocks()).toEqual([])
-    expect(h.logs.filter(l => l.to === 'debug' && l.text.includes('policy'))).toHaveLength(1)
+    expect(h.logs.filter(l => l.to === 'debug' && l.text.includes('policy guard rule on Bash threw'))).toHaveLength(1)
     expect(h.logs.filter(l => l.to !== 'debug')).toHaveLength(0)
   })
 
   test('rules run fill, guard, permit, call, tap', async () => {
     const h = harness()
     const order: string[] = []
-    h.hub.block('policy', async () => {
-      h.hub.onToolCall({ stage: 'tap', tool: 'Bash', run: () => { order.push('tap') } })
-      h.hub.onToolCall({
+    h.hub.block('policy', async (_api, b) => {
+      b.onToolCall({ stage: 'tap', tool: 'Bash', run: () => { order.push('tap') } })
+      b.onToolCall({
         stage: 'permit',
         tool: /^Ba/,
         run: (_api, e, next) => {
@@ -70,8 +44,8 @@ describe('hub', () => {
           return next(e)
         },
       })
-      h.hub.onToolCall({ stage: 'guard', tool: 'Bash', run: () => { order.push('guard') } })
-      h.hub.onToolCall({
+      b.onToolCall({ stage: 'guard', tool: 'Bash', run: () => { order.push('guard') } })
+      b.onToolCall({
         stage: 'fill',
         tool: 'Bash',
         run: (_api, e) => {
@@ -95,8 +69,8 @@ describe('hub', () => {
 
   test('a guard refusal returns its reason', async () => {
     const h = harness()
-    h.hub.block('policy', async () => {
-      h.hub.onToolCall({ stage: 'guard', tool: 'Bash', run: () => ({ refuse: 'not in this worktree' }) })
+    h.hub.block('policy', async (_api, b) => {
+      b.onToolCall({ stage: 'guard', tool: 'Bash', run: () => ({ refuse: 'not in this worktree' }) })
     })
     await h.start()
 
@@ -110,8 +84,8 @@ describe('hub', () => {
 
   test('an unmatched delivery reaches next unchanged', async () => {
     const h = harness()
-    h.hub.block('delivery', async () => {
-      h.hub.onReceive('rt-delivery', () => undefined)
+    h.hub.block('delivery', async (_api, b) => {
+      b.onReceive('rt-delivery', () => undefined)
     })
     await h.start()
 
@@ -127,8 +101,8 @@ describe('hub', () => {
   test('liveBlocks lists only blocks whose start resolved', async () => {
     const h = harness()
     h.hub.block('delivery', async () => {})
-    h.hub.block('presence', async () => {
-      h.hub.onReceive('presence', () => ({ consumed: 'presence' }))
+    h.hub.block('presence', async (_api, b) => {
+      b.onReceive('presence', () => ({ consumed: 'presence' }))
       throw new Error('no daemon')
     })
     await h.start()
@@ -165,8 +139,8 @@ describe('hub', () => {
 
   test('a rejection from next under a pass-through permit keeps the block', async () => {
     const h = harness()
-    h.hub.block('gate-form', async () => {
-      h.hub.onToolCall({ stage: 'permit', tool: 'AskUserQuestion', run: (_api, e, next) => next(e) })
+    h.hub.block('gate-form', async (_api, b) => {
+      b.onToolCall({ stage: 'permit', tool: 'AskUserQuestion', run: (_api, e, next) => next(e) })
     })
     await h.start()
 
@@ -182,19 +156,19 @@ describe('hub', () => {
 
     expect(thrown).toBe(interrupted)
     expect(h.hub.liveBlocks()).toEqual(['gate-form'])
-    expect(h.logs).toHaveLength(0)
+    expect(h.logs.filter(l => !l.text.includes('live blocks after start'))).toHaveLength(0)
   })
 
   test('a permit rule can race next(e) against its own promise and return the first result', async () => {
     const h = harness()
     const tapped: unknown[] = []
-    h.hub.block('gate-form', async () => {
-      h.hub.onToolCall({
+    h.hub.block('gate-form', async (_api, b) => {
+      b.onToolCall({
         stage: 'permit',
         tool: 'AskUserQuestion',
         run: (_api, e, next) => Promise.race([next(e), Promise.resolve({ result: 'answered on the board' })]),
       })
-      h.hub.onToolCall({ stage: 'tap', tool: 'AskUserQuestion', run: (_api, _e, result) => { tapped.push(result) } })
+      b.onToolCall({ stage: 'tap', tool: 'AskUserQuestion', run: (_api, _e, result) => { tapped.push(result) } })
     })
     await h.start()
 
@@ -212,8 +186,8 @@ describe('hub', () => {
 
   test('tool.check with no check rule passes through unchanged', async () => {
     const h = harness()
-    h.hub.block('policy', async () => {
-      h.hub.onToolCall({ stage: 'guard', tool: 'Bash', run: () => ({ refuse: 'never at check' }) })
+    h.hub.block('policy', async (_api, b) => {
+      b.onToolCall({ stage: 'guard', tool: 'Bash', run: () => ({ refuse: 'never at check' }) })
     })
     await h.start()
 
@@ -228,10 +202,10 @@ describe('hub', () => {
 
   test('the first check rule with a decision answers tool.check', async () => {
     const h = harness()
-    h.hub.block('relocation', async () => {
-      h.hub.onToolCall({ stage: 'check', tool: 'EnterWorktree', run: () => undefined })
-      h.hub.onToolCall({ stage: 'check', tool: 'EnterWorktree', run: () => ({ decision: 'allow', reason: 'registered tree' }) })
-      h.hub.onToolCall({ stage: 'check', tool: 'EnterWorktree', run: () => ({ decision: 'deny' }) })
+    h.hub.block('relocation', async (_api, b) => {
+      b.onToolCall({ stage: 'check', tool: 'EnterWorktree', run: () => undefined })
+      b.onToolCall({ stage: 'check', tool: 'EnterWorktree', run: () => ({ decision: 'allow', reason: 'registered tree' }) })
+      b.onToolCall({ stage: 'check', tool: 'EnterWorktree', run: () => ({ decision: 'deny' }) })
     })
     await h.start()
 
@@ -240,5 +214,88 @@ describe('hub', () => {
 
     expect(result).toEqual({ decision: 'allow', reason: 'registered tree' })
     expect(engine.seen).toHaveLength(0)
+  })
+  test('a start that never settles times out, and the blocks after it still start', async () => {
+    const h = harness()
+    h.hub.block('gate-form', () => new Promise(() => {}))
+    h.hub.block('delivery', async () => {})
+
+    const started = h.start()
+    await h.clock.advance(START_TIMEOUT_MS)
+    await started
+
+    expect(h.hub.liveBlocks()).toEqual(['delivery'])
+    expect(h.logs.filter(l => l.to === 'debug' && l.text.includes('gate-form start'))).toHaveLength(1)
+  })
+
+  test('a subscription made outside any start belongs to the core, even while a start is pending', async () => {
+    const h = harness()
+    let release: () => void = () => {}
+    h.hub.block('gate-form', () => new Promise<void>(resolve => { release = resolve }))
+
+    const started = h.start()
+    await flush()
+    h.hub.onReceive('core', () => ({ consumed: 'core' }))
+    await h.clock.advance(START_TIMEOUT_MS)
+    await started
+    release()
+
+    expect(h.hub.liveBlocks()).toEqual([])
+    const engine = recorder({ text: 'x' })
+    const result = await h.fire('session.receive', { origin: { kind: 'peer' }, text: 'x' }, engine.next)
+    expect(result).toEqual({ consumed: 'core' })
+    expect(engine.seen).toHaveLength(0)
+  })
+
+  test('classic.SessionStart source clear reaches session-clear handlers; other sources do not', async () => {
+    const h = harness()
+    const seen: string[] = []
+    h.hub.onLifecycle('session-clear', (_api, e) => {
+      seen.push(e.session_id)
+    })
+    await h.start()
+
+    await h.fire('classic.SessionStart', { session_id: 'sess-r', source: 'resume' }, async () => ({}))
+    await h.clear('sess-2')
+
+    expect(seen).toEqual(['sess-2'])
+  })
+
+  test('session.end with reason clear is not reported as session-end; other reasons are', async () => {
+    const h = harness()
+    const reasons: string[] = []
+    h.hub.onLifecycle('session-end', (_api, e) => {
+      reasons.push(e.reason)
+    })
+    await h.start()
+
+    await h.end('clear')
+    await h.end('prompt_input_exit')
+
+    expect(reasons).toEqual(['prompt_input_exit'])
+  })
+
+  test('after start, one debug line lists the live blocks', async () => {
+    const h = harness()
+    h.hub.block('delivery', async () => {})
+    h.hub.block('presence', async () => {
+      throw new Error('no daemon')
+    })
+    await h.start()
+
+    const lines = h.logs.filter(l => l.text.includes('live blocks after start'))
+    expect(lines).toEqual([{ text: 'mattstack-mods: live blocks after start: delivery', to: 'debug' }])
+  })
+
+  test('keep clears every live block it does not name', async () => {
+    const h = harness()
+    h.hub.block('delivery', async () => {})
+    h.hub.block('presence', async () => {})
+    await h.start()
+
+    h.hub.keep(['presence', 'observe'])
+
+    expect(h.hub.liveBlocks()).toEqual(['presence'])
+    expect(h.hub.engaged()).toBe(true)
   })
 })

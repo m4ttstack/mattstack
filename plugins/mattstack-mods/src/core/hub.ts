@@ -7,7 +7,9 @@ import type {
   HttpInit,
   HttpResponse,
   On,
+  PluginState,
   SessionVersion,
+  Timer,
   UiLogOptions,
 } from 'claude-code'
 import type { ModBlock } from './blocks.ts'
@@ -18,9 +20,36 @@ import { supportedEngine } from './version.ts'
 // get this facade instead. A member is added here when a block needs it.
 export type ModApi = {
   ui: { log(text: string, options?: UiLogOptions): void }
-  session: { version(): Promise<SessionVersion> }
+  session: {
+    version(): Promise<SessionVersion>
+    id(): Promise<string>
+    cwd(): Promise<string>
+    root(): Promise<string>
+  }
   http: { fetch(url: string, init?: HttpInit): Promise<HttpResponse> }
+  clock: {
+    now(): Promise<number>
+    after(ms: number, fn: () => void): Timer
+    every(ms: number, fn: () => void): Timer
+  }
+  env: {
+    daemonSock(): Promise<string | undefined>
+    home(): Promise<string | undefined>
+    pane(): Promise<string | undefined>
+  }
+  state: {
+    linkId: Slot<ModState['linkId']>
+    context: Slot<ModState['context']>
+    sectionComposed: Slot<ModState['sectionComposed']>
+  }
 }
+
+type ModState = PluginState['mattstack-mods']
+export type ModContext = NonNullable<ModState['context']>
+type Slot<T> = { get(): Promise<T | undefined>; set(value: T): Promise<void> }
+
+/** How long a block's start may take before the hub gives up on it and starts the next. */
+export const START_TIMEOUT_MS = 3_000
 
 type ToolCall = EngineEventOf['tool.call']
 type ToolCallResult = EngineResultOf['tool.call']
@@ -61,19 +90,27 @@ export type LifecycleInputs = {
 export type Lifecycle = keyof LifecycleInputs
 export type LifecycleHandler<K extends Lifecycle> = (api: ModApi, e: LifecycleInputs[K]) => void | Promise<void>
 
-export type Hub = {
-  block(name: ModBlock, start: (api: ModApi) => Promise<void>): void
+export type Subscriptions = {
   onToolCall(rule: ToolRule): void
   onReceive(kind: string, handler: ReceiveHandler): void
   onStop(handler: StopHandler): void
   onLifecycle<K extends Lifecycle>(event: K, handler: LifecycleHandler<K>): void
   onRender(component: string, handler: RenderHandler): void
   section(id: string, text: () => string | null): void
-  liveBlocks(): ModBlock[]
 }
 
-// A subscription made while a block starts belongs to that block and lapses
-// with it; one made outside any start belongs to the core and never lapses.
+export type Hub = Subscriptions & {
+  /** `start` subscribes through `scope`; what it subscribes there lapses with the block. */
+  block(name: ModBlock, start: (api: ModApi, scope: Subscriptions) => Promise<void>): void
+  liveBlocks(): ModBlock[]
+  /** Clears every live block not in `blocks`; the daemon's answer to a register is the authority. */
+  keep(blocks: readonly string[]): void
+  /** Whether this session passed the engine and interactivity checks, so blocks were started. */
+  engaged(): boolean
+}
+
+// A block's subscriptions carry its name and lapse with it; the hub's own
+// methods subscribe for the core, which never lapses.
 type Owned<T> = T & { owner: ModBlock | null; label: string }
 
 type Core = {
@@ -89,15 +126,42 @@ type Core = {
 
 const cores = new WeakMap<Hub, Core>()
 
+/** Runs `run`, settling with its result or, after `ms`, with a timeout; a late result is dropped. */
+function bounded(api: ModApi, ms: number, run: () => Promise<void>): Promise<{ ok: true } | { ok: false; error: unknown }> {
+  return new Promise(resolve => {
+    let done = false
+    const settle = (out: { ok: true } | { ok: false; error: unknown }) => {
+      if (done) return
+      done = true
+      timer?.cancel()
+      resolve(out)
+    }
+    let timer: Timer | undefined
+    try {
+      timer = api.clock.after(ms, () => settle({ ok: false, error: new Error(`start did not settle within ${ms} ms`) }))
+    } catch {
+      timer = undefined
+    }
+    let running: Promise<void>
+    try {
+      running = run()
+    } catch (error) {
+      settle({ ok: false, error })
+      return
+    }
+    running.then(() => settle({ ok: true }), error => settle({ ok: false, error }))
+  })
+}
+
 function matches(tool: ToolMatch, name: string): boolean {
   return typeof tool === 'string' ? tool === name : tool.test(name)
 }
 
 export function createHub(): Hub {
-  const starts: { name: ModBlock; start: (api: ModApi) => Promise<void> }[] = []
+  const starts: { name: ModBlock; start: (api: ModApi, scope: Subscriptions) => Promise<void> }[] = []
   const live = new Set<ModBlock>()
-  let starting: ModBlock | null = null
   let started = false
+  let engaged = false
 
   const rules: Owned<{ rule: ToolRule }>[] = []
   const receivers: Owned<{ handler: ReceiveHandler }>[] = []
@@ -106,7 +170,7 @@ export function createHub(): Hub {
   const renderers: Owned<{ component: string; handler: RenderHandler }>[] = []
   const sectionList: Owned<{ id: string; text: () => string | null }>[] = []
 
-  const owned = <T extends object>(label: string, value: T): Owned<T> => ({ ...value, owner: starting, label })
+  const owned = <T extends object>(owner: ModBlock | null, label: string, value: T): Owned<T> => ({ ...value, owner, label })
   const active = (sub: { owner: ModBlock | null }) => sub.owner === null || live.has(sub.owner)
 
   function fail(api: ModApi, sub: { owner: ModBlock | null; label: string }, where: string, err: unknown): void {
@@ -186,16 +250,17 @@ export function createHub(): Hub {
         api.ui.log(`mattstack-mods: Claude Code ${release} is below the tested range; no block started`, { to: 'debug' })
         return
       }
+      engaged = true
       for (const { name, start } of starts) {
-        starting = name
-        try {
-          await start(api)
-          live.add(name)
-        } catch (err) {
-          fail(api, { owner: name, label: 'start' }, 'session.start', err)
-        } finally {
-          starting = null
-        }
+        const settled = await bounded(api, START_TIMEOUT_MS, () => start(api, subscriptions(name)))
+        if (settled.ok) live.add(name)
+        else fail(api, { owner: name, label: 'start' }, 'session.start', settled.error)
+      }
+      const names = starts.map(s => s.name).filter(name => live.has(name))
+      try {
+        api.ui.log(`mattstack-mods: live blocks after start: ${names.length > 0 ? names.join(', ') : 'none'}`, { to: 'debug' })
+      } catch {
+        // A failed log must not stop the session from starting.
       }
     },
 
@@ -285,31 +350,43 @@ export function createHub(): Hub {
     },
   }
 
+  function subscriptions(owner: ModBlock | null): Subscriptions {
+    return {
+      onToolCall(rule) {
+        rules.push(owned(owner, `${rule.stage} rule on ${String(rule.tool)}`, { rule }))
+      },
+      onReceive(kind, handler) {
+        receivers.push(owned(owner, `receiver ${kind}`, { handler }))
+      },
+      onStop(handler) {
+        stoppers.push(owned(owner, 'stop handler', { handler }))
+      },
+      onLifecycle(event, handler) {
+        lifecycles.push(owned(owner, `${event} handler`, { event, handler }))
+      },
+      onRender(component, handler) {
+        renderers.push(owned(owner, `${component} renderer`, { component, handler }))
+      },
+      section(id, text) {
+        sectionList.push(owned(owner, `section ${id}`, { id, text }))
+      },
+    }
+  }
+
   const hub: Hub = {
+    ...subscriptions(null),
     block(name, start) {
       if (starts.some(s => s.name === name)) throw new Error(`mattstack-mods: block ${name} is registered twice`)
       starts.push({ name, start })
     },
-    onToolCall(rule) {
-      rules.push(owned(`${rule.stage} rule on ${String(rule.tool)}`, { rule }))
-    },
-    onReceive(kind, handler) {
-      receivers.push(owned(`receiver ${kind}`, { handler }))
-    },
-    onStop(handler) {
-      stoppers.push(owned('stop handler', { handler }))
-    },
-    onLifecycle(event, handler) {
-      lifecycles.push(owned(`${event} handler`, { event, handler }))
-    },
-    onRender(component, handler) {
-      renderers.push(owned(`${component} renderer`, { component, handler }))
-    },
-    section(id, text) {
-      sectionList.push(owned(`section ${id}`, { id, text }))
-    },
     liveBlocks() {
       return starts.map(s => s.name).filter(name => live.has(name))
+    },
+    keep(blocks) {
+      for (const name of [...live]) if (!blocks.includes(name)) live.delete(name)
+    },
+    engaged() {
+      return engaged
     },
   }
   cores.set(hub, core)
@@ -319,8 +396,43 @@ export function createHub(): Hub {
 function facade($: EngineInterface): ModApi {
   return {
     ui: { log: (text, options) => $.ui.log(text, options) },
-    session: { version: () => $.session.version() },
+    session: {
+      version: () => $.session.version(),
+      id: () => $.session.id(),
+      cwd: () => $.session.cwd(),
+      root: () => $.session.root(),
+    },
     http: { fetch: (url, init) => $.http.fetch(url, init) },
+    clock: {
+      now: () => $.clock.now(),
+      after: (ms, fn) => $.clock.after(ms, fn),
+      every: (ms, fn) => $.clock.every(ms, fn),
+    },
+    env: {
+      daemonSock: () => $.env.get('RT_DAEMON_SOCK'),
+      home: () => $.env.get('HOME'),
+      pane: () => $.env.get('HERDR_PANE_ID'),
+    },
+    state: {
+      linkId: {
+        get: async () => (await $.state.get({ plugin: 'mattstack-mods', key: 'linkId' })).value,
+        set: async value => {
+          await $.state.set({ plugin: 'mattstack-mods', key: 'linkId' }, value)
+        },
+      },
+      context: {
+        get: async () => (await $.state.get({ plugin: 'mattstack-mods', key: 'context' })).value,
+        set: async value => {
+          await $.state.set({ plugin: 'mattstack-mods', key: 'context' }, value)
+        },
+      },
+      sectionComposed: {
+        get: async () => (await $.state.get({ plugin: 'mattstack-mods', key: 'sectionComposed' })).value,
+        set: async value => {
+          await $.state.set({ plugin: 'mattstack-mods', key: 'sectionComposed' }, value)
+        },
+      },
+    },
   }
 }
 

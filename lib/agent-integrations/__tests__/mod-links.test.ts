@@ -6,7 +6,10 @@ import { join } from "path";
 import type { ModBlock, NativeSessionRef } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { openStateDb } from "../../state/db.ts";
 import { createSessionStore } from "../session-store.ts";
-import { createModLinks, TESTED_CLAUDE_CODE, type ModLinks, type ModLinksDeps } from "../claude/mod-links.ts";
+import {
+  createModLinks, modCommandEnvelope, pushModCommand, MOD_COMMAND_ACK_MS, TESTED_CLAUDE_CODE,
+  type ModLinks, type ModLinksDeps, type PushDeps,
+} from "../claude/mod-links.ts";
 import { createGatesStore } from "../../daemon/gates-store.ts";
 import { createGateQuestions } from "../questions.ts";
 import pino from "pino";
@@ -266,7 +269,105 @@ describe("mod links", () => {
     const { linkId } = register(links, "sess-1");
     expect(links.ack("ml-missing", "cmd-1").ok).toBe(false);
     expect(links.ack(linkId, "cmd-1").ok).toBe(true);
-    expect(links.takeAck("cmd-1")).toEqual({ linkId, sessionId: "sess-1", at: clock.now });
-    expect(links.takeAck("cmd-1")).toBeNull();
+    expect(links.takeAck("cmd-1", "sess-1")).toEqual({ linkId, sessionId: "sess-1", at: clock.now });
+    expect(links.takeAck("cmd-1", "sess-1")).toBeNull();
+  });
+
+  test("the first ack wins, and another session's link cannot ack a command for this one", () => {
+    const { links, clock } = harness();
+    const one = register(links, "sess-1");
+    const two = register(links, "sess-2");
+
+    expect(links.ack(two.linkId, "cmd-1").ok).toBe(true);
+    expect(links.takeAck("cmd-1", "sess-1")).toBeNull();
+
+    const first = clock.now;
+    expect(links.ack(one.linkId, "cmd-1").ok).toBe(true);
+    clock.now += 1_000;
+    expect(links.ack(one.linkId, "cmd-1").ok).toBe(true);
+    expect(links.takeAck("cmd-1", "sess-1")).toEqual({ linkId: one.linkId, sessionId: "sess-1", at: first });
+  });
+});
+
+describe("pushModCommand", () => {
+  function push(over: Partial<PushDeps> & { ackFrom?: () => string | null } = {}) {
+    const h = harness();
+    const { linkId } = register(h.links, "sess-1");
+    const writes: { socketPath: string; content: string; msgId?: string }[] = [];
+    let slept = 0;
+    const { ackFrom, ...rest } = over;
+    const deps: PushDeps = {
+      links: h.links,
+      inbox: (sessionId) => (sessionId === "sess-1" ? { socketPath: "/inbox/sess-1.sock" } : null),
+      deliver: async (socketPath, content, opts) => {
+        writes.push({ socketPath, content, ...(opts?.msgId !== undefined && { msgId: opts.msgId }) });
+        return { ok: true };
+      },
+      now: () => h.clock.now,
+      sleep: async (ms) => {
+        slept += ms;
+        const acker = ackFrom ? ackFrom() : linkId;
+        if (acker && writes.length > 0) h.links.ack(acker, "cmd-fixed");
+        h.clock.now += ms;
+      },
+      newId: () => "cmd-fixed",
+      ...rest,
+    };
+    return { ...h, linkId, writes, deps, slept: () => slept };
+  }
+
+  test("writes the command envelope to the session's inbox and reports its ack", async () => {
+    const p = push();
+    const result = await pushModCommand("sess-1", "gate.complete", { gate: "g1" }, p.deps);
+
+    expect(result).toEqual({ ok: true, data: { acked: true } });
+    expect(p.writes).toEqual([{
+      socketPath: "/inbox/sess-1.sock",
+      content: '<rt-mod-command id="cmd-fixed" kind="gate.complete">{"gate":"g1"}</rt-mod-command>',
+      msgId: "cmd-fixed",
+    }]);
+    expect(modCommandEnvelope("cmd-fixed", "ping", undefined)).toBe('<rt-mod-command id="cmd-fixed" kind="ping">null</rt-mod-command>');
+  });
+
+  test("an ack from another session's link does not count, and the push reports no ack after 5 s", async () => {
+    let other: string | null = null;
+    const p = push({ ackFrom: () => other });
+    other = register(p.links, "sess-2").linkId;
+    const result = await pushModCommand("sess-1", "gate.complete", {}, p.deps);
+
+    expect(result).toEqual({ ok: true, data: { acked: false } });
+    expect(p.slept()).toBeGreaterThanOrEqual(MOD_COMMAND_ACK_MS);
+    expect(p.slept()).toBeLessThan(MOD_COMMAND_ACK_MS + 1_000);
+  });
+
+  test("a session with no live link or no inbox gets nothing written", async () => {
+    const p = push();
+    const noLink = await pushModCommand("sess-9", "ping", null, p.deps);
+    expect(noLink.ok).toBe(false);
+    if (!noLink.ok) expect(noLink.error.code).toBe("not-ready");
+
+    const noInbox = await pushModCommand("sess-1", "ping", null, { ...p.deps, inbox: () => null });
+    expect(noInbox.ok).toBe(false);
+    if (!noInbox.ok) expect(noInbox.error.code).toBe("not-ready");
+
+    const noRegistry = await pushModCommand("sess-1", "ping", null, { ...p.deps, links: null });
+    expect(noRegistry.ok).toBe(false);
+    if (!noRegistry.ok) expect(noRegistry.error.code).toBe("not-ready");
+    expect(p.writes).toHaveLength(0);
+  });
+
+  test("a failed inbox write is transient, and a kind that cannot ride the envelope is invalid", async () => {
+    const p = push();
+    const failed = await pushModCommand("sess-1", "ping", null, { ...p.deps, deliver: async () => ({ ok: false, error: "ECONNREFUSED" }) });
+    expect(failed.ok).toBe(false);
+    if (!failed.ok) expect(failed.error.code).toBe("transient");
+
+    const writes = p.writes.length;
+    for (const kind of ["", 'a"b', "a>b", "two words"]) {
+      const bad = await pushModCommand("sess-1", kind, null, p.deps);
+      expect(bad.ok).toBe(false);
+      if (!bad.ok) expect(bad.error.code).toBe("invalid");
+    }
+    expect(p.writes).toHaveLength(writes);
   });
 });

@@ -15,13 +15,15 @@ so every feature takes its existing path.
 
 | Path | What it is |
 | --- | --- |
-| `hooks/register.ts` | The one module `hooks/hooks.json` names. It builds the hub and registers the blocks. |
+| `hooks/register.ts` | The one module `hooks/hooks.json` names. It builds the hub and the link and registers the blocks. |
 | `src/core/hub.ts` | The hub. It owns every engine hook and fans each event out to the blocks. |
+| `src/core/link.ts` | The daemon link: register, heartbeat, `/clear`, end, waits and pushed commands. |
+| `src/core/rpc.ts` | One call to a daemon verb over `rt.sock`, capped at 25 s. |
 | `src/core/blocks.ts` | The block names. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
-| `src/core/version.ts` | The minimum engine version and the check against it. |
+| `src/core/version.ts` | The minimum engine version, the check against it, and the plugin version the link reports. |
 | `src/blocks/` | One file per feature block (none yet). |
 | `types/index.d.ts` | The plugin's own contract: the `$.state` values it keeps. |
-| `tests/` | `claude plugin test` cases. They drive the hub with a stubbed `$`. |
+| `tests/` | `claude plugin test` cases. They drive the hub and link with the stubbed `$` in `tests/stub.ts`. |
 
 ## Blocks only see the facade
 
@@ -34,11 +36,14 @@ that needs another engine call adds a member to `ModApi` in `hub.ts`. A
 `$.state` or `$.env` member names its key as a literal, since the engine only
 accepts literal keys.
 
-A block registers with `hub.block(name, start)`. Everything it subscribes to
-while `start` runs (tool rules, delivery receivers, stop handlers, lifecycle
-events, render sites, prompt sections) belongs to it. If one of those throws,
-the hub logs it to the debug log, clears the block for the session and passes
-the event through as if the mod were not there.
+A block registers with `hub.block(name, start)`. `start` receives the facade
+and a scope, and everything it subscribes to through that scope (tool rules,
+delivery receivers, stop handlers, lifecycle events, render sites, prompt
+sections) belongs to it. If one of those throws, the hub logs it to the debug
+log, clears the block for the session and passes the event through as if the
+mod were not there. What is subscribed on the hub itself belongs to the core
+and never lapses. A `start` that has not settled after 3 s counts as failed,
+and the next block starts.
 
 Tool rules run in five stages:
 
@@ -47,6 +52,31 @@ Tool rules run in five stages:
 - `permit` wraps the call as middleware.
 - `tap` sees the result after the call.
 - `check` answers `tool.check` with a decision.
+
+## The daemon link
+
+`createLink(hub).start()` in `register.ts` subscribes the link before any
+block, so it sees deliveries first. Once the blocks have started, it calls
+`session:register` over `rt.sock` (`RT_DAEMON_SOCK`, else
+`$HOME/.mattstack/rt/rt.sock`) with the live blocks, keeps only the blocks the
+daemon answers, and heartbeats every 10 s. A `/clear` re-registers under the
+new session id, naming the old id and link. Any other session end sends
+`session:end`. An `unknown-link` answer (the daemon restarted) registers again
+with the same session id; a refused register turns every block off for the
+session. A register the daemon could not take is sent again, unchanged, on the
+next beat.
+
+A block reaches the daemon through the link:
+
+- `link.wait(pattern, after, until, signal)` long-polls `events:wait` in
+  20 s rounds, passing the cursor, and retries a dropped round with the same
+  cursor.
+- `link.onCommand(kind, handler, block)` takes the commands rt sends with
+  `pushModCommand`. Each arrives as an inbox delivery that is exactly
+  `<rt-mod-command id="..." kind="...">json</rt-mod-command>`; the link
+  consumes it before the model sees it, runs the handler and acks it with
+  `session:ack`. A command that fails, or whose block is not live, is not
+  acked, so rt takes its fallback.
 
 ## Checks
 

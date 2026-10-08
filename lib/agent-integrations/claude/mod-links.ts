@@ -13,6 +13,8 @@
 import {
   MOD_BLOCKS, type ModBlock, type FaultCode, type Outcome,
 } from "../../../packages/rt-client/src/agent-integrations.ts";
+import { resolveLiveInbox } from "../../claude-registry.ts";
+import { deliverToInbox } from "../../daemon/inbox.ts";
 import type { SessionStore } from "../session-store.ts";
 
 /** The Claude Code releases this daemon has tested the plugin against. Only a test run widens it. */
@@ -50,9 +52,10 @@ export interface ModLinks {
   has(linkId: string): boolean;
   live(sessionId: string, block: ModBlock): boolean;
   linkOf(sessionId: string): ModLinkView | null;
+  /** Records the first ack of `commandId` from `linkId`'s session; a later one for the same pair changes nothing. */
   ack(linkId: string, commandId: string): Outcome<void>;
-  /** Removes and returns the ack recorded under `commandId`, or null when none has arrived. */
-  takeAck(commandId: string): ModAck | null;
+  /** Removes and returns `sessionId`'s ack of `commandId`, or null when that session has not acked it. */
+  takeAck(commandId: string, sessionId: string): ModAck | null;
   /** Drops expired links (every link while the switch is off) and aged acks; returns how many links it dropped. */
   sweep(): number;
 }
@@ -108,7 +111,9 @@ export function installedModLinks(): ModLinks | null {
 export function createModLinks(deps: ModLinksDeps): ModLinks {
   const links = new Map<string, ModLinkView>();
   const bySession = new Map<string, string>();
+  // Keyed by session and command id, so one session's link cannot ack a command pushed to another.
   const acks = new Map<string, ModAck>();
+  const ackKey = (sessionId: string, commandId: string) => `${sessionId}\n${commandId}`;
 
   function drop(linkId: string): void {
     const link = links.get(linkId);
@@ -217,17 +222,80 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
     ack(linkId, commandId) {
       const link = known(linkId);
       if (!link) return fail("invalid", UNKNOWN_LINK);
-      acks.set(commandId, { linkId, sessionId: link.sessionId, at: deps.now() });
+      const key = ackKey(link.sessionId, commandId);
+      if (!acks.has(key)) acks.set(key, { linkId, sessionId: link.sessionId, at: deps.now() });
       return { ok: true, data: undefined };
     },
 
-    takeAck(commandId) {
-      const ack = acks.get(commandId);
+    takeAck(commandId, sessionId) {
+      const key = ackKey(sessionId, commandId);
+      const ack = acks.get(key);
       if (!ack) return null;
-      acks.delete(commandId);
+      acks.delete(key);
       return ack;
     },
 
     sweep,
   };
+}
+
+/** How long a push waits for the mod's `session:ack` before reporting the command unconfirmed. */
+export const MOD_COMMAND_ACK_MS = 5_000;
+const ACK_POLL_MS = 50;
+const COMMAND_KIND = /^[A-Za-z][A-Za-z0-9._-]*$/;
+
+/**
+ * The inbox frame's whole content for one command. The mod consumes a delivery
+ * only when it is exactly this envelope, so a chat message quoting one (always
+ * wrapped in its cross-session-message) never reads as a command.
+ */
+export function modCommandEnvelope(id: string, kind: string, data: unknown): string {
+  return `<rt-mod-command id="${id}" kind="${kind}">${JSON.stringify(data ?? null)}</rt-mod-command>`;
+}
+
+export type PushDeps = {
+  links: ModLinks | null;
+  inbox(sessionId: string): { socketPath: string } | null;
+  deliver: typeof deliverToInbox;
+  now(): number;
+  sleep(ms: number): Promise<void>;
+  newId(): string;
+};
+
+function defaultPushDeps(): PushDeps {
+  return {
+    links: installedModLinks(),
+    inbox: (sessionId) => resolveLiveInbox(sessionId),
+    deliver: deliverToInbox,
+    now: () => Date.now(),
+    sleep: (ms) => Bun.sleep(ms),
+    newId: () => crypto.randomUUID(),
+  };
+}
+
+/**
+ * Sends one command to a Claude session's mod through its inbox and waits up
+ * to MOD_COMMAND_ACK_MS for that session's ack. `acked: false` is the caller's
+ * cue to take its fallback, once, for that action.
+ */
+export async function pushModCommand(
+  sessionId: string, kind: string, data: unknown, overrides: Partial<PushDeps> = {},
+): Promise<Outcome<{ acked: boolean }>> {
+  const deps: PushDeps = { ...defaultPushDeps(), ...overrides };
+  if (!COMMAND_KIND.test(kind)) return fail("invalid", `"${kind}" cannot name a mod command`);
+  if (!deps.links) return fail("not-ready", "this process holds no mod links");
+  if (!deps.links.linkOf(sessionId)) return fail("not-ready", `Claude session ${sessionId} has no live mod link`);
+  const inbox = deps.inbox(sessionId);
+  if (!inbox) return fail("not-ready", `Claude session ${sessionId} has no live inbox`);
+
+  const id = deps.newId();
+  const written = await deps.deliver(inbox.socketPath, modCommandEnvelope(id, kind, data), { msgId: id });
+  if (!written.ok) return fail("transient", `the command could not be written to session ${sessionId}'s inbox: ${written.error}`);
+
+  const deadline = deps.now() + MOD_COMMAND_ACK_MS;
+  for (;;) {
+    if (deps.links.takeAck(id, sessionId)) return { ok: true, data: { acked: true } };
+    if (deps.now() >= deadline) return { ok: true, data: { acked: false } };
+    await deps.sleep(ACK_POLL_MS);
+  }
 }

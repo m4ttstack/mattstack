@@ -884,6 +884,8 @@ export interface Commands {
   "session:end": { payload: { linkId: string }; data: Record<string, never> };
   /** Confirms the pushed command `id` arrived. */
   "session:ack": { payload: { linkId: string; id: string }; data: Record<string, never> };
+  /** Sends the command `kind` to the session's mod; `acked` is false when no ack came within 5 s. */
+  "session:push": { payload: { sessionId: string; kind: string; data?: unknown }; data: { acked: boolean } };
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read": { payload: { branches?: string[]; maxAgeMs?: number; repoIdentity?: string }; data: Record<string, BranchEnrichment> };
@@ -1232,6 +1234,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "session:heartbeat",
   "session:end",
   "session:ack",
+  "session:push",
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read",

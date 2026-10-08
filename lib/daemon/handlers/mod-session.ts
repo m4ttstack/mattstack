@@ -3,12 +3,17 @@
  * a mattstack-mods link calls over rt.sock. Every verb but register answers an
  * unknown or superseded link with the `unknown-link` failure code, which is the
  * one answer the mod re-registers on.
+ *
+ * session:push sends a command to a session's mod and reports whether it was
+ * acked; it is how a person or a live check reaches a mod from outside.
  */
 
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
-import { UNKNOWN_LINK, type ModLinks } from "../../agent-integrations/claude/mod-links.ts";
+import type { Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
+import { pushModCommand, UNKNOWN_LINK, type ModLinks } from "../../agent-integrations/claude/mod-links.ts";
 
-type Verb = "session:register" | "session:heartbeat" | "session:end" | "session:ack";
+type Verb = "session:register" | "session:heartbeat" | "session:end" | "session:ack" | "session:push";
+type Push = (sessionId: string, kind: string, data: unknown) => Promise<Outcome<{ acked: boolean }>>;
 /** CommandResult's shape, spelled here because ./types.ts reaches setup modules through the daemon's snapshot types. */
 type Result<K extends Verb> =
   | { ok: true; data: Commands[K]["data"] }
@@ -34,10 +39,11 @@ function registrationProblem(p: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
-export function createModSessionHandlers(deps: { links: ModLinks }): {
+export function createModSessionHandlers(deps: { links: ModLinks; push?: Push }): {
   [K in Verb]: (payload: unknown) => Promise<Result<K>>;
 } {
   const { links } = deps;
+  const push: Push = deps.push ?? ((sessionId, kind, data) => pushModCommand(sessionId, kind, data, { links }));
   return {
     "session:register": async (payload) => {
       const p = record(payload);
@@ -67,6 +73,14 @@ export function createModSessionHandlers(deps: { links: ModLinks }): {
       if (!isText(linkId)) return invalid("linkId must be a non-empty string");
       if (!isText(id)) return invalid("id must be a non-empty string");
       return links.ack(linkId, id).ok ? { ok: true, data: {} } : unknownLink();
+    },
+
+    "session:push": async (payload) => {
+      const { sessionId, kind, data } = record(payload);
+      if (!isText(sessionId)) return invalid("sessionId must be a non-empty string");
+      if (!isText(kind)) return invalid("kind must be a non-empty string");
+      const pushed = await push(sessionId, kind, data ?? null);
+      return pushed.ok ? { ok: true, data: pushed.data } : declined(pushed.error.code, pushed.error.message);
     },
   };
 }
