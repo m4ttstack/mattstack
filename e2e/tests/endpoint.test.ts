@@ -458,7 +458,10 @@ describe("rt endpoint / intercept (just-works e2e)", () => {
   }, 30_000);
 
   test("rt verify reports the intercept shims check", async () => {
-    const res = await finished(runRt(["verify", "--json"]));
+    // The row asks the member's login shell for PATH, never rt's own env, so
+    // the fake home's shell is what puts ~/.local/bin on it.
+    writeFileSync(join(home, ".zshrc"), 'export PATH="$HOME/.local/bin:$PATH"\n');
+    const res = await finished(spawnTracked([RT_BINARY, "verify", "--json"], { env: childEnv({ SHELL: "/bin/zsh" }) }));
     const out = JSON.parse(res.stdout);
     const check = out.checks.find((c: { name: string }) => c.name === "tool.intercepts");
     expect(check).toBeDefined();

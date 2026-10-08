@@ -28,6 +28,7 @@ import { markerOrg, ORG_LAYOUT } from "../../team/org-marker.ts";
 import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { hasCommits, hasRemote, isGitRepo, originPushState } from "../home-git.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
+import { memberPath } from "../member-path.ts";
 import { execWithTimeout, type Probes } from "../probes.ts";
 import { discoverOrgs } from "../team-settings.ts";
 import { ONE_TEAM_RULE } from "../../team/one-team.ts";
@@ -87,6 +88,8 @@ const REAL_EXEC: Probes["exec"] = execWithTimeout;
 const LINK_BUNDLED_RT: Action = { type: "link-bundled", label: "Use mattstack's", tool: "rt" };
 const RECHECK_ACTION: Action = { type: "run", label: "Re-check", verb: ["setup", "status"] };
 const REINSTALL_SHIMS_ACTION: Action = { type: "run", label: "Re-install shims", verb: ["intercept", "install"] };
+/** Re-installing shims cannot change PATH; `path.link` writes the shell blocks that do. */
+const SET_UP_PATH_ACTION: Action = { type: "run", label: "Set up PATH", verb: ["setup", "apply", "--only", "path.link"] };
 const INSTALL_EXTENSION_ACTION: Action = { type: "run", label: "Install extension", verb: ["tools", "setup", "extension"] };
 const HOME_BACKUP_PUSH_STEP = "git -C ~/.mattstack/user push origin HEAD, or wait for the daemon to push on its next cycle (up to 30 minutes)";
 const HOME_BACKUP_ADD_REMOTE_ACTION: Action = {
@@ -201,9 +204,10 @@ async function interceptsRow(p: Probes): Promise<Row> {
   const missing = report.filter((r) => !r.installed);
   const stale = report.filter((r) => r.installed && !r.current);
   const binDir = localBinDir();
-  const onPath = (p.env.PATH ?? "").split(":").some((entry) => entry === binDir || entry.replace(/\/+$/, "") === binDir);
-  const pathBroken = report.some((r) => r.installed) && !onPath;
-  const pathNote = pathBroken ? `. Also, ${binDir} is not on your PATH, so intercepts will not fire` : "";
+  const shellPath = await memberPath(p);
+  const anyInstalled = report.some((r) => r.installed);
+  const pathBroken = anyInstalled && shellPath !== null && !shellPath.includes(binDir);
+  const pathNote = pathBroken ? `. Also, ${binDir} is not on your shell's PATH, so intercepts will not fire` : "";
 
   if (missing.length > 0) {
     return row({ ...base, status: "needs-you", detail: `Not installed yet: ${missing.map((r) => r.command).join(", ")}. Run rt intercept install${pathNote}`, action: REINSTALL_SHIMS_ACTION });
@@ -212,10 +216,13 @@ async function interceptsRow(p: Probes): Promise<Row> {
     return row({ ...base, status: "needs-you", detail: `Out of date: ${stale.map((r) => r.command).join(", ")}. Run rt intercept install${pathNote}`, action: REINSTALL_SHIMS_ACTION });
   }
   if (pathBroken) {
-    return row({ ...base, status: "needs-you", detail: `Installed, but ${binDir} is not on your PATH, so intercepts will not fire`, action: REINSTALL_SHIMS_ACTION });
+    return row({ ...base, status: "needs-you", detail: `Installed, but ${binDir} is not on your shell's PATH, so intercepts will not fire`, action: SET_UP_PATH_ACTION });
   }
   if (staleRules.stale) {
     return row({ ...base, status: "needs-you", detail: `Installed, but the rules are out of date (${staleRules.reason}). Run rt intercept install`, action: REINSTALL_SHIMS_ACTION });
+  }
+  if (shellPath === null) {
+    return row({ ...base, status: "error", detail: "Installed, but rt could not read your shell's PATH to check that intercepts will fire", action: RECHECK_ACTION });
   }
   return row({ ...base, status: "ready", detail: `${report.length} installed and up to date` });
 }
