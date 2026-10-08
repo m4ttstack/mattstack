@@ -78,13 +78,24 @@ List every team the apps should know about, including teams that do not use matt
 | `slack.codeOwnersChannel` | Where other teams ask this team for code owner review. The board matches a CODEOWNERS section to this team by it. |
 | `slack.channels` | The team's other channels, each with a `name` and a `kind`. The board reads the `review` kind as the team's review channel. Teams can add kinds of their own. |
 
-Channel names leave off the `#`. Two teams cannot share a code owners channel, and a kind no app reads is accepted with a notice.
+Channel names leave off the `#`; matching ignores case and a leading `#`, so `#Pod-Widgets` still matches `pod-widgets`. Two teams cannot share a code owners channel. `rt settings set` accepts a kind no app reads, with a notice; the console accepts it without one.
 
 To change the directory, edit it in the console's settings page, or run:
 
 ```bash
 rt settings set mattstack.directory '<json>' --scope org
 ```
+
+### Moving to the team directory
+
+The first `rt setup update` on an org admin's Mac fills in each team's entry from that team's older settings, and never overwrites an entry that is already there. Then it deletes the old values:
+
+- `board.slack.channel`.
+- `mattstack.integrations.linear.teamKey`.
+- a codeowners tab's `slackChannel`, when it equals the team's code owners channel.
+- `board.ticketPrefixes`, when it holds only the team's Linear key.
+
+On any other Mac it changes nothing, and the admin's changes arrive with the next pull. Update every member's Mac before the admin's: after the move, a board from before the team directory still posts, but to its built-in `#code-review` channel instead of your team's. A board older than v2.21.0 also loses its tabs.
 
 ## Inviting a member
 
