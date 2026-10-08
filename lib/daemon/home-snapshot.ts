@@ -48,8 +48,8 @@ import { TEAM_NAME_RE } from "../../packages/rt-client/src/settings/stores.ts";
 import { roleFor } from "../team/roles.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
 import { readTeamLocal, type PendingPackShare } from "../team/team-local.ts";
-import { updateSentence } from "../team/org-layout.ts";
-import { ORG_LAYOUT, ORG_MARKER_REL, parseMarker } from "../team/org-marker.ts";
+import { layoutAbove, markerAtRef, updateSentence } from "../team/org-layout.ts";
+import { ORG_LAYOUT } from "../team/org-marker.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
 import { HOME_SNAPSHOT_NS, recordHomePush, type HomePushRecord } from "../home/push-record.ts";
@@ -433,13 +433,7 @@ function marketplaceOwed(shares: PendingPackShare[], repoDir: string, dirty: rea
 
 /** The org layout at `ref`, when it is one this rt does not read. A tip with no marker, a marker rt cannot parse, or a layout at or below ORG_LAYOUT passes. */
 export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: string): Promise<{ layout: number } | null> {
-  const shown = await exec(["git", "-C", repoDir, "show", `${ref}:${ORG_MARKER_REL}`], { timeoutMs: GIT_TIMEOUT_MS, env: { LC_ALL: "C" } });
-  if (shown.code !== 0) {
-    if (/does not exist|exists on disk, but not in|not in the index/i.test(shown.stderr)) return null;
-    throw new Error(shown.stderr.trim() || `git show exited ${shown.code}`);
-  }
-  const marker = parseMarker(shown.stdout);
-  return marker.kind === "org" && marker.layout > ORG_LAYOUT ? { layout: marker.layout } : null;
+  return layoutAbove(await exec(["git", "-C", repoDir, "show", markerAtRef(ref)], { timeoutMs: GIT_TIMEOUT_MS, env: { LC_ALL: "C" } }));
 }
 
 /** A team clone: no legacy state file (nothing predates it), and it pulls (multi-writer), unlike the home repo. */

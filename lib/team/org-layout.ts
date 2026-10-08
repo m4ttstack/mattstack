@@ -9,7 +9,7 @@ import { join } from "path";
 import { UserActionableError } from "../errors.ts";
 import { orgDirUnder, orgsDirUnder } from "../rt-paths.ts";
 import type { Probes } from "../setup/probes.ts";
-import { markerState, ORG_LAYOUT, type MarkerState } from "./org-marker.ts";
+import { markerState, ORG_LAYOUT, ORG_MARKER_REL, parseMarker, type MarkerState } from "./org-marker.ts";
 
 export type OrgLayoutState =
   | { kind: "none" }
@@ -20,6 +20,31 @@ export const WAITING_SENTENCE = "Your org has not moved to its new layout yet. r
 
 export function updateSentence(layout: number): string {
   return `Your org uses layout ${layout} and this app reads up to ${ORG_LAYOUT}. Update the app.`;
+}
+
+/** Whether a refusal's text is updateSentence's, so a reader can tell the layout hold from a failed command. */
+export function isUpdateSentence(text: string): boolean {
+  const m = /^Your org uses layout (\d+) /.exec(text);
+  return m !== null && text === updateSentence(Number(m[1]));
+}
+
+/** The `git show` argument that prints the org marker at `ref`. */
+export function markerAtRef(ref: string): string {
+  return `${ref}:${ORG_MARKER_REL}`;
+}
+
+/**
+ * The layout a `git show <markerAtRef(ref)>` printed, when it is one this rt
+ * does not read. A tip with no marker, a marker rt cannot parse, or a layout
+ * at or below ORG_LAYOUT passes; any other git failure throws.
+ */
+export function layoutAbove(shown: { code: number; stdout: string; stderr: string }): { layout: number } | null {
+  if (shown.code !== 0) {
+    if (/does not exist|exists on disk, but not in|not in the index/i.test(shown.stderr)) return null;
+    throw new Error(shown.stderr.trim() || `git show exited ${shown.code}`);
+  }
+  const marker = parseMarker(shown.stdout);
+  return marker.kind === "org" && marker.layout > ORG_LAYOUT ? { layout: marker.layout } : null;
 }
 
 export function layoutSentence(state: Extract<OrgLayoutState, { kind: "waiting" }>): string {
