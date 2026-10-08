@@ -70,6 +70,8 @@ function kit(bodyColumns = 40) {
   })
   const focused: { requestId: string; key: string }[] = []
   h.$.ui.focus = async (args: { requestId: string; key: string }) => (focused.push(args), {})
+  const scrolled: unknown[] = []
+  h.$.ui.scroll = async (args: unknown) => (scrolled.push(args), {})
   const api = {
     ui: {
       open: h.$.ui.open,
@@ -77,7 +79,9 @@ function kit(bodyColumns = 40) {
       redraw: h.$.ui.invalidate,
       log: () => {},
       focus: (requestId: string, key: string) => h.$.ui.focus({ requestId, key }),
+      scroll: (args: unknown) => h.$.ui.scroll(args),
     },
+    clock: { now: () => h.$.clock.now() },
   } as any
   const draw = async (): Promise<any> =>
     h.fire('ui.render', { surface: 'terminal', component: 'Pane', requestId: FORM_PANE_ID, props: { bodyColumns } }, async () => ({ element: 'Box', props: { children: [] } }))
@@ -91,11 +95,41 @@ function kit(bodyColumns = 40) {
     return answered
   }
   const buttons = async () => walk(await draw()).filter(e => e.element === 'Button')
-  return { h, display, api, opened, closed, focused, draw, press, ask, buttons }
+  /** A press as the engine raises it (hotkey, Enter or click alike): `ui.press`, then the Button's own onPress. */
+  const enginePress = async (key: string) => {
+    const tree = await draw()
+    const reached: string[] = []
+    await h.fire('ui.press', { plugin: 'mattstack-mods', element: key, component: 'Pane', requestId: FORM_PANE_ID, surface: 'terminal' }, async (e: any) => {
+      reached.push(e.element)
+      byKey(tree, e.element).props.onPress(e)
+      return { element: e.element }
+    })
+    await flush()
+    return reached.length > 0
+  }
+  /** The ring landing on `key`, moved by the person (Tab, a click) or by a plugin. */
+  const ring = (key: string, by: 'person' | 'plugin' = 'person') =>
+    h.fire(
+      'ui.focus',
+      { component: 'Pane', requestId: FORM_PANE_ID, plugin: 'mattstack-mods', element: key, origin: by === 'person' ? { kind: 'person' } : { kind: 'plugin', name: 'mattstack-mods' } },
+      async () => ({}),
+    )
+  /** A window move on the pane; resolves to whether the engine's move went ahead. */
+  const scroll = async (by: number, over: Record<string, unknown> = {}) => {
+    let moved = false
+    await h.fire(
+      'ui.scroll',
+      { component: 'Pane', requestId: FORM_PANE_ID, offset: 0, by, bodyRows: 10, contentRows: 30, origin: { kind: 'person' }, ...over },
+      async () => ((moved = true), {}),
+    )
+    await flush()
+    return moved
+  }
+  return { h, display, api, opened, closed, focused, scrolled, draw, press, enginePress, ring, scroll, ask, buttons }
 }
 
 describe('display kit', () => {
-  test('a single question: a letter answers it, s skips, and no digit is a hotkey', async () => {
+  test('a single question: a letter answers it, there is no pane Skip, and no digit is a hotkey', async () => {
     const k = kit()
     const answered = k.ask(SHIP)
     await flush()
@@ -104,27 +138,26 @@ describe('display kit', () => {
       ['option-0', 'Yes', 'a'],
       ['option-1', 'no', 'b'],
       ['option-2', 'later', 'c'],
-      ['skip', 'Skip', 's'],
     ])
     expect(all.every(b => b.props.plain === true)).toBe(true)
     expect(all.filter(b => /^\d$/.test(b.props.hotkey ?? ''))).toEqual([])
     expect(all[0].props.autoFocus).toBe(true)
-    expect(byKey(await k.draw(), 'skip').props.role).toBe('dismiss')
+    expect(byKey(await k.draw(), 'skip')).toBeUndefined()
     expect(texts(await k.draw())).toContain('one choice · a letter answers')
-    expect(texts(await k.draw())).toContain('↑↓ move · ⏎ or a letter answers · esc back')
+    expect(texts(await k.draw())).toContain('↑↓ move · ⏎ or a letter answers · esc closes')
 
     await k.press('option-1')
     expect(await answered).toEqual({ ship: 'no' })
     expect(k.closed).toEqual([FORM_PANE_ID])
   })
 
-  test('choice letters run past s without taking it', async () => {
+  test('choice letters run a to z with no hole at s', async () => {
     const k = kit()
-    void k.ask({ id: 'g-1', questions: [{ id: 'q', label: 'Pick one', options: Array.from({ length: 27 }, (_, i) => `o${i}`) }] })
+    void k.ask({ id: 'g-1', questions: [{ id: 'q', label: 'Pick one', options: Array.from({ length: 28 }, (_, i) => `o${i}`) }] })
     await flush()
     const hotkeys = (await k.buttons()).filter(b => b.props.key.startsWith('option-')).map(b => b.props.hotkey ?? '')
-    expect(hotkeys.join('')).toBe('abcdefghijklmnopqrtuvwxyz')
-    expect(hotkeys.slice(25)).toEqual(['', ''])
+    expect(hotkeys.join('')).toBe('abcdefghijklmnopqrstuvwxyz')
+    expect(hotkeys.slice(26)).toEqual(['', ''])
   })
 
   test('a multi question: a letter ticks, Next refuses an empty pick, and the last question says Done', async () => {
@@ -142,7 +175,7 @@ describe('display kit', () => {
     expect(byKey(first, 'next').props).toMatchObject({ label: 'Next: 0 picked →', variant: 'primary' })
     expect(byKey(first, 'next').props.hotkey).toBeUndefined()
     expect(texts(first)).toContain('pick any · a letter ticks or unticks · Next moves on')
-    expect(texts(first)).toContain('↑↓ move · letter ticks · ⏎ on Next continues · esc back')
+    expect(texts(first)).toContain('↑↓ move · letter ticks · ⏎ on Next continues · esc closes')
     expect(byKey(first, 'note').props.placeholder).toBe('optional, posted with your picks')
 
     await k.press('next')
@@ -178,8 +211,8 @@ describe('display kit', () => {
     expect(byKey(second, 'back').props).toMatchObject({ label: '← Back', dimColor: true })
     expect(byKey(second, 'back').props.hotkey).toBeUndefined()
     expect(byKey(second, 'note').props.value).toBe('')
-    const actions = walk(second).filter(e => e.element === 'Button' && ['back', 'skip'].includes(e.props.key))
-    expect(actions.map(b => b.props.key)).toEqual(['back', 'skip'])
+    const actions = walk(second).filter(e => e.element === 'Button' && !e.props.key.startsWith('option-'))
+    expect(actions.map(b => b.props.key)).toEqual(['back'])
 
     await k.press('back')
     const again = await k.draw()
@@ -200,7 +233,7 @@ describe('display kit', () => {
     const header = byKey(await k.draw(), 'header')
     expect(texts(header)).toEqual(['review-post · !146045', 'question 1 of 2', '●', '○'])
     const dots = walk(header).filter(e => e.element === 'Text' && ['●', '○'].includes(e.props.children[0]))
-    expect(dots.map(d => d.props.color)).toEqual(['suggestion', 'subtle'])
+    expect(dots.map(d => d.props.color)).toEqual(['suggestion', 'inactive'])
     expect(k.display.progress()).toEqual({ index: 0, count: 2 })
 
     await k.press('option-0')
@@ -226,9 +259,9 @@ describe('display kit', () => {
     const row = walk(box).filter(e => e.element === 'Text')
     expect(row.slice(0, 5).map(t => [t.props.children[0], t.props.color, t.props.bold ?? false])).toEqual([
       ['With fixes', 'warning', true],
-      ['  ·  ', 'subtle', false],
+      ['  ·  ', 'inactive', false],
       ['1 critical', 'error', false],
-      [' · ', 'subtle', false],
+      [' · ', 'inactive', false],
       ['3 important', 'warning', false],
     ])
     expect(texts(box)).not.toContain('0 minor')
@@ -258,6 +291,43 @@ describe('display kit', () => {
     expect(texts(byKey(await k.draw(), 'choice-1'))).toEqual(['a finding the context does not carry'])
   })
 
+  test('the severity word never shrinks; a long file tail is clipped from its start instead', async () => {
+    const k = kit(40)
+    const long = 'apps/web/src/widgets/very/deep/AnExtremelyLongComponentFileName.tsx:120'
+    const findings = j({ 'gate-ctx': 'findings@1', findings: [{ id: 'f1', severity: 'important', title: 't', body: 'b', file: long, fix: 'f' }] })
+    void k.ask({ id: 'g-l', questions: [{ id: 'q', label: 'Post?', multi: true, context: findings, options: [{ value: 'f1', label: 't' }] }] })
+    await flush()
+    const choice = byKey(await k.draw(), 'choice-0')
+    const fixed = walk(choice).find(e => e.element === 'Box' && e.props.flexShrink === 0)
+    expect(texts(fixed)).toEqual(['Important', '  ·  '])
+    const tail = walk(choice).find(e => e.element === 'Text' && e.props.wrap === 'truncate-start')
+    expect(tail.props.children[0].startsWith('…')).toBe(true)
+    expect(tail.props.children[0].endsWith('FileName.tsx:120')).toBe(true)
+    // The pane's 40 cells, less the 3 of the choice's indent and the severity's 14.
+    expect(tail.props.children[0].length).toBeLessThanOrEqual(40 - 3 - 14)
+  })
+
+  test("a matched finding's label drops the severity tags its subtext already shows", async () => {
+    const k = kit()
+    const tagged = {
+      ...REVIEW,
+      questions: [
+        {
+          ...REVIEW.questions[0]!,
+          options: [
+            { value: 'f1', label: '[Critical] [important]  The badge is invisible in dark mode' },
+            { value: 'f9', label: '[NON-BLOCKING] Something else' },
+          ],
+        },
+      ],
+    }
+    void k.ask(tagged)
+    await flush()
+    const tree = await k.draw()
+    expect(byKey(tree, 'option-0').props.label).toBe('[ ] The badge is invisible in dark mode')
+    expect(byKey(tree, 'option-1').props.label).toBe('[ ] [NON-BLOCKING] Something else')
+  })
+
   test('a recommended label is stripped and drawn as a tag', async () => {
     const k = kit()
     void k.ask({ ...REVIEW, questions: [REVIEW.questions[1]!] })
@@ -284,7 +354,7 @@ describe('display kit', () => {
     expect(questionRows).toHaveLength(6)
     expect(questionRows.every(r => r.length <= 40)).toBe(true)
     expect(questionRows.at(-1)!.endsWith('…')).toBe(true)
-    expect(walk(byKey(tree, 'question-context')).filter(e => e.element === 'Text').every(t => t.props.color === 'subtle')).toBe(true)
+    expect(walk(byKey(tree, 'question-context')).filter(e => e.element === 'Text').every(t => t.props.color === 'inactive')).toBe(true)
 
     const short = kit(40)
     void short.ask({ id: 'g-p', context: 'Two lines\nof context.', questions: [{ id: 'q', label: 'Go on?', options: ['yes'] }] })
@@ -333,10 +403,10 @@ describe('display kit', () => {
     const thread = walk(byKey(tree, 'question-context')).filter(e => e.element === 'Text')
     expect(thread.map(t => [t.props.children[0], t.props.color])).toEqual([
       ['renee', 'text'],
-      ['  ', 'subtle'],
+      ['  ', 'inactive'],
       ['blocking', 'error'],
       ['the retry queue re-enqueues a failed job.', 'text'],
-      ['verdict · valid, low value', 'subtle'],
+      ['verdict · valid, low value', 'inactive'],
     ])
   })
 
@@ -352,7 +422,6 @@ describe('display kit', () => {
     await flush()
     byKey(await k.draw(), 'note').props.onInput('after the tag')
     await k.press('option-1')
-    expect(k.focused).toEqual([])
 
     await k.press('back')
     const again = await k.draw()
@@ -362,27 +431,126 @@ describe('display kit', () => {
     expect(byKey(again, 'option-0').props.autoFocus).toBeUndefined()
     expect(byKey(again, 'note').props.value).toBe('after the tag')
     // Back is a redraw inside a pane that already holds the keys, where autoFocus no longer applies.
-    expect(k.focused).toEqual([{ requestId: FORM_PANE_ID, key: 'option-1' }])
+    expect(k.focused.map(f => f.key)).toEqual(['option-0', 'option-1'])
+    expect(k.focused.every(f => f.requestId === FORM_PANE_ID)).toBe(true)
 
     await k.press('option-2')
     await k.press('option-0')
     expect(await answered).toEqual({ ship: { value: 'later', note: 'after the tag' }, when: 'now' })
   })
 
-  test('Back to a multi question moves no focus', async () => {
+  test('every question change scrolls the pane to the top and focuses the first choice, or the earlier single pick', async () => {
     const k = kit()
     void k.ask({
       id: 'g-m',
       questions: [
         { id: 'targets', label: 'Which?', multi: true, options: ['mac', 'win'] },
         { id: 'ship', label: 'Ship it?', options: ['yes', 'no'] },
+        { id: 'when', label: 'When?', options: ['now', 'later'] },
       ],
     })
     await flush()
-    await k.press('option-0')
-    await k.press('next')
-    await k.press('back')
     expect(k.focused).toEqual([])
+    expect(k.scrolled).toEqual([])
+
+    await k.press('option-1')
+    await k.press('next')
+    await k.press('option-1')
+    await k.press('back')
+    await k.press('back')
+    expect(k.focused.map(f => f.key)).toEqual(['option-0', 'option-0', 'option-1', 'option-0'])
+    expect(k.scrolled).toEqual(Array.from({ length: 4 }, () => ({ in: FORM_PANE_ID, to: 'start' })))
+
+    // A question with no options focuses its field.
+    const free = kit()
+    void free.ask({ id: 'g-f', questions: [{ id: 'a', label: 'Pick', options: ['x'] }, { id: 'b', label: 'Why?', options: [] }] })
+    await flush()
+    await free.press('option-0')
+    expect(free.focused.map(f => f.key)).toEqual(['answer'])
+  })
+
+  test('the arrows move between the controls while a question has choices, and scroll otherwise', async () => {
+    const k = kit()
+    void k.ask({
+      id: 'g-a',
+      questions: [
+        { id: 'targets', label: 'Which?', multi: true, options: ['mac', 'linux', 'win'] },
+        { id: 'ship', label: 'Ship it?', options: ['yes'] },
+      ],
+    })
+    await flush()
+    await k.draw()
+    await k.ring('option-0', 'plugin')
+
+    expect(await k.scroll(1)).toBe(false)
+    expect(k.focused.at(-1)).toEqual({ requestId: FORM_PANE_ID, key: 'option-1' })
+    expect(k.scrolled.at(-1)).toEqual({ in: FORM_PANE_ID, to: { key: 'option-1' } })
+    await k.ring('option-1', 'plugin')
+    expect(await k.scroll(1)).toBe(false)
+    await k.ring('option-2', 'plugin')
+    expect(await k.scroll(1)).toBe(false)
+    expect(k.focused.at(-1)!.key).toBe('note')
+    await k.ring('note', 'plugin')
+    expect(await k.scroll(1)).toBe(false)
+    expect(k.focused.at(-1)!.key).toBe('next')
+    await k.ring('next', 'plugin')
+    // Past the last control the window moves, so the person can still read the end.
+    expect(await k.scroll(1)).toBe(true)
+    expect(await k.scroll(-1)).toBe(false)
+    expect(k.focused.at(-1)!.key).toBe('note')
+
+    await k.ring('option-0', 'plugin')
+    expect(await k.scroll(-1)).toBe(true)
+    const moves = k.focused.length
+    expect(await k.scroll(1, { pointer: { column: 3, row: 2 } })).toBe(true)
+    expect(await k.scroll(5)).toBe(true)
+    expect(await k.scroll(1, { origin: { kind: 'plugin', name: 'other' } })).toBe(true)
+    expect(await k.scroll(1, { requestId: 'someone-else' })).toBe(true)
+    expect(k.focused.length).toBe(moves)
+
+    const free = kit()
+    void free.ask({ id: 'g-f', questions: [{ id: 'q', label: 'Why?', options: [] }] })
+    await flush()
+    expect(await free.scroll(1)).toBe(true)
+  })
+
+  test('a choice press within 700 ms of the pane opening or the question changing is ignored, unless the person moved onto it', async () => {
+    const k = kit()
+    const answered = k.ask({
+      id: 'g-q',
+      questions: [
+        { id: 'ship', label: 'Ship it?', options: ['yes', 'no'] },
+        { id: 'when', label: 'When?', options: ['now', 'later'] },
+      ],
+    })
+    await flush()
+    // `1` then a letter typed straight on: the letter lands as the pane opens.
+    await k.h.clock.advance(500)
+    expect(await k.enginePress('option-0')).toBe(false)
+    expect(k.display.progress()).toEqual({ index: 0, count: 2 })
+
+    await k.h.clock.advance(201)
+    expect(await k.enginePress('option-1')).toBe(true)
+    expect(k.display.progress()).toEqual({ index: 1, count: 2 })
+
+    // The question changed: quiet again, but Tab (or a click) onto a choice and Enter go through.
+    expect(await k.enginePress('option-0')).toBe(false)
+    await k.ring('option-1', 'person')
+    expect(await k.enginePress('option-0')).toBe(false)
+    expect(await k.enginePress('option-1')).toBe(true)
+    expect(await answered).toEqual({ ship: 'no', when: 'later' })
+  })
+
+  test('an arrow move onto a choice counts as the person moving onto it', async () => {
+    const k = kit()
+    const answered = k.ask({ id: 'g-q', questions: [{ id: 'ship', label: 'Ship it?', options: ['yes', 'no'] }] })
+    await flush()
+    await k.draw()
+    await k.ring('option-0', 'plugin')
+    expect(await k.scroll(1)).toBe(false)
+    await k.ring('option-1', 'plugin')
+    expect(await k.enginePress('option-1')).toBe(true)
+    expect(await answered).toEqual({ ship: 'no' })
   })
 
   test('post@1 on the gate: reviewer, round, replies and fixes', async () => {
@@ -408,7 +576,7 @@ describe('display kit', () => {
 
   test('reply@1 on a question: verb and file tail, then the reply', async () => {
     expect(await questionRows({ 'gate-ctx': 'reply@1', thread: 't-1', file: 'queue/enqueue.ts:88', verb: 'fix', sha: 'ab12cd3', text: 'Fixed, with a test.' })).toEqual([
-      ['fix · …/enqueue.ts:88', 'subtle'],
+      ['fix · …/enqueue.ts:88', 'inactive'],
       ['Fixed, with a test.', 'text'],
     ])
   })
@@ -416,12 +584,12 @@ describe('display kit', () => {
   test('carryover@1 on a question: round and call, then the original', async () => {
     const carry = { 'gate-ctx': 'carryover@1', thread: 'd-1', round: 2, call: 'not-fixed', original: 'a 204 returns no body.', reply: 'Still open.' }
     expect(await questionRows(carry)).toEqual([
-      ['round 2 · waiting on author', 'subtle'],
+      ['round 2 · waiting on author', 'inactive'],
       ['a 204 returns no body.', 'text'],
     ])
   })
 
-  test('skipped@1 and replies@1 on a question: one subtle line per entry', async () => {
+  test('skipped@1 and replies@1 on a question: one quiet line per entry', async () => {
     const skipped = {
       'gate-ctx': 'skipped@1',
       skipped: [
@@ -430,8 +598,8 @@ describe('display kit', () => {
       ],
     }
     expect(await questionRows(skipped)).toEqual([
-      ['Minor Unused import', 'subtle'],
-      ['Important Config defaults live in two files', 'subtle'],
+      ['Minor Unused import', 'inactive'],
+      ['Important Config defaults live in two files', 'inactive'],
     ])
     const replies = {
       'gate-ctx': 'replies@1',
@@ -441,12 +609,12 @@ describe('display kit', () => {
       ],
     }
     expect(await questionRows(replies)).toEqual([
-      ['t-1 fix', 'subtle'],
-      ['t-2 reply', 'subtle'],
+      ['t-1 fix', 'inactive'],
+      ['t-2 reply', 'inactive'],
     ])
   })
 
-  test('every Text names its color', async () => {
+  test('every Text names its color, and secondary text is inactive: subtle is for borders only', async () => {
     const k = kit()
     void k.ask({ ...REVIEW, context: j({ 'gate-ctx': 'review@1', readiness: 'yes', summary: 'ok', findings: { minor: 2 }, re_review: true, round: 3 }) })
     await flush()
@@ -456,6 +624,9 @@ describe('display kit', () => {
     seen.push(...walk(await k.draw()))
     const bare = seen.filter(e => e.element === 'Text' && !e.props.color)
     expect(bare).toEqual([])
+    expect(seen.filter(e => e.element === 'Text' && e.props.color === 'subtle')).toEqual([])
+    expect(seen.some(e => e.element === 'Text' && e.props.color === 'inactive')).toBe(true)
+    expect(seen.filter(e => e.element === 'Box' && e.props.borderStyle).every(b => b.props.borderColor === 'subtle')).toBe(true)
   })
 
   test('the pane asks for 40% of the terminal, at most 80 columns', async () => {

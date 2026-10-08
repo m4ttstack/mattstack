@@ -18,6 +18,9 @@ const WAITING = 'Waiting on your answer'
 const ANSWERING = 'Answering in the panel  →'
 const ANSWER = 'Answer'
 const ESC_BACK = 'esc back to the prompt'
+const ESC_SHORT = 'esc back'
+/** The fewest summary cells the open band keeps before its hint and counter shorten. */
+const SUMMARY_MIN = 12
 /** Cells between the band's title and its summary. */
 const TITLE_GAP = 3
 /** The cells the engine keeps at the band's right end for its `[-]`, outside `bodyColumns`. */
@@ -217,7 +220,7 @@ export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): 
     const left = [text(el, 'suggestion', title, { bold: true, wrap: 'truncate-end' })]
     if (room > 1) {
       const summed = [text(el, saidColor, clip(said, room), { wrap: 'truncate-end' })]
-      if (aside) summed.push(text(el, 'subtle', aside, { wrap: 'truncate-end' }))
+      if (aside) summed.push(text(el, 'inactive', aside, { wrap: 'truncate-end' }))
       left.push(el.Box({ flexDirection: 'row', flexShrink: 1, children: summed }))
     }
     return el.Box({
@@ -245,16 +248,26 @@ export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): 
       // No Button while the pane is open, so a second `1` at the prompt presses nothing.
       const at = display.progress()
       const count = open.questions.length
-      const where = count > 1 && at ? ` · question ${at.index + 1} of ${count}` : ''
-      const esc = clip(ESC_BACK, columns - 1)
-      first = line(el, ANSWERING, summary(open), 'subtle', where, text(el, 'subtle', esc, { wrap: 'truncate-end' }), esc.length, columns)
+      const long = count > 1 && at ? ` · question ${at.index + 1} of ${count}` : ''
+      const short = count > 1 && at ? ` · ${at.index + 1}/${count}` : ''
+      // Beside a docked pane the band is narrow: the hint, then the counter,
+      // give way to their short forms before the summary does.
+      const plans: [string, string][] = [
+        [ESC_BACK, long],
+        [ESC_SHORT, long],
+        [ESC_SHORT, short],
+      ]
+      const fixed = ANSWERING.length + TITLE_GAP + 1
+      const [hint, where] = plans.find(([h, w]) => columns - fixed - h.length - w.length >= SUMMARY_MIN) ?? plans.at(-1)!
+      const esc = clip(hint, columns - 1)
+      first = line(el, ANSWERING, summary(open), 'inactive', where, text(el, 'inactive', esc, { wrap: 'truncate-end' }), esc.length, columns)
     } else {
       const label = clip(ANSWER, columns - HOTKEY_CELLS - 1)
       const button = el.Button({ key: 'gate-panel', label, hotkey: '1', plain: true, onPress: () => void ask(api, shown) })
       first = line(el, WAITING, summary(shown), 'text', '', button, HOTKEY_CELLS + label.length, columns)
     }
     if (listed.length === 1) return Promise.resolve(first)
-    const more = text(el, 'subtle', clip(`${listed.length - 1} more waiting after this one`, columns))
+    const more = text(el, 'inactive', clip(`${listed.length - 1} more waiting after this one`, columns))
     return Promise.resolve(el.Box({ flexDirection: 'column', children: [first, more] }))
   }
 

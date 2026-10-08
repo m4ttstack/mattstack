@@ -302,15 +302,32 @@ carryover@1, skipped@1, replies@1, or prose clipped to six rows), then one
 Button per option with what it means under it: a `recommended` tag lifted
 off the label, its findings@1 finding matched by option value, or its
 description. A JSON context of any other shape is not shown. The gate-ctx
-shapes are a port of the board's parser (`src/blocks/gate-ctx.ts`). Each
-option takes a letter hotkey (`a`, `b`, ... never `s`, which is Skip), and
-no pane control takes a digit, since a repeat of the band's `1` would land
-on one. A letter answers a single question and ticks a multi question,
-whose Next (Done on the last) moves on. Back returns to the previous
-question with its picks and note kept, and on a single question moves the
-focus onto the earlier pick (`ui.focus` through the facade, since
-`autoFocus` only applies when the pane takes the keys). The pane closes by itself when the
-gate is answered elsewhere or withdrawn.
+shapes are a port of the board's parser (`src/blocks/gate-ctx.ts`). A
+matched finding's label drops the `[Critical]`-style tags its subtext
+already shows. Secondary text is the `inactive` theme key; `subtle` is
+only for borders. Each option takes a letter hotkey (`a` to `z`), and no
+pane control takes a digit, since a repeat of the band's `1` would land on
+one. The pane has no Skip of its own: Esc closes it, answering nothing.
+A letter answers a single question and ticks a multi question, whose Next
+(Done on the last) moves on. Back returns to the previous question with its
+picks and note kept.
+
+Every question change scrolls the pane to its top and moves the focus
+(`ui.focus` and `ui.scroll` through the facade, since `autoFocus` only
+applies when the pane takes the keys) to the first choice, or to the
+earlier pick of a single question Back returns to. The display kit hooks
+its own pane's `ui.scroll`, `ui.focus` and `ui.press` (`hub.onPane`):
+
+- A person's one-row move by key (`↑`, `↓`) steps the focus through the
+  choices, the note, Next and Back instead of scrolling, and scrolls past
+  the first and the last. The wheel and page keys scroll as usual.
+- For 700 ms after the pane opens or its question changes, a choice's
+  press is ignored unless the person moved onto that choice, so `1` and
+  typing straight on cannot answer with the next letter. `ui.press` does
+  not say whether a hotkey, Enter or a click pressed, so Enter on the
+  first choice in that window is ignored too.
+
+The pane closes by itself when the gate is answered elsewhere or withdrawn.
 
 An answer there is `gate:answer { id, answers, by: "pane-person" }`, with
 no session, so rt records it as a person's answer from this pane

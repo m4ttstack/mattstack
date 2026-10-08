@@ -42,7 +42,7 @@ export const text = (el: El, color: ThemeKey, children: string, style: Omit<Text
 
 /** Interleaves `items` with a subtle separator. */
 function joined(el: El, items: Node[], separator = ' · '): Node[] {
-  return items.flatMap((item, i) => (i === 0 ? [item] : [text(el, 'subtle', separator), item]))
+  return items.flatMap((item, i) => (i === 0 ? [item] : [text(el, 'inactive', separator), item]))
 }
 
 const row = (el: El, children: Node[]): Node => el.Box({ flexDirection: 'row', flexWrap: 'wrap', children })
@@ -118,7 +118,7 @@ const proseRows = (el: El, prose: string, width: number, max: number, color: The
 export const SEVERITY: Record<FindingSeverity, { label: string; color: ThemeKey }> = {
   critical: { label: 'Critical', color: 'error' },
   important: { label: 'Important', color: 'warning' },
-  minor: { label: 'Minor', color: 'subtle' },
+  minor: { label: 'Minor', color: 'inactive' },
 }
 
 const READINESS: Record<ReviewCtx['readiness'], { label: string; color: ThemeKey }> = {
@@ -129,9 +129,9 @@ const READINESS: Record<ReviewCtx['readiness'], { label: string; color: ThemeKey
 
 const THREAD_SEVERITY: Record<Severity, { label: string; color: ThemeKey }> = {
   blocking: { label: 'blocking', color: 'error' },
-  'non-blocking': { label: 'non-blocking', color: 'subtle' },
+  'non-blocking': { label: 'non-blocking', color: 'inactive' },
   question: { label: 'question', color: 'warning' },
-  none: { label: 'no ask', color: 'subtle' },
+  none: { label: 'no ask', color: 'inactive' },
 }
 
 // The board's words for a verdict and a carried-over thread (RespondCards.tsx, ReviewRoundParts.tsx).
@@ -158,19 +158,19 @@ function reviewRows(el: El, ctx: ReviewCtx): Node[] {
   const counts = (['critical', 'important', 'minor'] as const)
     .filter(s => ctx.findings[s] > 0)
     .map(s => text(el, SEVERITY[s].color, `${ctx.findings[s]} ${s}`))
-  if (counts.length > 0) head.push(text(el, 'subtle', '  ·  '), ...joined(el, counts))
-  if (ctx.round !== undefined && (ctx.round > 1 || ctx.re_review)) head.push(text(el, 'subtle', ` · round ${ctx.round}`))
+  if (counts.length > 0) head.push(text(el, 'inactive', '  ·  '), ...joined(el, counts))
+  if (ctx.round !== undefined && (ctx.round > 1 || ctx.re_review)) head.push(text(el, 'inactive', ` · round ${ctx.round}`))
   return [row(el, head), text(el, 'text', ctx.summary, { wrap: 'wrap' })]
 }
 
 function respondRows(el: El, ctx: PlanCtx | PostCtx): Node[] {
   const head = [text(el, 'text', ctx.reviewer, { bold: true })]
-  if (ctx.round !== undefined) head.push(text(el, 'subtle', ` · round ${ctx.round}`))
+  if (ctx.round !== undefined) head.push(text(el, 'inactive', ` · round ${ctx.round}`))
   const counts =
     ctx.shape === 'plan@1'
       ? [text(el, 'text', plural(ctx.threads.total, 'thread', 'threads')), ...(ctx.threads.blocking > 0 ? [text(el, 'warning', `${ctx.threads.blocking} blocking`)] : [])]
       : [text(el, 'text', plural(ctx.replies, 'reply', 'replies')), ...(ctx.fixes.length > 0 ? [text(el, 'text', plural(ctx.fixes.length, 'fix', 'fixes'))] : [])]
-  head.push(text(el, 'subtle', '  ·  '), ...joined(el, counts))
+  head.push(text(el, 'inactive', '  ·  '), ...joined(el, counts))
   return [row(el, head), ...(ctx.adjudication ? [text(el, 'text', ctx.adjudication, { wrap: 'wrap' })] : [])]
 }
 
@@ -198,22 +198,22 @@ export function questionContext(el: El, context: unknown, width: number): Node |
   let rows: Node[] = []
   if (!ctx) {
     if (looksLikeObject(context)) return null
-    rows = proseRows(el, context, width, QUESTION_PROSE_ROWS, 'subtle')
+    rows = proseRows(el, context, width, QUESTION_PROSE_ROWS, 'inactive')
   } else if (ctx.shape === 'thread@1') {
     const tag = THREAD_SEVERITY[ctx.severity]
     rows = [
-      row(el, [text(el, 'text', ctx.author, { bold: true }), text(el, 'subtle', '  '), text(el, tag.color, tag.label)]),
+      row(el, [text(el, 'text', ctx.author, { bold: true }), text(el, 'inactive', '  '), text(el, tag.color, tag.label)]),
       text(el, 'text', ctx.claim.summary, { wrap: 'wrap' }),
-      text(el, 'subtle', `verdict · ${CALL_TEXT[ctx.verdict.call]}`, { wrap: 'wrap' }),
+      text(el, 'inactive', `verdict · ${CALL_TEXT[ctx.verdict.call]}`, { wrap: 'wrap' }),
     ]
   } else if (ctx.shape === 'reply@1') {
-    rows = [text(el, 'subtle', `${ctx.verb} · ${fileTail(ctx.file)}`, { wrap: 'truncate-start' }), text(el, 'text', ctx.text, { wrap: 'wrap' })]
+    rows = [text(el, 'inactive', `${ctx.verb} · ${fileTail(ctx.file)}`, { wrap: 'truncate-start' }), text(el, 'text', ctx.text, { wrap: 'wrap' })]
   } else if (ctx.shape === 'carryover@1') {
-    rows = [text(el, 'subtle', `round ${ctx.round} · ${CARRYOVER_TEXT[ctx.call]}`), text(el, 'text', ctx.original, { wrap: 'wrap' })]
+    rows = [text(el, 'inactive', `round ${ctx.round} · ${CARRYOVER_TEXT[ctx.call]}`), text(el, 'text', ctx.original, { wrap: 'wrap' })]
   } else if (ctx.shape === 'skipped@1') {
-    rows = ctx.skipped.map(s => text(el, 'subtle', `${SEVERITY[s.severity].label} ${s.title}`, { wrap: 'truncate-end' }))
+    rows = ctx.skipped.map(s => text(el, 'inactive', `${SEVERITY[s.severity].label} ${s.title}`, { wrap: 'truncate-end' }))
   } else if (ctx.shape === 'replies@1') {
-    rows = ctx.replies.map(r => text(el, 'subtle', `${r.thread} ${r.verb}`, { wrap: 'truncate-end' }))
+    rows = ctx.replies.map(r => text(el, 'inactive', `${r.thread} ${r.verb}`, { wrap: 'truncate-end' }))
   }
   if (rows.length === 0) return null
   return el.Box({ key: 'question-context', flexDirection: 'column', children: rows })
@@ -225,21 +225,44 @@ export function questionFindings(context: unknown): FindingEntry[] {
   return ctx?.shape === 'findings@1' ? ctx.findings : []
 }
 
+/** `text` cut to `cells` from its start, led by `…`, so a path keeps its end. */
+export function clipStart(text: string, cells: number): string {
+  if (cells <= 0) return ''
+  if (text.length <= cells) return text
+  return cells === 1 ? '…' : `…${text.slice(-(cells - 1))}`
+}
+
+const SEVERITY_TAGS = /^\s*(?:\[\s*(?:critical|important|minor|non-blocking)\s*\]\s*)+/i
+
+/** A label without the leading severity tags (`[Critical]`, `[NON-BLOCKING]`, ...) a finding's subtext already shows. */
+export function stripSeverityTags(label: string): string {
+  const stripped = label.replace(SEVERITY_TAGS, '').trim()
+  return stripped || label
+}
+
+const SEPARATOR = '  ·  '
+
 /**
- * What a choice says under its label: a recommended tag, then its finding
- * (severity, file and fix) or else its own description.
+ * What a choice says under its label, in `width` cells: a recommended tag,
+ * then its finding (severity, file and fix) or else its own description. The
+ * severity word never shrinks; the file tail gives way from its start.
  */
-export function choiceSubtext(el: El, recommended: boolean, finding: FindingEntry | undefined, description: string | undefined): Node[] {
+export function choiceSubtext(el: El, recommended: boolean, finding: FindingEntry | undefined, description: string | undefined, width: number): Node[] {
   const rows: Node[] = []
   if (recommended) rows.push(text(el, 'success', 'recommended', { bold: true }))
   if (finding) {
     const severity = SEVERITY[finding.severity]
-    const head = [text(el, severity.color, severity.label, { bold: true })]
-    if (finding.file) head.push(text(el, 'subtle', '  ·  '), text(el, 'subtle', fileTail(finding.file), { wrap: 'truncate-start' }))
+    const fixed = [text(el, severity.color, severity.label, { bold: true })]
+    const head = [el.Box({ flexDirection: 'row', flexShrink: 0, children: fixed })]
+    if (finding.file) {
+      fixed.push(text(el, 'inactive', SEPARATOR))
+      const room = width - severity.label.length - SEPARATOR.length
+      head.push(el.Box({ flexShrink: 1, children: [text(el, 'inactive', clipStart(fileTail(finding.file), room), { wrap: 'truncate-start' })] }))
+    }
     rows.push(el.Box({ flexDirection: 'row', children: head }))
-    if (finding.fix) rows.push(text(el, 'subtle', finding.fix, { wrap: 'wrap' }))
+    if (finding.fix) rows.push(text(el, 'inactive', finding.fix, { wrap: 'wrap' }))
   } else if (typeof description === 'string' && description.trim()) {
-    rows.push(text(el, 'subtle', description, { wrap: 'wrap' }))
+    rows.push(text(el, 'inactive', description, { wrap: 'wrap' }))
   }
   return rows
 }

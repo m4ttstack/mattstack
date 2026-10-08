@@ -109,6 +109,8 @@ function harness(rows: Record<string, WaitedGate> = { 'g-1': gate() }, options: 
     await h.fire('ui.close', { id, origin: { kind: 'plugin' } }, async () => {})
   }
   h.$.ui.invalidate = () => {}
+  h.$.ui.focus = async () => ({})
+  h.$.ui.scroll = async () => ({})
   h.$.ui.resolve = () => ({
     Box: (props: any) => ({ element: 'Box', props }),
     Text: (props: any) => ({ element: 'Text', props }),
@@ -158,7 +160,12 @@ function harness(rows: Record<string, WaitedGate> = { 'g-1': gate() }, options: 
     await h.fire('turn.complete', { sessionId: h.session.id }, async () => ({}))
     await flush()
   }
-  return { ...h, hub, link, rows, ...bus, opened, closed, band, rowButton, summary, pane, press, turnEnd, engineBand }
+  /** Esc in the focused pane: a person's close, as `closeOnEscape` makes it. */
+  const escape = async () => {
+    await h.fire('ui.close', { id: PANEL_PANE_ID, origin: { kind: 'person' } }, async () => {})
+    await flush()
+  }
+  return { ...h, hub, link, rows, ...bus, opened, closed, band, rowButton, summary, pane, press, escape, turnEnd, engineBand }
 }
 
 const answers = (h: ReturnType<typeof harness>) => h.verbs('gate:answer').map(s => s.body)
@@ -288,7 +295,7 @@ describe('gate-panel', () => {
     expect(h.rounds.map(r => r.body.pattern).sort()).toEqual(['gate/*/g-1', 'gate/*/g-2'])
     expect(await h.summary()).toBe(`question herd:h-1/j1 · ${QUESTION}`)
     const both = await h.band()
-    expect(both.props.children[1].props).toEqual({ color: 'subtle', children: ['1 more waiting after this one'] })
+    expect(both.props.children[1].props).toEqual({ color: 'inactive', children: ['1 more waiting after this one'] })
 
     // The pane is open on g-1 when the board answers it.
     ;(await h.rowButton()).props.onPress({})
@@ -330,7 +337,6 @@ describe('gate-panel', () => {
       'Yes',
       'No',
       'Note',
-      'Skip',
     ])
     await h.press('option-0')
 
@@ -346,14 +352,14 @@ describe('gate-panel', () => {
     expect(answers(h)).toHaveLength(1)
   })
 
-  test('a note typed in the pane rides with the picked option, and Skip answers nothing', async () => {
+  test('a note typed in the pane rides with the picked option, and Esc answers nothing', async () => {
     const h = harness()
     await h.start()
     await flush()
 
     ;(await h.rowButton()).props.onPress({})
     await flush()
-    await h.press('skip')
+    await h.escape()
     expect(answers(h)).toEqual([])
     expect((await h.rowButton())).not.toBeNull()
 
@@ -421,7 +427,7 @@ describe('gate-panel', () => {
     expect(await h.rowButton()).toBeNull()
   })
 
-  test('pressing 1 while the pane is open answers nothing; letters answer and s skips', async () => {
+  test('pressing 1 while the pane is open answers nothing; letters answer and Esc closes', async () => {
     const h = harness()
     await h.start()
     await flush()
@@ -433,16 +439,14 @@ describe('gate-panel', () => {
     expect((await keyed()).map((e: any) => [e.props.key, e.props.hotkey])).toEqual([
       ['option-0', 'a'],
       ['option-1', 'b'],
-      ['skip', 's'],
     ])
     for (const c of (await keyed()).filter((e: any) => /^\d$/.test(e.props.hotkey))) c.props.onPress({})
     await flush()
     expect(answers(h)).toEqual([])
 
-    for (const c of (await keyed()).filter((e: any) => e.props.hotkey === 's')) c.props.onPress({})
-    await flush()
+    await h.escape()
     expect(answers(h)).toEqual([])
-    expect(h.closed).toEqual([PANEL_PANE_ID])
+    expect(texts(await h.band())[0]).toBe('Waiting on your answer')
 
     ;(await h.rowButton()).props.onPress({})
     await flush()
@@ -469,16 +473,16 @@ describe('gate-panel', () => {
     const shown = walk(open).filter((e: any) => e.element === 'Text')
     expect(shown.map((t: any) => [t.props.children[0], t.props.color])).toEqual([
       ['Answering in the panel  →', 'suggestion'],
-      [`question herd:h-1/j1 · 2 questions · ${QUESTION}`, 'subtle'],
-      [' · question 1 of 2', 'subtle'],
-      ['esc back to the prompt', 'subtle'],
+      [`question herd:h-1/j1 · 2 questions · ${QUESTION}`, 'inactive'],
+      [' · question 1 of 2', 'inactive'],
+      ['esc back to the prompt', 'inactive'],
     ])
     expect(shown[0].props.bold).toBe(true)
 
     await h.press('option-0')
     expect(texts(await h.band())[2]).toBe(' · question 2 of 2')
 
-    await h.press('skip')
+    await h.escape()
     expect(texts(await h.band())[0]).toBe('Waiting on your answer')
     expect((await h.rowButton()).props.hotkey).toBe('1')
     expect(answers(h)).toEqual([])
@@ -494,7 +498,7 @@ describe('gate-panel', () => {
     // rowButton drew the band at 80 columns, the most recent render: 85 across.
     expect(h.opened.map(o => o.columns)).toEqual([34])
 
-    await h.press('skip')
+    await h.escape()
     const button = walk(await h.band({ bodyColumns: 245 })).find((e: any) => e.element === 'Button')
     button.props.onPress({})
     await flush()
@@ -511,7 +515,7 @@ describe('gate-panel', () => {
     await flush()
     expect(h.opened.map(o => o.columns)).toEqual([60])
 
-    await h.press('skip')
+    await h.escape()
     // No viewport measured: the band's own width plus the engine's five.
     const fallback = walk(await h.band({ bodyColumns: 95 })).find((e: any) => e.element === 'Button')
     fallback.props.onPress({})
@@ -531,8 +535,30 @@ describe('gate-panel', () => {
     await flush()
     const open = walk(await h.band({ bodyColumns: 10 })).filter((e: any) => e.element === 'Text')
     const esc = open.at(-1)
-    expect(esc.props).toMatchObject({ color: 'subtle', wrap: 'truncate-end' })
-    expect(esc.props.children[0]).toBe('esc back…')
+    expect(esc.props).toMatchObject({ color: 'inactive', wrap: 'truncate-end' })
+    expect(esc.props.children[0]).toBe('esc back')
+  })
+
+  test('a docked pane narrows the open band: the summary still shows, clipped, with the counter', async () => {
+    const five = gate({ questions: Array.from({ length: 5 }, (_, i) => ({ id: `q${i}`, label: i === 0 ? QUESTION : `Q${i}`, multi: false, options: ['a', 'b'] })) })
+    const h = harness({ 'g-1': five })
+    await h.start()
+    await flush()
+    ;(await h.rowButton()).props.onPress({})
+    await flush()
+
+    const docked = texts(await h.band({ bodyColumns: 71 }))
+    expect(docked[0]).toBe('Answering in the panel  →')
+    expect(docked[1]!.startsWith('question herd:h')).toBe(true)
+    expect(docked[1]!.endsWith('…')).toBe(true)
+    expect(docked[1]!.length).toBeGreaterThanOrEqual(12)
+    expect(docked.slice(2)).toEqual([' · question 1 of 5', 'esc back'])
+    expect(docked.join('').length + 3 + 1).toBeLessThanOrEqual(71)
+
+    const tighter = texts(await h.band({ bodyColumns: 55 }))
+    expect(tighter[1]!.length).toBeGreaterThanOrEqual(12)
+    expect(tighter.slice(2)).toEqual([' · 1/5', 'esc back'])
+    expect(tighter.join('').length + 3 + 1).toBeLessThanOrEqual(55)
   })
 
   test("the pane draws the listed gate's kind, subject and context", async () => {
