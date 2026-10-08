@@ -13,7 +13,11 @@
 ## Global Constraints
 
 Inherit the [parent plan](2026-10-04-harness-integrations.md), its types and
-F1–F6. **Re-planned 2026-10-05** against the two spike reports. Native
+F1–F6. **Re-planned 2026-10-07:** the Claude side moves onto the mod
+([Claude mods design](../specs/2026-10-07-harness-integrations-claude-mods-design.md)).
+M1–M5c are done; the [mods package](2026-10-07-harness-integrations-2b-claude-mods.md)
+rebuilds their Claude adapters before M6a, and M6d adds the mod's policy
+enforcement. **Re-planned 2026-10-05** against the two spike reports. Native
 async answer completion and restart survival remain explicit acceptance gaps. M1 and M3 absorb RT-408's delivery router as the Claude
 messaging mechanism; there is one delivery path per harness. “Current Claude behavior is the compatibility reference, particularly
 for chat and gates.” “Transport submission is not proof of consumption or
@@ -259,7 +263,13 @@ thread/turn/item and every question ID; keep `ActiveQuestionHandle` in memory.
 `lib/agent-integrations/claude/policy.ts`,
 `lib/agent-integrations/__tests__/policy.test.ts`;
 modify `lib/agent-hooks.ts`, `commands/gate.ts`,
-`scripts/hooks/gate-fork.sh`, `plugins/mattstack/hooks/pipeline-gate-stop.sh`.
+`scripts/hooks/gate-fork.sh`.
+
+**Re-planned 2026-10-07 ([Claude mods design](../specs/2026-10-07-harness-integrations-claude-mods-design.md)):**
+`plugins/mattstack/hooks/pipeline-gate-stop.sh` stays installed and
+unchanged as the Stop backstop. `evaluateStop` must reproduce its rule
+exactly (characterized below), and a later change to the shared rule must
+land in that script too. The Claude mod's enforcement is M6d.
 
 **Interfaces:** `createClaudePolicy(): PolicyAdapter` implements the parent
 prepare/verify contract using the existing Claude hook injection plus correlated
@@ -281,7 +291,10 @@ part of shared policy. A hook's unavailable decision is distinct from allow.
   state readers. Preserve Claude's hook output and failure/timeout escape
   behavior; do not turn the migration into an indefinite Stop loop. Policy
   unavailability records attention/unready state, never a completed run.
-  Keep legacy shell entry points forwarding until H4 migrates run fields.
+  Keep legacy shell entry points forwarding until H4 migrates run fields,
+  except `pipeline-gate-stop.sh`, which keeps its own logic unchanged.
+  Add a parity test that feeds the characterized Stop cases to both
+  `evaluateStop` and the shell script and asserts the same block or allow.
 - [ ] Rerun named tests and existing fork-check tests; regenerate affected
   plugin artifacts/version under the plugin contract.
 - [ ] Commit `refactor: share gate and continuation decisions across harnesses`.
@@ -366,3 +379,42 @@ F5d verifies the actual binding; H1 cannot activate before this check passes.
   detection and actual policy-service failure are required acceptance cases;
   the spike's synthetic policy does not satisfy them.
 - [ ] Commit `feat: require verified session policy before managed work`.
+
+### M6d: Enforce shared policy through the Claude mod (RT-407, RT-391, RT-396)
+
+Added 2026-10-07 by the [Claude mods design](../specs/2026-10-07-harness-integrations-claude-mods-design.md).
+Runs after M6a–M6c and the [mods package](2026-10-07-harness-integrations-2b-claude-mods.md).
+
+**Files:** Create `plugins/mattstack-mods/src/blocks/policy.ts`,
+`plugins/mattstack-mods/src/blocks/stop-gate.ts`,
+`plugins/mattstack-mods/tests/policy.test.ts`,
+`lib/daemon/handlers/policy.ts`,
+`lib/daemon/__tests__/policy-handlers.test.ts`;
+modify `lib/daemon/command-router.ts`, `packages/rt-client/src/commands.ts`,
+`plugins/mattstack-mods/src/blocks/sections.ts`.
+
+**Interfaces:** Daemon verbs `policy:authorize { sessionId, action, subject }`
+and `policy:stop { sessionId }`. Each resolves the caller from the live mod
+link and calls M6a's `authorizeWorkflowAction` and `evaluateStop`. The
+`policy` block registers hub `guard` rules for gate and run tools that call
+`policy:authorize`. The `stop-gate` block's `onStop` calls `policy:stop` and
+returns `{ block: reason }` on `continue`. The spill-read note becomes a fixed
+section in `sections.ts`; the time-stamp hook stays a shell hook.
+
+- [ ] Write cases:
+  - `mod guard refuses a foreign gate answer with its reason`;
+  - `mod stop blocks an open running stage and allows a held or waiting one`;
+  - `with the mod and the shell hook both present, the turn is held and the reason appears twice`;
+  - `a mod stop hook that throws leaves the shell hook holding`;
+  - `a second stop shortly after a first is evaluated afresh`;
+  - `the spill-read section is present for a new conversation`.
+- [ ] Run `bun test lib/daemon/__tests__/policy-handlers.test.ts lib/agent-integrations/__tests__/policy.test.ts`,
+  `sh plugins/mattstack/hooks/tests/test-pipeline-gate-stop.sh` and the
+  plugin tests; expect red on the new cases, with the shell test unchanged and green.
+- [ ] Implement. `spill-read-note.sh` stays unchanged too. A SessionStart
+  shell hook cannot know whether the mod composed the section for that
+  conversation, so mod sessions read the one-line note twice, which is
+  harmless. The stop gate likewise has no stand-down: the shell hook always runs.
+- [ ] Rerun the suites.
+- [ ] Live check in a `--plugin-dir` pane against a sandboxed run: a premature stop is held by both hooks, and held or waiting stops end. Then kill the mod's link and confirm the shell hook alone still holds.
+- [ ] Commit `feat: enforce shared policy through the Claude mod`.

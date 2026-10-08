@@ -81,7 +81,8 @@ cases merely to produce a newer timestamp.
 | [0. Regression baseline](2026-10-05-harness-integrations-0-regression-baseline.md) | Verified current-Claude protection and task-level regression gates | Unchanged production implementation; B0 admission criteria |
 | [1. Foundation](2026-10-04-harness-integrations-1-foundation.md) | Registered launch/session integrations with verified identity and context | Existing `rt agent` seams; F1 native evidence |
 | [2. Messaging and gates](2026-10-04-harness-integrations-2-messaging.md) | Current push behavior and authoritative gate completion through both integrations | F1–F6; S1/S2/S4 prerequisites as specified |
-| [3. Orchestration](2026-10-04-harness-integrations-3-orchestration.md) | Mixed workers, either shepherd harness, correct supervision and pipeline ownership | Foundation; messaging/policy contracts |
+| [2b. Claude mods](2026-10-07-harness-integrations-2b-claude-mods.md) | Claude's side on the mattstack-mods plugin, the finished Claude adapters rebuilt on it, today's mechanisms as per-feature fallback | M1–M5c; runs before M6a ([Claude mods design](../specs/2026-10-07-harness-integrations-claude-mods-design.md)) |
+| [3. Orchestration](2026-10-04-harness-integrations-3-orchestration.md) | Mixed workers, either shepherd harness, correct supervision and pipeline ownership | Foundation; messaging/policy contracts; 2b and M6d for the mods-first Claude steps |
 | [4. Skills, setup, apps and release](2026-10-04-harness-integrations-4-adoption.md) | Host-adapted workflows, Codex-only lifecycle, app adoption and acceptance | Foundation; pulls early prerequisites forward; final acceptance follows all plans |
 
 ### Dependency order
@@ -102,6 +103,9 @@ by silently stubbing a required capability.
    → M6b (Codex hook bridge) → M6c (session readiness and confinement).
    F5d defines the optional policy seam up front; M6c activates it only after
    S4b and M5 tests pass. Bootstrap capability is not full managed readiness.
+   **Re-planned 2026-10-07:** M1–M5c are done. The Claude mods package runs
+   next, C1 → C2 → C3 → C4 → C5 → C6 → C7 → C8 → C9 → C10 → C11 → C12,
+   then M6a → M6b → M6c → M6d (the mod's policy enforcement).
 4. **Orchestration:** H1 → H2/H3; H4/H5 after F4 and M6c; H6 after S1/M1/M6c.
 5. **Adoption and lifecycle:** S5/S6/S7/S8/S10/S12 after their stated interfaces;
    S9 is last and cannot waive blocked required scenarios.
@@ -302,64 +306,44 @@ introduce a general service container.
 
 ## Existing work and completion
 
-RT-405, RT-406 and RT-408 (Backlog, "Claude Code mods" project, parent
-RT-384) describe an in-session Claude Code mod with its own daemon link. They
-are Claude-native mechanisms, not the shared services. Decision (2026-10-05):
-the mod becomes part of the Claude integration. Its `session:*` handlers
-(RT-405) register Claude sessions into F3's session store rather than keeping a
-second registry; its session context record (RT-406) is the Claude side of
-F4's caller attribution, feeding the shared resolver; its delivery router
-(RT-408) is a Claude messaging mechanism behind M1's adapter. Before F3 is
-re-planned, rewrite those three tickets to say so (PM-shaped) and link them to
-this plan.
+**Re-planned 2026-10-07.** The Claude side is built on the Claude Code mod,
+per the [Claude mods design](../specs/2026-10-07-harness-integrations-claude-mods-design.md),
+with today's mechanisms as the per-feature fallback. It replaces the
+2026-10-05 mapping in which Claude adapters first wrapped today's mechanisms
+and mods swapped in later. Evidence: [mods-01](../spikes/2026-10-07-mods-01-results.md)
+(RT-383) and [mods-02](../spikes/2026-10-07-mods-02-results.md). The rule
+stays: where a mods ticket implements a contract this plan makes shared, the
+daemon-side store, feed or policy is the shared one, and the mod is the
+Claude producer or enforcer behind it.
 
-The rest of the mods project (P-MAT-25) splits three ways. The rule: where a
-mods ticket implements a contract this plan makes shared, the daemon-side
-store, feed or policy is the shared one and the mod is the Claude producer or
-enforcer behind it; generic consumers never read a Claude-only feed.
-
-| Mods ticket | Harness contract it implements on Claude | Task |
+| Ticket | What it gives Claude | Task |
 | --- | --- | --- |
-| RT-384 core mod (parent) | The Claude integration's in-session component | F2 |
-| RT-383 mods spike | Companion to F1: Claude-side capability evidence | F1 |
-| RT-407 tool-call policy layer | `PolicyAdapter` enforcement for Claude | M6 |
-| RT-395 session state feed | `Observation` producer; the feed is the shared observation API | F5, H3 |
-| RT-397 watchdog reads the feed | Supervision through normalized observations | H3 |
-| RT-396 run liveness, stop gate, runDb | Run ownership and continuation policy | H4, M6 |
-| RT-385 mod owns the gate form | Claude `QuestionAdapter` completion without Escape | M5 |
-| RT-402 wait gates without `rt gate wait` | Claude `wait` fragment and question waits | M5, S11 |
-| RT-389 presence from session events | `applySessionPresence` lifecycle events | M3 |
-| RT-387 sign in through the session | Caller context for chat sign-in | F4, M3 |
-| RT-400 relocation dialog in-session | Claude worktree lifecycle adapter | H6 |
-| RT-391 port shell hooks | Stop gate, relocation announce (shared files with M6, H4, H6) | M6, H4, H6 |
-| BOARD-52 board status through the mod | Board status and session capture | S5 |
+| RT-384 core mod | The plugin and `$.rt` | C1, C3 |
+| RT-405 `session:*` handlers | Link registry on F3's store | C2 |
+| RT-406 daemon link and context | Link, heartbeat, rounds, `/clear` continuation | C3, C5 |
+| RT-407 tool-call policy layer | Hub rules; shared policy enforcement | C1, M6d |
+| RT-408 delivery router | Consumed evidence for Claude deliveries | C6 |
+| RT-409 display kit | Fallback form pane; quiet-gate pane | C9, C11 |
+| RT-410 prompt sections | Fixed per-conversation sections | C7 |
+| RT-386 hidden chat rows | Rows hidden, still read | C6 |
+| RT-390 reply rule once | Always-on section, Claude-only tail trimmed | C7 |
+| RT-389 presence from events | Shared presence service | C8 |
+| RT-387 sign-in through the session | Shared caller context | C8 |
+| RT-385 mod owns the gate form | Claude question adapter rebuilt | C9 |
+| RT-402 wait gates | Wake by `$.prompt.submit` | C10 |
+| RT-458 quiet gate from the waiting pane | Answer in the worker's pane | C11 |
+| RT-391 shell hooks | Spill note as a section; stop hook kept as the backstop; announce replaced | M6d, H6 |
+| RT-395 session state feed | Observation producer | H3 |
+| RT-397 watchdog reads the feed | Nudges through the mod | H3 |
+| RT-396 run liveness, stop gate, runDb | Run ownership through the mod | H4, M6d |
+| RT-400 relocation in session | `tool.check` by registered path | H6 |
+| BOARD-52 board status and stand-down | Status tool; stand-down | S5 |
 
-Partial overlap, decided when the owning task is re-planned: RT-398 (Flock
-reads the shared observation API, not a Claude feed), RT-403 (gate push
-carrying the gate row; if the daemon adds it, both harnesses get it),
-SKILLS-96 (writing style at skill load; must not replace S12's resolver).
-
-Claude-only extras with no harness contract, left in the mods project as
-optional native features: RT-386, RT-388, RT-392 (notes H2's harness and
-model per job), RT-393, RT-404, RT-409, RT-410. RT-394 is a duplicate.
-
-Punted on 2026-10-05, to revisit when the named task is re-planned:
-
-- RT-390 (M1): the per-delivery reply line has a shared half (who and how to
-  reply, with the sender's id) and a Claude-only half ("never SendMessage").
-  Trimming it must stay in Claude's delivery path so Codex deliveries keep the
-  shared half.
-- RT-399 (M6): the text guard could be a shared policy rule, enforced on Codex
-  through `preToolUse` hooks.
-- RT-401 (F5): Codex can compact or switch model natively over its control
-  socket, so self-commands could become an agent-neutral session operation.
-
-Sequencing: the Claude adapters first wrap today's outside-in mechanisms
-(Escape, screen reads, shell hooks), so harness work never waits on the
-early-access mods API. A mods ticket in the table later swaps the Claude
-adapter's internals behind the same contract and tests. Re-read them and the governing Linear documents linked from
-`docs/architecture.md` immediately before each re-plan. No new Linear tickets
-are created by writing this plan.
+Out of scope, kept as optional work in the mods project: RT-388, RT-392,
+RT-393, RT-399, RT-401, RT-403, RT-404, SKILLS-96. RT-398 was canceled
+(Flock's hover card was removed); RT-394 is a duplicate. RT-383 is done.
+Re-read a ticket and the governing Linear documents linked from
+`docs/architecture.md` immediately before its task starts.
 
 Run focused checks after each task. Run `bun run check`, `bun run test`, the
 affected app/package checks, plugin certification, and the complete live

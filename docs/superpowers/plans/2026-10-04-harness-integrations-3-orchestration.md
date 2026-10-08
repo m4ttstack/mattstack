@@ -17,7 +17,10 @@ types. “Shepherdr may choose each worker's harness from the user's enabled,
 ready integrations. An explicit user assignment wins.” “Retries and resumes
 retain that selection.” “Unknown state must remain unknown.” Required gate
 and continuation policy must pass M6 before managed Codex workflows are enabled.
-**Re-planned 2026-10-05:** use the revised F4/F5 and M5/M6 contracts;
+**Re-planned 2026-10-07:** H3, H4 and H6 each gain a mods-first Claude step
+([Claude mods design](../specs/2026-10-07-harness-integrations-claude-mods-design.md));
+they need the [mods package](2026-10-07-harness-integrations-2b-claude-mods.md)
+and M6d. **Re-planned 2026-10-05:** use the revised F4/F5 and M5/M6 contracts;
 managed assignments require session-specific policy proof, not inventory alone. `rt herd` output is pinned by `herd-pane-agent-bytes.json` and its
 supplement; `rt runs` and `rt ci` by `agent-verbs-bytes.json`.
 
@@ -148,14 +151,27 @@ cannot declare the current worker dead.
   blocked, idle-with-background, disconnected, resumed and dead workers for
   both integrations; no inappropriate Escape or trust acceptance may occur.
 - [ ] Stage task files and commit `refactor: supervise workers through integration observations`.
+- [ ] Mods-first Claude producer (RT-395, RT-397; [Claude mods design](../specs/2026-10-07-harness-integrations-claude-mods-design.md)).
+  - Add `plugins/mattstack-mods/src/blocks/observe.ts`. From the hub's lifecycle events it reports turn start and end, a question form on screen, background work running, and session end, as `session:report { event: "observation", observation }`. The daemon writes these into the shared observation store `observeJob` reads.
+  - A Claude session without the `observe` block keeps today's herdr and screen observations.
+  - Watchdog nudges to a session with the block live go out as `pushModCommand(sessionId, "nudge", { text })`, and the mod answers with `$.prompt.submit`. On no ack within 5 s, fall back once to `poke`.
+  - Write `mod observation wins over the screen reading`, `a worker waiting on background work is never nudged`, and `an unacked nudge falls back to poke once`.
+  - Live-check a worker pane under the plugin: no keys typed, the nudge arrives as a plugin message.
+  - Commit `feat: Claude mod reports observations and receives nudges`.
 
 ### H4: Bind pipeline ownership and continuation to verified sessions
 
 **Files:** Modify `lib/runs/resolve-db.ts`, `lib/runs/store.ts`,
 `lib/runs/start.ts`, `lib/runs/identity.ts`, `lib/runs/write.ts`,
 `lib/runs/attention.ts`, `lib/runs/liveness.ts`,
-`lib/mcp/run-tools.ts`, `plugins/mattstack/hooks/pipeline-gate-stop.sh`;
+`lib/mcp/run-tools.ts`;
 create `lib/runs/__tests__/harness-attribution.test.ts`.
+
+**Re-planned 2026-10-07:** `pipeline-gate-stop.sh` stays unchanged as the
+Stop backstop ([Claude mods design](../specs/2026-10-07-harness-integrations-claude-mods-design.md)),
+so `rt runs find --session <claude session id> --running` and
+`rt runs snapshot` must keep resolving runs after the `session-key`
+migration. Its test script must stay green, unmodified.
 
 **Interfaces:** `resolveOwnedRun(context: CallerContext, explicitDb?: string): Outcome<{ db: string; runId: string }>`
 in `resolve-db.ts`; `bindRunSession(db: string, binding: SessionBinding): void`
@@ -185,6 +201,12 @@ read-only discovery may keep a separately named directory search.
   premature stop. Keep native-daemon restart in S9's explicit acceptance
   environment, never restart a shared service for this test. All required state transitions must match current behavior.
 - [ ] Stage task files and required plugin artifacts and commit `refactor: bind pipeline ownership to harness sessions`.
+- [ ] Mods-first Claude path (RT-396).
+  - Run liveness reads mod observations (H3), so a working session is never marked stale.
+  - Add a hub `fill` rule in `plugins/mattstack-mods/src/blocks/policy.ts` that adds the owned run's `runDb` to `run_*` calls, from `resolveOwnedRun` through a `runs:owned { sessionId }` verb. Never use a path the caller supplied.
+  - A session end reported by the link marks that session's running stage abandoned.
+  - Write `run_* without runDb resolves the owned run`, `a foreign run is never filled`, and `session end abandons only the owned running stage`.
+  - Commit `feat: run ownership and liveness through the Claude mod`.
 
 ### H5: Preserve CI lease ownership across integrations
 
@@ -242,3 +264,10 @@ the selected policy adapter before launch/relocation.
   verify current directory, session association, access and exactly one authorized
   disposition of the claimed member.
 - [ ] Stage task files and commit `refactor: adapt worktree lifecycle through harness integrations`.
+- [ ] Mods-first Claude relocation (RT-400, RT-391's announce; proven in mods-02).
+  - Add `plugins/mattstack-mods/src/blocks/relocation.ts`: a hub `permit` rule on `EnterWorktree` (`tool.check`) asks `worktree:registered { path }`, a new verb answered by `findTreeByPath`, and allows a registered path. Any other path passes through, so Claude Code's prompt still shows.
+  - For sessions with the `relocation` block live, the three key-pressing seams stand down: the herd watchdog's `acceptRelocationModal`, the reconciler's `driveRelocationAccept`, and `createRelocationWatcher`. `trust-dialog.ts` and those seams stay for every other session.
+  - `relocation-announce.sh` exits quietly when `RT_MOD_BLOCKS` names `relocation` and `rt agent mod-owned --session <id> --block relocation` (added in C8) confirms it is live; otherwise it runs as today.
+  - Write `a registered path enters with no prompt and no key press`, `an unregistered path keeps the prompt`, and `the seams stand down only for sessions with the block live`.
+  - Live-check attended, herd and unattended panes.
+  - Commit `feat: answer worktree relocation inside the Claude session`.

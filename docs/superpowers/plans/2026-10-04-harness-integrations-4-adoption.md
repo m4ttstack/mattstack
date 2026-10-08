@@ -263,6 +263,12 @@ in `skill-path.ts`; return the selected target's installed artifact.
   respond, doctor, resume and an external gate answer in the browser for both
   harnesses; retain screenshots and worker-result evidence.
 - [ ] Stage task files and commit `refactor: run Board workflows through harness integrations`.
+- [ ] Mods-first Claude board panes (BOARD-52; [Claude mods design](../specs/2026-10-07-harness-integrations-claude-mods-design.md)).
+  - First, an API check in a `--plugin-dir` pane: after `$.turn.abort`, can the mod end or absorb the backgrounded Bash and the wake-up turn it starts? mods-02 found the shell survives and starts a turn. Record the answer in `.harness-spike/mods-s5/report.md`.
+  - Add a mod `status` tool that replaces the `status-bin` Bash calls in `apps/board/skills-src`, used where the block is live. Skills keep `status-bin` otherwise.
+  - Add stand-down as a pushed `stand-down` command that runs `$.turn.abort`, then ends or absorbs the background work per the check. If neither is possible, report `stood-down-background` so the board shows "stood down; background work finishing" until it ends.
+  - Write `status tool updates the run like status-bin`, `stand-down stops the turn`, and `no status-bin call in a mod session`.
+  - Commit `feat: board panes report status and stand down through the Claude mod`.
 
 ### S6: Adopt metadata in Chat and Console
 
