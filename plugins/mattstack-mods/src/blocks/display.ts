@@ -77,6 +77,8 @@ type Form = {
   moved: string | null
   /** When the current quiet window ends. */
   quietUntil: Promise<number>
+  /** The ids of the pages joined from chunks of one question. */
+  joined: Set<string>
 }
 
 /** Runs an engine call whose failure (a deny, a site not holding the keys) changes nothing here. */
@@ -256,13 +258,16 @@ export function createDisplay(hub: Hub, pane: { id: string; title: string } = { 
 
     const actions: Node[] = []
     if (multi && asks) {
+      // Posting no findings is a real outcome for a joined chunk group, as on the board; a plain multi needs a pick.
+      const emptyOk = open.joined.has(q.id)
       const n = draft.picked.length
+      const picked = n === 0 && emptyOk ? 'none picked' : `${n} picked`
       actions.push(
         el.Button({
           key: 'next',
-          label: last ? `Done: ${n} picked` : `Next: ${n} picked →`,
+          label: last ? `Done: ${picked}` : `Next: ${picked} →`,
           variant: 'primary',
-          onPress: () => void (draft.picked.length > 0 && answer(api, [...draft.picked])),
+          onPress: () => void ((draft.picked.length > 0 || emptyOk) && answer(api, [...draft.picked])),
         }),
       )
     }
@@ -343,6 +348,7 @@ export function createDisplay(hub: Hub, pane: { id: string; title: string } = { 
           ring: null,
           moved: null,
           quietUntil: Promise.resolve(0),
+          joined: new Set(groups.keys()),
         }
       })
       const opening = form!

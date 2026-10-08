@@ -306,8 +306,10 @@ options) are joined into one page, as the board joins them
 (`src/blocks/gate-chunks.ts`, a port of gate-kit's `chunks.ts`). The page
 takes the first chunk's label and every chunk's findings@1 entries. Its
 picks go back to rt per chunk, `[]` for a chunk with none, with the page's
-note on the first chunk. The counter, the dots and the band's question
-count all count pages. Chunks that are not adjacent draw unjoined.
+note on the first chunk. Unlike a plain multi question, a joined page
+takes no picks (`Next: none picked →`), since posting no findings is a
+real outcome; every chunk then goes as `[]`. The counter, the dots and the
+band's question count all count pages. Chunks that are not adjacent draw unjoined.
 
 The pane draws the gate the way the board's gate sheets do: a header with
 the kind, the subject and the progress, the gate's context on the first

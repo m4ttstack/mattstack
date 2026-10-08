@@ -714,6 +714,35 @@ describe('display kit', () => {
     expect(await answered).toEqual({ 'findings-1': { value: ['f1'], note: 'only these two' }, 'findings-2': ['f3'], outcome: 'comment' })
   })
 
+  test('a joined chunk group accepts no picks, sending every chunk [], while a plain multi still refuses', async () => {
+    const k = kit()
+    const answered = k.ask({
+      id: 'g-n',
+      questions: [
+        { id: 'findings-1', label: 'Post which findings? (1 of 2)', multi: true, options: ['f1', 'f2'] },
+        { id: 'findings-2', label: 'Post which findings? (2 of 2)', multi: true, options: ['f3'] },
+        { id: 'tiers', label: 'Which tiers?', multi: true, options: ['minor', 'major'] },
+      ],
+    })
+    await flush()
+    expect(byKey(await k.draw(), 'next').props.label).toBe('Next: none picked →')
+    byKey(await k.draw(), 'note').props.onInput('nothing worth posting')
+    await k.press('next')
+    expect(k.display.progress()).toEqual({ index: 1, count: 2 })
+
+    expect(byKey(await k.draw(), 'next').props.label).toBe('Done: 0 picked')
+    await k.press('next')
+    expect(k.display.progress()).toEqual({ index: 1, count: 2 })
+    await k.press('option-1')
+    await k.press('next')
+    expect(await answered).toEqual({ 'findings-1': { value: [], note: 'nothing worth posting' }, 'findings-2': [], tiers: ['major'] })
+
+    const last = kit()
+    void last.ask({ id: 'g-l', questions: [{ id: 'findings-1', label: 'Post?', multi: true, options: ['f1'] }] })
+    await flush()
+    expect(byKey(await last.draw(), 'next').props.label).toBe('Done: none picked')
+  })
+
   test('every Text names its color, and secondary text is inactive: subtle is for borders only', async () => {
     const k = kit()
     void k.ask({ ...REVIEW, context: j({ 'gate-ctx': 'review@1', readiness: 'yes', summary: 'ok', findings: { minor: 2 }, re_review: true, round: 3 }) })
