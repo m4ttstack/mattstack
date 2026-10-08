@@ -5,9 +5,9 @@ sidebar_position: 3
 
 # Restructure a stack
 
-`sync` rebases a stack. It never changes its shape. Changing the shape is surgery, and five commands do it: they split a branch in two, merge one into another, move a subtree, rename a node, or snap a branch back to its remote. A sixth, `absorb`, has its own guide: [Absorb uncommitted changes](/gitq/guides/absorb-changes).
+`sync` rebases a stack. It never changes its shape. Changing the shape is surgery. Five commands here split a branch in two, merge one into another, move a subtree, rename a node, or snap a branch back to its remote. A sixth surgery command, `absorb`, has its own guide: [Absorb uncommitted changes](/gitq/guides/absorb-changes).
 
-All of them update gitq's tree and the git refs together, and none of them replays a commit inside the worktree you launched them from. Most refuse outright rather than half-finish; `reparent` is the exception, because its descendant cascade can pause partway through, with the branch itself already moved and its descendants still catching up (see [reparent](#reparent) below). Every block below came from a real run.
+All of them update gitq's tree and the git refs together, and none of them replays a commit inside the worktree you launched them from. Most refuse outright rather than half-finish; `reparent` is the exception, because its descendant cascade can pause partway through, with the branch itself already moved and its descendants still catching up (see [reparent](#reparent)).
 
 :::warning Surgery is mostly one way
 

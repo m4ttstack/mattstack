@@ -157,6 +157,7 @@ When you have no open threads on the MR (someone reviewed it under another accou
 
 - It never uses a checkout, commits or pushes.
 - It retries a job that looks flaky, once, then watches CI.
+- A failure the MR inherited from its target branch gets a note drafted for you, held until you post it.
 - A real CI failure, or conflicts, ends with an error line and its diagnosis on the row.
 
 More needs those settings changed. `cleanApiRebase` lets it ask GitLab to rebase. The `checkout` tier with `mechanicalLint` or `codeFix` lets it fix code and push, usually through a team pack's doctor skill. When a choice is yours, it asks through a gate. The board closes its tab when it is done.

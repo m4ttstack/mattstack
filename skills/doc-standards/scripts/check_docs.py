@@ -78,7 +78,9 @@ def prose_chunks(raw):
         return [raw]
     if TABLE_RULE.match(raw):
         return []
-    return [c for c in raw.strip().strip("|").split("|") if c.strip()]
+    # a pipe inside a code span or escaped as \| is cell content, not a border
+    row = re.sub(r"`[^`\n]+`", "CODE", raw.strip().strip("|"))
+    return [c for c in re.split(r"(?<!\\)\|", row) if c.strip()]
 
 
 def sentences(text):

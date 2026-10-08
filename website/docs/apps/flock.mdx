@@ -96,11 +96,11 @@ The pane label shows the reason in place of the status word, for example "1 shel
 
 ### Plain shells
 
-flock has no statuses of its own for a plain shell: a shell running a long build looks the same as one sitting at its prompt, the small muted dot. Closing a plain shell never asks first, since no agent runs in it.
+flock has no statuses of its own for a plain shell: a shell running a long build looks the same as one sitting at its prompt, the small muted dot. Closing a plain shell asks first only when the close also takes its tab or workspace (see [Closing a pane or tab](#closing-a-pane-or-tab)).
 
 ### The launcher
 
-When a pane's shell sits at an empty prompt, a launcher bar shows over it: in a new pane, after <kbd>⌃</kbd><kbd>L</kbd> or `clear`, after rt cd, and in a pane flock sees for the first time after it restarts. The bar offers rt cd, claude and codex on <kbd>⌘</kbd><kbd>1</kbd> to <kbd>⌘</kbd><kbd>3</kbd>, and hides on your first keystroke or when the pane prints anything. rt cd runs `rt cd --repo`, so it picks from every repo.
+When a pane's shell sits at an empty prompt, a launcher bar shows over it: in a new pane, after <kbd>⌃</kbd><kbd>L</kbd> or `clear`, after rt cd, and in a pane flock sees for the first time after it restarts. The bar offers rt cd, claude and codex, each only when it is on your `PATH`, on <kbd>⌘</kbd><kbd>1</kbd> onward in that order. It hides on your first keystroke or when the pane prints anything. rt cd runs `rt cd --repo`, so it picks from every repo.
 
 ### Other marks
 
@@ -111,15 +111,20 @@ When a pane's shell sits at an empty prompt, a launcher bar shows over it: in a 
 
 ## Closing a pane or tab
 
-Closing a pane or tab that runs an agent asks first: Claude Code, Codex or any other agent herdr detects, idle or busy. The prompt reads "Close this pane?" or "Close this tab?", says how many agent sessions the close ends, and offers **Close Pane** or **Close Tab** and **Cancel**. When the close also takes its tab or workspace, the prompt names that instead.
+flock asks before a close in two cases:
 
-Tick **Don't warn me next time** to stop the prompt for that kind of close, tabs or panes, whichever button you press. Turn it back on in Settings under **Closing**. A busy pane, or a workspace's last tab, asks either way.
+- The pane or tab runs an agent: Claude Code, Codex or any other agent herdr detects, idle or busy.
+- The close also takes its tab or workspace, such as closing a tab's only pane. This asks whether or not an agent runs. A pinned workspace's last tab is the exception, since its pin stays.
+
+The prompt reads "Close this pane?" or "Close this tab?", says how many agent sessions the close ends, if any, and offers **Close Pane** or **Close Tab** and **Cancel**. When the close also takes its tab or workspace, the prompt names that instead.
+
+Tick **Don't warn me next time** to stop the prompt for that kind of close, tabs or panes, whichever button you press. Turn it back on in Settings under **Closing**. A busy pane, and a close that takes its tab or workspace, ask either way.
 
 Close Workspace (<kbd>⌥</kbd><kbd>⇧</kbd><kbd>⌘</kbd><kbd>W</kbd>) does not check for agents.
 
 ## Pinned workspaces
 
-A pinned workspace keeps its place at the top of the sidebar, under PINNED, and comes back when you click it after its last tab closes.
+A pinned workspace keeps its place at the top of the sidebar, under PINNED, even after its last tab closes. You can open it again from there.
 
 ### Pin a workspace
 
@@ -144,7 +149,7 @@ You can do this any time, on a live pinned workspace or an empty one. The folder
 ### What a pin does
 
 - A pinned workspace's menu has no Close. Closing its last tab closes the herdr workspace and leaves an empty pin, dimmed in the sidebar. flock asks first only when that tab runs an agent (see [Closing a pane or tab](#closing-a-pane-or-tab)). If you were on the workspace, its empty pin stays on screen.
-- Choosing an empty pin in the sidebar or the <kbd>⌃</kbd><kbd>Tab</kbd> switcher shows it: its symbol, name and folder, "Pinned · no tabs open", and a launcher bar of shell, rt cd, claude and codex. Nothing opens yet.
+- Choosing an empty pin in the sidebar or the <kbd>⌃</kbd><kbd>Tab</kbd> switcher shows it, and nothing opens yet. You see its symbol, name and folder, "Pinned · no tabs open", and a launcher bar. The bar offers a shell, plus whichever of rt cd, claude and codex are on your `PATH`.
 - To open it, press <kbd>↩</kbd> for a shell, choose a launcher item (or press <kbd>⌘</kbd><kbd>1</kbd> to <kbd>⌘</kbd><kbd>3</kbd>), or press <kbd>⌘</kbd><kbd>T</kbd>. flock opens a new workspace in the pin's folder, under the pin's name. Tabs, splits and commands are not restored.
 - If the pin's folder no longer exists, the workspace opens in your home folder and tells you to pick another with Change Folder….
 - flock does not reopen pins when it starts. An empty pin whose name matches a workspace herdr already has links to it.
