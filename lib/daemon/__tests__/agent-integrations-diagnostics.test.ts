@@ -31,6 +31,7 @@ function setup(over: { enabled?: boolean; experimentalApi?: boolean | undefined 
     enabled: () => true,
     modLinks: () => links,
     now: () => clock.now,
+    switchOn: () => enabled,
     experimentalApi: () => over.experimentalApi,
   });
   return { clock, links, handlers, off: () => { enabled = false; } };
@@ -73,14 +74,14 @@ describe("agent:integrations diagnostics", () => {
     links.register({ sessionId: "s1", cwd: "/r", root: "/r", claudeCode: TESTED_CLAUDE_CODE.min, plugin: "p", blocks: ["delivery"] });
     off();
     const claude = (await list(handlers)).find((s) => s.id === "claude")!;
-    expect(claude.diagnostics?.claudeLinks ?? []).toEqual([]);
+    expect(claude.diagnostics).toBeUndefined();
   });
 
   test("existing agent:integrations fields are unchanged", async () => {
-    const { handlers } = setup();
+    const { handlers, off } = setup();
+    off();
     const [claude] = await list(handlers);
-    const { diagnostics: _d, ...rest } = claude!;
-    expect(rest).toEqual({
+    expect(claude).toEqual({
       id: "claude", label: "claude", enabled: true, readiness: ready, capabilities: [], options: [],
     });
   });

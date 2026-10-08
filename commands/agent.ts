@@ -327,18 +327,6 @@ function integrationsBlocks(summaries: IntegrationSummary[]): Block[] {
   });
 }
 
-function integrationsPlain(summaries: IntegrationSummary[]): string {
-  return summaries.flatMap((s) => {
-    const state = !s.enabled ? "off" : s.readiness.ready ? "ready" : `not ready${s.readiness.reason ? `: ${s.readiness.reason}` : ""}`;
-    const rows = [`${s.id}  ${state}`];
-    for (const l of s.diagnostics?.claudeLinks ?? []) {
-      rows.push(`  ${l.sessionId}  claude ${l.claudeCode}  ${l.blocks.join(",") || "no blocks"}  ${secondsAgo(l.lastHeartbeatAgoMs)}`);
-    }
-    if (s.diagnostics?.experimentalApi !== undefined) rows.push(`  experimental API ${s.diagnostics.experimentalApi ? "negotiated" : "not negotiated"}`);
-    return rows;
-  }).join("\n");
-}
-
 export async function agentIntegrationsReport(args: string[]): Promise<void> {
   const json = args.includes("--json");
   if (json) out.payloadOnStdout();
@@ -348,7 +336,7 @@ export async function agentIntegrationsReport(args: string[]): Promise<void> {
     out.json({ ok: true, integrations: data.integrations });
     return;
   }
-  show(() => integrationsBlocks(data.integrations), () => integrationsPlain(data.integrations));
+  out.print(...integrationsBlocks(data.integrations));
 }
 
 const USAGE = "usage: rt agent <start|resume|show|list> ...";
@@ -367,13 +355,14 @@ const VERB_HINTS: Record<string, string> = {
   resume: "resume a handoff",
   show: "show a handoff / session",
   list: "list handoffs",
+  integrations: "show which integrations are on",
 };
 
 async function pickAgentVerb(): Promise<string | null> {
   const { filterableSelect } = await import("../lib/pick-wrappers.ts");
   return filterableSelect({
     message: "rt agent",
-    options: Object.keys(VERBS).map((v) => ({ value: v, label: v, hint: VERB_HINTS[v] ?? "" })),
+    options: [...Object.keys(VERBS), "integrations"].map((v) => ({ value: v, label: v, hint: VERB_HINTS[v] ?? "" })),
   });
 }
 
@@ -394,9 +383,10 @@ export async function agent(args: string[]): Promise<void> {
     usage();
     return;
   }
+  if (verb === "integrations") return agentIntegrationsReport(rest);
   const handler = VERBS[verb];
   if (!handler) fail(`unknown verb "${verb}": ${USAGE}`);
   await handler(rest);
 }
 
-export const __test__ = { parseStartArgs, parseResumeArgs, withCallerAccount, renderRecord, agentListBlocks, integrationsBlocks, integrationsPlain };
+export const __test__ = { parseStartArgs, parseResumeArgs, withCallerAccount, renderRecord, agentListBlocks, integrationsBlocks };

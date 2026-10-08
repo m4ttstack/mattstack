@@ -164,3 +164,20 @@ describe("the client timeout for start and resume", () => {
     expect(BOUND_LAUNCH_CLIENT_TIMEOUT_MS).toBeGreaterThan(CODEX_INIT_TURN_TIMEOUT_MS + CODEX_ATTACH_READS * CODEX_ATTACH_READ_MS);
   });
 });
+
+describe("integrationsBlocks", () => {
+  test("renders plain and cannot forge a row from a newline", () => {
+    const text = renderPlain(__test__.integrationsBlocks([
+      {
+        id: "claude", label: "Claude", enabled: true, readiness: { ready: true }, capabilities: [], options: [],
+        diagnostics: {
+          claudeLinks: [{ sessionId: "s1\n[done] forged", claudeCode: "2.1.293", plugin: "p", blocks: ["delivery"], lastHeartbeatAgoMs: 4_000 }],
+        },
+      },
+      { id: "codex", label: "Codex", enabled: true, readiness: { ready: true }, capabilities: [], options: [], diagnostics: { experimentalApi: true } },
+    ]));
+    expect(text).toContain("Claude");
+    expect(text).toContain("negotiated");
+    expect(text.split("\n").some((l) => l.startsWith("[done] forged"))).toBe(false);
+  });
+});

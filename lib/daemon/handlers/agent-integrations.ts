@@ -15,6 +15,7 @@ import type { HarnessIntegration, IntegrationRegistry } from "../../agent-integr
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import type { ModLinks } from "../../agent-integrations/claude/mod-links.ts";
 import { codexExperimentalApi } from "../../agent-integrations/codex/link.ts";
+import { integrationsEnabled } from "../../agent-integrations/switch.ts";
 import { getSetting } from "../../settings/resolve.ts";
 
 /** CommandResult's shape, spelled here because ./types.ts reaches setup modules through the daemon's snapshot types. */
@@ -27,6 +28,8 @@ export type IntegrationListDeps = {
   /** The daemon's mod-link registry; defaults to the installed one, null outside the daemon. */
   modLinks?: () => Promise<ModLinks | null> | ModLinks | null;
   now?: () => number;
+  /** The agent.integrations.enabled switch; off, nothing is diagnosed. */
+  switchOn?: () => boolean;
   /** What the live Codex connection negotiated; undefined while there is none. */
   experimentalApi?: () => boolean | undefined;
 };
@@ -74,6 +77,7 @@ async function installedLinks(): Promise<ModLinks | null> {
 }
 
 async function diagnose(integration: HarnessIntegration, deps: IntegrationListDeps): Promise<IntegrationDiagnostics | undefined> {
+  if (!(deps.switchOn ?? integrationsEnabled)()) return undefined;
   if (integration.id === "claude") {
     const links = await (deps.modLinks ?? installedLinks)();
     if (!links) return undefined;
