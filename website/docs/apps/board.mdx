@@ -82,24 +82,22 @@ The MR's channel is the board's Slack channel, or a code owners tab's own channe
 
 ### agent actions
 
-Every item here needs a local board. Review, respond and doctor open a Claude Code session in a herdr pane on this Mac, in the `reviews`, `responses` or `doctors` workspace. The session runs under the `board.agent.account` and `board.agent.model` settings, in the folder `board.cwds` names for that kind of work. The board makes no worktree for it. [What each agent does](#what-each-agent-does) follows each one from start to finish.
-
-The ask items start nothing on this Mac: they ask a teammate's board, and the agent runs there (see [Asks between boards](#asks-between-boards)).
+Every item here needs a local board. Each row links to what that agent does.
 
 | Icon | Label | What it does | Shows when |
 | --- | --- | --- | --- |
-| <BoardIcon name="agent" lane="review" /> | review | Starts a review agent. Nothing reaches GitLab until you answer its gate. | The board has not reviewed the MR, or its last review failed. |
-| <BoardIcon name="agent" lane="review" /> | re-review | For after the author has answered your review. Picks up the earlier review's session, rules on each of your open threads, then looks at what changed. | The board's review finished, or someone already reviewed the MR on GitLab. |
-| <BoardIcon name="agent" lane="review" /> | focus review | Brings the running review's pane forward. It reads "relaunch review" when that pane is gone, but it still starts nothing: the board says "pane is gone". | A review is queued or running. |
-| <BoardIcon name="agent" lane="respond" /> | respond | Starts an agent that works through the review threads on your MR, with two gates before it posts. Reads "restart response" after a finished one. | Your own MR. |
-| <BoardIcon name="agent" lane="respond" /> | focus response | Brings the running response's pane forward. Reads "relaunch response" when the pane is gone, and then starts nothing either. | A response is running on your MR. |
-| <BoardIcon name="agent" lane="doctor" /> | call doctor | Starts the doctor on the MR's failing CI or conflicts. What it may change comes from auto-doctor's settings. Reads "call doctor again" after a finished one. | Your own MR, with failing CI or conflicts. |
-| <BoardIcon name="agent" lane="doctor" /> | focus doctor | Brings the running doctor's pane forward. | The doctor is running, and the MR still has failing CI or conflicts. |
-| <BoardIcon name="agent" lane="doctor" /> | rebase locally | Starts the doctor with one job: rebase your branch onto its target. | Your own MR, when it has conflicts or is behind its target. |
-| <BoardIcon name="agentCloud" /> | request review from… | Opens a list of teammates' agents ("dev2's agent") to ask for a review. | Your own MR, when there is a teammate left to ask. Otherwise it sits greyed in **all agent actions**. |
-| <BoardIcon name="people" /> | ask dev1's agent to respond | Asks the author's agent to work through your review threads, on the author's Mac. Greyed with "ask already sent", "author's board isn't taking asks" or "no finished review with comments". | Someone else's MR, on a board with a seat. |
+| <BoardIcon name="agent" lane="review" /> | review | Launches an agentic review. See [Review](#review). | The board has not reviewed the MR, or its last review failed. |
+| <BoardIcon name="agent" lane="review" /> | re-review | Launches a follow-up review, once the author has responded to yours. See [Re-review](#re-review). | The board's review finished, or someone already reviewed the MR. |
+| <BoardIcon name="agent" lane="review" /> | focus review | Shows the running review's pane. Once that pane is closed it reads "relaunch review", but it still only tries to show the pane and starts nothing. | A review is queued or running. |
+| <BoardIcon name="agent" lane="respond" /> | respond | Launches an agent that answers the review on your MR. See [Respond](#respond). Reads "restart response" after a finished one. | Your own MR. |
+| <BoardIcon name="agent" lane="respond" /> | focus response | Shows the running response's pane. Reads "relaunch response" once that pane is closed, and still starts nothing. | A response is running on your MR. |
+| <BoardIcon name="agent" lane="doctor" /> | call doctor | Launches the doctor on failing CI or conflicts. See [Doctor](#doctor). Reads "call doctor again" after a finished one. | Your own MR, with failing CI or conflicts. |
+| <BoardIcon name="agent" lane="doctor" /> | focus doctor | Shows the running doctor's pane. | The doctor is running, and the MR still has failing CI or conflicts. |
+| <BoardIcon name="agent" lane="doctor" /> | rebase locally | Launches the doctor to rebase your branch onto its target. See [Doctor](#doctor). | Your own MR, when it has conflicts or is behind its target. |
+| <BoardIcon name="agentCloud" /> | request review from… | Asks a teammate's agent to review your MR. See [Asks between boards](#asks-between-boards). | Your own MR, when there is a teammate left to ask. Otherwise it sits greyed in **all agent actions**. |
+| <BoardIcon name="people" /> | ask dev1's agent to respond | Asks the author's agent to answer your review. See [Asks between boards](#asks-between-boards). | Someone else's MR, once this board's review finished with comments. |
 
-"no finished review with comments" means this board's own review has not finished with a comment verdict. A review left by hand on GitLab does not count.
+**ask dev1's agent to respond** is greyed with "ask already sent", "author's board isn't taking asks" or "no finished review with comments". A review left by hand on the MR does not count as a finished review here.
 
 ### all agent actions
 
@@ -107,62 +105,63 @@ The rest of the agent work. Items with nothing to act on (no saved session, no r
 
 | Icon | Label | What it does |
 | --- | --- | --- |
-| <BoardIcon name="agent" lane="review" /> | review from scratch | Starts a new first review, not a re-review. Offered when someone reviewed the MR on GitLab and the board's own review never ran or failed. |
-| <BoardIcon name="agent" lane="review" /> | resume review | Reopens the last review's Claude session in a tab marked ↺, ready for you to type to it. It starts no new work; a note becomes your first message. |
+| <BoardIcon name="agent" lane="review" /> | review from scratch | Launches a new first review instead of a re-review. See [Review](#review). Offered when someone already reviewed the MR and the board's own review never ran or failed. |
+| <BoardIcon name="agent" lane="review" /> | resume review | Reopens the last review's session so you can talk to it. It starts no new work; a note becomes your first message. |
 | <BoardIcon name="agent" lane="respond" /> | resume response | The same for the last response, on your own MR. |
-| <BoardIcon name="file" /> | view agent review | Opens the review's report on the board. Works on any board. |
-| <BoardIcon name="file" /> | view agent response | Opens the response's report on the board. |
-| <BoardIcon name="dismiss" /> | dismiss review line | Clears a failed review's line from the row. The review keeps its state and report, and the next run brings the line back. |
+| <BoardIcon name="file" /> | view agent review | Opens the review's full report on the board. |
+| <BoardIcon name="file" /> | view agent response | Opens the response's full report on the board. |
+| <BoardIcon name="dismiss" /> | dismiss review line | Clears a failed review's line from the row. The next run brings the line back. |
 | <BoardIcon name="dismiss" /> | dismiss respond line | The same for a failed response. |
 | <BoardIcon name="dismiss" /> | dismiss doctor line | The same for a failed doctor. |
-| <BoardIcon name="people" /> | ask dev2's agent to re-review | Asks a teammate whose board review finished with comments to re-review, on their Mac. One item per such teammate, on your own MR. |
+| <BoardIcon name="people" /> | ask dev2's agent to re-review | Asks a teammate whose review left comments to review again. See [Asks between boards](#asks-between-boards). One item per such teammate, on your own MR. |
 | <BoardIcon name="agentCloud" /> | request review from… | Shown here, greyed, when there is nobody left to ask: "ask already sent" or "everyone engaged". |
 
 ### What each agent does
 
-Each agent's GitLab writes go out under your GitLab account. When an agent needs you, it asks through a gate on the board and waits for your answer.
+Review, respond and doctor each run as a Claude Code agent in their own herdr pane on this Mac, in the `reviews`, `responses` or `doctors` workspace. They use the account and model set in `board.agent.account` and `board.agent.model`, and work in the folder `board.cwds` sets for that kind of work. When an agent needs a decision from you, it asks on the board and waits. Anything it posts to the MR is posted as you.
 
 #### Review
 
-1. Reads the MR and compares its branch with the target in the board's review folder, without changing anything there. A team pack can hand this step to its own review skill.
-2. Writes a report, which **view agent review** opens.
-3. Stops at a gate: you pick which findings to post, and the verdict, approve or comment. Nothing posts before you answer.
-4. Posts one GitLab review: the inline comments you picked and a summary, published, not left as drafts. On approve, it also approves the MR. It never changes code.
+The agent reads the MR and compares its changes with the target branch. A team pack can supply its own review skill for this step.
 
-With Slack connected, the board adds your looking reaction when the review starts, and commented or approved when it ends. After a comment verdict, with `board.reReview` on, the board also opens a thread on the MR: "**Addressed everything?** Resolve this thread and I'll take another pass over the MR."
+When it finishes, its findings come back to you on the board. You decide which findings to post and what the review result is: approve or comment. Nothing is posted until you decide.
+
+It then posts the findings you chose as inline comments with a summary, and approves the MR if you chose approve. It never changes code. **view agent review** opens its full report.
+
+With Slack connected, the board marks the MR's Slack post as looking while the review runs, then commented or approved. After a comment result, with `board.reReview` on, the board also adds a thread asking the author to resolve it once everything is addressed. The board takes another pass when they do.
 
 #### Re-review
 
-Run it after the author has answered your review: replied to or resolved your threads, or pushed new commits.
+Use it once the author has responded to your review: replied to your comments, resolved threads or pushed new commits.
 
-1. Reopens the earlier review's Claude session in a tab marked `RE`, so it remembers the first pass. With no session on file it starts fresh.
-2. Reads every unresolved thread your account started, and rules on each one at the MR's newest commit: fixed, not fixed, pushback accepted or pushback rejected. It drafts a reply for each. Other reviewers' threads are left alone.
-3. Looks for new problems, mostly in the commits since the last one it reviewed.
-4. Stops at the gate. For each thread you choose whether to post its reply and whether to resolve it, then pick findings and the verdict as in a review.
-5. Posts it all as one GitLab review.
+It picks up the session from your first review, so it remembers what it found. For each of your open threads, it checks the latest code and decides whether the point was fixed, not fixed, or pushed back on, and whether that pushback holds. It drafts a reply for each one and leaves other reviewers' threads alone. Then it looks for new problems, mostly in the commits since its last pass.
 
-When you have no open threads on the MR (someone reviewed it under another account, say), it runs a full review instead.
+Back on the board, you choose which replies to post, which threads to resolve, which new findings to post and the review result. It posts them together.
+
+If you have no open threads on the MR, it does a full review instead.
 
 #### Respond
 
-1. Reads every unresolved thread from a person on your MR, and drafts a reply to each.
-2. First gate: for each thread, **Reply only**, **Fix the code** or **Skip this thread**, then whether to approve the proposed code changes.
-3. Makes the approved fixes in the board's respond folder, on whatever branch that checkout is on; it never switches branches. It runs the tests, type check and lint, and commits once per thread. A fix that still fails after three tries is undone.
-4. Second gate: for each thread, whether to post the reply and whether to resolve the thread.
-5. Pushes only when a thread you picked has a code fix, and only when the checkout is on the MR's branch. It never force-pushes. Otherwise it holds the fixes and says so. A reply-only thread is never resolved.
+The agent reads every open review thread on your MR and drafts a reply to each.
+
+It then asks how to handle each thread: reply only, fix the code, or skip it. You also approve the code changes it proposes.
+
+For each approved fix, it edits code in the board's respond folder, on whatever branch that folder has checked out; it never switches branches. It runs the tests, type check and lint, and commits once per thread. A fix that still fails after three tries is undone.
+
+Before posting, it asks again: for each thread, whether to post the reply and whether to resolve the thread. When a thread you picked has a code fix and the folder is on the MR's branch, it pushes, never with force. Otherwise it keeps the fixes and tells you. Threads you only replied to stay open.
 
 #### Doctor
 
-**call doctor** runs on its own, without asking first, under auto-doctor's settings in `board.triage`. With those settings as they ship:
+**call doctor** works without stopping to ask, using auto-doctor's settings in `board.triage`. As shipped, it:
 
-- It never uses a checkout, commits or pushes.
-- It retries a job that looks flaky, once, then watches CI.
-- A failure the MR inherited from its target branch gets a note drafted for you, held until you post it.
-- A real CI failure, or conflicts, ends with an error line and its diagnosis on the row.
+- never edits code, commits or pushes.
+- retries a job that looks flaky, once, then watches CI.
+- drafts a note for a failure the MR inherited from its target branch, for you to post.
+- ends with an error and its diagnosis on the row when CI really fails or the MR has conflicts.
 
-More needs those settings changed. `cleanApiRebase` lets it ask GitLab to rebase. The `checkout` tier with `mechanicalLint` or `codeFix` lets it fix code and push, usually through a team pack's doctor skill. When a choice is yours, it asks through a gate. The board closes its tab when it is done.
+To let it do more, change those settings. `cleanApiRebase` lets it start a rebase on the server. The `checkout` tier with `mechanicalLint` or `codeFix` lets it fix code and push, usually through a team pack's doctor skill. If it needs a decision, it asks on the board. The board closes its pane when it is done.
 
-**rebase locally** starts the doctor with one instruction: rebase the branch onto its target, resolve conflicts and push. With a team pack's doctor skill, that happens in a checkout, and the push is a force-push with lease. Without one, the doctor asks GitLab to rebase instead. Conflicts GitLab cannot rebase end in an error, and an MR that is only behind, with green CI, is left as it is.
+**rebase locally** launches the doctor with one job: rebase the branch onto its target, resolve conflicts and push. With a team pack's doctor skill, it rebases in a local checkout and force-pushes with lease. Without one, it starts a rebase on the server instead. Conflicts the server cannot rebase end in an error, and an MR that is only behind, with green CI, is left as it is.
 
 ### gitlab
 
@@ -409,7 +408,7 @@ These are registry keys, so you can read them with `rt settings get <key>`. The 
 | `board.defaultMember` | Which member this developer's local board opens as. |
 | `board.hiddenMembers` | Usernames you hide from the authors tab's roster. |
 | `board.staleAfterDays` | Days of MR inactivity before the board flags it stale, for you. |
-| `board.gateGraceMinutes` | Minutes an unanswered review gate stays open before the board parks the review. Default 90. |
+| `board.gateGraceMinutes` | Minutes a review waits for your decision before the board parks it. Default 90. |
 | `board.reReview` | Turns the automatic re-review sweep on or off. |
 | `board.agent.account` | The cswap account the board's review, respond and doctor panes launch under. |
 | `board.agent.model` | Default model for those panes. |
