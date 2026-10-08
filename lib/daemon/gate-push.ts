@@ -220,9 +220,19 @@ export function createGatePush(opts: {
     // gate this off -- session wins.
     if (answeredByNudgedPane(row)) return null;
     try {
-      const reading = await opts.paneStatus(gateHints(row));
+      const hints = gateHints(row);
+      const reading = await opts.paneStatus(hints);
       if (reading?.status === "blocked") return reading.paneRef;
-      log.debug({ gateId: row.id, status: reading?.status ?? null }, "gate-push: no form on screen; doorbell-only");
+      // Info, not debug: a form left up after a remote answer is only
+      // diagnosable from what the probe saw.
+      if (reading === null) {
+        log.info({ gateId: row.id, hints }, "gate-push: no live pane resolved; doorbell-only");
+      } else {
+        log.info(
+          { gateId: row.id, paneRef: reading.paneRef, status: reading.status, lastLine: reading.lastLine ?? null },
+          "gate-push: no form on screen; doorbell-only",
+        );
+      }
       return null;
     } catch (err) {
       log.warn({ err, gateId: row.id }, "gate-push: pane status probe threw; doorbell-only");
@@ -240,7 +250,7 @@ export function createGatePush(opts: {
     const hints = gateHints(row);
     const injected = await opts.injectEscape(hints, { paneRef });
     if (injected.ok) {
-      log.debug({ gateId: row.id, paneRef: injected.paneRef }, "gate-push: escape injected");
+      log.info({ gateId: row.id, paneRef: injected.paneRef }, "gate-push: escape injected");
     } else {
       log.warn({ gateId: row.id, hints, error: injected.error }, "gate-push: escape injection failed; doorbell-only");
     }

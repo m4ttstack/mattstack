@@ -214,6 +214,7 @@ function w4Harness(opts: {
   paneStatus?: LivePane["agentStatus"] | null | "throw";
   withProbe?: boolean;
   traceProbe?: boolean;
+  log?: pino.Logger;
 } = {}) {
   const store = freshStore();
   const events: string[] = [];
@@ -235,13 +236,13 @@ function w4Harness(opts: {
     if (opts.traceProbe) events.push("probe");
     if (opts.paneStatus === "throw") throw new Error("herdr exploded");
     const status = opts.paneStatus === undefined ? ("blocked" as const) : opts.paneStatus;
-    return status === null ? null : { paneRef: `probed:${hints.paneId ?? "session"}`, status };
+    return status === null ? null : { paneRef: `probed:${hints.paneId ?? "session"}`, status, lastLine: "❯ queued message" };
   };
   const push = createGatePush({
     store,
     deliver,
     resolveSession: (sessionId) => ({ socketPath: sessionId }),
-    log,
+    log: opts.log ?? log,
     ...(opts.withInjector === false ? {} : { injectEscape }),
     ...(opts.withProbe === false ? {} : { paneStatus }),
   });
@@ -335,6 +336,29 @@ describe("gate-push escape injection (W4)", () => {
       await push.onAnswered(answeredFormGate(store, "shepherd"));
       expect(events, status).toEqual(["deliver"]);
     }
+  });
+
+  test("a form gate whose pane shows no form logs what the pane's last line was, at info", async () => {
+    const lines: Array<Record<string, unknown>> = [];
+    const captured = pino({ level: "info" }, { write: (l: string) => lines.push(JSON.parse(l)) });
+    const { push, store } = w4Harness({ paneStatus: "working", log: captured });
+    const row = answeredFormGate(store, "console");
+    await push.onAnswered(row);
+    expect(lines.find((l) => l.msg === "gate-push: no form on screen; doorbell-only")).toMatchObject({
+      level: 30, gateId: row.id, paneRef: "probed:pane-7", status: "working", lastLine: "❯ queued message",
+    });
+  });
+
+  test("a form gate whose pane does not resolve logs that, not a missing form", async () => {
+    const lines: Array<Record<string, unknown>> = [];
+    const captured = pino({ level: "info" }, { write: (l: string) => lines.push(JSON.parse(l)) });
+    const { push, store } = w4Harness({ paneStatus: null, log: captured });
+    const row = answeredFormGate(store, "console");
+    await push.onAnswered(row);
+    expect(lines.map((l) => l.msg)).not.toContain("gate-push: no form on screen; doorbell-only");
+    expect(lines.find((l) => l.msg === "gate-push: no live pane resolved; doorbell-only")).toMatchObject({
+      level: 30, gateId: row.id, hints: { paneId: "pane-7", sessionId: "sess-1" },
+    });
   });
 
   test("the pane is probed before the doorbell, then Escape follows it", async () => {
