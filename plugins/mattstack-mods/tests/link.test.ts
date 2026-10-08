@@ -101,6 +101,39 @@ describe('link', () => {
     expect(cleared.link.linkId()).toBe('ml-1')
   })
 
+  test('an in-process /resume to another session registers that session fresh after the end turned every block off', async () => {
+    const h = harness()
+    await h.start()
+    await h.end('resume')
+    expect(h.hub.liveBlocks()).toEqual([])
+    expect(h.link.linkId()).toBeNull()
+
+    h.session.id = 'sess-9'
+    await h.sessionStart('resume', 'sess-9')
+
+    const registers = h.verbs('session:register').map(s => s.body)
+    expect(registers).toHaveLength(2)
+    expect(registers[1]).toEqual({ ...registers[0], sessionId: 'sess-9' })
+    expect(registers[1]).not.toHaveProperty('previousSessionId')
+    expect(h.link.linkId()).toBe('ml-2')
+    expect(h.hub.liveBlocks()).toEqual(['delivery', 'presence'])
+    expect(h.verbs('session:report')).toHaveLength(0)
+    await h.clock.advance(10_000)
+    expect(h.verbs('session:heartbeat').map(s => s.body)).toEqual([{ linkId: 'ml-2' }])
+    expect(h.clock.intervals()).toEqual([10_000])
+  })
+
+  test('a resume after a refused register registers nothing', async () => {
+    const h = harness()
+    h.script.respond = (verb, body) =>
+      verb === 'session:register' ? { ok: false, error: 'off', failure: { code: 'refused', message: 'off' } } : h.defaults(verb, body)
+    await h.start()
+    await h.sessionStart('resume', 'sess-9')
+
+    expect(h.verbs('session:register')).toHaveLength(1)
+    expect(h.hub.liveBlocks()).toEqual([])
+  })
+
   test('session.end with reason clear keeps the link and heartbeat until the classic.SessionStart source clear re-registration', async () => {
     const h = harness()
     await h.start()

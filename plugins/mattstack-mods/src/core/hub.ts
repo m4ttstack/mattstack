@@ -116,6 +116,8 @@ export type Hub = Subscriptions & {
   liveBlocks(): ModBlock[]
   /** Clears every live block not in `blocks`; the daemon's answer to a register is the authority. */
   keep(blocks: readonly string[]): void
+  /** Makes live again every block that started and has not failed since, for a fresh register after a session end. */
+  restore(): void
   /** Whether this session passed the engine and interactivity checks, so blocks were started. */
   engaged(): boolean
   /** Calls `listener` with each block a failure clears after it went live. */
@@ -174,6 +176,8 @@ function matches(tool: ToolMatch, name: string): boolean {
 export function createHub(): Hub {
   const starts: { name: ModBlock; start: (api: ModApi, scope: Subscriptions) => Promise<void> }[] = []
   const live = new Set<ModBlock>()
+  // Started and never cleared by a failure: what a fresh register may offer again.
+  const healthy = new Set<ModBlock>()
   let started = false
   let engaged = false
   // A conversation began (startup or /clear) and no prompt has carried the
@@ -195,6 +199,7 @@ export function createHub(): Hub {
   function fail(api: ModApi, sub: { owner: ModBlock | null; label: string }, where: string, err: unknown): void {
     const message = err instanceof Error ? err.message : String(err)
     const who = sub.owner ?? 'core'
+    if (sub.owner !== null) healthy.delete(sub.owner)
     if (sub.owner !== null && live.delete(sub.owner)) {
       for (const listener of clearedListeners) {
         try {
@@ -292,8 +297,10 @@ export function createHub(): Hub {
       engaged = true
       for (const { name, start } of starts) {
         const settled = await bounded(api, START_TIMEOUT_MS, () => start(api, subscriptions(name)))
-        if (settled.ok) live.add(name)
-        else fail(api, { owner: name, label: 'start' }, 'session.start', settled.error)
+        if (settled.ok) {
+          live.add(name)
+          healthy.add(name)
+        } else fail(api, { owner: name, label: 'start' }, 'session.start', settled.error)
       }
       const names = starts.map(s => s.name).filter(name => live.has(name))
       try {
@@ -437,6 +444,9 @@ export function createHub(): Hub {
     },
     keep(blocks) {
       for (const name of [...live]) if (!blocks.includes(name)) live.delete(name)
+    },
+    restore() {
+      for (const name of healthy) live.add(name)
     },
     engaged() {
       return engaged

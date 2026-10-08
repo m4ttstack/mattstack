@@ -82,7 +82,17 @@ import {
 } from "../../agent-integrations/delivery.ts";
 import { readDelivery } from "../../agent-integrations/delivery-store.ts";
 import { isDetachedAttachment, listBindingsAtPane, listBindingsByNativeValue } from "../../agent-integrations/session-store.ts";
+import { claudeModSignIn, type ChatSignInCommand, type ClaudeModSignIn } from "../../agent-integrations/claude/sessions.ts";
 import type { CommandResult } from "./types.ts";
+
+/**
+ * After the mod acks a sign-in, how long its own chat:sign-in may take. The
+ * ack waits up to 5 s first, and both must fit chatSignIn's 10 s client cap.
+ */
+const MOD_SIGN_IN_WAIT_MS = 4_000;
+/** What the caller asked for; the mod supplies only its session id and root. */
+type ModSignInRequest = { baseHandle?: string; continue?: string; statusText?: string; room?: string; noRoom?: boolean };
+const modSignInKey = (sessionId: string, commandId: string) => `${sessionId}\n${commandId}`;
 
 export type InboxDeps = { resolve: typeof resolveInbox; deliver: typeof deliverToInbox };
 const defaultInboxDeps: InboxDeps = { resolve: resolveInbox, deliver: deliverToInbox };
@@ -1224,6 +1234,10 @@ export function createChatHandlers(opts: {
   integrations?: IntegrationRegistry;
   /** A bound session's observed state, before an invite reaches it as peer input; its integration's own observation by default. */
   observeSession?: (binding: SessionBinding) => Promise<Observation | null>;
+  /** The sign-in path through a bound Claude session's mod; the daemon's installed mod links by default. */
+  modSignIn?: ClaudeModSignIn;
+  /** How long a sign-in the mod acked may take to arrive. */
+  modSignInWaitMs?: number;
 }): {
   // A mapped type over CHAT_COMMANDS with a direct `unknown` payload, not
   // `Pick<TypedHandlers, ...>`: a wider `unknown` param still satisfies
@@ -1248,6 +1262,9 @@ export function createChatHandlers(opts: {
   // sweep re-delivery chains behind rather than races an in-flight post.
   const deliveryChains = opts.deliveryChains ?? new Map<string, Promise<void>>();
   const integrations = opts.integrations ?? builtinRegistry();
+  const modSignIn = opts.modSignIn ?? claudeModSignIn();
+  const modSignInWaitMs = opts.modSignInWaitMs ?? MOD_SIGN_IN_WAIT_MS;
+  const modSignIns = new Map<string, { request: ModSignInRequest; answer: (result: CommandResult<"chat:sign-in">) => void }>();
   const paneInput: PaneInputRoute = {
     db, herdr, integrations, delivery: opts.delivery, enabled: integrationsEnabled, log,
     observe: opts.observeSession ?? observeThroughIntegration(integrations),
@@ -1265,6 +1282,153 @@ export function createChatHandlers(opts: {
   const namesOf = (ids: string[]): string[] => {
     const names = identityNames(ids, db);
     return ids.map((id) => names.get(id) ?? id);
+  };
+
+  /** Signs `sessionId` in once where it signs in is settled: identity, presence, the room and the welcome. */
+  const completeSignIn = async (args: {
+    sessionId: string; baseHandle?: string; requested?: string; cwd?: string; repo?: string; branch?: string; pane?: string;
+    statusText?: string; room: string | null;
+  }): Promise<CommandResult<"chat:sign-in">> => {
+    const { sessionId, requested, cwd: signInCwd, repo: signInRepo, branch: signInBranch, pane, statusText } = args;
+    let derivedRoom = args.room;
+    let continueId: string | undefined;
+    let resolvedBase = args.baseHandle;
+    if (requested !== undefined) continueId = resolveHandle(requested, db);
+    // No explicit request: prefer a name someone CHOSE for this session
+    // (registry nameSource "user": --name at launch, /rename). Claude Code's
+    // auto-derived names (nameSource "derived") are skipped for a pool draw.
+    if (continueId === undefined && resolvedBase === undefined) {
+      const binding = inboxDeps.resolve(sessionId);
+      if (binding?.name && binding.nameSource === "user" && isValidChatName(binding.name)) resolvedBase = binding.name;
+    }
+    // The identity `rt agent start` (or herd:spawn) reserved rides on the
+    // agent record, never on the session name (that becomes the pane title).
+    // A legacy reservation with no identity row resolves by name, which can
+    // reach a newer identity sharing it; only an id resolving to itself is
+    // this session's to continue.
+    if (continueId === undefined && resolvedBase === undefined) {
+      const reserved = getAgent(sessionId, db)?.handle;
+      if (reserved && isValidChatName(reserved)) {
+        if (resolveHandle(reserved, db) === reserved) continueId = reserved;
+        else resolvedBase = baseOfHandle(reserved);
+      }
+    }
+
+    const signInWith = (request: { baseHandle?: string; continueId?: string }) =>
+      signIn({ sessionId, ...request, cwd: signInCwd, repo: signInRepo, branch: signInBranch, pane, statusText }, db, registryDeps);
+    let data: ReturnType<typeof signIn>;
+    try {
+      try {
+        data = signInWith({ baseHandle: resolvedBase, continueId });
+      } catch (err) {
+        // A typed NAME or a reservation live in another session retries under its base name, suffixed (remy-2); a typed ID is refused as-is, since a minted id reaches agents only through reply hints and a suffix would silently hand it a different identity.
+        const typedTheId = requested !== undefined && requested === continueId && identityName(continueId, db) !== continueId;
+        if (continueId === undefined || typedTheId || !(err instanceof Error) || !err.message.includes("handle reclaimed")) throw err;
+        data = signInWith({ baseHandle: getIdentity(continueId, db)?.baseName ?? baseOfHandle(continueId) });
+      }
+    } catch (err) {
+      return failureFrom(err);
+    }
+    // signIn retries a busy write, but still reports undefined once its
+    // retry budget is exhausted.
+    if (!data) return { ok: false, error: "chat: sign-in failed, database busy" };
+
+    if (derivedRoom) {
+      try {
+        joinRoom({ room: derivedRoom, handle: data.handle, cwd: signInCwd, pane }, db);
+      } catch (err) {
+        log.warn({ err, room: derivedRoom, handle: data.handle }, "chat: --pane sign-in could not join the derived room");
+        derivedRoom = null;
+      }
+    }
+
+    const rooms = listRooms(data.handle, db).map((r) => r.room);
+    // A non-advancing peek, not readUnread: the welcome is composed BEFORE
+    // delivery is attempted, and readUnread's cursor write happens
+    // unconditionally at read time -- a failed or unresolvable welcome
+    // would then have permanently skipped whatever it "showed". The
+    // cursor only actually advances, per room, once deliverWelcomeOnce
+    // confirms the frame was sent.
+    const peeked = peekUnread({ handle: data.handle, limit: WELCOME_CATCHUP_LIMIT }, db);
+    const catchup = peeked.map((r) => ({ room: r.room, lines: r.messages.map((m) => `${m.name}: ${m.body}`) }));
+    const senders = peeked.flatMap((r) =>
+      r.messages.map((m) => ({ handle: m.handle, name: m.name, room: r.room, passedOn: resolveHandle(m.handle, db) !== m.handle })),
+    );
+    const catchupCursors = peeked.map((r) => ({ room: r.room, upToId: r.messages[r.messages.length - 1]!.id }));
+    const welcome: Welcome = { id: `w-${data.handle}-${crypto.randomUUID()}`, body: renderWelcome(data.name, rooms, catchup, senders) };
+    const signedIn = data;
+    queueMicrotask(() => {
+      deliverWelcome(db, deliveryChains, inboxDeps, sessionId, signedIn.handle, welcome, catchupCursors, opts.delivery, herdr).catch((err) => {
+        log.warn({ err, handle: signedIn.handle }, "chat: welcome delivery failed");
+      });
+    });
+
+    return { ok: true, data: { ...data, sessionId, room: derivedRoom } };
+  };
+
+  /**
+   * Asks a bound Claude session's mod to sign it in with its own id and root,
+   * and answers with the result of that sign-in. Null when the mod did not
+   * take the command, so the caller signs in the daemon's own way, once.
+   */
+  const signInThroughMod = async (sessionId: string, request: ModSignInRequest): Promise<CommandResult<"chat:sign-in"> | null> => {
+    const commandId = crypto.randomUUID();
+    const key = modSignInKey(sessionId, commandId);
+    let answer: (result: CommandResult<"chat:sign-in">) => void = () => {};
+    const answered = new Promise<CommandResult<"chat:sign-in">>((resolve) => { answer = resolve; });
+    modSignIns.set(key, { request, answer });
+    try {
+      const data: ChatSignInCommand = request.room !== undefined && !request.noRoom ? { room: request.room } : {};
+      let acked = false;
+      try {
+        const pushed = await modSignIn.push(sessionId, data, commandId);
+        acked = pushed.ok && pushed.data.acked;
+        if (!pushed.ok) log.info({ sessionId, failure: pushed.error }, "chat: the session's mod could not take the sign-in; signing in here");
+      } catch (err) {
+        log.warn({ err, sessionId }, "chat: the sign-in command could not reach the session's mod; signing in here");
+      }
+      if (!acked) return null;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<CommandResult<"chat:sign-in">>((resolve) => {
+        timer = setTimeout(() => resolve({ ok: false, error: "chat: this session's mod took the sign-in but did not finish it; sign in again" }), modSignInWaitMs);
+      });
+      try {
+        return await Promise.race([answered, late]);
+      } finally {
+        clearTimeout(timer);
+      }
+    } finally {
+      modSignIns.delete(key);
+    }
+  };
+
+  /** The mod's answer to a chat-sign-in command: its own session id, and its root as the cwd the room follows. */
+  const signInForLink = async (payload: Commands["chat:sign-in"]["payload"]): Promise<CommandResult<"chat:sign-in">> => {
+    const { linkId, commandId, sessionId, cwd } = payload;
+    const key = sessionId && commandId ? modSignInKey(sessionId, commandId) : undefined;
+    const waiting = key === undefined ? undefined : modSignIns.get(key);
+    if (!linkId || !sessionId || !cwd || !waiting || !modSignIn.vouches(linkId, sessionId)) {
+      const message = "chat: no sign-in for this session is waiting on its mod";
+      return { ok: false, error: message, failure: { code: "refused", message } };
+    }
+    modSignIns.delete(key!);
+    const { request } = waiting;
+    let room: string | null = null;
+    if (!request.noRoom) {
+      try {
+        room = request.room ?? (await deriveRoomForCwdAsync(cwd, exec));
+      } catch (err) {
+        log.warn({ err, cwd }, "chat: a mod sign-in could not derive a room for its root");
+      }
+    }
+    const result = await completeSignIn({
+      sessionId, baseHandle: request.baseHandle, requested: request.continue, cwd,
+      repo: repoForCwd(cwd, repoIndex()) ?? undefined, branch: await branchForCwd(cwd, exec),
+      pane: attachedBinding(sessionId, db)?.attachment.pane, statusText: request.statusText, room,
+    });
+    const answered: CommandResult<"chat:sign-in"> = result.ok ? { ok: true, data: { ...result.data, mod: true } } : result;
+    waiting.answer(answered);
+    return answered;
   };
 
   return {
@@ -1494,6 +1658,7 @@ export function createChatHandlers(opts: {
 
     "chat:sign-in": async (rawPayload: unknown): Promise<CommandResult<"chat:sign-in">> => {
       const payload = rawPayload as Commands["chat:sign-in"]["payload"];
+      if (payload.linkId !== undefined) return signInForLink(payload);
       const { baseHandle, cwd, repo, branch, pane, statusText, viaPane, room: explicitRoom, noRoom } = payload;
       if (baseHandle !== undefined && !isValidChatName(baseHandle)) return { ok: false, error: `invalid handle "${baseHandle}"` };
       if (explicitRoom !== undefined && !isValidChatName(explicitRoom)) return { ok: false, error: `invalid room "${explicitRoom}"` };
@@ -1550,79 +1715,13 @@ export function createChatHandlers(opts: {
       }
       if (!sessionId) return { ok: false, error: "chat: sign-in requires a sessionId or --pane" };
 
-      let continueId: string | undefined;
-      let resolvedBase = baseHandle;
-      if (requested !== undefined) continueId = resolveHandle(requested, db);
-      // No explicit request: prefer a name someone CHOSE for this session
-      // (registry nameSource "user": --name at launch, /rename). Claude Code's
-      // auto-derived names (nameSource "derived") are skipped for a pool draw.
-      if (continueId === undefined && resolvedBase === undefined) {
-        const binding = inboxDeps.resolve(sessionId);
-        if (binding?.name && binding.nameSource === "user" && isValidChatName(binding.name)) resolvedBase = binding.name;
+      if (modSignIn.owns(sessionId, db)) {
+        const viaMod = await signInThroughMod(sessionId, { baseHandle, continue: requested, statusText, room: explicitRoom, noRoom });
+        if (viaMod) return viaMod;
       }
-      // The identity `rt agent start` (or herd:spawn) reserved rides on the
-      // agent record, never on the session name (that becomes the pane title).
-      // A legacy reservation with no identity row resolves by name, which can
-      // reach a newer identity sharing it; only an id resolving to itself is
-      // this session's to continue.
-      if (continueId === undefined && resolvedBase === undefined) {
-        const reserved = getAgent(sessionId, db)?.handle;
-        if (reserved && isValidChatName(reserved)) {
-          if (resolveHandle(reserved, db) === reserved) continueId = reserved;
-          else resolvedBase = baseOfHandle(reserved);
-        }
-      }
-
-      const signInWith = (request: { baseHandle?: string; continueId?: string }) =>
-        signIn({ sessionId, ...request, cwd: signInCwd, repo: signInRepo, branch: signInBranch, pane, statusText }, db, registryDeps);
-      let data: ReturnType<typeof signIn>;
-      try {
-        try {
-          data = signInWith({ baseHandle: resolvedBase, continueId });
-        } catch (err) {
-          // A typed NAME or a reservation live in another session retries under its base name, suffixed (remy-2); a typed ID is refused as-is, since a minted id reaches agents only through reply hints and a suffix would silently hand it a different identity.
-          const typedTheId = requested !== undefined && requested === continueId && identityName(continueId, db) !== continueId;
-          if (continueId === undefined || typedTheId || !(err instanceof Error) || !err.message.includes("handle reclaimed")) throw err;
-          data = signInWith({ baseHandle: getIdentity(continueId, db)?.baseName ?? baseOfHandle(continueId) });
-        }
-      } catch (err) {
-        return failureFrom(err);
-      }
-      // signIn retries a busy write, but still reports undefined once its
-      // retry budget is exhausted.
-      if (!data) return { ok: false, error: "chat: sign-in failed, database busy" };
-
-      if (derivedRoom) {
-        try {
-          joinRoom({ room: derivedRoom, handle: data.handle, cwd: signInCwd, pane }, db);
-        } catch (err) {
-          log.warn({ err, room: derivedRoom, handle: data.handle }, "chat: --pane sign-in could not join the derived room");
-          derivedRoom = null;
-        }
-      }
-
-      const rooms = listRooms(data.handle, db).map((r) => r.room);
-      // A non-advancing peek, not readUnread: the welcome is composed BEFORE
-      // delivery is attempted, and readUnread's cursor write happens
-      // unconditionally at read time -- a failed or unresolvable welcome
-      // would then have permanently skipped whatever it "showed". The
-      // cursor only actually advances, per room, once deliverWelcomeOnce
-      // confirms the frame was sent.
-      const peeked = peekUnread({ handle: data.handle, limit: WELCOME_CATCHUP_LIMIT }, db);
-      const catchup = peeked.map((r) => ({ room: r.room, lines: r.messages.map((m) => `${m.name}: ${m.body}`) }));
-      const senders = peeked.flatMap((r) =>
-        r.messages.map((m) => ({ handle: m.handle, name: m.name, room: r.room, passedOn: resolveHandle(m.handle, db) !== m.handle })),
-      );
-      const catchupCursors = peeked.map((r) => ({ room: r.room, upToId: r.messages[r.messages.length - 1]!.id }));
-      const welcome: Welcome = { id: `w-${data.handle}-${crypto.randomUUID()}`, body: renderWelcome(data.name, rooms, catchup, senders) };
-      const welcomeSessionId = sessionId;
-      queueMicrotask(() => {
-        deliverWelcome(db, deliveryChains, inboxDeps, welcomeSessionId, data.handle, welcome, catchupCursors, opts.delivery, herdr).catch((err) => {
-          log.warn({ err, handle: data.handle }, "chat: welcome delivery failed");
-        });
+      return completeSignIn({
+        sessionId, baseHandle, requested, cwd: signInCwd, repo: signInRepo, branch: signInBranch, pane, statusText, room: derivedRoom,
       });
-
-      return { ok: true, data: { ...data, sessionId, room: derivedRoom } };
     },
 
     // A missing row is the common case, not a refusal: SessionEnd fires for

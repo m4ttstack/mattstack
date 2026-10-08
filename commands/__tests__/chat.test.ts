@@ -31,7 +31,10 @@ import { createChatHandlers } from "../../lib/daemon/handlers/chat.ts";
 import { getStateDb, closeStateDb, type RegistryDeps } from "../../lib/state/index.ts";
 import type { InboxBinding } from "../../lib/claude-registry.ts";
 import { sessionFilePath } from "../../lib/chat-session.ts";
-import { createSessionStore, listBindingsByNativeValue } from "../../lib/agent-integrations/session-store.ts";
+import { createSessionStore, isDetachedAttachment, listBindingsByNativeValue } from "../../lib/agent-integrations/session-store.ts";
+import { createModLinks, TESTED_CLAUDE_CODE } from "../../lib/agent-integrations/claude/mod-links.ts";
+import { continueSessionPresence } from "../../lib/agent-integrations/presence.ts";
+import { createModSessionHandlers } from "../../lib/daemon/handlers/mod-session.ts";
 import { presenceForSession } from "../../lib/state/presence-store.ts";
 import { UserActionableError } from "../../lib/errors.ts";
 import { AGENT_NAMES } from "../../lib/chat-names.ts";
@@ -68,6 +71,8 @@ let seen: Array<{ cmd: string; payload: unknown }> = [];
 // reachable from here — this seam is the only way a CLI-level test can make
 // a handle read "live".
 let registryDeps: RegistryDeps | undefined;
+// Daemon verbs beyond chat's (the session:* verbs a mod link uses), dispatched to real handlers a test installs.
+let modHandlers: Record<string, (p: unknown) => Promise<unknown>> = {};
 
 beforeEach(() => {
   origHome = process.env.HOME;
@@ -91,6 +96,7 @@ beforeEach(() => {
   canned = {};
   seen = [];
   registryDeps = undefined;
+  modHandlers = {};
 
   server = Bun.serve({
     unix: join(sockDir, "rt.sock"),
@@ -99,6 +105,7 @@ beforeEach(() => {
       const payload = req.method === "POST" ? await req.json() : {};
       seen.push({ cmd, payload });
       if (cmd in canned) return Response.json(canned[cmd]);
+      if (cmd in modHandlers) return Response.json(await modHandlers[cmd]!(payload));
       const handlers = createChatHandlers({ db: getStateDb(), emitEvent: () => 0, registryDeps }) as unknown as Record<string, (p: unknown) => Promise<unknown>>;
       const handler = handlers[cmd];
       if (!handler) return Response.json({ ok: false, error: `unknown command: ${cmd}` });
@@ -2016,6 +2023,77 @@ describe("integrations on: chat follows the harness session", () => {
     expect(r).toMatchObject({ code: 0, stdout: "", stderr: "" });
     expect(seen.filter((s) => s.cmd === "chat:sign-out").map((s) => s.payload)).toEqual([{ sessionId: "s-end" }]);
     expect(existsSync(sessionFilePath("s-end"))).toBe(false);
+  });
+
+  test("the --ended path asks session:owned only with the switch on, no-ops when owned, and is byte-identical otherwise", async () => {
+    await signInInProcess({ as: "remy", session: "s-end", noRoom: true });
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    claudeParentRuns("s-end");
+    const asked = () => seen.filter((s) => s.cmd === "session:owned").map((s) => s.payload);
+
+    // Switch on, and the session's presence block owns the end: nothing here touches it.
+    setSetting("agent.integrations.enabled", true, "machine");
+    const bound = bindClaudeAt("s-end", { pid: process.ppid }, handleIn("s-end"));
+    canned["session:owned"] = { ok: true, data: { owned: true } };
+    const owned = await runChatRaw(["sign-out", "--quiet", "--session", "s-end", "--ended"]);
+    expect(owned).toMatchObject({ code: 0, stdout: "", stderr: "" });
+    expect(asked()).toEqual([{ sessionId: "s-end", block: "presence" }]);
+    expect(existsSync(sessionFilePath("s-end"))).toBe(true);
+    expect(presenceForSession("s-end", getStateDb())?.signedOutAt).toBeUndefined();
+    expect(bindingOf("s-end").attachment).toEqual(bound.attachment);
+    expect(seen.map((s) => s.cmd)).not.toContain("chat:sign-out");
+
+    // Not owned, or a daemon that does not know the verb: today's path.
+    for (const reply of [{ ok: true, data: { owned: false } }, undefined]) {
+      if (reply) canned["session:owned"] = reply;
+      else delete canned["session:owned"];
+      const r = await runChatRaw(["sign-out", "--json", "--session", "s-end", "--ended"]);
+      expect(r).toMatchObject({ code: 0, stdout: '{"ok":true}', stderr: "" });
+      expect(existsSync(sessionFilePath("s-end"))).toBe(false);
+      expect(presenceForSession("s-end", getStateDb())?.signedOutAt).toBeDefined();
+      await signInInProcess({ as: "remy", session: "s-end", noRoom: true });
+      delete process.env.CLAUDE_CODE_SESSION_ID;
+    }
+    expect(asked()).toHaveLength(3);
+
+    // Switch off: the verb is never asked, and the bytes are the hook's own.
+    setSetting("agent.integrations.enabled", false, "machine");
+    canned["session:owned"] = { ok: true, data: { owned: true } };
+    const before = seen.length;
+    const off = await runChatRaw(["sign-out", "--json", "--session", "s-end", "--ended"]);
+    expect(off).toMatchObject({ code: 0, stdout: '{"ok":true}', stderr: "" });
+    expect(seen.slice(before).map((s) => s.cmd)).toEqual(["chat:sign-out"]);
+    expect(existsSync(sessionFilePath("s-end"))).toBe(false);
+  });
+
+  test("a /clear SessionEnd with the presence block live leaves the binding attached, so the continuation succeeds", async () => {
+    await signInInProcess({ as: "remy", session: "s-old", noRoom: true });
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    setSetting("agent.integrations.enabled", true, "machine");
+    claudeParentRuns("s-old");
+    const handle = handleIn("s-old");
+    bindClaudeAt("s-old", { pane: "w1:p1", pid: process.ppid }, handle);
+    const db = getStateDb();
+    const links = createModLinks({
+      now: () => Date.now(), integrationsEnabled: () => true, store: createSessionStore(db),
+      sessionMoved: (from, to) => continueSessionPresence(from, to, { db, enabled: () => true }),
+    });
+    modHandlers = createModSessionHandlers({ links, lifecycle: { db, enabled: () => true } }) as unknown as typeof modHandlers;
+    const link = { cwd: home, root: home, pane: "w1:p1", claudeCode: TESTED_CLAUDE_CODE.max, plugin: "0.1.0", blocks: ["presence" as const] };
+    const first = links.register({ sessionId: "s-old", ...link });
+    if (!first.ok) throw new Error(first.error.message);
+
+    // Claude Code runs the old session's SessionEnd hook before the mod re-registers under the new id.
+    const ended = await runChatRaw(["sign-out", "--quiet", "--session", "s-old", "--ended"]);
+    expect(ended).toMatchObject({ code: 0, stdout: "", stderr: "" });
+    expect(isDetachedAttachment(bindingOf("s-old"))).toBe(false);
+
+    const next = links.register({ sessionId: "s-new", previousSessionId: "s-old", previousLinkId: first.data.linkId, ...link });
+    expect(next.ok).toBe(true);
+    expect(bindingOf("s-new").native.value).toBe("s-new");
+    expect(presenceForSession("s-new", db)).toMatchObject({ handle });
+    expect(presenceForSession("s-new", db)?.signedOutAt).toBeUndefined();
+    expect(handleIn("s-new")).toBe(handle);
   });
 
   test("lifecycle resume from the session's own Claude process moves its attachment and presence there, and only with the switch on", async () => {

@@ -94,9 +94,11 @@ import {
   chatSignIn,
   chatSignOut,
   chatWho,
+  rtCommand,
 } from "../packages/rt-client/src/index.ts";
 import type {
   BuddyStatus,
+  Commands,
   ChatMember,
   ChatMessage,
   ChatPostDelivery,
@@ -1281,8 +1283,11 @@ async function runSignIn(args: string[]): Promise<void> {
     }
   }
 
-  const signInRes = await chatSignIn({ sessionId, ...request, cwd, repo, branch, pane, statusText });
-  const { handle, baseHandle, name, continued } = unwrap(signInRes, "sign-in");
+  // With the switch on, a session whose mod signs it in takes the room from these flags or its own root.
+  const roomIntent = integrationsEnabled() ? { room: noRoomFlag ? undefined : flagValue(args, "--room"), noRoom: noRoomFlag || undefined } : {};
+  const signInRes = await chatSignIn({ sessionId, ...request, cwd, repo, branch, pane, statusText, ...roomIntent });
+  const { handle, baseHandle, name, continued, mod, room: modRoom } = unwrap(signInRes, "sign-in");
+  if (mod === true) roomName = modRoom;
   const displayName = name ?? handle;
   try {
     target.bind?.(handle);
@@ -1380,6 +1385,7 @@ async function runSignOut(args: string[]): Promise<void> {
   let sessionId: string | undefined;
   const claimed = args.includes("--ended") && integrationsEnabled() ? hookSession(args) : undefined;
   if (claimed !== undefined && isValidSessionId(claimed)) {
+    if (await presenceOwnedByMod(claimed)) return;
     const reported = await endedSession(claimed);
     if (reported !== "unverified") {
       lifecycle = reported;
@@ -1430,6 +1436,18 @@ function hookSession(args: string[]): string | undefined {
   const named = flagValue(args, "--session");
   if (named !== undefined && !named.startsWith("--")) return named;
   return process.env.CLAUDE_CODE_SESSION_ID || undefined;
+}
+
+/**
+ * Whether the session's mattstack-mods presence block owns its end. Link state
+ * lives only in the daemon, so it is asked; the mod reports the end over its
+ * own link (and a /clear is the same session going on), so the hook leaves
+ * the session alone. Bounded well inside the hook's 5 s budget; a daemon
+ * that cannot answer leaves today's path.
+ */
+async function presenceOwnedByMod(sessionId: string): Promise<boolean> {
+  const res = await rtCommand<Commands["session:owned"]["data"]>("session:owned", { sessionId, block: "presence" }, { timeoutMs: 1_500 });
+  return res.ok && res.data?.owned === true;
 }
 
 /**

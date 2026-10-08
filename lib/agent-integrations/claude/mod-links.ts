@@ -44,6 +44,9 @@ export type ModLinkView = {
 /** A mod's confirmation of a pushed command, kept until it is taken or ages out. */
 export type ModAck = { linkId: string; sessionId: string; at: number };
 
+/** Whether a session's own presence block last reported a turn running (working) or ended (idle). */
+export type ModExecution = "working" | "idle";
+
 export interface ModLinks {
   register(input: ModRegistration): Outcome<{ linkId: string; blocks: ModBlock[] }>;
   heartbeat(linkId: string): Outcome<void>;
@@ -60,6 +63,10 @@ export interface ModLinks {
   takeAck(commandId: string, sessionId: string): ModAck | null;
   /** Drops expired links (every link while the switch is off) and aged acks; returns how many links it dropped. */
   sweep(): number;
+  /** Records a turn report from `linkId`'s presence block; false when that link reports no presence block. */
+  setExecution(linkId: string, execution: ModExecution): Outcome<boolean>;
+  /** The session's execution from its live link's presence block, or null with no such block (herdr's status then stands). */
+  execution(sessionId: string): ModExecution | null;
 }
 
 export type ModLinksDeps = {
@@ -68,6 +75,8 @@ export type ModLinksDeps = {
   store: SessionStore;
   /** Called once a binding has continued from generation `from` to `to`, so stores outside state.db (gate questions) follow it. */
   continued?(sessionKey: string, from: number, to: number): void;
+  /** Called once a binding has moved from native id `from` to `to`, so what is keyed by the session id (chat presence) moves with it. */
+  sessionMoved?(from: string, to: string): void;
 };
 
 function release(version: string): [number, number, number] | null {
@@ -116,11 +125,13 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
   // Keyed by session and command id, so one session's link cannot ack a command pushed to another.
   const acks = new Map<string, ModAck>();
   const ackKey = (sessionId: string, commandId: string) => `${sessionId}\n${commandId}`;
+  const executions = new Map<string, ModExecution>();
 
   function drop(linkId: string): void {
     const link = links.get(linkId);
     if (!link) return;
     links.delete(linkId);
+    executions.delete(linkId);
     if (bySession.get(link.sessionId) === linkId) bySession.delete(link.sessionId);
   }
 
@@ -161,6 +172,7 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
     const moved = deps.store.continueNative(binding.key, from, { ...binding.native, value: next });
     if (moved.ok) {
       if (moved.data.attachment.generation !== from) deps.continued?.(binding.key, from, moved.data.attachment.generation);
+      deps.sessionMoved?.(previous, next);
       return { ok: true, data: undefined };
     }
     return moved.error.code === "transient" ? moved : { ok: true, data: undefined };
@@ -182,6 +194,8 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
         drop(previous.linkId);
       }
       const superseded = bySession.get(input.sessionId);
+      // A re-register mid-turn (a cleared block, a daemon that forgot the link) keeps the turn it reported.
+      const running = superseded === undefined ? undefined : executions.get(superseded);
       if (superseded !== undefined) drop(superseded);
 
       const now = deps.now();
@@ -194,6 +208,7 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
       };
       links.set(link.linkId, link);
       bySession.set(link.sessionId, link.linkId);
+      if (running !== undefined) executions.set(link.linkId, running);
       return { ok: true, data: { linkId: link.linkId, blocks: [...blocks] } };
     },
 
@@ -243,7 +258,26 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
     },
 
     sweep,
+
+    setExecution(linkId, execution) {
+      const link = known(linkId);
+      if (!link) return fail("invalid", UNKNOWN_LINK);
+      if (!link.blocks.includes("presence")) return { ok: true, data: false };
+      executions.set(linkId, execution);
+      return { ok: true, data: true };
+    },
+
+    execution(sessionId) {
+      const link = current(sessionId);
+      if (!link?.blocks.includes("presence")) return null;
+      return executions.get(link.linkId) ?? "idle";
+    },
   };
+}
+
+/** The daemon's view of a session's execution from its mod; null outside the daemon or without a live presence block. */
+export function modExecution(sessionId: string, links: ModLinks | null = installedModLinks()): ModExecution | null {
+  return links?.execution(sessionId) ?? null;
 }
 
 /** How long a push waits for the mod's `session:ack` before reporting the command unconfirmed. */

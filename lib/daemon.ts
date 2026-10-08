@@ -153,6 +153,7 @@ import { backgroundUnit, runUnits, stopUnits, type DaemonUnit } from "./daemon/l
 import { integrationsEnabled } from "./agent-integrations/context.ts";
 import { createDeliveryService, type DeliveryService } from "./agent-integrations/delivery.ts";
 import { createModLinks, installModLinks, type ModLinks } from "./agent-integrations/claude/mod-links.ts";
+import { continueSessionPresence } from "./agent-integrations/presence.ts";
 import { createSessionStore } from "./agent-integrations/session-store.ts";
 import { createGateQuestions, gateCommandsVia, setGateQuestions, type GateQuestions } from "./agent-integrations/questions.ts";
 
@@ -1338,6 +1339,14 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         modLinks = createModLinks({
           now: Date.now, integrationsEnabled, store: createSessionStore(getStateDb("daemon")),
           continued: (sessionKey, from, to) => { gatesStore.nativeQuestions().carryGeneration(sessionKey, from, to); },
+          sessionMoved: (from, to) => {
+            // The binding has already moved; a failed presence move must not fail the register the mod is waiting on.
+            try {
+              continueSessionPresence(from, to, { db: getStateDb("daemon") });
+            } catch (err) {
+              log.warn({ err, from, to }, "mod link: the continued session's chat presence did not move");
+            }
+          },
         });
         installModLinks(modLinks);
         routedHandlers = buildRoutedHandlers({

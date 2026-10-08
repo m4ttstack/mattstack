@@ -374,4 +374,21 @@ describe('hub', () => {
     expect(h.hub.liveBlocks()).toEqual(['presence'])
     expect(h.hub.engaged()).toBe(true)
   })
+
+  test('restore brings back every started block a failure has not cleared', async () => {
+    const h = harness()
+    h.hub.block('delivery', async () => {})
+    h.hub.block('policy', async (_api, b) => {
+      b.onToolCall({ stage: 'guard', tool: 'Bash', run: () => { throw new Error('boom') } })
+    })
+    h.hub.block('presence', async () => {})
+    h.hub.block('observe', async () => { throw new Error('never started') })
+    await h.start()
+    await h.fire('tool.call', BASH, recorder({ result: 'ran' }).next)
+
+    h.hub.keep([])
+    h.hub.restore()
+
+    expect(h.hub.liveBlocks()).toEqual(['delivery', 'presence'])
+  })
 })

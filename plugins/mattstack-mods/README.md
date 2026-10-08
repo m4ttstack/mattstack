@@ -21,7 +21,7 @@ so every feature takes its existing path.
 | `src/core/rpc.ts` | One call to a daemon verb over `rt.sock`, capped at 25 s. |
 | `src/core/blocks.ts` | The block names. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `src/core/version.ts` | The minimum engine version, the check against it, and the plugin version the link reports. |
-| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router. |
+| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat. |
 | `src/blocks/sections.ts` | The reply rule section's text and the reply-line trim. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `types/index.d.ts` | The plugin's own contract: the `$.state` values it keeps. |
 | `tests/` | `claude plugin test` cases. They drive the hub and link with the stubbed `$` in `tests/stub.ts`. |
@@ -69,7 +69,10 @@ block, so it sees deliveries first. Once the blocks have started, it calls
 `$HOME/.mattstack/rt/rt.sock`) with the live blocks, keeps only the blocks the
 daemon answers, and heartbeats every 10 s. A `/clear` re-registers under the
 new session id, naming the old id and link. Any other session end sends
-`session:end` and turns every block off. An `unknown-link` answer (the daemon
+`session:end` and turns every block off. If the process then resumes another
+session in place (`/resume`), its SessionStart registers that session fresh,
+with no previous ids, offering every block that started and has not failed
+since. An `unknown-link` answer (the daemon
 restarted) registers again with the same session id; a refused register turns
 every block off for the session. A register the daemon could not take is sent
 again, unchanged, on the next beat. When the hub clears a block, the link
@@ -123,6 +126,27 @@ have no delivery id, so they pass through untouched.
   queued body and a peer origin. ctrl+o (`isExpanded`) shows the row in full,
   and the stored message the model reads does not change. The router keeps
   the last 200 bodies.
+
+## The presence block
+
+The `presence` block (`src/blocks/presence.ts`) gives rt the session's own
+view of itself:
+
+- **Turns.** Each turn start and end goes to rt as `session:report` with
+  event `turn-start` or `turn-end`, so the buddy list reads the session live
+  or idle from its own turns instead of herdr's status. A subagent's
+  `turn.complete` (it carries `agentId`) is not the session's. Reports go out
+  in order and the turn never waits on one.
+- **Sign-in.** `rt chat sign-in`, `/chat:sign-in` and the Flock button reach
+  rt's `chat:sign-in`, which sends the session a `chat-sign-in` command when
+  this block is live. The block answers by calling `chat:sign-in` over the
+  link with its own session id, its `root()` as the cwd (so the room follows
+  EnterWorktree) and the command's id. rt takes that call only while the
+  command still waits. A command that arrives while the block is not live is
+  not acked, and rt signs the session in its own way.
+- **End.** The session's end reaches rt through the link's own `session:end`,
+  which signs the session out. A `/clear` is not an end: rt moves the
+  sign-in to the new session id when the link continues.
 
 ## The reply rule section
 

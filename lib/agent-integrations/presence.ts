@@ -18,10 +18,12 @@
 
 import type { Database } from "bun:sqlite";
 import type { NativeSessionRef, SessionBinding } from "../../packages/rt-client/src/agent-integrations.ts";
-import { deleteChatSession } from "../chat-session.ts";
+import { deleteChatSession, readChatSession, writeChatSession } from "../chat-session.ts";
 import type { InboxBinding } from "../claude-registry.ts";
 import { getStateDb } from "../state/db.ts";
-import { movePresencePane, presenceForSession, signOut, touchLastSeen, type RegistryDeps } from "../state/presence-store.ts";
+import {
+  movePresencePane, moveSessionPresence, presenceForSession, signOut, touchLastSeen, type RegistryDeps,
+} from "../state/presence-store.ts";
 import { integrationsEnabled } from "./context.ts";
 import { createSessionStore, isDetachedAttachment, listBindingsByNativeValue, listEveryAttachedBinding } from "./session-store.ts";
 
@@ -71,6 +73,20 @@ export async function applySessionPresence(binding: SessionBinding, event: Prese
     if (row !== null ? row.pane !== (pane ?? undefined) : pane !== null) movePresencePane(sessionId, pane, db);
   }
   if (signedIn) touchLastSeen(sessionId, now, db);
+}
+
+/**
+ * A bound session's binding moved from native id `previous` to `next`, the
+ * same session going on (a /clear its mod link continued): its sign-in, its
+ * identity and its session file follow, so it stays signed in as itself with
+ * no new identity and no new welcome.
+ */
+export function continueSessionPresence(previous: string, next: string, deps: PresenceDeps = {}): void {
+  if (!(deps.enabled ?? integrationsEnabled)()) return;
+  moveSessionPresence(previous, next, deps.db ?? getStateDb());
+  const file = readChatSession(previous);
+  if (file && !readChatSession(next)) writeChatSession({ ...file, sessionId: next });
+  (deps.deleteSessionFile ?? deleteChatSession)(previous);
 }
 
 /**

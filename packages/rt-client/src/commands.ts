@@ -809,8 +809,16 @@ export interface Commands {
       noRoom?: boolean;
       /** An id or a name to continue instead of minting a fresh identity. A name live in another session mints a fresh id under that name with a display suffix (`continued: false`); an id live in another session, the human's own id and `herdr` are refused. */
       continue?: string;
+      /**
+       * Set only by a mattstack-mods link answering a `chat-sign-in` command
+       * (`commandId`): the link vouches for `sessionId`, and `cwd` is the
+       * session's own root. Taken only while that command still waits.
+       */
+      linkId?: string;
+      commandId?: string;
     };
-    data: { handle: string; baseHandle: string; name: string; reclaimed: boolean; continued: boolean; sessionId: string; room: string | null };
+    /** `mod`: the session's mod signed it in, with its own id and root; `room` is the room it joined. */
+    data: { handle: string; baseHandle: string; name: string; reclaimed: boolean; continued: boolean; sessionId: string; room: string | null; mod?: true };
   };
   /**
    * `viaPane` mirrors `chat:sign-in`'s: the daemon resolves `pane` to a
@@ -886,13 +894,16 @@ export interface Commands {
   "session:ack": { payload: { linkId: string; id: string }; data: Record<string, never> };
   /**
    * The link's lifecycle report for its own session. `context` is where the mod
-   * says it runs: a hint that is logged when it disagrees, never authority.
-   * `outcome` is "unbound" when no single attached Claude binding names the session.
+   * says it runs: a hint that is logged when it disagrees, never authority. A
+   * resume or compact needs it; a turn start or end (the presence block) does
+   * not. `outcome` is "unbound" when no single attached Claude binding names the session.
    */
   "session:report": {
-    payload: { linkId: string; event: "resume" | "compact"; context: { cwd: string; root: string; pane?: string | null } };
+    payload: { linkId: string; event: "resume" | "compact" | "turn-start" | "turn-end"; context?: { cwd: string; root: string; pane?: string | null } };
     data: { outcome: "applied" | "unbound" };
   };
+  /** Whether `block` of the session's live mod link owns the session's feature now, as the daemon's adapters decide it. */
+  "session:owned": { payload: { sessionId: string; block: ModBlock }; data: { owned: boolean } };
   /**
    * The delivery block's report that its session handed the delivery under
    * `deliveryId` to the model, which makes it consumed. Fails with "refused"
@@ -1252,6 +1263,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "session:push",
   "session:report",
   "session:delivered",
+  "session:owned",
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read",

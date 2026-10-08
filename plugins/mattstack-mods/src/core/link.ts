@@ -90,8 +90,10 @@ export function createLink(hub: Hub): Link {
   let sessionId: string | null = null
   /** A register the daemon has not taken yet; the next beat sends it again unchanged. */
   let pending: Registration | null = null
-  /** Refused, rejected or ended: the link stays down for the rest of the session. */
+  /** Refused, rejected or ended: the link stays down until a resume opens another session (ended only). */
   let off = false
+  /** Off because the session ended, not because rt declined: an in-process /resume registers the next session fresh. */
+  let ended = false
   let beat: Timer | null = null
   let ticking = false
   let refreshing = false
@@ -282,6 +284,22 @@ export function createLink(hub: Hub): Link {
     return { ok: out.ok || out.error.code !== 'unknown-link', linkId }
   }
 
+  /**
+   * Registers `next` from scratch after this process's session ended without
+   * a /clear (an in-process /resume to another session): no previous ids, so
+   * nothing carries over, and blocks stay off until rt answers.
+   */
+  async function reopen(next: string): Promise<void> {
+    if (!ended || !api) return
+    ended = false
+    off = false
+    hub.restore()
+    stopBeat()
+    beat = api.clock.every(HEARTBEAT_MS, onBeat)
+    log(`session ${next} resumed in this process after the last one ended; registering it`)
+    await register(await registration(next))
+  }
+
   /** Tells rt the session resumed or compacted. Only this link's own session counts, so another id's event is not sent. */
   async function report(event: 'resume' | 'compact', reported: string): Promise<void> {
     await serial(async () => {
@@ -376,12 +394,16 @@ export function createLink(hub: Hub): Link {
           await register(await registration(e.session_id, previous))
         })
       })
-      hub.onLifecycle('session-resume', async (_a, e) => report('resume', e.session_id))
+      hub.onLifecycle('session-resume', async (_a, e) => {
+        if (ended) await serial(() => reopen(e.session_id))
+        else await report('resume', e.session_id)
+      })
       hub.onLifecycle('session-compact', async (_a, e) => report('compact', e.session_id))
       hub.onLifecycle('session-end', async () => {
         await serial(async () => {
           if (!api) return
           const was = id
+          ended = !off
           off = true
           id = null
           pending = null

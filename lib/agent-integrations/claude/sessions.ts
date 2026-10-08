@@ -26,7 +26,7 @@ import { existsSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, join } from "path";
 import type {
-  FaultCode, Mode, NativeSessionRef, Observation, Outcome, Readiness, SessionBinding,
+  FaultCode, Mode, ModBlock, NativeSessionRef, Observation, Outcome, Readiness, SessionBinding,
 } from "../../../packages/rt-client/src/agent-integrations.ts";
 import type { PaneAccount } from "../../../packages/rt-client/src/commands.ts";
 import { parsePaneRef } from "../../../packages/rt-client/src/pane-ref.ts";
@@ -45,8 +45,8 @@ import {
   createSessionStore, isDetachedAttachment, LEGACY_DEFAULT_PROFILE, listBindingsByNativeValue, type AttachmentInput, type SessionStore,
 } from "../session-store.ts";
 import { CROSS_SESSION_INBOUND_SETTINGS, writeClaudeGateHookSettings } from "./hooks.ts";
-import type { ModLinkView } from "./mod-links.ts";
-import { liveModLink } from "./mod-path.ts";
+import { installedModLinks, pushModCommand, type ModLinks, type ModLinkView } from "./mod-links.ts";
+import { liveModLink, modPath } from "./mod-path.ts";
 
 export { CROSS_SESSION_INBOUND_SETTINGS };
 
@@ -673,4 +673,65 @@ export async function reportClaudeLinkLifecycle(
   const { applySessionPresence } = await import("../presence.ts");
   await applySessionPresence(binding, event, { db, enabled, now: overrides.now, deleteSessionFile: overrides.deleteSessionFile });
   return "applied";
+}
+
+/** The one attached Claude binding a native session id names, or undefined with none or more than one. */
+function attachedClaudeBinding(db: Database, sessionId: string): SessionBinding | undefined {
+  const recorded = listBindingsByNativeValue(db, sessionId)
+    .filter((b) => b.native.harness === HARNESS && b.native.kind === "id" && !isDetachedClaudeBinding(b));
+  return recorded.length === 1 ? recorded[0] : undefined;
+}
+
+/**
+ * The end of a session whose link carried the presence block, reported over
+ * that link (`session:end`): its binding is detached and its sign-in ended,
+ * as the SessionEnd hook's `--ended` report does without a link.
+ */
+export async function reportClaudeLinkEnded(
+  link: Pick<ModLinkView, "sessionId" | "blocks">, overrides: LinkLifecycleDeps = {},
+): Promise<"applied" | "unbound"> {
+  if (!link.blocks.includes("presence")) return "unbound";
+  const enabled = overrides.enabled ?? (await import("../context.ts")).integrationsEnabled;
+  if (!enabled()) return "unbound";
+  const db = overrides.db ?? (await import("../../state/db.ts")).getStateDb();
+  const binding = attachedClaudeBinding(db, link.sessionId);
+  if (!binding) return "unbound";
+  const { applySessionPresence } = await import("../presence.ts");
+  await applySessionPresence(binding, "end", { db, enabled, now: overrides.now, deleteSessionFile: overrides.deleteSessionFile });
+  return "applied";
+}
+
+/** Whether `block` of the session's live mod link owns its feature now: modPath on the session's one attached Claude binding. */
+export function claudeModOwns(sessionId: string, block: ModBlock, db: Database, links: ModLinks | null = installedModLinks()): boolean {
+  if (!liveModLink(sessionId, links)) return false;
+  const binding = attachedClaudeBinding(db, sessionId);
+  return binding !== undefined && modPath(binding, block, links);
+}
+
+/** What `chat:sign-in` sends a Claude session's mod; the mod answers with its own session id and root. */
+export type ChatSignInCommand = { room?: string };
+
+/** chat:sign-in's mod path for a bound Claude session whose presence block is live. */
+export type ClaudeModSignIn = {
+  owns(sessionId: string, db: Database): boolean;
+  /** Whether `linkId` is the live link of `sessionId` and carries its presence block. */
+  vouches(linkId: string, sessionId: string): boolean;
+  /** Pushes `chat-sign-in` under `commandId`; `acked: false` or a failure means sign in the daemon's own way, once. */
+  push(sessionId: string, data: ChatSignInCommand, commandId: string): Promise<Outcome<{ acked: boolean }>>;
+};
+
+export function claudeModSignIn(overrides: {
+  links?: () => ModLinks | null;
+  push?: (sessionId: string, kind: string, data: unknown, commandId: string) => Promise<Outcome<{ acked: boolean }>>;
+} = {}): ClaudeModSignIn {
+  const links = overrides.links ?? installedModLinks;
+  const push = overrides.push ?? ((sessionId, kind, data, commandId) => pushModCommand(sessionId, kind, data, { links: links(), newId: () => commandId }));
+  return {
+    owns: (sessionId, db) => claudeModOwns(sessionId, "presence", db, links()),
+    vouches: (linkId, sessionId) => {
+      const link = links()?.view(linkId);
+      return link !== null && link !== undefined && link.sessionId === sessionId && link.blocks.includes("presence");
+    },
+    push: (sessionId, data, commandId) => push(sessionId, "chat-sign-in", data, commandId),
+  };
 }

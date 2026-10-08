@@ -7,7 +7,8 @@
 
 import { Database } from "bun:sqlite";
 import { AGENT_NAMES, baseOfHandle, pickAgentName } from "../chat-names.ts";
-import { resolveAllInboxes, resolveInbox, inboxAlive } from "../claude-registry.ts";
+import { resolveAllInboxes, resolveInbox, inboxAlive, type InboxBinding } from "../claude-registry.ts";
+import { modExecution, type ModExecution } from "../agent-integrations/claude/mod-links.ts";
 import { persistOrWarn, runCriticalWrite } from "./busy.ts";
 import { getStateDb } from "./db.ts";
 import {
@@ -20,6 +21,7 @@ import {
   isFixedChatName,
   isKnownId,
   mintIdentity,
+  moveIdentitySession,
   renameIdentity,
   resolveHandle,
   type IdentityRow,
@@ -50,7 +52,28 @@ export interface PresenceThresholds {
 
 /** The registry probe, fakeable the same way lib/daemon/handlers/chat.ts's InboxDeps is: real implementations by default, swapped for a fake in tests that need a dead or alive binding on demand. */
 export type RegistryDeps = { resolve: typeof resolveInbox; alive: typeof inboxAlive; resolveAll: typeof resolveAllInboxes };
-export const defaultRegistryDeps: RegistryDeps = { resolve: resolveInbox, alive: inboxAlive, resolveAll: resolveAllInboxes };
+
+/**
+ * `base` with each live binding's status taken from the session's own
+ * mattstack-mods presence block where it has one (working reads busy), and
+ * from herdr's status otherwise. Liveness itself stays the registry's.
+ */
+export function withModExecution(base: RegistryDeps, execution: (sessionId: string) => ModExecution | null = modExecution): RegistryDeps {
+  const overlay = (sessionId: string, binding: InboxBinding): InboxBinding => {
+    const reported = execution(sessionId);
+    return reported === null ? binding : { ...binding, status: reported === "working" ? "busy" : "idle" };
+  };
+  return {
+    resolve: (sessionId) => {
+      const binding = base.resolve(sessionId);
+      return binding ? overlay(sessionId, binding) : binding;
+    },
+    alive: base.alive,
+    resolveAll: () => new Map([...base.resolveAll()].map(([sessionId, binding]) => [sessionId, overlay(sessionId, binding)])),
+  };
+}
+
+export const defaultRegistryDeps: RegistryDeps = withModExecution({ resolve: resolveInbox, alive: inboxAlive, resolveAll: resolveAllInboxes });
 
 /**
  * One registry scan (`deps.resolveAll()`) turned into a per-session lookup,
@@ -410,6 +433,22 @@ export function movePresencePane(sessionId: string, pane: string | null, db: Dat
     db.query(UPDATE_PANE_SQL).run(pane, sessionId);
   });
   runCriticalWrite("movePresencePane", () => run.immediate(), { sessionId });
+}
+
+const MOVE_PRESENCE_SQL = `UPDATE chat_presence SET session_id = ? WHERE session_id = ?;`;
+
+/**
+ * The same session goes on under a new id (a /clear its mod link
+ * continued): its presence row and identity follow, keeping the sign-in, the
+ * name and every membership. A row the new id already has is left alone.
+ */
+export function moveSessionPresence(from: string, to: string, db: Database = getStateDb()): void {
+  const run = db.transaction(() => {
+    if (db.query(SELECT_PRESENCE_BY_SESSION_SQL).get(to)) return;
+    db.query(MOVE_PRESENCE_SQL).run(to, from);
+    moveIdentitySession(from, to, db);
+  });
+  runCriticalWrite("moveSessionPresence", () => run.immediate(), { sessionId: to });
 }
 
 export function setAway(sessionId: string, text: string | null, db: Database = getStateDb()): void {

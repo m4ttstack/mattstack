@@ -55,6 +55,30 @@ function register(links: ModLinks, sessionId: string, over: Partial<Parameters<M
 }
 
 describe("mod links", () => {
+  test("a turn report counts only from a live presence block, survives a same-session re-register and lapses with the link", () => {
+    const { links, clock } = harness();
+    expect(links.execution("sess-1")).toBeNull();
+    const first = register(links, "sess-1");
+    expect(links.execution("sess-1")).toBe("idle");
+    expect(links.setExecution(first.linkId, "working")).toEqual({ ok: true, data: true });
+    expect(links.execution("sess-1")).toBe("working");
+
+    // A cleared block or a forgotten link re-registers mid-turn: the turn it reported stands.
+    const second = register(links, "sess-1");
+    expect(links.execution("sess-1")).toBe("working");
+    expect(links.setExecution(first.linkId, "idle").ok).toBe(false);
+
+    const continued = register(links, "sess-2", { previousSessionId: "sess-1", previousLinkId: second.linkId });
+    expect(links.execution("sess-2")).toBe("idle");
+    expect(links.setExecution(continued.linkId, "working").ok).toBe(true);
+    clock.now += 31_000;
+    expect(links.execution("sess-2")).toBeNull();
+
+    const noPresence = register(links, "sess-3", { blocks: ["delivery"] });
+    expect(links.setExecution(noPresence.linkId, "working")).toEqual({ ok: true, data: false });
+    expect(links.execution("sess-3")).toBeNull();
+  });
+
   test("blocks clear 30 s after the last heartbeat", () => {
     const { links, clock } = harness();
     const start = clock.now;

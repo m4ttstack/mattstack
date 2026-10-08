@@ -153,6 +153,13 @@ export function bindIdentitySession(id: string, sessionId: string, db: Database 
   else run.immediate();
 }
 
+const MOVE_SESSION_SQL = `UPDATE chat_identities SET session_id = ? WHERE session_id = ?;`;
+
+/** Every identity bound to session `from` is bound to `to` instead: the same session under a new id. */
+export function moveIdentitySession(from: string, to: string, db: Database = getStateDb()): void {
+  db.query(MOVE_SESSION_SQL).run(to, from);
+}
+
 export function renameIdentity(id: string, name: string, baseName: string, db: Database = getStateDb()): void {
   db.query(RENAME_IDENTITY_SQL).run(name, baseName, id);
 }

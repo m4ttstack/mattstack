@@ -2,10 +2,15 @@
  * session:register, session:heartbeat, session:end and session:ack: the verbs
  * a mattstack-mods link calls over rt.sock. Every verb but register answers an
  * unknown or superseded link with the `unknown-link` failure code, which is the
- * one answer the mod re-registers on.
+ * one answer the mod re-registers on. A session:end from a link carrying the
+ * presence block also ends the session's sign-in and detaches its binding.
  *
  * session:report is the link's lifecycle report (resume, compact) for the one
- * session it registered; its context is a hint, never authority.
+ * session it registered; its context is a hint, never authority. A turn start
+ * or end from the presence block sets the session's working or idle state.
+ *
+ * session:owned answers whether a block of the session's live link owns that
+ * session's feature, for a CLI path that cannot read link state itself.
  *
  * session:delivered is the delivery block's report that its session handed a
  * delivery to the model. It settles only a delivery sent to the link's own
@@ -19,13 +24,16 @@
 
 import type { Database } from "bun:sqlite";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
-import type { Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
+import { MOD_BLOCKS, type ModBlock, type Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { pushModCommand, UNKNOWN_LINK, type ModLinks } from "../../agent-integrations/claude/mod-links.ts";
 import { reportClaudeDelivered } from "../../agent-integrations/claude/messaging.ts";
-import { reportClaudeLinkLifecycle, type LinkContext, type LinkLifecycleDeps } from "../../agent-integrations/claude/sessions.ts";
+import {
+  claudeModOwns, reportClaudeLinkEnded, reportClaudeLinkLifecycle, type LinkContext, type LinkLifecycleDeps,
+} from "../../agent-integrations/claude/sessions.ts";
+import { getStateDb } from "../../state/db.ts";
 
 type Verb = "session:register" | "session:heartbeat" | "session:end" | "session:ack" | "session:push" | "session:report"
-  | "session:delivered";
+  | "session:delivered" | "session:owned";
 type Push = (sessionId: string, kind: string, data: unknown) => Promise<Outcome<{ acked: boolean }>>;
 /** CommandResult's shape, spelled here because ./types.ts reaches setup modules through the daemon's snapshot types. */
 type Result<K extends Verb> =
@@ -53,6 +61,8 @@ function registrationProblem(p: Record<string, unknown>): string | undefined {
 }
 
 const LIFECYCLE_EVENTS = ["resume", "compact"] as const;
+const TURN_EVENTS = { "turn-start": "working", "turn-end": "idle" } as const;
+const isTurnEvent = (v: unknown): v is keyof typeof TURN_EVENTS => typeof v === "string" && Object.hasOwn(TURN_EVENTS, v);
 
 function reportContext(v: unknown): LinkContext | string {
   if (v === null || typeof v !== "object") return "context must be an object with cwd, root and pane";
@@ -89,8 +99,10 @@ export function createModSessionHandlers(deps: {
     "session:end": async (payload) => {
       const { linkId } = record(payload);
       if (!isText(linkId)) return invalid("linkId must be a non-empty string");
-      if (!links.has(linkId)) return unknownLink();
+      const link = links.view(linkId);
+      if (!link) return unknownLink();
       links.end(linkId);
+      await reportClaudeLinkEnded(link, deps.lifecycle);
       return { ok: true, data: {} };
     },
 
@@ -104,7 +116,14 @@ export function createModSessionHandlers(deps: {
     "session:report": async (payload) => {
       const { linkId, event, context } = record(payload);
       if (!isText(linkId)) return invalid("linkId must be a non-empty string");
-      if (!LIFECYCLE_EVENTS.includes(event as never)) return invalid(`event must be one of ${LIFECYCLE_EVENTS.join(", ")}`);
+      if (isTurnEvent(event)) {
+        const counted = links.setExecution(linkId, TURN_EVENTS[event]);
+        if (!counted.ok) return unknownLink();
+        return { ok: true, data: { outcome: counted.data ? "applied" : "unbound" } };
+      }
+      if (!LIFECYCLE_EVENTS.includes(event as never)) {
+        return invalid(`event must be one of ${[...LIFECYCLE_EVENTS, ...Object.keys(TURN_EVENTS)].join(", ")}`);
+      }
       const where = reportContext(context);
       if (typeof where === "string") return invalid(where);
       const link = links.view(linkId);
@@ -121,6 +140,14 @@ export function createModSessionHandlers(deps: {
       if (!link) return unknownLink();
       const settled = reportClaudeDelivered(link, deliveryId, deps.delivery);
       return settled.ok ? { ok: true, data: {} } : declined(settled.error.code, settled.error.message);
+    },
+
+    "session:owned": async (payload) => {
+      const { sessionId, block } = record(payload);
+      if (!isText(sessionId)) return invalid("sessionId must be a non-empty string");
+      if (!MOD_BLOCKS.includes(block as ModBlock)) return invalid(`block must be one of ${MOD_BLOCKS.join(", ")}`);
+      const db = deps.lifecycle?.db ?? getStateDb();
+      return { ok: true, data: { owned: claudeModOwns(sessionId, block as ModBlock, db, links) } };
     },
 
     "session:push": async (payload) => {
