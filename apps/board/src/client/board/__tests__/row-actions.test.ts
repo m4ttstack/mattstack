@@ -822,16 +822,17 @@ test('without a peers list every finished reviewer is offered a re-review', () =
   expect(rereviewKeys()).toEqual(['nudge-tom', 'nudge-mira']);
 });
 
-test('rebase locally hides when no doctor skill is bound, and stays when unknown', () => {
+test('rebase locally shows only on a tab whose launch reaches a doctor skill', () => {
   const broken = MENU_STATES['own broken']!.mr;
-  const env = actionEnvOf(ownEnv, broken);
-  expect(keys(broken, ownEnv)).toContain('rebase-local');
-  expect(
-    rowActions({ ...broken, doctorSkill: false }, env).map(a => a.key)
-  ).not.toContain('rebase-local');
-  expect(
-    rowActions({ ...broken, doctorSkill: true }, env).map(a => a.key)
-  ).toContain('rebase-local');
+  const on = (tab: string, tabs: string[] | undefined) =>
+    rowActions(
+      { ...broken, doctorSkillTabs: tabs },
+      { ...actionEnvOf(ownEnv, broken), tab }
+    ).map(a => a.key);
+  expect(on('team', undefined)).toContain('rebase-local');
+  expect(on('team', ['team'])).toContain('rebase-local');
+  expect(on('team', ['other'])).not.toContain('rebase-local');
+  expect(on('team', [])).not.toContain('rebase-local');
 });
 
 test('call doctor says what it does at the api tier', () => {

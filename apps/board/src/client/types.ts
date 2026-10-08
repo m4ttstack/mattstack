@@ -157,9 +157,9 @@ export type BoardMRWithReview = BoardMR & {
   review?: ReviewInfo;
   respond?: RespondInfo;
   doctor?: DoctorInfo;
-  /** A doctor launch here reaches a domain skill, so it can rebase in a
-      checkout; absent on older servers. */
-  doctorSkill?: boolean;
+  /** The board tabs a doctor launch on this MR reaches a domain skill from,
+      so it can rebase in a checkout; absent on older servers. */
+  doctorSkillTabs?: string[];
   /** Operator stood auto-doctor down on THIS MR (row-menu toggle); true only
       on the row it was set from, never computed for a descendant -- see
       attachStandDown. */

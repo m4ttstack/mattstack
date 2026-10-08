@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 
 import { parseConfig } from '../config.ts';
 import {
-  doctorSkillBound,
+  doctorSkillTabs,
   laneBoardTab,
   packForLaunch,
   requestBoardTab,
@@ -359,39 +359,39 @@ describe('laneBoardTab', () => {
   });
 });
 
-describe('doctorSkillBound', () => {
+describe('doctorSkillTabs', () => {
   const noDoctor = parseConfig(JSON.stringify({ ...base, doctorSkill: '' }));
   const widgetsDoctor = JSON.stringify({
     bindings: { 'board:doctor': { doctor: 'widgets:doctor' } },
   });
+  const tabbed = {
+    ...noDoctor,
+    tabs: [
+      { id: 'packed', label: 'P', source: { kind: 'authors' }, pack: 'widgets' },
+      { id: 'plain', label: 'Q', source: { kind: 'authors' } },
+    ],
+  } as typeof noDoctor;
+  const IDS = ['packed', 'plain', 'needs-me'];
 
-  test('a configured doctor skill counts for every project', () => {
-    expect(doctorSkillBound('org/repo', cfg, makeHome(null, 'x'))).toBe(true);
+  test('a configured doctor skill reaches every tab', () => {
+    expect(doctorSkillTabs('org/repo', cfg, IDS, makeHome(null, 'x'))).toEqual(
+      IDS
+    );
   });
 
-  test('the team pack binding a doctor for the project counts', () => {
+  test("only the tabs whose pack binds a doctor for the project", () => {
     const home = makeHome('gitlab.com-org-repo', 'widgets', widgetsDoctor);
-    expect(
-      doctorSkillBound('org/repo', { ...noDoctor, teamPack: 'widgets' }, home)
-    ).toBe(true);
+    expect(doctorSkillTabs('org/repo', tabbed, IDS, home)).toEqual(['packed']);
   });
 
-  test("a tab's pack binding a doctor counts", () => {
+  test('a team pack binding a doctor reaches the tabs with no pack of their own', () => {
     const home = makeHome('gitlab.com-org-repo', 'widgets', widgetsDoctor);
-    const tabbed = {
-      ...noDoctor,
-      tabs: [
-        { id: 't1', label: 'T', source: { kind: 'authors' }, pack: 'widgets' },
-      ],
-    } as typeof noDoctor;
-    expect(doctorSkillBound('org/repo', tabbed, home)).toBe(true);
+    const team = { ...tabbed, teamPack: 'widgets' };
+    expect(doctorSkillTabs('org/repo', team, IDS, home)).toEqual(IDS);
   });
 
-  test('no config skill and no pack binding a doctor -> false', () => {
+  test('no binding anywhere reaches no tab', () => {
     const home = makeHome('gitlab.com-org-repo', 'widgets', widgetsReview);
-    expect(
-      doctorSkillBound('org/repo', { ...noDoctor, teamPack: 'widgets' }, home)
-    ).toBe(false);
-    expect(doctorSkillBound('org/repo', noDoctor, home)).toBe(false);
+    expect(doctorSkillTabs('org/repo', tabbed, IDS, home)).toEqual([]);
   });
 });

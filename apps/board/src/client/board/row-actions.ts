@@ -120,6 +120,8 @@ export interface ActionEnv {
   triageEnabled?: boolean;
   /** The tier a menu-launched doctor runs at; undefined = unknown. */
   doctorTier?: 'api' | 'checkout';
+  /** The board tab the menu was opened on, which picks the launch's pack. */
+  tab?: string;
   /** The rt repos (as stamped on a row's `rtRepo`) whose Code Owner section
       names carry Slack channels; absent means none. */
   ownerSlackRepos?: string[];
@@ -324,7 +326,7 @@ export function rowActions(
     }
     if (
       own &&
-      mrx.doctorSkill !== false &&
+      (!mrx.doctorSkillTabs || mrx.doctorSkillTabs.includes(env.tab ?? '')) &&
       (mrx.blockers?.hasConflicts ||
         mrx.rebaseButton.visible ||
         (mrx.behindTarget ?? 0) > 0)

@@ -185,7 +185,7 @@ import {
 import { launchErrorMessage } from './launch-error.ts';
 import { hasLocalOrigin, isLocalRequest, requireJsonBody } from './local.ts';
 import {
-  doctorSkillBound,
+  doctorSkillTabs,
   laneBoardTab,
   packForLaunch,
   requestBoardTab,
@@ -350,7 +350,12 @@ import {
 import { plainReason } from './triage/nudge.ts';
 import { manualDoctorFields, resolveDispatchIdentity } from './triage/run.ts';
 import { readTurnConfig } from './turn-setting.ts';
-import { effectiveSeat, isOwnMr, resolveStandDownTarget } from './view.ts';
+import {
+  effectiveSeat,
+  isOwnMr,
+  NEEDS_ME_TAB,
+  resolveStandDownTarget,
+} from './view.ts';
 
 /** Capture-harness mode: boot from a committed fixture dir instead of live
     config, serve canned endpoint responses, hold no tokens, start no relay.
@@ -782,13 +787,27 @@ function resolveLaunchSkillFor(
   return resolveLaunchSkill(kind, mrUrl, config, packForLaunch(config, tabId));
 }
 
-/** Whether a doctor launch on this MR reaches a domain skill (the
-    "rebase locally" item needs one to rebase in a checkout). */
-function doctorBound(webUrl: string | null | undefined): boolean {
+/** The board tabs a doctor launch on this MR reaches a domain skill from
+    (the "rebase locally" item needs one to rebase in a checkout). Every MR
+    of a project gets the same answer, so `memo` reads each project's pack
+    files once per request. */
+function doctorTabs(
+  webUrl: string | null | undefined,
+  memo: Map<string, string[]>
+): string[] {
   const project = webUrl
     ? projectPathFromWebUrl(webUrl, config.gitlabHost)
     : null;
-  return !!project && doctorSkillBound(project, config);
+  if (!project) return [];
+  let tabs = memo.get(project);
+  if (!tabs) {
+    tabs = doctorSkillTabs(project, config, [
+      ...config.tabs.map(t => t.id),
+      NEEDS_ME_TAB.id,
+    ]);
+    memo.set(project, tabs);
+  }
+  return tabs;
 }
 
 /** `pack` for a LaunchPaneOpts/ReReviewCtx: absent rather than null when none applies. */
@@ -1600,6 +1619,7 @@ const httpServer = Bun.serve({
           pruneFinishedSentNudges();
           pruneNudges(onBoard);
         }
+        const doctorTabsMemo = new Map<string, string[]>();
         const reviews = readReviewStates();
         const responds = readRespondStates();
         const doctors = readDoctorStates();
@@ -1631,7 +1651,7 @@ const httpServer = Bun.serve({
         ).map(mr => ({
           ...mr,
           gates: joinGateExecutors(mr.gates, reconciler.executors),
-          doctorSkill: doctorBound(mr.webUrl),
+          doctorSkillTabs: doctorTabs(mr.webUrl, doctorTabsMemo),
         }));
         const { mrs: mrsWithOrphans, orphans } = joinExecutorOrphans(
           mrsWithGates,
@@ -2384,6 +2404,17 @@ const httpServer = Bun.serve({
           if (dedup.kind === 'refused')
             return new Response(dedup.reason, { status: 409 });
         }
+        // A rebase-only doctor with no domain skill has nothing that can
+        // rebase in a checkout, and its empty allowlist rules out GitLab's
+        // own rebase too, so it could only end in an error.
+        if (
+          parsed.mode === 'rebase' &&
+          !resolveLaunchSkillFor('doctor', parsed.mrUrl, boardTabId)
+        )
+          return new Response(
+            'no doctor skill is set up for this board tab, so nothing can rebase in a checkout',
+            { status: 409 }
+          );
         const triage = loadTriageConfig();
         // Token validation happens here, OUTSIDE the lock, since it's a
         // network round-trip and the lock must never sit open for that long.

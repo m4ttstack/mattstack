@@ -143,24 +143,25 @@ export function resolveBoardSkill(
   return { skill, source: 'manifest', pack };
 }
 
-/** Whether a doctor launch for `project` can reach a domain skill: the
-    config's own doctor skill, or a doctor binding in the team pack or any
-    tab's pack. Without one the doctor only has its generic, API-side path. */
-export function doctorSkillBound(
+/** The board tabs, of `tabIds`, from which a doctor launch for `project`
+    reaches a domain skill: the config's own doctor skill, else a doctor
+    binding in the pack that tab launches with. Without one the doctor only
+    has its generic, API-side path. */
+export function doctorSkillTabs(
   project: string,
   cfg: BoardConfig,
+  tabIds: readonly string[],
   mattstackHome?: string
-): boolean {
-  if (configSkillFor('doctor', cfg)) return true;
-  const packs = new Set(
-    [cfg.teamPack, ...cfg.tabs.map(t => t.pack)].filter(
-      (p): p is string => !!p && PACK_NAME_RE.test(p)
-    )
-  );
-  return [...packs].some(
-    pack =>
-      resolveBoardSkill('doctor', project, cfg, pack, mattstackHome).source ===
-      'manifest'
+): string[] {
+  return tabIds.filter(
+    id =>
+      resolveBoardSkill(
+        'doctor',
+        project,
+        cfg,
+        packForLaunch(cfg, id),
+        mattstackHome
+      ).skill !== ''
   );
 }
 

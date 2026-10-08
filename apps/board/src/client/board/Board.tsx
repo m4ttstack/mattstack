@@ -1446,6 +1446,7 @@ export function Board() {
     slackEnabled: data.slackEnabled,
     triageEnabled: data.triageEnabled,
     doctorTier: data.doctorTier,
+    tab: state.tab,
     ownerSlackRepos: data.ownerSlackRepos,
     self: seat,
     roster: data.members.map(m => m.username),
