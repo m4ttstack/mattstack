@@ -8,7 +8,7 @@ import { createGateHandlers } from "../handlers/gate.ts";
 import type { EventsBus } from "../events-bus.ts";
 import type { GateSubjectResult } from "../gate-subject.ts";
 import { handOverWaitGate } from "../../agent-integrations/claude/questions.ts";
-import type { pushModCommand } from "../../agent-integrations/claude/mod-links.ts";
+import { MOD_COMMAND_ACK_MS, type pushModCommand } from "../../agent-integrations/claude/mod-links.ts";
 
 const log = pino({ level: "silent" });
 
@@ -687,8 +687,9 @@ describe("gate:ask hands a wait gate to the session's gate-wait block", () => {
     if (!wait.ok) throw new Error(String(wait.error));
     expect(wait.data.presentation).toBe("wait");
     expect(wait.data.wake).toBe("mod");
-    expect(pushed).toEqual([["sess-1", "gate-wait", { id: wait.data.id }]]);
+    expect(pushed).toEqual([["sess-1", "gate-wait", { id: wait.data.id, deadline: expect.any(Number) }]]);
     expect(store.get(wait.data.id)!.status).toBe("open");
+    expect(store.get(wait.data.id)!.origin).toEqual({ presentation: "wait", session: "sess-1", wake: "mod" });
 
     const form = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-1", paneId: "w1:p1", kind: "form" });
     const otherSession = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-2", kind: "other" });
@@ -697,6 +698,7 @@ describe("gate:ask hands a wait gate to the session's gate-wait block", () => {
     for (const res of [form, otherSession, anonymous, codex]) {
       if (!res.ok) throw new Error(String(res.error));
       expect("wake" in res.data).toBe(false);
+      expect(store.get(res.data.id)!.origin?.wake).toBeUndefined();
     }
     expect(pushed).toHaveLength(1);
   });
@@ -712,6 +714,7 @@ describe("gate:ask hands a wait gate to the session's gate-wait block", () => {
       expect(pushed).toHaveLength(1);
       expect(Object.keys(res.data).sort()).toEqual(["id", "presentation", "subject", "supersededId"]);
       expect(store.get(res.data.id)!.status).toBe("open");
+      expect(store.get(res.data.id)!.origin?.wake).toBeUndefined();
     }
   });
 
@@ -725,5 +728,64 @@ describe("gate:ask hands a wait gate to the session's gate-wait block", () => {
     expect(unowned.pushed).toEqual([]);
     expect(JSON.stringify({ ...after.data, id: "<id>" })).toBe(JSON.stringify({ ...before.data, id: "<id>" }));
     expect(JSON.stringify(before.data)).toBe(JSON.stringify({ id: before.data.id, presentation: "wait", subject: "mr:https://x/1", supersededId: null }));
+  });
+});
+
+describe("wait gates a mod took over", () => {
+  const ask = (handlers: ReturnType<typeof harness>["handlers"], payload: Record<string, unknown>) =>
+    handlers["gate:ask"]({ subject: "mr:https://x/1", context: "why this decision", ...payload } as never);
+  const acking = (live: string[]) => harness({
+    resolveSubject: () => ({ ok: true, subject: "mr:https://x/1" }),
+    waitHandover: (sessionId, gateId) => handOverWaitGate(sessionId, gateId, {
+      owns: (s) => live.includes(s), push: async () => ({ ok: true, data: { acked: true } }),
+    }),
+  });
+
+  test("the handover carries the deadline rt stops waiting for its ack at", async () => {
+    const seen: unknown[] = [];
+    const acked = await handOverWaitGate("sess-1", "g-1", {
+      owns: () => true,
+      now: () => 1_000,
+      push: async (_s, _k, data) => { seen.push(data); return { ok: true, data: { acked: true } }; },
+    });
+    expect(acked).toBe(true);
+    expect(seen).toEqual([{ id: "g-1", deadline: 1_000 + MOD_COMMAND_ACK_MS }]);
+  });
+
+  test("a caller-supplied origin.wake is stripped", async () => {
+    const { handlers, store } = acking([]);
+    const asked = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-1", origin: { wake: "mod" } });
+    const opened = await handlers["gate:open"]({
+      subject: "run:r1", kind: "plain", questions: twoOptionQuestion(),
+      origin: { presentation: "wait", surface: "board", wake: "mod" } as never,
+    });
+    if (!asked.ok || !opened.ok) throw new Error("open failed");
+    expect(store.get(asked.data.id)!.origin).toEqual({ presentation: "wait", session: "sess-1" });
+    expect(store.get(opened.data.id)!.origin).toEqual({ presentation: "wait", surface: "board" });
+    expect("wake" in asked.data).toBe(false);
+  });
+
+  test("a wake-mod gate is consumed only when its asking session re-reads it, answered or closed", async () => {
+    const { handlers, store } = acking(["sess-1"]);
+    const answered = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-1" });
+    const closed = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-1", kind: "other" });
+    const plain = await ask(handlers, { questions: twoOptionQuestion(), sessionId: "sess-2", kind: "third" });
+    if (!answered.ok || !closed.ok || !plain.ok) throw new Error("ask failed");
+    expect(answered.data.wake).toBe("mod");
+    expect("wake" in plain.data).toBe(false);
+    store.answer(answered.data.id, { q1: "yes" }, "board");
+    store.answer(plain.data.id, { q1: "yes" }, "board");
+    await handlers["gate:close"]({ id: closed.data.id, reason: "abandoned" });
+
+    await handlers["gate:wait"]({ id: answered.data.id, waitMs: 0, sessionId: "someone-else" });
+    await handlers["gate:wait"]({ id: answered.data.id, waitMs: 0 });
+    expect(store.get(answered.data.id)!.consumedAt).toBeNull();
+
+    await handlers["gate:wait"]({ id: answered.data.id, waitMs: 0, sessionId: "sess-1" });
+    await handlers["gate:wait"]({ id: closed.data.id, waitMs: 0, sessionId: "sess-1" });
+    await handlers["gate:wait"]({ id: plain.data.id, waitMs: 0, sessionId: "sess-2" });
+    expect(store.get(answered.data.id)!.consumedAt).not.toBeNull();
+    expect(store.get(closed.data.id)!.consumedAt).not.toBeNull();
+    expect(store.get(plain.data.id)!.consumedAt).toBeNull();
   });
 });

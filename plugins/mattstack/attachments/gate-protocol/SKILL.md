@@ -288,8 +288,7 @@ restarts, and exits only on answered or closed, printing
 is idle but armed: the wait's completion re-invokes this pane with the
 answer as the tool result. On the `wake` path the next turn opens with a
 `[gate] gate <id> ...` message carrying the same result, or saying the gate
-was withdrawn; treat it as that wait's result. A wake that says its wait
-was lost names the `rt gate wait <id>` to launch instead. Under a run a
+was withdrawn; treat it as that wait's result. Under a run a
 turn ends only with `waiting-gate` or `hold` set; the pipeline gate stop
 hook blocks any other ending, which is why every hold under a run arms the
 marker before it ends.

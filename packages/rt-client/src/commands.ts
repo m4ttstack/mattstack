@@ -176,6 +176,8 @@ export interface GateOrigin {
   presentation?: "form" | "wait";
   /** The asking session's native id, as gate:ask resolved it; never a caller's own claim. */
   session?: string;
+  /** Set by the daemon once the asking session's mod took over waking it for this wait gate; never a caller's own claim. */
+  wake?: "mod";
 }
 /** `context` is per-question material (what this one choice turns on);
     the gate-level `context` on the open/ask payload is the whole ask's. */

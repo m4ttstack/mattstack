@@ -19,6 +19,8 @@ const COMMAND_ENVELOPE = /^<rt-mod-command id="([^"<>]+)" kind="([^"<>]+)"(?: li
 export type Command = { id: string; kind: string; data: unknown }
 /** `api` is the link's own facade, for a handler whose work outlives the delivery that carried the command. */
 export type CommandHandler = (cmd: Command, api: ModApi) => Promise<void>
+/** Whether the mod owns `cmd`; may read the facade (the clock, say) to decide. */
+export type CommandAccepts = (cmd: Command, api: ModApi) => boolean | Promise<boolean>
 export type WaitResult = { cursor: number; events: unknown[] }
 
 export type Link = {
@@ -30,8 +32,11 @@ export type Link = {
    * With `owner`, a command arriving while that block is not live is dropped
    * unacked, so the daemon takes its fallback. With `accepts`, so is one it
    * answers false for (or throws on): the mod does not own that command.
+   * A command whose ack rt does not take is never handled.
    */
-  onCommand(kind: string, handler: CommandHandler, owner?: ModBlock, accepts?: (cmd: Command) => boolean): void
+  onCommand(kind: string, handler: CommandHandler, owner?: ModBlock, accepts?: CommandAccepts): void
+  /** Calls `listener` after every register rt takes: the first, a /clear's continuation, and a re-register after rt forgot the link. */
+  onLinked(listener: (api: ModApi, sessionId: string) => void): void
   /**
    * Waits on the daemon's event bus from `after`, in rounds of ROUND_MS, until
    * `until` holds for the events gathered so far. Rejects with the signal's
@@ -101,7 +106,8 @@ export function createLink(hub: Hub): Link {
   let refreshing = false
   let subscribed = false
   let queue: Promise<void> = Promise.resolve()
-  const handlers = new Map<string, { handler: CommandHandler; owner?: ModBlock; accepts?: (cmd: Command) => boolean }>()
+  const handlers = new Map<string, { handler: CommandHandler; owner?: ModBlock; accepts?: CommandAccepts }>()
+  const linkedListeners: ((api: ModApi, sessionId: string) => void)[] = []
 
   // Register, heartbeat, re-register and end each read and replace the link
   // id, so they run one at a time.
@@ -159,6 +165,13 @@ export function createLink(hub: Hub): Link {
       const blocks = hub.liveBlocks()
       await remember({ sessionId: reg.sessionId, linkId: id, cwd: reg.cwd, root: reg.root, pane: reg.pane ?? null, blocks })
       log(`linked as ${id} for ${reg.sessionId}; blocks: ${blocks.length > 0 ? blocks.join(', ') : 'none'}`)
+      for (const listener of linkedListeners) {
+        try {
+          listener(api!, reg.sessionId)
+        } catch (err) {
+          log(`a linked listener failed: ${String(err)}`)
+        }
+      }
       return
     }
     const { code, message } = out.error
@@ -208,14 +221,18 @@ export function createLink(hub: Hub): Link {
       })
   }
 
-  async function ack(a: ModApi, cmd: Command): Promise<void> {
+  /** True only once rt took the ack: an ack it never got leaves rt on its fallback. */
+  async function ack(a: ModApi, cmd: Command): Promise<boolean> {
     const linkId = id
     if (!linkId) {
-      log(`command ${cmd.kind} ${cmd.id} handled with no link to ack it on`)
-      return
+      log(`command ${cmd.kind} ${cmd.id} arrived with no link to ack it on`)
+      return false
     }
     const out = await call(a, 'session:ack', { linkId, id: cmd.id })
-    if (!out.ok && out.error.code === 'unknown-link') await serial(() => relink(linkId))
+    if (out.ok) return true
+    log(`command ${cmd.kind} ${cmd.id} could not be acked (${out.error.code}: ${out.error.message})`)
+    if (out.error.code === 'unknown-link') await serial(() => relink(linkId))
+    return false
   }
 
   async function handle(a: ModApi, cmd: Command): Promise<void> {
@@ -231,7 +248,7 @@ export function createLink(hub: Hub): Link {
     if (entry.accepts) {
       let accepted = false
       try {
-        accepted = entry.accepts(cmd)
+        accepted = await entry.accepts(cmd, a)
       } catch (err) {
         log(`command ${cmd.kind} ${cmd.id} could not be checked: ${err instanceof Error ? err.message : String(err)}`)
       }
@@ -242,7 +259,12 @@ export function createLink(hub: Hub): Link {
     }
     // The ack means the mod has taken the command, so rt never falls back
     // under a handler that is slow or straddles a /clear.
-    await ack(a, cmd)
+    // rt falls back on any command it holds no ack for, so a handler run
+    // without one would act beside that fallback.
+    if (!(await ack(a, cmd))) {
+      log(`command ${cmd.kind} ${cmd.id} not handled: its ack did not reach rt`)
+      return
+    }
     try {
       await entry.handler(cmd, a)
     } catch (err) {
@@ -429,6 +451,10 @@ export function createLink(hub: Hub): Link {
           await remember(null)
         })
       })
+    },
+
+    onLinked(listener) {
+      linkedListeners.push(listener)
     },
 
     onCommand(kind, handler, owner, accepts) {

@@ -103,9 +103,14 @@ A block reaches the daemon through the link:
   envelope before the model sees it, acks it with `session:ack` at once
   (the ack means the mod owns it), then runs the handler. A command with no
   handler, or whose block is not live, is not acked, so rt takes its fallback.
-  So is one the handler's `accepts` check answers false for. The handler
-  gets the command and the link's own facade, for work that outlives the
-  delivery that carried the command.
+  So is one the handler's `accepts` check answers false for; `accepts`
+  gets the facade too and may answer later. A command whose `session:ack`
+  rt does not take is never handled, since rt then takes its fallback. The
+  handler gets the command and the link's own facade, for work that
+  outlives the delivery that carried the command.
+- `link.onLinked(listener)` hears every register rt takes (the first, a
+  `/clear`'s continuation, a re-register after a daemon restart) with the
+  facade and the registered session id.
 
 The core answers two diagnostic commands, the only kinds `rt.sock`'s
 `session:push` will send: `probe.ping` logs and acks, and `probe.wait` (`{ pattern, after }`)
@@ -200,18 +205,23 @@ gate draw as nothing, except for a dismissed one.
 
 The `gate-wait` block (`src/blocks/gate-wait.ts`) stands in for the
 background `rt gate wait` a skill runs after `gate_ask` opens a wait gate.
-When this session asks for a wait gate, rt pushes `gate-wait { id }` before
-it answers `gate_ask`. The block acks any readable gate id, and rt then adds
-`wake: "mod"` to the reply. The skill sets its `waiting-gate` run field,
-sees `wake`, and ends the turn without running the wait. With no ack, rt
-leaves `wake` out and the skill runs `rt gate wait` as it does without the
-mod. The block then:
+When this session asks for a wait gate, rt pushes `gate-wait { id, deadline }`
+before it answers `gate_ask`, where `deadline` is when rt stops waiting for
+the ack. The block acks a readable gate id up to 1 s before that deadline,
+and refuses it after, so a late delivery never starts a second waker beside
+the `rt gate wait` an unacked reply sends the session to. On the ack rt adds
+`wake: "mod"` to the reply and stamps the gate's `origin.wake: "mod"`. The
+skill sets its `waiting-gate` run field, sees `wake`, and ends the turn
+without running the wait. With no ack, rt leaves `wake` out and the skill
+runs `rt gate wait` as it does without the mod. The block then:
 
-1. Reads the event cursor (`events:head`), then the gate's row
-   (`gate:wait { id, waitMs: 0 }`), so a gate answered before the wait began
-   still ends it.
+1. Reads the event cursor (`events:head`), then this session's wait gates
+   (`gate:list { session, presentation: "wait" }`), so a gate answered
+   before the wait began still ends it. A gate this session did not ask
+   (its `origin.session` is another's) gets no wait.
 2. Waits on `gate/{answered,closed}/<id>` from that cursor with `link.wait`,
-   and reads the row again after each event for the gate.
+   and reads the row again (`gate:wait { id, waitMs: 0 }`) after each event
+   for the gate.
 3. Starts the next turn with `$.prompt.submit`, framed as this plugin's
    message. The engine queues it while a turn runs.
    - An answer: `[gate] gate <id> was answered by <surface>. Its gate wait
@@ -222,14 +232,22 @@ mod. The block then:
    - A gate the registry no longer has: a "not found" line.
    - An answer this session recorded itself (`answer.session` is its id,
      before or after a `/clear`) starts no turn: the model already holds it.
+4. Records the gate as read once its turn is in (`gate:wait` with the
+   asking session's id, which rt counts as that session's read of a gate
+   stamped `wake: "mod"`).
 
-The wait lives in this process, not in the conversation, so a `/clear`
-while waiting keeps it, and the turn it starts lands in the new
-conversation. A session end drops every wait. A submit the engine refuses
-or a hook drops is asked again twice; after that the text goes to the
-transcript, so the person still sees the answer. A wait the daemon will not
-serve (a read that keeps failing, or a round it refuses) starts a turn that
-names the gate and asks the session to run `rt gate wait <id>` itself.
+A wait that fails (the daemon restarting, a refused round) starts again
+from a fresh cursor, at most 30 s apart, and a submit the engine refuses or
+a hook drops is asked again on the same schedule, until it goes through or
+the session ends. The wait lives in this process, not in the conversation,
+so a `/clear` while waiting keeps it, and the turn it starts lands in the
+new conversation. A session end drops every wait.
+
+When the block starts, and after every register rt takes, it lists this
+session's wait gates again and resumes a wait for each one stamped
+`wake: "mod"` that the session has not read. A reloaded plugin so picks up
+its waits, an answer that landed while no wait ran is delivered once, and a
+gate the model covers with its own `rt gate wait` is never touched.
 
 ## The reply rule section
 

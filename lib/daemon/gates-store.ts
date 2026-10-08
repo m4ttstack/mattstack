@@ -79,6 +79,8 @@ export interface GatesStore {
   /** CAS on IS NULL, so an already-consumed row keeps its first stamp.
       Returns whether the row exists, not whether this call stamped it. */
   markConsumed(id: string, at?: number): boolean;
+  /** Stamps `origin.wake: "mod"`: the asking session's mod took over waking it for this gate. */
+  markWake(id: string): void;
   /** `null` clears the stamp (row goes back to no `execution` field on read). */
   markExecution(id: string, execution: "unassigned" | null): void;
   /** `null` clears the stamp (row goes back to no `executor` field on read). */
@@ -445,6 +447,7 @@ export function createGatesStore(opts: {
   const releaseStmt = db.prepare("UPDATE gates SET released = 1 WHERE id = ?");
   const markDeliveryStmt = db.prepare("UPDATE gates SET delivery = ? WHERE id = ?");
   const markConsumedStmt = db.prepare("UPDATE gates SET consumedAt = ? WHERE id = ? AND consumedAt IS NULL");
+  const markWakeStmt = db.prepare("UPDATE gates SET origin = json_set(COALESCE(origin, '{}'), '$.wake', 'mod') WHERE id = ?");
   const markExecutionStmt = db.prepare("UPDATE gates SET execution = ? WHERE id = ?");
   const markExecutorStmt = db.prepare("UPDATE gates SET executor = ? WHERE id = ?");
   const markEscalatedStmt = db.prepare("UPDATE gates SET escalatedAt = ? WHERE id = ? AND escalatedAt IS NULL");
@@ -717,6 +720,10 @@ export function createGatesStore(opts: {
     markConsumed(id, at = Date.now()) {
       markConsumedStmt.run(at, id);
       return get(id) != null;
+    },
+
+    markWake(id) {
+      markWakeStmt.run(id);
     },
 
     markExecution(id, execution) {

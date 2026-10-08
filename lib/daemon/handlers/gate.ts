@@ -129,7 +129,9 @@ const MISSING_CONTEXT_ERROR =
     never override them (would let a raw payload impersonate a pane or run
     the ceremony didn't actually resolve). `worktree` is deliberately absent:
     a passthrough worktree survives when subject resolution produced none. */
-const CEREMONY_ORIGIN_KEYS: ReadonlySet<string> = new Set(["presentation", "paneId", "runId", "session"]);
+const CEREMONY_ORIGIN_KEYS: ReadonlySet<string> = new Set(["presentation", "paneId", "runId", "session", "wake"]);
+/** Origin keys only the daemon writes: gate:open drops a caller's own. */
+const DAEMON_ORIGIN_KEYS: ReadonlySet<string> = new Set(["session", "wake"]);
 const ORIGIN_FIELD_CAP_BYTES = 1024;
 
 /** Returns an error message on an invalid origin, null when it validates.
@@ -484,11 +486,11 @@ export function createGateHandlers(
   };
 
   // `askedBy` is the asking session gate:ask resolved: only the daemon stamps
-  // origin.session, so a caller's own claim is dropped on the way in.
+  // origin.session and origin.wake, so a caller's own claim is dropped on the way in.
   const openGate = async (rawPayload: unknown, askedBy?: string): Promise<CommandResult<"gate:open">> => {
     const sent = rawPayload as Commands["gate:open"]["payload"] | undefined;
-    const payload = sent && isPlainObject(sent.origin) && "session" in sent.origin
-      ? { ...sent, origin: Object.fromEntries(Object.entries(sent.origin).filter(([key]) => key !== "session")) as GateOrigin }
+    const payload = sent && isPlainObject(sent.origin) && Object.keys(sent.origin).some((key) => DAEMON_ORIGIN_KEYS.has(key))
+      ? { ...sent, origin: Object.fromEntries(Object.entries(sent.origin).filter(([key]) => !DAEMON_ORIGIN_KEYS.has(key))) as GateOrigin }
       : sent;
     const subject = typeof payload?.subject === "string" ? payload.subject.trim() : "";
     const kind = typeof payload?.kind === "string" ? payload.kind.trim() : "";
@@ -689,7 +691,12 @@ export function createGateHandlers(
       // Any other reader (shepherd, board, a watcher) does not consume, and a
       // close is not an answer to consume. The row is returned pre-stamp,
       // matching herd:answer's own ordering.
-      if (result.status === "answered" && sessionId && result.row.nudge?.session === sessionId) {
+      // A wait gate the asking session's mod took over is read once the mod
+      // has woken that session with it, answered or closed; the mod then
+      // re-reads it here under the asking session's id.
+      const nudged = result.status === "answered" && result.row.nudge?.session === sessionId;
+      const woken = result.row.origin?.wake === "mod" && result.row.origin.session === sessionId;
+      if (sessionId && (nudged || woken)) {
         store.markConsumed(result.row.id);
       }
       return { ok: true as const, data: { status: result.status, row: result.row } };
@@ -882,6 +889,9 @@ export function createGateHandlers(
     const wake = presentation === "wait" && sessionId && !harness && deps.waitHandover
       ? await deps.waitHandover(sessionId, opened.data.id).catch(() => false)
       : false;
+    // The stamp is what lets a reloaded mod resume this wait, and only this
+    // one: a gate without it is the session's own `rt gate wait`'s to cover.
+    if (wake) store.markWake(opened.data.id);
     return {
       ok: true as const,
       data: {

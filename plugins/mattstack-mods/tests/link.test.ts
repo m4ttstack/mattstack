@@ -417,6 +417,55 @@ describe('link', () => {
     expect(h.logs.some(l => l.to === 'debug' && l.text.includes('nudge n-1 failed after its ack: boom'))).toBe(true)
   })
 
+  test('a command whose ack does not reach rt is not handled', async () => {
+    const h = harness()
+    h.script.respond = scripted(h, {
+      'session:ack': [new Error('connect ECONNREFUSED'), { ok: false, error: 'busy', failure: { code: 'transient', message: 'busy' } }],
+    })
+    const handled: string[] = []
+    h.link.onCommand('nudge', async cmd => {
+      handled.push(cmd.id)
+    })
+    await h.start()
+
+    for (const id of ['n-1', 'n-2', 'n-3']) {
+      const engine = recorder({ text: 'unused' })
+      await h.fire('session.receive', { origin: { kind: 'peer' }, text: `<rt-mod-command id="${id}" kind="nudge" link="ml-1">{}</rt-mod-command>` }, engine.next)
+      await flush()
+    }
+
+    expect(h.verbs('session:ack').map(s => s.body.id)).toEqual(['n-1', 'n-2', 'n-3'])
+    expect(handled).toEqual(['n-3'])
+  })
+
+  test('accepts may read the facade and answer later', async () => {
+    const h = harness()
+    const handled: string[] = []
+    h.link.onCommand('nudge', async cmd => {
+      handled.push(cmd.id)
+    }, undefined, async (cmd, api) => (await api.clock.now()) < (cmd.data as { before: number }).before)
+    await h.start()
+
+    for (const [id, before] of [['n-late', 1_000_000], ['n-ok', 1_000_001]] as const) {
+      const engine = recorder({ text: 'unused' })
+      await h.fire('session.receive', { origin: { kind: 'peer' }, text: `<rt-mod-command id="${id}" kind="nudge" link="ml-1">{"before":${before}}</rt-mod-command>` }, engine.next)
+      await flush()
+    }
+
+    expect(h.verbs('session:ack').map(s => s.body.id)).toEqual(['n-ok'])
+    expect(handled).toEqual(['n-ok'])
+  })
+
+  test('onLinked hears every register rt takes, with the registered session id', async () => {
+    const h = harness()
+    const heard: string[] = []
+    h.link.onLinked((_api, session) => heard.push(session))
+    await h.start()
+    await h.clear('sess-2')
+
+    expect(heard).toEqual(['sess-1', 'sess-2'])
+  })
+
   test('a block cleared mod-side is dropped daemon-side by a re-register with the remaining blocks', async () => {
     const h = stub()
     const hub = createHub()

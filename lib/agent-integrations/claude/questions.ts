@@ -21,7 +21,7 @@ import { deliverToInbox, wrapCrossSession } from "../../daemon/inbox.ts";
 import type { PaneHints } from "../../daemon/pane-resolve-live.ts";
 import type { QuestionAdapter } from "../contracts.ts";
 import type { CompletionPath, CompletionState } from "../question-store.ts";
-import { installedModLinks, pushModCommand, type ModLinks } from "./mod-links.ts";
+import { installedModLinks, MOD_COMMAND_ACK_MS, pushModCommand, type ModLinks } from "./mod-links.ts";
 import { modPath } from "./mod-path.ts";
 
 const HARNESS = "claude";
@@ -59,6 +59,7 @@ export type WaitHandoverDeps = {
   owns(sessionId: string): boolean;
   push?: typeof pushModCommand;
   log?: Pick<Logger, "warn">;
+  now?: () => number;
 };
 
 /**
@@ -69,7 +70,11 @@ export type WaitHandoverDeps = {
 export async function handOverWaitGate(sessionId: string, gateId: string, deps: WaitHandoverDeps): Promise<boolean> {
   if (!deps.owns(sessionId)) return false;
   try {
-    const out = await (deps.push ?? pushModCommand)(sessionId, MOD_WAIT, { id: gateId });
+    // The mod refuses the command past this deadline: an envelope that lands
+    // after rt stopped waiting for the ack must not start a second waker
+    // beside the `rt gate wait` the unacked reply sends the session to.
+    const deadline = (deps.now ?? Date.now)() + MOD_COMMAND_ACK_MS;
+    const out = await (deps.push ?? pushModCommand)(sessionId, MOD_WAIT, { id: gateId, deadline });
     if (out.ok && out.data.acked) return true;
     deps.log?.warn({ gateId, sessionId, reason: out.ok ? "unacked" : out.error }, "gate:ask: the gate-wait handover was not confirmed; the session waits with rt gate wait");
     return false;

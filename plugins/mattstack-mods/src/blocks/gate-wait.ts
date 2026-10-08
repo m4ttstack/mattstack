@@ -1,6 +1,6 @@
 import type { Hub, ModApi } from '../core/hub.ts'
 import type { Command, Link } from '../core/link.ts'
-import { call, type Outcome } from '../core/rpc.ts'
+import { call } from '../core/rpc.ts'
 import { surface } from './gate-form.ts'
 
 /** The parts of rt's gate row (packages/rt-client GateRow) this block reads and hands on. */
@@ -11,28 +11,36 @@ export type WaitedGate = {
   status: 'open' | 'parked' | 'answered' | 'closed'
   questions: unknown[]
   context?: string | null
+  origin?: { presentation?: string; session?: string; wake?: string } | null
   answer: { answers: Record<string, unknown>; by: string; answeredAt: number; session?: string; overridden?: boolean } | null
   closedReason: string | null
   supersededBy: string | null
+  consumedAt?: number | null
 }
 
 const GATE_ID = /^[A-Za-z0-9_-]{1,128}$/
-/** A read the daemon could not answer is tried this many times before the wait is handed back. */
-const READ_TRIES = 4
-/** A turn the engine would not start is asked for this many times before the answer goes to the transcript. */
-const SUBMIT_TRIES = 3
-const retryMs = (failures: number) => 1_000 * 2 ** (failures - 1)
-
-type Read = { status: 'answered' | 'closed'; row: WaitedGate } | { status: 'open' } | { status: 'not-found' }
-
-class Lost extends Error {}
+/**
+ * A handover is refused this long before its deadline: rt stops polling for
+ * the ack at the deadline, so an ack sent closer to it may land after rt has
+ * already sent the session to `rt gate wait`.
+ */
+const ACK_MARGIN_MS = 1_000
+const MAX_RETRY_MS = 30_000
+const retryMs = (failures: number) => Math.min(1_000 * 2 ** (failures - 1), MAX_RETRY_MS)
+const LIST_PAGE = 200
 
 function idOf(data: unknown): string | null {
   const id = (data as { id?: unknown } | null)?.id
   return typeof id === 'string' && GATE_ID.test(id) ? id : null
 }
 
+function deadlineOf(data: unknown): number | null {
+  const deadline = (data as { deadline?: unknown } | null)?.deadline
+  return typeof deadline === 'number' && Number.isFinite(deadline) ? deadline : null
+}
+
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err)).replace(/^mattstack-mods: /, '')
+const terminal = (row: WaitedGate) => row.status === 'answered' || row.status === 'closed'
 
 /** What `rt gate wait` prints for an answered gate, less the gate's context, which the session already holds. */
 function waitResult(row: WaitedGate): string {
@@ -51,9 +59,6 @@ export function withdrawnText(row: WaitedGate): string {
 
 const notFoundText = (id: string) => `[gate] gate ${id} was not found in the registry. Its gate wait status is not found.`
 
-const lostText = (id: string, why: string) =>
-  `[gate] The wait on gate ${id} was lost (${why}). Run \`rt gate wait ${id}\` as a background task and end the turn.`
-
 /** Resolves after `ms`, or at once when `signal` aborts. */
 function pause(api: ModApi, ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.resolve()
@@ -68,22 +73,16 @@ function pause(api: ModApi, ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-/** A daemon call that a restart or a busy daemon may drop, tried again from scratch; throws Lost once it keeps failing. */
-async function retried<T>(api: ModApi, signal: AbortSignal, what: string, attempt: () => Promise<Outcome<T>>): Promise<Outcome<T>> {
-  for (let failures = 1; ; failures++) {
-    const out = await attempt()
-    if (out.ok || (out.error.code !== 'transport' && out.error.code !== 'transient')) return out
-    if (failures >= READ_TRIES) throw new Lost(`${what} failed (${out.error.code}): ${out.error.message}`)
-    await pause(api, retryMs(failures), signal)
-    if (signal.aborted) throw signal.reason
-  }
-}
+/** How a wait ends: a turn to start, a gate the session itself answered (read, no turn), or one that is not this session's. */
+type Ending = { kind: 'wake'; text: string; read: boolean } | { kind: 'read' } | { kind: 'not-ours' }
 
 /**
- * The `gate-wait` block: a wait gate rt handed over (`gate-wait { id }`) is
- * waited on here instead of by a background `rt gate wait`, and its answer or
- * ending starts the session's next turn. The wait lives in this process, so a
- * /clear's new session is the one woken; a session end drops it.
+ * The `gate-wait` block: a wait gate rt handed over (`gate-wait { id,
+ * deadline }`) is waited on here instead of by a background `rt gate wait`,
+ * and its answer or ending starts the session's next turn. The wait lives in
+ * this process, so a /clear's new session is the one woken; a session end
+ * drops it. rt stamps a gate whose handover was acked (`origin.wake: "mod"`),
+ * so a reloaded block resumes those, and only those, from the registry.
  */
 export function registerGateWait(hub: Hub, link: Link): void {
   const waits = new Map<string, AbortController>()
@@ -96,104 +95,170 @@ export function registerGateWait(hub: Hub, link: Link): void {
     }
   }
 
-  async function read(api: ModApi, id: string, signal: AbortSignal): Promise<Read> {
-    const out = await retried(api, signal, 'gate:wait', () => call<{ status: string; row?: WaitedGate }>(api, 'gate:wait', { id, waitMs: 0 }))
-    if (!out.ok) {
-      if (out.error.message === 'not-found') return { status: 'not-found' }
-      throw new Lost(`gate:wait failed (${out.error.code}): ${out.error.message}`)
+  /** Every wait gate `session` asked, paged; throws when the registry cannot be read. */
+  async function ownGates(api: ModApi, session: string): Promise<WaitedGate[]> {
+    const rows: WaitedGate[] = []
+    let cursor: number | undefined
+    for (;;) {
+      const out = await call<{ gates?: WaitedGate[]; cursor?: number }>(api, 'gate:list', {
+        session,
+        presentation: 'wait',
+        limit: LIST_PAGE,
+        ...(cursor !== undefined && { cursor }),
+      })
+      if (!out.ok || !Array.isArray(out.data?.gates)) throw new Error(`gate:list failed${out.ok ? '' : ` (${out.error.code}): ${out.error.message}`}`)
+      rows.push(...out.data.gates)
+      if (out.data.gates.length < LIST_PAGE || typeof out.data.cursor !== 'number') return rows
+      cursor = out.data.cursor
     }
-    const { status, row } = out.data
-    if ((status === 'answered' || status === 'closed') && row && row.id === id) return { status, row }
-    return { status: 'open' }
   }
 
-  /** Starts one turn with `text`; a refused or dropped submit is asked again, so the answer is not lost. */
-  async function wake(api: ModApi, id: string, text: string, signal: AbortSignal): Promise<void> {
-    let why = ''
-    for (let tries = 1; tries <= SUBMIT_TRIES; tries++) {
+  /** The gate's row once it is answered or closed, null while open, 'not-found' when the registry no longer has it. */
+  async function readTerminal(api: ModApi, id: string): Promise<WaitedGate | null | 'not-found'> {
+    const out = await call<{ status: string; row?: WaitedGate }>(api, 'gate:wait', { id, waitMs: 0 })
+    if (!out.ok) {
+      if (out.error.message === 'not-found') return 'not-found'
+      throw new Error(`gate:wait failed (${out.error.code}): ${out.error.message}`)
+    }
+    const row = out.data.row
+    return (out.data.status === 'answered' || out.data.status === 'closed') && row && row.id === id ? row : null
+  }
+
+  async function ending(api: ModApi, row: WaitedGate, asked: string): Promise<Ending> {
+    if (row.status === 'closed') return { kind: 'wake', text: withdrawnText(row), read: true }
+    const by = row.answer?.session
+    if (by !== undefined && (by === asked || by === (await api.session.id()))) return { kind: 'read' }
+    return { kind: 'wake', text: answeredText(row), read: true }
+  }
+
+  /** One pass: read the gate as `asked` owns it, then wait from the head of the bus until it ends. */
+  async function pass(api: ModApi, id: string, asked: string, signal: AbortSignal): Promise<Ending> {
+    // The cursor is taken before the row is read, so an answer landing in
+    // between is still an event after it.
+    const head = await call<{ cursor?: number }>(api, 'events:head', {})
+    if (!head.ok || typeof head.data?.cursor !== 'number') throw new Error(`events:head failed${head.ok ? '' : ` (${head.error.code}): ${head.error.message}`}`)
+    let cursor = head.data.cursor
+    let row = (await ownGates(api, asked)).find(g => g.id === id)
+    if (!row || row.origin?.session !== asked) {
+      const read = await readTerminal(api, id)
+      if (read === 'not-found') return { kind: 'wake', text: notFoundText(id), read: false }
+      if (!read || read.origin?.session !== asked) return { kind: 'not-ours' }
+      row = read
+    }
+    const ended = (events: unknown[]) =>
+      events.some(ev => {
+        const topic = (ev as { topic?: unknown }).topic
+        return topic === `gate/answered/${id}` || topic === `gate/closed/${id}`
+      })
+    while (!terminal(row)) {
+      cursor = (await link.wait(`gate/{answered,closed}/${id}`, cursor, ended, signal)).cursor
+      const read = await readTerminal(api, id)
+      if (read === 'not-found') return { kind: 'wake', text: notFoundText(id), read: false }
+      if (read) row = read
+    }
+    return ending(api, row, asked)
+  }
+
+  /** Records the gate as read by `asked`, so a reloaded block never wakes the session with it again. */
+  async function markRead(api: ModApi, id: string, asked: string): Promise<void> {
+    const out = await call(api, 'gate:wait', { id, waitMs: 0, sessionId: asked })
+    if (!out.ok) log(api, `gate ${id}: could not record it as read (${out.error.code}: ${out.error.message})`)
+  }
+
+  /** Starts one turn with `text`, asking again until it goes through or the session ends. */
+  async function wake(api: ModApi, id: string, text: string, signal: AbortSignal): Promise<boolean> {
+    for (let failures = 1; !signal.aborted; failures++) {
+      let why: string
       try {
         const out = await api.prompt.submit({ text })
-        if (typeof out.drop !== 'string') {
-          log(api, `gate ${id}: woke the session`)
-          return
-        }
+        if (typeof out.drop !== 'string') return true
         why = `dropped: ${out.drop}`
       } catch (err) {
         why = message(err)
       }
-      if (signal.aborted) return
-      if (tries < SUBMIT_TRIES) await pause(api, retryMs(tries), signal)
-      if (signal.aborted) return
+      log(api, `gate ${id}: the turn did not start (${why}); asking again`)
+      await pause(api, retryMs(failures), signal)
     }
-    try {
-      api.ui.log(`mattstack-mods: could not wake this session for gate ${id} (${why}). ${text}`)
-    } catch {
-      // Nothing is left to tell.
+    return false
+  }
+
+  async function follow(api: ModApi, id: string, asked: string, signal: AbortSignal): Promise<void> {
+    for (let failures = 1; !signal.aborted; failures++) {
+      let end: Ending
+      try {
+        end = await pass(api, id, asked, signal)
+      } catch (err) {
+        if (signal.aborted) return
+        log(api, `gate ${id}: the wait failed (${message(err)}); trying again`)
+        await pause(api, retryMs(failures), signal)
+        continue
+      }
+      if (end.kind === 'not-ours') {
+        log(api, `gate ${id} is not a wait gate session ${asked} asked; not waiting on it`)
+        return
+      }
+      if (end.kind === 'read') {
+        log(api, `gate ${id} was answered by this session; no turn started`)
+        await markRead(api, id, asked)
+        return
+      }
+      if ((await wake(api, id, end.text, signal)) && end.read) {
+        log(api, `gate ${id}: woke the session`)
+        await markRead(api, id, asked)
+      }
+      return
     }
   }
 
-  async function follow(api: ModApi, id: string, signal: AbortSignal): Promise<void> {
-    const asked = await api.session.id()
-    const pattern = `gate/{answered,closed}/${id}`
-    let text: string | null
+  /** Waits on `id` for `asked` unless a wait on it already runs. */
+  function start(api: ModApi, id: string, asked: string): Promise<void> {
+    if (waits.has(id)) return Promise.resolve()
+    const stop = new AbortController()
+    waits.set(id, stop)
+    log(api, `waiting on gate ${id}`)
+    return follow(api, id, asked, stop.signal)
+      .catch(err => log(api, `gate ${id}: the wait failed: ${message(err)}`))
+      .finally(() => {
+        if (waits.get(id) === stop) waits.delete(id)
+      })
+  }
+
+  /** Resumes every wait rt stamped as this session's mod's and the session has not read yet. */
+  async function resume(api: ModApi, session: string): Promise<void> {
+    let rows: WaitedGate[]
     try {
-      // The cursor is taken before the row is read, so an answer landing in
-      // between is still an event after it.
-      const head = await retried(api, signal, 'events:head', () => call<{ cursor?: number }>(api, 'events:head', {}))
-      if (!head.ok || typeof head.data?.cursor !== 'number') throw new Lost(`events:head failed${head.ok ? '' : ` (${head.error.code}): ${head.error.message}`}`)
-      let cursor = head.data.cursor
-      let state = await read(api, id, signal)
-      while (state.status === 'open') {
-        const ended = (events: unknown[]) =>
-          events.some(ev => {
-            const topic = (ev as { topic?: unknown }).topic
-            return topic === `gate/answered/${id}` || topic === `gate/closed/${id}`
-          })
-        cursor = (await link.wait(pattern, cursor, ended, signal)).cursor
-        state = await read(api, id, signal)
-      }
-      if (state.status === 'not-found') text = notFoundText(id)
-      else if (state.status === 'closed') text = withdrawnText(state.row)
-      else {
-        const by = state.row.answer?.session
-        // The session recorded this answer itself, so it already holds it.
-        if (by !== undefined && (by === asked || by === (await api.session.id()))) {
-          log(api, `gate ${id} was answered by this session; no turn started`)
-          return
-        }
-        text = answeredText(state.row)
-      }
+      rows = await ownGates(api, session)
     } catch (err) {
-      if (signal.aborted) return
-      text = lostText(id, message(err))
+      log(api, `could not list this session's wait gates to resume them: ${message(err)}`)
+      return
     }
-    await wake(api, id, text, signal)
+    for (const row of rows) {
+      if (row.origin?.wake !== 'mod' || row.origin.session !== session || row.consumedAt != null || !GATE_ID.test(row.id)) continue
+      void start(api, row.id, session)
+    }
   }
 
   link.onCommand(
     'gate-wait',
-    async (cmd: Command, api: ModApi) => {
-      const id = idOf(cmd.data)!
-      if (waits.has(id)) return
-      const stop = new AbortController()
-      waits.set(id, stop)
-      log(api, `waiting on gate ${id}`)
-      try {
-        await follow(api, id, stop.signal)
-      } catch (err) {
-        log(api, `gate ${id}: the wait failed: ${message(err)}`)
-      } finally {
-        if (waits.get(id) === stop) waits.delete(id)
-      }
-    },
+    async (cmd: Command, api: ModApi) => start(api, idOf(cmd.data)!, await api.session.id()),
     'gate-wait',
-    (cmd: Command) => idOf(cmd.data) !== null,
+    async (cmd: Command, api: ModApi) => {
+      const deadline = deadlineOf(cmd.data)
+      return idOf(cmd.data) !== null && deadline !== null && (await api.clock.now()) < deadline - ACK_MARGIN_MS
+    },
   )
+
+  link.onLinked((api, session) => {
+    if (hub.liveBlocks().includes('gate-wait')) void resume(api, session)
+  })
 
   hub.onLifecycle('session-end', async () => {
     for (const stop of waits.values()) stop.abort(new Error('mattstack-mods: the session ended'))
     waits.clear()
   })
 
-  hub.block('gate-wait', async () => {})
+  hub.block('gate-wait', async api => {
+    const session = await api.session.id()
+    void resume(api, session)
+  })
 }
