@@ -41,6 +41,25 @@ Never hard-code `main` for the org clone: publish, team sync, pack sync,
 `rt team status` and the conversion script all follow the checkout. Two
 exceptions: `rt team create` starts a new org on main, and `rt team invite`
 refuses off main, because joiners clone main.
+The org marker carries a layout version (`layout` in `mattstack/mattstack.jsonc`;
+absent reads as 2 for `role: "org"` and 1 for a one-team `role: "team"`).
+`ORG_LAYOUT` in `lib/team/org-marker.ts` is the highest layout this rt reads
+and moves only with a breaking change to the repo's shape, never with a
+release. `orgLayoutState` (`lib/team/org-layout.ts`) is the one classifier
+every reader uses, and it shares `pickOrgClone` with `readZonesFrom`: a clone
+needs `.git/config`, the first by name holding the org store wins, else the
+first org-kind clone, and a stale folder beside it is skipped. A clone on
+another layout is `waiting`: materialize writes nothing, `rt skills` verbs
+(`rt skills init` too) draw a `refused` note and exit 2, the migrations that
+read the org skip, and the `org.layout` row carries the hold as `needs-you`.
+The daemon's team pull holds a clone whose fetched tip is above `ORG_LAYOUT`
+(`layoutGate` in `lib/daemon/home-snapshot.ts`, `git show` under `LC_ALL=C`),
+so an older app never fast-forwards onto a layout it cannot read; a git
+failure other than a missing marker throws, and the engine logs it once and
+lets the pull through. `team.sync` gives a held clone no remedy. After every
+pull that moves a clone the daemon converges (`createOnPulled` in
+`lib/daemon/team-snapshots.ts`), then runs `composePullHooks` over the
+intercept hook and `createMaterializePullHook`.
 The old `~/.mattstack/teams/` root is legacy: `lib/__tests__/no-legacy-teams-root.test.ts`
 keeps it out of source, and the `org.folder` step of `rt setup update` moves a
 clone found there.

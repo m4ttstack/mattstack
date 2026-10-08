@@ -69,6 +69,9 @@ moves each Mac's folder and its `~/.mattstack/rt/teams` and `rt/invites`
 records to match, and moves a clone still under the legacy `~/.mattstack/teams/` root.
 Every reader keys on the folder, so a Mac that has not converged yet keeps
 working under the old name.
+The marker also carries the org's layout version (`layout`, read by
+`orgLayoutState`); an rt reads layouts up to `ORG_LAYOUT` and the daemon holds a
+clone whose `main` moved past that until the app updates.
 
 A string value can name paths through a closed set of variables, which the
 resolver expands on read: `${repoRoot}`, `${worktree}`, `${home}` and
