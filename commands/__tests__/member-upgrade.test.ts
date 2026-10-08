@@ -10,7 +10,8 @@ import { createApplyContext, runUpdate, type ApplyContext } from "../../lib/setu
 import type { ApplyEvent } from "../../lib/setup/contract.ts";
 import { createRealProbes, type Probes } from "../../lib/setup/probes.ts";
 import { readSetupState, updateSetupState } from "../../lib/setup/state.ts";
-import { updateRepoIndex } from "../../lib/repo-index.ts";
+import { loadRepoIndexEntries, updateRepoIndex } from "../../lib/repo-index.ts";
+import { deriveRepoIdentity } from "../../lib/settings/identity.ts";
 import { writeTeamLocal } from "../../lib/team/team-local.ts";
 import type { RelayClient } from "../../lib/team/relay-client.ts";
 import { rtHealthRows } from "../../lib/setup/validators/rt-health.ts";
@@ -452,5 +453,53 @@ describe("member upgrade: v2.21.1 held the pull, then the app updates", () => {
     expect(readSetupState(p).migrations).toContain(SDM_MIGRATION);
     const drawn = (await composePlan({ p, secrets: { has: async () => null }, ci: false, mode: "status", orgs: ["acme"] })).groups.flatMap((g) => g.rows);
     expect(drawn.filter((r) => ["team.identity", "team.none"].includes(r.id) && r.status === "needs-you").map((r) => r.id)).toEqual([]);
+  });
+});
+
+const ORG_REMOTE = "https://gitlab.example.com/acme/org.git";
+
+/** A working checkout of the org repo the member cloned by hand, which rt's repo index maps the org repo's identity to. Both copies name the forge remote, as real clones do, and git's insteadOf sends their fetches to the bare origin. */
+async function workingCheckoutOfOrg(clone: string): Promise<{ checkout: string; identity: string }> {
+  gitAt(["config", "--global", `url.${origin}.insteadOf`, ORG_REMOTE]);
+  git(clone, ["remote", "set-url", "origin", ORG_REMOTE]);
+  const checkout = join(home, "src", "org");
+  gitAt(["clone", "-q", ORG_REMOTE, checkout]);
+  const identity = serializeIdentity(await deriveRepoIdentity(checkout));
+  updateRepoIndex(identity, checkout);
+  return { checkout, identity };
+}
+
+describe("member upgrade: the member also has a working checkout of the org repo", () => {
+  test("one update run moves the clone, re-points the marketplace and leaves the checkout's index row alone", async () => {
+    const { clone, bindings } = legacyMemberHome();
+    const { checkout, identity } = await workingCheckoutOfOrg(clone);
+    expect(identity).toBe(serializeIdentity({ kind: "remote", id: "gitlab.example.com/acme/org" }));
+    convertOrigin();
+    git(clone, ["pull", "-q", "--ff-only"]);
+    const p = probes();
+    const ctx = await context(p, [], { update: true });
+    const run = await runUpdate(ctx);
+
+    await expectCleanRun(run, ctx);
+    const states = Object.fromEntries(run.outcomes.map((o) => [o.id, o.state]));
+    expect(states["org.folder"]).toBe("done");
+    expect(states["skills.materialize"]).toBe("done");
+    expect(states["plugins.install"]).toBe("done");
+    expect(existsSync(clone)).toBe(false);
+    const moved = join(home, ".mattstack", "orgs", "acme");
+    expect(existsSync(join(moved, "mattstack", "teams", "widgets", "plugin"))).toBe(true);
+    expect(existsSync(join(home, ".mattstack", "rt", "teams", "acme.json"))).toBe(true);
+    expect(existsSync(join(home, ".mattstack", "rt", "teams", "widgets.json"))).toBe(false);
+    expect(marketplaces.get("widgets")).toBe(moved);
+    expect(servedVersion("widgets@widgets")).toBe("0.1.1");
+    expect(installed.get("widgets@widgets")).toEqual({ enabled: true, version: "0.1.1" });
+    expect(readSetupState(p).marketplaces).not.toContain(clone);
+    expectMaterialized(bindings);
+    expect(loadRepoIndexEntries().find((e) => e.repoName === identity)?.path).toBe(checkout);
+    expect(existsSync(join(checkout, ".git"))).toBe(true);
+
+    const rows = await rtHealthRows(p, { ci: false });
+    expect(rows.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 2" });
+    expect(rows.find((r) => r.id === "org.folder")?.status).toBe("ready");
   });
 });

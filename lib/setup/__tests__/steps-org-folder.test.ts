@@ -125,6 +125,27 @@ describe("org.folder: the step", () => {
     expect(reloaded).toBe(1);
   });
 
+  test("a working checkout of the org repo holding the index row does not stop the move: records, marketplace and reload all run", async () => {
+    const s = seams({ locate: async () => ({ ok: false, error: "old-path-exists: acme/org is still at ~/src/org, so this folder is a second copy, not a move" }) });
+    const p = fakeProbes({ roots: { teams: ["acme"] }, fixture: legacy(), files: { [`${RT}/teams/acme.json`]: '{"forgeUsername":"dev1"}' } });
+    let reloaded = 0;
+    const out = await convergeOrgFolder(makeCtx(p, { update: true, reloadTeam: () => { reloaded += 1; } }).ctx);
+    expect(out).toMatchObject({ state: "done" });
+    expect(out.detail).toContain(`Moved acme to ~/.mattstack/orgs/acme`);
+    expect(p.calls.renames).toContainEqual([`${TEAMS}/acme`, `${ORGS}/acme`]);
+    expect(s.marketplaces).toEqual([{ dir: `${ORGS}/acme`, stalePaths: [`${TEAMS}/acme`] }]);
+    expect(reloaded).toBe(1);
+  });
+
+  test("a clone in place beside a working checkout that holds the index row is done", async () => {
+    const s = seams({ locate: async () => ({ ok: false, error: "old-path-exists: acme/org is still at ~/src/org, so this folder is a second copy, not a move" }) });
+    const p = fakeProbes({ roots: { orgs: ["acme"] }, fixture: placed() });
+    const out = await convergeOrgFolder(makeCtx(p, { update: true }).ctx);
+    expect(out.state).toBe("done");
+    expect(out.detail).toContain("acme already in place");
+    expect(s.marketplaces).toEqual([{ dir: `${ORGS}/acme`, stalePaths: [] }]);
+  });
+
   test("a rename inside orgs/ copies the record to the new name and removes the old one", async () => {
     seams();
     const p = fakeProbes({ roots: { orgs: ["widgets"] }, fixture: placed("widgets", "acme"), files: { [`${RT}/teams/widgets.json`]: '{"forgeUsername":"dev1"}', [`${RT}/invites/widgets.json`]: "{}" } });

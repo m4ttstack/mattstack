@@ -96,9 +96,15 @@ export function cleanupMovedRecords(p: MoveProbes, org: string, folderExists: (n
   return removed;
 }
 
-/** A relocation that found nothing to move (rt never registered the clone, or the row already carries the path) is done; everything else is a failure. */
+/**
+ * A relocation that found nothing to move is done: rt never registered the
+ * clone, the row already carries the path, or the repo's index row names
+ * another checkout that still exists (a working copy of the org repo). An org
+ * clone and a working checkout of the same remote are both legitimate, and
+ * the row stays with the checkout. Everything else is a failure.
+ */
 export function classifyLocate(error: string): "done" | "failed" {
-  return error.startsWith("nothing-lost:") ? "done" : "failed";
+  return error.startsWith("nothing-lost:") || error.startsWith("old-path-exists:") ? "done" : "failed";
 }
 
 function folderExistsBeside(p: MoveProbes, roots: string[]): (name: string) => boolean {
