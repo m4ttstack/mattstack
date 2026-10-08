@@ -344,7 +344,7 @@ describe('gate-panel', () => {
     expect(PANEL_BY).toBe('pane-person')
     expect(h.closed).toEqual([PANEL_PANE_ID])
     expect(h.submitted).toHaveLength(1)
-    expect(h.submitted[0]!.text.startsWith("[gate] gate g-1 was answered by this session's pane, by a person.")).toBe(true)
+    expect(h.submitted[0]!.text.startsWith("[gate] gate g-1 was answered by this session's pane, by a person: ship = yes. Its gate wait result: {")).toBe(true)
     expect(await h.rowButton()).toBeNull()
 
     await h.clock.advance(60_000)

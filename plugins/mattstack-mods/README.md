@@ -238,9 +238,12 @@ runs `rt gate wait` as it does without the mod. The block then:
    for the gate.
 3. Starts the next turn with `$.prompt.submit`, framed as this plugin's
    message. The engine queues it while a turn runs.
-   - An answer: `[gate] gate <id> was answered by <surface>. Its gate wait
-     result: <json>`, where the JSON is what `rt gate wait` prints, less the
-     gate's context.
+   - An answer: `[gate] gate <id> was answered by <surface>: <qid> =
+     <values>; .... Its gate wait result: <json>`. The summary line joins
+     each question's values with `, `, adds ` (note: ...)` on one line
+     (clipped to 120), and is clipped to 400. The JSON is what `rt gate
+     wait` prints, less the gate's context and questions, which the session
+     already holds.
    - A close: `[gate] gate <id> was withdrawn (<reason>). Its gate wait
      status is closed.`
    - A gate the registry no longer has: a "not found" line.

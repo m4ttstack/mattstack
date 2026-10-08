@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { registerGateWait, type WaitedGate } from '../src/blocks/gate-wait.ts'
+import { answeredText, registerGateWait, type WaitedGate } from '../src/blocks/gate-wait.ts'
 import { attachHub, createHub } from '../src/core/hub.ts'
 import { createLink } from '../src/core/link.ts'
 import { flush, harness as stub, recorder } from './stub.ts'
@@ -171,8 +171,9 @@ describe('gate-wait', () => {
 
     expect(h.submitted).toHaveLength(1)
     const text = h.submitted[0]!.text
-    expect(text.startsWith('[gate] gate g-1 was answered by board.')).toBe(true)
-    const json = JSON.parse(text.slice(text.indexOf('{')))
+    expect(text.startsWith('[gate] gate g-1 was answered by board: ship = yes. Its gate wait result: {')).toBe(true)
+    const json = JSON.parse(text.slice(text.indexOf('Its gate wait result: ') + 'Its gate wait result: '.length))
+    // No questions: the session asked them itself, and the gate protocol reads only the answer.
     expect(json).toEqual({
       ok: true,
       status: 'answered',
@@ -181,7 +182,6 @@ describe('gate-wait', () => {
         subject: 'run:r-1',
         kind: 'plan',
         status: 'answered',
-        questions: gate().questions,
         answer: BY_BOARD,
         closedReason: null,
         supersededBy: null,
@@ -216,7 +216,7 @@ describe('gate-wait', () => {
 
     expect(h.rounds).toHaveLength(0)
     expect(h.submitted).toHaveLength(1)
-    expect(h.submitted[0]!.text.startsWith('[gate] gate g-1 was answered by board.')).toBe(true)
+    expect(h.submitted[0]!.text.startsWith('[gate] gate g-1 was answered by board: ship = yes. Its gate wait result: {')).toBe(true)
   })
 
   test('events for other gates do not end the wait', async () => {
@@ -258,7 +258,7 @@ describe('gate-wait', () => {
 
     expect(h.rounds).toHaveLength(1)
     expect(h.submitted).toHaveLength(1)
-    expect(h.submitted[0]!.text.startsWith('[gate] gate g-1 was answered by board.')).toBe(true)
+    expect(h.submitted[0]!.text.startsWith('[gate] gate g-1 was answered by board: ship = yes. Its gate wait result: {')).toBe(true)
     expect(consumes(h)).toEqual([{ id: 'g-1', waitMs: 0, sessionId: 'sess-1' }])
   })
 
@@ -408,7 +408,7 @@ describe('gate-wait', () => {
     rounds[0]!.answer([answeredEvent('g-mod')])
     await flush()
     expect(h.submitted).toHaveLength(1)
-    expect(h.submitted[0]!.text.startsWith('[gate] gate g-mod was answered by board.')).toBe(true)
+    expect(h.submitted[0]!.text.startsWith('[gate] gate g-mod was answered by board: ship = yes. Its gate wait result: {')).toBe(true)
   })
 
   test('an answer that landed during the gap is delivered once on resume', async () => {
@@ -428,5 +428,35 @@ describe('gate-wait', () => {
     await h.start()
     await flush()
     expect(h.submitted).toHaveLength(1)
+  })
+})
+
+describe('the answered wake text', () => {
+  const answered = (answers: Record<string, unknown>) => answeredText(gate({ status: 'answered', answer: { answers, by: 'pane-person', answeredAt: 5 } }))
+
+  test('one summary line names each answer: values joined, a note on one line, then the result with no questions', () => {
+    const text = answered({
+      'findings-1': ['f1', 'f3'],
+      'findings-2': [],
+      outcome: { value: 'comment', note: 'post after\nthe tag ships' },
+    })
+    const [summary, json] = text.split('. Its gate wait result: ')
+    expect(summary).toBe(
+      "[gate] gate g-1 was answered by this session's pane, by a person: findings-1 = f1, f3; findings-2 = ; outcome = comment (note: post after the tag ships)",
+    )
+    expect(JSON.parse(json!).row).not.toHaveProperty('questions')
+    expect(JSON.parse(json!).row.answer.answers['findings-1']).toEqual(['f1', 'f3'])
+
+    const long = answered({ q: { value: 'yes', note: 'n'.repeat(300) } })
+    expect(long.split('. Its gate wait result: ')[0]!.endsWith(`(note: ${'n'.repeat(119)}…)`)).toBe(true)
+  })
+
+  test('the summary is clipped near 400 characters, and an answer with no answers says only who', () => {
+    const many = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`question-${i}`, `value-${i}`]))
+    const [summary] = answered(many).split('. Its gate wait result: ')
+    expect(summary!.length).toBeLessThanOrEqual(400)
+    expect(summary!.endsWith('…')).toBe(true)
+
+    expect(answered({}).startsWith("[gate] gate g-1 was answered by this session's pane, by a person. Its gate wait result: {")).toBe(true)
   })
 })

@@ -2,6 +2,7 @@ import type { Hub, ModApi } from '../core/hub.ts'
 import type { Command, Link } from '../core/link.ts'
 import { call } from '../core/rpc.ts'
 import { surface } from './gate-form.ts'
+import { clip, oneLine } from './gate-view.ts'
 
 /** The parts of rt's gate row (packages/rt-client GateRow) this block reads and hands on. */
 export type WaitedGate = {
@@ -42,14 +43,34 @@ function deadlineOf(data: unknown): number | null {
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err)).replace(/^mattstack-mods: /, '')
 const terminal = (row: WaitedGate) => row.status === 'answered' || row.status === 'closed'
 
-/** What `rt gate wait` prints for an answered gate, less the gate's context, which the session already holds. */
+/**
+ * What `rt gate wait` prints for an answered gate, less the gate's context
+ * and questions: the session asked them itself and still holds them, and the
+ * gate protocol reads only the answer.
+ */
 function waitResult(row: WaitedGate): string {
-  const { id, subject, kind, status, questions, answer, closedReason, supersededBy } = row
-  return JSON.stringify({ ok: true, status, row: { id, subject, kind, status, questions, answer, closedReason, supersededBy } })
+  const { id, subject, kind, status, answer, closedReason, supersededBy } = row
+  return JSON.stringify({ ok: true, status, row: { id, subject, kind, status, answer, closedReason, supersededBy } })
+}
+
+const SUMMARY_CELLS = 400
+const NOTE_CELLS = 120
+
+/** One answer as the summary line spells it: its values, a typed text, and any note. */
+function spellAnswer(raw: unknown): string {
+  if (typeof raw === 'string') return oneLine(raw)
+  if (Array.isArray(raw)) return raw.map(v => oneLine(String(v))).join(', ')
+  if (!raw || typeof raw !== 'object') return oneLine(String(raw))
+  const { value, note, text } = raw as { value?: unknown; note?: unknown; text?: unknown }
+  const chosen = typeof text === 'string' && text.trim() ? oneLine(text) : spellAnswer(value ?? '')
+  return typeof note === 'string' && note.trim() ? `${chosen} (note: ${clip(oneLine(note), NOTE_CELLS)})` : chosen
 }
 
 export function answeredText(row: WaitedGate): string {
-  return `[gate] gate ${row.id} was answered by ${surface(row.answer?.by)}. Its gate wait result: ${waitResult(row)}`
+  const answers = Object.entries(row.answer?.answers ?? {}).map(([qid, raw]) => `${qid} = ${spellAnswer(raw)}`)
+  const who = `[gate] gate ${row.id} was answered by ${surface(row.answer?.by)}`
+  const summary = answers.length > 0 ? clip(`${who}: ${answers.join('; ')}`, SUMMARY_CELLS) : who
+  return `${summary}. Its gate wait result: ${waitResult(row)}`
 }
 
 export function withdrawnText(row: WaitedGate): string {
