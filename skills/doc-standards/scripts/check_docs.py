@@ -54,6 +54,10 @@ MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)#\s]+)(?:#[^)\s]*)?\)")
 HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
 CODE_FENCE = re.compile(r"^(```|~~~)")
 STEP_ITEM = re.compile(r"^\s*(?:\d+[.)]|[-*+])\s+")
+# MDX syntax lines (imports, exports, block JSX, admonition fences) carry no prose
+MDX_SYNTAX = re.compile(r"^\s*(?:import\s|export\s|</?(?:[A-Z]|div\b|details\b|summary\b)|\{/\*|:::)")
+TABLE_ROW = re.compile(r"^\s*\|")
+TABLE_RULE = re.compile(r"^\s*\|?[\s:|-]+\|?\s*$")
 
 
 def strip_inline(text):
@@ -62,7 +66,19 @@ def strip_inline(text):
     text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
     text = re.sub(r"`[^`\n]+`", "CODE", text)
     text = re.sub(r"https?://[^\s)]+", "URL", text)
+    text = re.sub(r"\{/\*.*?\*/\}", "", text)
+    # inline JSX: drop the tags, keep their text (<kbd>⌘</kbd> reads as ⌘)
+    text = re.sub(r"</?[A-Za-z][^>]*>", "", text)
     return text
+
+
+def prose_chunks(raw):
+    """A table row is one sentence per cell, not one sentence across the row."""
+    if not TABLE_ROW.match(raw):
+        return [raw]
+    if TABLE_RULE.match(raw):
+        return []
+    return [c for c in raw.strip().strip("|").split("|") if c.strip()]
 
 
 def sentences(text):
@@ -86,11 +102,16 @@ class Linter:
         levels_seen = []
         headings_text = []
         h1_count = 0
+        in_frontmatter = bool(lines) and lines[0].strip() == "---"
         for i, raw in enumerate(lines, 1):
+            if in_frontmatter:
+                if i > 1 and raw.strip() == "---":
+                    in_frontmatter = False
+                continue
             if CODE_FENCE.match(raw.strip()):
                 in_code = not in_code
                 continue
-            if in_code:
+            if in_code or MDX_SYNTAX.match(raw):
                 continue
             m = HEADING.match(raw)
             if m:
@@ -115,26 +136,29 @@ class Linter:
                 if not target.startswith(("http://", "https://", "mailto:", "/")):
                     if not (path.parent / target).exists():
                         self.add(path, i, "error", f"broken relative link '{target}'")
-            text = strip_inline(raw)
             is_step = bool(STEP_ITEM.match(raw))
-            for sent in sentences(text):
-                n = len(sent.split())
-                limit = 20 if is_step else self.max_words
-                if n > LONG_SENTENCE_ERROR:
-                    self.add(path, i, "error", f"sentence has {n} words (limit {limit})")
-                elif n > limit:
-                    self.add(path, i, "warning", f"sentence has {n} words (limit {limit})")
-            if self.style:
-                low = text.lower()
-                for pat, (level, msg) in BANNED.items():
-                    if re.search(pat, low):
-                        self.add(path, i, level, msg)
-                if PRESENT_PERFECT.search(text):
-                    self.add(path, i, "warning",
-                             "present perfect; use simple past ('was removed in v2.1')")
-                if PASSIVE.search(text) and not is_step:
-                    self.add(path, i, "warning", "passive voice; name the actor")
+            for chunk in prose_chunks(raw):
+                self.lint_prose(path, i, strip_inline(chunk), is_step)
         self.lint_terminology(path, lines)
+
+    def lint_prose(self, path, i, text, is_step):
+        for sent in sentences(text):
+            n = len(sent.split())
+            limit = 20 if is_step else self.max_words
+            if n > LONG_SENTENCE_ERROR:
+                self.add(path, i, "error", f"sentence has {n} words (limit {limit})")
+            elif n > limit:
+                self.add(path, i, "warning", f"sentence has {n} words (limit {limit})")
+        if self.style:
+            low = text.lower()
+            for pat, (level, msg) in BANNED.items():
+                if re.search(pat, low):
+                    self.add(path, i, level, msg)
+            if PRESENT_PERFECT.search(text):
+                self.add(path, i, "warning",
+                         "present perfect; use simple past ('was removed in v2.1')")
+            if PASSIVE.search(text) and not is_step:
+                self.add(path, i, "warning", "passive voice; name the actor")
 
     def lint_terminology(self, path, lines):
         body = strip_inline("\n".join(l for l in lines if not HEADING.match(l))).lower()
@@ -170,7 +194,7 @@ def main():
     ap.add_argument("--no-vale", action="store_true")
     args = ap.parse_args()
     target = Path(args.target).resolve()
-    files = [target] if target.is_file() else sorted(target.rglob("*.md"))
+    files = [target] if target.is_file() else sorted(p for ext in ("*.md", "*.mdx") for p in target.rglob(ext))
     if not files:
         print(f"no markdown files under {target}")
         return 0
