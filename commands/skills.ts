@@ -127,7 +127,7 @@ export function skillsFailure(err: SkillsUsageError): out.FailureInput {
 }
 
 /** A layout the admin has not moved yet is a refusal by policy, never a failure: one refused line with the sentence, no command. */
-function refuseLayoutWaiting(err: UserActionableError, json: boolean): never {
+export function refuseLayoutWaiting(err: UserActionableError, json: boolean): never {
   if (json) exitUserError(err, json);
   out.note(out.line("refused", err.message));
   process.exit(2);
