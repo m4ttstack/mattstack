@@ -247,10 +247,11 @@ const COMMAND_KIND = /^[A-Za-z][A-Za-z0-9._-]*$/;
 /**
  * The inbox frame's whole content for one command. The mod consumes a delivery
  * only when it is exactly this envelope, so a chat message quoting one (always
- * wrapped in its cross-session-message) never reads as a command.
+ * wrapped in its cross-session-message) never reads as a command, and only
+ * when `linkId` is its own current link, which no other inbox writer knows.
  */
-export function modCommandEnvelope(id: string, kind: string, data: unknown): string {
-  return `<rt-mod-command id="${id}" kind="${kind}">${JSON.stringify(data ?? null)}</rt-mod-command>`;
+export function modCommandEnvelope(id: string, kind: string, data: unknown, linkId: string): string {
+  return `<rt-mod-command id="${id}" kind="${kind}" link="${linkId}">${JSON.stringify(data ?? null)}</rt-mod-command>`;
 }
 
 export type PushDeps = {
@@ -284,12 +285,13 @@ export async function pushModCommand(
   const deps: PushDeps = { ...defaultPushDeps(), ...overrides };
   if (!COMMAND_KIND.test(kind)) return fail("invalid", `"${kind}" cannot name a mod command`);
   if (!deps.links) return fail("not-ready", "this process holds no mod links");
-  if (!deps.links.linkOf(sessionId)) return fail("not-ready", `Claude session ${sessionId} has no live mod link`);
+  const link = deps.links.linkOf(sessionId);
+  if (!link) return fail("not-ready", `Claude session ${sessionId} has no live mod link`);
   const inbox = deps.inbox(sessionId);
   if (!inbox) return fail("not-ready", `Claude session ${sessionId} has no live inbox`);
 
   const id = deps.newId();
-  const written = await deps.deliver(inbox.socketPath, modCommandEnvelope(id, kind, data), { msgId: id });
+  const written = await deps.deliver(inbox.socketPath, modCommandEnvelope(id, kind, data, link.linkId), { msgId: id });
   if (!written.ok) return fail("transient", `the command could not be written to session ${sessionId}'s inbox: ${written.error}`);
 
   const deadline = deps.now() + MOD_COMMAND_ACK_MS;

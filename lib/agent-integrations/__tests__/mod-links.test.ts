@@ -323,10 +323,23 @@ describe("pushModCommand", () => {
     expect(result).toEqual({ ok: true, data: { acked: true } });
     expect(p.writes).toEqual([{
       socketPath: "/inbox/sess-1.sock",
-      content: '<rt-mod-command id="cmd-fixed" kind="gate.complete">{"gate":"g1"}</rt-mod-command>',
+      content: `<rt-mod-command id="cmd-fixed" kind="gate.complete" link="${p.linkId}">{"gate":"g1"}</rt-mod-command>`,
       msgId: "cmd-fixed",
     }]);
-    expect(modCommandEnvelope("cmd-fixed", "ping", undefined)).toBe('<rt-mod-command id="cmd-fixed" kind="ping">null</rt-mod-command>');
+    expect(modCommandEnvelope("cmd-fixed", "ping", undefined, "ml-x")).toBe('<rt-mod-command id="cmd-fixed" kind="ping" link="ml-x">null</rt-mod-command>');
+  });
+
+  test("pushModCommand writes the session's live link id into the envelope", async () => {
+    const p = push({ ackFrom: () => null });
+    const first = p.linkId;
+    const second = register(p.links, "sess-1").linkId;
+    expect(second).not.toBe(first);
+
+    await pushModCommand("sess-1", "gate.complete", {}, p.deps);
+
+    expect(p.writes).toHaveLength(1);
+    expect(p.writes[0]!.content).toContain(` link="${second}">`);
+    expect(p.writes[0]!.content).not.toContain(first);
   });
 
   test("an ack from another session's link does not count, and the push reports no ack after 5 s", async () => {

@@ -14,7 +14,7 @@ const END_CALL_MS = 2_000
 const PROBE_WAIT_MS = 300_000
 /** Clears that land within this window share one re-register. */
 const REFRESH_DELAY_MS = 50
-const COMMAND_ENVELOPE = /^<rt-mod-command id="([^"<>]+)" kind="([^"<>]+)">([\s\S]*)<\/rt-mod-command>$/
+const COMMAND_ENVELOPE = /^<rt-mod-command id="([^"<>]+)" kind="([^"<>]+)"(?: link="([^"<>]*)")?>([\s\S]*)<\/rt-mod-command>$/
 
 export type Command = { id: string; kind: string; data: unknown }
 export type CommandHandler = (cmd: Command) => Promise<void>
@@ -246,11 +246,17 @@ export function createLink(hub: Hub): Link {
   }
 
   // Only a delivery that is wholly one envelope is a command: a chat message
-  // quoting an envelope arrives wrapped in its cross-session-message.
+  // quoting an envelope arrives wrapped in its cross-session-message. Any
+  // inbox writer can send one, so it must also carry this session's current
+  // link id, which only the daemon holding the link knows.
   function receive(a: ModApi, e: Receive): ReceiveResult | undefined {
     const match = COMMAND_ENVELOPE.exec(e.text.trim())
     if (!match) return undefined
-    const [, cmdId, kind, raw] = match as unknown as [string, string, string, string]
+    const [, cmdId, kind, link, raw] = match as unknown as [string, string, string, string | undefined, string]
+    if (id === null || link !== id) {
+      log(`command ${kind} ${cmdId} is not from this link (it names ${link === undefined ? 'no link' : `link ${link || '""'}`}); passing it through`)
+      return undefined
+    }
     let data: unknown
     try {
       data = JSON.parse(raw)
