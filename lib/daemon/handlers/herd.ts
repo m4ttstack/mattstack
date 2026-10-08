@@ -16,7 +16,7 @@ import { herdPrefix, herdSubject, isValidJobName, mintHerdId } from "../herd-sto
 import type { GatesStore } from "../gates-store.ts";
 import type { RunningRunScan } from "../../runs/store.ts";
 import type { createGateHandlers } from "./gate.ts";
-import { isValidQuestion } from "./gate.ts";
+import { isValidQuestion, openAskedGate } from "./gate.ts";
 import type { createChatHandlers } from "./chat.ts";
 import type { createAgentHandlers } from "./agent.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
@@ -531,11 +531,11 @@ export function createHerdHandlers(deps: HerdDeps) {
         if (wordy) return { ok: false, error: wordy };
       }
       const paneRef = refPane(str(p?.pane) ?? job.pane ?? undefined, herd.hidden);
-      const opened = await deps.gate["gate:open"]({
+      const opened = await openAskedGate(deps.gate, {
         subject: herdSubject(herdId, name), kind: "question", questions: p!.questions,
         meta: { herd: herdId, job: name }, agent: name, pane: paneRef,
         nudge: { session }, context: str(p?.context), origin: herdOrigin(paneRef, session, p!.questions),
-      });
+      }, session);
       if (!opened.ok) return opened;
       store.setJobStatus(herdId, name, "at-gate", { lastGate: opened.data.id });
       return { ok: true, data: { gate: opened.data.id } };
@@ -552,12 +552,12 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (!posted.ok) return posted;
       const milestonePaneRef = refPane(str(p?.pane) ?? job.pane ?? undefined, herd.hidden);
       const milestoneQuestions: GateQuestion[] = [{ id: "decision", label: summary, multi: false, options: [...MILESTONE_OPTIONS] }];
-      const opened = await deps.gate["gate:open"]({
+      const opened = await openAskedGate(deps.gate, {
         subject: herdSubject(herdId, name), kind: "milestone",
         questions: milestoneQuestions,
         meta: { herd: herdId, job: name, artifact, message: posted.data.id },
         agent: name, pane: milestonePaneRef, nudge: { session }, origin: herdOrigin(milestonePaneRef, session, milestoneQuestions),
-      });
+      }, session);
       if (!opened.ok) return opened;
       store.setJobStatus(herdId, name, "at-milestone", { lastGate: opened.data.id });
       return { ok: true, data: { gate: opened.data.id, message: posted.data.id } };

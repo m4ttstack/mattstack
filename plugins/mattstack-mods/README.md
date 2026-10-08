@@ -21,7 +21,7 @@ so every feature takes its existing path.
 | `src/core/rpc.ts` | One call to a daemon verb over `rt.sock`, capped at 25 s. |
 | `src/core/blocks.ts` | The block names. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `src/core/version.ts` | The minimum engine version, the check against it, and the plugin version the link reports. |
-| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `gate-form.ts` races a gate's form against the gate's own answer; `gate-wait.ts` waits on a wait gate and wakes the session with its answer; `gate-panel.ts` lets a person answer the session's own wait gate from its pane. |
+| `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router; `presence.ts` reports turns and signs the session in to rt chat; `gate-form.ts` races a gate's form against the gate's own answer; `gate-wait.ts` waits on a wait gate and wakes the session with its answer; `gate-panel.ts` lets a person answer the session's own open gate from its pane. |
 | `src/blocks/display.ts` | The display kit: `formPane` asks a gate in a focused pane. Each kit owns one pane id: the gate form's, or the gate panel's. |
 | `src/blocks/sections.ts` | The reply rule section's text and the reply-line trim. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `types/index.d.ts` | The plugin's own contract: the `$.state` values it keeps. |
@@ -252,15 +252,22 @@ gate the model covers with its own `rt gate wait` is never touched.
 ## The gate panel
 
 The `gate-panel` block (`src/blocks/gate-panel.ts`) lets a person answer a
-wait gate from the pane of the session waiting on it, as a herd worker
-waits for its shepherd. After each register rt takes and at the end of each
-turn, it reads the event cursor, then this session's own open wait gates
-(`gate:list { open: true, session, presentation: "wait" }`). It never looks
-at the pane id, since herdr reuses them, and it drops any row whose
+gate from the pane of the session waiting on it, as a herd worker waits for
+its shepherd. After each register rt takes and at the end of each turn, it
+reads the event cursor, then this session's own open gates of any
+presentation (`gate:list { open: true, session }`). rt stamps a gate's
+`origin.session` with the asking session it resolved itself, for
+`gate_ask`, `herd_ask` and `herd_milestone` alike. The block never looks at
+the pane id, since herdr reuses them, and it drops any row whose
 `origin.session` is not this session's, for a daemon that ignores the
 filter. Each listed gate is watched with `link.wait` on `gate/*/<id>`, and
 any event for it reads the list again, so an answer elsewhere or a close
 takes the row away without a timer.
+
+A gate whose AskUserQuestion dialog the `gate-form` block has linked and up
+is left out of the row while the dialog stays: it already has its answer
+surface. `registerGateForm` returns that fact (`up(id)`, `onChange`), and
+the row is drawn again whenever a linked dialog's state changes.
 
 While a gate is open the band above the prompt shows a plain Button,
 `1: Waiting on your answer: <question>`, with a dim line counting any more

@@ -53,6 +53,14 @@ function remember(linked: Map<string, Dialog>, id: string, dialog: Dialog): void
   while (linked.size > REMEMBERED) linked.delete(linked.keys().next().value!)
 }
 
+/** What the gate-form block tells other blocks about the dialogs it has linked. */
+export type FormDialogs = {
+  /** Whether gate `id`'s AskUserQuestion dialog is linked and still on screen. */
+  up(id: string): boolean
+  /** Hears every change of a linked dialog's state. */
+  onChange(listener: (api: ModApi) => void): void
+}
+
 type Fits = (text: string, q: GateQuestion) => boolean
 
 const label = (q: GateQuestion) => (typeof q.label === 'string' ? q.label.trim() : '')
@@ -158,14 +166,26 @@ function idOf(data: unknown): string | null {
  * A person's pick goes through as usual. An answer or a close committed
  * elsewhere closes the dialog with what the gate's row says.
  */
-export function registerGateForm(hub: Hub, link: Link): void {
+export function registerGateForm(hub: Hub, link: Link): FormDialogs {
   const linked = new Map<string, Dialog>()
+  const changed: ((api: ModApi) => void)[] = []
 
   function log(api: ModApi, text: string): void {
     try {
       api.ui.log(`mattstack-mods: ${text}`, { to: 'debug' })
     } catch {
       // A failed log must not change what the block does.
+    }
+  }
+
+  function mark(api: ModApi, id: string, dialog: Dialog): void {
+    remember(linked, id, dialog)
+    for (const listener of changed) {
+      try {
+        listener(api)
+      } catch (err) {
+        log(api, `a dialog listener failed: ${err instanceof Error ? err.message : String(err)}`)
+      }
     }
   }
 
@@ -187,7 +207,7 @@ export function registerGateForm(hub: Hub, link: Link): void {
     if (!listed.ok || !Array.isArray(listed.data?.gates)) return next(e)
     const gate = matchGate(listed.data.gates, asked)
     if (!gate) return next(e)
-    remember(linked, gate.id, 'up')
+    mark(api, gate.id, 'up')
     log(api, `AskUserQuestion linked to gate ${gate.id}`)
 
     const stop = new AbortController()
@@ -203,10 +223,10 @@ export function registerGateForm(hub: Hub, link: Link): void {
     )
     try {
       const { result, read } = await settle(api, e, gate.id, session, shown, ended, stop.signal)
-      remember(linked, gate.id, read ? 'closed' : 'dismissed')
+      mark(api, gate.id, read ? 'closed' : 'dismissed')
       return result
     } catch (err) {
-      remember(linked, gate.id, 'dismissed')
+      mark(api, gate.id, 'dismissed')
       throw err
     } finally {
       next.signal.removeEventListener('abort', interrupted)
@@ -279,4 +299,11 @@ export function registerGateForm(hub: Hub, link: Link): void {
     scope.onToolCall({ stage: 'permit', tool: 'AskUserQuestion', run: present })
     scope.onRender('UserMessage', async (api, e, next) => (leftover(e) ? api.ui.blank(e) : next(e)))
   })
+
+  return {
+    up: id => linked.get(id) === 'up',
+    onChange(listener) {
+      changed.push(listener)
+    },
+  }
 }

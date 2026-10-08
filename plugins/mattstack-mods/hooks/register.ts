@@ -17,8 +17,8 @@ export const register: Register = on => {
   hub.section(REPLY_RULE_ID, () => REPLY_RULE_SECTION)
   registerDelivery(hub, link, { edits: [trimReplyUnderSection] })
   registerPresence(hub, link)
-  registerGateForm(hub, link)
+  const dialogs = registerGateForm(hub, link)
   registerGateWait(hub, link)
-  registerGatePanel(hub, link)
+  registerGatePanel(hub, link, dialogs)
   attachHub(on, hub)
 }

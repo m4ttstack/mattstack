@@ -970,5 +970,25 @@ export function createGateHandlers(
     return { ok: true as const, data: { allow: false, ...(askSubject ? { subject: askSubject } : {}) } };
   };
 
-  return { ...handlers, "gate:ask": gateAsk, "gate:fork-check": gateForkCheck };
+  const verbs = { ...handlers, "gate:ask": gateAsk, "gate:fork-check": gateForkCheck };
+  askedOpeners.set(verbs, openGate);
+  return verbs;
+}
+
+// Kept off the verb map, which the router spreads into rt.sock's verbs: only
+// daemon code holding the map can open a gate stamped with an asking session.
+const askedOpeners = new WeakMap<object, (payload: unknown, askedBy?: string) => Promise<CommandResult<"gate:open">>>();
+
+/**
+ * gate:open for a daemon verb that resolved its asking session itself (as
+ * gate:ask does), stamping `origin.session` with it. A map not built by
+ * createGateHandlers opens the gate unstamped.
+ */
+export function openAskedGate(
+  gate: Pick<ReturnType<typeof createGateHandlers>, "gate:open">,
+  payload: unknown,
+  askedBy: string | undefined,
+): Promise<CommandResult<"gate:open">> {
+  const open = askedOpeners.get(gate);
+  return open ? open(payload, askedBy) : gate["gate:open"](payload);
 }

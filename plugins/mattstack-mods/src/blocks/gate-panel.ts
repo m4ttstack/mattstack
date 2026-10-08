@@ -3,7 +3,7 @@ import type { Hub, ModApi } from '../core/hub.ts'
 import type { Link } from '../core/link.ts'
 import { call } from '../core/rpc.ts'
 import { createDisplay, type FormQuestion } from './display.ts'
-import { surface } from './gate-form.ts'
+import { surface, type FormDialogs } from './gate-form.ts'
 
 type Render = EngineEventOf['ui.render']
 type RenderResult = EngineResultOf['ui.render']
@@ -38,16 +38,19 @@ function clip(text: string, cells: number): string {
 }
 
 /**
- * The `gate-panel` block: while this session waits on one of its own quiet
- * (wait) gates, a band row above the prompt names it, and pressing it (`1`
- * at an empty prompt, or a click) opens a pane where a person answers it.
+ * The `gate-panel` block: while this session waits on one of its own open
+ * gates with no dialog on screen for it (a herd worker's gates, a wait gate),
+ * a band row above the prompt names it, and pressing it (`1` at an empty
+ * prompt, or a click) opens a pane where a person answers it.
  * The answer goes to rt as `pane-person`; the session is woken by whatever
  * already waits on the gate. Only a press in the band or the pane reaches
  * `gate:answer`: the block takes no tool call, delivery or command.
  */
-export function registerGatePanel(hub: Hub, link: Link): void {
+export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): void {
   const display = createDisplay(hub, { id: PANEL_PANE_ID, title: 'Gate' })
   let gates: PanelGate[] = []
+  /** The listed gates the row may name: a gate whose AskUserQuestion dialog is up already has its answer surface. */
+  const waiting = () => (dialogs ? gates.filter(g => !dialogs.up(g.id)) : gates)
   const watches = new Map<string, AbortController>()
   let paneFor: string | null = null
   let running: Promise<void> | null = null
@@ -84,7 +87,7 @@ export function registerGatePanel(hub: Hub, link: Link): void {
     api.ui.redraw()
   }
 
-  /** Reads this session's open wait gates and watches each one's events from the head of the bus. */
+  /** Reads this session's open gates and watches each one's events from the head of the bus. */
   async function load(api: ModApi): Promise<void> {
     const session = await api.session.id()
     // The cursor is taken before the list, so a change landing in between is
@@ -94,7 +97,7 @@ export function registerGatePanel(hub: Hub, link: Link): void {
       log(api, `gate panel: events:head failed${head.ok ? '' : ` (${head.error.code}: ${head.error.message})`}`)
       return
     }
-    const listed = await call<{ gates?: PanelGate[] }>(api, 'gate:list', { open: true, session, presentation: 'wait' })
+    const listed = await call<{ gates?: PanelGate[] }>(api, 'gate:list', { open: true, session })
     if (!listed.ok || !Array.isArray(listed.data?.gates)) {
       log(api, `gate panel: gate:list failed${listed.ok ? '' : ` (${listed.error.code}: ${listed.error.message})`}`)
       return
@@ -106,7 +109,6 @@ export function registerGatePanel(hub: Hub, link: Link): void {
         GATE_ID.test(g.id) &&
         g.status === 'open' &&
         g.origin?.session === session &&
-        g.origin.presentation === 'wait' &&
         Array.isArray(g.questions) &&
         g.questions.length > 0 &&
         g.questions.every(isQuestion),
@@ -187,16 +189,22 @@ export function registerGatePanel(hub: Hub, link: Link): void {
   }
 
   function row(api: ModApi, e: Render, next: (e: Render) => Promise<RenderResult>): Promise<RenderResult> {
-    const shown = gates[0]
+    const listed = waiting()
+    const shown = listed[0]
     if (e.component !== 'AbovePrompt' || !shown || e.props.hasSurvey) return next(e)
     const el = api.ui.elements(e)
     const columns = Number.isFinite(e.props.bodyColumns) && e.props.bodyColumns > 0 ? e.props.bodyColumns : Infinity
     const label = clip(`${ROW_PREFIX}${oneLine(shown.questions[0]!.label)}`, Math.max(columns - HOTKEY_CELLS, 1))
     const button = el.Button({ key: 'gate-panel', label, hotkey: '1', plain: true, onPress: () => void ask(api, shown) })
-    if (gates.length === 1) return Promise.resolve(button)
-    const more = el.Text({ dimColor: true, children: [clip(`${gates.length - 1} more waiting after this one`, columns)] })
+    if (listed.length === 1) return Promise.resolve(button)
+    const more = el.Text({ dimColor: true, children: [clip(`${listed.length - 1} more waiting after this one`, columns)] })
     return Promise.resolve(el.Box({ flexDirection: 'column', children: [button, more] }))
   }
+
+  dialogs?.onChange(api => {
+    if (paneFor !== null && dialogs.up(paneFor)) closePane(api)
+    api.ui.redraw()
+  })
 
   link.onLinked(api => {
     if (hub.liveBlocks().includes('gate-panel')) void refresh(api)

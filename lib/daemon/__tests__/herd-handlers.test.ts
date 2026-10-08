@@ -791,6 +791,30 @@ describe("worker verbs", () => {
     expect(store.getJob(herd, "job-a")).toMatchObject({ status: "at-gate", lastGate: res.data.gate });
   });
 
+  test("herd:ask stamps the resolved session and a caller-supplied one is ignored", async () => {
+    const { h, gate, gateStore, herd } = await withJob();
+    const res = await h["herd:ask"]({
+      herd, job: "job-a", session: "sess-w1", pane: "w9:p1", questions: Q,
+      origin: { session: "sess-forged", wake: "mod" },
+    } as never);
+    if (!res.ok) throw new Error(res.error);
+    expect(gateStore.get(res.data.gate)!.origin).toEqual({ paneId: "w9:p1", presentation: "form", session: "sess-w1" });
+
+    const milestone = await h["herd:milestone"]({ herd, job: "job-a", session: "sess-w1", artifact: "/w/job-a/spec.md", origin: { session: "sess-forged" } } as never);
+    if (!milestone.ok) throw new Error(milestone.error);
+    expect(gateStore.get(milestone.data.gate)!.origin?.session).toBe("sess-w1");
+
+    const listed = await gate["gate:list"]({ open: true, session: "sess-w1" });
+    if (!listed.ok) throw new Error(listed.error);
+    expect(listed.data.gates.map((g) => g.id).sort()).toEqual([res.data.gate, milestone.data.gate].sort());
+
+    const raw = await gate["gate:open"]({
+      subject: `herd:${herd}/job-b`, kind: "question", questions: Q, origin: { session: "sess-forged" },
+    });
+    if (!raw.ok) throw new Error(raw.error);
+    expect(gateStore.get(raw.data.id)!.origin?.session).toBeUndefined();
+  });
+
   test("ask on a hidden herd stores the pane as a bg: ref, and the escape injector resolves that ref to the bg socket", async () => {
     const { h, gateStore, herd } = await withHiddenJob();
     const res = await h["herd:ask"]({ herd, job: "job-a", session: "sess-w1", questions: Q });

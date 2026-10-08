@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { PANEL_BY, PANEL_PANE_ID, registerGatePanel } from '../src/blocks/gate-panel.ts'
+import { registerGateForm } from '../src/blocks/gate-form.ts'
 import { registerGateWait, type WaitedGate } from '../src/blocks/gate-wait.ts'
 import { attachHub, createHub } from '../src/core/hub.ts'
 import { createLink } from '../src/core/link.ts'
@@ -97,7 +98,7 @@ function daemon(h: ReturnType<typeof stub>, rows: Record<string, WaitedGate>, op
   return { rounds, emit }
 }
 
-function harness(rows: Record<string, WaitedGate> = { 'g-1': gate() }, options: Options & { wait?: boolean } = {}) {
+function harness(rows: Record<string, WaitedGate> = { 'g-1': gate() }, options: Options & { wait?: boolean; form?: boolean } = {}) {
   const h = stub()
   const bus = daemon(h, rows, options)
   const opened: any[] = []
@@ -117,8 +118,9 @@ function harness(rows: Record<string, WaitedGate> = { 'g-1': gate() }, options: 
   const hub = createHub()
   const link = createLink(hub)
   link.start()
+  const dialogs = options.form ? registerGateForm(hub, link) : undefined
   if (options.wait) registerGateWait(hub, link)
-  registerGatePanel(hub, link)
+  registerGatePanel(hub, link, dialogs)
   attachHub(h.on, hub)
 
   const engineBand = { element: 'Box', props: { children: ['engine band'] } }
@@ -160,22 +162,80 @@ describe('gate-panel', () => {
   test("the row shows only the session's own open quiet gates", async () => {
     const h = harness({
       'g-1': gate(),
-      'g-form': gate({ id: 'g-form', origin: { presentation: 'form', session: 'sess-1' } }),
       'g-done': gate({ id: 'g-done', status: 'answered', answer: { answers: { ship: 'no' }, by: 'board', answeredAt: 1 } }),
     })
     await h.start()
     await flush()
 
     expect(h.hub.liveBlocks()).toContain('gate-panel')
-    expect(h.verbs('gate:list').map(s => s.body)).toEqual([{ open: true, session: 'sess-1', presentation: 'wait' }])
+    expect(h.verbs('gate:list').map(s => s.body)).toEqual([{ open: true, session: 'sess-1' }])
     const button = await h.rowButton()
     expect(button.props).toMatchObject({ label: `Waiting on your answer: ${QUESTION}`, hotkey: '1', plain: true })
-    const drawn = await h.band()
-    expect(JSON.stringify(drawn)).not.toContain('g-form')
+    expect(JSON.stringify(await h.band())).not.toContain('more waiting')
 
     await h.band({ hasSurvey: true }).then(out => expect(out).toBe(h.engineBand))
     const narrow = await h.band({ bodyColumns: 20 })
     expect(narrow.props.label).toBe('Waiting on your…')
+  })
+
+  test("a herd worker's herd_ask gate shows in its band row", async () => {
+    // What herd:ask opens for a worker with a pane and at most 4 options: a
+    // form presentation stamped with the worker's session, never drawn as a dialog.
+    const herdGate = gate({
+      id: 'g-herd',
+      subject: 'herd:h-1/job-a',
+      kind: 'question',
+      origin: { paneId: 'w9:p1', presentation: 'form', session: 'sess-1' } as WaitedGate['origin'],
+    })
+    const h = harness({ 'g-herd': herdGate }, { form: true })
+    await h.start()
+    await flush()
+
+    expect((await h.rowButton()).props.label).toBe(`Waiting on your answer: ${QUESTION}`)
+    ;(await h.rowButton()).props.onPress({})
+    await flush()
+    await h.press('option-1')
+    expect(answers(h)).toEqual([{ id: 'g-herd', answers: { ship: 'no' }, by: 'pane-person' }])
+  })
+
+  test('a form gate that was never drawn is listed', async () => {
+    const h = harness({ 'g-form': gate({ id: 'g-form', origin: { presentation: 'form', session: 'sess-1' } }) }, { form: true })
+    await h.start()
+    await flush()
+
+    expect((await h.rowButton()).props.label).toBe(`Waiting on your answer: ${QUESTION}`)
+  })
+
+  test('a gate whose form dialog is up is not listed', async () => {
+    const h = harness(
+      {
+        'g-form': gate({ id: 'g-form', origin: { presentation: 'form', session: 'sess-1' } }),
+        'g-wait': gate({ id: 'g-wait', questions: [{ id: 'q', label: 'Rename the branch?', multi: false, options: ['a', 'b'] }] }),
+      },
+      { form: true },
+    )
+    await h.start()
+    await flush()
+    expect((await h.rowButton()).props.label).toBe(`Waiting on your answer: ${QUESTION}`)
+
+    let dismiss!: (out: unknown) => void
+    const shown = new Promise(resolve => (dismiss = resolve))
+    const next = Object.assign(async () => shown, { signal: new AbortController().signal })
+    const ask = {
+      tool: 'AskUserQuestion',
+      tool_use_id: 'tu-1',
+      questions: [{ question: QUESTION, header: 'Ship', options: [{ label: 'Yes', description: '' }, { label: 'No', description: '' }], multiSelect: false }],
+    }
+    const call = h.fire('tool.call', ask, next)
+    await flush()
+
+    expect((await h.rowButton()).props.label).toBe('Waiting on your answer: Rename the branch?')
+    expect(JSON.stringify(await h.band())).not.toContain('more waiting')
+
+    dismiss({ isError: true, result: 'User declined to answer questions' })
+    await call
+    await flush()
+    expect((await h.rowButton()).props.label).toBe(`Waiting on your answer: ${QUESTION}`)
   })
 
   test('a gate asked by another session on a reused pane id is not shown', async () => {
@@ -185,7 +245,7 @@ describe('gate-panel', () => {
     await flush()
 
     const asked = h.verbs('gate:list').map(s => s.body)
-    expect(asked).toEqual([{ open: true, session: 'sess-1', presentation: 'wait' }])
+    expect(asked).toEqual([{ open: true, session: 'sess-1' }])
     expect(JSON.stringify(asked)).not.toContain('pane')
     expect(await h.rowButton()).toBeNull()
   })
