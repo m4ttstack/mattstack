@@ -8,7 +8,8 @@ import { DAEMON_CONFIG_PATH } from "../../daemon-config.ts";
 import { DEV_MODE_TAG } from "../../dev-mode.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { setSetting } from "../../settings/write.ts";
-import { homeBackupRow, isTeamSyncFirstPullPending, oneTeamRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
+import { homeBackupRow, isTeamSyncFirstPullPending, ORG_LAYOUT_ROW_ID, oneTeamRow, orgLayoutRow, rtHealthRows, teamSyncRow } from "../validators/rt-health.ts";
+import { updateSentence } from "../../team/org-marker.ts";
 import { fakeProbes, ok, missing } from "./fakes.ts";
 import type { ExecScript } from "./fakes.ts";
 import { createRealProbes } from "../probes.ts";
@@ -1258,5 +1259,78 @@ describe("rtHealthRows: team.sync wiring", () => {
     const rows = await rtHealthRows(p, { ci: false });
     const r = rows.find((x) => x.id === "team.sync");
     expect(r?.status).toBe("missing");
+  });
+});
+
+describe("orgLayoutRow", () => {
+  const home = "/h";
+  const teams = join(home, ".mattstack", "teams");
+  const clone = join(teams, "widgets");
+  const oneTeam = JSON.stringify({ role: "team", namespace: "widgets", org: "acme" });
+  function probesWith(marker: string | null, extra: { dirs?: Record<string, string[]>; files?: Record<string, string> } = {}) {
+    return fakeProbes({
+      home,
+      dirs: { [teams]: ["widgets"], [join(clone, ".git")]: ["config"], ...extra.dirs },
+      files: {
+        [join(clone, ".git", "config")]: "[core]\n",
+        ...(marker === null ? {} : { [join(clone, "mattstack", "mattstack.jsonc")]: marker }),
+        ...extra.files,
+      },
+    });
+  }
+  const entry = (over: Record<string, unknown> = {}) => ({ slug: "widgets", lastPullAt: 1, lastPullError: null, lastPullSkipped: null, pullOnly: true, conflicted: null, ...over }) as never;
+
+  test("no clone under teams/: no row", async () => {
+    expect(await orgLayoutRow(fakeProbes({ home }), async () => [])).toBeNull();
+  });
+
+  test("a clone with no org marker: no row", async () => {
+    expect(await orgLayoutRow(probesWith(null), async () => [])).toBeNull();
+  });
+
+  test("the one-team clone with no hold reads ready on layout 1", async () => {
+    const r = await orgLayoutRow(probesWith(oneTeam), async () => [entry()]);
+    expect(r).toMatchObject({ id: ORG_LAYOUT_ROW_ID, title: "Org layout", kind: "tool", required: false, recheck: "on-activate", status: "ready", detail: "widgets on layout 1" });
+  });
+
+  test("a daemon hold on the clone's folder reads needs-you with the update sentence and a steps action", async () => {
+    const r = await orgLayoutRow(probesWith(oneTeam), async () => [entry({ layoutHold: { layout: 2, reads: 1 }, lastPullSkipped: updateSentence(2) })]);
+    expect(r).toMatchObject({ status: "needs-you", detail: updateSentence(2) });
+    expect(r?.action?.type).toBe("steps");
+  });
+
+  test("a hold on another folder's entry is not this clone's", async () => {
+    const r = await orgLayoutRow(probesWith(oneTeam), async () => [entry({ slug: "gadgets", layoutHold: { layout: 2, reads: 1 } })]);
+    expect(r?.status).toBe("ready");
+  });
+
+  test("a local marker above layout 1 (pulled by hand) reads needs-you", async () => {
+    const r = await orgLayoutRow(probesWith(JSON.stringify({ role: "org", org: "acme" })), async () => [entry()]);
+    expect(r).toMatchObject({ status: "needs-you", detail: updateSentence(2) });
+  });
+
+  test("an entry from an older daemon with no layoutHold field, or the daemon down, reads as no hold", async () => {
+    expect((await orgLayoutRow(probesWith(oneTeam), async () => [entry()]))?.status).toBe("ready");
+    expect((await orgLayoutRow(probesWith(oneTeam), async () => null))?.status).toBe("ready");
+  });
+});
+
+describe("teamSyncRow with a layout hold", () => {
+  test("a held pull-only clone is not told to reset to origin, and the hold is not a 'Last pull skipped' note", async () => {
+    const held = { slug: "widgets", lastPullAt: 1_000_000, lastPullError: null, lastPullSkipped: updateSentence(2), layoutHold: { layout: 2, reads: 1 }, pullOnly: true, conflicted: null, lastPushError: null };
+    const r = await teamSyncRow(["widgets"], async () => [held] as never, () => 1_000_000, 300);
+    expect(r?.status).toBe("ready");
+    expect(r?.detail).not.toContain("reset it to origin");
+    expect(r?.detail).not.toContain("Last pull skipped");
+  });
+
+  test("a pull-only clone whose gate could not read origin's marker is not told to reset to origin", async () => {
+    const skipped = "could not read the org layout at origin: fatal: bad object";
+    const errored = { slug: "widgets", lastPullAt: 1_000_000, lastPullError: null, lastPullSkipped: skipped, layoutHold: null, layoutGateError: "fatal: bad object", pullOnly: true, conflicted: null, lastPushError: null };
+    const r = await teamSyncRow(["widgets"], async () => [errored] as never, () => 1_000_000, 300);
+    expect(r?.status).toBe("ready");
+    expect(r?.detail).toContain("Last pull skipped");
+    expect(r?.detail).toContain(skipped);
+    expect(r?.detail).not.toContain("reset it to origin");
   });
 });
