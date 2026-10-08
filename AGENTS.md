@@ -991,13 +991,15 @@ which the Timings workflow regenerates) and runs the non-Mac gates on
 ubuntu. `scripts/ci/test-scope.ts` decides a PR's scope from its diff, for
 the shards and for every path-gated job (`go`, `deck-macos`, `e2e-tests`,
 `glitter-pty`, `website`, the plugin jobs); `docs/ci.md` has the table.
-Only docs, the docs site (`website/`), Swift files, apps or `plugins/`
-trees, or workflow files other than `checks.yml`, that no unit test reads,
-skips the shards; a TypeScript-only diff runs `--changed=HEAD^1`; any
-other change runs the full suite (a non-TypeScript file outside that skip
-set, a fixture, the preload or its imports, `checks.yml`, anything under
-`scripts/ci/`). Whenever the shards do not run in full, the ubuntu
-`guards` job runs every `no-*.test.ts` guard in the unit directories.
+Files in trees the shards never run (docs, `website/`, `rt-tray/`, apps
+and `plugins/` trees, other workflows, `e2e/`) drop out of the diff unless a
+unit test reads them by quoted path; nothing left skips the shards, a
+TypeScript remainder runs `--changed=HEAD^1` on one to three shards sized
+from `test-timings.json`, and anything else runs the full suite (a
+non-TypeScript file such as `bun.lock`, a fixture, the preload or its
+imports, `checks.yml`, anything under `scripts/ci/`). Whenever the shards
+do not run in full, the ubuntu `guards` job runs every `no-*.test.ts`
+guard in the unit directories.
 Any other test that spawns
 `cli.ts` or reads source as text is not selected by `--changed`, so it
 must be named `no-*` to run on a PR at all; an un-prefixed one only runs
