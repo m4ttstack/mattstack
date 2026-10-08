@@ -76,6 +76,10 @@ describe('ConsolePalette', () => {
 
     renderPalette();
     Spotlight.open();
+    await userEvent.type(
+      await screen.findByPlaceholderText('Search runs, or jump to a page…'),
+      'r'
+    );
 
     await screen.findByText('RT-44 — repo-tools failed');
     // No ticket recorded: falls back to the run id rather than dropping the row.
@@ -99,6 +103,10 @@ describe('ConsolePalette', () => {
 
     renderPalette();
     Spotlight.open();
+    await userEvent.type(
+      await screen.findByPlaceholderText('Search runs, or jump to a page…'),
+      'RT-44'
+    );
 
     await screen.findByText('RT-44 — repo-tools failed');
     await userEvent.click(
@@ -107,6 +115,48 @@ describe('ConsolePalette', () => {
 
     expect(writeText).toHaveBeenCalledWith('git checkout feat/x');
     expect(window.location.pathname).toBe(before);
+  });
+
+  it('shows nothing until you start typing', async () => {
+    runsGet.mockResolvedValue(
+      ok({ runs: [run({ id: 'run-1', ticket: 'RT-44' })] })
+    );
+
+    renderPalette();
+    Spotlight.open();
+    const input = await screen.findByPlaceholderText(
+      'Search runs, or jump to a page…'
+    );
+    await vi.waitFor(() => expect(runsGet).toHaveBeenCalled());
+
+    expect(screen.queryByText('RT-44 — repo-tools failed')).toBeNull();
+    expect(screen.queryByText('Run board')).toBeNull();
+    expect(screen.queryByText('No matching runs or actions.')).toBeNull();
+
+    await userEvent.type(input, 'RT');
+    expect(
+      await screen.findByText('RT-44 — repo-tools failed')
+    ).toBeInTheDocument();
+  });
+
+  it('caps the results at ten', async () => {
+    runsGet.mockResolvedValue(
+      ok({
+        runs: Array.from({ length: 15 }, (_, i) =>
+          run({ id: `run-${i}`, ticket: `RT-${i}` })
+        ),
+      })
+    );
+
+    renderPalette();
+    Spotlight.open();
+    await userEvent.type(
+      await screen.findByPlaceholderText('Search runs, or jump to a page…'),
+      'repo-tools'
+    );
+
+    await screen.findByText('RT-0 — repo-tools failed');
+    expect(screen.getAllByText(/— repo-tools failed$/)).toHaveLength(10);
   });
 
   it('offers no settings keys: typing "config" finds nothing', async () => {

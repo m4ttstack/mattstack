@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { CopyActionIcon } from '@mattstack/app-kit/core';
 import { Icons } from '@mattstack/app-kit/icons';
 import { Spotlight } from '@mattstack/app-kit/spotlight';
@@ -46,6 +46,8 @@ function runAction(run: {
   };
 }
 
+const RESULT_LIMIT = 10;
+
 const STATIC_ACTIONS: SpotlightActionData[] = [
   {
     id: 'nav-board',
@@ -68,6 +70,8 @@ const STATIC_ACTIONS: SpotlightActionData[] = [
  */
 export function ConsolePalette() {
   const runsQuery = useRunList();
+  const [query, setQuery] = useState('');
+  const typing = query.trim() !== '';
 
   const actions: SpotlightActionData[] = useMemo(() => {
     const runs = runsQuery.data?.runs ?? [];
@@ -76,9 +80,12 @@ export function ConsolePalette() {
 
   return (
     <Spotlight
-      actions={actions}
+      actions={typing ? actions : []}
+      query={query}
+      onQueryChange={setQuery}
+      limit={RESULT_LIMIT}
       shortcut="mod + K"
-      nothingFound="No matching runs or actions."
+      nothingFound={typing ? 'No matching runs or actions.' : undefined}
       searchProps={{ placeholder: 'Search runs, or jump to a page…' }}
     />
   );
