@@ -9,10 +9,10 @@
  * built on that name and this restore is not the tree that owns it anymore.
  */
 
-import { cpSync, existsSync } from "fs";
+import { cpSync, existsSync, lstatSync } from "fs";
 import { legacyWorktreePoolRoots } from "../rt-paths.ts";
 import { readdir } from "fs/promises";
-import { join } from "path";
+import { basename, join, sep } from "path";
 import { loadRegistry, saveRegistry, type TreeRecord } from "./registry.ts";
 import { loadWorktreeRepoConfig, evaluateReadyGate, type WorktreeRepoConfig } from "./config.ts";
 import { runReadySteps } from "./ready.ts";
@@ -32,7 +32,7 @@ export interface RestoreDeps {
 }
 
 export type RestoreResult =
-  | { ok: true; tree: TreeRecord; path: string; readyFailed?: boolean; failedStep?: string }
+  | { ok: true; tree: TreeRecord; path: string; readyFailed?: boolean; failedStep?: string; submodulesFailed?: string[] }
   | {
       ok: false;
       reason:
@@ -186,6 +186,38 @@ async function removeCreatedWorktree(
   }
 }
 
+/** The submodules HEAD actually records (gitlinks), which `.gitmodules` can disagree with; null when git cannot list them. */
+async function submodulePaths(path: string): Promise<string[] | null> {
+  const r = await runGit(path, ["ls-files", "--stage", "-z"]);
+  if (r.exitCode !== 0) return null;
+  return r.stdout.split("\0").flatMap((l) => (l.startsWith("160000 ") ? [l.slice(l.indexOf("\t") + 1)] : []));
+}
+
+/**
+ * A submodule's git data lives in the worktree's admin dir
+ * (`.git/worktrees/<name>/modules/`), which disposal deletes, so the retained
+ * copy's submodules point at nothing. Re-initialising them in the fresh
+ * checkout rebuilds that data; each borrows objects from the main checkout's
+ * own copy of the submodule when it has one, so a large vendored repo is not
+ * downloaded again. Each is tried on its own so one that cannot be fetched
+ * does not hold back the rest. The fetch uses only the user's own git
+ * credentials: a submodule URL comes from the repo's contents, so rt's
+ * origin token is never offered to it.
+ */
+async function initSubmodules(repoPath: string, path: string): Promise<{ paths: string[] | null; failed: string[] }> {
+  const paths = await submodulePaths(path);
+  const failed: string[] = [];
+  for (const sub of paths ?? []) {
+    const reference = existsSync(join(repoPath, sub, ".git")) ? ["--reference", join(repoPath, sub)] : [];
+    const r = await runGit(path, ["submodule", "update", "--init", "--recursive", ...reference, "--", sub], {
+      timeoutMs: MUTATING_TIMEOUT_MS,
+      env: { GIT_TERMINAL_PROMPT: "0" },
+    });
+    if (r.exitCode !== 0) failed.push(sub);
+  }
+  return { paths, failed };
+}
+
 /**
  * Layers the retained copy's non-git content back over the fresh checkout:
  * `git worktree add` already recreated every tracked file from `headSha`, so
@@ -193,9 +225,20 @@ async function removeCreatedWorktree(
  * `.local-dev`, `.env`, anything a build didn't regenerate (the reinstallable
  * dirs were already stripped at dispose time and are simply absent here).
  * `.git` and `manifest.json` are the entry's own bookkeeping and must never
- * be copied over the worktree's real git admin file.
+ * be copied over the worktree's real git admin file. Neither may any `.git`
+ * inside a submodule, which would point it back at the deleted git data; the
+ * submodule's files themselves always come back, set up or not. When git
+ * could not say where the submodules are (`submodules` null), every nested
+ * `.git` link file is left out instead; a nested `.git` folder is a repo of
+ * its own and still comes back.
  */
-async function copyRetainedContent(entryPath: string, destPath: string): Promise<{ ok: boolean; err?: string }> {
+async function copyRetainedContent(entryPath: string, destPath: string, submodules: string[] | null): Promise<{ ok: boolean; err?: string }> {
+  const roots = submodules?.map((p) => join(entryPath, p) + sep);
+  const filter = (src: string) => {
+    if (basename(src) !== ".git") return true;
+    if (roots) return !roots.some((r) => src.startsWith(r));
+    return !lstatSync(src).isFile();
+  };
   let entries: string[];
   try {
     entries = await readdir(entryPath);
@@ -205,7 +248,7 @@ async function copyRetainedContent(entryPath: string, destPath: string): Promise
   for (const entry of entries) {
     if (entry === ".git" || entry === "manifest.json") continue;
     try {
-      cpSync(join(entryPath, entry), join(destPath, entry), { recursive: true, force: true });
+      cpSync(join(entryPath, entry), join(destPath, entry), { recursive: true, force: true, filter });
     } catch (err) {
       return { ok: false, err: String(err) };
     }
@@ -238,7 +281,12 @@ export async function restoreTree(deps: RestoreDeps, treeName: string): Promise<
   const added = await addWorktreeFromManifest(repoPath, path, manifest);
   if (!added.ok) return { ok: false, reason: "worktree-add-failed", detail: added.output };
 
-  const copied = await copyRetainedContent(found.path, path);
+  const submodules = await initSubmodules(repoPath, path);
+  if (submodules.failed.length > 0) {
+    log.warn({ repo: repoName, tree: treeName, path, failed: submodules.failed }, "worktree restore: submodules could not be set up");
+  }
+
+  const copied = await copyRetainedContent(found.path, path, submodules.paths);
   if (!copied.ok) {
     log.warn(
       { repo: repoName, tree: treeName, path, err: copied.err },
@@ -278,8 +326,11 @@ export async function restoreTree(deps: RestoreDeps, treeName: string): Promise<
   emit("worktree:restored", { repo: repoName, tree: treeName, path, branch: manifest.branch });
   log.info({ repo: repoName, tree: treeName, path }, "worktree restored");
 
-  if (!readyResult.ok) {
-    return { ok: true, tree: rec, path, readyFailed: true, failedStep: readyResult.failedStep };
-  }
-  return { ok: true, tree: rec, path };
+  return {
+    ok: true,
+    tree: rec,
+    path,
+    ...(readyResult.ok ? {} : { readyFailed: true, failedStep: readyResult.failedStep }),
+    ...(submodules.failed.length > 0 ? { submodulesFailed: submodules.failed } : {}),
+  };
 }
