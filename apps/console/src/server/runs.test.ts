@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@mattstack/rt-client', () => ({
   agentAdopt: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
   agentResume: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
+  paneList: vi.fn(async () => ({ ok: true, data: { panes: [] } })),
   listRuns: vi.fn(async () => ({ ok: true, data: { runs: [] } })),
   getRun: vi.fn(async () => ({ ok: false, error: 'no such run' })),
   abandonRun: vi.fn(async () => ({ ok: true, data: { ok: true } })),
@@ -384,6 +385,80 @@ describe('POST /api/runs/:repo/:runId/resume', () => {
       detail({ agent: { status: 'done', pane: 'w1:p1' } }) as never
     );
     expect((await post()).status).toBe(409);
+  });
+
+  const pane = (over: { sessionId?: string; cwd?: string }) => ({
+    paneId: 'w1:p2',
+    workspace: 'w1',
+    agentStatus: 'idle',
+    ...over,
+  });
+
+  it('409 when a fresh pane read finds the session the cached mirror missed', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(detail() as never);
+    vi.mocked(rt.paneList).mockResolvedValueOnce({
+      ok: true,
+      data: { panes: [pane({ sessionId: 'sess-1', cwd: '/elsewhere' })] },
+    } as never);
+    const res = await post();
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toEqual({
+      error: 'this run already has a live pane',
+    });
+    expect(rt.agentResume).not.toHaveBeenCalled();
+    expect(rt.agentAdopt).not.toHaveBeenCalled();
+  });
+
+  it('409 when a fresh pane read finds a pane inside the run worktree', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(detail() as never);
+    vi.mocked(rt.paneList).mockResolvedValueOnce({
+      ok: true,
+      data: { panes: [pane({ cwd: '/wt/ron/apps/console' })] },
+    } as never);
+    expect((await post()).status).toBe(409);
+    expect(rt.agentResume).not.toHaveBeenCalled();
+  });
+
+  it('a pane in a sibling folder that shares the worktree prefix does not block', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(detail() as never);
+    vi.mocked(rt.paneList).mockResolvedValueOnce({
+      ok: true,
+      data: { panes: [pane({ sessionId: 'sess-other', cwd: '/wt/ronald' })] },
+    } as never);
+    vi.mocked(rt.agentResume).mockResolvedValueOnce({
+      ok: true,
+      data: { id: 'ag-1' },
+    } as never);
+    expect((await post()).status).toBe(200);
+  });
+
+  it('refuses without launching when the pane read fails', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(detail() as never);
+    vi.mocked(rt.paneList).mockResolvedValueOnce({
+      ok: false,
+      error: 'herdr unavailable',
+    } as never);
+    const res = await post();
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({
+      error: expect.stringMatching(/live pane/),
+    });
+    expect(rt.agentResume).not.toHaveBeenCalled();
+    expect(rt.agentAdopt).not.toHaveBeenCalled();
+  });
+
+  it('resumes when the fresh pane read finds nothing for this run', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(detail() as never);
+    vi.mocked(rt.paneList).mockResolvedValueOnce({
+      ok: true,
+      data: { panes: [] },
+    } as never);
+    vi.mocked(rt.agentResume).mockResolvedValueOnce({
+      ok: true,
+      data: { id: 'ag-1' },
+    } as never);
+    expect((await post()).status).toBe(200);
+    expect(rt.paneList).toHaveBeenCalledTimes(1);
   });
 
   it('adopts afresh and retries once when the recorded agent record was pruned', async () => {

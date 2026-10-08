@@ -6,7 +6,9 @@ import {
   agentResume,
   getRun,
   listRuns,
+  paneList,
   serializeIdentity,
+  type ChatPane,
   type RunFieldRow,
 } from '@mattstack/rt-client';
 import { Hono } from 'hono';
@@ -26,6 +28,27 @@ function canonicalRepo(raw: string): string {
   return m
     ? serializeIdentity({ kind: m[1] as 'remote' | 'path', id: m[2]! })
     : raw;
+}
+
+function cwdInside(cwd: string, worktree: string): boolean {
+  const root = worktree.endsWith('/') ? worktree : `${worktree}/`;
+  return cwd === worktree || cwd.startsWith(root);
+}
+
+/** Matches the way the daemon's liveness mirror attributes a pane to a run:
+    by the recorded Claude session, else by a cwd inside the run's worktree. */
+function runHasPane(
+  panes: ChatPane[],
+  session: string,
+  worktree: string | undefined
+): boolean {
+  return panes.some(
+    p =>
+      p.sessionId === session ||
+      (worktree !== undefined &&
+        p.cwd !== undefined &&
+        cwdInside(p.cwd, worktree))
+  );
 }
 
 export function resumePrompt(runId: string, fields: RunFieldRow[]): string {
@@ -147,8 +170,22 @@ export const runs = new Hono()
     if (run.status !== 'running') {
       return c.json({ error: 'this run has finished' }, 409);
     }
-    if (run.agent) {
-      return c.json({ error: 'this run already has a live pane' }, 409);
+    // run.agent comes from a cached mirror that also reads null when herdr
+    // was unreachable, so a launch needs a fresh read that answered.
+    const livePane = { error: 'this run already has a live pane' };
+    if (run.agent) return c.json(livePane, 409);
+    const panes = await paneList();
+    if (!panes.ok || !panes.data) {
+      return c.json(
+        {
+          error:
+            "couldn't check whether this run already has a live pane, so it wasn't resumed",
+        },
+        502
+      );
+    }
+    if (runHasPane(panes.data.panes, session, value('worktree'))) {
+      return c.json(livePane, 409);
     }
     const prompt = resumePrompt(runId, fields);
     const adopt = async (): Promise<{ id: string } | { error: string }> => {

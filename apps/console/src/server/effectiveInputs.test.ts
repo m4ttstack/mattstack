@@ -12,6 +12,7 @@ vi.mock('@mattstack/rt-client', async importOriginal => ({
   ...(await importOriginal<typeof import('@mattstack/rt-client')>()),
   agentAdopt: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
   agentResume: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
+  paneList: vi.fn(async () => ({ ok: true, data: { panes: [] } })),
   getRun: vi.fn(),
   getSetting: vi.fn(),
   getDef: vi.fn(),
