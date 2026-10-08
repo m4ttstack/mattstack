@@ -357,6 +357,32 @@ describe('gate-form', () => {
     expect(drawn.seen).toHaveLength(shown.length)
   })
 
+  test("a linked gate's doorbell is handed to the model and then recorded read, so the sweep does not re-ring", async () => {
+    const h = harness()
+    await h.start()
+    const d = dialog()
+    const call = h.fire('tool.call', ASK, d.next)
+    await flush()
+    d.answer.resolve({ isError: true, result: 'User declined to answer questions' })
+    await call
+
+    const phrase = '[gate] g-1 answered by board; re-read the registry and proceed on the recorded answer.'
+    const doorbell = { origin: { kind: 'peer' }, text: `<cross-session-message from-name="gate-facility">\n${phrase}\n</cross-session-message>` }
+    const engine = recorder({ text: doorbell.text })
+    expect(await h.fire('session.receive', doorbell, engine.next)).toEqual({ text: doorbell.text })
+    await flush()
+    expect(engine.seen).toEqual([doorbell])
+    expect(h.verbs('gate:wait').map(s => s.body)).toEqual([{ id: 'g-1', waitMs: 0, sessionId: 'sess-1' }])
+
+    // Not linked, not a doorbell, or consumed beneath: nothing is recorded.
+    const other = { origin: { kind: 'peer' }, text: doorbell.text.replace('g-1', 'g-other') }
+    await h.fire('session.receive', other, recorder({ text: other.text }).next)
+    await h.fire('session.receive', { origin: { kind: 'peer' }, text: '[gate] g-1 is now answered by board (form, owner human); re-read the gate registry.' }, recorder({ text: 'x' }).next)
+    await h.fire('session.receive', doorbell, recorder({ consumed: 'muted' }).next)
+    await flush()
+    expect(h.verbs('gate:wait')).toHaveLength(1)
+  })
+
   test('the display kit asks a gate in a focused pane and answers it', async () => {
     const h = stub()
     const hub = createHub()

@@ -26,6 +26,15 @@ const REMEMBERED = 200
 const GATE_ID = /^[A-Za-z0-9_-]{1,128}$/
 // The doorbell phrases rt's gate-push writes (GATE_ANSWERED_PHRASE, GATE_CLOSED_PHRASE).
 const DOORBELL = /^\[gate\] (\S+) (?:answered by .+; re-read the registry and proceed on the recorded answer\.|superseded by a newer gate; re-read the registry and proceed\.|closed; re-read the registry and proceed\.)$/
+// How rt's inbox writer wraps a gate notice (`wrapCrossSession`): no delivery id.
+const WRAPPED = /^<cross-session-message from-name="[^"<>]*">\n([\s\S]*)\n<\/cross-session-message>$/
+
+/** The gate a doorbell delivery names, whether or not it arrives wrapped. */
+function doorbellGate(text: string): string | null {
+  const trimmed = text.trim()
+  const body = WRAPPED.exec(trimmed)?.[1] ?? trimmed
+  return DOORBELL.exec(body.trim())?.[1] ?? null
+}
 
 // `by` is free text a caller chose; only a known surface is named back to the model.
 const SURFACES: Record<string, string> = {
@@ -280,6 +289,13 @@ export function registerGateForm(hub: Hub, link: Link): FormDialogs {
     return dialog !== undefined && dialog !== 'dismissed'
   }
 
+  // rt re-rings an answered gate's doorbell until the nudged session reads
+  // it with gate:wait under its own id, which the model never does.
+  async function markRead(api: ModApi, id: string): Promise<void> {
+    const out = await call(api, 'gate:wait', { id, waitMs: 0, sessionId: await api.session.id() })
+    if (!out.ok) log(api, `gate ${id}: its doorbell could not be recorded as read (${out.error.code}: ${out.error.message})`)
+  }
+
   // The ack only confirms the mod owns the gate: the event path is what
   // closes the dialog, so a gate whose dialog already closed is still acked.
   // A dialog the person dismissed left the model nothing to read, so that
@@ -298,6 +314,15 @@ export function registerGateForm(hub: Hub, link: Link): FormDialogs {
   hub.block('gate-form', async (_api, scope) => {
     scope.onToolCall({ stage: 'permit', tool: 'AskUserQuestion', run: present })
     scope.onRender('UserMessage', async (api, e, next) => (leftover(e) ? api.ui.blank(e) : next(e)))
+    scope.onReceive('gate-doorbell', async (api, e, next) => {
+      const id = doorbellGate(e.text)
+      if (id === null || !linked.has(id)) return undefined
+      const queued = await next(e)
+      if (queued.consumed === undefined) {
+        markRead(api, id).catch(err => log(api, `gate ${id}: ${err instanceof Error ? err.message : String(err)}`))
+      }
+      return queued
+    })
   })
 
   return {

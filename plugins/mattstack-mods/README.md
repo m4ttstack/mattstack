@@ -201,6 +201,11 @@ gate's dialog; the queued doorbell is read once that dialog ends. Doorbell rows
 (`[gate] <id> answered by ...`, superseded, closed) left over for a linked
 gate draw as nothing, except for a dismissed one.
 
+A doorbell for any gate the block linked goes to the model unchanged. Once it
+is queued, the block reads the gate with `gate:wait { id, waitMs: 0,
+sessionId }` under its own session id, which rt records as the session's read,
+so rt's sweep stops ringing that doorbell again.
+
 ## Wait gates
 
 The `gate-wait` block (`src/blocks/gate-wait.ts`) stands in for the
