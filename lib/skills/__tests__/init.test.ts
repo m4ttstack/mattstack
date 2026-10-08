@@ -58,6 +58,7 @@ describe("parseRemote", () => {
 const HOME = "/h";
 const ORG_ROOT = (org: string) => `${HOME}/.mattstack/orgs/${org}`;
 const orgFiles = (org: string, orgSettings: Record<string, unknown>, teams: Record<string, Record<string, unknown>>, extra: Record<string, string> = {}) => ({
+  [`${ORG_ROOT(org)}/.git/config`]: "",
   [`${ORG_ROOT(org)}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "${org}" }`,
   [`${ORG_ROOT(org)}/mattstack/org/settings.org.jsonc`]: `// org\n${JSON.stringify(orgSettings)}`,
   [`${ORG_ROOT(org)}/.claude-plugin/marketplace.json`]: `{ "name": "${org}-market", "owner": { "name": "x" }, "plugins": [] }`,
@@ -101,6 +102,22 @@ describe("readZones", () => {
       [`${ORG_ROOT("beta")}/mattstack/mattstack.jsonc`]: '{ "role": "team", "namespace": "gadgets", "org": "beta" }',
     });
     expect(readZonesFrom(fs, `${HOME}/.mattstack/orgs`).map((z) => z.slug)).toEqual(["acme/widgets"]);
+  });
+
+  test("a ready clone beside a layout-2 folder that is not a clone yields only the clone's zones", () => {
+    const { [`${ORG_ROOT("beta")}/.git/config`]: _notAClone, ...stale } = orgFiles("beta", {}, { gadgets: {} });
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), ...stale });
+    expect(readZonesFrom(fs, `${HOME}/.mattstack/orgs`).map((z) => z.slug)).toEqual(["acme/widgets"]);
+  });
+
+  test("a ready clone beside a second layout-2 clone sorting later yields only the picked clone's zones", () => {
+    const fs = memFs({ ...orgFiles("acme", {}, { widgets: {} }), ...orgFiles("beta", {}, { gadgets: {} }) });
+    expect(readZonesFrom(fs, `${HOME}/.mattstack/orgs`).map((z) => z.slug)).toEqual(["acme/widgets"]);
+  });
+
+  test("no clone to pick yields no zones, even beside a layout-2 folder", () => {
+    const { [`${ORG_ROOT("acme")}/.git/config`]: _notAClone, ...stale } = orgFiles("acme", {}, { widgets: {} });
+    expect(readZonesFrom(memFs(stale), `${HOME}/.mattstack/orgs`)).toEqual([]);
   });
 
   test("a folder with no marker or a marker of another role is still skipped", () => {

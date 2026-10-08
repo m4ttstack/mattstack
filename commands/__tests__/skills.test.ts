@@ -200,6 +200,7 @@ function makeMattstackDir(): string {
 /** An org clone under `<mattstackRoot>/orgs/<org>` with one folder per team; every team inherits the org's claim unless it sets its own. */
 function seedOrg(mattstackRoot: string, org: string, opts: { projects: string[]; host?: string | null; teams: string[] }): void {
   const dir = join(mattstackRoot, "orgs", org, "mattstack");
+  writeFile(join(mattstackRoot, "orgs", org, ".git", "config"), "");
   writeFile(join(dir, "mattstack.jsonc"), JSON.stringify({ role: "org", org }));
   const settings: Record<string, unknown> = { "board.projects": opts.projects };
   if (opts.host !== null) settings["board.gitlabHost"] = opts.host ?? "https://gitlab.example.com";

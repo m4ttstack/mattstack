@@ -58,6 +58,7 @@ describe("materializeSkills", () => {
 
   function seedZone(): void {
     const orgMattstack = join(home, ".mattstack", "orgs", "acme", "mattstack");
+    write(join(home, ".mattstack", "orgs", "acme", ".git", "config"), "");
     write(join(orgMattstack, "mattstack.jsonc"), JSON.stringify({ role: "org", org: "acme" }));
     write(join(orgMattstack, "org", "settings.org.jsonc"), JSON.stringify({ "board.gitlabHost": "https://gitlab.example.com", "board.projects": ["acme/widgets"] }));
     write(join(orgMattstack, "teams", "widgets", "settings.team.jsonc"), "{}");

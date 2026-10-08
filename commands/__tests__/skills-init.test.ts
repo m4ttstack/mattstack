@@ -327,6 +327,7 @@ describe("skillsInit", () => {
   test("a policy refusal is a refused note on stderr, exit 2", async () => {
     const HOME = "/h";
     const fs = memFs({
+      [`${HOME}/.mattstack/orgs/acme/.git/config`]: "",
       [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com", "board.projects": ["acme/api"] }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
@@ -358,6 +359,7 @@ describe("skillsInit", () => {
   for (const json of [false, true]) test(`--zone naming the Mac's other org refuses ${json ? "as JSON" : "for a person"} and names the org it uses`, async () => {
     const HOME = "/h";
     const org = (slug: string) => ({
+      [`${HOME}/.mattstack/orgs/${slug}/.git/config`]: "",
       [`${HOME}/.mattstack/orgs/${slug}/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "${slug}" }`,
       [`${HOME}/.mattstack/orgs/${slug}/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com" }`,
       [`${HOME}/.mattstack/orgs/${slug}/mattstack/teams/widgets/settings.team.jsonc`]: `{}`,
@@ -377,6 +379,7 @@ describe("skillsInit", () => {
   test("--json: a refusal's why rides in the message before the command", async () => {
     const HOME = "/h";
     const fs = memFs({
+      [`${HOME}/.mattstack/orgs/acme/.git/config`]: "",
       [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com" }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
@@ -388,6 +391,7 @@ describe("skillsInit", () => {
   test("a team with no forge host is a needs-you note on stderr with the fixing command as next, exit 2", async () => {
     const HOME = "/h";
     const fs = memFs({
+      [`${HOME}/.mattstack/orgs/acme/.git/config`]: "",
       [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: `{}`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
@@ -460,6 +464,7 @@ describe("skillsInit", () => {
   test("--json: success carries the share outcome beside the existing keys", async () => {
     const HOME = "/h";
     const fs = memFs({
+      [`${HOME}/.mattstack/orgs/acme/.git/config`]: "",
       [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com", "board.projects": [] }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,
@@ -487,6 +492,7 @@ describe("skillsInit", () => {
   test("--json: a post-write compile failure envelope carries the wrote list", async () => {
     const HOME = "/h";
     const fs = memFs({
+      [`${HOME}/.mattstack/orgs/acme/.git/config`]: "",
       [`${HOME}/.mattstack/orgs/acme/mattstack/mattstack.jsonc`]: `{ "role": "org", "org": "acme" }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/org/settings.org.jsonc`]: `{ "board.gitlabHost": "gitlab.com", "board.projects": [] }`,
       [`${HOME}/.mattstack/orgs/acme/mattstack/teams/acme/settings.team.jsonc`]: `{}`,

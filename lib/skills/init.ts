@@ -148,46 +148,44 @@ export function zoneTeamConfigReads(fs: InitFs, zoneDir: string): boolean {
 }
 
 /**
- * One zone per team folder of every org clone. A team's pack claims the
+ * One zone per team folder of the org clone pickOrgClone picks; any other
+ * folder under the root is never read. A team's pack claims the
  * projects in board.projects as that team resolves it (the team's own list,
  * else the org's), on board.gitlabHost, else the forge host.
  */
 export function readZonesFrom(fs: InitFs, teams: string): ZoneInfo[] {
   const zones: ZoneInfo[] = [];
   const names = [...fs.readDir(teams)].sort().filter(isOrgSlug);
-  const markers = new Map(names.map((org) => [org, parseMarker(fs.readFile(join(teams, org, "mattstack", "mattstack.jsonc")))]));
   const picked = pickOrgClone(
     names.map((org) => ({
       slug: org,
       isClone: fs.exists(join(teams, org, ".git", "config")),
-      marker: markers.get(org)!,
+      marker: parseMarker(fs.readFile(join(teams, org, "mattstack", "mattstack.jsonc"))),
       hasStore: fs.exists(join(teams, org, "mattstack", "org", "settings.org.jsonc")),
     })),
   );
-  if (picked && picked.layout !== ORG_LAYOUT) throw orgLayoutWaitingError({ kind: "waiting", slug: picked.slug, dir: join(teams, picked.slug), layout: picked.layout });
-  for (const org of names) {
-    const orgDir = join(teams, org);
-    const state = markers.get(org)!;
-    if (state.kind !== "org" || state.layout !== ORG_LAYOUT) continue;
-    const orgSettings = storeGlobal(fs, join(orgDir, "mattstack", "org", "settings.org.jsonc"));
-    const market = readJsonc(fs, join(orgDir, ".claude-plugin", "marketplace.json"));
-    const marketplace = typeof market?.name === "string" ? market.name : null;
-    const teamsRoot = join(orgDir, "mattstack", "teams");
-    for (const team of [...fs.readDir(teamsRoot)].sort()) {
-      if (!TEAM_NAME_RE.test(team)) continue;
-      const dir = join(teamsRoot, team);
-      const teamSettings = storeGlobal(fs, join(dir, "settings.team.jsonc"));
-      if (teamSettings === null) continue;
-      const projects = [stored("board.projects", teamSettings), stored("board.projects", orgSettings)].find(isStringList) ?? [];
-      const host =
-        hostOnly(stored("board.gitlabHost", teamSettings)) ??
-        hostOnly(stored("board.gitlabHost", orgSettings)) ??
-        hostOnly(forgeHost(teamSettings)) ??
-        hostOnly(forgeHost(orgSettings));
-      if (isUnconvertedTeamPack(fs, dir, team)) throw unconvertedTeamPackError(orgDir, team);
-      const packDir = zonePackDir({ dir });
-      zones.push({ slug: `${org}/${team}`, org, team, orgDir, dir, host, projects, marketplace, hasPack: isPackDir(fs, packDir) && !isBasePack(fs, packDir), packCompiled: packIsCompiled(fs, packDir) });
-    }
+  if (!picked) return zones;
+  if (picked.layout !== ORG_LAYOUT) throw orgLayoutWaitingError({ kind: "waiting", slug: picked.slug, dir: join(teams, picked.slug), layout: picked.layout });
+  const org = picked.slug;
+  const orgDir = join(teams, org);
+  const orgSettings = storeGlobal(fs, join(orgDir, "mattstack", "org", "settings.org.jsonc"));
+  const market = readJsonc(fs, join(orgDir, ".claude-plugin", "marketplace.json"));
+  const marketplace = typeof market?.name === "string" ? market.name : null;
+  const teamsRoot = join(orgDir, "mattstack", "teams");
+  for (const team of [...fs.readDir(teamsRoot)].sort()) {
+    if (!TEAM_NAME_RE.test(team)) continue;
+    const dir = join(teamsRoot, team);
+    const teamSettings = storeGlobal(fs, join(dir, "settings.team.jsonc"));
+    if (teamSettings === null) continue;
+    const projects = [stored("board.projects", teamSettings), stored("board.projects", orgSettings)].find(isStringList) ?? [];
+    const host =
+      hostOnly(stored("board.gitlabHost", teamSettings)) ??
+      hostOnly(stored("board.gitlabHost", orgSettings)) ??
+      hostOnly(forgeHost(teamSettings)) ??
+      hostOnly(forgeHost(orgSettings));
+    if (isUnconvertedTeamPack(fs, dir, team)) throw unconvertedTeamPackError(orgDir, team);
+    const packDir = zonePackDir({ dir });
+    zones.push({ slug: `${org}/${team}`, org, team, orgDir, dir, host, projects, marketplace, hasPack: isPackDir(fs, packDir) && !isBasePack(fs, packDir), packCompiled: packIsCompiled(fs, packDir) });
   }
   return zones;
 }
