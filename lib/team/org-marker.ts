@@ -38,6 +38,19 @@ export function markerState(p: Pick<Probes, "readFile">, dir: string): MarkerSta
   return parseMarker(p.readFile(join(dir, ORG_MARKER_REL)));
 }
 
+const MARKER_SHOW_TIMEOUT_MS = 15_000;
+
+/** The org layout at `ref`, when it is one this rt does not read. A tip with no marker, a marker rt cannot parse, or a layout at or below ORG_LAYOUT passes. */
+export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: string): Promise<{ layout: number } | null> {
+  const shown = await exec(["git", "-C", repoDir, "show", `${ref}:${ORG_MARKER_REL}`], { timeoutMs: MARKER_SHOW_TIMEOUT_MS, env: { LC_ALL: "C" } });
+  if (shown.code !== 0) {
+    if (/does not exist|exists on disk, but not in/i.test(shown.stderr)) return null;
+    throw new Error(shown.stderr.trim() || `git show exited ${shown.code}`);
+  }
+  const marker = parseMarker(shown.stdout);
+  return marker.kind === "org" && marker.layout > ORG_LAYOUT ? { layout: marker.layout } : null;
+}
+
 export function updateSentence(layout: number): string {
   return `Your org uses layout ${layout} and this app reads up to ${ORG_LAYOUT}. Update the app.`;
 }
