@@ -176,7 +176,12 @@ export function RunRow({ run, pruneDays, enrichment }: RunRowProps) {
           style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
         >
           <Group gap="xs" wrap="nowrap">
-            <Text fw={700} fz={14} c={text.highContrast('accent')} truncate>
+            <Text
+              fw={700}
+              fz={14}
+              c={text.highContrast('accent')}
+              style={{ flexShrink: 0 }}
+            >
               {run.ticket ?? run.id}
             </Text>
             {title && (
