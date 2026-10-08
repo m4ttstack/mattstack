@@ -3,7 +3,8 @@ import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { Outcome, PeerInput, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
-import { deliverToInbox, wrapCrossSession } from "../../daemon/inbox.ts";
+import { CLAUDE_ONLY_TAIL } from "../../../plugins/mattstack-mods/src/blocks/sections.ts";
+import { deliverToInbox, replySteer, wrapCrossSession } from "../../daemon/inbox.ts";
 import { builtinRegistry } from "../builtins.ts";
 import { claudeTransportId, createClaudeMessaging, type ClaudeMessagingDeps } from "../claude/messaging.ts";
 import {
@@ -255,6 +256,23 @@ describe("shared message contract", () => {
     expect(x.queued()[0]!.params).toEqual({
       threadId: THREAD, clientUserMessageId: message.id, input: [{ type: "text", text: envelope }],
     });
+  });
+
+  test("Codex delivery bytes are unchanged", async () => {
+    // The Claude mod trims its copy of the reply line in the session; rt sends every harness the full one.
+    const message = input({ body: `[#general] max #17: ship it\n${replySteer([{ handle: "max.k3f9", name: "max" }])}` });
+    const envelope = wrapCrossSession(message.sender, message.body, message.id);
+    expect(envelope).toContain(` ${CLAUDE_ONLY_TAIL}\n</cross-session-message>`);
+
+    const x = await codex();
+    await x.messaging.submit(codexBinding(), message);
+    expect(x.queued()[0]!.params.input).toEqual([{ type: "text", text: envelope }]);
+
+    const c = await claude();
+    await c.messaging.submit(claudeBinding(), message);
+    const frames = await c.frames();
+    c.stop();
+    expect(frames.map((f) => f.message.content)).toEqual([envelope]);
   });
 
   test("no ordinary chat delivery sends Escape", async () => {

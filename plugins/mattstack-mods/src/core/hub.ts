@@ -134,7 +134,8 @@ type Core = {
   stop(api: ModApi, e: Stop, next: (e: Stop) => Promise<StopResult>): Promise<StopResult>
   lifecycle<K extends Lifecycle>(api: ModApi, event: K, e: LifecycleInputs[K]): Promise<void>
   render(api: ModApi, e: Render, next: (e: Render) => Promise<RenderResult>): Promise<RenderResult>
-  sections(api: ModApi): { id: string; text: string }[]
+  conversation(api: ModApi, source: ClassicEventOf['classic.SessionStart']['source']): Promise<void>
+  sections(api: ModApi): Promise<{ id: string; text: string }[]>
 }
 
 const cores = new WeakMap<Hub, Core>()
@@ -175,6 +176,10 @@ export function createHub(): Hub {
   const live = new Set<ModBlock>()
   let started = false
   let engaged = false
+  // A conversation began (startup or /clear) and no prompt has carried the
+  // core's sections yet. A resume, a fork, or a plugin loaded mid-conversation
+  // never sets it: those conversations may have started without the sections.
+  let opening = false
   const clearedListeners: ((block: ModBlock) => void)[] = []
 
   const rules: Owned<{ rule: ToolRule }>[] = []
@@ -203,6 +208,14 @@ export function createHub(): Hub {
       api.ui.log(`mattstack-mods: ${who} ${sub.label} threw at ${where}: ${message}; ${sub.owner ? 'block cleared, ' : ''}passing through`, { to: 'debug' })
     } catch {
       // A failed log must not turn a pass-through into a failed hook.
+    }
+  }
+
+  async function markComposed(api: ModApi, value: boolean): Promise<void> {
+    try {
+      await api.state.sectionComposed.set(value)
+    } catch (err) {
+      fail(api, { owner: null, label: 'section marker' }, 'state.set', err)
     }
   }
 
@@ -357,16 +370,30 @@ export function createHub(): Hub {
       return subs.length === 0 ? next(e) : chain(api, 'ui.render', subs, next)(e)
     },
 
-    sections(api) {
+    async conversation(api, source) {
+      if (source === 'compact') return
+      opening = source === 'startup' || source === 'clear'
+      await markComposed(api, false)
+    },
+
+    async sections(api) {
+      if (!engaged) return []
       const out: { id: string; text: string }[] = []
+      let fromCore = false
       for (const sub of sectionList) {
         if (!active(sub)) continue
         try {
           const text = sub.text()
-          if (text !== null) out.push({ id: `mattstack-mods:${sub.id}`, text })
+          if (text === null) continue
+          out.push({ id: `mattstack-mods:${sub.id}`, text })
+          if (sub.owner === null) fromCore = true
         } catch (err) {
           fail(api, sub, 'prompt.compose', err)
         }
+      }
+      if (opening && fromCore) {
+        opening = false
+        await markComposed(api, true)
       }
       return out
     },
@@ -475,6 +502,7 @@ export function attachHub(on: On, hub: Hub): void {
     return next(e)
   })
   on('classic.SessionStart', async ($, e, next) => {
+    await core.conversation(facade($), e.source)
     if (e.source === 'clear') await core.lifecycle(facade($), 'session-clear', e)
     else if (e.source === 'resume') await core.lifecycle(facade($), 'session-resume', e)
     else if (e.source === 'compact') await core.lifecycle(facade($), 'session-compact', e)
@@ -499,7 +527,7 @@ export function attachHub(on: On, hub: Hub): void {
   on('ui.render', async ($, e, next) => core.render(facade($), e, next))
   on('prompt.compose', async ($, e, next) => {
     const beneath = await next(e)
-    const added = core.sections(facade($))
+    const added = await core.sections(facade($))
     if (added.length === 0) return beneath
     return { sections: [...beneath.sections, ...added.map(s => ({ ...s, scope: 'session' as const }))] }
   })

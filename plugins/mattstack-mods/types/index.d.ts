@@ -15,7 +15,7 @@ declare module 'claude-code' {
         pane: string | null
         blocks: string[]
       } | null
-      /** Set when the core composed its prompt section for this conversation. */
+      /** True once the core composed its prompt section for a conversation that started with it; false after a resume, a fork, or a /clear not yet composed for. */
       sectionComposed: boolean
     }
   }

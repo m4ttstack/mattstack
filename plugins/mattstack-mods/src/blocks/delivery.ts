@@ -1,6 +1,7 @@
 import type { EngineEventOf } from 'claude-code'
 import type { Hub, ModApi } from '../core/hub.ts'
 import type { Link } from '../core/link.ts'
+import { trimClaudeOnlyReply } from './sections.ts'
 
 type Render = EngineEventOf['ui.render']
 
@@ -13,6 +14,13 @@ export type RtDelivery = { from: string; deliveryId: string; body: string }
  * doubts any text after that tag, as outside the message.
  */
 export type DeliveryEdit = (api: ModApi, delivery: RtDelivery) => string | Promise<string>
+
+/**
+ * Trims the Claude-only half of the reply line, only in a conversation whose
+ * prompt has carried the reply rule section since it started.
+ */
+export const trimReplyUnderSection: DeliveryEdit = async (api, delivery) =>
+  (await api.state.sectionComposed.get()) === true ? trimClaudeOnlyReply(delivery.body) : delivery.body
 
 type Parsed = RtDelivery & { lead: string; open: string; trail: string }
 

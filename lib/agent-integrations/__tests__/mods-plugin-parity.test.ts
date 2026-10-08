@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { MOD_BLOCKS } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { MOD_BLOCKS as PLUGIN_MOD_BLOCKS } from "../../../plugins/mattstack-mods/src/core/blocks.ts";
+import { CLAUDE_ONLY_TAIL, REPLY_RULE_SECTION, trimClaudeOnlyReply } from "../../../plugins/mattstack-mods/src/blocks/sections.ts";
 import { PLUGIN_VERSION } from "../../../plugins/mattstack-mods/src/core/version.ts";
 import manifest from "../../../plugins/mattstack-mods/.claude-plugin/plugin.json";
+import { renderWelcome } from "../../daemon/handlers/chat.ts";
+import { replySteer, wrapCrossSession, type HintSender } from "../../daemon/inbox.ts";
 
 describe("mattstack-mods plugin parity", () => {
   test("the plugin's block list is rt's block list", () => {
@@ -11,5 +14,26 @@ describe("mattstack-mods plugin parity", () => {
 
   test("the version the plugin registers with is plugin.json's", () => {
     expect(PLUGIN_VERSION).toBe(manifest.version);
+  });
+
+  test("the reply rule section is the rule rt's sign-in frame states", () => {
+    expect(renderWelcome("max", ["general"], []).split("\n")).toContain(REPLY_RULE_SECTION);
+  });
+
+  test("trim removes exactly replySteer's tail from a real inbox envelope", () => {
+    const shapes: HintSender[][] = [
+      [{ handle: "remy.k3f9", name: "remy" }],
+      [{ handle: "kai", name: "kai", room: "dm-1a2b", passedOn: true }],
+      [{ handle: "remy.k3f9", name: "remy" }, { handle: "kai.cd34", name: "kai" }],
+    ];
+    for (const senders of shapes) {
+      const steer = replySteer(senders);
+      expect(steer.split(` ${CLAUDE_ONLY_TAIL}`)).toHaveLength(2);
+      const body = `[#general] remy #530: ship it\n${steer}`;
+      const sent = wrapCrossSession("remy (#general)", body, "d-530-max");
+      const trimmed = wrapCrossSession("remy (#general)", trimClaudeOnlyReply(body), "d-530-max");
+      expect(trimmed).toBe(sent.replace(` ${CLAUDE_ONLY_TAIL}`, ""));
+      expect(trimmed).toContain(steer.replace(` ${CLAUDE_ONLY_TAIL}`, ""));
+    }
   });
 });

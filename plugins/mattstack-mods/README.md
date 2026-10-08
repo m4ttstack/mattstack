@@ -22,6 +22,7 @@ so every feature takes its existing path.
 | `src/core/blocks.ts` | The block names. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `src/core/version.ts` | The minimum engine version, the check against it, and the plugin version the link reports. |
 | `src/blocks/` | One file per feature block. `delivery.ts` is the delivery router. |
+| `src/blocks/sections.ts` | The reply rule section's text and the reply-line trim. It imports nothing, so an rt-side bun test can compare it with rt's copy. |
 | `types/index.d.ts` | The plugin's own contract: the `$.state` values it keeps. |
 | `tests/` | `claude plugin test` cases. They drive the hub and link with the stubbed `$` in `tests/stub.ts`. |
 
@@ -122,6 +123,27 @@ have no delivery id, so they pass through untouched.
   queued body and a peer origin. ctrl+o (`isExpanded`) shows the row in full,
   and the stored message the model reads does not change. The router keeps
   the last 200 bodies.
+
+## The reply rule section
+
+The core adds one prompt section, `mattstack-mods:reply-rule`, to every
+prompt in a session where the blocks started: the chat reply rule, word for
+word as rt's sign-in frame states it. A session on an older engine, or with
+nobody at the prompt, gets no section.
+
+The `sectionComposed` state value is true only in a conversation whose
+prompt has carried the section since it started. A SessionStart from startup
+or `/clear` opens a conversation, and the first prompt composed after it sets
+the value. A resume or a fork sets it false, and so does `/clear` until its
+first prompt. A plugin loaded mid-conversation sees no SessionStart, so it
+leaves the value unset.
+
+While the value is true, the router's `trimReplyUnderSection` edit drops the
+Claude-only tail, `(never SendMessage; this arrived through rt chat)`, from
+the reply line rt appends to each delivery. Who sent the delivery and how to
+reply stay. Every other conversation gets the full line, as rt sends it.
+`lib/agent-integrations/__tests__/mods-plugin-parity.test.ts` holds the
+section to rt's sign-in frame and the trim to `replySteer`.
 
 ## Checks
 
