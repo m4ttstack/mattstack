@@ -107,6 +107,7 @@ function fresh(over: {
   bg?: FakeBg;
   bgClaims?: FakeBgClaims | Pick<BgClaimsStore, "claim" | "releaseByPane">;
   lifecycle?: FakeLifecycle;
+  locate?: (sessionId: string, preferredAccount: string | undefined) => Promise<import("../../agent-adopt.ts").TranscriptHit | null>;
 } = {}) {
   const db = openStateDb(join(tmpdir(), `agent-h-${process.pid}-${n++}.db`));
   // Handlers no longer expose `db` (R028); tests that need to reach the
@@ -123,6 +124,7 @@ function fresh(over: {
     bg: over.bg,
     bgClaims: over.bgClaims,
     lifecycle: over.lifecycle,
+    locateTranscript: over.locate,
   }), { db });
 }
 
@@ -1557,4 +1559,61 @@ test("agent:get and agent:list carry the reserved identity's display name beside
   const listed = await h["agent:list"]({});
   if (!listed.ok) throw new Error(listed.error);
   expect(listed.data.agents.find((a) => a.id === res.data.id)).toMatchObject({ handle: res.data.handle, name: res.data.name });
+});
+
+describe("agent:adopt", () => {
+  const SID = "3b9e2f1a-0c4d-4e8f-9a7b-1c2d3e4f5a6b";
+  const hit = { path: "/x.jsonl", cwd: "/Users/me/src/app", account: "me@example.com" };
+
+  test("records a claude herdr agent at the transcript's launch folder, launching nothing", async () => {
+    const calls: string[][] = [];
+    const h = fresh({ runner: okRunner(calls), locate: async () => hit });
+    const res = await h["agent:adopt"]({ sessionId: SID, repo: REPO, subject: "run:r1", label: "ABC-1" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("unreachable");
+    expect(res.data).toMatchObject({
+      sessionId: SID, repo: REPO, cwd: "/Users/me/src/app", provider: "claude", surface: "herdr",
+      account: "me@example.com", subject: "run:r1", label: "ABC-1",
+    });
+    expect(calls).toEqual([]);
+    expect(getAgent(res.data.id, h.db)?.sessionId).toBe(SID);
+  });
+
+  test("a second adopt of the same session returns the same record", async () => {
+    let lookups = 0;
+    const h = fresh({ locate: async () => { lookups++; return hit; } });
+    const first = await h["agent:adopt"]({ sessionId: SID, repo: REPO });
+    const second = await h["agent:adopt"]({ sessionId: SID, repo: REPO });
+    if (!first.ok || !second.ok) throw new Error("unreachable");
+    expect(second.data.id).toBe(first.data.id);
+    expect(lookups).toBe(1);
+  });
+
+  test("refuses when no transcript exists on this Mac", async () => {
+    const h = fresh({ locate: async () => null });
+    const res = await h["agent:adopt"]({ sessionId: SID, repo: REPO });
+    expect(res).toEqual({ ok: false, error: "no transcript for this session on this Mac" });
+  });
+
+  test("refuses a missing repo or a session id with a path separator", async () => {
+    const h = fresh({ locate: async () => hit });
+    expect((await h["agent:adopt"]({ sessionId: SID } as never)).ok).toBe(false);
+    expect(await h["agent:adopt"]({ sessionId: "../x", repo: REPO })).toEqual({ ok: false, error: "invalid sessionId" });
+  });
+
+  test("passes the agent.claude.account setting as the preferred account", async () => {
+    const origHome = process.env.HOME;
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-agent-adopt-")));
+    process.env.HOME = home;
+    try {
+      setSetting("agent.claude.account", "work@example.com", "user");
+      let preferred: string | undefined;
+      const h = fresh({ locate: async (_s, p) => { preferred = p; return hit; } });
+      await h["agent:adopt"]({ sessionId: SID, repo: REPO });
+      expect(preferred).toBe("work@example.com");
+    } finally {
+      process.env.HOME = origHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });

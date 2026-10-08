@@ -39,6 +39,7 @@ export {
   eventsList,
   agentStart,
   agentResume,
+  agentAdopt,
   agentGet,
   agentList,
   paneList,
