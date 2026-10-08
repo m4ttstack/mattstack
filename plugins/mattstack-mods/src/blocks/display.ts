@@ -270,7 +270,7 @@ export function createDisplay(hub: Hub, pane: { id: string; title: string } = { 
     if (asks) stops.push(...(multi ? ['next'] : []), ...(index > 0 ? ['back'] : []))
     open.stops = stops
 
-    const footer = !asks ? '⏎ sends · esc closes' : multi ? '↑↓ move · letter ticks · ⏎ on Next continues · esc closes' : '↑↓ move · ⏎ or a letter answers · esc closes'
+    const footer = !asks ? '⏎ sends · esc closes' : multi ? '↑↓ move · ⏎ or letter ticks · Next continues · esc closes' : '↑↓ move · ⏎ or a letter answers · esc closes'
     children.push(text(el, 'inactive', footer))
     return el.Box({ flexDirection: 'column', rowGap: 1, children })
   }

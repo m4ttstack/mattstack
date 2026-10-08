@@ -175,7 +175,7 @@ describe('display kit', () => {
     expect(byKey(first, 'next').props).toMatchObject({ label: 'Next: 0 picked →', variant: 'primary' })
     expect(byKey(first, 'next').props.hotkey).toBeUndefined()
     expect(texts(first)).toContain('pick any · a letter ticks or unticks · Next moves on')
-    expect(texts(first)).toContain('↑↓ move · letter ticks · ⏎ on Next continues · esc closes')
+    expect(texts(first)).toContain('↑↓ move · ⏎ or letter ticks · Next continues · esc closes')
     expect(byKey(first, 'note').props.placeholder).toBe('optional, posted with your picks')
 
     await k.press('next')
