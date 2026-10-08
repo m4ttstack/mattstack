@@ -36,10 +36,13 @@ without launching anything.
   value: Claude Code files a transcript under the folder the session
   launched in, and `--resume` must start there (a session that later
   entered a worktree with EnterWorktree still launched elsewhere).
-- Account: the `agent.claude.account` setting when its config dir holds the
-  transcript (the same default `agent:start` reads), else the account of
-  the config dir holding the newest copy, else none (default profile).
-  Account hops copy the transcript, so several dirs often hold it.
+- Account, in order: the `agent.claude.account` setting when that
+  account's config dir holds the transcript (the same default `agent:start`
+  reads); else none when `~/.claude` holds it (a bare `claude` reads that
+  dir); else the account whose cswap dir holds the newest copy. A cswap dir
+  is named `<number>-<slug>`, and `cswap list --json` maps the number to
+  the account email `cswap run` takes. Account hops copy the transcript, so
+  several dirs often hold it.
 - Saves `{ provider: "claude", surface: "herdr", sessionId, repo, cwd,
   account?, subject?, label?, paneId? }` through `insertAgent`.
 - No transcript found: refuse with "no transcript for this session on this
@@ -51,23 +54,26 @@ without launching anything.
 
 ### 2. Registering at run start (rt)
 
-`recordIdentity` stays a synchronous, change-guarded sqlite write and starts
-returning the session it newly wrote (`string | null`). The write verbs in
-`commands/runs-write.ts` that call it (`run-start`, `stage-start`, and any
-other path through `recordIdentity`) pass that result to a new async
-`adoptRunSession` next to the existing `emitted` call:
+`recordIdentity` (`lib/runs/identity.ts`) is untouched. A new async
+`adoptRunSession(runDb, env)` (`lib/runs/adopt.ts`) runs after the two write
+verbs that call `recordIdentity` (`run-start` and `stage-start` in
+`commands/runs-write.ts`), next to the existing `emitted` call:
 
-- When a new `claude-session` was written, call `agent:adopt` with that
-  session, the run's repo, `subject: "run:<runId>"`, a label from the
-  ticket or run id, and the `herdr-pane` value.
-- On success, write the returned id as the run field `agent`
-  (`produced_by: "run"`), change-guarded like the identity fields.
-- Best effort: a daemon that is down or an adopt that refuses never fails
-  the run write. The failure is logged at `warn` through `lib/ui/warn.ts`
-  with no `show`, so a pipeline never sees it.
+- It reads the run's `claude-session` and `agent` fields. When a session is
+  recorded and either no `agent` field exists or the session field is newer
+  than the `agent` field, it calls `agent:adopt` with that session, the
+  run's repo, `subject: "run:<runId>"`, the ticket (else the run id) as
+  label, and the `herdr-pane` value.
+- On success it writes the returned id as the run field `agent`
+  (`produced_by: "run"`).
+- Best effort, on `emitRunUpdated`'s contract: `RT_RUN_EMIT=0` skips it, a
+  daemon that is down or refuses is swallowed, and the write's own output
+  never changes. The daemon's command seam already logs every refusal.
 
-Because the hook fires on change, an account hop or a new session taking
-over a run registers too.
+Deriving the trigger from the DB rather than from the write means an
+account hop or a new session taking over the run registers on its next
+stage start, and an adopt that failed while the daemon was down retries on
+the next one.
 
 ### 3. Resume in console
 
@@ -75,34 +81,33 @@ over a run registers too.
 /api/runs/:repo/:runId/resume`, chained like the other run routes so
 `AppType` keeps its inference.
 
-1. Read the run. Refuse 409 unless `status` is `running`; refuse 404 when
-   it recorded no `claude-session`.
+1. Read the run (`getRun`). 404 when it is missing or recorded no
+   `claude-session`; 409 when `status` is not `running`, or when
+   `run.agent` is a live agent (status other than `done`), since Focus
+   pane already covers that case.
 2. Agent id: the run's `agent` field, else `agentAdopt` with the run's
-   session (a run that predates part 2), writing nothing back (console
-   never writes a run DB).
-3. If the agent's pane is alive (`pane:list`), `paneFocus` it and answer
-   `{ focused: true }`.
-4. Otherwise `agentResume({ id, prompt })`, the prompt naming the run and
-   its worktree and quoting the `hold` field when set: "Run `<id>` is no
-   longer held (`<hold>`). Re-enter the worktree `<path>` and pick the run
-   back up." Answer `{ resumed: true }`.
-5. Daemon errors answer 502 with `{ error }` (the kit's error envelope).
+   session (a run that predates part 2). Console never writes a run DB, so
+   nothing is written back; adopt's idempotence makes a second press cheap.
+3. `agentResume({ id, prompt })`, the prompt naming the run and its
+   worktree and quoting the `hold` field when set: "Run `<id>` is no longer
+   held (`<hold>`). Re-enter the worktree `<path>` and pick the run back
+   up." Answer `{ resumed: true, agentId }`.
+4. Daemon errors answer 502 with `{ error }` (the kit's error envelope).
 
-**Read side**: the run detail payload gains `resume: { state: "focus" |
-"resume" | "none" }`, computed on the server from the same checks, so the
-client renders without a second round trip.
+**UI** (`RunDetail.tsx` header, beside the existing Focus pane button). The
+run payload already carries what the button needs: `run.agent` is the live
+herdr agent matched by the run's session (else its worktree), so no new
+read field is added.
 
-**UI** (`RunDetail.tsx` header, beside the status badge): one kit `Button`.
-
-| State | Shown when | Label |
+| State | Shown when | Button |
 | --- | --- | --- |
-| `focus` | the agent's pane is alive | Focus |
-| `resume` | run `running`, session recorded, pane gone | Resume |
-| `none` | no session, or run finished | no button |
+| live | `run.agent` set and not `done` | the existing Focus pane |
+| resumable | run `running`, `claude-session` recorded, no live agent | Resume |
+| neither | no session, or run finished | none |
 
-Pressing it disables the button while the request runs; a failure shows
+Pressing Resume disables the button while the request runs; a failure shows
 `notifications.error` with the server's message, a success
-`notifications.success` ("Resumed in a new pane" / "Focused the pane").
+`notifications.success("Resumed the run in a new pane")`.
 
 ## Testing
 
@@ -112,10 +117,10 @@ Pressing it disables the button while the request runs; a failure shows
 - `recordIdentity` returns the session only on change; `adoptRunSession`
   writes `agent` on success and leaves the write intact on a refused or
   unreachable daemon.
-- Console route: focus, resume, adopt fallback, 404, 409, 502; button state
-  from the payload in `RunDetail.test.tsx`.
+- Console route: resume with a recorded agent, adopt fallback, 404, 409
+  (finished and live), 502; button state in `RunDetail.test.tsx`.
 - Live check: a real held run whose session later entered a worktree
   resumes from console into a pane in the session's launch folder and
   continues the same conversation. This proves `claude --resume` from the transcript's launch
-  folder; it is the first plan task, before the UI.
+  folder. It needs the daemon change deployed, so it runs after merge.
 - Fast Browser screenshots of the run header in light and dark.
