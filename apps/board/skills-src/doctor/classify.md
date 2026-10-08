@@ -204,7 +204,7 @@ real failure only spends a watch before the same error.
 `--fix-classes` is an allowlist: a retry needs `retry-flake` listed, a
 draft needs `inherited-note-draft` listed (and `--draft-bin`). No
 `--fix-classes` means the historical unrestricted behavior: both are
-licensed. A classification with no licensed fix is `real, or no licensed
+licensed. `--fix-classes none` licenses neither. A classification with no licensed fix is `real, or no licensed
 fix`.
 
 `ci_watch` details at most five blocking failures. When `blockingFailures`

@@ -1,4 +1,5 @@
 import { resumeAgentPane, resumePackEnv } from './agent-launch.ts';
+import { focusPane } from './focus-pane.ts';
 import { launchLegacyResume } from './herdr.ts';
 
 /** How the reopen actually started. `no-session` means nothing on file to
@@ -63,12 +64,19 @@ export interface ReopenIo {
   launchLegacyResume: typeof launchLegacyResume;
   writeState(path: string, patch: ReopenStatePatch, now?: number): unknown;
   logError(message: string): void;
+  /** Brings the reopened pane forward: nobody resumes a pane to leave it in
+      the background. */
+  focus(pane: { paneId?: string; tabId: string }): Promise<unknown>;
 }
 
 /** The real resume arms, for callers that add their domain's writeState and
     logError on top -- there is no complete default io, since writeState has
     no domain-free implementation. */
-export const reopenLaunchers = { resumeAgentPane, launchLegacyResume };
+export const reopenLaunchers = {
+  resumeAgentPane,
+  launchLegacyResume,
+  focus: focusPane,
+};
 
 /** Reopen a finished pane at the operator's request, without restarting its
     lifecycle: an agentId on file resumes through the rt agent daemon, a bare
@@ -100,6 +108,15 @@ export async function launchReopen(
     );
   };
 
+  const focus = async (pane: { paneId?: string; tabId: string }) => {
+    try {
+      await io.focus(pane);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      io.logError(`${ctx.workspaceKind} resume focus failed: ${message}`);
+    }
+  };
+
   if (existing.agentId) {
     try {
       const result = await io.resumeAgentPane({
@@ -116,6 +133,7 @@ export async function launchReopen(
           agentId: result.agentId,
           paneId: result.paneId,
         });
+        await focus({ paneId: result.paneId, tabId: result.tabId });
       }
       return { kind: 'resumed' };
     } catch (err) {
@@ -142,6 +160,7 @@ export async function launchReopen(
       pack: ctx.pack,
     });
     writeReopened({ tabId, workspaceId });
+    await focus({ tabId });
     return { kind: 'resumed' };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

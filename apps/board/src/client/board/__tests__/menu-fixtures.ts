@@ -35,6 +35,7 @@ export interface MenuEnv {
   local?: boolean;
   slackEnabled?: boolean;
   triageEnabled?: boolean;
+  doctorTier?: 'api' | 'checkout';
   ownerSlackRepos?: string[];
   roster?: string[];
   peers?: string[];
@@ -115,6 +116,7 @@ export function actionEnvOf(env: MenuEnv, mr: BoardMR): ActionEnv {
     local: env.local ?? true,
     slackEnabled: env.slackEnabled ?? false,
     triageEnabled: env.triageEnabled,
+    doctorTier: env.doctorTier,
     ownerSlackRepos: env.ownerSlackRepos ?? [],
     self: env.self,
     roster: env.roster ?? [],

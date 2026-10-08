@@ -52,6 +52,8 @@ function ctx(over: Partial<RowContext> = {}): RowContext {
     onOpenDraft: noop,
     draftResolved: new Map(),
     onResumeRespond: noop,
+    onResumeReview: noop,
+    onRedo: noop,
     onFocusPane: noop,
     onOpenGate: noop,
     selected: new Set(),
@@ -93,7 +95,8 @@ test('a hot line renders its word, detail, and the primary verb at the end; the 
         word: 'review interrupted',
         detail: 'pane closed 12m ago',
         verbs: [
-          { kind: 'relaunch', label: 'relaunch', domain: 'review' },
+          { kind: 'resume', label: 'resume', domain: 'review' },
+          { kind: 'redo', label: 'redo', domain: 'review' },
           { kind: 'clear', label: 'clear', agentId: 'ag-1' },
         ],
       },
@@ -101,7 +104,8 @@ test('a hot line renders its word, detail, and the primary verb at the end; the 
       bar: 'warn',
     },
     ctx({
-      onFocusPane: (_mr, domain) => calls.push(`focus:${domain}`),
+      onResumeReview: () => calls.push('resume:review'),
+      onRedo: (_mr, lane) => calls.push(`redo:${lane}`),
       onClearOrphan: id => calls.push(`clear:${id}`),
     })
   );
@@ -116,17 +120,24 @@ test('a hot line renders its word, detail, and the primary verb at the end; the 
   const verbs = [
     ...line.querySelectorAll<HTMLButtonElement>('button[data-verb]'),
   ];
-  expect(verbs.map(v => v.dataset.verb)).toEqual(['clear', 'relaunch']);
-  const [clear, relaunch] = verbs as [HTMLButtonElement, HTMLButtonElement];
+  expect(verbs.map(v => v.dataset.verb)).toEqual(['redo', 'clear', 'resume']);
+  const [redo, clear, resume] = verbs as [
+    HTMLButtonElement,
+    HTMLButtonElement,
+    HTMLButtonElement,
+  ];
   expect(clear.dataset.secondary).toBe('true');
   expect(clear.dataset.lane).toBeUndefined();
   expect(clear.querySelector('svg')).toBeNull();
-  expect(relaunch.dataset.secondary).toBeUndefined();
-  expect(relaunch.dataset.lane).toBe('review');
-  expect(relaunch.querySelector('svg')).not.toBeNull();
-  await React.act(async () => relaunch.click());
+  expect(redo.dataset.secondary).toBe('true');
+  expect(redo.dataset.lane).toBe('review');
+  expect(resume.dataset.secondary).toBeUndefined();
+  expect(resume.dataset.lane).toBe('review');
+  expect(resume.querySelector('svg')).not.toBeNull();
+  await React.act(async () => resume.click());
+  await React.act(async () => redo.click());
   await React.act(async () => clear.click());
-  expect(calls).toEqual(['focus:review', 'clear:ag-1']);
+  expect(calls).toEqual(['resume:review', 'redo:review', 'clear:ag-1']);
 });
 
 test('every agent verb wears its lane; answer is a decide verb; navigation carries neither', async () => {
@@ -365,7 +376,7 @@ test('a board that is not local hides merge, as the row menu does; the next verb
   expect(verbs[0]!.dataset.secondary).toBeUndefined();
 });
 
-test('the dismiss secondary sits left of the relaunch and carries the lane it drops', async () => {
+test('the dismiss secondary sits left of the primary and carries the lane it drops', async () => {
   const calls: string[] = [];
   await render(
     {

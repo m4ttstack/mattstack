@@ -121,7 +121,10 @@ const MR_WORDING: Record<
 
 const LAUNCH_WORDING: Record<LaunchFlow, { done: string; noun: string }> = {
   review: { done: 'review started on', noun: 'review' },
-  're-review': { done: 're-review started on', noun: 're-review' },
+  're-review': {
+    done: 'follow-up review started on',
+    noun: 'follow-up review',
+  },
   'resume-review': { done: 'review resumed on', noun: 'review' },
   respond: { done: 'response started on', noun: 'response' },
   'resume-respond': { done: 'response resumed on', noun: 'response' },

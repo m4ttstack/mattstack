@@ -24,6 +24,10 @@ import {
 } from '../data.ts';
 import { extractTicketId } from '../ticket.ts';
 
+/** The fixtures' updatedAt sits a few days before this; the real clock
+    would age them past staleAfterDays. */
+const FIXTURE_NOW = Date.parse('2026-07-13T00:00:00Z');
+
 const config: BoardConfig = {
   gitlabHost: 'https://gitlab.com',
   projects: ['org/repo-a', 'org/repo-b'],
@@ -276,7 +280,8 @@ describe('buildBoard', () => {
           webUrl: 'https://gitlab.com/other/repo/-/merge_requests/6',
         }), // wrong project
       ],
-      config
+      config,
+      FIXTURE_NOW
     );
     expect(mrs.map(m => m.iid).sort()).toEqual([1, 2]);
   });
@@ -310,7 +315,8 @@ describe('buildBoard', () => {
           },
         }),
       ],
-      mine
+      mine,
+      FIXTURE_NOW
     );
     expect(mrs.map(m => m.iid).sort()).toEqual([1, 3]);
     expect(mrs.find(m => m.iid === 1)?.isDraft).toBe(true);
@@ -322,7 +328,8 @@ describe('buildBoard', () => {
     // nobody whose drafts are "mine" to act on.
     const mrs = buildBoard(
       [pr({ iid: 1, draft: true }), pr({ iid: 2 })],
-      config
+      config,
+      FIXTURE_NOW
     );
     expect(mrs.map(m => m.iid)).toEqual([2]);
   });
@@ -408,7 +415,8 @@ describe('buildBoard', () => {
         pr({ iid: 3, sourceBranch: 'hotfix', title: 'NO-TICKET quick fix' }), // untagged, drop
         pr({ iid: 4, sourceBranch: 'x', title: 'ACME-2400: titled' }), // ACME via title, keep
       ],
-      withPrefix
+      withPrefix,
+      FIXTURE_NOW
     );
     expect(mrs.map(m => m.iid).sort()).toEqual([1, 4]);
   });
@@ -419,7 +427,8 @@ describe('buildBoard', () => {
         pr({ iid: 1, sourceBranch: 'ing-1-x', title: 'ING' }),
         pr({ iid: 2, sourceBranch: 'no-ticket' }),
       ],
-      config // ticketPrefixes: []
+      config, // ticketPrefixes: []
+      FIXTURE_NOW
     );
     expect(mrs.map(m => m.iid).sort()).toEqual([1, 2]);
   });
@@ -427,7 +436,8 @@ describe('buildBoard', () => {
   test('tags each MR with author, createdAt, and derived pipelineState', () => {
     const [mr] = buildBoard(
       [pr({ createdAt: '2026-07-01T00:00:00Z' })],
-      config
+      config,
+      FIXTURE_NOW
     );
     expect(mr!.author.username).toBe('alice');
     expect(mr!.createdAt).toBe('2026-07-01T00:00:00Z');
@@ -444,7 +454,7 @@ describe('buildBoard', () => {
       pr({ webUrl: 'https://gitlab.com/g/a/-/merge_requests/1' }),
       pr({ iid: 2, webUrl: 'https://gitlab.com/g/b/-/merge_requests/2' }),
     ];
-    const board = buildBoard(prs, testConfig);
+    const board = buildBoard(prs, testConfig, FIXTURE_NOW);
     expect(board.find(m => m.webUrl!.includes('/g/a/'))!.rtRepo).toBe('repo-a');
     expect(board.find(m => m.webUrl!.includes('/g/b/'))!.rtRepo).toBeNull();
   });

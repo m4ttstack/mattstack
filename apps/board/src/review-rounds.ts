@@ -100,6 +100,16 @@ export function readRounds(
   }));
 }
 
+/** Each MR's highest recorded round, for the board's follow-up label. */
+export function latestRounds(db: Database = getStateDb()): Map<string, number> {
+  const rows = db
+    .query(
+      'SELECT mr_url, MAX(round) AS round FROM review_rounds GROUP BY mr_url'
+    )
+    .all() as Array<{ mr_url: string; round: number }>;
+  return new Map(rows.map(r => [r.mr_url, r.round]));
+}
+
 /** What a later round needs: every finding skipped so far that no round has
     brought back, and every thread confirmed fixed and left to the author. */
 export function ledgerView(rounds: ReviewRound[]): LedgerView {

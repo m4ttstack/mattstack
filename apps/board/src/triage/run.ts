@@ -96,10 +96,11 @@ export function manualDoctorFields(
   triage: TriageConfig,
   author: string,
   identity: string | null
-): { tier?: string; fixClasses: string[] } {
+): { tier?: string; fixClasses: string[]; draftBin: string } {
   return {
     tier: triage.tier === 'checkout' ? undefined : 'api',
     fixClasses: composeFixClasses(triage.fixClasses, author, identity),
+    draftBin: draftBinPath(),
   };
 }
 

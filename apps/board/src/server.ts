@@ -184,6 +184,7 @@ import {
 import { launchErrorMessage } from './launch-error.ts';
 import { hasLocalOrigin, isLocalRequest, requireJsonBody } from './local.ts';
 import {
+  doctorSkillTabs,
   laneBoardTab,
   packForLaunch,
   requestBoardTab,
@@ -271,6 +272,7 @@ import {
   type RespondStatus,
 } from './respond-state.ts';
 import { launchReReview, reviewLaunchForTab } from './review-launch.ts';
+import { dropRounds, latestRounds } from './review-rounds.ts';
 import {
   attachReviews,
   parseReviewRequestBody,
@@ -347,7 +349,12 @@ import {
 import { plainReason } from './triage/nudge.ts';
 import { manualDoctorFields, resolveDispatchIdentity } from './triage/run.ts';
 import { readTurnConfig } from './turn-setting.ts';
-import { effectiveSeat, isOwnMr, resolveStandDownTarget } from './view.ts';
+import {
+  effectiveSeat,
+  isOwnMr,
+  NEEDS_ME_TAB,
+  resolveStandDownTarget,
+} from './view.ts';
 
 /** Capture-harness mode: boot from a committed fixture dir instead of live
     config, serve canned endpoint responses, hold no tokens, start no relay.
@@ -777,6 +784,29 @@ function resolveLaunchSkillFor(
   tabId: string | undefined
 ): string {
   return resolveLaunchSkill(kind, mrUrl, config, packForLaunch(config, tabId));
+}
+
+/** The board tabs a doctor launch on this MR reaches a domain skill from
+    (the "rebase locally" item needs one to rebase in a checkout). Every MR
+    of a project gets the same answer, so `memo` reads each project's pack
+    files once per request. */
+function doctorTabs(
+  webUrl: string | null | undefined,
+  memo: Map<string, string[]>
+): string[] {
+  const project = webUrl
+    ? projectPathFromWebUrl(webUrl, config.gitlabHost)
+    : null;
+  if (!project) return [];
+  let tabs = memo.get(project);
+  if (!tabs) {
+    tabs = doctorSkillTabs(project, config, [
+      ...config.tabs.map(t => t.id),
+      NEEDS_ME_TAB.id,
+    ]);
+    memo.set(project, tabs);
+  }
+  return tabs;
 }
 
 /** `pack` for a LaunchPaneOpts/ReReviewCtx: absent rather than null when none applies. */
@@ -1588,6 +1618,7 @@ const httpServer = Bun.serve({
           pruneFinishedSentNudges();
           pruneNudges(onBoard);
         }
+        const doctorTabsMemo = new Map<string, string[]>();
         const reviews = readReviewStates();
         const responds = readRespondStates();
         const doctors = readDoctorStates();
@@ -1595,7 +1626,10 @@ const httpServer = Bun.serve({
         const reconciler = await fetchReconcilerView();
         const decision = decisionGates(
           attachDoctors(
-            attachResponds(attachReviews(snapshot.mrs, reviews), responds),
+            attachResponds(
+              attachReviews(snapshot.mrs, reviews, latestRounds()),
+              responds
+            ),
             doctors
           ),
           visible,
@@ -1616,6 +1650,7 @@ const httpServer = Bun.serve({
         ).map(mr => ({
           ...mr,
           gates: joinGateExecutors(mr.gates, reconciler.executors),
+          doctorSkillTabs: doctorTabs(mr.webUrl, doctorTabsMemo),
         }));
         const { mrs: mrsWithOrphans, orphans } = joinExecutorOrphans(
           mrsWithGates,
@@ -1659,6 +1694,7 @@ const httpServer = Bun.serve({
             }),
             slackEnabled: !!slackToken,
             triageEnabled: triagePassEnabled(),
+            doctorTier: triageConfigOrDefault().tier,
             ownerSlackRepos: slackToken
               ? config.projects
                   .filter(p => codeownerSlackOn(config, p))
@@ -2135,6 +2171,9 @@ const httpServer = Bun.serve({
         })
           .then(result => {
             if (result.focusedExisting) return;
+            // A fresh review starts the round ledger over, once its pane is
+            // up: the old rounds belong to the run it replaces.
+            dropRounds(parsed.mrUrl);
             writeReviewState(statePath, {
               status: 'queued',
               tabId: result.tabId,
@@ -2367,6 +2406,17 @@ const httpServer = Bun.serve({
           if (dedup.kind === 'refused')
             return new Response(dedup.reason, { status: 409 });
         }
+        // A rebase-only doctor with no domain skill has nothing that can
+        // rebase in a checkout, and its empty allowlist rules out GitLab's
+        // own rebase too, so it could only end in an error.
+        if (
+          parsed.mode === 'rebase' &&
+          !resolveLaunchSkillFor('doctor', parsed.mrUrl, boardTabId)
+        )
+          return new Response(
+            'no doctor skill is set up for this board tab, so nothing can rebase in a checkout',
+            { status: 409 }
+          );
         const triage = loadTriageConfig();
         // Token validation happens here, OUTSIDE the lock, since it's a
         // network round-trip and the lock must never sit open for that long.
@@ -2438,6 +2488,7 @@ const httpServer = Bun.serve({
           note: launchNote,
           tier,
           fixClasses,
+          draftBin: manual.draftBin,
         })
           .then(result => {
             if (result.focusedExisting) return;
@@ -4006,6 +4057,7 @@ function reviewReopenIo(): ReopenIo {
         now
       ),
     logError: message => console.error(message),
+    focus: pane => focusPane(pane),
   };
 }
 
@@ -4020,6 +4072,7 @@ function respondReopenIo(): ReopenIo {
         now
       ),
     logError: message => console.error(message),
+    focus: pane => focusPane(pane),
   };
 }
 

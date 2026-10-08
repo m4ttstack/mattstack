@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
   dropRounds,
+  latestRounds,
   ledgerView,
   qualifySkippedId,
   readRounds,
@@ -137,5 +138,18 @@ describe('review rounds', () => {
     );
     dropPrunedReviewState(URL_A, db);
     expect(readRounds(URL_A, db)).toHaveLength(1);
+  });
+});
+
+describe('latestRounds', () => {
+  test('maps each MR to its highest recorded round', () => {
+    const URL_B = 'https://gitlab.example.com/acme/webapp/-/merge_requests/42';
+    recordRound(round(1), db);
+    recordRound(round(2), db);
+    recordRound({ ...round(1), mrUrl: URL_B }, db);
+    const latest = latestRounds(db);
+    expect(latest.get(URL_A)).toBe(2);
+    expect(latest.get(URL_B)).toBe(1);
+    expect(latest.size).toBe(2);
   });
 });

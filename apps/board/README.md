@@ -229,7 +229,7 @@ review starts or lands.
 Opened from a local hostname, the row menu can hand an MR to a Claude Code
 agent in a fresh [herdr](https://herdr.dev) pane:
 
-- **launch review** or **re-review** someone else's MR
+- **launch review** or **follow-up review** someone else's MR
 - **respond to review** on your own
 - **call the doctor** on merge conflicts or red CI
 

@@ -58,32 +58,45 @@ test('laneInterrupted: hidden or missing orphans and missing lanes never cut', (
   expect(laneInterrupted(gone, undefined)).toBe(false);
 });
 
-test('reviewMenuItems: worded like the row; an interrupted running review offers relaunch instead of focus', () => {
+test('reviewMenuItems: focus only while the pane is alive; an interrupted review offers redo', () => {
+  expect(reviewMenuItems('reviewing')).toEqual([
+    { kind: 'focus', label: 'focus review' },
+  ]);
   expect(reviewMenuItems('reviewing', true)).toEqual([
-    { kind: 'launch', label: 'relaunch review' },
+    { kind: 'redo', label: 'redo review' },
   ]);
   expect(reviewMenuItems('queued', true)).toEqual([
-    { kind: 'launch', label: 'relaunch review' },
-  ]);
-  // Not running: the flag changes nothing.
-  expect(reviewMenuItems('done', true)).toEqual([
-    { kind: 're-review', label: 're-review' },
-  ]);
-  expect(reviewMenuItems('reviewing')).toEqual([
-    { kind: 'launch', label: 'focus review' },
+    { kind: 'redo', label: 'redo review' },
   ]);
 });
 
-test('reviewMenuItems: re-review is offered cold only once a review is logged', () => {
+test('reviewMenuItems: a finished review offers a follow-up with its next round, and redo', () => {
+  expect(reviewMenuItems('done', false, false, 2)).toEqual([
+    { kind: 'follow-up', label: 'follow-up review (round 3)' },
+    { kind: 'redo', label: 'redo review' },
+  ]);
+  // Interrupted changes nothing once the review is not running.
+  expect(reviewMenuItems('done', true)).toEqual([
+    { kind: 'follow-up', label: 'follow-up review' },
+    { kind: 'redo', label: 'redo review' },
+  ]);
+});
+
+test('reviewMenuItems: cold, a plain review; once a review is logged, redo and follow-up', () => {
   expect(reviewMenuItems(undefined)).toEqual([
-    { kind: 'launch', label: 'review' },
+    { kind: 'review', label: 'review' },
   ]);
   expect(reviewMenuItems('error', false, false)).toEqual([
-    { kind: 'launch', label: 'review' },
+    { kind: 'review', label: 'review' },
   ]);
+  // Reviewed only on GitLab: the board never ran one, so nothing to redo.
   expect(reviewMenuItems(undefined, false, true)).toEqual([
-    { kind: 'launch', label: 'review' },
-    { kind: 're-review', label: 're-review' },
+    { kind: 'review', label: 'review' },
+    { kind: 'follow-up', label: 'follow-up review' },
+  ]);
+  expect(reviewMenuItems('error', false, true)).toEqual([
+    { kind: 'redo', label: 'redo review' },
+    { kind: 'follow-up', label: 'follow-up review' },
   ]);
 });
 
@@ -126,14 +139,23 @@ test('reviewLogged: an approval, a reviewer thread, or a reviewer state counts; 
   ).toBe(false);
 });
 
-test('respondItemLabel and doctorItemLabel are worded like the row', () => {
+test('respondItemLabel: focus while alive, redo once interrupted or done', () => {
   expect(respondItemLabel(undefined)).toBe('respond');
-  expect(respondItemLabel('implementing', true)).toBe('relaunch response');
+  expect(respondItemLabel('error')).toBe('respond');
   expect(respondItemLabel('implementing')).toBe('focus response');
-  expect(respondItemLabel('done', true)).toBe('restart response');
+  expect(respondItemLabel('implementing', true)).toBe('redo response');
+  expect(respondItemLabel('done')).toBe('redo response');
+});
+
+test('doctorItemLabel: focus while alive, redo once interrupted or done, honest at the api tier', () => {
   expect(doctorItemLabel(undefined)).toBe('call doctor');
-  expect(doctorItemLabel('done')).toBe('call doctor again');
+  expect(doctorItemLabel(undefined, false, 'checkout')).toBe('call doctor');
+  expect(doctorItemLabel(undefined, false, 'api')).toBe(
+    'call doctor (CI only)'
+  );
   expect(doctorItemLabel('rebasing')).toBe('focus doctor');
+  expect(doctorItemLabel('rebasing', true)).toBe('redo doctor');
+  expect(doctorItemLabel('done')).toBe('redo doctor');
 });
 
 test('rowTitle also drops the ticket the facts line carries, with or without a colon; Slack titles keep it', () => {

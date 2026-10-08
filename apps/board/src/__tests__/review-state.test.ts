@@ -222,6 +222,27 @@ describe('attachReviews', () => {
     expect(a!.review?.status).toBe('reviewing');
     expect(b!.review).toBeUndefined();
   });
+
+  test('carries the latest recorded round onto the review', () => {
+    const reviews = new Map([
+      [
+        URL_A,
+        {
+          mrUrl: URL_A,
+          iid: 4821,
+          status: 'done' as const,
+          startedAt: 0,
+          updatedAt: 0,
+        },
+      ],
+    ]);
+    const [a] = attachReviews(
+      [{ webUrl: URL_A }],
+      reviews,
+      new Map([[URL_A, 2]])
+    );
+    expect(a!.review?.rounds).toBe(2);
+  });
 });
 
 describe('writeReviewState runStartedAt', () => {

@@ -11,12 +11,12 @@ metadata:
   slots: "doctor,doctor-api"
   slot-doctor: "required mr-doctor@2 -- owns the checkout-tier repair playbook: locating or provisioning the worktree, rebasing, triaging and fixing CI, watching for green. When a fix would otherwise dead-end in error but the decision is enumerable, it reports the decision back to this wrapper instead of guessing or terminating -- it never opens or waits on the escalation gate itself."
   slot-doctor-api: "required mr-doctor-api@2 -- owns the api-tier repair playbook: no checkout, pipeline retries, server-side rebase, held drafts only. Same escalation-reporting contract as the checkout-tier slot -- it never opens or waits on the escalation gate itself."
-  compiled: "mattstack:gate-protocol@0.30.15"
+  compiled: "mattstack:gate-protocol@0.30.21"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-566 -->
+<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-567 -->
 # mr-board doctor runner
 
 The board launched this pane because an MR has mechanical breakage (CI red
@@ -33,7 +33,7 @@ repo- or CI-specific knowledge; the board injects it:
 | `--skill <name>` | the domain skill that owns the actual repair (optional) |
 | `--skill-path <path>` | absolute path to that skill's SKILL.md, when the board already resolved it (optional; see "Resolving the domain skill") |
 | `--tier api` | API-only repair tier: no checkout, no worktree, no local commits. Absent = the historical checkout-tier behavior. |
-| `--fix-classes <a,b>` | Comma-separated allowlist of fix classes the dispatching policy enabled (e.g. `retry-flake,inherited-note-draft`). Actions outside the list are escalations, not fixes. See "Fix classes" below for what each one licenses. |
+| `--fix-classes <a,b>` | Comma-separated allowlist of fix classes the dispatching policy enabled (e.g. `retry-flake,inherited-note-draft`). `none` is the empty allowlist: no class is licensed. Absent licenses every class. Actions outside the list are escalations, not fixes. See "Fix classes" below for what each one licenses. |
 | `--draft-bin <path>` | Absolute path to the board's draft-writer CLI. Any outbound MR note MUST be written through it as a held draft, passing this pane's own `--state` value through so the draft lands in the right board's db: `<draft-bin> doctor-draft <mrUrl> <iid> <kind> <body...> --state <state>`. Never post a note directly. |
 | `--resumed-gate <gateId>` | this invocation is a parked-gate resume, not a fresh run (optional; see "Resumed entry" in `entry.md`) |
 | `--resumed-gate-kind <kind>` | the `kind` of the gate `--resumed-gate` names (e.g. `doctor-escalation`). Present exactly when `--resumed-gate` is, and the only way to learn it: `--state` is an opaque handle and `gate wait` returns only the answer. |
@@ -520,8 +520,9 @@ escalation instead.
 - `inherited-note-draft`: a held draft through `--draft-bin` naming a
   failure inherited from the target branch.
 - `clean-api-rebase`: a server-side rebase (`mr_rebase`).
-  `Server-side rebase licensed?` answers yes when `--fix-classes` is
-  absent or lists `clean-api-rebase`.
+  `Server-side rebase licensed?` answers yes only when `--fix-classes`
+  is absent or lists `clean-api-rebase`; under `--fix-classes none` it
+  answers no.
 - **`mechanical-lint`** (checkout tier only): **behavior-neutral
   mechanical code fixes ONLY**... appending a required lint-disable reason
   suffix, formatting-only changes (whitespace, quote style, trailing
@@ -567,7 +568,7 @@ did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 This wrapper's own "Escalation step" replaces the protocol's "Off-script
 gate" section.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.15 path=attachments/gate-protocol/SKILL.md lines=7-456 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.30.21 path=attachments/gate-protocol/SKILL.md lines=7-456 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act

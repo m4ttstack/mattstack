@@ -21,6 +21,7 @@ import {
   activeReviewers,
   ago,
   DOCTOR_LABEL,
+  doctorInterrupted,
   draftKey,
   laneInterrupted,
   RESPOND_ACTIVE,
@@ -30,7 +31,8 @@ import { parseGateCtx } from './gate-ctx.ts';
 type Tone = 'bad' | 'warn' | 'work' | 'go' | 'quiet' | 'clear';
 
 export type VerbKind =
-  | 'relaunch'
+  | 'resume'
+  | 'redo'
   | 'clear'
   | 'answer'
   | 'read-review'
@@ -315,6 +317,13 @@ function hiddenLane(mr: BoardMRWithReview): Verb['domain'] | null {
   return null;
 }
 
+function laneOn(
+  mr: BoardMRWithReview,
+  lane: Lane
+): { sessionId?: string } | undefined {
+  return lane === 'review' ? mr.review : mr.respond;
+}
+
 function orphanLine(
   mr: BoardMRWithReview,
   now: number,
@@ -346,7 +355,10 @@ function orphanLine(
     word: `${interrupted === 'respond' ? 'response' : 'review'} interrupted`,
     detail: closed,
     verbs: [
-      { kind: 'relaunch', label: 'relaunch', domain: interrupted },
+      ...(laneOn(mr, interrupted)?.sessionId
+        ? [{ kind: 'resume' as const, label: 'resume', domain: interrupted }]
+        : []),
+      { kind: 'redo', label: 'redo', domain: interrupted },
       clear,
     ],
   };
@@ -553,7 +565,11 @@ function doctorLine(mr: BoardMRWithReview, now: number): Candidate | null {
         word: DOCTOR_LABEL[d.status],
         spin: true,
         detail: d.origin === 'auto' ? 'auto' : d.message || undefined,
-        verbs: [{ kind: 'focus', label: 'focus', domain: 'doctor' }],
+        verbs: [
+          doctorInterrupted(mr)
+            ? { kind: 'redo', label: 'redo', domain: 'doctor' }
+            : { kind: 'focus', label: 'focus', domain: 'doctor' },
+        ],
       };
     case 'done': {
       // A finished doctor is a note, not an achievement: quiet, not go, and
@@ -800,12 +816,14 @@ const AUTHOR_ONLY_VERBS = new Set<VerbKind>([
   'resume-respond',
 ]);
 
-/** Focusing or relaunching a respond or doctor pane, or answering its gate,
-    goes back through a route that refuses someone else's MR. */
+/** Focusing, resuming or redoing a respond or doctor pane, or answering its
+    gate, goes back through a route that refuses someone else's MR. */
+const DOMAIN_VERBS = new Set<VerbKind>(['resume', 'redo', 'focus', 'answer']);
+
 function authorOnly(v: Verb): boolean {
   return (
     AUTHOR_ONLY_VERBS.has(v.kind) ||
-    ((v.kind === 'relaunch' || v.kind === 'focus' || v.kind === 'answer') &&
+    (DOMAIN_VERBS.has(v.kind) &&
       (v.domain === 'respond' || v.domain === 'doctor'))
   );
 }

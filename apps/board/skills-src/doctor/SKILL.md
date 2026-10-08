@@ -29,7 +29,7 @@ repo- or CI-specific knowledge; the board injects it:
 | `--skill <name>` | the domain skill that owns the actual repair (optional) |
 | `--skill-path <path>` | absolute path to that skill's SKILL.md, when the board already resolved it (optional; see "Resolving the domain skill") |
 | `--tier api` | API-only repair tier: no checkout, no worktree, no local commits. Absent = the historical checkout-tier behavior. |
-| `--fix-classes <a,b>` | Comma-separated allowlist of fix classes the dispatching policy enabled (e.g. `retry-flake,inherited-note-draft`). Actions outside the list are escalations, not fixes. See "Fix classes" below for what each one licenses. |
+| `--fix-classes <a,b>` | Comma-separated allowlist of fix classes the dispatching policy enabled (e.g. `retry-flake,inherited-note-draft`). `none` is the empty allowlist: no class is licensed. Absent licenses every class. Actions outside the list are escalations, not fixes. See "Fix classes" below for what each one licenses. |
 | `--draft-bin <path>` | Absolute path to the board's draft-writer CLI. Any outbound MR note MUST be written through it as a held draft, passing this pane's own `--state` value through so the draft lands in the right board's db: `<draft-bin> doctor-draft <mrUrl> <iid> <kind> <body...> --state <state>`. Never post a note directly. |
 | `--resumed-gate <gateId>` | this invocation is a parked-gate resume, not a fresh run (optional; see "Resumed entry" in `entry.md`) |
 | `--resumed-gate-kind <kind>` | the `kind` of the gate `--resumed-gate` names (e.g. `doctor-escalation`). Present exactly when `--resumed-gate` is, and the only way to learn it: `--state` is an opaque handle and `gate wait` returns only the answer. |
@@ -516,8 +516,9 @@ escalation instead.
 - `inherited-note-draft`: a held draft through `--draft-bin` naming a
   failure inherited from the target branch.
 - `clean-api-rebase`: a server-side rebase (`mr_rebase`).
-  `Server-side rebase licensed?` answers yes when `--fix-classes` is
-  absent or lists `clean-api-rebase`.
+  `Server-side rebase licensed?` answers yes only when `--fix-classes`
+  is absent or lists `clean-api-rebase`; under `--fix-classes none` it
+  answers no.
 - **`mechanical-lint`** (checkout tier only): **behavior-neutral
   mechanical code fixes ONLY**... appending a required lint-disable reason
   suffix, formatting-only changes (whitespace, quote style, trailing
