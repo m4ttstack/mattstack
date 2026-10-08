@@ -206,7 +206,14 @@ Rules:
 
 The migration ships in the same release as the code that reads the directory,
 so a member's update brings both together. A member still on an older board
-after the admin's Mac migrates loses their posting channel until they update.
+after the admin's Mac migrates does not lose posting outright: that board falls
+back to its built-in `code-review` default, so its posts go to `#code-review`
+instead of the team's channel. A board older than v2.21.0 also loses its tabs,
+because the migration rewrites them under `board.tabs@2`, which that board
+cannot read.
+
+Rollout order: members update first, and the admin's Mac runs
+`rt setup update` last.
 
 ## Testing
 
