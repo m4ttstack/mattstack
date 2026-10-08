@@ -394,4 +394,58 @@ describe('gate-panel', () => {
     await flush()
     expect(await h.rowButton()).toBeNull()
   })
+
+  test('a second press while the pane is open keeps the open pane tracked, so an answer elsewhere still closes it', async () => {
+    const h = harness()
+    await h.start()
+    await flush()
+
+    ;(await h.rowButton()).props.onPress({})
+    await flush()
+    ;(await h.rowButton()).props.onPress({})
+    await flush()
+    expect(h.opened).toHaveLength(2)
+    expect(h.closed).toEqual([])
+
+    h.rows['g-1']!.status = 'answered'
+    h.rows['g-1']!.answer = { answers: { ship: 'no' }, by: 'board', answeredAt: 3 }
+    h.emit('gate/answered/g-1')
+    await flush()
+
+    expect(h.closed).toEqual([PANEL_PANE_ID])
+    expect(answers(h)).toEqual([])
+  })
+
+  test('a load in flight when the block is cleared arms no new watch', async () => {
+    const h = harness({ 'g-1': gate() })
+    await h.start()
+    await flush()
+    expect(h.rounds).toHaveLength(1)
+
+    const respond = h.script.respond
+    let release!: () => void
+    const held = new Promise<void>(resolve => (release = resolve))
+    h.script.respond = async (verb, body) => {
+      if (verb === 'gate:list') await held
+      return respond(verb, body)
+    }
+    h.rows['g-2'] = gate({ id: 'g-2' })
+    await h.turnEnd()
+    expect(h.verbs('gate:list')).toHaveLength(2)
+
+    // A draw that throws clears the block while that list is still out.
+    h.$.ui.resolve = () => {
+      throw new Error('surface gone')
+    }
+    expect(await h.band()).toBe(h.engineBand)
+    expect(h.hub.liveBlocks()).not.toContain('gate-panel')
+
+    release()
+    await flush()
+    expect(h.rounds).toHaveLength(1)
+    h.emit('gate/answered/g-1')
+    await flush()
+    expect(h.verbs('gate:list')).toHaveLength(2)
+    expect(h.rounds).toHaveLength(1)
+  })
 })

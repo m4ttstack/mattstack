@@ -53,6 +53,9 @@ export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): 
   const waiting = () => (dialogs ? gates.filter(g => !dialogs.up(g.id)) : gates)
   const watches = new Map<string, AbortController>()
   let paneFor: string | null = null
+  /** Counts presses, so only the newest ask's ending stops tracking the pane. */
+  let asks = 0
+  const live = () => hub.liveBlocks().includes('gate-panel')
   let running: Promise<void> | null = null
   let queued = false
   let last: ModApi | null = null
@@ -102,6 +105,8 @@ export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): 
       log(api, `gate panel: gate:list failed${listed.ok ? '' : ` (${listed.error.code}: ${listed.error.message})`}`)
       return
     }
+    // A clear while this load was out has already stopped every watch.
+    if (!live()) return
     // A daemon from before the session filter answers every gate, so the
     // asking session is checked here too.
     const open = listed.data.gates.filter(
@@ -154,7 +159,7 @@ export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): 
       () => {
         if (watches.get(id) !== stop) return
         watches.delete(id)
-        void refresh(api)
+        if (live()) void refresh(api)
       },
       err => {
         if (watches.get(id) === stop) watches.delete(id)
@@ -165,9 +170,10 @@ export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): 
 
   /** Asks `gate` in the pane and records what the person answered there. */
   async function ask(api: ModApi, gate: PanelGate): Promise<void> {
+    const token = ++asks
     paneFor = gate.id
     const answers = await display.formPane(api, { id: gate.id, questions: gate.questions })
-    if (paneFor === gate.id) paneFor = null
+    if (asks === token) paneFor = null
     if (!answers) return
     const out = await call<{ row?: { answer?: { by?: string } | null }; conflict?: boolean }>(api, 'gate:answer', {
       id: gate.id,
@@ -207,7 +213,7 @@ export function registerGatePanel(hub: Hub, link: Link, dialogs?: FormDialogs): 
   })
 
   link.onLinked(api => {
-    if (hub.liveBlocks().includes('gate-panel')) void refresh(api)
+    if (live()) void refresh(api)
   })
 
   hub.onCleared(block => {
