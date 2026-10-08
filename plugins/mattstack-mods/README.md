@@ -66,7 +66,10 @@ restarted) registers again with the same session id; a refused register turns
 every block off for the session. A register the daemon could not take is sent
 again, unchanged, on the next beat. When the hub clears a block, the link
 re-registers the same session with the blocks still live, so the daemon stops
-counting it; clears within 50 ms share one re-register.
+counting it; clears within 50 ms share one re-register. A SessionStart from a
+resume or a compaction of the linked session sends `session:report` with the
+event and the session's cwd, root and pane; rt treats that context as a hint.
+An `unknown-link` answer re-registers and sends the report once more.
 
 A block reaches the daemon through the link:
 

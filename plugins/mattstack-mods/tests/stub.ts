@@ -121,6 +121,13 @@ export function harness(options: { version?: string; env?: Record<string, string
         async () => ({}),
       )
     },
+    /** A classic SessionStart other than a clear (resume, compact): the session id stays. */
+    sessionStart: (source: string, sessionId = session.id) =>
+      fire(
+        'classic.SessionStart',
+        { session_id: sessionId, transcript_path: '/t.jsonl', cwd: '/repo', hook_event_name: 'SessionStart', source },
+        async () => ({}),
+      ),
     end: (reason: string) =>
       fire('session.end', { reason, sessionId: session.id, resume: { id: session.id } }, async () => ({ sessionId: session.id })),
   }

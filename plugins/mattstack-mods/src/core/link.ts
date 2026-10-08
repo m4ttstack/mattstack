@@ -268,6 +268,25 @@ export function createLink(hub: Hub): Link {
     return { consumed: `mattstack-mods command ${kind} ${cmdId}` }
   }
 
+  async function send(a: ModApi, event: 'resume' | 'compact'): Promise<{ ok: boolean; linkId: string } | null> {
+    const linkId = id
+    if (!linkId) return null
+    const [cwd, root, pane] = await Promise.all([a.session.cwd(), a.session.root(), a.env.pane()])
+    const out = await call(a, 'session:report', { linkId, event, context: { cwd, root, pane: pane || null } })
+    return { ok: out.ok || out.error.code !== 'unknown-link', linkId }
+  }
+
+  /** Tells rt the session resumed or compacted. Only this link's own session counts, so another id's event is not sent. */
+  async function report(event: 'resume' | 'compact', reported: string): Promise<void> {
+    await serial(async () => {
+      if (off || !api || reported !== sessionId) return
+      const first = await send(api, event)
+      if (!first || first.ok) return
+      await relink(first.linkId)
+      await send(api, event)
+    })
+  }
+
   async function wait(pattern: string, after: number, until: (events: unknown[]) => boolean, signal: AbortSignal): Promise<WaitResult> {
     const a = api
     if (!a) throw new Error('mattstack-mods: the link has not started')
@@ -348,6 +367,8 @@ export function createLink(hub: Hub): Link {
           await register(await registration(e.session_id, previous))
         })
       })
+      hub.onLifecycle('session-resume', async (_a, e) => report('resume', e.session_id))
+      hub.onLifecycle('session-compact', async (_a, e) => report('compact', e.session_id))
       hub.onLifecycle('session-end', async () => {
         await serial(async () => {
           if (!api) return

@@ -117,6 +117,42 @@ describe('link', () => {
     expect(h.clock.intervals()).toEqual([10_000])
   })
 
+  test('reports resume and compact for its own session with session:report', async () => {
+    const h = harness({ env: { HERDR_PANE_ID: 'w1:p1' } })
+    await h.start()
+    await h.sessionStart('resume')
+    await h.sessionStart('compact')
+    await h.sessionStart('startup')
+    await h.sessionStart('fork')
+
+    expect(h.verbs('session:report').map(s => s.body)).toEqual([
+      { linkId: 'ml-1', event: 'resume', context: { cwd: '/repo', root: '/repo', pane: 'w1:p1' } },
+      { linkId: 'ml-1', event: 'compact', context: { cwd: '/repo', root: '/repo', pane: 'w1:p1' } },
+    ])
+  })
+
+  test('sends no report for another session id, before a link, or after the session ended', async () => {
+    const h = harness()
+    await h.sessionStart('resume')
+    await h.start()
+    await h.sessionStart('resume', 'sess-other')
+    await h.end('other')
+    await h.sessionStart('compact')
+
+    expect(h.verbs('session:report')).toHaveLength(0)
+  })
+
+  test('a report answered unknown-link re-registers and reports once more on the new link', async () => {
+    const h = harness()
+    h.script.respond = scripted(h, { 'session:report': [unknownLink] })
+    await h.start()
+    await h.sessionStart('compact')
+
+    expect(h.verbs('session:register')).toHaveLength(2)
+    expect(h.verbs('session:report').map(s => s.body.linkId)).toEqual(['ml-1', 'ml-2'])
+    expect(h.link.linkId()).toBe('ml-2')
+  })
+
   test('a wait chains rounds of at most 25 s and passes the cursor', async () => {
     const h = harness()
     h.script.respond = scripted(h, {

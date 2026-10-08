@@ -45,7 +45,8 @@ import {
   createSessionStore, isDetachedAttachment, LEGACY_DEFAULT_PROFILE, listBindingsByNativeValue, type AttachmentInput, type SessionStore,
 } from "../session-store.ts";
 import { CROSS_SESSION_INBOUND_SETTINGS, writeClaudeGateHookSettings } from "./hooks.ts";
-import { installedModLinks } from "./mod-links.ts";
+import type { ModLinkView } from "./mod-links.ts";
+import { liveModLink } from "./mod-path.ts";
 
 export { CROSS_SESSION_INBOUND_SETTINGS };
 
@@ -224,7 +225,7 @@ function defaultDeps(): ClaudeSessionDeps {
     processAlive: isAlive,
     socketExists: existsSync,
     cswapAccounts: defaultCswapAccounts,
-    hasLiveLink: (nativeId) => installedModLinks()?.linkOf(nativeId) != null,
+    hasLiveLink: (nativeId) => liveModLink(nativeId) !== null,
   };
 }
 
@@ -623,5 +624,53 @@ export async function reportClaudeLifecycle(
   const replaced = createSessionStore(db).replaceAttachment(binding.key, attachment.generation, next);
   if (!replaced.ok) return "stale";
   await applySessionPresence(replaced.data, "resume", presence);
+  return "applied";
+}
+
+/** Where a mod says its session runs. Like the link's own record, it is a hint and never grants authority. */
+export type LinkContext = { cwd: string; root: string; pane?: string };
+
+export type LinkLifecycleDeps = {
+  db?: Database;
+  enabled?: () => boolean;
+  now?: () => number;
+  deleteSessionFile?: (sessionId: string) => void;
+  log?: (message: string, context: Record<string, unknown>) => void;
+};
+
+function logLinkHint(message: string, context: Record<string, unknown>): void {
+  void import("../../ui/warn.ts").then(({ warn }) => warn("claude-mod-link", message, { context }));
+}
+
+/**
+ * A mod link's lifecycle report (resume or compact) for its own session, fed
+ * to the shared presence service as reportClaudeLifecycle feeds it. The live
+ * link stands in for the process ancestry that verifies a shell hook's
+ * report: the caller passes a link its registry holds, and only the session
+ * that link registered is touched. Neither event moves or ends the binding:
+ * presence follows the attachment the binding already records, and a pane
+ * that differs from it, in the report or the link, is logged and ignored.
+ */
+export async function reportClaudeLinkLifecycle(
+  link: Pick<ModLinkView, "linkId" | "sessionId" | "pane">, event: "resume" | "compact", context: LinkContext,
+  overrides: LinkLifecycleDeps = {},
+): Promise<"applied" | "unbound"> {
+  const enabled = overrides.enabled ?? (await import("../context.ts")).integrationsEnabled;
+  if (!enabled()) return "unbound";
+  const db = overrides.db ?? (await import("../../state/db.ts")).getStateDb();
+  const recorded = listBindingsByNativeValue(db, link.sessionId).filter((b) => b.native.harness === HARNESS && b.native.kind === "id");
+  if (recorded.length !== 1 || isDetachedClaudeBinding(recorded[0]!)) return "unbound";
+  const binding = recorded[0]!;
+  const bindingPane = binding.attachment.pane;
+  const differs = (pane: string | undefined) => pane !== undefined && bindingPane !== undefined && pane !== bindingPane;
+  if (differs(context.pane) || differs(link.pane)) {
+    (overrides.log ?? logLinkHint)(`a mod's ${event} report names another pane than its session's binding; the binding's own attachment stands`, {
+      session: link.sessionId, link: link.linkId, bindingPane,
+      ...(context.pane !== undefined && { reportedPane: context.pane }), ...(link.pane !== undefined && { linkPane: link.pane }),
+    });
+  }
+  // Loaded here, not at the top: listing integrations must never pull in the chat modules presence reaches.
+  const { applySessionPresence } = await import("../presence.ts");
+  await applySessionPresence(binding, event, { db, enabled, now: overrides.now, deleteSessionFile: overrides.deleteSessionFile });
   return "applied";
 }

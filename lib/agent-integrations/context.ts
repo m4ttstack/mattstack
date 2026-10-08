@@ -5,7 +5,10 @@
  * arguments, and only a native session reference or a connection-bound
  * session key can name a caller. Pane, process, working directory and a
  * requested herd job ride along as hints: they never pick a binding, so a
- * call that carries nothing else refuses as ambiguous.
+ * call that carries nothing else refuses as ambiguous. A Claude session's live
+ * mod link is a hint of the same kind: with the switch on, its pane may pick
+ * one of the bindings a native claim already matches, and a disagreement with
+ * the resolved binding is logged, never acted on.
  *
  * Each harness has its own extractor. Codex names a CLI caller by
  * CODEX_THREAD_ID and an MCP caller by the host's per-request
@@ -20,6 +23,7 @@ import type {
 } from "../../packages/rt-client/src/agent-integrations.ts";
 import { getAgent } from "../state/agents-store.ts";
 import { getStateDb } from "../state/db.ts";
+import { modContext, type ModContextHint } from "./claude/mod-path.ts";
 import { canonicalCodexProfile } from "./codex/profile.ts";
 import { resolveLegacySession } from "./legacy.ts";
 import { createSessionStore, isDetachedAttachment, listBindingsByNativeValue } from "./session-store.ts";
@@ -42,7 +46,14 @@ export type CallerEvidence = {
 /** What the MCP server's own launch configuration says about its host. */
 export type McpTransport = { harness?: HarnessId; profile?: string };
 
-export type ResolveDeps = { db?: Database; legacy?: typeof resolveLegacySession };
+export type ResolveDeps = {
+  db?: Database;
+  legacy?: typeof resolveLegacySession;
+  /** The live mod link's record for a Claude session id; only the daemon holds links. */
+  modContext?: (nativeId: string) => ModContextHint | null;
+  enabled?: () => boolean;
+  log?: (message: string, context: Record<string, unknown>) => void;
+};
 
 /** The cause and the remedy when one environment names both a Codex thread and a Claude Code session. */
 export const BOTH_SESSIONS_MESSAGE = "this command's environment names both a Codex thread (CODEX_THREAD_ID) and a Claude Code session "
@@ -169,15 +180,48 @@ function byConnection(db: Database, input: CallerEvidence & { connection: { key:
   return resolvedAs(binding);
 }
 
+function logModHint(message: string, context: Record<string, unknown>): void {
+  void import("../ui/warn.ts").then(({ warn }) => warn("caller-context", message, { context }));
+}
+
+/** A Claude session's live mod link, read only with the switch on, so a switched-off resolve never consults one. */
+function linkHint(claim: NativeClaim, deps: ResolveDeps): ModContextHint | null {
+  if (claim.harness !== "claude" || claim.kind !== "id") return null;
+  const hint = (deps.modContext ?? modContext)(claim.value);
+  return hint && (deps.enabled ?? integrationsEnabled)() ? hint : null;
+}
+
+/** The link's pane picks one of the bindings the claim already matches, or none; it never names a binding on its own. */
+function choose(matches: SessionBinding[], hint: ModContextHint | null): SessionBinding | undefined {
+  if (hint?.pane === undefined) return undefined;
+  const held = matches.filter((b) => !isDetachedAttachment(b) && b.attachment.pane === hint.pane);
+  return held.length === 1 ? held[0] : undefined;
+}
+
+/** A binding whose recorded pane disagrees with its live link's is still the caller; the disagreement is only logged. */
+function noted(outcome: Outcome<CallerContext>, hint: ModContextHint | null, deps: ResolveDeps): Outcome<CallerContext> {
+  const pane = outcome.ok ? outcome.data.binding.attachment.pane : undefined;
+  if (hint?.pane !== undefined && pane !== undefined && hint.pane !== pane) {
+    (deps.log ?? logModHint)("a Claude session's mod link names another pane than its binding; the binding stands", {
+      session: hint.sessionId, link: hint.linkId, bindingPane: pane, linkPane: hint.pane,
+    });
+  }
+  return outcome;
+}
+
 function byNative(db: Database, claim: NativeClaim, deps: ResolveDeps): Outcome<CallerContext> {
   if (claim.profile !== undefined) {
     const hit = createSessionStore(db).find({ ...claim, profile: claim.profile });
-    if (hit) return resolvedAs(hit);
+    if (hit) return noted(resolvedAs(hit), linkHint(claim, deps), deps);
   } else {
     const matches = listBindingsByNativeValue(db, claim.value)
       .filter((b) => b.native.harness === claim.harness && b.native.kind === claim.kind);
-    if (matches.length === 1) return resolvedAs(matches[0]!);
-    if (matches.length > 1) return fail("ambiguous", `${claim.harness} session ${claim.value} is recorded under more than one profile`);
+    if (matches.length === 1) return noted(resolvedAs(matches[0]!), linkHint(claim, deps), deps);
+    if (matches.length > 1) {
+      const chosen = choose(matches, linkHint(claim, deps));
+      if (chosen) return resolvedAs(chosen);
+      return fail("ambiguous", `${claim.harness} session ${claim.value} is recorded under more than one profile`);
+    }
   }
   const legacy = legacyLookup(deps, db, claim.value, claim.harness);
   if (!legacy.ok) return legacy;

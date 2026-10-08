@@ -884,6 +884,15 @@ export interface Commands {
   "session:end": { payload: { linkId: string }; data: Record<string, never> };
   /** Confirms the pushed command `id` arrived. */
   "session:ack": { payload: { linkId: string; id: string }; data: Record<string, never> };
+  /**
+   * The link's lifecycle report for its own session. `context` is where the mod
+   * says it runs: a hint that is logged when it disagrees, never authority.
+   * `outcome` is "unbound" when no single attached Claude binding names the session.
+   */
+  "session:report": {
+    payload: { linkId: string; event: "resume" | "compact"; context: { cwd: string; root: string; pane?: string | null } };
+    data: { outcome: "applied" | "unbound" };
+  };
   /** Sends the command `kind` to the session's mod; `acked` is false when no ack came within 5 s. */
   "session:push": { payload: { sessionId: string; kind: string; data?: unknown }; data: { acked: boolean } };
 
@@ -1235,6 +1244,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "session:end",
   "session:ack",
   "session:push",
+  "session:report",
 
   // ─── R013/R016 ────────────────────────────────────────────────
   "cache:read",

@@ -50,6 +50,8 @@ export interface ModLinks {
   end(linkId: string): void;
   /** Whether `linkId` is a live link: not expired, ended or superseded. */
   has(linkId: string): boolean;
+  /** The live link `linkId`, or null when it expired, ended or was superseded. */
+  view(linkId: string): ModLinkView | null;
   live(sessionId: string, block: ModBlock): boolean;
   linkOf(sessionId: string): ModLinkView | null;
   /** Records the first ack of `commandId` from `linkId`'s session; a later one for the same pair changes nothing. */
@@ -208,6 +210,11 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
 
     has(linkId) {
       return known(linkId) !== null;
+    },
+
+    view(linkId) {
+      const link = known(linkId);
+      return link ? { ...link, blocks: [...link.blocks] } : null;
     },
 
     live(sessionId, block) {

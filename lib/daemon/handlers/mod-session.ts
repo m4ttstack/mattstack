@@ -4,6 +4,9 @@
  * unknown or superseded link with the `unknown-link` failure code, which is the
  * one answer the mod re-registers on.
  *
+ * session:report is the link's lifecycle report (resume, compact) for the one
+ * session it registered; its context is a hint, never authority.
+ *
  * session:push sends a diagnostic `probe.*` command to a session's mod and
  * reports whether it was acked. Every other kind is refused: a real command
  * comes only from daemon code that has authorized its action, calling
@@ -13,8 +16,9 @@
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import type { Outcome } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { pushModCommand, UNKNOWN_LINK, type ModLinks } from "../../agent-integrations/claude/mod-links.ts";
+import { reportClaudeLinkLifecycle, type LinkContext, type LinkLifecycleDeps } from "../../agent-integrations/claude/sessions.ts";
 
-type Verb = "session:register" | "session:heartbeat" | "session:end" | "session:ack" | "session:push";
+type Verb = "session:register" | "session:heartbeat" | "session:end" | "session:ack" | "session:push" | "session:report";
 type Push = (sessionId: string, kind: string, data: unknown) => Promise<Outcome<{ acked: boolean }>>;
 /** CommandResult's shape, spelled here because ./types.ts reaches setup modules through the daemon's snapshot types. */
 type Result<K extends Verb> =
@@ -41,7 +45,18 @@ function registrationProblem(p: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
-export function createModSessionHandlers(deps: { links: ModLinks; push?: Push }): {
+const LIFECYCLE_EVENTS = ["resume", "compact"] as const;
+
+function reportContext(v: unknown): LinkContext | string {
+  if (v === null || typeof v !== "object") return "context must be an object with cwd, root and pane";
+  const c = v as Record<string, unknown>;
+  if (!isText(c.cwd)) return "context.cwd must be a non-empty string";
+  if (!isText(c.root)) return "context.root must be a non-empty string";
+  if (c.pane !== null && !optionalText(c.pane)) return "context.pane must be a non-empty string, null or absent";
+  return { cwd: c.cwd, root: c.root, ...(isText(c.pane) && { pane: c.pane }) };
+}
+
+export function createModSessionHandlers(deps: { links: ModLinks; push?: Push; lifecycle?: LinkLifecycleDeps }): {
   [K in Verb]: (payload: unknown) => Promise<Result<K>>;
 } {
   const { links } = deps;
@@ -75,6 +90,18 @@ export function createModSessionHandlers(deps: { links: ModLinks; push?: Push })
       if (!isText(linkId)) return invalid("linkId must be a non-empty string");
       if (!isText(id)) return invalid("id must be a non-empty string");
       return links.ack(linkId, id).ok ? { ok: true, data: {} } : unknownLink();
+    },
+
+    "session:report": async (payload) => {
+      const { linkId, event, context } = record(payload);
+      if (!isText(linkId)) return invalid("linkId must be a non-empty string");
+      if (!LIFECYCLE_EVENTS.includes(event as never)) return invalid(`event must be one of ${LIFECYCLE_EVENTS.join(", ")}`);
+      const where = reportContext(context);
+      if (typeof where === "string") return invalid(where);
+      const link = links.view(linkId);
+      if (!link) return unknownLink();
+      const outcome = await reportClaudeLinkLifecycle(link, event as "resume" | "compact", where, deps.lifecycle);
+      return { ok: true, data: { outcome } };
     },
 
     "session:push": async (payload) => {

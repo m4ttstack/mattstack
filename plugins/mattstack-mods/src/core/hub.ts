@@ -83,6 +83,8 @@ export type RenderHandler = (api: ModApi, e: Render, next: (e: Render) => Promis
 export type LifecycleInputs = {
   'session-start': EngineEventOf['session.start']
   'session-clear': ClassicEventOf['classic.SessionStart']
+  'session-resume': ClassicEventOf['classic.SessionStart']
+  'session-compact': ClassicEventOf['classic.SessionStart']
   'turn-start': EngineEventOf['turn.start']
   'turn-end': EngineEventOf['turn.complete']
   'session-end': EngineEventOf['session.end']
@@ -462,6 +464,8 @@ export function attachHub(on: On, hub: Hub): void {
   })
   on('classic.SessionStart', async ($, e, next) => {
     if (e.source === 'clear') await core.lifecycle(facade($), 'session-clear', e)
+    else if (e.source === 'resume') await core.lifecycle(facade($), 'session-resume', e)
+    else if (e.source === 'compact') await core.lifecycle(facade($), 'session-compact', e)
     return next(e)
   })
   on('turn.start', async ($, e, next) => {
