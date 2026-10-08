@@ -1385,8 +1385,8 @@ async function runSignOut(args: string[]): Promise<void> {
   let sessionId: string | undefined;
   const claimed = args.includes("--ended") && integrationsEnabled() ? hookSession(args) : undefined;
   if (claimed !== undefined && isValidSessionId(claimed)) {
-    if (await presenceOwnedByMod(claimed)) return;
     const reported = await endedSession(claimed);
+    if (reported === "owned") return;
     if (reported !== "unverified") {
       lifecycle = reported;
       sessionId = claimed;
@@ -1456,12 +1456,15 @@ async function presenceOwnedByMod(sessionId: string): Promise<boolean> {
  * under that session's own Claude Code process, it goes through the shared
  * presence service, which signs out only the session's current attachment:
  * a process that ends after its session moved elsewhere signs nothing out.
+ * A verified end whose session's mod owns presence comes back `owned`.
  */
-async function endedSession(sessionId: string): Promise<"applied" | "stale" | "unbound" | "unverified"> {
+async function endedSession(sessionId: string): Promise<"applied" | "stale" | "unbound" | "unverified" | "owned"> {
   const [{ reportClaudeLifecycle }, { processAncestry }] = await Promise.all([
     import("../lib/agent-integrations/claude/sessions.ts"), import("../lib/process-ancestry.ts"),
   ]);
-  return reportClaudeLifecycle(sessionId, "end", { env: process.env, ancestry: await processAncestry() });
+  return reportClaudeLifecycle(sessionId, "end", { env: process.env, ancestry: await processAncestry() }, {
+    standAside: () => presenceOwnedByMod(sessionId),
+  });
 }
 
 /**

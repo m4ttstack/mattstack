@@ -65,7 +65,7 @@ export interface ModLinks {
   sweep(): number;
   /** Records a turn report from `linkId`'s presence block; false when that link reports no presence block. */
   setExecution(linkId: string, execution: ModExecution): Outcome<boolean>;
-  /** The session's execution from its live link's presence block, or null with no such block (herdr's status then stands). */
+  /** The session's execution from its live link's presence block; null with no such block or no turn reported yet (herdr's status then stands). */
   execution(sessionId: string): ModExecution | null;
 }
 
@@ -77,6 +77,8 @@ export type ModLinksDeps = {
   continued?(sessionKey: string, from: number, to: number): void;
   /** Called once a binding has moved from native id `from` to `to`, so what is keyed by the session id (chat presence) moves with it. */
   sessionMoved?(from: string, to: string): void;
+  /** Called with each link a sweep drops for a missed heartbeat (not for the switch going off), after it is dropped. */
+  lapsed?(link: ModLinkView): void;
 };
 
 function release(version: string): [number, number, number] | null {
@@ -142,12 +144,15 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
     for (const [id, ack] of acks) if (now - ack.at >= ACK_RETENTION_MS) acks.delete(id);
     const enabled = deps.integrationsEnabled();
     let dropped = 0;
+    const lapsed: ModLinkView[] = [];
     for (const link of [...links.values()]) {
       if (!enabled || now - link.lastHeartbeatAt >= LINK_EXPIRY_MS) {
         drop(link.linkId);
         dropped++;
+        if (enabled) lapsed.push({ ...link, blocks: [...link.blocks] });
       }
     }
+    for (const link of lapsed) deps.lapsed?.(link);
     return dropped;
   }
 
@@ -188,14 +193,16 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
         ? current(input.previousSessionId)
         : null;
       const previous = holder !== null && holder.linkId === input.previousLinkId ? holder : null;
+      const continuedTurn = previous ? executions.get(previous.linkId) : undefined;
       if (previous) {
         const continued = continueBinding(previous.sessionId, input.sessionId);
         if (!continued.ok) return continued;
         drop(previous.linkId);
       }
       const superseded = bySession.get(input.sessionId);
-      // A re-register mid-turn (a cleared block, a daemon that forgot the link) keeps the turn it reported.
-      const running = superseded === undefined ? undefined : executions.get(superseded);
+      // A re-register (a cleared block) or a continuation keeps the turn last reported; a link this daemon
+      // never heard from (one re-registered after a restart) reports nothing until its next turn report.
+      const running = superseded === undefined ? continuedTurn : executions.get(superseded);
       if (superseded !== undefined) drop(superseded);
 
       const now = deps.now();
@@ -270,7 +277,7 @@ export function createModLinks(deps: ModLinksDeps): ModLinks {
     execution(sessionId) {
       const link = current(sessionId);
       if (!link?.blocks.includes("presence")) return null;
-      return executions.get(link.linkId) ?? "idle";
+      return executions.get(link.linkId) ?? null;
     },
   };
 }

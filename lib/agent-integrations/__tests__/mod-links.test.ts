@@ -55,11 +55,36 @@ function register(links: ModLinks, sessionId: string, over: Partial<Parameters<M
 }
 
 describe("mod links", () => {
+  test("a sweep hands each link it drops for a missed heartbeat to lapsed, and none when the switch turns off", () => {
+    let enabled = true;
+    const seen: string[] = [];
+    const { links, clock } = (() => {
+      const db: Database = openStateDb(join(dir, "lapse.db"));
+      const c = { now: 1_000_000 };
+      return {
+        clock: c,
+        links: createModLinks({
+          now: () => c.now, integrationsEnabled: () => enabled, store: createSessionStore(db),
+          lapsed: (link) => { seen.push(`${link.sessionId}:${link.blocks.join(",")}`); },
+        }),
+      };
+    })();
+    register(links, "sess-1");
+    clock.now += 31_000;
+    expect(links.sweep()).toBe(1);
+    expect(seen).toEqual(["sess-1:delivery,gate-form,presence"]);
+
+    register(links, "sess-2");
+    enabled = false;
+    expect(links.sweep()).toBe(1);
+    expect(seen).toHaveLength(1);
+  });
+
   test("a turn report counts only from a live presence block, survives a same-session re-register and lapses with the link", () => {
     const { links, clock } = harness();
     expect(links.execution("sess-1")).toBeNull();
     const first = register(links, "sess-1");
-    expect(links.execution("sess-1")).toBe("idle");
+    expect(links.execution("sess-1")).toBeNull();
     expect(links.setExecution(first.linkId, "working")).toEqual({ ok: true, data: true });
     expect(links.execution("sess-1")).toBe("working");
 
@@ -69,8 +94,9 @@ describe("mod links", () => {
     expect(links.setExecution(first.linkId, "idle").ok).toBe(false);
 
     const continued = register(links, "sess-2", { previousSessionId: "sess-1", previousLinkId: second.linkId });
+    expect(links.execution("sess-2")).toBe("working");
+    expect(links.setExecution(continued.linkId, "idle").ok).toBe(true);
     expect(links.execution("sess-2")).toBe("idle");
-    expect(links.setExecution(continued.linkId, "working").ok).toBe(true);
     clock.now += 31_000;
     expect(links.execution("sess-2")).toBeNull();
 

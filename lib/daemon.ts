@@ -154,6 +154,7 @@ import { integrationsEnabled } from "./agent-integrations/context.ts";
 import { createDeliveryService, type DeliveryService } from "./agent-integrations/delivery.ts";
 import { createModLinks, installModLinks, type ModLinks } from "./agent-integrations/claude/mod-links.ts";
 import { continueSessionPresence } from "./agent-integrations/presence.ts";
+import { reportClaudeLinkLapsed } from "./agent-integrations/claude/sessions.ts";
 import { createSessionStore } from "./agent-integrations/session-store.ts";
 import { createGateQuestions, gateCommandsVia, setGateQuestions, type GateQuestions } from "./agent-integrations/questions.ts";
 
@@ -1346,6 +1347,12 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
             } catch (err) {
               log.warn({ err, from, to }, "mod link: the continued session's chat presence did not move");
             }
+          },
+          lapsed: (link) => {
+            reportClaudeLinkLapsed(link, { db: getStateDb("daemon") }).then(
+              (outcome) => { if (outcome === "applied") log.info({ session: link.sessionId }, "mod link lapsed with its process gone; session signed out"); },
+              (err) => log.warn({ err, session: link.sessionId }, "mod link: a lapsed link's session could not be signed out"),
+            );
           },
         });
         installModLinks(modLinks);

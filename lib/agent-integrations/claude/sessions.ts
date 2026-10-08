@@ -32,7 +32,7 @@ import type { PaneAccount } from "../../../packages/rt-client/src/commands.ts";
 import { parsePaneRef } from "../../../packages/rt-client/src/pane-ref.ts";
 import { unsetPrefix, withoutEnv } from "../../agent-argv/env.ts";
 import type { AgentInvocation } from "../../agent-argv/types.ts";
-import { registryRoots, resolveAllInboxes, sessionForPid, type InboxBinding } from "../../claude-registry.ts";
+import { inboxAlive, registryRoots, resolveAllInboxes, resolveInbox, sessionForPid, type InboxBinding } from "../../claude-registry.ts";
 import type { AgentEntry } from "../../runs/liveness.ts";
 import { isAlive } from "../../runner/workspace-registry.ts";
 import { selfPaneRef } from "../../self-pane.ts";
@@ -565,9 +565,10 @@ export async function prepareClaudeSignIn(
  * ancestor of the reporting command is a live Claude Code process on that
  * session, so the report is nobody's and changed nothing. `unbound`: the
  * report is the session's own, but no single attached Claude binding names
- * it, so the caller keeps its path from before bindings.
+ * it, so the caller keeps its path from before bindings. `owned`: the report
+ * is the session's own, and its mod owns the event, so nothing changed here.
  */
-export type ClaudeLifecycleOutcome = "applied" | "stale" | "unbound" | "unverified";
+export type ClaudeLifecycleOutcome = "applied" | "stale" | "unbound" | "unverified" | "owned";
 
 /** Who reported: the command's environment and its process ancestors, nearest first. */
 export type LifecycleReporter = { env: NodeJS.ProcessEnv; ancestry: readonly number[] };
@@ -588,7 +589,11 @@ export type LifecycleReporter = { env: NodeJS.ProcessEnv; ancestry: readonly num
  */
 export async function reportClaudeLifecycle(
   sessionId: string, event: "resume" | "compact" | "end", reporter: LifecycleReporter,
-  overrides: SignInDeps & { enabled?: () => boolean; now?: () => number; deleteSessionFile?: (sessionId: string) => void } = {},
+  overrides: SignInDeps & {
+    enabled?: () => boolean; now?: () => number; deleteSessionFile?: (sessionId: string) => void;
+    /** Asked only once the report is verified as the session's own: true leaves the session to its mod, as `owned`. */
+    standAside?: () => Promise<boolean>;
+  } = {},
 ): Promise<ClaudeLifecycleOutcome> {
   const enabled = overrides.enabled ?? (await import("../context.ts")).integrationsEnabled;
   if (!enabled()) return "unbound";
@@ -596,6 +601,7 @@ export async function reportClaudeLifecycle(
   const alive = overrides.processAlive ?? isAlive;
   const pid = reporter.ancestry.find((p) => alive(p) && registry.sessionForPid(p) === sessionId);
   if (pid === undefined) return "unverified";
+  if (overrides.standAside && (await overrides.standAside())) return "owned";
   const db = overrides.db ?? (await import("../../state/db.ts")).getStateDb();
   const recorded = listBindingsByNativeValue(db, sessionId).filter((b) => b.native.harness === HARNESS && b.native.kind === "id");
   if (recorded.length !== 1) return "unbound";
@@ -699,6 +705,26 @@ export async function reportClaudeLinkEnded(
   const { applySessionPresence } = await import("../presence.ts");
   await applySessionPresence(binding, "end", { db, enabled, now: overrides.now, deleteSessionFile: overrides.deleteSessionFile });
   return "applied";
+}
+
+/** Whether Claude Code's registry shows a live process for the session: the check the buddy list reads liveness from. */
+function sessionProcessLive(sessionId: string): boolean {
+  const entry = resolveInbox(sessionId);
+  return entry !== null && inboxAlive(entry);
+}
+
+/**
+ * The backstop for a lost `session:end`: while the presence block was live
+ * the SessionEnd hook stood aside, so a link that lapsed with its session's
+ * process gone ends the session as `session:end` would. A lapsed link whose
+ * process still runs (a wedged mod) is left to today's paths.
+ */
+export async function reportClaudeLinkLapsed(
+  link: Pick<ModLinkView, "sessionId" | "blocks">, overrides: LinkLifecycleDeps & { processLive?: (sessionId: string) => boolean } = {},
+): Promise<"applied" | "unbound" | "alive"> {
+  if (!link.blocks.includes("presence")) return "unbound";
+  if ((overrides.processLive ?? sessionProcessLive)(link.sessionId)) return "alive";
+  return reportClaudeLinkEnded(link, overrides);
 }
 
 /** Whether `block` of the session's live mod link owns its feature now: modPath on the session's one attached Claude binding. */

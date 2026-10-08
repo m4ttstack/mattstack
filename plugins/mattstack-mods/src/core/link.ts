@@ -287,7 +287,9 @@ export function createLink(hub: Hub): Link {
   /**
    * Registers `next` from scratch after this process's session ended without
    * a /clear (an in-process /resume to another session): no previous ids, so
-   * nothing carries over, and blocks stay off until rt answers.
+   * nothing carries over. Every block that started and has not failed since
+   * is live again from here and offered in the register; rt's answer keeps
+   * only the blocks it counts, and a register rt declines turns them all off.
    */
   async function reopen(next: string): Promise<void> {
     if (!ended || !api) return

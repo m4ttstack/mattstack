@@ -2043,6 +2043,18 @@ describe("integrations on: chat follows the harness session", () => {
     expect(bindingOf("s-end").attachment).toEqual(bound.attachment);
     expect(seen.map((s) => s.cmd)).not.toContain("chat:sign-out");
 
+    // A hand-run --ended from a process that is not the session's own: never asked, and an ordinary sign-out as today.
+    claudeParentRuns("someone-else");
+    const forged = await runChatRaw(["sign-out", "--quiet", "--session", "s-end", "--ended"]);
+    expect(forged).toMatchObject({ code: 0, stdout: "", stderr: "" });
+    expect(asked()).toHaveLength(1);
+    expect(seen.filter((s) => s.cmd === "chat:sign-out").map((s) => s.payload)).toEqual([{ sessionId: "s-end" }]);
+    expect(existsSync(sessionFilePath("s-end"))).toBe(false);
+    expect(bindingOf("s-end").attachment).toEqual(bound.attachment);
+    claudeParentRuns("s-end");
+    await signInInProcess({ as: "remy", session: "s-end", noRoom: true });
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+
     // Not owned, or a daemon that does not know the verb: today's path.
     for (const reply of [{ ok: true, data: { owned: false } }, undefined]) {
       if (reply) canned["session:owned"] = reply;

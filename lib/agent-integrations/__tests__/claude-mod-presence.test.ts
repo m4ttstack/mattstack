@@ -14,7 +14,8 @@ import { join } from "path";
 import type { Logger } from "pino";
 import type { ModBlock, NativeSessionRef, Outcome, SessionBinding } from "../../../packages/rt-client/src/agent-integrations.ts";
 import { createModLinks, TESTED_CLAUDE_CODE } from "../claude/mod-links.ts";
-import { claudeModSignIn } from "../claude/sessions.ts";
+import { claudeModSignIn, reportClaudeLinkLapsed } from "../claude/sessions.ts";
+import { runCapture } from "../../subprocess.ts";
 import { continueSessionPresence } from "../presence.ts";
 import { createSessionStore, isDetachedAttachment } from "../session-store.ts";
 import { readChatSession, writeChatSession } from "../../chat-session.ts";
@@ -56,15 +57,18 @@ type Reply = { ok: boolean; data?: any; error?: string; failure?: { code: string
  * chat handlers, wired as lib/daemon.ts wires them. `mod` is the session's
  * mod: what it reports as its own id and root, and whether it acks.
  */
-function fixture(opts: { blocks?: ModBlock[]; root?: string } = {}) {
+function fixture(opts: { blocks?: ModBlock[]; root?: string; modDelayMs?: number; waitMs?: number; exec?: typeof runCapture } = {}) {
   const db = openStateDb(join(tmpdir(), `claude-mod-presence-${process.pid}-${n++}.db`));
+  const clock = { offset: 0 };
+  const lapses: Array<Promise<unknown>> = [];
+  const live = new Set<string>();
   const links = createModLinks({
-    now: () => Date.now(), integrationsEnabled: () => true, store: createSessionStore(db),
+    now: () => Date.now() + clock.offset, integrationsEnabled: () => true, store: createSessionStore(db),
     sessionMoved: (from, to) => continueSessionPresence(from, to, { db, enabled: () => true }),
+    lapsed: (link) => { lapses.push(reportClaudeLinkLapsed(link, { db, enabled: () => true, processLive: (s) => live.has(s) })); },
   });
   const mod = createModSessionHandlers({ links, lifecycle: { db, enabled: () => true } });
 
-  const live = new Set<string>();
   const herdrStatus: Record<string, "busy" | "idle"> = {};
   const inboxDir = mkdtempSync(join(tmpdir(), "claude-mod-presence-inbox-"));
   const entry = (session: string) => {
@@ -94,12 +98,14 @@ function fixture(opts: { blocks?: ModBlock[]; root?: string } = {}) {
     if (!state.acks) return { ok: true, data: { acked: false } };
     const link = links.linkOf(sessionId)!;
     // The mod acks on acceptance and then signs in over its link, so its call can land before the push returns.
-    answers.push(h["chat:sign-in"]({ sessionId: state.sessionId, cwd: state.root, linkId: link.linkId, commandId }) as Promise<Reply>);
+    const call = () => h["chat:sign-in"]({ sessionId: state.sessionId, cwd: state.root, linkId: link.linkId, commandId }) as Promise<Reply>;
+    answers.push(opts.modDelayMs === undefined ? call() : Bun.sleep(opts.modDelayMs).then(call));
     return { ok: true, data: { acked: true } };
   };
   h = createChatHandlers({
     db, emitEvent: () => 0, inboxDeps, herdr: noHerdr, log: quiet, retryDelayMs: 0, registryDeps,
     modSignIn: claudeModSignIn({ links: () => links, push }),
+    ...(opts.exec && { exec: opts.exec }), ...(opts.waitMs !== undefined && { modSignInWaitMs: opts.waitMs }),
   });
 
   const register = async (sessionId: string, extra: Record<string, unknown> = {}) => {
@@ -119,7 +125,7 @@ function fixture(opts: { blocks?: ModBlock[]; root?: string } = {}) {
   };
   const status = (handle: string) => listBuddies(Date.now(), db, registryDeps).find((b) => b.handle === handle)?.status;
   const welcomes = (session: string) => frames.filter((f) => f.session === session && f.content.includes("You're signed in to rt chat"));
-  return { db, links, mod, h, live, herdrStatus, frames, state, pushed, answers, register, signIn, status, welcomes };
+  return { db, links, mod, h, live, herdrStatus, frames, state, pushed, answers, register, signIn, status, welcomes, clock, lapses };
 }
 
 describe("presence through the Claude mod", () => {
@@ -128,12 +134,14 @@ describe("presence through the Claude mod", () => {
     const linkId = await x.register("sess-1");
     const { handle } = await x.signIn({ sessionId: "sess-1", pane: PANE });
     bind(x.db, "sess-1", handle);
-    // herdr says busy; the link's own turn reports win while its presence block is live.
+    // Until its first turn report the link says nothing, so herdr's status stands; after it, the link's reports win.
     x.herdrStatus["sess-1"] = "busy";
-    expect(x.status(handle)).toBe("idle");
+    expect(x.status(handle)).toBe("live");
+    x.herdrStatus["sess-1"] = "idle";
 
     expect((await x.mod["session:report"]({ linkId, event: "turn-start" }) as Reply).ok).toBe(true);
     expect(x.status(handle)).toBe("live");
+    x.herdrStatus["sess-1"] = "busy";
     expect((await x.mod["session:report"]({ linkId, event: "turn-end" }) as Reply).ok).toBe(true);
     expect(x.status(handle)).toBe("idle");
     expect(x.links.execution("sess-1")).toBe("idle");
@@ -216,10 +224,11 @@ describe("presence through the Claude mod", () => {
     await Bun.sleep(20);
     expect(x.frames.some((f) => f.session === "sess-2" && f.content.includes("after the clear"))).toBe(true);
 
-    // Signing in again after the clear continues the same identity, with no new mint.
+    // Signing in again after the clear continues the same identity: the count holds at kai's mint.
+    const withKai = identities();
     const again = await x.signIn({ sessionId: "sess-2", pane: PANE });
     expect(again.handle).toBe(signed.handle);
-    expect(identities()).toBe(minted + 1);
+    expect(identities()).toBe(withKai);
   });
 
   test("an unacked sign-in command falls back once to today's daemon-side sign-in", async () => {
@@ -259,6 +268,99 @@ describe("presence through the Claude mod", () => {
     expect((await x.mod["session:end"]({ linkId }) as Reply).ok).toBe(true);
     expect(presenceForSession("sess-1", x.db)?.signedOutAt).toBeUndefined();
     expect(isDetachedAttachment(createSessionStore(x.db).get(binding.key)!)).toBe(false);
+  });
+
+  test("a presence link that lapses with its process gone signs the session out", async () => {
+    const x = fixture();
+    await x.register("sess-1");
+    const signed = await x.signIn({ sessionId: "sess-1", pane: PANE });
+    const binding = bind(x.db, "sess-1", signed.handle);
+    writeChatSession({ sessionId: "sess-1", handle: signed.handle, baseHandle: signed.baseHandle, name: signed.name, signedInAt: 1, bound: true });
+
+    // The process exited and its session:end was lost: no heartbeat, and no registry entry.
+    x.live.delete("sess-1");
+    x.clock.offset = 31_000;
+    expect(x.links.sweep()).toBe(1);
+    await Promise.all(x.lapses);
+
+    expect(presenceForSession("sess-1", x.db)?.signedOutAt).toBeDefined();
+    expect(isDetachedAttachment(createSessionStore(x.db).get(binding.key)!)).toBe(true);
+    expect(readChatSession("sess-1")).toBeNull();
+  });
+
+  test("a lapsed link whose process is still alive does not sign out", async () => {
+    const x = fixture();
+    await x.register("sess-1");
+    const signed = await x.signIn({ sessionId: "sess-1", pane: PANE });
+    const binding = bind(x.db, "sess-1", signed.handle);
+
+    // A wedged mod stops beating, but the session's process still runs.
+    x.clock.offset = 31_000;
+    expect(x.links.sweep()).toBe(1);
+    expect(await Promise.all(x.lapses)).toEqual(["alive"]);
+
+    expect(presenceForSession("sess-1", x.db)?.signedOutAt).toBeUndefined();
+    expect(isDetachedAttachment(createSessionStore(x.db).get(binding.key)!)).toBe(false);
+  });
+
+  test("a session:end whose sign-out throws still ends the link, and signs out on the retry", async () => {
+    const x = fixture();
+    const linkId = await x.register("sess-1");
+    const signed = await x.signIn({ sessionId: "sess-1", pane: PANE });
+    const binding = bind(x.db, "sess-1", signed.handle);
+    let calls = 0;
+    const flaky = createModSessionHandlers({
+      links: x.links, endRetryMs: 1,
+      lifecycle: { db: x.db, enabled: () => { if (++calls === 1) throw new Error("database is locked"); return true; } },
+    });
+
+    expect((await flaky["session:end"]({ linkId }) as Reply).ok).toBe(true);
+    expect(x.links.has(linkId)).toBe(false);
+    expect(presenceForSession("sess-1", x.db)?.signedOutAt).toBeDefined();
+    expect(isDetachedAttachment(createSessionStore(x.db).get(binding.key)!)).toBe(true);
+
+    const second = await x.register("sess-2");
+    const broken = createModSessionHandlers({
+      links: x.links, endRetryMs: 1, lifecycle: { db: x.db, enabled: () => { throw new Error("database is locked"); } },
+    });
+    const failed = await broken["session:end"]({ linkId: second }) as Reply;
+    expect(failed.failure?.code).toBe("transient");
+    expect(x.links.has(second)).toBe(false);
+  });
+
+  test("a slow sign-in completion after the waiter is taken still answers the caller ok", async () => {
+    const root = gitRepo();
+    // The mod's call arrives after 20 ms, inside the 100 ms wait; the sign-in it runs then takes 300 ms.
+    const slowExec: typeof runCapture = async (argv, o) => {
+      await Bun.sleep(150);
+      return runCapture(argv, o);
+    };
+    const x = fixture({ root, modDelayMs: 20, waitMs: 100, exec: slowExec });
+    await x.register("sess-1");
+    bind(x.db, "sess-1", "reserved");
+
+    const signed = await x.signIn({ sessionId: "sess-1", pane: PANE });
+    expect(signed).toMatchObject({ sessionId: "sess-1", mod: true, room: deriveRoomForCwd(root) });
+    expect(presenceForSession("sess-1", x.db)?.cwd).toBe(root);
+  });
+
+  test("a fresh link reports no execution until its first turn report; a re-register or continuation keeps it", async () => {
+    const x = fixture();
+    const linkId = await x.register("sess-1");
+    expect(x.links.execution("sess-1")).toBeNull();
+    await x.mod["session:report"]({ linkId, event: "turn-start" });
+
+    // The mod's re-register after a cleared block, mid-turn.
+    const again = await x.register("sess-1");
+    expect(x.links.execution("sess-1")).toBe("working");
+    const continued = await x.register("sess-2", { previousSessionId: "sess-1", previousLinkId: again });
+    expect(x.links.execution("sess-2")).toBe("working");
+    await x.mod["session:report"]({ linkId: continued, event: "turn-end" });
+
+    // A daemon restart forgets every link: the mod's next register is a link this daemon never heard from.
+    const restarted = fixture();
+    await restarted.register("sess-2");
+    expect(restarted.links.execution("sess-2")).toBeNull();
   });
 
   test("session:owned answers from modPath for the session's one attached binding", async () => {

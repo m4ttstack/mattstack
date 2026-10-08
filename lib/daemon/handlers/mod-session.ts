@@ -60,6 +60,9 @@ function registrationProblem(p: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+const END_ATTEMPTS = 3;
+const END_RETRY_MS = 250;
+
 const LIFECYCLE_EVENTS = ["resume", "compact"] as const;
 const TURN_EVENTS = { "turn-start": "working", "turn-end": "idle" } as const;
 const isTurnEvent = (v: unknown): v is keyof typeof TURN_EVENTS => typeof v === "string" && Object.hasOwn(TURN_EVENTS, v);
@@ -74,7 +77,7 @@ function reportContext(v: unknown): LinkContext | string {
 }
 
 export function createModSessionHandlers(deps: {
-  links: ModLinks; push?: Push; lifecycle?: LinkLifecycleDeps; delivery?: { db?: Database; now?: () => number };
+  links: ModLinks; push?: Push; lifecycle?: LinkLifecycleDeps; delivery?: { db?: Database; now?: () => number }; endRetryMs?: number;
 }): {
   [K in Verb]: (payload: unknown) => Promise<Result<K>>;
 } {
@@ -102,8 +105,19 @@ export function createModSessionHandlers(deps: {
       const link = links.view(linkId);
       if (!link) return unknownLink();
       links.end(linkId);
-      await reportClaudeLinkEnded(link, deps.lifecycle);
-      return { ok: true, data: {} };
+      // The mod sends session:end once and the ended link never lapses, so this is the sign-out's only chance.
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await reportClaudeLinkEnded(link, deps.lifecycle);
+          return { ok: true, data: {} };
+        } catch (err) {
+          if (attempt >= END_ATTEMPTS) {
+            const message = `the session's sign-out failed: ${err instanceof Error ? err.message : String(err)}`;
+            return declined("transient", message);
+          }
+          await Bun.sleep(deps.endRetryMs ?? END_RETRY_MS);
+        }
+      }
     },
 
     "session:ack": async (payload) => {

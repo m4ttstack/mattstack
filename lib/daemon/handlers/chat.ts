@@ -1264,7 +1264,9 @@ export function createChatHandlers(opts: {
   const integrations = opts.integrations ?? builtinRegistry();
   const modSignIn = opts.modSignIn ?? claudeModSignIn();
   const modSignInWaitMs = opts.modSignInWaitMs ?? MOD_SIGN_IN_WAIT_MS;
-  const modSignIns = new Map<string, { request: ModSignInRequest; answer: (result: CommandResult<"chat:sign-in">) => void }>();
+  const modSignIns = new Map<string, {
+    request: ModSignInRequest; answer: (result: CommandResult<"chat:sign-in">) => void; take: () => void;
+  }>();
   const paneInput: PaneInputRoute = {
     db, herdr, integrations, delivery: opts.delivery, enabled: integrationsEnabled, log,
     observe: opts.observeSession ?? observeThroughIntegration(integrations),
@@ -1376,7 +1378,14 @@ export function createChatHandlers(opts: {
     const key = modSignInKey(sessionId, commandId);
     let answer: (result: CommandResult<"chat:sign-in">) => void = () => {};
     const answered = new Promise<CommandResult<"chat:sign-in">>((resolve) => { answer = resolve; });
-    modSignIns.set(key, { request, answer });
+    let taken = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // The wait covers only the mod's call arriving; once it has, the sign-in it runs is answered however long it takes.
+    const take = () => {
+      taken = true;
+      clearTimeout(timer);
+    };
+    modSignIns.set(key, { request, answer, take });
     try {
       const data: ChatSignInCommand = request.room !== undefined && !request.noRoom ? { room: request.room } : {};
       let acked = false;
@@ -1387,10 +1396,12 @@ export function createChatHandlers(opts: {
       } catch (err) {
         log.warn({ err, sessionId }, "chat: the sign-in command could not reach the session's mod; signing in here");
       }
+      if (taken) return await answered;
       if (!acked) return null;
-      let timer: ReturnType<typeof setTimeout> | undefined;
       const late = new Promise<CommandResult<"chat:sign-in">>((resolve) => {
-        timer = setTimeout(() => resolve({ ok: false, error: "chat: this session's mod took the sign-in but did not finish it; sign in again" }), modSignInWaitMs);
+        timer = setTimeout(() => {
+          if (!taken) resolve({ ok: false, error: "chat: this session's mod took the sign-in but never sent it; sign in again" });
+        }, modSignInWaitMs);
       });
       try {
         return await Promise.race([answered, late]);
@@ -1412,21 +1423,27 @@ export function createChatHandlers(opts: {
       return { ok: false, error: message, failure: { code: "refused", message } };
     }
     modSignIns.delete(key!);
+    waiting.take();
     const { request } = waiting;
-    let room: string | null = null;
-    if (!request.noRoom) {
-      try {
-        room = request.room ?? (await deriveRoomForCwdAsync(cwd, exec));
-      } catch (err) {
-        log.warn({ err, cwd }, "chat: a mod sign-in could not derive a room for its root");
+    let answered: CommandResult<"chat:sign-in">;
+    try {
+      let room: string | null = null;
+      if (!request.noRoom) {
+        try {
+          room = request.room ?? (await deriveRoomForCwdAsync(cwd, exec));
+        } catch (err) {
+          log.warn({ err, cwd }, "chat: a mod sign-in could not derive a room for its root");
+        }
       }
+      const result = await completeSignIn({
+        sessionId, baseHandle: request.baseHandle, requested: request.continue, cwd,
+        repo: repoForCwd(cwd, repoIndex()) ?? undefined, branch: await branchForCwd(cwd, exec),
+        pane: attachedBinding(sessionId, db)?.attachment.pane, statusText: request.statusText, room,
+      });
+      answered = result.ok ? { ok: true, data: { ...result.data, mod: true } } : result;
+    } catch (err) {
+      answered = failureFrom(err);
     }
-    const result = await completeSignIn({
-      sessionId, baseHandle: request.baseHandle, requested: request.continue, cwd,
-      repo: repoForCwd(cwd, repoIndex()) ?? undefined, branch: await branchForCwd(cwd, exec),
-      pane: attachedBinding(sessionId, db)?.attachment.pane, statusText: request.statusText, room,
-    });
-    const answered: CommandResult<"chat:sign-in"> = result.ok ? { ok: true, data: { ...result.data, mod: true } } : result;
     waiting.answer(answered);
     return answered;
   };
