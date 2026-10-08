@@ -162,7 +162,10 @@ export function createDisplay(hub: Hub, pane: { id: string; title: string } = { 
     api.ui.redraw()
     hush(api, open)
     quietly(() => api.ui.scroll({ in: pane.id, to: 'start' }))
-    quietly(() => api.ui.focus(pane.id, landing(open)))
+    // The engine does not raise ui.focus for the plugin's own move, so the ring is recorded here.
+    const to = landing(open)
+    open.ring = to
+    quietly(() => api.ui.focus(pane.id, to))
   }
 
   function header(el: El, open: Form): Node | null {

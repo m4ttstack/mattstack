@@ -737,6 +737,29 @@ describe('display kit', () => {
     expect(await answered).toEqual({ 'thread-1': ['post:t1'], 'thread-2': ['post:t2', 'resolve:t2'], 'thread-3': ['resolve:t3'] })
   })
 
+  test('after Back the ring is on the landing choice, so an arrow steps to the next choice instead of scrolling', async () => {
+    const k = kit()
+    void k.ask({
+      id: 'g-b',
+      questions: [
+        { id: 'targets', label: 'Which?', multi: true, options: ['mac', 'linux', 'win'] },
+        { id: 'ship', label: 'Ship it?', options: ['yes'] },
+      ],
+    })
+    await flush()
+    await k.draw()
+    await k.press('option-0')
+    await k.press('next')
+    await k.draw()
+    // The engine raises no ui.focus for the plugin's own move, so only the ring the person left on Back is on record.
+    await k.ring('back')
+    await k.press('back')
+    await k.draw()
+
+    expect(await k.scroll(1)).toBe(false)
+    expect(k.focused.at(-1)).toEqual({ requestId: FORM_PANE_ID, key: 'option-1' })
+  })
+
   test('a findings@1 or skipped@1 page has no Note field, and the arrows skip it', async () => {
     const k = kit()
     void k.ask(REVIEW)
