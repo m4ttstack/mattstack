@@ -42,6 +42,7 @@ async function runExpectingProcessExit(fn: () => Promise<void>): Promise<number 
 
 /** Runs a verb with plain output captured: stdout by line, and stderr whole. */
 async function human(fn: () => Promise<void>): Promise<{ lines: string[]; stderr: string; code: number | undefined }> {
+  ui.__test__.reset();
   const io = captureOut();
   ui.__test__.setHuman(() => false);
   try {
@@ -49,6 +50,7 @@ async function human(fn: () => Promise<void>): Promise<{ lines: string[]; stderr
     return { lines: io.lines(), stderr: io.stderr(), code };
   } finally {
     io.restore();
+    ui.__test__.reset();
   }
 }
 
