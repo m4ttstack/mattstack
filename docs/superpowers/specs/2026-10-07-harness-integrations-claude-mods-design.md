@@ -57,7 +57,8 @@ Both spikes ran Claude Code 2.1.293 under Matt's login with his plugins.
 
 - `ui.render` hides a row; the model still reads it.
 - `session.receive` consumes a delivery before the model. The delivery's
-  origin is `peer`.
+  origin is `peer`. Deliveries the spike's hook did not match went through
+  `next(e)` unchanged and reached the model as usual.
 - A `tool.call` hook can hold AskUserQuestion for minutes, but only through
   chained `events:wait` rounds of 25 s or less carrying a cursor.
   `$.http.fetch` is cut off at 30 s. After a daemon restart (ECONNRESET) the
@@ -106,7 +107,7 @@ In scope (19 tickets and one new one):
 | RT-385 | The mod owns the gate form | Mods package |
 | RT-402 | Wait gates without `rt gate wait` | Mods package |
 | New ticket | Answer a quiet gate from the waiting session's pane | Mods package |
-| RT-391 | Shell hooks ported | M6 (stop gate, spill note), H6 (announce) |
+| RT-391 | Shell hooks ported; the stop hook kept as the backstop | M6 (stop gate, spill note), H6 (announce) |
 | RT-395 | Session state feed | H3 |
 | RT-397 | Watchdog reads the feed, nudges in session | H3 |
 | RT-396 | Run liveness, stop gate, runDb | H4, M6 |
@@ -296,15 +297,15 @@ through the policy registry; Codex through its preToolUse and Stop hooks, as
 already planned.
 
 For a session with `stop-gate` live, the pipeline Stop gate is a mod
-`classic.Stop` that blocks with a reason. The shell `pipeline-gate-stop.sh`
-stays installed, so a wedged or unloaded mod never leaves the gate
-unenforced. Both hooks ask the daemon the same `stop:check` for the
-session. The daemon answers the first check of a stop with the decision and
-tells a second check arriving within 2 s that the stop was already decided,
-so that one passes. Whichever hook runs, the gate holds once and its
-reason reaches the model once. That dedupe applies only with the switch
-on; with it off the shell hook behaves as today. M6's live check confirms
-both hook orders.
+`classic.Stop` that asks the daemon's shared continuation policy and blocks
+with its reason. The shell `pipeline-gate-stop.sh` stays installed and
+unchanged as the backstop, so a wedged or unloaded mod never leaves the gate
+unenforced. Both hooks apply the same rule independently, with no
+coordination between them: when both run, the turn is held and the reason
+reaches the model twice. The duplicate is cosmetic; a coordination step
+that let one hook pass on the other's word would open a bypass. With the
+switch off the mod is not installed, so the shell hook alone runs, as
+today.
 
 The spill-read note becomes a prompt section. The time stamp stays a shell
 hook, because a prompt section is frozen per conversation. It moves only if
@@ -348,8 +349,8 @@ or absorbing that backgrounded work. If there is no way, the board shows
 - **No link** (daemon down, restarting, unreachable) clears every block, and
   each adapter takes today's path. The link retries with its cursor. A
   wedged or unloaded mod sends no heartbeat, so its blocks clear within
-  30 s. The stop gate has no such window, because the shell Stop hook never
-  stands down on a block alone (see Policy).
+  30 s. The stop gate has no such window, because the shell Stop hook
+  always runs as the backstop (see Policy).
 - **Unconfirmed commands.** The mod confirms each daemon command (complete a
   gate, nudge, sign in, stand down) under its id. An unconfirmed command
   falls back once, for that action only, and the record says which path
@@ -385,7 +386,10 @@ metadata", which nothing reports yet.
   records the path).
 - Daemon: contract tests for `session:*` and the block lifecycle (register,
   heartbeat and its 30 s lapse, `/clear` continuation, end, switch off
-  refuses), and for `stop:check` deduping in both hook orders.
+  refuses).
+- Stop gate: with a run open, the turn is held whether the mod's hook,
+  the shell hook or both run, including a mod hook that errors and a
+  second stop soon after a first.
 - Matt's dev-app trial is the final end-to-end check.
 
 ## Documents and tickets
