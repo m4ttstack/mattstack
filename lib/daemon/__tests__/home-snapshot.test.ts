@@ -12,8 +12,8 @@ import { closeStateDb, getKvValue } from "../../state/index.ts";
 import { readHomePushRecord } from "../../home/push-record.ts";
 import { rtDir } from "../../rt-paths.ts";
 import { fakeProbes } from "../../setup/__tests__/fakes.ts";
-import { updateSentence } from "../../team/org-marker.ts";
-import { homeSnapshotSpec, layoutGate, startHomeSnapshot, startSnapshot, teamScope, teamSnapshotSpec, type HomeSnapshotDeps, type HomeSnapshotSettings } from "../home-snapshot.ts";
+import { layoutGate, updateSentence } from "../../team/org-marker.ts";
+import { homeSnapshotSpec, startHomeSnapshot, startSnapshot, teamScope, teamSnapshotSpec, type HomeSnapshotDeps, type HomeSnapshotSettings } from "../home-snapshot.ts";
 
 // ─── test doubles ────────────────────────────────────────────────────────────
 

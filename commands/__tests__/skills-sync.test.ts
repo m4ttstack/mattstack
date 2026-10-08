@@ -245,6 +245,20 @@ describe("syncBlocks", () => {
     expect(syncFailure(refused)).toBeNull();
   });
 
+  test("a layout hold refuses the sync as policy with the update sentence and no command", () => {
+    const detail = "rt did not pull /z/teams/widgets/mattstack/packs/widgets. Your org uses layout 2 and this app reads up to 1. Update the app.";
+    const held = report({
+      ok: false,
+      steps: [
+        { name: "guards", status: "ran", detail: "engine and pack checkouts clean on main" },
+        { name: "layout-gate", status: "refused", detail },
+      ],
+    });
+    expect(renderPlain(syncBlocks(held))).toBe("[ok] Safety checks  engine and pack checkouts clean on main\n");
+    expect(renderPlain(syncRefusal(held)!)).toBe(`[refused] rt did not sync acme  it stopped at: Check the org layout\n  why: ${detail}\n`);
+    expect(syncFailure(held)).toBeNull();
+  });
+
   test("a refusal is not a failure: the steps before it on stdout, then a refused note", () => {
     const refused = report({
       ok: false,

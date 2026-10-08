@@ -43,7 +43,7 @@ import {
 } from "../state/index.ts";
 import { gitWithToken } from "../team/git-credential.ts";
 import { storedForgeToken } from "../team/stored-forge-token.ts";
-import { ORG_LAYOUT, ORG_MARKER_REL, parseMarker, updateSentence } from "../team/org-marker.ts";
+import { layoutGate, ORG_LAYOUT, updateSentence } from "../team/org-marker.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readOwners as readOwnersReal, type Owners } from "../home/snapshot-owners.ts";
 import { HOME_SNAPSHOT_NS, recordHomePush, type HomePushRecord } from "../home/push-record.ts";
@@ -381,17 +381,6 @@ export function homeSnapshotSpec(repoDir: string = join(mattstackHome(), "user")
 const TEAM_STANDING_ZONES: Owners["zones"] = {
   "mattstack/packs/": { owner: "skills-publish", claimedAt: "1970-01-01T00:00:00.000Z" },
 };
-
-/** The org layout at `ref`, when it is one this rt does not read. A tip with no marker, a marker rt cannot parse, or a layout at or below ORG_LAYOUT passes. */
-export async function layoutGate(exec: Probes["exec"], repoDir: string, ref: string): Promise<{ layout: number } | null> {
-  const shown = await exec(["git", "-C", repoDir, "show", `${ref}:${ORG_MARKER_REL}`], { timeoutMs: GIT_TIMEOUT_MS, env: { LC_ALL: "C" } });
-  if (shown.code !== 0) {
-    if (/does not exist|exists on disk, but not in/i.test(shown.stderr)) return null;
-    throw new Error(shown.stderr.trim() || `git show exited ${shown.code}`);
-  }
-  const marker = parseMarker(shown.stdout);
-  return marker.kind === "org" && marker.layout > ORG_LAYOUT ? { layout: marker.layout } : null;
-}
 
 /** A team clone: no legacy state file (nothing predates it), and it pulls (multi-writer), unlike the home repo. */
 export function teamSnapshotSpec(
