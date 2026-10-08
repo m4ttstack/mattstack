@@ -41,7 +41,7 @@ Most actions depend on three facts about the board you are looking at and the MR
 Right-click a row to open its menu. It is titled with the MR's number, and reads top to bottom:
 
 1. **Slack reactions**, a row of three emoji buttons, when the MR's Slack thread is found.
-2. **Slack shortcuts**: find the thread, or, on your own MR that is not posted yet, post it.
+2. **post to slack**, on your own MR while it still has somewhere to post.
 3. **agent actions**: the agent launches that fit this MR right now.
 4. Four flyouts: **all agent actions**, **gitlab**, **slack** and **more**. A flyout with only one item shows that item in place instead.
 
@@ -71,14 +71,9 @@ When one Slack post links several MRs, the first mark on an MR replies in that p
 
 The emoji come from the `emoji` key of the `board.slack` setting; the defaults are shown.
 
-### Slack shortcuts
+### Finding the Slack thread
 
-| Icon | Label | What it does | Shows when |
-| --- | --- | --- | --- |
-| <BoardIcon name="slack" /> | find slack thread | Reads the MR's Slack channel for the first post that contains the MR's link, and links the row to it. It reads only, and posts nothing. After a miss it reads "no thread, find it again". | The thread is not found yet. On your own unposted MR it moves into the **slack** flyout. |
-| <BoardIcon name="slack" /> | post to #channel | Posts the MR to its Slack channel under your name ("post to slack" when it has none). If a post with the MR's link is already there, it posts nothing and links the row to that post instead. | Your own MR, not yet posted. Once posted it moves into the **slack** flyout, greyed: "thread exists". |
-
-The MR's channel is the board's Slack channel, or a code owners tab's own channel for an MR that tab collects. The board searches top-level posts from the last 90 days, and checks again every 15 minutes on its own.
+The board finds each MR's Slack post on its own: the first post in the MR's channel that contains the MR's link. It looks every 15 minutes, before every post, and when you open the menu of an MR with no post on record. The MR's channel is the board's Slack channel, or a code owners tab's own channel for an MR that tab collects. The board searches top-level posts from the last 90 days.
 
 ### agent actions
 
@@ -198,25 +193,38 @@ For rebasing your branch in a local checkout instead, see **rebase locally** und
 | Icon | Label | What it does |
 | --- | --- | --- |
 | <BoardIcon name="slack" /> | open MR post in slack | Opens the MR's Slack post in a new browser tab. Greyed "no thread" until the thread is found. |
-| <BoardIcon name="slack" /> | post to #channel | The same post as in [Slack shortcuts](#slack-shortcuts). Greyed "thread exists" once it is posted. |
-| <BoardIcon name="slack" /> | post to code owners… | Opens a dialog to post your MR to the channel of each code owners section that still has to approve. See [Post to code owners](#post-to-code-owners). |
+| <BoardIcon name="slack" /> | post to slack | Posts your MR for review in Slack. See [Post to slack](#post-to-slack). It sits at the top of the menu until the MR is posted. Reads "post to other codeowners…", still at the top, while other teams' code owners are left to ask. |
 | <BoardIcon name="copy" /> | copy for slack | Copies one line, the MR's title and link, to the clipboard. The copy drops a `Draft: ` prefix and a leading ticket id from the title; a post keeps them. Nothing is sent. Always offered. |
 
 Everything here but **copy for slack** needs a local board with Slack connected. A post's text comes from the `singleTemplate` key of the `board.slack` setting, `{title}: {url}` by default.
 
-#### Post to code owners
+#### Post to slack
 
-Shows on your own MR when the repo's `board.codeowners` setting turns on `slack.fromSectionName`. Each code owners section names its channel as the last `#channel` in the section's name.
+On your own MR, **post to slack** posts the MR to your team's Slack channel under your name. If a post with the MR's link is already there, it posts nothing and links the row to that post instead. Once posted, the item is greyed "posted".
 
-The dialog checks the MR's approvals on GitLab, then lists one switch for each channel still to post to. Below them, it lists the sections it will not post for, each with its reason:
+In a repo whose `board.codeowners` setting turns on `slack.fromSectionName`, code owners sections can ask for review in Slack too. Each section names its channel as the last `#channel` in the section's name. A click first checks the MR's approvals:
+
+- When only your team's own code owners still have to approve, or nobody does, it posts straight to the team channel.
+- When other teams' code owners still have to approve, it opens the post to slack dialog.
+- When everything is already posted, it says "nothing left to post for !N".
+- When it cannot read the approvals, it still posts to the team channel and says it could not check code owners.
+
+In these repos the item is never greyed, since a push can reset approvals.
+
+The dialog lists one switch per channel, each on by default:
+
+- The team channel comes first, labelled "team review". Your team's own code owners sections ride on this row, and so does any section that names the team channel. Your own sections' channel is where other teams ask you, so it is never offered for your own MR.
+- One switch for each other team's code owners channel still to ask.
+
+Below them, the dialog lists what it will not post, each with its reason:
 
 - already approved.
 - no channel in its name.
-- already posted to that channel.
+- already posted to that channel, with a link. A request someone posted by hand counts too.
 - Slack has no such channel.
 - you are not in the channel.
 
-**post to N channels** posts the message once in each channel you leave on, under your name. The board remembers those posts, so a second visit shows them as already posted.
+**post to N channels** posts the message once in each channel you leave on, under your name. After posting to only some of them, the item reads **post to other codeowners…** at the top of the menu.
 
 ### more
 
@@ -234,7 +242,7 @@ The bulk menu is titled "N selected". It offers only what every checked MR's own
 
 - **agent actions**: review, follow-up review, redo, call doctor and request review from….
 - **gitlab**: rebase on target, set auto-merge, cancel auto-merge, mark ready, mark as draft and merge.
-- **slack**: the three Slack reactions and find slack threads.
+- **slack**: the three Slack reactions.
 
 An MR that is already where an action would take it, such as already rebased, is skipped. Merging asks "really merge N?", and refuses while a checked MR sits on another MR that is still open. Starting more than three reviews, re-reviews or doctors asks first too. When nothing fits every checked MR, the menu says "nothing fits all N".
 
