@@ -71,7 +71,8 @@ Every reader keys on the folder, so a Mac that has not converged yet keeps
 working under the old name.
 The marker also carries the org's layout version (`layout`, read by
 `orgLayoutState`); an rt reads layouts up to `ORG_LAYOUT` and the daemon holds a
-clone whose `main` moved past that until the app updates.
+clone whose fetched tip of the checked-out branch names a higher layout until
+the app updates.
 
 A string value can name paths through a closed set of variables, which the
 resolver expands on read: `${repoRoot}`, `${worktree}`, `${home}` and

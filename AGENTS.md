@@ -51,7 +51,9 @@ needs `.git/config`, the first by name holding the org store wins, else the
 first org-kind clone, and a stale folder beside it is skipped. A clone on
 another layout is `waiting`: materialize writes nothing, `rt skills` verbs
 (`rt skills init` too) draw a `refused` note and exit 2, the migrations that
-read the org skip, and the `org.layout` row carries the hold as `needs-you`.
+read the org skip, and the `org.layout` row reads a clone below `ORG_LAYOUT`
+as a calm `skipped` row and a clone above it, or a held pull, as `needs-you`
+with the update step.
 The daemon's team pull holds a clone whose fetched tip is above `ORG_LAYOUT`
 (`layoutGate` in `lib/daemon/home-snapshot.ts`, `git show` under `LC_ALL=C`),
 so an older app never fast-forwards onto a layout it cannot read; a git
