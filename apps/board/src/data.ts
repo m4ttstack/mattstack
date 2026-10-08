@@ -279,7 +279,8 @@ export function channelForMR(
 }
 
 /** Every Slack channel this board's config can route a review-request to:
-    the default channel plus every tab-level override, deduped. Used to
+    the team's review channel, when it has one, plus every tab-level
+    override, deduped. Used to
     validate a client-supplied channel override. */
 export function configuredSlackChannels(
   config: Pick<BoardConfig, 'slack' | 'tabs'>
@@ -288,7 +289,7 @@ export function configuredSlackChannels(
   for (const tab of config.tabs) {
     if (tab.slackChannel) channels.add(tab.slackChannel);
   }
-  return [...channels];
+  return [...channels].filter(Boolean);
 }
 
 /** One project's sync facts, the shape aggregateSyncScope folds across projects. */

@@ -16,63 +16,9 @@ import { dbPathForRoot, openStateDb } from '../state/index.ts';
 // slack-api-mock-preload.ts answers slack.com and logs every message sent.
 // Project g/p opts in through board.codeowners in its repo section; g/q does
 // not. MR 701's Code Owner sections cover every row the preview can show.
-const fakeHome = mkdtempSync(join(tmpdir(), 'board-slack-owners-'));
+// The team channel and our own code owners channel come from the team
+// directory; a second board, whose team has no review channel, refuses.
 const HOST = 'https://gitlab.example.com';
-
-const teamDir = join(
-  fakeHome,
-  '.mattstack',
-  'orgs',
-  'testteam',
-  'mattstack',
-  'org'
-);
-mkdirSync(teamDir, { recursive: true });
-writeFileSync(
-  join(teamDir, 'settings.org.jsonc'),
-  JSON.stringify({
-    'board.gitlabHost': HOST,
-    'board.projects': ['g/p', 'g/q'],
-    'mattstack.roster': [{ username: 'alice' }, { username: 'bob' }],
-    'board.slack': { channel: 'code-review', autoResolveIntervalMinutes: 0 },
-    'board.tabs': [
-      { id: 'team', label: 'Team', source: { kind: 'authors' } },
-      {
-        id: 'owners',
-        label: 'Owners',
-        source: {
-          kind: 'codeowners',
-          section: 'Ours - #ours-channel',
-          excludeMembers: true,
-        },
-        slackChannel: 'ours-channel',
-      },
-    ],
-    repos: {
-      'gitlab.example.com/g/p': {
-        'board.codeowners': { slack: { fromSectionName: true } },
-      },
-    },
-  })
-);
-const userDir = join(fakeHome, '.mattstack', 'user');
-mkdirSync(userDir, { recursive: true });
-writeFileSync(
-  join(userDir, 'settings.user.jsonc'),
-  JSON.stringify({ 'board.defaultMember': 'alice' })
-);
-writeFileSync(join(fakeHome, '.mattstack', 'machine-key'), 'testmachine');
-const machineDir = join(fakeHome, '.mattstack', 'user', 'local', 'testmachine');
-mkdirSync(machineDir, { recursive: true });
-writeFileSync(
-  join(machineDir, 'settings.local.jsonc'),
-  JSON.stringify({
-    'board.rtRepos': [
-      { project: 'g/p', repo: 'gitlab.example.com/g/p' },
-      { project: 'g/q', repo: 'gitlab.example.com/g/q' },
-    ],
-  })
-);
 
 const url = (project: string, iid: number) =>
   `${HOST}/${project}/-/merge_requests/${iid}`;
@@ -205,107 +151,197 @@ const APPROVAL_BY_IID: Record<string, unknown> = {
 };
 
 const forgeSeen: Array<{ repoName: string; path: string }> = [];
-const rtDir = join(fakeHome, '.mattstack', 'rt');
-mkdirSync(rtDir, { recursive: true });
-const rtDaemon = Bun.serve({
-  unix: join(rtDir, 'rt.sock'),
-  async fetch(req) {
-    const { pathname } = new URL(req.url);
-    const body = (
-      req.method === 'POST' ? await req.json().catch(() => null) : null
-    ) as { repoName?: string; path?: string } | null;
-    if (pathname === '/project-mrs:read') {
-      const project =
-        (body?.repoName ?? '').includes('g%2Fq') ||
-        (body?.repoName ?? '').endsWith('g/q')
-          ? 'g/q'
-          : 'g/p';
-      const mrs: Record<string, unknown> = {};
-      for (const pr of PRS[project]!)
-        mrs[pr.id] = { pr, fetchedAt: Date.now(), codeownerSections: [] };
-      return Response.json({
-        ok: true,
-        data: {
-          mrs,
-          listSyncedAt: Date.now(),
-          source: 'poll',
-          syncedAt: Date.now(),
-        },
-      });
-    }
-    if (pathname === '/forge:get') {
-      forgeSeen.push({
-        repoName: body?.repoName ?? '',
-        path: body?.path ?? '',
-      });
-      const iid = /merge_requests\/(\d+)\//.exec(body?.path ?? '')?.[1] ?? '';
-      if (iid === '705') await new Promise(r => setTimeout(r, 600));
-      if (iid === '703')
-        return Response.json({
-          ok: true,
-          data: {
-            status: 200,
-            body: '{"rules":[{"rule_type":"code_owner","sec',
-            truncated: true,
-            nextPage: null,
-            totalPages: null,
+
+/** A board on its own temp HOME, its own fake rt daemon and the Slack mock,
+    whose org directory is `directory`. */
+function bootBoard({ port, directory }: { port: number; directory: unknown }) {
+  const home = mkdtempSync(join(tmpdir(), 'board-slack-owners-'));
+  const orgDir = join(home, '.mattstack', 'orgs', 'testteam', 'mattstack');
+  mkdirSync(join(orgDir, 'org'), { recursive: true });
+  writeFileSync(
+    join(orgDir, 'org', 'settings.org.jsonc'),
+    JSON.stringify({
+      'board.gitlabHost': HOST,
+      'board.projects': ['g/p', 'g/q'],
+      'mattstack.roster': [{ username: 'alice' }, { username: 'bob' }],
+      'board.slack': { autoResolveIntervalMinutes: 0 },
+      'board.tabs': [
+        { id: 'team', label: 'Team', source: { kind: 'authors' } },
+        {
+          id: 'owners',
+          label: 'Owners',
+          source: {
+            kind: 'codeowners',
+            section: 'Ours - #ours-channel',
+            excludeMembers: true,
           },
-        });
+        },
+      ],
+      'mattstack.directory': directory,
+      repos: {
+        'gitlab.example.com/g/p': {
+          'board.codeowners': { slack: { fromSectionName: true } },
+        },
+      },
+    })
+  );
+  mkdirSync(join(orgDir, 'teams', 'web'), { recursive: true });
+  writeFileSync(join(orgDir, 'teams', 'web', 'settings.team.jsonc'), '{}');
+  const userDir = join(home, '.mattstack', 'user');
+  mkdirSync(userDir, { recursive: true });
+  writeFileSync(
+    join(userDir, 'settings.user.jsonc'),
+    JSON.stringify({
+      'board.defaultMember': 'alice',
+      'mattstack.activeTeam': 'web',
+    })
+  );
+  writeFileSync(join(home, '.mattstack', 'machine-key'), 'testmachine');
+  const machineDir = join(home, '.mattstack', 'user', 'local', 'testmachine');
+  mkdirSync(machineDir, { recursive: true });
+  writeFileSync(
+    join(machineDir, 'settings.local.jsonc'),
+    JSON.stringify({
+      'board.rtRepos': [
+        { project: 'g/p', repo: 'gitlab.example.com/g/p' },
+        { project: 'g/q', repo: 'gitlab.example.com/g/q' },
+      ],
+    })
+  );
+
+  const rtDir = join(home, '.mattstack', 'rt');
+  mkdirSync(rtDir, { recursive: true });
+  const rtDaemon = Bun.serve({
+    unix: join(rtDir, 'rt.sock'),
+    fetch: fakeRtDaemon,
+  });
+  const proc = Bun.spawn(
+    [
+      'bun',
+      'run',
+      '--preload',
+      join(import.meta.dir, 'slack-api-mock-preload.ts'),
+      join(import.meta.dir, '..', 'server.ts'),
+    ],
+    {
+      env: {
+        ...process.env,
+        HOME: home,
+        BOARD_APP_ROOT: home,
+        PORT: String(port),
+        GITLAB_TOKEN: '',
+        SLACK_TOKEN: 'fake-slack-token',
+        SWITCHBOARD_TOKEN: '',
+        SWITCHBOARD_ADMIN_TOKEN: '',
+        SLACK_MOCK_POST_LOG: join(home, 'slack-posts.ndjson'),
+        SLACK_MOCK_HISTORY: JSON.stringify({
+          C_ACME: [url('g/p', 708)],
+          C_DEFAULT: [url('g/p', 709)],
+        }),
+      },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    }
+  );
+  return {
+    port,
+    home,
+    stop: () => {
+      proc.kill();
+      rtDaemon.stop(true);
+    },
+  };
+}
+
+async function fakeRtDaemon(req: Request): Promise<Response> {
+  const { pathname } = new URL(req.url);
+  const body = (
+    req.method === 'POST' ? await req.json().catch(() => null) : null
+  ) as { repoName?: string; path?: string } | null;
+  if (pathname === '/project-mrs:read') {
+    const project =
+      (body?.repoName ?? '').includes('g%2Fq') ||
+      (body?.repoName ?? '').endsWith('g/q')
+        ? 'g/q'
+        : 'g/p';
+    const mrs: Record<string, unknown> = {};
+    for (const pr of PRS[project]!)
+      mrs[pr.id] = { pr, fetchedAt: Date.now(), codeownerSections: [] };
+    return Response.json({
+      ok: true,
+      data: {
+        mrs,
+        listSyncedAt: Date.now(),
+        source: 'poll',
+        syncedAt: Date.now(),
+      },
+    });
+  }
+  if (pathname === '/forge:get') {
+    forgeSeen.push({
+      repoName: body?.repoName ?? '',
+      path: body?.path ?? '',
+    });
+    const iid = /merge_requests\/(\d+)\//.exec(body?.path ?? '')?.[1] ?? '';
+    if (iid === '705') await new Promise(r => setTimeout(r, 600));
+    if (iid === '703')
       return Response.json({
         ok: true,
         data: {
           status: 200,
-          body: APPROVAL_BY_IID[iid] ?? APPROVAL_STATE,
-          truncated: false,
+          body: '{"rules":[{"rule_type":"code_owner","sec',
+          truncated: true,
           nextPage: null,
           totalPages: null,
         },
       });
-    }
-    return Response.json({ ok: false, error: 'not implemented' });
+    return Response.json({
+      ok: true,
+      data: {
+        status: 200,
+        body: APPROVAL_BY_IID[iid] ?? APPROVAL_STATE,
+        truncated: false,
+        nextPage: null,
+        totalPages: null,
+      },
+    });
+  }
+  return Response.json({ ok: false, error: 'not implemented' });
+}
+
+const board = bootBoard({
+  port: 47969,
+  directory: {
+    teams: {
+      web: {
+        slack: {
+          codeOwnersChannel: 'ours-channel',
+          channels: [{ name: 'code-review', kind: 'review' }],
+        },
+      },
+    },
   },
 });
-
+const noChannelBoard = bootBoard({
+  port: 47971,
+  directory: {
+    teams: { web: { slack: { codeOwnersChannel: 'ours-channel' } } },
+  },
+});
+const PORT = board.port;
+const NO_CHANNEL_PORT = noChannelBoard.port;
+const fakeHome = board.home;
 const postLog = join(fakeHome, 'slack-posts.ndjson');
-const PORT = 47969;
-const proc = Bun.spawn(
-  [
-    'bun',
-    'run',
-    '--preload',
-    join(import.meta.dir, 'slack-api-mock-preload.ts'),
-    join(import.meta.dir, '..', 'server.ts'),
-  ],
-  {
-    env: {
-      ...process.env,
-      HOME: fakeHome,
-      BOARD_APP_ROOT: fakeHome,
-      PORT: String(PORT),
-      GITLAB_TOKEN: '',
-      SLACK_TOKEN: 'fake-slack-token',
-      SWITCHBOARD_TOKEN: '',
-      SWITCHBOARD_ADMIN_TOKEN: '',
-      SLACK_MOCK_POST_LOG: postLog,
-      SLACK_MOCK_HISTORY: JSON.stringify({
-        C_ACME: [url('g/p', 708)],
-        C_DEFAULT: [url('g/p', 709)],
-      }),
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  }
-);
 
 afterAll(() => {
-  proc.kill();
-  rtDaemon.stop(true);
+  board.stop();
+  noChannelBoard.stop();
 });
 
-async function ready(): Promise<void> {
+async function ready(port = PORT): Promise<void> {
   for (let i = 0; i < 100; i++) {
     try {
-      if ((await fetch(`http://127.0.0.1:${PORT}/healthz`)).ok) return;
+      if ((await fetch(`http://127.0.0.1:${port}/healthz`)).ok) return;
     } catch {
       // server not listening yet
     }
@@ -314,12 +350,16 @@ async function ready(): Promise<void> {
   throw new Error('server never came up');
 }
 
-function post(path: string, body: unknown): Promise<Response> {
-  return fetch(`http://127.0.0.1:${PORT}${path}`, {
+function postTo(port: number, path: string, body: unknown): Promise<Response> {
+  return fetch(`http://127.0.0.1:${port}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+function post(path: string, body: unknown): Promise<Response> {
+  return postTo(PORT, path, body);
 }
 
 function sent(): Array<{ channel: string; text: string }> {
@@ -659,4 +699,25 @@ test('a post naming nothing is refused', async () => {
     channels: [],
   });
   expect(res.status).toBe(400);
+}, 15_000);
+
+test('a team with no review channel is refused whole, naming the fix', async () => {
+  await ready(NO_CHANNEL_PORT);
+  for (const path of [
+    '/slack/owners/preview',
+    '/slack/owners/post',
+    '/slack/post',
+  ]) {
+    const res = await postTo(
+      NO_CHANNEL_PORT,
+      path,
+      path === '/slack/post'
+        ? { mrUrls: [url('g/p', 701)] }
+        : { mrUrl: url('g/p', 701), team: true }
+    );
+    expect(res.status).toBe(400);
+    expect(await res.text()).toBe(
+      'Add a review channel for your team to the team directory'
+    );
+  }
 }, 15_000);

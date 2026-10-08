@@ -52,6 +52,7 @@ import {
   type TabIdResolver,
 } from './close-on-done.ts';
 import {
+  NO_REVIEW_CHANNEL,
   ownerRulesFromApprovalState,
   planOwnersPost,
   type OwnersPostPlan,
@@ -992,9 +993,6 @@ async function ownersPostPlan(
     );
   }
   const rules = ownerRulesFromApprovalState(res.data.body);
-  const ownSections = config.tabs.flatMap(t =>
-    t.source.kind === 'codeowners' ? [t.source.section] : []
-  );
   const posted = Object.fromEntries(
     Object.entries(readOwnerPosts(mr.webUrl!)).map(([channel, post]) => [
       channel,
@@ -1004,8 +1002,7 @@ async function ownersPostPlan(
   const first = planOwnersPost(rules, {
     posted,
     slack: channels,
-    ownSections,
-    teamChannel: channelForMR(config, mr),
+    ownChannels: config.ownChannels ?? [],
   });
   // A request someone posted by hand counts as posted. When a channel cannot
   // be read it is still offered, and the preview says it went unchecked.
@@ -1023,8 +1020,7 @@ async function ownersPostPlan(
     plan: planOwnersPost(rules, {
       posted,
       slack: channels,
-      ownSections,
-      teamChannel: channelForMR(config, mr),
+      ownChannels: config.ownChannels ?? [],
     }),
     channels,
     unchecked,
@@ -1140,6 +1136,8 @@ async function ownersPreviewOrPost(
   slackToken: string,
   request: { team?: unknown; channels?: unknown } | null
 ): Promise<Response> {
+  if (!channelForMR(config, mr))
+    return new Response(NO_REVIEW_CHANNEL, { status: 400 });
   const planned = await ownersPostPlan(mr, slackToken);
   if (planned instanceof Response) return planned;
   const team = await teamThread(mr, slackToken);
@@ -3774,6 +3772,8 @@ const httpServer = Bun.serve({
               : mr
                 ? channelForMR(config, mr)
                 : config.slack.channel;
+          if (!resolvedChannel)
+            return new Response(NO_REVIEW_CHANNEL, { status: 400 });
           const ref = await resolveSlackRef(
             slackToken,
             resolvedChannel,
@@ -3908,6 +3908,8 @@ const httpServer = Bun.serve({
           }
           targetChannel = [...resolved][0]!;
         }
+        if (!targetChannel)
+          return new Response(NO_REVIEW_CHANNEL, { status: 400 });
         const result = await postReviewRequest(
           slackToken,
           picked,
@@ -4078,11 +4080,10 @@ async function sweepOnce(
   });
   const result = await sweepSlackRefs(
     slackToken,
-    targets.map(mr => ({
-      mrUrl: mr.webUrl!,
-      iid: mr.iid,
-      channel: channelForMR(config, mr),
-    }))
+    targets.flatMap(mr => {
+      const channel = channelForMR(config, mr);
+      return channel ? [{ mrUrl: mr.webUrl!, iid: mr.iid, channel }] : [];
+    })
   );
   for (const e of result.errors) console.error(`auto-resolve ${e}`);
   return { resolved: result.resolved, failed: result.failed };
@@ -4519,6 +4520,7 @@ async function handleAgentSignal(
     const signalChannel = signalMr
       ? channelForMR(config, signalMr)
       : config.slack.channel;
+    if (!signalChannel) return;
     const existing = readSlackRefs().get(signal.mrUrl);
     if (existing?.status !== 'found' || !existing.messageTs) {
       await resolveSlackRef(

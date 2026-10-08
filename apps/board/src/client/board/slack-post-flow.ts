@@ -1,3 +1,4 @@
+import { NO_REVIEW_CHANNEL } from '../../codeowner-posts.ts';
 import type { BoardMR } from '../../data.ts';
 import type { ActionResult } from '../api.ts';
 import type { ToastHandle } from './launch-flow.ts';
@@ -50,7 +51,8 @@ interface PostOutcome {
 /** "post to slack" on one MR. Where code owners have channels, the board
     first reads which of them still need asking: with only the team channel
     left it posts there at once, and otherwise opens the dialog. When that
-    read fails the team request still goes out, as it always could. */
+    read fails the team request still goes out, as it always could, unless
+    the team has no review channel to send it to. */
 export async function startSlackPost(
   mr: BoardMR,
   deps: SlackPostDeps
@@ -62,13 +64,16 @@ export async function startSlackPost(
   }
   const toast = deps.startToast(`checking where !${mr.iid} goes in slack…`);
   const read = await deps.post('/slack/owners/preview', { mrUrl: mr.webUrl });
-  if (!read.ok)
+  if (!read.ok) {
+    if (read.status === 400 && read.text === NO_REVIEW_CHANNEL)
+      return toast.fail(NO_REVIEW_CHANNEL);
     return postTeam(
       mr,
       deps,
       toast,
       `could not check code owners (${read.status})${read.text ? `: ${read.text}` : ''}`
     );
+  }
   const preview = read.body as unknown as SlackPostPreview;
   if (preview.team.posted && preview.channels.length === 0) {
     toast.done(`nothing left to post for !${mr.iid}`);

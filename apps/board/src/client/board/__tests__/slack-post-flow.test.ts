@@ -147,6 +147,32 @@ test('a failed code owner check still posts the team request', async () => {
   expect(opened).toEqual([]);
 });
 
+test('no review channel shows the refusal and posts nothing', async () => {
+  const { done, events } = run({
+    '/slack/owners/preview': fail(
+      400,
+      'Add a review channel for your team to the team directory'
+    ),
+  });
+  await done;
+  expect(events).toContain(
+    'fail Add a review channel for your team to the team directory'
+  );
+  expect(events.filter(e => e.startsWith('post /slack/post'))).toEqual([]);
+});
+
+test('any other refused preview still falls back to the team post', async () => {
+  const { done, events } = run({
+    '/slack/owners/preview': fail(
+      400,
+      'g/p: no rtRepos mapping in config.json'
+    ),
+    '/slack/post': ok({ ok: true, posted: 1 }),
+  });
+  await done;
+  expect(events).toContain(`post /slack/post {"mrUrls":["${URL}"]}`);
+});
+
 test('nothing left to post says so instead of opening an empty dialog', async () => {
   const { done, events, opened } = run({
     '/slack/owners/preview': ok(
