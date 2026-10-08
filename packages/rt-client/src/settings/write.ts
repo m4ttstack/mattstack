@@ -97,6 +97,7 @@ import { roleOf, writeRefusalFor, type OrgRole } from "./org-roles.ts";
 import { getSetting } from "./resolve.ts";
 import { currentOrg, readStore, TEAM_NAME_RE } from "./stores.ts";
 import { readForgeUsername } from "./team-local-read.ts";
+import { directoryIssues } from "./team-directory.ts";
 import { validateWrite } from "./validate-write.ts";
 
 export interface SetSettingOpts {
@@ -182,6 +183,11 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
     },
     /* createIfMissing */ scope === "user" || scope === "machine",
   );
+
+  if (key === "mattstack.directory") {
+    for (const u of directoryIssues(value as never).unknownKinds)
+      notify({ text: `#${u.channel} on ${u.team} has kind "${u.kind}", which no app reads yet.` });
+  }
 
   shareTip("saved", key, scope, storePath);
 }

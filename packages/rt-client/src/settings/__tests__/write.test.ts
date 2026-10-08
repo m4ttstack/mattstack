@@ -245,6 +245,18 @@ describe("settings/write", () => {
       expect(getSetting<string>("board.gitlabHost").provenance).toEqual([{ scope: "org", file }]);
     });
 
+    test("a directory write names each channel kind no app reads", () => {
+      seedOrg({ org: "acme", username: "dev1", roles: ADMIN_ROLES, roster });
+      const lines: string[] = [];
+      const prev = setSettingsNoticeSink((line) => lines.push(line));
+      try {
+        setSetting("mattstack.directory", { teams: { a: { slack: { channels: [{ name: "a-x", kind: "oncall" }] } } } }, "org");
+      } finally {
+        setSettingsNoticeSink(prev);
+      }
+      expect(lines).toContain('#a-x on a has kind "oncall", which no app reads yet.');
+    });
+
     test("scope team writes the active team's store", () => {
       seedOrg({ org: "acme", username: "dev1", roles: ADMIN_ROLES, roster, teams: { widgets: {}, gadgets: {} } });
       setSetting("board.title", "Widgets", "team");
