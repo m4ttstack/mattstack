@@ -259,7 +259,9 @@ quiet gates and the wait path below rather than the form.
 `gate-wait` live, its reply says the session will be woken. The block waits
 in rounds and, once the gate is answered, starts a turn with
 `$.prompt.submit`, labelled as a plugin message. Claude's wait fragment
-branches on that reply; shared skill text names no Claude-only mechanism.
+branches on that reply, after the shared `waiting-gate` run field is set,
+since the unchanged Stop backstop keys on that field to let the waiting
+turn end. Shared skill text names no Claude-only mechanism.
 Without the block, skills run `rt gate wait` as today, and the
 `Bash(rt gate *)` and `Bash(rt events wait *)` allow rules stay.
 
@@ -305,7 +307,9 @@ coordination between them: when both run, the turn is held and the reason
 reaches the model twice. The duplicate is cosmetic; a coordination step
 that let one hook pass on the other's word would open a bypass. With the
 switch off the mod is not installed, so the shell hook alone runs, as
-today.
+today. A change to the shared continuation rule must land in
+`pipeline-gate-stop.sh` too; if the two drift, the backstop holds a turn
+the policy would let end (an extra hold, never a bypass).
 
 The spill-read note becomes a prompt section. The time stamp stays a shell
 hook, because a prompt section is frozen per conversation. It moves only if
