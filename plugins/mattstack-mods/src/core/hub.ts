@@ -107,6 +107,8 @@ export type Hub = Subscriptions & {
   keep(blocks: readonly string[]): void
   /** Whether this session passed the engine and interactivity checks, so blocks were started. */
   engaged(): boolean
+  /** Calls `listener` with each block a failure clears after it went live. */
+  onCleared(listener: (block: ModBlock) => void): void
 }
 
 // A block's subscriptions carry its name and lapse with it; the hub's own
@@ -162,6 +164,7 @@ export function createHub(): Hub {
   const live = new Set<ModBlock>()
   let started = false
   let engaged = false
+  const clearedListeners: ((block: ModBlock) => void)[] = []
 
   const rules: Owned<{ rule: ToolRule }>[] = []
   const receivers: Owned<{ handler: ReceiveHandler }>[] = []
@@ -176,7 +179,15 @@ export function createHub(): Hub {
   function fail(api: ModApi, sub: { owner: ModBlock | null; label: string }, where: string, err: unknown): void {
     const message = err instanceof Error ? err.message : String(err)
     const who = sub.owner ?? 'core'
-    if (sub.owner !== null) live.delete(sub.owner)
+    if (sub.owner !== null && live.delete(sub.owner)) {
+      for (const listener of clearedListeners) {
+        try {
+          listener(sub.owner)
+        } catch {
+          // A listener's failure must not turn a pass-through into a failed hook.
+        }
+      }
+    }
     try {
       api.ui.log(`mattstack-mods: ${who} ${sub.label} threw at ${where}: ${message}; ${sub.owner ? 'block cleared, ' : ''}passing through`, { to: 'debug' })
     } catch {
@@ -387,6 +398,9 @@ export function createHub(): Hub {
     },
     engaged() {
       return engaged
+    },
+    onCleared(listener) {
+      clearedListeners.push(listener)
     },
   }
   cores.set(hub, core)

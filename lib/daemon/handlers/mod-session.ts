@@ -4,8 +4,10 @@
  * unknown or superseded link with the `unknown-link` failure code, which is the
  * one answer the mod re-registers on.
  *
- * session:push sends a command to a session's mod and reports whether it was
- * acked; it is how a person or a live check reaches a mod from outside.
+ * session:push sends a diagnostic `probe.*` command to a session's mod and
+ * reports whether it was acked. Every other kind is refused: a real command
+ * comes only from daemon code that has authorized its action, calling
+ * pushModCommand in-process.
  */
 
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
@@ -79,6 +81,7 @@ export function createModSessionHandlers(deps: { links: ModLinks; push?: Push })
       const { sessionId, kind, data } = record(payload);
       if (!isText(sessionId)) return invalid("sessionId must be a non-empty string");
       if (!isText(kind)) return invalid("kind must be a non-empty string");
+      if (!kind.startsWith("probe.")) return declined("refused", `session:push sends only probe.* commands, not ${kind}`);
       const pushed = await push(sessionId, kind, data ?? null);
       return pushed.ok ? { ok: true, data: pushed.data } : declined(pushed.error.code, pushed.error.message);
     },

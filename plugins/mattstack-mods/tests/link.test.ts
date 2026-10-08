@@ -88,6 +88,7 @@ describe('link', () => {
 
     expect(h.verbs('session:end').map(s => s.body)).toEqual([{ linkId: 'ml-1' }])
     expect(h.link.linkId()).toBeNull()
+    expect(h.hub.liveBlocks()).toEqual([])
     expect(h.state.get('linkId')).toBeNull()
     expect(h.clock.intervals()).toEqual([])
     await h.clock.advance(30_000)
@@ -246,7 +247,9 @@ describe('link', () => {
       'session:ack': [(verb, body) => (acked(), h.defaults(verb, body))],
     })
     const handled: unknown[] = []
+    const ackedBeforeHandler: number[] = []
     h.link.onCommand('gate.complete', async cmd => {
+      ackedBeforeHandler.push(h.verbs('session:ack').length)
       handled.push(cmd)
     })
     await h.start()
@@ -261,19 +264,21 @@ describe('link', () => {
 
     expect(result.consumed).toBeDefined()
     expect(engine.seen).toHaveLength(0)
+    await flush()
     expect(handled).toEqual([{ id: 'cmd-1', kind: 'gate.complete', data: { gate: 'g1' } }])
+    expect(ackedBeforeHandler).toEqual([1])
     expect(h.verbs('session:ack').map(s => s.body)).toEqual([{ linkId: 'ml-1', id: 'cmd-1' }])
   })
 
-  test('a command whose handler fails, or whose block is not live, is consumed and never acked', async () => {
+  test('a command with no handler, or whose block is not live, is consumed and never acked', async () => {
     const h = harness()
-    h.link.onCommand('nudge', async () => {
-      throw new Error('boom')
-    })
-    h.link.onCommand('gate.complete', async () => {}, 'gate-form')
+    let ran = false
+    h.link.onCommand('gate.complete', async () => {
+      ran = true
+    }, 'gate-form')
     await h.start()
 
-    for (const kind of ['nudge', 'gate.complete', 'unheard-of']) {
+    for (const kind of ['gate.complete', 'unheard-of']) {
       const engine = recorder({ text: 'unused' })
       const result = await h.fire(
         'session.receive',
@@ -286,6 +291,73 @@ describe('link', () => {
     await flush()
 
     expect(h.verbs('session:ack')).toHaveLength(0)
+    expect(ran).toBe(false)
+  })
+
+  test('a command whose handler fails was still acked when it was accepted', async () => {
+    const h = harness()
+    h.link.onCommand('nudge', async () => {
+      throw new Error('boom')
+    })
+    await h.start()
+
+    const engine = recorder({ text: 'unused' })
+    const result = await h.fire('session.receive', { origin: { kind: 'peer' }, text: '<rt-mod-command id="n-1" kind="nudge">{}</rt-mod-command>' }, engine.next)
+    await flush()
+
+    expect(result.consumed).toBeDefined()
+    expect(h.verbs('session:ack').map(s => s.body)).toEqual([{ linkId: 'ml-1', id: 'n-1' }])
+    expect(h.logs.some(l => l.to === 'debug' && l.text.includes('nudge n-1 failed after its ack: boom'))).toBe(true)
+  })
+
+  test('a block cleared mod-side is dropped daemon-side by a re-register with the remaining blocks', async () => {
+    const h = stub()
+    const hub = createHub()
+    const link = createLink(hub)
+    link.start()
+    hub.block('delivery', async () => {})
+    hub.block('policy', async (_api, b) => {
+      b.onToolCall({ stage: 'guard', tool: 'Bash', run: () => { throw new Error('boom') } })
+    })
+    hub.block('presence', async () => {})
+    attachHub(h.on, hub)
+    await h.start()
+    expect(h.verbs('session:register')[0]!.body.blocks).toEqual(['delivery', 'policy', 'presence'])
+
+    await h.fire('tool.call', { tool: 'Bash', command: 'ls' }, async () => ({ result: 'ran' }))
+    await h.clock.advance(1_000)
+
+    const registers = h.verbs('session:register').map(s => s.body)
+    expect(registers).toHaveLength(2)
+    expect(registers[1]).toEqual({ ...registers[0], blocks: ['delivery', 'presence'] })
+    expect(registers[1].previousSessionId).toBeUndefined()
+    expect(link.linkId()).toBe('ml-2')
+    await h.clock.advance(9_000)
+    expect(h.verbs('session:heartbeat').map(s => s.body)).toEqual([{ linkId: 'ml-2' }])
+  })
+
+  test('two clears in a row cause one re-register', async () => {
+    const h = stub()
+    const hub = createHub()
+    const link = createLink(hub)
+    link.start()
+    hub.block('delivery', async () => {})
+    hub.block('policy', async (_api, b) => {
+      b.onToolCall({ stage: 'guard', tool: 'Bash', run: () => { throw new Error('one') } })
+    })
+    hub.block('relocation', async (_api, b) => {
+      b.onToolCall({ stage: 'guard', tool: 'Bash', run: () => { throw new Error('two') } })
+    })
+    attachHub(h.on, hub)
+    await h.start()
+
+    await h.fire('tool.call', { tool: 'Bash', command: 'ls' }, async () => ({ result: 'ran' }))
+    await h.clock.advance(1_000)
+
+    const registers = h.verbs('session:register').map(s => s.body)
+    expect(registers).toHaveLength(2)
+    expect(registers[1].blocks).toEqual(['delivery'])
+    expect(hub.liveBlocks()).toEqual(['delivery'])
   })
 
   test('a chat delivery that quotes a command envelope reaches the model unchanged', async () => {

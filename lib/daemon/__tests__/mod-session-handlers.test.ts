@@ -96,19 +96,39 @@ describe("session:* handlers", () => {
       links,
       push: async (sessionId, kind, data) => {
         pushed.push([sessionId, kind, data]);
-        return kind === "ping" ? { ok: true, data: { acked: true } } : { ok: false, error: { code: "not-ready", message: "no live link" } };
+        return kind === "probe.ping" ? { ok: true, data: { acked: true } } : { ok: false, error: { code: "not-ready", message: "no live link" } };
       },
     });
-    for (const bad of [undefined, {}, { sessionId: "", kind: "ping" }, { sessionId: "sess-1" }, { sessionId: "sess-1", kind: 3 }]) {
+    for (const bad of [undefined, {}, { sessionId: "", kind: "probe.ping" }, { sessionId: "sess-1" }, { sessionId: "sess-1", kind: 3 }]) {
       const reply = await call(handlers["session:push"], bad);
       expect(reply.failure?.code).toBe("invalid");
     }
     expect(pushed).toHaveLength(0);
 
-    expect(await call(handlers["session:push"], { sessionId: "sess-1", kind: "ping", data: { n: 1 } })).toEqual({ ok: true, data: { acked: true } });
-    expect(await call(handlers["session:push"], { sessionId: "sess-1", kind: "nudge" })).toEqual({
+    expect(await call(handlers["session:push"], { sessionId: "sess-1", kind: "probe.ping", data: { n: 1 } })).toEqual({ ok: true, data: { acked: true } });
+    expect(await call(handlers["session:push"], { sessionId: "sess-1", kind: "probe.wait" })).toEqual({
       ok: false, error: "no live link", failure: { code: "not-ready", message: "no live link" },
     });
-    expect(pushed).toEqual([["sess-1", "ping", { n: 1 }], ["sess-1", "nudge", null]]);
+    expect(pushed).toEqual([["sess-1", "probe.ping", { n: 1 }], ["sess-1", "probe.wait", null]]);
+  });
+
+  test("session:push refuses every kind outside probe.* and writes nothing to the inbox", async () => {
+    const links = createModLinks({
+      now: () => 5_000, integrationsEnabled: () => true, store: createSessionStore(openStateDb(":memory:")),
+    });
+    const pushed: string[] = [];
+    const handlers = createModSessionHandlers({
+      links,
+      push: async (_sessionId, kind) => {
+        pushed.push(kind);
+        return { ok: true, data: { acked: true } };
+      },
+    });
+    for (const kind of ["gate.complete", "nudge", "probe", "probes.ping"]) {
+      const reply = await call(handlers["session:push"], { sessionId: "sess-1", kind });
+      expect(reply.ok).toBe(false);
+      expect(reply.failure?.code).toBe("refused");
+    }
+    expect(pushed).toHaveLength(0);
   });
 });

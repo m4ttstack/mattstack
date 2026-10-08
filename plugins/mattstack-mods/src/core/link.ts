@@ -12,6 +12,8 @@ const ROUND_CALL_MS = 25_000
 /** session.end runs under one short wall-clock bound for the whole chain. */
 const END_CALL_MS = 2_000
 const PROBE_WAIT_MS = 300_000
+/** Clears that land within this window share one re-register. */
+const REFRESH_DELAY_MS = 50
 const COMMAND_ENVELOPE = /^<rt-mod-command id="([^"<>]+)" kind="([^"<>]+)">([\s\S]*)<\/rt-mod-command>$/
 
 export type Command = { id: string; kind: string; data: unknown }
@@ -22,9 +24,10 @@ export type Link = {
   /** Subscribes the link to the hub's lifecycle and receive hooks; call once, before blocks register. */
   start(): void
   /**
-   * Routes daemon commands of `kind` to `handler`; the command is acked once
-   * it resolves. With `owner`, a command arriving while that block is not live
-   * is dropped unacked, so the daemon takes its fallback.
+   * Routes daemon commands of `kind` to `handler`. The command is acked as soon
+   * as it is accepted, before the handler runs: the ack means the mod owns it.
+   * With `owner`, a command arriving while that block is not live is dropped
+   * unacked, so the daemon takes its fallback.
    */
   onCommand(kind: string, handler: CommandHandler, owner?: ModBlock): void
   /**
@@ -85,6 +88,7 @@ export function createLink(hub: Hub): Link {
   let off = false
   let beat: Timer | null = null
   let ticking = false
+  let refreshing = false
   let subscribed = false
   let queue: Promise<void> = Promise.resolve()
   const handlers = new Map<string, { handler: CommandHandler; owner?: ModBlock }>()
@@ -214,13 +218,31 @@ export function createLink(hub: Hub): Link {
       log(`command ${cmd.kind} ${cmd.id} is for ${entry.owner}, which is not live; not acked`)
       return
     }
+    // The ack means the mod has taken the command, so rt never falls back
+    // under a handler that is slow or straddles a /clear.
+    await ack(a, cmd)
     try {
       await entry.handler(cmd)
     } catch (err) {
-      log(`command ${cmd.kind} ${cmd.id} failed: ${err instanceof Error ? err.message : String(err)}; not acked`)
-      return
+      log(`command ${cmd.kind} ${cmd.id} failed after its ack: ${err instanceof Error ? err.message : String(err)}`)
     }
-    await ack(a, cmd)
+  }
+
+  /** Re-registers the session with today's live blocks, so the daemon stops counting a block the mod cleared. */
+  function refresh(): void {
+    if (refreshing || off || !api) return
+    refreshing = true
+    api.clock.after(REFRESH_DELAY_MS, () => {
+      serial(async () => {
+        refreshing = false
+        if (off || !sessionId) return
+        if (!id) {
+          if (pending) pending = { ...pending, blocks: hub.liveBlocks() }
+          return
+        }
+        await register(await registration(sessionId))
+      }).catch(err => log(`re-register after a cleared block failed: ${String(err)}`))
+    })
   }
 
   // Only a delivery that is wholly one envelope is a command: a chat message
@@ -303,6 +325,10 @@ export function createLink(hub: Hub): Link {
       if (subscribed) return
       subscribed = true
       hub.onReceive('rt-mod-command', (a, e) => receive(a, e))
+      hub.onCleared(block => {
+        log(`block ${block} cleared; telling rt`)
+        refresh()
+      })
       hub.onLifecycle('session-start', async a => {
         if (!hub.engaged()) return
         api = a
@@ -324,6 +350,7 @@ export function createLink(hub: Hub): Link {
           id = null
           pending = null
           stopBeat()
+          hub.keep([])
           if (was) await call(api, 'session:end', { linkId: was }, END_CALL_MS)
           await remember(null)
         })

@@ -61,10 +61,12 @@ block, so it sees deliveries first. Once the blocks have started, it calls
 `$HOME/.mattstack/rt/rt.sock`) with the live blocks, keeps only the blocks the
 daemon answers, and heartbeats every 10 s. A `/clear` re-registers under the
 new session id, naming the old id and link. Any other session end sends
-`session:end`. An `unknown-link` answer (the daemon restarted) registers again
-with the same session id; a refused register turns every block off for the
-session. A register the daemon could not take is sent again, unchanged, on the
-next beat.
+`session:end` and turns every block off. An `unknown-link` answer (the daemon
+restarted) registers again with the same session id; a refused register turns
+every block off for the session. A register the daemon could not take is sent
+again, unchanged, on the next beat. When the hub clears a block, the link
+re-registers the same session with the blocks still live, so the daemon stops
+counting it; clears within 50 ms share one re-register.
 
 A block reaches the daemon through the link:
 
@@ -74,12 +76,12 @@ A block reaches the daemon through the link:
 - `link.onCommand(kind, handler, block)` takes the commands rt sends with
   `pushModCommand`. Each arrives as an inbox delivery that is exactly
   `<rt-mod-command id="..." kind="...">json</rt-mod-command>`; the link
-  consumes it before the model sees it, runs the handler and acks it with
-  `session:ack`. A command that fails, or whose block is not live, is not
-  acked, so rt takes its fallback.
+  consumes it before the model sees it, acks it with `session:ack` at once
+  (the ack means the mod owns it), then runs the handler. A command with no
+  handler, or whose block is not live, is not acked, so rt takes its fallback.
 
-The core answers two diagnostic commands, which `rt.sock`'s `session:push`
-reaches: `probe.ping` logs and acks, and `probe.wait` (`{ pattern, after }`)
+The core answers two diagnostic commands, the only kinds `rt.sock`'s
+`session:push` will send: `probe.ping` logs and acks, and `probe.wait` (`{ pattern, after }`)
 runs a wait of up to 5 minutes and logs where it ended. Every link line goes to
 the debug log, prefixed `mattstack-mods:`.
 
