@@ -32,7 +32,7 @@ export interface RestoreDeps {
 }
 
 export type RestoreResult =
-  | { ok: true; tree: TreeRecord; path: string; readyFailed?: boolean; failedStep?: string }
+  | { ok: true; tree: TreeRecord; path: string; readyFailed?: boolean; failedStep?: string; submodulesFailed?: boolean }
   | {
       ok: false;
       reason:
@@ -187,15 +187,48 @@ async function removeCreatedWorktree(
 }
 
 /**
+ * A submodule's git data lives in the worktree's admin dir
+ * (`.git/worktrees/<name>/modules/`), which disposal deletes, so the retained
+ * copy's submodules point at nothing. Re-initialising them in the fresh
+ * checkout rebuilds that data; each borrows objects from the main checkout's
+ * own copy of the submodule when it has one, so a large vendored repo is not
+ * downloaded again. On success `paths` is every submodule, nested ones
+ * included; on failure it is the top-level ones.
+ */
+async function initSubmodules(repoPath: string, path: string): Promise<{ paths: string[]; initialized: boolean }> {
+  if (!existsSync(join(path, ".gitmodules"))) return { paths: [], initialized: true };
+  const top = await runGit(path, ["config", "--file", ".gitmodules", "--get-regexp", "^submodule\\..*\\.path$"]);
+  const paths = top.stdout.split("\n").map((l) => l.split(" ").slice(1).join(" ")).filter(Boolean);
+  for (const sub of paths) {
+    const reference = existsSync(join(repoPath, sub, ".git")) ? ["--reference", join(repoPath, sub)] : [];
+    const r = await runGit(path, ["submodule", "update", "--init", "--recursive", ...reference, "--", sub], { timeoutMs: MUTATING_TIMEOUT_MS });
+    if (r.exitCode !== 0) return { paths, initialized: false };
+  }
+  const all = await runGit(path, ["submodule", "status", "--recursive"]);
+  if (all.exitCode !== 0) return { paths, initialized: false };
+  const nested = all.stdout.split("\n").map((l) => /^[ +\-U]?[0-9a-f]+ (.+?)(?: \(.*\))?$/.exec(l)?.[1]).filter((p): p is string => !!p);
+  return { paths: nested, initialized: true };
+}
+
+/**
  * Layers the retained copy's non-git content back over the fresh checkout:
  * `git worktree add` already recreated every tracked file from `headSha`, so
  * only the retained copy's gitignored/untracked files need to move:
  * `.local-dev`, `.env`, anything a build didn't regenerate (the reinstallable
  * dirs were already stripped at dispose time and are simply absent here).
  * `.git` and `manifest.json` are the entry's own bookkeeping and must never
- * be copied over the worktree's real git admin file.
+ * be copied over the worktree's real git admin file. Neither may a
+ * submodule's `.git`, which would point it back at the deleted git data;
+ * when the submodules could not be set up, their folders stay empty so a
+ * later `git submodule update --init` can still fill them.
  */
-async function copyRetainedContent(entryPath: string, destPath: string): Promise<{ ok: boolean; err?: string }> {
+async function copyRetainedContent(
+  entryPath: string,
+  destPath: string,
+  submodules: { paths: string[]; initialized: boolean },
+): Promise<{ ok: boolean; err?: string }> {
+  const skip = new Set(submodules.paths.map((p) => (submodules.initialized ? join(entryPath, p, ".git") : join(entryPath, p))));
+  const filter = (src: string) => !skip.has(src);
   let entries: string[];
   try {
     entries = await readdir(entryPath);
@@ -205,7 +238,7 @@ async function copyRetainedContent(entryPath: string, destPath: string): Promise
   for (const entry of entries) {
     if (entry === ".git" || entry === "manifest.json") continue;
     try {
-      cpSync(join(entryPath, entry), join(destPath, entry), { recursive: true, force: true });
+      cpSync(join(entryPath, entry), join(destPath, entry), { recursive: true, force: true, filter });
     } catch (err) {
       return { ok: false, err: String(err) };
     }
@@ -238,7 +271,12 @@ export async function restoreTree(deps: RestoreDeps, treeName: string): Promise<
   const added = await addWorktreeFromManifest(repoPath, path, manifest);
   if (!added.ok) return { ok: false, reason: "worktree-add-failed", detail: added.output };
 
-  const copied = await copyRetainedContent(found.path, path);
+  const submodules = await initSubmodules(repoPath, path);
+  if (!submodules.initialized) {
+    log.warn({ repo: repoName, tree: treeName, path }, "worktree restore: submodules could not be set up");
+  }
+
+  const copied = await copyRetainedContent(found.path, path, submodules);
   if (!copied.ok) {
     log.warn(
       { repo: repoName, tree: treeName, path, err: copied.err },
@@ -278,8 +316,11 @@ export async function restoreTree(deps: RestoreDeps, treeName: string): Promise<
   emit("worktree:restored", { repo: repoName, tree: treeName, path, branch: manifest.branch });
   log.info({ repo: repoName, tree: treeName, path }, "worktree restored");
 
-  if (!readyResult.ok) {
-    return { ok: true, tree: rec, path, readyFailed: true, failedStep: readyResult.failedStep };
-  }
-  return { ok: true, tree: rec, path };
+  return {
+    ok: true,
+    tree: rec,
+    path,
+    ...(readyResult.ok ? {} : { readyFailed: true, failedStep: readyResult.failedStep }),
+    ...(submodules.initialized ? {} : { submodulesFailed: true }),
+  };
 }

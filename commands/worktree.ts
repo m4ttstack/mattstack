@@ -754,8 +754,12 @@ export async function worktreeRestore(args: string[], _ctx: unknown): Promise<vo
 
   if (parsed.json) { out.json(ok.data, 2); return; }
 
-  const d = ok.data as { restored: boolean; path: string; tree: string; readyFailed?: boolean; failedStep?: string };
-  out.print(out.line("done", `${d.tree} restored`, d.path), ...(d.readyFailed ? [setupFailedLine(d.failedStep)] : []));
+  const d = ok.data as { restored: boolean; path: string; tree: string; readyFailed?: boolean; failedStep?: string; submodulesFailed?: boolean };
+  out.print(
+    out.line("done", `${d.tree} restored`, d.path),
+    ...(d.readyFailed ? [setupFailedLine(d.failedStep)] : []),
+    ...(d.submodulesFailed ? lineWithNext("warn", "Its submodules could not be fetched, so their folders are empty", undefined, out.cmd("git submodule update --init --recursive")) : []),
+  );
   await maybeOfferClaudeHook(parsed.json);
 }
 
