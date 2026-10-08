@@ -10,13 +10,14 @@ describe("memberPath", () => {
       seen.push({ argv, timeoutMs: opts?.timeoutMs });
       return memberShell("/fake-home/.local/bin:/usr/bin")(argv, opts);
     };
-    const p = fakeProbes({ env: { SHELL: "/bin/zsh", PATH: "/usr/bin", USER: "member" }, exec });
+    const p = fakeProbes({ env: { SHELL: "/bin/zsh", PATH: "/usr/bin", USER: "member", TMPDIR: "/fake-tmp/" }, exec });
     await memberPath(p);
     expect(seen).toHaveLength(1);
     const { argv, timeoutMs } = seen[0]!;
     expect(argv.slice(0, 2)).toEqual(["/usr/bin/env", "-i"]);
     expect(argv).toContain("HOME=/fake-home");
     expect(argv).toContain("USER=member");
+    expect(argv).toContain("TMPDIR=/fake-tmp/");
     expect(argv).toContain("SHELL=/bin/zsh");
     expect(argv.some((arg) => arg.startsWith("PATH=") && !arg.includes(".local/bin"))).toBe(true);
     const shellAt = argv.indexOf("/bin/zsh");

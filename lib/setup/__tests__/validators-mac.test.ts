@@ -159,6 +159,14 @@ describe("macRows — tool.path", () => {
     expect(r.action).toBeNull();
   });
 
+  test("the member's shell lacks ~/.local/bin entirely and the marker is present -> needs-you saying it is not on PATH, never \"not first\"", async () => {
+    const p = fakeProbes({ env: APP_ENV, exec: memberShell("/opt/homebrew/bin:/usr/bin"), files: { [RC]: `${MARKER}\n` }, dirs: DIRS });
+    const r = await pickRow(macRows(p), "tool.path");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("~/.local/bin is not on your shell's PATH, so team intercepts will not fire. Check ~/.zshenv");
+    expect(r.action).toBeNull();
+  });
+
   test("~/.local/bin first in the member's shell but no marker -> needs-you: precedence holds, rt is not what holds it", async () => {
     const p = fakeProbes({ env: APP_ENV, exec: memberShell("/fake-home/.local/bin:/usr/bin"), dirs: DIRS });
     const r = await pickRow(macRows(p), "tool.path");

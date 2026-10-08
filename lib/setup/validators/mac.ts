@@ -88,6 +88,9 @@ async function pathRow(p: Probes): Promise<Row> {
   if (firstExisting === localBin && hasMarker) {
     return row({ ...base, status: "ready", detail: `~/.local/bin is first on your PATH, set in ${RC_FILE_DISPLAY}` });
   }
+  if (hasMarker && !entries.includes(localBin)) {
+    return row({ ...base, status: "needs-you", detail: `~/.local/bin is not on your shell's PATH, so team intercepts will not fire. Check ${RC_FILE_DISPLAY}` });
+  }
   if (hasMarker) {
     return row({ ...base, status: "needs-you", detail: `~/.local/bin is on your PATH but not first, so team intercepts may not fire. Check ${RC_FILE_DISPLAY}` });
   }

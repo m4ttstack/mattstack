@@ -31,7 +31,7 @@ async function probe(p: Probes): Promise<string[] | null> {
   const shell = p.env.SHELL;
   if (!shell?.startsWith("/")) return null;
   const env = [`HOME=${p.home}`, `SHELL=${shell}`, `PATH=${LOGIN_PATH}`, "TERM=dumb"];
-  for (const key of ["USER", "LOGNAME"]) {
+  for (const key of ["USER", "LOGNAME", "TMPDIR"]) {
     const value = p.env[key];
     if (value) env.push(`${key}=${value}`);
   }
