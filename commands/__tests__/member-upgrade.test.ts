@@ -23,7 +23,7 @@ import { convergePackCache } from "../../lib/setup/pack-cache.ts";
 import { createMaterializePullHook } from "../../lib/daemon/materialize-pull-hook.ts";
 import { composePullHooks } from "../../lib/daemon/pull-hooks.ts";
 import { openStateDb } from "../../lib/state/db.ts";
-import { closeStateDb } from "../../lib/state/index.ts";
+import { closeStateDb, setKvValue } from "../../lib/state/index.ts";
 
 const ORIG_HOME = process.env.HOME;
 const ENGINE_PACK_DIR = resolve(import.meta.dir, "..", "..", "plugins", "mattstack");
@@ -350,6 +350,106 @@ describe("member upgrade: org main converts first, app updates later", () => {
     expect(rows.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 2" });
     expect(rows.find((r) => r.id === "org.folder")?.status).toBe("ready");
     expect(rows.find((r) => r.id === "team.sync")).toMatchObject({ status: "missing", detail: "The rt daemon is not running. Team clones sync once it is" });
+    const drawn = (await composePlan({ p, secrets: { has: async () => null }, ci: false, mode: "status", orgs: ["acme"] })).groups.flatMap((g) => g.rows);
+    expect(drawn.filter((r) => ["team.identity", "team.none"].includes(r.id) && r.status === "needs-you").map((r) => r.id)).toEqual([]);
+  });
+});
+
+/**
+ * What v2.21.1 leaves on disk after it held a pull onto the org layout: the fetch moved
+ * refs/remotes/origin/main (and FETCH_HEAD) while HEAD and the work tree stayed on the one-team
+ * commit, the engine's kv row for the old slug, one hold line in the daemon log, and the update
+ * stamp. The hold itself (layoutHold, lastPullSkipped) lived only in the daemon's memory.
+ */
+function heldByV2211(clone: string): { held: string; fetched: string } {
+  const held = git(clone, ["rev-parse", "HEAD"]);
+  git(clone, ["fetch", "-q", "origin", "main"]);
+  const p = { ...createRealProbes(), home };
+  updateSetupState(p, (s) => ({ ...s, migrations: [...s.migrations, "2026-10-01-board-peer-trigger", "2026-10-02-retire-switchboard-url"], lastUpdate: { version: "2.21.1", at: "2026-10-07T00:00:00.000Z" } }));
+  const db = openStateDb(join(home, ".mattstack", "rt", "state.db"), "cli");
+  setKvValue("team-snapshot:widgets", "state", { firstSeenDirty: {} }, db);
+  db.close();
+  const logs = join(home, ".mattstack", "rt", "logs");
+  mkdirSync(logs, { recursive: true });
+  writeFileSync(join(logs, "daemon.2026-10-07.log"), `${JSON.stringify({ level: 30, time: 1791331200000, module: "team-snapshots", id: "team:widgets", layout: 2, reads: 1, msg: "team snapshot (widgets): holding the pull; the org is on a layout this rt does not read" })}\n`);
+  return { held, fetched: git(clone, ["rev-parse", "refs/remotes/origin/main"]) };
+}
+
+describe("member upgrade: v2.21.1 held the pull, then the app updates", () => {
+  test("the update run moves the held clone and the daemon pull finishes the move", async () => {
+    const { clone, bindings } = legacyMemberHome();
+    convertOrigin();
+    const { held, fetched } = heldByV2211(clone);
+    expect(fetched).not.toBe(held);
+    expect(git(clone, ["status", "--porcelain"])).toBe("");
+    const before = readFileSync(bindings, "utf8");
+
+    const p = probes();
+    const ctx1 = await context(p, [], { update: true });
+    const run1 = await runUpdate(ctx1);
+
+    await expectCleanRun(run1, ctx1);
+    const states = Object.fromEntries(run1.outcomes.map((o) => [o.id, o.state]));
+    expect(states["org.folder"]).toBe("done");
+    expect(states[`migration.${SDM_MIGRATION}`]).toBe("skipped");
+    expect(states["skills.materialize"]).toBe("skipped");
+    expect(existsSync(clone)).toBe(false);
+    const moved = join(home, ".mattstack", "orgs", "acme");
+    expect(git(moved, ["rev-parse", "HEAD"])).toBe(held);
+    expect(git(moved, ["rev-parse", "refs/remotes/origin/main"])).toBe(fetched);
+    expect(existsSync(join(home, ".mattstack", "rt", "teams", "acme.json"))).toBe(true);
+    expect(existsSync(join(home, ".mattstack", "rt", "teams", "widgets.json"))).toBe(false);
+    expect(marketplaces.get("widgets")).toBe(moved);
+    expect(readFileSync(bindings, "utf8")).toBe(before);
+    expect(readSetupState(p).migrations).toContain(SDM_MIGRATION);
+    const rows = await rtHealthRows(p, { ci: false });
+    expect(rows.find((r) => r.id === "org.layout")).toMatchObject({ status: "skipped", detail: "Your org has not moved to its new layout yet. rt finishes the move when it does." });
+    expect(rows.find((r) => r.id === "org.folder")?.status).toBe("ready");
+    expect(rows.find((r) => r.id === "team.sync")).toMatchObject({ status: "missing", detail: "The rt daemon is not running. Team clones sync once it is" });
+
+    const db = openStateDb(join(home, ".mattstack", "rt", "state.db"), "cli");
+    const log = fakeLog();
+    const onPulled = createOnPulled({ probes: p, slug: "acme", log, converge: convergePackCache, afterPull: composePullHooks([createMaterializePullHook({ log, probes: p })]) });
+    const handle = startSnapshot(
+      teamSnapshotSpec("acme", moved, { pullIntervalSec: 300, originUrl: origin, probes: p, ownedRoots: [], readToken: async () => null, onPulled }),
+      {
+        log,
+        broadcast: () => {},
+        db,
+        watch: () => ({ close() {} }),
+        readSettings: () => ({ enabled: true, debounceSec: 20, pushDelaySec: 60, janitorThresholdHours: 6, janitorIntervalMin: 30 }),
+      },
+    );
+    await handle.ready;
+    const pull = await handle.pullNow();
+    await handle.settled();
+    const status = handle.status();
+    handle.stop();
+    db.close();
+
+    expect(pull).toEqual({ outcome: "fast-forwarded", detail: null });
+    expect(status.layoutHold ?? null).toBeNull();
+    expect(git(moved, ["rev-parse", "HEAD"])).toBe(fetched);
+    expect(existsSync(join(moved, "mattstack", "teams", "widgets", "plugin"))).toBe(true);
+    expect(installed.get("widgets@widgets")).toEqual({ enabled: true, version: "0.1.1" });
+    expectMaterialized(bindings);
+    expect(existsSync(`${bindings}.stale`)).toBe(false);
+    expect(getSetting("sdm.resources").value).toEqual(SDM_RESOURCES);
+
+    const after = await rtHealthRows(p, { ci: false });
+    expect(after.find((r) => r.id === "org.layout")).toMatchObject({ status: "ready", detail: "acme on layout 2" });
+    expect(after.find((r) => r.id === "org.folder")?.status).toBe("ready");
+    expect(after.find((r) => r.id === "team.sync")).toMatchObject({ status: "missing", detail: "The rt daemon is not running. Team clones sync once it is" });
+
+    const materialized = readFileSync(bindings, "utf8");
+    const ctx2 = await context(p, [], { update: true });
+    const run2 = await runUpdate(ctx2);
+    await expectCleanRun(run2, ctx2);
+    expect(run2.outcomes.some((o) => o.id.startsWith("migration."))).toBe(false);
+    expect(readFileSync(bindings, "utf8")).toBe(materialized);
+    expect(installed.get("widgets@widgets")).toEqual({ enabled: true, version: "0.1.1" });
+    expect(marketplaces.get("widgets")).toBe(moved);
+    expect(readSetupState(p).migrations).toContain(SDM_MIGRATION);
     const drawn = (await composePlan({ p, secrets: { has: async () => null }, ci: false, mode: "status", orgs: ["acme"] })).groups.flatMap((g) => g.rows);
     expect(drawn.filter((r) => ["team.identity", "team.none"].includes(r.id) && r.status === "needs-you").map((r) => r.id)).toEqual([]);
   });
