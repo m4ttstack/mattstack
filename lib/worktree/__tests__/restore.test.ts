@@ -245,6 +245,23 @@ describe("restoreTree", () => {
     });
   });
 
+  test("relative symlinks come back as they were, not pointing into the deleted trash entry", async () => {
+    const path = addTree(repo, "tree-l", "feature-l");
+    fsSync.symlinkSync("gen.txt", join(path, "tracked-link"));
+    writeFileSync(join(path, ".gitignore"), "ignored-link\n");
+    fsSync.symlinkSync("gen.txt", join(path, "ignored-link"));
+    execSync(`git add .gitignore tracked-link && git ${GIT_ID} commit -q -m links && git push -q origin feature-l`, { cwd: path, shell: "/bin/zsh", stdio: "pipe" });
+    const rec = register(repoName, ephemeral("tree-l", path, "feature-l"));
+    const disposed = await disposeTree(disposeDeps(), rec, { auto: true });
+    expect(disposed.disposed).toBe(true);
+
+    const result = await restoreTree(restoreDeps(), "tree-l");
+    if (!result.ok) throw new Error(`expected ok, got ${result.reason}`);
+    expect(fsSync.readlinkSync(join(result.path, "tracked-link"))).toBe("gen.txt");
+    expect(fsSync.readlinkSync(join(result.path, "ignored-link"))).toBe("gen.txt");
+    expect(execSync("git status --porcelain", { cwd: result.path, encoding: "utf8" })).toBe("");
+  });
+
   test("restore is refused when the manifest's branch exists again by restore time", async () => {
     const { trashPath } = await disposeATree();
     // Something else claimed the name in the meantime (dispose deleted the

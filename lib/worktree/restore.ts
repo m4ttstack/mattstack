@@ -248,7 +248,8 @@ async function copyRetainedContent(entryPath: string, destPath: string, submodul
   for (const entry of entries) {
     if (entry === ".git" || entry === "manifest.json") continue;
     try {
-      cpSync(join(entryPath, entry), join(destPath, entry), { recursive: true, force: true, filter });
+      // Without verbatimSymlinks a relative link is rewritten to an absolute path into the entry, which is reaped next.
+      cpSync(join(entryPath, entry), join(destPath, entry), { recursive: true, force: true, filter, verbatimSymlinks: true });
     } catch (err) {
       return { ok: false, err: String(err) };
     }
