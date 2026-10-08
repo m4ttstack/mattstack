@@ -538,6 +538,16 @@ export function readOwnerPostsLeft(
   );
 }
 
+export function attachOwnerPostsLeft<T extends { webUrl?: string | null }>(
+  mrs: T[],
+  db: Database = getStateDb()
+): Array<T & { ownerPostsLeft?: string[] }> {
+  return mrs.map(mr => {
+    const left = mr.webUrl ? readOwnerPostsLeft(mr.webUrl, db) : undefined;
+    return left ? { ...mr, ownerPostsLeft: left } : mr;
+  });
+}
+
 export function writeOwnerPostsLeft(
   mrUrl: string,
   channels: string[],
