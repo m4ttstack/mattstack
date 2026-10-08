@@ -113,8 +113,10 @@ A block reaches the daemon through the link:
   (the ack means the mod owns it), then runs the handler. A command with no
   handler, or whose block is not live, is not acked, so rt takes its fallback.
   So is one the handler's `accepts` check answers false for; `accepts`
-  gets the facade too and may answer later. A command whose `session:ack`
-  rt does not take is never handled, since rt then takes its fallback. The
+  gets the facade too and may answer later. An ack lost in transport is sent
+  once more, since rt records an ack once and ignores a repeat. A command
+  whose `session:ack` rt does not take is never handled, since rt then takes
+  its fallback. The
   handler gets the command and the link's own facade, for work that
   outlives the delivery that carried the command.
 - `link.onLinked(listener)` hears every register rt takes (the first, a
