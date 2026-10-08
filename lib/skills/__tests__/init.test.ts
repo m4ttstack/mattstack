@@ -83,6 +83,12 @@ describe("readZones", () => {
     expect(() => readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toThrow("Your org has not moved to its new layout yet. rt finishes the move when it does.");
   });
 
+  test("a picked layout-2 clone with no org store throws the waiting sentence", () => {
+    const { [`${ORG_ROOT("acme")}/mattstack/org/settings.org.jsonc`]: _store, ...noStore } = orgFiles("acme", {}, { widgets: {} });
+    const fs = memFs(noStore);
+    expect(() => readZonesFrom(fs, `${HOME}/.mattstack/orgs`)).toThrow("Your org has not moved to its new layout yet. rt finishes the move when it does.");
+  });
+
   test("a ready clone beside a stale one-team clone still yields its zones", () => {
     const fs = memFs({
       ...orgFiles("acme", {}, { widgets: {} }),

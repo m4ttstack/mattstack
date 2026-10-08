@@ -10,8 +10,8 @@ import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 import type { PackShare } from "../team/share-pack.ts";
 import { orgsDirUnder } from "../rt-paths.ts";
-import { ORG_LAYOUT, parseMarker } from "../team/org-marker.ts";
-import { orgLayoutWaitingError, pickOrgClone } from "../team/org-layout.ts";
+import { parseMarker } from "../team/org-marker.ts";
+import { orgLayoutWaitingError, pickedCloneReady, pickOrgClone } from "../team/org-layout.ts";
 import { TEAM_PACK_FOLDER, isUnconvertedTeamPack, teamPackSource, unconvertedTeamPackError } from "../team/team-pack-path.ts";
 
 /** Strips only the userinfo (scheme://user:pass@) so the rest of a rejected remote URL stays in the message; withoutUrls's full-URL redaction would leave nothing readable here. */
@@ -165,7 +165,7 @@ export function readZonesFrom(fs: InitFs, teams: string): ZoneInfo[] {
     })),
   );
   if (!picked) return zones;
-  if (picked.layout !== ORG_LAYOUT) throw orgLayoutWaitingError({ kind: "waiting", slug: picked.slug, dir: join(teams, picked.slug), layout: picked.layout });
+  if (!pickedCloneReady(picked)) throw orgLayoutWaitingError({ kind: "waiting", slug: picked.slug, dir: join(teams, picked.slug), layout: picked.layout });
   const org = picked.slug;
   const orgDir = join(teams, org);
   const orgSettings = storeGlobal(fs, join(orgDir, "mattstack", "org", "settings.org.jsonc"));

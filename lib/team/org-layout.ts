@@ -73,6 +73,11 @@ export function pickOrgClone(candidates: OrgCandidate[]): { slug: string; layout
   return fallback;
 }
 
+/** A picked clone is ready only on this rt's layout and with its org store; every reader asks this one rule. */
+export function pickedCloneReady(picked: { layout: number; hasStore: boolean }): boolean {
+  return picked.hasStore && picked.layout === ORG_LAYOUT;
+}
+
 /** Classifies the clone pickOrgClone would pick. */
 export function orgLayoutState(p: Pick<Probes, "readDir" | "readFile" | "exists" | "home">): OrgLayoutState {
   const root = orgsDirUnder(p.home);
@@ -87,6 +92,6 @@ export function orgLayoutState(p: Pick<Probes, "readDir" | "readFile" | "exists"
   });
   const picked = pickOrgClone(candidates);
   if (!picked) return { kind: "none" };
-  if (picked.hasStore && picked.layout === ORG_LAYOUT) return { kind: "ready", slug: picked.slug };
+  if (pickedCloneReady(picked)) return { kind: "ready", slug: picked.slug };
   return { kind: "waiting", slug: picked.slug, dir: orgDirUnder(p.home, picked.slug), layout: picked.layout };
 }
