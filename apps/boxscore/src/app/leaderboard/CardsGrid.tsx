@@ -1,5 +1,4 @@
 import { ScrollArea } from '@mattstack/app-kit/core';
-
 import { GROUP_ORDER } from '../../shared/metrics';
 import type {
   LeaderboardResponse,
