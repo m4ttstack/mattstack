@@ -32,7 +32,7 @@ const SUBJECT_CELLS = 32
 /** `kind` as one line, or '' for a row that carries none. */
 export const kindOf = (kind: unknown) => (typeof kind === 'string' ? oneLine(kind) : '')
 
-export const oneLine = (text: string) => text.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()
+export const oneLine = (text: string) => text.replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').replace(/\s+/g, ' ').trim()
 
 export function clip(text: string, cells: number): string {
   if (cells <= 1) return text.slice(0, Math.max(cells, 0))

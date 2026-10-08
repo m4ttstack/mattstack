@@ -706,12 +706,97 @@ describe('display kit', () => {
 
     await k.press('option-0')
     await k.press('option-2')
-    byKey(await k.draw(), 'note').props.onInput('only these two')
     expect(byKey(await k.draw(), 'next').props.label).toBe('Next: 2 picked →')
     await k.press('next')
     expect(texts(byKey(await k.draw(), 'header')).slice(1)).toEqual(['question 2 of 2', '●', '●'])
+    byKey(await k.draw(), 'note').props.onInput('post after the tag')
     await k.press('option-0')
-    expect(await answered).toEqual({ 'findings-1': { value: ['f1'], note: 'only these two' }, 'findings-2': ['f3'], outcome: 'comment' })
+    expect(await answered).toEqual({ 'findings-1': ['f1'], 'findings-2': ['f3'], outcome: { value: 'comment', note: 'post after the tag' } })
+  })
+
+  test('a respond-post gate keeps one page per thread, answered under each thread id', async () => {
+    const thread = (n: number) => ({
+      id: `thread-${n}`,
+      label: `queue/enqueue.ts:${n}`,
+      multi: true,
+      context: j({ 'gate-ctx': 'reply@1', thread: `t${n}`, file: 'queue/enqueue.ts:88', verb: 'reply', text: `reply ${n}` }),
+      options: [
+        { value: `post:t${n}`, label: 'Post the reply (recommended)' },
+        { value: `resolve:t${n}`, label: 'Resolve the thread' },
+      ],
+    })
+    const k = kit()
+    const answered = k.ask({ id: 'g-rp', kind: 'respond-post', questions: [thread(1), thread(2), thread(3)] })
+    await flush()
+    expect(k.display.progress()).toEqual({ index: 0, count: 3 })
+    expect(texts(await k.draw())).toContain('reply 1')
+    for (const picks of [['option-0'], ['option-0', 'option-1'], ['option-1']]) {
+      for (const pick of picks) await k.press(pick)
+      await k.press('next')
+    }
+    expect(await answered).toEqual({ 'thread-1': ['post:t1'], 'thread-2': ['post:t2', 'resolve:t2'], 'thread-3': ['resolve:t3'] })
+  })
+
+  test('a findings@1 or skipped@1 page has no Note field, and the arrows skip it', async () => {
+    const k = kit()
+    void k.ask(REVIEW)
+    await flush()
+    const findings = await k.draw()
+    expect(byKey(findings, 'note')).toBeUndefined()
+    expect(walk(findings).filter(e => e.element === 'Input')).toEqual([])
+    await k.ring('option-1', 'plugin')
+    expect(await k.scroll(1)).toBe(false)
+    expect(k.focused.at(-1)!.key).toBe('next')
+
+    const skipped = kit()
+    void skipped.ask({
+      id: 'g-s',
+      questions: [
+        {
+          id: 'skipped-1',
+          label: 'Bring any back?',
+          multi: true,
+          context: j({ 'gate-ctx': 'skipped@1', skipped: [{ id: 'r1-f4', round: 1, severity: 'minor', title: 'Unused import', changed: false }] }),
+          options: [{ value: 'restore:r1-f4', label: 'Unused import' }],
+        },
+        { id: 'outcome', label: 'Post as', options: ['comment'] },
+      ],
+    })
+    await flush()
+    expect(byKey(await skipped.draw(), 'note')).toBeUndefined()
+    await skipped.press('next')
+    expect(byKey(await skipped.draw(), 'note').props.placeholder).toBe('optional, sent with your answer')
+  })
+
+  test('the quiet window also holds Next on a joined page with no picks, but not once something is picked', async () => {
+    const k = kit()
+    const answered = k.ask({
+      id: 'g-w',
+      questions: [
+        { id: 'findings-1', label: 'Post which findings?', multi: true, options: ['f1', 'f2'] },
+        { id: 'findings-2', label: 'Post which findings?', multi: true, options: ['f3'] },
+        { id: 'outcome', label: 'Post as', options: ['comment'] },
+      ],
+    })
+    await flush()
+    // `1` then Enter typed straight on: an empty Next would post no findings.
+    await k.h.clock.advance(300)
+    expect(await k.enginePress('next')).toBe(false)
+    expect(k.display.progress()).toEqual({ index: 0, count: 2 })
+
+    await k.ring('option-1', 'person')
+    expect(await k.enginePress('option-1')).toBe(true)
+    expect(await k.enginePress('next')).toBe(true)
+    expect(k.display.progress()).toEqual({ index: 1, count: 2 })
+    await k.h.clock.advance(701)
+    await k.enginePress('option-0')
+    expect(await answered).toEqual({ 'findings-1': ['f2'], 'findings-2': [], outcome: 'comment' })
+
+    const late = kit()
+    void late.ask({ id: 'g-l', questions: [{ id: 'findings-1', label: 'Post?', multi: true, options: ['f1'] }, { id: 'findings-2', label: 'Post?', multi: true, options: ['f2'] }] })
+    await flush()
+    await late.h.clock.advance(701)
+    expect(await late.enginePress('next')).toBe(true)
   })
 
   test('a joined chunk group accepts no picks, sending every chunk [], while a plain multi still refuses', async () => {

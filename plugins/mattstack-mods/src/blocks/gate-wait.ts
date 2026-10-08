@@ -59,7 +59,7 @@ const NOTE_CELLS = 120
 /** One answer as the summary line spells it: its values, a typed text, and any note. */
 function spellAnswer(raw: unknown): string {
   if (typeof raw === 'string') return oneLine(raw)
-  if (Array.isArray(raw)) return raw.map(v => oneLine(String(v))).join(', ')
+  if (Array.isArray(raw)) return raw.length > 0 ? raw.map(v => oneLine(String(v))).join(', ') : 'none'
   if (!raw || typeof raw !== 'object') return oneLine(String(raw))
   const { value, note, text } = raw as { value?: unknown; note?: unknown; text?: unknown }
   const chosen = typeof text === 'string' && text.trim() ? oneLine(text) : spellAnswer(value ?? '')

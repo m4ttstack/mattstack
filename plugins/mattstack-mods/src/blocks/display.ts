@@ -2,6 +2,7 @@ import type { EngineEventOf, EngineResultOf } from 'claude-code'
 import type { Hub, ModApi } from '../core/hub.ts'
 import type { GateOption } from './gate-form.ts'
 import { joinChunks, splitAnswers } from './gate-chunks.ts'
+import { parseGateCtx } from './gate-ctx.ts'
 import {
   choiceSubtext,
   gateContext,
@@ -34,9 +35,9 @@ export const FORM_PANE_ID = 'mattstack-gate-form'
 /** Choice hotkeys in order: digits are never used, since a repeat of the band's `1` would land on one. */
 const CHOICE_KEYS = 'abcdefghijklmnopqrstuvwxyz'
 /**
- * How long after the pane opens or its question changes a choice's press is
- * ignored, unless the person moved onto that choice: `1` and then typing on
- * would otherwise answer with whatever letter came next.
+ * How long after the pane opens or its question changes a choice's press (or
+ * an empty Next on a joined page) is ignored, unless the person moved onto
+ * it: `1` and then typing on would otherwise answer with whatever came next.
  */
 const QUIET_MS = 700
 const PANE_MAX_COLUMNS = 80
@@ -88,6 +89,12 @@ function quietly(run: () => Promise<unknown>): void {
   } catch {
     // As above: a call the surface cannot take is skipped.
   }
+}
+
+/** A findings@1 or skipped@1 page takes no note: the board has none there and the review skill drops it. */
+function noteless(q: FormQuestion): boolean {
+  const shape = parseGateCtx(q.context)?.shape
+  return shape === 'findings@1' || shape === 'skipped@1'
 }
 
 const optionValue = (o: GateOption) => (typeof o === 'string' ? o : o.value)
@@ -231,7 +238,7 @@ export function createDisplay(hub: Hub, pane: { id: string; title: string } = { 
       children.push(el.Box({ flexDirection: 'column', rowGap: 1, children: choices(api, el, q, draft, width) }))
     }
     const stops = q.options.map((_, i) => `option-${i}`)
-    if ('Input' in el) {
+    if ('Input' in el && !(asks && noteless(q))) {
       const field = asks
         ? el.Input({
             key: 'note',
@@ -281,6 +288,14 @@ export function createDisplay(hub: Hub, pane: { id: string; title: string } = { 
     return el.Box({ flexDirection: 'column', rowGap: 1, children })
   }
 
+  /** Whether a press on `element` waits out the quiet window. */
+  function held(open: Form, element: string): boolean {
+    if (element.startsWith('option-')) return true
+    if (element !== 'next') return false
+    const q = open.gate.questions[open.index]!
+    return open.joined.has(q.id) && open.drafts[open.index]!.picked.length === 0
+  }
+
   hub.onRender('Pane', async (api, e, next) => (form && e.requestId === pane.id ? draw(api, e, form) : next(e)))
   hub.onClose(pane.id, api => finish(api, null, false))
   hub.onPane(pane.id, {
@@ -311,10 +326,11 @@ export function createDisplay(hub: Hub, pane: { id: string; title: string } = { 
       return {}
     },
     // ui.press does not say whether a hotkey, Enter or a click pressed: in the
-    // quiet window only a choice the person moved onto is let through.
+    // quiet window only a choice the person moved onto is let through. Next
+    // on a joined page with no picks is held too, since it posts no findings.
     async press(api, e, next) {
       const open = form
-      if (!open || !e.element.startsWith('option-') || e.element === open.moved) return next(e)
+      if (!open || !held(open, e.element) || e.element === open.moved) return next(e)
       const until = await open.quietUntil
       let now: number
       try {

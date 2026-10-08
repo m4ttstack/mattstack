@@ -442,7 +442,14 @@ describe('the answered wake text', () => {
     })
     const [summary, json] = text.split('. Its gate wait result: ')
     expect(summary).toBe(
-      "[gate] gate g-1 was answered by this session's pane, by a person: findings-1 = f1, f3; findings-2 = ; outcome = comment (note: post after the tag ships)",
+      "[gate] gate g-1 was answered by this session's pane, by a person: findings-1 = f1, f3; findings-2 = none; outcome = comment (note: post after the tag ships)",
+    )
+    expect(answered({ 'findings-1': { value: [], note: 'none fit' } }).split('. Its gate wait result: ')[0]).toBe(
+      "[gate] gate g-1 was answered by this session's pane, by a person: findings-1 = none (note: none fit)",
+    )
+    // C1 controls (a CSI introducer, a next-line) never reach the wake text.
+    expect(answered({ q: 'a\u009b31mb\u0085c', r: { value: 'yes', note: 'x\u0080y' } }).split('. Its gate wait result: ')[0]).toBe(
+      "[gate] gate g-1 was answered by this session's pane, by a person: q = a 31mb c; r = yes (note: x y)",
     )
     expect(JSON.parse(json!).row).not.toHaveProperty('questions')
     expect(JSON.parse(json!).row.answer.answers['findings-1']).toEqual(['f1', 'f3'])

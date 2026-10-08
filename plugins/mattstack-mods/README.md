@@ -240,7 +240,7 @@ runs `rt gate wait` as it does without the mod. The block then:
    message. The engine queues it while a turn runs.
    - An answer: `[gate] gate <id> was answered by <surface>: <qid> =
      <values>; .... Its gate wait result: <json>`. The summary line joins
-     each question's values with `, `, adds ` (note: ...)` on one line
+     each question's values with `, ` (`none` for an empty pick), adds ` (note: ...)` on one line
      (clipped to 120), and is clipped to 400. The JSON is what `rt gate
      wait` prints, less the gate's context and questions, which the session
      already holds.
@@ -304,12 +304,17 @@ Chunks of one multi question (`findings-1`, `findings-2`, ..., which a
 skill splits only because the native dialog caps a question at four
 options) are joined into one page, as the board joins them
 (`src/blocks/gate-chunks.ts`, a port of gate-kit's `chunks.ts`). The page
-takes the first chunk's label and every chunk's findings@1 entries. Its
-picks go back to rt per chunk, `[]` for a chunk with none, with the page's
-note on the first chunk. Unlike a plain multi question, a joined page
-takes no picks (`Next: none picked →`), since posting no findings is a
-real outcome; every chunk then goes as `[]`. The counter, the dots and the
-band's question count all count pages. Chunks that are not adjacent draw unjoined.
+takes the first chunk's label and every chunk's findings@1 or skipped@1
+entries. Its picks go back to rt per chunk, `[]` for a chunk with none,
+with the page's note (when it has a Note field) on the first chunk. Unlike
+a plain multi question, a joined page takes no picks (`Next: none picked
+→`), since posting no findings is a real outcome; every chunk then goes as
+`[]`. The counter, the dots and the band's question count all count pages.
+Chunks that are not adjacent draw unjoined. A per-thread question (thread@1,
+reply@1 or carryover@1 context, or a `post:<id>` / `resolve:<id>` option
+pair) is never a chunk, so a respond-post gate's `thread-1..n` stay one
+page each, as on the board. A findings@1 or skipped@1 page has no Note
+field: the board has none there and the review skill drops it.
 
 The pane draws the gate the way the board's gate sheets do: a header with
 the kind, the subject and the progress, the gate's context on the first
@@ -343,7 +348,8 @@ its own pane's `ui.scroll`, `ui.focus` and `ui.press` (`hub.onPane`):
   press is ignored unless the person moved onto that choice, so `1` and
   typing straight on cannot answer with the next letter. `ui.press` does
   not say whether a hotkey, Enter or a click pressed, so Enter on the
-  first choice in that window is ignored too.
+  first choice in that window is ignored too. Next on a joined page with
+  nothing picked is held the same way, since it would post no findings.
 
 The pane closes by itself when the gate is answered elsewhere or withdrawn.
 
