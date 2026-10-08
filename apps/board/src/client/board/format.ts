@@ -321,7 +321,9 @@ function reviewMenuItems(
   if (status === 'queued' || status === 'reviewing')
     return interrupted ? [redo] : [{ kind: 'focus', label: 'focus review' }];
   if (status === 'done') return [followUp, redo];
-  return logged ? [redo, followUp] : [{ kind: 'review', label: 'review' }];
+  const fresh = { kind: 'review' as const, label: 'review' };
+  if (!logged) return [fresh];
+  return [status ? redo : fresh, followUp];
 }
 
 /** Whether anyone has reviewed the MR on GitLab: a reviewer who commented,

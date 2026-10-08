@@ -311,7 +311,7 @@ test('redo asks first: cancel launches nothing, confirm launches once', async ()
     'This will start a new response from scratch.'
   );
   expect(dialog?.textContent).toContain(
-    'Another response was already run on this MR. Are you sure?'
+    'This MR already had a response. Are you sure?'
   );
   await confirmWith('Cancel');
   expect(posts.filter(p => p.url === '/respond')).toEqual([]);

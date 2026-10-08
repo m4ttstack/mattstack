@@ -7,7 +7,8 @@ const NOUN: Record<Lane, [one: string, many: string]> = {
 };
 
 /** What the redo confirm says. `prior` is how many of the `count` MRs
-    already had a run; a bulk launch can mix them with MRs that had none. */
+    already had a run; a bulk launch can mix them with first runs, and then
+    it starts rather than redoes. */
 export function redoCopy(
   lane: Lane,
   count: number,
@@ -19,18 +20,19 @@ export function redoCopy(
       title: `Redo ${one}?`,
       body: [
         `This will start a new ${one} from scratch.`,
-        `Another ${one} was already run on this MR. Are you sure?`,
+        `This MR already had a ${one}. Are you sure?`,
       ],
       confirmLabel: `Redo ${one}`,
     };
+  const verb = prior >= count ? 'Redo' : 'Start';
   return {
-    title: `Redo ${count} ${many}?`,
+    title: `${verb} ${count} ${many}?`,
     body: [
       `This will start ${count} new ${many} from scratch.`,
       prior >= count
-        ? `Each of these MRs already had a ${one} run. Are you sure?`
-        : `${prior} of these MRs already had a ${one} run. Are you sure?`,
+        ? `Each of these MRs already had a ${one}. Are you sure?`
+        : `${prior} of these MRs already had a ${one}. Are you sure?`,
     ],
-    confirmLabel: `Redo ${count} ${many}`,
+    confirmLabel: `${verb} ${count} ${many}`,
   };
 }

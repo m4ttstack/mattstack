@@ -89,7 +89,12 @@ test('reviewMenuItems: cold, a plain review; once a review is logged, redo and f
   expect(reviewMenuItems('error', false, false)).toEqual([
     { kind: 'review', label: 'review' },
   ]);
+  // Reviewed only on GitLab: the board never ran one, so nothing to redo.
   expect(reviewMenuItems(undefined, false, true)).toEqual([
+    { kind: 'review', label: 'review' },
+    { kind: 'follow-up', label: 'follow-up review' },
+  ]);
+  expect(reviewMenuItems('error', false, true)).toEqual([
     { kind: 'redo', label: 'redo review' },
     { kind: 'follow-up', label: 'follow-up review' },
   ]);

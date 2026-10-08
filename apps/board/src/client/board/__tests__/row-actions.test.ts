@@ -80,14 +80,21 @@ test('a remote board drops local-only rows and says why', () => {
   expect(actions[0]?.blocked).toBe('need a local board');
 });
 
-test('follow-up review is the primary; redo review sits under sessions and asks first', () => {
+test('follow-up review is the primary; a fresh review sits under sessions', () => {
+  // Reviewed only on GitLab: a plain review, nothing to confirm.
   const mr = MENU_STATES['own broken']!.mr;
   const actions = rowActions(mr, actionEnvOf(ownEnv, mr));
   expect(actions.find(a => a.key === 're-review')?.section).toBe('agent');
   const fresh = actions.find(a => a.key === 'review');
   expect(fresh?.section).toBe('sessions');
-  expect(fresh?.label).toBe('redo review');
-  expect(fresh?.redo).toBe('review');
+  expect(fresh?.label).toBe('review');
+  expect(fresh?.redo).toBeUndefined();
+  // The board's own finished review: redo, which asks first.
+  const done = { ...mr, review: { status: 'done' as const } };
+  const redo = rowActions(done, actionEnvOf(ownEnv, done)).find(
+    a => a.key === 'review'
+  );
+  expect(redo).toMatchObject({ label: 'redo review', redo: 'review' });
 });
 
 test('each lane shows exactly one primary row in agent, in every state', () => {
