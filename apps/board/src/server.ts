@@ -1123,6 +1123,19 @@ async function postReviewRequest(
   }
 }
 
+/** Resolves a review channel, reloading config once when none is found:
+    the team directory can land after boot (a setup migration, a team pull)
+    with no config.json change to trigger the watcher. */
+function withReviewChannel<T>(
+  resolve: () => T,
+  found: (value: T) => boolean
+): T {
+  const first = resolve();
+  if (found(first) || FIXTURE_DIR) return first;
+  reloadConfig('no review channel, rechecking the team directory');
+  return resolve();
+}
+
 /** Confirms run one at a time per MR: the plan is read before the posts and
     the record is written after each, so two at once would both post. */
 const ownerPostsRunning = new Set<string>();
@@ -1136,7 +1149,7 @@ async function ownersPreviewOrPost(
   slackToken: string,
   request: { team?: unknown; channels?: unknown } | null
 ): Promise<Response> {
-  if (!channelForMR(config, mr))
+  if (!withReviewChannel(() => channelForMR(config, mr), Boolean))
     return new Response(NO_REVIEW_CHANNEL, { status: 400 });
   const planned = await ownersPostPlan(mr, slackToken);
   if (planned instanceof Response) return planned;
@@ -3766,12 +3779,15 @@ const httpServer = Bun.serve({
         try {
           const snapshot = await cache.get();
           const mr = snapshot.mrs.find(m => m.webUrl === parsed.mrUrl);
-          const resolvedChannel =
-            typeof channel === 'string'
-              ? channel
-              : mr
-                ? channelForMR(config, mr)
-                : config.slack.channel;
+          const resolvedChannel = withReviewChannel(
+            () =>
+              typeof channel === 'string'
+                ? channel
+                : mr
+                  ? channelForMR(config, mr)
+                  : config.slack.channel,
+            Boolean
+          );
           if (!resolvedChannel)
             return new Response(NO_REVIEW_CHANNEL, { status: 400 });
           const ref = await resolveSlackRef(
@@ -3900,7 +3916,10 @@ const httpServer = Bun.serve({
         if (typeof channel === 'string') {
           targetChannel = channel;
         } else {
-          const resolved = new Set(picked.map(m => channelForMR(config, m)));
+          const resolved = withReviewChannel(
+            () => new Set(picked.map(m => channelForMR(config, m))),
+            channels => !channels.has('')
+          );
           if (resolved.size > 1) {
             return new Response('MRs span Slack channels; post them per tab', {
               status: 400,

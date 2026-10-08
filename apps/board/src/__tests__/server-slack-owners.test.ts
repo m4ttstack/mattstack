@@ -328,6 +328,7 @@ const noChannelBoard = bootBoard({
     teams: { web: { slack: { codeOwnersChannel: 'ours-channel' } } },
   },
 });
+const lateDirectoryBoard = bootBoard({ port: 47973, directory: undefined });
 const PORT = board.port;
 const NO_CHANNEL_PORT = noChannelBoard.port;
 const fakeHome = board.home;
@@ -336,6 +337,7 @@ const postLog = join(fakeHome, 'slack-posts.ndjson');
 afterAll(() => {
   board.stop();
   noChannelBoard.stop();
+  lateDirectoryBoard.stop();
 });
 
 async function ready(port = PORT): Promise<void> {
@@ -720,4 +722,40 @@ test('a team with no review channel is refused whole, naming the fix', async () 
       'Add a review channel for your team to the team directory'
     );
   }
+}, 15_000);
+
+test('a directory written after the board started is read before a post is refused', async () => {
+  const { port, home } = lateDirectoryBoard;
+  await ready(port);
+  const post = () => postTo(port, '/slack/post', { mrUrls: [url('g/p', 701)] });
+  const refused = await post();
+  expect(refused.status).toBe(400);
+  expect(await refused.text()).toBe(
+    'Add a review channel for your team to the team directory'
+  );
+  const store = join(
+    home,
+    '.mattstack/orgs/testteam/mattstack/org/settings.org.jsonc'
+  );
+  writeFileSync(
+    store,
+    JSON.stringify({
+      ...JSON.parse(readFileSync(store, 'utf8')),
+      'mattstack.directory': {
+        teams: {
+          web: {
+            slack: { channels: [{ name: 'code-review', kind: 'review' }] },
+          },
+        },
+      },
+    })
+  );
+  const res = await post();
+  expect(res.status).toBe(200);
+  expect(
+    readFileSync(join(home, 'slack-posts.ndjson'), 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map(line => (JSON.parse(line) as { channel: string }).channel)
+  ).toEqual(['C_DEFAULT']);
 }, 15_000);
