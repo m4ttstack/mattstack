@@ -9,14 +9,18 @@ import {
   buildPermalink,
   buildThreadPermalink,
   extractMrUrls,
+  findOwnerPost,
   matchReviewMessage,
   readIndex,
+  readOwnerPosts,
+  readOwnerPostsLeft,
   readSlackRefs,
   slackIndexPath,
   slackSweepTargets,
   sweepSlackRefs,
   syncIndex,
   writeIndex,
+  writeOwnerPostsLeft,
   writeSlackRef,
   type SlackIndex,
   type SlackMessage,
@@ -68,6 +72,28 @@ describe('matchReviewMessage', () => {
       URL_A
     );
     expect(m?.ts).toBe('10');
+  });
+
+  test('does not match a longer MR number that starts with this one', () => {
+    expect(
+      matchReviewMessage([msg('5', `review <${URL_A}1|!48211>`)], URL_A)
+    ).toBeNull();
+    expect(
+      matchReviewMessage([msg('6', `review ${URL_A}2`)], URL_A)
+    ).toBeNull();
+  });
+
+  test('matches the url before a link bar, a path, a query or the end', () => {
+    for (const text of [
+      `<${URL_A}|!4821>`,
+      `<${URL_A}>`,
+      `${URL_A}/diffs`,
+      `${URL_A}?tab=x`,
+      `${URL_A}#note_1`,
+      `see ${URL_A}`,
+      `${URL_A}, thanks`,
+    ])
+      expect(matchReviewMessage([msg('7', text)], URL_A)?.ts).toBe('7');
   });
 
   test("does not match a different MR's url", () => {
@@ -196,6 +222,7 @@ describe('attachSlack', () => {
       permalink: 'https://x/p1',
       reactions: ['eyes'],
       posted: true,
+      checkedAt: 0,
     });
     expect(b!.slack).toBeUndefined();
   });
@@ -210,6 +237,7 @@ describe('attachSlack', () => {
       permalink: undefined,
       reactions: [],
       posted: false,
+      checkedAt: 0,
     });
   });
 
@@ -469,5 +497,41 @@ describe('syncIndex re-reads edited messages', () => {
     api = mockHistoryWindow([]);
     await syncIndex('tok', 'code-review', NOW, db);
     expect(api.oldests).toEqual([ancient]);
+  });
+});
+
+describe('findOwnerPost', () => {
+  let api: ReturnType<typeof mockSlackApi>;
+  afterEach(() => api.restore());
+
+  test('a message someone posted by hand is found and remembered as the channel post', async () => {
+    api = mockSlackApi({
+      'acme-channel': [msg('100.5', `can someone look at ${URL_A}`)],
+    });
+    const post = await findOwnerPost('tok', 'acme-channel', URL_A, 1000, db);
+    expect(post?.ts).toBe('100.5');
+    expect(post?.permalink).toContain('p1005');
+    expect(readOwnerPosts(URL_A, db)['acme-channel']).toEqual(post!);
+  });
+
+  test('a channel with no message for the MR finds nothing and records nothing', async () => {
+    api = mockSlackApi({ 'acme-channel': [msg('100.5', `see ${URL_B}`)] });
+    expect(await findOwnerPost('tok', 'acme-channel', URL_A, 1000, db)).toBe(
+      null
+    );
+    expect(readOwnerPosts(URL_A, db)).toEqual({});
+  });
+});
+
+describe('owner posts left', () => {
+  test('an MR never posted through the dialog has no record', () => {
+    expect(readOwnerPostsLeft(URL_A, db)).toBeUndefined();
+  });
+
+  test('the channels left after a post are kept per MR, an empty list included', () => {
+    writeOwnerPostsLeft(URL_A, ['pod-docs'], db);
+    writeOwnerPostsLeft(URL_B, [], db);
+    expect(readOwnerPostsLeft(URL_A, db)).toEqual(['pod-docs']);
+    expect(readOwnerPostsLeft(URL_B, db)).toEqual([]);
   });
 });

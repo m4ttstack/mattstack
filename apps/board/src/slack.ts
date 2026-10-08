@@ -92,7 +92,10 @@ export function matchReviewMessage(
   messages: SlackMessage[],
   webUrl: string
 ): SlackMessage | null {
-  const hits = messages.filter(m => m.text.includes(webUrl));
+  // The url must end where it does in the text, or !12 would match !123.
+  const escaped = webUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const whole = new RegExp(`${escaped}(?![\\w-])`);
+  const hits = messages.filter(m => whole.test(m.text));
   if (!hits.length) return null;
   return hits.reduce((a, b) => (parseFloat(a.ts) <= parseFloat(b.ts) ? a : b));
 }
@@ -496,6 +499,66 @@ export async function postToOwnerChannel(
   return post;
 }
 
+/** Look for the MR's review request in a Code Owner channel, whoever posted
+    it, and remember a hit as that channel's post so the board never offers
+    to post there again. */
+export async function findOwnerPost(
+  token: string,
+  channelName: string,
+  mrUrl: string,
+  now: number = Date.now(),
+  db: Database = getStateDb()
+): Promise<OwnerPost | null> {
+  const index = await syncIndex(token, channelName, now, db);
+  const msg = matchReviewMessage(index.messages, mrUrl);
+  if (!msg) return null;
+  const post: OwnerPost = {
+    channelId: index.channelId,
+    ts: msg.ts,
+    permalink: buildPermalink(index.teamDomain, index.channelId, msg.ts),
+    postedAt: now,
+  };
+  setKvValue(
+    'owner-posts',
+    mrUrl,
+    { ...readOwnerPosts(mrUrl, db), [channelName]: post },
+    db
+  );
+  return post;
+}
+
+/** The channels the last "post to slack" offered for an MR and did not post
+    to. Absent when the MR was never posted through it. */
+export function readOwnerPostsLeft(
+  mrUrl: string,
+  db: Database = getStateDb()
+): string[] | undefined {
+  return getKvValue<string[] | undefined>(
+    'owner-posts-left',
+    mrUrl,
+    undefined,
+    db
+  );
+}
+
+export function attachOwnerPostsLeft<T extends { webUrl?: string | null }>(
+  mrs: T[],
+  db: Database = getStateDb()
+): Array<T & { ownerPostsLeft?: string[] }> {
+  return mrs.map(mr => {
+    const left = mr.webUrl ? readOwnerPostsLeft(mr.webUrl, db) : undefined;
+    return left ? { ...mr, ownerPostsLeft: left } : mr;
+  });
+}
+
+export function writeOwnerPostsLeft(
+  mrUrl: string,
+  channels: string[],
+  db: Database = getStateDb()
+): void {
+  setKvValue('owner-posts-left', mrUrl, channels, db);
+}
+
 // ── per-MR ref state ─────────────────────────────────────────────────────────
 
 /** `critical` selects the retry-then-throw write path: a caller that has
@@ -560,6 +623,7 @@ export function attachSlack<T extends { webUrl?: string | null }>(
       permalink?: string;
       reactions: string[];
       posted: boolean;
+      checkedAt: number;
     };
   }
 > {
@@ -576,6 +640,7 @@ export function attachSlack<T extends { webUrl?: string | null }>(
         // messageTs until its first reaction reifies the threaded reply,
         // and that reaction anchor must not gate display.
         posted: ref.status === 'found',
+        checkedAt: ref.checkedAt,
       },
     };
   });

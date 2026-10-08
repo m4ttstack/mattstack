@@ -40,7 +40,7 @@ export interface RunnerDeps {
 
 export type RunnableRequest = Extract<
   ActionRequest,
-  { kind: 'launch' | 'mr' | 'draft' | 'react' | 'find-thread' | 'ask' }
+  { kind: 'launch' | 'mr' | 'draft' | 'react' | 'ask' }
 >;
 type PostRequest = Exclude<RunnableRequest, { kind: 'launch' }>;
 
@@ -49,7 +49,6 @@ const RUNNABLE = new Set<ActionRequest['kind']>([
   'mr',
   'draft',
   'react',
-  'find-thread',
   'ask',
 ]);
 
@@ -198,29 +197,6 @@ function postSpec(req: PostRequest): PostSpec {
         manyFail: list => `couldn't ${verb} ${req.glyph} for ${list}`,
       };
     }
-    case 'find-thread':
-      return {
-        path: '/slack/resolve',
-        payload: (mr, url) => ({ mrUrl: url, iid: mr.iid }),
-        pending: mr => `finding slack thread for ${mrRef(mr)}…`,
-        done: (mr, r) =>
-          r.body?.status === 'found'
-            ? `found slack thread for ${mrRef(mr)}`
-            : `no slack thread found for ${mrRef(mr)}`,
-        fail: (mr, r) => `slack lookup failed for ${mrRef(mr)} (${r.status})`,
-        fresh: false,
-        manyDone: done => {
-          const found = done.filter(d => d.result.body?.status === 'found');
-          const none = done.filter(d => d.result.body?.status !== 'found');
-          return [
-            found.length ? `slack thread found on ${on(found)}` : '',
-            none.length ? `no thread on ${on(none)}` : '',
-          ]
-            .filter(Boolean)
-            .join(' · ');
-        },
-        manyFail: list => `slack lookup failed for ${list}`,
-      };
     case 'ask': {
       const reviewer = req.reviewer ?? '';
       return {
@@ -394,7 +370,6 @@ export interface RowHandlers {
   dismiss: (mr: BoardMR, lane: Lane) => void;
   standDown: (mr: BoardMR, on: boolean) => void;
   postSlack: (mr: BoardMR) => void;
-  postOwners: (mr: BoardMR) => void;
 }
 
 export function dispatchRowAction(
@@ -425,9 +400,6 @@ export function dispatchRowAction(
       return undefined;
     case 'post-slack':
       h.postSlack(mr);
-      return undefined;
-    case 'post-owners':
-      h.postOwners(mr);
       return undefined;
     case 'ask':
       return runOne({ ...req, reviewer: opts.pick ?? req.reviewer }, mr, deps);

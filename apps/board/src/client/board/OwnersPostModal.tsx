@@ -6,7 +6,14 @@ import type { BoardMR } from '../../data.ts';
 import { postAction, type ActionResult } from '../api.ts';
 import { cleanTitle } from './format.ts';
 
-type Preview = OwnersPostPlan & { text: string };
+export type SlackPostPreview = OwnersPostPlan & {
+  text: string;
+  team: { channel: string; posted: boolean; permalink?: string };
+  /** Only the team channel is left to post to: no dialog needed. */
+  direct: boolean;
+  /** Channels the board could not read for an earlier post. */
+  unchecked: string[];
+};
 interface PostOutcome {
   posted: Array<{ channel: string; permalink: string }>;
   failed: Array<{ channel: string; error: string }>;
@@ -41,22 +48,28 @@ function skipReason(skip: OwnerSkip) {
   }
 }
 
-/** Confirm step for posting an MR to its Code Owners' channels. Opening it
-    only reads; nothing is sent until the confirm, and only to the channels
-    still switched on. */
+/** Confirm step for posting an MR to Slack: the team channel first, then
+    each Code Owner channel still waiting on approval. Opening it only reads;
+    nothing is sent until the confirm, and only to the channels still
+    switched on. */
 function OwnersPostModal({
   mr,
+  initial,
   post = postAction,
   onPosted,
   onClose,
 }: {
   mr: BoardMR;
+  /** A preview already read, so opening does not ask again. */
+  initial?: SlackPostPreview;
   post?: (path: string, payload: unknown) => Promise<ActionResult>;
   /** Every confirmed channel was posted to. */
   onPosted: (channels: string[]) => void;
   onClose: () => void;
 }) {
-  const [preview, setPreview] = useState<Preview | null>(null);
+  const [preview, setPreview] = useState<SlackPostPreview | null>(
+    initial ?? null
+  );
   const [off, setOff] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<PostOutcome | null>(null);
@@ -68,15 +81,24 @@ function OwnersPostModal({
       setError(res.text || `could not load the channels (${res.status})`);
       return;
     }
-    setPreview(res.body as unknown as Preview);
+    setPreview(res.body as unknown as SlackPostPreview);
   };
   useEffect(() => {
-    void load();
+    if (!initial) void load();
   }, []);
 
-  const chosen = (preview?.channels ?? [])
-    .map(c => c.channel)
-    .filter(c => !off.has(c));
+  const team = preview && !preview.team.posted ? preview.team.channel : null;
+  const rows = [
+    ...(team ? [team] : []),
+    ...(preview?.channels ?? []).map(c => c.channel),
+  ];
+  const chosen = rows.filter(c => !off.has(c));
+  const flip = (channel: string) =>
+    setOff(prev => {
+      const next = new Set(prev);
+      if (!next.delete(channel)) next.add(channel);
+      return next;
+    });
 
   const confirm = async () => {
     setPosting(true);
@@ -84,7 +106,10 @@ function OwnersPostModal({
     setOutcome(null);
     const res = await post('/slack/owners/post', {
       mrUrl: mr.webUrl,
-      channels: chosen,
+      team: !!team && chosen.includes(team),
+      channels: (preview?.channels ?? [])
+        .map(c => c.channel)
+        .filter(c => chosen.includes(c)),
     });
     const body = res.body as unknown as PostOutcome | null;
     if (res.ok && body && body.failed.length === 0) {
@@ -98,10 +123,18 @@ function OwnersPostModal({
     setPosting(false);
   };
 
+  const unchecked = new Set(preview?.unchecked ?? []);
+  const teamSections = [
+    'team review',
+    ...(preview?.ownSections ?? []).map(s =>
+      sectionLabel(s, / - #([\w-]+)\s*$/.exec(s)?.[1])
+    ),
+  ].join(', ');
+
   return (
     <Modal
-      title={<>❯ post to code owners · !{mr.iid}</>}
-      ariaLabel={`post !${mr.iid} to code owners`}
+      title={<>❯ post to slack · !{mr.iid}</>}
+      ariaLabel={`post !${mr.iid} to slack`}
       onClose={onClose}
       className="tui-owners-modal"
     >
@@ -111,8 +144,21 @@ function OwnersPostModal({
           <Spinner size="xs" /> checking approvals…
         </p>
       )}
-      {preview && preview.channels.length > 0 && (
+      {preview && rows.length > 0 && (
         <ListGroup footer="One message per channel. Switch off any you do not want.">
+          {team && (
+            <ListGroup.Toggle
+              label={
+                <>
+                  #{team}
+                  <span className="tui-owners-sections">{teamSections}</span>
+                </>
+              }
+              aria-label={`post to #${team}`}
+              checked={!off.has(team)}
+              onChange={() => flip(team)}
+            />
+          )}
           {preview.channels.map(c => (
             <ListGroup.Toggle
               key={c.channel}
@@ -121,31 +167,37 @@ function OwnersPostModal({
                   #{c.channel}
                   <span className="tui-owners-sections">
                     {c.sections.map(s => sectionLabel(s, c.channel)).join(', ')}
+                    {unchecked.has(c.channel) &&
+                      ' · could not check for an earlier post'}
                   </span>
                 </>
               }
               aria-label={`post to #${c.channel}`}
               checked={!off.has(c.channel)}
-              onChange={() =>
-                setOff(prev => {
-                  const next = new Set(prev);
-                  if (!next.delete(c.channel)) next.add(c.channel);
-                  return next;
-                })
-              }
+              onChange={() => flip(c.channel)}
             />
           ))}
         </ListGroup>
       )}
-      {preview && preview.channels.length === 0 && (
-        <p className="tui-owners-note">
-          {preview.skipped.length === 0
-            ? 'this MR has no code owner sections'
-            : 'nothing to post'}
-        </p>
+      {preview && rows.length === 0 && (
+        <p className="tui-owners-note">nothing to post</p>
       )}
-      {preview && preview.skipped.length > 0 && (
-        <ListGroup footer="Not posting for these sections.">
+      {preview && (preview.team.posted || preview.skipped.length > 0) && (
+        <ListGroup footer="Not posting for these.">
+          {preview.team.posted && (
+            <ListGroup.Fact
+              label="team review"
+              value={
+                <a
+                  href={preview.team.permalink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  already posted to #{preview.team.channel}
+                </a>
+              }
+            />
+          )}
           {preview.skipped.map(s => (
             <ListGroup.Fact
               key={s.section}
@@ -155,7 +207,7 @@ function OwnersPostModal({
           ))}
         </ListGroup>
       )}
-      {preview && preview.channels.length > 0 && (
+      {preview && rows.length > 0 && (
         <pre className="tui-draft-body">{preview.text}</pre>
       )}
       <div className="tui-draft-actions">
@@ -169,9 +221,9 @@ function OwnersPostModal({
           </span>
         )}
         <Button size="sm" intent="muted" onClick={onClose}>
-          {preview && preview.channels.length === 0 ? 'close' : 'cancel'}
+          {preview && rows.length === 0 ? 'close' : 'cancel'}
         </Button>
-        {preview && preview.channels.length > 0 && (
+        {preview && rows.length > 0 && (
           <Button
             size="sm"
             intent="accent"

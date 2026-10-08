@@ -33,7 +33,6 @@ test('an idle own MR: every action, by section, in menu order', () => {
     'gitlab:mark-draft',
     'gitlab:open-gitlab',
     'slack:open-slack-post',
-    'slack:find-thread',
     'slack:copy',
     'more:note',
     'more:stand-down',
@@ -284,7 +283,11 @@ test('a teammate respond report and a live teammate lane error stay reachable', 
 
 test('the bulk menu never targets a blocked row and keeps its three headings', () => {
   const draft = MENU_STATES['own draft']!.mr;
-  const entries = bulkActions([ownIdle, draft], actionEnvOf(ownEnv, ownIdle));
+  const inSlack = {
+    ...ownIdle,
+    slack: { status: 'found' as const, reactions: [], posted: true },
+  };
+  const entries = bulkActions([inSlack, draft], actionEnvOf(ownEnv, inSlack));
   expect(entries.some(e => e.key === 'setAutoMerge')).toBe(false);
   expect(new Set(entries.map(e => e.section))).toEqual(
     new Set(['agent', 'gitlab', 'slack'])
@@ -304,7 +307,6 @@ test('only the bulk-capable actions carry a bulk label', () => {
     rebase: 'rebase on target',
     setAutoMerge: 'set auto-merge',
     'mark-draft': 'mark as draft',
-    'find-thread': 'find slack threads',
   });
 });
 
@@ -397,7 +399,6 @@ test('bulk shows only what fits every checked MR, in the mock order, with no cou
   const entries = bulkActions([a, b, c], env3([a, b, c]));
   expect(entries.map(e => `${e.key} | ${e.label}`)).toEqual([
     'review | review',
-    'find-thread | find slack threads',
   ]);
   expect(entries.every(e => e.hint === undefined)).toBe(true);
 });
@@ -500,7 +501,7 @@ test('mark wins over unmark until every checked thread has the mark', () => {
   expect(both.map(x => x.key)).not.toContain('react-eyes');
 });
 
-test('a checked MR with no slack thread hides the marks but not the lookup', () => {
+test('a checked MR with no slack thread hides the marks', () => {
   const found = mrx(216, {
     slack: { status: 'found', reactions: [], posted: true },
   });
@@ -509,9 +510,7 @@ test('a checked MR with no slack thread hides the marks but not the lookup', () 
   });
   const entries = bulkActions([found, missing], env3([found, missing]));
   expect(entries.filter(x => x.key.includes('react-'))).toEqual([]);
-  expect(
-    entries.find(x => x.key === 'find-thread')?.targets.map(t => t.iid)
-  ).toEqual([217]);
+  expect(entries.map(x => x.key)).not.toContain('find-thread');
 });
 
 test('bulk slack marks follow the ladder, not first-seen order', () => {
@@ -579,7 +578,6 @@ const AUTHOR_ONLY = [
   'focus-respond',
   'resume-respond',
   'post-slack',
-  'post-owners',
 ];
 
 const brokenAndMergeable = (over: Record<string, unknown> = {}) =>
@@ -600,7 +598,6 @@ test("someone else's MR offers no author-only action", () => {
   });
   const offered = keys(theirs, ownEnv);
   for (const k of AUTHOR_ONLY) expect(offered).not.toContain(k);
-  expect(offered).toContain('find-thread');
   expect(offered).toContain('open-gitlab');
 });
 
@@ -641,7 +638,6 @@ test("bulk never offers an author-only action once someone else's MR is checked"
   });
   const entries = bulkActions([mine, theirs], env3([mine, theirs]));
   for (const k of AUTHOR_ONLY) expect(entries.map(e => e.key)).not.toContain(k);
-  expect(entries.map(e => e.key)).toContain('find-thread');
 });
 
 test('a seatless board says where author actions went, and nothing more', () => {
@@ -665,112 +661,98 @@ const ownersEnv = { ...ownEnv, ownerSlackRepos: [REPO] };
 const inOptedRepo = (over: Record<string, unknown> = {}) =>
   mrx(240, { rtRepo: REPO, ...over });
 
-test('an own MR in a repo that opted in offers the code owners post, after the slack post', () => {
-  const offered = keys(
-    inOptedRepo({
-      slack: {
-        status: 'found',
-        reactions: [],
-        permalink: 'https://x',
-        posted: true,
-      },
-    }),
-    ownersEnv
-  );
-  expect(offered).toContain('post-owners');
-  expect(offered.indexOf('post-owners')).toBe(
-    offered.indexOf('post-slack') + 1
-  );
+const notFound = { status: 'notfound', reactions: [], posted: false };
+const found = {
+  status: 'found',
+  reactions: [],
+  permalink: 'https://x',
+  posted: true,
+};
+const postItem = (mr: typeof ownIdle, env: typeof ownEnv = ownersEnv) =>
+  rowActions(mr, actionEnvOf(env, mr)).find(a => a.key === 'post-slack');
+
+test('slack posting is one item: no code owners item, no find item', () => {
+  for (const mr of [
+    inOptedRepo({ slack: notFound }),
+    inOptedRepo({ slack: found }),
+    mrx(242, { slack: notFound }),
+  ]) {
+    const offered = keys(mr, ownersEnv);
+    expect(offered.filter(k => k === 'post-slack')).toHaveLength(1);
+    expect(offered).not.toContain('post-owners');
+    expect(offered).not.toContain('find-thread');
+  }
 });
 
-test('the code owners post stays in the slack flyout while the slack post leads', () => {
-  const mr = inOptedRepo({
-    slack: { status: 'notfound', reactions: [], posted: false },
-  });
-  const placed = sections(mr, ownersEnv);
-  expect(placed).toContain('top:post-slack');
-  expect(placed).toContain('slack:post-owners');
+test('an own MR not yet in slack leads with post to slack', () => {
+  for (const [mr, env] of [
+    [inOptedRepo({ slack: notFound }), ownersEnv],
+    [mrx(260, { slackChannel: 'code-review', slack: notFound }), ownEnv],
+  ] as const) {
+    const post = postItem(mr, env)!;
+    expect(post.section).toBe('top');
+    expect(post.label).toBe('post to slack');
+    expect(post.blocked).toBeUndefined();
+    expect(post.request).toEqual({ kind: 'post-slack' });
+    expect(post.bulk).toBeUndefined();
+  }
 });
 
-test('the code owners post stays once the review request is in slack', () => {
-  const found = inOptedRepo({
-    slack: {
-      status: 'found',
-      reactions: [],
-      permalink: 'https://x',
-      posted: true,
-    },
-  });
-  expect(keys(found, ownersEnv)).toContain('post-owners');
-});
-
-test('the code owners post is wording a person reads, and never joins the bulk menu', () => {
-  const mr = inOptedRepo();
-  const action = rowActions(mr, actionEnvOf(ownersEnv, mr)).find(
-    a => a.key === 'post-owners'
+test('posted to only some code owners, the item leads the menu and offers the rest', () => {
+  const post = postItem(
+    inOptedRepo({ slack: found, ownerPostsLeft: ['pod-docs'] })
   )!;
-  expect(action.label).toBe('post to code owners…');
-  expect(action.request).toEqual({ kind: 'post-owners' });
-  expect(action.bulk).toBeUndefined();
+  expect(post.label).toBe('post to other codeowners…');
+  expect(post.section).toBe('top');
+  expect(post.blocked).toBeUndefined();
 });
 
-test('no code owners post outside an opted-in repo, without slack, or off the local board', () => {
-  expect(
-    keys(mrx(241, { rtRepo: 'gitlab.example.com/acme/other' }), ownersEnv)
-  ).not.toContain('post-owners');
-  expect(keys(mrx(242), ownersEnv)).not.toContain('post-owners');
+test('posted everywhere, the item stays on offer in the slack flyout, since approvals can reset', () => {
+  const post = postItem(inOptedRepo({ slack: found, ownerPostsLeft: [] }))!;
+  expect(post.section).toBe('slack');
+  expect(post.label).toBe('post to slack');
+  expect(post.blocked).toBeUndefined();
+});
+
+test('with only the team channel left, the item is the plain post and leads', () => {
+  const post = postItem(
+    inOptedRepo({
+      slackChannel: 'code-review',
+      slack: notFound,
+      ownerPostsLeft: ['code-review'],
+    })
+  )!;
+  expect(post.label).toBe('post to slack');
+  expect(post.section).toBe('top');
+});
+
+test('a team thread found outside the dialog still offers the other code owners', () => {
+  const post = postItem(inOptedRepo({ slack: found }))!;
+  expect(post.label).toBe('post to other codeowners…');
+  expect(post.blocked).toBeUndefined();
+});
+
+test('outside an opted-in repo a found thread blocks the post', () => {
+  const post = postItem(mrx(261, { slack: found }), ownEnv)!;
+  expect(post.label).toBe('post to slack');
+  expect(post.blocked).toBe('posted');
+});
+
+test('no slack post without slack, off the local board, or on a teammate MR', () => {
   expect(
     keys(inOptedRepo(), { ...ownersEnv, slackEnabled: false })
-  ).not.toContain('post-owners');
+  ).not.toContain('post-slack');
   expect(keys(inOptedRepo(), { ...ownersEnv, local: false })).not.toContain(
-    'post-owners'
+    'post-slack'
   );
-});
-
-test("someone else's MR in an opted-in repo offers no code owners post", () => {
   const theirs = inOptedRepo({ author: { username: 'kim', name: 'Kim' } });
-  expect(keys(theirs, ownersEnv)).not.toContain('post-owners');
-});
-
-const slackPostLabel = (over: Record<string, unknown>) => {
-  const mr = mrx(250, {
-    slack: { status: 'notfound', reactions: [], posted: false },
-    ...over,
-  });
-  return rowActions(mr, actionEnvOf(ownEnv, mr)).find(
-    a => a.key === 'post-slack'
-  )!.label;
-};
-
-test('the slack post names the channel it goes to', () => {
-  expect(slackPostLabel({ slackChannel: 'code-review' })).toBe(
-    'post to #code-review'
-  );
-});
-
-test('the slack post keeps its plain wording when the channel is unknown', () => {
-  expect(slackPostLabel({})).toBe('post to slack');
+  expect(keys(theirs, ownersEnv)).not.toContain('post-slack');
 });
 
 const topKeys = (mr: typeof ownIdle) =>
   rowActions(mr, actionEnvOf(ownEnv, mr))
     .filter(a => a.section === 'top')
     .map(a => a.key);
-
-test('an own MR with no thread leads with the slack post', () => {
-  const mr = mrx(260, {
-    slackChannel: 'code-review',
-    slack: { status: 'notfound', reactions: [], posted: false },
-  });
-  const actions = rowActions(mr, actionEnvOf(ownEnv, mr));
-  expect(topKeys(mr)).toEqual(['post-slack']);
-  const post = actions.find(a => a.key === 'post-slack')!;
-  expect(post.label).toBe('post to #code-review');
-  expect(post.blocked).toBeUndefined();
-  const find = actions.find(a => a.key === 'find-thread')!;
-  expect(find.section).toBe('slack');
-  expect(find.label).toBe('no thread, find it again');
-});
 
 test('an own MR with a found thread leads with the reactions', () => {
   const mr = mrx(261, {
@@ -781,21 +763,17 @@ test('an own MR with a found thread leads with the reactions', () => {
       posted: true,
     },
   });
-  const actions = rowActions(mr, actionEnvOf(ownEnv, mr));
   expect(topKeys(mr).every(k => k.startsWith('react-'))).toBe(true);
   expect(topKeys(mr).length).toBeGreaterThan(0);
-  const post = actions.find(a => a.key === 'post-slack')!;
-  expect(post.section).toBe('slack');
-  expect(post.blocked).toBe('thread exists');
-  expect(actions.map(a => a.key)).not.toContain('find-thread');
+  expect(postItem(mr, ownEnv)!.section).toBe('slack');
 });
 
-test("a teammate's MR with no thread leads with finding it", () => {
+test("a teammate's MR with no thread has nothing to lead with", () => {
   const mr = mrx(262, {
     author: { username: 'kim', name: 'Kim' },
     slack: { status: 'notfound', reactions: [], posted: false },
   });
-  expect(topKeys(mr)).toEqual(['find-thread']);
+  expect(topKeys(mr)).toEqual([]);
   expect(keys(mr, ownEnv)).not.toContain('post-slack');
 });
 

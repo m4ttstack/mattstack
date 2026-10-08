@@ -288,7 +288,9 @@ import {
 } from './review-state.ts';
 import { attachNotes, MAX_NOTE_LEN, readNotes, writeNote } from './row-note.ts';
 import {
+  attachOwnerPostsLeft,
   attachSlack,
+  findOwnerPost,
   listChannels,
   postToOwnerChannel,
   postToSlack,
@@ -299,6 +301,7 @@ import {
   slackSweepTargets,
   sweepSlackRefs,
   unreactFromMR,
+  writeOwnerPostsLeft,
   type ListedChannel,
 } from './slack.ts';
 import {
@@ -938,7 +941,12 @@ async function ownersPostPlan(
   mr: BoardMR,
   slackToken: string
 ): Promise<
-  { plan: OwnersPostPlan; channels: Map<string, ListedChannel> } | Response
+  | {
+      plan: OwnersPostPlan;
+      channels: Map<string, ListedChannel>;
+      unchecked: string[];
+    }
+  | Response
 > {
   const projectPath = mr.webUrl
     ? projectPathFromWebUrl(mr.webUrl, config.gitlabHost)
@@ -983,50 +991,217 @@ async function ownersPostPlan(
       { status: 502 }
     );
   }
+  const rules = ownerRulesFromApprovalState(res.data.body);
+  const ownSections = config.tabs.flatMap(t =>
+    t.source.kind === 'codeowners' ? [t.source.section] : []
+  );
   const posted = Object.fromEntries(
     Object.entries(readOwnerPosts(mr.webUrl!)).map(([channel, post]) => [
       channel,
       post.permalink,
     ])
   );
+  const first = planOwnersPost(rules, {
+    posted,
+    slack: channels,
+    ownSections,
+    teamChannel: channelForMR(config, mr),
+  });
+  // A request someone posted by hand counts as posted. When a channel cannot
+  // be read it is still offered, and the preview says it went unchecked.
+  const unchecked: string[] = [];
+  for (const { channel } of first.channels) {
+    try {
+      const found = await findOwnerPost(slackToken, channel, mr.webUrl!);
+      if (found) posted[channel] = found.permalink;
+    } catch (err) {
+      console.warn(`board: could not read #${channel} for ${mr.webUrl}`, err);
+      unchecked.push(channel);
+    }
+  }
   return {
-    plan: planOwnersPost(ownerRulesFromApprovalState(res.data.body), {
+    plan: planOwnersPost(rules, {
       posted,
       slack: channels,
+      ownSections,
+      teamChannel: channelForMR(config, mr),
     }),
     channels,
+    unchecked,
   };
+}
+
+/** Whether the MR's review request is already in the team channel, by the
+    ref the board keeps or, failing that, a fresh look at the channel. A
+    failed look reads as not posted: the post itself checks again. */
+async function teamThread(
+  mr: BoardMR,
+  slackToken: string
+): Promise<{ channel: string; posted: boolean; permalink?: string }> {
+  const channel = channelForMR(config, mr);
+  let ref = readSlackRefs().get(mr.webUrl!);
+  if (ref?.status !== 'found') {
+    try {
+      ref = await resolveSlackRef(slackToken, channel, mr.webUrl!, mr.iid);
+    } catch (err) {
+      console.warn(`board: could not read #${channel} for ${mr.webUrl}`, err);
+    }
+  }
+  return ref?.status === 'found'
+    ? { channel, posted: true, permalink: ref.permalink }
+    : { channel, posted: false };
+}
+
+type ReviewRequestResult =
+  | { kind: 'linked'; permalink?: string }
+  | { kind: 'already'; iids: number[] }
+  | { kind: 'posted'; posted: number; permalink?: string }
+  | { kind: 'failed'; step: 'resolve' | 'post'; error: string };
+
+/** Post the review request for these MRs to the team channel and pin a slack
+    ref to the new message so reactions target it. An MR whose request is
+    already in the channel is never posted again: one MR links to the message
+    it found, several are refused. */
+async function postReviewRequest(
+  slackToken: string,
+  picked: BoardMR[],
+  targetChannel: string,
+  header: string | null
+): Promise<ReviewRequestResult> {
+  const existingRefs = readSlackRefs();
+  const toResolve = picked.filter(
+    m => existingRefs.get(m.webUrl!)?.status !== 'found'
+  );
+  const freshlyFound: Array<{ iid: number; permalink?: string }> = [];
+  try {
+    for (const m of toResolve) {
+      const ref = await resolveSlackRef(
+        slackToken,
+        targetChannel,
+        m.webUrl!,
+        m.iid
+      );
+      if (ref.status === 'found')
+        freshlyFound.push({ iid: m.iid, permalink: ref.permalink });
+    }
+  } catch (err) {
+    return {
+      kind: 'failed',
+      step: 'resolve',
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+  const alreadyIids = [
+    ...picked
+      .filter(m => existingRefs.get(m.webUrl!)?.status === 'found')
+      .map(m => m.iid),
+    ...freshlyFound.map(f => f.iid),
+  ];
+  if (alreadyIids.length) {
+    if (picked.length > 1) return { kind: 'already', iids: alreadyIids };
+    return {
+      kind: 'linked',
+      permalink:
+        freshlyFound[0]?.permalink ??
+        existingRefs.get(picked[0]!.webUrl!)?.permalink,
+    };
+  }
+  try {
+    const refs = await postToSlack(
+      slackToken,
+      targetChannel,
+      mrPostText(picked, header),
+      picked.map(m => ({ webUrl: m.webUrl!, iid: m.iid }))
+    );
+    return {
+      kind: 'posted',
+      posted: refs.length,
+      permalink: refs[0]?.permalink,
+    };
+  } catch (err) {
+    return {
+      kind: 'failed',
+      step: 'post',
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 /** Confirms run one at a time per MR: the plan is read before the posts and
     the record is written after each, so two at once would both post. */
 const ownerPostsRunning = new Set<string>();
 
-/** The preview when `channels` is null; otherwise posts to those channels,
-    each of which must be in the plan rebuilt here. */
+/** The preview when `request` is null; otherwise posts the team request when
+    `team` is set and to each of `channels`, every one of which must be on
+    offer in the plan rebuilt here. What was offered and not posted is kept,
+    so the menu can offer the rest. */
 async function ownersPreviewOrPost(
   mr: BoardMR,
   slackToken: string,
-  channels: unknown
+  request: { team?: unknown; channels?: unknown } | null
 ): Promise<Response> {
   const planned = await ownersPostPlan(mr, slackToken);
   if (planned instanceof Response) return planned;
+  const team = await teamThread(mr, slackToken);
   const text = mrPostText([mr]);
-  if (channels === null) return Response.json({ text, ...planned.plan });
-  const offered = new Set(planned.plan.channels.map(c => c.channel));
+  const { plan } = planned;
+  if (request === null) {
+    const direct =
+      !team.posted &&
+      plan.channels.length === 0 &&
+      plan.skipped.every(
+        s => s.reason === 'approved' || s.reason === 'already-posted'
+      );
+    return Response.json({
+      text,
+      ...plan,
+      team,
+      direct,
+      unchecked: planned.unchecked,
+    });
+  }
+  const offered = new Set(plan.channels.map(c => c.channel));
+  const channels = request.channels ?? [];
+  const wantsTeam = request.team === true;
   if (
     !Array.isArray(channels) ||
-    channels.length === 0 ||
     !channels.every(c => typeof c === 'string' && offered.has(c)) ||
-    new Set(channels).size !== channels.length
+    new Set(channels).size !== channels.length ||
+    (wantsTeam && team.posted) ||
+    (!wantsTeam && channels.length === 0)
   ) {
     return new Response(
-      `"channels" must be one or more of: ${[...offered].join(', ') || '(none to post to)'}`,
+      `post the team request${team.posted ? ' (already posted)' : ''} and/or one or more of: ${[...offered].join(', ') || '(none to post to)'}`,
       { status: 400 }
     );
   }
-  const posted: Array<{ channel: string; permalink: string }> = [];
+  const posted: Array<{
+    channel: string;
+    permalink: string;
+    team?: true;
+    linked?: true;
+  }> = [];
   const failed: Array<{ channel: string; error: string }> = [];
+  if (wantsTeam) {
+    const result = await postReviewRequest(
+      slackToken,
+      [mr],
+      team.channel,
+      null
+    );
+    if (result.kind === 'posted' || result.kind === 'linked')
+      posted.push({
+        channel: team.channel,
+        permalink: result.permalink ?? '',
+        team: true,
+        ...(result.kind === 'linked' ? { linked: true as const } : {}),
+      });
+    else
+      failed.push({
+        channel: team.channel,
+        error: result.kind === 'failed' ? result.error : 'already posted',
+      });
+  }
   for (const name of channels as string[]) {
     try {
       const sent = await postToOwnerChannel(
@@ -1043,6 +1218,13 @@ async function ownersPreviewOrPost(
       });
     }
   }
+  const sent = new Set(posted.map(p => p.channel));
+  const left = [...(team.posted ? [] : [team.channel]), ...offered].filter(
+    c => !sent.has(c)
+  );
+  persistOrWarn('owner posts left write', () =>
+    writeOwnerPostsLeft(mr.webUrl!, left)
+  );
   return Response.json(
     { posted, failed },
     { status: posted.length > 0 || failed.length === 0 ? 200 : 502 }
@@ -1640,7 +1822,9 @@ const httpServer = Bun.serve({
           attachPeerState(
             attachNotes(
               attachDrafts(
-                attachSlack(withSlackChannel(decision.mrs), slackRefs),
+                attachOwnerPostsLeft(
+                  attachSlack(withSlackChannel(decision.mrs), slackRefs)
+                ),
                 heldDraftsByMr(readDrafts())
               ),
               readNotes()
@@ -3602,6 +3786,7 @@ const httpServer = Bun.serve({
               status: ref.status,
               permalink: ref.permalink,
               reactions: ref.reactions ?? [],
+              checkedAt: ref.checkedAt,
             }),
             { headers: { 'content-type': 'application/json' } }
           );
@@ -3723,81 +3908,37 @@ const httpServer = Bun.serve({
           }
           targetChannel = [...resolved][0]!;
         }
-        // Guard against duplicate posts: check for an existing ref file first,
-        // and for MRs we've never resolved, sync the channel index and look for
-        // the author's original review-request. If any MR already has a
-        // message, don't post — cache the found ref (single) or 409 (multi).
-        const existingRefs = readSlackRefs();
-        const toResolve = picked.filter(
-          m => existingRefs.get(m.webUrl!)?.status !== 'found'
+        const result = await postReviewRequest(
+          slackToken,
+          picked,
+          targetChannel,
+          headerOverride
         );
-        const freshlyFound: Array<{ iid: number; permalink?: string }> = [];
-        try {
-          for (const m of toResolve) {
-            const ref = await resolveSlackRef(
-              slackToken,
-              targetChannel,
-              m.webUrl!,
-              m.iid
-            );
-            if (ref.status === 'found')
-              freshlyFound.push({ iid: m.iid, permalink: ref.permalink });
-          }
-        } catch (err) {
-          return new Response(
-            `slack resolve failed: ${err instanceof Error ? err.message : err}`,
-            { status: 502 }
-          );
-        }
-        const previouslyFound = picked.filter(
-          m => existingRefs.get(m.webUrl!)?.status === 'found'
-        );
-        const alreadyIids = [
-          ...previouslyFound.map(m => m.iid),
-          ...freshlyFound.map(f => f.iid),
-        ];
-        if (alreadyIids.length) {
-          if (picked.length === 1) {
-            // Single-MR post: seamlessly link to the existing message instead of
-            // posting a duplicate. The ref was just written by resolveSlackRef.
-            const permalink =
-              freshlyFound[0]?.permalink ??
-              existingRefs.get(picked[0]!.webUrl!)?.permalink;
+        switch (result.kind) {
+          case 'linked':
+            return Response.json({
+              ok: true,
+              linked: true,
+              permalink: result.permalink,
+            });
+          case 'already':
             return new Response(
-              JSON.stringify({ ok: true, linked: true, permalink }),
+              `already in slack: ${result.iids.map(i => `!${i}`).join(', ')}`,
+              { status: 409 }
+            );
+          case 'failed':
+            return new Response(
+              `slack ${result.step} failed: ${result.error}`,
               {
-                headers: { 'content-type': 'application/json' },
+                status: 502,
               }
             );
-          }
-          return new Response(
-            `already in slack: ${alreadyIids.map(i => `!${i}`).join(', ')}`,
-            { status: 409 }
-          );
-        }
-        const text = mrPostText(picked, headerOverride);
-        try {
-          const refs = await postToSlack(
-            slackToken,
-            targetChannel,
-            text,
-            picked.map(m => ({ webUrl: m.webUrl!, iid: m.iid }))
-          );
-          return new Response(
-            JSON.stringify({
+          case 'posted':
+            return Response.json({
               ok: true,
-              posted: refs.length,
-              permalink: refs[0]?.permalink,
-            }),
-            {
-              headers: { 'content-type': 'application/json' },
-            }
-          );
-        } catch (err) {
-          return new Response(
-            `slack post failed: ${err instanceof Error ? err.message : err}`,
-            { status: 502 }
-          );
+              posted: result.posted,
+              permalink: result.permalink,
+            });
         }
       }
       case '/slack/owners/preview':
@@ -3822,8 +3963,9 @@ const httpServer = Bun.serve({
         } catch {
           return new Response('invalid json', { status: 400 });
         }
-        const { mrUrl, channels } = (body ?? {}) as {
+        const { mrUrl, team, channels } = (body ?? {}) as {
           mrUrl?: unknown;
+          team?: unknown;
           channels?: unknown;
         };
         if (typeof mrUrl !== 'string')
@@ -3840,7 +3982,7 @@ const httpServer = Bun.serve({
           });
         ownerPostsRunning.add(mrUrl);
         try {
-          return await ownersPreviewOrPost(mr, slackToken, channels);
+          return await ownersPreviewOrPost(mr, slackToken, { team, channels });
         } finally {
           ownerPostsRunning.delete(mrUrl);
         }
