@@ -293,10 +293,10 @@ reports `skipped` with the waiting sentence and `plugins.install` ends
 admin merges; the daemon's next pull fast-forwards onto layout 2 and the
 chain in section 5 updates the plugin and writes the bindings.
 
-**Merge first.** The v2.21.0 daemon copies `main` down and the old app runs
-without its team settings until it updates (the window the earlier specs
-accepted; the v2.21.1 patch is what removes it next time). Launch of the
-new app runs the update: `org.folder` moves the clone (its marker is now
+**Merge first.** A Mac on v2.21.1 holds the copy at the last layout-1
+commit and shows the update line; a Mac still on v2.21.0 copies `main` down
+and runs without its team settings until it updates, which is why the patch
+ships first. Launch of the new app runs the update: `org.folder` moves the clone (its marker is now
 `role: "org"`), `org.pull` is up to date, the migrations see a `ready` org,
 `team.identity` records the login from the org store, `skills.materialize`
 writes the bindings from `plugin/`, `plugins.install` updates
