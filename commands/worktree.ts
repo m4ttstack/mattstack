@@ -44,6 +44,7 @@ import type { EnrichedBranch } from "../lib/enrich.ts";
 import type { Block, PickRow, PickSegment, RenderStatus, Segment } from "../lib/ui/protocol.ts";
 import { usageFailure } from "../lib/ui/usage.ts";
 import type { RestorableEntry } from "../lib/worktree/restore.ts";
+import type { PickHandle } from "../lib/ui/pick.ts";
 
 // Provision and create both do a targeted `git fetch` / cold clone (up to
 // 5 min server-side per lib/daemon/handlers/worktree.ts) — give the round
@@ -347,7 +348,7 @@ function setupFailedLine(failedStep: string | undefined, tree?: string): Block {
   return out.line("warn", tree ? `${what} in ${tree}` : what, STALE_DEPS);
 }
 
-export const __test__ = { copyForCode, restorableEntriesBlock, readyStepsBlock, disposeReason };
+export const __test__ = { copyForCode, readyStepsBlock, disposeReason };
 
 function requireQueryResult(json: boolean, res: DaemonResponse | null): DaemonResponse {
   if (res === null) daemonUnavailable();
@@ -680,39 +681,37 @@ async function fetchRestorableEntries(repoName: string, repoPath: string) {
   return listRestorableEntries(repoName, repoPath);
 }
 
-const RESTORE_REASON: Record<string, string> = {
-  manual: "by you",
-  auto: "by rt after its merge",
-  force: "by you, with force",
-};
-
-function cleanedUp(e: RestorableEntry): string {
-  return `cleaned up ${e.disposedAt.slice(0, 10)} ${RESTORE_REASON[e.reason] ?? `(${e.reason})`}`;
+/** Branch enrichment for the entries that kept a branch, keyed by trash path; the same cache-then-forge lookup rt cd uses. */
+async function enrichRestorableEntries(entries: RestorableEntry[], repoPath: string): Promise<Map<string, EnrichedBranch>> {
+  const { enrichBranches } = await import("../lib/enrich.ts");
+  const { getRemoteUrl } = await import("../lib/pickers.ts");
+  const branched = entries.flatMap((e) => (e.branch ? [{ path: e.path, branch: e.branch }] : []));
+  if (branched.length === 0) return new Map();
+  const enriched = await enrichBranches(branched, await getRemoteUrl(repoPath), { silent: true });
+  return new Map(enriched.map((eb) => [eb.path, eb]));
 }
 
-function keptUntil(e: RestorableEntry): string {
-  return `kept until ${e.keptUntil.slice(0, 10)}`;
-}
-
-function restorableEntriesBlock(entries: RestorableEntry[]): Block {
-  return out.table(entries.map((e) => [out.strong(e.name), out.key(e.branch ?? "(detached)"), out.dim(cleanedUp(e)), out.dim(keptUntil(e))]));
-}
-
-function printRestorableEntries(entries: RestorableEntry[]): void {
+async function printRestorableEntries(entries: RestorableEntry[], repoPath: string): Promise<void> {
   if (entries.length === 0) { out.print(out.line("skipped", "Nothing to bring back")); return; }
-  out.print(restorableEntriesBlock(entries));
+  const { restoreListBlock } = await import("../lib/worktree/restore-rows.ts");
+  out.print(restoreListBlock(entries, await enrichRestorableEntries(entries, repoPath).catch(() => new Map()), new Date()));
 }
 
-async function pickRestorableEntry(entries: RestorableEntry[]): Promise<string | null> {
+async function pickRestorableEntry(entries: RestorableEntry[], repoName: string, repoPath: string): Promise<string | null> {
   if (entries.length === 0) return null;
   const { filterableSelect } = await import("../lib/pick-wrappers.ts");
-  const nameWidth = Math.max(...entries.map((e) => e.name.length));
-  const options = entries.map((e) => ({
-    value: e.name,
-    label: e.name.padEnd(nameWidth),
-    hint: `${e.branch ?? "(detached)"}  ${cleanedUp(e)}, ${keptUntil(e)}`,
-  }));
-  return filterableSelect({ message: "Restore which worktree?", options, stderr: true, breadcrumb: ["rt", "worktree", "restore"] });
+  const { restoreRows } = await import("../lib/worktree/restore-rows.ts");
+  const now = new Date();
+  let handle: PickHandle | undefined;
+  const picked = filterableSelect(
+    { message: "Restore which worktree?", options: [], stderr: true, breadcrumb: ["rt", "worktree", "restore"], crumbSuffix: ` · ${repoLabel(repoName)}` },
+    { rows: restoreRows(entries, undefined, now), onOpen: (h) => { handle = h; } },
+  );
+  // Best-effort, like rt cd: the cheap rows already on screen stand if this fails.
+  void enrichRestorableEntries(entries, repoPath)
+    .then((enriched) => handle?.update({ rows: restoreRows(entries, enriched, now) }))
+    .catch(() => {});
+  return picked;
 }
 
 export async function worktreeRestore(args: string[], _ctx: unknown): Promise<void> {
@@ -727,7 +726,7 @@ export async function worktreeRestore(args: string[], _ctx: unknown): Promise<vo
   if (parsed.list) {
     const entries = await fetchRestorableEntries(repoName, repoPath);
     if (parsed.json) { out.json({ entries }, 2); return; }
-    printRestorableEntries(entries);
+    await printRestorableEntries(entries, repoPath);
     return;
   }
 
@@ -735,7 +734,7 @@ export async function worktreeRestore(args: string[], _ctx: unknown): Promise<vo
   if (!treeName) {
     if (process.stdin.isTTY && !parsed.json && !process.env.RT_BATCH) {
       const entries = await fetchRestorableEntries(repoName, repoPath);
-      const picked = await pickRestorableEntry(entries);
+      const picked = await pickRestorableEntry(entries, repoName, repoPath);
       if (!picked) { nothingSelected(); return; }
       treeName = picked;
     } else {
