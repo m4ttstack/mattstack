@@ -10,7 +10,7 @@
  * All writes are idempotent (guarded by a marker comment).
  */
 
-import { constants, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, constants, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { LEGACY_RT_DIR_IN_RC } from "./rt-paths.ts";
@@ -233,7 +233,10 @@ function writeRepaired(shell: ShellType, rcPath: string, content: string): Shell
     backedUp = true;
     const realPath = realpathSync(rcPath);
     tmpPath = `${realPath}.rt-tmp-${stamp}`;
-    writeFileSync(tmpPath, content);
+    // The rename replaces the file, so the member's mode (a private 0600 rc) has to ride on the temp file; chmod beats the umask.
+    const mode = statSync(realPath).mode & 0o777;
+    writeFileSync(tmpPath, content, { mode });
+    chmodSync(tmpPath, mode);
     renameSync(tmpPath, realPath);
     return { shell, rcPath, alreadyInstalled: false, written: true, backupPath };
   } catch (err: any) {

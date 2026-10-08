@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, lstatSync, statSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { END_MARKER, installShellIntegration, MARKER, repairLegacyBlock } from "../shell-integration.ts";
@@ -220,6 +220,16 @@ describe("shell-integration — repair shapes and safety", () => {
     expect(lstatSync(rcPath).isSymbolicLink()).toBe(true);
     expect(readFileSync(target, "utf8")).toContain(END_MARKER);
     expect(readdirSync(join(home, "dotfiles"))).toEqual(["zshrc"]);
+  });
+
+  test("a private rc (0600) stays private after the repair", () => {
+    const rcPath = join(home, ".zshrc");
+    writeFileSync(rcPath, MEMBER_RC);
+    chmodSync(rcPath, 0o600);
+
+    installShellIntegration({ repair: true });
+
+    expect(statSync(rcPath).mode & 0o777).toBe(0o600);
   });
 
   test("a failed write still names the backup, so the member can find the previous file", () => {
