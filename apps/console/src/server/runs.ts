@@ -2,8 +2,11 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   abandonRun,
+  agentAdopt,
+  agentResume,
   getRun,
   listRuns,
+  type RunFieldRow,
   serializeIdentity,
 } from '@mattstack/rt-client';
 import { Hono } from 'hono';
@@ -23,6 +26,17 @@ function canonicalRepo(raw: string): string {
   return m
     ? serializeIdentity({ kind: m[1] as 'remote' | 'path', id: m[2]! })
     : raw;
+}
+
+export function resumePrompt(runId: string, fields: RunFieldRow[]): string {
+  const value = (key: string) => fields.find(f => f.key === key)?.value;
+  const hold = value('hold');
+  const worktree = value('worktree');
+  const held = `Run \`${runId}\` is no longer held${hold ? ` (${hold})` : ''}.`;
+  const next = worktree
+    ? `Re-enter the worktree \`${worktree}\` and pick the run back up.`
+    : 'Pick the run back up.';
+  return `${held} ${next}`;
 }
 
 /**
@@ -116,7 +130,49 @@ export const runs = new Hono()
       return c.json(res.data, 200);
     }
   )
-  .get('/api/seen', async c => c.json(readSeen(), 200))
+  .post('/api/runs/:repo/:runId/resume', async c => {
+    const { repo: rawRepo, runId } = c.req.param();
+    const repo = canonicalRepo(rawRepo);
+    const detail = await getRun(runId, repo);
+    if (!detail.ok) {
+      const status: 404 | 502 = detail.error === 'run not found' ? 404 : 502;
+      return c.json({ error: detail.error ?? 'run read failed' }, status);
+    }
+    const { run, fields } = detail.data!;
+    const value = (key: string) => fields.find(f => f.key === key)?.value;
+    const session = value('claude-session');
+    if (!session) {
+      return c.json({ error: 'this run recorded no Claude session' }, 404);
+    }
+    if (run.status !== 'running') {
+      return c.json({ error: 'this run has finished' }, 409);
+    }
+    if (run.agent && run.agent.status !== 'done') {
+      return c.json({ error: 'this run already has a live pane' }, 409);
+    }
+    let agentId = value('agent');
+    if (!agentId) {
+      const adopted = await agentAdopt({
+        sessionId: session,
+        repo,
+        subject: `run:${runId}`,
+        label: value('ticket') ?? runId,
+      });
+      if (!adopted.ok || !adopted.data) {
+        return c.json({ error: adopted.error ?? 'adopt failed' }, 502);
+      }
+      agentId = adopted.data.id;
+    }
+    const resumed = await agentResume({
+      id: agentId,
+      prompt: resumePrompt(runId, fields),
+    });
+    if (!resumed.ok) {
+      return c.json({ error: resumed.error ?? 'resume failed' }, 502);
+    }
+    return c.json({ resumed: true as const, agentId }, 200);
+  })
+  .get('/api/seen',async c => c.json(readSeen(), 200))
   .post('/api/seen/:runId', async c =>
     c.json(markSeen(c.req.param('runId')), 200)
   );

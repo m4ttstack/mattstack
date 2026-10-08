@@ -2,6 +2,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@mattstack/rt-client', () => ({
+  agentAdopt: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
+  agentResume: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
   paneFocus: vi.fn(),
 }));
 

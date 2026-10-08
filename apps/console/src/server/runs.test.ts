@@ -10,6 +10,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // share `@mattstack/rt-client`, and every named export any of them uses must
 // be present here or vitest throws "No `X` export is defined on the mock".
 vi.mock('@mattstack/rt-client', () => ({
+  agentAdopt: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
+  agentResume: vi.fn(async () => ({ ok: false, error: 'not stubbed' })),
   listRuns: vi.fn(async () => ({ ok: true, data: { runs: [] } })),
   getRun: vi.fn(async () => ({ ok: false, error: 'no such run' })),
   abandonRun: vi.fn(async () => ({ ok: true, data: { ok: true } })),
@@ -258,5 +260,135 @@ describe('runs api artifact route', () => {
     await expect(res.json()).resolves.toMatchObject({
       error: expect.stringMatching(/outside/i),
     });
+  });
+});
+
+describe('POST /api/runs/:repo/:runId/resume', () => {
+  const field = (key: string, value: string) => ({
+    key,
+    value,
+    produced_by: 'run',
+    at: 1,
+  });
+  const detail = (
+    over: {
+      status?: string;
+      agent?: unknown;
+      fields?: ReturnType<typeof field>[];
+    } = {}
+  ) => ({
+    ok: true as const,
+    data: {
+      run: {
+        id: 'run-1',
+        repo: 'demo',
+        status: over.status ?? 'running',
+        agent: over.agent ?? null,
+      },
+      stages: [],
+      decisions: [],
+      schemaAhead: false,
+      fields: over.fields ?? [
+        field('claude-session', 'sess-1'),
+        field('worktree', '/wt/ron'),
+        field('hold', 'held until the rollout soaks'),
+        field('agent', 'ag-1'),
+      ],
+    },
+  });
+  const post = () =>
+    routes.fetch(
+      new Request('http://localhost/api/runs/demo/run-1/resume', {
+        method: 'POST',
+      })
+    );
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('resumes the recorded agent with a prompt naming the run, worktree and hold', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(detail() as never);
+    vi.mocked(rt.agentResume).mockResolvedValueOnce({
+      ok: true,
+      data: { id: 'ag-1' },
+    } as never);
+    const res = await post();
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      resumed: true,
+      agentId: 'ag-1',
+    });
+    expect(rt.agentAdopt).not.toHaveBeenCalled();
+    expect(rt.agentResume).toHaveBeenCalledWith({
+      id: 'ag-1',
+      prompt:
+        'Run `run-1` is no longer held (held until the rollout soaks). Re-enter the worktree `/wt/ron` and pick the run back up.',
+    });
+  });
+
+  it('adopts the session when the run predates agent registration', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(
+      detail({
+        fields: [
+          field('claude-session', 'sess-1'),
+          field('worktree', '/wt/ron'),
+          field('ticket', 'ABC-1'),
+        ],
+      }) as never
+    );
+    vi.mocked(rt.agentAdopt).mockResolvedValueOnce({
+      ok: true,
+      data: { id: 'ag-9' },
+    } as never);
+    vi.mocked(rt.agentResume).mockResolvedValueOnce({
+      ok: true,
+      data: { id: 'ag-9' },
+    } as never);
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(rt.agentAdopt).toHaveBeenCalledWith({
+      sessionId: 'sess-1',
+      repo: 'demo',
+      subject: 'run:run-1',
+      label: 'ABC-1',
+    });
+    expect(vi.mocked(rt.agentResume).mock.calls.at(-1)?.[0]).toEqual({
+      id: 'ag-9',
+      prompt:
+        'Run `run-1` is no longer held. Re-enter the worktree `/wt/ron` and pick the run back up.',
+    });
+  });
+
+  it('404 when the run recorded no session', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(
+      detail({ fields: [] }) as never
+    );
+    expect((await post()).status).toBe(404);
+  });
+
+  it('409 when the run has finished', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(
+      detail({ status: 'done' }) as never
+    );
+    expect((await post()).status).toBe(409);
+  });
+
+  it('409 when a live agent already has a pane', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(
+      detail({ agent: { status: 'idle', pane: 'w1:p1' } }) as never
+    );
+    expect((await post()).status).toBe(409);
+  });
+
+  it('502 with the daemon message when adopt or resume fails', async () => {
+    vi.mocked(rt.getRun).mockResolvedValueOnce(detail() as never);
+    vi.mocked(rt.agentResume).mockResolvedValueOnce({
+      ok: false,
+      error: 'herdr unavailable',
+    } as never);
+    const res = await post();
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toEqual({ error: 'herdr unavailable' });
   });
 });
