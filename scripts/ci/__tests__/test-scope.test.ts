@@ -10,6 +10,7 @@ import {
   decide,
   existingPluginDirs,
   isPluginTree,
+  jobsFor,
   pluginDirs,
   prPluginDirs,
   ROOT,
@@ -343,4 +344,168 @@ describe("websiteChanged", () => {
   test("unrelated changes skip it", () => {
     expect(websiteChanged(["lib/daemon.ts", "apps/board/src/a.ts", "README.md"])).toBe(false);
   });
+});
+
+describe("workflow wiring", () => {
+  type Job = { needs?: string | string[]; if?: string; outputs?: Record<string, string> };
+  function jobs(file: string): Record<string, Job> {
+    return (Bun.YAML.parse(readFileSync(join(ROOT, ".github", "workflows", file), "utf8")) as { jobs: Record<string, Job> }).jobs;
+  }
+  function needs(job: Job): string[] {
+    return Array.isArray(job.needs) ? job.needs : job.needs ? [job.needs] : [];
+  }
+  const jobKeys = Object.keys(jobsFor("push", []));
+
+  test.each([
+    ["checks.yml", "checks"],
+    ["e2e.yml", "e2e"],
+  ])("the %s gate needs every job but itself, except the advisory pty gate", (file, gate) => {
+    const all = jobs(file);
+    const expected = Object.keys(all).filter((name) => name !== gate && name !== "glitter-pty");
+    expect(needs(all[gate]!).sort()).toEqual(expected.sort());
+    expect(all[gate]!.if).toBe("always()");
+  });
+
+  test.each(["checks.yml", "e2e.yml"])("every scope output %s reads is one the script writes", (file) => {
+    const scope = Object.values(jobs(file)).find((job) => job.outputs)!;
+    const written = new Set(["mode", "dirs", "always", "plugins", ...jobKeys]);
+    for (const name of Object.keys(scope.outputs!)) expect(written.has(name)).toBe(true);
+  });
+});
+
+describe("the docs site and prose", () => {
+  test("a website-only PR skips the unit shards, even a page a test names as data", () => {
+    // scripts/__tests__/docs-impact.test.ts names website/docs/apps/board.mdx as an input.
+    const changed = ["website/docs/apps/board.mdx", "website/docs/apps/flock-guide.mdx", "website/sidebars.ts", "website/package.json"];
+    expect(decide(prInput(changed)).mode).toBe("skip");
+  });
+  test("mdx is docs", () => {
+    expect(decide(pr(["docs/guide.mdx"])).mode).toBe("skip");
+  });
+  test("website beside rt code is not skipped", () => {
+    expect(decide(pr(["website/docs/rt/index.mdx", "lib/x.ts"])).mode).toBe("full");
+  });
+});
+
+describe("workflow files", () => {
+  test("a workflow nothing reads skips the unit shards", () => {
+    expect(decide(prInput([".github/workflows/renovate.yml"])).mode).toBe("skip");
+  });
+  test("checks.yml runs the shards in full, since it defines them", () => {
+    const decision = decide(pr([".github/workflows/checks.yml"]));
+    expect(decision.mode).toBe("full");
+    expect(decision.reason).toContain("checks.yml");
+  });
+  test("a workflow a unit test reads by repo path runs full", () => {
+    const reading = new Map(sources);
+    reading.set("scripts/__tests__/renovate.test.ts", `readFileSync(join(ROOT, ".github/workflows/renovate.yml"))`);
+    const changed = [".github/workflows/renovate.yml"];
+    expect(decide({ event: "pull_request", changed, sources: reading, preloadImports }).mode).toBe("full");
+  });
+});
+
+describe("jobsFor", () => {
+  const none = { go: false, deck: false, e2e: false, glitter: false, website: false };
+  const every = { go: true, deck: true, e2e: true, glitter: true, website: true };
+
+  test("a push to main runs every job", () => {
+    expect(jobsFor("push", [])).toEqual(every);
+    expect(jobsFor("push", ["docs/a.md"])).toEqual(every);
+  });
+
+  test("a website-only PR builds the site and nothing else", () => {
+    expect(jobsFor("pull_request", ["website/docs/apps/board.mdx", "website/sidebars.ts", "website/package.json"])).toEqual({
+      ...none,
+      website: true,
+    });
+  });
+
+  test("a docs-only PR runs none of them", () => {
+    expect(jobsFor("pull_request", ["docs/architecture.md", "AGENTS.md", "docs/guide.mdx"])).toEqual(none);
+  });
+
+  test.each([
+    ["swift", ["rt-tray/Sources-core/Tray/Menu.swift"]],
+    ["a plugin", ["plugins/herdr-chat/src/lib.rs"]],
+    ["another workflow", [".github/workflows/renovate.yml"]],
+    ["another app", ["apps/board/src/App.tsx"]],
+  ])("%s runs none of them", (_, changed) => {
+    expect(jobsFor("pull_request", changed)).toEqual(none);
+  });
+
+  test("rt source runs e2e only", () => {
+    expect(jobsFor("pull_request", ["lib/daemon.ts", "commands/worktree.ts"])).toEqual({ ...none, e2e: true });
+  });
+
+  test("rt's ui layer also runs the pty gate", () => {
+    expect(jobsFor("pull_request", ["lib/ui/out.ts"])).toEqual({ ...none, e2e: true, glitter: true });
+  });
+
+  test("Go source runs go and the pty gate, not e2e", () => {
+    expect(jobsFor("pull_request", ["ui/internal/views/picker/scroll.go", "ui/go.sum"])).toEqual({
+      ...none,
+      go: true,
+      glitter: true,
+    });
+  });
+
+  test("a ui fixture both languages read runs go and e2e", () => {
+    const jobs = jobsFor("pull_request", ["ui/fixtures/clean-cases.json"]);
+    expect(jobs.go).toBe(true);
+    expect(jobs.e2e).toBe(true);
+  });
+
+  test("deck's own tree runs deck only", () => {
+    expect(jobsFor("pull_request", ["apps/deck/src/registry/bundle-catalog.ts"])).toEqual({ ...none, deck: true });
+  });
+
+  test("an apps package runs deck, which turbo narrows further", () => {
+    expect(jobsFor("pull_request", ["packages/ui/src/index.ts"])).toEqual({ ...none, deck: true });
+  });
+
+  test("a workspace package rt links runs deck and e2e", () => {
+    expect(jobsFor("pull_request", ["packages/rt-client/src/index.ts"])).toEqual({ ...none, deck: true, e2e: true });
+  });
+
+  test("an apps package manifest runs e2e, since a dependency bump can change the binary", () => {
+    expect(jobsFor("pull_request", ["packages/ui/package.json"]).e2e).toBe(true);
+  });
+
+  test("root manifests run deck and e2e, and package.json also go and the pty gate", () => {
+    expect(jobsFor("pull_request", ["package.json"])).toEqual({ ...every, website: false });
+    expect(jobsFor("pull_request", ["bun.lock"])).toEqual({ ...none, deck: true, e2e: true });
+  });
+
+  test("checks.yml runs every checks job", () => {
+    expect(jobsFor("pull_request", [".github/workflows/checks.yml"])).toEqual({ ...none, go: true, deck: true, website: true });
+  });
+
+  test("e2e.yml runs both e2e jobs", () => {
+    expect(jobsFor("pull_request", [".github/workflows/e2e.yml"])).toEqual({ ...none, e2e: true, glitter: true });
+  });
+
+  test("the scope script runs every job", () => {
+    expect(jobsFor("pull_request", ["scripts/ci/test-scope.ts"])).toEqual(every);
+  });
+
+  test.each([
+    "cli.ts",
+    "commands/glitter.ts",
+    "commands/settings-schema.ts",
+    "lib/mission/state.ts",
+    "packages/git-core/src/diff.ts",
+    "e2e/pty/glitter.test.ts",
+    "e2e/socket-path.ts",
+    "test-setup.ts",
+    "lib/command-tree.ts",
+  ])("%s runs the pty gate", (f) => {
+    expect(jobsFor("pull_request", [f]).glitter).toBe(true);
+  });
+
+  test.each(["lib/daemon.ts", "e2e/tests/smoke.test.ts", "commands/worktree.ts", "lib/command-tree-def.ts"])(
+    "%s leaves the pty gate alone",
+    (f) => {
+      expect(jobsFor("pull_request", [f]).glitter).toBe(false);
+    },
+  );
 });
