@@ -302,12 +302,20 @@ export function createHub(): Hub {
     return e => step(0, e)
   }
 
+  function note(api: ModApi, text: string): void {
+    try {
+      api.ui.log(`mattstack-mods: ${text}`, { to: 'debug' })
+    } catch {
+      // A failed log must not stop the session from starting.
+    }
+  }
+
   const core: Core = {
     async start(api, e) {
       if (started) return
       started = true
       if (!e.isInteractive) {
-        api.ui.log('mattstack-mods: not an interactive session; no block started', { to: 'debug' })
+        note(api, 'not an interactive session; no block started')
         return
       }
       let version: SessionVersion
@@ -319,7 +327,7 @@ export function createHub(): Hub {
       }
       const release = version.base ?? version.version
       if (!supportedEngine(release)) {
-        api.ui.log(`mattstack-mods: Claude Code ${release} is below the tested range; no block started`, { to: 'debug' })
+        note(api, `Claude Code ${release} is below the tested range; no block started`)
         return
       }
       engaged = true
@@ -331,11 +339,7 @@ export function createHub(): Hub {
         } else fail(api, { owner: name, label: 'start' }, 'session.start', settled.error)
       }
       const names = starts.map(s => s.name).filter(name => live.has(name))
-      try {
-        api.ui.log(`mattstack-mods: live blocks after start: ${names.length > 0 ? names.join(', ') : 'none'}`, { to: 'debug' })
-      } catch {
-        // A failed log must not stop the session from starting.
-      }
+      note(api, `live blocks after start: ${names.length > 0 ? names.join(', ') : 'none'}`)
     },
 
     async toolCall(api, e, next) {

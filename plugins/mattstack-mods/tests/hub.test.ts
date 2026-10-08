@@ -31,6 +31,19 @@ describe('hub', () => {
     expect(h.logs.filter(l => l.to !== 'debug')).toHaveLength(0)
   })
 
+  test('a throwing ui.log never fails session start, whichever way start declines', async () => {
+    for (const [version, interactive] of [['2.1.293', false], ['2.1.200', true], ['2.1.293', true]] as const) {
+      const h = harness(version)
+      h.hub.block('delivery', async () => {})
+      h.$.ui.log = () => {
+        throw new Error('log sink gone')
+      }
+      const started = await h.start(interactive)
+      expect(started, `${version} ${interactive}`).toEqual({ cwd: '/repo' })
+      expect(h.hub.liveBlocks()).toEqual(version === '2.1.293' && interactive ? ['delivery'] : [])
+    }
+  })
+
   test('rules run fill, guard, permit, call, tap', async () => {
     const h = harness()
     const order: string[] = []
