@@ -2710,6 +2710,27 @@ describe("the layout gate", () => {
     handle.stop();
   });
 
+  test("a gate that throws after a hold keeps the hold, then a passing gate clears it", async () => {
+    let mode: "hold" | "throw" | "pass" = "hold";
+    const { handle, execCalls, log } = start(async () => {
+      if (mode === "throw") throw new Error("object corrupt");
+      return mode === "hold" ? { layout: 3 } : null;
+    }, 1);
+    await handle.ready;
+    await handle.pullNow();
+    mode = "throw";
+    const held = await handle.pullNow();
+    expect(held).toEqual({ outcome: "skipped", detail: "Your org uses layout 3 and this app reads up to 2. Update the app.", hold: { layout: 3, reads: 2 } });
+    await handle.pullNow();
+    expect(execCalls.some((argv) => gitVerb(argv) === "merge")).toBe(false);
+    expect(handle.status().layoutHold).toEqual({ layout: 3, reads: 2 });
+    expect(log.calls.filter((c) => c.level === "warn" && JSON.stringify(c.args).includes("layout gate")).length).toBe(1);
+    mode = "pass";
+    expect((await handle.pullNow()).outcome).toBe("fast-forwarded");
+    expect(handle.status().layoutHold).toBeNull();
+    handle.stop();
+  });
+
   test("the real gate failing on git show warns once across pulls and still fast-forwards", async () => {
     const probes = fakeProbes({ exec: async () => ({ code: 128, stdout: "", stderr: "fatal: bad object" }) });
     const spec = { ...teamSpecFor(null), pull: { intervalSec: 300, gate: (ref: string) => layoutGate(probes.exec, FAKE_REPO_DIR, ref) } };

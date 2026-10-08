@@ -956,9 +956,10 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       } catch (err) {
         threw = true;
         if (loggedGateError !== String(err)) {
-          deps.log.warn({ err, id: spec.id }, `${label}: layout gate threw; passing`);
+          deps.log.warn({ err, id: spec.id }, `${label}: layout gate threw; ${layoutHold === null ? "passing" : "keeping the hold"}`);
           loggedGateError = String(err);
         }
+        if (layoutHold !== null) return { outcome: "skipped", detail: updateSentence(layoutHold.layout), hold: layoutHold };
       }
       if (hold) {
         layoutHold = { layout: hold.layout, reads: ORG_LAYOUT };
