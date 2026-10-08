@@ -54,6 +54,8 @@ A few behaviors hold across the menu:
 - Hold <kbd>Option</kbd> over an agent launch that takes a note and its hint reads "+ note". <kbd>Option</kbd>-click it to type an extra instruction for the agent (up to 2000 characters) before it starts.
 - **merge** asks twice: the first click changes its label to "really merge?" and the second merges.
 - The Slack reactions keep the menu open, so you can set several.
+- GitLab and Slack actions act as you. The board uses your GitLab token and your Slack user token, so a merge, a post or a reaction shows under your name.
+- The board itself refuses author actions on someone else's MR.
 
 ### Slack reactions
 
@@ -61,18 +63,22 @@ These show on a local board with Slack connected, once the MR's thread is found.
 
 | Icon | Label | What it does |
 | --- | --- | --- |
-| <BoardIcon emoji="👀" /> | mark as looking / unmark looking | Adds or removes the looking reaction on the MR's Slack post. |
-| <BoardIcon emoji="💬" /> | mark as commented / unmark commented | Adds or removes the commented reaction. |
-| <BoardIcon emoji="✅" /> | mark as approved / unmark approved | Adds or removes the approved reaction. |
+| <BoardIcon emoji="👀" /> | mark as looking / unmark looking | Adds or removes your looking reaction on the MR's Slack post. |
+| <BoardIcon emoji="💬" /> | mark as commented / unmark commented | Adds or removes your commented reaction. |
+| <BoardIcon emoji="✅" /> | mark as approved / unmark approved | Adds or removes your approved reaction. |
 
-The emoji come from the board's `slack.emoji` config; the defaults are shown.
+When one Slack post links several MRs, the first mark on an MR replies in that post's thread with just the MR's link, and reacts on the reply. Unmark never posts.
+
+The emoji come from the `emoji` key of the `board.slack` setting; the defaults are shown.
 
 ### Slack shortcuts
 
 | Icon | Label | What it does | Shows when |
 | --- | --- | --- | --- |
-| <BoardIcon name="slack" /> | find slack thread | Looks for the MR's post in the team channel. After a miss it reads "no thread, find it again". | The thread is not found yet. On your own unposted MR it moves into the **slack** flyout. |
-| <BoardIcon name="slack" /> | post to #channel | Posts the MR to its Slack channel ("post to slack" when it has none). | Your own MR, not yet posted. Once posted it moves into the **slack** flyout, greyed: "thread exists". |
+| <BoardIcon name="slack" /> | find slack thread | Reads the MR's Slack channel for the first post that contains the MR's link, and links the row to it. It reads only, and posts nothing. After a miss it reads "no thread, find it again". | The thread is not found yet. On your own unposted MR it moves into the **slack** flyout. |
+| <BoardIcon name="slack" /> | post to #channel | Posts the MR to its Slack channel under your name ("post to slack" when it has none). If a post with the MR's link is already there, it posts nothing and links the row to that post instead. | Your own MR, not yet posted. Once posted it moves into the **slack** flyout, greyed: "thread exists". |
+
+The MR's channel is the board's Slack channel, or a code owners tab's own channel for an MR that tab collects. The board searches top-level posts from the last 90 days, and checks again every 15 minutes on its own.
 
 ### agent actions
 
@@ -116,30 +122,47 @@ Everything but **open in gitlab** needs a local board and your own MR. On anyone
 
 | Icon | Label | What it does |
 | --- | --- | --- |
-| <BoardIcon name="merge" /> | merge | Merges the MR, after a second click on "really merge?". Greyed with GitLab's reason when it cannot merge yet, such as "pipeline must pass", "needs approval" or "open threads". |
-| <BoardIcon name="branch" /> | rebase on target | Asks GitLab to rebase the branch on its target. Greyed "up to date" when it already is. |
-| <BoardIcon name="autoMerge" /> | set auto-merge | Turns on GitLab's merge when the pipeline succeeds. |
+| <BoardIcon name="merge" /> | merge | Merges the MR on GitLab, after a second click on "really merge?". It sends no squash or delete-branch choice, so the project's own merge settings decide, the same as GitLab's button. Greyed with GitLab's reason when it cannot merge yet, such as "pipeline must pass", "needs approval" or "open threads". |
+| <BoardIcon name="branch" /> | rebase on target | Asks GitLab to rebase the branch on its target, on GitLab's side. Nothing changes on this Mac. Greyed "up to date" when it already is. |
+| <BoardIcon name="autoMerge" /> | set auto-merge | Turns on GitLab's merge when the pipeline succeeds. Greyed "draft" or "not mergeable yet" when GitLab does not offer it. |
 | <BoardIcon name="autoMerge" /> | cancel auto-merge | Turns it off again. Takes the place of set auto-merge while auto-merge is on. |
-| <BoardIcon name="draft" /> | mark as draft / mark ready | Flips the MR between draft and ready for review. |
+| <BoardIcon name="draft" /> | mark as draft / mark ready | Adds `Draft: ` to the MR's title, or removes it. |
 | <BoardIcon name="out" /> | open in gitlab | Opens the MR in GitLab in a new tab. |
+
+For rebasing your branch in a local checkout instead, see **rebase locally** under [agent actions](#agent-actions).
 
 ### slack
 
 | Icon | Label | What it does |
 | --- | --- | --- |
-| <BoardIcon name="slack" /> | open MR post in slack | Opens the MR's Slack post. Greyed "no thread" until the thread is found. |
-| <BoardIcon name="slack" /> | post to #channel | Posts your MR to the channel. Greyed "thread exists" once it is posted. |
-| <BoardIcon name="slack" /> | post to code owners… | Opens a dialog to post your MR to each code owners section's channel that still has to approve. Shows only for a repo whose settings turn on `board.codeowners.slack.fromSectionName`. |
-| <BoardIcon name="copy" /> | copy for slack | Copies a one-line link to the MR, in the team's Slack format, to the clipboard. Always offered. |
+| <BoardIcon name="slack" /> | open MR post in slack | Opens the MR's Slack post in a new browser tab. Greyed "no thread" until the thread is found. |
+| <BoardIcon name="slack" /> | post to #channel | The same post as in [Slack shortcuts](#slack-shortcuts). Greyed "thread exists" once it is posted. |
+| <BoardIcon name="slack" /> | post to code owners… | Opens a dialog to post your MR to the channel of each code owners section that still has to approve. See [Post to code owners](#post-to-code-owners). |
+| <BoardIcon name="copy" /> | copy for slack | Copies one line, the MR's title and link, to the clipboard. The copy drops a `Draft: ` prefix and a leading ticket id from the title; a post keeps them. Nothing is sent. Always offered. |
 
-Everything here but **copy for slack** needs a local board with Slack connected.
+Everything here but **copy for slack** needs a local board with Slack connected. A post's text comes from the `singleTemplate` key of the `board.slack` setting, `{title}: {url}` by default.
+
+#### Post to code owners
+
+Shows on your own MR when the repo's `board.codeowners` setting turns on `slack.fromSectionName`. Each code owners section names its channel as the last `#channel` in the section's name.
+
+The dialog checks the MR's approvals on GitLab, then lists one switch for each channel still to post to. Below them, it lists the sections it will not post for, each with its reason:
+
+- already approved.
+- no channel in its name.
+- already posted to that channel.
+- Slack has no such channel.
+- you are not in the channel.
+
+**post to N channels** posts the message once in each channel you leave on, under your name. The board remembers those posts, so a second visit shows them as already posted.
 
 ### more
 
 | Icon | Label | What it does |
 | --- | --- | --- |
-| <BoardIcon name="note" /> | add a note / edit note | Opens a private note on the row, for you only. |
-| <BoardIcon name="dismiss" /> | auto-doctor: ignore this MR | Stops auto-doctor acting on your MR, or on the whole stack ("ignore this stack") when other MRs sit on it. The row then carries an "auto-doctor off" flag. Reads "re-enable auto-doctor" to turn it back on. |
+| <BoardIcon name="note" /> | add a note / edit note | Opens a note on the row, up to 2000 characters. It is saved on this Mac only and never sent to GitLab, Slack or an agent. Save it empty to delete it. |
+| <BoardIcon name="dismiss" /> | auto-doctor: ignore this MR | Stops auto-doctor, the board's automatic doctor runs, on your MR, or on the whole stack ("ignore this stack") when other MRs sit on it. A doctor already running on them is told to stop, and its pane is not resumed. The row then carries an "auto-doctor off" flag. Greyed "auto-doctor is off" when auto-doctor is turned off for the board. |
+| <BoardIcon name="dismiss" /> | re-enable auto-doctor | Lets auto-doctor act on the MR again. It starts nothing by itself. |
 
 ### Several rows at once
 
@@ -151,7 +174,9 @@ The bulk menu is titled "N selected". It offers only what every checked MR's own
 - **gitlab**: rebase on target, set auto-merge, cancel auto-merge, mark ready, mark as draft and merge.
 - **slack**: the three Slack reactions and find slack threads.
 
-Merging asks "really merge N?". Starting more than three reviews, re-reviews or doctors asks first too. When nothing fits every checked MR, the menu says so.
+An MR that is already where an action would take it, such as already rebased, is skipped. Merging asks "really merge N?", and refuses while a checked MR sits on another MR that is still open. Starting more than three reviews, re-reviews or doctors asks first too. When nothing fits every checked MR, the menu says "nothing fits all N".
+
+The board runs the action on four MRs at a time, then shows one summary, for example "merge accepted on !1, !2 · couldn't merge !3 (not approved yet) · 1 didn't need it".
 
 ## Show chips, Group and Sort
 
