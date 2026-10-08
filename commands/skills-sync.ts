@@ -222,7 +222,7 @@ export async function skillsSync(args: string[], overrides?: { packs: PackInfo[]
   const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
   const deps: SyncDeps = overrides?.deps ?? {
     run: async (cmd, cmdArgs, opts) => {
-      const proc = Bun.spawn([cmd, ...cmdArgs], { cwd: opts?.cwd, env: childEnv(), stdout: "pipe", stderr: "pipe" });
+      const proc = Bun.spawn([cmd, ...cmdArgs], { cwd: opts?.cwd, env: { ...childEnv(), ...opts?.env }, stdout: "pipe", stderr: "pipe" });
       const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
       return { code: await proc.exited, stdout, stderr };
     },

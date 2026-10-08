@@ -2,13 +2,15 @@ import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpat
 import { join, posix, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import { fullyInScope, needsStaging, outOfScopeSides, packRelative, packSideChanges, parsePorcelain, parsePorcelainEntries, pendingSignature, pruneEmptiedDirs, touchesPack, withHashes, type HashedFile, type PendingFile, type PorcelainEntry } from "./changes.ts";
+import { layoutGate } from "../daemon/home-snapshot.ts";
+import { updateSentence } from "../team/org-marker.ts";
 import type { PackInfo } from "./packs.ts";
 import { installedVersionFor, type PluginListEntry } from "./sources.ts";
 
 export type RunResult = { code: number; stdout: string; stderr: string };
 
 export type SyncDeps = {
-  run: (cmd: string, args: string[], opts?: { cwd?: string }) => Promise<RunResult>;
+  run: (cmd: string, args: string[], opts?: { cwd?: string; env?: Record<string, string> }) => Promise<RunResult>;
   claudeBin: string | null;
   checkPack: (packName: string) => Promise<{ drift: boolean; lintHits: number; strict: boolean }>;
   /** `written` and `removed` are the pack-relative files the compile touched: the version commit holds exactly these and the manifest. */
@@ -524,6 +526,15 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
       if (sameCheckout) engineSourceVersion = packSourceVersion;
       return skipped(`The pack is in the shared checkout at ${pack.dir}, which rt keeps current when it updates this Mac${branchNote}`);
     }
+    const fetched = await deps.run("git", ["fetch"], { cwd: pack.dir });
+    if (fetched.code !== 0) return refused(`Pulling ${pack.dir} failed: ${fetched.stderr.trim()}. Sort it out by hand, then run this again`);
+    let hold: { layout: number } | null;
+    try {
+      hold = await layoutGate((argv, o) => deps.run(argv[0]!, argv.slice(1), { env: o?.env }), pack.dir, "FETCH_HEAD");
+    } catch (err) {
+      return refused(`rt could not read the org layout at ${pack.dir}'s remote, so it did not pull it: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (hold) return refused(`rt did not pull ${pack.dir}. ${updateSentence(hold.layout)}`);
     const res = await deps.run("git", ["pull", "--ff-only"], { cwd: pack.dir });
     if (res.code !== 0) return refused(`Pulling ${pack.dir} failed: ${res.stderr.trim()}. Sort it out by hand, then run this again`);
     packSourceVersion = readManifestVersion(pack.dir);

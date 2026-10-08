@@ -9,6 +9,7 @@ import { childEnv, runCapture } from "../../subprocess.ts";
 import { bumpPatchVersion, type RunResult, type SyncDeps, syncPack } from "../sync.ts";
 import { skillsChanges } from "../../../commands/skills.ts";
 import { captureSkills } from "./helpers.ts";
+import { updateSentence } from "../../team/org-marker.ts";
 
 type Call = { cmd: string; args: string[]; cwd?: string };
 
@@ -999,7 +1000,7 @@ describe("in-tree engine", () => {
       "branch --show-current",
       "show main:mattstack/.claude-plugin/plugin.json",
     ]);
-    expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === pack.dir).map((c) => c.args[0])).toEqual(["status", "branch", "pull"]);
+    expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === pack.dir).map((c) => c.args[0])).toEqual(["status", "branch", "fetch", "pull"]);
     expect(report.steps.find((s) => s.name === "pull-engine")).toMatchObject({ status: "skipped" });
     expect(report.steps.find((s) => s.name === "update-engine")).toMatchObject({ status: "ran" });
   });
@@ -2475,4 +2476,64 @@ describe("--expect against real git", () => {
     expect(mustGit(root, "diff", "--cached", "--name-only")).toBe("");
     expect(remoteLog(remote)).toEqual(["base"]);
   }, REAL_GIT_TIMEOUT_MS);
+});
+
+describe("pull-pack layout gate", () => {
+  const MARKER_SHOW = "show FETCH_HEAD:mattstack/mattstack.jsonc";
+  function gated(answer: { code: number; stdout?: string; stderr?: string }) {
+    const engine = fixturePack("mattstack", "mattstack", "1.2.3");
+    const pack = fixturePack("widgets", "widgets", "1.0.0");
+    const world: World = { calls: [], installed: { "mattstack@mattstack": "1.2.3", "widgets@widgets": "1.0.0" }, drift: [false] };
+    const deps = makeDeps(pack, engine, world);
+    const run = deps.run;
+    deps.run = async (cmd, args, opts) => {
+      if (cmd === "git" && args[0] === "-C" && args[1] === pack.dir && args.slice(2).join(" ") === MARKER_SHOW) {
+        world.calls.push({ cmd, args, cwd: opts?.cwd });
+        return { code: answer.code, stdout: answer.stdout ?? "", stderr: answer.stderr ?? "" };
+      }
+      return run(cmd, args, opts);
+    };
+    return { pack, engine, world, deps };
+  }
+  const pulled = (world: World, dir: string) => world.calls.some((c) => c.cmd === "git" && c.cwd === dir && c.args[0] === "pull");
+
+  test("a fetched tip on a layout above this rt refuses with the update sentence and never pulls", async () => {
+    const { pack, engine, world, deps } = gated({ code: 0, stdout: JSON.stringify({ role: "org", org: "acme" }) });
+    const report = await syncPack(pack, engine, deps);
+    expect(report.steps.find((s) => s.name === "pull-pack")).toMatchObject({ status: "refused" });
+    expect(report.steps.find((s) => s.name === "pull-pack")?.detail).toContain(updateSentence(2));
+    expect(world.calls.some((c) => c.cmd === "git" && c.cwd === pack.dir && c.args[0] === "fetch")).toBe(true);
+    expect(pulled(world, pack.dir)).toBe(false);
+  });
+
+  test("a one-team tip, or a tip with no marker, pulls as before", async () => {
+    for (const answer of [
+      { code: 0, stdout: JSON.stringify({ role: "team", namespace: "widgets", org: "acme" }) },
+      { code: 128, stderr: "fatal: path 'mattstack/mattstack.jsonc' does not exist in 'FETCH_HEAD'" },
+    ]) {
+      const { pack, engine, world, deps } = gated(answer);
+      const report = await syncPack(pack, engine, deps);
+      expect(report.steps.find((s) => s.name === "pull-pack")).toMatchObject({ status: "ran" });
+      expect(pulled(world, pack.dir)).toBe(true);
+    }
+  });
+
+  test("a marker rt cannot read at the fetched tip refuses without pulling", async () => {
+    const { pack, engine, world, deps } = gated({ code: 128, stderr: "fatal: bad object FETCH_HEAD" });
+    const report = await syncPack(pack, engine, deps);
+    expect(report.steps.find((s) => s.name === "pull-pack")).toMatchObject({ status: "refused" });
+    expect(report.steps.find((s) => s.name === "pull-pack")?.detail).toContain("bad object");
+    expect(pulled(world, pack.dir)).toBe(false);
+  });
+
+  test("a failed fetch refuses the way a failed pull does, without pulling", async () => {
+    const { pack, engine, world, deps } = gated({ code: 0, stdout: "" });
+    const run = deps.run;
+    deps.run = async (cmd, args, opts) =>
+      cmd === "git" && opts?.cwd === pack.dir && args[0] === "fetch" ? { code: 1, stdout: "", stderr: "fatal: unable to access remote" } : run(cmd, args, opts);
+    const report = await syncPack(pack, engine, deps);
+    expect(report.steps.find((s) => s.name === "pull-pack")).toMatchObject({ status: "refused" });
+    expect(report.steps.find((s) => s.name === "pull-pack")?.detail).toContain("unable to access remote");
+    expect(pulled(world, pack.dir)).toBe(false);
+  });
 });
