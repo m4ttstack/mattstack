@@ -474,6 +474,9 @@ describe('Fix in the explain modal', () => {
       null,
       null
     );
+    await userEvent.click(
+      await screen.findByRole('radio', { name: "Where it's set" })
+    );
     const layer = await screen.findByTestId('layer-user');
     await waitFor(() =>
       expect(screen.getAllByText(/expected string, got number/)).toHaveLength(1)
@@ -578,7 +581,7 @@ describe('Fix in the explain modal', () => {
           name: 'set rt.notify.eventBridges at user',
         })
       );
-      await within(layer).findByTestId('item-0');
+      await within(layer).findByRole('textbox', { name: 'JSON' });
       expect(scrolled).toEqual([]);
     } finally {
       Element.prototype.scrollIntoView = original;
@@ -661,6 +664,7 @@ describe('Fix in the explain modal', () => {
         name: 'set rt.notify.eventBridges at user',
       })
     );
+    await userEvent.click(within(layer).getByRole('radio', { name: 'Form' }));
     await within(layer).findByTestId('item-0');
     expect(url()).not.toHaveAttribute('aria-invalid', 'true');
   });
@@ -727,6 +731,7 @@ describe('Fix in the explain modal', () => {
         name: 'set rt.notify.eventBridges at user',
       })
     );
+    await userEvent.click(within(layer).getByRole('radio', { name: 'Form' }));
     await within(layer).findByTestId('item-0');
     expect(url()).toHaveAttribute('aria-invalid', 'true');
   });
@@ -769,6 +774,7 @@ describe('Fix in the explain modal', () => {
         name: 'set rt.notify.eventBridges at user',
       })
     );
+    await userEvent.click(within(layer).getByRole('radio', { name: 'Form' }));
     await within(layer).findByTestId('item-0');
     expect(url()).toHaveAttribute('aria-invalid', 'true');
   });

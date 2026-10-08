@@ -12,17 +12,23 @@ export interface OpenRow {
   fix: string | null;
 }
 
-/** The one open settings row, kept in `?explain=` (with `?tab=value` and
+/** The one open settings row, kept in `?explain=` (with `?tab=where` and
     `?fix=<layer>` when they apply) so a reload or a shared link reopens it.
-    Every write replaces the history entry: opening a row is not a page. */
+    A fix lives on Where it's set, so `?fix=` alone opens there. Every write
+    replaces the history entry: opening a row is not a page. */
 export function useOpenRow() {
   const [params, setParams] = useSearchParams();
   const key = params.get(PARAM);
+  const tab = params.get(TAB);
+  const fix = params.get(FIX);
   const open: OpenRow | null = key
     ? {
         key,
-        tab: params.get(TAB) === 'value' ? 'value' : 'where',
-        fix: params.get(FIX),
+        tab:
+          tab === 'where' || (tab !== 'value' && fix !== null)
+            ? 'where'
+            : 'value',
+        fix,
       }
     : null;
   const set = (next: OpenRow | null, opts: { repo?: string } = {}) =>
@@ -33,7 +39,7 @@ export function useOpenRow() {
         p.delete(FIX);
         if (next) {
           p.set(PARAM, next.key);
-          if (next.tab === 'value') p.set(TAB, 'value');
+          if (next.tab === 'where') p.set(TAB, 'where');
           if (next.fix) p.set(FIX, next.fix);
         } else p.delete(PARAM);
         if (opts.repo) p.set('repo', opts.repo);

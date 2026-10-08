@@ -47,7 +47,7 @@ import {
 import { DraftEditor } from './DraftEditor';
 import { editorKind, formOf, type FormShape } from './formShape';
 import { JsonBlock } from './JsonBlock';
-import { ModeToggle } from './ModeToggle';
+import { ModeToggle, type EditMode } from './ModeToggle';
 import { PanelToolbar } from './PanelToolbar';
 import { ScopeBadge } from './ScopeBadge';
 import listClasses from './StringList.module.css';
@@ -60,7 +60,6 @@ import {
 } from './useConsoleSettings';
 import type { useRowSave } from './useRowSave';
 import {
-  EDITOR_KINDS,
   fieldSource,
   layerLabel,
   leafWrite,
@@ -955,15 +954,11 @@ function DraftBody({
   def,
   row,
   form,
-  startIn,
-  onDone,
   onForm,
 }: {
   def: SettingDefWire;
   row: Row;
   form: FormShape | null;
-  startIn?: 'form' | 'json';
-  onDone?: () => void;
   onForm?: () => void;
 }) {
   const repo = useSettingsRepo();
@@ -971,6 +966,8 @@ function DraftBody({
   const org = useSettingsOrg();
   const explained = useKeyExplain(def.key, repo);
   const [resets, setResets] = useState(0);
+  // Cancel and Save remount the draft, which comes back in the mode it left.
+  const [mode, setMode] = useState<EditMode>('json');
   const at = rungOf(row.target.scope, row.target.repo ?? null);
   const deep = def.merge === 'deep';
   const layered = deep || def.merge === 'add';
@@ -994,14 +991,12 @@ function DraftBody({
         def={def}
         form={form}
         initial={initial}
-        startIn={startIn}
+        startIn={mode}
+        onMode={setMode}
         targetLabel={targetLabel(row.target, team, org)}
         saving={row.status === 'saving'}
         onForm={onForm}
-        onCancel={() => {
-          setResets(n => n + 1);
-          onDone?.();
-        }}
+        onCancel={() => setResets(n => n + 1)}
         onSave={async value => {
           const empty =
             deep &&
@@ -1009,10 +1004,7 @@ function DraftBody({
             value !== null &&
             Object.keys(value).length === 0;
           const ok = await (empty ? row.clear(at) : row.save(value));
-          if (ok) {
-            explained.refresh();
-            onDone?.();
-          }
+          if (ok) explained.refresh();
           return ok;
         }}
       />
@@ -1020,18 +1012,21 @@ function DraftBody({
   );
 }
 
+type Parts = { control: ReactNode; body: ReactNode; toolbar?: ReactNode };
+
 /** Composite rows: the control column holds an inline editor or the
-    summary text, and the body is the Value tab's editor, always built. A
-    short string list has no body: its Value tab shows the inline control,
-    with the Form | JSON switch in `toolbar`. */
+    summary text, and the body is the Value tab's editor, always built. Under
+    `asJson` a live editor's body is the JSON draft and its control stays. A
+    short string list's form has no body: its Value tab shows the inline
+    control, with the Form | JSON switch in `toolbar`. */
 export function compositeParts(
   def: SettingDefWire,
   kind: RowKind,
   row: Row,
   asJson: boolean,
-  onDoneJson: () => void,
+  onForm: () => void,
   onEditJson: () => void
-): { control: ReactNode; body: ReactNode; toolbar?: ReactNode } {
+): Parts {
   const shape = recognize(def.schema);
   const value = def.effective.value;
   const summary = <Summary label={summarize(def)} />;
@@ -1046,42 +1041,32 @@ export function compositeParts(
   const invalidLock = () => <ShapeLock at={def.effective.scope} row={row} />;
   const edit = editorKind(def);
   const form = formOf(def);
-  // An invalid winning layer's effective.value is undefined; an editor
-  // seeded from that would discard the layer's real, unseen stored value on
-  // save. The guard runs before asJson (the JSON side of the Form | JSON
-  // switch) and the ordinary json/objectList/objectMap bodies alike.
   // A live editor to switch back to, unless the value would land on a
   // shape lock.
   const liveForm =
     LIVE_KINDS.has(edit) &&
     def.effective.invalid === undefined &&
     (value === undefined || matchesSchema(def, value));
-  if ((asJson && EDITOR_KINDS.has(edit)) || edit === 'json') {
-    if (def.effective.invalid !== undefined)
-      return { control: invalidLock(), body: null };
-    return {
-      control: summaryOf(),
-      body: (
-        <DraftBody
-          def={def}
-          row={row}
-          form={form}
-          startIn="json"
-          onDone={onDoneJson}
-          onForm={liveForm ? onDoneJson : undefined}
-        />
-      ),
-    };
-  }
-
-  if ((edit === 'objectList' || edit === 'objectMap') && form) {
-    if (def.effective.invalid !== undefined)
-      return { control: invalidLock(), body: null };
-    return {
-      control: summaryOf(),
-      body: <DraftBody def={def} row={row} form={form} />,
-    };
-  }
+  // An invalid winning layer's effective.value is undefined; a draft seeded
+  // from that would discard the layer's real, unseen stored value on save.
+  const jsonDraft = (control: ReactNode): Parts =>
+    def.effective.invalid !== undefined
+      ? { control: invalidLock(), body: null }
+      : {
+          control,
+          body: (
+            <DraftBody
+              def={def}
+              row={row}
+              form={form}
+              onForm={liveForm ? onForm : undefined}
+            />
+          ),
+        };
+  const live = (parts: Parts): Parts =>
+    asJson ? jsonDraft(parts.control) : parts;
+  if (edit === 'json' || edit === 'objectList' || edit === 'objectMap')
+    return jsonDraft(summaryOf());
 
   if (kind !== 'stringList' && kind !== 'stringMap' && kind !== 'leaves')
     return readonly;
@@ -1106,7 +1091,7 @@ export function compositeParts(
   if (kind === 'stringList') {
     const list = strings(value);
     if (isInlineList(value))
-      return {
+      return live({
         control:
           def.merge === 'add' ? (
             <AddInlineTags def={def} row={row} />
@@ -1115,29 +1100,32 @@ export function compositeParts(
           ),
         body: null,
         toolbar: <LiveHeader row={row} onJson={onEditJson} />,
-      };
-    return {
+      });
+    return live({
       control: summary,
       body: <StringListBody def={def} row={row} onEditJson={onEditJson} />,
-    };
+    });
   }
-  if (shape.kind === 'stringMap')
+  // The roles editor has no Form | JSON switch to come back by.
+  if (shape.kind === 'stringMap' && def.key === ROLES_KEY)
     return {
-      control: def.key === ROLES_KEY ? <RolesSummary def={def} /> : summary,
-      body:
-        def.key === ROLES_KEY ? (
-          <BoxscoreRolesBody def={def} row={row} />
-        ) : (
-          <StringMapBody
-            def={def}
-            row={row}
-            labels={shape.labels}
-            onEditJson={onEditJson}
-          />
-        ),
+      control: <RolesSummary def={def} />,
+      body: <BoxscoreRolesBody def={def} row={row} />,
     };
+  if (shape.kind === 'stringMap')
+    return live({
+      control: summary,
+      body: (
+        <StringMapBody
+          def={def}
+          row={row}
+          labels={shape.labels}
+          onEditJson={onEditJson}
+        />
+      ),
+    });
   if (shape.kind === 'leaves')
-    return {
+    return live({
       control: summary,
       body: (
         <LeavesBody
@@ -1147,6 +1135,6 @@ export function compositeParts(
           onEditJson={onEditJson}
         />
       ),
-    };
+    });
   return readonly;
 }

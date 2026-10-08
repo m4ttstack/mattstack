@@ -14,7 +14,7 @@ import {
 } from './issues';
 import { CardsFooter, ItemCards } from './ItemCards';
 import { JsonDraft } from './JsonDraft';
-import { ModeToggle } from './ModeToggle';
+import { ModeToggle, type EditMode } from './ModeToggle';
 import { NamedSections } from './NamedSections';
 import { PanelToolbar } from './PanelToolbar';
 import { cancelOnEscape } from './view';
@@ -39,17 +39,19 @@ function emptyOf(def: SettingDefWire): unknown {
   return def.type === 'array' ? [] : {};
 }
 
-/** A local draft of one layer's value, as a form or as JSON, checked
+/** A local draft of one layer's value, as JSON or as a form, checked
     against the def's layer schema as it changes and saved only when it
-    parses and passes. Switching modes carries the draft across; the form is
-    out of reach while the JSON does not parse or does not fit it. Escape
-    and Cancel discard the draft; Escape is marked handled so an enclosing
-    modal stays open. */
+    parses and passes. It opens on JSON unless `startIn` asks for a form
+    that can draw the value. Switching modes carries the draft across; the
+    form is out of reach while the JSON does not parse or does not fit it.
+    Escape and Cancel discard the draft; Escape is marked handled so an
+    enclosing modal stays open. */
 export function DraftEditor({
   def,
   form,
   initial,
-  startIn = 'form',
+  startIn = 'json',
+  onMode,
   targetLabel,
   saving,
   replaceWith,
@@ -62,7 +64,8 @@ export function DraftEditor({
   def: SettingDefWire;
   form: FormShape | null;
   initial: unknown;
-  startIn?: 'form' | 'json';
+  startIn?: EditMode;
+  onMode?: (mode: EditMode) => void;
   targetLabel: string;
   saving: boolean;
   /** Swaps the draft (form and JSON alike) for a value from elsewhere,
@@ -82,9 +85,13 @@ export function DraftEditor({
   const { text: colors } = useSchemeColors();
   const start = initial ?? emptyOf(def);
   const schema = def.layerSchema ?? def.schema;
-  const [mode, setMode] = useState<'form' | 'json'>(
+  const [mode, setModeState] = useState<EditMode>(
     form && startIn === 'form' && canDraw(form, start) ? 'form' : 'json'
   );
+  const setMode = (next: EditMode) => {
+    setModeState(next);
+    onMode?.(next);
+  };
   const [draft, setDraft] = useState<unknown>(() => structuredClone(start));
   const [text, setText] = useState(() => pretty(start));
   // Bumped whenever the draft is replaced wholesale (Use the older value),

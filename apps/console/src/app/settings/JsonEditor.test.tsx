@@ -157,6 +157,7 @@ describe('JSON editor', () => {
       />
     );
     await openRow('rt.notify.eventBridges');
+    await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
     const title = within(screen.getByTestId('item-0')).getByLabelText('title');
     await userEvent.clear(title);
     await userEvent.type(title, 'Gate');
@@ -217,7 +218,7 @@ describe('JSON editor', () => {
     );
   });
 
-  it('JSON mode holds while the row closes and starts over on the next opening', async () => {
+  it('Form holds while the row closes, and the next opening starts in JSON again', async () => {
     // With no animation frames the collapse never leaves its exit.
     const frames = vi
       .spyOn(window, 'requestAnimationFrame')
@@ -237,25 +238,26 @@ describe('JSON editor', () => {
           defaultOpen={{ tab: 'value', fix: null }}
         />
       );
-      await userEvent.click(screen.getByRole('radio', { name: 'JSON' }));
       expect(editor()).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
+      expect(screen.queryByRole('textbox', { name: 'JSON' })).toBeNull();
       await userEvent.click(
         screen.getByRole('button', { name: 'close rt.repoIdentityOverrides' })
       );
       expect(
-        screen.getByRole('textbox', { name: 'JSON', hidden: true })
-      ).toBeInTheDocument();
+        screen.queryByRole('textbox', { name: 'JSON', hidden: true })
+      ).toBeNull();
       await userEvent.click(
         screen.getByRole('button', { name: 'open rt.repoIdentityOverrides' })
       );
-      expect(screen.getByRole('radio', { name: 'Form' })).toBeChecked();
-      expect(screen.queryByRole('textbox', { name: 'JSON' })).toBeNull();
+      expect(screen.getByRole('radio', { name: 'JSON' })).toBeChecked();
+      expect(editor()).toBeInTheDocument();
     } finally {
       frames.mockRestore();
     }
   });
 
-  it("a string map's JSON toggle opens the JSON editor, and Form comes back", async () => {
+  it("a string map's JSON toggle comes back from the form to the JSON editor", async () => {
     stubRows([]);
     renderWithProviders(
       <SettingRow
@@ -270,16 +272,13 @@ describe('JSON editor', () => {
       />
     );
     await openRow('rt.repoIdentityOverrides');
-    expect(
-      screen.getByRole('radiogroup', { name: 'Edit mode' })
-    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
+    expect(screen.queryByRole('textbox', { name: 'JSON' })).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Form' })).toBeChecked();
     await userEvent.click(screen.getByRole('radio', { name: 'JSON' }));
     expect(JSON.parse((editor() as HTMLTextAreaElement).value)).toEqual({
       'https://example.dev/a.git': 'a',
     });
-    await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
-    expect(screen.queryByRole('textbox', { name: 'JSON' })).toBeNull();
-    expect(screen.getByRole('radio', { name: 'Form' })).toBeChecked();
   });
 
   it('leaving an edited JSON draft for the form asks first', async () => {
@@ -312,7 +311,7 @@ describe('JSON editor', () => {
     expect(s.set).not.toHaveBeenCalled();
   });
 
-  it("a leaves field's JSON toggle opens the JSON editor", async () => {
+  it("a leaves object opens in JSON on the target layer's own fields, and Form shows every field", async () => {
     const SNAPSHOT_DEFAULTS = {
       enabled: true,
       debounceSec: 20,
@@ -352,11 +351,12 @@ describe('JSON editor', () => {
       />
     );
     await openRow('rt.homeSnapshot');
-    expect(await screen.findByText('debounceSec')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('radio', { name: 'JSON' }));
-    expect(JSON.parse((editor() as HTMLTextAreaElement).value)).toEqual({
+    const json = await screen.findByRole('textbox', { name: 'JSON' });
+    expect(JSON.parse((json as HTMLTextAreaElement).value)).toEqual({
       enabled: false,
     });
+    await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
+    expect(await screen.findByText('debounceSec')).toBeInTheDocument();
   });
 
   it("in JSON mode, a deep map writes only the target layer's own fields", async () => {
@@ -409,6 +409,9 @@ describe('JSON editor', () => {
         />
       </QueryClientProvider>
     );
+    await userEvent.click(
+      await screen.findByRole('radio', { name: "Where it's set" })
+    );
     const layer = await screen.findByTestId('layer-user');
     await userEvent.click(
       within(layer).getByRole('button', {
@@ -424,5 +427,115 @@ describe('JSON editor', () => {
     expect(within(layer).queryByRole('textbox', { name: 'JSON' })).toBeNull();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('structured rows open in JSON', () => {
+  const MAP = { 'https://example.dev/a.git': 'a' };
+  const mapDef = () => def('rt.repoIdentityOverrides', MAP, { type: 'object' });
+
+  it('a string map opens its Value tab in JSON, with Form one click away', async () => {
+    stubRows([]);
+    renderWithProviders(
+      <SettingRow def={mapDef()} store={store()} subhead={null} query="" />
+    );
+    await openRow('rt.repoIdentityOverrides');
+    expect(screen.getByRole('radio', { name: 'Value' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'JSON' })).toBeChecked();
+    expect(JSON.parse((editor() as HTMLTextAreaElement).value)).toEqual(MAP);
+    await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
+    expect(screen.queryByRole('textbox', { name: 'JSON' })).toBeNull();
+    expect(screen.getByDisplayValue('a')).toBeInTheDocument();
+  });
+
+  it('an object list opens in JSON, and Form shows its cards', async () => {
+    stubRows([]);
+    renderWithProviders(
+      <SettingRow
+        def={def('rt.notify.eventBridges', [RULE])}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    await openRow('rt.notify.eventBridges');
+    expect(JSON.parse((editor() as HTMLTextAreaElement).value)).toEqual([RULE]);
+    await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
+    expect(
+      within(screen.getByTestId('item-0')).getByLabelText('title')
+    ).toHaveValue(RULE.title);
+  });
+
+  it('a short string list opens its Value tab in JSON and keeps its tags in the row', async () => {
+    stubRows([]);
+    renderWithProviders(
+      <SettingRow
+        def={def('board.ticketPrefixes', ['RT'], {
+          scopes: ['team'],
+          effective: { scope: 'team', file: '/t', value: ['RT'] },
+        })}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    await openRow('board.ticketPrefixes');
+    expect(screen.getByRole('radio', { name: 'Value' })).toBeChecked();
+    expect(JSON.parse((editor() as HTMLTextAreaElement).value)).toEqual(['RT']);
+    expect(screen.getAllByRole('button', { name: 'remove RT' })).toHaveLength(
+      1
+    );
+    await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
+    expect(screen.queryByRole('textbox', { name: 'JSON' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'remove RT' })).toHaveLength(
+      2
+    );
+  });
+
+  it('Cancel discards the JSON draft and stays in JSON', async () => {
+    stubRows([]);
+    const s = store();
+    renderWithProviders(
+      <SettingRow def={mapDef()} store={s} subhead={null} query="" />
+    );
+    await openRow('rt.repoIdentityOverrides');
+    setText('{"https://example.dev/b.git": "b"}');
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(JSON.parse((editor() as HTMLTextAreaElement).value)).toEqual(MAP);
+    expect(screen.getByRole('radio', { name: 'JSON' })).toBeChecked();
+    expect(s.set).not.toHaveBeenCalled();
+  });
+
+  it('a JSON save stays in JSON', async () => {
+    stubRows([]);
+    const s = store();
+    renderWithProviders(
+      <SettingRow def={mapDef()} store={s} subhead={null} query="" />
+    );
+    await openRow('rt.repoIdentityOverrides');
+    setText('{"https://example.dev/b.git": "b"}');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(s.set).toHaveBeenCalled());
+    expect(screen.getByRole('radio', { name: 'JSON' })).toBeChecked();
+    expect(editor()).toBeInTheDocument();
+  });
+
+  it('the explain modal opens a string map’s Value tab in JSON', async () => {
+    const d = mapDef();
+    stubRows([], d);
+    renderWithProviders(
+      <QueryClientProvider client={new QueryClient()}>
+        <ExplainModal
+          settingKey="rt.repoIdentityOverrides"
+          store={{ defs: [d], loading: false, error: null, ...store() }}
+          onClose={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+    expect(await screen.findByRole('radio', { name: 'Value' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'JSON' })).toBeChecked();
+    expect(JSON.parse((editor() as HTMLTextAreaElement).value)).toEqual(MAP);
+    await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
+    expect(screen.queryByRole('textbox', { name: 'JSON' })).toBeNull();
   });
 });
